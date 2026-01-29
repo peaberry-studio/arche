@@ -1,0 +1,42 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# CALIX CONTROL PLANE — .gitignore
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Environment files (contain secrets)
+.env
+.env.*
+!.env.example
+
+# Rails
+panel/log/
+panel/tmp/
+panel/storage/
+panel/db/*.sqlite3
+panel/db/*.sqlite3-*
+
+# Ruby
+panel/.bundle/
+panel/vendor/bundle/
+
+# Node (si se añade frontend)
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Docker
+*.log
+
+# Backups locales
+*.bak
+*.bak.*
+
+# Old files from migration
+Dockerfile.old

@@ -1,0 +1,11 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# PLACEHOLDER — Run `bundle install` to generate real lockfile
+# ══════════════════════════════════════════════════════════════════════════════
+# Este archivo es un placeholder. Al construir la imagen Docker por primera vez,
+# o al desarrollar localmente, ejecuta:
+#
+#   cd panel
+#   bundle install
+#
+# Esto generará el Gemfile.lock real con las versiones resueltas.
+# ══════════════════════════════════════════════════════════════════════════════

@@ -1,0 +1,168 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# CALIX CONTROL PLANE — Docker Compose Stack
+# ══════════════════════════════════════════════════════════════════════════════
+# Servicios:
+#   - traefik: Reverse proxy + dynamic routing por labels
+#   - cloudflared: Tunnel a Cloudflare
+#   - panel-web: Rails app (UI + API)
+#   - panel-worker: Solid Queue jobs (idle reaper, repo refresh)
+#   - docker-socket-proxy-traefik: Proxy read-only para Traefik
+#   - docker-socket-proxy-panel: Proxy con permisos para crear containers
+#
+# Los contenedores opencode-<slug> se crean dinámicamente por el panel.
+# ══════════════════════════════════════════════════════════════════════════════
+
+services:
+  # ════════════════════════════════════════════════════════════════════════════
+  # TRAEFIK — Reverse proxy + dynamic routing
+  # ════════════════════════════════════════════════════════════════════════════
+  traefik:
+    image: traefik:v3.0
+    container_name: calix-traefik
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.endpoint=tcp://docker-socket-proxy-traefik:2375"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=calix"
+      - "--entrypoints.web.address=:80"
+      - "--api.insecure=${TRAEFIK_API_INSECURE:-false}"
+      - "--log.level=INFO"
+    networks:
+      - calix
+    ports:
+      - "127.0.0.1:80:80"
+      - "127.0.0.1:8080:8080"  # Dashboard (solo si TRAEFIK_API_INSECURE=true)
+    depends_on:
+      - docker-socket-proxy-traefik
+    restart: unless-stopped
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # CLOUDFLARED — Tunnel to Cloudflare
+  # ════════════════════════════════════════════════════════════════════════════
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: calix-cloudflared
+    command: ["tunnel", "run", "--no-autoupdate"]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARED_TOKEN}
+    network_mode: host
+    restart: unless-stopped
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # DOCKER SOCKET PROXIES — Least privilege access
+  # ════════════════════════════════════════════════════════════════════════════
+  
+  # Proxy para Traefik: solo lectura de containers y networks
+  docker-socket-proxy-traefik:
+    image: tecnativa/docker-socket-proxy:latest
+    container_name: calix-dsp-traefik
+    environment:
+      CONTAINERS: 1
+      NETWORKS: 1
+      SERVICES: 0
+      TASKS: 0
+      POST: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - calix
+    restart: unless-stopped
+
+  # Proxy para Panel: puede crear/parar/eliminar containers
+  docker-socket-proxy-panel:
+    image: tecnativa/docker-socket-proxy:latest
+    container_name: calix-dsp-panel
+    environment:
+      CONTAINERS: 1
+      NETWORKS: 1
+      IMAGES: 1
+      POST: 1
+      DELETE: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - calix
+    restart: unless-stopped
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # PANEL WEB — Rails application
+  # ════════════════════════════════════════════════════════════════════════════
+  panel-web:
+    build:
+      context: ./panel
+      dockerfile: Dockerfile
+    container_name: calix-panel-web
+    command: ["bin/rails", "server", "-b", "0.0.0.0", "-p", "3000"]
+    environment:
+      RAILS_ENV: ${RAILS_ENV:-production}
+      RAILS_MASTER_KEY: ${RAILS_MASTER_KEY}
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      RAILS_LOG_LEVEL: ${RAILS_LOG_LEVEL:-info}
+      DATABASE_PATH: /data/panel/production.sqlite3
+      SOLID_QUEUE_DB_PATH: /data/panel/queue.sqlite3
+      # Calix config
+      CALIX_DOMAIN: ${CALIX_DOMAIN}
+      CALIX_SCHEME: ${CALIX_SCHEME:-https}
+      CALIX_USER_SUBDOMAIN_PREFIX: ${CALIX_USER_SUBDOMAIN_PREFIX:-u-}
+      CALIX_USER_DATA_ROOT: /data/users
+      # Cloudflare Access
+      CF_ACCESS_AUDS: ${CF_ACCESS_AUDS}
+      # GitHub
+      ALLOWED_GH_ORGS: ${ALLOWED_GH_ORGS}
+      ALLOWED_GH_REPOS: ${ALLOWED_GH_REPOS:-}
+      # Docker
+      DOCKER_HOST: tcp://docker-socket-proxy-panel:2375
+      # Lifecycle
+      INSTANCE_IDLE_MINUTES: ${INSTANCE_IDLE_MINUTES:-30}
+      INSTANCE_MAX_TTL_HOURS: ${INSTANCE_MAX_TTL_HOURS:-}
+    volumes:
+      - ${CALIX_PANEL_DATA_ROOT}:/data/panel
+      - ${CALIX_USER_DATA_ROOT}:/data/users
+    networks:
+      - calix
+    labels:
+      - "traefik.enable=true"
+      # Router para el panel principal
+      - "traefik.http.routers.panel.rule=Host(`${CALIX_DOMAIN}`)"
+      - "traefik.http.routers.panel.entrypoints=web"
+      - "traefik.http.services.panel.loadbalancer.server.port=3000"
+      # Middleware forwardAuth para owner isolation (usado por contenedores de usuario)
+      - "traefik.http.middlewares.calix-forward-auth.forwardauth.address=http://panel-web:3000/auth/traefik"
+      - "traefik.http.middlewares.calix-forward-auth.forwardauth.authResponseHeaders=X-Forwarded-User"
+    depends_on:
+      - docker-socket-proxy-panel
+    restart: unless-stopped
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # PANEL WORKER — Solid Queue background jobs
+  # ════════════════════════════════════════════════════════════════════════════
+  panel-worker:
+    build:
+      context: ./panel
+      dockerfile: Dockerfile
+    container_name: calix-panel-worker
+    command: ["bin/jobs"]
+    environment:
+      RAILS_ENV: ${RAILS_ENV:-production}
+      RAILS_MASTER_KEY: ${RAILS_MASTER_KEY}
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      DATABASE_PATH: /data/panel/production.sqlite3
+      SOLID_QUEUE_DB_PATH: /data/panel/queue.sqlite3
+      CALIX_USER_DATA_ROOT: /data/users
+      DOCKER_HOST: tcp://docker-socket-proxy-panel:2375
+      INSTANCE_IDLE_MINUTES: ${INSTANCE_IDLE_MINUTES:-30}
+      INSTANCE_MAX_TTL_HOURS: ${INSTANCE_MAX_TTL_HOURS:-}
+    volumes:
+      - ${CALIX_PANEL_DATA_ROOT}:/data/panel
+      - ${CALIX_USER_DATA_ROOT}:/data/users
+    networks:
+      - calix
+    depends_on:
+      - docker-socket-proxy-panel
+      - panel-web
+    restart: unless-stopped
+
+networks:
+  calix:
+    name: calix
+    driver: bridge

@@ -1,0 +1,11 @@
+#!/usr/bin/env ruby
+# Solid Queue worker
+require_relative "../config/environment"
+
+puts "Starting Solid Queue worker..."
+
+# Encolar el IdleReaperJob inicial
+IdleReaperJob.perform_later unless SolidQueue::Job.where(class_name: "IdleReaperJob").exists?
+
+# Iniciar el worker
+SolidQueue::Supervisor.start

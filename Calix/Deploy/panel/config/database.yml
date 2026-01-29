@@ -1,0 +1,24 @@
+# SQLite configuration
+# Paths configurables via ENV para persistencia en volúmenes Docker
+
+default: &default
+  adapter: sqlite3
+  pool: <%= ENV.fetch("RAILS_MAX_THREADS") { 5 } %>
+  timeout: 5000
+
+development:
+  <<: *default
+  database: db/development.sqlite3
+
+test:
+  <<: *default
+  database: db/test.sqlite3
+
+production:
+  primary:
+    <<: *default
+    database: <%= ENV.fetch("DATABASE_PATH", "/data/panel/production.sqlite3") %>
+  queue:
+    <<: *default
+    database: <%= ENV.fetch("SOLID_QUEUE_DB_PATH", "/data/panel/queue.sqlite3") %>
+    migrations_paths: db/queue_migrate
