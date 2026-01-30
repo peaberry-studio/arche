@@ -70,7 +70,6 @@ Company/
 ├── 01 - Identidad de marca.md
 ├── 02 - Voz y tono.md
 ├── 03 - Glosario.md
-├── 04 - Herramientas - Linear MCP.md
 ├── 05 - Canales y contacto.md
 ├── 06 - Herramientas - GitHub Issues y Projects.md
 ├── Product/
