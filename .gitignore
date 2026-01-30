@@ -1,1 +1,7 @@
 me.txt
+
+# macOS
+.DS_Store
+
+# Obsidian (local app state)
+.obsidian/
