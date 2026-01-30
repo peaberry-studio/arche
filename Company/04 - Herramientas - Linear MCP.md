@@ -1,4 +1,6 @@
-# Linear MCP
+# Linear MCP (legacy)
+
+Nota: este documento queda como referencia histórica. La gestión de tareas del equipo se hace ahora en GitHub (issues + Projects). Ver: [[Company/06 - Herramientas - GitHub Issues y Projects]].
 
 El servidor MCP (Model Context Protocol) de Linear permite que clientes compatibles (Claude, Cursor, etc.) accedan de forma segura a datos de Linear (issues, proyectos, comentarios) para crear/actualizar trabajo desde un agente.
 
@@ -43,6 +45,8 @@ Luego, dentro de la sesión, ejecutar `/mcp` para autenticar.
 
 ### OpenCode
 
+Nota: actualmente este vault ya no habilita Linear en `opencode.json` (ni existe el subagente `linear`). Lo siguiente queda solo como referencia por si se quisiera reactivar.
+
 1. Crear/editar `opencode.json` en el root del proyecto y agregar:
 
 ```json
@@ -61,7 +65,7 @@ Luego, dentro de la sesión, ejecutar `/mcp` para autenticar.
 }
 ```
 
-Nota: dejamos `linear_*` deshabilitado por defecto y lo habilitamos solo en el subagente `linear` (ver `opencode.json`).
+Nota: este fragmento corresponde a una configuración anterior donde se deshabilitaba `linear_*` por defecto y se habilitaba solo en un subagente dedicado.
 
 2. Autenticar (abre el navegador):
 
@@ -82,9 +86,9 @@ opencode mcp auth linear
   - En la UI de Linear, escribe `@` y selecciona la persona desde el desplegable (eso inserta la mención como entidad).
   - Alternativa: pega el `@handle` igualmente (para contexto), pero asume que puede no enlazar.
 
-## Convenciones (OpenCode + agente `linear`)
+## Convenciones (legacy)
 
-Para evitar que tengas que especificar siempre equipo/estado/labels al crear issues, el subagente `linear` sigue estas reglas:
+Para evitar que tengas que especificar siempre equipo/estado/labels al crear issues, una configuración anterior del subagente `linear` seguía estas reglas:
 
 - Confirmación previa: antes de crear o modificar, muestra un "Borrador de issue" (equipo, estado, asignatario, labels, proyecto, due date) y pide confirmación.
 - Estado por defecto: intenta usar `Triage` (o el estado de tipo `triage` si el nombre difiere).

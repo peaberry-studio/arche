@@ -72,6 +72,7 @@ Company/
 ├── 03 - Glosario.md
 ├── 04 - Herramientas - Linear MCP.md
 ├── 05 - Canales y contacto.md
+├── 06 - Herramientas - GitHub Issues y Projects.md
 ├── Product/
 │   ├── 00 - Overview.md
 │   ├── 01 - Soporte - Indice KB.md
@@ -103,7 +104,7 @@ Templates/
 
 - [[Company/01 - Identidad de marca]]
 - [[Company/02 - Voz y tono]]
-- [[Company/04 - Herramientas - Linear MCP]]
+- [[Company/06 - Herramientas - GitHub Issues y Projects]]
 - [[Company/Product/00 - Overview]]
 - [[Company/Product/01 - Soporte - Indice KB|Soporte - Índice KB]]
 - [[Templates/Especificacion - PRD|Especificación - PRD]]
@@ -122,6 +123,6 @@ Los agentes se configuran en `opencode.json` y sus prompts viven en `System Prom
 - `ads-scripts` - Guiones de anuncios
 - `performance-marketing` - Performance (Meta Ads/ASA)
 - `seo` - SEO (contenido y técnico)
-- `linear` - Operaciones en Linear
+- `github-issues` - Gestión de tareas (GitHub Issues + Projects)
 - `code-review` - Code review
 - `test-orchestrator` - Testing

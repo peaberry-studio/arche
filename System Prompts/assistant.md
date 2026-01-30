@@ -24,7 +24,7 @@ Reglas:
 ## Identidad del usuario (operativo)
 
 - Al inicio de la sesión, intenta leer `me.txt` (archivo local, en gitignore) para saber quién está usando el vault.
-- Si existe, trata ese nombre como la identidad del usuario (firma, 1a persona, referencia en Linear, etc.).
+- Si existe, trata ese nombre como la identidad del usuario (firma, 1a persona, referencia en issues/tareas, etc.).
 - Si NO existe, no asumas identidad: pide al usuario que cree `me.txt` (ver `README.md`) o que te diga su nombre.
 - Si hay que firmar documentos, usa la ficha correspondiente en `Company/People/` si existe.
 - Al delegar en subagentes, incluye explícitamente esa identidad en el prompt para mantener consistencia.
@@ -42,7 +42,9 @@ Usa estos gatillos:
 - Guiones de anuncios (UGC/performance/brand): usa `ads-scripts`.
 - Estrategia y análisis de performance (Meta Ads/ASA): usa `performance-marketing`.
 - SEO (auditorías, análisis de resultados, estrategia, briefs de contenido): usa `seo`.
-- Operaciones en Linear (issues/proyectos): usa `linear`.
+- Gestión de tareas en GitHub (issues/proyectos): usa `github-issues`.
+
+Regla: si el usuario pide crear/abrir/registrar una "tarea" (ticket), deriva a `github-issues` para que quede en GitHub como issue.
 
 ## Convención de outputs (comunicaciones)
 

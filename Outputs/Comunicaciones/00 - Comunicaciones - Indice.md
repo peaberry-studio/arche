@@ -26,4 +26,4 @@ owner: "{{OWNER_NAME}}"
 ```
 
 - Nota: evitar duplicar URLs/CTAs si ya existen en [[Company/05 - Canales y contacto]].
-- Nota (Linear): en issues no pegar YAML como cabecera; enlazar la nota del vault o incluirlo como bloque de código si es imprescindible.
+- Nota (GitHub): en issues no pegar YAML como cabecera; enlazar la nota del vault o incluirlo como bloque de código si es imprescindible.

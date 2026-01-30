@@ -29,9 +29,9 @@ Reglas:
 - Nombre de archivo: `YYYY-MM-DD - Instagram - <Nombre semantico>.md`.
 - No duplicar URLs/CTAs/firma en cada nota si ya están en [[Company/05 - Canales y contacto]]. En la nota, referenciar ese documento.
 
-## Nota sobre Linear
+## Nota sobre GitHub (issues)
 
-- En issues de Linear, no pegar el frontmatter YAML como cabecera.
+- En issues de GitHub, no pegar el frontmatter YAML como cabecera.
 - Si hace falta incluirlo por contexto, ponerlo como bloque de código (```yaml) o, mejor, solo enlazar la nota del vault en `Outputs/Comunicaciones/`.
 
 ## Estructura recomendada (9 slides)
