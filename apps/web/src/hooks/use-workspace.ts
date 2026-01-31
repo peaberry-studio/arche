@@ -441,17 +441,18 @@ export function useWorkspace({ slug, pollInterval = 5000 }: UseWorkspaceOptions)
       }))
     } finally {
       // If stream completed successfully, fetch final messages from server
-      // This replaces temp messages with real ones in a single atomic update
       if (streamCompleted) {
         console.log('[useWorkspace] Stream completed, fetching final messages')
+        
+        // FIRST: Remove the temp assistant message to prevent duplication
+        setMessages(prev => prev.filter(m => m.id !== tempAssistantMsgId))
+        
         // Small delay to ensure server has persisted the message
-        await new Promise(resolve => setTimeout(resolve, 150))
+        await new Promise(resolve => setTimeout(resolve, 100))
+        
         const result = await listMessagesAction(slug, sessionId)
         if (result.ok && result.messages) {
           setMessages(result.messages)
-        } else {
-          // If fetch failed, just remove temp messages
-          setMessages(prev => prev.filter(m => !m.id.startsWith('temp-')))
         }
         // Trigger diffs refresh
         setDiffsRefreshTrigger(prev => prev + 1)

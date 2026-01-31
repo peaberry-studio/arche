@@ -154,6 +154,7 @@ export async function POST(
         // Track state for the assistant response
         let lastTextLength = 0
         let currentStatus = 'thinking'
+        let assistantMessageId: string | null = null
         
         console.log('[stream] Starting to read events...')
         
@@ -236,12 +237,26 @@ export async function POST(
                     const part = event.properties?.part
                     const delta = event.properties?.delta
                     const messageRole = event.properties?.info?.role
+                    const messageId = event.properties?.info?.id
                     
                     if (!part) break
                     
                     // Ignore parts from user messages - only process assistant responses
                     if (messageRole === 'user') {
-                      console.log('[stream] Ignoring user message part')
+                      break
+                    }
+                    
+                    // Track the assistant message ID - only process parts from this message
+                    // This prevents processing the user's message text
+                    if (messageRole === 'assistant' && messageId && !assistantMessageId) {
+                      assistantMessageId = messageId
+                      console.log('[stream] Tracking assistant message:', assistantMessageId)
+                    }
+                    
+                    // Only process text parts if we've identified the assistant message
+                    // and this part belongs to it
+                    if (part.type === 'text' && messageId && assistantMessageId && messageId !== assistantMessageId) {
+                      console.log('[stream] Skipping text from different message:', messageId)
                       break
                     }
                     
