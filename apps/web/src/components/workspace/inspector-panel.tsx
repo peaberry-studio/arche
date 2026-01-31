@@ -1,7 +1,9 @@
 "use client";
 
-import { Eye, File, GitDiff } from "@phosphor-icons/react";
+import { useRef, useState, useEffect } from "react";
+import { CaretLeft, CaretRight, Eye, File, GitDiff, X } from "@phosphor-icons/react";
 
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { WorkspaceDiff, WorkspaceFile } from "@/types/workspace";
 
@@ -11,23 +13,71 @@ import { ReviewPanel } from "./review-panel";
 type InspectorPanelProps = {
   activeTab: "preview" | "review";
   onTabChange: (tab: "preview" | "review") => void;
-  activeFile?: WorkspaceFile | null;
+  openFiles: WorkspaceFile[];
+  activeFilePath: string | null;
+  onSelectFile: (path: string) => void;
+  onCloseFile: (path: string) => void;
   diffs: WorkspaceDiff[];
   onOpenFile: (path: string) => void;
 };
 
+function getParentFolder(path: string): string | null {
+  const parts = path.split("/");
+  if (parts.length <= 1) return null;
+  return parts.slice(0, -1).join("/");
+}
+
 export function InspectorPanel({
   activeTab,
   onTabChange,
-  activeFile,
+  openFiles,
+  activeFilePath,
+  onSelectFile,
+  onCloseFile,
   diffs,
   onOpenFile
 }: InspectorPanelProps) {
   const pendingDiffs = diffs.length;
+  const activeFile = openFiles.find((f) => f.path === activeFilePath) ?? null;
+  const parentFolder = activeFile ? getParentFolder(activeFile.path) : null;
+
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const updateScrollState = () => {
+    const el = tabsRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 0);
+    setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 1);
+  };
+
+  useEffect(() => {
+    const el = tabsRef.current;
+    if (!el) return;
+    updateScrollState();
+    el.addEventListener("scroll", updateScrollState);
+    const resizeObserver = new ResizeObserver(updateScrollState);
+    resizeObserver.observe(el);
+    return () => {
+      el.removeEventListener("scroll", updateScrollState);
+      resizeObserver.disconnect();
+    };
+  }, [openFiles]);
+
+  const scrollTabs = (direction: "left" | "right") => {
+    const el = tabsRef.current;
+    if (!el) return;
+    const scrollAmount = 150;
+    el.scrollBy({
+      left: direction === "left" ? -scrollAmount : scrollAmount,
+      behavior: "smooth"
+    });
+  };
 
   return (
     <div className="flex h-full flex-col bg-card/50">
-      <div className="flex h-12 items-center gap-1 border-b border-border/60 px-2">
+      <div className="flex h-12 items-center gap-1 border-b border-border/60 px-3">
         <button
           type="button"
           onClick={() => onTabChange("preview")}
@@ -61,34 +111,107 @@ export function InspectorPanel({
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-3">
+      <div className="flex-1 overflow-y-auto">
         {activeTab === "preview" ? (
-          activeFile ? (
-            <div className="space-y-3">
-              <div className="rounded-lg border border-border/60 bg-background/50 p-3">
-                <div className="flex items-start gap-2">
-                  <File size={16} weight="fill" className="mt-0.5 shrink-0 text-primary/70" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-foreground">
+          openFiles.length > 0 ? (
+            <div className="flex h-full flex-col">
+              {/* File tabs */}
+              <div className="flex items-center border-b border-border/60">
+                {canScrollLeft && (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-7 w-7 shrink-0"
+                    onClick={() => scrollTabs("left")}
+                    aria-label="Scroll izquierda"
+                  >
+                    <CaretLeft size={12} weight="bold" />
+                  </Button>
+                )}
+                
+                <div
+                  ref={tabsRef}
+                  className="flex flex-1 items-center gap-0.5 overflow-x-auto px-2 py-1.5 scrollbar-none"
+                  style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+                >
+                  {openFiles.map((file) => (
+                    <div
+                      key={file.path}
+                      className={cn(
+                        "group flex shrink-0 items-center gap-1 rounded-md pl-2.5 pr-1 py-1 text-xs transition-colors",
+                        file.path === activeFilePath
+                          ? "bg-primary/10 text-primary"
+                          : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                      )}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => onSelectFile(file.path)}
+                        className="flex items-center gap-1.5"
+                      >
+                        <span className="max-w-[120px] truncate font-medium">{file.title}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onCloseFile(file.path);
+                        }}
+                        className={cn(
+                          "ml-0.5 rounded p-0.5 transition-colors",
+                          "opacity-0 group-hover:opacity-100",
+                          "hover:bg-foreground/10",
+                          file.path === activeFilePath && "opacity-100"
+                        )}
+                        aria-label={`Cerrar ${file.title}`}
+                      >
+                        <X size={12} weight="bold" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                {canScrollRight && (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-7 w-7 shrink-0"
+                    onClick={() => scrollTabs("right")}
+                    aria-label="Scroll derecha"
+                  >
+                    <CaretRight size={12} weight="bold" />
+                  </Button>
+                )}
+              </div>
+
+              {/* File content */}
+              {activeFile ? (
+                <>
+                  <div className="flex items-center justify-between gap-3 px-4 py-3">
+                    <p className="min-w-0 truncate text-sm font-medium text-foreground">
                       {activeFile.title}
                     </p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {activeFile.path}
-                    </p>
+                    <div className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+                      {parentFolder ? (
+                        <>
+                          <span className="max-w-[100px] truncate">{parentFolder}</span>
+                          <span className="text-border">·</span>
+                        </>
+                      ) : null}
+                      <span>{activeFile.updatedAt}</span>
+                      <span className="text-border">·</span>
+                      <span>{activeFile.size}</span>
+                    </div>
                   </div>
-                </div>
-                <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground/70">
-                  <span>{activeFile.updatedAt}</span>
-                  <span className="text-border">·</span>
-                  <span>{activeFile.size}</span>
-                </div>
-              </div>
-              <div className="rounded-lg border border-border/60 bg-background/50 p-4">
-                <MarkdownPreview content={activeFile.content} />
-              </div>
+                  <div className="border-t border-border/60" />
+                  <div className="flex-1 overflow-y-auto px-4 py-4">
+                    <MarkdownPreview content={activeFile.content} />
+                  </div>
+                </>
+              ) : null}
             </div>
           ) : (
-            <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
+            <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
               <File size={28} className="text-muted-foreground/30" />
               <p className="text-xs text-muted-foreground">
                 Selecciona un archivo
@@ -96,7 +219,9 @@ export function InspectorPanel({
             </div>
           )
         ) : (
-          <ReviewPanel diffs={diffs} onOpenFile={onOpenFile} />
+          <div className="p-4">
+            <ReviewPanel diffs={diffs} onOpenFile={onOpenFile} />
+          </div>
         )}
       </div>
     </div>

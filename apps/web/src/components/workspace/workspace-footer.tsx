@@ -24,30 +24,28 @@ export function WorkspaceFooter({
           type="button"
           onClick={onToggleLeft}
           className={cn(
-            "flex items-center gap-1.5 rounded px-2 py-1 text-[11px] transition-colors",
+            "flex items-center justify-center rounded p-1.5 transition-colors",
             leftCollapsed
               ? "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
               : "bg-muted/50 text-foreground"
           )}
           aria-label={leftCollapsed ? "Mostrar archivos" : "Ocultar archivos"}
         >
-          <SidebarSimple size={14} weight={leftCollapsed ? "regular" : "bold"} />
-          <span className="hidden sm:inline">Archivos</span>
+          <SidebarSimple size={17} weight={leftCollapsed ? "regular" : "bold"} />
         </button>
 
         <button
           type="button"
           onClick={onToggleRight}
           className={cn(
-            "flex items-center gap-1.5 rounded px-2 py-1 text-[11px] transition-colors",
+            "flex items-center justify-center rounded p-1.5 transition-colors",
             rightCollapsed
               ? "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
               : "bg-muted/50 text-foreground"
           )}
           aria-label={rightCollapsed ? "Mostrar inspector" : "Ocultar inspector"}
         >
-          <span className="hidden sm:inline">Inspector</span>
-          <SquareHalf size={14} weight={rightCollapsed ? "regular" : "bold"} />
+          <SquareHalf size={17} weight={rightCollapsed ? "regular" : "bold"} />
         </button>
       </div>
     </footer>

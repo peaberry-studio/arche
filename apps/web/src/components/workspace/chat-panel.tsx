@@ -6,13 +6,21 @@ import {
   CaretRight,
   ChatCircle,
   Circle,
+  DotsThree,
   File,
   PaperPlaneTilt,
+  PencilSimple,
   Plus,
   X
 } from "@phosphor-icons/react";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import type { ChatMessage, ChatSession } from "@/types/workspace";
 
@@ -20,22 +28,26 @@ type ChatPanelProps = {
   sessions: ChatSession[];
   messages: ChatMessage[];
   activeSessionId: string;
-  activeFilePath?: string | null;
+  openFilesCount: number;
   onSelectSession: (id: string) => void;
   onCreateSession: () => void;
   onCloseSession: (id: string) => void;
+  onRenameSession: (id: string, newTitle: string) => void;
   onOpenFile: (path: string) => void;
+  onShowContext?: () => void;
 };
 
 export function ChatPanel({
   sessions,
   messages,
   activeSessionId,
-  activeFilePath,
+  openFilesCount,
   onSelectSession,
   onCreateSession,
   onCloseSession,
-  onOpenFile
+  onRenameSession,
+  onOpenFile,
+  onShowContext
 }: ChatPanelProps) {
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId),
@@ -124,22 +136,42 @@ export function ChatPanel({
                 />
                 <span className="font-medium">{session.title}</span>
               </button>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onCloseSession(session.id);
-                }}
-                className={cn(
-                  "ml-0.5 rounded p-0.5 transition-colors",
-                  "opacity-0 group-hover:opacity-100",
-                  "hover:bg-foreground/10",
-                  session.id === activeSessionId && "opacity-100"
-                )}
-                aria-label={`Cerrar ${session.title}`}
-              >
-                <X size={12} weight="bold" />
-              </button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      "ml-0.5 rounded p-0.5 transition-colors",
+                      "opacity-0 group-hover:opacity-100",
+                      "hover:bg-foreground/10",
+                      session.id === activeSessionId && "opacity-100"
+                    )}
+                    aria-label={`Opciones de ${session.title}`}
+                  >
+                    <DotsThree size={14} weight="bold" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" sideOffset={4}>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      const newTitle = window.prompt("Nuevo nombre:", session.title);
+                      if (newTitle && newTitle.trim()) {
+                        onRenameSession(session.id, newTitle.trim());
+                      }
+                    }}
+                  >
+                    <PencilSimple size={14} />
+                    Renombrar
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => onCloseSession(session.id)}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <X size={14} />
+                    Cerrar
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           ))}
         </div>
@@ -169,23 +201,7 @@ export function ChatPanel({
         </Button>
       </div>
 
-      {activeFilePath ? (
-        <div className="flex items-center gap-2 border-b border-border/60 px-4 py-2">
-          <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            Contexto
-          </span>
-          <button
-            type="button"
-            onClick={() => onOpenFile(activeFilePath)}
-            className="flex items-center gap-1.5 rounded-md bg-muted/50 px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted"
-          >
-            <File size={12} weight="bold" className="text-primary/70" />
-            <span className="max-w-[200px] truncate">{activeFilePath}</span>
-          </button>
-        </div>
-      ) : null}
-
-      <div className="flex-1 overflow-y-auto px-4 py-4">
+      <div className="flex-1 overflow-y-auto px-5 py-5">
         {messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
             <ChatCircle size={32} className="text-muted-foreground/30" />
@@ -194,18 +210,18 @@ export function ChatPanel({
             </p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-4">
             {messages.map((message) => (
               <div
                 key={message.id}
                 className={cn(
-                  "flex flex-col gap-1",
+                  "flex flex-col gap-1.5",
                   message.role === "user" ? "items-end" : "items-start"
                 )}
               >
                 <div
                   className={cn(
-                    "max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed",
+                    "max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed",
                     message.role === "assistant"
                       ? "bg-muted/60 text-foreground"
                       : message.role === "user"
@@ -241,27 +257,44 @@ export function ChatPanel({
         )}
       </div>
 
-      <div className="border-t border-border/60 p-3">
-        <div className="flex items-end gap-2 rounded-xl border border-border/60 bg-card/60 p-2">
-          <textarea
-            className="min-h-[60px] flex-1 resize-none bg-transparent px-2 py-1 text-sm text-foreground outline-none placeholder:text-muted-foreground/60"
-            placeholder="Escribe un mensaje..."
-            disabled
-          />
-          <Button
-            size="icon"
-            className="h-8 w-8 shrink-0 rounded-lg"
-            disabled
-            aria-label="Enviar mensaje"
-          >
-            <PaperPlaneTilt size={16} weight="fill" />
-          </Button>
-        </div>
-        {activeSession?.updatedAt ? (
-          <p className="mt-1.5 px-1 text-[10px] text-muted-foreground/60">
-            Última actualización: {activeSession.updatedAt}
-          </p>
+      <div className="border-t border-border/60">
+        {openFilesCount > 0 ? (
+          <div className="flex items-center gap-2.5 px-4 py-2.5">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Contexto
+            </span>
+            <button
+              type="button"
+              onClick={onShowContext}
+              className="flex items-center gap-1.5 rounded-md bg-muted/50 px-2.5 py-1.5 text-xs text-foreground transition-colors hover:bg-muted"
+            >
+              <File size={12} weight="bold" className="text-primary/70" />
+              <span>{openFilesCount} {openFilesCount === 1 ? "archivo" : "archivos"}</span>
+            </button>
+          </div>
         ) : null}
+        <div className={cn("p-4", openFilesCount > 0 && "pt-2")}>
+          <div className="flex items-end gap-2.5 rounded-xl border border-border/60 bg-card/60 p-2.5">
+            <textarea
+              className="min-h-[64px] flex-1 resize-none bg-transparent px-2 py-1.5 text-sm text-foreground outline-none placeholder:text-muted-foreground/60"
+              placeholder="Escribe un mensaje..."
+              disabled
+            />
+            <Button
+              size="icon"
+              className="h-9 w-9 shrink-0 rounded-lg"
+              disabled
+              aria-label="Enviar mensaje"
+            >
+              <PaperPlaneTilt size={16} weight="fill" />
+            </Button>
+          </div>
+          {activeSession?.updatedAt ? (
+            <p className="mt-2 px-1 text-[10px] text-muted-foreground/60">
+              Última actualización: {activeSession.updatedAt}
+            </p>
+          ) : null}
+        </div>
       </div>
     </div>
   );
