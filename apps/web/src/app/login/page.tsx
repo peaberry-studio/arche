@@ -7,9 +7,12 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { TotpVerifyDialog } from "@/components/totp-verify-dialog";
 
 type LoginResponse = {
   ok: boolean;
+  requires2FA?: boolean;
+  challengeToken?: string;
   user?: {
     id: string;
     email: string;
@@ -34,6 +37,8 @@ export default function LoginPage() {
     status: number;
     data?: LoginResponse;
   } | null>(null);
+  const [challengeToken, setChallengeToken] = useState("");
+  const [show2FA, setShow2FA] = useState(false);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -52,6 +57,13 @@ export default function LoginPage() {
         credentials: "include",
       });
       const data = (await response.json().catch(() => null)) as LoginResponse | null;
+
+      if (data?.ok && data.requires2FA && data.challengeToken) {
+        setChallengeToken(data.challengeToken);
+        setShow2FA(true);
+        return;
+      }
+
       setResult({
         status: response.status,
         data: data ?? { ok: false, error: "unknown" },
@@ -155,6 +167,19 @@ export default function LoginPage() {
             </Link>
           </p>
         </div>
+
+        <TotpVerifyDialog
+          open={show2FA}
+          challengeToken={challengeToken}
+          onSuccess={(user) => {
+            setShow2FA(false);
+            setResult({
+              status: 200,
+              data: { ok: true, user: { ...user, role: "" } },
+            });
+          }}
+          onCancel={() => setShow2FA(false)}
+        />
       </main>
     </div>
   );
