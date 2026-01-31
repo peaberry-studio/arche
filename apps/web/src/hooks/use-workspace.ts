@@ -283,6 +283,8 @@ export function useWorkspace({ slug, pollInterval = 5000 }: UseWorkspaceOptions)
     isSendingRef.current = true
     
     let accumulatedText = ''
+    let donePromiseResolve: (() => void) | null = null
+    const donePromise = new Promise<void>(resolve => { donePromiseResolve = resolve })
     
     try {
       // Use SSE streaming endpoint
@@ -393,19 +395,26 @@ export function useWorkspace({ slug, pollInterval = 5000 }: UseWorkspaceOptions)
                   // Stream completed - refresh messages from server to get clean final state
                   console.log('[useWorkspace] done event, will refresh messages')
                   
-                  // Mark sending as complete so refreshMessages can run
+                  // Mark ref as complete (but not state yet, to prevent intermediate render)
                   isSendingRef.current = false
                   
-                  // Small delay to ensure server has persisted the message
+                  // Fetch fresh data from server, then atomically replace all messages
+                  // This prevents the flash of duplicated messages by doing a single state update
                   setTimeout(async () => {
                     console.log('[useWorkspace] Refreshing messages after done')
                     const result = await listMessagesAction(slug, sessionId)
                     if (result.ok && result.messages) {
+                      // Single atomic update: replace everything with server messages
                       setMessages(result.messages)
+                    } else {
+                      // If fetch failed, just remove temp messages
+                      setMessages(prev => prev.filter(m => !m.id.startsWith('temp-')))
                     }
                     // Trigger diffs refresh after completion
                     setDiffsRefreshTrigger(prev => prev + 1)
-                  }, 100)
+                    // Signal that we're done with the post-stream work
+                    if (donePromiseResolve) donePromiseResolve()
+                  }, 150) // Slightly longer delay to ensure server has persisted
                   break
                 }
                 
@@ -451,7 +460,16 @@ export function useWorkspace({ slug, pollInterval = 5000 }: UseWorkspaceOptions)
         }
         return m
       }))
+      // Resolve the promise so finally doesn't hang
+      if (donePromiseResolve) donePromiseResolve()
     } finally {
+      // Wait for post-stream work (message refresh) to complete before updating isSending
+      // This prevents a flash where temp messages are shown alongside server messages
+      // Use Promise.race with a timeout to avoid hanging indefinitely
+      await Promise.race([
+        donePromise,
+        new Promise(resolve => setTimeout(resolve, 5000)) // 5s timeout fallback
+      ])
       setIsSending(false)
       isSendingRef.current = false
     }
