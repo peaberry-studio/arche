@@ -40,6 +40,8 @@ export type ChatMessage = {
   role: "user" | "assistant" | "system";
   content: string;
   timestamp: string;
+  /** Raw timestamp in milliseconds for comparison (e.g., grouping by minute) */
+  timestampRaw?: number;
   /** Message parts with rich content (tools, files, etc.) */
   parts?: MessagePart[];
   attachments?: Array<{

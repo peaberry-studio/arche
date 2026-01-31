@@ -68,6 +68,8 @@ export type WorkspaceMessage = {
   role: MessageRole
   content: string
   timestamp: string
+  /** Raw timestamp in milliseconds for comparison (e.g., grouping by minute) */
+  timestampRaw?: number
   parts: MessagePart[]
   pending?: boolean
   /** Status info for streaming messages */

@@ -550,12 +550,14 @@ export async function listMessagesAction(slug: string, sessionId: string): Promi
     
     const transformed: WorkspaceMessage[] = messages.map(m => {
       const parts = transformParts(m.parts ?? [])
+      const rawTimestamp = m.info.time?.created
       return {
         id: m.info.id,
         sessionId,
         role: m.info.role as 'user' | 'assistant',
         content: extractTextContent(parts),
-        timestamp: formatTimestamp(m.info.time?.created),
+        timestamp: formatTimestamp(rawTimestamp),
+        timestampRaw: typeof rawTimestamp === 'number' ? rawTimestamp : undefined,
         parts
       }
     })

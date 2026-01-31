@@ -208,6 +208,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
       role: m.role as 'user' | 'assistant' | 'system',
       content: m.content,
       timestamp: m.timestamp,
+      timestampRaw: m.timestampRaw,
       parts: m.parts, // Pass all parts for rich rendering
       statusInfo: m.statusInfo,
       pending: m.pending,

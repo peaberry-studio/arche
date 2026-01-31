@@ -64,9 +64,26 @@ type ChatPanelProps = {
 };
 
 /**
- * Renders the message footer with timestamp and action icons (copy, info).
+ * Check if two timestamps are in the same minute.
  */
-function MessageFooter({ message }: { message: ChatMessage }) {
+function isSameMinute(ts1?: number, ts2?: number): boolean {
+  if (!ts1 || !ts2) return false;
+  const d1 = new Date(ts1);
+  const d2 = new Date(ts2);
+  return (
+    d1.getFullYear() === d2.getFullYear() &&
+    d1.getMonth() === d2.getMonth() &&
+    d1.getDate() === d2.getDate() &&
+    d1.getHours() === d2.getHours() &&
+    d1.getMinutes() === d2.getMinutes()
+  );
+}
+
+/**
+ * Renders the message footer with timestamp and action icons (copy, info).
+ * @param showTimestamp - If false, the timestamp is hidden (used when grouping messages by minute)
+ */
+function MessageFooter({ message, showTimestamp = true }: { message: ChatMessage; showTimestamp?: boolean }) {
   const [showTokenInfo, setShowTokenInfo] = useState(false);
   const [copied, setCopied] = useState(false);
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -191,8 +208,8 @@ function MessageFooter({ message }: { message: ChatMessage }) {
     </div>
   );
 
-  // Only show timestamp when message is complete (not streaming)
-  const timestamp = !message.pending ? (
+  // Only show timestamp when message is complete (not streaming) and showTimestamp is true
+  const timestamp = !message.pending && showTimestamp ? (
     <span className={cn(
       "text-[10px] text-muted-foreground/60",
       isUser ? "px-1" : ""
@@ -657,88 +674,95 @@ export function ChatPanel({
           </div>
         ) : (
           <div className="space-y-5">
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={cn(
-                  "group/message flex flex-col gap-1.5",
-                  message.role === "user" ? "items-end" : "items-start"
-                )}
-              >
-                {message.role === "assistant" ? (
-                  // Assistant messages: no bubble, full width
-                  <div className="w-full text-sm leading-relaxed text-foreground">
-                    {/* Render message parts if available, otherwise fall back to content */}
-                    {message.parts && message.parts.length > 0 ? (
-                      <div className="space-y-1">
-                        {message.parts.map((part, index) => (
-                          <MessagePartRenderer 
-                            key={`${message.id}-part-${index}`} 
-                            part={part} 
-                            onOpenFile={onOpenFile} 
-                          />
-                        ))}
-                      </div>
-                    ) : message.content ? (
-                      <div className="markdown-content">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {message.content}
-                        </ReactMarkdown>
-                      </div>
-                    ) : null}
-                    {/* Don't show anything for empty pending messages - status indicator is at the bottom */}
-                    
-                    {message.attachments && message.attachments.length > 0 ? (
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {message.attachments.map((attachment) => (
-                          <button
-                            key={`${message.id}-${attachment.label}`}
-                            type="button"
-                            onClick={() =>
-                              attachment.path ? onOpenFile(attachment.path) : undefined
-                            }
-                            className="flex items-center gap-1 rounded bg-muted/60 px-2 py-0.5 text-xs text-foreground/80 hover:bg-muted"
-                          >
-                            <File size={10} weight="bold" />
-                            {attachment.label}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : (
-                  // User messages: gray bubble
-                  <div
-                    className={cn(
-                      "max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed",
-                      message.role === "user"
-                        ? "bg-muted/60 text-foreground"
-                        : "bg-muted/40 text-muted-foreground italic"
-                    )}
-                  >
-                    <p className="whitespace-pre-wrap">{message.content}</p>
-                    {message.attachments && message.attachments.length > 0 ? (
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {message.attachments.map((attachment) => (
-                          <button
-                            key={`${message.id}-${attachment.label}`}
-                            type="button"
-                            onClick={() =>
-                              attachment.path ? onOpenFile(attachment.path) : undefined
-                            }
-                            className="flex items-center gap-1 rounded bg-background/60 px-2 py-0.5 text-xs text-foreground/80 hover:bg-background"
-                          >
-                            <File size={10} weight="bold" />
-                            {attachment.label}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                )}
-                <MessageFooter message={message} />
-              </div>
-            ))}
+            {messages.map((message, index) => {
+              // Only show timestamp if this is the last message in a "same-minute" group
+              // i.e., if there's no next message, or the next message is in a different minute
+              const nextMessage = messages[index + 1];
+              const showTimestamp = !nextMessage || !isSameMinute(message.timestampRaw, nextMessage.timestampRaw);
+              
+              return (
+                <div
+                  key={message.id}
+                  className={cn(
+                    "group/message flex flex-col gap-1.5",
+                    message.role === "user" ? "items-end" : "items-start"
+                  )}
+                >
+                  {message.role === "assistant" ? (
+                    // Assistant messages: no bubble, full width
+                    <div className="w-full text-sm leading-relaxed text-foreground">
+                      {/* Render message parts if available, otherwise fall back to content */}
+                      {message.parts && message.parts.length > 0 ? (
+                        <div className="space-y-1">
+                          {message.parts.map((part, partIndex) => (
+                            <MessagePartRenderer 
+                              key={`${message.id}-part-${partIndex}`} 
+                              part={part} 
+                              onOpenFile={onOpenFile} 
+                            />
+                          ))}
+                        </div>
+                      ) : message.content ? (
+                        <div className="markdown-content">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {message.content}
+                          </ReactMarkdown>
+                        </div>
+                      ) : null}
+                      {/* Don't show anything for empty pending messages - status indicator is at the bottom */}
+                      
+                      {message.attachments && message.attachments.length > 0 ? (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {message.attachments.map((attachment) => (
+                            <button
+                              key={`${message.id}-${attachment.label}`}
+                              type="button"
+                              onClick={() =>
+                                attachment.path ? onOpenFile(attachment.path) : undefined
+                              }
+                              className="flex items-center gap-1 rounded bg-muted/60 px-2 py-0.5 text-xs text-foreground/80 hover:bg-muted"
+                            >
+                              <File size={10} weight="bold" />
+                              {attachment.label}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    // User messages: gray bubble
+                    <div
+                      className={cn(
+                        "max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed",
+                        message.role === "user"
+                          ? "bg-muted/60 text-foreground"
+                          : "bg-muted/40 text-muted-foreground italic"
+                      )}
+                    >
+                      <p className="whitespace-pre-wrap">{message.content}</p>
+                      {message.attachments && message.attachments.length > 0 ? (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {message.attachments.map((attachment) => (
+                            <button
+                              key={`${message.id}-${attachment.label}`}
+                              type="button"
+                              onClick={() =>
+                                attachment.path ? onOpenFile(attachment.path) : undefined
+                              }
+                              className="flex items-center gap-1 rounded bg-background/60 px-2 py-0.5 text-xs text-foreground/80 hover:bg-background"
+                            >
+                              <File size={10} weight="bold" />
+                              {attachment.label}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                  <MessageFooter message={message} showTimestamp={showTimestamp} />
+                </div>
+              );
+            })}
             {/* Status indicator at the bottom - always visible when processing */}
             <StatusIndicator />
             <div ref={messagesEndRef} />
