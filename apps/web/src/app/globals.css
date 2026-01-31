@@ -141,15 +141,6 @@
 }
 
 @layer utilities {
-  /* Ocultar scrollbar nativo */
-  .scrollbar-none {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
-  .scrollbar-none::-webkit-scrollbar {
-    display: none;
-  }
-
   /* Fondo orgánico muy sutil, casi imperceptible */
   .organic-background {
     background-image: radial-gradient(
