@@ -1,7 +1,11 @@
 import Docker from 'dockerode'
-import { getDockerProxyUrl, getOpencodeImage, getOpencodeNetwork } from './config'
+import { getDockerSocketPath, getDockerProxyUrl, getOpencodeImage, getOpencodeNetwork } from './config'
 
 function getDockerClient(): Docker {
+  const socketPath = getDockerSocketPath()
+  if (socketPath) {
+    return new Docker({ socketPath })
+  }
   const url = new URL(getDockerProxyUrl())
   return new Docker({
     host: url.hostname,
