@@ -29,6 +29,11 @@ else
   exit 1
 fi
 
+# Pull OpenCode runtime image (required for workspace spawning)
+OPENCODE_IMAGE="${OPENCODE_IMAGE:-ghcr.io/anomalyco/opencode:1.1.45}"
+printf "Pulling OpenCode image: %s\n" "$OPENCODE_IMAGE"
+docker pull "$OPENCODE_IMAGE"
+
 $COMPOSE -f "$COMPOSE_FILE" up -d --build
 $COMPOSE -f "$COMPOSE_FILE" exec web pnpm prisma migrate dev --name init
 $COMPOSE -f "$COMPOSE_FILE" exec web pnpm db:seed
