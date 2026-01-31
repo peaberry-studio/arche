@@ -191,14 +191,15 @@ function MessageFooter({ message }: { message: ChatMessage }) {
     </div>
   );
 
-  const timestamp = (
+  // Only show timestamp when message is complete (not streaming)
+  const timestamp = !message.pending ? (
     <span className={cn(
       "text-[10px] text-muted-foreground/60",
       isUser ? "px-1" : ""
     )}>
       {message.timestamp}
     </span>
-  );
+  ) : null;
 
   return (
     <div className="flex items-center gap-2">
@@ -425,6 +426,15 @@ export function ChatPanel({
     prevMessagesLengthRef.current = messages.length;
   }, [messages]);
 
+  // Restore focus when isSending changes from true to false
+  const prevIsSendingRef = useRef(isSending);
+  useEffect(() => {
+    if (prevIsSendingRef.current && !isSending) {
+      textareaRef.current?.focus();
+    }
+    prevIsSendingRef.current = isSending;
+  }, [isSending]);
+
   const scrollTabs = (direction: "left" | "right") => {
     const el = tabsRef.current;
     if (!el) return;
@@ -440,6 +450,9 @@ export function ChatPanel({
     if (!text || !onSendMessage || isSending) return;
     
     setInputValue("");
+    
+    // Mantener el focus en el textarea
+    textareaRef.current?.focus();
     
     const model = selectedModel 
       ? { providerId: selectedModel.providerId, modelId: selectedModel.modelId }
@@ -734,98 +747,98 @@ export function ChatPanel({
       </div>
 
       {/* Input area */}
-      <div className="border-t border-border/60">
-        {openFilesCount > 0 && (
-          <div className="flex items-center gap-2.5 px-4 py-2.5">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Contexto
-            </span>
-            <button
-              type="button"
-              onClick={onShowContext}
-              className="flex items-center gap-1.5 rounded-md bg-muted/50 px-2.5 py-1.5 text-xs text-foreground transition-colors hover:bg-muted"
-            >
-              <File size={12} weight="bold" className="text-primary/70" />
-              <span>{openFilesCount} {openFilesCount === 1 ? "archivo" : "archivos"}</span>
-            </button>
+      <div className="border-t border-border/60 p-4">
+        {/* Model selector and context - same row */}
+        {(models.length > 0 || openFilesCount > 0) && (
+          <div className="mb-3 flex items-center gap-4">
+            {/* Model selector */}
+            {models.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Modelo
+                </span>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex items-center gap-1.5 rounded-md bg-muted/50 px-2.5 py-1.5 text-xs text-foreground transition-colors hover:bg-muted"
+                    >
+                      <span className="max-w-[200px] truncate">
+                        {selectedModel 
+                          ? `${selectedModel.providerName} / ${selectedModel.modelName}`
+                          : 'Seleccionar modelo'}
+                      </span>
+                      <CaretDown size={12} weight="bold" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="max-h-64 overflow-y-auto">
+                    {models.map((model) => (
+                      <DropdownMenuItem
+                        key={`${model.providerId}-${model.modelId}`}
+                        onClick={() => onSelectModel?.(model)}
+                        className={cn(
+                          selectedModel?.modelId === model.modelId && 
+                          selectedModel?.providerId === model.providerId && 
+                          "bg-primary/10"
+                        )}
+                      >
+                        <div className="flex flex-col">
+                          <span className="font-medium">{model.modelName}</span>
+                          <span className="text-xs text-muted-foreground">{model.providerName}</span>
+                        </div>
+                        {model.isDefault && (
+                          <span className="ml-auto text-[10px] text-primary">Por defecto</span>
+                        )}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            )}
+
+            {/* Context button */}
+            {openFilesCount > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Contexto
+                </span>
+                <button
+                  type="button"
+                  onClick={onShowContext}
+                  className="flex items-center gap-1.5 rounded-md bg-muted/50 px-2.5 py-1.5 text-xs text-foreground transition-colors hover:bg-muted"
+                >
+                  <File size={12} weight="bold" className="text-primary/70" />
+                  <span>{openFilesCount} {openFilesCount === 1 ? "archivo" : "archivos"}</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
         
-        <div className={cn("p-4", openFilesCount > 0 && "pt-2")}>
-          {/* Model selector */}
-          {models.length > 0 && (
-            <div className="mb-3 flex items-center gap-2">
-              <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Modelo
-              </span>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex items-center gap-1.5 rounded-md bg-muted/50 px-2.5 py-1.5 text-xs text-foreground transition-colors hover:bg-muted"
-                  >
-                    <span className="max-w-[200px] truncate">
-                      {selectedModel 
-                        ? `${selectedModel.providerName} / ${selectedModel.modelName}`
-                        : 'Seleccionar modelo'}
-                    </span>
-                    <CaretDown size={12} weight="bold" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="max-h-64 overflow-y-auto">
-                  {models.map((model) => (
-                    <DropdownMenuItem
-                      key={`${model.providerId}-${model.modelId}`}
-                      onClick={() => onSelectModel?.(model)}
-                      className={cn(
-                        selectedModel?.modelId === model.modelId && 
-                        selectedModel?.providerId === model.providerId && 
-                        "bg-primary/10"
-                      )}
-                    >
-                      <div className="flex flex-col">
-                        <span className="font-medium">{model.modelName}</span>
-                        <span className="text-xs text-muted-foreground">{model.providerName}</span>
-                      </div>
-                      {model.isDefault && (
-                        <span className="ml-auto text-[10px] text-primary">Por defecto</span>
-                      )}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          )}
-          
-          <div className="flex items-end gap-2.5 rounded-xl border border-border/60 bg-card/60 p-2.5">
-            <textarea
-              ref={textareaRef}
-              value={inputValue}
-              onChange={handleInputChange}
-              onKeyDown={handleKeyDown}
-              className="min-h-[64px] max-h-[200px] flex-1 resize-none bg-transparent px-2 py-1.5 text-sm text-foreground outline-none placeholder:text-muted-foreground/60"
-              placeholder="Escribe un mensaje..."
-              disabled={isSending || !onSendMessage}
-            />
-            <Button
-              size="icon"
-              className="h-9 w-9 shrink-0 rounded-lg"
-              disabled={isSending || !inputValue.trim() || !onSendMessage}
-              onClick={handleSend}
-              aria-label="Enviar mensaje"
-            >
-              {isSending ? (
-                <SpinnerGap size={16} className="animate-spin" />
-              ) : (
-                <PaperPlaneTilt size={16} weight="fill" />
-              )}
-            </Button>
-          </div>
-          {activeSession?.updatedAt && (
-            <p className="mt-2 px-1 text-[10px] text-muted-foreground/60">
-              Última actualización: {activeSession.updatedAt}
-            </p>
-          )}
+        <div className="flex items-center gap-2.5 rounded-xl border border-border/60 bg-card/60 px-2.5 py-2.5">
+          <textarea
+            ref={textareaRef}
+            value={inputValue}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            className="max-h-[200px] flex-1 resize-none bg-transparent px-2 text-sm leading-9 text-foreground outline-none placeholder:text-muted-foreground/60"
+            placeholder="Escribe un mensaje..."
+            disabled={isSending || !onSendMessage}
+            rows={1}
+          />
+          <Button
+            size="icon"
+            className="h-9 w-9 shrink-0 rounded-lg"
+            disabled={isSending || !inputValue.trim() || !onSendMessage}
+            onClick={handleSend}
+            aria-label="Enviar mensaje"
+          >
+            {isSending ? (
+              <SpinnerGap size={16} className="animate-spin" />
+            ) : (
+              <PaperPlaneTilt size={16} weight="fill" />
+            )}
+          </Button>
         </div>
       </div>
     </div>

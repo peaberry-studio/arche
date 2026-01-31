@@ -24,10 +24,10 @@ export function WorkspaceFooter({
           type="button"
           onClick={onToggleLeft}
           className={cn(
-            "flex items-center justify-center rounded p-1.5 transition-colors",
+            "flex items-center justify-center rounded p-1.5 transition-colors hover:bg-muted/50",
             leftCollapsed
-              ? "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-              : "bg-muted/50 text-foreground"
+              ? "text-muted-foreground hover:text-foreground"
+              : "text-foreground"
           )}
           aria-label={leftCollapsed ? "Mostrar archivos" : "Ocultar archivos"}
         >
@@ -38,10 +38,10 @@ export function WorkspaceFooter({
           type="button"
           onClick={onToggleRight}
           className={cn(
-            "flex items-center justify-center rounded p-1.5 transition-colors",
+            "flex items-center justify-center rounded p-1.5 transition-colors hover:bg-muted/50",
             rightCollapsed
-              ? "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-              : "bg-muted/50 text-foreground"
+              ? "text-muted-foreground hover:text-foreground"
+              : "text-foreground"
           )}
           aria-label={rightCollapsed ? "Mostrar inspector" : "Ocultar inspector"}
         >
