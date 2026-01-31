@@ -235,12 +235,15 @@ export async function POST(
                   case 'message.part.updated': {
                     const part = event.properties?.part
                     const delta = event.properties?.delta
+                    const messageRole = event.properties?.info?.role
                     
                     if (!part) break
                     
-                    // Ignore parts from user messages
-                    // We detect this by checking if the messageID matches a user message pattern
-                    // or by the absence of assistant-specific fields
+                    // Ignore parts from user messages - only process assistant responses
+                    if (messageRole === 'user') {
+                      console.log('[stream] Ignoring user message part')
+                      break
+                    }
                     
                     switch (part.type) {
                       case 'text': {
