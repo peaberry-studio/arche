@@ -127,14 +127,60 @@ export async function stopInstance(slug: string, userId: string): Promise<StopRe
 }
 
 export async function getInstanceStatus(slug: string) {
-  return prisma.instance.findUnique({
+  const instance = await prisma.instance.findUnique({
     where: { slug },
     select: {
       status: true,
       startedAt: true,
       stoppedAt: true,
       lastActivityAt: true,
+      containerId: true,
     },
+  })
+
+  if (!instance) return null
+
+  // Si la DB dice running/starting pero no hay containerId, está desincronizado
+  if ((instance.status === 'running' || instance.status === 'starting') && !instance.containerId) {
+    await prisma.instance.update({
+      where: { slug },
+      data: { status: 'stopped', stoppedAt: new Date() },
+    })
+    return { ...instance, status: 'stopped' as const, containerId: null }
+  }
+
+  // Si hay containerId, verificar que el contenedor realmente existe y está corriendo
+  if (instance.containerId && (instance.status === 'running' || instance.status === 'starting')) {
+    const isRunning = await docker.isContainerRunning(instance.containerId)
+    
+    if (!isRunning) {
+      // El contenedor no existe o no está corriendo - sincronizar DB
+      // Intentar limpiar el contenedor si existe
+      await docker.removeContainer(instance.containerId).catch(() => {})
+      
+      await prisma.instance.update({
+        where: { slug },
+        data: { status: 'stopped', stoppedAt: new Date(), containerId: null },
+      })
+      return { ...instance, status: 'stopped' as const, containerId: null }
+    }
+  }
+
+  return instance
+}
+
+export async function listActiveInstances() {
+  return prisma.instance.findMany({
+    where: {
+      status: { in: ['running', 'starting'] },
+    },
+    select: {
+      slug: true,
+      status: true,
+      startedAt: true,
+      lastActivityAt: true,
+    },
+    orderBy: { startedAt: 'desc' },
   })
 }
 

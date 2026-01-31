@@ -14,7 +14,7 @@
 ## Funcionalidades actuales (lista viva)
 
 - Login local y sesiones seguras (cookie httpOnly + sesiones en DB)
-- Aislamiento por usuario (subdominio `u-<slug>.<domain>` + contenedor dedicado)
+- Aislamiento por usuario (subdominio `<slug>.<domain>` + contenedor dedicado)
 - Provisionamiento on-demand y lifecycle (start/stop, idle/TTL)
 
 ## Documentación (centro de ayuda)

@@ -16,11 +16,21 @@ function getDockerClient(): Docker {
 export async function createContainer(slug: string, password: string) {
   const docker = getDockerClient()
   const containerName = `opencode-${slug}`
+  const volumeName = `arche-workspace-${slug}`
+
+  // Ensure volume exists for persistent workspace
+  try {
+    await docker.createVolume({ Name: volumeName })
+  } catch {
+    // Volume might already exist, ignore error
+  }
 
   return docker.createContainer({
     Image: getOpencodeImage(),
     name: containerName,
-    Cmd: ['opencode', 'serve', '--hostname', '0.0.0.0', '--port', '4096'],
+    WorkingDir: '/workspace',
+    // La imagen tiene entrypoint "opencode", así que solo pasamos los argumentos
+    Cmd: ['serve', '--hostname', '0.0.0.0', '--port', '4096'],
     Env: [
       `OPENCODE_SERVER_PASSWORD=${password}`,
       `OPENCODE_SERVER_USERNAME=opencode`,
@@ -28,6 +38,7 @@ export async function createContainer(slug: string, password: string) {
     HostConfig: {
       NetworkMode: getOpencodeNetwork(),
       RestartPolicy: { Name: 'unless-stopped' },
+      Binds: [`${volumeName}:/workspace`],
     },
     Labels: {
       'arche.managed': 'true',

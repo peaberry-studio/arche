@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { ensureInstanceRunningAction } from "@/actions/spawner";
 import {
   chatMessages as initialMessages,
   chatSessions as initialSessions,
@@ -119,6 +120,48 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const storageKey = `arche.workspace.${slug}.mock-state`;
   const [hasHydrated, setHasHydrated] = useState(false);
+  const [instanceStatus, setInstanceStatus] = useState<'starting' | 'running' | 'error' | null>(null);
+  const [instanceError, setInstanceError] = useState<string | null>(null);
+
+  // Auto-start instance on mount
+  useEffect(() => {
+    let cancelled = false;
+    
+    async function ensureRunning() {
+      const result = await ensureInstanceRunningAction(slug);
+      if (cancelled) return;
+      
+      if (result.status === 'error') {
+        setInstanceStatus('error');
+        setInstanceError(result.error ?? 'Unknown error');
+        return;
+      }
+      
+      setInstanceStatus(result.status);
+      
+      // Si está iniciando, poll hasta que esté running
+      if (result.status === 'starting') {
+        const poll = setInterval(async () => {
+          const check = await ensureInstanceRunningAction(slug);
+          if (cancelled) {
+            clearInterval(poll);
+            return;
+          }
+          if (check.status === 'running') {
+            setInstanceStatus('running');
+            clearInterval(poll);
+          } else if (check.status === 'error') {
+            setInstanceStatus('error');
+            setInstanceError(check.error ?? 'Unknown error');
+            clearInterval(poll);
+          }
+        }, 2000);
+      }
+    }
+    
+    ensureRunning();
+    return () => { cancelled = true; };
+  }, [slug]);
 
   const [leftWidth, setLeftWidth] = useState(MIN_LEFT_PX);
   const [rightWidth, setRightWidth] = useState(MIN_RIGHT_PX);
@@ -393,6 +436,67 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
   };
+
+  // Loading screen while instance is starting
+  if (instanceStatus !== 'running') {
+    return (
+      <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
+        <div className="pointer-events-none absolute inset-0 organic-background" />
+        
+        <WorkspaceHeader
+          slug={slug}
+          status={instanceStatus === 'starting' ? 'provisioning' : 'offline'}
+        />
+        
+        <div className="relative z-10 flex flex-1 items-center justify-center">
+          <div className="flex flex-col items-center gap-6 text-center">
+            {instanceStatus === 'starting' && (
+              <>
+                <div className="relative">
+                  <div className="h-16 w-16 animate-spin rounded-full border-4 border-muted border-t-primary" />
+                </div>
+                <div className="space-y-2">
+                  <h2 className="font-[family-name:var(--font-display)] text-xl font-semibold">
+                    Iniciando workspace
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    Preparando tu entorno de desarrollo...
+                  </p>
+                </div>
+              </>
+            )}
+            {instanceStatus === 'error' && (
+              <>
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10">
+                  <span className="text-2xl">!</span>
+                </div>
+                <div className="space-y-2">
+                  <h2 className="font-[family-name:var(--font-display)] text-xl font-semibold text-destructive">
+                    Error al iniciar
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    {instanceError ?? 'No se pudo iniciar el workspace'}
+                  </p>
+                </div>
+              </>
+            )}
+            {instanceStatus === null && (
+              <>
+                <div className="relative">
+                  <div className="h-16 w-16 animate-pulse rounded-full bg-muted" />
+                </div>
+                <div className="space-y-2">
+                  <h2 className="font-[family-name:var(--font-display)] text-xl font-semibold">
+                    Conectando...
+                  </h2>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">

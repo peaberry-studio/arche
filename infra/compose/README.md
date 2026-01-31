@@ -17,7 +17,7 @@ Incluye (v0):
 Para probar subdominios sin tocar DNS, usa `lvh.me` (resuelve a `127.0.0.1`).
 
 - Base: `arche.lvh.me`
-- Usuario: `u-admin.arche.lvh.me`
+- Usuario: `admin.arche.lvh.me`
 
 ## Arranque (local)
 
@@ -75,7 +75,7 @@ Traefik forwardAuth (simula el host usuario):
 ```bash
 curl -i \
   "http://arche.lvh.me/auth/traefik" \
-  -H "X-Forwarded-Host: u-admin.arche.lvh.me" \
+  -H "X-Forwarded-Host: admin.arche.lvh.me" \
   --cookie "arche_session=<pega_aqui_el_valor_del_cookie>"
 ```
 

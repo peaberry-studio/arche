@@ -12,7 +12,7 @@ Dejar un setup de infraestructura reproducible para el monorepo: Traefik con rou
 - [ ] `docker-compose` base: Traefik + Arche Web + Postgres + `tecnativa/docker-socket-proxy`
 - [ ] Routing por host:
   - [ ] `arche.<domain>` -> Arche Web
-  - [ ] `u-<slug>.<domain>` -> Arche Web
+  - [ ] `<slug>.<domain>` -> Arche Web
 - [ ] `forwardAuth` hacia `GET /auth/traefik` (BFF)
 - [ ] Red interna Docker para runtimes OpenCode (no expuestos)
 

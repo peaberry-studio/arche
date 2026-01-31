@@ -32,7 +32,7 @@ Decisiones clave (v1):
 - 2FA opcional por usuario (TOTP) y obligatorio por politica para admins
 - Aislamiento por usuario:
   - Cada usuario tiene su propio contenedor OpenCode
-  - Cada usuario solo puede acceder a su subdominio `u-<slug>.<ARCHE_DOMAIN>`
+  - Cada usuario solo puede acceder a su subdominio `<slug>.<ARCHE_DOMAIN>`
 - Provisionamiento on-demand (start/stop) y lifecycle (idle/TTL)
 - La KB se clona a un workspace por usuario al iniciar una instancia
 - Auditoria basica: login/logout, start/stop, errores del runtime
@@ -57,7 +57,7 @@ Decisiones clave (v1):
 Razon:
 
 - Evita dependencias externas.
-- Permite owner isolation estricto por `u-<slug>.<domain>`.
+- Permite owner isolation estricto por `<slug>.<domain>`.
 - Evita exponer OpenCode al navegador.
 
 ### Metodos
@@ -118,7 +118,7 @@ Internet
       ┌─────────┴──────────────────────────────────────────┐
       │                                                    │
       ▼                                                    ▼
-arche.<domain>                                      u-<slug>.<domain>
+arche.<domain>                                      <slug>.<domain>
 ┌───────────────────────────┐                      ┌───────────────────┐
 │ Arche Web (Next.js)       │                      │ Arche Web (Next.js)│
 │ - UI (operaciones + user) │                      │ - UI user          │
@@ -148,7 +148,7 @@ Persistencia host:
 - Termina TLS con Lets Encrypt (ACME)
 - Enruta por Host:
   - `arche.<domain>` -> Arche Web
-  - `u-<slug>.<domain>` -> Arche Web (misma app, distinta superficie)
+  - `<slug>.<domain>` -> Arche Web (misma app, distinta superficie)
 - Aplica `forwardAuth` hacia el backend de Arche para autorizar por sesion y validar owner isolation
 
 ### Arche Web (Next.js)
