@@ -40,6 +40,7 @@ export function TotpSetupWizard({ mode, children }: TotpSetupWizardProps) {
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   function reset() {
     setStep('init')
@@ -112,22 +113,20 @@ export function TotpSetupWizard({ mode, children }: TotpSetupWizardProps) {
 
   function copyCodes() {
     const text = recoveryCodes.join('\n')
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(text).catch(() => fallbackCopy(text))
-    } else {
-      fallbackCopy(text)
-    }
-  }
 
-  function fallbackCopy(text: string) {
-    const textarea = document.createElement('textarea')
-    textarea.value = text
-    textarea.style.position = 'fixed'
-    textarea.style.opacity = '0'
-    document.body.appendChild(textarea)
-    textarea.select()
-    document.execCommand('copy')
-    document.body.removeChild(textarea)
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(() => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      })
+    } else {
+      // HTTP: open new window with codes for easy copy
+      const w = window.open('', '_blank', 'width=400,height=300')
+      if (w) {
+        w.document.write(`<pre style="font-size:16px;padding:20px">${text}</pre>`)
+        w.document.title = 'Códigos de recuperación - Selecciona y copia'
+      }
+    }
   }
 
   function handleDone() {
@@ -232,7 +231,7 @@ export function TotpSetupWizard({ mode, children }: TotpSetupWizardProps) {
             </div>
             <DialogFooter className="flex gap-2 sm:gap-0">
               <Button variant="outline" onClick={copyCodes}>
-                Copiar códigos
+                {copied ? '¡Copiado!' : 'Copiar códigos'}
               </Button>
               <Button onClick={handleDone}>Listo</Button>
             </DialogFooter>
