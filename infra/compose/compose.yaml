@@ -16,6 +16,19 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
 
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:0.3
+    environment:
+      CONTAINERS: 1
+      NETWORKS: 1
+      IMAGES: 1
+      INFO: 1
+      POST: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - arche-internal
+
   postgres:
     image: postgres:16
     environment:
@@ -41,6 +54,15 @@ services:
       ARCHE_SEED_ADMIN_EMAIL: admin@example.com
       ARCHE_SEED_ADMIN_PASSWORD: change-me
       ARCHE_SEED_ADMIN_SLUG: admin
+
+      # Spawner
+      DOCKER_PROXY_HOST: docker-socket-proxy
+      DOCKER_PROXY_PORT: "2375"
+      OPENCODE_IMAGE: ghcr.io/anomalyco/opencode:1.1.45
+      OPENCODE_NETWORK: arche-internal
+    networks:
+      - default
+      - arche-internal
     volumes:
       - ./../../apps/web:/app
       - arche_web_node_modules:/app/node_modules
@@ -63,6 +85,10 @@ services:
 
       - traefik.http.middlewares.arche-forwardauth.forwardauth.address=http://web:3000/auth/traefik
       - traefik.http.middlewares.arche-forwardauth.forwardauth.trustForwardHeader=true
+
+networks:
+  arche-internal:
+    name: arche-internal
 
 volumes:
   arche_postgres:
