@@ -358,29 +358,58 @@ export async function updateSessionAction(slug: string, sessionId: string, title
 // Messages
 // ============================================================================
 
+/**
+ * Metadata part types that should not be displayed as content.
+ * These are internal OpenCode events for streaming state management.
+ */
+const METADATA_PART_TYPES = new Set([
+  'step-start',
+  'step-finish', 
+  'path-delta',
+  'source-url'
+])
+
 function transformParts(parts: unknown[]): MessagePart[] {
-  return parts.map(p => {
-    const part = p as Record<string, unknown>
-    if (part.type === 'text') {
-      return { type: 'text' as const, text: String(part.text ?? '') }
-    }
-    if (part.type === 'tool' || part.type === 'tool-invocation' || part.type === 'tool-result') {
-      return {
-        type: 'tool-invocation' as const,
-        toolName: String(part.toolName ?? part.name ?? 'unknown'),
-        args: (part.args ?? part.input ?? {}) as Record<string, unknown>,
-        result: part.result ?? part.output
+  return parts
+    .filter(p => {
+      const part = p as Record<string, unknown>
+      // Filter out metadata parts
+      if (METADATA_PART_TYPES.has(String(part.type))) {
+        return false
       }
-    }
-    if (part.type === 'file') {
-      return { type: 'file' as const, path: String(part.path ?? part.filename ?? '') }
-    }
-    if (part.type === 'image') {
-      return { type: 'image' as const, url: String(part.url ?? part.data ?? '') }
-    }
-    // Default to text for unknown types
-    return { type: 'text' as const, text: JSON.stringify(part) }
-  })
+      // Filter out empty reasoning parts
+      if (part.type === 'reasoning' && !part.text) {
+        return false
+      }
+      return true
+    })
+    .map(p => {
+      const part = p as Record<string, unknown>
+      if (part.type === 'text') {
+        return { type: 'text' as const, text: String(part.text ?? '') }
+      }
+      if (part.type === 'reasoning' && part.text) {
+        // Include non-empty reasoning as text (could be rendered differently in UI later)
+        return { type: 'text' as const, text: String(part.text) }
+      }
+      if (part.type === 'tool' || part.type === 'tool-invocation' || part.type === 'tool-result') {
+        return {
+          type: 'tool-invocation' as const,
+          toolName: String(part.toolName ?? part.name ?? 'unknown'),
+          args: (part.args ?? part.input ?? {}) as Record<string, unknown>,
+          result: part.result ?? part.output
+        }
+      }
+      if (part.type === 'file') {
+        return { type: 'file' as const, path: String(part.path ?? part.filename ?? '') }
+      }
+      if (part.type === 'image') {
+        return { type: 'image' as const, url: String(part.url ?? part.data ?? '') }
+      }
+      // Skip unknown types silently instead of JSON stringifying them
+      return null
+    })
+    .filter((p): p is MessagePart => p !== null)
 }
 
 function extractTextContent(parts: MessagePart[]): string {
@@ -528,24 +557,15 @@ export async function sendMessageAction(
       textContent = textContent.trim()
     }
     
-    const result = {
-      data: {
-        info: {
-          id: messageId,
-          role: 'assistant' as const,
-          time: { created: Date.now() }
-        },
-        parts: [{ type: 'text', text: textContent }]
-      }
-    }
-
-    if (!result.data) {
-      const errorMsg = result.error ? JSON.stringify(result.error) : 'send_failed'
-      console.log('[sendMessageAction] Error:', errorMsg)
-      return { ok: false, error: errorMsg }
+    const m = {
+      info: {
+        id: messageId,
+        role: 'assistant' as const,
+        time: { created: Date.now() }
+      },
+      parts: [{ type: 'text', text: textContent }]
     }
     
-    const m = result.data
     const parts = transformParts(m.parts ?? [])
     
     return {

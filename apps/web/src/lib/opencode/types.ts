@@ -70,6 +70,8 @@ export type WorkspaceMessage = {
   timestamp: string
   parts: MessagePart[]
   pending?: boolean
+  /** Status info for streaming messages */
+  statusInfo?: MessageStatusInfo
 }
 
 /**
@@ -80,6 +82,27 @@ export type MessagePart =
   | { type: 'tool-invocation'; toolName: string; args: Record<string, unknown>; result?: unknown }
   | { type: 'file'; path: string }
   | { type: 'image'; url: string }
+
+/**
+ * Status types for streaming message state.
+ */
+export type MessageStatus = 
+  | 'idle'
+  | 'thinking'
+  | 'reasoning' 
+  | 'tool-calling'
+  | 'writing'
+  | 'complete'
+  | 'error'
+
+/**
+ * Extended status info for display during streaming.
+ */
+export type MessageStatusInfo = {
+  status: MessageStatus
+  toolName?: string  // Name of tool being called
+  detail?: string    // Additional detail (e.g., file being written)
+}
 
 /**
  * Available model for selection.

@@ -2,6 +2,7 @@
 
 import { useRef, useState, useEffect, useMemo, useCallback } from "react";
 import {
+  Brain,
   CaretDown,
   CaretLeft,
   CaretRight,
@@ -9,11 +10,14 @@ import {
   Circle,
   DotsThree,
   File,
+  Lightbulb,
   PaperPlaneTilt,
   PencilSimple,
   Plus,
   SpinnerGap,
-  X
+  Wrench,
+  X,
+  XCircle
 } from "@phosphor-icons/react";
 
 import { Button } from "@/components/ui/button";
@@ -137,6 +141,56 @@ export function ChatPanel({
     textarea.style.height = "auto";
     textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
   }, []);
+
+  // Status indicator component
+  const StatusIndicator = ({ message }: { message: ChatMessage }) => {
+    if (!message.statusInfo || message.statusInfo.status === "complete" || message.statusInfo.status === "idle") {
+      return null;
+    }
+
+    const { status, toolName, detail } = message.statusInfo;
+
+    const statusConfig: Record<string, { icon: React.ReactNode; label: string; className: string }> = {
+      thinking: {
+        icon: <Brain size={14} className="animate-pulse" />,
+        label: "Pensando...",
+        className: "text-blue-500"
+      },
+      reasoning: {
+        icon: <Lightbulb size={14} className="animate-pulse" />,
+        label: "Razonando...",
+        className: "text-amber-500"
+      },
+      "tool-calling": {
+        icon: <Wrench size={14} className="animate-spin" />,
+        label: toolName ? `Usando ${toolName}...` : "Ejecutando herramienta...",
+        className: "text-purple-500"
+      },
+      writing: {
+        icon: <PencilSimple size={14} className="animate-pulse" />,
+        label: detail ? `Escribiendo ${detail}...` : "Escribiendo...",
+        className: "text-green-500"
+      },
+      error: {
+        icon: <XCircle size={14} />,
+        label: detail || "Error al procesar",
+        className: "text-red-500"
+      }
+    };
+
+    const config = statusConfig[status];
+    if (!config) return null;
+
+    return (
+      <div className={cn(
+        "flex items-center gap-2 text-xs mb-2 py-1.5 px-3 rounded-lg bg-muted/30 w-fit",
+        config.className
+      )}>
+        {config.icon}
+        <span>{config.label}</span>
+      </div>
+    );
+  };
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -274,7 +328,20 @@ export function ChatPanel({
                 {message.role === "assistant" ? (
                   // Assistant messages: no bubble, full width
                   <div className="w-full text-sm leading-relaxed text-foreground">
-                    <p className="whitespace-pre-wrap">{message.content}</p>
+                    {/* Status indicator for streaming messages */}
+                    <StatusIndicator message={message} />
+                    
+                    {/* Only show content if there is any */}
+                    {message.content ? (
+                      <p className="whitespace-pre-wrap">{message.content}</p>
+                    ) : message.pending && !message.statusInfo ? (
+                      // Fallback spinner if pending but no status info
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <SpinnerGap size={14} className="animate-spin" />
+                        <span className="text-xs">Procesando...</span>
+                      </div>
+                    ) : null}
+                    
                     {message.attachments && message.attachments.length > 0 ? (
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         {message.attachments.map((attachment) => (

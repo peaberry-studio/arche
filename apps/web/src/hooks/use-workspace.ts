@@ -8,7 +8,6 @@ import {
   deleteSessionAction,
   updateSessionAction,
   listMessagesAction,
-  sendMessageAction,
   abortSessionAction,
   loadFileTreeAction,
   readFileAction,
@@ -20,7 +19,8 @@ import type {
   WorkspaceSession,
   WorkspaceMessage,
   WorkspaceConnectionState,
-  AvailableModel
+  AvailableModel,
+  MessageStatus
 } from '@/lib/opencode/types'
 
 export type WorkspaceDiff = {
@@ -98,6 +98,7 @@ export function useWorkspace({ slug, pollInterval = 5000 }: UseWorkspaceOptions)
   // Diffs
   const [diffs, setDiffs] = useState<WorkspaceDiff[]>([])
   const [isLoadingDiffs, setIsLoadingDiffs] = useState(false)
+  const [diffsRefreshTrigger, setDiffsRefreshTrigger] = useState(0)
   
   // Models
   const [models, setModels] = useState<AvailableModel[]>([])
@@ -216,54 +217,210 @@ export function useWorkspace({ slug, pollInterval = 5000 }: UseWorkspaceOptions)
     }
   }, [slug, activeSessionId])
   
-  // Send message
+  // Send message with SSE streaming
   const sendMessage = useCallback(async (text: string, model?: { providerId: string; modelId: string }) => {
     console.log('[useWorkspace] sendMessage called', { text, model, activeSessionId })
-    if (!activeSessionId) {
-      console.log('[useWorkspace] No activeSessionId, returning')
-      return
+    
+    // Auto-create session if none exists
+    let sessionId = activeSessionId
+    if (!sessionId) {
+      console.log('[useWorkspace] No activeSessionId, creating new session')
+      const newSession = await createSession()
+      if (!newSession) {
+        console.log('[useWorkspace] Failed to create session')
+        return
+      }
+      sessionId = newSession.id
     }
     
     // Add optimistic user message
+    const tempUserMsgId = `temp-user-${Date.now()}`
     const tempUserMsg: WorkspaceMessage = {
-      id: `temp-${Date.now()}`,
-      sessionId: activeSessionId,
+      id: tempUserMsgId,
+      sessionId: sessionId,
       role: 'user',
       content: text,
       timestamp: 'Ahora',
       parts: [{ type: 'text', text }],
       pending: true
     }
-    setMessages(prev => [...prev, tempUserMsg])
     
+    // Add placeholder assistant message with "connecting" status
+    const tempAssistantMsgId = `temp-assistant-${Date.now()}`
+    const tempAssistantMsg: WorkspaceMessage = {
+      id: tempAssistantMsgId,
+      sessionId: sessionId,
+      role: 'assistant',
+      content: '',
+      timestamp: 'Ahora',
+      parts: [],
+      pending: true,
+      statusInfo: { status: 'thinking' }
+    }
+    
+    setMessages(prev => [...prev, tempUserMsg, tempAssistantMsg])
     setIsSending(true)
+    
+    let accumulatedText = ''
+    let actualMessageId: string | null = null
+    
     try {
-      console.log('[useWorkspace] Calling sendMessageAction...')
-      const result = await sendMessageAction(slug, activeSessionId, text, model)
-      console.log('[useWorkspace] sendMessageAction result:', result)
-      if (result.ok && result.message) {
-        // Replace temp message and add assistant response
-        setMessages(prev => {
-          const withoutTemp = prev.filter(m => m.id !== tempUserMsg.id)
-          // The server returns the assistant message, but we need to also add the user message
-          // The assistant message has the actual user message as a preceding entry
-          return [...withoutTemp, {
-            ...tempUserMsg,
-            id: `user-${Date.now()}`,
-            pending: false
-          }, result.message!]
-        })
-        
-        // Refresh diffs after assistant responds
-        refreshDiffs()
-      } else {
-        // Remove optimistic message on error
-        setMessages(prev => prev.filter(m => m.id !== tempUserMsg.id))
+      // Use SSE streaming endpoint
+      const response = await fetch(`/api/w/${slug}/chat/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId, text, model })
+      })
+      
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Failed to send message')
       }
+      
+      const reader = response.body?.getReader()
+      if (!reader) {
+        throw new Error('No response body')
+      }
+      
+      const decoder = new TextDecoder()
+      let buffer = ''
+      
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        
+        buffer += decoder.decode(value, { stream: true })
+        
+        // Parse SSE events
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+        
+        let eventType = ''
+        let eventData = ''
+        
+        for (const line of lines) {
+          if (line.startsWith('event:')) {
+            eventType = line.slice(6).trim()
+          } else if (line.startsWith('data:')) {
+            eventData = line.slice(5).trim()
+          } else if (line === '' && eventData) {
+            // Process event
+            try {
+              const data = JSON.parse(eventData)
+              
+              switch (eventType) {
+                case 'status': {
+                  const status = data.status as MessageStatus
+                  setMessages(prev => prev.map(m => {
+                    if (m.id === tempAssistantMsgId) {
+                      return {
+                        ...m,
+                        statusInfo: { 
+                          status,
+                          toolName: data.toolName,
+                          detail: data.detail
+                        }
+                      }
+                    }
+                    return m
+                  }))
+                  break
+                }
+                
+                case 'message_start': {
+                  actualMessageId = data.messageId
+                  break
+                }
+                
+                case 'text': {
+                  accumulatedText += data.text || ''
+                  setMessages(prev => prev.map(m => {
+                    if (m.id === tempAssistantMsgId) {
+                      return {
+                        ...m,
+                        content: accumulatedText,
+                        statusInfo: { status: 'writing' }
+                      }
+                    }
+                    return m
+                  }))
+                  break
+                }
+                
+                case 'tool': {
+                  // Could show tool invocations in the UI
+                  console.log('[useWorkspace] Tool event:', data)
+                  break
+                }
+                
+                case 'done': {
+                  // Finalize messages
+                  setMessages(prev => prev.map(m => {
+                    if (m.id === tempUserMsgId) {
+                      return { ...m, id: `user-${Date.now()}`, pending: false }
+                    }
+                    if (m.id === tempAssistantMsgId) {
+                      return {
+                        ...m,
+                        id: actualMessageId || `msg-${Date.now()}`,
+                        pending: false,
+                        statusInfo: { status: 'complete' }
+                      }
+                    }
+                    return m
+                  }))
+                  
+                  // Trigger diffs refresh after completion
+                  setDiffsRefreshTrigger(prev => prev + 1)
+                  break
+                }
+                
+                case 'error': {
+                  setMessages(prev => prev.map(m => {
+                    if (m.id === tempAssistantMsgId) {
+                      return {
+                        ...m,
+                        pending: false,
+                        statusInfo: { status: 'error', detail: data.error }
+                      }
+                    }
+                    return m
+                  }))
+                  break
+                }
+              }
+            } catch {
+              // Invalid JSON, skip
+            }
+            
+            eventType = ''
+            eventData = ''
+          }
+        }
+      }
+      
+    } catch (error) {
+      console.error('[useWorkspace] Streaming error:', error)
+      setMessages(prev => prev.map(m => {
+        if (m.id === tempAssistantMsgId) {
+          return {
+            ...m,
+            pending: false,
+            statusInfo: { 
+              status: 'error', 
+              detail: error instanceof Error ? error.message : 'Unknown error' 
+            }
+          }
+        }
+        if (m.id === tempUserMsgId) {
+          return { ...m, pending: false }
+        }
+        return m
+      }))
     } finally {
       setIsSending(false)
     }
-  }, [slug, activeSessionId])
+  }, [slug, activeSessionId, createSession])
   
   // Abort session
   const abortSession = useCallback(async () => {
@@ -329,6 +486,13 @@ export function useWorkspace({ slug, pollInterval = 5000 }: UseWorkspaceOptions)
       refreshDiffs()
     }
   }, [activeSessionId, isConnected, refreshMessages, refreshDiffs])
+  
+  // Refresh diffs when triggered by message completion
+  useEffect(() => {
+    if (diffsRefreshTrigger > 0 && activeSessionId && isConnected) {
+      refreshDiffs()
+    }
+  }, [diffsRefreshTrigger, activeSessionId, isConnected, refreshDiffs])
   
   // Poll for session status updates
   useEffect(() => {
