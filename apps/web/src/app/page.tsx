@@ -37,7 +37,7 @@ const capabilities = [
   "Auditoría completa",
 ];
 
-const words = ["aprende", "se adapta", "evoluciona", "conecta"];
+const words = ["Se adapta a", "Evoluciona con", "Conecta con", "Aprende de"];
 
 export default function Home() {
   const [wordIndex, setWordIndex] = useState(0);
@@ -92,7 +92,7 @@ export default function Home() {
           {/* Background Image */}
           <div className="absolute inset-0">
             <Image
-              src="/landing-background.jpeg"
+                src="/landing_bg_variant.jpeg"
               alt="La conexión entre humanidad y tecnología"
               fill
               className="object-cover"
@@ -133,7 +133,6 @@ export default function Home() {
           <div className="relative z-10 mx-auto max-w-5xl px-6 text-center">
 
             <h1 className="font-[family-name:var(--font-display)] text-5xl font-semibold tracking-tight sm:text-6xl lg:text-7xl xl:text-8xl">
-              <span className="text-amber-50 drop-shadow-[0_2px_10px_rgba(0,0,0,0.3)]">La IA que</span>{" "}
               <span
                 className={`inline-block text-orange-200 transition-all duration-300 drop-shadow-[0_0_30px_rgba(251,146,60,0.5)] ${
                   isVisible
@@ -144,7 +143,7 @@ export default function Home() {
                 {words[wordIndex]}
               </span>
               <br />
-              <span className="text-amber-50 drop-shadow-[0_2px_10px_rgba(0,0,0,0.3)]">con tu empresa</span>
+              <span className="text-amber-50 drop-shadow-[0_2px_10px_rgba(0,0,0,0.3)]">tu empresa</span>
             </h1>
 
             <div className="mt-12 flex flex-wrap items-center justify-center gap-4">

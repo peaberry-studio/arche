@@ -17,6 +17,7 @@
   "dependencies": {
     "@prisma/adapter-pg": "^7.3.0",
     "@prisma/client": "^7.3.0",
+    "@phosphor-icons/react": "^2.1.6",
     "@radix-ui/react-label": "^2.1.0",
     "@radix-ui/react-slot": "^1.1.0",
     "argon2": "^0.31.2",
