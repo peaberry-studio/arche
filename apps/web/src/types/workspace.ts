@@ -3,6 +3,8 @@
  * These are the shapes expected by UI components, independent of the OpenCode SDK types.
  */
 
+import type { MessagePart } from "@/lib/opencode/types";
+
 export type ChatSession = {
   id: string;
   title: string;
@@ -38,6 +40,8 @@ export type ChatMessage = {
   role: "user" | "assistant" | "system";
   content: string;
   timestamp: string;
+  /** Message parts with rich content (tools, files, etc.) */
+  parts?: MessagePart[];
   attachments?: Array<{
     type: "file" | "snippet";
     label: string;

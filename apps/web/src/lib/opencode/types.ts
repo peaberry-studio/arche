@@ -75,13 +75,44 @@ export type WorkspaceMessage = {
 }
 
 /**
+ * Tool invocation state matching OpenCode's ToolState.
+ */
+export type ToolState = 
+  | { status: 'pending'; input: Record<string, unknown> }
+  | { status: 'running'; input: Record<string, unknown>; title?: string }
+  | { status: 'completed'; input: Record<string, unknown>; output: string; title: string }
+  | { status: 'error'; input: Record<string, unknown>; error: string }
+
+/**
  * Message part types we handle in UI.
+ * Maps to OpenCode's Part types with UI-friendly structure.
  */
 export type MessagePart = 
+  // Content parts
   | { type: 'text'; text: string }
-  | { type: 'tool-invocation'; toolName: string; args: Record<string, unknown>; result?: unknown }
-  | { type: 'file'; path: string }
+  | { type: 'reasoning'; text: string }
+  | { type: 'file'; path: string; filename?: string; mime?: string; url?: string }
   | { type: 'image'; url: string }
+  
+  // Tool parts
+  | { type: 'tool'; id: string; name: string; state: ToolState }
+  
+  // Step parts (for showing progress)
+  | { type: 'step-start'; id: string; snapshot?: string }
+  | { type: 'step-finish'; id: string; reason: string; cost: number; tokens: { input: number; output: number } }
+  
+  // Code/diff parts
+  | { type: 'patch'; id: string; files: string[] }
+  
+  // Agent parts
+  | { type: 'agent'; id: string; name: string }
+  | { type: 'subtask'; id: string; prompt: string; description: string; agent: string }
+  
+  // Error/retry parts
+  | { type: 'retry'; id: string; attempt: number; error: string }
+  
+  // Fallback for unknown types - renders raw data for debugging
+  | { type: 'unknown'; originalType: string; data: Record<string, unknown> }
 
 /**
  * Status types for streaming message state.

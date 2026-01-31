@@ -10,11 +10,12 @@ export const dynamic = 'force-dynamic'
 /**
  * SSE streaming endpoint for chat messages.
  * 
- * Flow:
- * 1. Client POSTs with sessionId and message text
- * 2. Server starts the message via promptAsync (non-blocking)
- * 3. Server subscribes to OpenCode SSE events
- * 4. Server forwards relevant events to client as SSE
+ * Events emitted to client:
+ * - status: { status: 'connecting' | 'thinking' | 'reasoning' | 'tool-calling' | 'writing' | 'complete' | 'error', toolName?, detail? }
+ * - text: { text: string } - Incremental text delta
+ * - tool: { id, name, status, input?, output?, title? } - Tool invocation update
+ * - done: { refresh: true } - Stream complete, client should refresh messages
+ * - error: { error: string }
  */
 export async function POST(
   request: NextRequest,
@@ -89,11 +90,9 @@ export async function POST(
         controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`))
       }
       
-      let eventSource: EventSource | null = null
       let aborted = false
       
       try {
-        // Send initial status
         sendEvent('status', { status: 'connecting' })
         
         // Start the message (async, non-blocking)
@@ -102,8 +101,10 @@ export async function POST(
           ...(model && { model: { providerID: model.providerId, modelID: model.modelId } })
         }
         
-        // Use promptAsync endpoint (returns 204 immediately)
-        const promptResponse = await fetch(`${baseUrl}/session/${sessionId}/prompt/async`, {
+        const promptUrl = `${baseUrl}/session/${sessionId}/prompt_async`
+        console.log('[stream] POST to:', promptUrl)
+        
+        const promptResponse = await fetch(promptUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -112,8 +113,11 @@ export async function POST(
           body: JSON.stringify(promptBody)
         })
         
+        console.log('[stream] prompt_async response:', promptResponse.status)
+        
         if (!promptResponse.ok) {
           const errorText = await promptResponse.text()
+          console.log('[stream] prompt_async error:', errorText)
           sendEvent('error', { error: `Failed to start message: ${errorText}` })
           controller.close()
           return
@@ -123,8 +127,8 @@ export async function POST(
         
         // Subscribe to SSE events from OpenCode
         const eventsUrl = `${baseUrl}/event`
+        console.log('[stream] Connecting to events:', eventsUrl)
         
-        // Use fetch with streaming for SSE
         const eventsResponse = await fetch(eventsUrl, {
           method: 'GET',
           headers: {
@@ -134,7 +138,10 @@ export async function POST(
           }
         })
         
+        console.log('[stream] Events connection:', eventsResponse.status)
+        
         if (!eventsResponse.ok || !eventsResponse.body) {
+          console.log('[stream] Events connection failed')
           sendEvent('error', { error: 'Failed to connect to event stream' })
           controller.close()
           return
@@ -143,12 +150,18 @@ export async function POST(
         const reader = eventsResponse.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
-        let currentMessageId: string | null = null
+        
+        // Track state for the assistant response
+        let lastTextLength = 0
+        let currentStatus = 'thinking'
+        
+        console.log('[stream] Starting to read events...')
         
         while (!aborted) {
           const { done, value } = await reader.read()
           
           if (done) {
+            console.log('[stream] Event stream ended')
             break
           }
           
@@ -156,7 +169,7 @@ export async function POST(
           
           // Parse SSE events from buffer
           const lines = buffer.split('\n')
-          buffer = lines.pop() || '' // Keep incomplete line in buffer
+          buffer = lines.pop() || ''
           
           let eventType = ''
           let eventData = ''
@@ -171,82 +184,177 @@ export async function POST(
               try {
                 const event = JSON.parse(eventData)
                 
-                // Filter events for our session
-                if (event.properties?.sessionID && event.properties.sessionID !== sessionId) {
+                // Get sessionID from event
+                const eventSessionId = event.properties?.sessionID || event.properties?.info?.sessionID
+                
+                // Filter events for our session only
+                if (eventSessionId && eventSessionId !== sessionId) {
                   eventType = ''
                   eventData = ''
                   continue
                 }
                 
-                // Handle different event types
+                console.log('[stream] Event:', event.type)
+                
                 switch (event.type) {
-                  case 'message.part.updated': {
-                    const part = event.properties?.part
-                    const delta = event.properties?.delta
+                  // Session status changes
+                  case 'session.status': {
+                    const status = event.properties?.status
+                    console.log('[stream] Session status:', status?.type)
                     
-                    if (!currentMessageId && event.properties?.messageID) {
-                      currentMessageId = event.properties.messageID
-                      sendEvent('message_start', { messageId: currentMessageId })
-                    }
-                    
-                    if (part) {
-                      // Determine status based on part type
-                      if (part.type === 'text') {
-                        sendEvent('status', { status: 'writing' })
-                        sendEvent('text', { text: delta || part.text, messageId: currentMessageId })
-                      } else if (part.type === 'reasoning') {
-                        sendEvent('status', { status: 'reasoning' })
-                        if (part.text) {
-                          sendEvent('reasoning', { text: part.text })
-                        }
-                      } else if (part.type === 'tool') {
-                        const toolState = part.state || 'pending'
-                        sendEvent('status', { 
-                          status: 'tool-calling',
-                          toolName: part.tool?.name || part.name,
-                          toolState
-                        })
-                        sendEvent('tool', { 
-                          name: part.tool?.name || part.name,
-                          state: toolState,
-                          input: part.input,
-                          output: part.output
-                        })
-                      } else if (part.type === 'step-start') {
-                        sendEvent('status', { status: 'thinking' })
-                      } else if (part.type === 'step-finish') {
-                        // Step finished, might have more steps
-                        sendEvent('step_finish', { 
-                          tokens: part.tokens,
-                          cost: part.cost
-                        })
-                      }
+                    if (status?.type === 'busy' && currentStatus !== 'writing') {
+                      currentStatus = 'thinking'
+                      sendEvent('status', { status: 'thinking' })
+                    } else if (status?.type === 'idle') {
+                      console.log('[stream] Session idle, completing')
+                      sendEvent('status', { status: 'complete' })
+                      sendEvent('done', { refresh: true })
+                      aborted = true
                     }
                     break
                   }
                   
                   case 'session.idle': {
-                    // Session finished processing
+                    console.log('[stream] Session idle event, completing')
                     sendEvent('status', { status: 'complete' })
-                    sendEvent('done', { messageId: currentMessageId })
+                    sendEvent('done', { refresh: true })
                     aborted = true
                     break
                   }
                   
-                  case 'session.status': {
-                    const status = event.properties?.status
-                    if (status?.type === 'busy') {
-                      sendEvent('status', { status: 'thinking' })
-                    } else if (status?.type === 'idle') {
-                      sendEvent('status', { status: 'complete' })
-                      sendEvent('done', { messageId: currentMessageId })
-                      aborted = true
+                  case 'session.error': {
+                    const error = event.properties?.error
+                    console.log('[stream] Session error:', error)
+                    sendEvent('status', { status: 'error', detail: error?.data?.message || 'Unknown error' })
+                    sendEvent('error', { error: error?.data?.message || 'Unknown error' })
+                    aborted = true
+                    break
+                  }
+                  
+                  // Message part updates
+                  case 'message.part.updated': {
+                    const part = event.properties?.part
+                    const delta = event.properties?.delta
+                    
+                    if (!part) break
+                    
+                    // Ignore parts from user messages
+                    // We detect this by checking if the messageID matches a user message pattern
+                    // or by the absence of assistant-specific fields
+                    
+                    switch (part.type) {
+                      case 'text': {
+                        // Text content from assistant
+                        if (currentStatus !== 'writing') {
+                          currentStatus = 'writing'
+                          sendEvent('status', { status: 'writing' })
+                        }
+                        
+                        // Calculate delta if not provided
+                        let textToSend = ''
+                        if (delta !== undefined && delta !== null && delta !== '') {
+                          textToSend = delta
+                        } else if (part.text) {
+                          const fullText = String(part.text)
+                          textToSend = fullText.slice(lastTextLength)
+                          lastTextLength = fullText.length
+                        }
+                        
+                        if (textToSend) {
+                          sendEvent('text', { text: textToSend })
+                        }
+                        break
+                      }
+                      
+                      case 'reasoning': {
+                        if (currentStatus !== 'reasoning') {
+                          currentStatus = 'reasoning'
+                          sendEvent('status', { status: 'reasoning' })
+                        }
+                        break
+                      }
+                      
+                      case 'tool': {
+                        // Tool invocation
+                        const state = part.state
+                        const toolName = part.tool || 'unknown'
+                        
+                        if (state?.status === 'pending' || state?.status === 'running') {
+                          currentStatus = 'tool-calling'
+                          sendEvent('status', { 
+                            status: 'tool-calling', 
+                            toolName,
+                            detail: state.title
+                          })
+                        }
+                        
+                        sendEvent('tool', {
+                          id: part.callID || part.id,
+                          name: toolName,
+                          status: state?.status || 'pending',
+                          input: state?.input,
+                          output: state?.status === 'completed' ? state.output : undefined,
+                          title: state?.title
+                        })
+                        
+                        // After tool completes, go back to thinking
+                        if (state?.status === 'completed' || state?.status === 'error') {
+                          currentStatus = 'thinking'
+                          sendEvent('status', { status: 'thinking' })
+                        }
+                        break
+                      }
+                      
+                      case 'step-start': {
+                        // New step starting
+                        if (currentStatus !== 'thinking') {
+                          currentStatus = 'thinking'
+                          sendEvent('status', { status: 'thinking' })
+                        }
+                        break
+                      }
+                      
+                      case 'step-finish': {
+                        // Step finished - might have more steps
+                        console.log('[stream] Step finished')
+                        break
+                      }
+                      
+                      // Ignore metadata parts that shouldn't be displayed
+                      case 'snapshot':
+                      case 'patch':
+                      case 'compaction':
+                      case 'agent':
+                      case 'retry':
+                        // These are internal parts, don't display
+                        break
+                      
+                      case 'file': {
+                        // File attachment - could show in UI
+                        console.log('[stream] File part:', part.filename || part.url)
+                        break
+                      }
+                      
+                      default:
+                        console.log('[stream] Unknown part type:', part.type)
                     }
                     break
                   }
+                  
+                  // Ignore other event types
+                  case 'message.updated':
+                  case 'session.updated':
+                  case 'session.created':
+                  case 'file.edited':
+                  case 'todo.updated':
+                    // These are informational, don't need to forward
+                    break
+                    
+                  default:
+                    console.log('[stream] Unhandled event type:', event.type)
                 }
-              } catch {
-                // Invalid JSON, skip
+              } catch (parseError) {
+                console.log('[stream] Failed to parse event:', eventData.substring(0, 100))
               }
               
               eventType = ''
@@ -258,10 +366,12 @@ export async function POST(
         reader.releaseLock()
         
       } catch (error) {
+        console.log('[stream] Error:', error)
         sendEvent('error', { 
           error: error instanceof Error ? error.message : 'Unknown error' 
         })
       } finally {
+        console.log('[stream] Closing stream')
         controller.close()
       }
     }

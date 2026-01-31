@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, useRef } from 'react'
 import {
   checkConnectionAction,
   listSessionsAction,
@@ -94,6 +94,7 @@ export function useWorkspace({ slug, pollInterval = 5000 }: UseWorkspaceOptions)
   const [messages, setMessages] = useState<WorkspaceMessage[]>([])
   const [isLoadingMessages, setIsLoadingMessages] = useState(false)
   const [isSending, setIsSending] = useState(false)
+  const isSendingRef = useRef(false) // Ref to track sending state without causing re-renders
   
   // Diffs
   const [diffs, setDiffs] = useState<WorkspaceDiff[]>([])
@@ -139,21 +140,29 @@ export function useWorkspace({ slug, pollInterval = 5000 }: UseWorkspaceOptions)
   
   // Load sessions
   const loadSessions = useCallback(async () => {
+    console.log('[useWorkspace] loadSessions: loading...')
     setIsLoadingSessions(true)
     try {
       const result = await listSessionsAction(slug)
+      console.log('[useWorkspace] loadSessions result:', result.ok, 'sessions:', result.sessions?.length)
       if (result.ok && result.sessions) {
         setSessions(result.sessions)
         
         // Auto-select first session if none selected
-        if (!activeSessionId && result.sessions.length > 0) {
-          setActiveSessionId(result.sessions[0].id)
-        }
+        // Use functional update to avoid dependency on activeSessionId
+        const sessions = result.sessions
+        setActiveSessionId(prev => {
+          if (!prev && sessions.length > 0) {
+            console.log('[useWorkspace] Auto-selecting first session:', sessions[0].id)
+            return sessions[0].id
+          }
+          return prev
+        })
       }
     } finally {
       setIsLoadingSessions(false)
     }
-  }, [slug, activeSessionId])
+  }, [slug])
   
   // Select session
   const selectSession = useCallback((id: string) => {
@@ -204,11 +213,22 @@ export function useWorkspace({ slug, pollInterval = 5000 }: UseWorkspaceOptions)
   
   // Load messages for active session
   const refreshMessages = useCallback(async () => {
-    if (!activeSessionId) return
+    if (!activeSessionId) {
+      console.log('[useWorkspace] refreshMessages: no activeSessionId, skipping')
+      return
+    }
     
+    // Don't refresh if we're currently sending a message (use ref to avoid dependency)
+    if (isSendingRef.current) {
+      console.log('[useWorkspace] refreshMessages: skipping, currently sending')
+      return
+    }
+    
+    console.log('[useWorkspace] refreshMessages: loading for session', activeSessionId)
     setIsLoadingMessages(true)
     try {
       const result = await listMessagesAction(slug, activeSessionId)
+      console.log('[useWorkspace] refreshMessages result:', result.ok, 'messages:', result.messages?.length)
       if (result.ok && result.messages) {
         setMessages(result.messages)
       }
@@ -260,9 +280,9 @@ export function useWorkspace({ slug, pollInterval = 5000 }: UseWorkspaceOptions)
     
     setMessages(prev => [...prev, tempUserMsg, tempAssistantMsg])
     setIsSending(true)
+    isSendingRef.current = true
     
     let accumulatedText = ''
-    let actualMessageId: string | null = null
     
     try {
       // Use SSE streaming endpoint
@@ -328,7 +348,8 @@ export function useWorkspace({ slug, pollInterval = 5000 }: UseWorkspaceOptions)
                 }
                 
                 case 'message_start': {
-                  actualMessageId = data.messageId
+                  // Message started - we don't need to track the ID since we refresh at the end
+                  console.log('[useWorkspace] Message started:', data.messageId)
                   break
                 }
                 
@@ -348,30 +369,43 @@ export function useWorkspace({ slug, pollInterval = 5000 }: UseWorkspaceOptions)
                 }
                 
                 case 'tool': {
-                  // Could show tool invocations in the UI
-                  console.log('[useWorkspace] Tool event:', data)
+                  // Tool invocation - update status to show which tool is being used
+                  console.log('[useWorkspace] Tool event:', data.name, data.status)
+                  if (data.status === 'running' || data.status === 'pending') {
+                    setMessages(prev => prev.map(m => {
+                      if (m.id === tempAssistantMsgId) {
+                        return {
+                          ...m,
+                          statusInfo: { 
+                            status: 'tool-calling',
+                            toolName: data.name,
+                            detail: data.title
+                          }
+                        }
+                      }
+                      return m
+                    }))
+                  }
                   break
                 }
                 
                 case 'done': {
-                  // Finalize messages
-                  setMessages(prev => prev.map(m => {
-                    if (m.id === tempUserMsgId) {
-                      return { ...m, id: `user-${Date.now()}`, pending: false }
-                    }
-                    if (m.id === tempAssistantMsgId) {
-                      return {
-                        ...m,
-                        id: actualMessageId || `msg-${Date.now()}`,
-                        pending: false,
-                        statusInfo: { status: 'complete' }
-                      }
-                    }
-                    return m
-                  }))
+                  // Stream completed - refresh messages from server to get clean final state
+                  console.log('[useWorkspace] done event, will refresh messages')
                   
-                  // Trigger diffs refresh after completion
-                  setDiffsRefreshTrigger(prev => prev + 1)
+                  // Mark sending as complete so refreshMessages can run
+                  isSendingRef.current = false
+                  
+                  // Small delay to ensure server has persisted the message
+                  setTimeout(async () => {
+                    console.log('[useWorkspace] Refreshing messages after done')
+                    const result = await listMessagesAction(slug, sessionId)
+                    if (result.ok && result.messages) {
+                      setMessages(result.messages)
+                    }
+                    // Trigger diffs refresh after completion
+                    setDiffsRefreshTrigger(prev => prev + 1)
+                  }, 100)
                   break
                 }
                 
@@ -419,6 +453,7 @@ export function useWorkspace({ slug, pollInterval = 5000 }: UseWorkspaceOptions)
       }))
     } finally {
       setIsSending(false)
+      isSendingRef.current = false
     }
   }, [slug, activeSessionId, createSession])
   
@@ -481,6 +516,7 @@ export function useWorkspace({ slug, pollInterval = 5000 }: UseWorkspaceOptions)
   
   // Load messages when active session changes
   useEffect(() => {
+    console.log('[useWorkspace] activeSessionId changed:', activeSessionId, 'isConnected:', isConnected)
     if (activeSessionId && isConnected) {
       refreshMessages()
       refreshDiffs()

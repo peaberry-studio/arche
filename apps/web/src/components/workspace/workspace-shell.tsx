@@ -208,11 +208,14 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
       role: m.role as 'user' | 'assistant' | 'system',
       content: m.content,
       timestamp: m.timestamp,
+      parts: m.parts, // Pass all parts for rich rendering
+      statusInfo: m.statusInfo,
+      pending: m.pending,
       attachments: m.parts
         .filter(p => p.type === 'file')
         .map(p => ({
           type: 'file' as const,
-          label: (p as { path: string }).path.split('/').pop() ?? '',
+          label: (p as { path: string }).path?.split('/').pop() ?? '',
           path: (p as { path: string }).path
         }))
     }));

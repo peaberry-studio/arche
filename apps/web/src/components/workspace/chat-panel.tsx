@@ -2,19 +2,29 @@
 
 import { useRef, useState, useEffect, useMemo, useCallback } from "react";
 import {
+  ArrowClockwise,
   Brain,
   CaretDown,
   CaretLeft,
   CaretRight,
   ChatCircle,
+  CheckCircle,
   Circle,
+  Code,
+  Copy,
   DotsThree,
   File,
+  GitDiff,
+  Info,
   Lightbulb,
   PaperPlaneTilt,
   PencilSimple,
   Plus,
+  Question,
+  Robot,
   SpinnerGap,
+  TreeStructure,
+  Warning,
   Wrench,
   X,
   XCircle
@@ -29,7 +39,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import type { ChatMessage, ChatSession } from "@/types/workspace";
-import type { AvailableModel } from "@/lib/opencode/types";
+import type { AvailableModel, MessagePart } from "@/lib/opencode/types";
 
 type ChatPanelProps = {
   sessions: ChatSession[];
@@ -49,6 +59,304 @@ type ChatPanelProps = {
   selectedModel?: AvailableModel | null;
   onSelectModel?: (model: AvailableModel | null) => void;
 };
+
+/**
+ * Renders the message footer with timestamp and action icons (copy, info).
+ */
+function MessageFooter({ message }: { message: ChatMessage }) {
+  const [showTokenInfo, setShowTokenInfo] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Calculate total tokens from step-finish parts
+  const tokenInfo = useMemo(() => {
+    if (!message.parts || message.role === 'user') return null;
+    
+    let totalInput = 0;
+    let totalOutput = 0;
+    
+    for (const part of message.parts) {
+      if (part.type === 'step-finish') {
+        totalInput += part.tokens.input;
+        totalOutput += part.tokens.output;
+      }
+    }
+    
+    if (totalInput === 0 && totalOutput === 0) return null;
+    
+    return { input: totalInput, output: totalOutput, total: totalInput + totalOutput };
+  }, [message.parts, message.role]);
+
+  const handleCopy = useCallback(async () => {
+    const textToCopy = message.content || message.parts
+      ?.filter(p => p.type === 'text' || p.type === 'reasoning')
+      .map(p => (p as { text: string }).text)
+      .join('\n') || '';
+    
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(textToCopy);
+      } else {
+        // Fallback for older browsers or non-HTTPS contexts
+        const textarea = document.createElement('textarea');
+        textarea.value = textToCopy;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  }, [message.content, message.parts]);
+
+  const handleInfoClick = useCallback(() => {
+    if (hideTimeoutRef.current) {
+      clearTimeout(hideTimeoutRef.current);
+      hideTimeoutRef.current = null;
+    }
+    setShowTokenInfo(true);
+  }, []);
+
+  const handleInfoMouseLeave = useCallback(() => {
+    hideTimeoutRef.current = setTimeout(() => {
+      setShowTokenInfo(false);
+    }, 1000);
+  }, []);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (hideTimeoutRef.current) {
+        clearTimeout(hideTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const isUser = message.role === "user";
+
+  const actionButtons = (
+    <div className="flex items-center gap-1 opacity-0 pointer-events-none transition-opacity group-hover/message:opacity-100 group-hover/message:pointer-events-auto">
+      {/* Copy button */}
+      <button
+        type="button"
+        onClick={handleCopy}
+        className="rounded p-0.5 text-muted-foreground/60 hover:bg-muted hover:text-foreground"
+        title="Copiar mensaje"
+      >
+        {copied ? (
+          <CheckCircle size={12} weight="fill" className="text-primary" />
+        ) : (
+          <Copy size={12} />
+        )}
+      </button>
+      
+      {/* Info button - only for assistant messages with token info */}
+      {tokenInfo && (
+        <div 
+          className="relative"
+          onMouseLeave={handleInfoMouseLeave}
+        >
+          <button
+            type="button"
+            onClick={handleInfoClick}
+            className="rounded p-0.5 text-muted-foreground/60 hover:bg-muted hover:text-foreground"
+          >
+            <Info size={12} />
+          </button>
+          
+          {/* Token info popover */}
+          {showTokenInfo && (
+            <div className={cn(
+              "absolute bottom-full mb-1 rounded-md border border-border bg-popover px-2.5 py-1.5 text-xs shadow-md",
+              isUser ? "right-0" : "left-0"
+            )}>
+              <div className="flex flex-col gap-0.5 whitespace-nowrap">
+                <span className="font-medium">{tokenInfo.total.toLocaleString()} tokens</span>
+                <span className="text-muted-foreground">
+                  {tokenInfo.input.toLocaleString()} entrada · {tokenInfo.output.toLocaleString()} salida
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  const timestamp = (
+    <span className={cn(
+      "text-[10px] text-muted-foreground/60",
+      isUser ? "px-1" : ""
+    )}>
+      {message.timestamp}
+    </span>
+  );
+
+  return (
+    <div className="flex items-center gap-2">
+      {isUser ? (
+        <>
+          {actionButtons}
+          {timestamp}
+        </>
+      ) : (
+        <>
+          {timestamp}
+          {actionButtons}
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Renders a single message part based on its type.
+ */
+function MessagePartRenderer({ 
+  part, 
+  onOpenFile 
+}: { 
+  part: MessagePart; 
+  onOpenFile: (path: string) => void;
+}) {
+  switch (part.type) {
+    case 'text':
+      return <p className="whitespace-pre-wrap">{part.text}</p>;
+    
+    case 'reasoning':
+      return (
+        <div className="my-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
+          <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-primary">
+            <Lightbulb size={12} weight="fill" />
+            <span>Razonamiento</span>
+          </div>
+          <p className="whitespace-pre-wrap text-sm text-foreground/80">
+            {part.text}
+          </p>
+        </div>
+      );
+    
+    case 'tool': {
+      const isRunning = part.state.status === 'running' || part.state.status === 'pending';
+      const isError = part.state.status === 'error';
+      const isComplete = part.state.status === 'completed';
+      
+      return (
+        <div className={cn(
+          "my-2 rounded-lg border p-3",
+          isError ? "border-destructive/20 bg-destructive/5" :
+          "border-primary/20 bg-primary/5"
+        )}>
+          <div className="flex items-center gap-2">
+            {isRunning && <SpinnerGap size={14} className="animate-spin text-primary" />}
+            {isComplete && <CheckCircle size={14} weight="fill" className="text-primary" />}
+            {isError && <XCircle size={14} weight="fill" className="text-destructive" />}
+            <span className="text-xs font-medium">
+              {part.state.status === 'completed' && part.state.title 
+                ? part.state.title 
+                : part.name}
+            </span>
+          </div>
+          {isError && part.state.status === 'error' && (
+            <p className="mt-1 text-xs text-destructive">{part.state.error}</p>
+          )}
+        </div>
+      );
+    }
+    
+    case 'file':
+      return (
+        <button
+          type="button"
+          onClick={() => part.path && onOpenFile(part.path)}
+          className="my-1 flex items-center gap-1.5 rounded-md bg-muted/60 px-2.5 py-1.5 text-xs hover:bg-muted"
+        >
+          <File size={12} weight="bold" className="text-primary" />
+          <span>{part.filename || part.path}</span>
+        </button>
+      );
+    
+    case 'image':
+      return (
+        <div className="my-2">
+          <img 
+            src={part.url} 
+            alt="Imagen adjunta" 
+            className="max-h-64 rounded-lg border border-border"
+          />
+        </div>
+      );
+    
+    case 'step-start':
+      // No renderizar - no aporta valor visual
+      return null;
+    
+    case 'step-finish':
+      // No renderizar - los tokens se muestran en el tooltip del timestamp
+      return null;
+    
+    case 'patch':
+      return (
+        <div className="my-2 flex items-center gap-2 rounded-md bg-primary/10 px-3 py-2 text-xs">
+          <GitDiff size={14} className="text-primary" />
+          <span>Cambios en {part.files.length} archivo{part.files.length !== 1 ? 's' : ''}</span>
+        </div>
+      );
+    
+    case 'agent':
+      return (
+        <div className="my-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Robot size={12} className="text-primary" />
+          <span>Agente: {part.name}</span>
+        </div>
+      );
+    
+    case 'subtask':
+      return (
+        <div className="my-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
+          <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-primary">
+            <TreeStructure size={12} weight="fill" />
+            <span>Subtarea → {part.agent}</span>
+          </div>
+          <p className="text-sm text-foreground/80">
+            {part.description}
+          </p>
+        </div>
+      );
+    
+    case 'retry':
+      return (
+        <div className="my-2 flex items-center gap-2 rounded-md bg-primary/10 px-3 py-2 text-xs text-primary">
+          <ArrowClockwise size={14} />
+          <span>Reintentando (intento {part.attempt})...</span>
+        </div>
+      );
+    
+    case 'unknown':
+      // Fallback: render raw data for debugging
+      return (
+        <div className="my-2 rounded-lg border border-dashed border-muted-foreground/30 bg-muted/20 p-3">
+          <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            <Question size={12} />
+            <span>Tipo desconocido: {part.originalType}</span>
+          </div>
+          <pre className="overflow-x-auto text-xs text-muted-foreground">
+            {JSON.stringify(part.data, null, 2)}
+          </pre>
+        </div>
+      );
+    
+    default:
+      // TypeScript exhaustive check
+      const _exhaustive: never = part;
+      return null;
+  }
+}
 
 export function ChatPanel({
   sessions,
@@ -142,39 +450,45 @@ export function ChatPanel({
     textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
   }, []);
 
-  // Status indicator component
-  const StatusIndicator = ({ message }: { message: ChatMessage }) => {
-    if (!message.statusInfo || message.statusInfo.status === "complete" || message.statusInfo.status === "idle") {
-      return null;
-    }
+  // Get the current status from the last pending message (if any)
+  const currentStatus = useMemo(() => {
+    const lastMessage = messages[messages.length - 1];
+    if (!lastMessage?.pending || !lastMessage?.statusInfo) return null;
+    if (lastMessage.statusInfo.status === "complete" || lastMessage.statusInfo.status === "idle") return null;
+    return lastMessage.statusInfo;
+  }, [messages]);
 
-    const { status, toolName, detail } = message.statusInfo;
+  // Status indicator component - shown at the bottom of messages
+  const StatusIndicator = () => {
+    if (!currentStatus) return null;
+
+    const { status, toolName, detail } = currentStatus;
 
     const statusConfig: Record<string, { icon: React.ReactNode; label: string; className: string }> = {
       thinking: {
         icon: <Brain size={14} className="animate-pulse" />,
         label: "Pensando...",
-        className: "text-blue-500"
+        className: "text-primary"
       },
       reasoning: {
         icon: <Lightbulb size={14} className="animate-pulse" />,
         label: "Razonando...",
-        className: "text-amber-500"
+        className: "text-primary"
       },
       "tool-calling": {
         icon: <Wrench size={14} className="animate-spin" />,
         label: toolName ? `Usando ${toolName}...` : "Ejecutando herramienta...",
-        className: "text-purple-500"
+        className: "text-primary"
       },
       writing: {
         icon: <PencilSimple size={14} className="animate-pulse" />,
         label: detail ? `Escribiendo ${detail}...` : "Escribiendo...",
-        className: "text-green-500"
+        className: "text-primary"
       },
       error: {
         icon: <XCircle size={14} />,
         label: detail || "Error al procesar",
-        className: "text-red-500"
+        className: "text-destructive"
       }
     };
 
@@ -183,7 +497,7 @@ export function ChatPanel({
 
     return (
       <div className={cn(
-        "flex items-center gap-2 text-xs mb-2 py-1.5 px-3 rounded-lg bg-muted/30 w-fit",
+        "flex items-center gap-2 text-xs py-1.5 px-3 rounded-lg bg-muted/30 w-fit",
         config.className
       )}>
         {config.icon}
@@ -321,26 +635,28 @@ export function ChatPanel({
               <div
                 key={message.id}
                 className={cn(
-                  "flex flex-col gap-1.5",
+                  "group/message flex flex-col gap-1.5",
                   message.role === "user" ? "items-end" : "items-start"
                 )}
               >
                 {message.role === "assistant" ? (
                   // Assistant messages: no bubble, full width
                   <div className="w-full text-sm leading-relaxed text-foreground">
-                    {/* Status indicator for streaming messages */}
-                    <StatusIndicator message={message} />
-                    
-                    {/* Only show content if there is any */}
-                    {message.content ? (
-                      <p className="whitespace-pre-wrap">{message.content}</p>
-                    ) : message.pending && !message.statusInfo ? (
-                      // Fallback spinner if pending but no status info
-                      <div className="flex items-center gap-2 text-muted-foreground">
-                        <SpinnerGap size={14} className="animate-spin" />
-                        <span className="text-xs">Procesando...</span>
+                    {/* Render message parts if available, otherwise fall back to content */}
+                    {message.parts && message.parts.length > 0 ? (
+                      <div className="space-y-1">
+                        {message.parts.map((part, index) => (
+                          <MessagePartRenderer 
+                            key={`${message.id}-part-${index}`} 
+                            part={part} 
+                            onOpenFile={onOpenFile} 
+                          />
+                        ))}
                       </div>
+                    ) : message.content ? (
+                      <p className="whitespace-pre-wrap">{message.content}</p>
                     ) : null}
+                    {/* Don't show anything for empty pending messages - status indicator is at the bottom */}
                     
                     {message.attachments && message.attachments.length > 0 ? (
                       <div className="mt-2 flex flex-wrap gap-1.5">
@@ -390,14 +706,11 @@ export function ChatPanel({
                     ) : null}
                   </div>
                 )}
-                <span className={cn(
-                  "text-[10px] text-muted-foreground/60",
-                  message.role === "user" ? "px-1" : ""
-                )}>
-                  {message.timestamp}
-                </span>
+                <MessageFooter message={message} />
               </div>
             ))}
+            {/* Status indicator at the bottom - always visible when processing */}
+            <StatusIndicator />
             <div ref={messagesEndRef} />
           </div>
         )}

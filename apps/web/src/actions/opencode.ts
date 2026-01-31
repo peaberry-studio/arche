@@ -359,62 +359,179 @@ export async function updateSessionAction(slug: string, sessionId: string, title
 // ============================================================================
 
 /**
- * Metadata part types that should not be displayed as content.
- * These are internal OpenCode events for streaming state management.
+ * Internal-only parts that should be completely hidden.
+ * These are OpenCode internals that have no user-facing value.
  */
-const METADATA_PART_TYPES = new Set([
-  'step-start',
-  'step-finish', 
-  'path-delta',
-  'source-url'
+const HIDDEN_PART_TYPES = new Set([
+  'snapshot',     // Internal state snapshot
+  'compaction',   // Session compaction marker
 ])
 
+/**
+ * Transform OpenCode parts to UI-friendly MessagePart types.
+ * Unknown types are preserved with 'unknown' type for debugging.
+ */
 function transformParts(parts: unknown[]): MessagePart[] {
   return parts
-    .filter(p => {
-      const part = p as Record<string, unknown>
-      // Filter out metadata parts
-      if (METADATA_PART_TYPES.has(String(part.type))) {
-        return false
-      }
-      // Filter out empty reasoning parts
-      if (part.type === 'reasoning' && !part.text) {
-        return false
-      }
-      return true
-    })
     .map(p => {
       const part = p as Record<string, unknown>
-      if (part.type === 'text') {
-        return { type: 'text' as const, text: String(part.text ?? '') }
+      const partType = String(part.type ?? 'unknown')
+      const partId = String(part.id ?? `part-${Date.now()}`)
+      
+      // Completely hide internal parts
+      if (HIDDEN_PART_TYPES.has(partType)) {
+        return null
       }
-      if (part.type === 'reasoning' && part.text) {
-        // Include non-empty reasoning as text (could be rendered differently in UI later)
-        return { type: 'text' as const, text: String(part.text) }
-      }
-      if (part.type === 'tool' || part.type === 'tool-invocation' || part.type === 'tool-result') {
-        return {
-          type: 'tool-invocation' as const,
-          toolName: String(part.toolName ?? part.name ?? 'unknown'),
-          args: (part.args ?? part.input ?? {}) as Record<string, unknown>,
-          result: part.result ?? part.output
+      
+      switch (partType) {
+        case 'text': {
+          const text = String(part.text ?? '')
+          // Skip empty text parts
+          if (!text.trim()) return null
+          return { type: 'text' as const, text }
+        }
+        
+        case 'reasoning': {
+          const text = String(part.text ?? '')
+          // Skip empty reasoning
+          if (!text.trim()) return null
+          return { type: 'reasoning' as const, text }
+        }
+        
+        case 'tool': {
+          const state = part.state as Record<string, unknown> | undefined
+          const toolName = String(part.tool ?? 'unknown')
+          
+          // Map state to our ToolState type
+          let toolState: MessagePart extends { type: 'tool'; state: infer S } ? S : never
+          const status = String(state?.status ?? 'pending')
+          const input = (state?.input ?? {}) as Record<string, unknown>
+          
+          if (status === 'completed') {
+            toolState = {
+              status: 'completed',
+              input,
+              output: String(state?.output ?? ''),
+              title: String(state?.title ?? toolName)
+            }
+          } else if (status === 'error') {
+            toolState = {
+              status: 'error',
+              input,
+              error: String(state?.error ?? 'Unknown error')
+            }
+          } else if (status === 'running') {
+            toolState = {
+              status: 'running',
+              input,
+              title: state?.title ? String(state.title) : undefined
+            }
+          } else {
+            toolState = { status: 'pending', input }
+          }
+          
+          return {
+            type: 'tool' as const,
+            id: String(part.callID ?? partId),
+            name: toolName,
+            state: toolState
+          }
+        }
+        
+        case 'file': {
+          return {
+            type: 'file' as const,
+            path: String(part.filename ?? part.path ?? ''),
+            filename: part.filename ? String(part.filename) : undefined,
+            mime: part.mime ? String(part.mime) : undefined,
+            url: part.url ? String(part.url) : undefined
+          }
+        }
+        
+        case 'image': {
+          return {
+            type: 'image' as const,
+            url: String(part.url ?? '')
+          }
+        }
+        
+        case 'step-start': {
+          return {
+            type: 'step-start' as const,
+            id: partId,
+            snapshot: part.snapshot ? String(part.snapshot) : undefined
+          }
+        }
+        
+        case 'step-finish': {
+          const tokens = part.tokens as Record<string, number> | undefined
+          return {
+            type: 'step-finish' as const,
+            id: partId,
+            reason: String(part.reason ?? ''),
+            cost: Number(part.cost ?? 0),
+            tokens: {
+              input: Number(tokens?.input ?? 0),
+              output: Number(tokens?.output ?? 0)
+            }
+          }
+        }
+        
+        case 'patch': {
+          return {
+            type: 'patch' as const,
+            id: partId,
+            files: Array.isArray(part.files) ? part.files.map(String) : []
+          }
+        }
+        
+        case 'agent': {
+          return {
+            type: 'agent' as const,
+            id: partId,
+            name: String(part.name ?? 'unknown')
+          }
+        }
+        
+        case 'subtask': {
+          return {
+            type: 'subtask' as const,
+            id: partId,
+            prompt: String(part.prompt ?? ''),
+            description: String(part.description ?? ''),
+            agent: String(part.agent ?? 'unknown')
+          }
+        }
+        
+        case 'retry': {
+          const error = part.error as Record<string, unknown> | undefined
+          return {
+            type: 'retry' as const,
+            id: partId,
+            attempt: Number(part.attempt ?? 0),
+            error: String(error?.data?.message ?? error?.message ?? 'Unknown error')
+          }
+        }
+        
+        default: {
+          // Unknown type - preserve as fallback for debugging
+          console.log('[transformParts] Unknown part type:', partType, part)
+          return {
+            type: 'unknown' as const,
+            originalType: partType,
+            data: part as Record<string, unknown>
+          }
         }
       }
-      if (part.type === 'file') {
-        return { type: 'file' as const, path: String(part.path ?? part.filename ?? '') }
-      }
-      if (part.type === 'image') {
-        return { type: 'image' as const, url: String(part.url ?? part.data ?? '') }
-      }
-      // Skip unknown types silently instead of JSON stringifying them
-      return null
     })
     .filter((p): p is MessagePart => p !== null)
 }
 
 function extractTextContent(parts: MessagePart[]): string {
   return parts
-    .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+    .filter((p): p is { type: 'text'; text: string } | { type: 'reasoning'; text: string } => 
+      p.type === 'text' || p.type === 'reasoning'
+    )
     .map(p => p.text)
     .join('\n')
 }
