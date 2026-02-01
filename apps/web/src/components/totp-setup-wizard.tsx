@@ -101,10 +101,10 @@ export function TotpSetupWizard({ mode, children }: TotpSetupWizardProps) {
   async function handleRegenerate() {
     setLoading(true)
     setError('')
-    const res = await regenerateRecoveryCodes()
+    const res = await regenerateRecoveryCodes(password)
     setLoading(false)
     if (!res.ok) {
-      setError(res.error)
+      setError(res.error === 'Invalid password' ? 'Contraseña incorrecta' : res.error)
       return
     }
     setRecoveryCodes(res.recoveryCodes)
@@ -280,8 +280,21 @@ export function TotpSetupWizard({ mode, children }: TotpSetupWizardProps) {
               </DialogDescription>
             </DialogHeader>
             {error && <p className="text-sm text-destructive">{error}</p>}
+            <div className="space-y-2">
+              <label htmlFor="regen-password" className="text-sm font-medium">
+                Contraseña
+              </label>
+              <input
+                id="regen-password"
+                type="password"
+                className="w-full rounded-md border px-3 py-2 text-sm"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Introduce tu contraseña"
+              />
+            </div>
             <DialogFooter>
-              <Button onClick={handleRegenerate} disabled={loading}>
+              <Button onClick={handleRegenerate} disabled={loading || !password}>
                 {loading ? 'Regenerando...' : 'Regenerar'}
               </Button>
             </DialogFooter>

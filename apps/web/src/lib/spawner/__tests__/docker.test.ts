@@ -55,7 +55,8 @@ describe('docker', () => {
       expect(mockDockerInstance.createContainer).toHaveBeenCalledWith({
         Image: 'test-image:latest',
         name: 'opencode-user-slug',
-        Cmd: ['opencode', 'serve', '--hostname', '0.0.0.0', '--port', '4096'],
+        WorkingDir: '/workspace',
+        Cmd: ['serve', '--hostname', '0.0.0.0', '--port', '4096'],
         Env: [
           'OPENCODE_SERVER_PASSWORD=secret-password',
           'OPENCODE_SERVER_USERNAME=opencode',
@@ -63,6 +64,7 @@ describe('docker', () => {
         HostConfig: {
           NetworkMode: 'test-network',
           RestartPolicy: { Name: 'unless-stopped' },
+          Binds: ['arche-workspace-user-slug:/workspace'],
         },
         Labels: {
           'arche.managed': 'true',

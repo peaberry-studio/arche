@@ -1,3 +1,6 @@
+"use client";
+
+import { useRouter } from "next/navigation";
 import { Circle, Gear } from "@phosphor-icons/react";
 
 import { Button } from "@/components/ui/button";
@@ -19,6 +22,7 @@ export function WorkspaceHeader({
   slug,
   status
 }: WorkspaceHeaderProps) {
+  const router = useRouter();
   const statusStyle = statusConfig[status];
 
   return (
@@ -50,6 +54,7 @@ export function WorkspaceHeader({
             variant="ghost"
             className="h-7 w-7"
             aria-label="Ajustes"
+            onClick={() => router.push("/settings/security")}
           >
             <Gear size={16} weight="bold" />
           </Button>

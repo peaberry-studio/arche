@@ -126,6 +126,7 @@ export async function disable2FA(
         totpEnabled: false,
         totpSecret: null,
         totpVerifiedAt: null,
+        totpLastUsedAt: null,
       },
     })
 
@@ -140,15 +141,20 @@ export async function disable2FA(
   return { ok: true }
 }
 
-export async function regenerateRecoveryCodes(): Promise<
+export async function regenerateRecoveryCodes(password: string): Promise<
   { ok: true; recoveryCodes: string[] } | { ok: false; error: string }
 > {
+  if (!password) return { ok: false, error: 'Password is required' }
+
   const session = await getAuthenticatedUser()
   if (!session) return { ok: false, error: 'Not authenticated' }
 
   const user = await prisma.user.findUnique({ where: { id: session.user.id } })
   if (!user) return { ok: false, error: 'User not found' }
   if (!user.totpEnabled) return { ok: false, error: '2FA is not enabled' }
+
+  const valid = await verifyPassword(password, user.passwordHash)
+  if (!valid) return { ok: false, error: 'Invalid password' }
 
   const recoveryCodes = generateRecoveryCodes()
   const hashedCodes = await Promise.all(

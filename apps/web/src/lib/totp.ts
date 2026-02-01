@@ -24,6 +24,9 @@ export function encryptSecret(plaintext: string): string {
 export function decryptSecret(encoded: string): string {
   const key = getEncryptionKey()
   const [ivB64, authTagB64, encryptedB64] = encoded.split(':')
+  if (!ivB64 || !authTagB64 || !encryptedB64) {
+    throw new Error('Malformed encrypted secret')
+  }
   const iv = Buffer.from(ivB64, 'base64')
   const authTag = Buffer.from(authTagB64, 'base64')
   const encrypted = Buffer.from(encryptedB64, 'base64')

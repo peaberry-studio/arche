@@ -161,13 +161,14 @@ describe('getInstanceStatus', () => {
   it('returns instance status fields', async () => {
     const now = new Date()
     mockPrisma.instance.findUnique.mockResolvedValue({
-      status: 'running', startedAt: now, stoppedAt: null, lastActivityAt: now,
+      status: 'running', startedAt: now, stoppedAt: null, lastActivityAt: now, containerId: 'abc',
     } as never)
+    mockDocker.isContainerRunning.mockResolvedValue(true)
 
     const result = await getInstanceStatus('alice')
 
     expect(result).toEqual({
-      status: 'running', startedAt: now, stoppedAt: null, lastActivityAt: now,
+      status: 'running', startedAt: now, stoppedAt: null, lastActivityAt: now, containerId: 'abc',
     })
   })
 

@@ -20,7 +20,7 @@ function getInstanceUrl(slug: string): string {
   const containerName = `opencode-${slug}`
   // When running in Docker, containers communicate via container name
   // When running locally for dev, we might need to use localhost
-  const isDocker = process.env.DOCKER_PROXY_HOST !== undefined
+  const isDocker = process.env.DOCKER_PROXY_HOST !== undefined || process.env.DOCKER_SOCKET_PATH !== undefined
   
   if (isDocker) {
     return `http://${containerName}:${OPENCODE_PORT}`
