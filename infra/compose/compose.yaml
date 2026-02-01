@@ -88,6 +88,8 @@ services:
       - traefik.http.services.arche-web.loadbalancer.server.port=3000
 
 networks:
+  default:
+    name: arche_default
   arche-internal:
     name: arche-internal
 
