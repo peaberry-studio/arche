@@ -20,7 +20,7 @@ function getInstanceUrl(slug: string): string {
   const containerName = `opencode-${slug}`
   // When running in Docker, containers communicate via container name
   // When running locally for dev, we might need to use localhost
-  const isDocker = process.env.DOCKER_PROXY_HOST !== undefined
+  const isDocker = process.env.DOCKER_PROXY_HOST !== undefined || process.env.DOCKER_SOCKET_PATH !== undefined
   
   if (isDocker) {
     return `http://${containerName}:${OPENCODE_PORT}`
@@ -77,7 +77,7 @@ export async function createInstanceClient(slug: string): Promise<OpencodeClient
     fetch: async (input, init) => {
       const headers = new Headers(init?.headers)
       headers.set('Authorization', authHeader)
-      const url = typeof input === 'string' ? input : input.url
+      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : input.toString()
       console.log(`[opencode/client] ${init?.method ?? 'GET'} ${url}`)
       try {
         const response = await fetch(input, { ...init, headers })

@@ -12,7 +12,8 @@ import type {
   WorkspaceMessage,
   AvailableModel,
   MessagePart,
-  WorkspaceConnectionState
+  WorkspaceConnectionState,
+  ToolState
 } from '@/lib/opencode/types'
 
 // ============================================================================
@@ -372,8 +373,8 @@ const HIDDEN_PART_TYPES = new Set([
  * Unknown types are preserved with 'unknown' type for debugging.
  */
 function transformParts(parts: unknown[]): MessagePart[] {
-  return parts
-    .map(p => {
+  const mapped = parts
+    .map((p): MessagePart | null => {
       const part = p as Record<string, unknown>
       const partType = String(part.type ?? 'unknown')
       const partId = String(part.id ?? `part-${Date.now()}`)
@@ -401,9 +402,9 @@ function transformParts(parts: unknown[]): MessagePart[] {
         case 'tool': {
           const state = part.state as Record<string, unknown> | undefined
           const toolName = String(part.tool ?? 'unknown')
-          
+
           // Map state to our ToolState type
-          let toolState: MessagePart extends { type: 'tool'; state: infer S } ? S : never
+          let toolState: ToolState
           const status = String(state?.status ?? 'pending')
           const input = (state?.input ?? {}) as Record<string, unknown>
           
@@ -505,11 +506,12 @@ function transformParts(parts: unknown[]): MessagePart[] {
         
         case 'retry': {
           const error = part.error as Record<string, unknown> | undefined
+          const errorData = error?.data as Record<string, unknown> | undefined
           return {
             type: 'retry' as const,
             id: partId,
             attempt: Number(part.attempt ?? 0),
-            error: String(error?.data?.message ?? error?.message ?? 'Unknown error')
+            error: String(errorData?.message ?? error?.message ?? 'Unknown error')
           }
         }
         
@@ -524,7 +526,7 @@ function transformParts(parts: unknown[]): MessagePart[] {
         }
       }
     })
-    .filter((p): p is MessagePart => p !== null)
+  return mapped.filter((p): p is MessagePart => p !== null)
 }
 
 function extractTextContent(parts: MessagePart[]): string {

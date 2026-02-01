@@ -65,6 +65,8 @@ services:
       # Spawner
       DOCKER_PROXY_HOST: docker-socket-proxy
       DOCKER_PROXY_PORT: "2375"
+      # Encryption key for instance passwords (generate with: openssl rand -base64 32)
+      ARCHE_ENCRYPTION_KEY: ${ARCHE_ENCRYPTION_KEY:-}
       # Usar imagen personalizada con git (build con: docker build -t arche-workspace infra/workspace-image)
       OPENCODE_IMAGE: arche-workspace:latest
       OPENCODE_NETWORK: arche-internal
@@ -88,6 +90,8 @@ services:
       - traefik.http.services.arche-web.loadbalancer.server.port=3000
 
 networks:
+  default:
+    name: arche_default
   arche-internal:
     name: arche-internal
 

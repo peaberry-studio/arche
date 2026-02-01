@@ -18,13 +18,17 @@ model User {
   slug         String      @unique
   role         UserRole    @default(USER)
   passwordHash String      @map("password_hash")
-  totpEnabled  Boolean     @default(false) @map("totp_enabled")
-  createdAt    DateTime    @default(now()) @map("created_at")
-  updatedAt    DateTime    @updatedAt @map("updated_at")
+  totpEnabled    Boolean     @default(false) @map("totp_enabled")
+  totpSecret     String?     @map("totp_secret")
+  totpVerifiedAt DateTime?   @map("totp_verified_at")
+  totpLastUsedAt DateTime?   @map("totp_last_used_at")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
 
-  sessions     Session[]
-  auditEvents  AuditEvent[] @relation("AuditActor")
-  instance     Instance?
+  sessions           Session[]
+  auditEvents        AuditEvent[] @relation("AuditActor")
+  instance           Instance?
+  twoFactorRecovery  TwoFactorRecovery[]
 
   @@map("users")
 }
@@ -88,4 +92,16 @@ model AuditEvent {
   @@index([actorUserId])
   @@index([createdAt])
   @@map("audit_events")
+}
+
+model TwoFactorRecovery {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String    @map("code_hash")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("two_factor_recovery")
 }

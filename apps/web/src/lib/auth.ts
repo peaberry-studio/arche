@@ -6,6 +6,9 @@ import { hashSessionToken, newSessionToken } from '@/lib/security'
 export const SESSION_COOKIE_NAME = 'arche_session'
 
 export function getCookieDomain(): string | undefined {
+  // In development, don't set domain to allow localhost to work
+  if (process.env.NODE_ENV !== 'production') return undefined
+
   const explicit = process.env.ARCHE_COOKIE_DOMAIN?.trim()
   if (explicit) return explicit
 
