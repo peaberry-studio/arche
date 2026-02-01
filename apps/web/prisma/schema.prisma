@@ -29,6 +29,7 @@ model User {
   auditEvents        AuditEvent[] @relation("AuditActor")
   instance           Instance?
   twoFactorRecovery  TwoFactorRecovery[]
+  connectors         Connector[]
 
   @@map("users")
 }
@@ -92,6 +93,23 @@ model AuditEvent {
   @@index([actorUserId])
   @@index([createdAt])
   @@map("audit_events")
+}
+
+model Connector {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type      String   // "linear" | "notion" | "slack" | "github" | "custom"
+  name      String
+  config    String   // AES-256-GCM encrypted JSON
+  enabled   Boolean  @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("connectors")
 }
 
 model TwoFactorRecovery {
