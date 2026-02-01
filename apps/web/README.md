@@ -81,7 +81,7 @@ Traefik auth (simula el host usuario):
 ```bash
 curl -i \
   "http://arche.lvh.me/auth/traefik" \
-  -H "X-Forwarded-Host: u-admin.arche.lvh.me" \
+  -H "X-Forwarded-Host: admin.arche.lvh.me" \
   --cookie "arche_session=<pega_aqui_el_valor_del_cookie>"
 ```
 

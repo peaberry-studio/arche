@@ -1,9 +1,10 @@
 # Spawner + runtime OpenCode (Docker)
 
 - Asignado a: [[Company/People/Jose Miguel Hernandez|José Miguel Hernández]]
-- Estado: En progreso (planificación completada)
+- Estado: Hecha
 
 - Issue: https://github.com/peaberry-studio/arche/issues/3
+- PR: https://github.com/peaberry-studio/arche/pull/10
 - Diseño: [[docs/plans/2026-01-31-spawner-design|Plan de diseño]]
 
 ## Objetivo
@@ -12,11 +13,11 @@ Implementar el "Spawner" para crear/parar instancias `opencode-<slug>` por usuar
 
 ## Entregables mínimos
 
-- [ ] Interfaz estable: `start(slug)`, `stop(slug)`, `status(slug)` (aunque viva dentro del BFF al inicio)
-- [ ] Plantilla runtime `opencode-<slug>` ejecutando `opencode serve`
-- [ ] Generación y persistencia de `OPENCODE_SERVER_PASSWORD` por instancia
-- [ ] Contenedor accesible solo en red Docker interna (no expuesto a Internet)
-- [ ] Modelo de datos mínimo: `instances` (estado, timestamps, credenciales/runtime metadata)
+- [x] Interfaz estable: `start(slug)`, `stop(slug)`, `status(slug)` (aunque viva dentro del BFF al inicio)
+- [x] Plantilla runtime `opencode-<slug>` ejecutando `opencode serve`
+- [x] Generación y persistencia de `OPENCODE_SERVER_PASSWORD` por instancia
+- [x] Contenedor accesible solo en red Docker interna (no expuesto a Internet)
+- [x] Modelo de datos mínimo: `instances` (estado, timestamps, credenciales/runtime metadata)
 
 ## Implementación (repositorio)
 
@@ -50,7 +51,6 @@ Implementar el "Spawner" para crear/parar instancias `opencode-<slug>` por usuar
 
 ## Pendiente para "cerrar" en entorno real
 
-- **Bloqueante:** Esperar merge del PR de Iñaki (`issue-2-auth-sesiones-forwardauth`) para añadir modelo `Instance` al schema Prisma
 - Infra: Verificar `docker-socket-proxy` y red `arche-internal` con Alberto
 - Test end-to-end: start → running → idle → reaped
 - Integración OCPROXY: endpoint `PATCH /api/instances/[slug]/activity`

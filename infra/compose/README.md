@@ -17,11 +17,25 @@ Incluye (v0):
 Para probar subdominios sin tocar DNS, usa `lvh.me` (resuelve a `127.0.0.1`).
 
 - Base: `arche.lvh.me`
-- Usuario: `u-admin.arche.lvh.me`
+- Usuario: `admin.arche.lvh.me`
 
 ## Arranque (local)
 
-1) Variables de entorno de `apps/web`
+1) **Build de la imagen de workspace** (una sola vez o cuando cambie):
+
+```bash
+docker build -t arche-workspace:latest ../workspace-image
+```
+
+2) **Preparar el KB** (Knowledge Base):
+
+```bash
+# Crear directorio y deploy del KB
+mkdir -p /opt/arche/kb
+../../scripts/deploy-kb.sh /opt/arche/kb
+```
+
+3) **Variables de entorno de `apps/web`**
 
 Copia `apps/web/.env.example` a `apps/web/.env`.
 
@@ -29,7 +43,7 @@ Recomendado para local:
 
 - `ARCHE_DOMAIN="arche.lvh.me"`
 
-2) Levantar el stack (modo único de desarrollo local)
+4) **Levantar el stack** (modo único de desarrollo local)
 
 Desde la raíz del repo:
 
@@ -43,7 +57,7 @@ Si tu Docker no soporta `docker compose`, usa `docker-compose`:
 docker-compose -f infra/compose/compose.yaml up -d --build
 ```
 
-3) Migraciones + seed
+5) **Migraciones + seed**
 
 ```bash
 docker compose -f infra/compose/compose.yaml exec web pnpm prisma migrate dev --name init
@@ -57,7 +71,7 @@ docker-compose -f infra/compose/compose.yaml exec web pnpm prisma migrate dev --
 docker-compose -f infra/compose/compose.yaml exec web pnpm db:seed
 ```
 
-4) Verificación rápida
+6) **Verificación rápida**
 
 - Home: http://arche.lvh.me
 
@@ -75,7 +89,7 @@ Traefik forwardAuth (simula el host usuario):
 ```bash
 curl -i \
   "http://arche.lvh.me/auth/traefik" \
-  -H "X-Forwarded-Host: u-admin.arche.lvh.me" \
+  -H "X-Forwarded-Host: admin.arche.lvh.me" \
   --cookie "arche_session=<pega_aqui_el_valor_del_cookie>"
 ```
 

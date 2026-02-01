@@ -42,3 +42,7 @@ export function getIdleTimeoutMinutes(): number {
   const parsed = raw ? Number(raw) : NaN
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 30
 }
+
+export function getKbHostPath(): string | undefined {
+  return process.env.KB_HOST_PATH || undefined
+}

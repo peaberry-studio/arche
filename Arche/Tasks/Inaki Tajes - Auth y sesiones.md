@@ -1,9 +1,10 @@
 # Auth + sesiones + forwardAuth (BFF)
 
 - Asignado a: [[Company/People/Inaki Tajes|Iñaki Tajes]]
-- Estado: En progreso
+- Estado: Hecha
 
 - Issue: https://github.com/peaberry-studio/arche/issues/2
+- PR: https://github.com/peaberry-studio/arche/pull/5
 
 ## Objetivo
 
@@ -14,7 +15,7 @@ Implementar autenticación local y sesiones seguras en el BFF, incluyendo el end
 - [x] Modelo de datos (mínimo): `users`, `sessions`, `audit_events` (y placeholders opcionales para 2FA)
 - [x] `POST /auth/login` (email+password) -> crea sesión + cookie `httpOnly`
 - [x] `POST /auth/logout` -> revoca sesión
-- [x] `GET /auth/traefik` -> valida cookie + `X-Forwarded-Host` y aplica owner isolation (`u-<slug>.<domain>`)
+- [x] `GET /auth/traefik` -> valida cookie + `X-Forwarded-Host` y aplica owner isolation (`<slug>.<domain>`)
 - [x] Seed: crear primer admin (y/o usuario de prueba)
 
 ## Implementación (repositorio)
@@ -39,7 +40,7 @@ Implementar autenticación local y sesiones seguras en el BFF, incluyendo el end
   - TTL: `ARCHE_SESSION_TTL_DAYS` (default `7`)
 - `GET /auth/traefik` (owner isolation):
   - host base (`ARCHE_DOMAIN`): permite cualquier sesión válida
-  - host usuario (`u-<slug>.<ARCHE_DOMAIN>`): permite solo si `current_user.slug == <slug>`
+  - host usuario (`<slug>.<ARCHE_DOMAIN>`): permite solo si `current_user.slug == <slug>`
   - sin cookie: `401`
   - sesión válida pero host no coincide/no soportado: `403`
   - sin `X-Forwarded-Host`/`Host`: `401`
@@ -48,11 +49,11 @@ Implementar autenticación local y sesiones seguras en el BFF, incluyendo el end
 
 - Infra: Traefik debe reenviar `X-Forwarded-Host` al BFF (ver [[Arche/Tasks/Alberto Perdomo - Infra y edge|Infra/edge]]).
 - DB: ejecutar migraciones y seed contra Postgres real (requiere `DATABASE_URL`).
-- Verificación end-to-end: login -> cookie -> `GET /auth/traefik` con host `u-<slug>.<ARCHE_DOMAIN>`.
+- Verificación end-to-end: login -> cookie -> `GET /auth/traefik` con host `<slug>.<ARCHE_DOMAIN>`.
 
 ## Contratos a respetar (para no pisarnos)
 
-- `users.slug` es la fuente de verdad para `u-<slug>.<domain>`
+- `users.slug` es la fuente de verdad para `<slug>.<domain>`
 - `GET /auth/traefik` responde `200` si autorizado; `401/403` si no
 
 ## Dependencias

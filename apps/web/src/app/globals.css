@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 @plugin "tailwindcss-animate";
+@plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -141,7 +142,82 @@
 }
 
 @layer utilities {
-  /* Fondo orgánico muy sutil, casi imperceptible */
+  /* Ocultar scrollbar nativo */
+  .scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Markdown content styles */
+  .markdown-content {
+    @apply text-sm leading-relaxed;
+  }
+  .markdown-content p {
+    @apply my-2;
+  }
+  .markdown-content h1 {
+    @apply text-xl font-semibold mt-6 mb-3;
+  }
+  .markdown-content h2 {
+    @apply text-lg font-semibold mt-5 mb-2;
+  }
+  .markdown-content h3 {
+    @apply text-base font-semibold mt-4 mb-2;
+  }
+  .markdown-content h4,
+  .markdown-content h5,
+  .markdown-content h6 {
+    @apply text-sm font-semibold mt-3 mb-1;
+  }
+  .markdown-content ul {
+    @apply my-2 ml-4 list-disc;
+  }
+  .markdown-content ol {
+    @apply my-2 ml-4 list-decimal;
+  }
+  .markdown-content li {
+    @apply my-1;
+  }
+  .markdown-content li > ul,
+  .markdown-content li > ol {
+    @apply my-1;
+  }
+  .markdown-content pre {
+    @apply my-3 p-3 bg-muted border border-border rounded-lg overflow-x-auto;
+  }
+  .markdown-content code {
+    @apply bg-muted px-1.5 py-0.5 rounded text-sm;
+  }
+  .markdown-content pre code {
+    @apply bg-transparent p-0;
+  }
+  .markdown-content a {
+    @apply text-primary hover:underline;
+  }
+  .markdown-content blockquote {
+    @apply my-3 pl-4 border-l-2 border-primary/30 text-muted-foreground italic;
+  }
+  .markdown-content hr {
+    @apply my-4 border-border;
+  }
+  .markdown-content table {
+    @apply my-3 w-full border-collapse;
+  }
+  .markdown-content th,
+  .markdown-content td {
+    @apply border border-border px-3 py-2 text-left;
+  }
+  .markdown-content th {
+    @apply bg-muted font-medium;
+  }
+  .markdown-content img {
+    @apply my-3 max-w-full rounded-lg;
+  }
+
+  /* Fondo orgánico sutil */
   .organic-background {
     background-image: radial-gradient(
         ellipse 80% 60% at 50% -10%,

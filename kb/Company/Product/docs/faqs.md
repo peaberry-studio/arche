@@ -1,0 +1,21 @@
+# Preguntas frecuentes (FAQs)
+
+## ¿Qué es Arche?
+
+Arche es un sistema multiusuario que levanta instancias aisladas de OpenCode bajo demanda.
+
+## ¿Cómo funciona el acceso por subdominios?
+
+Cada usuario accede a su instancia mediante un subdominio propio (por ejemplo, `<slug>.<ARCHE_DOMAIN>`). El acceso se autoriza mediante sesión (cookies) y validación en el edge (`forwardAuth`).
+
+## ¿OpenCode está expuesto a Internet?
+
+No. El navegador habla con Arche, y Arche proxya las llamadas necesarias hacia el runtime.
+
+## ¿Qué necesito para usarlo?
+
+Un dominio configurado con DNS (incluyendo wildcard) y un entorno con Docker (ver documentación técnica del proyecto).
+
+## ¿Hay planes o suscripción?
+
+Todavía no hay un sistema de pagos/suscripciones definido. Esta sección se actualizará cuando exista un modelo de planes.

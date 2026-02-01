@@ -1,8 +1,10 @@
+import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
 import Link from "next/link";
 
+import { getSessionFromToken, SESSION_COOKIE_NAME } from '@/lib/auth'
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { InstanceControls } from "@/components/instance-controls";
 
 const navigation = [
   { label: "Resumen", href: "#", active: true },
@@ -62,6 +64,24 @@ export default async function WorkspacePage({
 }) {
   const { slug } = await params;
 
+  // Verificar autenticación
+  const cookieStore = await cookies()
+  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value
+  
+  if (!token) {
+    redirect('/login')
+  }
+
+  const session = await getSessionFromToken(token)
+  if (!session) {
+    redirect('/login')
+  }
+
+  // Verificar autorización
+  if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
+    redirect(`/u/${session.user.slug}`)
+  }
+
   return (
     <div className="relative min-h-screen bg-background text-foreground">
       <div className="pointer-events-none absolute inset-0 organic-background" />
@@ -76,9 +96,7 @@ export default async function WorkspacePage({
             >
               Arche
             </Link>
-            <span className="text-sm text-muted-foreground">
-              {slug}
-            </span>
+            <span className="text-sm text-muted-foreground">{slug}</span>
           </div>
           <nav className="hidden items-center gap-1 md:flex">
             {navigation.map((item) => (
@@ -111,15 +129,12 @@ export default async function WorkspacePage({
             </p>
           </div>
           <div className="flex gap-3">
-            <Button>Crear subagente</Button>
+            <Button asChild>
+              <Link href={`/w/${slug}`}>Abrir workspace</Link>
+            </Button>
             <Button variant="outline">Agregar conector</Button>
           </div>
         </div>
-
-        {/* Instance controls */}
-        <section className="mb-10">
-          <InstanceControls slug={slug} />
-        </section>
 
         {/* Stats */}
         <section className="mb-10 grid gap-4 sm:grid-cols-3">

@@ -109,7 +109,7 @@ export default function SignupPage() {
                     required
                   />
                   <p className="text-xs text-muted-foreground">
-                    Tu subdominio será u-mi-empresa.arche.ai
+                    Tu subdominio será mi-empresa.arche.ai
                   </p>
                 </div>
 

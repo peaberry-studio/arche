@@ -1,32 +1,39 @@
 name: arche
 
 services:
+  # Proxy de seguridad para el Docker socket.
+  # Filtra operaciones permitidas; tanto Traefik como web lo usan.
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:0.3
+    environment:
+      CONTAINERS: 1  # listar/inspeccionar contenedores
+      NETWORKS: 1    # ver redes
+      IMAGES: 1      # ver imágenes
+      INFO: 1        # info del daemon
+      POST: 1        # crear contenedores (para spawner)
+      VOLUMES: 1     # crear volúmenes para workspaces
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - arche-internal
+
   traefik:
     image: traefik:v3.6.7
+    depends_on:
+      - docker-socket-proxy
     command:
       - --api.dashboard=true
       - --api.insecure=true
       - --providers.docker=true
+      - --providers.docker.endpoint=tcp://docker-socket-proxy:2375
       - --providers.docker.exposedbydefault=false
       - --entrypoints.web.address=:80
       - --log.level=INFO
     ports:
       - 80:80
       - 8080:8080
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-
-  docker-socket-proxy:
-    image: tecnativa/docker-socket-proxy:0.3
-    environment:
-      CONTAINERS: 1
-      NETWORKS: 1
-      IMAGES: 1
-      INFO: 1
-      POST: 1
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
+      - default
       - arche-internal
 
   postgres:
@@ -44,7 +51,7 @@ services:
     image: node:24-bookworm-slim
     working_dir: /app
     environment:
-      # Base host. Los hosts usuario son u-<slug>.<ARCHE_DOMAIN>.
+      # Base host
       ARCHE_DOMAIN: arche.lvh.me
 
       # Postgres dentro del stack.
@@ -58,8 +65,13 @@ services:
       # Spawner
       DOCKER_PROXY_HOST: docker-socket-proxy
       DOCKER_PROXY_PORT: "2375"
-      OPENCODE_IMAGE: ghcr.io/anomalyco/opencode:1.1.45
+      # Usar imagen personalizada con git (build con: docker build -t arche-workspace infra/workspace-image)
+      OPENCODE_IMAGE: arche-workspace:latest
       OPENCODE_NETWORK: arche-internal
+      # Path al KB en el host (debe existir antes de crear workspaces)
+      # Configurar via: export KB_HOST_PATH=/path/to/kb
+      # O ejecutar: ./setup-local.sh (configura automáticamente)
+      KB_HOST_PATH: ${KB_HOST_PATH:-}
     networks:
       - default
       - arche-internal
@@ -69,22 +81,11 @@ services:
     command: sh -lc "corepack enable && pnpm install && pnpm prisma generate && pnpm dev"
     labels:
       - traefik.enable=true
-
-      # Base (sin forwardAuth para permitir login y bootstrap)
-      - traefik.http.routers.arche-base.rule=Host(`arche.lvh.me`)
-      - traefik.http.routers.arche-base.entrypoints=web
-      - traefik.http.routers.arche-base.service=arche-web
-
-      # Subdominios de usuario (con forwardAuth)
-      - traefik.http.routers.arche-user.rule=HostRegexp(`{subdomain:u-[a-z0-9-]+}.arche.lvh.me`)
-      - traefik.http.routers.arche-user.entrypoints=web
-      - traefik.http.routers.arche-user.service=arche-web
-      - traefik.http.routers.arche-user.middlewares=arche-forwardauth
-
+      - traefik.docker.network=arche_default
+      - traefik.http.routers.arche.rule=Host(`arche.lvh.me`)
+      - traefik.http.routers.arche.entrypoints=web
+      - traefik.http.routers.arche.service=arche-web
       - traefik.http.services.arche-web.loadbalancer.server.port=3000
-
-      - traefik.http.middlewares.arche-forwardauth.forwardauth.address=http://web:3000/auth/traefik
-      - traefik.http.middlewares.arche-forwardauth.forwardauth.trustForwardHeader=true
 
 networks:
   arche-internal:
@@ -93,3 +94,4 @@ networks:
 volumes:
   arche_postgres:
   arche_web_node_modules:
+  arche_kb:

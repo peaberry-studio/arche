@@ -1,0 +1,18 @@
+# Archivos locales que no deben sincronizarse
+me.txt
+
+# Configuración de Obsidian (cada usuario tiene la suya)
+.obsidian/
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+
+# Outputs generados por usuario (no son parte del KB base)
+# Nota: si quieres que los outputs se sincronicen, comenta estas líneas
+# Outputs/
+
+# Archivos temporales
+*.tmp
+*.bak
+*~
