@@ -1,12 +1,12 @@
 import Docker from 'dockerode'
-import { getDockerSocketPath, getDockerProxyUrl, getOpencodeImage, getOpencodeNetwork, getKbHostPath } from './config'
+import { getContainerSocketPath, getContainerProxyUrl, getOpencodeImage, getOpencodeNetwork, getKbHostPath } from './config'
 
-function getDockerClient(): Docker {
-  const socketPath = getDockerSocketPath()
+function getContainerClient(): Docker {
+  const socketPath = getContainerSocketPath()
   if (socketPath) {
     return new Docker({ socketPath })
   }
-  const url = new URL(getDockerProxyUrl())
+  const url = new URL(getContainerProxyUrl())
   return new Docker({
     host: url.hostname,
     port: parseInt(url.port),
@@ -14,7 +14,7 @@ function getDockerClient(): Docker {
 }
 
 export async function createContainer(slug: string, password: string) {
-  const docker = getDockerClient()
+  const docker = getContainerClient()
   const containerName = `opencode-${slug}`
   const volumeName = `arche-workspace-${slug}`
 
@@ -56,25 +56,25 @@ export async function createContainer(slug: string, password: string) {
 }
 
 export async function startContainer(containerId: string): Promise<void> {
-  const docker = getDockerClient()
+  const docker = getContainerClient()
   const container = docker.getContainer(containerId)
   await container.start()
 }
 
 export async function stopContainer(containerId: string): Promise<void> {
-  const docker = getDockerClient()
+  const docker = getContainerClient()
   const container = docker.getContainer(containerId)
   await container.stop({ t: 10 })
 }
 
 export async function removeContainer(containerId: string): Promise<void> {
-  const docker = getDockerClient()
+  const docker = getContainerClient()
   const container = docker.getContainer(containerId)
   await container.remove({ force: true })
 }
 
 export async function inspectContainer(containerId: string) {
-  const docker = getDockerClient()
+  const docker = getContainerClient()
   const container = docker.getContainer(containerId)
   return container.inspect()
 }
@@ -103,7 +103,7 @@ export async function execInContainer(
   cmd: string[],
   options: { workingDir?: string; timeout?: number } = {}
 ): Promise<ExecResult> {
-  const docker = getDockerClient()
+  const docker = getContainerClient()
   const container = docker.getContainer(containerId)
 
   const exec = await container.exec({
@@ -134,7 +134,7 @@ export async function execInContainer(
       let stdout = ''
       let stderr = ''
 
-      // Docker multiplexes stdout/stderr in a single stream with headers
+      // Container runtime multiplexes stdout/stderr in a single stream with headers
       // Format: [type (1 byte)][0][0][0][size (4 bytes big-endian)][payload]
       // type: 1 = stdout, 2 = stderr
       stream.on('data', (chunk: Buffer) => {

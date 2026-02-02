@@ -2,17 +2,17 @@
  * E2E lifecycle test: start → running → idle → reaped
  *
  * Requires:
- * - Podman/Docker running with DOCKER_SOCKET_PATH set
+ * - Podman running with CONTAINER_SOCKET_PATH set
  * - PostgreSQL running with DATABASE_URL set
  * - Network `arche-internal` created
  * - Image pulled
  *
  * Run:
- *   DOCKER_SOCKET_PATH=... DATABASE_URL=... pnpm test -- src/lib/spawner/__tests__/lifecycle.e2e.test.ts
+ *   CONTAINER_SOCKET_PATH=... DATABASE_URL=... pnpm test -- src/lib/spawner/__tests__/lifecycle.e2e.test.ts
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 
-const SOCKET_PATH = process.env.DOCKER_SOCKET_PATH
+const SOCKET_PATH = process.env.CONTAINER_SOCKET_PATH
 const DATABASE_URL = process.env.DATABASE_URL
 const SKIP = !SOCKET_PATH || !DATABASE_URL
 

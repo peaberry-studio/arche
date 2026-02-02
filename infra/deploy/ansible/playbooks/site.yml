@@ -6,9 +6,9 @@
     - ../vars/all.yml
 
   pre_tasks:
-    - name: Check if Docker is installed
-      ansible.builtin.command: docker --version
-      register: docker_check
+    - name: Check if Podman is installed
+      ansible.builtin.command: podman --version
+      register: podman_check
       ignore_errors: true
       changed_when: false
 
@@ -20,25 +20,25 @@
 
     - name: Set provisioning flag
       ansible.builtin.set_fact:
-        needs_provision: "{{ docker_check.rc != 0 or deploy_user_check.rc != 0 }}"
+        needs_provision: "{{ podman_check.rc != 0 or deploy_user_check.rc != 0 }}"
 
     - name: Display provisioning status
       ansible.builtin.debug:
         msg: >-
-          {{ 'Server needs provisioning (Docker and/or deploy user missing)'
+          {{ 'Server needs provisioning (Podman and/or deploy user missing)'
              if needs_provision
              else 'Server already provisioned — skipping to app deployment' }}
 
   roles:
     - role: common
       when: needs_provision
-    - role: docker
+    - role: podman
       when: needs_provision
     - role: app
 
   post_tasks:
     - name: Verify running containers
-      ansible.builtin.command: docker compose -f {{ app_dir }}/docker-compose.yml ps --format json
+      ansible.builtin.command: podman compose -f {{ app_dir }}/docker-compose.yml ps --format json
       register: containers
       changed_when: false
 

@@ -23,7 +23,7 @@ Host (VPS)
 │   ├── System Prompts/
 │   └── opencode.json
 │
-└── Docker containers (por usuario)
+└── Containers (por usuario)
     └── /workspace/          ← Volumen persistente
         ├── .git/            ← Repo local con remote 'kb'
         ├── Company/         ← Copiado del KB al init
@@ -35,7 +35,7 @@ Host (VPS)
 1. **Build de la imagen de workspace** (incluye git):
    ```bash
    cd infra/workspace-image
-   docker build -t arche-workspace:latest .
+   podman build -t arche-workspace:latest .
    ```
 
 2. **Deploy del KB al host**:

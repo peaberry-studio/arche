@@ -1,7 +1,7 @@
 ---
 - name: Log in to GHCR
   ansible.builtin.command:
-    cmd: docker login ghcr.io -u arche-deploy --password-stdin
+    cmd: podman login ghcr.io -u arche-deploy --password-stdin
     stdin: "{{ ghcr_token }}"
   changed_when: true
   no_log: true
@@ -23,9 +23,9 @@
     group: deploy
     mode: "0600"
 
-- name: Ensure arche-internal Docker network exists
+- name: Ensure arche-internal network exists
   ansible.builtin.command:
-    cmd: docker network create arche-internal
+    cmd: podman network create arche-internal
   register: network_create
   changed_when: network_create.rc == 0
   failed_when: network_create.rc != 0 and 'already exists' not in network_create.stderr
@@ -33,23 +33,23 @@
 
 - name: Pull images
   ansible.builtin.command:
-    cmd: docker compose -f {{ app_dir }}/docker-compose.yml pull
+    cmd: podman compose -f {{ app_dir }}/docker-compose.yml pull
   changed_when: true
 
 - name: Stop existing containers
   ansible.builtin.command:
-    cmd: docker compose -f {{ app_dir }}/docker-compose.yml down --remove-orphans
+    cmd: podman compose -f {{ app_dir }}/docker-compose.yml down --remove-orphans
   changed_when: true
   ignore_errors: true
 
 - name: Start containers
   ansible.builtin.command:
-    cmd: docker compose -f {{ app_dir }}/docker-compose.yml --env-file {{ app_dir }}/.env up -d
+    cmd: podman compose -f {{ app_dir }}/docker-compose.yml --env-file {{ app_dir }}/.env up -d
   changed_when: true
 
 - name: Wait for web service to be ready
   ansible.builtin.command:
-    cmd: docker compose -f {{ app_dir }}/docker-compose.yml exec -T web sh -c "curl -sf http://localhost:3000/ > /dev/null 2>&1"
+    cmd: podman compose -f {{ app_dir }}/docker-compose.yml exec -T web sh -c "curl -sf http://localhost:3000/ > /dev/null 2>&1"
   register: health_check
   retries: 30
   delay: 5
@@ -59,7 +59,7 @@
 
 - name: Run Prisma migrations
   ansible.builtin.command:
-    cmd: docker compose -f {{ app_dir }}/docker-compose.yml exec -T web pnpm prisma migrate deploy
+    cmd: podman compose -f {{ app_dir }}/docker-compose.yml exec -T web pnpm prisma migrate deploy
   changed_when: true
   register: migration_result
   ignore_errors: true
@@ -71,6 +71,6 @@
 
 - name: Run seed
   ansible.builtin.command:
-    cmd: docker compose -f {{ app_dir }}/docker-compose.yml exec -T web pnpm prisma db seed
+    cmd: podman compose -f {{ app_dir }}/docker-compose.yml exec -T web pnpm prisma db seed
   changed_when: true
   ignore_errors: true

@@ -11,10 +11,10 @@ Local Machine
               ▼
 Remote VPS (/opt/arche)
   ┌──────────────────────────────────────────────────────────┐
-  │ Docker                                                    │
+  │ Podman                                                    │
   │  ┌──────────────────┐                                     │
   │  │ Traefik           │ :80 → :443 (TLS/ACME wildcard)    │
-  │  │ Docker provider   │──► docker-socket-proxy :2375       │
+  │  │ Container provider│──► docker-socket-proxy :2375       │
   │  │ forwardAuth       │                                    │
   │  └────────┬─────────┘                                     │
   │           │                                                │
@@ -39,7 +39,7 @@ Remote VPS (/opt/arche)
 
 ## Prerequisites
 
-- **Local machine**: Bash, Docker + Compose plugin, Ansible (`pip install ansible`)
+- **Local machine**: Bash, Podman + podman-compose, Ansible (`pip install ansible`)
 - **Remote VPS**: Debian/Ubuntu (fresh or existing), SSH access
 
 ## Quick Start
@@ -127,7 +127,7 @@ Set in `.env` or export before running `deploy.sh`.
 
 ## Auto-Detection
 
-On remote deploys, the playbook auto-detects whether Docker and a `deploy` user exist. If either is missing, it runs the `common` and `docker` roles to provision the server. On subsequent deploys, only the `app` role runs.
+On remote deploys, the playbook auto-detects whether Podman and a `deploy` user exist. If either is missing, it runs the `common` and `podman` roles to provision the server. On subsequent deploys, only the `app` role runs.
 
 ## DNS Provider Notes
 
@@ -140,7 +140,7 @@ HTTP-01 challenge is **not** supported.
 | Service | Image | Purpose |
 |---------|-------|---------|
 | Traefik | `traefik:v3.6.7` | Reverse proxy, TLS termination, routing |
-| docker-socket-proxy | `tecnativa/docker-socket-proxy:0.3` | Secure Docker API access |
+| docker-socket-proxy | `tecnativa/docker-socket-proxy:0.3` | Secure container API access |
 | PostgreSQL | `postgres:16` | Database |
 | Web | GHCR image | Next.js app (BFF + spawner + forwardAuth) |
 
@@ -163,10 +163,10 @@ HTTP-01 challenge is **not** supported.
 ssh -i ~/.ssh/id_rsa root@<IP>
 
 # View logs
-cd /opt/arche && docker compose logs -f
+cd /opt/arche && podman compose logs -f
 
 # Restart
-docker compose restart
+podman compose restart
 
 # Re-deploy (from local machine)
 ./deploy.sh --ip <IP> --domain <DOMAIN> --dns-provider <PROVIDER> \
@@ -177,8 +177,8 @@ docker compose restart
 
 **SSH connection fails**: Ensure the SSH key has access and the user can log in (`ssh -i <key> <user>@<ip>`).
 
-**ACME certificate not issued**: Check Traefik logs (`docker compose logs traefik`). Verify DNS provider token is correct and has zone edit permissions.
+**ACME certificate not issued**: Check Traefik logs (`podman compose logs traefik`). Verify DNS provider token is correct and has zone edit permissions.
 
-**Web service unhealthy**: Check web logs (`docker compose logs web`). Ensure `DATABASE_URL` is correct and Postgres is running.
+**Web service unhealthy**: Check web logs (`podman compose logs web`). Ensure `DATABASE_URL` is correct and Postgres is running.
 
-**Migrations fail**: Ensure the Docker image includes the `prisma/` directory. The Dockerfile should have `COPY --from=build /app/prisma ./prisma`.
+**Migrations fail**: Ensure the container image includes the `prisma/` directory. The Containerfile should have `COPY --from=build /app/prisma ./prisma`.

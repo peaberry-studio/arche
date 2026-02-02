@@ -287,13 +287,13 @@ deploy_local() {
   log "Starting local deployment (arche.lvh.me)"
 
   # Check prerequisites
-  if ! command -v docker &>/dev/null; then
-    err "Docker not found. Install Docker first."
+  if ! command -v podman &>/dev/null; then
+    err "Podman not found. Install Podman first."
     exit 1
   fi
 
-  if ! docker compose version &>/dev/null; then
-    err "Docker Compose plugin not found."
+  if ! podman compose version &>/dev/null; then
+    err "podman-compose not found. Install podman-compose first."
     exit 1
   fi
 
@@ -347,19 +347,19 @@ PLAYBOOK
   fi
 
   # Ensure arche-internal network exists
-  if ! docker network inspect arche-internal &>/dev/null; then
-    log "Creating arche-internal Docker network..."
-    docker network create arche-internal
+  if ! podman network inspect arche-internal &>/dev/null; then
+    log "Creating arche-internal network..."
+    podman network create arche-internal
   fi
 
   # Start the stack
-  log "Starting Docker Compose stack..."
-  docker compose -f "$COMPOSE_OUT" --env-file "$SCRIPT_DIR/.env.local" -p arche up -d
+  log "Starting Podman Compose stack..."
+  podman compose -f "$COMPOSE_OUT" --env-file "$SCRIPT_DIR/.env.local" -p arche up -d
 
   # Wait for web to be ready
   log "Waiting for web service to be ready..."
   RETRIES=30
-  until docker compose -f "$COMPOSE_OUT" -p arche exec -T web sh -c "curl -sf http://localhost:3000/ > /dev/null 2>&1" 2>/dev/null; do
+  until podman compose -f "$COMPOSE_OUT" -p arche exec -T web sh -c "curl -sf http://localhost:3000/ > /dev/null 2>&1" 2>/dev/null; do
     RETRIES=$((RETRIES - 1))
     if [[ $RETRIES -le 0 ]]; then
       warn "Web service did not become healthy. Continuing with migrations anyway..."
@@ -370,14 +370,14 @@ PLAYBOOK
 
   # Run migrations
   log "Running Prisma migrations..."
-  docker compose -f "$COMPOSE_OUT" -p arche exec -T web pnpm prisma migrate deploy || {
+  podman compose -f "$COMPOSE_OUT" -p arche exec -T web pnpm prisma migrate deploy || {
     warn "Migration failed — the web image may not include prisma files."
-    warn "Ensure the Dockerfile copies the prisma/ directory."
+    warn "Ensure the Containerfile copies the prisma/ directory."
   }
 
   # Seed
   log "Running seed..."
-  docker compose -f "$COMPOSE_OUT" -p arche exec -T web pnpm prisma db seed || {
+  podman compose -f "$COMPOSE_OUT" -p arche exec -T web pnpm prisma db seed || {
     warn "Seed failed — this may be expected if already seeded."
   }
 
@@ -387,9 +387,9 @@ PLAYBOOK
   info "  Admin: http://u-${ARCHE_SEED_ADMIN_SLUG}.${LOCAL_DOMAIN}"
   echo ""
   info "Useful commands:"
-  info "  Logs:     docker compose -f $COMPOSE_OUT -p arche logs -f"
-  info "  Stop:     docker compose -f $COMPOSE_OUT -p arche down"
-  info "  Restart:  docker compose -f $COMPOSE_OUT -p arche restart"
+  info "  Logs:     podman compose -f $COMPOSE_OUT -p arche logs -f"
+  info "  Stop:     podman compose -f $COMPOSE_OUT -p arche down"
+  info "  Restart:  podman compose -f $COMPOSE_OUT -p arche restart"
 }
 
 # ---------------------------------------------------------------------------

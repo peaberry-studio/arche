@@ -32,8 +32,8 @@ describe('docker', () => {
 
   beforeEach(() => {
     process.env = { ...originalEnv }
-    process.env.DOCKER_PROXY_HOST = 'test-proxy'
-    process.env.DOCKER_PROXY_PORT = '2375'
+    process.env.CONTAINER_PROXY_HOST = 'test-proxy'
+    process.env.CONTAINER_PROXY_PORT = '2375'
     process.env.OPENCODE_IMAGE = 'test-image:latest'
     process.env.OPENCODE_NETWORK = 'test-network'
   })

@@ -1,13 +1,13 @@
 /**
- * E2E test for Docker/Podman integration.
+ * E2E test for container runtime integration.
  *
  * Requires:
- * - Podman or Docker running locally
- * - DOCKER_SOCKET_PATH env var pointing to the socket
+ * - Podman running locally
+ * - CONTAINER_SOCKET_PATH env var pointing to the socket
  * - Network `arche-internal` created
  * - Image `ghcr.io/anomalyco/opencode:1.1.45` pulled
  *
- * Run: DOCKER_SOCKET_PATH=/path/to/podman.sock pnpm test -- --testPathPattern e2e
+ * Run: CONTAINER_SOCKET_PATH=/path/to/podman.sock pnpm test -- --testPathPattern e2e
  */
 import { describe, it, expect, afterAll } from 'vitest'
 import Docker from 'dockerode'
@@ -20,7 +20,7 @@ import {
   inspectContainer,
 } from '../docker'
 
-const SOCKET_PATH = process.env.DOCKER_SOCKET_PATH
+const SOCKET_PATH = process.env.CONTAINER_SOCKET_PATH
 const TEST_SLUG = `e2e-test-${Date.now()}`
 
 describe.runIf(!!SOCKET_PATH)('docker e2e', () => {

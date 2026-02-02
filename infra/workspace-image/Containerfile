@@ -1,5 +1,5 @@
 # Imagen derivada de OpenCode con git y script de inicialización
-# Uso: docker build -t arche-workspace .
+# Uso: podman build -t arche-workspace .
 
 ARG OPENCODE_VERSION=1.1.45
 FROM ghcr.io/anomalyco/opencode:${OPENCODE_VERSION}

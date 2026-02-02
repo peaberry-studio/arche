@@ -1,6 +1,6 @@
 # Infra (Compose)
 
-Este módulo levanta el stack local completo para Arche usando Docker Compose.
+Este módulo levanta el stack local completo para Arche usando Podman Compose.
 
 Incluye (v0):
 
@@ -10,7 +10,7 @@ Incluye (v0):
 
 ## Requisitos
 
-- Docker + Docker Compose.
+- Podman + podman-compose.
 
 ## Dominios locales (recomendado)
 
@@ -24,7 +24,7 @@ Para probar subdominios sin tocar DNS, usa `lvh.me` (resuelve a `127.0.0.1`).
 1) **Build de la imagen de workspace** (una sola vez o cuando cambie):
 
 ```bash
-docker build -t arche-workspace:latest ../workspace-image
+podman build -t arche-workspace:latest ../workspace-image
 ```
 
 2) **Preparar el KB** (Knowledge Base):
@@ -48,27 +48,14 @@ Recomendado para local:
 Desde la raíz del repo:
 
 ```bash
-docker compose -f infra/compose/compose.yaml up -d --build
-```
-
-Si tu Docker no soporta `docker compose`, usa `docker-compose`:
-
-```bash
-docker-compose -f infra/compose/compose.yaml up -d --build
+podman compose -f infra/compose/compose.yaml up -d --build
 ```
 
 5) **Migraciones + seed**
 
 ```bash
-docker compose -f infra/compose/compose.yaml exec web pnpm prisma migrate dev --name init
-docker compose -f infra/compose/compose.yaml exec web pnpm db:seed
-```
-
-Alternativa con `docker-compose`:
-
-```bash
-docker-compose -f infra/compose/compose.yaml exec web pnpm prisma migrate dev --name init
-docker-compose -f infra/compose/compose.yaml exec web pnpm db:seed
+podman compose -f infra/compose/compose.yaml exec web pnpm prisma migrate dev --name init
+podman compose -f infra/compose/compose.yaml exec web pnpm db:seed
 ```
 
 6) **Verificación rápida**
@@ -98,47 +85,23 @@ curl -i \
 - Logs Traefik:
 
 ```bash
-docker compose -f infra/compose/compose.yaml logs -f traefik
-```
-
-Alternativa con `docker-compose`:
-
-```bash
-docker-compose -f infra/compose/compose.yaml logs -f traefik
+podman compose -f infra/compose/compose.yaml logs -f traefik
 ```
 
 - Logs Web:
 
 ```bash
-docker compose -f infra/compose/compose.yaml logs -f web
-```
-
-Alternativa con `docker-compose`:
-
-```bash
-docker-compose -f infra/compose/compose.yaml logs -f web
+podman compose -f infra/compose/compose.yaml logs -f web
 ```
 
 - Parar (sin borrar datos):
 
 ```bash
-docker compose -f infra/compose/compose.yaml down
-```
-
-Alternativa con `docker-compose`:
-
-```bash
-docker-compose -f infra/compose/compose.yaml down
+podman compose -f infra/compose/compose.yaml down
 ```
 
 - Reset total (borra volúmenes):
 
 ```bash
-docker compose -f infra/compose/compose.yaml down -v
-```
-
-Alternativa con `docker-compose`:
-
-```bash
-docker-compose -f infra/compose/compose.yaml down -v
+podman compose -f infra/compose/compose.yaml down -v
 ```
