@@ -88,6 +88,26 @@ export async function isContainerRunning(containerId: string): Promise<boolean> 
   }
 }
 
+/**
+ * Check if OpenCode inside the container is healthy and responding.
+ * This verifies the actual service, not just the container state.
+ */
+export async function isOpencodeHealthy(containerId: string): Promise<boolean> {
+  try {
+    const result = await execInContainer(containerId, [
+      'wget', '-q', '-O', '-', '--timeout=2', 'http://localhost:4096/global/health'
+    ], { timeout: 5000 })
+
+    if (result.exitCode !== 0) return false
+
+    // Parse the health response
+    const data = JSON.parse(result.stdout)
+    return data.healthy === true
+  } catch {
+    return false
+  }
+}
+
 export interface ExecResult {
   exitCode: number
   stdout: string

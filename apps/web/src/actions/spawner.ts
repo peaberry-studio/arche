@@ -115,7 +115,7 @@ export async function ensureInstanceRunningAction(slug: string): Promise<{
   console.log('[ensureInstanceRunning] Start result:', result)
   
   if (!result.ok) {
-    return { status: 'error', error: result.error }
+    return { status: 'error', error: result.detail ?? result.error }
   }
 
   return { status: 'starting' }

@@ -16,7 +16,7 @@ const OPENCODE_PORT = 4096
  * Get the internal network URL for an OpenCode instance.
  * Container names follow the pattern: opencode-{slug}
  */
-function getInstanceUrl(slug: string): string {
+export function getInstanceUrl(slug: string): string {
   const containerName = `opencode-${slug}`
   // When running in a container network, containers communicate via container name
   // When running locally for dev, we might need to use localhost
@@ -91,6 +91,31 @@ export async function createInstanceClient(slug: string): Promise<OpencodeClient
   })
   
   return client
+}
+
+/**
+ * Check if an OpenCode instance is healthy using explicit credentials.
+ */
+export async function isInstanceHealthyWithPassword(slug: string, password: string): Promise<boolean> {
+  const baseUrl = getInstanceUrl(slug)
+  const authHeader = `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`
+
+  try {
+    const response = await fetch(`${baseUrl}/global/health`, {
+      headers: {
+        Authorization: authHeader,
+        Accept: 'application/json',
+      },
+      cache: 'no-store',
+    })
+
+    if (!response.ok) return false
+
+    const data = await response.json().catch(() => null)
+    return data?.healthy === true
+  } catch {
+    return false
+  }
 }
 
 /**

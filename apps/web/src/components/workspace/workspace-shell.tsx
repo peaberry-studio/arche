@@ -137,7 +137,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
   }, [slug]);
 
   // Use workspace hook only when instance is running
-  const workspace = useWorkspace({ slug, pollInterval: 5000 });
+  const workspace = useWorkspace({ slug, pollInterval: 5000, enabled: instanceStatus === 'running' });
   
   // Layout state
   const [leftWidth, setLeftWidth] = useState(MIN_LEFT_PX);

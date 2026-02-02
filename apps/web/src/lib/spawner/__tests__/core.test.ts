@@ -16,6 +16,11 @@ vi.mock('@/lib/auth', () => ({
   auditEvent: vi.fn(),
 }))
 
+// Mock opencode client
+vi.mock('@/lib/opencode/client', () => ({
+  isInstanceHealthyWithPassword: vi.fn(),
+}))
+
 // Mock docker
 vi.mock('../docker', () => ({
   createContainer: vi.fn(),
@@ -34,15 +39,18 @@ vi.mock('../crypto', () => ({
 
 import { prisma } from '@/lib/prisma'
 import { auditEvent } from '@/lib/auth'
+import { isInstanceHealthyWithPassword } from '@/lib/opencode/client'
 import * as docker from '../docker'
 import { startInstance, stopInstance, getInstanceStatus, isSlowStart } from '../core'
 
 const mockPrisma = vi.mocked(prisma)
 const mockDocker = vi.mocked(docker)
 const mockAudit = vi.mocked(auditEvent)
+const mockHealth = vi.mocked(isInstanceHealthyWithPassword)
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockHealth.mockResolvedValue(true)
 })
 
 describe('startInstance', () => {
@@ -87,6 +95,7 @@ describe('startInstance', () => {
     mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
     mockDocker.startContainer.mockResolvedValue(undefined)
     mockDocker.isContainerRunning.mockResolvedValue(false)
+    mockHealth.mockResolvedValue(false)
     mockDocker.stopContainer.mockResolvedValue(undefined)
     mockDocker.removeContainer.mockResolvedValue(undefined)
 
@@ -95,7 +104,7 @@ describe('startInstance', () => {
 
     const result = await startInstance('alice', 'user-1')
 
-    expect(result).toEqual({ ok: false, error: 'timeout' })
+    expect(result).toMatchObject({ ok: false, error: 'timeout' })
     vi.unstubAllEnvs()
   })
 
@@ -107,7 +116,7 @@ describe('startInstance', () => {
 
     const result = await startInstance('alice', 'user-1')
 
-    expect(result).toEqual({ ok: false, error: 'start_failed' })
+    expect(result).toMatchObject({ ok: false, error: 'start_failed' })
   })
 })
 
@@ -164,6 +173,7 @@ describe('getInstanceStatus', () => {
       status: 'running', startedAt: now, stoppedAt: null, lastActivityAt: now, containerId: 'abc',
     } as never)
     mockDocker.isContainerRunning.mockResolvedValue(true)
+    mockHealth.mockResolvedValue(true)
 
     const result = await getInstanceStatus('alice')
 
