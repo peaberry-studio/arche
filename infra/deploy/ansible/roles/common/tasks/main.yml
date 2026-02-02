@@ -1,0 +1,83 @@
+---
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name:
+      - curl
+      - wget
+      - git
+      - ufw
+      - ca-certificates
+      - tzdata
+      - gnupg
+      - lsb-release
+      - python3-pip
+      - unzip
+    state: present
+
+- name: Set timezone to UTC
+  community.general.timezone:
+    name: UTC
+
+- name: Create deploy user
+  ansible.builtin.user:
+    name: deploy
+    shell: /bin/bash
+    groups: sudo
+    append: true
+    create_home: true
+
+- name: Allow deploy user passwordless sudo
+  ansible.builtin.copy:
+    content: "deploy ALL=(ALL) NOPASSWD:ALL\n"
+    dest: /etc/sudoers.d/deploy
+    mode: "0440"
+    validate: "visudo -cf %s"
+
+- name: Configure UFW defaults (deny incoming)
+  community.general.ufw:
+    direction: incoming
+    default: deny
+
+- name: Configure UFW defaults (allow outgoing)
+  community.general.ufw:
+    direction: outgoing
+    default: allow
+
+- name: Allow SSH through UFW
+  community.general.ufw:
+    rule: allow
+    port: "22"
+    proto: tcp
+
+- name: Allow HTTP through UFW
+  community.general.ufw:
+    rule: allow
+    port: "80"
+    proto: tcp
+
+- name: Allow HTTPS through UFW
+  community.general.ufw:
+    rule: allow
+    port: "443"
+    proto: tcp
+
+- name: Enable UFW
+  community.general.ufw:
+    state: enabled
+
+- name: Create application directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: deploy
+    group: deploy
+    mode: "0755"
+  loop:
+    - "{{ app_dir }}"
+    - "{{ data_dir }}"
+    - "{{ users_dir }}"

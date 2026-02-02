@@ -1,0 +1,47 @@
+---
+# Deployment mode: "remote" or "local"
+deploy_mode: "{{ lookup('env', 'DEPLOY_MODE') | default('remote', true) }}"
+
+# Domain
+domain: "{{ lookup('env', 'ARCHE_DOMAIN') | default('arche.lvh.me', true) }}"
+
+# DNS challenge provider (cloudflare, route53, digitalocean)
+dns_provider: "{{ lookup('env', 'DNS_PROVIDER') | default('cloudflare', true) }}"
+
+# ACME email for Let's Encrypt
+acme_email: "{{ lookup('env', 'ACME_EMAIL') | default('', true) }}"
+
+# Podman socket path (Linux rootful default; macOS varies)
+podman_socket_path: "{{ lookup('env', 'PODMAN_SOCKET_PATH') | default('/run/podman/podman.sock', true) }}"
+
+# Container images
+image_prefix: "{{ lookup('env', 'IMAGE_PREFIX') | default('ghcr.io/peaberry-studio/arche/', true) }}"
+web_version: "{{ lookup('env', 'WEB_VERSION') | default('latest', true) }}"
+opencode_image: "{{ lookup('env', 'OPENCODE_IMAGE') | default('ghcr.io/anomalyco/opencode:1.1.45', true) }}"
+
+# GHCR auth
+ghcr_token: "{{ lookup('env', 'GHCR_TOKEN') | default('', true) }}"
+
+# Database
+postgres_password: "{{ lookup('env', 'POSTGRES_PASSWORD') | default('postgres', true) }}"
+
+# Application secrets
+arche_session_pepper: "{{ lookup('env', 'ARCHE_SESSION_PEPPER') | default('', true) }}"
+arche_encryption_key: "{{ lookup('env', 'ARCHE_ENCRYPTION_KEY') | default('', true) }}"
+arche_internal_token: "{{ lookup('env', 'ARCHE_INTERNAL_TOKEN') | default('', true) }}"
+
+# Seed admin
+arche_seed_admin_email: "{{ lookup('env', 'ARCHE_SEED_ADMIN_EMAIL') | default('admin@example.com', true) }}"
+arche_seed_admin_password: "{{ lookup('env', 'ARCHE_SEED_ADMIN_PASSWORD') | default('change-me', true) }}"
+arche_seed_admin_slug: "{{ lookup('env', 'ARCHE_SEED_ADMIN_SLUG') | default('admin', true) }}"
+
+# DNS provider tokens
+cf_dns_api_token: "{{ lookup('env', 'CF_DNS_API_TOKEN') | default('', true) }}"
+aws_access_key_id: "{{ lookup('env', 'AWS_ACCESS_KEY_ID') | default('', true) }}"
+aws_secret_access_key: "{{ lookup('env', 'AWS_SECRET_ACCESS_KEY') | default('', true) }}"
+do_auth_token: "{{ lookup('env', 'DO_AUTH_TOKEN') | default('', true) }}"
+
+# Paths
+app_dir: /opt/arche
+data_dir: /opt/arche/data
+users_dir: /var/lib/arche/users

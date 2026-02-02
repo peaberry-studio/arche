@@ -1,0 +1,34 @@
+name: Build & Push Web Image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - ".github/workflows/build-push.yml"
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/web
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Build image
+        run: podman build -t $REGISTRY/$IMAGE_NAME:latest -t $REGISTRY/$IMAGE_NAME:$(git rev-parse --short HEAD) -f apps/web/Containerfile apps/web
+
+      - name: Push image
+        run: |
+          podman push $REGISTRY/$IMAGE_NAME:latest
+          podman push $REGISTRY/$IMAGE_NAME:$(git rev-parse --short HEAD)

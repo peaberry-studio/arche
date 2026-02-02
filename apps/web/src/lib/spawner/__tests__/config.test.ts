@@ -43,23 +43,23 @@ describe('config', () => {
     })
   })
 
-  describe('getDockerProxyUrl', () => {
+  describe('getContainerProxyUrl', () => {
     it('returns default URL when env vars not set', async () => {
-      delete process.env.DOCKER_PROXY_HOST
-      delete process.env.DOCKER_PROXY_PORT
+      delete process.env.CONTAINER_PROXY_HOST
+      delete process.env.CONTAINER_PROXY_PORT
 
-      const { getDockerProxyUrl } = await import('../config')
+      const { getContainerProxyUrl } = await import('../config')
 
-      expect(getDockerProxyUrl()).toBe('http://docker-socket-proxy:2375')
+      expect(getContainerProxyUrl()).toBe('http://docker-socket-proxy:2375')
     })
 
     it('uses custom host and port from env', async () => {
-      process.env.DOCKER_PROXY_HOST = 'custom-host'
-      process.env.DOCKER_PROXY_PORT = '1234'
+      process.env.CONTAINER_PROXY_HOST = 'custom-host'
+      process.env.CONTAINER_PROXY_PORT = '1234'
 
-      const { getDockerProxyUrl } = await import('../config')
+      const { getContainerProxyUrl } = await import('../config')
 
-      expect(getDockerProxyUrl()).toBe('http://custom-host:1234')
+      expect(getContainerProxyUrl()).toBe('http://custom-host:1234')
     })
   })
 

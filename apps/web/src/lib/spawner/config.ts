@@ -7,13 +7,13 @@ export function getEncryptionKey(): Buffer {
   return Buffer.from('dev-insecure-key-32-bytes-long!!')
 }
 
-export function getDockerSocketPath(): string | undefined {
-  return process.env.DOCKER_SOCKET_PATH || process.env.DOCKER_HOST?.replace('unix://', '') || undefined
+export function getContainerSocketPath(): string | undefined {
+  return process.env.CONTAINER_SOCKET_PATH || process.env.CONTAINER_HOST?.replace('unix://', '') || undefined
 }
 
-export function getDockerProxyUrl(): string {
-  const host = process.env.DOCKER_PROXY_HOST || 'docker-socket-proxy'
-  const port = process.env.DOCKER_PROXY_PORT || '2375'
+export function getContainerProxyUrl(): string {
+  const host = process.env.CONTAINER_PROXY_HOST || 'docker-socket-proxy'
+  const port = process.env.CONTAINER_PROXY_PORT || '2375'
   return `http://${host}:${port}`
 }
 

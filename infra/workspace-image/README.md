@@ -12,10 +12,10 @@ Imagen derivada de OpenCode con soporte para Knowledge Base (KB) compartido.
 
 ```bash
 # Desde este directorio
-docker build -t arche-workspace .
+podman build -t arche-workspace .
 
 # Con versión específica de OpenCode
-docker build --build-arg OPENCODE_VERSION=1.1.45 -t arche-workspace:1.1.45 .
+podman build --build-arg OPENCODE_VERSION=1.1.45 -t arche-workspace:1.1.45 .
 ```
 
 ## Uso
@@ -26,7 +26,7 @@ El container espera dos volúmenes:
 2. `/kb` - Knowledge Base compartido (read-only)
 
 ```bash
-docker run -d \
+podman run -d \
   -v workspace-user1:/workspace \
   -v /opt/arche/kb:/kb:ro \
   arche-workspace serve --hostname 0.0.0.0 --port 4096

@@ -23,18 +23,16 @@ if [ ! -f "$ENV_FILE" ]; then
   printf "Created %s from example. Review ARCHE_DOMAIN if needed.\n" "$ENV_FILE"
 fi
 
-if docker compose version >/dev/null 2>&1; then
-  COMPOSE="docker compose"
-elif command -v docker-compose >/dev/null 2>&1; then
-  COMPOSE="docker-compose"
+if podman compose version >/dev/null 2>&1; then
+  COMPOSE="podman compose"
 else
-  printf "Docker Compose not found. Install Docker Desktop.\n"
+  printf "podman-compose not found. Install Podman and podman-compose.\n"
   exit 1
 fi
 
 # Build workspace image (OpenCode + git + init scripts)
 printf "Building workspace image: arche-workspace:latest\n"
-docker build -t arche-workspace:latest "$WORKSPACE_IMAGE_DIR"
+podman build -t arche-workspace:latest "$WORKSPACE_IMAGE_DIR"
 
 # Deploy Knowledge Base
 printf "Deploying Knowledge Base to: %s\n" "$KB_DEST"

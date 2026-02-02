@@ -1,0 +1,33 @@
+---
+# Install Podman on Debian/Ubuntu
+- name: Install Podman (Debian)
+  ansible.builtin.apt:
+    name:
+      - podman
+      - podman-compose
+    state: present
+    update_cache: true
+  when: ansible_os_family == "Debian"
+
+# RedHat/CentOS support
+- name: Install Podman (RedHat)
+  ansible.builtin.yum:
+    name:
+      - podman
+      - podman-compose
+    state: present
+  when: ansible_os_family == "RedHat"
+
+# Common tasks
+- name: Start and enable Podman socket
+  ansible.builtin.systemd:
+    name: podman.socket
+    state: started
+    enabled: true
+
+- name: Add deploy user to relevant groups
+  ansible.builtin.user:
+    name: deploy
+    groups: podman
+    append: true
+  ignore_errors: true

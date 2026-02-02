@@ -4,7 +4,8 @@ Este directorio agrupa todo lo necesario para ejecutar Arche como stack (local y
 
 ## Puntos de entrada
 
-- Stack local (Traefik + Postgres + Web): `infra/compose/README.md`
+- Stack local de desarrollo (Traefik + Postgres + Web): `infra/compose/README.md`
+- One-click deployer (VPS + local prod): `infra/deploy/README.md`
 - Imagen de workspace (OpenCode + git): `infra/workspace-image/README.md`
 
 ## Knowledge Base (KB)
@@ -22,7 +23,7 @@ Host (VPS)
 │   ├── System Prompts/
 │   └── opencode.json
 │
-└── Docker containers (por usuario)
+└── Containers (por usuario)
     └── /workspace/          ← Volumen persistente
         ├── .git/            ← Repo local con remote 'kb'
         ├── Company/         ← Copiado del KB al init
@@ -34,7 +35,7 @@ Host (VPS)
 1. **Build de la imagen de workspace** (incluye git):
    ```bash
    cd infra/workspace-image
-   docker build -t arche-workspace:latest .
+   podman build -t arche-workspace:latest .
    ```
 
 2. **Deploy del KB al host**:

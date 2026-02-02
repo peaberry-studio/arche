@@ -1,7 +1,7 @@
 /**
  * OpenCode client factory for communicating with OpenCode instances.
  * 
- * Each user has their own OpenCode container running on the internal Docker network.
+ * Each user has their own OpenCode container running on the internal container network.
  * The web app acts as a proxy/BFF, authenticating and forwarding requests.
  */
 
@@ -13,21 +13,21 @@ import { getOpencodeNetwork } from '@/lib/spawner/config'
 const OPENCODE_PORT = 4096
 
 /**
- * Get the internal Docker network URL for an OpenCode instance.
+ * Get the internal network URL for an OpenCode instance.
  * Container names follow the pattern: opencode-{slug}
  */
 function getInstanceUrl(slug: string): string {
   const containerName = `opencode-${slug}`
-  // When running in Docker, containers communicate via container name
+  // When running in a container network, containers communicate via container name
   // When running locally for dev, we might need to use localhost
-  const isDocker = process.env.DOCKER_PROXY_HOST !== undefined || process.env.DOCKER_SOCKET_PATH !== undefined
-  
-  if (isDocker) {
+  const isContainer = process.env.CONTAINER_PROXY_HOST !== undefined || process.env.CONTAINER_SOCKET_PATH !== undefined
+
+  if (isContainer) {
     return `http://${containerName}:${OPENCODE_PORT}`
   }
-  
-  // For local development without Docker, you'd need to map ports
-  // This is a fallback - in production, always use Docker networking
+
+  // For local development without containers, you'd need to map ports
+  // This is a fallback - in production, always use container networking
   return `http://localhost:${OPENCODE_PORT}`
 }
 

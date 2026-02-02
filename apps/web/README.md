@@ -17,16 +17,14 @@ Recomendado en local:
 Desde la raíz del repo:
 
 ```bash
-docker compose -f infra/compose/compose.yaml up -d --build
+podman compose -f infra/compose/compose.yaml up -d --build
 ```
-
-Si tu Docker no soporta `docker compose`, usa `docker-compose`.
 
 ### 3) Migraciones + seed (Prisma)
 
 ```bash
-docker compose -f infra/compose/compose.yaml exec web pnpm prisma migrate dev --name init
-docker compose -f infra/compose/compose.yaml exec web pnpm db:seed
+podman compose -f infra/compose/compose.yaml exec web pnpm prisma migrate dev --name init
+podman compose -f infra/compose/compose.yaml exec web pnpm db:seed
 ```
 
 ### 4) Abrir la app
@@ -36,7 +34,7 @@ docker compose -f infra/compose/compose.yaml exec web pnpm db:seed
 ### 5) Verificar la base de datos
 
 ```bash
-docker compose -f infra/compose/compose.yaml exec postgres psql -U postgres -d arche -c "\\dt"
+podman compose -f infra/compose/compose.yaml exec postgres psql -U postgres -d arche -c "\\dt"
 ```
 
 ### 6) Parar / resetear
@@ -44,13 +42,13 @@ docker compose -f infra/compose/compose.yaml exec postgres psql -U postgres -d a
 - Parar (sin borrar datos):
 
 ```bash
-docker compose -f infra/compose/compose.yaml down
+podman compose -f infra/compose/compose.yaml down
 ```
 
 - Reset total (borra volúmenes):
 
 ```bash
-docker compose -f infra/compose/compose.yaml down -v
+podman compose -f infra/compose/compose.yaml down -v
 ```
 
 ## Regenerar la app (comando)
@@ -105,15 +103,15 @@ Notas:
 
 - `tailwindcss-animate` esta instalado para compatibilidad con componentes shadcn.
 
-## Spawner (Workspaces Docker)
+## Spawner (Workspaces)
 
-El spawner es el módulo que crea y gestiona contenedores Docker para cada workspace de usuario.
+El spawner es el módulo que crea y gestiona contenedores para cada workspace de usuario.
 
 ### Arquitectura
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        Docker Compose                           │
+│                        Podman Compose                           │
 ├─────────────────────────────────────────────────────────────────┤
 │  ┌─────────┐    ┌──────────────────┐    ┌──────────────────┐   │
 │  │ Traefik │───▶│ docker-socket-   │◀───│      web         │   │
@@ -122,7 +120,7 @@ El spawner es el módulo que crea y gestiona contenedores Docker para cada works
 │       │         └────────┬─────────┘              │            │
 │       │                  │                        │            │
 │       │                  ▼                        │            │
-│       │         /var/run/docker.sock              │            │
+│       │         /run/podman/podman.sock            │            │
 │       │                  │                        │            │
 │       ▼                  ▼                        ▼            │
 │  ┌──────────────────────────────────────────────────────────┐  │
@@ -137,31 +135,31 @@ El spawner es el módulo que crea y gestiona contenedores Docker para cada works
 
 ### Configuración
 
-El spawner puede conectarse a Docker de dos formas:
+El spawner puede conectarse al container runtime de dos formas:
 
-1. **Via proxy HTTP** (recomendado para Docker Compose):
+1. **Via proxy HTTP** (recomendado para Podman Compose):
    ```env
-   DOCKER_SOCKET_PATH=""
-   DOCKER_PROXY_HOST="docker-socket-proxy"
-   DOCKER_PROXY_PORT="2375"
+   CONTAINER_SOCKET_PATH=""
+   CONTAINER_PROXY_HOST="docker-socket-proxy"
+   CONTAINER_PROXY_PORT="2375"
    ```
 
-2. **Via socket local** (para desarrollo sin Docker Compose):
+2. **Via socket local** (para desarrollo sin Podman Compose):
    ```env
-   DOCKER_SOCKET_PATH="/var/run/docker.sock"
+   CONTAINER_SOCKET_PATH="/run/podman/podman.sock"
    ```
 
-**IMPORTANTE**: Si defines `DOCKER_SOCKET_PATH`, tiene prioridad sobre el proxy. Déjalo vacío cuando uses Docker Compose.
+**IMPORTANTE**: Si defines `CONTAINER_SOCKET_PATH`, tiene prioridad sobre el proxy. Déjalo vacío cuando uses Podman Compose.
 
 ### Variables de entorno del spawner
 
 | Variable | Descripción | Valor desarrollo |
 |----------|-------------|------------------|
-| `DOCKER_SOCKET_PATH` | Socket de Docker (vacío = usar proxy) | `""` |
-| `DOCKER_PROXY_HOST` | Host del proxy | `docker-socket-proxy` |
-| `DOCKER_PROXY_PORT` | Puerto del proxy | `2375` |
+| `CONTAINER_SOCKET_PATH` | Socket del runtime (vacío = usar proxy) | `""` |
+| `CONTAINER_PROXY_HOST` | Host del proxy | `docker-socket-proxy` |
+| `CONTAINER_PROXY_PORT` | Puerto del proxy | `2375` |
 | `OPENCODE_IMAGE` | Imagen de workspace | `arche-workspace:latest` |
-| `OPENCODE_NETWORK` | Red Docker interna | `arche-internal` |
+| `OPENCODE_NETWORK` | Red interna de contenedores | `arche-internal` |
 | `ARCHE_ENCRYPTION_KEY` | Clave AES-256 (base64, 32 bytes) | Ver `.env.example` |
 | `ARCHE_START_TIMEOUT_MS` | Timeout de arranque | `120000` |
 | `ARCHE_IDLE_TIMEOUT_MINUTES` | Inactividad antes de parar | `30` |
@@ -172,7 +170,7 @@ El spawner puede conectarse a Docker de dos formas:
 La imagen `arche-workspace:latest` extiende OpenCode con git y scripts de inicialización:
 
 ```bash
-docker build -t arche-workspace:latest infra/workspace-image
+podman build -t arche-workspace:latest infra/workspace-image
 ```
 
 ### Troubleshooting
@@ -182,10 +180,10 @@ docker build -t arche-workspace:latest infra/workspace-image
 - Generar una válida: `openssl rand -base64 32`
 
 **Error: `connect ENOENT /var/run/docker.sock`**
-- Estás en Docker Compose pero `DOCKER_SOCKET_PATH` está definido
-- Solución: dejar `DOCKER_SOCKET_PATH=""` en el `.env`
+- Estás en Podman Compose pero `CONTAINER_SOCKET_PATH` está definido
+- Solución: dejar `CONTAINER_SOCKET_PATH=""` en el `.env`
 
 **Error: `start_failed` sin más detalles**
-- Revisar logs: `docker logs arche-web-1`
-- Verificar que la imagen existe: `docker images | grep arche-workspace`
-- Verificar que la red existe: `docker network ls | grep arche-internal`
+- Revisar logs: `podman logs arche-web-1`
+- Verificar que la imagen existe: `podman images | grep arche-workspace`
+- Verificar que la red existe: `podman network ls | grep arche-internal`

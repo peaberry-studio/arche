@@ -1,0 +1,50 @@
+---
+- name: Deploy Arche
+  hosts: arche
+  become: true
+  vars_files:
+    - ../vars/all.yml
+
+  pre_tasks:
+    - name: Check if Podman is installed
+      ansible.builtin.command: podman --version
+      register: podman_check
+      ignore_errors: true
+      changed_when: false
+
+    - name: Check if deploy user exists
+      ansible.builtin.command: id deploy
+      register: deploy_user_check
+      ignore_errors: true
+      changed_when: false
+
+    - name: Set provisioning flag
+      ansible.builtin.set_fact:
+        needs_provision: "{{ podman_check.rc != 0 or deploy_user_check.rc != 0 }}"
+
+    - name: Display provisioning status
+      ansible.builtin.debug:
+        msg: >-
+          {{ 'Server needs provisioning (Podman and/or deploy user missing)'
+             if needs_provision
+             else 'Server already provisioned — skipping to app deployment' }}
+
+  roles:
+    - role: common
+      when: needs_provision
+    - role: podman
+      when: needs_provision
+    - role: app
+
+  post_tasks:
+    - name: Verify running containers
+      ansible.builtin.command: podman-compose -f {{ app_dir }}/compose.yml ps --format json
+      register: containers
+      changed_when: false
+
+    - name: Display deployment status
+      ansible.builtin.debug:
+        msg:
+          - "Arche deployed successfully!"
+          - "App:   https://{{ domain }}"
+          - "Admin: https://u-{{ arche_seed_admin_slug }}.{{ domain }}"
