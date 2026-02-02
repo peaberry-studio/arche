@@ -30,11 +30,13 @@ services:
       - --api.dashboard=false
       - --log.level=INFO
     ports:
-      - "80:80"
 {% if deploy_mode == 'remote' %}
+      - "80:80"
       - "443:443"
     volumes:
       - traefik_letsencrypt:/letsencrypt
+{% else %}
+      - "8080:80"
 {% endif %}
 {% if deploy_mode == 'remote' %}
     environment:
@@ -56,6 +58,11 @@ services:
   docker-socket-proxy:
     image: tecnativa/docker-socket-proxy:0.3
     restart: unless-stopped
+{% if deploy_mode == 'local' %}
+    user: root
+    security_opt:
+      - label=disable
+{% endif %}
     environment:
       CONTAINERS: 1
       NETWORKS: 1
@@ -63,7 +70,7 @@ services:
       INFO: 1
       POST: 1
     volumes:
-      - /run/podman/podman.sock:/var/run/docker.sock:ro
+      - {{ podman_socket_path }}:/var/run/docker.sock:ro
     networks:
       - arche-internal
 

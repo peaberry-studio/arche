@@ -297,6 +297,19 @@ deploy_local() {
     exit 1
   fi
 
+  # Detect Podman socket path (VM-internal path for container mounts)
+  PODMAN_SOCKET_PATH="${PODMAN_SOCKET_PATH:-}"
+  if [[ -z "$PODMAN_SOCKET_PATH" ]]; then
+    if podman machine inspect &>/dev/null; then
+      # macOS Podman Machine: use the user socket inside the VM
+      PODMAN_SOCKET_PATH="/run/user/$(id -u)/podman/podman.sock"
+    else
+      # Linux rootful Podman
+      PODMAN_SOCKET_PATH="/run/podman/podman.sock"
+    fi
+  fi
+  log "Using Podman socket: $PODMAN_SOCKET_PATH"
+
   # Render compose from template using Ansible (local)
   COMPOSE_OUT="$SCRIPT_DIR/.compose-local.yml"
 
@@ -318,6 +331,7 @@ deploy_local() {
     dns_provider: ""
     acme_email: ""
     env_file_name: ".env.local"
+    podman_socket_path: "${PODMAN_SOCKET_PATH}"
     image_prefix: "${IMAGE_PREFIX}"
     web_version: "${WEB_VERSION}"
     opencode_image: "${OPENCODE_IMAGE}"

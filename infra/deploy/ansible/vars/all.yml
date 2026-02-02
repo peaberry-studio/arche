@@ -11,7 +11,10 @@ dns_provider: "{{ lookup('env', 'DNS_PROVIDER') | default('cloudflare', true) }}
 # ACME email for Let's Encrypt
 acme_email: "{{ lookup('env', 'ACME_EMAIL') | default('', true) }}"
 
-# Docker images
+# Podman socket path (Linux rootful default; macOS varies)
+podman_socket_path: "{{ lookup('env', 'PODMAN_SOCKET_PATH') | default('/run/podman/podman.sock', true) }}"
+
+# Container images
 image_prefix: "{{ lookup('env', 'IMAGE_PREFIX') | default('ghcr.io/peaberry-studio/arche/', true) }}"
 web_version: "{{ lookup('env', 'WEB_VERSION') | default('latest', true) }}"
 opencode_image: "{{ lookup('env', 'OPENCODE_IMAGE') | default('ghcr.io/anomalyco/opencode:1.1.45', true) }}"
