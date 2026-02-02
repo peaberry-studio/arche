@@ -148,7 +148,7 @@ HTTP-01 challenge is **not** supported.
 
 ```
 /opt/arche/
-├── docker-compose.yml
+├── compose.yml
 ├── .env
 └── data/
 

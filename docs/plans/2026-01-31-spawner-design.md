@@ -130,14 +130,14 @@ apps/web/src/
 # Generar: openssl rand -base64 32
 ARCHE_ENCRYPTION_KEY=
 
-# Docker socket proxy
-DOCKER_PROXY_HOST=docker-socket-proxy
-DOCKER_PROXY_PORT=2375
+# Container socket proxy
+CONTAINER_PROXY_HOST=docker-socket-proxy
+CONTAINER_PROXY_PORT=2375
 
 # Imagen OpenCode
 OPENCODE_IMAGE=ghcr.io/anomalyco/opencode:1.1.45
 
-# Red Docker interna
+# Red interna de contenedores
 OPENCODE_NETWORK=arche-internal
 
 # Tiempos de start (ms)
@@ -166,9 +166,9 @@ export function getEncryptionKey(): Buffer {
   return Buffer.from('dev-insecure-key-32-bytes-long!!')
 }
 
-export function getDockerProxyUrl(): string {
-  const host = process.env.DOCKER_PROXY_HOST || 'docker-socket-proxy'
-  const port = process.env.DOCKER_PROXY_PORT || '2375'
+export function getContainerProxyUrl(): string {
+  const host = process.env.CONTAINER_PROXY_HOST || 'docker-socket-proxy'
+  const port = process.env.CONTAINER_PROXY_PORT || '2375'
   return `http://${host}:${port}`
 }
 

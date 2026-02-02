@@ -7,10 +7,10 @@
   no_log: true
   when: ghcr_token | length > 0
 
-- name: Render docker-compose.yml
+- name: Render compose.yml
   ansible.builtin.template:
     src: compose.yml.j2
-    dest: "{{ app_dir }}/docker-compose.yml"
+    dest: "{{ app_dir }}/compose.yml"
     owner: deploy
     group: deploy
     mode: "0644"
@@ -33,23 +33,23 @@
 
 - name: Pull images
   ansible.builtin.command:
-    cmd: podman compose -f {{ app_dir }}/docker-compose.yml pull
+    cmd: podman compose -f {{ app_dir }}/compose.yml pull
   changed_when: true
 
 - name: Stop existing containers
   ansible.builtin.command:
-    cmd: podman compose -f {{ app_dir }}/docker-compose.yml down --remove-orphans
+    cmd: podman compose -f {{ app_dir }}/compose.yml down --remove-orphans
   changed_when: true
   ignore_errors: true
 
 - name: Start containers
   ansible.builtin.command:
-    cmd: podman compose -f {{ app_dir }}/docker-compose.yml --env-file {{ app_dir }}/.env up -d
+    cmd: podman compose -f {{ app_dir }}/compose.yml --env-file {{ app_dir }}/.env up -d
   changed_when: true
 
 - name: Wait for web service to be ready
   ansible.builtin.command:
-    cmd: podman compose -f {{ app_dir }}/docker-compose.yml exec -T web sh -c "curl -sf http://localhost:3000/ > /dev/null 2>&1"
+    cmd: podman compose -f {{ app_dir }}/compose.yml exec -T web sh -c "curl -sf http://localhost:3000/ > /dev/null 2>&1"
   register: health_check
   retries: 30
   delay: 5
@@ -59,7 +59,7 @@
 
 - name: Run Prisma migrations
   ansible.builtin.command:
-    cmd: podman compose -f {{ app_dir }}/docker-compose.yml exec -T web pnpm prisma migrate deploy
+    cmd: podman compose -f {{ app_dir }}/compose.yml exec -T web pnpm prisma migrate deploy
   changed_when: true
   register: migration_result
   ignore_errors: true
@@ -71,6 +71,6 @@
 
 - name: Run seed
   ansible.builtin.command:
-    cmd: podman compose -f {{ app_dir }}/docker-compose.yml exec -T web pnpm prisma db seed
+    cmd: podman compose -f {{ app_dir }}/compose.yml exec -T web pnpm prisma db seed
   changed_when: true
   ignore_errors: true
