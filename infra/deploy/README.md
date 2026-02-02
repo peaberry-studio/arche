@@ -13,18 +13,17 @@ Remote VPS (/opt/arche)
   ┌──────────────────────────────────────────────────────────┐
   │ Podman                                                    │
   │  ┌──────────────────┐                                     │
-  │  │ Traefik           │ :80 → :443 (TLS/ACME wildcard)    │
+  │  │ Traefik           │ :80 → :443 (TLS/ACME)              │
   │  │ Container provider│──► docker-socket-proxy :2375       │
-  │  │ forwardAuth       │                                    │
   │  └────────┬─────────┘                                     │
   │           │                                                │
   │     ┌─────┴──────┐                                        │
   │     │            │                                         │
   │     ▼            ▼                                         │
-  │  arche.dom    u-<slug>.arche.dom                          │
+  │  arche.dom                                                 │
   │  ┌──────────────────────────────────────────┐             │
   │  │ Arche Web (Next.js)                       │             │
-  │  │ BFF + spawner + forwardAuth               │             │
+  │  │ BFF + spawner                             │             │
   │  └──────────────┬───────────────────────────┘             │
   │                 │                                          │
   │           ┌─────┴─────┐                                    │
@@ -51,7 +50,7 @@ The deployer has three modes: **local** for testing the production stack, **loca
 Runs the full production stack (Traefik, Postgres, Web) on your machine using Podman. Useful for testing the production image, Traefik routing, and the complete compose setup without a VPS.
 
 - Domain: `arche.lvh.me` (resolves to `127.0.0.1`, no `/etc/hosts` needed)
-- No TLS (HTTP only on port 8080)
+- No TLS (HTTP only on port 80)
 - No SSH — Ansible runs locally to render templates
 - Secrets default to insecure dev values if not set
 - Podman socket is auto-detected (macOS Podman Machine and Linux both supported)
@@ -62,13 +61,14 @@ cp .env.example .env   # edit if needed, defaults work for local
 ./deploy.sh --local
 ```
 
-Open http://arche.lvh.me:8080 — login with `admin@example.com` / `change-me`.
+Open http://arche.lvh.me — login with `admin@example.com` / `change-me`.
 
 ### Local dev mode
 
 Like `--local` but mounts your source code for hot reload via `next dev`. Use this for active development against the full stack (Traefik, Postgres, socket proxy).
 
-- **App**: http://arche.lvh.me:8080
+- **App**: http://arche.lvh.me
+- **Traefik dashboard**: http://localhost:8081
 - **Traefik dashboard**: http://localhost:8081
 - **Postgres**: `localhost:5432`
 - Source from `apps/web/` is bind-mounted; `node_modules` lives in a named volume
@@ -92,10 +92,10 @@ Edit files in `apps/web/src/` and Next.js hot reloads automatically.
 
 Deploys to a VPS via SSH using Ansible. The playbook provisions Podman (if missing), renders the compose and env templates, pulls images from GHCR, runs migrations, and seeds the database.
 
-- Domain: your production domain with wildcard TLS via ACME DNS challenge
+- Domain: any single hostname (apex or subdomain), with TLS via ACME DNS challenge
 - HTTPS on port 443, HTTP redirects to HTTPS
 - Requires all secrets set in `.env` or exported
-- Requires SSH access and a DNS provider token for wildcard certs
+- Requires SSH access and a DNS provider token for ACME DNS challenge
 
 ```bash
 cd infra/deploy
@@ -185,7 +185,7 @@ On remote deploys, the playbook auto-detects whether Podman and a `deploy` user 
 
 ## DNS Provider Notes
 
-Only DNS-01 challenge providers are supported. Arche requires **wildcard certs** for dynamic user subdomains (`u-<slug>.<domain>`), which can only be obtained via DNS challenge.
+Only DNS-01 challenge providers are supported.
 
 HTTP-01 challenge is **not** supported.
 
@@ -196,7 +196,7 @@ HTTP-01 challenge is **not** supported.
 | Traefik | `traefik:v3.6.7` | Reverse proxy, TLS termination, routing |
 | docker-socket-proxy | `tecnativa/docker-socket-proxy:0.3` | Secure container API access |
 | PostgreSQL | `postgres:16` | Database |
-| Web | GHCR image | Next.js app (BFF + spawner + forwardAuth) |
+| Web | GHCR image | Next.js app (BFF + spawner) |
 
 ## Directory Structure (VPS)
 

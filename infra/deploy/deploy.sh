@@ -184,7 +184,8 @@ validate_local() {
   # Local mode needs fewer secrets — use defaults if not set
   export POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-postgres}"
   export ARCHE_SESSION_PEPPER="${ARCHE_SESSION_PEPPER:-local-dev-pepper-not-for-production}"
-  export ARCHE_ENCRYPTION_KEY="${ARCHE_ENCRYPTION_KEY:-local-dev-encryption-key-not-for-prod}"
+  # Must be base64 for a 32-byte key (AES-256-GCM). Keep stable across runs.
+  export ARCHE_ENCRYPTION_KEY="${ARCHE_ENCRYPTION_KEY:-ZGV2LWluc2VjdXJlLWtleS0zMi1ieXRlcy1sb25nISE=}"
   export ARCHE_INTERNAL_TOKEN="${ARCHE_INTERNAL_TOKEN:-local-dev-internal-token}"
   export ARCHE_SEED_ADMIN_EMAIL="${ARCHE_SEED_ADMIN_EMAIL:-admin@example.com}"
   export ARCHE_SEED_ADMIN_PASSWORD="${ARCHE_SEED_ADMIN_PASSWORD:-change-me}"
@@ -318,8 +319,13 @@ deploy_local() {
   PODMAN_SOCKET_PATH="${PODMAN_SOCKET_PATH:-}"
   if [[ -z "$PODMAN_SOCKET_PATH" ]]; then
     if podman machine inspect &>/dev/null; then
-      # macOS Podman Machine: use the user socket inside the VM
-      PODMAN_SOCKET_PATH="/run/user/$(id -u)/podman/podman.sock"
+      # Podman Machine: choose rootful vs rootless socket inside the VM
+      PODMAN_ROOTLESS="$(podman info --format '{{.Host.Security.Rootless}}' 2>/dev/null || echo false)"
+      if [[ "$PODMAN_ROOTLESS" == "true" ]]; then
+        PODMAN_SOCKET_PATH="/run/user/$(id -u)/podman/podman.sock"
+      else
+        PODMAN_SOCKET_PATH="/run/podman/podman.sock"
+      fi
     else
       # Linux rootful Podman
       PODMAN_SOCKET_PATH="/run/podman/podman.sock"
@@ -430,7 +436,8 @@ PLAYBOOK
   echo ""
   log "Local deployment ready!"
   info "  App:   http://${LOCAL_DOMAIN}"
-  info "  Admin: http://u-${ARCHE_SEED_ADMIN_SLUG}.${LOCAL_DOMAIN}"
+  info "  Dashboard: http://${LOCAL_DOMAIN}/u/${ARCHE_SEED_ADMIN_SLUG}"
+  info "  Workspace: http://${LOCAL_DOMAIN}/w/${ARCHE_SEED_ADMIN_SLUG}"
   echo ""
   info "Useful commands:"
   info "  Logs:     podman compose -f $COMPOSE_OUT -p arche logs -f"
@@ -459,7 +466,12 @@ deploy_local_dev() {
   PODMAN_SOCKET_PATH="${PODMAN_SOCKET_PATH:-}"
   if [[ -z "$PODMAN_SOCKET_PATH" ]]; then
     if podman machine inspect &>/dev/null; then
-      PODMAN_SOCKET_PATH="/run/user/$(id -u)/podman/podman.sock"
+      PODMAN_ROOTLESS="$(podman info --format '{{.Host.Security.Rootless}}' 2>/dev/null || echo false)"
+      if [[ "$PODMAN_ROOTLESS" == "true" ]]; then
+        PODMAN_SOCKET_PATH="/run/user/$(id -u)/podman/podman.sock"
+      else
+        PODMAN_SOCKET_PATH="/run/podman/podman.sock"
+      fi
     else
       PODMAN_SOCKET_PATH="/run/podman/podman.sock"
     fi
@@ -583,8 +595,9 @@ PLAYBOOK
 
   echo ""
   log "Local dev deployment ready!"
-  info "  App:              http://${LOCAL_DOMAIN}:8080"
-  info "  Admin:            http://u-${ARCHE_SEED_ADMIN_SLUG}.${LOCAL_DOMAIN}:8080"
+  info "  App:              http://${LOCAL_DOMAIN}"
+  info "  Dashboard:         http://${LOCAL_DOMAIN}/u/${ARCHE_SEED_ADMIN_SLUG}"
+  info "  Workspace:         http://${LOCAL_DOMAIN}/w/${ARCHE_SEED_ADMIN_SLUG}"
   info "  Traefik dashboard: http://localhost:8081"
   info "  Postgres:         localhost:5432"
   echo ""

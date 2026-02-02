@@ -63,7 +63,7 @@ Endpoints:
 
 - `POST /auth/login`
 - `POST /auth/logout`
-- `GET /auth/traefik` (para Traefik `forwardAuth`)
+- Nota: ya no se usa `forwardAuth` ni subdominios por usuario.
 
 Login (captura el `Set-Cookie`):
 
@@ -72,15 +72,6 @@ curl -i \
   -X POST "http://arche.lvh.me/auth/login" \
   -H "content-type: application/json" \
   -d '{"email":"admin@example.com","password":"change-me"}'
-```
-
-Traefik auth (simula el host usuario):
-
-```bash
-curl -i \
-  "http://arche.lvh.me/auth/traefik" \
-  -H "X-Forwarded-Host: admin.arche.lvh.me" \
-  --cookie "arche_session=<pega_aqui_el_valor_del_cookie>"
 ```
 
 Logout:

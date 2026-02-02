@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { auditEvent, getCookieDomain, revokeSession, SESSION_COOKIE_NAME } from '@/lib/auth'
+import { auditEvent, getCookieDomain, revokeSession, SESSION_COOKIE_NAME, shouldUseSecureCookies } from '@/lib/auth'
 
 export async function POST(request: NextRequest) {
   const token = request.cookies.get(SESSION_COOKIE_NAME)?.value
@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
     value: '',
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    secure: shouldUseSecureCookies(request.headers),
     path: '/',
     domain: getCookieDomain(),
     expires: new Date(0)

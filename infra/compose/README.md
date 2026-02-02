@@ -71,14 +71,7 @@ curl -i \
   -d '{"email":"admin@example.com","password":"change-me"}'
 ```
 
-Traefik forwardAuth (simula el host usuario):
-
-```bash
-curl -i \
-  "http://arche.lvh.me/auth/traefik" \
-  -H "X-Forwarded-Host: admin.arche.lvh.me" \
-  --cookie "arche_session=<pega_aqui_el_valor_del_cookie>"
-```
+Nota: ya no se usa `forwardAuth` ni subdominios por usuario.
 
 ## Operación
 

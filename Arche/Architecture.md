@@ -19,9 +19,9 @@ Decisiones clave (v1):
 
 ## Estado actual (repositorio)
 
-- Auth + sesiones + `forwardAuth` (BFF): hecho (issue #2, PR #5).
+- Auth + sesiones (BFF): hecho (issue #2, PR #5).
 - Spawner + runtime OpenCode (Docker): hecho (issue #3, PR #10).
-- Infra/edge (Traefik + routing subdominios + `forwardAuth`): en progreso (issue #4).
+- Infra/edge (Traefik + routing por host): en progreso (issue #4).
 - Workspace web (visor + chat + sesiones múltiples): en progreso (issue #9).
 - 2FA (TOTP): en progreso (issue #7, PR #11).
 
@@ -36,7 +36,6 @@ Ver también:
 - Un VPS Linux (Ubuntu 22.04+ recomendado) con Docker
 - Un dominio con:
   - `ARCHE_DOMAIN` (p.ej. `arche.example.com`) apuntando al VPS
-  - wildcard `*.ARCHE_DOMAIN` (p.ej. `*.arche.example.com`) apuntando al VPS
 
 ### Requisitos funcionales
 
@@ -44,7 +43,7 @@ Ver también:
 - 2FA opcional por usuario (TOTP) y obligatorio por politica para admins
 - Aislamiento por usuario:
   - Cada usuario tiene su propio contenedor OpenCode
-  - Cada usuario solo puede acceder a su subdominio `<slug>.<ARCHE_DOMAIN>`
+  - El acceso se controla por sesión y permisos (no por subdominio por usuario)
 - Provisionamiento on-demand (start/stop) y lifecycle (idle/TTL)
 - La KB se clona a un workspace por usuario al iniciar una instancia
 - Auditoria basica: login/logout, start/stop, errores del runtime
@@ -63,13 +62,13 @@ Ver también:
 ### Enfoque
 
 - Autenticacion autocontenida dentro del BFF de Arche (Next.js).
-- Autorizacion por host en el edge mediante `forwardAuth` hacia Arche.
+- Autorización dentro del BFF de Arche (Next.js).
 - Sesiones con cookie `httpOnly` + registro de sesion en Postgres.
 
 Razon:
 
 - Evita dependencias externas.
-- Permite owner isolation estricto por `<slug>.<domain>`.
+- Permite aislamiento estricto por sesión y permisos.
 - Evita exponer OpenCode al navegador.
 
 ### Metodos
@@ -102,11 +101,7 @@ Enrolment de 2FA:
 3) verificar primer codigo TOTP
 4) activar 2FA y emitir recovery codes (mostrar una sola vez)
 
-Owner isolation (edge):
-
-- Traefik llama a `GET /auth/traefik`.
-- Arche valida sesion desde cookie, lee `X-Forwarded-Host`, extrae slug.
-- Responde `200` si el usuario coincide; `401/403` en caso contrario.
+Nota: no hay subdominios por usuario; el aislamiento es a nivel de sesión y permisos.
 
 ### Modelo de datos (minimo)
 
@@ -124,7 +119,7 @@ Internet
   ▼
 ┌───────────────────────────┐
 │ Reverse Proxy (Traefik)   │  TLS (ACME), routing, rate limits
-│ + forwardAuth             │  authZ por host/subdominio
+│                           │
 └───────────────┬───────────┘
                 │
       ┌─────────┴──────────────────────────────────────────┐
@@ -159,9 +154,7 @@ Persistencia host:
 
 - Termina TLS con Lets Encrypt (ACME)
 - Enruta por Host:
-  - `arche.<domain>` -> Arche Web
-  - `<slug>.<domain>` -> Arche Web (misma app, distinta superficie)
-- Aplica `forwardAuth` hacia el backend de Arche para autorizar por sesion y validar owner isolation
+  - `ARCHE_DOMAIN` -> Arche Web
 
 ### Arche Web (Next.js)
 
@@ -211,10 +204,7 @@ Integracion:
 - TLS obligatorio en el edge
 - Autenticacion local con sesiones (cookie httpOnly) + sesiones en DB
 - 2FA (TOTP) disponible para usuarios y exigible por politica para admins
-- Autorizacion por host:
-  - `forwardAuth` valida sesion
-  - extrae slug del Host
-  - permite solo si `current_user.slug == slug`
+- Autorización por sesión y permisos (a nivel de rutas/recursos).
 - Defensa en profundidad:
   - OpenCode no expuesto a Internet
   - Basic auth para `opencode serve` en red interna
