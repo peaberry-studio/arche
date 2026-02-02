@@ -50,7 +50,7 @@ The deployer has three modes: **local** for testing the production stack, **loca
 Runs the full production stack (Traefik, Postgres, Web) on your machine using Podman. Useful for testing the production image, Traefik routing, and the complete compose setup without a VPS.
 
 - Domain: `arche.lvh.me` (resolves to `127.0.0.1`, no `/etc/hosts` needed)
-- No TLS (HTTP only on port 80)
+- No TLS (HTTP only on port 8080)
 - No SSH — Ansible runs locally to render templates
 - Secrets default to insecure dev values if not set
 - Podman socket is auto-detected (macOS Podman Machine and Linux both supported)
@@ -61,13 +61,13 @@ cp .env.example .env   # edit if needed, defaults work for local
 ./deploy.sh --local
 ```
 
-Open http://arche.lvh.me — login with `admin@example.com` / `change-me`.
+Open http://arche.lvh.me:8080 — login with `admin@example.com` / `change-me`.
 
 ### Local dev mode
 
 Like `--local` but mounts your source code for hot reload via `next dev`. Use this for active development against the full stack (Traefik, Postgres, socket proxy).
 
-- **App**: http://arche.lvh.me
+- **App**: http://arche.lvh.me:8080
 - **Traefik dashboard**: http://localhost:8081
 - **Traefik dashboard**: http://localhost:8081
 - **Postgres**: `localhost:5432`

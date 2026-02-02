@@ -30,8 +30,8 @@ services:
       - --entrypoints.web.address=:80
       - --log.level=INFO
     ports:
-      - 80:80
-      - 8080:8080
+      - 8080:80
+      - 8081:8080
     networks:
       - default
       - arche-internal
@@ -93,6 +93,7 @@ networks:
     name: arche_default
   arche-internal:
     name: arche-internal
+    external: true
 
 volumes:
   arche_postgres:
