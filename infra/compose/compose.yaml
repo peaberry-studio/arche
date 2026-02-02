@@ -72,7 +72,6 @@ services:
       OPENCODE_NETWORK: arche-internal
       # Path al KB en el host (debe existir antes de crear workspaces)
       # Configurar via: export KB_HOST_PATH=/path/to/kb
-      # O ejecutar: ./setup-local.sh (configura automáticamente)
       KB_HOST_PATH: ${KB_HOST_PATH:-}
     networks:
       - default

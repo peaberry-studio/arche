@@ -44,7 +44,7 @@ Remote VPS (/opt/arche)
 
 ## Deployment Modes
 
-The deployer has two modes: **local** for testing the production stack on your machine, and **remote** for deploying to a VPS.
+The deployer has three modes: **local** for testing the production stack, **local-dev** for active development with hot reload, and **remote** for deploying to a VPS.
 
 ### Local mode
 
@@ -63,6 +63,30 @@ cp .env.example .env   # edit if needed, defaults work for local
 ```
 
 Open http://arche.lvh.me:8080 — login with `admin@example.com` / `change-me`.
+
+### Local dev mode
+
+Like `--local` but mounts your source code for hot reload via `next dev`. Use this for active development against the full stack (Traefik, Postgres, socket proxy).
+
+- **App**: http://arche.lvh.me:8080
+- **Traefik dashboard**: http://localhost:8081
+- **Postgres**: `localhost:5432`
+- Source from `apps/web/` is bind-mounted; `node_modules` lives in a named volume
+- Workspace image (`arche-workspace:latest`) is built automatically
+- Knowledge Base is deployed to `~/.arche/kb`
+
+```bash
+cd infra/deploy
+cp .env.example .env   # edit if needed, defaults work for local
+./deploy.sh --local-dev
+```
+
+Edit files in `apps/web/src/` and Next.js hot reloads automatically.
+
+> **Note**: `--local` and `--local-dev` both use project name `arche`. Only one can run at a time. Run `podman compose -f <compose-file> -p arche down` before switching modes.
+
+> **macOS**: Podman Machine mounts `$HOME` into the VM by default, so source bind mounts work for repos under `$HOME`. Repos outside `$HOME` need manual Podman Machine volume configuration.
+
 
 ### Remote mode
 
@@ -101,11 +125,12 @@ cp .env.example .env
 | `--dry-run` | No | Show what would be done |
 | `--verbose` | No | Verbose Ansible output |
 
-### Local flag
+### Local flags
 
 | Flag | Description |
 |------|-------------|
 | `--local` | Run production stack locally (mutually exclusive with remote flags) |
+| `--local-dev` | Run dev stack with source-mounted hot reload (mutually exclusive with remote flags) |
 
 ## Environment Variables
 
