@@ -47,4 +47,4 @@
         msg:
           - "Arche deployed successfully!"
           - "App:   https://{{ domain }}"
-          - "Admin: https://u-{{ arche_seed_admin_slug }}.{{ domain }}"
+          - "Dashboard: https://{{ domain }}/u/{{ arche_seed_admin_slug }}"

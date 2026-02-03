@@ -24,10 +24,15 @@ services:
       - --certificatesResolvers.letsencrypt.acme.dnsChallenge.provider={{ dns_provider }}
       - --certificatesResolvers.letsencrypt.acme.dnsChallenge.resolvers=1.1.1.1:53,8.8.8.8:53
 {% else %}
-      # HTTP-only (local mode)
+      # HTTP-only (local / local-dev mode)
       - --entrypoints.web.address=:80
 {% endif %}
+{% if deploy_mode == 'local-dev' %}
+      - --api.dashboard=true
+      - --api.insecure=true
+{% else %}
       - --api.dashboard=false
+{% endif %}
       - --log.level=INFO
     ports:
 {% if deploy_mode == 'remote' %}
@@ -35,6 +40,9 @@ services:
       - "443:443"
     volumes:
       - traefik_letsencrypt:/letsencrypt
+{% elif deploy_mode == 'local-dev' %}
+      - "8080:80"
+      - "8081:8080"
 {% else %}
       - "8080:80"
 {% endif %}
@@ -58,7 +66,7 @@ services:
   docker-socket-proxy:
     image: tecnativa/docker-socket-proxy:0.3
     restart: unless-stopped
-{% if deploy_mode == 'local' %}
+{% if deploy_mode in ('local', 'local-dev') %}
     user: root
     security_opt:
       - label=disable
@@ -82,6 +90,10 @@ services:
       POSTGRES_DB: arche
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+{% if deploy_mode == 'local-dev' %}
+    ports:
+      - "5432:5432"
+{% endif %}
     volumes:
       - arche_postgres:/var/lib/postgresql/data
     healthcheck:
@@ -91,7 +103,12 @@ services:
       retries: 5
 
   web:
+{% if deploy_mode == 'local-dev' %}
+    image: node:24-bookworm-slim
+    working_dir: /app
+{% else %}
     image: {{ image_prefix }}web:{{ web_version }}
+{% endif %}
     restart: unless-stopped
     env_file:
       - {{ env_file_name | default('.env') }}
@@ -110,34 +127,21 @@ services:
       - traefik.http.routers.arche-base.entrypoints=websecure
       - traefik.http.routers.arche-base.tls=true
       - traefik.http.routers.arche-base.tls.certresolver=letsencrypt
-      - "traefik.http.routers.arche-base.tls.domains[0].main={{ domain }}"
-      - "traefik.http.routers.arche-base.tls.domains[0].sans=*.{{ domain }}"
       - traefik.http.routers.arche-base.service=arche-web
-
-      # User subdomain router (with forwardAuth)
-      - "traefik.http.routers.arche-user.rule=HostRegexp(`u-[a-z0-9-]+\\.{{ domain }}`)"
-      - traefik.http.routers.arche-user.entrypoints=websecure
-      - traefik.http.routers.arche-user.tls=true
-      - traefik.http.routers.arche-user.tls.certresolver=letsencrypt
-      - traefik.http.routers.arche-user.service=arche-web
-      - traefik.http.routers.arche-user.middlewares=arche-forwardauth
 {% else %}
       # Base router (no forwardAuth — login and bootstrap)
       - traefik.http.routers.arche-base.rule=Host(`{{ domain }}`)
       - traefik.http.routers.arche-base.entrypoints=web
       - traefik.http.routers.arche-base.service=arche-web
-
-      # User subdomain router (with forwardAuth)
-      - "traefik.http.routers.arche-user.rule=HostRegexp(`u-[a-z0-9-]+\\.{{ domain }}`)"
-      - traefik.http.routers.arche-user.entrypoints=web
-      - traefik.http.routers.arche-user.service=arche-web
-      - traefik.http.routers.arche-user.middlewares=arche-forwardauth
 {% endif %}
 
       - traefik.http.services.arche-web.loadbalancer.server.port=3000
-
-      - traefik.http.middlewares.arche-forwardauth.forwardauth.address=http://web:3000/auth/traefik
-      - traefik.http.middlewares.arche-forwardauth.forwardauth.trustForwardHeader=true
+{% if deploy_mode == 'local-dev' %}
+    volumes:
+      - {{ repo_root }}/apps/web:/app
+      - arche_web_node_modules:/app/node_modules
+    command: sh -lc "corepack enable && pnpm install && pnpm prisma generate && pnpm dev"
+{% endif %}
 
 networks:
   default:
@@ -149,4 +153,7 @@ volumes:
   arche_postgres:
 {% if deploy_mode == 'remote' %}
   traefik_letsencrypt:
+{% endif %}
+{% if deploy_mode == 'local-dev' %}
+  arche_web_node_modules:
 {% endif %}

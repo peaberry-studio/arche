@@ -29,7 +29,7 @@ podman compose -f infra/compose/compose.yaml exec web pnpm db:seed
 
 ### 4) Abrir la app
 
-- `http://arche.lvh.me`
+- `http://arche.lvh.me:8080`
 
 ### 5) Verificar la base de datos
 
@@ -63,31 +63,22 @@ Endpoints:
 
 - `POST /auth/login`
 - `POST /auth/logout`
-- `GET /auth/traefik` (para Traefik `forwardAuth`)
+- Nota: ya no se usa `forwardAuth` ni subdominios por usuario.
 
 Login (captura el `Set-Cookie`):
 
 ```bash
 curl -i \
-  -X POST "http://arche.lvh.me/auth/login" \
+  -X POST "http://arche.lvh.me:8080/auth/login" \
   -H "content-type: application/json" \
   -d '{"email":"admin@example.com","password":"change-me"}'
-```
-
-Traefik auth (simula el host usuario):
-
-```bash
-curl -i \
-  "http://arche.lvh.me/auth/traefik" \
-  -H "X-Forwarded-Host: admin.arche.lvh.me" \
-  --cookie "arche_session=<pega_aqui_el_valor_del_cookie>"
 ```
 
 Logout:
 
 ```bash
 curl -i \
-  -X POST "http://arche.lvh.me/auth/logout" \
+  -X POST "http://arche.lvh.me:8080/auth/logout" \
   --cookie "arche_session=<pega_aqui_el_valor_del_cookie>"
 ```
 

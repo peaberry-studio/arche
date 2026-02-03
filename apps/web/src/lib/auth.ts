@@ -5,6 +5,18 @@ import { hashSessionToken, newSessionToken } from '@/lib/security'
 
 export const SESSION_COOKIE_NAME = 'arche_session'
 
+export function shouldUseSecureCookies(headers?: Headers): boolean {
+  const raw = process.env.ARCHE_COOKIE_SECURE?.trim().toLowerCase()
+  if (raw === 'true') return true
+  if (raw === 'false') return false
+
+  const proto = headers?.get('x-forwarded-proto')?.split(',')[0]?.trim().toLowerCase()
+  if (proto === 'https') return true
+  if (proto === 'http') return false
+
+  return process.env.NODE_ENV === 'production'
+}
+
 export function getCookieDomain(): string | undefined {
   // In development, don't set domain to allow localhost to work
   if (process.env.NODE_ENV !== 'production') return undefined

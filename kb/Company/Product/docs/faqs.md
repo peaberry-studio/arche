@@ -6,7 +6,7 @@ Arche es un sistema multiusuario que levanta instancias aisladas de OpenCode baj
 
 ## ¿Cómo funciona el acceso por subdominios?
 
-Cada usuario accede a su instancia mediante un subdominio propio (por ejemplo, `<slug>.<ARCHE_DOMAIN>`). El acceso se autoriza mediante sesión (cookies) y validación en el edge (`forwardAuth`).
+El acceso es por un único host por despliegue (por ejemplo, `dominio.com` o `sub.dominio.com`). Si quieres separar por empresa, usa un subdominio por empresa (por ejemplo, `arche.<empresa>.<dominio-principal>`). No usamos subdominios por usuario.
 
 ## ¿OpenCode está expuesto a Internet?
 
@@ -14,7 +14,7 @@ No. El navegador habla con Arche, y Arche proxya las llamadas necesarias hacia e
 
 ## ¿Qué necesito para usarlo?
 
-Un dominio configurado con DNS (incluyendo wildcard) y un entorno con Docker (ver documentación técnica del proyecto).
+Un dominio configurado con DNS y un entorno con Docker (ver documentación técnica del proyecto).
 
 ## ¿Hay planes o suscripción?
 

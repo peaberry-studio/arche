@@ -4,26 +4,19 @@ Objetivo: documentar el contrato “mínimo” para que edge (Traefik), BFF y UI
 
 ## Dominios (nomenclatura recomendada)
 
-- `ARCHE_DOMAIN`: host base del producto (ejemplo: `arche.example.com`).
-- Host de usuario: `<slug>.<ARCHE_DOMAIN>` (ejemplo: `inaki.arche.example.com`).
+- `ARCHE_DOMAIN`: hostname donde vive la app (ejemplo: `example.com` o `arche.example.com`).
+
+Nota: no existen subdominios por usuario. Si se quiere separar por empresa, se hace a nivel de hostname (por ejemplo, `arche.<empresa>.<dominio-principal>`).
 
 Nota: en documentación, evitar mezclar `<domain>` y `ARCHE_DOMAIN` si se refieren al mismo valor.
 
 ## DNS requerido
 
 - `ARCHE_DOMAIN` apuntando al VPS.
-- Wildcard `*.ARCHE_DOMAIN` apuntando al VPS (requisito para subdominios de usuario).
 
 ## Routing (edge)
 
 - `ARCHE_DOMAIN` enruta a la app web (Next.js).
-- `<slug>.<ARCHE_DOMAIN>` enruta a la misma app (distinta superficie), pero debe aplicar autorización por sesión.
-
-## Autorización por host (`forwardAuth`)
-
-- El edge debe llamar al BFF para autorizar:
-  - Endpoint: `GET /auth/traefik`.
-  - Header requerido: `X-Forwarded-Host` con el host original.
 
 ## Cookie de sesión (contrato)
 
@@ -35,4 +28,4 @@ Nota: en documentación, evitar mezclar `<domain>` y `ARCHE_DOMAIN` si se refier
 
 ## Compatibilidad / cambios futuros
 
-- Cualquier cambio del formato de host (por ejemplo, introducir prefijos tipo `u-<slug>`) se considera breaking: requeriría migración de slugs, routing y validación de `forwardAuth`.
+- Cualquier cambio del contrato de hostname se considera breaking (por ejemplo, introducir subdominios por usuario): requeriría migración de URLs y de cookies.

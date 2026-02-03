@@ -21,13 +21,19 @@ Para probar subdominios sin tocar DNS, usa `lvh.me` (resuelve a `127.0.0.1`).
 
 ## Arranque (local)
 
-1) **Build de la imagen de workspace** (una sola vez o cuando cambie):
+1) **Crear la red interna** (una sola vez):
+
+```bash
+podman network create arche-internal
+```
+
+2) **Build de la imagen de workspace** (una sola vez o cuando cambie):
 
 ```bash
 podman build -t arche-workspace:latest ../workspace-image
 ```
 
-2) **Preparar el KB** (Knowledge Base):
+3) **Preparar el KB** (Knowledge Base):
 
 ```bash
 # Crear directorio y deploy del KB
@@ -35,7 +41,7 @@ mkdir -p /opt/arche/kb
 ../../scripts/deploy-kb.sh /opt/arche/kb
 ```
 
-3) **Variables de entorno de `apps/web`**
+4) **Variables de entorno de `apps/web`**
 
 Copia `apps/web/.env.example` a `apps/web/.env`.
 
@@ -43,7 +49,7 @@ Recomendado para local:
 
 - `ARCHE_DOMAIN="arche.lvh.me"`
 
-4) **Levantar el stack** (modo único de desarrollo local)
+5) **Levantar el stack** (modo único de desarrollo local)
 
 Desde la raíz del repo:
 
@@ -51,34 +57,27 @@ Desde la raíz del repo:
 podman compose -f infra/compose/compose.yaml up -d --build
 ```
 
-5) **Migraciones + seed**
+6) **Migraciones + seed**
 
 ```bash
 podman compose -f infra/compose/compose.yaml exec web pnpm prisma migrate dev --name init
 podman compose -f infra/compose/compose.yaml exec web pnpm db:seed
 ```
 
-6) **Verificación rápida**
+7) **Verificación rápida**
 
-- Home: http://arche.lvh.me
+- Home: http://arche.lvh.me:8080
 
 Login (dev):
 
 ```bash
 curl -i \
-  -X POST "http://arche.lvh.me/auth/login" \
+  -X POST "http://arche.lvh.me:8080/auth/login" \
   -H "content-type: application/json" \
   -d '{"email":"admin@example.com","password":"change-me"}'
 ```
 
-Traefik forwardAuth (simula el host usuario):
-
-```bash
-curl -i \
-  "http://arche.lvh.me/auth/traefik" \
-  -H "X-Forwarded-Host: admin.arche.lvh.me" \
-  --cookie "arche_session=<pega_aqui_el_valor_del_cookie>"
-```
+Nota: ya no se usa `forwardAuth` ni subdominios por usuario.
 
 ## Operación
 
