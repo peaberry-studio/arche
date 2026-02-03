@@ -15,47 +15,57 @@ export interface TestConnectionResult {
  *
  * TODO: Implementar pruebas reales por tipo de conector.
  * Por ahora solo valida que el conector existe y tiene config.
+ *
+ * Semántica del response:
+ * - ok: true SOLO si se probó la conexión y fue exitosa
+ * - ok: false si falló la prueba O si no se pudo probar
+ * - tested: true si realmente se hizo una llamada a la API externa
+ * - tested: false si solo se validó config localmente (stub)
+ *
+ * Esto evita que clientes que solo miren `ok` crean erróneamente
+ * que la conexión fue verificada.
  */
 async function testConnection(
   type: ConnectorType,
   config: Record<string, unknown>
 ): Promise<TestConnectionResult> {
   // Stub implementation - en el futuro hacer llamadas reales a cada API
+  // ok: false cuando tested: false para no inducir a error
   switch (type) {
     case 'linear':
       // TODO: Probar Linear API con config.apiKey
       if (!config.apiKey) {
         return { ok: false, tested: false, message: 'Missing API key' }
       }
-      return { ok: true, tested: false, message: 'Linear connection test pending implementation' }
+      return { ok: false, tested: false, message: 'Linear connection test not yet implemented - config appears valid' }
 
     case 'notion':
       // TODO: Probar Notion API con config.apiKey
       if (!config.apiKey) {
         return { ok: false, tested: false, message: 'Missing API key' }
       }
-      return { ok: true, tested: false, message: 'Notion connection test pending implementation' }
+      return { ok: false, tested: false, message: 'Notion connection test not yet implemented - config appears valid' }
 
     case 'slack':
       // TODO: Probar Slack API con config.botToken
       if (!config.botToken) {
         return { ok: false, tested: false, message: 'Missing bot token' }
       }
-      return { ok: true, tested: false, message: 'Slack connection test pending implementation' }
+      return { ok: false, tested: false, message: 'Slack connection test not yet implemented - config appears valid' }
 
     case 'github':
       // TODO: Probar GitHub API con config.token
       if (!config.token) {
         return { ok: false, tested: false, message: 'Missing token' }
       }
-      return { ok: true, tested: false, message: 'GitHub connection test pending implementation' }
+      return { ok: false, tested: false, message: 'GitHub connection test not yet implemented - config appears valid' }
 
     case 'custom':
       // TODO: Hacer ping al endpoint custom
       if (!config.endpoint) {
         return { ok: false, tested: false, message: 'Missing endpoint' }
       }
-      return { ok: true, tested: false, message: 'Custom endpoint test pending implementation' }
+      return { ok: false, tested: false, message: 'Custom endpoint test not yet implemented - config appears valid' }
 
     default:
       return { ok: false, tested: false, message: `Unknown connector type: ${type}` }

@@ -237,11 +237,40 @@ export async function PATCH(
     )
   }
 
-  // Actualizar conector
-  const connector = await prisma.connector.update({
-    where: { id },
+  // Si NO estamos actualizando config, validar que podemos desencriptar el existente
+  // ANTES de aplicar cambios (evita mutación + 500 si config está corrupto)
+  let existingDecryptedConfig: Record<string, unknown> | null = null
+  if (config === undefined) {
+    try {
+      existingDecryptedConfig = decryptConfig(existingConnector.config)
+    } catch {
+      return NextResponse.json(
+        { error: 'config_corrupted', message: 'Existing connector configuration is corrupted' },
+        { status: 500 }
+      )
+    }
+  }
+
+  // Actualizar conector atómicamente verificando ownership (evita TOCTOU)
+  const result = await prisma.connector.updateMany({
+    where: { id, userId: user.id },
     data: updateData,
   })
+
+  if (result.count === 0) {
+    // Ownership cambió concurrentemente o conector fue eliminado
+    return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })
+  }
+
+  // Obtener conector actualizado para response
+  const connector = await prisma.connector.findUnique({
+    where: { id },
+  })
+
+  // Defensive check (shouldn't happen given updateMany succeeded)
+  if (!connector) {
+    return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })
+  }
 
   // Audit log
   await auditEvent({
@@ -250,22 +279,16 @@ export async function PATCH(
     metadata: { connectorId: connector.id, fields: Object.keys(updateData) },
   })
 
-  // Desencriptar config para response
-  let decryptedConfig: Record<string, unknown>
-  try {
-    decryptedConfig = decryptConfig(connector.config)
-  } catch {
-    return NextResponse.json(
-      { error: 'config_corrupted', message: 'Failed to decrypt connector configuration' },
-      { status: 500 }
-    )
-  }
+  // Para response: usar config del request si lo actualizamos, o el existente ya desencriptado
+  const responseConfig = config !== undefined
+    ? config  // Ya validamos que es correcto, usamos el input directamente
+    : existingDecryptedConfig!  // Ya desencriptamos antes del update
 
   return NextResponse.json({
     id: connector.id,
     type: connector.type,
     name: connector.name,
-    config: decryptedConfig,
+    config: responseConfig,
     enabled: connector.enabled,
     createdAt: connector.createdAt.toISOString(),
     updatedAt: connector.updatedAt.toISOString(),
