@@ -35,6 +35,8 @@ export type UseWorkspaceOptions = {
   slug: string
   /** Poll interval in ms for session status updates */
   pollInterval?: number
+  /** Skip connection attempts when false */
+  enabled?: boolean
 }
 
 export type UseWorkspaceReturn = {
@@ -77,7 +79,7 @@ export type UseWorkspaceReturn = {
   setSelectedModel: (model: AvailableModel | null) => void
 }
 
-export function useWorkspace({ slug, pollInterval = 5000 }: UseWorkspaceOptions): UseWorkspaceReturn {
+export function useWorkspace({ slug, pollInterval = 5000, enabled = true }: UseWorkspaceOptions): UseWorkspaceReturn {
   // Connection state
   const [connection, setConnection] = useState<WorkspaceConnectionState>({ status: 'connecting' })
   
@@ -497,28 +499,51 @@ export function useWorkspace({ slug, pollInterval = 5000 }: UseWorkspaceOptions)
     }
   }, [slug])
   
-  // Initial load when connected
+  // Initial load when connected - with retry on failure
   useEffect(() => {
+    if (!enabled) {
+      setConnection({ status: 'connecting' })
+      return
+    }
+
     let mounted = true
-    
+    let retryTimeout: ReturnType<typeof setTimeout> | null = null
+    let retryCount = 0
+    const MAX_RETRIES = 10
+    const BASE_DELAY = 1000
+
     async function init() {
       const connected = await checkConnection()
       if (!mounted) return
-      
+
       if (connected) {
+        retryCount = 0 // Reset on success
         // Load initial data in parallel
         await Promise.all([
           refreshFiles(),
           loadSessions(),
           loadModels()
         ])
+      } else if (retryCount < MAX_RETRIES) {
+        // Retry with exponential backoff (1s, 2s, 4s, 8s... capped at 30s)
+        retryCount++
+        const delay = Math.min(BASE_DELAY * Math.pow(2, retryCount - 1), 30000)
+        console.log(`[useWorkspace] Connection failed, retrying in ${delay}ms (attempt ${retryCount}/${MAX_RETRIES})`)
+        retryTimeout = setTimeout(() => {
+          if (mounted) init()
+        }, delay)
+      } else {
+        console.log('[useWorkspace] Max retries reached, giving up')
       }
     }
-    
+
     init()
-    
-    return () => { mounted = false }
-  }, [checkConnection, refreshFiles, loadSessions, loadModels])
+
+    return () => {
+      mounted = false
+      if (retryTimeout) clearTimeout(retryTimeout)
+    }
+  }, [checkConnection, refreshFiles, loadSessions, loadModels, enabled])
   
   // Load messages when active session changes
   useEffect(() => {

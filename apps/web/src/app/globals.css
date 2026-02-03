@@ -52,32 +52,32 @@
 
 :root {
   --radius: 0.625rem;
-  /* Fondo más neutro, menos amarillo */
-  --background: 40 30% 98%;
+  /* Fondo ligeramente gris para que las cards destaquen */
+  --background: 40 20% 96%;
   /* Texto principal con buen contraste */
-  --foreground: 20 15% 15%;
-  /* Cards con ligero contraste */
-  --card: 40 20% 98%;
-  --card-foreground: 20 15% 15%;
-  --popover: 40 25% 99%;
-  --popover-foreground: 20 15% 15%;
-  /* Mandarina principal ajustada para contraste */
+  --foreground: 20 15% 12%;
+  /* Cards más blancas que el fondo para crear jerarquía */
+  --card: 40 25% 99%;
+  --card-foreground: 20 15% 12%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 20 15% 12%;
+  /* Mandarina principal */
   --primary: 24 85% 48%;
   --primary-foreground: 0 0% 100%;
   /* Secundario más neutro */
-  --secondary: 30 15% 95%;
-  --secondary-foreground: 20 15% 25%;
+  --secondary: 30 15% 93%;
+  --secondary-foreground: 20 15% 20%;
   /* Muted con mejor contraste */
-  --muted: 30 12% 94%;
-  --muted-foreground: 20 10% 45%;
+  --muted: 30 12% 92%;
+  --muted-foreground: 20 12% 38%;
   /* Accent sutil */
-  --accent: 28 30% 96%;
-  --accent-foreground: 20 15% 20%;
+  --accent: 28 25% 94%;
+  --accent-foreground: 20 15% 18%;
   --destructive: 0 70% 50%;
   --destructive-foreground: 0 0% 100%;
-  /* Bordes con mejor contraste */
-  --border: 30 12% 85%;
-  --input: 30 12% 85%;
+  /* Bordes más visibles */
+  --border: 30 10% 82%;
+  --input: 30 10% 82%;
   --ring: 24 85% 48%;
   /* Charts */
   --chart-1: 24 85% 48%;
@@ -86,13 +86,13 @@
   --chart-4: 18 55% 35%;
   --chart-5: 32 60% 55%;
   /* Sidebar */
-  --sidebar: 40 30% 98%;
-  --sidebar-foreground: 20 15% 15%;
+  --sidebar: 40 20% 96%;
+  --sidebar-foreground: 20 15% 12%;
   --sidebar-primary: 24 85% 48%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 30 15% 95%;
-  --sidebar-accent-foreground: 20 15% 25%;
-  --sidebar-border: 30 15% 90%;
+  --sidebar-accent: 30 15% 93%;
+  --sidebar-accent-foreground: 20 15% 20%;
+  --sidebar-border: 30 12% 85%;
   --sidebar-ring: 24 85% 48%;
 }
 
@@ -221,15 +221,15 @@
   .organic-background {
     background-image: radial-gradient(
         ellipse 80% 60% at 50% -10%,
-        hsl(30 40% 96% / 0.8),
+        hsl(30 35% 94% / 0.9),
         transparent 60%
       ),
       radial-gradient(
         ellipse 60% 50% at 100% 0%,
-        hsl(24 50% 94% / 0.5),
+        hsl(24 45% 92% / 0.6),
         transparent 50%
       ),
-      linear-gradient(180deg, hsl(40 30% 99%), hsl(35 25% 97%));
+      linear-gradient(180deg, hsl(40 20% 97%), hsl(35 18% 95%));
   }
 
   /* Superficie para cards elevadas */

@@ -38,6 +38,13 @@ Uso recomendado:
 - Secundario: `rounded-full`, `bg-primary/15`, `border-primary/30`, `text-primary`.
 - Evitar botones outline grises sin acento cromático.
 
+## Iconografía
+
+- Librería: Phosphor Icons (`@phosphor-icons/react`).
+- Peso por defecto: `bold` en controles de UI; `regular` en iconos informativos.
+- Tamaño recomendado: `18-20px` en botones e inputs, `24px` en highlights.
+- Color: `text-muted-foreground` por defecto, `text-primary` para estados activos.
+
 ## Contraste y color
 
 - Texto principal en `text-foreground`; usar `text-primary` para jerarquía.
