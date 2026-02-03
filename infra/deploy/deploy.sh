@@ -3,8 +3,9 @@ set -euo pipefail
 
 # Arche One-Click Deployer
 # Usage:
-#   Remote: ./deploy.sh --ip <IP> --domain <DOMAIN> --dns-provider <PROVIDER> --ssh-key <KEY> --acme-email <EMAIL>
-#   Local:  ./deploy.sh --local
+#   Remote:    ./deploy.sh --ip <IP> --domain <DOMAIN> --dns-provider <PROVIDER> --ssh-key <KEY> --acme-email <EMAIL>
+#   Local:     ./deploy.sh --local
+#   Local dev: ./deploy.sh --local-dev
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -69,6 +70,18 @@ LOCAL MODE:
     - No TLS (HTTP only on port 8080)
     - No SSH (Ansible still required to render templates)
 
+LOCAL DEV MODE:
+  ./deploy.sh --local-dev
+
+  Like --local but mounts source code for hot reload via next dev:
+    - App:              http://arche.lvh.me:8080
+    - Traefik dashboard: http://localhost:8081
+    - Postgres:         localhost:5432
+    - Source mounted from apps/web/ with node_modules in a named volume
+    - Workspace image built automatically
+    - KB deployed to ~/.arche/kb
+
+
 ENVIRONMENT VARIABLES (via .env or exported):
   POSTGRES_PASSWORD         Database password
   ARCHE_SESSION_PEPPER      Session pepper secret
@@ -94,7 +107,8 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --local)       MODE="local";  shift ;;
+    --local)       MODE="local";      shift ;;
+    --local-dev)   MODE="local-dev";   shift ;;
     --ip)          DEPLOY_IP="$2";       shift 2 ;;
     --domain)      DEPLOY_DOMAIN="$2";   shift 2 ;;
     --dns-provider) DNS_PROVIDER="$2";   shift 2 ;;
@@ -170,7 +184,8 @@ validate_local() {
   # Local mode needs fewer secrets — use defaults if not set
   export POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-postgres}"
   export ARCHE_SESSION_PEPPER="${ARCHE_SESSION_PEPPER:-local-dev-pepper-not-for-production}"
-  export ARCHE_ENCRYPTION_KEY="${ARCHE_ENCRYPTION_KEY:-local-dev-encryption-key-not-for-prod}"
+  # Must be base64 for a 32-byte key (AES-256-GCM). Keep stable across runs.
+  export ARCHE_ENCRYPTION_KEY="${ARCHE_ENCRYPTION_KEY:-ZGV2LWluc2VjdXJlLWtleS0zMi1ieXRlcy1sb25nISE=}"
   export ARCHE_INTERNAL_TOKEN="${ARCHE_INTERNAL_TOKEN:-local-dev-internal-token}"
   export ARCHE_SEED_ADMIN_EMAIL="${ARCHE_SEED_ADMIN_EMAIL:-admin@example.com}"
   export ARCHE_SEED_ADMIN_PASSWORD="${ARCHE_SEED_ADMIN_PASSWORD:-change-me}"
@@ -178,17 +193,17 @@ validate_local() {
 }
 
 # Determine mode
-if [[ "$MODE" == "local" ]]; then
+if [[ "$MODE" == "local" || "$MODE" == "local-dev" ]]; then
   # Ensure no remote flags were also passed
   if [[ -n "$DEPLOY_IP" || -n "$DEPLOY_DOMAIN" || -n "$DNS_PROVIDER" || -n "$SSH_KEY" || -n "$ACME_EMAIL" ]]; then
-    ERRORS+=("--local is mutually exclusive with remote flags (--ip, --domain, etc.)")
+    ERRORS+=("--${MODE} is mutually exclusive with remote flags (--ip, --domain, etc.)")
   fi
   validate_local
 elif [[ -n "$DEPLOY_IP" || -n "$DEPLOY_DOMAIN" || -n "$DNS_PROVIDER" || -n "$SSH_KEY" || -n "$ACME_EMAIL" ]]; then
   MODE="remote"
   validate_remote
 else
-  err "Specify --local or remote flags (--ip, --domain, etc.)"
+  err "Specify --local, --local-dev, or remote flags (--ip, --domain, etc.)"
   usage 1
 fi
 
@@ -304,8 +319,13 @@ deploy_local() {
   PODMAN_SOCKET_PATH="${PODMAN_SOCKET_PATH:-}"
   if [[ -z "$PODMAN_SOCKET_PATH" ]]; then
     if podman machine inspect &>/dev/null; then
-      # macOS Podman Machine: use the user socket inside the VM
-      PODMAN_SOCKET_PATH="/run/user/$(id -u)/podman/podman.sock"
+      # Podman Machine: choose rootful vs rootless socket inside the VM
+      PODMAN_ROOTLESS="$(podman info --format '{{.Host.Security.Rootless}}' 2>/dev/null || echo false)"
+      if [[ "$PODMAN_ROOTLESS" == "true" ]]; then
+        PODMAN_SOCKET_PATH="/run/user/$(id -u)/podman/podman.sock"
+      else
+        PODMAN_SOCKET_PATH="/run/podman/podman.sock"
+      fi
     else
       # Linux rootful Podman
       PODMAN_SOCKET_PATH="/run/podman/podman.sock"
@@ -360,18 +380,18 @@ json.dump(vars, open(sys.argv[1], "w"))
   tasks:
     - name: Render compose template
       ansible.builtin.template:
-        src: "{{ playbook_dir }}/ansible/roles/app/templates/compose.yml.j2"
-        dest: "{{ playbook_dir }}/.compose-local.yml"
+        src: "{{ deploy_dir }}/ansible/roles/app/templates/compose.yml.j2"
+        dest: "{{ deploy_dir }}/.compose-local.yml"
     - name: Render env template
       ansible.builtin.template:
-        src: "{{ playbook_dir }}/ansible/roles/app/templates/.env.j2"
-        dest: "{{ playbook_dir }}/.env.local"
+        src: "{{ deploy_dir }}/ansible/roles/app/templates/.env.j2"
+        dest: "{{ deploy_dir }}/.env.local"
         mode: "0600"
 PLAYBOOK
 
     ANSIBLE_CONFIG="$SCRIPT_DIR/ansible.cfg" ansible-playbook \
       --extra-vars "@${EXTRA_VARS_FILE}" \
-      --extra-vars "playbook_dir=${SCRIPT_DIR}" \
+      --extra-vars "deploy_dir=${SCRIPT_DIR}" \
       "$TEMP_PLAYBOOK"
   else
     err "Ansible is required to render templates. Install with: pip install ansible"
@@ -416,7 +436,8 @@ PLAYBOOK
   echo ""
   log "Local deployment ready!"
   info "  App:   http://${LOCAL_DOMAIN}"
-  info "  Admin: http://u-${ARCHE_SEED_ADMIN_SLUG}.${LOCAL_DOMAIN}"
+  info "  Dashboard: http://${LOCAL_DOMAIN}/u/${ARCHE_SEED_ADMIN_SLUG}"
+  info "  Workspace: http://${LOCAL_DOMAIN}/w/${ARCHE_SEED_ADMIN_SLUG}"
   echo ""
   info "Useful commands:"
   info "  Logs:     podman compose -f $COMPOSE_OUT -p arche logs -f"
@@ -425,9 +446,175 @@ PLAYBOOK
 }
 
 # ---------------------------------------------------------------------------
+# Local dev mode
+# ---------------------------------------------------------------------------
+deploy_local_dev() {
+  log "Starting local dev deployment (arche.lvh.me) with hot reload"
+
+  # Check prerequisites
+  if ! command -v podman &>/dev/null; then
+    err "Podman not found. Install Podman first."
+    exit 1
+  fi
+
+  if ! podman compose version &>/dev/null; then
+    err "podman-compose not found. Install podman-compose first."
+    exit 1
+  fi
+
+  # Detect Podman socket path (VM-internal path for container mounts)
+  PODMAN_SOCKET_PATH="${PODMAN_SOCKET_PATH:-}"
+  if [[ -z "$PODMAN_SOCKET_PATH" ]]; then
+    if podman machine inspect &>/dev/null; then
+      PODMAN_ROOTLESS="$(podman info --format '{{.Host.Security.Rootless}}' 2>/dev/null || echo false)"
+      if [[ "$PODMAN_ROOTLESS" == "true" ]]; then
+        PODMAN_SOCKET_PATH="/run/user/$(id -u)/podman/podman.sock"
+      else
+        PODMAN_SOCKET_PATH="/run/podman/podman.sock"
+      fi
+    else
+      PODMAN_SOCKET_PATH="/run/podman/podman.sock"
+    fi
+  fi
+  log "Using Podman socket: $PODMAN_SOCKET_PATH"
+
+  # Compute repo root and validate source tree
+  REPO_ROOT="$SCRIPT_DIR/../.."
+  REPO_ROOT="$(cd "$REPO_ROOT" && pwd)"
+  if [[ ! -f "$REPO_ROOT/apps/web/package.json" ]]; then
+    err "Cannot find apps/web/package.json in $REPO_ROOT"
+    err "Run this script from within the arche repository."
+    exit 1
+  fi
+
+  # Build workspace image
+  log "Building workspace image: arche-workspace:latest"
+  podman build -t arche-workspace:latest "$REPO_ROOT/infra/workspace-image"
+
+  # Deploy Knowledge Base
+  KB_DEST="${KB_HOST_PATH:-$HOME/.arche/kb}"
+  log "Deploying Knowledge Base to: $KB_DEST"
+  "$REPO_ROOT/scripts/deploy-kb.sh" "$KB_DEST"
+
+  # Render compose from template using Ansible
+  COMPOSE_OUT="$SCRIPT_DIR/.compose-local-dev.yml"
+
+  if ! command -v ansible &>/dev/null; then
+    err "Ansible is required to render templates. Install with: pip install ansible"
+    exit 1
+  fi
+
+  log "Rendering compose template via Ansible..."
+
+  TEMP_PLAYBOOK=$(mktemp)
+  EXTRA_VARS_FILE=$(mktemp)
+  trap 'rm -f "$TEMP_PLAYBOOK" "$EXTRA_VARS_FILE"' EXIT
+
+  export LOCAL_DOMAIN PODMAN_SOCKET_PATH IMAGE_PREFIX WEB_VERSION REPO_ROOT KB_DEST
+
+  python3 -c '
+import json, os, sys
+vars = {
+    "deploy_mode": "local-dev",
+    "domain": os.environ["LOCAL_DOMAIN"],
+    "dns_provider": "",
+    "acme_email": "",
+    "env_file_name": ".env.local-dev",
+    "podman_socket_path": os.environ["PODMAN_SOCKET_PATH"],
+    "image_prefix": os.environ["IMAGE_PREFIX"],
+    "web_version": os.environ["WEB_VERSION"],
+    "opencode_image": "arche-workspace:latest",
+    "repo_root": os.environ["REPO_ROOT"],
+    "kb_host_path": os.environ["KB_DEST"],
+    "postgres_password": os.environ["POSTGRES_PASSWORD"],
+    "arche_session_pepper": os.environ["ARCHE_SESSION_PEPPER"],
+    "arche_encryption_key": os.environ["ARCHE_ENCRYPTION_KEY"],
+    "arche_internal_token": os.environ["ARCHE_INTERNAL_TOKEN"],
+    "arche_seed_admin_email": os.environ["ARCHE_SEED_ADMIN_EMAIL"],
+    "arche_seed_admin_password": os.environ["ARCHE_SEED_ADMIN_PASSWORD"],
+    "arche_seed_admin_slug": os.environ["ARCHE_SEED_ADMIN_SLUG"],
+}
+json.dump(vars, open(sys.argv[1], "w"))
+' "$EXTRA_VARS_FILE"
+
+  cat > "$TEMP_PLAYBOOK" <<'PLAYBOOK'
+---
+- hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Render compose template
+      ansible.builtin.template:
+        src: "{{ deploy_dir }}/ansible/roles/app/templates/compose.yml.j2"
+        dest: "{{ deploy_dir }}/.compose-local-dev.yml"
+    - name: Render env template
+      ansible.builtin.template:
+        src: "{{ deploy_dir }}/ansible/roles/app/templates/.env.j2"
+        dest: "{{ deploy_dir }}/.env.local-dev"
+        mode: "0600"
+PLAYBOOK
+
+  ANSIBLE_CONFIG="$SCRIPT_DIR/ansible.cfg" ansible-playbook \
+    --extra-vars "@${EXTRA_VARS_FILE}" \
+    --extra-vars "deploy_dir=${SCRIPT_DIR}" \
+    "$TEMP_PLAYBOOK"
+
+  # Ensure arche-internal network exists
+  if ! podman network inspect arche-internal &>/dev/null; then
+    log "Creating arche-internal network..."
+    podman network create arche-internal
+  fi
+
+  # Start the stack
+  log "Starting Podman Compose stack..."
+  podman compose -f "$COMPOSE_OUT" --env-file "$SCRIPT_DIR/.env.local-dev" -p arche up -d
+
+  # Wait for web to be ready (longer timeout — first-run pnpm install is slow)
+  log "Waiting for web service to be ready (first run may take a while for pnpm install)..."
+  RETRIES=60
+  until podman compose -f "$COMPOSE_OUT" -p arche exec -T web sh -c "curl -sf http://localhost:3000/ > /dev/null 2>&1" 2>/dev/null; do
+    RETRIES=$((RETRIES - 1))
+    if [[ $RETRIES -le 0 ]]; then
+      warn "Web service did not become healthy. Continuing with migrations anyway..."
+      break
+    fi
+    sleep 3
+  done
+
+  # Run migrations
+  log "Running Prisma migrations..."
+  podman compose -f "$COMPOSE_OUT" -p arche exec -T web pnpm prisma migrate deploy || {
+    warn "Migration failed — check web container logs for details."
+  }
+
+  # Seed
+  log "Running seed..."
+  podman compose -f "$COMPOSE_OUT" -p arche exec -T web pnpm prisma db seed || {
+    warn "Seed failed — this may be expected if already seeded."
+  }
+
+  echo ""
+  log "Local dev deployment ready!"
+  info "  App:              http://${LOCAL_DOMAIN}"
+  info "  Dashboard:         http://${LOCAL_DOMAIN}/u/${ARCHE_SEED_ADMIN_SLUG}"
+  info "  Workspace:         http://${LOCAL_DOMAIN}/w/${ARCHE_SEED_ADMIN_SLUG}"
+  info "  Traefik dashboard: http://localhost:8081"
+  info "  Postgres:         localhost:5432"
+  echo ""
+  info "Hot reload is active — edit files in apps/web/src/ and Next.js reloads automatically."
+  echo ""
+  info "Useful commands:"
+  info "  Logs:     podman compose -f $COMPOSE_OUT -p arche logs -f"
+  info "  Web logs: podman compose -f $COMPOSE_OUT -p arche logs -f web"
+  info "  Stop:     podman compose -f $COMPOSE_OUT -p arche down"
+  info "  Restart:  podman compose -f $COMPOSE_OUT -p arche restart"
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 case "$MODE" in
-  remote) deploy_remote ;;
-  local)  deploy_local ;;
+  remote)    deploy_remote ;;
+  local)     deploy_local ;;
+  local-dev) deploy_local_dev ;;
 esac

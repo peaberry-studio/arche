@@ -42,11 +42,11 @@ export default function LoginPage() {
   const [challengeToken, setChallengeToken] = useState("");
   const [show2FA, setShow2FA] = useState(false);
 
-  // Redirigir automáticamente al workspace después de login exitoso
+  // Redirigir automáticamente al dashboard después de login exitoso
   useEffect(() => {
     if (result?.data?.ok && result.data.user?.slug) {
       const timeout = setTimeout(() => {
-        router.push(`/w/${result.data!.user!.slug}`);
+        router.push(`/u/${result.data!.user!.slug}`);
       }, 500);
       return () => clearTimeout(timeout);
     }
@@ -92,7 +92,7 @@ export default function LoginPage() {
       ? errorMessages[result.data?.error ?? "unknown"] ?? errorMessages.unknown
       : null;
 
-  const workspacePath = result?.data?.user?.slug
+  const dashboardPath = result?.data?.user?.slug
     ? `/u/${result.data.user.slug}`
     : null;
 
@@ -156,9 +156,9 @@ export default function LoginPage() {
                       {result.data.user.email}
                     </span>
                   </p>
-                  {workspacePath && (
+                  {dashboardPath && (
                     <Button asChild className="w-full">
-                      <Link href={workspacePath}>Ir al workspace</Link>
+                      <Link href={dashboardPath}>Ir al dashboard</Link>
                     </Button>
                   )}
                 </div>

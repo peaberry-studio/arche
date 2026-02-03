@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { auditEvent, createSession, getCookieDomain, SESSION_COOKIE_NAME, verifyPassword } from '@/lib/auth'
+import { auditEvent, createSession, getCookieDomain, SESSION_COOKIE_NAME, shouldUseSecureCookies, verifyPassword } from '@/lib/auth'
 import { hashSessionToken, newSessionToken } from '@/lib/security'
 
 // Pending 2FA challenges: hashedToken -> { userId, expiresAt }
@@ -64,7 +64,7 @@ export async function POST(request: Request) {
     value: token,
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    secure: shouldUseSecureCookies(request.headers),
     path: '/',
     domain: getCookieDomain(),
     expires: expiresAt

@@ -1,3 +1,5 @@
 .compose-local.yml
+.compose-local-dev.yml
 .env.local
+.env.local-dev
 .env
