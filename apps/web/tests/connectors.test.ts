@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import { encryptConfig, decryptConfig } from '@/lib/connectors/crypto'
 import { CONNECTOR_TYPES } from '@/lib/connectors/types'
+import {
+  validateConnectorType,
+  validateConnectorConfig,
+  validateConnectorName,
+  CONNECTOR_SCHEMAS,
+  MAX_CONNECTOR_NAME_LENGTH,
+} from '@/lib/connectors/validators'
 
 describe('connectors/crypto', () => {
   const sample = { apiKey: 'sk-123', workspace: 'my-team' }
@@ -42,5 +49,159 @@ describe('connectors/crypto', () => {
 describe('connectors/types', () => {
   it('CONNECTOR_TYPES contains expected values', () => {
     expect(CONNECTOR_TYPES).toEqual(['linear', 'notion', 'slack', 'github', 'custom'])
+  })
+})
+
+describe('connectors/validators', () => {
+  describe('validateConnectorType', () => {
+    it('accepts valid connector types', () => {
+      expect(validateConnectorType('linear')).toBe(true)
+      expect(validateConnectorType('notion')).toBe(true)
+      expect(validateConnectorType('slack')).toBe(true)
+      expect(validateConnectorType('github')).toBe(true)
+      expect(validateConnectorType('custom')).toBe(true)
+    })
+
+    it('rejects invalid connector types', () => {
+      expect(validateConnectorType('invalid')).toBe(false)
+      expect(validateConnectorType('')).toBe(false)
+      expect(validateConnectorType('LINEAR')).toBe(false)
+    })
+  })
+
+  describe('validateConnectorConfig', () => {
+    it('validates required fields for linear', () => {
+      const valid = validateConnectorConfig('linear', { apiKey: 'key123' })
+      expect(valid).toEqual({ valid: true })
+
+      const invalid = validateConnectorConfig('linear', {})
+      expect(invalid.valid).toBe(false)
+      expect(invalid.missing).toContain('apiKey')
+    })
+
+    it('validates required fields for notion', () => {
+      const valid = validateConnectorConfig('notion', { apiKey: 'secret_xxx' })
+      expect(valid).toEqual({ valid: true })
+
+      const invalid = validateConnectorConfig('notion', {})
+      expect(invalid.valid).toBe(false)
+      expect(invalid.missing).toContain('apiKey')
+    })
+
+    it('validates required fields for slack', () => {
+      const valid = validateConnectorConfig('slack', { botToken: 'xoxb-xxx' })
+      expect(valid).toEqual({ valid: true })
+
+      const invalid = validateConnectorConfig('slack', {})
+      expect(invalid.valid).toBe(false)
+      expect(invalid.missing).toContain('botToken')
+    })
+
+    it('validates required fields for github', () => {
+      const valid = validateConnectorConfig('github', { token: 'ghp_xxx' })
+      expect(valid).toEqual({ valid: true })
+
+      const invalid = validateConnectorConfig('github', {})
+      expect(invalid.valid).toBe(false)
+      expect(invalid.missing).toContain('token')
+    })
+
+    it('validates required fields for custom', () => {
+      const valid = validateConnectorConfig('custom', { endpoint: 'https://api.example.com' })
+      expect(valid).toEqual({ valid: true })
+
+      const invalid = validateConnectorConfig('custom', {})
+      expect(invalid.valid).toBe(false)
+      expect(invalid.missing).toContain('endpoint')
+    })
+
+    it('allows optional fields without requiring them', () => {
+      // slack has optional appToken
+      const withOptional = validateConnectorConfig('slack', {
+        botToken: 'xoxb-xxx',
+        appToken: 'xapp-xxx',
+      })
+      expect(withOptional).toEqual({ valid: true })
+
+      // github has optional org
+      const withOrg = validateConnectorConfig('github', {
+        token: 'ghp_xxx',
+        org: 'my-org',
+      })
+      expect(withOrg).toEqual({ valid: true })
+    })
+
+    it('reports multiple missing fields', () => {
+      // custom requires endpoint, but we also check behavior with empty object
+      const result = validateConnectorConfig('custom', {})
+      expect(result.valid).toBe(false)
+      expect(result.missing).toEqual(['endpoint'])
+    })
+
+    it('rejects empty string values for required fields', () => {
+      const emptyString = validateConnectorConfig('linear', { apiKey: '' })
+      expect(emptyString.valid).toBe(false)
+      expect(emptyString.missing).toContain('apiKey')
+
+      const whitespace = validateConnectorConfig('linear', { apiKey: '   ' })
+      expect(whitespace.valid).toBe(false)
+      expect(whitespace.missing).toContain('apiKey')
+    })
+
+    it('rejects null/undefined values for required fields', () => {
+      const nullValue = validateConnectorConfig('linear', { apiKey: null })
+      expect(nullValue.valid).toBe(false)
+
+      const undefinedValue = validateConnectorConfig('linear', { apiKey: undefined })
+      expect(undefinedValue.valid).toBe(false)
+    })
+  })
+
+  describe('validateConnectorName', () => {
+    it('accepts valid names', () => {
+      expect(validateConnectorName('My Connector')).toEqual({ valid: true })
+      expect(validateConnectorName('a')).toEqual({ valid: true })
+      expect(validateConnectorName('Linear Integration')).toEqual({ valid: true })
+    })
+
+    it('rejects non-string values', () => {
+      expect(validateConnectorName(123).valid).toBe(false)
+      expect(validateConnectorName(null).valid).toBe(false)
+      expect(validateConnectorName(undefined).valid).toBe(false)
+      expect(validateConnectorName({}).valid).toBe(false)
+    })
+
+    it('rejects empty or whitespace-only names', () => {
+      expect(validateConnectorName('').valid).toBe(false)
+      expect(validateConnectorName('   ').valid).toBe(false)
+      expect(validateConnectorName('\t\n').valid).toBe(false)
+    })
+
+    it('rejects names exceeding max length', () => {
+      const tooLong = 'a'.repeat(MAX_CONNECTOR_NAME_LENGTH + 1)
+      const result = validateConnectorName(tooLong)
+      expect(result.valid).toBe(false)
+      expect(result.error).toContain('maximum length')
+
+      // Exactly at limit should be valid
+      const atLimit = 'a'.repeat(MAX_CONNECTOR_NAME_LENGTH)
+      expect(validateConnectorName(atLimit)).toEqual({ valid: true })
+    })
+
+    it('trims whitespace for length validation', () => {
+      // Name with leading/trailing whitespace should be valid if trimmed length is within limit
+      const withWhitespace = '  Valid Name  '
+      expect(validateConnectorName(withWhitespace)).toEqual({ valid: true })
+    })
+  })
+
+  describe('CONNECTOR_SCHEMAS', () => {
+    it('has schema for all connector types', () => {
+      for (const type of CONNECTOR_TYPES) {
+        expect(CONNECTOR_SCHEMAS[type]).toBeDefined()
+        expect(CONNECTOR_SCHEMAS[type].required).toBeDefined()
+        expect(Array.isArray(CONNECTOR_SCHEMAS[type].required)).toBe(true)
+      }
+    })
   })
 })

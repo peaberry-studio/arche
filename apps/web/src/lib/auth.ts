@@ -129,3 +129,15 @@ export async function getSessionFromToken(token: string): Promise<{
     sessionId: session.id
   }
 }
+
+/**
+ * Get authenticated user from request cookies.
+ * Use this in API routes to verify authentication.
+ */
+export async function getAuthenticatedUser() {
+  const { cookies } = await import('next/headers')
+  const cookieStore = await cookies()
+  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value
+  if (!token) return null
+  return getSessionFromToken(token)
+}
