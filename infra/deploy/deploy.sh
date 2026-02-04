@@ -435,7 +435,7 @@ PLAYBOOK
   # Wait for web to be ready
   log "Waiting for web service to be ready..."
   RETRIES=30
-  until podman compose -f "$COMPOSE_OUT" -p arche exec -T web sh -c "curl -sf http://localhost:3000/ > /dev/null 2>&1" 2>/dev/null; do
+  until podman compose -f "$COMPOSE_OUT" -p arche exec -T web sh -c "node -e 'const net=require(\"net\");const s=net.connect(3000,\"127.0.0.1\");s.on(\"connect\",()=>process.exit(0));s.on(\"error\",()=>process.exit(1));'" 2>/dev/null; do
     RETRIES=$((RETRIES - 1))
     if [[ $RETRIES -le 0 ]]; then
       warn "Web service did not become healthy. Continuing with migrations anyway..."
@@ -598,7 +598,7 @@ PLAYBOOK
   # Wait for web to be ready (longer timeout — first-run pnpm install is slow)
   log "Waiting for web service to be ready (first run may take a while for pnpm install)..."
   RETRIES=60
-  until podman compose -f "$COMPOSE_OUT" -p arche exec -T web sh -c "curl -sf http://localhost:3000/ > /dev/null 2>&1" 2>/dev/null; do
+  until podman compose -f "$COMPOSE_OUT" -p arche exec -T web sh -c "node -e 'const net=require(\"net\");const s=net.connect(3000,\"127.0.0.1\");s.on(\"connect\",()=>process.exit(0));s.on(\"error\",()=>process.exit(1));'" 2>/dev/null; do
     RETRIES=$((RETRIES - 1))
     if [[ $RETRIES -le 0 ]]; then
       warn "Web service did not become healthy. Continuing with migrations anyway..."

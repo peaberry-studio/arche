@@ -31,7 +31,7 @@ function parseUnifiedDiff(diff: string): DiffLine[] {
   let inHunk = false;
   let conflictMode: "current" | "incoming" | null = null;
 
-  const applyConflictRole = (line: DiffLine) => {
+  const applyConflictRole = (line: DiffLine): DiffLine => {
     if (line.type !== "add") return line;
     const trimmed = line.content;
 
@@ -85,7 +85,7 @@ function parseUnifiedDiff(diff: string): DiffLine[] {
     }
 
     if (raw.startsWith("+") && !raw.startsWith("+++")) {
-      const line = {
+      const line: DiffLine = {
         type: "add" as const,
         prefix: "+",
         content: raw.slice(1),

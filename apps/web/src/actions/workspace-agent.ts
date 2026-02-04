@@ -54,8 +54,15 @@ export async function readWorkspaceFileAction(slug: string, path: string): Promi
       hash?: string
     }
 
-    if (!response.ok || !data.ok) {
-      return { ok: false, error: data.error ?? `workspace_agent_http_${response.status}` }
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: !data.ok ? data.error : `workspace_agent_http_${response.status}`
+      }
+    }
+
+    if (!data.ok) {
+      return { ok: false, error: data.error }
     }
 
     let content = data.content ?? ''
@@ -106,8 +113,16 @@ export async function writeWorkspaceFileAction(
     })
 
     const data = await response.json() as AgentResponse & { hash?: string }
-    if (!response.ok || !data.ok) {
-      return { ok: false, error: data.error ?? `workspace_agent_http_${response.status}` }
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: !data.ok ? data.error : `workspace_agent_http_${response.status}`
+      }
+    }
+
+    if (!data.ok) {
+      return { ok: false, error: data.error }
     }
 
     return { ok: true, hash: data.hash }
@@ -139,8 +154,16 @@ export async function deleteWorkspaceFileAction(
     })
 
     const data = await response.json() as AgentResponse
-    if (!response.ok || !data.ok) {
-      return { ok: false, error: data.error ?? `workspace_agent_http_${response.status}` }
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: !data.ok ? data.error : `workspace_agent_http_${response.status}`
+      }
+    }
+
+    if (!data.ok) {
+      return { ok: false, error: data.error }
     }
 
     return { ok: true }
@@ -172,8 +195,16 @@ export async function applyWorkspacePatchAction(
     })
 
     const data = await response.json() as AgentResponse
-    if (!response.ok || !data.ok) {
-      return { ok: false, error: data.error ?? `workspace_agent_http_${response.status}` }
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: !data.ok ? data.error : `workspace_agent_http_${response.status}`
+      }
+    }
+
+    if (!data.ok) {
+      return { ok: false, error: data.error }
     }
 
     return { ok: true }

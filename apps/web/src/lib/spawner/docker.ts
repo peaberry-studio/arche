@@ -159,7 +159,7 @@ export async function execInContainer(
       // Chunks may split frames, so we must buffer across 'data' events.
       // Format: [type (1 byte)][0][0][0][size (4 bytes big-endian)][payload]
       // type: 1 = stdout, 2 = stderr
-      let pending = Buffer.alloc(0)
+      let pending: Buffer = Buffer.alloc(0)
       stream.on('data', (chunk: Buffer) => {
         pending = pending.length ? Buffer.concat([pending, chunk]) : chunk
 
