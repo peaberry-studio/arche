@@ -5,7 +5,7 @@ import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 
 export interface PublishKbResult {
   ok: boolean
-  status: 'published' | 'nothing_to_publish' | 'push_rejected' | 'no_remote' | 'error'
+  status: 'published' | 'nothing_to_publish' | 'push_rejected' | 'conflicts' | 'no_remote' | 'error'
   commitHash?: string
   files?: string[]
   message?: string

@@ -26,10 +26,10 @@ export default function SignupPage() {
           {/* Header */}
           <div className="space-y-2 text-center">
             <h1 className="font-[family-name:var(--font-display)] text-3xl font-semibold tracking-tight">
-              Crea tu workspace
+              Create your workspace
             </h1>
             <p className="text-muted-foreground">
-              Configura tu Arche corporativo en minutos
+              Set up your enterprise Arche in minutes
             </p>
           </div>
 
@@ -37,13 +37,13 @@ export default function SignupPage() {
           {submitted ? (
             <div className="space-y-4 rounded-lg border border-primary/20 bg-primary/5 p-6 text-center">
               <p className="font-medium text-foreground">
-                Solicitud recibida
+                Request received
               </p>
               <p className="text-sm text-muted-foreground">
-                Te contactaremos en menos de 24 horas para configurar tu workspace.
+                We will contact you within 24 hours to set up your workspace.
               </p>
               <Button asChild variant="outline" className="mt-2">
-                <Link href="/">Volver al inicio</Link>
+                <Link href="/">Back to home</Link>
               </Button>
             </div>
           ) : (
@@ -51,88 +51,88 @@ export default function SignupPage() {
               {/* Form */}
               <form onSubmit={handleSubmit} className="space-y-5">
                 <div className="space-y-2">
-                  <Label htmlFor="name">Nombre</Label>
+                  <Label htmlFor="name">Name</Label>
                   <Input
                     id="name"
                     name="name"
-                    placeholder="Tu nombre"
+                    placeholder="Your name"
                     required
                     autoComplete="name"
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="email">Email de trabajo</Label>
+                  <Label htmlFor="email">Work email</Label>
                   <Input
                     id="email"
                     name="email"
                     type="email"
-                    placeholder="tu@empresa.com"
+                    placeholder="you@company.com"
                     required
                     autoComplete="email"
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="company">Empresa</Label>
+                  <Label htmlFor="company">Company</Label>
                   <Input
                     id="company"
                     name="company"
-                    placeholder="Nombre de la empresa"
+                    placeholder="Company name"
                     required
                     autoComplete="organization"
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="team">Tamaño del equipo</Label>
+                  <Label htmlFor="team">Team size</Label>
                   <select
                     id="team"
                     name="team"
                     className="flex h-10 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-offset-2"
                     required
                   >
-                    <option value="">Selecciona</option>
-                    <option value="1-10">1-10 personas</option>
-                    <option value="11-50">11-50 personas</option>
-                    <option value="51-200">51-200 personas</option>
-                    <option value="200+">200+ personas</option>
+                    <option value="">Select</option>
+                    <option value="1-10">1-10 people</option>
+                    <option value="11-50">11-50 people</option>
+                    <option value="51-200">51-200 people</option>
+                    <option value="200+">200+ people</option>
                   </select>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="slug">Slug del workspace</Label>
+                  <Label htmlFor="slug">Workspace slug</Label>
                   <Input
                     id="slug"
                     name="slug"
-                    placeholder="mi-empresa"
+                    placeholder="my-company"
                     required
                   />
                   <p className="text-xs text-muted-foreground">
-                    Tu subdominio será mi-empresa.arche.ai
+                    Your subdomain will be my-company.arche.ai
                   </p>
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="message">
-                    Procesos a interiorizar{" "}
-                    <span className="font-normal text-muted-foreground">(opcional)</span>
+                    Processes to internalize{" "}
+                    <span className="font-normal text-muted-foreground">(optional)</span>
                   </Label>
                   <textarea
                     id="message"
                     name="message"
-                    placeholder="Describe brevemente qué procesos quieres automatizar"
+                    placeholder="Briefly describe the processes you want to automate"
                     rows={3}
                     className="flex w-full rounded-lg border border-border bg-background px-3 py-2 text-sm transition-colors placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-offset-2"
                   />
                 </div>
 
                 <Button type="submit" className="w-full">
-                  Solicitar acceso
+                  Request access
                 </Button>
 
                 <p className="text-center text-xs text-muted-foreground">
-                  Te contactaremos para configurar tu workspace.
+                  We will contact you to set up your workspace.
                 </p>
               </form>
             </>
@@ -141,12 +141,12 @@ export default function SignupPage() {
           {/* Footer */}
           {!submitted && (
             <p className="text-center text-sm text-muted-foreground">
-              ¿Ya tienes cuenta?{" "}
+              Already have an account?{" "}
               <Link
                 href="/login"
                 className="font-medium text-primary hover:underline"
               >
-                Entrar
+                Sign in
               </Link>
             </p>
           )}

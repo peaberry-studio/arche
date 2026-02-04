@@ -10,6 +10,7 @@ import type { PublishKbResult } from '@/app/api/instances/[slug]/publish-kb/rout
 type PublishKbButtonProps = {
   slug: string
   disabled?: boolean
+  disabledReason?: string
   onComplete?: () => void
 }
 
@@ -19,10 +20,11 @@ type PublishState =
   | 'published'
   | 'nothing'
   | 'push_rejected'
+  | 'conflicts'
   | 'no_remote'
   | 'error'
 
-export function PublishKbButton({ slug, disabled, onComplete }: PublishKbButtonProps) {
+export function PublishKbButton({ slug, disabled, disabledReason, onComplete }: PublishKbButtonProps) {
   const [state, setState] = useState<PublishState>('idle')
   const [message, setMessage] = useState<string | null>(null)
   const [files, setFiles] = useState<string[]>([])
@@ -62,7 +64,15 @@ export function PublishKbButton({ slug, disabled, onComplete }: PublishKbButtonP
 
       if (result.status === 'push_rejected') {
         setState('push_rejected')
-        setMessage(result.message || 'Sincroniza el KB antes de publicar')
+        setMessage(result.message || 'Sync the KB before publishing')
+        setFiles(result.files || [])
+        onComplete?.()
+        return
+      }
+
+      if (result.status === 'conflicts') {
+        setState('conflicts')
+        setMessage(result.message || 'There are unresolved conflicts')
         setFiles(result.files || [])
         onComplete?.()
         return
@@ -70,13 +80,13 @@ export function PublishKbButton({ slug, disabled, onComplete }: PublishKbButtonP
 
       if (result.status === 'no_remote') {
         setState('no_remote')
-        setMessage(result.message || 'KB remote no configurado')
+        setMessage(result.message || 'KB remote not configured')
         onComplete?.()
         return
       }
 
       setState('error')
-      setMessage(result.message || 'No se pudo publicar')
+      setMessage(result.message || 'Publishing failed')
       onComplete?.()
     } catch (err) {
       setState('error')
@@ -94,37 +104,43 @@ export function PublishKbButton({ slug, disabled, onComplete }: PublishKbButtonP
   const stateConfig = {
     idle: {
       icon: Check,
-      label: 'Aprobar',
+      label: 'Publish',
       className: '',
       weight: 'bold' as const,
     },
     publishing: {
       icon: ArrowsClockwise,
-      label: 'Publicando...',
+      label: 'Publishing...',
       className: 'animate-spin',
       weight: 'bold' as const,
     },
     published: {
       icon: Check,
-      label: 'Publicado',
+      label: 'Published',
       className: 'text-emerald-500',
       weight: 'bold' as const,
     },
     nothing: {
       icon: Check,
-      label: 'Sin cambios',
+      label: 'No changes',
       className: 'text-muted-foreground',
       weight: 'bold' as const,
     },
     push_rejected: {
       icon: Warning,
-      label: 'Sync requerido',
+      label: 'Sync required',
+      className: 'text-amber-500',
+      weight: 'fill' as const,
+    },
+    conflicts: {
+      icon: Warning,
+      label: 'Conflicts',
       className: 'text-amber-500',
       weight: 'fill' as const,
     },
     no_remote: {
       icon: Warning,
-      label: 'Sin remoto',
+      label: 'No remote',
       className: 'text-amber-500',
       weight: 'fill' as const,
     },
@@ -138,7 +154,7 @@ export function PublishKbButton({ slug, disabled, onComplete }: PublishKbButtonP
 
   const config = stateConfig[state]
   const Icon = config.icon
-  const showPopover = state === 'push_rejected' || state === 'no_remote' || state === 'error'
+  const showPopover = state === 'push_rejected' || state === 'conflicts' || state === 'no_remote' || state === 'error'
 
   return (
     <div className="relative">
@@ -147,23 +163,45 @@ export function PublishKbButton({ slug, disabled, onComplete }: PublishKbButtonP
         className="h-7 gap-1.5 px-2.5 text-xs"
         onClick={handlePublish}
         disabled={disabled || state === 'publishing'}
-        title={message || 'Publicar cambios'}
+        title={message || disabledReason || 'Publish changes'}
       >
         <Icon size={12} weight={config.weight} className={cn(config.className)} />
         {config.label}
       </Button>
 
       {showPopover && (
-        <div className="absolute right-0 top-full z-50 mt-1 w-64 rounded-md border border-border bg-popover p-3 shadow-md">
+        <div className="absolute right-0 top-full z-50 -mt-px w-64 rounded-md border border-border bg-popover p-3 shadow-md">
           <div className="flex items-start justify-between gap-2">
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               {state === 'push_rejected' ? (
                 <>
-                  <p className="text-sm font-medium text-amber-500">
-                    Sync KB requerido
+                  <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
+                    KB sync required
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {message || 'Sincroniza antes de publicar'}
+                    {message || 'Sync before publishing'}
+                  </p>
+                  {files.length > 0 ? (
+                    <ul className="mt-2 max-h-32 overflow-y-auto text-xs">
+                      {files.map((file) => (
+                        <li
+                          key={file}
+                          className="truncate font-mono text-muted-foreground"
+                          title={file}
+                        >
+                          {file}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </>
+              ) : state === 'conflicts' ? (
+                <>
+                  <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
+                    Pending conflicts
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {message || 'Resolve conflicts before publishing'}
                   </p>
                   {files.length > 0 ? (
                     <ul className="mt-2 max-h-32 overflow-y-auto text-xs">
@@ -181,18 +219,18 @@ export function PublishKbButton({ slug, disabled, onComplete }: PublishKbButtonP
                 </>
               ) : state === 'no_remote' ? (
                 <>
-                  <p className="text-sm font-medium text-amber-500">
-                    KB remoto no disponible
+                  <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
+                    KB remote unavailable
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {message || 'Configura el remote KB para publicar'}
+                    {message || 'Configure the KB remote before publishing'}
                   </p>
                 </>
               ) : (
                 <>
-                  <p className="text-sm font-medium text-red-500">Publicacion fallida</p>
+                  <p className="text-sm font-medium text-red-500">Publishing failed</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {message || 'No se pudo publicar'}
+                    {message || 'Publishing failed'}
                   </p>
                 </>
               )}
@@ -201,6 +239,7 @@ export function PublishKbButton({ slug, disabled, onComplete }: PublishKbButtonP
               size="icon"
               variant="ghost"
               className="h-5 w-5 shrink-0"
+              aria-label="Close"
               onClick={handleDismiss}
             >
               <X size={12} />

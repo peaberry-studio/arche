@@ -35,6 +35,7 @@ export type WorkspaceDiff = {
   additions: number
   deletions: number
   diff: string
+  conflicted: boolean
 }
 
 export type UseWorkspaceOptions = {

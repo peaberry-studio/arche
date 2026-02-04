@@ -7,54 +7,54 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
 const navigation = [
-  { label: "Resumen", href: "#", active: true },
-  { label: "Agentes", href: "#" },
-  { label: "Conectores", href: "#" },
+  { label: "Overview", href: "#", active: true },
+  { label: "Agents", href: "#" },
+  { label: "Connectors", href: "#" },
   { label: "Playbooks", href: "#" },
-  { label: "Equipo", href: "#" },
-  { label: "Configuración", href: "#" },
+  { label: "Team", href: "#" },
+  { label: "Settings", href: "#" },
 ];
 
 const stats = [
-  { label: "Procesos activos", value: "24" },
-  { label: "Subagentes", value: "4" },
-  { label: "Conectores", value: "9" },
+  { label: "Active processes", value: "24" },
+  { label: "Sub-agents", value: "4" },
+  { label: "Connectors", value: "9" },
 ];
 
 const agents = [
   {
-    name: "Ventas",
-    status: "Activo",
-    description: "Pipeline, follow-ups y pricing.",
+    name: "Sales",
+    status: "Active",
+    description: "Pipeline, follow-ups, and pricing.",
   },
   {
-    name: "Soporte",
-    status: "Activo",
-    description: "Diagnóstico y escalado con contexto.",
+    name: "Support",
+    status: "Active",
+    description: "Triage and escalation with context.",
   },
   {
-    name: "Operaciones",
-    status: "Entrenando",
-    description: "SOPs, logística y control de SLA.",
+    name: "Operations",
+    status: "Training",
+    description: "SOPs, logistics, and SLA management.",
   },
   {
-    name: "Finanzas",
-    status: "En cola",
-    description: "Conciliación y alertas de riesgo.",
+    name: "Finance",
+    status: "Queued",
+    description: "Reconciliation and risk alerts.",
   },
 ];
 
 const connectors = [
-  { name: "HubSpot", status: "Sync diaria" },
-  { name: "Linear", status: "Realtime" },
-  { name: "Notion", status: "Sync diaria" },
-  { name: "Slack", status: "Realtime" },
+  { name: "HubSpot", status: "Daily sync" },
+  { name: "Linear", status: "Real-time" },
+  { name: "Notion", status: "Daily sync" },
+  { name: "Slack", status: "Real-time" },
 ];
 
 const activity = [
-  { time: "Hoy 09:42", text: "Soporte resolvió 18 tickets con contexto." },
-  { time: "Hoy 08:10", text: "Ventas actualizó 6 oportunidades." },
-  { time: "Ayer 19:30", text: "Operaciones interiorizó un nuevo playbook." },
+  { time: "Today 09:42", text: "Support resolved 18 tickets with context." },
+  { time: "Today 08:10", text: "Sales updated 6 opportunities." },
+  { time: "Yesterday 19:30", text: "Operations internalized a new playbook." },
 ];
 
 export default async function WorkspacePage({
@@ -120,19 +120,19 @@ export default async function WorkspacePage({
         {/* Page header */}
         <div className="mb-10 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="space-y-1">
-            <Badge variant="outline">Layout propuesto</Badge>
+            <Badge variant="outline">Proposed layout</Badge>
             <h1 className="mt-2 font-[family-name:var(--font-display)] text-2xl font-semibold tracking-tight sm:text-3xl">
               Dashboard
             </h1>
             <p className="text-muted-foreground">
-              Vista general del workspace y estado de los agentes.
+              Workspace overview and agent status.
             </p>
           </div>
           <div className="flex gap-3">
             <Button asChild>
-              <Link href={`/w/${slug}`}>Abrir workspace</Link>
+              <Link href={`/w/${slug}`}>Open workspace</Link>
             </Button>
-            <Button variant="outline">Agregar conector</Button>
+            <Button variant="outline">Add connector</Button>
           </div>
         </div>
 
@@ -156,7 +156,7 @@ export default async function WorkspacePage({
           {/* Agents */}
           <section>
             <h2 className="mb-4 text-sm font-medium text-muted-foreground">
-              Subagentes
+              Sub-agents
             </h2>
             <div className="space-y-3">
               {agents.map((agent) => (
@@ -171,7 +171,7 @@ export default async function WorkspacePage({
                     </p>
                   </div>
                   <Badge
-                    variant={agent.status === "Activo" ? "default" : "secondary"}
+                    variant={agent.status === "Active" ? "default" : "secondary"}
                   >
                     {agent.status}
                   </Badge>
@@ -185,7 +185,7 @@ export default async function WorkspacePage({
             {/* Connectors */}
             <section>
               <h2 className="mb-4 text-sm font-medium text-muted-foreground">
-                Conectores
+                Connectors
               </h2>
               <div className="space-y-2">
                 {connectors.map((connector) => (
@@ -207,7 +207,7 @@ export default async function WorkspacePage({
             {/* Activity */}
             <section>
               <h2 className="mb-4 text-sm font-medium text-muted-foreground">
-                Actividad reciente
+                Recent activity
               </h2>
               <div className="space-y-3">
                 {activity.map((item, i) => (

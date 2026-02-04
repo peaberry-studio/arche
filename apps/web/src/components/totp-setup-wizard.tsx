@@ -78,7 +78,7 @@ export function TotpSetupWizard({ mode, children }: TotpSetupWizardProps) {
     const res = await verify2FASetup(code)
     setLoading(false)
     if (!res.ok) {
-      setError(res.error === 'Invalid code' ? 'Código incorrecto' : res.error)
+      setError(res.error === 'Invalid code' ? 'Incorrect code' : res.error)
       return
     }
     setRecoveryCodes(res.recoveryCodes)
@@ -91,7 +91,7 @@ export function TotpSetupWizard({ mode, children }: TotpSetupWizardProps) {
     const res = await disable2FA(password)
     setLoading(false)
     if (!res.ok) {
-      setError(res.error === 'Invalid password' ? 'Contraseña incorrecta' : res.error)
+      setError(res.error === 'Invalid password' ? 'Incorrect password' : res.error)
       return
     }
     setOpen(false)
@@ -104,7 +104,7 @@ export function TotpSetupWizard({ mode, children }: TotpSetupWizardProps) {
     const res = await regenerateRecoveryCodes(password)
     setLoading(false)
     if (!res.ok) {
-      setError(res.error === 'Invalid password' ? 'Contraseña incorrecta' : res.error)
+      setError(res.error === 'Invalid password' ? 'Incorrect password' : res.error)
       return
     }
     setRecoveryCodes(res.recoveryCodes)
@@ -124,7 +124,7 @@ export function TotpSetupWizard({ mode, children }: TotpSetupWizardProps) {
       const w = window.open('', '_blank', 'width=400,height=300')
       if (w) {
         w.document.write(`<pre style="font-size:16px;padding:20px">${text}</pre>`)
-        w.document.title = 'Códigos de recuperación - Selecciona y copia'
+        w.document.title = 'Recovery codes - Select and copy'
       }
     }
   }
@@ -142,16 +142,16 @@ export function TotpSetupWizard({ mode, children }: TotpSetupWizardProps) {
         {mode === 'setup' && step === 'init' && (
           <>
             <DialogHeader>
-              <DialogTitle>Configurar 2FA</DialogTitle>
+              <DialogTitle>Set up 2FA</DialogTitle>
               <DialogDescription>
-                Añade una capa extra de seguridad a tu cuenta con autenticación
-                de dos factores.
+                Add an extra layer of security to your account with two-factor
+                authentication.
               </DialogDescription>
             </DialogHeader>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <DialogFooter>
               <Button onClick={handleSetupInit} disabled={loading}>
-                {loading ? 'Preparando...' : 'Comenzar'}
+                {loading ? 'Preparing...' : 'Start'}
               </Button>
             </DialogFooter>
           </>
@@ -160,9 +160,9 @@ export function TotpSetupWizard({ mode, children }: TotpSetupWizardProps) {
         {mode === 'setup' && step === 'scan' && (
           <>
             <DialogHeader>
-              <DialogTitle>Escanea el código QR</DialogTitle>
+              <DialogTitle>Scan the QR code</DialogTitle>
               <DialogDescription>
-                Abre tu app de autenticación y escanea este código.
+                Open your authenticator app and scan this code.
               </DialogDescription>
             </DialogHeader>
             <div className="flex flex-col items-center gap-4 py-4">
@@ -171,7 +171,7 @@ export function TotpSetupWizard({ mode, children }: TotpSetupWizardProps) {
               </div>
               <div className="w-full space-y-1">
                 <Label className="text-xs text-muted-foreground">
-                  Clave manual
+                  Manual key
                 </Label>
                 <code className="block break-all rounded bg-muted px-2 py-1 text-xs">
                   {secret}
@@ -179,7 +179,7 @@ export function TotpSetupWizard({ mode, children }: TotpSetupWizardProps) {
               </div>
             </div>
             <DialogFooter>
-              <Button onClick={() => setStep('verify')}>Continuar</Button>
+              <Button onClick={() => setStep('verify')}>Continue</Button>
             </DialogFooter>
           </>
         )}
@@ -187,9 +187,9 @@ export function TotpSetupWizard({ mode, children }: TotpSetupWizardProps) {
         {mode === 'setup' && step === 'verify' && (
           <>
             <DialogHeader>
-              <DialogTitle>Verificar código</DialogTitle>
+              <DialogTitle>Verify code</DialogTitle>
               <DialogDescription>
-                Introduce el código de 6 dígitos de tu app de autenticación.
+                Enter the 6-digit code from your authenticator app.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-3 py-4">
@@ -204,7 +204,7 @@ export function TotpSetupWizard({ mode, children }: TotpSetupWizardProps) {
             </div>
             <DialogFooter>
               <Button onClick={handleVerify} disabled={loading || code.length !== 6}>
-                {loading ? 'Verificando...' : 'Verificar'}
+                {loading ? 'Verifying...' : 'Verify'}
               </Button>
             </DialogFooter>
           </>
@@ -213,10 +213,9 @@ export function TotpSetupWizard({ mode, children }: TotpSetupWizardProps) {
         {(mode === 'setup' || mode === 'regenerate') && step === 'recovery' && (
           <>
             <DialogHeader>
-              <DialogTitle>Códigos de recuperación</DialogTitle>
+              <DialogTitle>Recovery codes</DialogTitle>
               <DialogDescription>
-                Guarda estos códigos en un lugar seguro. Cada código solo puede
-                usarse una vez.
+                Store these codes in a safe place. Each code can be used once.
               </DialogDescription>
             </DialogHeader>
             <div className="grid grid-cols-2 gap-2 py-4">
@@ -231,9 +230,9 @@ export function TotpSetupWizard({ mode, children }: TotpSetupWizardProps) {
             </div>
             <DialogFooter className="flex gap-2 sm:gap-0">
               <Button variant="outline" onClick={copyCodes}>
-                {copied ? '¡Copiado!' : 'Copiar códigos'}
+                {copied ? 'Copied!' : 'Copy codes'}
               </Button>
-              <Button onClick={handleDone}>Listo</Button>
+              <Button onClick={handleDone}>Done</Button>
             </DialogFooter>
           </>
         )}
@@ -242,15 +241,15 @@ export function TotpSetupWizard({ mode, children }: TotpSetupWizardProps) {
         {mode === 'disable' && step === 'init' && (
           <>
             <DialogHeader>
-              <DialogTitle>Desactivar 2FA</DialogTitle>
+              <DialogTitle>Disable 2FA</DialogTitle>
               <DialogDescription>
-                Introduce tu contraseña para confirmar la desactivación.
+                Enter your password to confirm disabling 2FA.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-3 py-4">
               <Input
                 type="password"
-                placeholder="Contraseña"
+                placeholder="Password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoFocus
@@ -263,7 +262,7 @@ export function TotpSetupWizard({ mode, children }: TotpSetupWizardProps) {
                 onClick={handleDisable}
                 disabled={loading || !password}
               >
-                {loading ? 'Desactivando...' : 'Desactivar 2FA'}
+                {loading ? 'Disabling...' : 'Disable 2FA'}
               </Button>
             </DialogFooter>
           </>
@@ -273,16 +272,15 @@ export function TotpSetupWizard({ mode, children }: TotpSetupWizardProps) {
         {mode === 'regenerate' && step === 'init' && (
           <>
             <DialogHeader>
-              <DialogTitle>Regenerar códigos de recuperación</DialogTitle>
+              <DialogTitle>Regenerate recovery codes</DialogTitle>
               <DialogDescription>
-                Los códigos actuales dejarán de funcionar. Se generarán códigos
-                nuevos.
+                Current codes will stop working. New codes will be generated.
               </DialogDescription>
             </DialogHeader>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <div className="space-y-2">
               <label htmlFor="regen-password" className="text-sm font-medium">
-                Contraseña
+                Password
               </label>
               <input
                 id="regen-password"
@@ -290,12 +288,12 @@ export function TotpSetupWizard({ mode, children }: TotpSetupWizardProps) {
                 className="w-full rounded-md border px-3 py-2 text-sm"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Introduce tu contraseña"
+                placeholder="Enter your password"
               />
             </div>
             <DialogFooter>
               <Button onClick={handleRegenerate} disabled={loading || !password}>
-                {loading ? 'Regenerando...' : 'Regenerar'}
+                {loading ? 'Regenerating...' : 'Regenerate'}
               </Button>
             </DialogFooter>
           </>

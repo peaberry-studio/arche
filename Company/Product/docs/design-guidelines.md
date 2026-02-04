@@ -6,6 +6,10 @@
 - Acento mandarina para acciones y highlights; sombras muy sutiles.
 - Contenedores con bordes visibles y radios contenidos (no excesivamente redondos).
 
+## Lenguaje
+
+- Toda la interfaz (workspace, dashboard y landing) se mantiene en inglés para consistencia de producto.
+
 ## Paleta y tokens
 
 - `--primary`: mandarina (botones y acentos).

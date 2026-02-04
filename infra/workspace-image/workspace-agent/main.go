@@ -44,6 +44,7 @@ type gitDiffEntry struct {
   Additions int    `json:"additions"`
   Deletions int    `json:"deletions"`
   Diff      string `json:"diff"`
+  Conflicted bool  `json:"conflicted"`
 }
 
 type gitDiffResponse struct {
@@ -251,6 +252,7 @@ func (s *server) handleGitDiffs(w http.ResponseWriter, r *http.Request) {
       Additions: additions,
       Deletions: deletions,
       Diff:      strings.TrimSpace(diffOut),
+      Conflicted: entry.Conflicted,
     })
   }
 
@@ -587,6 +589,17 @@ func (s *server) handleKbPublish(w http.ResponseWriter, r *http.Request) {
     return
   }
 
+  conflicts := s.listConflictFiles(r.Context())
+  if len(conflicts) > 0 {
+    writeJSON(w, http.StatusOK, publishKbResponse{
+      Ok:      false,
+      Status:  "conflicts",
+      Files:   conflicts,
+      Message: "Resolve conflicts before publishing.",
+    })
+    return
+  }
+
   statusOut, statusErr, statusCode, statusExecErr := runCmd(r.Context(), s.workspace, []string{
     "git", "status", "--porcelain",
   })
@@ -754,6 +767,7 @@ type gitStatusEntry struct {
   Path      string
   Status    string
   Untracked bool
+  Conflicted bool
 }
 
 func parseGitStatus(output string) []gitStatusEntry {
@@ -768,19 +782,24 @@ func parseGitStatus(output string) []gitStatusEntry {
     if len(entry) == 0 {
       continue
     }
-    idx := bytes.IndexByte(entry, ' ')
-    if idx < 0 || idx+1 >= len(entry) {
+    // git status --porcelain=v1 -z output is:
+    //   XY<space>PATH\0
+    // where X and Y can be spaces. Do NOT split on the first space.
+    if len(entry) < 4 {
       continue
     }
-
-    statusField := string(entry[:idx])
-    path := string(entry[idx+1:])
-
+    statusField := string(entry[:2])
     if statusField == "!!" {
       continue
     }
 
-    if strings.HasPrefix(statusField, "R") || strings.HasPrefix(statusField, "C") {
+    // After the two status characters there is a single space.
+    // We keep the raw path as-is (no TrimSpace) because it is a filename.
+    path := string(entry[3:])
+
+    // For renames/copies, git status -z provides a second NUL-separated path.
+    // The first path is the source; the second is the destination.
+    if len(statusField) > 0 && (statusField[0] == 'R' || statusField[0] == 'C') {
       if i+1 < len(parts) && len(parts[i+1]) > 0 {
         path = string(parts[i+1])
         i++
@@ -792,8 +811,9 @@ func parseGitStatus(output string) []gitStatusEntry {
     }
 
     untracked := statusField == "??"
+    conflicted := strings.Contains(statusField, "U") || statusField == "AA" || statusField == "DD"
     fileStatus := "modified"
-    if untracked || strings.Contains(statusField, "A") || strings.HasPrefix(statusField, "C") {
+    if untracked || strings.Contains(statusField, "A") || (len(statusField) > 0 && statusField[0] == 'C') {
       fileStatus = "added"
     } else if strings.Contains(statusField, "D") {
       fileStatus = "deleted"
@@ -803,6 +823,7 @@ func parseGitStatus(output string) []gitStatusEntry {
       Path:      path,
       Status:    fileStatus,
       Untracked: untracked,
+      Conflicted: conflicted,
     })
   }
   return results

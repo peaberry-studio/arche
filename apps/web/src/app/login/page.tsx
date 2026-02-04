@@ -24,10 +24,10 @@ type LoginResponse = {
 };
 
 const errorMessages: Record<string, string> = {
-  invalid_request: "Completa email y contraseña.",
-  invalid_credentials: "Email o contraseña incorrectos.",
-  network_error: "No pudimos conectar con el servidor.",
-  unknown: "Algo salió mal. Intenta de nuevo.",
+  invalid_request: "Enter email and password.",
+  invalid_credentials: "Incorrect email or password.",
+  network_error: "We couldn't reach the server.",
+  unknown: "Something went wrong. Try again.",
 };
 
 export default function LoginPage() {
@@ -105,10 +105,10 @@ export default function LoginPage() {
           {/* Header */}
           <div className="space-y-2 text-center">
             <h1 className="font-[family-name:var(--font-display)] text-3xl font-semibold tracking-tight">
-              Bienvenido de vuelta
+              Welcome back
             </h1>
             <p className="text-muted-foreground">
-              Accede a tu workspace de Arche
+              Access your Arche workspace
             </p>
           </div>
 
@@ -119,7 +119,7 @@ export default function LoginPage() {
               <Input
                 id="email"
                 type="email"
-                placeholder="tu@empresa.com"
+                placeholder="you@company.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -128,7 +128,7 @@ export default function LoginPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="password">Contraseña</Label>
+              <Label htmlFor="password">Password</Label>
               <Input
                 id="password"
                 type="password"
@@ -141,7 +141,7 @@ export default function LoginPage() {
             </div>
 
             <Button type="submit" disabled={busy} className="w-full">
-              {busy ? "Entrando..." : "Entrar"}
+              {busy ? "Signing in..." : "Sign in"}
             </Button>
           </form>
 
@@ -151,14 +151,14 @@ export default function LoginPage() {
               {result.data?.ok && result.data.user ? (
                 <div className="space-y-3">
                   <p className="text-sm text-muted-foreground">
-                    Sesión iniciada como{" "}
+                    Signed in as{" "}
                     <span className="font-medium text-foreground">
                       {result.data.user.email}
                     </span>
                   </p>
                   {dashboardPath && (
                     <Button asChild className="w-full">
-                      <Link href={dashboardPath}>Ir al dashboard</Link>
+                      <Link href={dashboardPath}>Go to dashboard</Link>
                     </Button>
                   )}
                 </div>
@@ -170,12 +170,12 @@ export default function LoginPage() {
 
           {/* Footer */}
           <p className="text-center text-sm text-muted-foreground">
-            ¿No tienes cuenta?{" "}
+            Don&apos;t have an account?{" "}
             <Link
               href="/signup"
               className="font-medium text-primary hover:underline"
             >
-              Solicitar acceso
+              Request access
             </Link>
           </p>
         </div>

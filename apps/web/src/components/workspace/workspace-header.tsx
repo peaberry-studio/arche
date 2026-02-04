@@ -28,7 +28,7 @@ export function WorkspaceHeader({
   const statusStyle = statusConfig[status];
 
   return (
-    <header className="relative border-b border-border/60 bg-card/80 backdrop-blur-sm">
+    <header className="relative z-30 border-b border-border/60 bg-card/80 backdrop-blur-sm">
       <div className="flex h-11 w-full items-center justify-between px-3">
         <div className="flex items-center gap-2">
           <span className="font-[family-name:var(--font-display)] text-base font-semibold tracking-tight">
@@ -56,7 +56,7 @@ export function WorkspaceHeader({
             size="icon"
             variant="ghost"
             className="h-7 w-7"
-            aria-label="Ajustes"
+            aria-label="Settings"
             onClick={() => router.push("/settings/security")}
           >
             <Gear size={16} weight="bold" />

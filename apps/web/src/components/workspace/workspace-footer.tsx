@@ -44,7 +44,7 @@ export function WorkspaceFooter({
               ? "text-muted-foreground hover:text-foreground"
               : "text-foreground"
           )}
-          aria-label={leftCollapsed ? "Mostrar archivos" : "Ocultar archivos"}
+          aria-label={leftCollapsed ? "Show files" : "Hide files"}
         >
           <SidebarSimple size={17} weight={leftCollapsed ? "regular" : "bold"} />
         </button>
@@ -58,7 +58,7 @@ export function WorkspaceFooter({
               ? "text-muted-foreground hover:text-foreground"
               : "text-foreground"
           )}
-          aria-label={rightCollapsed ? "Mostrar inspector" : "Ocultar inspector"}
+          aria-label={rightCollapsed ? "Show inspector" : "Hide inspector"}
         >
           <SquareHalf size={17} weight={rightCollapsed ? "regular" : "bold"} />
           {showReviewBadge ? (

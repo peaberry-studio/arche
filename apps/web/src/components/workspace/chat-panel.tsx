@@ -166,7 +166,7 @@ function MessageFooter({ message, showTimestamp = true }: { message: ChatMessage
         type="button"
         onClick={handleCopy}
         className="rounded p-0.5 text-muted-foreground/60 hover:bg-muted hover:text-foreground"
-        title="Copiar mensaje"
+        title="Copy message"
       >
         {copied ? (
           <CheckCircle size={12} weight="fill" className="text-primary" />
@@ -198,7 +198,7 @@ function MessageFooter({ message, showTimestamp = true }: { message: ChatMessage
               <div className="flex flex-col gap-0.5 whitespace-nowrap">
                 <span className="font-medium">{tokenInfo.total.toLocaleString()} tokens</span>
                 <span className="text-muted-foreground">
-                  {tokenInfo.input.toLocaleString()} entrada · {tokenInfo.output.toLocaleString()} salida
+                  {tokenInfo.input.toLocaleString()} input · {tokenInfo.output.toLocaleString()} output
                 </span>
               </div>
             </div>
@@ -260,7 +260,7 @@ function MessagePartRenderer({
         <div className="my-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
           <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-primary">
             <Lightbulb size={12} weight="fill" />
-            <span>Razonamiento</span>
+            <span>Reasoning</span>
           </div>
           <p className="whitespace-pre-wrap text-sm text-foreground/80">
             {part.text}
@@ -510,27 +510,27 @@ export function ChatPanel({
     const statusConfig: Record<string, { icon: React.ReactNode; label: string; className: string }> = {
       thinking: {
         icon: <Brain size={14} className="animate-pulse" />,
-        label: "Pensando...",
+        label: "Thinking...",
         className: "text-primary"
       },
       reasoning: {
         icon: <Lightbulb size={14} className="animate-pulse" />,
-        label: "Razonando...",
+        label: "Reasoning...",
         className: "text-primary"
       },
       "tool-calling": {
         icon: <Wrench size={14} className="animate-spin" />,
-        label: toolName ? `Usando ${toolName}...` : "Ejecutando herramienta...",
+        label: toolName ? `Using ${toolName}...` : "Running tool...",
         className: "text-primary"
       },
       writing: {
         icon: <PencilSimple size={14} className="animate-pulse" />,
-        label: detail ? `Escribiendo ${detail}...` : "Escribiendo...",
+        label: detail ? `Writing ${detail}...` : "Writing...",
         className: "text-primary"
       },
       error: {
         icon: <XCircle size={14} />,
-        label: detail || "Error al procesar",
+        label: detail || "Failed to process",
         className: "text-destructive"
       }
     };
@@ -559,7 +559,7 @@ export function ChatPanel({
             variant="ghost"
             className="h-7 w-7 shrink-0"
             onClick={() => scrollTabs("left")}
-            aria-label="Scroll izquierda"
+            aria-label="Scroll left"
           >
             <CaretLeft size={14} weight="bold" />
           </Button>
@@ -608,7 +608,7 @@ export function ChatPanel({
                       "hover:bg-foreground/10",
                       session.id === activeSessionId && "opacity-100"
                     )}
-                    aria-label={`Opciones de ${session.title}`}
+                    aria-label={`Options for ${session.title}`}
                   >
                     <DotsThree size={14} weight="bold" />
                   </button>
@@ -616,21 +616,21 @@ export function ChatPanel({
                 <DropdownMenuContent align="start" sideOffset={4}>
                   <DropdownMenuItem
                     onClick={() => {
-                      const newTitle = window.prompt("Nuevo nombre:", session.title);
+                      const newTitle = window.prompt("New name:", session.title);
                       if (newTitle && newTitle.trim()) {
                         onRenameSession(session.id, newTitle.trim());
                       }
                     }}
                   >
                     <PencilSimple size={14} />
-                    Renombrar
+                    Rename
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() => onCloseSession(session.id)}
                     className="text-destructive focus:text-destructive"
                   >
                     <X size={14} />
-                    Cerrar
+                    Close
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -644,7 +644,7 @@ export function ChatPanel({
             variant="ghost"
             className="h-7 w-7 shrink-0"
             onClick={() => scrollTabs("right")}
-            aria-label="Scroll derecha"
+            aria-label="Scroll right"
           >
             <CaretRight size={14} weight="bold" />
           </Button>
@@ -657,7 +657,7 @@ export function ChatPanel({
           variant="ghost"
           className="h-7 w-7 shrink-0"
           onClick={onCreateSession}
-          aria-label="Nueva sesión"
+          aria-label="New session"
         >
           <Plus size={16} weight="bold" />
         </Button>
@@ -669,7 +669,7 @@ export function ChatPanel({
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
             <ChatCircle size={32} className="text-muted-foreground/30" />
             <p className="max-w-[240px] text-sm text-muted-foreground">
-              Describe lo que necesitas y el agente empezará a trabajar.
+              Describe what you need and the agent will start working.
             </p>
           </div>
         ) : (
@@ -779,7 +779,7 @@ export function ChatPanel({
             {models.length > 0 && (
               <div className="flex items-center gap-2">
                 <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                  Modelo
+                  Model
                 </span>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -790,7 +790,7 @@ export function ChatPanel({
                       <span className="max-w-[200px] truncate">
                         {selectedModel 
                           ? `${selectedModel.providerName} / ${selectedModel.modelName}`
-                          : 'Seleccionar modelo'}
+                          : 'Select model'}
                       </span>
                       <CaretDown size={12} weight="bold" />
                     </button>
@@ -811,7 +811,7 @@ export function ChatPanel({
                           <span className="text-xs text-muted-foreground">{model.providerName}</span>
                         </div>
                         {model.isDefault && (
-                          <span className="ml-auto text-[10px] text-primary">Por defecto</span>
+                          <span className="ml-auto text-[10px] text-primary">Default</span>
                         )}
                       </DropdownMenuItem>
                     ))}
@@ -824,7 +824,7 @@ export function ChatPanel({
             {openFilesCount > 0 && (
               <div className="flex items-center gap-2">
                 <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                  Contexto
+                  Context
                 </span>
                 <button
                   type="button"
@@ -832,7 +832,7 @@ export function ChatPanel({
                   className="flex items-center gap-1.5 rounded-md bg-muted/50 px-2.5 py-1.5 text-xs text-foreground transition-colors hover:bg-muted"
                 >
                   <File size={12} weight="bold" className="text-primary/70" />
-                  <span>{openFilesCount} {openFilesCount === 1 ? "archivo" : "archivos"}</span>
+                  <span>{openFilesCount} {openFilesCount === 1 ? "file" : "files"}</span>
                 </button>
               </div>
             )}
@@ -846,7 +846,7 @@ export function ChatPanel({
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             className="max-h-[200px] flex-1 resize-none bg-transparent px-2 text-sm leading-9 text-foreground outline-none placeholder:text-muted-foreground/60"
-            placeholder="Escribe un mensaje..."
+            placeholder="Type a message..."
             disabled={isSending || !onSendMessage}
             rows={1}
           />
@@ -855,7 +855,7 @@ export function ChatPanel({
             className="h-9 w-9 shrink-0 rounded-lg"
             disabled={isSending || !inputValue.trim() || !onSendMessage}
             onClick={handleSend}
-            aria-label="Enviar mensaje"
+            aria-label="Send message"
           >
             {isSending ? (
               <SpinnerGap size={16} className="animate-spin" />

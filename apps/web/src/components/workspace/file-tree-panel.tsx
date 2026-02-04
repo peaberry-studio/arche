@@ -43,9 +43,9 @@ export function FileTreePanel({ nodes, activePath, onSelect }: FileTreePanelProp
     <div className="flex h-full flex-col bg-card/50">
       <div className="flex h-12 items-center justify-between gap-2 border-b border-border/60 px-3">
         <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Archivos
+          Files
         </span>
-        <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="Nuevo archivo">
+        <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="New file">
           <Plus size={16} weight="bold" />
         </Button>
       </div>
@@ -57,7 +57,7 @@ export function FileTreePanel({ nodes, activePath, onSelect }: FileTreePanelProp
             type="text"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Buscar..."
+            placeholder="Search..."
             className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/60"
           />
         </div>
@@ -68,14 +68,14 @@ export function FileTreePanel({ nodes, activePath, onSelect }: FileTreePanelProp
           <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
             <File size={24} weight="bold" className="text-muted-foreground/50" />
             <p className="text-xs text-muted-foreground">
-              Workspace vacío
+              Empty workspace
             </p>
           </div>
         ) : query.trim() ? (
           <div className="space-y-0.5">
             {matches.length === 0 ? (
               <p className="py-4 text-center text-xs text-muted-foreground">
-                Sin resultados
+                No results
               </p>
             ) : (
               matches.map((match) => (

@@ -118,12 +118,12 @@ export function SyncKbButton({ slug, disabled, onComplete }: SyncKbButtonProps) 
 
       {/* Popover para mostrar conflictos o errores */}
       {(state === 'conflicts' || state === 'error') && (
-        <div className="absolute right-0 top-full z-50 mt-1 w-64 rounded-md border border-border bg-popover p-3 shadow-md">
+        <div className="absolute right-0 top-full z-50 -mt-px w-64 rounded-md border border-border bg-popover p-3 shadow-md">
           <div className="flex items-start justify-between gap-2">
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               {state === 'conflicts' ? (
                 <>
-                  <p className="text-sm font-medium text-amber-500">
+                  <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
                     Merge conflicts detected
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
@@ -152,6 +152,7 @@ export function SyncKbButton({ slug, disabled, onComplete }: SyncKbButtonProps) 
               size="icon"
               variant="ghost"
               className="h-5 w-5 shrink-0"
+              aria-label="Close"
               onClick={handleDismiss}
             >
               <X size={12} />

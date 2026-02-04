@@ -180,7 +180,7 @@ export function InspectorPanel({
                           "hover:bg-foreground/10",
                           file.path === activeFilePath && "opacity-100"
                         )}
-                        aria-label={`Cerrar ${file.title}`}
+                        aria-label={`Close ${file.title}`}
                       >
                         <X size={12} weight="bold" />
                       </button>
@@ -231,7 +231,7 @@ export function InspectorPanel({
             <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
               <File size={28} className="text-muted-foreground/30" />
               <p className="text-xs text-muted-foreground">
-                Selecciona un archivo
+                Select a file
               </p>
             </div>
           )

@@ -21,11 +21,11 @@ interface TotpVerifyDialogProps {
 }
 
 const errorMessages: Record<string, string> = {
-  invalid_code: 'Código incorrecto',
-  challenge_expired: 'Tiempo expirado. Inicia sesión de nuevo.',
-  invalid_request: 'Solicitud inválida.',
-  rate_limited: 'Demasiados intentos. Intenta de nuevo en unos minutos.',
-  unknown: 'Algo salió mal. Intenta de nuevo.',
+  invalid_code: 'Incorrect code',
+  challenge_expired: 'Session expired. Sign in again.',
+  invalid_request: 'Invalid request.',
+  rate_limited: 'Too many attempts. Try again in a few minutes.',
+  unknown: 'Something went wrong. Try again.',
 }
 
 export function TotpVerifyDialog({
@@ -59,7 +59,7 @@ export function TotpVerifyDialog({
         setError(errorMessages[data?.error ?? 'unknown'] ?? errorMessages.unknown)
       }
     } catch {
-      setError('No pudimos conectar con el servidor.')
+      setError("We couldn't reach the server.")
     } finally {
       setLoading(false)
     }
@@ -75,11 +75,11 @@ export function TotpVerifyDialog({
     <Dialog open={open} onOpenChange={(v) => !v && onCancel()}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>Verificación en dos pasos</DialogTitle>
+          <DialogTitle>Two-factor verification</DialogTitle>
           <DialogDescription>
             {isRecoveryCode
-              ? 'Introduce un código de recuperación (formato XXXX-XXXX).'
-              : 'Introduce el código de 6 dígitos de tu app de autenticación.'}
+              ? 'Enter a recovery code (format XXXX-XXXX).'
+              : 'Enter the 6-digit code from your authenticator app.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -106,7 +106,7 @@ export function TotpVerifyDialog({
             disabled={loading || !code.trim()}
             className="w-full"
           >
-            {loading ? 'Verificando...' : 'Verificar'}
+            {loading ? 'Verifying...' : 'Verify'}
           </Button>
           <button
             type="button"
@@ -114,8 +114,8 @@ export function TotpVerifyDialog({
             onClick={toggleMode}
           >
             {isRecoveryCode
-              ? 'Usar código de la app'
-              : '¿No tienes acceso? Usa un código de recuperación'}
+              ? 'Use app code'
+              : "Don't have access? Use a recovery code"}
           </button>
         </DialogFooter>
       </DialogContent>

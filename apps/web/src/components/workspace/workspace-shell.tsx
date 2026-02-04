@@ -301,7 +301,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
   }, [workspace]);
 
   const handleCreateSession = useCallback(async () => {
-    await workspace.createSession(`Sesión ${workspace.sessions.length + 1}`);
+    await workspace.createSession(`Session ${workspace.sessions.length + 1}`);
   }, [workspace]);
 
   const handleCloseSession = useCallback(async (sessionId: string) => {
@@ -406,10 +406,10 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
                 </div>
                 <div className="space-y-2">
                   <h2 className="font-[family-name:var(--font-display)] text-xl font-semibold">
-                    Iniciando workspace
+                    Starting workspace
                   </h2>
                   <p className="text-sm text-muted-foreground">
-                    Preparando tu entorno de desarrollo...
+                    Preparing your development environment...
                   </p>
                 </div>
               </>
@@ -421,10 +421,10 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
                 </div>
                 <div className="space-y-2">
                   <h2 className="font-[family-name:var(--font-display)] text-xl font-semibold text-destructive">
-                    Error al iniciar
+                    Failed to start
                   </h2>
                   <p className="text-sm text-muted-foreground">
-                    {instanceError ?? 'No se pudo iniciar el workspace'}
+                    {instanceError ?? 'Unable to start the workspace'}
                   </p>
                 </div>
               </>
@@ -436,7 +436,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
                 </div>
                 <div className="space-y-2">
                   <h2 className="font-[family-name:var(--font-display)] text-xl font-semibold">
-                    Conectando...
+                    Connecting...
                   </h2>
                 </div>
               </>
@@ -462,12 +462,12 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
             </div>
             <div className="space-y-2">
               <h2 className="font-[family-name:var(--font-display)] text-xl font-semibold">
-                Conectando con OpenCode
+                Connecting to OpenCode
               </h2>
               <p className="text-sm text-muted-foreground">
                 {workspace.connection.status === 'error' 
                   ? `Error: ${workspace.connection.error}`
-                  : 'Estableciendo conexión...'}
+                  : 'Establishing connection...'}
               </p>
             </div>
           </div>

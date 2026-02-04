@@ -33,10 +33,10 @@ export default async function SecuritySettingsPage() {
               href={`/u/${session.user.slug}`}
               className="text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
-              &larr; Volver al dashboard
+              &larr; Back to dashboard
             </Link>
             <h1 className="font-[family-name:var(--font-display)] text-3xl font-semibold tracking-tight">
-              Seguridad
+              Security
             </h1>
           </div>
 
@@ -44,10 +44,10 @@ export default async function SecuritySettingsPage() {
           <section className="space-y-4 rounded-lg border border-border/60 bg-card/50 p-6">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-medium">
-                Autenticación de dos factores
+                Two-factor authentication
               </h2>
               <Badge variant={enabled ? 'default' : 'secondary'}>
-                {enabled ? 'Activado' : 'Desactivado'}
+                {enabled ? 'Enabled' : 'Disabled'}
               </Badge>
             </div>
 
@@ -55,8 +55,8 @@ export default async function SecuritySettingsPage() {
               <div className="space-y-4">
                 {verifiedAt && (
                   <p className="text-sm text-muted-foreground">
-                    Activado el{' '}
-                    {new Date(verifiedAt).toLocaleDateString('es-ES', {
+                    Enabled on{' '}
+                    {new Date(verifiedAt).toLocaleDateString('en-US', {
                       day: 'numeric',
                       month: 'long',
                       year: 'numeric',
@@ -65,7 +65,7 @@ export default async function SecuritySettingsPage() {
                 )}
 
                 <p className="text-sm text-muted-foreground">
-                  Códigos de recuperación restantes:{' '}
+                  Recovery codes remaining:{' '}
                   <span className="font-medium text-foreground">
                     {recoveryCodesRemaining}
                   </span>
@@ -74,13 +74,13 @@ export default async function SecuritySettingsPage() {
                 <div className="flex gap-3">
                   <TotpSetupWizard mode="regenerate">
                     <Button variant="outline" size="sm">
-                      Regenerar códigos
+                      Regenerate codes
                     </Button>
                   </TotpSetupWizard>
 
                   <TotpSetupWizard mode="disable">
                     <Button variant="destructive" size="sm">
-                      Desactivar 2FA
+                      Disable 2FA
                     </Button>
                   </TotpSetupWizard>
                 </div>
@@ -88,12 +88,12 @@ export default async function SecuritySettingsPage() {
             ) : (
               <div className="space-y-3">
                 <p className="text-sm text-muted-foreground">
-                  Protege tu cuenta con un segundo factor de autenticación usando
-                  una app como Google Authenticator o Authy.
+                  Protect your account with a second authentication factor using
+                  an app like Google Authenticator or Authy.
                 </p>
 
                 <TotpSetupWizard mode="setup">
-                  <Button size="sm">Configurar 2FA</Button>
+                  <Button size="sm">Set up 2FA</Button>
                 </TotpSetupWizard>
               </div>
             )}

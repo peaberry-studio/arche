@@ -9,35 +9,35 @@ import { Button } from "@/components/ui/button";
 
 const features = [
   {
-    title: "Se adapta a tu empresa",
+    title: "Adapts to your company",
     description:
-      "Aprende tu contexto, lenguaje y prioridades. Los procesos internos se interiorizan automáticamente.",
+      "Learns your context, language, and priorities. Internal processes are internalized automatically.",
   },
   {
-    title: "Subagentes especializados",
+    title: "Specialized sub-agents",
     description:
-      "Ventas, soporte, operaciones, finanzas. Cada área recibe un agente entrenado con sus procesos.",
+      "Sales, support, operations, finance. Each area gets an agent trained on its processes.",
   },
   {
-    title: "Especialización compartida",
+    title: "Shared specialization",
     description:
-      "Cada ajuste se replica a todo el equipo. El conocimiento se distribuye sin fricción.",
+      "Every update propagates to the whole team. Knowledge spreads without friction.",
   },
   {
-    title: "Multiproveedor sin lock-in",
+    title: "Multi-provider without lock-in",
     description:
-      "AWS, GCP, Azure u on-premise. Despliega donde quieras con un clic.",
+      "AWS, GCP, Azure, or on-prem. Deploy wherever you want with one click.",
   },
 ];
 
 const capabilities = [
-  "Multiusuario con roles",
-  "Conectores MCP",
+  "Multi-user with roles",
+  "MCP connectors",
   "One-click deployment",
-  "Auditoría completa",
+  "Full audit trail",
 ];
 
-const words = ["Se adapta a", "Evoluciona con", "Conecta con", "Aprende de"];
+const words = ["Adapts to", "Evolves with", "Connects with", "Learns from"];
 
 export default function Home() {
   const [wordIndex, setWordIndex] = useState(0);
@@ -93,7 +93,7 @@ export default function Home() {
           <div className="absolute inset-0">
             <Image
                 src="/landing_bg_variant.jpeg"
-              alt="La conexión entre humanidad y tecnología"
+              alt="The connection between humanity and technology"
               fill
               className="object-cover"
               priority
@@ -143,12 +143,12 @@ export default function Home() {
                 {words[wordIndex]}
               </span>
               <br />
-              <span className="text-amber-50 drop-shadow-[0_2px_10px_rgba(0,0,0,0.3)]">tu empresa</span>
+              <span className="text-amber-50 drop-shadow-[0_2px_10px_rgba(0,0,0,0.3)]">your company</span>
             </h1>
 
             <div className="mt-12 flex flex-wrap items-center justify-center gap-4">
               <Button asChild size="lg" className="text-lg px-8 py-6 bg-primary text-primary-foreground hover:bg-primary/90">
-                <Link href="/signup">Solicitar acceso</Link>
+                <Link href="/signup">Request access</Link>
               </Button>
               <Button
                 asChild
@@ -156,7 +156,7 @@ export default function Home() {
                 size="lg"
                 className="text-lg px-8 py-6 bg-white/10 border-white/30 text-white hover:bg-white/20 backdrop-blur-sm"
               >
-                <Link href="/login">Entrar</Link>
+                <Link href="/login">Sign in</Link>
               </Button>
             </div>
 
@@ -165,7 +165,7 @@ export default function Home() {
           {/* Scroll indicator - positioned at bottom of section */}
           <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 animate-bounce">
             <div className="flex flex-col items-center gap-2 text-orange-100/70">
-              <span className="text-sm">Descubre más</span>
+              <span className="text-sm">Discover more</span>
               <svg
                 className="h-6 w-6"
                 fill="none"
@@ -207,11 +207,11 @@ export default function Home() {
               }`}
             >
               <h2 className="font-[family-name:var(--font-display)] text-4xl font-semibold tracking-tight text-orange-50 sm:text-5xl lg:text-6xl xl:text-7xl">
-                Donde la{" "}
-                <span className="text-orange-200">sabiduría ancestral</span>
+                Where{" "}
+                <span className="text-orange-200">ancestral wisdom</span>
                 <br />
-                se encuentra con la{" "}
-                <span className="text-orange-200">inteligencia del mañana</span>
+                meets{" "}
+                <span className="text-orange-200">tomorrow&apos;s intelligence</span>
               </h2>
             </div>
 
@@ -237,11 +237,11 @@ export default function Home() {
         <section className="relative pt-16 pb-32 bg-white">
           <div className="mx-auto max-w-5xl px-6 text-center">
             <p className="text-sm font-medium text-primary uppercase tracking-wider mb-6">
-              Qué es Arche
+              What is Arche
             </p>
             <h2 className="font-[family-name:var(--font-display)] text-3xl font-semibold tracking-tight text-gray-900 sm:text-4xl lg:text-5xl leading-tight">
-              Arche interioriza tus procesos, crea subagentes especializados
-              por área y comparte el conocimiento entre todo tu equipo.
+              Arche internalizes your processes, creates specialized sub-agents
+              by area, and shares knowledge across your team.
             </h2>
 
             {/* Main Claims */}
@@ -253,10 +253,10 @@ export default function Home() {
                   </svg>
                 </div>
                 <h3 className="font-[family-name:var(--font-display)] text-xl font-semibold text-gray-900">
-                  Procesos interiorizados
+                  Internalized processes
                 </h3>
                 <p className="text-gray-600">
-                  Aprende tu contexto, lenguaje y prioridades de forma automática.
+                  Learns your context, language, and priorities automatically.
                 </p>
               </div>
 
@@ -267,10 +267,10 @@ export default function Home() {
                   </svg>
                 </div>
                 <h3 className="font-[family-name:var(--font-display)] text-xl font-semibold text-gray-900">
-                  Especialización compartida
+                  Shared specialization
                 </h3>
                 <p className="text-gray-600">
-                  Cada ajuste se replica a todo el equipo sin fricción.
+                  Every update propagates to the whole team without friction.
                 </p>
               </div>
 
@@ -281,17 +281,17 @@ export default function Home() {
                   </svg>
                 </div>
                 <h3 className="font-[family-name:var(--font-display)] text-xl font-semibold text-gray-900">
-                  Sin vendor lock-in
+                  No vendor lock-in
                 </h3>
                 <p className="text-gray-600">
-                  AWS, GCP, Azure u on-premise. Despliega donde quieras.
+                  AWS, GCP, Azure, or on-prem. Deploy wherever you want.
                 </p>
               </div>
             </div>
 
             <div className="mt-16">
               <Button asChild size="lg" className="text-lg px-10 py-7">
-                <Link href="/signup">Comienza tu transformación</Link>
+                <Link href="/signup">Start your transformation</Link>
               </Button>
             </div>
           </div>
@@ -301,10 +301,10 @@ export default function Home() {
         <section className="bg-white py-24 lg:py-32">
           <div className="mx-auto max-w-4xl px-6 text-center">
             <p className="text-xl sm:text-2xl text-gray-600 mb-4">
-              Simplemente funciona.
+              It just works.
             </p>
             <h2 className="font-[family-name:var(--font-display)] text-5xl sm:text-6xl lg:text-7xl font-bold text-primary">
-              Automágicamente.
+              Automagically.
             </h2>
           </div>
         </section>
@@ -313,13 +313,13 @@ export default function Home() {
         <section className="bg-white py-20 lg:py-28">
           <div className="mx-auto max-w-6xl px-6">
             <div className="mb-12 max-w-2xl">
-              <p className="text-sm font-medium text-primary">Capacidades</p>
+              <p className="text-sm font-medium text-primary">Capabilities</p>
               <h2 className="mt-2 font-[family-name:var(--font-display)] text-3xl font-semibold tracking-tight text-gray-900 sm:text-4xl">
-                IA corporativa sin fricción
+                Frictionless enterprise AI
               </h2>
               <p className="mt-4 text-gray-600">
-                Donde la inteligencia artificial se encuentra con el conocimiento
-                humano de tu empresa.
+                Where artificial intelligence meets your company&apos;s human
+                knowledge.
               </p>
             </div>
 
@@ -348,9 +348,9 @@ export default function Home() {
         <section className="bg-gray-50 border-y border-gray-200">
           <div className="mx-auto max-w-6xl px-6 py-20 lg:py-28">
             <div className="mb-12 text-center">
-              <p className="text-sm font-medium text-primary">Cómo funciona</p>
+              <p className="text-sm font-medium text-primary">How it works</p>
               <h2 className="mt-2 font-[family-name:var(--font-display)] text-3xl font-semibold tracking-tight text-gray-900 sm:text-4xl">
-                Tres pasos para empezar
+                Three steps to get started
               </h2>
             </div>
 
@@ -358,21 +358,21 @@ export default function Home() {
               {[
                 {
                   step: "01",
-                  title: "Conecta tus sistemas",
+                  title: "Connect your systems",
                   description:
-                    "Integra CRM, tickets, docs y data interna con conectores MCP.",
+                    "Integrate CRM, tickets, docs, and internal data with MCP connectors.",
                 },
                 {
                   step: "02",
-                  title: "Entrena y especializa",
+                  title: "Train and specialize",
                   description:
-                    "El agente aprende tus procesos y crea subagentes por área.",
+                    "The agent learns your processes and creates sub-agents by area.",
                 },
                 {
                   step: "03",
-                  title: "Despliega en un clic",
+                  title: "Deploy in one click",
                   description:
-                    "Multiproveedor con aislamiento, auditoría y control total.",
+                    "Multi-provider with isolation, auditability, and full control.",
                 },
               ].map((item) => (
                 <div key={item.step} className="text-center sm:text-left">
@@ -402,19 +402,19 @@ export default function Home() {
               <div className="relative flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
                 <div className="space-y-4 max-w-xl">
                   <h2 className="font-[family-name:var(--font-display)] text-3xl font-semibold tracking-tight text-gray-900 sm:text-4xl">
-                    Convierte tu IA en el Arche de tu empresa
+                    Turn your AI into your company&apos;s Arche
                   </h2>
                   <p className="text-gray-600">
-                    Haz que tus procesos se interioricen automáticamente y comparte
-                    la especialización entre todos los equipos.
+                    Make your processes internalize automatically and share
+                    specialization across teams.
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-3">
                   <Button asChild size="lg">
-                    <Link href="/signup">Solicitar acceso</Link>
+                    <Link href="/signup">Request access</Link>
                   </Button>
                   <Button asChild variant="outline" size="lg">
-                    <Link href="/login">Entrar</Link>
+                    <Link href="/login">Sign in</Link>
                   </Button>
                 </div>
               </div>
@@ -430,7 +430,7 @@ export default function Home() {
                 Arche
               </p>
               <p className="text-sm text-gray-500">
-                IA corporativa que aprende y se especializa.
+                Enterprise AI that learns and specializes.
               </p>
             </div>
           </div>

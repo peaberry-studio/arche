@@ -227,17 +227,17 @@ function formatTimestamp(timestamp: number | Date | string | undefined): string 
   const diffMs = now.getTime() - d.getTime()
   const diffMins = Math.floor(diffMs / 60000)
   
-  if (diffMins < 1) return 'Ahora'
-  if (diffMins < 60) return `Hace ${diffMins} min`
+  if (diffMins < 1) return 'Just now'
+  if (diffMins < 60) return `${diffMins} min ago`
   
   const diffHours = Math.floor(diffMins / 60)
-  if (diffHours < 24) return `Hace ${diffHours}h`
+  if (diffHours < 24) return `${diffHours}h ago`
   
   const diffDays = Math.floor(diffHours / 24)
-  if (diffDays === 1) return 'Ayer'
-  if (diffDays < 7) return `Hace ${diffDays} días`
+  if (diffDays === 1) return 'Yesterday'
+  if (diffDays < 7) return `${diffDays} days ago`
   
-  return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
+  return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short' })
 }
 
 export async function listSessionsAction(slug: string): Promise<{
@@ -264,7 +264,7 @@ export async function listSessionsAction(slug: string): Promise<{
       
       return {
         id: s.id,
-        title: s.title || 'Sin título',
+        title: s.title || 'Untitled',
         status,
         updatedAt: formatTimestamp(s.time?.updated),
         parentId: s.parentID,
@@ -297,7 +297,7 @@ export async function createSessionAction(slug: string, title?: string): Promise
       ok: true,
       session: {
         id: s.id,
-        title: s.title || 'Sin título',
+        title: s.title || 'Untitled',
         status: 'active',
         updatedAt: formatTimestamp(s.time?.updated),
         parentId: s.parentID
@@ -345,7 +345,7 @@ export async function updateSessionAction(slug: string, sessionId: string, title
       ok: true,
       session: {
         id: s.id,
-        title: s.title || 'Sin título',
+        title: s.title || 'Untitled',
         status: 'idle',
         updatedAt: formatTimestamp(s.time?.updated),
         parentId: s.parentID
@@ -731,6 +731,7 @@ type GitDiffEntry = {
   additions: number
   deletions: number
   diff: string
+  conflicted: boolean
 }
 
 export async function getWorkspaceDiffsAction(slug: string): Promise<{
