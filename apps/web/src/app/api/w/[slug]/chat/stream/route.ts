@@ -1,6 +1,5 @@
 import { NextRequest } from 'next/server'
-import { cookies } from 'next/headers'
-import { getSessionFromToken, SESSION_COOKIE_NAME } from '@/lib/auth'
+import { getAuthenticatedUser } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { decryptPassword } from '@/lib/spawner/crypto'
 
@@ -9,7 +8,7 @@ export const dynamic = 'force-dynamic'
 
 /**
  * SSE streaming endpoint for chat messages.
- * 
+ *
  * Events emitted to client:
  * - status: { status: 'connecting' | 'thinking' | 'reasoning' | 'tool-calling' | 'writing' | 'complete' | 'error', toolName?, detail? }
  * - text: { text: string } - Incremental text delta
@@ -22,28 +21,19 @@ export async function POST(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const { slug } = await params
-  
+
   // Authenticate user
-  const cookieStore = await cookies()
-  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value
-  if (!token) {
-    return new Response(JSON.stringify({ error: 'unauthorized' }), { 
-      status: 401,
-      headers: { 'Content-Type': 'application/json' }
-    })
-  }
-  
-  const session = await getSessionFromToken(token)
+  const session = await getAuthenticatedUser()
   if (!session) {
-    return new Response(JSON.stringify({ error: 'unauthorized' }), { 
+    return new Response(JSON.stringify({ error: 'unauthorized' }), {
       status: 401,
       headers: { 'Content-Type': 'application/json' }
     })
   }
-  
+
   // Check authorization
   if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
-    return new Response(JSON.stringify({ error: 'forbidden' }), { 
+    return new Response(JSON.stringify({ error: 'forbidden' }), {
       status: 403,
       headers: { 'Content-Type': 'application/json' }
     })

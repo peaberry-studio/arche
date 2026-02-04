@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
 import { prisma } from '@/lib/prisma'
-import { getSessionFromToken, SESSION_COOKIE_NAME } from '@/lib/auth'
+import { getAuthenticatedUser } from '@/lib/auth'
 import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 
 export interface SyncKbResult {
@@ -9,13 +8,6 @@ export interface SyncKbResult {
   status: 'synced' | 'conflicts' | 'no_remote' | 'error'
   message?: string
   conflicts?: string[]
-}
-
-async function getAuthenticatedUser() {
-  const cookieStore = await cookies()
-  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value
-  if (!token) return null
-  return getSessionFromToken(token)
 }
 
 /**
