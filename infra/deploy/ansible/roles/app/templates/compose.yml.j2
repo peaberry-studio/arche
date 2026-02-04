@@ -140,7 +140,8 @@ services:
     volumes:
       - {{ repo_root }}/apps/web:/app
       - arche_web_node_modules:/app/node_modules
-    command: sh -lc "corepack enable && pnpm install && pnpm prisma generate && pnpm dev"
+      - arche_pnpm_store:/pnpm/store
+    command: sh -lc "corepack enable && pnpm config set store-dir /pnpm/store >/dev/null 2>&1 || true && mkdir -p node_modules && LOCK_HASH=\"$(sha256sum pnpm-lock.yaml 2>/dev/null | awk '{print $1}')\" && if [ ! -f node_modules/.pnpm-lock-hash ] || [ \"$(cat node_modules/.pnpm-lock-hash 2>/dev/null)\" != \"$LOCK_HASH\" ]; then echo '[arche] running pnpm install (lockfile changed)' && pnpm install --prefer-offline && echo \"$LOCK_HASH\" > node_modules/.pnpm-lock-hash; else echo '[arche] skipping pnpm install (lockfile unchanged)'; fi && pnpm prisma generate && pnpm dev"
 {% endif %}
 
 networks:
@@ -156,4 +157,5 @@ volumes:
 {% endif %}
 {% if deploy_mode == 'local-dev' %}
   arche_web_node_modules:
+  arche_pnpm_store:
 {% endif %}
