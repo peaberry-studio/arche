@@ -299,7 +299,7 @@ export function useWorkspace({ slug, pollInterval = 5000, enabled = true }: UseW
       sessionId: sessionId,
       role: 'user',
       content: text,
-      timestamp: 'Ahora',
+      timestamp: 'Just now',
       parts: [{ type: 'text', text }],
       pending: true
     }
@@ -311,7 +311,7 @@ export function useWorkspace({ slug, pollInterval = 5000, enabled = true }: UseW
       sessionId: sessionId,
       role: 'assistant',
       content: '',
-      timestamp: 'Ahora',
+      timestamp: 'Just now',
       parts: [],
       pending: true,
       statusInfo: { status: 'thinking' }

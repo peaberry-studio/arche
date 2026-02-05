@@ -23,6 +23,16 @@ async function authorizeWorkspace(slug: string) {
 
 type AgentResponse = { ok: true } | { ok: false; error: string }
 
+function extractAgentError(response: Response, data: AgentResponse): string | null {
+  if (!response.ok) {
+    return !data.ok ? data.error : `workspace_agent_http_${response.status}`
+  }
+  if (!data.ok) {
+    return data.error
+  }
+  return null
+}
+
 export async function readWorkspaceFileAction(slug: string, path: string): Promise<{
   ok: boolean
   content?: WorkspaceFileContent
@@ -54,16 +64,8 @@ export async function readWorkspaceFileAction(slug: string, path: string): Promi
       hash?: string
     }
 
-    if (!response.ok) {
-      return {
-        ok: false,
-        error: !data.ok ? data.error : `workspace_agent_http_${response.status}`
-      }
-    }
-
-    if (!data.ok) {
-      return { ok: false, error: data.error }
-    }
+    const err = extractAgentError(response, data)
+    if (err) return { ok: false, error: err }
 
     let content = data.content ?? ''
     if (data.encoding === 'base64') {
@@ -114,16 +116,8 @@ export async function writeWorkspaceFileAction(
 
     const data = await response.json() as AgentResponse & { hash?: string }
 
-    if (!response.ok) {
-      return {
-        ok: false,
-        error: !data.ok ? data.error : `workspace_agent_http_${response.status}`
-      }
-    }
-
-    if (!data.ok) {
-      return { ok: false, error: data.error }
-    }
+    const err = extractAgentError(response, data)
+    if (err) return { ok: false, error: err }
 
     return { ok: true, hash: data.hash }
   } catch (e) {
@@ -155,16 +149,8 @@ export async function deleteWorkspaceFileAction(
 
     const data = await response.json() as AgentResponse
 
-    if (!response.ok) {
-      return {
-        ok: false,
-        error: !data.ok ? data.error : `workspace_agent_http_${response.status}`
-      }
-    }
-
-    if (!data.ok) {
-      return { ok: false, error: data.error }
-    }
+    const err = extractAgentError(response, data)
+    if (err) return { ok: false, error: err }
 
     return { ok: true }
   } catch (e) {
@@ -196,16 +182,8 @@ export async function applyWorkspacePatchAction(
 
     const data = await response.json() as AgentResponse
 
-    if (!response.ok) {
-      return {
-        ok: false,
-        error: !data.ok ? data.error : `workspace_agent_http_${response.status}`
-      }
-    }
-
-    if (!data.ok) {
-      return { ok: false, error: data.error }
-    }
+    const err = extractAgentError(response, data)
+    if (err) return { ok: false, error: err }
 
     return { ok: true }
   } catch (e) {
@@ -253,16 +231,8 @@ export async function getWorkspaceConflictAction(
       working?: string
     }
 
-    if (!response.ok) {
-      return {
-        ok: false,
-        error: !data.ok ? data.error : `workspace_agent_http_${response.status}`
-      }
-    }
-
-    if (!data.ok) {
-      return { ok: false, error: data.error }
-    }
+    const err = extractAgentError(response, data)
+    if (err) return { ok: false, error: err }
 
     if (!data.path) {
       return { ok: false, error: 'conflict_not_found' }
@@ -307,16 +277,8 @@ export async function resolveWorkspaceConflictAction(
 
     const data = await response.json() as AgentResponse
 
-    if (!response.ok) {
-      return {
-        ok: false,
-        error: !data.ok ? data.error : `workspace_agent_http_${response.status}`
-      }
-    }
-
-    if (!data.ok) {
-      return { ok: false, error: data.error }
-    }
+    const err = extractAgentError(response, data)
+    if (err) return { ok: false, error: err }
 
     return { ok: true }
   } catch (e) {
