@@ -38,6 +38,11 @@ describe('docker', () => {
 
   beforeEach(() => {
     process.env = { ...originalEnv }
+    delete process.env.CONTAINER_SOCKET_PATH
+    delete process.env.CONTAINER_HOST
+    // Keep unit tests deterministic even when running inside local-dev compose,
+    // where KB_HOST_PATH is typically set.
+    delete process.env.KB_HOST_PATH
     process.env.CONTAINER_PROXY_HOST = 'test-proxy'
     process.env.CONTAINER_PROXY_PORT = '2375'
     process.env.OPENCODE_IMAGE = 'test-image:latest'
@@ -51,7 +56,9 @@ describe('docker', () => {
 
   describe('createContainer', () => {
     it('creates container with correct configuration', async () => {
-      await createContainer('user-slug', 'secret-password')
+      const configContent = '{"$schema":"https://opencode.ai/config.json","mcp":{}}'
+
+      await createContainer('user-slug', 'secret-password', configContent)
 
       expect(Docker).toHaveBeenCalledWith({
         host: 'test-proxy',
@@ -67,6 +74,7 @@ describe('docker', () => {
           'OPENCODE_SERVER_PASSWORD=secret-password',
           'OPENCODE_SERVER_USERNAME=opencode',
           'WORKSPACE_AGENT_PORT=4097',
+          `OPENCODE_CONFIG_CONTENT=${configContent}`,
         ],
         HostConfig: {
           NetworkMode: 'test-network',

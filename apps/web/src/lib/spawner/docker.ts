@@ -14,7 +14,7 @@ function getContainerClient(): Docker {
   })
 }
 
-export async function createContainer(slug: string, password: string) {
+export async function createContainer(slug: string, password: string, opencodeConfigContent?: string) {
   const docker = getContainerClient()
   const containerName = `opencode-${slug}`
   const volumeName = `arche-workspace-${slug}`
@@ -39,17 +39,23 @@ export async function createContainer(slug: string, password: string) {
   await ensureUserDirectory(slug)
   binds.push(`${userDataPath}:/user-data`)
 
+  const env = [
+    `OPENCODE_SERVER_PASSWORD=${password}`,
+    `OPENCODE_SERVER_USERNAME=opencode`,
+    `WORKSPACE_AGENT_PORT=${getWorkspaceAgentPort()}`,
+  ]
+
+  if (opencodeConfigContent) {
+    env.push(`OPENCODE_CONFIG_CONTENT=${opencodeConfigContent}`)
+  }
+
   return docker.createContainer({
     Image: getOpencodeImage(),
     name: containerName,
     WorkingDir: '/workspace',
     // La imagen arche-workspace tiene entrypoint wrapper que inicializa el workspace
     Cmd: ['serve', '--hostname', '0.0.0.0', '--port', '4096'],
-    Env: [
-      `OPENCODE_SERVER_PASSWORD=${password}`,
-      `OPENCODE_SERVER_USERNAME=opencode`,
-      `WORKSPACE_AGENT_PORT=${getWorkspaceAgentPort()}`,
-    ],
+    Env: env,
     HostConfig: {
       NetworkMode: getOpencodeNetwork(),
       RestartPolicy: { Name: 'unless-stopped' },

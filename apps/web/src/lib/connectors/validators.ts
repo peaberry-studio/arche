@@ -10,7 +10,7 @@ export interface ConnectorConfigSchema {
 export const CONNECTOR_SCHEMAS: Record<ConnectorType, ConnectorConfigSchema> = {
   linear: { required: ['apiKey'] },
   notion: { required: ['apiKey'] },
-  slack: { required: ['botToken'], optional: ['appToken'] },
+  slack: { required: ['botToken', 'teamId'], optional: ['appToken'] },
   github: { required: ['token'], optional: ['org'] },
   custom: { required: ['endpoint'], optional: ['headers', 'auth'] },
 }

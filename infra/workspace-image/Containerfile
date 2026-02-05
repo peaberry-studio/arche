@@ -13,7 +13,7 @@ FROM ghcr.io/anomalyco/opencode:${OPENCODE_VERSION}
 
 # Instalar git (necesario para sync de KB)
 USER root
-RUN apk add --no-cache git
+RUN apk add --no-cache git nodejs npm
 
 # Create non-root user for running the workspace
 RUN addgroup -g 1000 workspace && \
