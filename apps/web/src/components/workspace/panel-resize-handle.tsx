@@ -15,7 +15,7 @@ export function PanelResizeHandle({
 
   return (
     <div
-      className="group relative w-px shrink-0 cursor-col-resize self-stretch bg-border/60 transition-colors hover:bg-primary/50"
+      className="group relative w-px shrink-0 cursor-col-resize self-stretch bg-border transition-colors hover:bg-primary/50"
       onPointerDown={onPointerDown}
       role="separator"
       aria-orientation="vertical"

@@ -453,7 +453,7 @@ function ToolGroup({
   const showSummary = totalCount > 1 || (!!summary && summary !== tool);
 
   return (
-    <div className="my-2 rounded-lg border border-border/60 bg-muted/20">
+    <div className="my-2 rounded-lg border border-border/40 bg-muted/20">
       <button
         type="button"
         onClick={() => {
@@ -559,7 +559,7 @@ function FileGroup({ parts, onOpenFile }: { parts: FilePart[]; onOpenFile: (path
   const [isOpen, setIsOpen] = useState(() => totalCount <= 2);
 
   return (
-    <div className="my-2 rounded-lg border border-border/60 bg-muted/20">
+    <div className="my-2 rounded-lg border border-border/40 bg-muted/20">
       <button
         type="button"
         onClick={() => setIsOpen(prev => !prev)}
@@ -929,9 +929,9 @@ export function ChatPanel({
   };
 
   return (
-    <div className="flex h-full flex-col bg-background">
+    <div className="flex h-full flex-col text-card-foreground">
       {/* Session tabs */}
-      <div className="flex h-12 items-center gap-1 border-b border-border/60 px-2">
+      <div className="flex h-11 shrink-0 items-center gap-1 border-b border-white/10 px-3">
         {canScrollLeft && (
           <Button
             size="icon"
@@ -953,10 +953,10 @@ export function ChatPanel({
             <div
               key={session.id}
               className={cn(
-                "group flex shrink-0 items-center gap-1 rounded-md pl-2.5 pr-1 py-1 text-xs transition-colors",
+                "group flex shrink-0 items-center gap-1 rounded-lg pl-2.5 pr-1 py-1 text-xs transition-colors",
                 session.id === activeSessionId
                   ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                  : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
               )}
             >
               <button
@@ -1029,7 +1029,7 @@ export function ChatPanel({
           </Button>
         )}
 
-        <div className="h-5 w-px bg-border/60 mx-1" />
+        <div className="h-5 w-px bg-border/40 mx-1" />
         
         <Button
           size="icon"
@@ -1043,7 +1043,7 @@ export function ChatPanel({
       </div>
 
       {/* Messages area */}
-      <div className="flex-1 overflow-y-auto px-5 py-5">
+      <div className="flex-1 overflow-y-auto px-6 py-6">
         {messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
             <ChatCircle size={32} className="text-muted-foreground/30" />
@@ -1052,7 +1052,7 @@ export function ChatPanel({
             </p>
           </div>
         ) : (
-          <div className="space-y-5">
+          <div className="space-y-6">
             {messages.map((message, index) => {
               // Only show timestamp if this is the last message in a "same-minute" group
               // i.e., if there's no next message, or the next message is in a different minute
@@ -1174,7 +1174,7 @@ export function ChatPanel({
       </div>
 
       {/* Input area */}
-      <div className="border-t border-border/60 p-4">
+      <div className="border-t border-white/10 px-6 py-5">
         {/* Model selector and context - same row */}
         {(models.length > 0 || openFilesCount > 0) && (
           <div className="mb-3 flex items-center gap-4">
@@ -1188,7 +1188,7 @@ export function ChatPanel({
                   <DropdownMenuTrigger asChild>
                     <button
                       type="button"
-                      className="flex items-center gap-1.5 rounded-md bg-muted/50 px-2.5 py-1.5 text-xs text-foreground transition-colors hover:bg-muted"
+                      className="flex items-center gap-1.5 rounded-lg bg-foreground/5 px-2.5 py-1.5 text-xs text-foreground transition-colors hover:bg-foreground/10"
                     >
                       <span className="max-w-[200px] truncate">
                         {selectedModel 
@@ -1232,7 +1232,7 @@ export function ChatPanel({
                 <button
                   type="button"
                   onClick={onShowContext}
-                  className="flex items-center gap-1.5 rounded-md bg-muted/50 px-2.5 py-1.5 text-xs text-foreground transition-colors hover:bg-muted"
+                  className="flex items-center gap-1.5 rounded-lg bg-foreground/5 px-2.5 py-1.5 text-xs text-foreground transition-colors hover:bg-foreground/10"
                 >
                   <File size={12} weight="bold" className="text-primary/70" />
                   <span>{openFilesCount} {openFilesCount === 1 ? "file" : "files"}</span>
@@ -1242,7 +1242,7 @@ export function ChatPanel({
           </div>
         )}
         
-        <div className="flex items-center gap-2.5 rounded-xl border border-border/60 bg-card/60 px-2.5 py-2.5">
+        <div className="flex items-center gap-2.5 rounded-xl border border-white/10 bg-foreground/5 px-2.5 py-2.5">
           <textarea
             ref={textareaRef}
             value={inputValue}

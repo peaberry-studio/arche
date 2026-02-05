@@ -8,6 +8,8 @@
 @theme inline {
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
+  --color-surface: hsl(var(--surface));
+  --color-surface-foreground: hsl(var(--surface-foreground));
   --color-card: hsl(var(--card));
   --color-card-foreground: hsl(var(--card-foreground));
   --color-popover: hsl(var(--popover));
@@ -52,11 +54,14 @@
 
 :root {
   --radius: 0.625rem;
-  /* Fondo ligeramente gris para que las cards destaquen */
+  /* Fondo base del shell exterior */
   --background: 40 20% 96%;
   /* Texto principal con buen contraste */
   --foreground: 20 15% 12%;
-  /* Cards más blancas que el fondo para crear jerarquía */
+  /* Superficie intermedia: paneles laterales, header, footer */
+  --surface: 35 16% 93%;
+  --surface-foreground: 20 15% 15%;
+  /* Cards / panel principal: blanco elevado que "flota" */
   --card: 40 25% 99%;
   --card-foreground: 20 15% 12%;
   --popover: 0 0% 100%;
@@ -99,7 +104,9 @@
 .dark {
   --background: 20 12% 8%;
   --foreground: 30 15% 92%;
-  --card: 20 12% 10%;
+  --surface: 20 11% 11%;
+  --surface-foreground: 30 15% 88%;
+  --card: 20 12% 14%;
   --card-foreground: 30 15% 92%;
   --popover: 20 12% 10%;
   --popover-foreground: 30 15% 92%;
@@ -217,7 +224,7 @@
     @apply my-3 max-w-full rounded-lg;
   }
 
-  /* Fondo orgánico sutil */
+  /* Fondo orgánico sutil - legacy, now we use dynamic themes */
   .organic-background {
     background-image: radial-gradient(
         ellipse 80% 60% at 50% -10%,
@@ -230,6 +237,44 @@
         transparent 50%
       ),
       linear-gradient(180deg, hsl(40 20% 97%), hsl(35 18% 95%));
+  }
+
+  /* Frosted glass panel effect */
+  .glass-panel {
+    @apply backdrop-blur-xl;
+    background: hsl(var(--card) / 0.82);
+    border: 1px solid hsl(0 0% 100% / 0.18);
+    box-shadow:
+      0 4px 24px hsl(20 15% 15% / 0.06),
+      0 1px 3px hsl(20 15% 15% / 0.04),
+      inset 0 1px 0 hsl(0 0% 100% / 0.08);
+  }
+
+  .dark .glass-panel {
+    background: hsl(var(--card) / 0.75);
+    border-color: hsl(0 0% 100% / 0.1);
+    box-shadow:
+      0 4px 24px hsl(0 0% 0% / 0.3),
+      0 1px 3px hsl(0 0% 0% / 0.2),
+      inset 0 1px 0 hsl(0 0% 100% / 0.05);
+  }
+
+  /* Lighter glass for header/footer */
+  .glass-bar {
+    @apply backdrop-blur-lg;
+    background: hsl(var(--card) / 0.72);
+    border: 1px solid hsl(0 0% 100% / 0.14);
+    box-shadow:
+      0 2px 12px hsl(20 15% 15% / 0.04),
+      inset 0 1px 0 hsl(0 0% 100% / 0.06);
+  }
+
+  .dark .glass-bar {
+    background: hsl(var(--card) / 0.65);
+    border-color: hsl(0 0% 100% / 0.08);
+    box-shadow:
+      0 2px 12px hsl(0 0% 0% / 0.25),
+      inset 0 1px 0 hsl(0 0% 100% / 0.04);
   }
 
   /* Superficie para cards elevadas */

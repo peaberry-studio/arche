@@ -1,9 +1,16 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Circle, Gear } from "@phosphor-icons/react";
+import { Circle, Gear, Palette } from "@phosphor-icons/react";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { cn } from "@/lib/utils";
 import { SyncKbButton } from "./sync-kb-button";
 
@@ -26,10 +33,11 @@ export function WorkspaceHeader({
 }: WorkspaceHeaderProps) {
   const router = useRouter();
   const statusStyle = statusConfig[status];
+  const { themes, themeId, setThemeId } = useWorkspaceTheme();
 
   return (
-    <header className="relative z-30 border-b border-border/60 bg-card/80 backdrop-blur-sm">
-      <div className="flex h-11 w-full items-center justify-between px-3">
+    <header className="glass-bar relative z-30 shrink-0 rounded-2xl text-card-foreground">
+      <div className="flex h-11 w-full items-center justify-between px-4">
         <div className="flex items-center gap-2">
           <span className="font-[family-name:var(--font-display)] text-base font-semibold tracking-tight">
             Archē
@@ -52,6 +60,49 @@ export function WorkspaceHeader({
             disabled={status !== "active"}
             onComplete={onSyncComplete}
           />
+          
+          {/* Theme picker */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7"
+                aria-label="Change background theme"
+              >
+                <Palette size={16} weight="bold" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" sideOffset={8}>
+              {themes.map((t) => (
+                <DropdownMenuItem
+                  key={t.id}
+                  onClick={() => setThemeId(t.id)}
+                  className={cn(
+                    "flex items-center gap-3",
+                    themeId === t.id && "bg-primary/10"
+                  )}
+                >
+                  {/* Color swatch preview */}
+                  <div className="flex h-5 w-8 overflow-hidden rounded-md border border-border/50">
+                    <div 
+                      className="w-1/2" 
+                      style={{ backgroundColor: t.swatches[0] }} 
+                    />
+                    <div 
+                      className="w-1/2" 
+                      style={{ backgroundColor: t.swatches[1] }} 
+                    />
+                  </div>
+                  <span className="text-sm">{t.name}</span>
+                  {themeId === t.id && (
+                    <span className="ml-auto text-[10px] text-primary">Active</span>
+                  )}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           <Button
             size="icon"
             variant="ghost"
