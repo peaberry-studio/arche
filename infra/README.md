@@ -6,6 +6,7 @@ Este directorio agrupa todo lo necesario para ejecutar Arche como stack (local y
 
 - Stack local de desarrollo (Traefik + Postgres + Web): `infra/compose/README.md`
 - One-click deployer (VPS + local prod): `infra/deploy/README.md`
+- Coolify deployment (VPS con Coolify): `infra/coolify/README.md`
 - Imagen de workspace (OpenCode + git): `infra/workspace-image/README.md`
 
 ## Knowledge Base (KB)
