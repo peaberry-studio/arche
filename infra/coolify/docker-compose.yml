@@ -1,0 +1,107 @@
+# Arche — Coolify Docker Compose
+# Deploy via Coolify's Docker Compose resource
+# See README.md for setup instructions
+
+name: arche
+
+services:
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:0.3
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1
+      NETWORKS: 1
+      IMAGES: 1
+      INFO: 1
+      POST: 1
+      VOLUMES: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - internal
+
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: arche
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - default
+
+  migrate:
+    build:
+      context: ../../apps/web
+      dockerfile: Containerfile
+    command: sh -c "pnpm prisma migrate deploy && pnpm prisma db seed"
+    environment:
+      DATABASE_URL: postgresql://postgres:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/arche?schema=public
+      ARCHE_SEED_ADMIN_EMAIL: ${ARCHE_SEED_ADMIN_EMAIL:?}
+      ARCHE_SEED_ADMIN_PASSWORD: ${ARCHE_SEED_ADMIN_PASSWORD:?}
+      ARCHE_SEED_ADMIN_SLUG: ${ARCHE_SEED_ADMIN_SLUG:-admin}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - default
+    restart: "no"
+
+  web:
+    build:
+      context: ../../apps/web
+      dockerfile: Containerfile
+    restart: unless-stopped
+    environment:
+      # Domain (set in Coolify UI)
+      ARCHE_DOMAIN: ${ARCHE_DOMAIN:?}
+
+      # Database (uses Coolify magic variable)
+      DATABASE_URL: postgresql://postgres:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/arche?schema=public
+
+      # Secrets (required - set in Coolify UI)
+      ARCHE_SESSION_PEPPER: ${ARCHE_SESSION_PEPPER:?}
+      ARCHE_ENCRYPTION_KEY: ${ARCHE_ENCRYPTION_KEY:?}
+      ARCHE_INTERNAL_TOKEN: ${ARCHE_INTERNAL_TOKEN:?}
+
+      # Cookies
+      ARCHE_COOKIE_SECURE: ${ARCHE_COOKIE_SECURE:-true}
+
+      # Seed admin
+      ARCHE_SEED_ADMIN_EMAIL: ${ARCHE_SEED_ADMIN_EMAIL:?}
+      ARCHE_SEED_ADMIN_PASSWORD: ${ARCHE_SEED_ADMIN_PASSWORD:?}
+      ARCHE_SEED_ADMIN_SLUG: ${ARCHE_SEED_ADMIN_SLUG:-admin}
+
+      # Spawner config
+      CONTAINER_PROXY_HOST: docker-socket-proxy
+      CONTAINER_PROXY_PORT: "2375"
+      OPENCODE_IMAGE: ${OPENCODE_IMAGE:-ghcr.io/anomalyco/opencode:1.1.45}
+      OPENCODE_NETWORK: arche_internal
+
+      # Knowledge Base (optional)
+      KB_HOST_PATH: ${KB_HOST_PATH:-}
+    networks:
+      - default
+      - internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    labels:
+      - coolify.managed=true
+
+networks:
+  default:
+  internal:
+    name: arche_internal
+
+volumes:
+  postgres_data:
