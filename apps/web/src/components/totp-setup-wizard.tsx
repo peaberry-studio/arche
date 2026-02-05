@@ -21,7 +21,7 @@ import {
   verify2FASetup,
   disable2FA,
   regenerateRecoveryCodes,
-} from '@/app/settings/security/actions'
+} from '@/app/u/[slug]/settings/security/actions'
 
 type Step = 'init' | 'scan' | 'verify' | 'recovery'
 

@@ -216,7 +216,7 @@ export function WorkspaceHeader({
             variant="ghost"
             className="h-7 w-7"
             aria-label="Settings"
-            onClick={() => router.push("/settings/security")}
+            onClick={() => router.push(`/u/${slug}/settings/security`)}
           >
             <Gear size={16} weight="bold" />
           </Button>
