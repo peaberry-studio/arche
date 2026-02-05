@@ -1,0 +1,391 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import type { FormEvent } from 'react'
+import { useRouter } from 'next/navigation'
+
+
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+
+type AgentFormProps = {
+  slug: string
+  mode: 'create' | 'edit'
+  agentId?: string
+}
+
+const MODEL_OPTIONS = [
+  { value: 'openai/gpt-5.2', label: 'OpenAI · GPT-5.2' },
+  { value: 'anthropic/claude-sonnet-4-20250514', label: 'Anthropic · Claude Sonnet 4' }
+]
+
+export function AgentForm({ slug, mode, agentId }: AgentFormProps) {
+  const router = useRouter()
+  const [id, setId] = useState(agentId ?? '')
+  const [displayName, setDisplayName] = useState('')
+  const [description, setDescription] = useState('')
+  const [model, setModel] = useState('')
+  const [temperature, setTemperature] = useState('')
+  const [prompt, setPrompt] = useState('')
+  const [isPrimary, setIsPrimary] = useState(false)
+  const [hash, setHash] = useState<string | undefined>()
+  const [isLoading, setIsLoading] = useState(mode === 'edit')
+  const [isSaving, setIsSaving] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [saveSuccess, setSaveSuccess] = useState(false)
+
+  useEffect(() => {
+    if (mode === 'edit' && agentId) {
+      setIsLoading(true)
+      setLoadError(null)
+      fetch(`/api/u/${slug}/agents/${agentId}`, { cache: 'no-store' })
+        .then(async (response) => {
+          const data = await response.json().catch(() => null) as {
+            agent?: {
+              id: string
+              displayName?: string
+              description?: string
+              model?: string
+              temperature?: number
+              prompt?: string
+              isPrimary: boolean
+            }
+            hash?: string
+            error?: string
+          } | null
+
+          if (!response.ok || !data?.agent) {
+            setLoadError(data?.error ?? 'load_failed')
+            return
+          }
+
+          setId(data.agent.id)
+          setDisplayName(data.agent.displayName ?? data.agent.id)
+          setDescription(data.agent.description ?? '')
+          setModel(data.agent.model ?? '')
+          setTemperature(typeof data.agent.temperature === 'number' ? String(data.agent.temperature) : '')
+          setPrompt(data.agent.prompt ?? '')
+          setIsPrimary(data.agent.isPrimary)
+          setHash(data.hash)
+        })
+        .catch(() => setLoadError('network_error'))
+        .finally(() => setIsLoading(false))
+      return
+    }
+
+    if (mode === 'create') {
+      fetch(`/api/u/${slug}/agents`, { cache: 'no-store' })
+        .then(async (response) => {
+          const data = await response.json().catch(() => null) as { hash?: string } | null
+          if (response.ok && data?.hash) {
+            setHash(data.hash)
+          }
+        })
+        .catch(() => {})
+    }
+  }, [agentId, mode, slug])
+
+  const handleSetPrimary = async () => {
+    if (!agentId) return
+    setSaveError(null)
+    setIsSaving(true)
+    try {
+      const response = await fetch(`/api/u/${slug}/agents/${agentId}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ isPrimary: true, expectedHash: hash })
+      })
+      const data = await response.json().catch(() => null) as { hash?: string; error?: string } | null
+      if (!response.ok) {
+        setSaveError(data?.error ?? 'update_failed')
+        return
+      }
+      setHash(data?.hash)
+      setIsPrimary(true)
+      setSaveSuccess(true)
+      setTimeout(() => setSaveSuccess(false), 2000)
+    } catch {
+      setSaveError('network_error')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!agentId) return
+    const confirmed = window.confirm(`Delete the agent "${displayName || agentId}"?`)
+    if (!confirmed) return
+
+    setSaveError(null)
+    setIsSaving(true)
+    try {
+      const response = await fetch(`/api/u/${slug}/agents/${agentId}`, {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ expectedHash: hash })
+      })
+      const data = await response.json().catch(() => null) as { error?: string } | null
+      if (!response.ok) {
+        setSaveError(data?.error ?? 'delete_failed')
+        return
+      }
+      router.push(`/u/${slug}/agents`)
+    } catch {
+      setSaveError('network_error')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (isSaving) return
+    setIsSaving(true)
+    setSaveError(null)
+    setSaveSuccess(false)
+
+    if (!displayName.trim()) {
+      setSaveError('Display name is required.')
+      setIsSaving(false)
+      return
+    }
+
+    try {
+      if (mode === 'create') {
+        const payload = {
+          displayName: displayName.trim(),
+          description: description.trim() || undefined,
+          model: model.trim() || undefined,
+          temperature: temperature.trim() ? Number(temperature) : undefined,
+          prompt,
+          isPrimary,
+          expectedHash: hash
+        }
+        const response = await fetch(`/api/u/${slug}/agents`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload)
+        })
+        const data = await response.json().catch(() => null) as { error?: string } | null
+        if (!response.ok) {
+          setSaveError(data?.error ?? 'create_failed')
+          return
+        }
+        router.push(`/u/${slug}/agents`)
+        return
+      }
+
+      const payload = {
+        displayName: displayName.trim() ? displayName.trim() : null,
+        description: description.trim() ? description.trim() : null,
+        model: model.trim() ? model.trim() : null,
+        temperature: temperature.trim() ? Number(temperature) : null,
+        prompt,
+        expectedHash: hash
+      }
+      const response = await fetch(`/api/u/${slug}/agents/${agentId}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+      const data = await response.json().catch(() => null) as { hash?: string; error?: string } | null
+      if (!response.ok) {
+        setSaveError(data?.error ?? 'update_failed')
+        return
+      }
+      setHash(data?.hash)
+      setSaveSuccess(true)
+      setTimeout(() => setSaveSuccess(false), 2000)
+    } catch {
+      setSaveError('network_error')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  if (isLoading) {
+    return <div className="text-sm text-muted-foreground">Loading agent...</div>
+  }
+
+  if (loadError) {
+    return (
+      <div className="rounded-lg border border-border/60 bg-card/50 p-4 text-sm text-destructive">
+        Failed to load: {loadError}
+      </div>
+    )
+  }
+
+  const modelOptions = MODEL_OPTIONS
+  const hasCurrentModel = modelOptions.some((option) => option.value === model)
+  const saveLabel = isSaving
+    ? 'Saving...'
+    : saveSuccess
+      ? 'Saved'
+      : mode === 'create'
+        ? 'Create agent'
+        : 'Save changes'
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-6">
+      <div className="space-y-2">
+        <Label htmlFor="agent-display-name">Display name</Label>
+        <Input
+          id="agent-display-name"
+          value={displayName}
+          onChange={(event) => setDisplayName(event.target.value)}
+          placeholder="Support Agent"
+          required
+        />
+        {mode === 'create' ? (
+          <p className="text-xs text-muted-foreground">An internal ID will be generated automatically.</p>
+        ) : null}
+      </div>
+
+      {mode === 'edit' && (
+        <div className="space-y-2">
+          <Label htmlFor="agent-id">Agent ID</Label>
+          <Input id="agent-id" value={id} disabled />
+        </div>
+      )}
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor="agent-model">Default model</Label>
+          <Input
+            id="agent-model"
+            list="agent-models"
+            value={model}
+            onChange={(event) => setModel(event.target.value)}
+            placeholder="Select or type a model"
+          />
+          <datalist id="agent-models">
+            {modelOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+            {!hasCurrentModel && model ? (
+              <option value={model}>Current: {model}</option>
+            ) : null}
+          </datalist>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="agent-temperature">Temperature</Label>
+          <Input
+            id="agent-temperature"
+            type="number"
+            step="0.1"
+            min="0"
+            max="2"
+            value={temperature}
+            onChange={(event) => setTemperature(event.target.value)}
+            placeholder="0.2"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="agent-description">Description</Label>
+        <textarea
+          id="agent-description"
+          className="min-h-[96px] w-full rounded-lg border border-border/60 bg-card/50 px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/30"
+          value={description}
+          onChange={(event) => setDescription(event.target.value)}
+          placeholder="Short description of the agent role."
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="agent-prompt">Prompt</Label>
+        <textarea
+          id="agent-prompt"
+          className="min-h-[240px] w-full rounded-lg border border-border/60 bg-card/50 px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/30"
+          value={prompt}
+          onChange={(event) => setPrompt(event.target.value)}
+          placeholder="Define the system prompt for this agent..."
+        />
+      </div>
+
+      {/* Agent type toggle */}
+      {mode === 'edit' && (
+        <div className="flex flex-col gap-3">
+          <Label>Agent type</Label>
+          <div
+            role="switch"
+            aria-checked={isPrimary}
+            className="relative inline-grid h-10 grid-cols-2 rounded-full bg-muted p-1"
+          >
+            <span
+              className={`
+                absolute inset-y-1 w-[calc(50%-2px)] rounded-full bg-background shadow-sm transition-all duration-200 ease-in-out
+                ${isPrimary ? 'left-[calc(50%+1px)]' : 'left-1'}
+              `}
+            />
+            <button
+              type="button"
+              onClick={() => {}}
+              disabled={!isPrimary || isSaving}
+              className={`relative z-10 cursor-pointer px-5 text-sm font-medium transition-colors disabled:cursor-default ${!isPrimary ? 'text-foreground' : 'text-muted-foreground'}`}
+            >
+              Secondary
+            </button>
+            <button
+              type="button"
+              onClick={handleSetPrimary}
+              disabled={isPrimary || isSaving}
+              className={`relative z-10 cursor-pointer px-5 text-sm font-medium transition-colors disabled:cursor-default ${isPrimary ? 'text-foreground' : 'text-muted-foreground'}`}
+            >
+              Primary
+            </button>
+          </div>
+        </div>
+      )}
+
+      {mode === 'create' && (
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={isPrimary}
+            onChange={(event) => setIsPrimary(event.target.checked)}
+            className="h-4 w-4 rounded border border-border"
+          />
+          Set as primary
+        </label>
+      )}
+
+      {saveError && (
+        <div className="rounded-lg border border-border/60 bg-card/50 p-4 text-sm text-destructive">
+          Error: {saveError}
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex items-center justify-between border-t border-border/40 pt-6">
+        {/* Primary actions */}
+        <div className="flex items-center gap-3">
+          <Button type="submit" disabled={isSaving} variant={saveSuccess ? 'secondary' : 'default'}>
+            {saveLabel}
+          </Button>
+          <Button type="button" variant="ghost" onClick={() => router.push(`/u/${slug}/agents`)}>
+            Cancel
+          </Button>
+        </div>
+
+        {/* Destructive action */}
+        {mode === 'edit' && (
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={isSaving}
+            className="text-sm text-destructive underline-offset-2 hover:underline disabled:opacity-50"
+          >
+            Delete agent
+          </button>
+        )}
+      </div>
+    </form>
+  )
+}

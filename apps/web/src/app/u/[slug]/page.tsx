@@ -6,13 +6,12 @@ import { getSessionFromToken, SESSION_COOKIE_NAME } from '@/lib/auth'
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
-const navigation = [
-  { label: "Overview", href: "#", active: true },
-  { label: "Agents", href: "#" },
+const navigation = (slug: string) => [
+  { label: "Overview", href: `/u/${slug}`, active: true },
+  { label: "Agents", href: `/u/${slug}/agents` },
   { label: "Connectors", href: "#" },
-  { label: "Playbooks", href: "#" },
   { label: "Team", href: "#" },
-  { label: "Settings", href: "#" },
+  { label: "Settings", href: "/settings/security" },
 ];
 
 const stats = [
@@ -99,7 +98,7 @@ export default async function WorkspacePage({
             <span className="text-sm text-muted-foreground">{slug}</span>
           </div>
           <nav className="hidden items-center gap-1 md:flex">
-            {navigation.map((item) => (
+            {navigation(slug).map((item) => (
               <Link
                 key={item.label}
                 href={item.href}
