@@ -375,7 +375,7 @@ export async function listMessagesAction(slug: string, sessionId: string): Promi
       const parts = transformParts(m.parts ?? [])
       const rawTimestamp = m.info.time?.created
       const isAssistant = m.info.role === 'assistant'
-      const pending = isAssistant && !m.info.time?.completed
+      const pending = isAssistant && !((m.info.time as { completed?: number })?.completed)
       return {
         id: m.info.id,
         sessionId,

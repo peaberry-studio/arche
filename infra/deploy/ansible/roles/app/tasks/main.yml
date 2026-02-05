@@ -1,4 +1,12 @@
 ---
+- name: Create users data directory
+  ansible.builtin.file:
+    path: "{{ users_path | default('/opt/arche/users') }}"
+    state: directory
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: "0750"
+
 - name: Log in to GHCR
   ansible.builtin.command:
     cmd: podman login ghcr.io -u arche-deploy --password-stdin
