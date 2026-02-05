@@ -91,10 +91,10 @@ export type ToolState =
  */
 export type MessagePart = 
   // Content parts
-  | { type: 'text'; text: string }
-  | { type: 'reasoning'; text: string }
-  | { type: 'file'; path: string; filename?: string; mime?: string; url?: string }
-  | { type: 'image'; url: string }
+  | { type: 'text'; id?: string; text: string }
+  | { type: 'reasoning'; id?: string; text: string }
+  | { type: 'file'; id?: string; path: string; filename?: string; mime?: string; url?: string }
+  | { type: 'image'; id?: string; url: string }
   
   // Tool parts
   | { type: 'tool'; id: string; name: string; state: ToolState }

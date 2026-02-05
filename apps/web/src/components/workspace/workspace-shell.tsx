@@ -208,6 +208,79 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
   );
   const [fileCache, setFileCache] = useState<FileContentCache>({});
 
+  const flattenedFilePaths = useMemo(() => {
+    const paths: string[] = [];
+    const visit = (nodes: WorkspaceFileNode[]) => {
+      nodes.forEach((node) => {
+        if (node.type === "file") paths.push(node.path);
+        if (node.children && node.children.length > 0) visit(node.children);
+      });
+    };
+    visit(workspace.fileTree);
+    return paths;
+  }, [workspace.fileTree]);
+
+  const filePathSet = useMemo(() => new Set(flattenedFilePaths), [flattenedFilePaths]);
+
+  const normalizePath = useCallback((path: string) => {
+    return path.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+/g, "/");
+  }, []);
+
+  const resolveFilePath = useCallback((path: string) => {
+    if (!path) return path;
+    const normalized = normalizePath(path);
+    if (filePathSet.has(normalized)) return normalized;
+
+    const trimmed = normalized.replace(/^\/+/, "");
+    if (filePathSet.has(trimmed)) return trimmed;
+
+    const matches = flattenedFilePaths.filter((candidate) =>
+      normalized.endsWith(candidate) || trimmed.endsWith(candidate)
+    );
+    if (matches.length === 0) return normalized;
+
+    matches.sort((a, b) => b.length - a.length);
+    return matches[0];
+  }, [filePathSet, flattenedFilePaths, normalizePath]);
+
+  const diffSignature = useMemo(() => {
+    if (workspace.diffs.length === 0) return '';
+    return workspace.diffs
+      .map(diff => `${diff.path}:${diff.status}:${diff.additions}:${diff.deletions}`)
+      .sort()
+      .join('|');
+  }, [workspace.diffs]);
+
+  const lastDiffSignatureRef = useRef<string>('');
+
+  useEffect(() => {
+    if (!workspace.isConnected) return;
+    if (!diffSignature) return;
+    if (lastDiffSignatureRef.current === diffSignature) return;
+
+    lastDiffSignatureRef.current = diffSignature;
+    workspace.refreshFiles();
+
+    const diffPaths = new Set(workspace.diffs.map(diff => diff.path));
+    const pathsToRefresh = openFilePaths.filter(path => diffPaths.has(path));
+    if (pathsToRefresh.length === 0) return;
+
+    pathsToRefresh.forEach(async (path) => {
+      const result = await workspace.readFile(path);
+      if (!result) return;
+      setFileCache(prev => ({
+        ...prev,
+        [path]: {
+          content: result.content,
+          type: result.type,
+          title: path.split('/').pop() ?? path,
+          updatedAt: 'Just now',
+          size: `${(result.content.length / 1024).toFixed(1)} KB`
+        }
+      }));
+    });
+  }, [diffSignature, openFilePaths, workspace.diffs, workspace.isConnected, workspace.readFile, workspace.refreshFiles]);
+
   // Load layout from localStorage
   useEffect(() => {
     const stored = loadStoredLayout(layoutStorageKey);
@@ -297,29 +370,43 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
 
   // File handlers
   const handleOpenFile = useCallback(async (path: string) => {
+    const resolvedPath = resolveFilePath(path);
+    const pathToOpen = resolvedPath || path;
+
     // Add to open files if not already open
-    setOpenFilePaths(prev => prev.includes(path) ? prev : [...prev, path]);
-    setActiveFilePath(path);
+    setOpenFilePaths(prev => prev.includes(pathToOpen) ? prev : [...prev, pathToOpen]);
+    setActiveFilePath(pathToOpen);
     setRightTab("preview");
     setRightCollapsed(false);
 
     // Load file content if not cached
-    if (!fileCache[path]) {
-      const result = await workspace.readFile(path);
+    if (!fileCache[pathToOpen]) {
+      const result = await workspace.readFile(pathToOpen);
       if (result) {
         setFileCache(prev => ({
           ...prev,
-          [path]: {
+          [pathToOpen]: {
             content: result.content,
             type: result.type,
-            title: path.split('/').pop() ?? path,
+            title: pathToOpen.split('/').pop() ?? pathToOpen,
             updatedAt: 'Just now',
             size: `${(result.content.length / 1024).toFixed(1)} KB`
           }
         }));
+      } else {
+        setFileCache(prev => ({
+          ...prev,
+          [pathToOpen]: {
+            content: 'Unable to load file.',
+            type: 'raw',
+            title: pathToOpen.split('/').pop() ?? pathToOpen,
+            updatedAt: 'Error',
+            size: '0 KB'
+          }
+        }));
       }
     }
-  }, [fileCache, workspace]);
+  }, [fileCache, resolveFilePath, workspace]);
 
   const handleSelectFile = useCallback((path: string) => {
     setActiveFilePath(path);
