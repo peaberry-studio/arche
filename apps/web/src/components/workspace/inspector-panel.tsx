@@ -96,7 +96,7 @@ export function InspectorPanel({
 
   return (
     <div className="flex h-full flex-col text-card-foreground">
-      <div className="flex h-11 shrink-0 items-center gap-1 border-b border-white/10 px-4">
+      <div className="flex h-11 shrink-0 items-center gap-1 border-b border-white/10 pl-3 pr-2">
         <button
           type="button"
           onClick={() => onTabChange("preview")}
@@ -150,7 +150,7 @@ export function InspectorPanel({
                 
                 <div
                   ref={tabsRef}
-                  className="flex flex-1 items-center gap-0.5 overflow-x-auto px-3 py-2 scrollbar-none"
+                  className="flex flex-1 items-center gap-0.5 overflow-x-auto pl-3 pr-2 py-2 scrollbar-none"
                   style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
                 >
                   {openFiles.map((file) => (

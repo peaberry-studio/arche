@@ -4,6 +4,8 @@
 @plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
+@custom-variant dark-ember (&:is(.dark-ember *));
+@custom-variant dark-ash (&:is(.dark-ash *));
 
 @theme inline {
   --color-background: hsl(var(--background));
@@ -101,7 +103,8 @@
   --sidebar-ring: 24 85% 48%;
 }
 
-.dark {
+/* Dark mode: Ember variant (warm/orange tones) */
+.dark.dark-ember {
   --background: 20 12% 8%;
   --foreground: 30 15% 92%;
   --surface: 20 11% 11%;
@@ -120,8 +123,8 @@
   --accent-foreground: 30 15% 92%;
   --destructive: 0 60% 45%;
   --destructive-foreground: 0 0% 100%;
-  --border: 20 10% 18%;
-  --input: 20 10% 18%;
+  --border: 20 10% 20%;
+  --input: 20 10% 20%;
   --ring: 24 80% 50%;
   --chart-1: 24 85% 55%;
   --chart-2: 12 65% 50%;
@@ -134,7 +137,45 @@
   --sidebar-primary-foreground: 20 12% 8%;
   --sidebar-accent: 20 10% 15%;
   --sidebar-accent-foreground: 30 15% 92%;
-  --sidebar-border: 20 10% 18%;
+  --sidebar-border: 20 10% 20%;
+  --sidebar-ring: 24 80% 50%;
+}
+
+/* Dark mode: Ash variant (neutral gray tones) */
+.dark.dark-ash {
+  --background: 0 0% 8%;
+  --foreground: 0 0% 92%;
+  --surface: 0 0% 11%;
+  --surface-foreground: 0 0% 88%;
+  --card: 0 0% 14%;
+  --card-foreground: 0 0% 92%;
+  --popover: 0 0% 10%;
+  --popover-foreground: 0 0% 92%;
+  --primary: 24 85% 55%;
+  --primary-foreground: 0 0% 8%;
+  --secondary: 0 0% 15%;
+  --secondary-foreground: 0 0% 92%;
+  --muted: 0 0% 15%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 0 0% 14%;
+  --accent-foreground: 0 0% 92%;
+  --destructive: 0 60% 45%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 0 0% 20%;
+  --input: 0 0% 20%;
+  --ring: 24 80% 50%;
+  --chart-1: 24 85% 55%;
+  --chart-2: 12 65% 50%;
+  --chart-3: 40 55% 50%;
+  --chart-4: 18 50% 42%;
+  --chart-5: 32 60% 60%;
+  --sidebar: 0 0% 9%;
+  --sidebar-foreground: 0 0% 92%;
+  --sidebar-primary: 24 85% 55%;
+  --sidebar-primary-foreground: 0 0% 8%;
+  --sidebar-accent: 0 0% 15%;
+  --sidebar-accent-foreground: 0 0% 92%;
+  --sidebar-border: 0 0% 20%;
   --sidebar-ring: 24 80% 50%;
 }
 
@@ -156,6 +197,42 @@
   }
   .scrollbar-none::-webkit-scrollbar {
     display: none;
+  }
+
+  /* Custom scrollbar - minimal style */
+  .scrollbar-custom {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--foreground) / 0.15) transparent;
+  }
+  .scrollbar-custom::-webkit-scrollbar {
+    width: 6px;
+  }
+  .scrollbar-custom::-webkit-scrollbar-track {
+    background: transparent;
+    margin: 4px 0;
+  }
+  .scrollbar-custom::-webkit-scrollbar-thumb {
+    background: hsl(var(--foreground) / 0.15);
+    border-radius: 3px;
+  }
+  .scrollbar-custom::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--foreground) / 0.25);
+  }
+  .scrollbar-custom::-webkit-scrollbar-thumb:active {
+    background: hsl(var(--foreground) / 0.35);
+  }
+
+  .dark .scrollbar-custom {
+    scrollbar-color: hsl(var(--foreground) / 0.2) transparent;
+  }
+  .dark .scrollbar-custom::-webkit-scrollbar-thumb {
+    background: hsl(var(--foreground) / 0.2);
+  }
+  .dark .scrollbar-custom::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--foreground) / 0.3);
+  }
+  .dark .scrollbar-custom::-webkit-scrollbar-thumb:active {
+    background: hsl(var(--foreground) / 0.4);
   }
 
   /* Markdown content styles */

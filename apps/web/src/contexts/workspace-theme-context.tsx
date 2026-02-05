@@ -15,7 +15,10 @@ export type WorkspaceThemeId =
   | "forest-dew"
   | "lavender-haze"
   | "sunset-glow"
-  | "midnight-slate";
+  | "midnight-ember"
+  | "midnight-ash";
+
+export type DarkVariant = "ember" | "ash";
 
 export type WorkspaceTheme = {
   id: WorkspaceThemeId;
@@ -23,6 +26,10 @@ export type WorkspaceTheme = {
   gradient: string;
   /** Preview swatch colors for the picker UI */
   swatches: [string, string];
+  /** Whether this theme uses dark mode colors */
+  isDark: boolean;
+  /** Dark mode color variant (only for dark themes) */
+  darkVariant?: DarkVariant;
 };
 
 export const WORKSPACE_THEMES: Record<WorkspaceThemeId, WorkspaceTheme> = {
@@ -35,6 +42,7 @@ export const WORKSPACE_THEMES: Record<WorkspaceThemeId, WorkspaceTheme> = {
       linear-gradient(180deg, hsl(40 20% 97%), hsl(35 18% 95%))
     `,
     swatches: ["hsl(40 20% 97%)", "hsl(35 18% 92%)"],
+    isDark: false,
   },
   "ocean-mist": {
     id: "ocean-mist",
@@ -45,6 +53,7 @@ export const WORKSPACE_THEMES: Record<WorkspaceThemeId, WorkspaceTheme> = {
       linear-gradient(180deg, hsl(200 25% 96%), hsl(195 20% 93%))
     `,
     swatches: ["hsl(200 25% 96%)", "hsl(195 30% 88%)"],
+    isDark: false,
   },
   "forest-dew": {
     id: "forest-dew",
@@ -55,6 +64,7 @@ export const WORKSPACE_THEMES: Record<WorkspaceThemeId, WorkspaceTheme> = {
       linear-gradient(180deg, hsl(140 18% 96%), hsl(150 15% 93%))
     `,
     swatches: ["hsl(140 18% 96%)", "hsl(150 25% 88%)"],
+    isDark: false,
   },
   "lavender-haze": {
     id: "lavender-haze",
@@ -65,6 +75,7 @@ export const WORKSPACE_THEMES: Record<WorkspaceThemeId, WorkspaceTheme> = {
       linear-gradient(180deg, hsl(270 20% 97%), hsl(275 18% 94%))
     `,
     swatches: ["hsl(270 20% 97%)", "hsl(275 28% 90%)"],
+    isDark: false,
   },
   "sunset-glow": {
     id: "sunset-glow",
@@ -75,20 +86,35 @@ export const WORKSPACE_THEMES: Record<WorkspaceThemeId, WorkspaceTheme> = {
       linear-gradient(180deg, hsl(25 30% 96%), hsl(15 25% 93%))
     `,
     swatches: ["hsl(25 30% 96%)", "hsl(340 30% 90%)"],
+    isDark: false,
   },
-  "midnight-slate": {
-    id: "midnight-slate",
-    name: "Midnight Slate",
+  "midnight-ember": {
+    id: "midnight-ember",
+    name: "Midnight Ember",
     gradient: `
-      radial-gradient(ellipse 80% 60% at 50% -10%, hsl(220 15% 22% / 0.9), transparent 60%),
-      radial-gradient(ellipse 60% 50% at 100% 0%, hsl(230 12% 18% / 0.6), transparent 50%),
-      linear-gradient(180deg, hsl(220 12% 14%), hsl(225 10% 11%))
+      radial-gradient(ellipse 80% 60% at 50% -10%, hsl(20 18% 18% / 0.9), transparent 60%),
+      radial-gradient(ellipse 60% 50% at 100% 0%, hsl(25 15% 14% / 0.6), transparent 50%),
+      linear-gradient(180deg, hsl(20 14% 12%), hsl(18 12% 9%))
     `,
-    swatches: ["hsl(220 12% 18%)", "hsl(225 10% 12%)"],
+    swatches: ["hsl(20 14% 14%)", "hsl(18 12% 10%)"],
+    isDark: true,
+    darkVariant: "ember",
+  },
+  "midnight-ash": {
+    id: "midnight-ash",
+    name: "Midnight Ash",
+    gradient: `
+      radial-gradient(ellipse 80% 60% at 50% -10%, hsl(0 0% 18% / 0.9), transparent 60%),
+      radial-gradient(ellipse 60% 50% at 100% 0%, hsl(0 0% 14% / 0.6), transparent 50%),
+      linear-gradient(180deg, hsl(0 0% 12%), hsl(0 0% 9%))
+    `,
+    swatches: ["hsl(0 0% 14%)", "hsl(0 0% 10%)"],
+    isDark: true,
+    darkVariant: "ash",
   },
 };
 
-export const DEFAULT_THEME_ID: WorkspaceThemeId = "warm-sand";
+export const DEFAULT_THEME_ID: WorkspaceThemeId = "midnight-ash";
 
 const STORAGE_KEY = "arche.workspace.theme";
 

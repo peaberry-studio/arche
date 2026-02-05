@@ -6,6 +6,7 @@ import { ensureInstanceRunningAction } from "@/actions/spawner";
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { useWorkspace } from "@/hooks/use-workspace";
 import type { WorkspaceFileNode } from "@/lib/opencode/types";
+import { cn } from "@/lib/utils";
 
 import { ChatPanel } from "./chat-panel";
 import { FileTreePanel } from "./file-tree-panel";
@@ -529,12 +530,25 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
   // Get theme from context
   const { theme } = useWorkspaceTheme();
 
+  // Build dark mode classes based on theme variant
+  const darkModeClasses = theme.isDark
+    ? `dark ${theme.darkVariant === "ash" ? "dark-ash" : "dark-ember"}`
+    : "";
+
   // Loading screen while instance is starting
   if (instanceStatus !== 'running') {
     return (
       <div 
-        className="flex h-screen flex-col overflow-hidden text-foreground"
-        style={{ backgroundImage: theme.gradient }}
+        className={cn(
+          "flex h-screen flex-col overflow-hidden text-foreground",
+          darkModeClasses
+        )}
+        style={{ 
+          backgroundImage: theme.gradient,
+          backgroundRepeat: 'no-repeat',
+          backgroundSize: '100% 100%',
+          backgroundAttachment: 'fixed'
+        }}
       >
         <div className="flex h-full flex-col p-3">
           <WorkspaceHeader
@@ -597,8 +611,16 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
   if (!workspace.isConnected) {
     return (
       <div 
-        className="flex h-screen flex-col overflow-hidden text-foreground"
-        style={{ backgroundImage: theme.gradient }}
+        className={cn(
+          "flex h-screen flex-col overflow-hidden text-foreground",
+          darkModeClasses
+        )}
+        style={{ 
+          backgroundImage: theme.gradient,
+          backgroundRepeat: 'no-repeat',
+          backgroundSize: '100% 100%',
+          backgroundAttachment: 'fixed'
+        }}
       >
         <div className="flex h-full flex-col p-3">
           <WorkspaceHeader slug={slug} status="provisioning" />
@@ -627,8 +649,16 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
 
   return (
     <div 
-      className="flex h-screen flex-col overflow-hidden text-foreground"
-      style={{ backgroundImage: theme.gradient }}
+      className={cn(
+        "flex h-screen flex-col overflow-hidden text-foreground",
+        darkModeClasses
+      )}
+      style={{ 
+        backgroundImage: theme.gradient,
+        backgroundRepeat: 'no-repeat',
+        backgroundSize: '100% 100%',
+        backgroundAttachment: 'fixed'
+      }}
     >
       {/* Outer padding container */}
       <div className="flex h-full flex-col p-3 gap-3">

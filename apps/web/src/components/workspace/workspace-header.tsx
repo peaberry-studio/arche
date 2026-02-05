@@ -3,11 +3,15 @@
 import { useRouter } from "next/navigation";
 import { Circle, Gear, Palette } from "@phosphor-icons/react";
 
+import { useMemo } from "react";
+
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
@@ -34,6 +38,13 @@ export function WorkspaceHeader({
   const router = useRouter();
   const statusStyle = statusConfig[status];
   const { themes, themeId, setThemeId } = useWorkspaceTheme();
+
+  const { lightThemes, darkThemes } = useMemo(() => {
+    return {
+      lightThemes: themes.filter((t) => !t.isDark),
+      darkThemes: themes.filter((t) => t.isDark),
+    };
+  }, [themes]);
 
   return (
     <header className="glass-bar relative z-30 shrink-0 rounded-2xl text-card-foreground">
@@ -73,8 +84,43 @@ export function WorkspaceHeader({
                 <Palette size={16} weight="bold" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" sideOffset={8}>
-              {themes.map((t) => (
+            <DropdownMenuContent align="end" sideOffset={8} className="min-w-[180px]">
+              <DropdownMenuLabel className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Light
+              </DropdownMenuLabel>
+              {lightThemes.map((t) => (
+                <DropdownMenuItem
+                  key={t.id}
+                  onClick={() => setThemeId(t.id)}
+                  className={cn(
+                    "flex items-center gap-3",
+                    themeId === t.id && "bg-primary/10"
+                  )}
+                >
+                  {/* Color swatch preview */}
+                  <div className="flex h-5 w-8 overflow-hidden rounded-md border border-border/50">
+                    <div 
+                      className="w-1/2" 
+                      style={{ backgroundColor: t.swatches[0] }} 
+                    />
+                    <div 
+                      className="w-1/2" 
+                      style={{ backgroundColor: t.swatches[1] }} 
+                    />
+                  </div>
+                  <span className="text-sm">{t.name}</span>
+                  {themeId === t.id && (
+                    <span className="ml-auto text-[10px] text-primary">Active</span>
+                  )}
+                </DropdownMenuItem>
+              ))}
+              
+              <DropdownMenuSeparator />
+              
+              <DropdownMenuLabel className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Dark
+              </DropdownMenuLabel>
+              {darkThemes.map((t) => (
                 <DropdownMenuItem
                   key={t.id}
                   onClick={() => setThemeId(t.id)}

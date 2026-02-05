@@ -661,7 +661,7 @@ function MessagePartRenderer({
   switch (part.type) {
     case 'text':
       return (
-        <div className="markdown-content">
+        <div className="markdown-content my-3 first:mt-0 last:mb-0">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
             {part.text}
           </ReactMarkdown>
@@ -931,7 +931,7 @@ export function ChatPanel({
   return (
     <div className="flex h-full flex-col text-card-foreground">
       {/* Session tabs */}
-      <div className="flex h-11 shrink-0 items-center gap-1 border-b border-white/10 px-3">
+      <div className="flex h-11 shrink-0 items-center gap-1 border-b border-white/10 pl-3 pr-2">
         {canScrollLeft && (
           <Button
             size="icon"
@@ -1043,7 +1043,7 @@ export function ChatPanel({
       </div>
 
       {/* Messages area */}
-      <div className="flex-1 overflow-y-auto px-6 py-6">
+      <div className="flex-1 overflow-y-auto px-6 py-6 scrollbar-custom">
         {messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
             <ChatCircle size={32} className="text-muted-foreground/30" />
@@ -1072,7 +1072,7 @@ export function ChatPanel({
                     <div className="w-full text-sm leading-relaxed text-foreground">
                       {/* Render message parts if available, otherwise fall back to content */}
                       {message.parts && message.parts.length > 0 ? (
-                        <div className="space-y-1">
+                        <div className="space-y-2">
                           {groupMessageParts(message.parts).map((group, groupIndex) => {
                             if (group.type === "tool-group") {
                               return (
