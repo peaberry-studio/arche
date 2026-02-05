@@ -37,3 +37,6 @@ apps/**/npm-debug.log*
 apps/**/yarn-debug.log*
 apps/**/yarn-error.log*
 apps/**/pnpm-debug.log*
+
+# Node (repo root)
+node_modules/
