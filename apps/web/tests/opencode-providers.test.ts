@@ -43,9 +43,11 @@ describe('syncProviderAccessForInstance', () => {
   it('updates config and sets auth for active credentials', async () => {
     const mockConfigUpdate = vi.fn().mockResolvedValue({})
     const mockAuthSet = vi.fn().mockResolvedValue({})
+    const mockInstanceDispose = vi.fn().mockResolvedValue({})
     mockCreateInstanceClient.mockResolvedValue({
       config: { update: mockConfigUpdate },
       auth: { set: mockAuthSet },
+      instance: { dispose: mockInstanceDispose },
     } as never)
 
     mockGetGatewayBaseUrlForProvider.mockImplementation(
@@ -87,6 +89,7 @@ describe('syncProviderAccessForInstance', () => {
       providerID: 'openai',
       auth: { type: 'api', key: 'token-openai' },
     })
+    expect(mockInstanceDispose).toHaveBeenCalled()
     expect(result).toEqual({ ok: true })
   })
 })

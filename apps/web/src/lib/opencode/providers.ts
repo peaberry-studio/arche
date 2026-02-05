@@ -67,6 +67,9 @@ export async function syncProviderAccessForInstance(
       })
     }
 
+    // OpenCode caches provider discovery; dispose to reload with updated config/auth.
+    await client.instance.dispose().catch(() => {})
+
     return { ok: true }
   } catch (error) {
     console.error('[opencode/providers] Failed to sync providers', error)
