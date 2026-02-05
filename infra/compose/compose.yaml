@@ -83,12 +83,15 @@ services:
       # Path al KB en el host (debe existir antes de crear workspaces)
       # Configurar via: export KB_HOST_PATH=/path/to/kb
       KB_HOST_PATH: ${KB_HOST_PATH:-}
+      # Path para datos persistentes de usuario
+      ARCHE_USERS_PATH: ${ARCHE_USERS_PATH:-/tmp/arche-users}
     networks:
       - default
       - arche-internal
     volumes:
       - ./../../apps/web:/app
       - arche_web_node_modules:/app/node_modules
+      - ${ARCHE_USERS_PATH:-/tmp/arche-users}:${ARCHE_USERS_PATH:-/tmp/arche-users}
     command: sh -lc "corepack enable && pnpm install && pnpm prisma generate && pnpm dev"
     labels:
       - traefik.enable=true

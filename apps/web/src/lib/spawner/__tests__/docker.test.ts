@@ -11,10 +11,16 @@ const mockContainer = {
 const mockDockerInstance = {
   createContainer: vi.fn().mockResolvedValue(mockContainer),
   getContainer: vi.fn().mockReturnValue(mockContainer),
+  createVolume: vi.fn().mockResolvedValue({}),
 }
 
 vi.mock('dockerode', () => ({
   default: vi.fn(() => mockDockerInstance),
+}))
+
+vi.mock('@/lib/user-data', () => ({
+  getUserDataHostPath: vi.fn((slug: string) => `/opt/arche/users/${slug}`),
+  ensureUserDirectory: vi.fn().mockResolvedValue('/opt/arche/users/user-slug'),
 }))
 
 import Docker from 'dockerode'
@@ -65,7 +71,10 @@ describe('docker', () => {
         HostConfig: {
           NetworkMode: 'test-network',
           RestartPolicy: { Name: 'unless-stopped' },
-          Binds: ['arche-workspace-user-slug:/workspace'],
+          Binds: [
+            'arche-workspace-user-slug:/workspace',
+            '/opt/arche/users/user-slug:/user-data',
+          ],
         },
         Labels: {
           'arche.managed': 'true',

@@ -1,5 +1,6 @@
 import Docker from 'dockerode'
 import { getContainerSocketPath, getContainerProxyUrl, getOpencodeImage, getOpencodeNetwork, getKbHostPath, getWorkspaceAgentPort } from './config'
+import { getUserDataHostPath, ensureUserDirectory } from '@/lib/user-data'
 
 function getContainerClient(): Docker {
   const socketPath = getContainerSocketPath()
@@ -25,13 +26,18 @@ export async function createContainer(slug: string, password: string) {
     // Volume might already exist, ignore error
   }
 
-  // Build binds array: always mount workspace, optionally mount KB
+  // Build binds array: always mount workspace, optionally mount KB and user data
   const binds = [`${volumeName}:/workspace`]
   const kbHostPath = getKbHostPath()
   if (kbHostPath) {
     // Mount KB repo so workspaces can pull/push via git
     binds.push(`${kbHostPath}:/kb`)
   }
+
+  // Mount user data directory
+  const userDataPath = getUserDataHostPath(slug)
+  await ensureUserDirectory(slug)
+  binds.push(`${userDataPath}:/user-data`)
 
   return docker.createContainer({
     Image: getOpencodeImage(),
