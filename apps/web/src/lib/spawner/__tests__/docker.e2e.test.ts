@@ -46,7 +46,8 @@ describe.runIf(!!SOCKET_PATH)('docker e2e', () => {
   })
 
   it('creates and starts a container', async () => {
-    const container = await createContainer(TEST_SLUG, 'test-password-123')
+    const configContent = '{"$schema":"https://opencode.ai/config.json","mcp":{}}'
+    const container = await createContainer(TEST_SLUG, 'test-password-123', configContent)
     containerId = container.id
     expect(containerId).toBeTruthy()
 

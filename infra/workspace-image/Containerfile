@@ -13,7 +13,7 @@ FROM ghcr.io/anomalyco/opencode:${OPENCODE_VERSION}
 
 # Instalar git (necesario para sync de KB)
 USER root
-RUN apk add --no-cache git
+RUN apk add --no-cache git nodejs npm
 
 # Workspace agent (HTTP API for git/file ops)
 COPY --from=workspace-agent /workspace-agent /usr/local/bin/workspace-agent
