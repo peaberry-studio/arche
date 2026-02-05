@@ -41,7 +41,7 @@ function toStringRecord(value: unknown): Record<string, string> | undefined {
 }
 
 function buildKey(type: ConnectorType, id: string): string {
-  return `arche_${type}_${id.slice(0, 8)}`
+  return `arche_${type}_${id}`
 }
 
 export function buildMcpConfigFromConnectors(connectors: ConnectorRecord[]): McpConfig {

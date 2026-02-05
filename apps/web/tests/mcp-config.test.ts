@@ -101,4 +101,28 @@ describe('mcp-config', () => {
     expect(result.mcp.arche_github_bad1).toBeUndefined()
     expect(result.mcp.arche_custom_bad2).toBeUndefined()
   })
+
+  it('uses full connector id in MCP keys to avoid collisions', () => {
+    const connectors = [
+      {
+        id: 'abcdef12-1111',
+        type: 'github',
+        name: 'GitHub One',
+        enabled: true,
+        config: encryptConfig({ token: 'ghp_one' }),
+      },
+      {
+        id: 'abcdef12-2222',
+        type: 'github',
+        name: 'GitHub Two',
+        enabled: true,
+        config: encryptConfig({ token: 'ghp_two' }),
+      },
+    ]
+
+    const result = buildMcpConfigFromConnectors(connectors)
+    const keys = Object.keys(result.mcp).sort()
+
+    expect(keys).toEqual(['arche_github_abcdef12-1111', 'arche_github_abcdef12-2222'])
+  })
 })
