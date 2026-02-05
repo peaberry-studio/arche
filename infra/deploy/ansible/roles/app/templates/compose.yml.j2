@@ -64,7 +64,7 @@ services:
       - docker-socket-proxy
 
   docker-socket-proxy:
-    image: tecnativa/docker-socket-proxy:0.3
+    image: tecnativa/docker-socket-proxy:0.4.2
     restart: unless-stopped
 {% if deploy_mode in ('local', 'local-dev') %}
     user: root
