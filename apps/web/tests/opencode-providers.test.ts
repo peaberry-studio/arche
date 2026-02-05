@@ -67,21 +67,11 @@ describe('syncProviderAccessForInstance', () => {
 
     expect(mockConfigUpdate).toHaveBeenCalledWith({
       body: {
-        enabled_providers: ['openai', 'anthropic', 'openrouter'],
+        enabled_providers: ['openai'],
         provider: {
           openai: {
             options: {
               baseURL: 'https://gateway/openai',
-            },
-          },
-          anthropic: {
-            options: {
-              baseURL: 'https://gateway/anthropic',
-            },
-          },
-          openrouter: {
-            options: {
-              baseURL: 'https://gateway/openrouter',
             },
           },
         },

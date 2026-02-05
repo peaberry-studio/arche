@@ -22,41 +22,42 @@ export async function syncProviderAccessForInstance(
   }
 
   try {
+    const enabledProviders: ProviderId[] = []
+    const providerConfig: Record<string, { options: { baseURL: string } }> = {}
+    const credentialsByProvider = new Map<ProviderId, { version: number }>()
+
+    for (const providerId of PROVIDERS) {
+      const pid = providerId as ProviderId
+      const credential = await getActiveCredentialForUser({
+        userId: input.userId,
+        providerId: pid,
+      })
+      if (!credential) continue
+
+      enabledProviders.push(pid)
+      providerConfig[pid] = {
+        options: {
+          baseURL: getGatewayBaseUrlForProvider(pid),
+        },
+      }
+      credentialsByProvider.set(pid, { version: credential.version })
+    }
+
     const configBody = {
-      enabled_providers: [...PROVIDERS],
-      provider: {
-        openai: {
-          options: {
-            baseURL: getGatewayBaseUrlForProvider('openai'),
-          },
-        },
-        anthropic: {
-          options: {
-            baseURL: getGatewayBaseUrlForProvider('anthropic'),
-          },
-        },
-        openrouter: {
-          options: {
-            baseURL: getGatewayBaseUrlForProvider('openrouter'),
-          },
-        },
-      },
+      enabled_providers: enabledProviders,
+      provider: providerConfig,
     }
 
     await client.config.update({ body: configBody })
 
-    for (const providerId of PROVIDERS) {
-      const credential = await getActiveCredentialForUser({
-        userId: input.userId,
-        providerId: providerId as ProviderId,
-      })
-
+    for (const providerId of enabledProviders) {
+      const credential = credentialsByProvider.get(providerId)
       if (!credential) continue
 
       const token = issueGatewayToken({
         userId: input.userId,
         workspaceSlug: input.slug,
-        providerId: providerId as ProviderId,
+        providerId,
         version: credential.version,
       })
 
