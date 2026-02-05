@@ -49,11 +49,6 @@ Notes:
   you later formalize tooling (add `package.json`, lockfile, etc.).
 - There are no unit/integration tests to run in this vault today.
 
-## Cursor / Copilot Rules
-
-- No Cursor rules found (`.cursor/rules/` and `.cursorrules` are absent).
-- No Copilot instructions found (`.github/copilot-instructions.md` is absent).
-
 ## Markdown Style Guide (Primary)
 
 ### General Principles
