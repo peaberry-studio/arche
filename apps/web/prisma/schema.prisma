@@ -12,6 +12,11 @@ enum UserRole {
   ADMIN
 }
 
+enum ProviderCredentialStatus {
+  enabled
+  disabled
+}
+
 model User {
   id           String      @id @default(cuid())
   email        String      @unique
@@ -30,6 +35,7 @@ model User {
   instance           Instance?
   twoFactorRecovery  TwoFactorRecovery[]
   connectors         Connector[]
+  providerCredentials ProviderCredential[]
 
   @@map("users")
 }
@@ -110,6 +116,25 @@ model Connector {
 
   @@index([userId])
   @@map("connectors")
+}
+
+model ProviderCredential {
+  id         String                   @id @default(cuid())
+  userId     String                   @map("user_id")
+  user       User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  providerId String                   @map("provider_id")
+  type       String
+  status     ProviderCredentialStatus @default(enabled)
+  version    Int
+  secret     String
+  lastError  String?                  @map("last_error")
+  lastUsedAt DateTime?                @map("last_used_at")
+  createdAt  DateTime                 @default(now()) @map("created_at")
+  updatedAt  DateTime                 @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([providerId])
+  @@map("provider_credentials")
 }
 
 model TwoFactorRecovery {

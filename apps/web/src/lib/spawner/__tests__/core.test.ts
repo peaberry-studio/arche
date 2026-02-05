@@ -21,6 +21,11 @@ vi.mock('@/lib/opencode/client', () => ({
   isInstanceHealthyWithPassword: vi.fn(),
 }))
 
+// Mock opencode providers
+vi.mock('@/lib/opencode/providers', () => ({
+  syncProviderAccessForInstance: vi.fn().mockResolvedValue({ ok: true }),
+}))
+
 // Mock docker
 vi.mock('../docker', () => ({
   createContainer: vi.fn(),

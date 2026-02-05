@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { auditEvent } from '@/lib/auth'
 import { isInstanceHealthyWithPassword } from '@/lib/opencode/client'
+import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
 import * as docker from './docker'
 import { decryptPassword, generatePassword, encryptPassword } from './crypto'
 import { getStartExpectedMs, getStartTimeoutMs } from './config'
@@ -80,6 +81,11 @@ export async function startInstance(slug: string, userId: string): Promise<Start
       where: { slug },
       data: { status: 'running', lastActivityAt: new Date() },
     })
+
+    const syncResult = await syncProviderAccessForInstance({ slug, userId })
+    if (!syncResult.ok) {
+      console.error('[spawner] Failed to sync OpenCode providers', syncResult.error)
+    }
 
     await auditEvent({
       actorUserId: userId,
