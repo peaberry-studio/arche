@@ -1,3 +1,11 @@
+# =============================================================================
+# LOCAL DEVELOPMENT ONLY - DO NOT USE IN PRODUCTION
+# =============================================================================
+# This compose file is for local development with hardcoded defaults.
+# For production deployment, use: ./infra/deploy/deploy.sh --remote
+# The deploy script uses Ansible templates with proper secret management.
+# =============================================================================
+
 name: arche
 
 services:
@@ -22,6 +30,8 @@ services:
     depends_on:
       - docker-socket-proxy
     command:
+      # Dashboard enabled for local dev debugging (localhost:8081)
+      # Production deployments disable this via Ansible templates
       - --api.dashboard=true
       - --api.insecure=true
       - --providers.docker=true
