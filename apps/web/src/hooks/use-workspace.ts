@@ -30,6 +30,7 @@ import type {
   MessagePart
 } from '@/lib/opencode/types'
 import { extractTextContent, transformParts } from '@/lib/opencode/transform'
+import { PROVIDERS, type ProviderId } from '@/lib/providers/types'
 
 export type WorkspaceDiff = {
   path: string
@@ -650,15 +651,45 @@ export function useWorkspace({ slug, pollInterval = 5000, enabled = true }: UseW
   // Load models
   const loadModels = useCallback(async () => {
     const result = await listModelsAction(slug)
-    if (result.ok && result.models) {
-      setModels(result.models)
-      // Auto-select default model
-      const defaultModel = result.models.find(m => m.isDefault)
-      if (defaultModel) {
-        setSelectedModel(defaultModel)
+    if (!result.ok || !result.models) return
+
+    let nextModels = result.models
+
+    // Defense in depth: filter providers based on server credential status.
+    // (This prevents UI showing providers without keys even if OpenCode lists them.)
+    try {
+      const response = await fetch(`/api/u/${slug}/providers`, { cache: 'no-store' })
+      if (response.ok) {
+        const data = (await response.json()) as {
+          providers?: Array<{ providerId: ProviderId; status: string }>
+        }
+        const enabled = new Set(
+          (data.providers ?? []).filter((p) => p.status === 'enabled').map((p) => p.providerId),
+        )
+
+        nextModels = nextModels.filter((m) => {
+          if (!PROVIDERS.includes(m.providerId as ProviderId)) return true
+          return enabled.has(m.providerId as ProviderId)
+        })
       }
+    } catch {
+      // ignore — fall back to server action list
     }
-  }, [slug])
+
+    setModels(nextModels)
+
+    // Keep current selection if still available; otherwise fall back to default.
+    const stillSelected =
+      selectedModel &&
+      nextModels.some(
+        (m) => m.providerId === selectedModel.providerId && m.modelId === selectedModel.modelId,
+      )
+
+    if (stillSelected) return
+
+    const defaultModel = nextModels.find((m) => m.isDefault) ?? null
+    setSelectedModel(defaultModel)
+  }, [slug, selectedModel])
   
   // Initial load when connected - with retry on failure
   useEffect(() => {

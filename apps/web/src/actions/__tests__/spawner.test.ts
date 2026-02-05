@@ -11,6 +11,20 @@ vi.mock('@/lib/auth', () => ({
   getSessionFromToken: vi.fn(),
 }))
 
+// Mock prisma (imported by actions for provider sync)
+vi.mock('@/lib/prisma', () => ({
+  prisma: {
+    user: {
+      findUnique: vi.fn(),
+    },
+  },
+}))
+
+// Mock provider sync (imported by ensureInstanceRunningAction)
+vi.mock('@/lib/opencode/providers', () => ({
+  syncProviderAccessForInstance: vi.fn().mockResolvedValue({ ok: true }),
+}))
+
 // Mock spawner core
 vi.mock('@/lib/spawner/core', () => ({
   startInstance: vi.fn(),
@@ -21,14 +35,18 @@ vi.mock('@/lib/spawner/core', () => ({
 
 import { cookies } from 'next/headers'
 import { getSessionFromToken } from '@/lib/auth'
+import { prisma } from '@/lib/prisma'
 import { startInstance, stopInstance, getInstanceStatus } from '@/lib/spawner/core'
-import { startInstanceAction, stopInstanceAction, getInstanceStatusAction } from '../spawner'
+import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
+import { startInstanceAction, stopInstanceAction, getInstanceStatusAction, ensureInstanceRunningAction } from '../spawner'
 
 const mockCookies = vi.mocked(cookies)
 const mockGetSession = vi.mocked(getSessionFromToken)
 const mockStart = vi.mocked(startInstance)
 const mockStop = vi.mocked(stopInstance)
 const mockStatus = vi.mocked(getInstanceStatus)
+const mockPrisma = vi.mocked(prisma)
+const mockSync = vi.mocked(syncProviderAccessForInstance)
 
 const fakeSession = {
   user: { id: 'user-1', email: 'alice@test.com', slug: 'alice', role: 'USER' },
@@ -121,5 +139,36 @@ describe('getInstanceStatusAction', () => {
     } as never)
     const result = await getInstanceStatusAction('alice')
     expect(result).toMatchObject({ status: 'running', slowStart: false })
+  })
+})
+
+describe('ensureInstanceRunningAction', () => {
+  it('returns unauthorized without session', async () => {
+    mockGetSession.mockResolvedValue(null)
+    const result = await ensureInstanceRunningAction('alice')
+    expect(result).toEqual({ status: 'error', error: 'unauthorized' })
+  })
+
+  it('returns running and syncs providers when instance is already running (own slug)', async () => {
+    mockGetSession.mockResolvedValue(fakeSession)
+    mockStatus.mockResolvedValue({ status: 'running' } as never)
+
+    const result = await ensureInstanceRunningAction('alice')
+
+    expect(result).toEqual({ status: 'running' })
+    expect(mockSync).toHaveBeenCalledWith({ slug: 'alice', userId: 'user-1' })
+    expect(mockPrisma.user.findUnique).not.toHaveBeenCalled()
+  })
+
+  it('syncs providers against the workspace owner when admin opens another slug', async () => {
+    mockGetSession.mockResolvedValue(adminSession)
+    mockStatus.mockResolvedValue({ status: 'running' } as never)
+    mockPrisma.user.findUnique.mockResolvedValue({ id: 'user-alice' } as never)
+
+    const result = await ensureInstanceRunningAction('alice')
+
+    expect(result).toEqual({ status: 'running' })
+    expect(mockPrisma.user.findUnique).toHaveBeenCalledWith({ where: { slug: 'alice' }, select: { id: true } })
+    expect(mockSync).toHaveBeenCalledWith({ slug: 'alice', userId: 'user-alice' })
   })
 })

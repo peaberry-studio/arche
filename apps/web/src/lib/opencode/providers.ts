@@ -1,5 +1,4 @@
-import { createInstanceClient } from '@/lib/opencode/client'
-import { getGatewayBaseUrlForProvider } from '@/lib/providers/config'
+import { getInstanceBasicAuth } from '@/lib/opencode/client'
 import { getActiveCredentialForUser } from '@/lib/providers/store'
 import { issueGatewayToken } from '@/lib/providers/tokens'
 import { PROVIDERS, type ProviderId } from '@/lib/providers/types'
@@ -16,15 +15,13 @@ type SyncProviderAccessInput = {
 export async function syncProviderAccessForInstance(
   input: SyncProviderAccessInput,
 ): Promise<SyncProviderAccessResult> {
-  const client = await createInstanceClient(input.slug)
-  if (!client) {
+  const instance = await getInstanceBasicAuth(input.slug)
+  if (!instance) {
     return { ok: false, error: 'instance_unavailable' }
   }
 
   try {
-    const enabledProviders: ProviderId[] = []
-    const providerConfig: Record<string, { options: { baseURL: string } }> = {}
-    const credentialsByProvider = new Map<ProviderId, { version: number }>()
+    const enabledByProvider = new Map<ProviderId, { version: number }>()
 
     for (const providerId of PROVIDERS) {
       const pid = providerId as ProviderId
@@ -33,42 +30,53 @@ export async function syncProviderAccessForInstance(
         providerId: pid,
       })
       if (!credential) continue
+      enabledByProvider.set(pid, { version: credential.version })
+    }
 
-      enabledProviders.push(pid)
-      providerConfig[pid] = {
-        options: {
-          baseURL: getGatewayBaseUrlForProvider(pid),
-        },
+    for (const providerId of PROVIDERS) {
+      const enabled = enabledByProvider.get(providerId as ProviderId)
+      const url = `${instance.baseUrl}/auth/${providerId}`
+
+      if (!enabled) {
+        await fetch(url, {
+          method: 'DELETE',
+          headers: {
+            Authorization: instance.authHeader,
+            Accept: 'application/json',
+          },
+          cache: 'no-store',
+        }).catch(() => {})
+        continue
       }
-      credentialsByProvider.set(pid, { version: credential.version })
-    }
-
-    const configBody = {
-      enabled_providers: enabledProviders,
-      provider: providerConfig,
-    }
-
-    await client.config.update({ config: configBody })
-
-    for (const providerId of enabledProviders) {
-      const credential = credentialsByProvider.get(providerId)
-      if (!credential) continue
 
       const token = issueGatewayToken({
         userId: input.userId,
         workspaceSlug: input.slug,
-        providerId,
-        version: credential.version,
+        providerId: providerId as ProviderId,
+        version: enabled.version,
       })
 
-      await client.auth.set({
-        providerID: providerId,
-        auth: { type: 'api', key: token },
+      await fetch(url, {
+        method: 'PUT',
+        headers: {
+          Authorization: instance.authHeader,
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ type: 'api', key: token }),
+        cache: 'no-store',
       })
     }
 
-    // OpenCode caches provider discovery; dispose to reload with updated config/auth.
-    await client.instance.dispose().catch(() => {})
+    // OpenCode caches provider discovery; dispose to reload with updated auth.
+    await fetch(`${instance.baseUrl}/instance/dispose`, {
+      method: 'POST',
+      headers: {
+        Authorization: instance.authHeader,
+        Accept: 'application/json',
+      },
+      cache: 'no-store',
+    }).catch(() => {})
 
     return { ok: true }
   } catch (error) {

@@ -4,6 +4,8 @@ import { cookies } from 'next/headers'
 import { getSessionFromToken, SESSION_COOKIE_NAME } from '@/lib/auth'
 import { createInstanceClient } from '@/lib/opencode/client'
 import { prisma } from '@/lib/prisma'
+import { getActiveCredentialForUser } from '@/lib/providers/store'
+import { PROVIDERS, type ProviderId } from '@/lib/providers/types'
 import { decryptPassword } from '@/lib/spawner/crypto'
 import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 import type {
@@ -676,11 +678,33 @@ export async function listModelsAction(slug: string): Promise<{
   models?: AvailableModel[]
   error?: string
 }> {
-  const { error, client } = await getAuthorizedClient(slug)
-  if (error) return { ok: false, error }
+  const session = await getAuthenticatedUser()
+  if (!session) return { ok: false, error: 'unauthorized' }
+
+  if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
+    return { ok: false, error: 'forbidden' }
+  }
+
+  const ownerUserId =
+    session.user.slug === slug
+      ? session.user.id
+      : (await prisma.user.findUnique({ where: { slug }, select: { id: true } }))?.id
+
+  if (!ownerUserId) {
+    return { ok: false, error: 'user_not_found' }
+  }
+
+  const client = await createInstanceClient(slug)
+  if (!client) return { ok: false, error: 'instance_unavailable' }
+
+  const enabledProviderIds = new Set<ProviderId>()
+  for (const providerId of PROVIDERS) {
+    const credential = await getActiveCredentialForUser({ userId: ownerUserId, providerId })
+    if (credential) enabledProviderIds.add(providerId)
+  }
   
   try {
-    const result = await client!.config.providers()
+    const result = await client.config.providers()
     const data = result.data
     if (!data) return { ok: true, models: [] }
     
@@ -688,6 +712,11 @@ export async function listModelsAction(slug: string): Promise<{
     const models: AvailableModel[] = []
     
     for (const provider of providers ?? []) {
+      // Only expose paid providers when the workspace owner has an active key.
+      if (PROVIDERS.includes(provider.id as ProviderId) && !enabledProviderIds.has(provider.id as ProviderId)) {
+        continue
+      }
+
       // Models is an object with modelId as key
       const providerModels = provider.models ?? {}
       for (const [modelId, model] of Object.entries(providerModels)) {
@@ -708,7 +737,7 @@ export async function listModelsAction(slug: string): Promise<{
       if (!a.isDefault && b.isDefault) return 1
       return a.providerName.localeCompare(b.providerName)
     })
-    
+
     return { ok: true, models }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : 'unknown' }

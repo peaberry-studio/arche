@@ -2,6 +2,8 @@
 
 import { cookies } from 'next/headers'
 import { getSessionFromToken, SESSION_COOKIE_NAME } from '@/lib/auth'
+import { prisma } from '@/lib/prisma'
+import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
 import { startInstance, stopInstance, getInstanceStatus, isSlowStart, listActiveInstances } from '@/lib/spawner/core'
 
 async function getAuthenticatedUser() {
@@ -103,6 +105,24 @@ export async function ensureInstanceRunningAction(slug: string): Promise<{
   
   // Ya está corriendo o iniciando
   if (instance?.status === 'running') {
+    // Best-effort: keep provider access in sync even when instance was already running.
+    // This is important when provider keys are created/rotated after the workspace was started.
+    try {
+      const syncUserId =
+        session.user.slug === slug
+          ? session.user.id
+          : (await prisma.user.findUnique({ where: { slug }, select: { id: true } }))?.id
+
+      if (syncUserId) {
+        const syncResult = await syncProviderAccessForInstance({ slug, userId: syncUserId })
+        if (!syncResult.ok) {
+          console.error('[ensureInstanceRunning] Failed to sync OpenCode providers', syncResult.error)
+        }
+      }
+    } catch (err) {
+      console.error('[ensureInstanceRunning] Failed to sync OpenCode providers', err)
+    }
+
     return { status: 'running' }
   }
   if (instance?.status === 'starting') {

@@ -95,6 +95,13 @@ async function handleProxy(
   const headers = new Headers(request.headers)
   headers.delete('authorization')
   headers.delete('x-api-key')
+
+  // Avoid content-encoding pass-through issues.
+  // Node fetch will typically decompress upstream responses, but the upstream
+  // headers may still include `content-encoding: gzip`, which would cause
+  // downstream clients to attempt decoding a second time.
+  headers.set('accept-encoding', 'identity')
+
   if (provider === 'openai' || provider === 'openrouter') {
     headers.set('authorization', `Bearer ${apiKey}`)
   } else {
@@ -116,6 +123,10 @@ async function handleProxy(
 
   const upstreamResponse = await fetch(upstreamUrl, init)
   const responseHeaders = new Headers(upstreamResponse.headers)
+
+  // Ensure response headers match the returned body.
+  responseHeaders.delete('content-encoding')
+  responseHeaders.delete('content-length')
 
   return new Response(upstreamResponse.body, {
     status: upstreamResponse.status,

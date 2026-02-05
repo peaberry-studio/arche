@@ -82,7 +82,14 @@ export async function startInstance(slug: string, userId: string): Promise<Start
       data: { status: 'running', lastActivityAt: new Date() },
     })
 
-    const syncResult = await syncProviderAccessForInstance({ slug, userId })
+    const owner = await prisma.user.findUnique({
+      where: { slug },
+      select: { id: true },
+    })
+
+    // Provider credentials are per workspace owner (slug), not per actor.
+    const syncUserId = owner?.id ?? userId
+    const syncResult = await syncProviderAccessForInstance({ slug, userId: syncUserId })
     if (!syncResult.ok) {
       console.error('[spawner] Failed to sync OpenCode providers', syncResult.error)
     }

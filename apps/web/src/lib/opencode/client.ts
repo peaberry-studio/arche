@@ -56,6 +56,17 @@ async function getInstanceCredentials(slug: string): Promise<{ username: string;
   }
 }
 
+export async function getInstanceBasicAuth(
+  slug: string,
+): Promise<{ baseUrl: string; authHeader: string } | null> {
+  const credentials = await getInstanceCredentials(slug)
+  if (!credentials) return null
+
+  const baseUrl = getInstanceUrl(slug)
+  const authHeader = `Basic ${Buffer.from(`${credentials.username}:${credentials.password}`).toString('base64')}`
+  return { baseUrl, authHeader }
+}
+
 /**
  * Create an authenticated OpenCode client for a specific user's instance.
  * Returns null if the instance is not running or credentials are unavailable.

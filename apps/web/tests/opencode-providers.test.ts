@@ -1,11 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/opencode/client', () => ({
-  createInstanceClient: vi.fn(),
-}))
-
-vi.mock('@/lib/providers/config', () => ({
-  getGatewayBaseUrlForProvider: vi.fn(),
+  getInstanceBasicAuth: vi.fn(),
 }))
 
 vi.mock('@/lib/providers/store', () => ({
@@ -16,14 +12,12 @@ vi.mock('@/lib/providers/tokens', () => ({
   issueGatewayToken: vi.fn(),
 }))
 
-import { createInstanceClient } from '@/lib/opencode/client'
+import { getInstanceBasicAuth } from '@/lib/opencode/client'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
-import { getGatewayBaseUrlForProvider } from '@/lib/providers/config'
 import { getActiveCredentialForUser } from '@/lib/providers/store'
 import { issueGatewayToken } from '@/lib/providers/tokens'
 
-const mockCreateInstanceClient = vi.mocked(createInstanceClient)
-const mockGetGatewayBaseUrlForProvider = vi.mocked(getGatewayBaseUrlForProvider)
+const mockGetInstanceBasicAuth = vi.mocked(getInstanceBasicAuth)
 const mockGetActiveCredentialForUser = vi.mocked(getActiveCredentialForUser)
 const mockIssueGatewayToken = vi.mocked(issueGatewayToken)
 
@@ -33,26 +27,20 @@ describe('syncProviderAccessForInstance', () => {
   })
 
   it('returns instance_unavailable when client is missing', async () => {
-    mockCreateInstanceClient.mockResolvedValue(null)
+    mockGetInstanceBasicAuth.mockResolvedValue(null)
 
     const result = await syncProviderAccessForInstance({ slug: 'alice', userId: 'user-1' })
 
     expect(result).toEqual({ ok: false, error: 'instance_unavailable' })
   })
 
-  it('updates config and sets auth for active credentials', async () => {
-    const mockConfigUpdate = vi.fn().mockResolvedValue({})
-    const mockAuthSet = vi.fn().mockResolvedValue({})
-    const mockInstanceDispose = vi.fn().mockResolvedValue({})
-    mockCreateInstanceClient.mockResolvedValue({
-      config: { update: mockConfigUpdate },
-      auth: { set: mockAuthSet },
-      instance: { dispose: mockInstanceDispose },
-    } as never)
+  it('sets auth for active credentials and deletes missing providers', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('true', { status: 200 })))
 
-    mockGetGatewayBaseUrlForProvider.mockImplementation(
-      (providerId) => `https://gateway/${providerId}`
-    )
+    mockGetInstanceBasicAuth.mockResolvedValue({
+      baseUrl: 'http://opencode-alice:4096',
+      authHeader: 'Basic abc',
+    })
 
     mockGetActiveCredentialForUser.mockImplementation(async ({ providerId }) => {
       if (providerId === 'openai') {
@@ -67,29 +55,24 @@ describe('syncProviderAccessForInstance', () => {
 
     const result = await syncProviderAccessForInstance({ slug: 'alice', userId: 'user-1' })
 
-    expect(mockConfigUpdate).toHaveBeenCalledWith({
-      config: {
-        enabled_providers: ['openai'],
-        provider: {
-          openai: {
-            options: {
-              baseURL: 'https://gateway/openai',
-            },
-          },
-        },
-      },
-    })
     expect(mockIssueGatewayToken).toHaveBeenCalledWith({
       userId: 'user-1',
       workspaceSlug: 'alice',
       providerId: 'openai',
       version: 2,
     })
-    expect(mockAuthSet).toHaveBeenCalledWith({
-      providerID: 'openai',
-      auth: { type: 'api', key: 'token-openai' },
-    })
-    expect(mockInstanceDispose).toHaveBeenCalled()
+
+    const calls = (global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
+    const urls = calls.map((c) => c[0])
+
+    // PUT auth for enabled provider
+    expect(urls).toContain('http://opencode-alice:4096/auth/openai')
+    // DELETE auth for other providers (best-effort)
+    expect(urls).toContain('http://opencode-alice:4096/auth/anthropic')
+    expect(urls).toContain('http://opencode-alice:4096/auth/openrouter')
+    // Dispose refresh
+    expect(urls).toContain('http://opencode-alice:4096/instance/dispose')
+
     expect(result).toEqual({ ok: true })
   })
 })

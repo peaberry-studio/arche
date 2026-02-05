@@ -57,11 +57,12 @@ describe('docker', () => {
         name: 'opencode-user-slug',
         WorkingDir: '/workspace',
         Cmd: ['serve', '--hostname', '0.0.0.0', '--port', '4096'],
-        Env: [
+        Env: expect.arrayContaining([
           'OPENCODE_SERVER_PASSWORD=secret-password',
           'OPENCODE_SERVER_USERNAME=opencode',
           'WORKSPACE_AGENT_PORT=4097',
-        ],
+          expect.stringMatching(/^OPENCODE_CONFIG_CONTENT=/),
+        ]),
         HostConfig: {
           NetworkMode: 'test-network',
           RestartPolicy: { Name: 'unless-stopped' },

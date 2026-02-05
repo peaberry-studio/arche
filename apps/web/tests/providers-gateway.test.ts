@@ -140,6 +140,7 @@ describe('providers gateway', () => {
       provider: 'openai',
       headers: {
         Authorization: 'Bearer internal-token',
+        'accept-encoding': 'gzip',
         'x-custom': 'preserve-me',
         'Content-Type': 'application/json',
       },
@@ -155,6 +156,41 @@ describe('providers gateway', () => {
     const headers = options.headers as Headers
     expect(headers.get('authorization')).toBe('Bearer sk-real')
     expect(headers.get('x-custom')).toBe('preserve-me')
+    expect(headers.get('accept-encoding')).toBe('identity')
+  })
+
+  it('strips content-encoding/content-length from upstream response', async () => {
+    mockGetActiveCredentialForUser.mockResolvedValue({
+      id: 'cred-1',
+      type: 'api',
+      secret: 'encrypted',
+      version: 1,
+    })
+    mockDecryptProviderSecret.mockReturnValue({ apiKey: 'sk-real' })
+
+    ;(global.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+      new Response('{"ok":true}', {
+        status: 200,
+        headers: {
+          'content-type': 'application/json',
+          'content-encoding': 'gzip',
+          'content-length': '123',
+        },
+      })
+    )
+
+    const response = await callProxy({
+      provider: 'openai',
+      method: 'GET',
+      path: ['v1', 'models'],
+      headers: {
+        Authorization: 'Bearer internal-token',
+      },
+    })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-encoding')).toBe(null)
+    expect(response.headers.get('content-length')).toBe(null)
   })
 
   it('uses x-api-key for Anthropic', async () => {
