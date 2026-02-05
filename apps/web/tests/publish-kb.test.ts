@@ -12,15 +12,10 @@ vi.mock('@/lib/prisma', () => ({
   prisma: { instance: { findUnique: (...args: unknown[]) => mockFindUnique(...args) } },
 }))
 
-const mockGetSessionFromToken = vi.fn()
+const mockGetAuthenticatedUser = vi.fn()
 vi.mock('@/lib/auth', () => ({
-  getSessionFromToken: (...args: unknown[]) => mockGetSessionFromToken(...args),
+  getAuthenticatedUser: (...args: unknown[]) => mockGetAuthenticatedUser(...args),
   SESSION_COOKIE_NAME: 'arche_session',
-}))
-
-const mockCookies = vi.fn()
-vi.mock('next/headers', () => ({
-  cookies: () => mockCookies(),
 }))
 
 // --- Helpers ---
@@ -65,23 +60,21 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
   })
 
   it('returns 401 without session cookie', async () => {
-    mockCookies.mockResolvedValue({ get: () => undefined })
+    mockGetAuthenticatedUser.mockResolvedValue(null)
     const { status, body } = await callPOST()
     expect(status).toBe(401)
     expect(body.error).toBe('unauthorized')
   })
 
   it('returns 403 for wrong user', async () => {
-    mockCookies.mockResolvedValue({ get: () => ({ value: 'tok' }) })
-    mockGetSessionFromToken.mockResolvedValue(session('bob'))
+    mockGetAuthenticatedUser.mockResolvedValue(session('bob'))
     const { status, body } = await callPOST('alice')
     expect(status).toBe(403)
     expect(body.error).toBe('forbidden')
   })
 
   it('returns 404 when instance not found', async () => {
-    mockCookies.mockResolvedValue({ get: () => ({ value: 'tok' }) })
-    mockGetSessionFromToken.mockResolvedValue(session('alice'))
+    mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
     mockFindUnique.mockResolvedValue(null)
     const { status, body } = await callPOST('alice')
     expect(status).toBe(404)
@@ -89,8 +82,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
   })
 
   it('returns 409 when instance not running', async () => {
-    mockCookies.mockResolvedValue({ get: () => ({ value: 'tok' }) })
-    mockGetSessionFromToken.mockResolvedValue(session('alice'))
+    mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
     mockFindUnique.mockResolvedValue(instance('stopped'))
     const { status, body } = await callPOST('alice')
     expect(status).toBe(409)
@@ -98,8 +90,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
   })
 
   it('returns no_remote when git remote fails', async () => {
-    mockCookies.mockResolvedValue({ get: () => ({ value: 'tok' }) })
-    mockGetSessionFromToken.mockResolvedValue(session('alice'))
+    mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
     mockFindUnique.mockResolvedValue(instance())
     mockCreateWorkspaceAgentClient.mockResolvedValue({
       baseUrl: 'http://agent',
@@ -117,8 +108,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
   })
 
   it('returns nothing_to_publish when workspace is clean', async () => {
-    mockCookies.mockResolvedValue({ get: () => ({ value: 'tok' }) })
-    mockGetSessionFromToken.mockResolvedValue(session('alice'))
+    mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
     mockFindUnique.mockResolvedValue(instance())
     mockCreateWorkspaceAgentClient.mockResolvedValue({
       baseUrl: 'http://agent',
@@ -136,8 +126,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
   })
 
   it('returns published with commitHash and files', async () => {
-    mockCookies.mockResolvedValue({ get: () => ({ value: 'tok' }) })
-    mockGetSessionFromToken.mockResolvedValue(session('alice'))
+    mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
     mockFindUnique.mockResolvedValue(instance())
     mockCreateWorkspaceAgentClient.mockResolvedValue({
       baseUrl: 'http://agent',
@@ -158,8 +147,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
   })
 
   it('returns push_rejected when push fails with rejected', async () => {
-    mockCookies.mockResolvedValue({ get: () => ({ value: 'tok' }) })
-    mockGetSessionFromToken.mockResolvedValue(session('alice'))
+    mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
     mockFindUnique.mockResolvedValue(instance())
     mockCreateWorkspaceAgentClient.mockResolvedValue({
       baseUrl: 'http://agent',
@@ -180,8 +168,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
   })
 
   it('allows admin to publish for another user', async () => {
-    mockCookies.mockResolvedValue({ get: () => ({ value: 'tok' }) })
-    mockGetSessionFromToken.mockResolvedValue(session('admin-user', 'ADMIN'))
+    mockGetAuthenticatedUser.mockResolvedValue(session('admin-user', 'ADMIN'))
     mockFindUnique.mockResolvedValue(instance())
     mockCreateWorkspaceAgentClient.mockResolvedValue({
       baseUrl: 'http://agent',
@@ -198,8 +185,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
   })
 
   it('returns error when agent reports error', async () => {
-    mockCookies.mockResolvedValue({ get: () => ({ value: 'tok' }) })
-    mockGetSessionFromToken.mockResolvedValue(session('alice'))
+    mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
     mockFindUnique.mockResolvedValue(instance())
     mockCreateWorkspaceAgentClient.mockResolvedValue({
       baseUrl: 'http://agent',
@@ -217,9 +203,28 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     expect(body.message).toBe('git add failed: index locked')
   })
 
+  it('returns conflicts when merge conflicts arise during publish', async () => {
+    mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
+    mockFindUnique.mockResolvedValue(instance())
+    mockCreateWorkspaceAgentClient.mockResolvedValue({
+      baseUrl: 'http://agent',
+      authHeader: 'Basic abc'
+    })
+    mockFetchResponse({
+      ok: false,
+      status: 'conflicts',
+      files: ['doc.md', 'readme.md'],
+      message: 'Merge conflicts during publish. Resolve and retry.'
+    })
+    const { status, body } = await callPOST('alice')
+    expect(status).toBe(200)
+    expect(body.ok).toBe(false)
+    expect(body.status).toBe('conflicts')
+    expect(body.files).toEqual(['doc.md', 'readme.md'])
+  })
+
   it('returns error when agent request fails', async () => {
-    mockCookies.mockResolvedValue({ get: () => ({ value: 'tok' }) })
-    mockGetSessionFromToken.mockResolvedValue(session('alice'))
+    mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
     mockFindUnique.mockResolvedValue(instance())
     mockCreateWorkspaceAgentClient.mockResolvedValue({
       baseUrl: 'http://agent',

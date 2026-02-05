@@ -149,6 +149,24 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
     workspace.refreshFiles();
   }, [workspace.refreshDiffs, workspace.refreshFiles]);
 
+  // Auto-sync KB on first connection
+  const hasAutoSynced = useRef(false);
+
+  useEffect(() => {
+    if (!workspace.isConnected || hasAutoSynced.current) return;
+    hasAutoSynced.current = true;
+
+    (async () => {
+      try {
+        await fetch(`/api/instances/${slug}/sync-kb`, { method: 'POST' });
+      } catch {
+        // silent — auto-sync is best-effort
+      }
+      workspace.refreshDiffs();
+      workspace.refreshFiles();
+    })();
+  }, [workspace.isConnected, slug, workspace.refreshDiffs, workspace.refreshFiles]);
+
   const handleResolveConflict = useCallback(
     (path: string, content: string) => {
       workspace.refreshDiffs();
@@ -163,7 +181,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
           [path]: {
             ...existing,
             content,
-            updatedAt: "Ahora",
+            updatedAt: "Just now",
             size,
           },
         };
@@ -295,7 +313,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
             content: result.content,
             type: result.type,
             title: path.split('/').pop() ?? path,
-            updatedAt: 'Ahora',
+            updatedAt: 'Just now',
             size: `${(result.content.length / 1024).toFixed(1)} KB`
           }
         }));

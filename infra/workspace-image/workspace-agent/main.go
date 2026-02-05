@@ -220,29 +220,15 @@ func (s *server) handleGitDiffs(w http.ResponseWriter, r *http.Request) {
     return
   }
 
-  statusOut, statusErr, exitCode, err := runCmd(r.Context(), s.workspace, []string{
-    "git",
-    "-c",
-    "core.quotepath=false",
-    "status",
-    "--porcelain=v1",
-    "-z",
-  })
-  if err != nil || exitCode != 0 {
-    msg := strings.TrimSpace(statusErr)
-    if msg == "" {
-      msg = "git_status_failed"
-    }
-    writeError(w, http.StatusBadGateway, msg)
+  entries, err := s.gitStatusEntries(r.Context())
+  if err != nil {
+    writeError(w, http.StatusBadGateway, err.Error())
     return
   }
-
-  if len(statusOut) == 0 {
+  if len(entries) == 0 {
     writeJSON(w, http.StatusOK, gitDiffResponse{Ok: true, Diffs: []gitDiffEntry{}})
     return
   }
-
-  entries := parseGitStatus(statusOut)
   diffs := make([]gitDiffEntry, 0, len(entries))
 
   for _, entry := range entries {
@@ -305,10 +291,15 @@ func (s *server) handleGitConflict(w http.ResponseWriter, r *http.Request) {
     return
   }
 
-  conflictOut, _, _, _ := runCmd(r.Context(), s.workspace, []string{
-    "git", "diff", "--name-only", "--diff-filter=U", "--", relPath,
-  })
-  if strings.TrimSpace(conflictOut) == "" {
+  entries, _ := s.gitStatusEntries(r.Context(), relPath)
+  conflicted := false
+  for _, e := range entries {
+    if e.Conflicted {
+      conflicted = true
+      break
+    }
+  }
+  if !conflicted {
     writeError(w, http.StatusNotFound, "not_conflicted")
     return
   }
@@ -615,6 +606,68 @@ func (s *server) handleApplyPatch(w http.ResponseWriter, r *http.Request) {
   writeJSON(w, http.StatusOK, fileApplyPatchResponse{Ok: true})
 }
 
+// fetchAndMergeKb fetches from the kb remote and merges the remote branch.
+// Returns (ok, conflicts, errMsg). If ok is true the merge succeeded (or there
+// was no remote branch yet). If ok is false and conflicts is non-empty the merge
+// produced conflicts. Otherwise errMsg describes the failure.
+func (s *server) fetchAndMergeKb(ctx context.Context) (bool, []string, string) {
+  _, fetchErr, fetchCode, fetchExecErr := runCmd(ctx, s.workspace, []string{
+    "git", "fetch", "kb",
+  })
+  if fetchExecErr != nil || fetchCode != 0 {
+    msg := strings.TrimSpace(fetchErr)
+    if msg == "" {
+      msg = "fetch_failed"
+    }
+    return false, nil, "Fetch failed: " + msg
+  }
+
+  kbBranch := s.resolveKbBranch(ctx)
+
+  if !s.remoteBranchExists(ctx, kbBranch) {
+    // First publish — nothing to merge.
+    return true, nil, ""
+  }
+
+  _, mergeErr, mergeCode, mergeExecErr := runCmd(ctx, s.workspace, []string{
+    "git", "merge", "kb/" + kbBranch, "--no-edit",
+  })
+  if mergeExecErr == nil && mergeCode == 0 {
+    return true, nil, ""
+  }
+
+  if isUnrelatedHistoryError(mergeErr) {
+    _, mergeErrAllow, mergeCodeAllow, mergeExecErrAllow := runCmd(ctx, s.workspace, []string{
+      "git", "merge", "kb/" + kbBranch, "--no-edit", "--allow-unrelated-histories",
+    })
+    if mergeExecErrAllow == nil && mergeCodeAllow == 0 {
+      return true, nil, ""
+    }
+
+    conflicts := s.listConflictFiles(ctx)
+    if len(conflicts) > 0 {
+      return false, conflicts, "Merge has conflicts that need to be resolved"
+    }
+
+    msg := strings.TrimSpace(mergeErrAllow)
+    if msg == "" {
+      msg = "merge_failed"
+    }
+    return false, nil, "Merge failed: " + msg
+  }
+
+  conflicts := s.listConflictFiles(ctx)
+  if len(conflicts) > 0 {
+    return false, conflicts, "Merge has conflicts that need to be resolved"
+  }
+
+  msg := strings.TrimSpace(mergeErr)
+  if msg == "" {
+    msg = "merge_failed"
+  }
+  return false, nil, "Merge failed: " + msg
+}
+
 func (s *server) handleKbSync(w http.ResponseWriter, r *http.Request) {
   if r.Method != http.MethodPost {
     writeError(w, http.StatusMethodNotAllowed, "method_not_allowed")
@@ -633,27 +686,8 @@ func (s *server) handleKbSync(w http.ResponseWriter, r *http.Request) {
     return
   }
 
-  _, fetchErr, fetchCode, fetchExecErr := runCmd(r.Context(), s.workspace, []string{
-    "git", "fetch", "kb",
-  })
-  if fetchExecErr != nil || fetchCode != 0 {
-    msg := strings.TrimSpace(fetchErr)
-    if msg == "" {
-      msg = "fetch_failed"
-    }
-    writeJSON(w, http.StatusOK, syncKbResponse{
-      Ok:      false,
-      Status:  "error",
-      Message: "Fetch failed: " + msg,
-    })
-    return
-  }
-
-  kbBranch := s.resolveKbBranch(r.Context())
-  _, mergeErr, mergeCode, mergeExecErr := runCmd(r.Context(), s.workspace, []string{
-    "git", "merge", "kb/" + kbBranch, "--no-edit",
-  })
-  if mergeExecErr == nil && mergeCode == 0 {
+  mergeOk, conflicts, mergeErrMsg := s.fetchAndMergeKb(r.Context())
+  if mergeOk {
     writeJSON(w, http.StatusOK, syncKbResponse{
       Ok:      true,
       Status:  "synced",
@@ -662,43 +696,6 @@ func (s *server) handleKbSync(w http.ResponseWriter, r *http.Request) {
     return
   }
 
-  if isUnrelatedHistoryError(mergeErr) {
-    _, mergeErrAllow, mergeCodeAllow, mergeExecErrAllow := runCmd(r.Context(), s.workspace, []string{
-      "git", "merge", "kb/" + kbBranch, "--no-edit", "--allow-unrelated-histories",
-    })
-    if mergeExecErrAllow == nil && mergeCodeAllow == 0 {
-      writeJSON(w, http.StatusOK, syncKbResponse{
-        Ok:      true,
-        Status:  "synced",
-        Message: "KB synchronized successfully",
-      })
-      return
-    }
-
-    conflicts := s.listConflictFiles(r.Context())
-    if len(conflicts) > 0 {
-      writeJSON(w, http.StatusOK, syncKbResponse{
-        Ok:        true,
-        Status:    "conflicts",
-        Message:   "Merge has conflicts that need to be resolved",
-        Conflicts: conflicts,
-      })
-      return
-    }
-
-    msg := strings.TrimSpace(mergeErrAllow)
-    if msg == "" {
-      msg = "merge_failed"
-    }
-    writeJSON(w, http.StatusOK, syncKbResponse{
-      Ok:      false,
-      Status:  "error",
-      Message: "Merge failed: " + msg,
-    })
-    return
-  }
-
-  conflicts := s.listConflictFiles(r.Context())
   if len(conflicts) > 0 {
     writeJSON(w, http.StatusOK, syncKbResponse{
       Ok:        true,
@@ -709,14 +706,10 @@ func (s *server) handleKbSync(w http.ResponseWriter, r *http.Request) {
     return
   }
 
-  msg := strings.TrimSpace(mergeErr)
-  if msg == "" {
-    msg = "merge_failed"
-  }
   writeJSON(w, http.StatusOK, syncKbResponse{
     Ok:      false,
     Status:  "error",
-    Message: "Merge failed: " + msg,
+    Message: mergeErrMsg,
   })
 }
 
@@ -835,6 +828,26 @@ func (s *server) handleKbPublish(w http.ResponseWriter, r *http.Request) {
   })
   files := splitLines(filesOut)
 
+  // Fetch and merge remote before pushing to avoid rejected pushes.
+  mergeOk, mergeConflicts, mergeErrMsg := s.fetchAndMergeKb(r.Context())
+  if !mergeOk {
+    if len(mergeConflicts) > 0 {
+      writeJSON(w, http.StatusOK, publishKbResponse{
+        Ok:      false,
+        Status:  "conflicts",
+        Files:   mergeConflicts,
+        Message: "Merge conflicts during publish. Resolve and retry.",
+      })
+      return
+    }
+    writeJSON(w, http.StatusOK, publishKbResponse{
+      Ok:      false,
+      Status:  "error",
+      Message: mergeErrMsg,
+    })
+    return
+  }
+
   kbBranch := s.resolveKbBranch(r.Context())
   _, pushErr, pushCode, pushExecErr := runCmd(r.Context(), s.workspace, []string{
     "git", "push", "kb", "HEAD:refs/heads/" + kbBranch,
@@ -862,11 +875,32 @@ func (s *server) handleKbPublish(w http.ResponseWriter, r *http.Request) {
   })
 }
 
+func (s *server) gitStatusEntries(ctx context.Context, paths ...string) ([]gitStatusEntry, error) {
+  args := []string{"git", "-c", "core.quotepath=false", "status", "--porcelain=v1", "-z"}
+  if len(paths) > 0 {
+    args = append(args, "--")
+    args = append(args, paths...)
+  }
+  out, stderr, code, err := runCmd(ctx, s.workspace, args)
+  if err != nil || code != 0 {
+    msg := strings.TrimSpace(stderr)
+    if msg == "" {
+      msg = "git_status_failed"
+    }
+    return nil, errors.New(msg)
+  }
+  return parseGitStatus(out), nil
+}
+
 func (s *server) listConflictFiles(ctx context.Context) []string {
-  out, _, _, _ := runCmd(ctx, s.workspace, []string{
-    "git", "diff", "--name-only", "--diff-filter=U",
-  })
-  return splitLines(out)
+  entries, _ := s.gitStatusEntries(ctx)
+  var result []string
+  for _, e := range entries {
+    if e.Conflicted {
+      result = append(result, e.Path)
+    }
+  }
+  return result
 }
 
 func isUnrelatedHistoryError(message string) bool {
