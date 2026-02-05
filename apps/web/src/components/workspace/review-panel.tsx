@@ -82,9 +82,9 @@ export function ReviewPanel({
 
   if (diffs.length === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-        <GitDiff size={28} className="text-muted-foreground/30" />
-        <p className="text-xs text-muted-foreground">
+      <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+        <GitDiff size={32} className="text-muted-foreground/30" />
+        <p className="max-w-[240px] text-sm text-muted-foreground">
           {isLoading ? 'Loading changes…' : 'No pending changes'}
         </p>
       </div>
@@ -93,7 +93,7 @@ export function ReviewPanel({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-background/50 px-3 py-2">
+      <div className="flex items-center justify-between gap-2 rounded-lg border border-border/40 bg-background/50 px-3 py-2">
         <div className="flex items-center gap-3 text-xs">
           <span className="text-muted-foreground">
             {diffs.length} file{diffs.length !== 1 ? "s" : ""}
@@ -130,7 +130,7 @@ export function ReviewPanel({
           const isCollapsed = isLong && !isExpanded;
 
           return (
-            <div key={diff.path} className="overflow-hidden rounded-lg border border-border/60 bg-background/50">
+            <div key={diff.path} className="overflow-hidden rounded-lg border border-border/40 bg-background/50">
               <div className="flex items-center gap-2 px-3 py-2">
                 <button
                   type="button"

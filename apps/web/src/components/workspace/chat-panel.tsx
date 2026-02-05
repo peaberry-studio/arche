@@ -235,20 +235,433 @@ function MessageFooter({ message, showTimestamp = true }: { message: ChatMessage
   );
 }
 
+type ToolPart = Extract<MessagePart, { type: "tool" }>;
+type FilePart = Extract<MessagePart, { type: "file" }>;
+
+const getString = (value: unknown) => (typeof value === "string" && value.trim() ? value : undefined);
+const getNumber = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : undefined);
+const getStringArray = (value: unknown) =>
+  Array.isArray(value) ? value.map((item) => String(item)) : undefined;
+
+const getFileName = (path?: string) => (path ? path.split("/").pop() ?? path : undefined);
+const getDirectory = (path?: string) => {
+  if (!path || !path.includes("/")) return undefined;
+  return path.split("/").slice(0, -1).join("/") || undefined;
+};
+
+type ToolDisplay = {
+  summary?: string;
+  label?: string;
+  meta?: string;
+  path?: string;
+};
+
+const TOOL_LABELS: Record<string, string> = {
+  glob: "Searching documents",
+  grep: "Searching information",
+  list: "Listing files",
+  read: "Reading file",
+  write: "Writing file",
+  edit: "Editing file",
+  apply_patch: "Applying changes",
+  webfetch: "Searching the web",
+  bash: "Running command",
+  task: "Delegating task",
+  todowrite: "Planning",
+  todoread: "Reviewing plan"
+};
+
+function getToolLabel(tool: string) {
+  return TOOL_LABELS[tool] ?? tool;
+}
+
+function getToolDisplay(tool: string, input?: Record<string, unknown>, fallbackTitle?: string): ToolDisplay {
+  const rawPath = typeof input?.path === "string" ? input.path : undefined;
+  const normalizedPath = rawPath === "" ? "/" : rawPath;
+  const filePath = getString(input?.filePath) ?? getString(input?.filename);
+  const searchPath = getString(normalizedPath);
+  const pattern = getString(input?.pattern);
+  const include = getString(input?.include);
+  const url = getString(input?.url);
+  const format = getString(input?.format);
+  const offset = getNumber(input?.offset);
+  const limit = getNumber(input?.limit);
+  const description = getString(input?.description);
+  const command = getString(input?.command);
+  const files = getStringArray(input?.files);
+
+  const offsetLimit: string[] = [];
+  if (offset !== undefined) offsetLimit.push(`offset=${offset}`);
+  if (limit !== undefined) offsetLimit.push(`limit=${limit}`);
+
+  switch (tool) {
+    case "glob": {
+      const summaryParts: string[] = [];
+      if (pattern) summaryParts.push(`pattern=${pattern}`);
+      if (include) summaryParts.push(`include=${include}`);
+      if (searchPath) summaryParts.push(`in ${searchPath}`);
+      return {
+        summary: summaryParts.join(" · ") || undefined,
+        label: pattern ? `pattern=${pattern}` : searchPath ? `in ${searchPath}` : fallbackTitle,
+        meta: searchPath && pattern ? `in ${searchPath}` : undefined,
+      };
+    }
+    case "grep": {
+      const summaryParts: string[] = [];
+      if (pattern) summaryParts.push(`pattern=${pattern}`);
+      if (include) summaryParts.push(`include=${include}`);
+      if (searchPath) summaryParts.push(`in ${searchPath}`);
+      return {
+        summary: summaryParts.join(" · ") || undefined,
+        label: pattern ? `pattern=${pattern}` : fallbackTitle,
+        meta: [include ? `include=${include}` : undefined, searchPath ? `in ${searchPath}` : undefined]
+          .filter(Boolean)
+          .join(" · ") || undefined,
+      };
+    }
+    case "list":
+      return {
+        summary: searchPath ? `in ${searchPath}` : undefined,
+        label: searchPath ? `in ${searchPath}` : fallbackTitle,
+      };
+    case "read": {
+      const resolvedPath = filePath ?? searchPath;
+      return {
+        summary: [resolvedPath, ...offsetLimit].filter(Boolean).join(" · ") || undefined,
+        label: getFileName(resolvedPath) ?? resolvedPath ?? fallbackTitle,
+        meta: [getDirectory(resolvedPath), ...offsetLimit].filter(Boolean).join(" · ") || undefined,
+        path: resolvedPath,
+      };
+    }
+    case "write":
+    case "edit": {
+      const resolvedPath = filePath ?? searchPath;
+      return {
+        summary: resolvedPath ?? fallbackTitle,
+        label: getFileName(resolvedPath) ?? resolvedPath ?? fallbackTitle,
+        meta: getDirectory(resolvedPath),
+        path: resolvedPath,
+      };
+    }
+    case "apply_patch": {
+      const count = files?.length ?? 0;
+      const singlePath = count === 1 ? files?.[0] : undefined;
+      return {
+        summary: count > 0 ? `${count} file${count === 1 ? "" : "s"}` : fallbackTitle,
+        label: singlePath ? getFileName(singlePath) ?? singlePath : fallbackTitle,
+        meta: singlePath ? getDirectory(singlePath) : undefined,
+        path: singlePath,
+      };
+    }
+    case "webfetch": {
+      return {
+        summary: [url, format ? `format=${format}` : undefined].filter(Boolean).join(" · ") || undefined,
+        label: url ?? fallbackTitle,
+        meta: format ? `format=${format}` : undefined,
+      };
+    }
+    case "bash": {
+      return {
+        summary: description ?? command ?? fallbackTitle,
+        label: description ?? command ?? fallbackTitle,
+      };
+    }
+    default:
+      return {
+        summary: fallbackTitle,
+        label: fallbackTitle,
+      };
+  }
+}
+
+function ReasoningBlock({ text, isPending }: { text: string; isPending: boolean }) {
+  const COLLAPSE_THRESHOLD = 280;
+  const [isOpen, setIsOpen] = useState(() => isPending || text.length <= COLLAPSE_THRESHOLD);
+  const autoCollapsedRef = useRef(false);
+  const canCollapse = text.length > COLLAPSE_THRESHOLD;
+
+  useEffect(() => {
+    if (isPending) {
+      setIsOpen(true);
+      return;
+    }
+    if (!autoCollapsedRef.current && text.length > COLLAPSE_THRESHOLD) {
+      setIsOpen(false);
+      autoCollapsedRef.current = true;
+    }
+  }, [isPending, text.length]);
+
+  return (
+    <div className="my-2 rounded-lg border border-primary/20 bg-primary/5">
+      <button
+        type="button"
+        onClick={() => {
+          if (!canCollapse) return;
+          setIsOpen(prev => !prev);
+        }}
+        className={cn(
+          "flex w-full items-center gap-2 px-3 py-2 text-xs font-medium",
+          canCollapse ? "cursor-pointer" : "cursor-default"
+        )}
+      >
+        <Lightbulb size={12} weight="fill" className="text-primary" />
+        <span>Reasoning</span>
+        {canCollapse && (
+          <span className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground">
+            {isOpen ? "Hide" : "Show"}
+            <CaretDown size={12} className={cn("transition-transform", isOpen && "rotate-180")} />
+          </span>
+        )}
+      </button>
+      {isOpen && (
+        <div className="px-3 pb-3">
+          <p className="whitespace-pre-wrap text-sm text-foreground/80">
+            {text}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ToolGroup({
+  tool,
+  parts,
+  onOpenFile
+}: {
+  tool: string;
+  parts: ToolPart[];
+  onOpenFile?: (path: string) => void;
+}) {
+  const runningCount = parts.filter(p => p.state.status === "running" || p.state.status === "pending").length;
+  const errorCount = parts.filter(p => p.state.status === "error").length;
+  const completedCount = parts.filter(p => p.state.status === "completed").length;
+  const totalCount = parts.length;
+
+  const isRunning = runningCount > 0;
+  const isError = errorCount > 0;
+  const canExpand = totalCount > 1 || isError;
+
+  const [isOpen, setIsOpen] = useState(() => (totalCount === 1 ? isRunning || isError : false));
+
+  const toolLabel = getToolLabel(tool);
+  const lastPart = parts[parts.length - 1];
+  const headerDisplay = getToolDisplay(tool, lastPart?.state.input, lastPart?.state.title || lastPart?.name || toolLabel);
+  const summary = totalCount > 1
+    ? `${totalCount} ${totalCount === 1 ? "call" : "calls"}${headerDisplay.summary ? ` · ${headerDisplay.summary}` : ""}`
+    : headerDisplay.summary || lastPart?.state.title || lastPart?.name || tool;
+  const showSummary = totalCount > 1 || (!!summary && summary !== tool);
+
+  return (
+    <div className="my-2 rounded-lg border border-border/40 bg-muted/20">
+      <button
+        type="button"
+        onClick={() => {
+          if (!canExpand) return;
+          setIsOpen(prev => !prev);
+        }}
+        className={cn(
+          "flex w-full items-center gap-2 px-3 py-2 text-xs",
+          canExpand ? "cursor-pointer" : "cursor-default"
+        )}
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          {isRunning && <SpinnerGap size={12} className="animate-spin text-primary" />}
+          {!isRunning && isError && <XCircle size={12} weight="fill" className="text-destructive" />}
+          {!isRunning && !isError && <CheckCircle size={12} weight="fill" className="text-primary" />}
+          <span className="font-medium">{toolLabel}</span>
+          {showSummary && (
+            <span className="min-w-0 truncate text-muted-foreground">
+              {summary}
+            </span>
+          )}
+        </div>
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          {totalCount > 1 && (
+            <span className="text-[10px] text-muted-foreground">
+              {completedCount > 0 ? `${completedCount} done` : ""}
+              {runningCount > 0 ? `${completedCount > 0 ? " · " : ""}${runningCount} running` : ""}
+              {errorCount > 0 ? `${completedCount > 0 || runningCount > 0 ? " · " : ""}${errorCount} error` : ""}
+            </span>
+          )}
+          {headerDisplay.path && onOpenFile && totalCount === 1 && (
+            <span
+              role="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpenFile(headerDisplay.path!);
+              }}
+              className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground cursor-pointer"
+            >
+              Open
+              <CaretRight size={12} />
+            </span>
+          )}
+          {canExpand && (
+            <CaretDown size={12} className={cn("transition-transform", isOpen && "rotate-180")} />
+          )}
+        </div>
+      </button>
+      {isOpen && (
+        <div className="border-t border-border/50 px-3 py-2">
+          <div className="space-y-1">
+            {parts.map(part => {
+              const itemRunning = part.state.status === "running" || part.state.status === "pending";
+              const itemError = part.state.status === "error";
+              const itemComplete = part.state.status === "completed";
+              const detail = getToolDisplay(tool, part.state.input, part.state.title || part.name);
+              const title = detail.label || part.state.title || part.name;
+              
+              return (
+                <div key={part.id} className="flex items-start gap-2 text-xs">
+                  {itemRunning && <SpinnerGap size={12} className="animate-spin text-primary" />}
+                  {itemError && <XCircle size={12} weight="fill" className="text-destructive" />}
+                  {itemComplete && <CheckCircle size={12} weight="fill" className="text-primary" />}
+                  {!itemRunning && !itemError && !itemComplete && <Circle size={10} weight="fill" className="text-muted-foreground/60" />}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="min-w-0 truncate text-foreground/80">{title}</span>
+                      {detail.meta && (
+                        <span className="min-w-0 truncate text-muted-foreground">
+                          {detail.meta}
+                        </span>
+                      )}
+                      {detail.path && onOpenFile && (
+                        <span
+                          role="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onOpenFile(detail.path!);
+                          }}
+                          className="ml-auto inline-flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground cursor-pointer"
+                        >
+                          Open
+                          <CaretRight size={12} />
+                        </span>
+                      )}
+                    </div>
+                    {itemError && part.state.error && (
+                      <div className="mt-0.5 text-[11px] text-destructive">{part.state.error}</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FileGroup({ parts, onOpenFile }: { parts: FilePart[]; onOpenFile: (path: string) => void }) {
+  const totalCount = parts.length;
+  const [isOpen, setIsOpen] = useState(() => totalCount <= 2);
+
+  return (
+    <div className="my-2 rounded-lg border border-border/40 bg-muted/20">
+      <button
+        type="button"
+        onClick={() => setIsOpen(prev => !prev)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-xs"
+      >
+        <File size={12} weight="bold" className="text-primary" />
+        <span className="font-medium">Files</span>
+        <span className="text-muted-foreground">{totalCount} {totalCount === 1 ? "file" : "files"}</span>
+        <span className="ml-auto text-[10px] text-muted-foreground">
+          {isOpen ? "Hide" : "Show"}
+        </span>
+        <CaretDown size={12} className={cn("transition-transform", isOpen && "rotate-180")} />
+      </button>
+      {isOpen && (
+        <div className="border-t border-border/50 px-3 py-2">
+          <div className="flex flex-wrap gap-1.5">
+            {parts.map(part => (
+              <button
+                key={part.id ?? part.path}
+                type="button"
+                onClick={() => part.path && onOpenFile(part.path)}
+                className="flex items-center gap-1 rounded bg-muted/60 px-2 py-1 text-xs text-foreground/80 hover:bg-muted"
+              >
+                <File size={10} weight="bold" />
+                <span>{part.filename || part.path}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+type PartGroup =
+  | { type: "tool-group"; tool: string; parts: ToolPart[] }
+  | { type: "file-group"; parts: FilePart[] }
+  | { type: "single"; part: MessagePart };
+
+function groupMessageParts(parts: MessagePart[]): PartGroup[] {
+  const groups: PartGroup[] = [];
+  let index = 0;
+
+  while (index < parts.length) {
+    const part = parts[index];
+
+    if (part.type === "tool") {
+      const toolName = part.name;
+      const toolParts: ToolPart[] = [part];
+      let cursor = index + 1;
+      while (cursor < parts.length) {
+        const next = parts[cursor];
+        if (next.type !== "tool" || next.name !== toolName) break;
+        toolParts.push(next);
+        cursor += 1;
+      }
+      groups.push({ type: "tool-group", tool: toolName, parts: toolParts });
+      index = cursor;
+      continue;
+    }
+
+    if (part.type === "file") {
+      const fileParts: FilePart[] = [part];
+      let cursor = index + 1;
+      while (cursor < parts.length) {
+        const next = parts[cursor];
+        if (next.type !== "file") break;
+        fileParts.push(next);
+        cursor += 1;
+      }
+      if (fileParts.length > 1) {
+        groups.push({ type: "file-group", parts: fileParts });
+      } else {
+        groups.push({ type: "single", part });
+      }
+      index = cursor;
+      continue;
+    }
+
+    groups.push({ type: "single", part });
+    index += 1;
+  }
+
+  return groups;
+}
+
 /**
  * Renders a single message part based on its type.
  */
 function MessagePartRenderer({ 
   part, 
-  onOpenFile 
+  onOpenFile,
+  isPending
 }: { 
   part: MessagePart; 
   onOpenFile: (path: string) => void;
+  isPending: boolean;
 }) {
   switch (part.type) {
     case 'text':
       return (
-        <div className="markdown-content">
+        <div className="markdown-content my-3 first:mt-0 last:mb-0">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
             {part.text}
           </ReactMarkdown>
@@ -256,44 +669,10 @@ function MessagePartRenderer({
       );
     
     case 'reasoning':
-      return (
-        <div className="my-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
-          <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-primary">
-            <Lightbulb size={12} weight="fill" />
-            <span>Reasoning</span>
-          </div>
-          <p className="whitespace-pre-wrap text-sm text-foreground/80">
-            {part.text}
-          </p>
-        </div>
-      );
+      return <ReasoningBlock text={part.text} isPending={isPending} />;
     
     case 'tool': {
-      const isRunning = part.state.status === 'running' || part.state.status === 'pending';
-      const isError = part.state.status === 'error';
-      const isComplete = part.state.status === 'completed';
-      
-      return (
-        <div className={cn(
-          "my-2 rounded-lg border p-3",
-          isError ? "border-destructive/20 bg-destructive/5" :
-          "border-primary/20 bg-primary/5"
-        )}>
-          <div className="flex items-center gap-2">
-            {isRunning && <SpinnerGap size={14} className="animate-spin text-primary" />}
-            {isComplete && <CheckCircle size={14} weight="fill" className="text-primary" />}
-            {isError && <XCircle size={14} weight="fill" className="text-destructive" />}
-            <span className="text-xs font-medium">
-              {part.state.status === 'completed' && part.state.title 
-                ? part.state.title 
-                : part.name}
-            </span>
-          </div>
-          {isError && part.state.status === 'error' && (
-            <p className="mt-1 text-xs text-destructive">{part.state.error}</p>
-          )}
-        </div>
-      );
+      return <ToolGroup tool={part.name} parts={[part]} onOpenFile={onOpenFile} />;
     }
     
     case 'file':
@@ -550,9 +929,9 @@ export function ChatPanel({
   };
 
   return (
-    <div className="flex h-full flex-col bg-background">
+    <div className="flex h-full flex-col text-card-foreground">
       {/* Session tabs */}
-      <div className="flex h-12 items-center gap-1 border-b border-border/60 px-2">
+      <div className="flex h-11 shrink-0 items-center gap-1 border-b border-white/10 pl-2 pr-2">
         {canScrollLeft && (
           <Button
             size="icon"
@@ -574,10 +953,10 @@ export function ChatPanel({
             <div
               key={session.id}
               className={cn(
-                "group flex shrink-0 items-center gap-1 rounded-md pl-2.5 pr-1 py-1 text-xs transition-colors",
+                "group flex shrink-0 items-center gap-1 rounded-xl pl-2.5 pr-1 py-1 text-xs transition-colors",
                 session.id === activeSessionId
                   ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                  : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
               )}
             >
               <button
@@ -650,7 +1029,7 @@ export function ChatPanel({
           </Button>
         )}
 
-        <div className="h-5 w-px bg-border/60 mx-1" />
+        <div className="h-5 w-px bg-border/40 mx-1" />
         
         <Button
           size="icon"
@@ -664,7 +1043,7 @@ export function ChatPanel({
       </div>
 
       {/* Messages area */}
-      <div className="flex-1 overflow-y-auto px-5 py-5">
+      <div className="flex-1 overflow-y-auto px-6 py-6 scrollbar-custom">
         {messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
             <ChatCircle size={32} className="text-muted-foreground/30" />
@@ -673,7 +1052,7 @@ export function ChatPanel({
             </p>
           </div>
         ) : (
-          <div className="space-y-5">
+          <div className="space-y-6">
             {messages.map((message, index) => {
               // Only show timestamp if this is the last message in a "same-minute" group
               // i.e., if there's no next message, or the next message is in a different minute
@@ -693,14 +1072,38 @@ export function ChatPanel({
                     <div className="w-full text-sm leading-relaxed text-foreground">
                       {/* Render message parts if available, otherwise fall back to content */}
                       {message.parts && message.parts.length > 0 ? (
-                        <div className="space-y-1">
-                          {message.parts.map((part, partIndex) => (
-                            <MessagePartRenderer 
-                              key={`${message.id}-part-${partIndex}`} 
-                              part={part} 
-                              onOpenFile={onOpenFile} 
-                            />
-                          ))}
+                        <div className="space-y-2">
+                          {groupMessageParts(message.parts).map((group, groupIndex) => {
+                            if (group.type === "tool-group") {
+                              return (
+                                <ToolGroup
+                                  key={`${message.id}-tool-${groupIndex}-${group.tool}`}
+                                  tool={group.tool}
+                                  parts={group.parts}
+                                  onOpenFile={onOpenFile}
+                                />
+                              );
+                            }
+
+                            if (group.type === "file-group") {
+                              return (
+                                <FileGroup
+                                  key={`${message.id}-file-${groupIndex}`}
+                                  parts={group.parts}
+                                  onOpenFile={onOpenFile}
+                                />
+                              );
+                            }
+
+                            return (
+                              <MessagePartRenderer
+                                key={`${message.id}-part-${groupIndex}`}
+                                part={group.part}
+                                onOpenFile={onOpenFile}
+                                isPending={!!message.pending}
+                              />
+                            );
+                          })}
                         </div>
                       ) : message.content ? (
                         <div className="markdown-content">
@@ -771,7 +1174,7 @@ export function ChatPanel({
       </div>
 
       {/* Input area */}
-      <div className="border-t border-border/60 p-4">
+      <div className="border-t border-white/10 px-6 py-5">
         {/* Model selector and context - same row */}
         {(models.length > 0 || openFilesCount > 0) && (
           <div className="mb-3 flex items-center gap-4">
@@ -785,7 +1188,7 @@ export function ChatPanel({
                   <DropdownMenuTrigger asChild>
                     <button
                       type="button"
-                      className="flex items-center gap-1.5 rounded-md bg-muted/50 px-2.5 py-1.5 text-xs text-foreground transition-colors hover:bg-muted"
+                      className="flex items-center gap-1.5 rounded-lg bg-foreground/5 px-2.5 py-1.5 text-xs text-foreground transition-colors hover:bg-foreground/10"
                     >
                       <span className="max-w-[200px] truncate">
                         {selectedModel 
@@ -829,7 +1232,7 @@ export function ChatPanel({
                 <button
                   type="button"
                   onClick={onShowContext}
-                  className="flex items-center gap-1.5 rounded-md bg-muted/50 px-2.5 py-1.5 text-xs text-foreground transition-colors hover:bg-muted"
+                  className="flex items-center gap-1.5 rounded-lg bg-foreground/5 px-2.5 py-1.5 text-xs text-foreground transition-colors hover:bg-foreground/10"
                 >
                   <File size={12} weight="bold" className="text-primary/70" />
                   <span>{openFilesCount} {openFilesCount === 1 ? "file" : "files"}</span>
@@ -839,7 +1242,7 @@ export function ChatPanel({
           </div>
         )}
         
-        <div className="flex items-center gap-2.5 rounded-xl border border-border/60 bg-card/60 px-2.5 py-2.5">
+        <div className="flex items-center gap-2.5 rounded-xl border border-white/10 bg-foreground/5 px-2.5 py-2.5">
           <textarea
             ref={textareaRef}
             value={inputValue}

@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ensureInstanceRunningAction } from "@/actions/spawner";
+import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { useWorkspace } from "@/hooks/use-workspace";
 import type { WorkspaceFileNode } from "@/lib/opencode/types";
+import { cn } from "@/lib/utils";
 
 import { ChatPanel } from "./chat-panel";
 import { FileTreePanel } from "./file-tree-panel";
 import { InspectorPanel } from "./inspector-panel";
-import { PanelResizeHandle } from "./panel-resize-handle";
 import { WorkspaceFooter } from "./workspace-footer";
 import { WorkspaceHeader } from "./workspace-header";
 
@@ -30,22 +31,34 @@ const MIN_RIGHT_PX = 320;
 const MIN_CENTER_PX = 360;
 const DEFAULT_LEFT_RATIO = 0.15;
 const DEFAULT_RIGHT_RATIO = 0.3;
+const PANEL_GAP = 12; // Gap between floating panels in pixels
+const SHELL_PADDING = 12; // Padding around the entire workspace
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
 
+// Account for gaps when calculating available space
+const getAvailableWidth = (containerWidth: number, leftCollapsed: boolean, rightCollapsed: boolean) => {
+  // Container already has SHELL_PADDING on each side from parent padding
+  // We need to account for gaps between panels
+  const numGaps = (leftCollapsed ? 0 : 1) + (rightCollapsed ? 0 : 1);
+  return containerWidth - (numGaps * PANEL_GAP);
+};
+
 const getMinCenter = (containerWidth: number) =>
-  Math.min(MIN_CENTER_PX, Math.max(0, containerWidth - MIN_LEFT_PX - MIN_RIGHT_PX));
+  Math.min(MIN_CENTER_PX, Math.max(0, containerWidth - MIN_LEFT_PX - MIN_RIGHT_PX - 2 * PANEL_GAP));
 
 const fitWidths = (containerWidth: number, leftWidth: number, rightWidth: number) => {
+  // Account for gaps in calculations
+  const availableForPanels = containerWidth - 2 * PANEL_GAP;
   const minCenter = getMinCenter(containerWidth);
-  const maxLeft = Math.max(MIN_LEFT_PX, containerWidth - MIN_RIGHT_PX - minCenter);
-  const maxRight = Math.max(MIN_RIGHT_PX, containerWidth - MIN_LEFT_PX - minCenter);
+  const maxLeft = Math.max(MIN_LEFT_PX, availableForPanels - MIN_RIGHT_PX - minCenter);
+  const maxRight = Math.max(MIN_RIGHT_PX, availableForPanels - MIN_LEFT_PX - minCenter);
 
   let nextLeft = clamp(leftWidth, MIN_LEFT_PX, maxLeft);
   let nextRight = clamp(rightWidth, MIN_RIGHT_PX, maxRight);
 
-  const total = nextLeft + nextRight + minCenter;
+  const total = nextLeft + nextRight + minCenter + 2 * PANEL_GAP;
   if (total > containerWidth) {
     const overflow = total - containerWidth;
     const reducibleRight = Math.max(0, nextRight - MIN_RIGHT_PX);
@@ -208,6 +221,79 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
   );
   const [fileCache, setFileCache] = useState<FileContentCache>({});
 
+  const flattenedFilePaths = useMemo(() => {
+    const paths: string[] = [];
+    const visit = (nodes: WorkspaceFileNode[]) => {
+      nodes.forEach((node) => {
+        if (node.type === "file") paths.push(node.path);
+        if (node.children && node.children.length > 0) visit(node.children);
+      });
+    };
+    visit(workspace.fileTree);
+    return paths;
+  }, [workspace.fileTree]);
+
+  const filePathSet = useMemo(() => new Set(flattenedFilePaths), [flattenedFilePaths]);
+
+  const normalizePath = useCallback((path: string) => {
+    return path.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+/g, "/");
+  }, []);
+
+  const resolveFilePath = useCallback((path: string) => {
+    if (!path) return path;
+    const normalized = normalizePath(path);
+    if (filePathSet.has(normalized)) return normalized;
+
+    const trimmed = normalized.replace(/^\/+/, "");
+    if (filePathSet.has(trimmed)) return trimmed;
+
+    const matches = flattenedFilePaths.filter((candidate) =>
+      normalized.endsWith(candidate) || trimmed.endsWith(candidate)
+    );
+    if (matches.length === 0) return normalized;
+
+    matches.sort((a, b) => b.length - a.length);
+    return matches[0];
+  }, [filePathSet, flattenedFilePaths, normalizePath]);
+
+  const diffSignature = useMemo(() => {
+    if (workspace.diffs.length === 0) return '';
+    return workspace.diffs
+      .map(diff => `${diff.path}:${diff.status}:${diff.additions}:${diff.deletions}`)
+      .sort()
+      .join('|');
+  }, [workspace.diffs]);
+
+  const lastDiffSignatureRef = useRef<string>('');
+
+  useEffect(() => {
+    if (!workspace.isConnected) return;
+    if (!diffSignature) return;
+    if (lastDiffSignatureRef.current === diffSignature) return;
+
+    lastDiffSignatureRef.current = diffSignature;
+    workspace.refreshFiles();
+
+    const diffPaths = new Set(workspace.diffs.map(diff => diff.path));
+    const pathsToRefresh = openFilePaths.filter(path => diffPaths.has(path));
+    if (pathsToRefresh.length === 0) return;
+
+    pathsToRefresh.forEach(async (path) => {
+      const result = await workspace.readFile(path);
+      if (!result) return;
+      setFileCache(prev => ({
+        ...prev,
+        [path]: {
+          content: result.content,
+          type: result.type,
+          title: path.split('/').pop() ?? path,
+          updatedAt: 'Just now',
+          size: `${(result.content.length / 1024).toFixed(1)} KB`
+        }
+      }));
+    });
+  }, [diffSignature, openFilePaths, workspace.diffs, workspace.isConnected, workspace.readFile, workspace.refreshFiles]);
+
   // Load layout from localStorage
   useEffect(() => {
     const stored = loadStoredLayout(layoutStorageKey);
@@ -297,29 +383,43 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
 
   // File handlers
   const handleOpenFile = useCallback(async (path: string) => {
+    const resolvedPath = resolveFilePath(path);
+    const pathToOpen = resolvedPath || path;
+
     // Add to open files if not already open
-    setOpenFilePaths(prev => prev.includes(path) ? prev : [...prev, path]);
-    setActiveFilePath(path);
+    setOpenFilePaths(prev => prev.includes(pathToOpen) ? prev : [...prev, pathToOpen]);
+    setActiveFilePath(pathToOpen);
     setRightTab("preview");
     setRightCollapsed(false);
 
     // Load file content if not cached
-    if (!fileCache[path]) {
-      const result = await workspace.readFile(path);
+    if (!fileCache[pathToOpen]) {
+      const result = await workspace.readFile(pathToOpen);
       if (result) {
         setFileCache(prev => ({
           ...prev,
-          [path]: {
+          [pathToOpen]: {
             content: result.content,
             type: result.type,
-            title: path.split('/').pop() ?? path,
+            title: pathToOpen.split('/').pop() ?? pathToOpen,
             updatedAt: 'Just now',
             size: `${(result.content.length / 1024).toFixed(1)} KB`
           }
         }));
+      } else {
+        setFileCache(prev => ({
+          ...prev,
+          [pathToOpen]: {
+            content: 'Unable to load file.',
+            type: 'raw',
+            title: pathToOpen.split('/').pop() ?? pathToOpen,
+            updatedAt: 'Error',
+            size: '0 KB'
+          }
+        }));
       }
     }
-  }, [fileCache, workspace]);
+  }, [fileCache, resolveFilePath, workspace]);
 
   const handleSelectFile = useCallback((path: string) => {
     setActiveFilePath(path);
@@ -362,7 +462,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
     setRightTab("review");
   }, []);
 
-  // Resize handlers
+  // Resize handlers - now work via the gap area between panels
   const handleResizeLeft = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     const container = containerRef.current;
@@ -376,8 +476,8 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
 
     const onMove = (moveEvent: PointerEvent) => {
       const minCenter = getMinCenter(rect.width);
-      const effectiveRight = rightCollapsed ? 0 : rightWidth;
-      const maxLeft = Math.max(MIN_LEFT_PX, rect.width - effectiveRight - minCenter);
+      const effectiveRight = rightCollapsed ? 0 : rightWidth + PANEL_GAP;
+      const maxLeft = Math.max(MIN_LEFT_PX, rect.width - effectiveRight - minCenter - PANEL_GAP);
       const nextWidth = clamp(moveEvent.clientX - rect.left, MIN_LEFT_PX, maxLeft);
       setLeftWidth(nextWidth);
       setMinCenterWidth(minCenter);
@@ -408,8 +508,8 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
 
     const onMove = (moveEvent: PointerEvent) => {
       const minCenter = getMinCenter(rect.width);
-      const effectiveLeft = leftCollapsed ? 0 : leftWidth;
-      const maxRight = Math.max(MIN_RIGHT_PX, rect.width - effectiveLeft - minCenter);
+      const effectiveLeft = leftCollapsed ? 0 : leftWidth + PANEL_GAP;
+      const maxRight = Math.max(MIN_RIGHT_PX, rect.width - effectiveLeft - minCenter - PANEL_GAP);
       const nextWidth = clamp(rect.right - moveEvent.clientX, MIN_RIGHT_PX, maxRight);
       setRightWidth(nextWidth);
       setMinCenterWidth(minCenter);
@@ -427,61 +527,80 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
     window.addEventListener("pointerup", onUp);
   }, [leftCollapsed, leftWidth]);
 
+  // Get theme from context
+  const { theme } = useWorkspaceTheme();
+
+  // Build dark mode classes based on theme variant
+  const darkModeClasses = theme.isDark
+    ? `dark ${theme.darkVariant === "ash" ? "dark-ash" : "dark-ember"}`
+    : "";
+
   // Loading screen while instance is starting
   if (instanceStatus !== 'running') {
     return (
-      <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
-        <div className="pointer-events-none absolute inset-0 organic-background" />
-        
-        <WorkspaceHeader
-          slug={slug}
-          status={instanceStatus === 'starting' ? 'provisioning' : 'offline'}
-        />
-        
-        <div className="relative z-10 flex flex-1 items-center justify-center">
-          <div className="flex flex-col items-center gap-6 text-center">
-            {instanceStatus === 'starting' && (
-              <>
-                <div className="relative">
-                  <div className="h-16 w-16 animate-spin rounded-full border-4 border-muted border-t-primary" />
-                </div>
-                <div className="space-y-2">
-                  <h2 className="font-[family-name:var(--font-display)] text-xl font-semibold">
-                    Starting workspace
-                  </h2>
-                  <p className="text-sm text-muted-foreground">
-                    Preparing your development environment...
-                  </p>
-                </div>
-              </>
-            )}
-            {instanceStatus === 'error' && (
-              <>
-                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10">
-                  <span className="text-2xl">!</span>
-                </div>
-                <div className="space-y-2">
-                  <h2 className="font-[family-name:var(--font-display)] text-xl font-semibold text-destructive">
-                    Failed to start
-                  </h2>
-                  <p className="text-sm text-muted-foreground">
-                    {instanceError ?? 'Unable to start the workspace'}
-                  </p>
-                </div>
-              </>
-            )}
-            {instanceStatus === null && (
-              <>
-                <div className="relative">
-                  <div className="h-16 w-16 animate-pulse rounded-full bg-muted" />
-                </div>
-                <div className="space-y-2">
-                  <h2 className="font-[family-name:var(--font-display)] text-xl font-semibold">
-                    Connecting...
-                  </h2>
-                </div>
-              </>
-            )}
+      <div 
+        className={cn(
+          "flex h-screen flex-col overflow-hidden text-foreground",
+          darkModeClasses
+        )}
+        style={{ 
+          backgroundImage: theme.gradient,
+          backgroundRepeat: 'no-repeat',
+          backgroundSize: '100% 100%',
+          backgroundAttachment: 'fixed'
+        }}
+      >
+        <div className="flex h-full flex-col p-3">
+          <WorkspaceHeader
+            slug={slug}
+            status={instanceStatus === 'starting' ? 'provisioning' : 'offline'}
+          />
+          
+          <div className="relative z-10 flex flex-1 items-center justify-center">
+            <div className="flex flex-col items-center gap-6 text-center">
+              {instanceStatus === 'starting' && (
+                <>
+                  <div className="relative">
+                    <div className="h-16 w-16 animate-spin rounded-full border-4 border-muted border-t-primary" />
+                  </div>
+                  <div className="space-y-2">
+                    <h2 className="font-[family-name:var(--font-display)] text-xl font-semibold">
+                      Starting workspace
+                    </h2>
+                    <p className="text-sm text-muted-foreground">
+                      Preparing your development environment...
+                    </p>
+                  </div>
+                </>
+              )}
+              {instanceStatus === 'error' && (
+                <>
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10">
+                    <span className="text-2xl">!</span>
+                  </div>
+                  <div className="space-y-2">
+                    <h2 className="font-[family-name:var(--font-display)] text-xl font-semibold text-destructive">
+                      Failed to start
+                    </h2>
+                    <p className="text-sm text-muted-foreground">
+                      {instanceError ?? 'Unable to start the workspace'}
+                    </p>
+                  </div>
+                </>
+              )}
+              {instanceStatus === null && (
+                <>
+                  <div className="relative">
+                    <div className="h-16 w-16 animate-pulse rounded-full bg-muted" />
+                  </div>
+                  <div className="space-y-2">
+                    <h2 className="font-[family-name:var(--font-display)] text-xl font-semibold">
+                      Connecting...
+                    </h2>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -491,25 +610,36 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
   // Connecting to OpenCode screen
   if (!workspace.isConnected) {
     return (
-      <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
-        <div className="pointer-events-none absolute inset-0 organic-background" />
-        
-        <WorkspaceHeader slug={slug} status="provisioning" />
-        
-        <div className="relative z-10 flex flex-1 items-center justify-center">
-          <div className="flex flex-col items-center gap-6 text-center">
-            <div className="relative">
-              <div className="h-16 w-16 animate-spin rounded-full border-4 border-muted border-t-primary" />
-            </div>
-            <div className="space-y-2">
-              <h2 className="font-[family-name:var(--font-display)] text-xl font-semibold">
-                Connecting to OpenCode
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                {workspace.connection.status === 'error' 
-                  ? `Error: ${workspace.connection.error}`
-                  : 'Establishing connection...'}
-              </p>
+      <div 
+        className={cn(
+          "flex h-screen flex-col overflow-hidden text-foreground",
+          darkModeClasses
+        )}
+        style={{ 
+          backgroundImage: theme.gradient,
+          backgroundRepeat: 'no-repeat',
+          backgroundSize: '100% 100%',
+          backgroundAttachment: 'fixed'
+        }}
+      >
+        <div className="flex h-full flex-col p-3">
+          <WorkspaceHeader slug={slug} status="provisioning" />
+          
+          <div className="relative z-10 flex flex-1 items-center justify-center">
+            <div className="flex flex-col items-center gap-6 text-center">
+              <div className="relative">
+                <div className="h-16 w-16 animate-spin rounded-full border-4 border-muted border-t-primary" />
+              </div>
+              <div className="space-y-2">
+                <h2 className="font-[family-name:var(--font-display)] text-xl font-semibold">
+                  Connecting to OpenCode
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  {workspace.connection.status === 'error' 
+                    ? `Error: ${workspace.connection.error}`
+                    : 'Establishing connection...'}
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -518,105 +648,135 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
   }
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
-      <div className="pointer-events-none absolute inset-0 organic-background" />
+    <div 
+      className={cn(
+        "flex h-screen flex-col overflow-hidden text-foreground",
+        darkModeClasses
+      )}
+      style={{ 
+        backgroundImage: theme.gradient,
+        backgroundRepeat: 'no-repeat',
+        backgroundSize: '100% 100%',
+        backgroundAttachment: 'fixed'
+      }}
+    >
+      {/* Outer padding container */}
+      <div className="flex h-full flex-col p-3 gap-3">
+        {/* Floating header */}
+        <WorkspaceHeader
+          slug={slug}
+          status="active"
+          onSyncComplete={handleSyncComplete}
+        />
 
-      <WorkspaceHeader
-        slug={slug}
-        status="active"
-        onSyncComplete={handleSyncComplete}
-      />
-
-      <div ref={containerRef} className="relative z-10 flex min-h-0 flex-1">
-        {/* Left panel - File tree */}
-        <div
-          className="shrink-0 overflow-hidden"
-          style={{
-            width: leftCollapsed ? 0 : leftWidth,
-            minWidth: leftCollapsed ? 0 : MIN_LEFT_PX
-          }}
-        >
+        {/* Main panels area */}
+        <div ref={containerRef} className="relative z-10 flex min-h-0 flex-1 gap-3">
+          {/* Left panel - File tree (floating) */}
           {!leftCollapsed && (
-            <FileTreePanel
-              nodes={workspace.fileTree}
-              activePath={activeFilePath}
-              onSelect={handleOpenFile}
+            <div
+              className="glass-panel shrink-0 overflow-hidden rounded-2xl"
+              style={{
+                width: leftWidth,
+                minWidth: MIN_LEFT_PX
+              }}
+            >
+              <FileTreePanel
+                nodes={workspace.fileTree}
+                activePath={activeFilePath}
+                onSelect={handleOpenFile}
+              />
+            </div>
+          )}
+
+          {/* Invisible resize handle for left panel - positioned in the gap */}
+          {!leftCollapsed && (
+            <div
+              className="absolute top-0 bottom-0 z-20 w-6 cursor-col-resize"
+              style={{ left: leftWidth - 3 }}
+              onPointerDown={handleResizeLeft}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize left panel"
             />
           )}
-        </div>
 
-        <PanelResizeHandle
-          position="left"
-          onPointerDown={handleResizeLeft}
-          hidden={leftCollapsed}
-        />
-
-        {/* Center panel - Chat */}
-        <div className="flex min-w-0 flex-1 flex-col" style={{ minWidth: minCenterWidth }}>
-          <ChatPanel
-            sessions={uiSessions}
-            messages={uiMessages}
-            activeSessionId={workspace.activeSessionId ?? ''}
-            openFilesCount={openFilePaths.length}
-            onSelectSession={handleSelectSession}
-            onCreateSession={handleCreateSession}
-            onCloseSession={handleCloseSession}
-            onRenameSession={handleRenameSession}
-            onOpenFile={handleOpenFile}
-            onShowContext={() => {
-              setRightCollapsed(false);
-              setRightTab("preview");
-            }}
-            onSendMessage={workspace.sendMessage}
-            isSending={workspace.isSending}
-            models={workspace.models}
-            selectedModel={workspace.selectedModel}
-            onSelectModel={workspace.setSelectedModel}
-          />
-        </div>
-
-        <PanelResizeHandle
-          position="right"
-          onPointerDown={handleResizeRight}
-          hidden={rightCollapsed}
-        />
-
-        {/* Right panel - Inspector */}
-        <div
-          className="shrink-0 overflow-hidden"
-          style={{
-            width: rightCollapsed ? 0 : rightWidth,
-            minWidth: rightCollapsed ? 0 : MIN_RIGHT_PX
-          }}
-        >
-          {!rightCollapsed && (
-            <InspectorPanel
-              slug={slug}
-              activeTab={rightTab}
-              onTabChange={setRightTab}
-              openFiles={openFiles}
-              activeFilePath={activeFilePath}
-              onSelectFile={handleSelectFile}
-              onCloseFile={handleCloseFile}
-              diffs={workspace.diffs}
-              isLoadingDiffs={workspace.isLoadingDiffs}
-              diffsError={workspace.diffsError}
+          {/* Center panel - Chat (floating) */}
+          <div 
+            className="glass-panel flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl" 
+            style={{ minWidth: minCenterWidth }}
+          >
+            <ChatPanel
+              sessions={uiSessions}
+              messages={uiMessages}
+              activeSessionId={workspace.activeSessionId ?? ''}
+              openFilesCount={openFilePaths.length}
+              onSelectSession={handleSelectSession}
+              onCreateSession={handleCreateSession}
+              onCloseSession={handleCloseSession}
+              onRenameSession={handleRenameSession}
               onOpenFile={handleOpenFile}
-              onPublish={handlePublishComplete}
-              onResolveConflict={handleResolveConflict}
+              onShowContext={() => {
+                setRightCollapsed(false);
+                setRightTab("preview");
+              }}
+              onSendMessage={workspace.sendMessage}
+              isSending={workspace.isSending}
+              models={workspace.models}
+              selectedModel={workspace.selectedModel}
+              onSelectModel={workspace.setSelectedModel}
+            />
+          </div>
+
+          {/* Invisible resize handle for right panel - positioned in the gap */}
+          {!rightCollapsed && (
+            <div
+              className="absolute top-0 bottom-0 z-20 w-6 cursor-col-resize"
+              style={{ right: rightWidth - 3 }}
+              onPointerDown={handleResizeRight}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize right panel"
             />
           )}
-        </div>
-      </div>
 
-      <WorkspaceFooter
-        leftCollapsed={leftCollapsed}
-        rightCollapsed={rightCollapsed}
-        onToggleLeft={() => setLeftCollapsed(prev => !prev)}
-        onToggleRight={handleToggleRight}
-        onOpenReview={handleOpenReview}
-        pendingDiffs={workspace.diffs.length}
-      />
+          {/* Right panel - Inspector (floating) */}
+          {!rightCollapsed && (
+            <div
+              className="glass-panel shrink-0 overflow-hidden rounded-2xl"
+              style={{
+                width: rightWidth,
+                minWidth: MIN_RIGHT_PX
+              }}
+            >
+              <InspectorPanel
+                slug={slug}
+                activeTab={rightTab}
+                onTabChange={setRightTab}
+                openFiles={openFiles}
+                activeFilePath={activeFilePath}
+                onSelectFile={handleSelectFile}
+                onCloseFile={handleCloseFile}
+                diffs={workspace.diffs}
+                isLoadingDiffs={workspace.isLoadingDiffs}
+                diffsError={workspace.diffsError}
+                onOpenFile={handleOpenFile}
+                onPublish={handlePublishComplete}
+                onResolveConflict={handleResolveConflict}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Floating footer */}
+        <WorkspaceFooter
+          leftCollapsed={leftCollapsed}
+          rightCollapsed={rightCollapsed}
+          onToggleLeft={() => setLeftCollapsed(prev => !prev)}
+          onToggleRight={handleToggleRight}
+          onOpenReview={handleOpenReview}
+          pendingDiffs={workspace.diffs.length}
+        />
+      </div>
     </div>
   );
 }

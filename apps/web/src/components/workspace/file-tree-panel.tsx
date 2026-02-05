@@ -40,8 +40,8 @@ export function FileTreePanel({ nodes, activePath, onSelect }: FileTreePanelProp
   }, [files, query]);
 
   return (
-    <div className="flex h-full flex-col bg-card/50">
-      <div className="flex h-12 items-center justify-between gap-2 border-b border-border/60 px-3">
+    <div className="flex h-full flex-col text-card-foreground">
+      <div className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-white/10 px-4">
         <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Files
         </span>
@@ -50,8 +50,8 @@ export function FileTreePanel({ nodes, activePath, onSelect }: FileTreePanelProp
         </Button>
       </div>
 
-      <div className="px-3 py-3">
-        <div className="flex items-center gap-2 rounded-md border border-border/60 bg-background/50 px-2.5 py-2">
+      <div className="px-4 py-3">
+        <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-foreground/5 px-2.5 py-2">
           <MagnifyingGlass size={14} className="shrink-0 text-muted-foreground" />
           <input
             type="text"
@@ -63,7 +63,7 @@ export function FileTreePanel({ nodes, activePath, onSelect }: FileTreePanelProp
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3 pb-4">
+      <div className="flex-1 overflow-y-auto px-4 pb-4 scrollbar-none">
         {nodes.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
             <File size={24} weight="bold" className="text-muted-foreground/50" />
@@ -84,8 +84,8 @@ export function FileTreePanel({ nodes, activePath, onSelect }: FileTreePanelProp
                   type="button"
                   onClick={() => onSelect(match.path)}
                   className={cn(
-                    "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[13px]",
-                    "transition-colors hover:bg-muted/60",
+                    "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px]",
+                    "transition-colors hover:bg-foreground/5",
                     activePath === match.path
                       ? "bg-primary/10 text-primary"
                       : "text-foreground/80"

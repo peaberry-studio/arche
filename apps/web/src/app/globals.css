@@ -4,10 +4,14 @@
 @plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
+@custom-variant dark-ember (&:is(.dark-ember *));
+@custom-variant dark-ash (&:is(.dark-ash *));
 
 @theme inline {
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
+  --color-surface: hsl(var(--surface));
+  --color-surface-foreground: hsl(var(--surface-foreground));
   --color-card: hsl(var(--card));
   --color-card-foreground: hsl(var(--card-foreground));
   --color-popover: hsl(var(--popover));
@@ -52,11 +56,14 @@
 
 :root {
   --radius: 0.625rem;
-  /* Fondo ligeramente gris para que las cards destaquen */
+  /* Fondo base del shell exterior */
   --background: 40 20% 96%;
   /* Texto principal con buen contraste */
   --foreground: 20 15% 12%;
-  /* Cards más blancas que el fondo para crear jerarquía */
+  /* Superficie intermedia: paneles laterales, header, footer */
+  --surface: 35 16% 93%;
+  --surface-foreground: 20 15% 15%;
+  /* Cards / panel principal: blanco elevado que "flota" */
   --card: 40 25% 99%;
   --card-foreground: 20 15% 12%;
   --popover: 0 0% 100%;
@@ -96,10 +103,13 @@
   --sidebar-ring: 24 85% 48%;
 }
 
-.dark {
+/* Dark mode: Ember variant (warm/orange tones) */
+.dark.dark-ember {
   --background: 20 12% 8%;
   --foreground: 30 15% 92%;
-  --card: 20 12% 10%;
+  --surface: 20 11% 11%;
+  --surface-foreground: 30 15% 88%;
+  --card: 20 12% 14%;
   --card-foreground: 30 15% 92%;
   --popover: 20 12% 10%;
   --popover-foreground: 30 15% 92%;
@@ -113,8 +123,8 @@
   --accent-foreground: 30 15% 92%;
   --destructive: 0 60% 45%;
   --destructive-foreground: 0 0% 100%;
-  --border: 20 10% 18%;
-  --input: 20 10% 18%;
+  --border: 20 10% 20%;
+  --input: 20 10% 20%;
   --ring: 24 80% 50%;
   --chart-1: 24 85% 55%;
   --chart-2: 12 65% 50%;
@@ -127,7 +137,45 @@
   --sidebar-primary-foreground: 20 12% 8%;
   --sidebar-accent: 20 10% 15%;
   --sidebar-accent-foreground: 30 15% 92%;
-  --sidebar-border: 20 10% 18%;
+  --sidebar-border: 20 10% 20%;
+  --sidebar-ring: 24 80% 50%;
+}
+
+/* Dark mode: Ash variant (neutral gray tones) */
+.dark.dark-ash {
+  --background: 0 0% 8%;
+  --foreground: 0 0% 92%;
+  --surface: 0 0% 11%;
+  --surface-foreground: 0 0% 88%;
+  --card: 0 0% 14%;
+  --card-foreground: 0 0% 92%;
+  --popover: 0 0% 10%;
+  --popover-foreground: 0 0% 92%;
+  --primary: 24 85% 55%;
+  --primary-foreground: 0 0% 8%;
+  --secondary: 0 0% 15%;
+  --secondary-foreground: 0 0% 92%;
+  --muted: 0 0% 15%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 0 0% 14%;
+  --accent-foreground: 0 0% 92%;
+  --destructive: 0 60% 45%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 0 0% 20%;
+  --input: 0 0% 20%;
+  --ring: 24 80% 50%;
+  --chart-1: 24 85% 55%;
+  --chart-2: 12 65% 50%;
+  --chart-3: 40 55% 50%;
+  --chart-4: 18 50% 42%;
+  --chart-5: 32 60% 60%;
+  --sidebar: 0 0% 9%;
+  --sidebar-foreground: 0 0% 92%;
+  --sidebar-primary: 24 85% 55%;
+  --sidebar-primary-foreground: 0 0% 8%;
+  --sidebar-accent: 0 0% 15%;
+  --sidebar-accent-foreground: 0 0% 92%;
+  --sidebar-border: 0 0% 20%;
   --sidebar-ring: 24 80% 50%;
 }
 
@@ -149,6 +197,42 @@
   }
   .scrollbar-none::-webkit-scrollbar {
     display: none;
+  }
+
+  /* Custom scrollbar - minimal style */
+  .scrollbar-custom {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--foreground) / 0.15) transparent;
+  }
+  .scrollbar-custom::-webkit-scrollbar {
+    width: 6px;
+  }
+  .scrollbar-custom::-webkit-scrollbar-track {
+    background: transparent;
+    margin: 4px 0;
+  }
+  .scrollbar-custom::-webkit-scrollbar-thumb {
+    background: hsl(var(--foreground) / 0.15);
+    border-radius: 3px;
+  }
+  .scrollbar-custom::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--foreground) / 0.25);
+  }
+  .scrollbar-custom::-webkit-scrollbar-thumb:active {
+    background: hsl(var(--foreground) / 0.35);
+  }
+
+  .dark .scrollbar-custom {
+    scrollbar-color: hsl(var(--foreground) / 0.2) transparent;
+  }
+  .dark .scrollbar-custom::-webkit-scrollbar-thumb {
+    background: hsl(var(--foreground) / 0.2);
+  }
+  .dark .scrollbar-custom::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--foreground) / 0.3);
+  }
+  .dark .scrollbar-custom::-webkit-scrollbar-thumb:active {
+    background: hsl(var(--foreground) / 0.4);
   }
 
   /* Markdown content styles */
@@ -217,7 +301,7 @@
     @apply my-3 max-w-full rounded-lg;
   }
 
-  /* Fondo orgánico sutil */
+  /* Fondo orgánico sutil - legacy, now we use dynamic themes */
   .organic-background {
     background-image: radial-gradient(
         ellipse 80% 60% at 50% -10%,
@@ -230,6 +314,44 @@
         transparent 50%
       ),
       linear-gradient(180deg, hsl(40 20% 97%), hsl(35 18% 95%));
+  }
+
+  /* Frosted glass panel effect */
+  .glass-panel {
+    @apply backdrop-blur-xl;
+    background: hsl(var(--card) / 0.82);
+    border: 1px solid hsl(0 0% 100% / 0.18);
+    box-shadow:
+      0 4px 24px hsl(20 15% 15% / 0.06),
+      0 1px 3px hsl(20 15% 15% / 0.04),
+      inset 0 1px 0 hsl(0 0% 100% / 0.08);
+  }
+
+  .dark .glass-panel {
+    background: hsl(var(--card) / 0.75);
+    border-color: hsl(0 0% 100% / 0.1);
+    box-shadow:
+      0 4px 24px hsl(0 0% 0% / 0.3),
+      0 1px 3px hsl(0 0% 0% / 0.2),
+      inset 0 1px 0 hsl(0 0% 100% / 0.05);
+  }
+
+  /* Lighter glass for header/footer */
+  .glass-bar {
+    @apply backdrop-blur-lg;
+    background: hsl(var(--card) / 0.72);
+    border: 1px solid hsl(0 0% 100% / 0.14);
+    box-shadow:
+      0 2px 12px hsl(20 15% 15% / 0.04),
+      inset 0 1px 0 hsl(0 0% 100% / 0.06);
+  }
+
+  .dark .glass-bar {
+    background: hsl(var(--card) / 0.65);
+    border-color: hsl(0 0% 100% / 0.08);
+    box-shadow:
+      0 2px 12px hsl(0 0% 0% / 0.25),
+      inset 0 1px 0 hsl(0 0% 100% / 0.04);
   }
 
   /* Superficie para cards elevadas */

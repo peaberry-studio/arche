@@ -33,34 +33,34 @@ export function WorkspaceFooter({
   };
 
   return (
-    <footer className="relative z-20 border-t border-border/60 bg-card/80 backdrop-blur-sm">
-      <div className="flex h-8 w-full items-center justify-between px-2">
+    <footer className="glass-bar relative z-20 shrink-0 rounded-2xl text-card-foreground">
+      <div className="flex h-9 w-full items-center justify-between px-4">
         <button
           type="button"
           onClick={onToggleLeft}
           className={cn(
-            "flex items-center justify-center rounded p-1.5 transition-colors hover:bg-muted/50",
+            "flex items-center justify-center rounded-lg p-1.5 transition-colors hover:bg-foreground/5",
             leftCollapsed
               ? "text-muted-foreground hover:text-foreground"
               : "text-foreground"
           )}
           aria-label={leftCollapsed ? "Show files" : "Hide files"}
         >
-          <SidebarSimple size={17} weight={leftCollapsed ? "regular" : "bold"} />
+          <SidebarSimple size={18} weight={leftCollapsed ? "regular" : "bold"} />
         </button>
 
         <button
           type="button"
           onClick={handleRightClick}
           className={cn(
-            "relative flex items-center justify-center rounded p-1.5 transition-colors hover:bg-muted/50",
+            "relative flex items-center justify-center rounded-lg p-1.5 transition-colors hover:bg-foreground/5",
             rightCollapsed
               ? "text-muted-foreground hover:text-foreground"
               : "text-foreground"
           )}
           aria-label={rightCollapsed ? "Show inspector" : "Hide inspector"}
         >
-          <SquareHalf size={17} weight={rightCollapsed ? "regular" : "bold"} />
+          <SquareHalf size={18} weight={rightCollapsed ? "regular" : "bold"} />
           {showReviewBadge ? (
             <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
               {badgeLabel}
