@@ -575,6 +575,7 @@ vars = {
     "arche_seed_admin_slug": os.environ["ARCHE_SEED_ADMIN_SLUG"],
     "arche_seed_test_email": os.environ.get("ARCHE_SEED_TEST_EMAIL", ""),
     "arche_seed_test_slug": os.environ.get("ARCHE_SEED_TEST_SLUG", ""),
+    "users_path": os.environ.get("ARCHE_USERS_PATH", "/opt/arche/users"),
 }
 json.dump(vars, open(sys.argv[1], "w"))
 ' "$EXTRA_VARS_FILE"

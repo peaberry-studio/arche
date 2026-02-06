@@ -6,7 +6,7 @@ name: arche
 
 services:
   docker-socket-proxy:
-    image: tecnativa/docker-socket-proxy:0.3
+    image: ghcr.io/tecnativa/docker-socket-proxy:master
     restart: unless-stopped
     environment:
       CONTAINERS: 1

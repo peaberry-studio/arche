@@ -8,8 +8,8 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 const PROVIDER_BASE_URL: Record<ProviderId, string> = {
-  openai: 'https://api.openai.com',
-  anthropic: 'https://api.anthropic.com',
+  openai: 'https://api.openai.com/v1',
+  anthropic: 'https://api.anthropic.com/v1',
   openrouter: 'https://openrouter.ai/api/v1',
 }
 
