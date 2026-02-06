@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+import {
+  buildAgentToolsConfigFromCapabilities,
+  type AgentCapabilities,
+  validateAgentCapabilityConnectorIds,
+  validateAgentCapabilityTools,
+} from '@/lib/agent-capabilities'
 import { auditEvent, getAuthenticatedUser } from '@/lib/auth'
 import { readCommonWorkspaceConfig, writeCommonWorkspaceConfig } from '@/lib/common-workspace-config-store'
+import type { ConnectorType } from '@/lib/connectors/types'
+import { validateConnectorType } from '@/lib/connectors/validators'
+import { prisma } from '@/lib/prisma'
 import {
   type CommonAgentConfig,
   type CommonWorkspaceConfig,
@@ -10,7 +19,7 @@ import {
   generateAgentId,
   getAgentSummaries,
   parseCommonWorkspaceConfig,
-  validateCommonWorkspaceConfig
+  validateCommonWorkspaceConfig,
 } from '@/lib/workspace-config'
 
 export type AgentListItem = {
@@ -20,6 +29,7 @@ export type AgentListItem = {
   model?: string
   temperature?: number
   isPrimary: boolean
+  capabilities: AgentCapabilities
 }
 
 type AgentsListResponse = {
@@ -37,7 +47,19 @@ type CreateAgentRequest = {
   prompt?: string
   isPrimary?: boolean
   expectedHash?: string
+  capabilities?: {
+    tools?: unknown
+    mcpConnectorIds?: unknown
+  }
 }
+
+type EnabledConnector = {
+  id: string
+  type: ConnectorType
+  enabled: boolean
+}
+
+const RESERVED_AGENT_IDS = new Set(['models'])
 
 async function loadCommonConfig() {
   const result = await readCommonWorkspaceConfig()
@@ -58,7 +80,68 @@ async function loadCommonConfig() {
   return {
     ok: true as const,
     config: parsed.config,
-    hash: result.hash
+    hash: result.hash,
+  }
+}
+
+async function loadEnabledConnectorsForSlug(slug: string): Promise<EnabledConnector[]> {
+  const user = await prisma.user.findUnique({
+    where: { slug },
+    select: { id: true },
+  })
+  if (!user) return []
+
+  const connectors = await prisma.connector.findMany({
+    where: { userId: user.id, enabled: true },
+    select: { id: true, type: true, enabled: true },
+  })
+
+  return connectors
+    .filter((connector) => validateConnectorType(connector.type))
+    .map((connector) => ({
+      id: connector.id,
+      type: connector.type,
+      enabled: connector.enabled,
+    }))
+}
+
+function parseCapabilities(
+  value: unknown,
+  enabledConnectors: EnabledConnector[]
+): { ok: true; capabilities: AgentCapabilities } | { ok: false; error: string } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { ok: false, error: 'invalid_capabilities' }
+  }
+
+  const capabilities = value as {
+    tools?: unknown
+    mcpConnectorIds?: unknown
+  }
+
+  const toolsResult = validateAgentCapabilityTools(capabilities.tools)
+  if (!toolsResult.ok) {
+    return { ok: false, error: toolsResult.error }
+  }
+
+  const connectorResult = validateAgentCapabilityConnectorIds(capabilities.mcpConnectorIds)
+  if (!connectorResult.ok) {
+    return { ok: false, error: connectorResult.error }
+  }
+
+  const enabledConnectorIds = new Set(enabledConnectors.map((connector) => connector.id))
+  const unknownConnectorId = connectorResult.connectorIds.find(
+    (connectorId) => !enabledConnectorIds.has(connectorId)
+  )
+  if (unknownConnectorId) {
+    return { ok: false, error: 'unknown_mcp_connector' }
+  }
+
+  return {
+    ok: true,
+    capabilities: {
+      tools: toolsResult.tools,
+      mcpConnectorIds: connectorResult.connectorIds,
+    },
   }
 }
 
@@ -82,9 +165,7 @@ export async function GET(
     if (configResult.error === 'not_found') {
       return NextResponse.json({ agents: [] })
     }
-    const status = configResult.error === 'kb_unavailable'
-        ? 503
-        : 500
+    const status = configResult.error === 'kb_unavailable' ? 503 : 500
     return NextResponse.json({ error: configResult.error }, { status })
   }
 
@@ -95,7 +176,8 @@ export async function GET(
       description: agent.description,
       model: agent.model,
       temperature: agent.temperature,
-      isPrimary: agent.isPrimary
+      isPrimary: agent.isPrimary,
+      capabilities: agent.capabilities,
     }))
     .sort((a, b) => {
       if (a.isPrimary && !b.isPrimary) return -1
@@ -135,11 +217,12 @@ export async function POST(
     return NextResponse.json({ error: 'invalid_body' }, { status: 400 })
   }
 
-  const displayNameRaw = typeof body.displayName === 'string'
-    ? body.displayName.trim()
-    : typeof body.name === 'string'
-      ? body.name.trim()
-      : ''
+  const displayNameRaw =
+    typeof body.displayName === 'string'
+      ? body.displayName.trim()
+      : typeof body.name === 'string'
+        ? body.name.trim()
+        : ''
   if (!displayNameRaw) {
     return NextResponse.json({ error: 'missing_display_name' }, { status: 400 })
   }
@@ -151,7 +234,7 @@ export async function POST(
       ? {
           ok: true as const,
           config: createDefaultCommonWorkspaceConfig(),
-          hash: undefined
+          hash: undefined,
         }
       : loadedConfig
 
@@ -165,7 +248,13 @@ export async function POST(
   const id = explicitId || generateAgentId(displayNameRaw, existingIds)
 
   if (id.includes('/') || /\s/.test(id)) {
-    return NextResponse.json({ error: 'invalid_id', message: 'Agent id must not include spaces or slashes.' }, { status: 400 })
+    return NextResponse.json(
+      { error: 'invalid_id', message: 'Agent id must not include spaces or slashes.' },
+      { status: 400 }
+    )
+  }
+  if (RESERVED_AGENT_IDS.has(id)) {
+    return NextResponse.json({ error: 'invalid_id', message: 'Agent id is reserved.' }, { status: 400 })
   }
   if (configResult.config.agent?.[id]) {
     return NextResponse.json({ error: 'agent_exists' }, { status: 409 })
@@ -173,12 +262,20 @@ export async function POST(
 
   const prompt = typeof body.prompt === 'string' ? body.prompt : ''
   const model = typeof body.model === 'string' && body.model.trim() ? body.model.trim() : undefined
-  const description = typeof body.description === 'string' && body.description.trim()
-    ? body.description.trim()
-    : undefined
-  const temperature = typeof body.temperature === 'number' && Number.isFinite(body.temperature)
-    ? body.temperature
-    : undefined
+  const description =
+    typeof body.description === 'string' && body.description.trim()
+      ? body.description.trim()
+      : undefined
+  const temperature =
+    typeof body.temperature === 'number' && Number.isFinite(body.temperature)
+      ? body.temperature
+      : undefined
+
+  const enabledConnectors = await loadEnabledConnectorsForSlug(slug)
+  const capabilitiesResult = parseCapabilities(body.capabilities, enabledConnectors)
+  if (!capabilitiesResult.ok) {
+    return NextResponse.json({ error: capabilitiesResult.error }, { status: 400 })
+  }
 
   const newAgent: CommonAgentConfig = {
     display_name: displayNameRaw,
@@ -187,19 +284,15 @@ export async function POST(
     model,
     temperature,
     prompt,
-    tools: {
-      write: false,
-      edit: false,
-      bash: false
-    }
+    tools: buildAgentToolsConfigFromCapabilities(capabilitiesResult.capabilities, enabledConnectors),
   }
 
   const nextConfig: CommonWorkspaceConfig = {
     ...configResult.config,
     agent: {
       ...configResult.config.agent,
-      [id]: newAgent
-    }
+      [id]: newAgent,
+    },
   }
 
   const withPrimary = body.isPrimary ? ensurePrimaryAgent(nextConfig, id) : nextConfig
@@ -209,9 +302,8 @@ export async function POST(
   }
 
   const content = JSON.stringify(withPrimary, null, 2)
-  const expectedHash = typeof body.expectedHash === 'string' && body.expectedHash
-    ? body.expectedHash
-    : configResult.hash
+  const expectedHash =
+    typeof body.expectedHash === 'string' && body.expectedHash ? body.expectedHash : configResult.hash
 
   const writeResult = await writeCommonWorkspaceConfig(content, expectedHash)
   if (!writeResult.ok) {
@@ -222,7 +314,7 @@ export async function POST(
   await auditEvent({
     actorUserId: session.user.id,
     action: 'agent.created',
-    metadata: { slug, agentId: id }
+    metadata: { slug, agentId: id },
   })
 
   const createdAgent = getAgentSummaries(withPrimary).find((agent) => agent.id === id)
@@ -230,15 +322,19 @@ export async function POST(
     return NextResponse.json({ error: 'agent_create_failed' }, { status: 500 })
   }
 
-  return NextResponse.json({
-    agent: {
-      id: createdAgent.id,
-      displayName: createdAgent.displayName,
-      description: createdAgent.description,
-      model: createdAgent.model,
-      temperature: createdAgent.temperature,
-      isPrimary: createdAgent.isPrimary
+  return NextResponse.json(
+    {
+      agent: {
+        id: createdAgent.id,
+        displayName: createdAgent.displayName,
+        description: createdAgent.description,
+        model: createdAgent.model,
+        temperature: createdAgent.temperature,
+        isPrimary: createdAgent.isPrimary,
+        capabilities: createdAgent.capabilities,
+      },
+      hash: writeResult.hash,
     },
-    hash: writeResult.hash
-  }, { status: 201 })
+    { status: 201 }
+  )
 }

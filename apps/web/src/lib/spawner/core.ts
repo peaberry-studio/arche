@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { auditEvent } from '@/lib/auth'
-import { getCommonWorkspaceConfigHash } from '@/lib/common-workspace-config-store'
+import { getCommonWorkspaceConfigHash, readCommonWorkspaceConfig } from '@/lib/common-workspace-config-store'
 import { isInstanceHealthyWithPassword } from '@/lib/opencode/client'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
 import * as docker from './docker'
@@ -61,12 +61,28 @@ export async function startInstance(slug: string, userId: string): Promise<Start
   try {
     let opencodeConfigContent: string | undefined
     try {
+      // Read workspace config (agents, default_agent, prompts, etc.)
+      let baseConfig: Record<string, unknown> = {}
+      const commonConfigResult = await readCommonWorkspaceConfig()
+      if (commonConfigResult.ok) {
+        try {
+          baseConfig = JSON.parse(commonConfigResult.content)
+        } catch {
+          console.warn('[spawner] Failed to parse CommonWorkspaceConfig')
+        }
+      }
+
+      // Merge MCP connectors config
       const mcpConfig = await buildMcpConfigForSlug(slug)
-      if (mcpConfig) {
-        opencodeConfigContent = JSON.stringify(mcpConfig)
+      if (mcpConfig?.mcp && Object.keys(mcpConfig.mcp).length > 0) {
+        baseConfig = { ...baseConfig, mcp: mcpConfig.mcp }
+      }
+
+      if (Object.keys(baseConfig).length > 0) {
+        opencodeConfigContent = JSON.stringify(baseConfig)
       }
     } catch {
-      console.warn('[spawner] MCP config build failed')
+      console.warn('[spawner] Config build failed')
     }
 
     const container = await docker.createContainer(slug, password, opencodeConfigContent)

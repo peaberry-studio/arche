@@ -1,12 +1,17 @@
 'use client'
 
-import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  OPENCODE_AGENT_TOOL_OPTIONS,
+  type AgentCapabilities,
+  type OpenCodeAgentToolId,
+} from '@/lib/agent-capabilities'
 
 type AgentFormProps = {
   slug: string
@@ -14,10 +19,17 @@ type AgentFormProps = {
   agentId?: string
 }
 
-const MODEL_OPTIONS = [
-  { value: 'openai/gpt-5.2', label: 'OpenAI · GPT-5.2' },
-  { value: 'anthropic/claude-sonnet-4-20250514', label: 'Anthropic · Claude Sonnet 4' }
-]
+type ModelOption = {
+  id: string
+  label: string
+}
+
+type ConnectorListItem = {
+  id: string
+  type: string
+  name: string
+  enabled: boolean
+}
 
 export function AgentForm({ slug, mode, agentId }: AgentFormProps) {
   const router = useRouter()
@@ -28,6 +40,10 @@ export function AgentForm({ slug, mode, agentId }: AgentFormProps) {
   const [temperature, setTemperature] = useState('')
   const [prompt, setPrompt] = useState('')
   const [isPrimary, setIsPrimary] = useState(false)
+  const [enabledTools, setEnabledTools] = useState<OpenCodeAgentToolId[]>([])
+  const [enabledMcpConnectorIds, setEnabledMcpConnectorIds] = useState<string[]>([])
+  const [connectors, setConnectors] = useState<ConnectorListItem[]>([])
+  const [modelOptions, setModelOptions] = useState<ModelOption[]>([])
   const [hash, setHash] = useState<string | undefined>()
   const [isLoading, setIsLoading] = useState(mode === 'edit')
   const [isSaving, setIsSaving] = useState(false)
@@ -36,24 +52,66 @@ export function AgentForm({ slug, mode, agentId }: AgentFormProps) {
   const [saveSuccess, setSaveSuccess] = useState(false)
 
   useEffect(() => {
+    let cancelled = false
+
+    async function loadFormOptions() {
+      const [modelsResponse, connectorsResponse] = await Promise.all([
+        fetch(`/api/u/${slug}/agents/models`, { cache: 'no-store' }).catch(() => null),
+        fetch(`/api/u/${slug}/connectors`, { cache: 'no-store' }).catch(() => null),
+      ])
+
+      if (cancelled) return
+
+      if (modelsResponse?.ok) {
+        const data = (await modelsResponse.json().catch(() => null)) as
+          | { models?: ModelOption[] }
+          | null
+        setModelOptions(data?.models ?? [])
+      }
+
+      if (connectorsResponse?.ok) {
+        const data = (await connectorsResponse.json().catch(() => null)) as
+          | { connectors?: ConnectorListItem[] }
+          | null
+        const enabledConnectorList = (data?.connectors ?? []).filter((connector) => connector.enabled)
+        setConnectors(enabledConnectorList)
+        setEnabledMcpConnectorIds((current) =>
+          current.filter((connectorId) =>
+            enabledConnectorList.some((connector) => connector.id === connectorId)
+          )
+        )
+      }
+    }
+
+    loadFormOptions().catch(() => {})
+
+    return () => {
+      cancelled = true
+    }
+  }, [slug])
+
+  useEffect(() => {
     if (mode === 'edit' && agentId) {
       setIsLoading(true)
       setLoadError(null)
       fetch(`/api/u/${slug}/agents/${agentId}`, { cache: 'no-store' })
         .then(async (response) => {
-          const data = await response.json().catch(() => null) as {
-            agent?: {
-              id: string
-              displayName?: string
-              description?: string
-              model?: string
-              temperature?: number
-              prompt?: string
-              isPrimary: boolean
-            }
-            hash?: string
-            error?: string
-          } | null
+          const data = (await response.json().catch(() => null)) as
+            | {
+                agent?: {
+                  id: string
+                  displayName?: string
+                  description?: string
+                  model?: string
+                  temperature?: number
+                  prompt?: string
+                  isPrimary: boolean
+                  capabilities?: AgentCapabilities
+                }
+                hash?: string
+                error?: string
+              }
+            | null
 
           if (!response.ok || !data?.agent) {
             setLoadError(data?.error ?? 'load_failed')
@@ -67,6 +125,8 @@ export function AgentForm({ slug, mode, agentId }: AgentFormProps) {
           setTemperature(typeof data.agent.temperature === 'number' ? String(data.agent.temperature) : '')
           setPrompt(data.agent.prompt ?? '')
           setIsPrimary(data.agent.isPrimary)
+          setEnabledTools((data.agent.capabilities?.tools ?? []) as OpenCodeAgentToolId[])
+          setEnabledMcpConnectorIds(data.agent.capabilities?.mcpConnectorIds ?? [])
           setHash(data.hash)
         })
         .catch(() => setLoadError('network_error'))
@@ -77,7 +137,7 @@ export function AgentForm({ slug, mode, agentId }: AgentFormProps) {
     if (mode === 'create') {
       fetch(`/api/u/${slug}/agents`, { cache: 'no-store' })
         .then(async (response) => {
-          const data = await response.json().catch(() => null) as { hash?: string } | null
+          const data = (await response.json().catch(() => null)) as { hash?: string } | null
           if (response.ok && data?.hash) {
             setHash(data.hash)
           }
@@ -94,9 +154,9 @@ export function AgentForm({ slug, mode, agentId }: AgentFormProps) {
       const response = await fetch(`/api/u/${slug}/agents/${agentId}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ isPrimary: true, expectedHash: hash })
+        body: JSON.stringify({ isPrimary: true, expectedHash: hash }),
       })
-      const data = await response.json().catch(() => null) as { hash?: string; error?: string } | null
+      const data = (await response.json().catch(() => null)) as { hash?: string; error?: string } | null
       if (!response.ok) {
         setSaveError(data?.error ?? 'update_failed')
         return
@@ -123,9 +183,9 @@ export function AgentForm({ slug, mode, agentId }: AgentFormProps) {
       const response = await fetch(`/api/u/${slug}/agents/${agentId}`, {
         method: 'DELETE',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ expectedHash: hash })
+        body: JSON.stringify({ expectedHash: hash }),
       })
-      const data = await response.json().catch(() => null) as { error?: string } | null
+      const data = (await response.json().catch(() => null)) as { error?: string } | null
       if (!response.ok) {
         setSaveError(data?.error ?? 'delete_failed')
         return
@@ -136,6 +196,20 @@ export function AgentForm({ slug, mode, agentId }: AgentFormProps) {
     } finally {
       setIsSaving(false)
     }
+  }
+
+  const toggleTool = (toolId: OpenCodeAgentToolId) => {
+    setEnabledTools((current) =>
+      current.includes(toolId) ? current.filter((idEntry) => idEntry !== toolId) : [...current, toolId]
+    )
+  }
+
+  const toggleMcpConnector = (connectorId: string) => {
+    setEnabledMcpConnectorIds((current) =>
+      current.includes(connectorId)
+        ? current.filter((idEntry) => idEntry !== connectorId)
+        : [...current, connectorId]
+    )
   }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -151,6 +225,11 @@ export function AgentForm({ slug, mode, agentId }: AgentFormProps) {
       return
     }
 
+    const capabilities: AgentCapabilities = {
+      tools: enabledTools,
+      mcpConnectorIds: enabledMcpConnectorIds,
+    }
+
     try {
       if (mode === 'create') {
         const payload = {
@@ -160,14 +239,15 @@ export function AgentForm({ slug, mode, agentId }: AgentFormProps) {
           temperature: temperature.trim() ? Number(temperature) : undefined,
           prompt,
           isPrimary,
-          expectedHash: hash
+          expectedHash: hash,
+          capabilities,
         }
         const response = await fetch(`/api/u/${slug}/agents`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(payload),
         })
-        const data = await response.json().catch(() => null) as { error?: string } | null
+        const data = (await response.json().catch(() => null)) as { error?: string } | null
         if (!response.ok) {
           setSaveError(data?.error ?? 'create_failed')
           return
@@ -182,14 +262,15 @@ export function AgentForm({ slug, mode, agentId }: AgentFormProps) {
         model: model.trim() ? model.trim() : null,
         temperature: temperature.trim() ? Number(temperature) : null,
         prompt,
-        expectedHash: hash
+        expectedHash: hash,
+        capabilities,
       }
       const response = await fetch(`/api/u/${slug}/agents/${agentId}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
       })
-      const data = await response.json().catch(() => null) as { hash?: string; error?: string } | null
+      const data = (await response.json().catch(() => null)) as { hash?: string; error?: string } | null
       if (!response.ok) {
         setSaveError(data?.error ?? 'update_failed')
         return
@@ -216,8 +297,7 @@ export function AgentForm({ slug, mode, agentId }: AgentFormProps) {
     )
   }
 
-  const modelOptions = MODEL_OPTIONS
-  const hasCurrentModel = modelOptions.some((option) => option.value === model)
+  const hasCurrentModel = modelOptions.some((option) => option.id === model)
   const saveLabel = isSaving
     ? 'Saving...'
     : saveSuccess
@@ -261,13 +341,11 @@ export function AgentForm({ slug, mode, agentId }: AgentFormProps) {
           />
           <datalist id="agent-models">
             {modelOptions.map((option) => (
-              <option key={option.value} value={option.value}>
+              <option key={option.id} value={option.id}>
                 {option.label}
               </option>
             ))}
-            {!hasCurrentModel && model ? (
-              <option value={model}>Current: {model}</option>
-            ) : null}
+            {!hasCurrentModel && model ? <option value={model}>Current: {model}</option> : null}
           </datalist>
         </div>
         <div className="space-y-2">
@@ -307,7 +385,63 @@ export function AgentForm({ slug, mode, agentId }: AgentFormProps) {
         />
       </div>
 
-      {/* Agent type toggle */}
+      <div className="space-y-3">
+        <Label>Capabilities - Tools</Label>
+        <p className="text-xs text-muted-foreground">
+          Select the built-in OpenCode tools this agent can use.
+        </p>
+        <div className="grid gap-2 md:grid-cols-2">
+          {OPENCODE_AGENT_TOOL_OPTIONS.map((tool) => {
+            const checked = enabledTools.includes(tool.id)
+            return (
+              <label key={tool.id} className="flex items-center gap-2 text-sm text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => toggleTool(tool.id)}
+                  className="h-4 w-4 rounded border border-border"
+                />
+                <span>{tool.label}</span>
+                <span className="text-xs">({tool.id})</span>
+              </label>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <Label>Capabilities - MCP connectors</Label>
+        <p className="text-xs text-muted-foreground">
+          Allow this agent to use MCP tools from selected connectors.
+        </p>
+        {connectors.length === 0 ? (
+          <div className="rounded-lg border border-border/60 bg-card/50 p-3 text-sm text-muted-foreground">
+            No enabled connectors available.
+          </div>
+        ) : (
+          <div className="grid gap-2 md:grid-cols-2">
+            {connectors.map((connector) => {
+              const checked = enabledMcpConnectorIds.includes(connector.id)
+              return (
+                <label
+                  key={connector.id}
+                  className="flex items-center gap-2 rounded-lg border border-border/60 bg-card/50 px-3 py-2 text-sm"
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleMcpConnector(connector.id)}
+                    className="h-4 w-4 rounded border border-border"
+                  />
+                  <span className="font-medium">{connector.name}</span>
+                  <span className="text-xs text-muted-foreground">{connector.type}</span>
+                </label>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
       {mode === 'edit' && (
         <div className="flex flex-col gap-3">
           <Label>Agent type</Label>
@@ -360,9 +494,7 @@ export function AgentForm({ slug, mode, agentId }: AgentFormProps) {
         </div>
       )}
 
-      {/* Actions */}
       <div className="flex items-center justify-between border-t border-border/40 pt-6">
-        {/* Primary actions */}
         <div className="flex items-center gap-3">
           <Button type="submit" disabled={isSaving} variant={saveSuccess ? 'secondary' : 'default'}>
             {saveLabel}
@@ -372,7 +504,6 @@ export function AgentForm({ slug, mode, agentId }: AgentFormProps) {
           </Button>
         </div>
 
-        {/* Destructive action */}
         {mode === 'edit' && (
           <button
             type="button"

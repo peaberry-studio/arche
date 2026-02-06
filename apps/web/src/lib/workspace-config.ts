@@ -1,3 +1,5 @@
+import { extractAgentCapabilitiesFromTools, type AgentCapabilities } from '@/lib/agent-capabilities'
+
 export type CommonAgentConfig = {
   description?: string
   display_name?: string
@@ -48,6 +50,7 @@ export type CommonAgentSummary = {
   prompt?: string
   mode?: string
   isPrimary: boolean
+  capabilities: AgentCapabilities
 }
 
 export type CommonWorkspaceConfigResult =
@@ -142,7 +145,8 @@ export function getAgentSummaries(config: CommonWorkspaceConfig): CommonAgentSum
     temperature: typeof agent?.temperature === 'number' ? agent.temperature : undefined,
     prompt: typeof agent?.prompt === 'string' ? agent.prompt : undefined,
     mode: typeof agent?.mode === 'string' ? agent.mode : undefined,
-    isPrimary: defaultAgent === id || agent?.mode === 'primary'
+    isPrimary: defaultAgent === id || agent?.mode === 'primary',
+    capabilities: extractAgentCapabilitiesFromTools(agent?.tools)
   }))
 }
 

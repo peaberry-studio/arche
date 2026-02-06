@@ -40,7 +40,7 @@ function toStringRecord(value: unknown): Record<string, string> | undefined {
   return Object.keys(record).length ? record : undefined
 }
 
-function buildKey(type: ConnectorType, id: string): string {
+export function buildMcpServerKey(type: ConnectorType, id: string): string {
   return `arche_${type}_${id}`
 }
 
@@ -61,7 +61,7 @@ export function buildMcpConfigFromConnectors(connectors: ConnectorRecord[]): Mcp
     const validation = validateConnectorConfig(connector.type, config)
     if (!validation.valid) continue
 
-    const key = buildKey(connector.type, connector.id)
+    const key = buildMcpServerKey(connector.type, connector.id)
 
     switch (connector.type) {
       case 'github':

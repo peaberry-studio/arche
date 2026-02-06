@@ -1,13 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+import {
+  buildAgentToolsConfigFromCapabilities,
+  type AgentCapabilities,
+  validateAgentCapabilityConnectorIds,
+  validateAgentCapabilityTools,
+} from '@/lib/agent-capabilities'
 import { auditEvent, getAuthenticatedUser } from '@/lib/auth'
 import { readCommonWorkspaceConfig, writeCommonWorkspaceConfig } from '@/lib/common-workspace-config-store'
+import type { ConnectorType } from '@/lib/connectors/types'
+import { validateConnectorType } from '@/lib/connectors/validators'
+import { prisma } from '@/lib/prisma'
 import {
   type CommonWorkspaceConfig,
   ensurePrimaryAgent,
   getAgentSummaries,
   parseCommonWorkspaceConfig,
-  validateCommonWorkspaceConfig
+  validateCommonWorkspaceConfig,
 } from '@/lib/workspace-config'
 
 type AgentDetailResponse = {
@@ -19,6 +28,7 @@ type AgentDetailResponse = {
     temperature?: number
     prompt?: string
     isPrimary: boolean
+    capabilities: AgentCapabilities
   }
   hash?: string
 }
@@ -31,6 +41,16 @@ type UpdateAgentRequest = {
   prompt?: string | null
   isPrimary?: boolean
   expectedHash?: string
+  capabilities?: {
+    tools?: unknown
+    mcpConnectorIds?: unknown
+  }
+}
+
+type EnabledConnector = {
+  id: string
+  type: ConnectorType
+  enabled: boolean
 }
 
 async function loadCommonConfig() {
@@ -52,7 +72,68 @@ async function loadCommonConfig() {
   return {
     ok: true as const,
     config: parsed.config,
-    hash: result.hash
+    hash: result.hash,
+  }
+}
+
+async function loadEnabledConnectorsForSlug(slug: string): Promise<EnabledConnector[]> {
+  const user = await prisma.user.findUnique({
+    where: { slug },
+    select: { id: true },
+  })
+  if (!user) return []
+
+  const connectors = await prisma.connector.findMany({
+    where: { userId: user.id, enabled: true },
+    select: { id: true, type: true, enabled: true },
+  })
+
+  return connectors
+    .filter((connector) => validateConnectorType(connector.type))
+    .map((connector) => ({
+      id: connector.id,
+      type: connector.type,
+      enabled: connector.enabled,
+    }))
+}
+
+function parseCapabilities(
+  value: unknown,
+  enabledConnectors: EnabledConnector[]
+): { ok: true; capabilities: AgentCapabilities } | { ok: false; error: string } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { ok: false, error: 'invalid_capabilities' }
+  }
+
+  const capabilities = value as {
+    tools?: unknown
+    mcpConnectorIds?: unknown
+  }
+
+  const toolsResult = validateAgentCapabilityTools(capabilities.tools)
+  if (!toolsResult.ok) {
+    return { ok: false, error: toolsResult.error }
+  }
+
+  const connectorResult = validateAgentCapabilityConnectorIds(capabilities.mcpConnectorIds)
+  if (!connectorResult.ok) {
+    return { ok: false, error: connectorResult.error }
+  }
+
+  const enabledConnectorIds = new Set(enabledConnectors.map((connector) => connector.id))
+  const unknownConnectorId = connectorResult.connectorIds.find(
+    (connectorId) => !enabledConnectorIds.has(connectorId)
+  )
+  if (unknownConnectorId) {
+    return { ok: false, error: 'unknown_mcp_connector' }
+  }
+
+  return {
+    ok: true,
+    capabilities: {
+      tools: toolsResult.tools,
+      mcpConnectorIds: connectorResult.connectorIds,
+    },
   }
 }
 
@@ -73,11 +154,8 @@ export async function GET(
 
   const configResult = await loadCommonConfig()
   if (!configResult.ok) {
-    const status = configResult.error === 'not_found'
-      ? 404
-      : configResult.error === 'kb_unavailable'
-        ? 503
-        : 500
+    const status =
+      configResult.error === 'not_found' ? 404 : configResult.error === 'kb_unavailable' ? 503 : 500
     return NextResponse.json({ error: configResult.error }, { status })
   }
 
@@ -94,9 +172,10 @@ export async function GET(
       model: agent.model,
       temperature: agent.temperature,
       prompt: agent.prompt,
-      isPrimary: agent.isPrimary
+      isPrimary: agent.isPrimary,
+      capabilities: agent.capabilities,
     },
-    hash: configResult.hash
+    hash: configResult.hash,
   })
 }
 
@@ -131,11 +210,8 @@ export async function PATCH(
 
   const configResult = await loadCommonConfig()
   if (!configResult.ok) {
-    const status = configResult.error === 'not_found'
-      ? 404
-      : configResult.error === 'kb_unavailable'
-        ? 503
-        : 500
+    const status =
+      configResult.error === 'not_found' ? 404 : configResult.error === 'kb_unavailable' ? 503 : 500
     return NextResponse.json({ error: configResult.error }, { status })
   }
 
@@ -196,12 +272,25 @@ export async function PATCH(
     }
   }
 
+  if ('capabilities' in body) {
+    const enabledConnectors = await loadEnabledConnectorsForSlug(slug)
+    const capabilitiesResult = parseCapabilities(body.capabilities, enabledConnectors)
+    if (!capabilitiesResult.ok) {
+      return NextResponse.json({ error: capabilitiesResult.error }, { status: 400 })
+    }
+
+    updated.tools = buildAgentToolsConfigFromCapabilities(
+      capabilitiesResult.capabilities,
+      enabledConnectors
+    )
+  }
+
   let nextConfig: CommonWorkspaceConfig = {
     ...configResult.config,
     agent: {
       ...configResult.config.agent,
-      [name]: updated
-    }
+      [name]: updated,
+    },
   }
 
   if (body.isPrimary === true) {
@@ -216,9 +305,8 @@ export async function PATCH(
   }
 
   const content = JSON.stringify(nextConfig, null, 2)
-  const expectedHash = typeof body.expectedHash === 'string' && body.expectedHash
-    ? body.expectedHash
-    : configResult.hash
+  const expectedHash =
+    typeof body.expectedHash === 'string' && body.expectedHash ? body.expectedHash : configResult.hash
 
   const writeResult = await writeCommonWorkspaceConfig(content, expectedHash)
   if (!writeResult.ok) {
@@ -229,7 +317,7 @@ export async function PATCH(
   await auditEvent({
     actorUserId: session.user.id,
     action: 'agent.updated',
-    metadata: { slug, agentId: name }
+    metadata: { slug, agentId: name },
   })
 
   const agent = getAgentSummaries(nextConfig).find((entry) => entry.id === name)
@@ -245,9 +333,10 @@ export async function PATCH(
       model: agent.model,
       temperature: agent.temperature,
       prompt: agent.prompt,
-      isPrimary: agent.isPrimary
+      isPrimary: agent.isPrimary,
+      capabilities: agent.capabilities,
     },
-    hash: writeResult.hash
+    hash: writeResult.hash,
   })
 }
 
@@ -275,11 +364,8 @@ export async function DELETE(
 
   const configResult = await loadCommonConfig()
   if (!configResult.ok) {
-    const status = configResult.error === 'not_found'
-      ? 404
-      : configResult.error === 'kb_unavailable'
-        ? 503
-        : 500
+    const status =
+      configResult.error === 'not_found' ? 404 : configResult.error === 'kb_unavailable' ? 503 : 500
     return NextResponse.json({ error: configResult.error }, { status })
   }
 
@@ -288,7 +374,7 @@ export async function DELETE(
     return NextResponse.json({ error: 'not_found' }, { status: 404 })
   }
 
-  if (configResult.config.default_agent === name || agent?.mode === 'primary') {
+  if (configResult.config.default_agent === name || agent.mode === 'primary') {
     return NextResponse.json({ error: 'primary_agent' }, { status: 409 })
   }
 
@@ -301,7 +387,7 @@ export async function DELETE(
 
   const nextConfig: CommonWorkspaceConfig = {
     ...configResult.config,
-    agent: remaining
+    agent: remaining,
   }
 
   const validation = validateCommonWorkspaceConfig(nextConfig)
@@ -310,9 +396,8 @@ export async function DELETE(
   }
 
   const content = JSON.stringify(nextConfig, null, 2)
-  const expectedHash = body && typeof body.expectedHash === 'string' && body.expectedHash
-    ? body.expectedHash
-    : configResult.hash
+  const expectedHash =
+    body && typeof body.expectedHash === 'string' && body.expectedHash ? body.expectedHash : configResult.hash
 
   const writeResult = await writeCommonWorkspaceConfig(content, expectedHash)
   if (!writeResult.ok) {
@@ -323,7 +408,7 @@ export async function DELETE(
   await auditEvent({
     actorUserId: session.user.id,
     action: 'agent.deleted',
-    metadata: { slug, agentId: name }
+    metadata: { slug, agentId: name },
   })
 
   return NextResponse.json({ hash: writeResult.hash })
