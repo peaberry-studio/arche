@@ -8,13 +8,13 @@ fi
 
 # Apply OpenCode config from user-data (written by the spawner).
 # This contains the merged config: agents + MCP connectors + provider gateway.
-if [ ! -f "/workspace/opencode.json" ] && [ -f "/user-data/opencode-config.json" ]; then
-  cp /user-data/opencode-config.json /workspace/opencode.json
+if [ -f "/tmp/arche-user-data/opencode-config.json" ]; then
+  cp /tmp/arche-user-data/opencode-config.json /workspace/opencode.json
 fi
 
 # Copy support files from user-data (written by the spawner)
-if [ ! -f "/workspace/AGENTS.md" ] && [ -f "/user-data/AGENTS.md" ]; then
-  cp /user-data/AGENTS.md /workspace/AGENTS.md
+if [ -f "/tmp/arche-user-data/AGENTS.md" ]; then
+  cp /tmp/arche-user-data/AGENTS.md /workspace/AGENTS.md
 fi
 
 # Iniciar workspace-agent si está disponible

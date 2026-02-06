@@ -28,18 +28,20 @@ export function SessionsPanel({
 
   if (sessions.length === 0) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 py-8 text-center">
-        <div className="w-full px-3 pb-2">
+      <div className="flex flex-1 flex-col">
+        <div className="px-3 pt-3 pb-2">
           <Button className="w-full" onClick={onCreateSession}>New session</Button>
         </div>
-        <ChatCircle size={24} weight="bold" className="text-muted-foreground/50" />
-        <p className="text-xs text-muted-foreground">No sessions yet</p>
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+          <ChatCircle size={24} weight="bold" className="text-muted-foreground/50" />
+          <p className="text-xs text-muted-foreground">No sessions yet</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 overflow-y-auto px-2 pb-4 pt-2 scrollbar-none">
+    <div className="flex-1 overflow-y-auto px-2 pb-4 pt-3 scrollbar-none">
       <div className="px-1 pb-2">
         <Button className="w-full" onClick={onCreateSession}>New session</Button>
       </div>

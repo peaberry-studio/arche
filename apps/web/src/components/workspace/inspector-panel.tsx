@@ -35,12 +35,6 @@ type InspectorPanelProps = {
   onResolveConflict?: (path: string, content: string) => void;
 };
 
-function getParentFolder(path: string): string | null {
-  const parts = path.split("/");
-  if (parts.length <= 1) return null;
-  return parts.slice(0, -1).join("/");
-}
-
 export function InspectorPanel({
   slug,
   activeTab,
@@ -58,8 +52,6 @@ export function InspectorPanel({
 }: InspectorPanelProps) {
   const pendingDiffs = diffs.length;
   const activeFile = openFiles.find((f) => f.path === activeFilePath) ?? null;
-  const parentFolder = activeFile ? getParentFolder(activeFile.path) : null;
-
   const tabsRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -207,16 +199,10 @@ export function InspectorPanel({
               {activeFile ? (
                 <>
                   <div className="flex items-center justify-between gap-3 px-5 py-3">
-                    <p className="min-w-0 truncate text-sm font-medium text-foreground">
-                      {activeFile.title}
+                    <p className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">
+                      {activeFile.path}
                     </p>
                     <div className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-                      {parentFolder ? (
-                        <>
-                          <span className="max-w-[100px] truncate">{parentFolder}</span>
-                          <span className="text-muted-foreground/30">·</span>
-                        </>
-                      ) : null}
                       <span>{activeFile.updatedAt}</span>
                       <span className="text-muted-foreground/30">·</span>
                       <span>{activeFile.size}</span>

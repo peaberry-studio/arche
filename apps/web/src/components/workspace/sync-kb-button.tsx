@@ -4,6 +4,12 @@ import { useState, useCallback } from 'react'
 import { ArrowsClockwise, Check, Warning, X } from '@phosphor-icons/react'
 
 import { Button } from '@/components/ui/button'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import type { SyncKbResult } from '@/app/api/instances/[slug]/sync-kb/route'
 
@@ -97,24 +103,30 @@ export function SyncKbButton({ slug, disabled, onComplete }: SyncKbButtonProps) 
 
   const config = stateConfig[state]
   const Icon = config.icon
+  const tooltipLabel = error || (conflicts.length > 0 ? `${conflicts.length} files with conflicts` : 'Sync knowledge base')
 
   return (
     <div className="relative">
-      <Button
-        size="sm"
-        variant="ghost"
-        className="h-7 gap-1.5 px-2 text-xs"
-        onClick={handleSync}
-        disabled={disabled || state === 'syncing'}
-        title={error || (conflicts.length > 0 ? `${conflicts.length} files with conflicts` : 'Sync Knowledge Base')}
-      >
-        <Icon
-          size={14}
-          weight={config.weight}
-          className={cn(config.className)}
-        />
-        <span className="hidden sm:inline">{config.label}</span>
-      </Button>
+      <TooltipProvider delayDuration={300}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7"
+              onClick={handleSync}
+              disabled={disabled || state === 'syncing'}
+            >
+              <Icon
+                size={14}
+                weight={config.weight}
+                className={cn(config.className)}
+              />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{tooltipLabel}</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
 
       {/* Popover para mostrar conflictos o errores */}
       {(state === 'conflicts' || state === 'error') && (

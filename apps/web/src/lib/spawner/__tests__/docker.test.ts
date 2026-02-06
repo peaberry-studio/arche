@@ -19,8 +19,10 @@ vi.mock('dockerode', () => ({
 }))
 
 const mockWriteFile = vi.fn().mockResolvedValue(undefined)
+const mockChmod = vi.fn().mockResolvedValue(undefined)
 vi.mock('fs/promises', () => ({
   writeFile: (...args: unknown[]) => mockWriteFile(...args),
+  chmod: (...args: unknown[]) => mockChmod(...args),
 }))
 
 vi.mock('@/lib/user-data', () => ({
@@ -100,8 +102,7 @@ describe('docker', () => {
             'arche-workspace-user-slug:/workspace',
             'arche-opencode-share-user-slug:/home/workspace/.local/share/opencode',
             'arche-opencode-state-user-slug:/home/workspace/.local/state/opencode',
-            '/opt/arche/users/user-slug:/user-data',
-            '/opt/arche/users/user-slug/opencode-config.json:/workspace/opencode.json:ro',
+            '/opt/arche/users/user-slug/opencode-config.json:/tmp/arche-user-data/opencode-config.json:ro',
           ],
         },
         Labels: {
@@ -126,7 +127,8 @@ describe('docker', () => {
         expect.objectContaining({
           HostConfig: expect.objectContaining({
             Binds: expect.arrayContaining([
-              '/opt/arche/users/user-slug/AGENTS.md:/workspace/AGENTS.md:ro',
+              '/opt/arche/users/user-slug/opencode-config.json:/tmp/arche-user-data/opencode-config.json:ro',
+              '/opt/arche/users/user-slug/AGENTS.md:/tmp/arche-user-data/AGENTS.md:ro',
             ]),
           }),
         })

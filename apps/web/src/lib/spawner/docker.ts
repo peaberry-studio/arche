@@ -1,4 +1,4 @@
-import { writeFile } from "fs/promises";
+import { chmod, writeFile } from "fs/promises";
 import { join } from "path";
 import Docker from "dockerode";
 import {
@@ -86,10 +86,11 @@ export async function createContainer(
     binds.push(`${kbContentHostPath}:/kb-content`);
   }
 
-  // Mount user data directory
+  // Persist runtime files in host user-data directory.
+  // We mount files individually into /tmp inside the container so the workspace
+  // can remain empty during init-workspace git bootstrap.
   const userDataPath = getUserDataHostPath(slug);
   await ensureUserDirectory(slug);
-  binds.push(`${userDataPath}:/user-data`);
 
   // Write OpenCode config as a file instead of env var to avoid
   // Docker API URI length limits with large agent prompts.
@@ -99,12 +100,14 @@ export async function createContainer(
     JSON.stringify(mergedConfig),
     "utf-8"
   );
-  binds.push(`${opencodeConfigPath}:/workspace/opencode.json:ro`);
+  await chmod(opencodeConfigPath, 0o644);
+  binds.push(`${opencodeConfigPath}:/tmp/arche-user-data/opencode-config.json:ro`);
 
   if (agentsMd) {
     const agentsPath = join(userDataPath, "AGENTS.md");
     await writeFile(agentsPath, agentsMd, "utf-8");
-    binds.push(`${agentsPath}:/workspace/AGENTS.md:ro`);
+    await chmod(agentsPath, 0o644);
+    binds.push(`${agentsPath}:/tmp/arche-user-data/AGENTS.md:ro`);
   }
 
   const env = [
