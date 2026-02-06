@@ -27,7 +27,7 @@ is_bare_kb() {
 }
 
 is_worktree_kb() {
-  git -C "$KB_CONTENT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1
+  git -c safe.directory="$KB_CONTENT_DIR" -C "$KB_CONTENT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1
 }
 
 ensure_workspace_excludes() {
@@ -86,7 +86,7 @@ if [ -n "$(ls -A "$WORKSPACE_DIR" 2>/dev/null)" ]; then
 fi
 
 log "Cloning KB into workspace..."
-git clone "$KB_CONTENT_DIR" "$WORKSPACE_DIR"
+git -c safe.directory="$KB_CONTENT_DIR" clone "$KB_CONTENT_DIR" "$WORKSPACE_DIR"
 cd "$WORKSPACE_DIR"
 if git remote get-url origin > /dev/null 2>&1 && [ "$KB_REMOTE_NAME" != "origin" ]; then
   git remote rename origin "$KB_REMOTE_NAME" 2>/dev/null || true
