@@ -5,6 +5,7 @@ import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
 import * as docker from './docker'
 import { decryptPassword, generatePassword, encryptPassword } from './crypto'
 import { getStartExpectedMs, getStartTimeoutMs } from './config'
+import { buildMcpConfigForSlug } from './mcp-config'
 
 export type StartResult =
   | { ok: true; status: 'running' }
@@ -55,7 +56,17 @@ export async function startInstance(slug: string, userId: string): Promise<Start
   let containerId: string | null = null
 
   try {
-    const container = await docker.createContainer(slug, password)
+    let opencodeConfigContent: string | undefined
+    try {
+      const mcpConfig = await buildMcpConfigForSlug(slug)
+      if (mcpConfig) {
+        opencodeConfigContent = JSON.stringify(mcpConfig)
+      }
+    } catch {
+      console.warn('[spawner] MCP config build failed')
+    }
+
+    const container = await docker.createContainer(slug, password, opencodeConfigContent)
     containerId = container.id
     await docker.startContainer(container.id)
 

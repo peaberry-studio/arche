@@ -11,10 +11,16 @@ const mockContainer = {
 const mockDockerInstance = {
   createContainer: vi.fn().mockResolvedValue(mockContainer),
   getContainer: vi.fn().mockReturnValue(mockContainer),
+  createVolume: vi.fn().mockResolvedValue({}),
 }
 
 vi.mock('dockerode', () => ({
   default: vi.fn(() => mockDockerInstance),
+}))
+
+vi.mock('@/lib/user-data', () => ({
+  getUserDataHostPath: vi.fn((slug: string) => `/opt/arche/users/${slug}`),
+  ensureUserDirectory: vi.fn().mockResolvedValue('/opt/arche/users/user-slug'),
 }))
 
 import Docker from 'dockerode'
@@ -32,6 +38,11 @@ describe('docker', () => {
 
   beforeEach(() => {
     process.env = { ...originalEnv }
+    delete process.env.CONTAINER_SOCKET_PATH
+    delete process.env.CONTAINER_HOST
+    // Keep unit tests deterministic even when running inside local-dev compose,
+    // where KB_HOST_PATH is typically set.
+    delete process.env.KB_HOST_PATH
     process.env.CONTAINER_PROXY_HOST = 'test-proxy'
     process.env.CONTAINER_PROXY_PORT = '2375'
     process.env.OPENCODE_IMAGE = 'test-image:latest'
@@ -45,7 +56,9 @@ describe('docker', () => {
 
   describe('createContainer', () => {
     it('creates container with correct configuration', async () => {
-      await createContainer('user-slug', 'secret-password')
+      const configContent = '{"$schema":"https://opencode.ai/config.json","mcp":{}}'
+
+      await createContainer('user-slug', 'secret-password', configContent)
 
       expect(Docker).toHaveBeenCalledWith({
         host: 'test-proxy',
@@ -66,7 +79,10 @@ describe('docker', () => {
         HostConfig: {
           NetworkMode: 'test-network',
           RestartPolicy: { Name: 'unless-stopped' },
-          Binds: ['arche-workspace-user-slug:/workspace'],
+          Binds: [
+            'arche-workspace-user-slug:/workspace',
+            '/opt/arche/users/user-slug:/user-data',
+          ],
         },
         Labels: {
           'arche.managed': 'true',

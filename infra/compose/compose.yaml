@@ -1,10 +1,18 @@
+# =============================================================================
+# LOCAL DEVELOPMENT ONLY - DO NOT USE IN PRODUCTION
+# =============================================================================
+# This compose file is for local development with hardcoded defaults.
+# For production deployment, use: ./infra/deploy/deploy.sh --remote
+# The deploy script uses Ansible templates with proper secret management.
+# =============================================================================
+
 name: arche
 
 services:
   # Proxy de seguridad para el Podman socket.
   # Filtra operaciones permitidas; tanto Traefik como web lo usan.
   docker-socket-proxy:
-    image: tecnativa/docker-socket-proxy:0.3
+    image: tecnativa/docker-socket-proxy:0.4.2
     environment:
       CONTAINERS: 1  # listar/inspeccionar contenedores
       NETWORKS: 1    # ver redes
@@ -22,6 +30,8 @@ services:
     depends_on:
       - docker-socket-proxy
     command:
+      # Dashboard enabled for local dev debugging (localhost:8081)
+      # Production deployments disable this via Ansible templates
       - --api.dashboard=true
       - --api.insecure=true
       - --providers.docker=true
@@ -77,12 +87,15 @@ services:
       # Path al KB en el host (debe existir antes de crear workspaces)
       # Configurar via: export KB_HOST_PATH=/path/to/kb
       KB_HOST_PATH: ${KB_HOST_PATH:-}
+      # Path para datos persistentes de usuario
+      ARCHE_USERS_PATH: ${ARCHE_USERS_PATH:-/tmp/arche-users}
     networks:
       - default
       - arche-internal
     volumes:
       - ./../../apps/web:/app
       - arche_web_node_modules:/app/node_modules
+      - ${ARCHE_USERS_PATH:-/tmp/arche-users}:${ARCHE_USERS_PATH:-/tmp/arche-users}
     command: sh -lc "corepack enable && pnpm install && pnpm prisma generate && pnpm dev"
     labels:
       - traefik.enable=true

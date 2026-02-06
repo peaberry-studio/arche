@@ -1,5 +1,6 @@
 import Docker from 'dockerode'
 import { getContainerSocketPath, getContainerProxyUrl, getOpencodeImage, getOpencodeNetwork, getKbHostPath, getWorkspaceAgentPort } from './config'
+import { getUserDataHostPath, ensureUserDirectory } from '@/lib/user-data'
 
 function getContainerClient(): Docker {
   const socketPath = getContainerSocketPath()
@@ -13,20 +14,27 @@ function getContainerClient(): Docker {
   })
 }
 
-export async function createContainer(slug: string, password: string) {
+export async function createContainer(slug: string, password: string, opencodeConfigContent?: string) {
   const docker = getContainerClient()
   const containerName = `opencode-${slug}`
   const volumeName = `arche-workspace-${slug}`
 
   // Configure provider base URLs to route through Arche's internal gateway.
   // Auth is still managed at runtime via the OpenCode /auth endpoints.
-  const opencodeConfigContent = JSON.stringify({
+  const providerGatewayConfig = {
     provider: {
       openai: { options: { baseURL: 'http://web:3000/api/internal/providers/openai' } },
       anthropic: { options: { baseURL: 'http://web:3000/api/internal/providers/anthropic' } },
       openrouter: { options: { baseURL: 'http://web:3000/api/internal/providers/openrouter' } },
     },
-  })
+  }
+
+  // Merge passed-in config (e.g. MCP) with provider gateway config
+  const mergedConfigContent = JSON.stringify(
+    opencodeConfigContent
+      ? { ...JSON.parse(opencodeConfigContent), ...providerGatewayConfig }
+      : providerGatewayConfig
+  )
 
   // Ensure volume exists for persistent workspace
   try {
@@ -35,7 +43,7 @@ export async function createContainer(slug: string, password: string) {
     // Volume might already exist, ignore error
   }
 
-  // Build binds array: always mount workspace, optionally mount KB
+  // Build binds array: always mount workspace, optionally mount KB and user data
   const binds = [`${volumeName}:/workspace`]
   const kbHostPath = getKbHostPath()
   if (kbHostPath) {
@@ -43,18 +51,26 @@ export async function createContainer(slug: string, password: string) {
     binds.push(`${kbHostPath}:/kb`)
   }
 
+  // Mount user data directory
+  const userDataPath = getUserDataHostPath(slug)
+  await ensureUserDirectory(slug)
+  binds.push(`${userDataPath}:/user-data`)
+
+  const env = [
+    `OPENCODE_SERVER_PASSWORD=${password}`,
+    `OPENCODE_SERVER_USERNAME=opencode`,
+    `WORKSPACE_AGENT_PORT=${getWorkspaceAgentPort()}`,
+  ]
+
+  env.push(`OPENCODE_CONFIG_CONTENT=${mergedConfigContent}`)
+
   return docker.createContainer({
     Image: getOpencodeImage(),
     name: containerName,
     WorkingDir: '/workspace',
     // La imagen arche-workspace tiene entrypoint wrapper que inicializa el workspace
     Cmd: ['serve', '--hostname', '0.0.0.0', '--port', '4096'],
-    Env: [
-      `OPENCODE_SERVER_PASSWORD=${password}`,
-      `OPENCODE_SERVER_USERNAME=opencode`,
-      `WORKSPACE_AGENT_PORT=${getWorkspaceAgentPort()}`,
-      `OPENCODE_CONFIG_CONTENT=${opencodeConfigContent}`,
-    ],
+    Env: env,
     HostConfig: {
       NetworkMode: getOpencodeNetwork(),
       RestartPolicy: { Name: 'unless-stopped' },

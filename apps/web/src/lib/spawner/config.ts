@@ -52,3 +52,7 @@ export function getIdleTimeoutMinutes(): number {
 export function getKbHostPath(): string | undefined {
   return process.env.KB_HOST_PATH || undefined
 }
+
+export function getUsersBasePath(): string {
+  return process.env.ARCHE_USERS_PATH || '/opt/arche/users'
+}

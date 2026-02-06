@@ -13,7 +13,13 @@ FROM ghcr.io/anomalyco/opencode:${OPENCODE_VERSION}
 
 # Instalar git (necesario para sync de KB)
 USER root
-RUN apk add --no-cache git
+RUN apk add --no-cache git nodejs npm
+
+# Create non-root user for running the workspace
+RUN addgroup -g 1000 workspace && \
+    adduser -u 1000 -G workspace -h /home/workspace -s /bin/sh -D workspace && \
+    mkdir -p /workspace /kb /user-data && \
+    chown -R workspace:workspace /workspace /kb /user-data
 
 # Workspace agent (HTTP API for git/file ops)
 COPY --from=workspace-agent /workspace-agent /usr/local/bin/workspace-agent
@@ -25,5 +31,9 @@ RUN chmod +x /usr/local/bin/init-workspace.sh
 # Entrypoint wrapper que inicializa el workspace antes de arrancar OpenCode
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Switch back to non-root user
+USER workspace
+WORKDIR /workspace
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

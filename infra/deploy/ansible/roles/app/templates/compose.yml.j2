@@ -64,7 +64,7 @@ services:
       - docker-socket-proxy
 
   docker-socket-proxy:
-    image: tecnativa/docker-socket-proxy:0.3
+    image: tecnativa/docker-socket-proxy:0.4.2
     restart: unless-stopped
 {% if deploy_mode in ('local', 'local-dev') %}
     user: root
@@ -145,7 +145,11 @@ services:
       - {{ repo_root }}/apps/web:/app
       - arche_web_node_modules:/app/node_modules
       - arche_pnpm_store:/pnpm/store
+      - {{ users_path | default('/opt/arche/users') }}:{{ users_path | default('/opt/arche/users') }}
     command: sh -lc "corepack enable && pnpm config set store-dir /pnpm/store >/dev/null 2>&1 || true && pnpm install --prefer-offline --force && pnpm prisma generate && pnpm dev"
+{% else %}
+    volumes:
+      - {{ users_path | default('/opt/arche/users') }}:{{ users_path | default('/opt/arche/users') }}
 {% endif %}
 
 networks:

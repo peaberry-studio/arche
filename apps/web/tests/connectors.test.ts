@@ -89,12 +89,16 @@ describe('connectors/validators', () => {
     })
 
     it('validates required fields for slack', () => {
-      const valid = validateConnectorConfig('slack', { botToken: 'xoxb-xxx' })
+      const valid = validateConnectorConfig('slack', { botToken: 'xoxb-xxx', teamId: 'T123' })
       expect(valid).toEqual({ valid: true })
 
       const invalid = validateConnectorConfig('slack', {})
       expect(invalid.valid).toBe(false)
       expect(invalid.missing).toContain('botToken')
+
+      const missingTeam = validateConnectorConfig('slack', { botToken: 'xoxb-xxx' })
+      expect(missingTeam.valid).toBe(false)
+      expect(missingTeam.missing).toContain('teamId')
     })
 
     it('validates required fields for github', () => {
@@ -119,6 +123,7 @@ describe('connectors/validators', () => {
       // slack has optional appToken
       const withOptional = validateConnectorConfig('slack', {
         botToken: 'xoxb-xxx',
+        teamId: 'T123',
         appToken: 'xapp-xxx',
       })
       expect(withOptional).toEqual({ valid: true })

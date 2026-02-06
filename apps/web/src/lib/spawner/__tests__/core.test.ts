@@ -38,6 +38,11 @@ vi.mock('../docker', () => ({
   isContainerRunning: vi.fn(),
 }))
 
+// Mock MCP config
+vi.mock('../mcp-config', () => ({
+  buildMcpConfigForSlug: vi.fn(),
+}))
+
 // Mock crypto
 vi.mock('../crypto', () => ({
   generatePassword: vi.fn(() => 'test-password-123'),
@@ -50,10 +55,12 @@ import { auditEvent } from '@/lib/auth'
 import { isInstanceHealthyWithPassword } from '@/lib/opencode/client'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
 import * as docker from '../docker'
+import { buildMcpConfigForSlug } from '../mcp-config'
 import { startInstance, stopInstance, getInstanceStatus, isSlowStart } from '../core'
 
 const mockPrisma = vi.mocked(prisma)
 const mockDocker = vi.mocked(docker)
+const mockBuildMcpConfigForSlug = vi.mocked(buildMcpConfigForSlug)
 const mockAudit = vi.mocked(auditEvent)
 const mockHealth = vi.mocked(isInstanceHealthyWithPassword)
 const mockSync = vi.mocked(syncProviderAccessForInstance)
@@ -61,6 +68,7 @@ const mockSync = vi.mocked(syncProviderAccessForInstance)
 beforeEach(() => {
   vi.clearAllMocks()
   mockHealth.mockResolvedValue(true)
+  mockBuildMcpConfigForSlug.mockResolvedValue(null)
 })
 
 describe('startInstance', () => {
@@ -79,6 +87,10 @@ describe('startInstance', () => {
   })
 
   it('creates container and starts it when no existing instance', async () => {
+    mockBuildMcpConfigForSlug.mockResolvedValue({
+      $schema: 'https://opencode.ai/config.json',
+      mcp: {},
+    })
     mockPrisma.instance.findUnique.mockResolvedValue(null)
     mockPrisma.instance.upsert.mockResolvedValue({} as never)
     mockPrisma.instance.update.mockResolvedValue({} as never)
@@ -90,7 +102,11 @@ describe('startInstance', () => {
     const result = await startInstance('alice', 'user-1')
 
     expect(result).toEqual({ ok: true, status: 'running' })
-    expect(mockDocker.createContainer).toHaveBeenCalledWith('alice', 'test-password-123')
+    expect(mockDocker.createContainer).toHaveBeenCalledWith(
+      'alice',
+      'test-password-123',
+      '{"$schema":"https://opencode.ai/config.json","mcp":{}}'
+    )
     expect(mockDocker.startContainer).toHaveBeenCalledWith('container-123')
     expect(mockSync).toHaveBeenCalledWith({ slug: 'alice', userId: 'owner-1' })
     expect(mockAudit).toHaveBeenCalledWith({
