@@ -30,11 +30,16 @@ function extractGatewayToken(providerId: ProviderId, headers: Headers): string |
 }
 
 function buildUpstreamUrl(base: string, path: string[] | string | undefined, requestUrl: URL): string {
-  const segments = Array.isArray(path) ? path : path ? [path] : []
-  const suffix = segments.length > 0 ? `/${segments.join('/')}` : ''
+  const segments = Array.isArray(path) ? [...path] : path ? [path] : []
   const upstream = new URL(base)
   const basePath = upstream.pathname === '/' ? '' : upstream.pathname.replace(/\/$/, '')
-  upstream.pathname = `${basePath}${suffix}` || '/'
+
+  if (segments.length > 0 && basePath.endsWith('/v1') && segments[0] === 'v1') {
+    segments.shift()
+  }
+
+  const normalizedSuffix = segments.length > 0 ? `/${segments.join('/')}` : ''
+  upstream.pathname = `${basePath}${normalizedSuffix}` || '/'
   upstream.search = requestUrl.search
   return upstream.toString()
 }

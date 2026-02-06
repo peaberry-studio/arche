@@ -48,6 +48,21 @@ type AgentCatalogItem = {
   isPrimary: boolean;
 };
 
+function normalizeAgentId(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function findAgentInCatalog(
+  catalog: AgentCatalogItem[],
+  agentId: string
+): AgentCatalogItem | undefined {
+  const normalized = normalizeAgentId(agentId);
+  return catalog.find((entry) => {
+    if (entry.id === agentId) return true;
+    return normalizeAgentId(entry.displayName) === normalized;
+  });
+}
+
 export type UseWorkspaceOptions = {
   slug: string;
   /** Poll interval in ms for session status updates */
@@ -161,14 +176,11 @@ export function useWorkspace({
   const isConnected = connection.status === "connected";
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? null;
+  const activeCatalogAgent = activeAgentId
+    ? findAgentInCatalog(agentCatalog, activeAgentId)
+    : undefined;
   const activeAgentName = activeAgentId
-    ? agentCatalog.find((entry) => {
-        if (entry.id === activeAgentId) return true;
-        return (
-          entry.displayName.trim().toLowerCase() ===
-          activeAgentId.trim().toLowerCase()
-        );
-      })?.displayName ?? activeAgentId
+    ? activeCatalogAgent?.displayName ?? null
     : null;
 
   const parseModelString = useCallback(
@@ -216,16 +228,23 @@ export function useWorkspace({
 
   const applyAgentDefaultModel = useCallback(
     (agentId: string) => {
-      const normalized = agentId.trim().toLowerCase();
-      const targetAgent = agentCatalog.find((entry) => {
-        if (entry.id === agentId) return true;
-        return entry.displayName.trim().toLowerCase() === normalized;
-      });
+      const targetAgent = findAgentInCatalog(agentCatalog, agentId);
       const parsed = parseModelString(targetAgent?.model);
       if (!parsed) return;
       syncSelectedModel(parsed.providerId, parsed.modelId);
     },
     [agentCatalog, parseModelString, syncSelectedModel]
+  );
+
+  const syncActiveAgentFromRuntime = useCallback(
+    (agentId: string) => {
+      setActiveAgentId((current) => {
+        const resolved = findAgentInCatalog(agentCatalog, agentId);
+        if (resolved) return resolved.id;
+        return current;
+      });
+    },
+    [agentCatalog]
   );
 
   const extractRuntimeMetadata = useCallback((items: WorkspaceMessage[]) => {
@@ -470,7 +489,7 @@ export function useWorkspace({
 
         const runtime = extractRuntimeMetadata(result.messages);
         if (runtime.agentId) {
-          setActiveAgentId(runtime.agentId);
+          syncActiveAgentFromRuntime(runtime.agentId);
           applyAgentDefaultModel(runtime.agentId);
         }
         if (runtime.model) {
@@ -484,6 +503,7 @@ export function useWorkspace({
     slug,
     activeSessionId,
     extractRuntimeMetadata,
+    syncActiveAgentFromRuntime,
     applyAgentDefaultModel,
     syncSelectedModel,
   ]);
@@ -739,7 +759,7 @@ export function useWorkspace({
                       syncSelectedModel(data.providerID, data.modelID);
                     }
                     if (typeof data.agent === "string") {
-                      setActiveAgentId(data.agent);
+                      syncActiveAgentFromRuntime(data.agent);
                       applyAgentDefaultModel(data.agent);
                     }
                     break;
@@ -747,7 +767,7 @@ export function useWorkspace({
 
                   case "agent": {
                     if (typeof data.agent === "string") {
-                      setActiveAgentId(data.agent);
+                      syncActiveAgentFromRuntime(data.agent);
                       applyAgentDefaultModel(data.agent);
                     }
                     break;
@@ -814,6 +834,7 @@ export function useWorkspace({
       slug,
       transformParts,
       upsertMessagePart,
+      syncActiveAgentFromRuntime,
       applyAgentDefaultModel,
       syncSelectedModel,
     ]
@@ -956,7 +977,24 @@ export function useWorkspace({
     } catch {
       // ignore — fall back to server action list
     }
-  }, [slug]);
+
+    setModels(nextModels);
+
+    const stillSelected =
+      selectedModel &&
+      nextModels.some(
+        (m) =>
+          m.providerId === selectedModel.providerId &&
+          m.modelId === selectedModel.modelId
+      );
+
+    if (stillSelected) {
+      return;
+    }
+
+    const defaultModel = nextModels.find((m) => m.isDefault) ?? null;
+    setSelectedModel(defaultModel);
+  }, [slug, selectedModel]);
 
   const loadAgentCatalog = useCallback(async () => {
     try {
@@ -970,8 +1008,11 @@ export function useWorkspace({
 
       setAgentCatalog(data.agents);
       setActiveAgentId((current) => {
-        if (current && data.agents?.some((agent) => agent.id === current)) {
-          return current;
+        if (current) {
+          const resolvedCurrent = findAgentInCatalog(data.agents, current);
+          if (resolvedCurrent) {
+            return resolvedCurrent.id;
+          }
         }
         const primary = data.agents.find((agent) => agent.isPrimary);
         return primary?.id ?? current;
