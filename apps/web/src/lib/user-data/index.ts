@@ -7,8 +7,7 @@ export async function ensureUserDirectory(slug: string): Promise<string> {
   assertValidSlug(slug)
   const basePath = getUsersBasePath()
   const userPath = join(basePath, slug)
-  await mkdir(join(userPath, 'connectors'), { recursive: true, mode: 0o700 })
-  await mkdir(join(userPath, 'agents'), { recursive: true, mode: 0o700 })
+  await mkdir(userPath, { recursive: true, mode: 0o700 })
   return userPath
 }
 

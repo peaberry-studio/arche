@@ -323,6 +323,36 @@ export async function listRecentKbFileUpdates(limit = 10): Promise<{
   return { ok: true, updates }
 }
 
+export async function readConfigRepoFile(
+  fileName: string
+): Promise<{ ok: true; content: string } | { ok: false }> {
+  const root = await resolveConfigRepoRoot()
+  if (!root) return { ok: false }
+
+  if (await hasBareRepoLayout(root)) {
+    if (!(await isGitAvailable())) return { ok: false }
+
+    const clone = await cloneRepoToTemp(root)
+    if (!clone.ok) return { ok: false }
+
+    try {
+      const content = await fs.readFile(path.join(clone.dir, fileName), 'utf-8')
+      return { ok: true, content }
+    } catch {
+      return { ok: false }
+    } finally {
+      await fs.rm(clone.dir, { recursive: true, force: true }).catch(() => {})
+    }
+  }
+
+  try {
+    const content = await fs.readFile(path.join(root, fileName), 'utf-8')
+    return { ok: true, content }
+  } catch {
+    return { ok: false }
+  }
+}
+
 export async function getCommonWorkspaceConfigHash(): Promise<
   | { ok: true; hash: string }
   | { ok: false; error: 'not_found' | 'kb_unavailable' | 'read_failed' }

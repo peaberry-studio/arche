@@ -28,10 +28,6 @@ COPY --from=workspace-agent /workspace-agent /usr/local/bin/workspace-agent
 COPY init-workspace.sh /usr/local/bin/init-workspace.sh
 RUN chmod +x /usr/local/bin/init-workspace.sh
 
-# Generador de opencode.json desde CommonWorkspaceConfig.json
-COPY generate-opencode-config.sh /usr/local/bin/generate-opencode-config.sh
-RUN chmod +x /usr/local/bin/generate-opencode-config.sh
-
 # Entrypoint wrapper que inicializa el workspace antes de arrancar OpenCode
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh

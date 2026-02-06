@@ -62,6 +62,8 @@ type ChatPanelProps = {
   selectedModel?: AvailableModel | null;
   onSelectModel?: (model: AvailableModel | null) => void;
   activeAgentName?: string | null;
+  pendingInsert?: string | null;
+  onPendingInsertConsumed?: () => void;
 };
 
 /**
@@ -781,7 +783,9 @@ export function ChatPanel({
   models = [],
   selectedModel,
   onSelectModel,
-  activeAgentName
+  activeAgentName,
+  pendingInsert,
+  onPendingInsertConsumed
 }: ChatPanelProps) {
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId),
@@ -794,6 +798,16 @@ export function ChatPanel({
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
   const [inputValue, setInputValue] = useState("");
+
+  // Handle agent mention insertion from left panel
+  useEffect(() => {
+    if (!pendingInsert) return;
+    setInputValue((prev) => prev + pendingInsert);
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+    });
+    onPendingInsertConsumed?.();
+  }, [pendingInsert, onPendingInsertConsumed]);
 
   const updateScrollState = () => {
     const el = tabsRef.current;

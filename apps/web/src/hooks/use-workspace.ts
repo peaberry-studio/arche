@@ -41,7 +41,7 @@ export type WorkspaceDiff = {
   conflicted: boolean;
 };
 
-type AgentCatalogItem = {
+export type AgentCatalogItem = {
   id: string;
   displayName: string;
   model?: string;
@@ -123,6 +123,9 @@ export type UseWorkspaceReturn = {
   selectedModel: AvailableModel | null;
   setSelectedModel: (model: AvailableModel | null) => void;
   activeAgentName: string | null;
+
+  // Agents
+  agentCatalog: AgentCatalogItem[];
 };
 
 export function useWorkspace({
@@ -1188,5 +1191,6 @@ export function useWorkspace({
     selectedModel,
     setSelectedModel,
     activeAgentName,
+    agentCatalog,
   };
 }

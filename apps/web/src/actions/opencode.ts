@@ -290,6 +290,7 @@ export async function listSessionsAction(slug: string): Promise<{
         title: s.title || "Untitled",
         status,
         updatedAt: formatTimestamp(s.time?.updated),
+        updatedAtRaw: typeof s.time?.updated === "number" ? s.time.updated : undefined,
         parentId: s.parentID,
         share: s.share ? { url: s.share.url, version: 1 } : undefined,
       };
@@ -326,6 +327,7 @@ export async function createSessionAction(
         title: s.title || "Untitled",
         status: "active",
         updatedAt: formatTimestamp(s.time?.updated),
+        updatedAtRaw: typeof s.time?.updated === "number" ? s.time.updated : undefined,
         parentId: s.parentID,
       },
     };
@@ -381,6 +383,7 @@ export async function updateSessionAction(
         title: s.title || "Untitled",
         status: "idle",
         updatedAt: formatTimestamp(s.time?.updated),
+        updatedAtRaw: typeof s.time?.updated === "number" ? s.time.updated : undefined,
         parentId: s.parentID,
       },
     };

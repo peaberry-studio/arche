@@ -1,10 +1,11 @@
+import { writeFile } from "fs/promises";
+import { join } from "path";
 import Docker from "dockerode";
 import {
   getContainerSocketPath,
   getContainerProxyUrl,
   getOpencodeImage,
   getOpencodeNetwork,
-  getKbConfigHostPath,
   getKbContentHostPath,
   getWorkspaceAgentPort,
 } from "./config";
@@ -25,11 +26,14 @@ function getContainerClient(): Docker {
 export async function createContainer(
   slug: string,
   password: string,
-  opencodeConfigContent?: string
+  opencodeConfigContent?: string,
+  agentsMd?: string
 ) {
   const docker = getContainerClient();
   const containerName = `opencode-${slug}`;
   const volumeName = `arche-workspace-${slug}`;
+  const opencodeShareVolumeName = `arche-opencode-share-${slug}`;
+  const opencodeStateVolumeName = `arche-opencode-state-${slug}`;
 
   // Configure provider base URLs to route through Arche's internal gateway.
   // Auth is still managed at runtime via the OpenCode /auth endpoints.
@@ -51,30 +55,34 @@ export async function createContainer(
     },
   };
 
-  // Merge passed-in config (e.g. MCP) with provider gateway config
-  const mergedConfigContent = JSON.stringify(
-    opencodeConfigContent
-      ? { ...JSON.parse(opencodeConfigContent), ...providerGatewayConfig }
-      : providerGatewayConfig
-  );
+  // Merge passed-in config (agents, MCP connectors, etc.) with provider gateway
+  const mergedConfig = opencodeConfigContent
+    ? { ...JSON.parse(opencodeConfigContent), ...providerGatewayConfig }
+    : providerGatewayConfig;
 
-  // Ensure volume exists for persistent workspace
-  try {
-    await docker.createVolume({ Name: volumeName });
-  } catch {
-    // Volume might already exist, ignore error
+  // Ensure volumes exist for persistent workspace and OpenCode state
+  for (const name of [
+    volumeName,
+    opencodeShareVolumeName,
+    opencodeStateVolumeName,
+  ]) {
+    try {
+      await docker.createVolume({ Name: name });
+    } catch {
+      // Volume might already exist, ignore error
+    }
   }
 
-  // Build binds array: always mount workspace, optionally mount KB and user data
-  const binds = [`${volumeName}:/workspace`];
+  // Build binds array: always mount workspace and OpenCode runtime state,
+  // optionally mount KB and user data.
+  const binds = [
+    `${volumeName}:/workspace`,
+    `${opencodeShareVolumeName}:/home/workspace/.local/share/opencode`,
+    `${opencodeStateVolumeName}:/home/workspace/.local/state/opencode`,
+  ];
   const kbContentHostPath = getKbContentHostPath();
   if (kbContentHostPath) {
     binds.push(`${kbContentHostPath}:/kb-content`);
-  }
-
-  const kbConfigHostPath = getKbConfigHostPath();
-  if (kbConfigHostPath) {
-    binds.push(`${kbConfigHostPath}:/kb-config`);
   }
 
   // Mount user data directory
@@ -82,13 +90,27 @@ export async function createContainer(
   await ensureUserDirectory(slug);
   binds.push(`${userDataPath}:/user-data`);
 
+  // Write OpenCode config as a file instead of env var to avoid
+  // Docker API URI length limits with large agent prompts.
+  const opencodeConfigPath = join(userDataPath, "opencode-config.json");
+  await writeFile(
+    opencodeConfigPath,
+    JSON.stringify(mergedConfig),
+    "utf-8"
+  );
+  binds.push(`${opencodeConfigPath}:/workspace/opencode.json:ro`);
+
+  if (agentsMd) {
+    const agentsPath = join(userDataPath, "AGENTS.md");
+    await writeFile(agentsPath, agentsMd, "utf-8");
+    binds.push(`${agentsPath}:/workspace/AGENTS.md:ro`);
+  }
+
   const env = [
     `OPENCODE_SERVER_PASSWORD=${password}`,
     `OPENCODE_SERVER_USERNAME=opencode`,
     `WORKSPACE_AGENT_PORT=${getWorkspaceAgentPort()}`,
   ];
-
-  env.push(`OPENCODE_CONFIG_CONTENT=${mergedConfigContent}`);
 
   return docker.createContainer({
     Image: getOpencodeImage(),

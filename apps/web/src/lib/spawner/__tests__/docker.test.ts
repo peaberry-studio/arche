@@ -18,6 +18,11 @@ vi.mock('dockerode', () => ({
   default: vi.fn(() => mockDockerInstance),
 }))
 
+const mockWriteFile = vi.fn().mockResolvedValue(undefined)
+vi.mock('fs/promises', () => ({
+  writeFile: (...args: unknown[]) => mockWriteFile(...args),
+}))
+
 vi.mock('@/lib/user-data', () => ({
   getUserDataHostPath: vi.fn((slug: string) => `/opt/arche/users/${slug}`),
   ensureUserDirectory: vi.fn().mockResolvedValue('/opt/arche/users/user-slug'),
@@ -65,6 +70,17 @@ describe('docker', () => {
         port: 2375,
       })
 
+      // Config is written to user-data as a file (not as env var)
+      expect(mockWriteFile).toHaveBeenCalledWith(
+        '/opt/arche/users/user-slug/opencode-config.json',
+        expect.any(String),
+        'utf-8'
+      )
+
+      expect(mockDockerInstance.createVolume).toHaveBeenCalledWith({ Name: 'arche-workspace-user-slug' })
+      expect(mockDockerInstance.createVolume).toHaveBeenCalledWith({ Name: 'arche-opencode-share-user-slug' })
+      expect(mockDockerInstance.createVolume).toHaveBeenCalledWith({ Name: 'arche-opencode-state-user-slug' })
+
       expect(mockDockerInstance.createContainer).toHaveBeenCalledWith({
         Image: 'test-image:latest',
         name: 'opencode-user-slug',
@@ -74,14 +90,16 @@ describe('docker', () => {
           'OPENCODE_SERVER_PASSWORD=secret-password',
           'OPENCODE_SERVER_USERNAME=opencode',
           'WORKSPACE_AGENT_PORT=4097',
-          expect.stringMatching(/^OPENCODE_CONFIG_CONTENT=/),
         ]),
         HostConfig: {
           NetworkMode: 'test-network',
           RestartPolicy: { Name: 'unless-stopped' },
           Binds: [
             'arche-workspace-user-slug:/workspace',
+            'arche-opencode-share-user-slug:/home/workspace/.local/share/opencode',
+            'arche-opencode-state-user-slug:/home/workspace/.local/state/opencode',
             '/opt/arche/users/user-slug:/user-data',
+            '/opt/arche/users/user-slug/opencode-config.json:/workspace/opencode.json:ro',
           ],
         },
         Labels: {
@@ -89,6 +107,37 @@ describe('docker', () => {
           'arche.user.slug': 'user-slug',
         },
       })
+    })
+
+    it('writes AGENTS.md to user-data when agentsMd is provided', async () => {
+      const agentsContent = '# My Agents\n\nSome agent config'
+
+      await createContainer('user-slug', 'secret-password', undefined, agentsContent)
+
+      expect(mockWriteFile).toHaveBeenCalledWith(
+        '/opt/arche/users/user-slug/AGENTS.md',
+        agentsContent,
+        'utf-8'
+      )
+
+      expect(mockDockerInstance.createContainer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          HostConfig: expect.objectContaining({
+            Binds: expect.arrayContaining([
+              '/opt/arche/users/user-slug/AGENTS.md:/workspace/AGENTS.md:ro',
+            ]),
+          }),
+        })
+      )
+    })
+
+    it('does not write AGENTS.md when agentsMd is not provided', async () => {
+      await createContainer('user-slug', 'secret-password')
+
+      const agentsCalls = mockWriteFile.mock.calls.filter(
+        (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).endsWith('AGENTS.md')
+      )
+      expect(agentsCalls).toHaveLength(0)
     })
 
     it('returns the created container', async () => {

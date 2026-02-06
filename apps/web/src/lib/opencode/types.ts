@@ -47,6 +47,7 @@ export type WorkspaceSession = {
   title: string
   status: SessionStatus
   updatedAt: string
+  updatedAtRaw?: number
   parentId?: string
   share?: {
     url: string

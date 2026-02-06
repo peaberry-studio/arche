@@ -6,9 +6,15 @@ if [ -d "/kb-content" ]; then
   /usr/local/bin/init-workspace.sh
 fi
 
-# Generar opencode.json desde CommonWorkspaceConfig.json
-if [ -f "/usr/local/bin/generate-opencode-config.sh" ]; then
-  /usr/local/bin/generate-opencode-config.sh
+# Apply OpenCode config from user-data (written by the spawner).
+# This contains the merged config: agents + MCP connectors + provider gateway.
+if [ ! -f "/workspace/opencode.json" ] && [ -f "/user-data/opencode-config.json" ]; then
+  cp /user-data/opencode-config.json /workspace/opencode.json
+fi
+
+# Copy support files from user-data (written by the spawner)
+if [ ! -f "/workspace/AGENTS.md" ] && [ -f "/user-data/AGENTS.md" ]; then
+  cp /user-data/AGENTS.md /workspace/AGENTS.md
 fi
 
 # Iniciar workspace-agent si está disponible

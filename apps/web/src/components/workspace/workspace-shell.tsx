@@ -9,7 +9,7 @@ import type { WorkspaceFileNode } from "@/lib/opencode/types";
 import { cn } from "@/lib/utils";
 
 import { ChatPanel } from "./chat-panel";
-import { FileTreePanel } from "./file-tree-panel";
+import { LeftPanel } from "./left-panel";
 import { InspectorPanel } from "./inspector-panel";
 import { WorkspaceFooter } from "./workspace-footer";
 import { WorkspaceHeader } from "./workspace-header";
@@ -453,6 +453,17 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
     await workspace.renameSession(sessionId, newTitle);
   }, [workspace]);
 
+  // Agent mention insertion
+  const [pendingInsert, setPendingInsert] = useState<string | null>(null);
+
+  const handleSelectAgent = useCallback((agent: { displayName: string }) => {
+    setPendingInsert("@" + agent.displayName + " ");
+  }, []);
+
+  const handlePendingInsertConsumed = useCallback(() => {
+    setPendingInsert(null);
+  }, []);
+
   const handleToggleRight = useCallback(() => {
     setRightCollapsed((prev) => !prev);
   }, []);
@@ -671,7 +682,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
 
         {/* Main panels area */}
         <div ref={containerRef} className="relative z-10 flex min-h-0 flex-1 gap-3">
-          {/* Left panel - File tree (floating) */}
+          {/* Left panel - Sessions / Agents / Knowledge (floating) */}
           {!leftCollapsed && (
             <div
               className="glass-panel shrink-0 overflow-hidden rounded-2xl"
@@ -680,10 +691,16 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
                 minWidth: MIN_LEFT_PX
               }}
             >
-              <FileTreePanel
-                nodes={workspace.fileTree}
-                activePath={activeFilePath}
-                onSelect={handleOpenFile}
+              <LeftPanel
+                sessions={workspace.sessions}
+                activeSessionId={workspace.activeSessionId}
+                onSelectSession={handleSelectSession}
+                onCreateSession={handleCreateSession}
+                agents={workspace.agentCatalog}
+                onSelectAgent={handleSelectAgent}
+                fileNodes={workspace.fileTree}
+                activeFilePath={activeFilePath}
+                onSelectFile={handleOpenFile}
               />
             </div>
           )}
@@ -725,6 +742,8 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
               selectedModel={workspace.selectedModel}
               onSelectModel={workspace.setSelectedModel}
               activeAgentName={workspace.activeAgentName}
+              pendingInsert={pendingInsert}
+              onPendingInsertConsumed={handlePendingInsertConsumed}
             />
           </div>
 

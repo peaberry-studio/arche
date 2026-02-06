@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { auditEvent } from '@/lib/auth'
-import { getCommonWorkspaceConfigHash, readCommonWorkspaceConfig } from '@/lib/common-workspace-config-store'
+import { getCommonWorkspaceConfigHash, readCommonWorkspaceConfig, readConfigRepoFile } from '@/lib/common-workspace-config-store'
 import { isInstanceHealthyWithPassword } from '@/lib/opencode/client'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
 import * as docker from './docker'
@@ -85,7 +85,18 @@ export async function startInstance(slug: string, userId: string): Promise<Start
       console.warn('[spawner] Config build failed')
     }
 
-    const container = await docker.createContainer(slug, password, opencodeConfigContent)
+    // Read AGENTS.md from config repo to inject into workspace
+    let agentsMd: string | undefined
+    try {
+      const agentsResult = await readConfigRepoFile('AGENTS.md')
+      if (agentsResult.ok) {
+        agentsMd = agentsResult.content
+      }
+    } catch {
+      console.warn('[spawner] Failed to read AGENTS.md')
+    }
+
+    const container = await docker.createContainer(slug, password, opencodeConfigContent, agentsMd)
     containerId = container.id
     await docker.startContainer(container.id)
 

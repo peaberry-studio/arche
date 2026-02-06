@@ -53,10 +53,6 @@ export function getKbContentHostPath(): string | undefined {
   return process.env.KB_CONTENT_HOST_PATH || undefined
 }
 
-export function getKbConfigHostPath(): string | undefined {
-  return process.env.KB_CONFIG_HOST_PATH || undefined
-}
-
 export function getUsersBasePath(): string {
   return process.env.ARCHE_USERS_PATH || '/opt/arche/users'
 }

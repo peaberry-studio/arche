@@ -102,11 +102,12 @@ describe('startInstance', () => {
     const result = await startInstance('alice', 'user-1')
 
     expect(result).toEqual({ ok: true, status: 'running' })
-    expect(mockDocker.createContainer).toHaveBeenCalledWith(
-      'alice',
-      'test-password-123',
-      '{"$schema":"https://opencode.ai/config.json","mcp":{}}'
-    )
+    const [slug, password, configContent, agentsMd] = mockDocker.createContainer.mock.calls[0] ?? []
+    expect(slug).toBe('alice')
+    expect(password).toBe('test-password-123')
+    expect(typeof configContent).toBe('string')
+    expect(configContent).toContain('"$schema":"https://opencode.ai/config.json"')
+    expect(typeof agentsMd).toBe('string')
     expect(mockDocker.startContainer).toHaveBeenCalledWith('container-123')
     expect(mockSync).toHaveBeenCalledWith({ slug: 'alice', userId: 'owner-1' })
     expect(mockAudit).toHaveBeenCalledWith({

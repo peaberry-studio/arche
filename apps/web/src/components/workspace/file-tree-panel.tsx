@@ -13,6 +13,7 @@ type FileTreePanelProps = {
   nodes: WorkspaceFileNode[];
   activePath?: string | null;
   onSelect: (path: string) => void;
+  hideHeader?: boolean;
 };
 
 type FlatFile = { name: string; path: string };
@@ -29,7 +30,7 @@ function flattenFiles(nodes: WorkspaceFileNode[]): FlatFile[] {
   return result;
 }
 
-export function FileTreePanel({ nodes, activePath, onSelect }: FileTreePanelProps) {
+export function FileTreePanel({ nodes, activePath, onSelect, hideHeader }: FileTreePanelProps) {
   const [query, setQuery] = useState("");
 
   const files = useMemo(() => flattenFiles(nodes), [nodes]);
@@ -41,14 +42,16 @@ export function FileTreePanel({ nodes, activePath, onSelect }: FileTreePanelProp
 
   return (
     <div className="flex h-full flex-col text-card-foreground">
-      <div className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-white/10 px-4">
-        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Files
-        </span>
-        <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="New file">
-          <Plus size={16} weight="bold" />
-        </Button>
-      </div>
+      {!hideHeader && (
+        <div className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-white/10 px-4">
+          <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Files
+          </span>
+          <Button size="icon" variant="ghost" className="h-7 w-7" aria-label="New file">
+            <Plus size={16} weight="bold" />
+          </Button>
+        </div>
+      )}
 
       <div className="px-4 py-3">
         <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-foreground/5 px-2.5 py-2">
