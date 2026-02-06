@@ -16,7 +16,7 @@ import type { SyncKbResult } from '@/app/api/instances/[slug]/sync-kb/route'
 type SyncKbButtonProps = {
   slug: string
   disabled?: boolean
-  onComplete?: () => void
+  onComplete?: (status: SyncKbResult['status']) => void
 }
 
 type SyncState = 'idle' | 'syncing' | 'synced' | 'conflicts' | 'error'
@@ -54,11 +54,11 @@ export function SyncKbButton({ slug, disabled, onComplete }: SyncKbButtonProps) 
         setState('error')
         setError(result.message || 'Sync failed')
       }
-      onComplete?.()
+      onComplete?.(result.status)
     } catch (err) {
       setState('error')
       setError(err instanceof Error ? err.message : 'Unknown error')
-      onComplete?.()
+      onComplete?.('error')
     }
   }, [slug, onComplete])
 

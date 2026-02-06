@@ -20,6 +20,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { SyncKbResult } from "@/app/api/instances/[slug]/sync-kb/route";
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { cn } from "@/lib/utils";
 import { SyncKbButton } from "./sync-kb-button";
@@ -27,7 +28,7 @@ import { SyncKbButton } from "./sync-kb-button";
 type WorkspaceHeaderProps = {
   slug: string;
   status: "active" | "provisioning" | "offline";
-  onSyncComplete?: () => void;
+  onSyncComplete?: (status: SyncKbResult['status']) => void;
 };
 
 const statusConfig = {

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ensureInstanceRunningAction } from "@/actions/spawner";
+import type { SyncKbResult } from "@/app/api/instances/[slug]/sync-kb/route";
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { useWorkspace } from "@/hooks/use-workspace";
 import type { WorkspaceFileNode } from "@/lib/opencode/types";
@@ -152,16 +153,6 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
   // Use workspace hook only when instance is running
   const workspace = useWorkspace({ slug, pollInterval: 5000, enabled: instanceStatus === 'running' });
 
-  const handleSyncComplete = useCallback(() => {
-    workspace.refreshDiffs();
-    workspace.refreshFiles();
-  }, [workspace.refreshDiffs, workspace.refreshFiles]);
-
-  const handlePublishComplete = useCallback(() => {
-    workspace.refreshDiffs();
-    workspace.refreshFiles();
-  }, [workspace.refreshDiffs, workspace.refreshFiles]);
-
   // Auto-sync KB on first connection
   const hasAutoSynced = useRef(false);
 
@@ -179,6 +170,68 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
       workspace.refreshFiles();
     })();
   }, [workspace.isConnected, slug, workspace.refreshDiffs, workspace.refreshFiles]);
+
+  // Layout state
+  const [leftWidth, setLeftWidth] = useState(MIN_LEFT_PX);
+  const [rightWidth, setRightWidth] = useState(MIN_RIGHT_PX);
+  const [minCenterWidth, setMinCenterWidth] = useState(MIN_CENTER_PX);
+  const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const [rightCollapsed, setRightCollapsed] = useState(false);
+  const [rightTab, setRightTab] = useState<"preview" | "review">("preview");
+  const [hasHydrated, setHasHydrated] = useState(false);
+
+  // File viewing state
+  const [openFilePaths, setOpenFilePaths] = useState<string[]>(
+    initialFilePath ? [initialFilePath] : []
+  );
+  const [activeFilePath, setActiveFilePath] = useState<string | null>(
+    initialFilePath ?? null
+  );
+  const [fileCache, setFileCache] = useState<FileContentCache>({});
+
+  const refreshOpenFilesCache = useCallback(async () => {
+    if (openFilePaths.length === 0) return;
+
+    const updates = await Promise.all(
+      openFilePaths.map(async (path) => ({
+        path,
+        result: await workspace.readFile(path),
+      }))
+    );
+
+    setFileCache((prev) => {
+      let changed = false;
+      const next = { ...prev };
+
+      updates.forEach(({ path, result }) => {
+        if (!result) return;
+        changed = true;
+        next[path] = {
+          content: result.content,
+          type: result.type,
+          title: path.split("/").pop() ?? path,
+          updatedAt: "Just now",
+          size: `${(result.content.length / 1024).toFixed(1)} KB`
+        };
+      });
+
+      return changed ? next : prev;
+    });
+  }, [openFilePaths, workspace]);
+
+  const handleSyncComplete = useCallback((status: SyncKbResult["status"]) => {
+    workspace.refreshDiffs();
+    workspace.refreshFiles();
+
+    if (status === "synced") {
+      void refreshOpenFilesCache();
+    }
+  }, [refreshOpenFilesCache, workspace]);
+
+  const handlePublishComplete = useCallback(() => {
+    workspace.refreshDiffs();
+    workspace.refreshFiles();
+  }, [workspace]);
 
   const handleResolveConflict = useCallback(
     (path: string, content: string) => {
@@ -200,26 +253,8 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
         };
       });
     },
-    [workspace.refreshDiffs, workspace.refreshFiles]
+    [workspace]
   );
-  
-  // Layout state
-  const [leftWidth, setLeftWidth] = useState(MIN_LEFT_PX);
-  const [rightWidth, setRightWidth] = useState(MIN_RIGHT_PX);
-  const [minCenterWidth, setMinCenterWidth] = useState(MIN_CENTER_PX);
-  const [leftCollapsed, setLeftCollapsed] = useState(false);
-  const [rightCollapsed, setRightCollapsed] = useState(false);
-  const [rightTab, setRightTab] = useState<"preview" | "review">("preview");
-  const [hasHydrated, setHasHydrated] = useState(false);
-
-  // File viewing state
-  const [openFilePaths, setOpenFilePaths] = useState<string[]>(
-    initialFilePath ? [initialFilePath] : []
-  );
-  const [activeFilePath, setActiveFilePath] = useState<string | null>(
-    initialFilePath ?? null
-  );
-  const [fileCache, setFileCache] = useState<FileContentCache>({});
 
   const flattenedFilePaths = useMemo(() => {
     const paths: string[] = [];

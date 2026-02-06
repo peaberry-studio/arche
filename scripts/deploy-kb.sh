@@ -53,6 +53,13 @@ is_non_bare_repo() {
   [ -d "$KB_DEST/.git" ] && git -C "$KB_DEST" rev-parse --is-inside-work-tree >/dev/null 2>&1
 }
 
+normalize_repo_permissions() {
+  # Podman rootless remaps UIDs/GIDs between host and containers. For bind-mounted
+  # bare repos, strict owner/group permissions can block git push from workspace
+  # containers even when the mount is rw. Make the repo writable for any mapped ID.
+  chmod -R a+rwX "$KB_DEST"
+}
+
 ensure_bare_repo() {
   if is_bare_repo; then
     return
@@ -86,6 +93,7 @@ ensure_bare_repo() {
 }
 
 ensure_bare_repo
+normalize_repo_permissions
 
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -136,6 +144,8 @@ fi
 if git --git-dir="$KB_DEST" show-ref --verify --quiet refs/heads/main; then
   git --git-dir="$KB_DEST" symbolic-ref HEAD refs/heads/main >/dev/null 2>&1 || true
 fi
+
+normalize_repo_permissions
 
 log "KB deployed successfully!"
 log "Bare repo: $KB_DEST"

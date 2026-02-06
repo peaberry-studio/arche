@@ -1,6 +1,22 @@
 #!/bin/sh
 set -e
 
+ensure_git_safe_directory() {
+  dir="$1"
+  if [ ! -d "$dir" ]; then
+    return
+  fi
+
+  if ! git config --global --get-all safe.directory | grep -Fx "$dir" >/dev/null 2>&1; then
+    git config --global --add safe.directory "$dir"
+  fi
+}
+
+# Git safety: with Podman user namespace remapping, bind mounts can appear with
+# a different owner inside the container. Mark known mount points as safe.
+ensure_git_safe_directory /workspace
+ensure_git_safe_directory /kb-content
+
 # Inicializar workspace con KB si es necesario
 if [ -d "/kb-content" ]; then
   /usr/local/bin/init-workspace.sh
