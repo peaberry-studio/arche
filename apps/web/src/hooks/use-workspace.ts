@@ -980,21 +980,21 @@ export function useWorkspace({
 
     setModels(nextModels);
 
-    const stillSelected =
-      selectedModel &&
-      nextModels.some(
-        (m) =>
-          m.providerId === selectedModel.providerId &&
-          m.modelId === selectedModel.modelId
-      );
+    setSelectedModel((current) => {
+      const stillSelected =
+        current &&
+        nextModels.some(
+          (m) =>
+            m.providerId === current.providerId && m.modelId === current.modelId
+        );
 
-    if (stillSelected) {
-      return;
-    }
+      if (stillSelected) {
+        return current;
+      }
 
-    const defaultModel = nextModels.find((m) => m.isDefault) ?? null;
-    setSelectedModel(defaultModel);
-  }, [slug, selectedModel]);
+      return nextModels.find((m) => m.isDefault) ?? null;
+    });
+  }, [slug]);
 
   const loadAgentCatalog = useCallback(async () => {
     try {
