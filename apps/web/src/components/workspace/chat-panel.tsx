@@ -5,7 +5,6 @@ import {
   ArrowClockwise,
   Brain,
   CaretDown,
-  CaretLeft,
   CaretRight,
   ChatCircle,
   CheckCircle,
@@ -19,7 +18,6 @@ import {
   Lightbulb,
   PaperPlaneTilt,
   PencilSimple,
-  Plus,
   Question,
   Robot,
   SpinnerGap,
@@ -47,12 +45,9 @@ import type { AvailableModel, MessagePart } from "@/lib/opencode/types";
 type ChatPanelProps = {
   sessions: ChatSession[];
   messages: ChatMessage[];
-  activeSessionId: string;
+  activeSessionId: string | null;
   openFilesCount: number;
-  onSelectSession: (id: string) => void;
-  onCreateSession: () => void;
   onCloseSession: (id: string) => void;
-  onRenameSession: (id: string, newTitle: string) => void;
   onOpenFile: (path: string) => void;
   onShowContext?: () => void;
   // New props for real functionality
@@ -367,6 +362,18 @@ function getToolDisplay(tool: string, input?: Record<string, unknown>, fallbackT
       return {
         summary: description ?? command ?? fallbackTitle,
         label: description ?? command ?? fallbackTitle,
+      };
+    }
+    case "task": {
+      const subagentType = getString(input?.subagent_type);
+      const taskDescription = getString(input?.description);
+      return {
+        summary: [
+          subagentType ? `agent=${subagentType}` : undefined,
+          taskDescription,
+        ].filter(Boolean).join(" · ") || fallbackTitle,
+        label: subagentType ? `agent=${subagentType}` : fallbackTitle,
+        meta: taskDescription,
       };
     }
     default:
@@ -772,10 +779,7 @@ export function ChatPanel({
   messages,
   activeSessionId,
   openFilesCount,
-  onSelectSession,
-  onCreateSession,
   onCloseSession,
-  onRenameSession,
   onOpenFile,
   onShowContext,
   onSendMessage,
@@ -792,11 +796,8 @@ export function ChatPanel({
     [sessions, activeSessionId]
   );
 
-  const tabsRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [canScrollLeft, setCanScrollLeft] = useState(false);
-  const [canScrollRight, setCanScrollRight] = useState(false);
   const [inputValue, setInputValue] = useState("");
 
   // Handle agent mention insertion from left panel
@@ -808,26 +809,6 @@ export function ChatPanel({
     });
     onPendingInsertConsumed?.();
   }, [pendingInsert, onPendingInsertConsumed]);
-
-  const updateScrollState = () => {
-    const el = tabsRef.current;
-    if (!el) return;
-    setCanScrollLeft(el.scrollLeft > 0);
-    setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 1);
-  };
-
-  useEffect(() => {
-    const el = tabsRef.current;
-    if (!el) return;
-    updateScrollState();
-    el.addEventListener("scroll", updateScrollState);
-    const resizeObserver = new ResizeObserver(updateScrollState);
-    resizeObserver.observe(el);
-    return () => {
-      el.removeEventListener("scroll", updateScrollState);
-      resizeObserver.disconnect();
-    };
-  }, [sessions]);
 
   // Auto-scroll to bottom when new messages arrive
   const prevMessagesLengthRef = useRef(0);
@@ -846,16 +827,6 @@ export function ChatPanel({
     }
     prevIsSendingRef.current = isSending;
   }, [isSending]);
-
-  const scrollTabs = (direction: "left" | "right") => {
-    const el = tabsRef.current;
-    if (!el) return;
-    const scrollAmount = 150;
-    el.scrollBy({
-      left: direction === "left" ? -scrollAmount : scrollAmount,
-      behavior: "smooth"
-    });
-  };
 
   const handleSend = useCallback(async () => {
     const text = inputValue.trim();
@@ -946,116 +917,36 @@ export function ChatPanel({
 
   return (
     <div className="flex h-full flex-col text-card-foreground">
-      {/* Session tabs */}
+      {/* Session header */}
       <div className="flex h-11 shrink-0 items-center gap-1 border-b border-white/10 pl-2 pr-2">
-        {canScrollLeft && (
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-7 w-7 shrink-0"
-            onClick={() => scrollTabs("left")}
-            aria-label="Scroll left"
-          >
-            <CaretLeft size={14} weight="bold" />
-          </Button>
-        )}
-        
-        <div
-          ref={tabsRef}
-          className="flex flex-1 items-center gap-1 overflow-x-auto scrollbar-none"
-          style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
-        >
-          {sessions.map((session) => (
-            <div
-              key={session.id}
-              className={cn(
-                "group flex shrink-0 items-center gap-1 rounded-xl pl-2.5 pr-1 py-1 text-xs transition-colors",
-                session.id === activeSessionId
-                  ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
-              )}
-            >
-              <button
-                type="button"
-                onClick={() => onSelectSession(session.id)}
-                className="flex items-center gap-1.5"
-              >
-                <Circle
-                  size={6}
-                  weight="fill"
-                  className={cn(
-                    session.status === "active"
-                      ? "text-emerald-500"
-                      : session.status === "idle"
-                        ? "text-muted-foreground/50"
-                        : "text-muted-foreground/30"
-                  )}
-                />
-                <span className="font-medium">{session.title}</span>
-              </button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className={cn(
-                      "ml-0.5 rounded p-0.5 transition-colors",
-                      "opacity-0 group-hover:opacity-100",
-                      "hover:bg-foreground/10",
-                      session.id === activeSessionId && "opacity-100"
-                    )}
-                    aria-label={`Options for ${session.title}`}
-                  >
-                    <DotsThree size={14} weight="bold" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" sideOffset={4}>
-                  <DropdownMenuItem
-                    onClick={() => {
-                      const newTitle = window.prompt("New name:", session.title);
-                      if (newTitle && newTitle.trim()) {
-                        onRenameSession(session.id, newTitle.trim());
-                      }
-                    }}
-                  >
-                    <PencilSimple size={14} />
-                    Rename
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => onCloseSession(session.id)}
-                    className="text-destructive focus:text-destructive"
-                  >
-                    <X size={14} />
-                    Close
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          ))}
+        <div className="min-w-0 flex-1 px-2">
+          <p className="truncate text-sm font-medium text-foreground">
+            {activeSession?.title ?? "No active session"}
+          </p>
         </div>
-
-        {canScrollRight && (
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-7 w-7 shrink-0"
-            onClick={() => scrollTabs("right")}
-            aria-label="Scroll right"
-          >
-            <CaretRight size={14} weight="bold" />
-          </Button>
-        )}
-
-        <div className="h-5 w-px bg-border/40 mx-1" />
-        
-        <Button
-          size="icon"
-          variant="ghost"
-          className="h-7 w-7 shrink-0"
-          onClick={onCreateSession}
-          aria-label="New session"
-        >
-          <Plus size={16} weight="bold" />
-        </Button>
+        {activeSession ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7 shrink-0"
+                aria-label={`Session options for ${activeSession.title}`}
+              >
+                <DotsThree size={16} weight="bold" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" sideOffset={4}>
+              <DropdownMenuItem
+                onClick={() => onCloseSession(activeSession.id)}
+                className="text-destructive focus:text-destructive"
+              >
+                <X size={14} />
+                Close session
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
       </div>
 
       {/* Messages area */}

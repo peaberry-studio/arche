@@ -518,6 +518,17 @@ export function useWorkspace({
       case "text":
         return { status: "writing" as const };
       case "tool": {
+        const taskAgent =
+          part.name === "task" &&
+          part.state.input &&
+          typeof part.state.input.subagent_type === "string"
+            ? part.state.input.subagent_type
+            : undefined;
+
+        const toolDetail = taskAgent
+          ? `to ${taskAgent}${part.state.title ? ` - ${part.state.title}` : ""}`
+          : part.state.title;
+
         if (part.state.status === "error") {
           return {
             status: "error" as const,
@@ -532,7 +543,7 @@ export function useWorkspace({
           return {
             status: "tool-calling" as const,
             toolName: part.name,
-            detail: part.state.title,
+            detail: toolDetail,
           };
         }
         return { status: "thinking" as const };

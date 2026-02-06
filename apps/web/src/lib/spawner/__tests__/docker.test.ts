@@ -90,6 +90,8 @@ describe('docker', () => {
           'OPENCODE_SERVER_PASSWORD=secret-password',
           'OPENCODE_SERVER_USERNAME=opencode',
           'WORKSPACE_AGENT_PORT=4097',
+          'WORKSPACE_GIT_AUTHOR_NAME=user-slug',
+          'WORKSPACE_GIT_AUTHOR_EMAIL=user-slug@arche.local',
         ]),
         HostConfig: {
           NetworkMode: 'test-network',
@@ -143,6 +145,22 @@ describe('docker', () => {
     it('returns the created container', async () => {
       const container = await createContainer('slug', 'pass')
       expect(container.id).toBe('container-123')
+    })
+
+    it('uses provided git author identity when passed', async () => {
+      await createContainer('user-slug', 'secret-password', undefined, undefined, {
+        name: 'alice',
+        email: 'alice@example.com',
+      })
+
+      expect(mockDockerInstance.createContainer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          Env: expect.arrayContaining([
+            'WORKSPACE_GIT_AUTHOR_NAME=alice',
+            'WORKSPACE_GIT_AUTHOR_EMAIL=alice@example.com',
+          ]),
+        })
+      )
     })
   })
 

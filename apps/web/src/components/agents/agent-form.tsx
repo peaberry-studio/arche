@@ -3,10 +3,12 @@
 import type { FormEvent } from 'react'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { SpinnerGap } from '@phosphor-icons/react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { cn } from '@/lib/utils'
 import {
   OPENCODE_AGENT_TOOL_OPTIONS,
   type AgentCapabilities,
@@ -50,6 +52,8 @@ export function AgentForm({ slug, mode, agentId }: AgentFormProps) {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saveSuccess, setSaveSuccess] = useState(false)
+  const checkboxClassName =
+    'h-4 w-4 rounded border border-border/70 bg-card/70 accent-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40'
 
   useEffect(() => {
     let cancelled = false
@@ -286,7 +290,14 @@ export function AgentForm({ slug, mode, agentId }: AgentFormProps) {
   }
 
   if (isLoading) {
-    return <div className="text-sm text-muted-foreground">Loading agent...</div>
+    return (
+      <div className="flex min-h-[320px] items-center justify-center">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <SpinnerGap size={16} className="animate-spin" />
+          Loading agent...
+        </div>
+      </div>
+    )
   }
 
   if (loadError) {
@@ -394,12 +405,20 @@ export function AgentForm({ slug, mode, agentId }: AgentFormProps) {
           {OPENCODE_AGENT_TOOL_OPTIONS.map((tool) => {
             const checked = enabledTools.includes(tool.id)
             return (
-              <label key={tool.id} className="flex items-center gap-2 text-sm text-muted-foreground">
+              <label
+                key={tool.id}
+                className={cn(
+                  'flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors',
+                  checked
+                    ? 'border-primary/40 bg-primary/5 text-foreground'
+                    : 'border-border/60 bg-card/40 text-muted-foreground hover:bg-card/70'
+                )}
+              >
                 <input
                   type="checkbox"
                   checked={checked}
                   onChange={() => toggleTool(tool.id)}
-                  className="h-4 w-4 rounded border border-border"
+                  className={checkboxClassName}
                 />
                 <span>{tool.label}</span>
                 <span className="text-xs">({tool.id})</span>
@@ -431,7 +450,7 @@ export function AgentForm({ slug, mode, agentId }: AgentFormProps) {
                     type="checkbox"
                     checked={checked}
                     onChange={() => toggleMcpConnector(connector.id)}
-                    className="h-4 w-4 rounded border border-border"
+                    className={checkboxClassName}
                   />
                   <span className="font-medium">{connector.name}</span>
                   <span className="text-xs text-muted-foreground">{connector.type}</span>
@@ -482,7 +501,7 @@ export function AgentForm({ slug, mode, agentId }: AgentFormProps) {
             type="checkbox"
             checked={isPrimary}
             onChange={(event) => setIsPrimary(event.target.checked)}
-            className="h-4 w-4 rounded border border-border"
+            className={checkboxClassName}
           />
           Set as primary
         </label>

@@ -1,16 +1,10 @@
 import Link from "next/link";
 
+import { ConnectorsWidget } from '@/components/dashboard/connectors-widget'
 import { listRecentKbFileUpdates, readCommonWorkspaceConfig } from '@/lib/common-workspace-config-store'
 import { getAgentSummaries, parseCommonWorkspaceConfig } from '@/lib/workspace-config'
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-
-const connectors = [
-  { name: "HubSpot", status: "Daily sync" },
-  { name: "Linear", status: "Real-time" },
-  { name: "Notion", status: "Daily sync" },
-  { name: "Slack", status: "Real-time" },
-];
 
 function formatCommitTime(value: string): string {
   const parsed = new Date(value)
@@ -48,9 +42,6 @@ export default async function WorkspacePage({
           Dashboard
         </h1>
         <div className="flex gap-3">
-          <Button asChild>
-            <Link href={`/w/${slug}`}>Open workspace</Link>
-          </Button>
           <Button variant="outline" asChild>
             <Link href={`/u/${slug}/connectors`}>Add connector</Link>
           </Button>
@@ -135,17 +126,7 @@ export default async function WorkspacePage({
                 View all
               </Link>
             </div>
-            <div className="space-y-2">
-              {connectors.map((connector) => (
-                <div
-                  key={connector.name}
-                  className="flex items-center justify-between rounded-lg border border-border/60 bg-card/50 px-4 py-3"
-                >
-                  <span className="text-sm text-foreground">{connector.name}</span>
-                  <span className="text-xs text-muted-foreground">{connector.status}</span>
-                </div>
-              ))}
-            </div>
+            <ConnectorsWidget slug={slug} />
           </section>
         </aside>
       </div>

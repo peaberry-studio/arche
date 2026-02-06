@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Circle, Gear, Palette } from "@phosphor-icons/react";
+import { Circle, Palette, SquaresFour } from "@phosphor-icons/react";
 
 import { useEffect, useMemo, useState } from "react";
 
@@ -215,10 +215,10 @@ export function WorkspaceHeader({
             size="icon"
             variant="ghost"
             className="h-7 w-7"
-            aria-label="Settings"
-            onClick={() => router.push(`/u/${slug}/settings/security`)}
+            aria-label="Dashboard"
+            onClick={() => router.push(`/u/${slug}`)}
           >
-            <Gear size={16} weight="bold" />
+            <SquaresFour size={16} weight="bold" />
           </Button>
         </div>
       </div>

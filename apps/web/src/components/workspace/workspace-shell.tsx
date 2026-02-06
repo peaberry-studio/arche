@@ -449,10 +449,6 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
     await workspace.deleteSession(sessionId);
   }, [workspace]);
 
-  const handleRenameSession = useCallback(async (sessionId: string, newTitle: string) => {
-    await workspace.renameSession(sessionId, newTitle);
-  }, [workspace]);
-
   // Agent mention insertion
   const [pendingInsert, setPendingInsert] = useState<string | null>(null);
 
@@ -725,12 +721,9 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
             <ChatPanel
               sessions={uiSessions}
               messages={uiMessages}
-              activeSessionId={workspace.activeSessionId ?? ''}
+              activeSessionId={workspace.activeSessionId}
               openFilesCount={openFilePaths.length}
-              onSelectSession={handleSelectSession}
-              onCreateSession={handleCreateSession}
               onCloseSession={handleCloseSession}
-              onRenameSession={handleRenameSession}
               onOpenFile={handleOpenFile}
               onShowContext={() => {
                 setRightCollapsed(false);

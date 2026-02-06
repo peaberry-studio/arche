@@ -27,6 +27,17 @@ function getErrorDetail(err: unknown): string | undefined {
   return error.json?.message ?? error.message ?? error.reason
 }
 
+function withWorkspaceIdentity(agentsMd: string, identity: { slug: string; email?: string | null }): string {
+  const emailLine = identity.email ? `- Email: ${identity.email}\n` : ''
+  const block =
+    `\n\n## Workspace User Identity\n\n` +
+    `Use this identity as the primary user context for this workspace session.\n\n` +
+    `- Slug: ${identity.slug}\n` +
+    emailLine
+
+  return agentsMd + block
+}
+
 export async function startInstance(slug: string, userId: string): Promise<StartResult> {
   const existing = await prisma.instance.findUnique({ where: { slug } })
   const configHashResult = await getCommonWorkspaceConfigHash()
@@ -96,7 +107,22 @@ export async function startInstance(slug: string, userId: string): Promise<Start
       console.warn('[spawner] Failed to read AGENTS.md')
     }
 
-    const container = await docker.createContainer(slug, password, opencodeConfigContent, agentsMd)
+    const owner = await prisma.user.findUnique({
+      where: { slug },
+      select: { id: true, email: true, slug: true },
+    })
+
+    if (agentsMd) {
+      agentsMd = withWorkspaceIdentity(agentsMd, {
+        slug: owner?.slug ?? slug,
+        email: owner?.email,
+      })
+    }
+
+    const container = await docker.createContainer(slug, password, opencodeConfigContent, agentsMd, {
+      name: owner?.slug ?? slug,
+      email: owner?.email,
+    })
     containerId = container.id
     await docker.startContainer(container.id)
 
@@ -125,11 +151,6 @@ export async function startInstance(slug: string, userId: string): Promise<Start
         lastActivityAt: new Date(),
         appliedConfigSha
       },
-    })
-
-    const owner = await prisma.user.findUnique({
-      where: { slug },
-      select: { id: true },
     })
 
     // Provider credentials are per workspace owner (slug), not per actor.

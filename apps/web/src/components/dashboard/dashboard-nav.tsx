@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { ArrowUpRight } from '@phosphor-icons/react'
 
 const navItems = [
   { label: 'Overview', href: '' },
@@ -14,9 +15,10 @@ const navItems = [
 export function DashboardNav({ slug }: { slug: string }) {
   const pathname = usePathname()
   const base = `/u/${slug}`
+  const workspaceHref = `/w/${slug}`
 
   return (
-    <nav className="glass-bar flex h-11 items-center gap-1 rounded-2xl px-4 text-card-foreground">
+    <nav className="glass-bar flex h-14 items-center gap-1 rounded-2xl border-border/40 bg-card/65 px-5 text-card-foreground">
       <Link
         href="/"
         className="mr-2 font-[family-name:var(--font-display)] text-sm font-semibold"
@@ -46,6 +48,16 @@ export function DashboardNav({ slug }: { slug: string }) {
           </Link>
         )
       })}
+
+      <div className="ml-auto">
+        <Link
+          href={workspaceHref}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-foreground/10 px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-foreground/15"
+        >
+          Open Workspace
+          <ArrowUpRight size={14} weight="bold" />
+        </Link>
+      </div>
     </nav>
   )
 }

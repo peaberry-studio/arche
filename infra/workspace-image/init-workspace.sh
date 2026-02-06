@@ -16,6 +16,8 @@ set -e
 WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
 KB_CONTENT_DIR="${KB_CONTENT_DIR:-/kb-content}"
 KB_REMOTE_NAME="${KB_REMOTE_NAME:-kb}"
+WORKSPACE_GIT_AUTHOR_NAME="${WORKSPACE_GIT_AUTHOR_NAME:-Arche Workspace}"
+WORKSPACE_GIT_AUTHOR_EMAIL="${WORKSPACE_GIT_AUTHOR_EMAIL:-workspace@arche.local}"
 
 # Función para logging
 log() {
@@ -28,6 +30,11 @@ is_bare_kb() {
 
 is_worktree_kb() {
   git -c safe.directory="$KB_CONTENT_DIR" -C "$KB_CONTENT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1
+}
+
+set_workspace_git_identity() {
+  git config user.email "$WORKSPACE_GIT_AUTHOR_EMAIL"
+  git config user.name "$WORKSPACE_GIT_AUTHOR_NAME"
 }
 
 ensure_workspace_excludes() {
@@ -67,6 +74,7 @@ if [ -d "$WORKSPACE_DIR/.git" ]; then
     log "Adding KB remote: $KB_CONTENT_DIR"
     git remote add "$KB_REMOTE_NAME" "$KB_CONTENT_DIR"
   fi
+  set_workspace_git_identity
   ensure_workspace_excludes
   exit 0
 fi
@@ -75,8 +83,7 @@ if [ -n "$(ls -A "$WORKSPACE_DIR" 2>/dev/null)" ]; then
   log "Workspace is not empty and has no git, initializing git without cloning"
   cd "$WORKSPACE_DIR"
   git init -b main
-  git config user.email "workspace@arche.local"
-  git config user.name "Arche Workspace"
+  set_workspace_git_identity
   if ! git remote get-url "$KB_REMOTE_NAME" > /dev/null 2>&1; then
     log "Adding KB remote for future syncs"
     git remote add "$KB_REMOTE_NAME" "$KB_CONTENT_DIR"
@@ -95,8 +102,7 @@ if ! git remote get-url "$KB_REMOTE_NAME" > /dev/null 2>&1; then
   git remote add "$KB_REMOTE_NAME" "$KB_CONTENT_DIR"
 fi
 
-git config user.email "workspace@arche.local"
-git config user.name "Arche Workspace"
+set_workspace_git_identity
 
 ensure_workspace_excludes
 

@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { ChatCircle, Circle } from "@phosphor-icons/react";
 
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { groupByDateBucket } from "@/lib/date-buckets";
 import type { WorkspaceSession } from "@/lib/opencode/types";
@@ -11,12 +12,14 @@ type SessionsPanelProps = {
   sessions: WorkspaceSession[];
   activeSessionId: string | null;
   onSelectSession: (id: string) => void;
+  onCreateSession: () => void;
 };
 
 export function SessionsPanel({
   sessions,
   activeSessionId,
   onSelectSession,
+  onCreateSession,
 }: SessionsPanelProps) {
   const buckets = useMemo(
     () => groupByDateBucket(sessions, (s) => s.updatedAtRaw),
@@ -26,6 +29,9 @@ export function SessionsPanel({
   if (sessions.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 py-8 text-center">
+        <div className="w-full px-3 pb-2">
+          <Button className="w-full" onClick={onCreateSession}>New session</Button>
+        </div>
         <ChatCircle size={24} weight="bold" className="text-muted-foreground/50" />
         <p className="text-xs text-muted-foreground">No sessions yet</p>
       </div>
@@ -34,6 +40,9 @@ export function SessionsPanel({
 
   return (
     <div className="flex-1 overflow-y-auto px-2 pb-4 pt-2 scrollbar-none">
+      <div className="px-1 pb-2">
+        <Button className="w-full" onClick={onCreateSession}>New session</Button>
+      </div>
       {buckets.map((bucket) => (
         <div key={bucket.label} className="mb-3">
           <div className="px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">

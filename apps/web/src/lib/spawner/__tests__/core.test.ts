@@ -94,7 +94,7 @@ describe('startInstance', () => {
     mockPrisma.instance.findUnique.mockResolvedValue(null)
     mockPrisma.instance.upsert.mockResolvedValue({} as never)
     mockPrisma.instance.update.mockResolvedValue({} as never)
-    mockPrisma.user.findUnique.mockResolvedValue({ id: 'owner-1' } as never)
+    mockPrisma.user.findUnique.mockResolvedValue({ id: 'owner-1', slug: 'alice', email: 'alice@example.com' } as never)
     mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
     mockDocker.startContainer.mockResolvedValue(undefined)
     mockDocker.isContainerRunning.mockResolvedValue(true)
@@ -102,12 +102,13 @@ describe('startInstance', () => {
     const result = await startInstance('alice', 'user-1')
 
     expect(result).toEqual({ ok: true, status: 'running' })
-    const [slug, password, configContent, agentsMd] = mockDocker.createContainer.mock.calls[0] ?? []
+    const [slug, password, configContent, agentsMd, gitAuthor] = mockDocker.createContainer.mock.calls[0] ?? []
     expect(slug).toBe('alice')
     expect(password).toBe('test-password-123')
     expect(typeof configContent).toBe('string')
     expect(configContent).toContain('"$schema":"https://opencode.ai/config.json"')
     expect(typeof agentsMd).toBe('string')
+    expect(gitAuthor).toEqual({ name: 'alice', email: 'alice@example.com' })
     expect(mockDocker.startContainer).toHaveBeenCalledWith('container-123')
     expect(mockSync).toHaveBeenCalledWith({ slug: 'alice', userId: 'owner-1' })
     expect(mockAudit).toHaveBeenCalledWith({

@@ -4,11 +4,9 @@ import { useState } from "react";
 import {
   ChatCircle,
   FolderOpen,
-  Plus,
   Robot,
 } from "@phosphor-icons/react";
 
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { WorkspaceFileNode, WorkspaceSession } from "@/lib/opencode/types";
 import type { AgentCatalogItem } from "@/hooks/use-workspace";
@@ -81,21 +79,6 @@ export function LeftPanel({
             </button>
           );
         })}
-
-        {/* Contextual action button */}
-        <div className="ml-auto">
-          {activeTab === "sessions" && (
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-7 w-7"
-              aria-label="New session"
-              onClick={onCreateSession}
-            >
-              <Plus size={16} weight="bold" />
-            </Button>
-          )}
-        </div>
       </div>
 
       {/* Tab content */}
@@ -105,6 +88,7 @@ export function LeftPanel({
             sessions={sessions}
             activeSessionId={activeSessionId}
             onSelectSession={onSelectSession}
+            onCreateSession={onCreateSession}
           />
         )}
         {activeTab === "agents" && (

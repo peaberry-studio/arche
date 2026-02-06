@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { SpinnerGap } from '@phosphor-icons/react'
 
 import { AgentCard } from '@/components/agents/agent-card'
 
@@ -48,7 +49,12 @@ export function AgentsPageClient({ slug, isAdmin }: AgentsPageClientProps) {
   return (
     <div className="space-y-4">
       {isLoading && (
-        <div className="text-sm text-muted-foreground">Loading agents...</div>
+        <div className="flex min-h-[220px] items-center justify-center">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <SpinnerGap size={16} className="animate-spin" />
+            Loading agents...
+          </div>
+        </div>
       )}
       {loadError && (
         <div className="rounded-lg border border-border/60 bg-card/50 p-4 text-sm text-destructive">
