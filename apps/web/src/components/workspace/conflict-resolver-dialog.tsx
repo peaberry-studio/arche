@@ -65,9 +65,13 @@ export function ConflictResolverDialog({
     if (!open || !path) return;
 
     let cancelled = false;
-    setStatus("loading");
-    setError(null);
-    setConflict(null);
+
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setStatus("loading");
+      setError(null);
+      setConflict(null);
+    });
 
     getWorkspaceConflictAction(slug, path)
       .then((result) => {
@@ -92,14 +96,6 @@ export function ConflictResolverDialog({
       cancelled = true;
     };
   }, [open, path, slug]);
-
-  useEffect(() => {
-    if (open) return;
-    setStatus("idle");
-    setError(null);
-    setConflict(null);
-    setManualContent("");
-  }, [open]);
 
   const previewContent = useMemo(() => {
     if (!conflict) return "";

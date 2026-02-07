@@ -8,7 +8,6 @@
 import { createOpencodeClient, type OpencodeClient } from '@opencode-ai/sdk/v2/client'
 import { prisma } from '@/lib/prisma'
 import { decryptPassword } from '@/lib/spawner/crypto'
-import { getOpencodeNetwork } from '@/lib/spawner/config'
 
 const OPENCODE_PORT = 4096
 

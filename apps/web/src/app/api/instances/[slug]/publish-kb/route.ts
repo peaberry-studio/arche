@@ -11,19 +11,6 @@ export interface PublishKbResult {
   message?: string
 }
 
-function generateCommitMessage(statOutput: string): string {
-  // Parse file names from `git diff --cached --stat` output
-  // Each line looks like: " file.md | 2 +-"
-  // Last line is summary: " N files changed, ..."
-  const lines = statOutput.split('\n').filter(l => l.trim().length > 0)
-  const fileLines = lines.filter(l => l.includes('|'))
-  const fileNames = fileLines.map(l => l.split('|')[0].trim())
-
-  if (fileNames.length === 0) return 'Update files'
-  if (fileNames.length <= 3) return `Update ${fileNames.join(', ')}`
-  return `Update ${fileNames.length} files`
-}
-
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
