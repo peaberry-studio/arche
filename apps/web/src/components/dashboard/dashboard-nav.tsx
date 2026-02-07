@@ -18,46 +18,51 @@ export function DashboardNav({ slug }: { slug: string }) {
   const workspaceHref = `/w/${slug}`
 
   return (
-    <nav className="glass-bar flex h-14 items-center gap-1 rounded-2xl border-border/40 bg-card/65 pl-5 pr-2 text-card-foreground shadow-none">
-      <Link
-        href="/"
-        className="mr-2 font-[family-name:var(--font-display)] text-base font-semibold"
-      >
-        Archē
-      </Link>
-      <span className="mr-3 text-xs text-muted-foreground">/&nbsp;{slug}</span>
-
-      {navItems.map((item) => {
-        const href = `${base}${item.href}`
-        const isActive =
-          item.href === ''
-            ? pathname === base
-            : pathname.startsWith(href)
-
-        return (
-          <Link
-            key={item.label}
-            href={href}
-            className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${
-              isActive
-                ? 'bg-primary/10 font-medium text-primary'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {item.label}
-          </Link>
-        )
-      })}
-
-      <div className="ml-auto">
+    <nav className="glass-bar flex h-14 items-center rounded-2xl border-border/40 bg-card/65 pl-5 pr-2 text-card-foreground shadow-none">
+      {/* Left – brand + slug */}
+      <div className="flex items-center">
         <Link
-          href={workspaceHref}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-foreground/10 px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-foreground/15"
+          href="/"
+          className="mr-2 font-[family-name:var(--font-display)] text-base font-semibold"
         >
-          Open Workspace
-          <ArrowUpRight size={14} weight="bold" />
+          Archē
         </Link>
+        <span className="text-sm text-muted-foreground">/&nbsp;{slug}</span>
       </div>
+
+      {/* Center – nav items */}
+      <div className="flex flex-1 items-center justify-center gap-1">
+        {navItems.map((item) => {
+          const href = `${base}${item.href}`
+          const isActive =
+            item.href === ''
+              ? pathname === base
+              : pathname.startsWith(href)
+
+          return (
+            <Link
+              key={item.label}
+              href={href}
+              className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${
+                isActive
+                  ? 'bg-primary/10 font-medium text-primary'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {item.label}
+            </Link>
+          )
+        })}
+      </div>
+
+      {/* Right – workspace link */}
+      <Link
+        href={workspaceHref}
+        className="inline-flex items-center gap-1.5 rounded-lg bg-foreground/10 px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-foreground/15"
+      >
+        Open Workspace
+        <ArrowUpRight size={14} weight="bold" />
+      </Link>
     </nav>
   )
 }
