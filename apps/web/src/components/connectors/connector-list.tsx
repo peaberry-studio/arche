@@ -10,7 +10,6 @@ type ConnectorListProps = {
   testStates: Record<string, ConnectorTestState>
   onRetry: () => void
   onCreateFirst: () => void
-  onEdit: (id: string) => void
   onDelete: (id: string, name: string) => void
   onToggleEnabled: (id: string, enabled: boolean) => void
   onTestConnection: (id: string) => void
@@ -25,7 +24,6 @@ export function ConnectorList({
   testStates,
   onRetry,
   onCreateFirst,
-  onEdit,
   onDelete,
   onToggleEnabled,
   onTestConnection,
@@ -83,7 +81,6 @@ export function ConnectorList({
           connector={connector}
           testState={testStates[connector.id]}
           isBusy={Boolean(busyConnectorIds[connector.id])}
-          onEdit={onEdit}
           onDelete={onDelete}
           onToggleEnabled={onToggleEnabled}
           onTestConnection={onTestConnection}

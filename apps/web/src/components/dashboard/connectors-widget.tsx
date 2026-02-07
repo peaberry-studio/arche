@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react'
 
+import { Badge } from '@/components/ui/badge'
+
 type ConnectorListItem = {
   id: string
   type: string
@@ -12,6 +14,17 @@ type ConnectorListItem = {
 
 type ConnectorsWidgetProps = {
   slug: string
+}
+
+function statusBadge(status: ConnectorListItem['status']) {
+  switch (status) {
+    case 'ready':
+      return <Badge variant="success">Working</Badge>
+    case 'pending':
+      return <Badge variant="warning">Pending</Badge>
+    default:
+      return <Badge variant="outline">Offline</Badge>
+  }
 }
 
 export function ConnectorsWidget({ slug }: ConnectorsWidgetProps) {
@@ -79,16 +92,7 @@ export function ConnectorsWidget({ slug }: ConnectorsWidgetProps) {
             }`}
           />
           <span className="flex-1 text-sm text-foreground">{connector.name}</span>
-          <span className="text-xs text-muted-foreground">
-            {connector.status === 'ready'
-              ? 'Working'
-              : connector.status === 'pending'
-                ? 'Pending'
-                : 'Not working'}
-          </span>
-          <span className="rounded-md bg-foreground/5 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            {connector.type}
-          </span>
+          {statusBadge(connector.status)}
         </div>
       ))}
     </div>

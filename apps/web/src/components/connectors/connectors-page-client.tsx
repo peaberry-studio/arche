@@ -46,7 +46,6 @@ export function ConnectorsPageClient({ slug }: ConnectorsPageClientProps) {
   const [testStates, setTestStates] = useState<Record<string, ConnectorTestState>>({})
 
   const [isModalOpen, setIsModalOpen] = useState(false)
-  const [editingConnectorId, setEditingConnectorId] = useState<string | null>(null)
 
   const markConnectorBusy = useCallback((id: string, busy: boolean) => {
     setBusyConnectorIds((current) => {
@@ -108,20 +107,11 @@ export function ConnectorsPageClient({ slug }: ConnectorsPageClientProps) {
   }, [loadConnectors])
 
   const handleCreate = useCallback(() => {
-    setEditingConnectorId(null)
-    setIsModalOpen(true)
-  }, [])
-
-  const handleEdit = useCallback((id: string) => {
-    setEditingConnectorId(id)
     setIsModalOpen(true)
   }, [])
 
   const handleDelete = useCallback(
-    async (id: string, name: string) => {
-      const confirmed = window.confirm(`Delete connector "${name}"?`)
-      if (!confirmed) return
-
+    async (id: string, _name: string) => {
       markConnectorBusy(id, true)
       setActionError(null)
 
@@ -262,7 +252,7 @@ export function ConnectorsPageClient({ slug }: ConnectorsPageClientProps) {
             </h1>
             <p className="text-muted-foreground">Configure integrations for your workspace.</p>
           </div>
-          <Button onClick={handleCreate}>Add connector</Button>
+          <Button variant="outline" onClick={handleCreate}>Add connector</Button>
         </div>
 
         {actionError ? (
@@ -279,7 +269,6 @@ export function ConnectorsPageClient({ slug }: ConnectorsPageClientProps) {
           testStates={testStates}
           onRetry={loadConnectors}
           onCreateFirst={handleCreate}
-          onEdit={handleEdit}
           onDelete={handleDelete}
           onToggleEnabled={handleToggleEnabled}
           onTestConnection={handleTestConnection}
@@ -291,7 +280,6 @@ export function ConnectorsPageClient({ slug }: ConnectorsPageClientProps) {
         slug={slug}
         existingConnectors={connectors}
         open={isModalOpen}
-        connectorId={editingConnectorId}
         onOpenChange={setIsModalOpen}
         onSaved={loadConnectors}
       />
