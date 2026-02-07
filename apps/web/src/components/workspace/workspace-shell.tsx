@@ -33,18 +33,9 @@ const MIN_CENTER_PX = 360;
 const DEFAULT_LEFT_RATIO = 0.15;
 const DEFAULT_RIGHT_RATIO = 0.3;
 const PANEL_GAP = 12; // Gap between floating panels in pixels
-const SHELL_PADDING = 12; // Padding around the entire workspace
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
-
-// Account for gaps when calculating available space
-const getAvailableWidth = (containerWidth: number, leftCollapsed: boolean, rightCollapsed: boolean) => {
-  // Container already has SHELL_PADDING on each side from parent padding
-  // We need to account for gaps between panels
-  const numGaps = (leftCollapsed ? 0 : 1) + (rightCollapsed ? 0 : 1);
-  return containerWidth - (numGaps * PANEL_GAP);
-};
 
 const getMinCenter = (containerWidth: number) =>
   Math.min(MIN_CENTER_PX, Math.max(0, containerWidth - MIN_LEFT_PX - MIN_RIGHT_PX - 2 * PANEL_GAP));
@@ -169,7 +160,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
       workspace.refreshDiffs();
       workspace.refreshFiles();
     })();
-  }, [workspace.isConnected, slug, workspace.refreshDiffs, workspace.refreshFiles]);
+  }, [workspace, workspace.isConnected, slug, workspace.refreshDiffs, workspace.refreshFiles]);
 
   // Layout state
   const [leftWidth, setLeftWidth] = useState(MIN_LEFT_PX);
@@ -327,7 +318,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
         }
       }));
     });
-  }, [diffSignature, openFilePaths, workspace.diffs, workspace.isConnected, workspace.readFile, workspace.refreshFiles]);
+  }, [diffSignature, openFilePaths, workspace, workspace.diffs, workspace.isConnected, workspace.readFile, workspace.refreshFiles]);
 
   // Load layout from localStorage
   useEffect(() => {
@@ -411,10 +402,6 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
       })
       .filter((f): f is NonNullable<typeof f> => f != null);
   }, [openFilePaths, fileCache]);
-
-  const activeFile = useMemo(() => {
-    return openFiles.find(f => f.path === activeFilePath) ?? null;
-  }, [openFiles, activeFilePath]);
 
   // File handlers
   const handleOpenFile = useCallback(async (path: string) => {
@@ -821,6 +808,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
 
         {/* Floating footer */}
         <WorkspaceFooter
+          slug={slug}
           leftCollapsed={leftCollapsed}
           rightCollapsed={rightCollapsed}
           onToggleLeft={() => setLeftCollapsed(prev => !prev)}

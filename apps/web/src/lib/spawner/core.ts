@@ -1,12 +1,13 @@
 import { prisma } from '@/lib/prisma'
 import { auditEvent } from '@/lib/auth'
-import { getCommonWorkspaceConfigHash, readCommonWorkspaceConfig, readConfigRepoFile } from '@/lib/common-workspace-config-store'
+import { readCommonWorkspaceConfig, readConfigRepoFile } from '@/lib/common-workspace-config-store'
 import { isInstanceHealthyWithPassword } from '@/lib/opencode/client'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
 import * as docker from './docker'
 import { decryptPassword, generatePassword, encryptPassword } from './crypto'
 import { getStartExpectedMs, getStartTimeoutMs } from './config'
 import { buildMcpConfigForSlug } from './mcp-config'
+import { getRuntimeConfigHashForSlug } from './runtime-config-hash'
 
 export type StartResult =
   | { ok: true; status: 'running' }
@@ -40,8 +41,8 @@ function withWorkspaceIdentity(agentsMd: string, identity: { slug: string; email
 
 export async function startInstance(slug: string, userId: string): Promise<StartResult> {
   const existing = await prisma.instance.findUnique({ where: { slug } })
-  const configHashResult = await getCommonWorkspaceConfigHash()
-  const appliedConfigSha = configHashResult.ok ? configHashResult.hash : null
+  const runtimeHashResult = await getRuntimeConfigHashForSlug(slug)
+  const appliedConfigSha = runtimeHashResult.ok ? runtimeHashResult.hash : null
 
   if (existing?.status === 'running') {
     return { ok: false, error: 'already_running' }

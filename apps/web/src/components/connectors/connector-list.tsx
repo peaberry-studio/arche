@@ -14,6 +14,7 @@ type ConnectorListProps = {
   onDelete: (id: string, name: string) => void
   onToggleEnabled: (id: string, enabled: boolean) => void
   onTestConnection: (id: string) => void
+  onConnectOAuth: (id: string) => void
 }
 
 export function ConnectorList({
@@ -28,6 +29,7 @@ export function ConnectorList({
   onDelete,
   onToggleEnabled,
   onTestConnection,
+  onConnectOAuth,
 }: ConnectorListProps) {
   if (isLoading) {
     return (
@@ -46,10 +48,10 @@ export function ConnectorList({
   if (loadError) {
     return (
       <div className="rounded-xl border border-border/60 bg-card/50 p-6">
-        <p className="text-sm text-destructive">No se pudieron cargar los conectores: {loadError}</p>
+        <p className="text-sm text-destructive">Failed to load connectors: {loadError}</p>
         <div className="mt-4">
           <Button variant="outline" onClick={onRetry}>
-            Reintentar
+            Retry
           </Button>
         </div>
       </div>
@@ -62,12 +64,12 @@ export function ConnectorList({
         <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-muted/70 text-lg">
           +
         </div>
-        <p className="text-base font-medium">No tienes conectores configurados</p>
+        <p className="text-base font-medium">No connectors configured</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          Añade integraciones para conectar servicios externos con tu workspace.
+          Add integrations to connect external services to your workspace.
         </p>
         <div className="mt-5">
-          <Button onClick={onCreateFirst}>Añadir tu primer conector</Button>
+          <Button onClick={onCreateFirst}>Add your first connector</Button>
         </div>
       </div>
     )
@@ -85,6 +87,7 @@ export function ConnectorList({
           onDelete={onDelete}
           onToggleEnabled={onToggleEnabled}
           onTestConnection={onTestConnection}
+          onConnectOAuth={onConnectOAuth}
         />
       ))}
     </div>

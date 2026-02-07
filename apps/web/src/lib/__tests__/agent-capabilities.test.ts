@@ -30,7 +30,7 @@ describe('agent-capabilities', () => {
         mcpConnectorIds: ['cntr1'],
       },
       [
-        { id: 'cntr1', type: 'github', enabled: true },
+        { id: 'cntr1', type: 'linear', enabled: true },
         { id: 'cntr2', type: 'notion', enabled: true },
       ]
     )
@@ -39,7 +39,7 @@ describe('agent-capabilities', () => {
     expect(config.grep).toBe(true)
     expect(config.write).toBe(false)
     expect(config['arche_*']).toBe(false)
-    expect(config['arche_github_cntr1_*']).toBe(true)
+    expect(config['arche_linear_cntr1_*']).toBe(true)
     expect(config['arche_notion_cntr2_*']).toBeUndefined()
   })
 

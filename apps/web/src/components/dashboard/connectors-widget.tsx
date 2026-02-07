@@ -7,6 +7,7 @@ type ConnectorListItem = {
   type: string
   name: string
   enabled: boolean
+  status: 'ready' | 'pending' | 'disabled'
 }
 
 type ConnectorsWidgetProps = {
@@ -25,8 +26,7 @@ export function ConnectorsWidget({ slug }: ConnectorsWidgetProps) {
         const response = await fetch(`/api/u/${slug}/connectors`, { cache: 'no-store' })
         const data = (await response.json().catch(() => null)) as { connectors?: ConnectorListItem[] } | null
         if (!response.ok || cancelled) return
-        const enabledConnectors = (data?.connectors ?? []).filter((connector) => connector.enabled)
-        setConnectors(enabledConnectors.slice(0, 4))
+        setConnectors((data?.connectors ?? []).slice(0, 4))
       } finally {
         if (!cancelled) setIsLoading(false)
       }
@@ -69,8 +69,23 @@ export function ConnectorsWidget({ slug }: ConnectorsWidgetProps) {
           key={connector.id}
           className="glass-panel flex items-center gap-3 rounded-lg px-4 py-3"
         >
-          <span className="flex h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
+          <span
+            className={`flex h-2 w-2 shrink-0 rounded-full ${
+              connector.status === 'ready'
+                ? 'bg-emerald-500'
+                : connector.status === 'pending'
+                  ? 'bg-amber-500'
+                  : 'bg-rose-500'
+            }`}
+          />
           <span className="flex-1 text-sm text-foreground">{connector.name}</span>
+          <span className="text-xs text-muted-foreground">
+            {connector.status === 'ready'
+              ? 'Working'
+              : connector.status === 'pending'
+                ? 'Pending'
+                : 'Not working'}
+          </span>
           <span className="rounded-md bg-foreground/5 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             {connector.type}
           </span>

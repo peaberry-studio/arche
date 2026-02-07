@@ -1,4 +1,9 @@
-import { CONNECTOR_TYPES, type ConnectorType } from './types'
+import {
+  CONNECTOR_TYPES,
+  OAUTH_CONNECTOR_TYPES,
+  type ConnectorAuthType,
+  type ConnectorType,
+} from './types'
 
 export const MAX_CONNECTOR_NAME_LENGTH = 100
 
@@ -10,13 +15,20 @@ export interface ConnectorConfigSchema {
 export const CONNECTOR_SCHEMAS: Record<ConnectorType, ConnectorConfigSchema> = {
   linear: { required: ['apiKey'] },
   notion: { required: ['apiKey'] },
-  slack: { required: ['botToken', 'teamId'], optional: ['appToken'] },
-  github: { required: ['token'], optional: ['org'] },
   custom: { required: ['endpoint'], optional: ['headers', 'auth'] },
 }
 
 export function validateConnectorType(type: string): type is ConnectorType {
   return CONNECTOR_TYPES.includes(type as ConnectorType)
+}
+
+export function isOAuthConnectorType(type: ConnectorType): boolean {
+  return OAUTH_CONNECTOR_TYPES.includes(type as (typeof OAUTH_CONNECTOR_TYPES)[number])
+}
+
+export function getConnectorAuthType(config: Record<string, unknown>): ConnectorAuthType {
+  const value = config.authType
+  return value === 'oauth' ? 'oauth' : 'manual'
 }
 
 export function validateConnectorName(name: unknown): { valid: boolean; error?: string } {
@@ -46,6 +58,10 @@ export function validateConnectorConfig(
   type: ConnectorType,
   config: Record<string, unknown>
 ): { valid: boolean; missing?: string[] } {
+  if (getConnectorAuthType(config) === 'oauth' && isOAuthConnectorType(type)) {
+    return { valid: true }
+  }
+
   const schema = CONNECTOR_SCHEMAS[type]
   const missing = schema.required.filter((key) => !isValidConfigValue(config[key]))
   return missing.length === 0 ? { valid: true } : { valid: false, missing }

@@ -7,17 +7,23 @@ describe('mcp-config', () => {
     const connectors = [
       {
         id: 'c1',
-        type: 'github',
-        name: 'GitHub',
+        type: 'linear',
+        name: 'Linear',
         enabled: true,
-        config: encryptConfig({ token: 'ghp_123' }),
+        config: encryptConfig({
+          authType: 'oauth',
+          oauth: { provider: 'linear', clientId: 'client-linear', accessToken: 'lin_oauth_token' },
+        }),
       },
       {
         id: 'c2',
-        type: 'slack',
-        name: 'Slack',
+        type: 'notion',
+        name: 'Notion',
         enabled: true,
-        config: encryptConfig({ botToken: 'xoxb-1', teamId: 'T123', appToken: 'xapp-1' }),
+        config: encryptConfig({
+          authType: 'oauth',
+          oauth: { provider: 'notion', clientId: 'client-notion', accessToken: 'notion_oauth_token' },
+        }),
       },
       {
         id: 'c3',
@@ -34,22 +40,24 @@ describe('mcp-config', () => {
 
     const result = buildMcpConfigFromConnectors(connectors)
 
-    expect(result.mcp.arche_github_c1).toEqual({
-      type: 'local',
-      command: ['npx', '-y', '@modelcontextprotocol/server-github'],
+    expect(result.mcp.arche_linear_c1).toEqual({
+      type: 'remote',
+      url: 'https://mcp.linear.app/mcp',
       enabled: true,
-      environment: { GITHUB_PERSONAL_ACCESS_TOKEN: 'ghp_123' },
+      headers: {
+        Authorization: 'Bearer lin_oauth_token',
+      },
+      oauth: false,
     })
 
-    expect(result.mcp.arche_slack_c2).toEqual({
-      type: 'local',
-      command: ['npx', '-y', '@modelcontextprotocol/server-slack'],
+    expect(result.mcp.arche_notion_c2).toEqual({
+      type: 'remote',
+      url: 'https://mcp.notion.com/mcp',
       enabled: true,
-      environment: {
-        SLACK_BOT_TOKEN: 'xoxb-1',
-        SLACK_TEAM_ID: 'T123',
-        SLACK_APP_TOKEN: 'xapp-1',
+      headers: {
+        Authorization: 'Bearer notion_oauth_token',
       },
+      oauth: false,
     })
 
     expect(result.mcp.arche_custom_c3).toEqual({
@@ -68,10 +76,10 @@ describe('mcp-config', () => {
     const connectors = [
       {
         id: 'bad1',
-        type: 'github',
-        name: 'GitHub Bad',
+        type: 'linear',
+        name: 'Linear Bad',
         enabled: true,
-        config: encryptConfig({ token: 123 }),
+        config: encryptConfig({ apiKey: 123 }),
       },
       {
         id: 'bad2',
@@ -82,23 +90,29 @@ describe('mcp-config', () => {
       },
       {
         id: 'ok1',
-        type: 'github',
-        name: 'GitHub OK',
+        type: 'linear',
+        name: 'Linear OK',
         enabled: true,
-        config: encryptConfig({ token: 'ghp_ok' }),
+        config: encryptConfig({
+          authType: 'oauth',
+          oauth: { provider: 'linear', clientId: 'client-linear', accessToken: 'lin_oauth_token' },
+        }),
       },
     ]
 
     const result = buildMcpConfigFromConnectors(connectors)
 
-    expect(result.mcp.arche_github_ok1).toEqual({
-      type: 'local',
-      command: ['npx', '-y', '@modelcontextprotocol/server-github'],
+    expect(result.mcp.arche_linear_ok1).toEqual({
+      type: 'remote',
+      url: 'https://mcp.linear.app/mcp',
       enabled: true,
-      environment: { GITHUB_PERSONAL_ACCESS_TOKEN: 'ghp_ok' },
+      headers: {
+        Authorization: 'Bearer lin_oauth_token',
+      },
+      oauth: false,
     })
 
-    expect(result.mcp.arche_github_bad1).toBeUndefined()
+    expect(result.mcp.arche_linear_bad1).toBeUndefined()
     expect(result.mcp.arche_custom_bad2).toBeUndefined()
   })
 
@@ -106,23 +120,29 @@ describe('mcp-config', () => {
     const connectors = [
       {
         id: 'abcdef12-1111',
-        type: 'github',
-        name: 'GitHub One',
+        type: 'linear',
+        name: 'Linear One',
         enabled: true,
-        config: encryptConfig({ token: 'ghp_one' }),
+        config: encryptConfig({
+          authType: 'oauth',
+          oauth: { provider: 'linear', clientId: 'client-linear', accessToken: 'token_one' },
+        }),
       },
       {
         id: 'abcdef12-2222',
-        type: 'github',
-        name: 'GitHub Two',
+        type: 'linear',
+        name: 'Linear Two',
         enabled: true,
-        config: encryptConfig({ token: 'ghp_two' }),
+        config: encryptConfig({
+          authType: 'oauth',
+          oauth: { provider: 'linear', clientId: 'client-linear', accessToken: 'token_two' },
+        }),
       },
     ]
 
     const result = buildMcpConfigFromConnectors(connectors)
     const keys = Object.keys(result.mcp).sort()
 
-    expect(keys).toEqual(['arche_github_abcdef12-1111', 'arche_github_abcdef12-2222'])
+    expect(keys).toEqual(['arche_linear_abcdef12-1111', 'arche_linear_abcdef12-2222'])
   })
 })

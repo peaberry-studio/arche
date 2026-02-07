@@ -96,13 +96,17 @@ async function loadEnabledConnectorsForSlug(slug: string): Promise<EnabledConnec
     select: { id: true, type: true, enabled: true },
   })
 
-  return connectors
-    .filter((connector) => validateConnectorType(connector.type))
-    .map((connector) => ({
+  const enabled: EnabledConnector[] = []
+  for (const connector of connectors) {
+    if (!validateConnectorType(connector.type)) continue
+    enabled.push({
       id: connector.id,
       type: connector.type,
       enabled: connector.enabled,
-    }))
+    })
+  }
+
+  return enabled
 }
 
 function parseCapabilities(

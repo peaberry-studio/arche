@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthenticatedUser } from '@/lib/auth'
 import { decryptConfig } from '@/lib/connectors/crypto'
+import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
 import type { ConnectorType } from '@/lib/connectors/types'
+import { validateConnectorType } from '@/lib/connectors/validators'
 
 export interface TestConnectionResult {
   ok: boolean
@@ -10,66 +12,134 @@ export interface TestConnectionResult {
   message?: string
 }
 
-/**
- * Prueba la conexión de un conector.
- *
- * TODO: Implementar pruebas reales por tipo de conector.
- * Por ahora solo valida que el conector existe y tiene config.
- *
- * Semántica del response:
- * - ok: true SOLO si se probó la conexión y fue exitosa
- * - ok: false si falló la prueba O si no se pudo probar
- * - tested: true si realmente se hizo una llamada a la API externa
- * - tested: false si solo se validó config localmente (stub)
- *
- * Esto evita que clientes que solo miren `ok` crean erróneamente
- * que la conexión fue verificada.
- */
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs = 8000) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(input, { ...init, signal: controller.signal, cache: 'no-store' })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+function getAccessToken(type: ConnectorType, config: Record<string, unknown>): string | null {
+  if (getConnectorAuthType(config) === 'oauth') {
+    const oauth = getConnectorOAuthConfig(type, config)
+    return oauth?.accessToken ?? null
+  }
+
+  switch (type) {
+    case 'linear':
+    case 'notion':
+      return typeof config.apiKey === 'string' ? config.apiKey : null
+    case 'custom':
+      return null
+  }
+}
+
+function isOAuthPending(type: ConnectorType, config: Record<string, unknown>): boolean {
+  if (getConnectorAuthType(config) !== 'oauth') return false
+  if (type !== 'linear' && type !== 'notion') return false
+  return !getConnectorOAuthConfig(type, config)?.accessToken
+}
+
 async function testConnection(
   type: ConnectorType,
   config: Record<string, unknown>
 ): Promise<TestConnectionResult> {
-  // Stub implementation - en el futuro hacer llamadas reales a cada API
-  // ok: false cuando tested: false para no inducir a error
-  switch (type) {
-    case 'linear':
-      // TODO: Probar Linear API con config.apiKey
-      if (!config.apiKey) {
-        return { ok: false, tested: false, message: 'Missing API key' }
-      }
-      return { ok: false, tested: false, message: 'Linear connection test not yet implemented - config appears valid' }
+  try {
+    switch (type) {
+      case 'notion': {
+        if (isOAuthPending(type, config)) {
+          return {
+            ok: false,
+            tested: false,
+            message: 'Complete OAuth from the dashboard before testing this connector.',
+          }
+        }
 
-    case 'notion':
-      // TODO: Probar Notion API con config.apiKey
-      if (!config.apiKey) {
-        return { ok: false, tested: false, message: 'Missing API key' }
-      }
-      return { ok: false, tested: false, message: 'Notion connection test not yet implemented - config appears valid' }
+        const token = getAccessToken(type, config)
+        if (!token) return { ok: false, tested: false, message: 'Missing API key' }
 
-    case 'slack':
-      // TODO: Probar Slack API con config.botToken
-      if (!config.botToken) {
-        return { ok: false, tested: false, message: 'Missing bot token' }
+        const response = await fetchWithTimeout('https://api.notion.com/v1/users/me', {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Notion-Version': '2022-06-28',
+          },
+        })
+        if (!response.ok) {
+          return { ok: false, tested: true, message: `Notion test failed (${response.status})` }
+        }
+        return { ok: true, tested: true, message: 'Notion connection verified.' }
       }
-      return { ok: false, tested: false, message: 'Slack connection test not yet implemented - config appears valid' }
 
-    case 'github':
-      // TODO: Probar GitHub API con config.token
-      if (!config.token) {
-        return { ok: false, tested: false, message: 'Missing token' }
+      case 'linear': {
+        if (isOAuthPending(type, config)) {
+          return {
+            ok: false,
+            tested: false,
+            message: 'Complete OAuth from the dashboard before testing this connector.',
+          }
+        }
+
+        const token = getAccessToken(type, config)
+        if (!token) return { ok: false, tested: false, message: 'Missing API key' }
+
+        const response = await fetchWithTimeout('https://api.linear.app/graphql', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ query: '{ viewer { id } }' }),
+        })
+
+        const body = (await response.json().catch(() => null)) as
+          | { data?: { viewer?: { id?: string } }; errors?: Array<{ message?: string }> }
+          | null
+
+        if (!response.ok || !body?.data?.viewer?.id) {
+          return {
+            ok: false,
+            tested: true,
+            message: `Linear test failed (${body?.errors?.[0]?.message ?? response.status})`,
+          }
+        }
+        return { ok: true, tested: true, message: 'Linear connection verified.' }
       }
-      return { ok: false, tested: false, message: 'GitHub connection test not yet implemented - config appears valid' }
 
-    case 'custom':
-      // TODO: Hacer ping al endpoint custom
-      if (!config.endpoint) {
-        return { ok: false, tested: false, message: 'Missing endpoint' }
+      case 'custom': {
+        const endpoint = typeof config.endpoint === 'string' ? config.endpoint : ''
+        if (!endpoint) {
+          return { ok: false, tested: false, message: 'Missing endpoint' }
+        }
+
+        const headers: Record<string, string> = {
+          Accept: 'application/json',
+        }
+        const auth = typeof config.auth === 'string' ? config.auth : ''
+        if (auth) {
+          headers.Authorization = `Bearer ${auth}`
+        }
+
+        const response = await fetchWithTimeout(endpoint, {
+          method: 'GET',
+          headers,
+        })
+
+        if (!response.ok) {
+          return { ok: false, tested: true, message: `Custom endpoint test failed (${response.status})` }
+        }
+        return { ok: true, tested: true, message: 'Custom endpoint reachable.' }
       }
-      return { ok: false, tested: false, message: 'Custom endpoint test not yet implemented - config appears valid' }
-
-    default:
-      return { ok: false, tested: false, message: `Unknown connector type: ${type}` }
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Connection test failed'
+    return { ok: false, tested: true, message }
   }
+
+  return { ok: false, tested: false, message: `Unknown connector type: ${type}` }
 }
 
 /**
@@ -137,7 +207,11 @@ export async function POST(
     )
   }
 
-  const result = await testConnection(connector.type as ConnectorType, config)
+  if (!validateConnectorType(connector.type)) {
+    return NextResponse.json({ error: 'unsupported_connector_type' }, { status: 400 })
+  }
+
+  const result = await testConnection(connector.type, config)
 
   return NextResponse.json(result)
 }

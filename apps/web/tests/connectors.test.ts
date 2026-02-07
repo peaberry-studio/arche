@@ -48,7 +48,7 @@ describe('connectors/crypto', () => {
 
 describe('connectors/types', () => {
   it('CONNECTOR_TYPES contains expected values', () => {
-    expect(CONNECTOR_TYPES).toEqual(['linear', 'notion', 'slack', 'github', 'custom'])
+    expect(CONNECTOR_TYPES).toEqual(['linear', 'notion', 'custom'])
   })
 })
 
@@ -57,8 +57,6 @@ describe('connectors/validators', () => {
     it('accepts valid connector types', () => {
       expect(validateConnectorType('linear')).toBe(true)
       expect(validateConnectorType('notion')).toBe(true)
-      expect(validateConnectorType('slack')).toBe(true)
-      expect(validateConnectorType('github')).toBe(true)
       expect(validateConnectorType('custom')).toBe(true)
     })
 
@@ -88,28 +86,6 @@ describe('connectors/validators', () => {
       expect(invalid.missing).toContain('apiKey')
     })
 
-    it('validates required fields for slack', () => {
-      const valid = validateConnectorConfig('slack', { botToken: 'xoxb-xxx', teamId: 'T123' })
-      expect(valid).toEqual({ valid: true })
-
-      const invalid = validateConnectorConfig('slack', {})
-      expect(invalid.valid).toBe(false)
-      expect(invalid.missing).toContain('botToken')
-
-      const missingTeam = validateConnectorConfig('slack', { botToken: 'xoxb-xxx' })
-      expect(missingTeam.valid).toBe(false)
-      expect(missingTeam.missing).toContain('teamId')
-    })
-
-    it('validates required fields for github', () => {
-      const valid = validateConnectorConfig('github', { token: 'ghp_xxx' })
-      expect(valid).toEqual({ valid: true })
-
-      const invalid = validateConnectorConfig('github', {})
-      expect(invalid.valid).toBe(false)
-      expect(invalid.missing).toContain('token')
-    })
-
     it('validates required fields for custom', () => {
       const valid = validateConnectorConfig('custom', { endpoint: 'https://api.example.com' })
       expect(valid).toEqual({ valid: true })
@@ -117,23 +93,6 @@ describe('connectors/validators', () => {
       const invalid = validateConnectorConfig('custom', {})
       expect(invalid.valid).toBe(false)
       expect(invalid.missing).toContain('endpoint')
-    })
-
-    it('allows optional fields without requiring them', () => {
-      // slack has optional appToken
-      const withOptional = validateConnectorConfig('slack', {
-        botToken: 'xoxb-xxx',
-        teamId: 'T123',
-        appToken: 'xapp-xxx',
-      })
-      expect(withOptional).toEqual({ valid: true })
-
-      // github has optional org
-      const withOrg = validateConnectorConfig('github', {
-        token: 'ghp_xxx',
-        org: 'my-org',
-      })
-      expect(withOrg).toEqual({ valid: true })
     })
 
     it('reports multiple missing fields', () => {
