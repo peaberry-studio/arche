@@ -13,6 +13,7 @@ export const dynamic = 'force-dynamic'
  * - status: { status: 'connecting' | 'thinking' | 'reasoning' | 'tool-calling' | 'writing' | 'complete' | 'error', toolName?, detail? }
  * - message: { id, role, sessionId }
  * - part: { messageId, part, delta? }
+ * - workspace-updated: { type, path? }
  * - done: { refresh: true } - Stream complete, client should refresh messages
  * - error: { error: string }
  */
@@ -191,17 +192,23 @@ export async function POST(
                   event.properties?.sessionID ||
                   event.properties?.info?.sessionID ||
                   event.properties?.part?.sessionID
+
+                const eventType = typeof event.type === 'string' ? event.type : ''
+                const isWorkspaceEvent =
+                  eventType === 'file.edited' ||
+                  eventType === 'file.created' ||
+                  eventType === 'file.deleted' ||
+                  eventType === 'todo.updated'
                 
                 // Filter events for our session only
-                if (eventSessionId && eventSessionId !== sessionId) {
-                  eventType = ''
+                if (!isWorkspaceEvent && eventSessionId && eventSessionId !== sessionId) {
                   eventData = ''
                   continue
                 }
                 
-                console.log('[stream] Event:', event.type)
+                console.log('[stream] Event:', eventType)
                 
-                switch (event.type) {
+                switch (eventType) {
                   // Session status changes
                   case 'session.status': {
                     const status = event.properties?.status
@@ -323,16 +330,30 @@ export async function POST(
                     break
                   }
 
+                  case 'file.edited':
+                  case 'file.created':
+                  case 'file.deleted':
+                  case 'todo.updated': {
+                    const maybePath =
+                      event.properties?.path ||
+                      event.properties?.file?.path ||
+                      event.properties?.part?.path
+
+                    sendEvent('workspace-updated', {
+                      type: eventType,
+                      path: typeof maybePath === 'string' ? maybePath : undefined,
+                    })
+                    break
+                  }
+
                   // Ignore other event types
                   case 'session.updated':
                   case 'session.created':
-                  case 'file.edited':
-                  case 'todo.updated':
                     // These are informational, don't need to forward
                     break
 
                   default:
-                    console.log('[stream] Unhandled event type:', event.type)
+                    console.log('[stream] Unhandled event type:', eventType)
                 }
               } catch {
                 console.log('[stream] Failed to parse event:', eventData.substring(0, 100))

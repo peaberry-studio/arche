@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthenticatedUser, auditEvent } from '@/lib/auth'
-import { encryptConfig } from '@/lib/connectors/crypto'
+import { decryptConfig, encryptConfig } from '@/lib/connectors/crypto'
+import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
 import {
   validateConnectorType,
   validateConnectorConfig,
@@ -13,6 +14,10 @@ export interface ConnectorListItem {
   type: string
   name: string
   enabled: boolean
+  status: 'ready' | 'pending' | 'disabled'
+  authType: 'manual' | 'oauth'
+  oauthConnected: boolean
+  oauthExpiresAt?: string
   createdAt: string
 }
 
@@ -63,19 +68,40 @@ export async function GET(
       type: true,
       name: true,
       enabled: true,
+      config: true,
       createdAt: true,
     },
     orderBy: { createdAt: 'desc' },
   })
 
   return NextResponse.json({
-    connectors: connectors.map((c) => ({
-      id: c.id,
-      type: c.type,
-      name: c.name,
-      enabled: c.enabled,
-      createdAt: c.createdAt.toISOString(),
-    })),
+    connectors: connectors.filter((c) => validateConnectorType(c.type)).map((c) => {
+      let authType: 'manual' | 'oauth' = 'manual'
+      let oauthConnected = false
+      let oauthExpiresAt: string | undefined
+
+      try {
+        const config = decryptConfig(c.config)
+        authType = getConnectorAuthType(config)
+        const oauth = validateConnectorType(c.type) ? getConnectorOAuthConfig(c.type, config) : null
+        oauthConnected = Boolean(oauth?.accessToken)
+        oauthExpiresAt = oauth?.expiresAt
+      } catch {
+        authType = 'manual'
+      }
+
+      return {
+        id: c.id,
+        type: c.type,
+        name: c.name,
+        enabled: c.enabled,
+        status: !c.enabled ? 'disabled' : authType === 'oauth' && !oauthConnected ? 'pending' : 'ready',
+        authType,
+        oauthConnected,
+        oauthExpiresAt,
+        createdAt: c.createdAt.toISOString(),
+      }
+    }),
   })
 }
 
@@ -198,6 +224,26 @@ export async function POST(
       },
       { status: 400 }
     )
+  }
+
+  if (type === 'linear' || type === 'notion') {
+    const existing = await prisma.connector.findFirst({
+      where: {
+        userId: user.id,
+        type,
+      },
+      select: { id: true },
+    })
+
+    if (existing) {
+      return NextResponse.json(
+        {
+          error: 'connector_already_exists',
+          message: `${type} connector already exists for this workspace`,
+        },
+        { status: 409 }
+      )
+    }
   }
 
   // Encriptar config

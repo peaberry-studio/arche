@@ -1,13 +1,6 @@
 "use client";
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useState,
-  type ReactNode,
-} from "react";
+import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
 
 export type WorkspaceThemeId =
   | "warm-sand"
@@ -130,26 +123,20 @@ const WorkspaceThemeContext = createContext<WorkspaceThemeContextValue | null>(
 );
 
 export function WorkspaceThemeProvider({ children }: { children: ReactNode }) {
-  const [themeId, setThemeIdState] = useState<WorkspaceThemeId>(DEFAULT_THEME_ID);
-  const [hydrated, setHydrated] = useState(false);
-
-  // Hydrate from localStorage on mount
-  useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
+  const [themeId, setThemeIdState] = useState<WorkspaceThemeId>(() => {
+    if (typeof window === "undefined") return DEFAULT_THEME_ID;
+    const stored = window.localStorage.getItem(STORAGE_KEY);
     if (stored && stored in WORKSPACE_THEMES) {
-      setThemeIdState(stored as WorkspaceThemeId);
+      return stored as WorkspaceThemeId;
     }
-    setHydrated(true);
-  }, []);
-
-  // Persist to localStorage
-  useEffect(() => {
-    if (!hydrated) return;
-    localStorage.setItem(STORAGE_KEY, themeId);
-  }, [themeId, hydrated]);
+    return DEFAULT_THEME_ID;
+  });
 
   const setThemeId = useCallback((id: WorkspaceThemeId) => {
     setThemeIdState(id);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(STORAGE_KEY, id);
+    }
   }, []);
 
   const theme = WORKSPACE_THEMES[themeId];

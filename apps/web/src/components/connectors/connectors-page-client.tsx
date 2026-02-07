@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { AddConnectorModal } from '@/components/connectors/add-connector-modal'
+import { getConnectorErrorMessage } from '@/components/connectors/error-messages'
 import { ConnectorList } from '@/components/connectors/connector-list'
 import type {
   ConnectorListItem,
@@ -21,26 +22,19 @@ function toConnectorListItemArray(value: unknown): ConnectorListItem[] {
   return Array.isArray(data.connectors) ? data.connectors : []
 }
 
-function getResponseError(value: unknown, fallback: string): string {
-  if (!value || typeof value !== 'object') return fallback
-  if ('message' in value && typeof value.message === 'string') return value.message
-  if ('error' in value && typeof value.error === 'string') return value.error
-  return fallback
-}
-
 function formatTestResult(result: ConnectorTestResult): ConnectorTestState {
   if (result.ok) {
-    return { status: 'success', message: result.message ?? 'Conexión correcta.' }
+    return { status: 'success', message: result.message ?? 'Connection verified.' }
   }
 
   if (!result.tested) {
     return {
       status: 'error',
-      message: result.message ?? 'Verificación real no implementada para este conector.',
+      message: result.message ?? 'Connection was not tested against the external service.',
     }
   }
 
-  return { status: 'error', message: result.message ?? 'Test fallido.' }
+  return { status: 'error', message: result.message ?? 'Connection test failed.' }
 }
 
 export function ConnectorsPageClient({ slug }: ConnectorsPageClientProps) {
@@ -52,7 +46,6 @@ export function ConnectorsPageClient({ slug }: ConnectorsPageClientProps) {
   const [testStates, setTestStates] = useState<Record<string, ConnectorTestState>>({})
 
   const [isModalOpen, setIsModalOpen] = useState(false)
-  const [editingConnectorId, setEditingConnectorId] = useState<string | null>(null)
 
   const markConnectorBusy = useCallback((id: string, busy: boolean) => {
     setBusyConnectorIds((current) => {
@@ -74,38 +67,51 @@ export function ConnectorsPageClient({ slug }: ConnectorsPageClientProps) {
       const data = (await response.json().catch(() => null)) as unknown
 
       if (!response.ok) {
-        setLoadError(getResponseError(data, 'load_failed'))
+        setLoadError(getConnectorErrorMessage(data, 'load_failed'))
         return
       }
 
       setConnectors(toConnectorListItemArray(data))
       setActionError(null)
     } catch {
-      setLoadError('network_error')
+      setLoadError(getConnectorErrorMessage(null, 'network_error'))
     } finally {
       setIsLoading(false)
     }
   }, [slug])
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const oauthStatus = params.get('oauth')
+    const message = params.get('message')
+
+    if (oauthStatus === 'error') {
+      setActionError(getConnectorErrorMessage({ error: message ?? 'oauth_error' }, 'oauth_error'))
+    }
+
+    if (oauthStatus === 'success') {
+      setActionError(null)
+      void loadConnectors()
+    }
+
+    if (oauthStatus || message) {
+      const cleanUrl = new URL(window.location.href)
+      cleanUrl.searchParams.delete('oauth')
+      cleanUrl.searchParams.delete('message')
+      window.history.replaceState({}, '', `${cleanUrl.pathname}${cleanUrl.search}`)
+    }
+  }, [loadConnectors])
+
+  useEffect(() => {
     void loadConnectors()
   }, [loadConnectors])
 
   const handleCreate = useCallback(() => {
-    setEditingConnectorId(null)
-    setIsModalOpen(true)
-  }, [])
-
-  const handleEdit = useCallback((id: string) => {
-    setEditingConnectorId(id)
     setIsModalOpen(true)
   }, [])
 
   const handleDelete = useCallback(
-    async (id: string, name: string) => {
-      const confirmed = window.confirm(`¿Eliminar el conector "${name}"?`)
-      if (!confirmed) return
-
+    async (id: string, _name: string) => {
       markConnectorBusy(id, true)
       setActionError(null)
 
@@ -116,7 +122,7 @@ export function ConnectorsPageClient({ slug }: ConnectorsPageClientProps) {
         const data = (await response.json().catch(() => null)) as unknown
 
         if (!response.ok) {
-          setActionError(getResponseError(data, 'delete_failed'))
+          setActionError(getConnectorErrorMessage(data, 'delete_failed'))
           return
         }
 
@@ -127,7 +133,7 @@ export function ConnectorsPageClient({ slug }: ConnectorsPageClientProps) {
           return next
         })
       } catch {
-        setActionError('network_error')
+        setActionError(getConnectorErrorMessage(null, 'network_error'))
       } finally {
         markConnectorBusy(id, false)
       }
@@ -151,7 +157,7 @@ export function ConnectorsPageClient({ slug }: ConnectorsPageClientProps) {
           | null
 
         if (!response.ok) {
-          setActionError(getResponseError(data, 'update_failed'))
+          setActionError(getConnectorErrorMessage(data, 'update_failed'))
           return
         }
 
@@ -163,7 +169,7 @@ export function ConnectorsPageClient({ slug }: ConnectorsPageClientProps) {
           )
         )
       } catch {
-        setActionError('network_error')
+        setActionError(getConnectorErrorMessage(null, 'network_error'))
       } finally {
         markConnectorBusy(id, false)
       }
@@ -187,19 +193,48 @@ export function ConnectorsPageClient({ slug }: ConnectorsPageClientProps) {
           setTestStates((current) => ({
             ...current,
             [id]: {
-              status: 'error',
-              message: getResponseError(data, 'test_failed'),
-            },
-          }))
-          return
+                status: 'error',
+                message: getConnectorErrorMessage(data, 'test_failed'),
+              },
+            }))
+            return
         }
 
         setTestStates((current) => ({ ...current, [id]: formatTestResult(data) }))
       } catch {
         setTestStates((current) => ({
           ...current,
-          [id]: { status: 'error', message: 'network_error' },
+          [id]: { status: 'error', message: getConnectorErrorMessage(null, 'network_error') },
         }))
+      } finally {
+        markConnectorBusy(id, false)
+      }
+    },
+    [markConnectorBusy, slug]
+  )
+
+  const handleConnectOAuth = useCallback(
+    async (id: string) => {
+      markConnectorBusy(id, true)
+      setActionError(null)
+
+      try {
+        const response = await fetch(`/api/u/${slug}/connectors/${id}/oauth/start`, {
+          method: 'POST',
+          headers: { accept: 'application/json' },
+        })
+        const data = (await response.json().catch(() => null)) as
+          | { authorizeUrl?: string; error?: string }
+          | null
+
+        if (!response.ok || !data?.authorizeUrl) {
+          setActionError(getConnectorErrorMessage(data, 'oauth_start_failed'))
+          return
+        }
+
+        window.location.href = data.authorizeUrl
+      } catch {
+        setActionError(getConnectorErrorMessage(null, 'network_error'))
       } finally {
         markConnectorBusy(id, false)
       }
@@ -213,16 +248,16 @@ export function ConnectorsPageClient({ slug }: ConnectorsPageClientProps) {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="space-y-2">
             <h1 className="font-[family-name:var(--font-display)] text-3xl font-semibold tracking-tight">
-              Conectores
+              Connectors
             </h1>
-            <p className="text-muted-foreground">Configura las integraciones para tu workspace.</p>
+            <p className="text-muted-foreground">Configure integrations for your workspace.</p>
           </div>
-          <Button onClick={handleCreate}>Añadir conector</Button>
+          <Button variant="outline" onClick={handleCreate}>Add connector</Button>
         </div>
 
         {actionError ? (
           <div className="rounded-lg border border-border/60 bg-card/50 p-4 text-sm text-destructive">
-            La acción no se pudo completar: {actionError}
+            The action could not be completed: {actionError}
           </div>
         ) : null}
 
@@ -234,17 +269,17 @@ export function ConnectorsPageClient({ slug }: ConnectorsPageClientProps) {
           testStates={testStates}
           onRetry={loadConnectors}
           onCreateFirst={handleCreate}
-          onEdit={handleEdit}
           onDelete={handleDelete}
           onToggleEnabled={handleToggleEnabled}
           onTestConnection={handleTestConnection}
+          onConnectOAuth={handleConnectOAuth}
         />
       </div>
 
       <AddConnectorModal
         slug={slug}
+        existingConnectors={connectors}
         open={isModalOpen}
-        connectorId={editingConnectorId}
         onOpenChange={setIsModalOpen}
         onSaved={loadConnectors}
       />

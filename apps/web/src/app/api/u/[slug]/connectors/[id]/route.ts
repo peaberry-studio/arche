@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getAuthenticatedUser, auditEvent } from '@/lib/auth'
 import { encryptConfig, decryptConfig } from '@/lib/connectors/crypto'
+import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
 import {
   validateConnectorConfig,
   validateConnectorName,
@@ -15,8 +16,30 @@ export interface ConnectorDetail {
   name: string
   config: Record<string, unknown>
   enabled: boolean
+  authType: 'manual' | 'oauth'
+  oauthConnected: boolean
+  oauthExpiresAt?: string
   createdAt: string
   updatedAt: string
+}
+
+function sanitizeConfigForResponse(type: ConnectorType, config: Record<string, unknown>): Record<string, unknown> {
+  if (getConnectorAuthType(config) !== 'oauth') return config
+  const oauth = getConnectorOAuthConfig(type, config)
+  if (!oauth) return config
+
+  const oauthResponse = {
+    provider: oauth.provider,
+    connected: true,
+    expiresAt: oauth.expiresAt,
+    connectedAt: oauth.connectedAt,
+    scope: oauth.scope,
+  }
+
+  return {
+    ...config,
+    oauth: oauthResponse,
+  }
 }
 
 /**
@@ -82,8 +105,15 @@ export async function GET(
     id: connector.id,
     type: connector.type,
     name: connector.name,
-    config,
+    config: validateConnectorType(connector.type) ? sanitizeConfigForResponse(connector.type, config) : config,
     enabled: connector.enabled,
+    authType: getConnectorAuthType(config),
+    oauthConnected: validateConnectorType(connector.type)
+      ? Boolean(getConnectorOAuthConfig(connector.type, config)?.accessToken)
+      : false,
+    oauthExpiresAt: validateConnectorType(connector.type)
+      ? getConnectorOAuthConfig(connector.type, config)?.expiresAt
+      : undefined,
     createdAt: connector.createdAt.toISOString(),
     updatedAt: connector.updatedAt.toISOString(),
   })
@@ -284,12 +314,19 @@ export async function PATCH(
     ? config  // Ya validamos que es correcto, usamos el input directamente
     : existingDecryptedConfig!  // Ya desencriptamos antes del update
 
+  const connectorType = validateConnectorType(connector.type) ? connector.type : null
+  const authType = getConnectorAuthType(responseConfig)
+  const oauthConfig = connectorType ? getConnectorOAuthConfig(connectorType, responseConfig) : null
+
   return NextResponse.json({
     id: connector.id,
     type: connector.type,
     name: connector.name,
-    config: responseConfig,
+    config: connectorType ? sanitizeConfigForResponse(connectorType, responseConfig) : responseConfig,
     enabled: connector.enabled,
+    authType,
+    oauthConnected: Boolean(oauthConfig?.accessToken),
+    oauthExpiresAt: oauthConfig?.expiresAt,
     createdAt: connector.createdAt.toISOString(),
     updatedAt: connector.updatedAt.toISOString(),
   })

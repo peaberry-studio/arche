@@ -8,7 +8,8 @@
       "Bash(pnpm build:*)",
       "Bash(npx tsc:*)",
       "Bash(git add:*)",
-      "Bash(npx --package typescript tsc:*)"
+      "Bash(npx --package typescript tsc:*)",
+      "Skill(commit-commands:commit)"
     ]
   }
 }

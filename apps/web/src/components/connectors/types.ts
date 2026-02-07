@@ -5,6 +5,10 @@ export type ConnectorListItem = {
   type: ConnectorType
   name: string
   enabled: boolean
+  status: 'ready' | 'pending' | 'disabled'
+  authType: 'manual' | 'oauth'
+  oauthConnected: boolean
+  oauthExpiresAt?: string
   createdAt: string
 }
 
@@ -14,6 +18,9 @@ export type ConnectorDetail = {
   name: string
   config: Record<string, unknown>
   enabled: boolean
+  authType: 'manual' | 'oauth'
+  oauthConnected: boolean
+  oauthExpiresAt?: string
   createdAt: string
   updatedAt: string
 }

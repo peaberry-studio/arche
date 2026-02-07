@@ -27,7 +27,21 @@ export function DashboardThemeShell({ children }: DashboardThemeShellProps) {
         backgroundSize: '100% 100%',
       }}
     >
-      {children}
+      {/* Subtle dot-grid overlay — fades out towards center */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-0 z-0"
+        style={{
+          backgroundImage:
+            'radial-gradient(circle, var(--grid-line) 0.8px, transparent 0.8px)',
+          backgroundSize: '48px 48px',
+          maskImage:
+            'radial-gradient(ellipse 70% 60% at 50% 40%, rgba(0,0,0,0.5) 0%, black 100%)',
+          WebkitMaskImage:
+            'radial-gradient(ellipse 70% 60% at 50% 40%, rgba(0,0,0,0.5) 0%, black 100%)',
+        }}
+      />
+      <div className="relative z-10">{children}</div>
     </div>
   )
 }

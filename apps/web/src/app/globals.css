@@ -102,6 +102,7 @@
   --sidebar-accent-foreground: 20 15% 20%;
   --sidebar-border: 30 12% 85%;
   --sidebar-ring: 24 85% 48%;
+  --grid-line: hsl(20 15% 12% / 0.22);
 }
 
 /* Dark mode: Ember variant (warm/orange tones) */
@@ -140,6 +141,7 @@
   --sidebar-accent-foreground: 30 15% 92%;
   --sidebar-border: 20 10% 20%;
   --sidebar-ring: 24 80% 50%;
+  --grid-line: hsl(30 15% 92% / 0.18);
 }
 
 /* Dark mode: Ash variant (neutral gray tones) */
@@ -178,6 +180,7 @@
   --sidebar-accent-foreground: 0 0% 92%;
   --sidebar-border: 0 0% 20%;
   --sidebar-ring: 24 80% 50%;
+  --grid-line: hsl(0 0% 92% / 0.18);
 }
 
 /* Theme-specific accent palettes */

@@ -9,7 +9,6 @@ import {
   ChatCircle,
   CheckCircle,
   Circle,
-  Code,
   Copy,
   DotsThree,
   File,
@@ -22,11 +21,12 @@ import {
   Robot,
   SpinnerGap,
   TreeStructure,
-  Warning,
   Wrench,
   X,
   XCircle
 } from "@phosphor-icons/react";
+
+import Image from "next/image";
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -46,8 +46,10 @@ type ChatPanelProps = {
   sessions: ChatSession[];
   messages: ChatMessage[];
   activeSessionId: string | null;
+  sessionTabs?: Array<{ id: string; title: string; depth: number }>;
   openFilesCount: number;
   onCloseSession: (id: string) => void;
+  onSelectSessionTab?: (id: string) => void;
   onOpenFile: (path: string) => void;
   onShowContext?: () => void;
   // New props for real functionality
@@ -386,20 +388,9 @@ function getToolDisplay(tool: string, input?: Record<string, unknown>, fallbackT
 
 function ReasoningBlock({ text, isPending }: { text: string; isPending: boolean }) {
   const COLLAPSE_THRESHOLD = 280;
-  const [isOpen, setIsOpen] = useState(() => isPending || text.length <= COLLAPSE_THRESHOLD);
-  const autoCollapsedRef = useRef(false);
+  const [isOpen, setIsOpen] = useState(() => text.length <= COLLAPSE_THRESHOLD);
   const canCollapse = text.length > COLLAPSE_THRESHOLD;
-
-  useEffect(() => {
-    if (isPending) {
-      setIsOpen(true);
-      return;
-    }
-    if (!autoCollapsedRef.current && text.length > COLLAPSE_THRESHOLD) {
-      setIsOpen(false);
-      autoCollapsedRef.current = true;
-    }
-  }, [isPending, text.length]);
+  const displayedOpen = isPending ? true : isOpen;
 
   return (
     <div className="my-2 rounded-lg border border-primary/20 bg-primary/5">
@@ -423,7 +414,7 @@ function ReasoningBlock({ text, isPending }: { text: string; isPending: boolean 
           </span>
         )}
       </button>
-      {isOpen && (
+      {displayedOpen && (
         <div className="px-3 pb-3">
           <p className="whitespace-pre-wrap text-sm text-foreground/80">
             {text}
@@ -443,6 +434,15 @@ function ToolGroup({
   parts: ToolPart[];
   onOpenFile?: (path: string) => void;
 }) {
+  const getStateTitle = (state: ToolPart['state'] | undefined): string | undefined => {
+    if (!state) return undefined;
+    return 'title' in state && typeof state.title === 'string' ? state.title : undefined;
+  };
+
+  const getStateError = (state: ToolPart['state']): string | undefined => {
+    return 'error' in state && typeof state.error === 'string' ? state.error : undefined;
+  };
+
   const runningCount = parts.filter(p => p.state.status === "running" || p.state.status === "pending").length;
   const errorCount = parts.filter(p => p.state.status === "error").length;
   const completedCount = parts.filter(p => p.state.status === "completed").length;
@@ -456,10 +456,10 @@ function ToolGroup({
 
   const toolLabel = getToolLabel(tool);
   const lastPart = parts[parts.length - 1];
-  const headerDisplay = getToolDisplay(tool, lastPart?.state.input, lastPart?.state.title || lastPart?.name || toolLabel);
+  const headerDisplay = getToolDisplay(tool, lastPart?.state.input, getStateTitle(lastPart?.state) || lastPart?.name || toolLabel);
   const summary = totalCount > 1
     ? `${totalCount} ${totalCount === 1 ? "call" : "calls"}${headerDisplay.summary ? ` · ${headerDisplay.summary}` : ""}`
-    : headerDisplay.summary || lastPart?.state.title || lastPart?.name || tool;
+    : headerDisplay.summary || getStateTitle(lastPart?.state) || lastPart?.name || tool;
   const showSummary = totalCount > 1 || (!!summary && summary !== tool);
 
   return (
@@ -519,8 +519,8 @@ function ToolGroup({
               const itemRunning = part.state.status === "running" || part.state.status === "pending";
               const itemError = part.state.status === "error";
               const itemComplete = part.state.status === "completed";
-              const detail = getToolDisplay(tool, part.state.input, part.state.title || part.name);
-              const title = detail.label || part.state.title || part.name;
+              const detail = getToolDisplay(tool, part.state.input, getStateTitle(part.state) || part.name);
+              const title = detail.label || getStateTitle(part.state) || part.name;
               
               return (
                 <div key={part.id} className="flex items-start gap-2 text-xs">
@@ -550,8 +550,8 @@ function ToolGroup({
                         </span>
                       )}
                     </div>
-                    {itemError && part.state.error && (
-                      <div className="mt-0.5 text-[11px] text-destructive">{part.state.error}</div>
+                    {itemError && getStateError(part.state) && (
+                      <div className="mt-0.5 text-[11px] text-destructive">{getStateError(part.state)}</div>
                     )}
                   </div>
                 </div>
@@ -700,27 +700,29 @@ function MessagePartRenderer({
     case 'image':
       return (
         <div className="my-2">
-          <img 
-            src={part.url} 
-            alt="Imagen adjunta" 
+          <Image
+            src={part.url}
+            alt="Attached image"
+            width={1024}
+            height={768}
             className="max-h-64 rounded-lg border border-border"
           />
         </div>
       );
     
     case 'step-start':
-      // No renderizar - no aporta valor visual
+      // Do not render - no visual value
       return null;
     
     case 'step-finish':
-      // No renderizar - los tokens se muestran en el tooltip del timestamp
+      // Do not render - tokens are shown in the timestamp tooltip
       return null;
     
     case 'patch':
       return (
         <div className="my-2 flex items-center gap-2 rounded-md bg-primary/10 px-3 py-2 text-xs">
           <GitDiff size={14} className="text-primary" />
-          <span>Cambios en {part.files.length} archivo{part.files.length !== 1 ? 's' : ''}</span>
+          <span>Changes in {part.files.length} file{part.files.length !== 1 ? 's' : ''}</span>
         </div>
       );
     
@@ -728,7 +730,7 @@ function MessagePartRenderer({
       return (
         <div className="my-1 flex items-center gap-1.5 text-xs text-muted-foreground">
           <Robot size={12} className="text-primary" />
-          <span>Agente: {part.name}</span>
+          <span>Agent: {part.name}</span>
         </div>
       );
     
@@ -737,7 +739,7 @@ function MessagePartRenderer({
         <div className="my-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
           <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-primary">
             <TreeStructure size={12} weight="fill" />
-            <span>Subtarea → {part.agent}</span>
+            <span>Subtask -&gt; {part.agent}</span>
           </div>
           <p className="text-sm text-foreground/80">
             {part.description}
@@ -749,7 +751,7 @@ function MessagePartRenderer({
       return (
         <div className="my-2 flex items-center gap-2 rounded-md bg-primary/10 px-3 py-2 text-xs text-primary">
           <ArrowClockwise size={14} />
-          <span>Reintentando (intento {part.attempt})...</span>
+          <span>Retrying (attempt {part.attempt})...</span>
         </div>
       );
     
@@ -759,7 +761,7 @@ function MessagePartRenderer({
         <div className="my-2 rounded-lg border border-dashed border-muted-foreground/30 bg-muted/20 p-3">
           <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
             <Question size={12} />
-            <span>Tipo desconocido: {part.originalType}</span>
+            <span>Unknown type: {part.originalType}</span>
           </div>
           <pre className="overflow-x-auto text-xs text-muted-foreground">
             {JSON.stringify(part.data, null, 2)}
@@ -768,18 +770,66 @@ function MessagePartRenderer({
       );
     
     default:
-      // TypeScript exhaustive check
-      const _exhaustive: never = part;
       return null;
   }
+}
+
+function StatusIndicator({
+  currentStatus,
+}: {
+  currentStatus: { status: string; toolName?: string; detail?: string } | null;
+}) {
+  if (!currentStatus) return null;
+
+  const { status, toolName, detail } = currentStatus;
+
+  const statusConfig: Record<string, { icon: React.ReactNode; label: string; className: string }> = {
+    thinking: {
+      icon: <Brain size={14} className="animate-pulse" />,
+      label: "Thinking...",
+      className: "text-primary",
+    },
+    reasoning: {
+      icon: <Lightbulb size={14} className="animate-pulse" />,
+      label: "Reasoning...",
+      className: "text-primary",
+    },
+    "tool-calling": {
+      icon: <Wrench size={14} className="animate-spin" />,
+      label: toolName ? `Using ${toolName}...` : "Running tool...",
+      className: "text-primary",
+    },
+    writing: {
+      icon: <PencilSimple size={14} className="animate-pulse" />,
+      label: detail ? `Writing ${detail}...` : "Writing...",
+      className: "text-primary",
+    },
+    error: {
+      icon: <XCircle size={14} />,
+      label: detail || "Failed to process",
+      className: "text-destructive",
+    },
+  };
+
+  const config = statusConfig[status];
+  if (!config) return null;
+
+  return (
+    <div className={cn("flex items-center gap-2 text-xs py-1.5 px-3 rounded-lg bg-muted/30 w-fit", config.className)}>
+      {config.icon}
+      <span>{config.label}</span>
+    </div>
+  );
 }
 
 export function ChatPanel({
   sessions,
   messages,
   activeSessionId,
+  sessionTabs = [],
   openFilesCount,
   onCloseSession,
+  onSelectSessionTab,
   onOpenFile,
   onShowContext,
   onSendMessage,
@@ -803,11 +853,14 @@ export function ChatPanel({
   // Handle agent mention insertion from left panel
   useEffect(() => {
     if (!pendingInsert) return;
-    setInputValue((prev) => prev + pendingInsert);
-    requestAnimationFrame(() => {
+    const frameId = requestAnimationFrame(() => {
+      setInputValue((prev) => prev + pendingInsert);
       textareaRef.current?.focus();
+      onPendingInsertConsumed?.();
     });
-    onPendingInsertConsumed?.();
+    return () => {
+      cancelAnimationFrame(frameId);
+    };
   }, [pendingInsert, onPendingInsertConsumed]);
 
   // Auto-scroll to bottom when new messages arrive
@@ -867,54 +920,6 @@ export function ChatPanel({
     return lastMessage.statusInfo;
   }, [messages]);
 
-  // Status indicator component - shown at the bottom of messages
-  const StatusIndicator = () => {
-    if (!currentStatus) return null;
-
-    const { status, toolName, detail } = currentStatus;
-
-    const statusConfig: Record<string, { icon: React.ReactNode; label: string; className: string }> = {
-      thinking: {
-        icon: <Brain size={14} className="animate-pulse" />,
-        label: "Thinking...",
-        className: "text-primary"
-      },
-      reasoning: {
-        icon: <Lightbulb size={14} className="animate-pulse" />,
-        label: "Reasoning...",
-        className: "text-primary"
-      },
-      "tool-calling": {
-        icon: <Wrench size={14} className="animate-spin" />,
-        label: toolName ? `Using ${toolName}...` : "Running tool...",
-        className: "text-primary"
-      },
-      writing: {
-        icon: <PencilSimple size={14} className="animate-pulse" />,
-        label: detail ? `Writing ${detail}...` : "Writing...",
-        className: "text-primary"
-      },
-      error: {
-        icon: <XCircle size={14} />,
-        label: detail || "Failed to process",
-        className: "text-destructive"
-      }
-    };
-
-    const config = statusConfig[status];
-    if (!config) return null;
-
-    return (
-      <div className={cn(
-        "flex items-center gap-2 text-xs py-1.5 px-3 rounded-lg bg-muted/30 w-fit",
-        config.className
-      )}>
-        {config.icon}
-        <span>{config.label}</span>
-      </div>
-    );
-  };
-
   return (
     <div className="flex h-full flex-col text-card-foreground">
       {/* Session header */}
@@ -948,6 +953,38 @@ export function ChatPanel({
           </DropdownMenu>
         ) : null}
       </div>
+
+      {sessionTabs.length > 1 ? (
+        <div className="border-b border-white/10 px-2 py-2">
+          <div className="flex items-center gap-1 overflow-x-auto scrollbar-none">
+            {sessionTabs.map((sessionTab) => {
+              const isSubtask = sessionTab.depth > 0;
+              const isActive = sessionTab.id === activeSessionId;
+
+              return (
+                <button
+                  key={sessionTab.id}
+                  type="button"
+                  onClick={() => onSelectSessionTab?.(sessionTab.id)}
+                  className={cn(
+                    "flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors",
+                    isActive
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+                  )}
+                >
+                  {isSubtask ? (
+                    <TreeStructure size={12} weight={isActive ? "fill" : "bold"} />
+                  ) : (
+                    <ChatCircle size={12} weight={isActive ? "fill" : "bold"} />
+                  )}
+                  <span className="max-w-[180px] truncate">{sessionTab.title}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
 
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto px-6 py-6 scrollbar-custom">
@@ -1074,7 +1111,7 @@ export function ChatPanel({
               );
             })}
             {/* Status indicator at the bottom - always visible when processing */}
-            <StatusIndicator />
+            <StatusIndicator currentStatus={currentStatus} />
             <div ref={messagesEndRef} />
           </div>
         )}

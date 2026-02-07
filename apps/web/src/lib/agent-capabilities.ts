@@ -51,7 +51,7 @@ export type ConnectorCapabilityRecord = {
 }
 
 const TOOL_SET = new Set<string>(OPENCODE_AGENT_TOOLS)
-const MCP_TOOL_PATTERN = /^arche_(linear|notion|slack|github|custom)_([a-z0-9]+)_\*$/
+const MCP_TOOL_PATTERN = /^arche_(linear|notion|custom)_([a-z0-9]+)_\*$/
 
 function buildMcpServerKey(type: ConnectorType, id: string): string {
   return `arche_${type}_${id}`

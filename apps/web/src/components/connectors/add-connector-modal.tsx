@@ -1,42 +1,34 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
-import type { ConnectorDetail, ConnectorTestResult } from '@/components/connectors/types'
+import { getConnectorErrorMessage } from '@/components/connectors/error-messages'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { CONNECTOR_TYPES, type ConnectorType } from '@/lib/connectors/types'
+import { useWorkspaceTheme } from '@/contexts/workspace-theme-context'
+import { cn } from '@/lib/utils'
+import { CONNECTOR_TYPES, type ConnectorAuthType, type ConnectorType } from '@/lib/connectors/types'
 
 type AddConnectorModalProps = {
   slug: string
+  existingConnectors: Array<{ id: string; type: ConnectorType }>
   open: boolean
-  connectorId: string | null
   onOpenChange: (open: boolean) => void
   onSaved: () => void
 }
 
-type Step = 1 | 2 | 3
-
-type TestStatus = {
-  tone: 'success' | 'error'
-  message: string
-}
-
 const CONNECTOR_TYPE_OPTIONS: { type: ConnectorType; label: string; description: string }[] = [
-  { type: 'linear', label: 'Linear', description: 'Sincroniza tareas y proyectos de Linear.' },
-  { type: 'notion', label: 'Notion', description: 'Conecta páginas y bases de conocimiento de Notion.' },
-  { type: 'slack', label: 'Slack', description: 'Interopera con canales y mensajes de Slack.' },
-  { type: 'github', label: 'GitHub', description: 'Accede a repositorios, issues y pull requests.' },
-  { type: 'custom', label: 'Custom', description: 'Conector remoto configurable por endpoint HTTP.' },
+  { type: 'linear', label: 'Linear', description: 'Official Linear MCP integration.' },
+  { type: 'notion', label: 'Notion', description: 'Official Notion MCP integration.' },
+  { type: 'custom', label: 'Custom', description: 'Any compatible remote MCP endpoint.' },
 ]
 
 const DEFAULT_TYPE: ConnectorType = CONNECTOR_TYPES[0]
@@ -47,19 +39,9 @@ function buildDefaultName(type: ConnectorType): string {
       return 'Linear'
     case 'notion':
       return 'Notion'
-    case 'slack':
-      return 'Slack'
-    case 'github':
-      return 'GitHub'
     case 'custom':
       return 'Custom Connector'
-    default:
-      return 'Connector'
   }
-}
-
-function getString(value: unknown): string {
-  return typeof value === 'string' ? value : ''
 }
 
 function isStringRecord(value: unknown): value is Record<string, string> {
@@ -68,21 +50,6 @@ function isStringRecord(value: unknown): value is Record<string, string> {
     if (typeof entry !== 'string') return false
   }
   return true
-}
-
-function formatTestMessage(result: ConnectorTestResult): TestStatus {
-  if (result.ok) {
-    return { tone: 'success', message: result.message ?? 'Conexión verificada correctamente.' }
-  }
-
-  if (!result.tested) {
-    return {
-      tone: 'error',
-      message: result.message ?? 'La verificación real aún no está implementada para este conector.',
-    }
-  }
-
-  return { tone: 'error', message: result.message ?? 'La prueba de conexión falló.' }
 }
 
 function hasValidHeaders(headersText: string): boolean {
@@ -95,54 +62,56 @@ function hasValidHeaders(headersText: string): boolean {
   }
 }
 
+function supportsOAuth(type: ConnectorType): boolean {
+  return type === 'linear' || type === 'notion'
+}
+
 export function AddConnectorModal({
   slug,
+  existingConnectors,
   open,
-  connectorId,
   onOpenChange,
   onSaved,
 }: AddConnectorModalProps) {
-  const isEditMode = Boolean(connectorId)
-  const [step, setStep] = useState<Step>(1)
+  const { theme } = useWorkspaceTheme()
+  const themeClassName = `theme-${theme.id}`
+  const darkModeClasses = theme.isDark
+    ? `dark ${theme.darkVariant === 'ash' ? 'dark-ash' : 'dark-ember'}`
+    : ''
+
   const [selectedType, setSelectedType] = useState<ConnectorType>(DEFAULT_TYPE)
+  const [authType, setAuthType] = useState<ConnectorAuthType>('oauth')
   const [name, setName] = useState('')
-  const [enabled, setEnabled] = useState(true)
 
   const [apiKey, setApiKey] = useState('')
-  const [botToken, setBotToken] = useState('')
-  const [teamId, setTeamId] = useState('')
-  const [appToken, setAppToken] = useState('')
-  const [token, setToken] = useState('')
-  const [org, setOrg] = useState('')
   const [endpoint, setEndpoint] = useState('')
   const [auth, setAuth] = useState('')
   const [headersText, setHeadersText] = useState('')
 
-  const [isLoadingDetail, setIsLoadingDetail] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
-  const [isTesting, setIsTesting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [testStatus, setTestStatus] = useState<TestStatus | null>(null)
+
+  const isOfficialType = selectedType === 'linear' || selectedType === 'notion'
+
+  const availableTypeOptions = useMemo(
+    () =>
+      CONNECTOR_TYPE_OPTIONS.filter((option) => {
+        if (option.type === 'custom') return true
+        return !existingConnectors.some((connector) => connector.type === option.type)
+      }),
+    [existingConnectors]
+  )
 
   function resetState(): void {
-    setStep(1)
     setSelectedType(DEFAULT_TYPE)
+    setAuthType('oauth')
     setName('')
-    setEnabled(true)
     setApiKey('')
-    setBotToken('')
-    setTeamId('')
-    setAppToken('')
-    setToken('')
-    setOrg('')
     setEndpoint('')
     setAuth('')
     setHeadersText('')
-    setIsLoadingDetail(false)
     setIsSaving(false)
-    setIsTesting(false)
     setError(null)
-    setTestStatus(null)
   }
 
   useEffect(() => {
@@ -151,187 +120,95 @@ export function AddConnectorModal({
       return
     }
 
-    if (!connectorId) {
-      setStep(1)
-      setName(buildDefaultName(DEFAULT_TYPE))
-      return
-    }
-
-    setStep(2)
-    setError(null)
-    setTestStatus(null)
-    setIsLoadingDetail(true)
-
-    fetch(`/api/u/${slug}/connectors/${connectorId}`, { cache: 'no-store' })
-      .then(async (response) => {
-        const data = (await response.json().catch(() => null)) as
-          | (ConnectorDetail & { error?: string; message?: string })
-          | null
-
-        if (!response.ok || !data) {
-          setError(data?.message ?? data?.error ?? 'load_failed')
-          return
-        }
-
-        setSelectedType(data.type)
-        setName(data.name)
-        setEnabled(data.enabled)
-
-        const config = data.config
-
-        switch (data.type) {
-          case 'linear':
-          case 'notion':
-            setApiKey(getString(config.apiKey))
-            break
-          case 'slack':
-            setBotToken(getString(config.botToken))
-            setTeamId(getString(config.teamId))
-            setAppToken(getString(config.appToken))
-            break
-          case 'github':
-            setToken(getString(config.token))
-            setOrg(getString(config.org))
-            break
-          case 'custom':
-            setEndpoint(getString(config.endpoint))
-            setAuth(getString(config.auth))
-            if (isStringRecord(config.headers)) {
-              setHeadersText(JSON.stringify(config.headers, null, 2))
-            }
-            break
-          default:
-            break
-        }
-      })
-      .catch(() => {
-        setError('network_error')
-      })
-      .finally(() => {
-        setIsLoadingDetail(false)
-      })
-  }, [connectorId, open, slug])
+    const defaultType = availableTypeOptions[0]?.type ?? 'custom'
+    setSelectedType(defaultType)
+    setName(buildDefaultName(defaultType))
+  }, [availableTypeOptions, open])
 
   useEffect(() => {
-    if (!open || isEditMode) return
+    if (!open) return
     setName((currentName) => (currentName.trim() ? currentName : buildDefaultName(selectedType)))
-  }, [isEditMode, open, selectedType])
+  }, [open, selectedType])
+
+  useEffect(() => {
+    if (!open) return
+    const selectedStillAvailable = availableTypeOptions.some((option) => option.type === selectedType)
+    if (!selectedStillAvailable) {
+      const fallbackType = availableTypeOptions[0]?.type ?? 'custom'
+      setSelectedType(fallbackType)
+      setName(buildDefaultName(fallbackType))
+    }
+  }, [availableTypeOptions, open, selectedType])
+
+  useEffect(() => {
+    if (!supportsOAuth(selectedType) && authType !== 'manual') {
+      setAuthType('manual')
+    }
+  }, [authType, selectedType])
 
   function buildConfig(): { ok: true; value: Record<string, unknown> } | { ok: false; message: string } {
-    switch (selectedType) {
-      case 'linear':
-      case 'notion': {
-        if (!apiKey.trim()) {
-          return { ok: false, message: 'API Key es obligatorio.' }
-        }
-        return { ok: true, value: { apiKey: apiKey.trim() } }
+    if (selectedType === 'linear' || selectedType === 'notion') {
+      if (authType === 'oauth') {
+        return { ok: true, value: { authType: 'oauth' } }
       }
-      case 'slack': {
-        if (!botToken.trim() || !teamId.trim()) {
-          return { ok: false, message: 'Bot Token y Team ID son obligatorios.' }
-        }
-        return {
-          ok: true,
-          value: {
-            botToken: botToken.trim(),
-            teamId: teamId.trim(),
-            appToken: appToken.trim() || undefined,
-          },
-        }
+      if (!apiKey.trim()) {
+        return { ok: false, message: 'API key is required.' }
       }
-      case 'github': {
-        if (!token.trim()) {
-          return { ok: false, message: 'Token es obligatorio.' }
-        }
-        return {
-          ok: true,
-          value: {
-            token: token.trim(),
-            org: org.trim() || undefined,
-          },
-        }
-      }
-      case 'custom': {
-        if (!endpoint.trim()) {
-          return { ok: false, message: 'Endpoint es obligatorio.' }
-        }
-
-        if (!headersText.trim()) {
-          return {
-            ok: true,
-            value: {
-              endpoint: endpoint.trim(),
-              auth: auth.trim() || undefined,
-            },
-          }
-        }
-
-        try {
-          const parsed = JSON.parse(headersText) as unknown
-          if (!isStringRecord(parsed)) {
-            return {
-              ok: false,
-              message: 'Headers debe ser un objeto JSON con valores string.',
-            }
-          }
-
-          return {
-            ok: true,
-            value: {
-              endpoint: endpoint.trim(),
-              auth: auth.trim() || undefined,
-              headers: parsed,
-            },
-          }
-        } catch {
-          return { ok: false, message: 'Headers no es un JSON válido.' }
-        }
-      }
-      default:
-        return { ok: false, message: 'Tipo de conector no soportado.' }
+      return { ok: true, value: { authType: 'manual', apiKey: apiKey.trim() } }
     }
+
+    if (selectedType === 'custom') {
+      if (!endpoint.trim()) {
+        return { ok: false, message: 'Endpoint is required.' }
+      }
+
+      if (!headersText.trim()) {
+        return {
+          ok: true,
+          value: {
+            authType: 'manual',
+            endpoint: endpoint.trim(),
+            auth: auth.trim() || undefined,
+          },
+        }
+      }
+
+      try {
+        const parsed = JSON.parse(headersText) as unknown
+        if (!isStringRecord(parsed)) {
+          return { ok: false, message: 'Headers must be a JSON object with string values.' }
+        }
+
+        return {
+          ok: true,
+          value: {
+            authType: 'manual',
+            endpoint: endpoint.trim(),
+            auth: auth.trim() || undefined,
+            headers: parsed,
+          },
+        }
+      } catch {
+        return { ok: false, message: 'Headers is not valid JSON.' }
+      }
+    }
+
+    return { ok: false, message: 'Unsupported connector type.' }
   }
 
-  async function handleTestConnection() {
-    if (!connectorId) {
-      setTestStatus({
-        tone: 'error',
-        message: 'Guarda primero el conector para poder probar la conexión.',
-      })
-      return
+  function isConfigurationComplete(): boolean {
+    if (selectedType === 'custom' && !name.trim()) return false
+    if (selectedType === 'linear' || selectedType === 'notion') {
+      return authType === 'oauth' || Boolean(apiKey.trim())
     }
-
-    setIsTesting(true)
-    setError(null)
-    setTestStatus(null)
-
-    try {
-      const response = await fetch(`/api/u/${slug}/connectors/${connectorId}/test`, {
-        method: 'POST',
-      })
-      const data = (await response.json().catch(() => null)) as
-        | (ConnectorTestResult & { error?: string; message?: string })
-        | null
-
-      if (!response.ok || !data) {
-        setTestStatus({
-          tone: 'error',
-          message: data?.message ?? data?.error ?? 'test_failed',
-        })
-        return
-      }
-
-      setTestStatus(formatTestMessage(data))
-    } catch {
-      setTestStatus({ tone: 'error', message: 'network_error' })
-    } finally {
-      setIsTesting(false)
-    }
+    return Boolean(endpoint.trim() && hasValidHeaders(headersText))
   }
 
   async function handleSave() {
-    if (!name.trim()) {
-      setError('El nombre es obligatorio.')
+    const effectiveName = isOfficialType ? buildDefaultName(selectedType) : name.trim()
+
+    if (!effectiveName) {
+      setError('Name is required.')
       return
     }
 
@@ -344,353 +221,214 @@ export function AddConnectorModal({
     setIsSaving(true)
     setError(null)
 
-    const payload = isEditMode
-      ? {
-          name: name.trim(),
-          enabled,
-          config: configResult.value,
-        }
-      : {
-          type: selectedType,
-          name: name.trim(),
-          config: configResult.value,
-        }
-
     try {
-      const response = await fetch(
-        isEditMode
-          ? `/api/u/${slug}/connectors/${connectorId}`
-          : `/api/u/${slug}/connectors`,
-        {
-          method: isEditMode ? 'PATCH' : 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
-        }
-      )
+      const response = await fetch(`/api/u/${slug}/connectors`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          type: selectedType,
+          name: effectiveName,
+          config: configResult.value,
+        }),
+      })
 
       const data = (await response.json().catch(() => null)) as
         | { error?: string; message?: string }
         | null
 
       if (!response.ok) {
-        setError(data?.message ?? data?.error ?? 'save_failed')
+        setError(getConnectorErrorMessage(data, 'save_failed'))
         return
       }
 
       onSaved()
       onOpenChange(false)
     } catch {
-      setError('network_error')
+      setError(getConnectorErrorMessage(null, 'network_error'))
     } finally {
       setIsSaving(false)
     }
   }
 
-  function handleBackStep() {
-    if (step === 3) {
-      setStep(2)
-      return
-    }
-
-    if (step === 2 && !isEditMode) {
-      setStep(1)
-    }
-  }
-
-  function isConfigurationComplete(): boolean {
-    if (!name.trim()) return false
-
-    switch (selectedType) {
-      case 'linear':
-      case 'notion':
-        return Boolean(apiKey.trim())
-      case 'slack':
-        return Boolean(botToken.trim() && teamId.trim())
-      case 'github':
-        return Boolean(token.trim())
-      case 'custom':
-        return Boolean(endpoint.trim() && hasValidHeaders(headersText))
-      default:
-        return false
-    }
-  }
-
-  const totalSteps = isEditMode ? 2 : 3
-  const currentStepNumber = isEditMode ? step - 1 : step
-
-  function renderTypeStep() {
-    return (
-      <div className="grid gap-3 sm:grid-cols-2">
-        {CONNECTOR_TYPE_OPTIONS.map((option) => {
-          const isSelected = option.type === selectedType
-          return (
-            <button
-              key={option.type}
-              type="button"
-              onClick={() => {
-                setSelectedType(option.type)
-                setError(null)
-              }}
-              className={`rounded-lg border p-4 text-left transition-colors ${
-                isSelected
-                  ? 'border-primary bg-primary/5'
-                  : 'border-border/60 bg-card/40 hover:border-border'
-              }`}
-            >
-              <p className="font-medium">{option.label}</p>
-              <p className="mt-1 text-sm text-muted-foreground">{option.description}</p>
-            </button>
-          )
-        })}
-      </div>
-    )
-  }
-
-  function renderConfigurationStep() {
-    return (
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="connector-name">Nombre</Label>
-          <Input
-            id="connector-name"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="Nombre del conector"
-          />
-          <p className="text-xs text-muted-foreground">Se mostrará en la lista de conectores de tu workspace.</p>
-        </div>
-
-        {isEditMode ? (
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={enabled}
-              onChange={(event) => setEnabled(event.target.checked)}
-            />
-            Habilitado
-          </label>
-        ) : null}
-
-        {(selectedType === 'linear' || selectedType === 'notion') && (
-          <div className="space-y-2">
-            <Label htmlFor="connector-api-key">API Key</Label>
-            <Input
-              id="connector-api-key"
-              type="password"
-              value={apiKey}
-              onChange={(event) => setApiKey(event.target.value)}
-              placeholder="sk-..."
-            />
-            <p className="text-xs text-muted-foreground">Campo obligatorio.</p>
-          </div>
-        )}
-
-        {selectedType === 'slack' && (
-          <>
-            <div className="space-y-2">
-              <Label htmlFor="connector-bot-token">Bot Token</Label>
-              <Input
-                id="connector-bot-token"
-                type="password"
-                value={botToken}
-                onChange={(event) => setBotToken(event.target.value)}
-                placeholder="xoxb-..."
-              />
-              <p className="text-xs text-muted-foreground">Campo obligatorio.</p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="connector-team-id">Team ID</Label>
-              <Input
-                id="connector-team-id"
-                value={teamId}
-                onChange={(event) => setTeamId(event.target.value)}
-                placeholder="T123..."
-              />
-              <p className="text-xs text-muted-foreground">Campo obligatorio.</p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="connector-app-token">App Token (opcional)</Label>
-              <Input
-                id="connector-app-token"
-                type="password"
-                value={appToken}
-                onChange={(event) => setAppToken(event.target.value)}
-                placeholder="xapp-..."
-              />
-            </div>
-          </>
-        )}
-
-        {selectedType === 'github' && (
-          <>
-            <div className="space-y-2">
-              <Label htmlFor="connector-token">Token</Label>
-              <Input
-                id="connector-token"
-                type="password"
-                value={token}
-                onChange={(event) => setToken(event.target.value)}
-                placeholder="ghp_..."
-              />
-              <p className="text-xs text-muted-foreground">Campo obligatorio.</p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="connector-org">Organization (opcional)</Label>
-              <Input
-                id="connector-org"
-                value={org}
-                onChange={(event) => setOrg(event.target.value)}
-                placeholder="peaberry-studio"
-              />
-            </div>
-          </>
-        )}
-
-        {selectedType === 'custom' && (
-          <>
-            <div className="space-y-2">
-              <Label htmlFor="connector-endpoint">Endpoint</Label>
-              <Input
-                id="connector-endpoint"
-                value={endpoint}
-                onChange={(event) => setEndpoint(event.target.value)}
-                placeholder="https://example.com/mcp"
-              />
-              <p className="text-xs text-muted-foreground">Campo obligatorio.</p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="connector-auth">Auth token (opcional)</Label>
-              <Input
-                id="connector-auth"
-                type="password"
-                value={auth}
-                onChange={(event) => setAuth(event.target.value)}
-                placeholder="token"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="connector-headers">Headers JSON (opcional)</Label>
-              <textarea
-                id="connector-headers"
-                className="min-h-28 w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-sm"
-                value={headersText}
-                onChange={(event) => setHeadersText(event.target.value)}
-                placeholder={'{\n  "x-api-key": "value"\n}'}
-              />
-            </div>
-          </>
-        )}
-      </div>
-    )
-  }
-
-  function renderTestStep() {
-    return (
-      <div className="space-y-4">
-        <p className="text-sm text-muted-foreground">
-          Puedes validar la conexión antes de cerrar el modal.
-        </p>
-
-        {isEditMode ? (
-          <Button type="button" variant="outline" onClick={handleTestConnection} disabled={isTesting}>
-            {isTesting ? 'Probando...' : 'Probar conexión'}
-          </Button>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            La prueba de conexión está disponible tras guardar el conector.
-          </p>
-        )}
-
-        {testStatus ? (
-          <p className={testStatus.tone === 'success' ? 'text-sm text-emerald-600' : 'text-sm text-destructive'}>
-            {testStatus.message}
-          </p>
-        ) : null}
-      </div>
-    )
-  }
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent
+        className={cn(
+          'max-h-[90vh] overflow-y-auto sm:max-w-xl',
+          darkModeClasses,
+          themeClassName
+        )}
+      >
         <DialogHeader>
-          <DialogTitle>{isEditMode ? 'Editar conector' : 'Añadir conector'}</DialogTitle>
+          <DialogTitle>Add connector</DialogTitle>
           <DialogDescription>
-            {isEditMode
-              ? 'Actualiza la configuración de este conector.'
-              : 'Configura un nuevo conector para tu workspace.'}
+            Choose a type and configure the connection details.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-          <span>
-            Paso {currentStepNumber} de {totalSteps}
-          </span>
-          {!isEditMode ? (
-            <div className="flex items-center gap-2">
-              <span className={step === 1 ? 'font-semibold text-foreground' : ''}>1. Tipo</span>
-              <span>•</span>
+        {/* --- Type selector --- */}
+        <fieldset className="space-y-3">
+          <legend className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            Type
+          </legend>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {availableTypeOptions.map((option) => {
+              const isSelected = option.type === selectedType
+              return (
+                <button
+                  key={option.type}
+                  type="button"
+                  onClick={() => {
+                    setSelectedType(option.type)
+                    setError(null)
+                  }}
+                  className={cn(
+                    'rounded-xl border px-4 py-3 text-left transition-all',
+                    isSelected
+                      ? 'border-primary/60 bg-primary/5 ring-1 ring-primary/20'
+                      : 'border-border/50 hover:border-border'
+                  )}
+                >
+                  <p className="text-sm font-medium text-foreground">
+                    {option.label}
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {option.description}
+                  </p>
+                </button>
+              )
+            })}
+          </div>
+          {availableTypeOptions.length === 1 && availableTypeOptions[0]?.type === 'custom' ? (
+            <p className="text-xs text-muted-foreground">
+              Linear and Notion are already configured.
+            </p>
+          ) : null}
+        </fieldset>
+
+        {/* --- Divider --- */}
+        <hr className="border-border/40" />
+
+        {/* --- Configuration fields --- */}
+        <div className="space-y-5">
+          {/* Name */}
+          {selectedType === 'custom' ? (
+            <div className="space-y-2">
+              <Label htmlFor="connector-name" className="text-foreground">Name</Label>
+              <Input
+                id="connector-name"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="Connector name"
+              />
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <Label className="text-foreground">Name</Label>
+              <p className="rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-sm text-foreground">
+                {buildDefaultName(selectedType)}
+              </p>
+            </div>
+          )}
+
+          {/* Auth mode (official types only) */}
+          {supportsOAuth(selectedType) ? (
+            <div className="space-y-2">
+              <Label htmlFor="connector-auth-mode" className="text-foreground">
+                Authentication
+              </Label>
+              <select
+                id="connector-auth-mode"
+                className="w-full rounded-lg border border-border/50 bg-background px-3 py-2 text-sm text-foreground"
+                value={authType}
+                onChange={(event) =>
+                  setAuthType(event.target.value === 'oauth' ? 'oauth' : 'manual')
+                }
+              >
+                <option value="oauth">OAuth (official)</option>
+                <option value="manual">Manual token / API key</option>
+              </select>
             </div>
           ) : null}
-          <div className="flex items-center gap-2">
-            <span className={step === 2 ? 'font-semibold text-foreground' : ''}>2. Configuración</span>
-            <span>•</span>
-            <span className={step === 3 ? 'font-semibold text-foreground' : ''}>3. Test y guardado</span>
-          </div>
+
+          {/* OAuth hint */}
+          {(selectedType === 'linear' || selectedType === 'notion') && authType === 'oauth' ? (
+            <p className="rounded-lg bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              Save first, then click <strong className="text-foreground/80">Connect OAuth</strong> from the connector card.
+            </p>
+          ) : null}
+
+          {/* Manual API key (official types) */}
+          {(selectedType === 'linear' || selectedType === 'notion') && authType === 'manual' ? (
+            <div className="space-y-2">
+              <Label htmlFor="connector-api-key" className="text-foreground">API Key</Label>
+              <Input
+                id="connector-api-key"
+                type="password"
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+                placeholder="Paste your API key"
+              />
+            </div>
+          ) : null}
+
+          {/* Custom connector fields */}
+          {selectedType === 'custom' ? (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="connector-endpoint" className="text-foreground">Endpoint</Label>
+                <Input
+                  id="connector-endpoint"
+                  value={endpoint}
+                  onChange={(event) => setEndpoint(event.target.value)}
+                  placeholder="https://example.com/mcp"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="connector-auth" className="text-foreground">
+                  Auth token <span className="font-normal text-muted-foreground">(optional)</span>
+                </Label>
+                <Input
+                  id="connector-auth"
+                  type="password"
+                  value={auth}
+                  onChange={(event) => setAuth(event.target.value)}
+                  placeholder="Bearer token or API key"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="connector-headers" className="text-foreground">
+                  Headers <span className="font-normal text-muted-foreground">(optional JSON)</span>
+                </Label>
+                <textarea
+                  id="connector-headers"
+                  className="min-h-24 w-full rounded-lg border border-border/50 bg-background px-3 py-2 font-mono text-sm text-foreground placeholder:text-muted-foreground/60"
+                  value={headersText}
+                  onChange={(event) => setHeadersText(event.target.value)}
+                  placeholder={'{\n  "x-api-key": "value"\n}'}
+                />
+              </div>
+            </>
+          ) : null}
         </div>
 
-        {isLoadingDetail ? <p className="text-sm text-muted-foreground">Cargando conector...</p> : null}
-        {!isLoadingDetail && step === 1 ? renderTypeStep() : null}
-        {!isLoadingDetail && step === 2 ? renderConfigurationStep() : null}
-        {!isLoadingDetail && step === 3 ? renderTestStep() : null}
+        {/* --- Error --- */}
+        {error ? (
+          <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {error}
+          </p>
+        ) : null}
 
-        {error ? <p className="text-sm text-destructive">{error}</p> : null}
-
-        <DialogFooter>
-          {step > 1 && (!isEditMode || step > 2) ? (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleBackStep}
-              disabled={isSaving || isTesting || isLoadingDetail}
-            >
-              Atrás
-            </Button>
-          ) : null}
-
-          {step === 1 ? (
-            <Button
-              type="button"
-              onClick={() => setStep(2)}
-              disabled={isLoadingDetail}
-            >
-              Continuar
-            </Button>
-          ) : null}
-
-          {step === 2 ? (
-            <Button
-              type="button"
-              onClick={() => {
-                setError(null)
-                setStep(3)
-              }}
-              disabled={isLoadingDetail || !isConfigurationComplete()}
-            >
-              Continuar
-            </Button>
-          ) : null}
-
-          {step === 3 ? (
-            <Button
-              type="button"
-              onClick={handleSave}
-              disabled={isSaving || isLoadingDetail || isTesting || !isConfigurationComplete()}
-            >
-              {isSaving ? 'Guardando...' : isEditMode ? 'Guardar cambios' : 'Guardar'}
-            </Button>
-          ) : null}
-        </DialogFooter>
+        {/* --- Footer --- */}
+        <div className="flex justify-end pt-2">
+          <Button
+            type="button"
+            onClick={handleSave}
+            disabled={isSaving || !isConfigurationComplete()}
+          >
+            {isSaving ? 'Saving...' : 'Save connector'}
+          </Button>
+        </div>
       </DialogContent>
     </Dialog>
   )

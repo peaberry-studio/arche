@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { getAuthenticatedUser } from '@/lib/auth'
-import { getCommonWorkspaceConfigHash } from '@/lib/common-workspace-config-store'
 import { prisma } from '@/lib/prisma'
+import { getRuntimeConfigHashForSlug } from '@/lib/spawner/runtime-config-hash'
 
 type ConfigStatusResponse = {
   pending: boolean
@@ -23,14 +23,14 @@ export async function GET(
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
-  const common = await getCommonWorkspaceConfigHash()
-  if (!common.ok) {
-    const status = common.error === 'not_found'
+  const runtime = await getRuntimeConfigHashForSlug(slug)
+  if (!runtime.ok) {
+    const status = runtime.error === 'not_found' || runtime.error === 'user_not_found'
       ? 404
-      : common.error === 'kb_unavailable'
+      : runtime.error === 'kb_unavailable'
         ? 503
         : 500
-    return NextResponse.json({ error: common.error ?? 'read_failed' }, { status })
+    return NextResponse.json({ error: runtime.error ?? 'read_failed' }, { status })
   }
 
   const instance = await prisma.instance.findUnique({
@@ -38,6 +38,6 @@ export async function GET(
     select: { appliedConfigSha: true }
   })
 
-  const pending = instance?.appliedConfigSha !== common.hash
+  const pending = instance?.appliedConfigSha !== runtime.hash
   return NextResponse.json({ pending })
 }

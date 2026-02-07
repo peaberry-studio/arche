@@ -1,10 +1,10 @@
 import { prisma } from '@/lib/prisma'
 import { encryptProviderSecret } from './crypto'
-import type { ProviderCredentialType, ProviderId } from './types'
+import type { ProviderId } from './types'
 
 export type ProviderCredentialRecord = {
   id: string
-  type: ProviderCredentialType
+  type: string
   secret: string
   version: number
 }
