@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent, getAuthenticatedUser } from '@/lib/auth'
+import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
 import { prisma } from '@/lib/prisma'
 import { createApiCredential } from '@/lib/providers/store'
 import { PROVIDERS, type ProviderId } from '@/lib/providers/types'
@@ -24,6 +25,17 @@ export interface DisableProviderCredentialResponse {
 
 function isProviderId(value: string): value is ProviderId {
   return PROVIDERS.includes(value as ProviderId)
+}
+
+async function syncProviderAccessBestEffort(slug: string, userId: string): Promise<void> {
+  try {
+    const result = await syncProviderAccessForInstance({ slug, userId })
+    if (!result.ok && result.error !== 'instance_unavailable') {
+      console.error('[providers] Failed to sync provider access', result.error)
+    }
+  } catch (error) {
+    console.error('[providers] Failed to sync provider access', error)
+  }
 }
 
 async function getProviderMutationContext(
@@ -136,6 +148,8 @@ export async function POST(
     version: nextVersion,
   })
 
+  await syncProviderAccessBestEffort(context.targetSlug, context.targetUserId)
+
   await auditEvent({
     actorUserId: context.sessionUserId,
     action: 'provider_credential.created',
@@ -175,6 +189,8 @@ export async function DELETE(
       status: 'disabled',
     },
   })
+
+  await syncProviderAccessBestEffort(context.targetSlug, context.targetUserId)
 
   await auditEvent({
     actorUserId: context.sessionUserId,

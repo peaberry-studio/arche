@@ -10,15 +10,29 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 type ConnectorStatus = "ready" | "pending" | "disabled";
+type ProviderStatus = "enabled" | "disabled" | "missing";
 
 type ConnectorSummary = {
   id: string;
   name: string;
   type: string;
   status: ConnectorStatus;
+};
+
+type ProviderSummary = {
+  providerId: string;
+  status: ProviderStatus;
+  type?: string;
+  version?: number;
 };
 
 type WorkspaceFooterProps = {
@@ -44,6 +58,8 @@ export function WorkspaceFooter({
   const badgeLabel = pendingDiffs > 99 ? "99+" : String(pendingDiffs);
   const [connectors, setConnectors] = useState<ConnectorSummary[]>([]);
   const [isLoadingConnectors, setIsLoadingConnectors] = useState(true);
+  const [providers, setProviders] = useState<ProviderSummary[]>([]);
+  const [isLoadingProviders, setIsLoadingProviders] = useState(true);
 
   const handleRightClick = () => {
     if (showReviewBadge && onOpenReview) {
@@ -71,11 +87,32 @@ export function WorkspaceFooter({
       }
     };
 
+    const loadProviders = async () => {
+      try {
+        const response = await fetch(`/api/u/${slug}/providers`, { cache: "no-store" });
+        const data = (await response.json().catch(() => null)) as
+          | { providers?: ProviderSummary[] }
+          | null;
+
+        if (!response.ok || cancelled) return;
+        const next = Array.isArray(data?.providers) ? data.providers : [];
+        setProviders(next);
+      } finally {
+        if (!cancelled) setIsLoadingProviders(false);
+      }
+    };
+
     loadConnectors().catch(() => {
       if (!cancelled) setIsLoadingConnectors(false);
     });
+    loadProviders().catch(() => {
+      if (!cancelled) setIsLoadingProviders(false);
+    });
 
-    const interval = setInterval(loadConnectors, 30000);
+    const interval = setInterval(() => {
+      loadConnectors().catch(() => {});
+      loadProviders().catch(() => {});
+    }, 30000);
 
     return () => {
       cancelled = true;
@@ -88,6 +125,11 @@ export function WorkspaceFooter({
     [connectors]
   );
 
+  const activeProviders = useMemo(
+    () => providers.filter((provider) => provider.status === "enabled"),
+    [providers]
+  );
+
   const statusInfo = (status: ConnectorStatus): { label: string; dotClassName: string } => {
     if (status === "ready") {
       return { label: "Working", dotClassName: "bg-emerald-500" };
@@ -96,6 +138,13 @@ export function WorkspaceFooter({
       return { label: "Pending", dotClassName: "bg-amber-500" };
     }
     return { label: "Not working", dotClassName: "bg-rose-500" };
+  };
+
+  const providerLabel = (providerId: string): string => {
+    if (providerId === "openai") return "OpenAI";
+    if (providerId === "anthropic") return "Anthropic";
+    if (providerId === "openrouter") return "OpenRouter";
+    return providerId;
   };
 
   return (
@@ -116,45 +165,97 @@ export function WorkspaceFooter({
         </div>
 
         <div className="justify-self-center">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className="rounded-lg px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-                aria-label="Open connectors status"
-              >
-                {isLoadingConnectors ? "Connectors..." : `${activeConnectors} active connectors`}
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent side="top" align="center" className="w-72">
-              <DropdownMenuLabel>Connector status</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {connectors.length === 0 ? (
-                <p className="px-2 py-1.5 text-xs text-muted-foreground">No connectors configured.</p>
-              ) : (
-                <div className="space-y-1 px-1 py-1">
-                  {connectors.map((connector) => {
-                    const info = statusInfo(connector.status);
-                    return (
-                      <div
-                        key={connector.id}
-                        className="flex items-center justify-between rounded-md px-2 py-1.5 text-xs hover:bg-accent"
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate text-sm text-foreground">{connector.name}</p>
-                          <p className="text-[11px] text-muted-foreground">{connector.type}</p>
+          <div className="flex items-center gap-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="rounded-lg px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+                  aria-label="Open connectors status"
+                >
+                  {isLoadingConnectors ? "Connectors..." : `${activeConnectors} active connectors`}
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="top" align="center" className="w-72">
+                <DropdownMenuLabel>Connector status</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {connectors.length === 0 ? (
+                  <p className="px-2 py-1.5 text-xs text-muted-foreground">No connectors configured.</p>
+                ) : (
+                  <div className="space-y-1 px-1 py-1">
+                    {connectors.map((connector) => {
+                      const info = statusInfo(connector.status);
+                      return (
+                        <div
+                          key={connector.id}
+                          className="flex items-center justify-between rounded-md px-2 py-1.5 text-xs hover:bg-accent"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm text-foreground">{connector.name}</p>
+                            <p className="text-[11px] text-muted-foreground">{connector.type}</p>
+                          </div>
+                          <div className="ml-3 flex items-center gap-1.5 text-muted-foreground">
+                            <span className={cn("h-2 w-2 rounded-full", info.dotClassName)} />
+                            <span>{info.label}</span>
+                          </div>
                         </div>
-                        <div className="ml-3 flex items-center gap-1.5 text-muted-foreground">
-                          <span className={cn("h-2 w-2 rounded-full", info.dotClassName)} />
-                          <span>{info.label}</span>
+                      );
+                    })}
+                  </div>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <span className="text-xs text-muted-foreground/50">|</span>
+
+            <TooltipProvider delayDuration={150}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="rounded-lg px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+                    aria-label="Open active providers"
+                  >
+                    {isLoadingProviders ? "Providers..." : `${activeProviders.length} active providers`}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent
+                  side="top"
+                  align="center"
+                  className="w-72 border border-border bg-popover p-1 text-popover-foreground shadow-md"
+                >
+                  <p className="px-2 py-1.5 text-sm font-semibold">Active providers</p>
+                  <div className="-mx-1 my-1 h-px bg-border" />
+                  {isLoadingProviders ? (
+                    <p className="px-2 py-1.5 text-xs text-muted-foreground">Loading providers...</p>
+                  ) : activeProviders.length === 0 ? (
+                    <p className="px-2 py-1.5 text-xs text-muted-foreground">No active providers.</p>
+                  ) : (
+                    <div className="space-y-1 px-1 py-1">
+                      {activeProviders.map((provider) => (
+                        <div
+                          key={provider.providerId}
+                          className="flex items-center justify-between rounded-md px-2 py-1.5 text-xs"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm text-foreground">{providerLabel(provider.providerId)}</p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {provider.type ?? "api"}
+                              {provider.version ? ` · v${provider.version}` : ""}
+                            </p>
+                          </div>
+                          <div className="ml-3 flex items-center gap-1.5 text-muted-foreground">
+                            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                            <span>Active</span>
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                      ))}
+                    </div>
+                  )}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
         </div>
 
         <div className="justify-self-end">

@@ -159,6 +159,39 @@ describe('providers gateway', () => {
     expect(headers.get('accept-encoding')).toBe('identity')
   })
 
+  it('normalizes unsupported OpenAI text verbosity for responses API', async () => {
+    mockGetActiveCredentialForUser.mockResolvedValue({
+      id: 'cred-1',
+      type: 'api',
+      secret: 'encrypted',
+      version: 1,
+    })
+    mockDecryptProviderSecret.mockReturnValue({ apiKey: 'sk-real' })
+
+    ;(global.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+      new Response('ok', { status: 200, headers: { 'content-type': 'application/json' } })
+    )
+
+    await callProxy({
+      provider: 'openai',
+      path: ['responses'],
+      headers: {
+        Authorization: 'Bearer internal-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-5.2-chat-latest',
+        input: 'hello',
+        text: { verbosity: 'low' },
+      }),
+      query: '',
+    })
+
+    const [, options] = (global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]
+    const upstreamBody = JSON.parse(options.body as string) as { text?: { verbosity?: string } }
+    expect(upstreamBody.text?.verbosity).toBe('medium')
+  })
+
   it('strips content-encoding/content-length from upstream response', async () => {
     mockGetActiveCredentialForUser.mockResolvedValue({
       id: 'cred-1',

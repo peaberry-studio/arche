@@ -7,6 +7,11 @@ vi.mock('@/lib/auth', () => ({
   auditEvent: (...args: unknown[]) => mockAuditEvent(...args),
 }))
 
+const mockSyncProviderAccessForInstance = vi.fn()
+vi.mock('@/lib/opencode/providers', () => ({
+  syncProviderAccessForInstance: (...args: unknown[]) => mockSyncProviderAccessForInstance(...args),
+}))
+
 const mockFindUnique = vi.fn()
 const mockFindMany = vi.fn()
 const mockUpdateMany = vi.fn()
@@ -50,10 +55,20 @@ async function callPostProvider(
   return { status: res.status, body: await res.json() }
 }
 
+async function callDeleteProvider(slug = 'alice', provider = 'openai') {
+  const { DELETE } = await import('@/app/api/u/[slug]/providers/[provider]/route')
+  const req = new Request(`http://localhost/api/u/${slug}/providers/${provider}`, {
+    method: 'DELETE',
+  })
+  const res = await DELETE(req as never, { params: Promise.resolve({ slug, provider }) })
+  return { status: res.status, body: await res.json() }
+}
+
 describe('GET /api/u/[slug]/providers', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.resetModules()
+    mockSyncProviderAccessForInstance.mockResolvedValue({ ok: true })
   })
 
   it('returns 401 when unauthenticated', async () => {
@@ -100,6 +115,7 @@ describe('POST /api/u/[slug]/providers/[provider]', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.resetModules()
+    mockSyncProviderAccessForInstance.mockResolvedValue({ ok: true })
   })
 
   it('returns 401 when unauthenticated', async () => {
@@ -164,5 +180,45 @@ describe('POST /api/u/[slug]/providers/[provider]', () => {
       action: 'provider_credential.created',
       metadata: { providerId: 'openai', credentialId: 'cred-1' },
     })
+    expect(mockSyncProviderAccessForInstance).toHaveBeenCalledWith({ slug: 'alice', userId: 'user-1' })
+  })
+})
+
+describe('DELETE /api/u/[slug]/providers/[provider]', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.resetModules()
+    mockSyncProviderAccessForInstance.mockResolvedValue({ ok: true })
+  })
+
+  it('returns 403 for non-admin user', async () => {
+    mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
+    const { status, body } = await callDeleteProvider('alice', 'openai')
+    expect(status).toBe(403)
+    expect(body.error).toBe('forbidden')
+  })
+
+  it('disables provider credential and syncs running instance', async () => {
+    mockGetAuthenticatedUser.mockResolvedValue(session('admin', 'ADMIN'))
+    mockFindUnique.mockResolvedValue({ id: 'user-1' })
+    mockUpdateMany.mockResolvedValue({ count: 1 })
+
+    const { status, body } = await callDeleteProvider('alice', 'openai')
+    expect(status).toBe(200)
+    expect(body).toEqual({ ok: true, status: 'disabled' })
+    expect(mockUpdateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1', providerId: 'openai', status: 'enabled' },
+      data: { status: 'disabled' },
+    })
+    expect(mockAuditEvent).toHaveBeenCalledWith({
+      actorUserId: 'user-1',
+      action: 'provider_credential.disabled',
+      metadata: {
+        providerId: 'openai',
+        disabledCount: 1,
+        targetSlug: 'alice',
+      },
+    })
+    expect(mockSyncProviderAccessForInstance).toHaveBeenCalledWith({ slug: 'alice', userId: 'user-1' })
   })
 })

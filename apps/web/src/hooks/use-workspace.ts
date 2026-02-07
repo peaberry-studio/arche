@@ -190,19 +190,6 @@ export function useWorkspace({
     ? activeCatalogAgent?.displayName ?? null
     : null;
 
-  const parseModelString = useCallback(
-    (value?: string): { providerId: string; modelId: string } | null => {
-      if (!value) return null;
-      const separator = value.indexOf("/");
-      if (separator <= 0 || separator >= value.length - 1) return null;
-      return {
-        providerId: value.slice(0, separator),
-        modelId: value.slice(separator + 1),
-      };
-    },
-    []
-  );
-
   const syncSelectedModel = useCallback(
     (providerId?: string, modelId?: string) => {
       if (!providerId || !modelId) return;
@@ -231,16 +218,6 @@ export function useWorkspace({
       });
     },
     [models]
-  );
-
-  const applyAgentDefaultModel = useCallback(
-    (agentId: string) => {
-      const targetAgent = findAgentInCatalog(agentCatalog, agentId);
-      const parsed = parseModelString(targetAgent?.model);
-      if (!parsed) return;
-      syncSelectedModel(parsed.providerId, parsed.modelId);
-    },
-    [agentCatalog, parseModelString, syncSelectedModel]
   );
 
   const syncActiveAgentFromRuntime = useCallback(
@@ -497,7 +474,6 @@ export function useWorkspace({
         const runtime = extractRuntimeMetadata(result.messages);
         if (runtime.agentId) {
           syncActiveAgentFromRuntime(runtime.agentId);
-          applyAgentDefaultModel(runtime.agentId);
         }
         if (runtime.model) {
           syncSelectedModel(runtime.model.providerId, runtime.model.modelId);
@@ -511,7 +487,6 @@ export function useWorkspace({
     activeSessionId,
     extractRuntimeMetadata,
     syncActiveAgentFromRuntime,
-    applyAgentDefaultModel,
     syncSelectedModel,
   ]);
 
@@ -798,7 +773,6 @@ export function useWorkspace({
                     }
                     if (typeof data.agent === "string") {
                       syncActiveAgentFromRuntime(data.agent);
-                      applyAgentDefaultModel(data.agent);
                     }
                     break;
                   }
@@ -806,7 +780,6 @@ export function useWorkspace({
                   case "agent": {
                     if (typeof data.agent === "string") {
                       syncActiveAgentFromRuntime(data.agent);
-                      applyAgentDefaultModel(data.agent);
                     }
                     break;
                   }
@@ -877,7 +850,6 @@ export function useWorkspace({
       slug,
       upsertMessagePart,
       syncActiveAgentFromRuntime,
-      applyAgentDefaultModel,
       syncSelectedModel,
       scheduleWorkspaceRefresh,
     ]
@@ -1182,11 +1154,6 @@ export function useWorkspace({
       refreshFiles();
     }
   }, [filesRefreshTrigger, isConnected, refreshFiles]);
-
-  useEffect(() => {
-    if (!activeAgentId) return;
-    applyAgentDefaultModel(activeAgentId);
-  }, [activeAgentId, applyAgentDefaultModel]);
 
   // Poll for session status updates
   useEffect(() => {

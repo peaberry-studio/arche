@@ -44,11 +44,38 @@ function buildUpstreamUrl(base: string, path: string[] | string | undefined, req
   return upstream.toString()
 }
 
+function normalizeOpenAiResponsesPayload(payload: unknown): unknown {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return payload
+  }
+
+  const body = payload as Record<string, unknown>
+  const text = body.text
+
+  if (!text || typeof text !== 'object' || Array.isArray(text)) {
+    return payload
+  }
+
+  const textObject = text as Record<string, unknown>
+  if (textObject.verbosity !== 'low') {
+    return payload
+  }
+
+  return {
+    ...body,
+    text: {
+      ...textObject,
+      verbosity: 'medium',
+    },
+  }
+}
+
 async function handleProxy(
   request: NextRequest,
   { params }: { params: Promise<{ provider: string; path?: string[] | string }> }
 ) {
   const { provider, path } = await params
+  const pathSegments = Array.isArray(path) ? [...path] : path ? [path] : []
 
   if (!isProviderId(provider)) {
     return NextResponse.json({ error: 'invalid_provider' }, { status: 400 })
@@ -95,7 +122,7 @@ async function handleProxy(
   }
 
   const apiKey = secret.apiKey.trim()
-  const upstreamUrl = buildUpstreamUrl(PROVIDER_BASE_URL[provider], path, new URL(request.url))
+  const upstreamUrl = buildUpstreamUrl(PROVIDER_BASE_URL[provider], pathSegments, new URL(request.url))
 
   const headers = new Headers(request.headers)
   headers.delete('authorization')
@@ -121,9 +148,28 @@ async function handleProxy(
     method: request.method,
     headers,
   }
+
+  const contentType = headers.get('content-type') ?? ''
+  const isOpenAiResponsesRequest =
+    provider === 'openai' &&
+    request.method === 'POST' &&
+    pathSegments[0] === 'responses' &&
+    contentType.includes('application/json')
+
   if (hasBody) {
-    init.body = request.body
-    init.duplex = 'half'
+    if (isOpenAiResponsesRequest) {
+      try {
+        const parsedBody = await request.clone().json()
+        const normalizedBody = normalizeOpenAiResponsesPayload(parsedBody)
+        init.body = JSON.stringify(normalizedBody)
+      } catch {
+        init.body = request.body
+        init.duplex = 'half'
+      }
+    } else {
+      init.body = request.body
+      init.duplex = 'half'
+    }
   }
 
   const upstreamResponse = await fetch(upstreamUrl, init)
