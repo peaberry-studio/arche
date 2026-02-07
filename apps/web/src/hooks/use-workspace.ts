@@ -525,9 +525,10 @@ export function useWorkspace({
             ? part.state.input.subagent_type
             : undefined;
 
+        const stateTitle = "title" in part.state ? part.state.title : undefined;
         const toolDetail = taskAgent
-          ? `to ${taskAgent}${part.state.title ? ` - ${part.state.title}` : ""}`
-          : part.state.title;
+          ? `to ${taskAgent}${stateTitle ? ` - ${stateTitle}` : ""}`
+          : stateTitle;
 
         if (part.state.status === "error") {
           return {
@@ -760,7 +761,7 @@ export function useWorkspace({
                       !assistantMessageId
                     ) {
                       assistantMessageId = data.id;
-                      flushBufferedParts(assistantMessageId);
+                      if (assistantMessageId) flushBufferedParts(assistantMessageId);
                     }
                     break;
                   }
@@ -1020,15 +1021,16 @@ export function useWorkspace({
       } | null;
       if (!response.ok || !data?.agents) return;
 
-      setAgentCatalog(data.agents);
+      const agents = data.agents;
+      setAgentCatalog(agents);
       setActiveAgentId((current) => {
         if (current) {
-          const resolvedCurrent = findAgentInCatalog(data.agents, current);
+          const resolvedCurrent = findAgentInCatalog(agents, current);
           if (resolvedCurrent) {
             return resolvedCurrent.id;
           }
         }
-        const primary = data.agents.find((agent) => agent.isPrimary);
+        const primary = agents.find((agent) => agent.isPrimary);
         return primary?.id ?? current;
       });
     } catch {

@@ -41,7 +41,7 @@ export async function GET(
   const credentials = await prisma.providerCredential.findMany({
     where: {
       userId: user.id,
-      providerId: { in: PROVIDERS },
+      providerId: { in: [...PROVIDERS] },
     },
     select: {
       providerId: true,

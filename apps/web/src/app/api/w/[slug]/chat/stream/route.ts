@@ -194,7 +194,6 @@ export async function POST(
                 
                 // Filter events for our session only
                 if (eventSessionId && eventSessionId !== sessionId) {
-                  eventType = ''
                   eventData = ''
                   continue
                 }

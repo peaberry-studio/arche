@@ -456,10 +456,11 @@ function ToolGroup({
 
   const toolLabel = getToolLabel(tool);
   const lastPart = parts[parts.length - 1];
-  const headerDisplay = getToolDisplay(tool, lastPart?.state.input, lastPart?.state.title || lastPart?.name || toolLabel);
+  const lastPartTitle = lastPart && "title" in lastPart.state ? lastPart.state.title : undefined;
+  const headerDisplay = getToolDisplay(tool, lastPart?.state.input, lastPartTitle || lastPart?.name || toolLabel);
   const summary = totalCount > 1
     ? `${totalCount} ${totalCount === 1 ? "call" : "calls"}${headerDisplay.summary ? ` · ${headerDisplay.summary}` : ""}`
-    : headerDisplay.summary || lastPart?.state.title || lastPart?.name || tool;
+    : headerDisplay.summary || lastPartTitle || lastPart?.name || tool;
   const showSummary = totalCount > 1 || (!!summary && summary !== tool);
 
   return (
@@ -519,8 +520,9 @@ function ToolGroup({
               const itemRunning = part.state.status === "running" || part.state.status === "pending";
               const itemError = part.state.status === "error";
               const itemComplete = part.state.status === "completed";
-              const detail = getToolDisplay(tool, part.state.input, part.state.title || part.name);
-              const title = detail.label || part.state.title || part.name;
+              const partTitle = "title" in part.state ? part.state.title : undefined;
+              const detail = getToolDisplay(tool, part.state.input, partTitle || part.name);
+              const title = detail.label || partTitle || part.name;
               
               return (
                 <div key={part.id} className="flex items-start gap-2 text-xs">
@@ -550,7 +552,7 @@ function ToolGroup({
                         </span>
                       )}
                     </div>
-                    {itemError && part.state.error && (
+                    {itemError && "error" in part.state && part.state.error && (
                       <div className="mt-0.5 text-[11px] text-destructive">{part.state.error}</div>
                     )}
                   </div>
