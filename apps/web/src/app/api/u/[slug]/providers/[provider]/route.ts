@@ -182,8 +182,6 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string; provider: string }> }
 ): Promise<NextResponse<DisableProviderCredentialResponse | { error: string }>> {
-  void request
-
   const context = await getProviderMutationContext(request, params)
   if (!context.ok) {
     return context.response
