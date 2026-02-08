@@ -4,6 +4,7 @@ import argon2 from 'argon2'
 import { Prisma, UserRole } from '@prisma/client'
 
 import { auditEvent, getAuthenticatedUser } from '@/lib/auth'
+import { validateSameOrigin } from '@/lib/csrf'
 import { prisma } from '@/lib/prisma'
 import { validateSlug } from '@/lib/validation/slug'
 
@@ -89,6 +90,11 @@ export async function POST(
   const session = await getAuthenticatedUser()
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  }
+
+  const originValidation = validateSameOrigin(request)
+  if (!originValidation.ok) {
+    return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
   const { slug: routeSlug } = await params

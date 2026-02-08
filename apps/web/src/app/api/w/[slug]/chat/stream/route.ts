@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { getAuthenticatedUser } from '@/lib/auth'
+import { validateSameOrigin } from '@/lib/csrf'
 import { prisma } from '@/lib/prisma'
 import { decryptPassword } from '@/lib/spawner/crypto'
 
@@ -28,6 +29,14 @@ export async function POST(
   if (!session) {
     return new Response(JSON.stringify({ error: 'unauthorized' }), {
       status: 401,
+      headers: { 'Content-Type': 'application/json' }
+    })
+  }
+
+  const originValidation = validateSameOrigin(request)
+  if (!originValidation.ok) {
+    return new Response(JSON.stringify({ error: 'forbidden' }), {
+      status: 403,
       headers: { 'Content-Type': 'application/json' }
     })
   }

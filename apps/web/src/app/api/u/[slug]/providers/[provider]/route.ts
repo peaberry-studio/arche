@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent, getAuthenticatedUser } from '@/lib/auth'
+import { validateSameOrigin } from '@/lib/csrf'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
 import { prisma } from '@/lib/prisma'
 import { createApiCredential } from '@/lib/providers/store'
@@ -39,6 +40,7 @@ async function syncProviderAccessBestEffort(slug: string, userId: string): Promi
 }
 
 async function getProviderMutationContext(
+  request: NextRequest,
   params: Promise<{ slug: string; provider: string }>
 ): Promise<
   | { ok: true; sessionUserId: string; provider: ProviderId; targetUserId: string; targetSlug: string }
@@ -49,6 +51,14 @@ async function getProviderMutationContext(
     return {
       ok: false,
       response: NextResponse.json({ error: 'unauthorized' }, { status: 401 }),
+    }
+  }
+
+  const originValidation = validateSameOrigin(request)
+  if (!originValidation.ok) {
+    return {
+      ok: false,
+      response: NextResponse.json({ error: 'forbidden' }, { status: 403 }),
     }
   }
 
@@ -93,7 +103,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string; provider: string }> }
 ): Promise<NextResponse<ProviderCredentialResponse | { error: string; message?: string }>> {
-  const context = await getProviderMutationContext(params)
+  const context = await getProviderMutationContext(request, params)
   if (!context.ok) {
     return context.response
   }
@@ -174,7 +184,7 @@ export async function DELETE(
 ): Promise<NextResponse<DisableProviderCredentialResponse | { error: string }>> {
   void request
 
-  const context = await getProviderMutationContext(params)
+  const context = await getProviderMutationContext(request, params)
   if (!context.ok) {
     return context.response
   }

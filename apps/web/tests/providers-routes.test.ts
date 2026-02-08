@@ -46,9 +46,14 @@ async function callPostProvider(
   body: unknown = { apiKey: 'sk-123' }
 ) {
   const { POST } = await import('@/app/api/u/[slug]/providers/[provider]/route')
-  const req = new Request(`http://localhost/api/u/${slug}/providers/${provider}`, {
+  const url = `http://localhost/api/u/${slug}/providers/${provider}`
+  const req = new Request(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      host: 'localhost',
+      origin: 'http://localhost',
+    },
     body: JSON.stringify(body),
   })
   const res = await POST(req as never, { params: Promise.resolve({ slug, provider }) })
@@ -57,8 +62,13 @@ async function callPostProvider(
 
 async function callDeleteProvider(slug = 'alice', provider = 'openai') {
   const { DELETE } = await import('@/app/api/u/[slug]/providers/[provider]/route')
-  const req = new Request(`http://localhost/api/u/${slug}/providers/${provider}`, {
+  const url = `http://localhost/api/u/${slug}/providers/${provider}`
+  const req = new Request(url, {
     method: 'DELETE',
+    headers: {
+      host: 'localhost',
+      origin: 'http://localhost',
+    },
   })
   const res = await DELETE(req as never, { params: Promise.resolve({ slug, provider }) })
   return { status: res.status, body: await res.json() }
@@ -123,6 +133,27 @@ describe('POST /api/u/[slug]/providers/[provider]', () => {
     const { status, body } = await callPostProvider()
     expect(status).toBe(401)
     expect(body.error).toBe('unauthorized')
+  })
+
+  it('returns 403 when Origin is missing', async () => {
+    mockGetAuthenticatedUser.mockResolvedValue(session('admin', 'ADMIN'))
+    mockFindUnique.mockResolvedValue({ id: 'user-1' })
+
+    const { POST } = await import('@/app/api/u/[slug]/providers/[provider]/route')
+    const req = new Request('http://localhost/api/u/alice/providers/openai', {
+      method: 'POST',
+      headers: {
+        host: 'localhost',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ apiKey: ' ' }),
+    })
+    const res = await POST(req as never, { params: Promise.resolve({ slug: 'alice', provider: 'openai' }) })
+    const body = await res.json()
+
+    const status = res.status
+    expect(status).toBe(403)
+    expect(body.error).toBe('forbidden')
   })
 
   it('returns 403 for non-admin user', async () => {

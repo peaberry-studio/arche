@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { getAuthenticatedUser } from '@/lib/auth'
+import { validateSameOrigin } from '@/lib/csrf'
 import { startInstance, stopInstance } from '@/lib/spawner/core'
 
 export async function POST(
@@ -10,6 +11,11 @@ export async function POST(
   const session = await getAuthenticatedUser()
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  }
+
+  const originValidation = validateSameOrigin(request)
+  if (!originValidation.ok) {
+    return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
   const { slug } = await params

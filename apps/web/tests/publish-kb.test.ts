@@ -45,6 +45,10 @@ async function callPOST(slug = 'alice') {
   )
   const req = new Request('http://localhost/api/instances/' + slug + '/publish-kb', {
     method: 'POST',
+    headers: {
+      host: 'localhost',
+      origin: 'http://localhost',
+    },
   })
   const res = await POST(req as never, { params: Promise.resolve({ slug }) })
   return { status: res.status, body: await res.json() }
@@ -64,6 +68,24 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     const { status, body } = await callPOST()
     expect(status).toBe(401)
     expect(body.error).toBe('unauthorized')
+  })
+
+  it('returns 403 when Origin is missing', async () => {
+    mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
+    const { POST } = await import(
+      '@/app/api/instances/[slug]/publish-kb/route'
+    )
+
+    const req = new Request('http://localhost/api/instances/alice/publish-kb', {
+      method: 'POST',
+      headers: {
+        host: 'localhost',
+      },
+    })
+    const res = await POST(req as never, { params: Promise.resolve({ slug: 'alice' }) })
+
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ error: 'forbidden' })
   })
 
   it('returns 403 for wrong user', async () => {

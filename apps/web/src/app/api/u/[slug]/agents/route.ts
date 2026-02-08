@@ -8,6 +8,7 @@ import {
 } from '@/lib/agent-capabilities'
 import { auditEvent, getAuthenticatedUser } from '@/lib/auth'
 import { readCommonWorkspaceConfig, writeCommonWorkspaceConfig } from '@/lib/common-workspace-config-store'
+import { validateSameOrigin } from '@/lib/csrf'
 import type { ConnectorType } from '@/lib/connectors/types'
 import { validateConnectorType } from '@/lib/connectors/validators'
 import { prisma } from '@/lib/prisma'
@@ -199,6 +200,11 @@ export async function POST(
   const session = await getAuthenticatedUser()
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  }
+
+  const originValidation = validateSameOrigin(request)
+  if (!originValidation.ok) {
+    return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
   if (session.user.role !== 'ADMIN') {

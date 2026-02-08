@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { UserRole } from '@prisma/client'
 
 import { auditEvent, getAuthenticatedUser } from '@/lib/auth'
+import { validateSameOrigin } from '@/lib/csrf'
 import { prisma } from '@/lib/prisma'
 import { stopInstance } from '@/lib/spawner/core'
 
@@ -41,6 +42,11 @@ export async function PATCH(
   const session = await getAuthenticatedUser()
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  }
+
+  const originValidation = validateSameOrigin(request)
+  if (!originValidation.ok) {
+    return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
   const { slug, id } = await params
@@ -136,6 +142,11 @@ export async function DELETE(
   const session = await getAuthenticatedUser()
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  }
+
+  const originValidation = validateSameOrigin(request)
+  if (!originValidation.ok) {
+    return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
   const { slug, id } = await params
