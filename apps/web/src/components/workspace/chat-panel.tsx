@@ -56,6 +56,7 @@ type ChatPanelProps = {
   // New props for real functionality
   onSendMessage?: (text: string, model?: { providerId: string; modelId: string }) => Promise<void>;
   isSending?: boolean;
+  isStartingNewSession?: boolean;
   models?: AvailableModel[];
   selectedModel?: AvailableModel | null;
   onSelectModel?: (model: AvailableModel | null) => void;
@@ -835,6 +836,7 @@ export function ChatPanel({
   onShowContext,
   onSendMessage,
   isSending = false,
+  isStartingNewSession = false,
   models = [],
   selectedModel,
   onSelectModel,
@@ -885,7 +887,7 @@ export function ChatPanel({
 
   const handleSend = useCallback(async () => {
     const text = inputValue.trim();
-    if (!text || !onSendMessage || isSending) return;
+    if (!text || !onSendMessage || isSending || isStartingNewSession) return;
     
     setInputValue("");
     
@@ -897,7 +899,7 @@ export function ChatPanel({
       : undefined;
     
     await onSendMessage(text, model);
-  }, [inputValue, onSendMessage, isSending, selectedModel]);
+  }, [inputValue, onSendMessage, isSending, isStartingNewSession, selectedModel]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -990,7 +992,14 @@ export function ChatPanel({
 
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto px-6 py-6 scrollbar-custom">
-        {messages.length === 0 ? (
+        {isStartingNewSession ? (
+          <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+            <SpinnerGap size={32} className="animate-spin text-muted-foreground/40" />
+            <p className="max-w-[260px] text-sm text-muted-foreground">
+              Starting a new conversation...
+            </p>
+          </div>
+        ) : messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
             <ChatCircle size={32} className="text-muted-foreground/30" />
             <p className="max-w-[240px] text-sm text-muted-foreground">
@@ -1236,17 +1245,17 @@ export function ChatPanel({
             onKeyDown={handleKeyDown}
             className="max-h-[200px] flex-1 resize-none bg-transparent px-2 py-2 text-sm leading-5 text-foreground outline-none placeholder:text-muted-foreground/60"
             placeholder="Type a message..."
-            disabled={isSending || !onSendMessage}
+            disabled={isSending || isStartingNewSession || !onSendMessage}
             rows={1}
           />
           <Button
             size="icon"
             className="h-9 w-9 shrink-0 rounded-lg"
-            disabled={isSending || !inputValue.trim() || !onSendMessage}
+            disabled={isSending || isStartingNewSession || !inputValue.trim() || !onSendMessage}
             onClick={handleSend}
             aria-label="Send message"
           >
-            {isSending ? (
+            {isSending || isStartingNewSession ? (
               <SpinnerGap size={16} className="animate-spin" />
             ) : (
               <PaperPlaneTilt size={16} weight="fill" />

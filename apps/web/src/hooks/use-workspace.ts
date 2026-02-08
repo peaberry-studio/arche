@@ -105,9 +105,11 @@ export type UseWorkspaceReturn = {
   messages: WorkspaceMessage[];
   isLoadingMessages: boolean;
   isSending: boolean;
+  isStartingNewSession: boolean;
   sendMessage: (
     text: string,
-    model?: { providerId: string; modelId: string }
+    model?: { providerId: string; modelId: string },
+    options?: { forceNewSession?: boolean }
   ) => Promise<void>;
   abortSession: () => Promise<void>;
   refreshMessages: () => Promise<void>;
@@ -151,7 +153,11 @@ export function useWorkspace({
   const [messages, setMessages] = useState<WorkspaceMessage[]>([]);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [isStartingNewSession, setIsStartingNewSession] = useState(false);
   const isSendingRef = useRef(false); // Ref to track sending state without causing re-renders
+  // Sync ref so async callbacks can read the *current* activeSessionId
+  const activeSessionIdRef = useRef(activeSessionId);
+  activeSessionIdRef.current = activeSessionId;
   const streamCounterRef = useRef(0);
   const activeStreamRef = useRef<{
     token: number;
@@ -381,6 +387,7 @@ export function useWorkspace({
     (id: string) => {
       abortActiveStream();
       setActiveSessionId(id);
+      activeSessionIdRef.current = id; // Sync ref immediately so in-flight refreshMessages can detect staleness
       setMessages([]); // Clear messages when switching sessions
     },
     [abortActiveStream]
@@ -393,6 +400,7 @@ export function useWorkspace({
       if (result.ok && result.session) {
         setSessions((prev) => [result.session!, ...prev]);
         setActiveSessionId(result.session.id);
+        activeSessionIdRef.current = result.session.id; // Sync ref immediately so in-flight refreshMessages can detect staleness
         setMessages([]);
         return result.session;
       }
@@ -455,13 +463,20 @@ export function useWorkspace({
       return;
     }
 
+    const targetSessionId = activeSessionId;
+
     console.log(
       "[useWorkspace] refreshMessages: loading for session",
-      activeSessionId
+      targetSessionId
     );
     setIsLoadingMessages(true);
     try {
-      const result = await listMessagesAction(slug, activeSessionId);
+      const result = await listMessagesAction(slug, targetSessionId);
+
+      // If the active session changed while the request was in flight,
+      // discard this result to avoid overwriting messages from the new session.
+      if (activeSessionIdRef.current !== targetSessionId) return;
+
       console.log(
         "[useWorkspace] refreshMessages result:",
         result.ok,
@@ -857,26 +872,42 @@ export function useWorkspace({
 
   // Send message with SSE streaming
   const sendMessage = useCallback(
-    async (text: string, model?: { providerId: string; modelId: string }) => {
+    async (
+      text: string,
+      model?: { providerId: string; modelId: string },
+      options?: { forceNewSession?: boolean }
+    ) => {
       console.log("[useWorkspace] sendMessage called", {
         text,
         model,
         activeSessionId,
+        options,
       });
 
       if (isSendingRef.current) return;
 
-      // Auto-create session if none exists
-      let sessionId = activeSessionId;
-      if (!sessionId) {
-        console.log("[useWorkspace] No activeSessionId, creating new session");
-        const newSession = await createSession();
-        if (!newSession) {
-          console.log("[useWorkspace] Failed to create session");
-          return;
-        }
-        sessionId = newSession.id;
+      const forceNewSession = options?.forceNewSession === true;
+      if (forceNewSession) {
+        setIsStartingNewSession(true);
       }
+
+      let sessionId = activeSessionId;
+      if (forceNewSession || !sessionId) {
+        if (forceNewSession) {
+          setIsStartingNewSession(true);
+        }
+
+        try {
+          const newSession = await createSession();
+          sessionId = newSession?.id ?? null;
+        } finally {
+          if (forceNewSession) {
+            setIsStartingNewSession(false);
+          }
+        }
+      }
+
+      if (!sessionId) return;
 
       // Add optimistic user message
       const tempUserMsgId = `temp-user-${Date.now()}`;
@@ -1198,6 +1229,7 @@ export function useWorkspace({
     messages,
     isLoadingMessages,
     isSending,
+    isStartingNewSession,
     sendMessage,
     abortSession,
     refreshMessages,

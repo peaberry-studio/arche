@@ -4,6 +4,7 @@ import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { PaperPlaneTilt } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
+import { setWorkspaceStartPrompt } from '@/lib/workspace-start-prompt'
 
 type DashboardHeroProps = {
   slug: string
@@ -23,7 +24,14 @@ export function DashboardHero({ slug }: DashboardHeroProps) {
   }
 
   function handleSubmit() {
-    if (!inputValue.trim()) return
+    const prompt = inputValue.trim()
+    if (!prompt) return
+
+    try {
+      setWorkspaceStartPrompt(window.sessionStorage, slug, prompt)
+    } catch {
+      // ignore — if storage is unavailable, fallback is just navigation
+    }
     router.push(`/w/${slug}`)
   }
 

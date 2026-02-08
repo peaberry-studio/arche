@@ -7,6 +7,7 @@ import type { SyncKbResult } from "@/app/api/instances/[slug]/sync-kb/route";
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { useWorkspace } from "@/hooks/use-workspace";
 import type { WorkspaceFileNode, WorkspaceSession } from "@/lib/opencode/types";
+import { takeWorkspaceStartPrompt } from "@/lib/workspace-start-prompt";
 import { cn } from "@/lib/utils";
 
 import { ChatPanel } from "./chat-panel";
@@ -241,6 +242,9 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
   // Auto-sync KB on first connection
   const hasAutoSynced = useRef(false);
 
+  // Auto-start a new chat session if we have a pending prompt
+  const hasAutoStartedPrompt = useRef(false);
+
   useEffect(() => {
     if (!workspace.isConnected || hasAutoSynced.current) return;
     hasAutoSynced.current = true;
@@ -255,6 +259,22 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
       workspace.refreshFiles();
     })();
   }, [workspace, workspace.isConnected, slug, workspace.refreshDiffs, workspace.refreshFiles]);
+
+  useEffect(() => {
+    if (!workspace.isConnected || hasAutoStartedPrompt.current) return;
+
+    let prompt: string | null = null;
+    try {
+      prompt = takeWorkspaceStartPrompt(window.sessionStorage, slug);
+    } catch {
+      prompt = null;
+    }
+
+    hasAutoStartedPrompt.current = true;
+    if (!prompt) return;
+
+    void workspace.sendMessage(prompt, undefined, { forceNewSession: true });
+  }, [workspace, workspace.isConnected, slug]);
 
   // Layout state
   const [leftWidth, setLeftWidth] = useState(MIN_LEFT_PX);
@@ -857,6 +877,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
               sessions={uiSessions}
               messages={uiMessages}
               activeSessionId={workspace.activeSessionId}
+              isStartingNewSession={workspace.isStartingNewSession}
               sessionTabs={activeSessionTabs}
               openFilesCount={openFilePaths.length}
               onCloseSession={handleCloseSession}
