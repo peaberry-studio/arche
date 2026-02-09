@@ -1,0 +1,40 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - ".github/workflows/pr-checks.yml"
+
+jobs:
+  web-lint-test:
+    name: Web - Lint & Test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        working-directory: apps/web
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test
+        run: pnpm test
