@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CaretLeft, CaretRight, Eye, File, GitDiff, X } from "@phosphor-icons/react";
 
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { useEditorDrafts, type SaveState } from "@/hooks/use-editor-drafts";
 import type { WorkspaceDiff } from "@/hooks/use-workspace";
+import { cn } from "@/lib/utils";
 
 import { MarkdownPreview } from "./markdown-preview";
 import { MarkdownEditor } from "./markdown-editor";
@@ -42,8 +43,6 @@ type InspectorPanelProps = {
   onResolveConflict?: (path: string, content: string) => void;
 };
 
-type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
-
 export function InspectorPanel({
   slug,
   activeTab,
@@ -67,86 +66,47 @@ export function InspectorPanel({
   const tabsRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
-
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [lastSaved, setLastSaved] = useState<Record<string, string>>({});
-  const [saveStateByPath, setSaveStateByPath] = useState<Record<string, SaveState>>({});
-  const [saveErrorByPath, setSaveErrorByPath] = useState<Record<string, string | null>>({});
-  const saveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout> | null>>({});
-
-  const activeDraft = useMemo(() => {
-    if (!activeFile) return null;
-    return drafts[activeFile.path] ?? activeFile.content;
-  }, [activeFile, drafts]);
-
-  const activeSaveState = useMemo(() => {
-    if (!activeFile) return "idle" as const;
-    return saveStateByPath[activeFile.path] ?? "idle";
-  }, [activeFile, saveStateByPath]);
-
-  const activeSaveError = useMemo(() => {
-    if (!activeFile) return null;
-    return saveErrorByPath[activeFile.path] ?? null;
-  }, [activeFile, saveErrorByPath]);
-
-  const scheduleAutosave = useCallback(
-    (path: string, content: string, baseline: string) => {
-      if (!onSaveFile) return;
-
-      const timer = saveTimersRef.current[path];
-      if (timer) clearTimeout(timer);
-
-      saveTimersRef.current[path] = setTimeout(async () => {
-        if (baseline === content) {
-          return;
-        }
-
-        setSaveStateByPath((prev) => ({ ...prev, [path]: "saving" }));
-        setSaveErrorByPath((prev) => ({ ...prev, [path]: null }));
-
-        const result = await onSaveFile(path, content);
-        if (result.ok) {
-          setLastSaved((prev) => ({ ...prev, [path]: content }));
-          setSaveStateByPath((prev) => ({ ...prev, [path]: "saved" }));
-          return;
-        }
-
-        setSaveStateByPath((prev) => ({ ...prev, [path]: "error" }));
-        setSaveErrorByPath((prev) => ({ ...prev, [path]: result.error }));
-      }, 600);
-    },
-    [onSaveFile]
-  );
-
-  const handleDraftChange = useCallback(
-    (path: string, next: string, baseline: string) => {
-      setDrafts((prev) => ({ ...prev, [path]: next }));
-      setSaveStateByPath((prev) => ({ ...prev, [path]: "dirty" }));
-      setSaveErrorByPath((prev) => ({ ...prev, [path]: null }));
-      scheduleAutosave(path, next, baseline);
-    },
-    [scheduleAutosave]
-  );
+  const { clearDraft, getDraft, getSaveError, getSaveState, handleChange } = useEditorDrafts({
+    onSave: onSaveFile,
+  });
+  const prevContentRef = useRef<Record<string, string>>({});
 
   const handleReload = useCallback(
     async (path: string) => {
       if (!onReloadFile) return;
       await onReloadFile(path);
-      setDrafts((prev) => {
-        const next = { ...prev };
-        delete next[path];
-        return next;
-      });
-      setLastSaved((prev) => {
-        const next = { ...prev };
-        delete next[path];
-        return next;
-      });
-      setSaveStateByPath((prev) => ({ ...prev, [path]: "idle" }));
-      setSaveErrorByPath((prev) => ({ ...prev, [path]: null }));
+      clearDraft(path);
     },
-    [onReloadFile]
+    [clearDraft, onReloadFile]
   );
+
+  useEffect(() => {
+    const openFilePaths = new Set(openFiles.map((file) => file.path));
+
+    for (const file of openFiles) {
+      const prev = prevContentRef.current[file.path];
+      if (prev !== undefined && prev !== file.content) {
+        clearDraft(file.path);
+      }
+      prevContentRef.current[file.path] = file.content;
+    }
+
+    Object.keys(prevContentRef.current).forEach((path) => {
+      if (!openFilePaths.has(path)) {
+        delete prevContentRef.current[path];
+      }
+    });
+  }, [clearDraft, openFiles]);
+
+  const activeDraft = activeFile
+    ? getDraft(activeFile.path, activeFile.content)
+    : null;
+  const activeSaveState: SaveState = activeFile
+    ? getSaveState(activeFile.path)
+    : "idle";
+  const activeSaveError = activeFile
+    ? getSaveError(activeFile.path)
+    : null;
 
   const updateScrollState = () => {
     const el = tabsRef.current;
@@ -291,22 +251,16 @@ export function InspectorPanel({
               {activeFile ? (
                 <div className="flex-1 overflow-y-auto scrollbar-none">
                   {activeFile.kind === "markdown" && activeDraft != null ? (
-                    (() => {
-                      const hasDraft = typeof drafts[activeFile.path] === "string";
-                      const baseline = hasDraft
-                        ? lastSaved[activeFile.path] ?? activeFile.content
-                        : activeFile.content;
-                      return (
-                        <MarkdownEditor
-                          value={activeDraft}
-                          onChange={(next) => handleDraftChange(activeFile.path, next, baseline)}
-                          saveState={activeSaveState}
-                          saveError={activeSaveError}
-                          modifiedAt={activeFile.updatedAt}
-                          onReload={onReloadFile ? () => void handleReload(activeFile.path) : undefined}
-                        />
-                      );
-                    })()
+                    <MarkdownEditor
+                      value={activeDraft}
+                      onChange={(next) =>
+                        handleChange(activeFile.path, next, activeFile.content)
+                      }
+                      saveState={activeSaveState}
+                      saveError={activeSaveError}
+                      modifiedAt={activeFile.updatedAt}
+                      onReload={onReloadFile ? () => void handleReload(activeFile.path) : undefined}
+                    />
                   ) : (
                     <>
                       <div className="flex items-center justify-between gap-3 px-5 py-3">

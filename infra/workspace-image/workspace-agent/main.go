@@ -521,7 +521,10 @@ func (s *server) handleGitDiscard(w http.ResponseWriter, r *http.Request) {
     _ = rmErr
   }
 
-  _ = os.Remove(absPath)
+  if err := os.Remove(absPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+    writeError(w, http.StatusInternalServerError, "delete_failed")
+    return
+  }
   writeJSON(w, http.StatusOK, gitDiscardResponse{Ok: true, Path: req.Path})
 }
 

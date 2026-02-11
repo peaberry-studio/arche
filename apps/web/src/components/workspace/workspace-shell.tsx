@@ -303,6 +303,11 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
     initialFilePath ?? null
   );
   const [fileCache, setFileCache] = useState<FileContentCache>({});
+  const fileCacheRef = useRef(fileCache);
+
+  useEffect(() => {
+    fileCacheRef.current = fileCache;
+  }, [fileCache]);
 
   const refreshOpenFilesCache = useCallback(async () => {
     if (openFilePaths.length === 0) return;
@@ -374,7 +379,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
 
   const handleSaveFile = useCallback(
     async (path: string, content: string) => {
-      const expectedHash = fileCache[path]?.hash;
+      const expectedHash = fileCacheRef.current[path]?.hash;
       const result = await workspace.writeFile(path, content, expectedHash);
       if (!result.ok) {
         return { ok: false as const, error: result.error ?? "save_failed" };
@@ -401,7 +406,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
 
       return { ok: true as const, hash: result.hash };
     },
-    [fileCache, workspace]
+    [workspace]
   );
 
   const handleReloadFile = useCallback(
@@ -645,7 +650,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
     setRightCollapsed(false);
 
     // Load file content if not cached
-    if (!fileCache[pathToOpen]) {
+    if (!fileCacheRef.current[pathToOpen]) {
       const result = await workspace.readFile(pathToOpen);
       if (result) {
         setFileCache(prev => ({
@@ -671,8 +676,8 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
            }
          }));
        }
-     }
-   }, [fileCache, resolveFilePath, workspace]);
+      }
+    }, [resolveFilePath, workspace]);
 
   const handleSelectFile = useCallback((path: string) => {
     setActiveFilePath(path);

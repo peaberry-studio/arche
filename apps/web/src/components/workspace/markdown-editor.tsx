@@ -17,9 +17,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import type { SaveState } from "@/hooks/use-editor-drafts";
 import { cn } from "@/lib/utils";
-
-export type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
 
 function normalizeMarkdownForKb(value: string): string {
   return value.replaceAll("\u00A0", " ").replaceAll("&nbsp;", " ");
