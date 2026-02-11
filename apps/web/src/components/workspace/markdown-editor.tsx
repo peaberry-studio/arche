@@ -91,15 +91,9 @@ export function MarkdownEditor({
   }, [editor, value]);
 
   const reloadRecommended = Boolean(saveState === "error" && saveError && saveError.includes("conflict"));
-
-  const statusLabel =
-    saveState === "saving"
-      ? "Saving…"
-      : reloadRecommended
-        ? "Reload required"
-        : saveState === "error"
-          ? "Error saving"
-          : "";
+  const isEditing = saveState === "dirty" || saveState === "saving";
+  const isError = saveState === "error";
+  const statusLabel = isError ? "Error" : isEditing ? "Editing" : "Saved";
 
   const headingLabel =
     editor?.isActive("heading", { level: 1 })
@@ -249,18 +243,18 @@ export function MarkdownEditor({
         </div>
         <div className="flex min-w-0 items-center gap-2 text-[11px]">
           {modifiedAt ? <span className="shrink-0 text-muted-foreground">{modifiedAt}</span> : null}
-          {statusLabel ? (
+          <div className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 px-2 py-1 text-[10px] text-muted-foreground">
             <span
               className={cn(
-                "shrink-0",
-                saveState === "error" ? "text-destructive" : "text-muted-foreground"
+                "h-2 w-2 rounded-full",
+                isError ? "bg-destructive" : isEditing ? "bg-amber-400" : "bg-emerald-500",
+                isEditing && "animate-pulse"
               )}
-            >
-              {statusLabel}
-            </span>
-          ) : null}
+            />
+            <span>{statusLabel}</span>
+          </div>
           {saveState === "error" && saveError ? (
-            <span className="min-w-0 truncate text-muted-foreground" title={saveError}>
+            <span className="min-w-0 truncate text-destructive/90" title={saveError}>
               {saveError}
             </span>
           ) : null}
