@@ -78,6 +78,15 @@ type gitResolveResponse struct {
   Message  string `json:"message,omitempty"`
 }
 
+type gitDiscardRequest struct {
+  Path string `json:"path"`
+}
+
+type gitDiscardResponse struct {
+  Ok   bool   `json:"ok"`
+  Path string `json:"path"`
+}
+
 type fileReadRequest struct {
   Path string `json:"path"`
 }
@@ -168,6 +177,7 @@ func main() {
   mux.HandleFunc("/git/diffs", s.withAuth(s.handleGitDiffs))
   mux.HandleFunc("/git/conflict", s.withAuth(s.handleGitConflict))
   mux.HandleFunc("/git/resolve", s.withAuth(s.handleGitResolve))
+  mux.HandleFunc("/git/discard", s.withAuth(s.handleGitDiscard))
   mux.HandleFunc("/files/read", s.withAuth(s.handleFileRead))
   mux.HandleFunc("/files/write", s.withAuth(s.handleFileWrite))
   mux.HandleFunc("/files/delete", s.withAuth(s.handleFileDelete))
@@ -411,6 +421,108 @@ func (s *server) handleGitResolve(w http.ResponseWriter, r *http.Request) {
     Path:     req.Path,
     Strategy: req.Strategy,
   })
+}
+
+func (s *server) handleGitDiscard(w http.ResponseWriter, r *http.Request) {
+  if r.Method != http.MethodPost {
+    writeError(w, http.StatusMethodNotAllowed, "method_not_allowed")
+    return
+  }
+
+  var req gitDiscardRequest
+  if err := decodeJSON(w, r, &req); err != nil {
+    writeError(w, http.StatusBadRequest, "invalid_json")
+    return
+  }
+
+  relPath, absPath, err := s.resolveRelPath(req.Path)
+  if err != nil {
+    writeError(w, http.StatusBadRequest, err.Error())
+    return
+  }
+
+  entries, statusErr := s.gitStatusEntries(r.Context(), relPath)
+  if statusErr != nil {
+    writeError(w, http.StatusBadGateway, statusErr.Error())
+    return
+  }
+
+  var entry *gitStatusEntry
+  for i := range entries {
+    if entries[i].Path == relPath {
+      entry = &entries[i]
+      break
+    }
+  }
+  if entry == nil {
+    writeError(w, http.StatusNotFound, "not_modified")
+    return
+  }
+
+  // Untracked files can be safely removed without involving git.
+  if entry.Untracked {
+    if err := os.Remove(absPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+      writeError(w, http.StatusInternalServerError, "delete_failed")
+      return
+    }
+    writeJSON(w, http.StatusOK, gitDiscardResponse{Ok: true, Path: req.Path})
+    return
+  }
+
+  // Best-effort: clear index state for this path (helps with conflict stages).
+  _, resetErrOut, resetCode, resetExecErr := runCmd(r.Context(), s.workspace, []string{
+    "git", "reset", "-q", "--", relPath,
+  })
+  if resetExecErr != nil {
+    writeError(w, http.StatusBadGateway, "git_reset_failed")
+    return
+  }
+  if resetCode != 0 {
+    msg := strings.TrimSpace(resetErrOut)
+    // Ignore common "pathspec" errors (e.g. when the path only exists in the index).
+    if msg != "" && !strings.Contains(strings.ToLower(msg), "pathspec") {
+      writeError(w, http.StatusBadGateway, msg)
+      return
+    }
+  }
+
+  // If the path exists in HEAD, restore it. Otherwise, drop it from the index and delete it.
+  _, _, catCode, _ := runCmd(r.Context(), s.workspace, []string{
+    "git", "cat-file", "-e", "HEAD:" + relPath,
+  })
+
+  if catCode == 0 {
+    _, checkoutErr, checkoutCode, checkoutExecErr := runCmd(r.Context(), s.workspace, []string{
+      "git", "checkout", "--", relPath,
+    })
+    if checkoutExecErr != nil || checkoutCode != 0 {
+      msg := strings.TrimSpace(checkoutErr)
+      if msg == "" {
+        msg = "git_checkout_failed"
+      }
+      writeError(w, http.StatusBadGateway, msg)
+      return
+    }
+
+    writeJSON(w, http.StatusOK, gitDiscardResponse{Ok: true, Path: req.Path})
+    return
+  }
+
+  // New tracked file (not in HEAD).
+  _, rmErr, rmCode, rmExecErr := runCmd(r.Context(), s.workspace, []string{
+    "git", "rm", "-f", "--cached", "--", relPath,
+  })
+  if rmExecErr != nil {
+    writeError(w, http.StatusBadGateway, "git_rm_failed")
+    return
+  }
+  if rmCode != 0 {
+    // If it wasn't in the index, keep going.
+    _ = rmErr
+  }
+
+  _ = os.Remove(absPath)
+  writeJSON(w, http.StatusOK, gitDiscardResponse{Ok: true, Path: req.Path})
 }
 
 func (s *server) handleFileRead(w http.ResponseWriter, r *http.Request) {

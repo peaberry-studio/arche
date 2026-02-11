@@ -19,6 +19,7 @@ import {
   writeWorkspaceFileAction,
   deleteWorkspaceFileAction,
   applyWorkspacePatchAction,
+  discardWorkspaceFileChangesAction,
 } from "@/actions/workspace-agent";
 import type {
   WorkspaceFileNode,
@@ -82,14 +83,15 @@ export type UseWorkspaceReturn = {
   refreshFiles: () => Promise<void>;
   readFile: (
     path: string
-  ) => Promise<{ content: string; type: "raw" | "patch" } | null>;
+  ) => Promise<{ content: string; type: "raw" | "patch"; hash?: string } | null>;
   writeFile: (
     path: string,
     content: string,
     expectedHash?: string
-  ) => Promise<{ ok: boolean; hash?: string }>;
+  ) => Promise<{ ok: boolean; hash?: string; error?: string }>;
   deleteFile: (path: string) => Promise<boolean>;
   applyPatch: (patch: string) => Promise<boolean>;
+  discardFileChanges: (path: string) => Promise<{ ok: boolean; error?: string }>;
 
   // Sessions
   sessions: WorkspaceSession[];
@@ -293,6 +295,7 @@ export function useWorkspace({
         return {
           content: agentResult.content.content,
           type: agentResult.content.type,
+          hash: agentResult.hash,
         };
       }
 
@@ -317,7 +320,7 @@ export function useWorkspace({
       if (result.ok) {
         return { ok: true, hash: result.hash };
       }
-      return { ok: false };
+      return { ok: false, error: result.error };
     },
     [slug]
   );
@@ -334,6 +337,21 @@ export function useWorkspace({
     async (patch: string) => {
       const result = await applyWorkspacePatchAction(slug, patch);
       return result.ok;
+    },
+    [slug]
+  );
+
+  const discardFileChanges = useCallback(
+    async (path: string) => {
+      try {
+        const result = await discardWorkspaceFileChangesAction(slug, path);
+        return result;
+      } catch (e) {
+        return {
+          ok: false,
+          error: e instanceof Error ? e.message : "discard_failed",
+        };
+      }
     },
     [slug]
   );
@@ -1218,6 +1236,7 @@ export function useWorkspace({
     writeFile,
     deleteFile,
     applyPatch,
+    discardFileChanges,
     sessions,
     activeSessionId,
     activeSession,

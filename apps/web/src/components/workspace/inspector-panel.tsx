@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CaretLeft, CaretRight, Eye, File, GitDiff, X } from "@phosphor-icons/react";
 
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import type { WorkspaceDiff } from "@/hooks/use-workspace";
 
 import { MarkdownPreview } from "./markdown-preview";
+import { MarkdownEditor } from "./markdown-editor";
 import { ReviewPanel } from "./review-panel";
 
 type WorkspaceFile = {
@@ -31,9 +32,17 @@ type InspectorPanelProps = {
   isLoadingDiffs?: boolean;
   diffsError?: string | null;
   onOpenFile: (path: string) => void;
+  onReloadFile?: (path: string) => Promise<void>;
+  onSaveFile?: (
+    path: string,
+    content: string
+  ) => Promise<{ ok: true; hash?: string } | { ok: false; error: string }>;
+  onDiscardFileChanges?: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   onPublish?: () => void;
   onResolveConflict?: (path: string, content: string) => void;
 };
+
+type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
 
 export function InspectorPanel({
   slug,
@@ -47,6 +56,9 @@ export function InspectorPanel({
   isLoadingDiffs,
   diffsError,
   onOpenFile,
+  onReloadFile,
+  onSaveFile,
+  onDiscardFileChanges,
   onPublish,
   onResolveConflict
 }: InspectorPanelProps) {
@@ -55,6 +67,86 @@ export function InspectorPanel({
   const tabsRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [lastSaved, setLastSaved] = useState<Record<string, string>>({});
+  const [saveStateByPath, setSaveStateByPath] = useState<Record<string, SaveState>>({});
+  const [saveErrorByPath, setSaveErrorByPath] = useState<Record<string, string | null>>({});
+  const saveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout> | null>>({});
+
+  const activeDraft = useMemo(() => {
+    if (!activeFile) return null;
+    return drafts[activeFile.path] ?? activeFile.content;
+  }, [activeFile, drafts]);
+
+  const activeSaveState = useMemo(() => {
+    if (!activeFile) return "idle" as const;
+    return saveStateByPath[activeFile.path] ?? "idle";
+  }, [activeFile, saveStateByPath]);
+
+  const activeSaveError = useMemo(() => {
+    if (!activeFile) return null;
+    return saveErrorByPath[activeFile.path] ?? null;
+  }, [activeFile, saveErrorByPath]);
+
+  const scheduleAutosave = useCallback(
+    (path: string, content: string, baseline: string) => {
+      if (!onSaveFile) return;
+
+      const timer = saveTimersRef.current[path];
+      if (timer) clearTimeout(timer);
+
+      saveTimersRef.current[path] = setTimeout(async () => {
+        if (baseline === content) {
+          return;
+        }
+
+        setSaveStateByPath((prev) => ({ ...prev, [path]: "saving" }));
+        setSaveErrorByPath((prev) => ({ ...prev, [path]: null }));
+
+        const result = await onSaveFile(path, content);
+        if (result.ok) {
+          setLastSaved((prev) => ({ ...prev, [path]: content }));
+          setSaveStateByPath((prev) => ({ ...prev, [path]: "saved" }));
+          return;
+        }
+
+        setSaveStateByPath((prev) => ({ ...prev, [path]: "error" }));
+        setSaveErrorByPath((prev) => ({ ...prev, [path]: result.error }));
+      }, 600);
+    },
+    [onSaveFile]
+  );
+
+  const handleDraftChange = useCallback(
+    (path: string, next: string, baseline: string) => {
+      setDrafts((prev) => ({ ...prev, [path]: next }));
+      setSaveStateByPath((prev) => ({ ...prev, [path]: "dirty" }));
+      setSaveErrorByPath((prev) => ({ ...prev, [path]: null }));
+      scheduleAutosave(path, next, baseline);
+    },
+    [scheduleAutosave]
+  );
+
+  const handleReload = useCallback(
+    async (path: string) => {
+      if (!onReloadFile) return;
+      await onReloadFile(path);
+      setDrafts((prev) => {
+        const next = { ...prev };
+        delete next[path];
+        return next;
+      });
+      setLastSaved((prev) => {
+        const next = { ...prev };
+        delete next[path];
+        return next;
+      });
+      setSaveStateByPath((prev) => ({ ...prev, [path]: "idle" }));
+      setSaveErrorByPath((prev) => ({ ...prev, [path]: null }));
+    },
+    [onReloadFile]
+  );
 
   const updateScrollState = () => {
     const el = tabsRef.current;
@@ -100,7 +192,7 @@ export function InspectorPanel({
           )}
         >
           <Eye size={14} weight={activeTab === "preview" ? "fill" : "bold"} />
-          Preview
+          View
         </button>
         <button
           type="button"
@@ -197,22 +289,41 @@ export function InspectorPanel({
 
               {/* File content */}
               {activeFile ? (
-                <>
-                  <div className="flex items-center justify-between gap-3 px-5 py-3">
-                    <p className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">
-                      {activeFile.path}
-                    </p>
-                    <div className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-                      <span>{activeFile.updatedAt}</span>
-                      <span className="text-muted-foreground/30">·</span>
-                      <span>{activeFile.size}</span>
-                    </div>
-                  </div>
-                  <div className="border-t border-white/10" />
-                  <div className="flex-1 overflow-y-auto px-6 py-6 scrollbar-none">
-                    <MarkdownPreview content={activeFile.content} />
-                  </div>
-                </>
+                <div className="flex-1 overflow-y-auto scrollbar-none">
+                  {activeFile.kind === "markdown" && activeDraft != null ? (
+                    (() => {
+                      const hasDraft = typeof drafts[activeFile.path] === "string";
+                      const baseline = hasDraft
+                        ? lastSaved[activeFile.path] ?? activeFile.content
+                        : activeFile.content;
+                      return (
+                        <MarkdownEditor
+                          value={activeDraft}
+                          onChange={(next) => handleDraftChange(activeFile.path, next, baseline)}
+                          saveState={activeSaveState}
+                          saveError={activeSaveError}
+                          modifiedAt={activeFile.updatedAt}
+                          onReload={onReloadFile ? () => void handleReload(activeFile.path) : undefined}
+                        />
+                      );
+                    })()
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between gap-3 px-5 py-3">
+                        <p className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">
+                          {activeFile.path}
+                        </p>
+                        <div className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+                          <span>{activeFile.updatedAt}</span>
+                        </div>
+                      </div>
+                      <div className="border-t border-white/10" />
+                      <div className="px-6 py-6">
+                        <MarkdownPreview content={activeFile.content} />
+                      </div>
+                    </>
+                  )}
+                </div>
               ) : null}
             </div>
           ) : (
@@ -231,6 +342,7 @@ export function InspectorPanel({
               isLoading={Boolean(isLoadingDiffs)}
               error={diffsError ?? undefined}
               onOpenFile={onOpenFile}
+              onDiscardFileChanges={onDiscardFileChanges}
               onPublish={onPublish}
               onResolveConflict={onResolveConflict}
             />
