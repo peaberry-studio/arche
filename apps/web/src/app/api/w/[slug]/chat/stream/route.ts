@@ -1,8 +1,10 @@
 import { NextRequest } from 'next/server'
 import { getAuthenticatedUser } from '@/lib/auth'
+import { extractPdfText, isPdfMime } from '@/lib/attachments/pdf-text-extractor'
 import { validateSameOrigin } from '@/lib/csrf'
 import { prisma } from '@/lib/prisma'
 import { decryptPassword } from '@/lib/spawner/crypto'
+import { getWorkspaceAgentUrl } from '@/lib/workspace-agent/client'
 import {
   inferAttachmentMimeType,
   isWorkspaceAttachmentPath,
@@ -18,6 +20,16 @@ type MessageAttachmentInput = {
   filename?: string
   mime?: string
 }
+
+type WorkspaceAgentReadResponse = {
+  ok: boolean
+  content?: string
+  encoding?: 'utf-8' | 'base64'
+  error?: string
+}
+
+const MAX_PDF_BYTES_FOR_EXTRACTION = 8 * 1024 * 1024
+const MAX_PDF_TEXT_CHARS = 24_000
 
 function normalizeMessageAttachments(
   value: unknown,
@@ -50,6 +62,70 @@ function toAttachmentHintText(paths: string[]): string {
     'If direct file parsing is unavailable, inspect these paths with available tools.',
   ]
   return lines.join('\n')
+}
+
+function toPdfExtractedTextPart(path: string, text: string, truncated: boolean): string {
+  const truncationNote = truncated
+    ? '\n\n[The extracted content was truncated to fit the prompt window.]'
+    : ''
+
+  return [
+    `Extracted text from attached PDF: /workspace/${path}`,
+    text,
+    truncationNote,
+  ]
+    .filter((segment) => segment.length > 0)
+    .join('\n\n')
+}
+
+function toPdfExtractionFailureText(path: string): string {
+  return [
+    `Attached PDF could not be extracted automatically: /workspace/${path}`,
+    'Continue by using available tools on this path, or ask the user for an OCR-friendly/text PDF if the file is scanned.',
+  ].join('\n')
+}
+
+function decodeWorkspaceAgentFileContent(data: WorkspaceAgentReadResponse): Buffer | null {
+  if (typeof data.content !== 'string') return null
+
+  if (data.encoding === 'base64') {
+    try {
+      return Buffer.from(data.content, 'base64')
+    } catch {
+      return null
+    }
+  }
+
+  if (data.encoding === 'utf-8' || data.encoding === undefined) {
+    return Buffer.from(data.content, 'utf-8')
+  }
+
+  return null
+}
+
+async function readWorkspaceAttachment(
+  workspaceAgentUrl: string,
+  authHeader: string,
+  path: string,
+): Promise<Buffer | null> {
+  const response = await fetch(`${workspaceAgentUrl}/files/read`, {
+    method: 'POST',
+    headers: {
+      'Authorization': authHeader,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body: JSON.stringify({ path }),
+    cache: 'no-store',
+  })
+
+  const data = (await response.json().catch(() => null)) as WorkspaceAgentReadResponse | null
+  if (!response.ok || !data?.ok) return null
+
+  const decoded = decodeWorkspaceAgentFileContent(data)
+  if (!decoded || decoded.length === 0) return null
+  if (decoded.length > MAX_PDF_BYTES_FOR_EXTRACTION) return null
+  return decoded
 }
 
 /**
@@ -137,6 +213,7 @@ export async function POST(
   const password = decryptPassword(instance.serverPassword)
   const authHeader = `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`
   const baseUrl = `http://opencode-${slug}:4096`
+  const workspaceAgentUrl = getWorkspaceAgentUrl(slug)
   
   // Create SSE stream
   const encoder = new TextEncoder()
@@ -185,6 +262,41 @@ export async function POST(
                 attachmentMime !== 'application/octet-stream'
                   ? attachmentMime
                   : inferAttachmentMimeType(fileName)
+
+              if (isPdfMime(mime)) {
+                const attachmentBytes = await readWorkspaceAttachment(
+                  workspaceAgentUrl,
+                  authHeader,
+                  attachmentPath,
+                )
+
+                if (attachmentBytes) {
+                  const extracted = await extractPdfText(attachmentBytes, MAX_PDF_TEXT_CHARS)
+                  if (extracted.ok) {
+                    promptParts.push({
+                      type: 'text',
+                      text: toPdfExtractedTextPart(
+                        attachmentPath,
+                        extracted.text,
+                        extracted.truncated,
+                      ),
+                    })
+                  } else {
+                    promptParts.push({
+                      type: 'text',
+                      text: toPdfExtractionFailureText(attachmentPath),
+                    })
+                  }
+                } else {
+                  promptParts.push({
+                    type: 'text',
+                    text: toPdfExtractionFailureText(attachmentPath),
+                  })
+                }
+
+                attachmentPathsForHint.push(attachmentPath)
+                continue
+              }
 
               promptParts.push({
                 type: 'file',

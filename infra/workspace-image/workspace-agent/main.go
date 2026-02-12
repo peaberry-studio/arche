@@ -1218,7 +1218,7 @@ func (s *server) handleKbPublish(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) gitStatusEntries(ctx context.Context, paths ...string) ([]gitStatusEntry, error) {
-  args := []string{"git", "-c", "core.quotepath=false", "status", "--porcelain=v1", "-z"}
+  args := []string{"git", "-c", "core.quotepath=false", "status", "--porcelain=v1", "-z", "--untracked-files=all"}
   if len(paths) > 0 {
     args = append(args, "--")
     args = append(args, paths...)

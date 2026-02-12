@@ -36,6 +36,7 @@
     "lucide-react": "^0.563.0",
     "next": "16.1.6",
     "otpauth": "^9.4.1",
+    "pdf-parse": "^1.1.1",
     "pg": "^8.18.0",
     "qrcode.react": "^4.2.0",
     "react": "19.2.3",
