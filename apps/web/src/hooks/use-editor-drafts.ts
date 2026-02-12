@@ -6,7 +6,9 @@ export type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
 export type SaveResult = { ok: true; hash?: string } | { ok: false; error: string };
 
 type EditorDraftsConfig = {
-  onSave: ((path: string, content: string) => Promise<SaveResult>) | undefined;
+  onSave:
+    | ((path: string, content: string, expectedHash?: string) => Promise<SaveResult>)
+    | undefined;
   debounceMs?: number;
 };
 
@@ -14,7 +16,12 @@ type UseEditorDraftsReturn = {
   getDraft: (path: string, fallback: string) => string;
   getSaveState: (path: string) => SaveState;
   getSaveError: (path: string) => string | null;
-  handleChange: (path: string, content: string, sourceContent: string) => void;
+  handleChange: (
+    path: string,
+    content: string,
+    sourceContent: string,
+    sourceHash?: string
+  ) => void;
   clearDraft: (path: string) => void;
 };
 
@@ -26,10 +33,17 @@ export function useEditorDrafts(config: EditorDraftsConfig): UseEditorDraftsRetu
   const [saveState, setSaveState] = useState<Record<string, SaveState>>({});
   const [saveError, setSaveError] = useState<Record<string, string | null>>({});
   const saveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout> | null>>({});
+  const draftsRef = useRef(drafts);
 
   const lastSavedRef = useRef(lastSaved);
+  const baseContentRef = useRef<Record<string, string>>({});
+  const baseHashRef = useRef<Record<string, string | undefined>>({});
 
   const onSaveRef = useRef(config.onSave);
+
+  useEffect(() => {
+    draftsRef.current = drafts;
+  }, [drafts]);
 
   useEffect(() => {
     lastSavedRef.current = lastSaved;
@@ -48,7 +62,7 @@ export function useEditorDrafts(config: EditorDraftsConfig): UseEditorDraftsRetu
   }, []);
 
   const scheduleAutosave = useCallback(
-    (path: string, content: string, sourceContent: string) => {
+    (path: string, content: string, baseline: string, expectedHash?: string) => {
       if (!onSaveRef.current) return;
 
       clearTimer(path);
@@ -56,9 +70,8 @@ export function useEditorDrafts(config: EditorDraftsConfig): UseEditorDraftsRetu
       saveTimersRef.current[path] = setTimeout(async () => {
         saveTimersRef.current[path] = null;
 
-        const baseline = lastSavedRef.current[path] ?? sourceContent;
         if (baseline === content) {
-          setSaveState((prev) => ({ ...prev, [path]: "saved" }));
+          setSaveState((prev) => ({ ...prev, [path]: "idle" }));
           setSaveError((prev) => ({ ...prev, [path]: null }));
           return;
         }
@@ -72,9 +85,11 @@ export function useEditorDrafts(config: EditorDraftsConfig): UseEditorDraftsRetu
           return;
         }
 
-        const result = await onSave(path, content);
+        const result = await onSave(path, content, expectedHash);
         if (result.ok) {
           setLastSaved((prev) => ({ ...prev, [path]: content }));
+          baseContentRef.current[path] = content;
+          baseHashRef.current[path] = result.hash;
           setSaveState((prev) => ({ ...prev, [path]: "saved" }));
           setSaveError((prev) => ({ ...prev, [path]: null }));
           return;
@@ -88,8 +103,18 @@ export function useEditorDrafts(config: EditorDraftsConfig): UseEditorDraftsRetu
   );
 
   const handleChange = useCallback(
-    (path: string, content: string, sourceContent: string) => {
-      const baseline = lastSavedRef.current[path] ?? sourceContent;
+    (path: string, content: string, sourceContent: string, sourceHash?: string) => {
+      const hasDraft = typeof draftsRef.current[path] === "string";
+      if (!hasDraft) {
+        const baseline = lastSavedRef.current[path] ?? sourceContent;
+        baseContentRef.current[path] = baseline;
+        if (baseHashRef.current[path] === undefined) {
+          baseHashRef.current[path] = sourceHash;
+        }
+      }
+
+      const baseline = baseContentRef.current[path] ?? lastSavedRef.current[path] ?? sourceContent;
+      const expectedHash = baseHashRef.current[path];
 
       setDrafts((prev) => ({ ...prev, [path]: content }));
       setSaveError((prev) => ({ ...prev, [path]: null }));
@@ -101,7 +126,7 @@ export function useEditorDrafts(config: EditorDraftsConfig): UseEditorDraftsRetu
       }
 
       setSaveState((prev) => ({ ...prev, [path]: "dirty" }));
-      scheduleAutosave(path, content, sourceContent);
+      scheduleAutosave(path, content, baseline, expectedHash);
     },
     [clearTimer, scheduleAutosave]
   );
@@ -123,6 +148,8 @@ export function useEditorDrafts(config: EditorDraftsConfig): UseEditorDraftsRetu
       delete next[path];
       return next;
     });
+    delete baseContentRef.current[path];
+    delete baseHashRef.current[path];
     setSaveState((prev) => ({ ...prev, [path]: "idle" }));
     setSaveError((prev) => ({ ...prev, [path]: null }));
   }, []);

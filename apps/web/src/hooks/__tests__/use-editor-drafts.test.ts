@@ -62,7 +62,7 @@ describe("useEditorDrafts", () => {
     await advanceAutosave();
 
     expect(onSave).toHaveBeenCalledTimes(1);
-    expect(onSave).toHaveBeenCalledWith("kb/note.md", "autosaved");
+    expect(onSave).toHaveBeenCalledWith("kb/note.md", "autosaved", undefined);
     expect(result.current.getSaveState("kb/note.md")).toBe("saved");
     expect(result.current.getSaveError("kb/note.md")).toBeNull();
   });
@@ -117,7 +117,7 @@ describe("useEditorDrafts", () => {
     await advanceAutosave();
 
     expect(onSave).toHaveBeenCalledTimes(1);
-    expect(onSave).toHaveBeenCalledWith("kb/note.md", "second");
+    expect(onSave).toHaveBeenCalledWith("kb/note.md", "second", undefined);
     expect(result.current.getSaveState("kb/note.md")).toBe("saved");
   });
 
@@ -145,7 +145,24 @@ describe("useEditorDrafts", () => {
 
     expect(firstOnSave).not.toHaveBeenCalled();
     expect(secondOnSave).toHaveBeenCalledTimes(1);
-    expect(secondOnSave).toHaveBeenCalledWith("kb/note.md", "value");
+    expect(secondOnSave).toHaveBeenCalledWith("kb/note.md", "value", undefined);
+  });
+
+  it("mantiene expectedHash base aunque cambie sourceHash durante el draft", async () => {
+    const onSave = vi.fn<
+      (path: string, content: string, expectedHash?: string) => Promise<SaveResult>
+    >(async () => ({ ok: true, hash: "hash-saved" }));
+    const { result } = renderHook(() => useEditorDrafts({ onSave }));
+
+    act(() => {
+      result.current.handleChange("kb/note.md", "first", "original", "hash-a");
+      result.current.handleChange("kb/note.md", "second", "remote-content", "hash-b");
+    });
+
+    await advanceAutosave();
+
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave).toHaveBeenCalledWith("kb/note.md", "second", "hash-a");
   });
 
   it("no save cuando content === baseline", async () => {

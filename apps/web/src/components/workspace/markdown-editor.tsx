@@ -24,6 +24,23 @@ function normalizeMarkdownForKb(value: string): string {
   return value.replaceAll("\u00A0", " ").replaceAll("&nbsp;", " ");
 }
 
+function isEquivalentMarkdown(left: string, right: string): boolean {
+  if (left === right) return true;
+
+  const normalizedLeft = normalizeMarkdownForKb(left).replaceAll("\r\n", "\n");
+  const normalizedRight = normalizeMarkdownForKb(right).replaceAll("\r\n", "\n");
+  if (normalizedLeft === normalizedRight) return true;
+
+  const trimmedLeft = normalizedLeft.endsWith("\n")
+    ? normalizedLeft.slice(0, -1)
+    : normalizedLeft;
+  const trimmedRight = normalizedRight.endsWith("\n")
+    ? normalizedRight.slice(0, -1)
+    : normalizedRight;
+
+  return trimmedLeft === trimmedRight;
+}
+
 type MarkdownEditorProps = {
   value: string;
   onChange: (next: string) => void;
@@ -76,14 +93,35 @@ export function MarkdownEditor({
     if (!editor) return;
 
     const current = normalizeMarkdownForKb(editor.getMarkdown());
-    if (current === value) return;
+    if (isEquivalentMarkdown(current, value)) return;
 
     // If the parent is just echoing what we emitted, don't reset editor state.
-    if (lastEmittedMarkdownRef.current === value) return;
+    if (
+      lastEmittedMarkdownRef.current !== null &&
+      isEquivalentMarkdown(lastEmittedMarkdownRef.current, value)
+    ) {
+      return;
+    }
+
+    const previousSelection = editor.state.selection;
+    const previousFrom = previousSelection.from;
+    const previousTo = previousSelection.to;
+    const wasAtEnd = previousSelection.empty && previousTo >= editor.state.doc.content.size;
 
     ignoreNextUpdateRef.current = true;
     lastEmittedMarkdownRef.current = value;
     editor.commands.setContent(value, { contentType: "markdown" });
+
+    if (wasAtEnd) {
+      editor.commands.focus("end");
+    } else {
+      const maxPosition = Math.max(1, editor.state.doc.content.size);
+      editor.commands.setTextSelection({
+        from: Math.min(previousFrom, maxPosition),
+        to: Math.min(previousTo, maxPosition),
+      });
+    }
+
     queueMicrotask(() => {
       ignoreNextUpdateRef.current = false;
     });

@@ -378,9 +378,9 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
   );
 
   const handleSaveFile = useCallback(
-    async (path: string, content: string) => {
-      const expectedHash = fileCacheRef.current[path]?.hash;
-      const result = await workspace.writeFile(path, content, expectedHash);
+    async (path: string, content: string, expectedHash?: string) => {
+      const hashToUse = expectedHash ?? fileCacheRef.current[path]?.hash;
+      const result = await workspace.writeFile(path, content, hashToUse);
       if (!result.ok) {
         return { ok: false as const, error: result.error ?? "save_failed" };
       }
@@ -519,7 +519,10 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
   const diffSignature = useMemo(() => {
     if (workspace.diffs.length === 0) return '';
     return workspace.diffs
-      .map(diff => `${diff.path}:${diff.status}:${diff.additions}:${diff.deletions}`)
+      .map(
+        (diff) =>
+          `${diff.path}:${diff.status}:${diff.additions}:${diff.deletions}:${diff.conflicted ? 1 : 0}:${diff.diff}`
+      )
       .sort()
       .join('|');
   }, [workspace.diffs]);
@@ -528,32 +531,30 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
 
   useEffect(() => {
     if (!workspace.isConnected) return;
-    if (!diffSignature) return;
     if (lastDiffSignatureRef.current === diffSignature) return;
 
     lastDiffSignatureRef.current = diffSignature;
     workspace.refreshFiles();
 
-    const diffPaths = new Set(workspace.diffs.map(diff => diff.path));
-    const pathsToRefresh = openFilePaths.filter(path => diffPaths.has(path));
-    if (pathsToRefresh.length === 0) return;
+    if (openFilePaths.length === 0) return;
 
-    pathsToRefresh.forEach(async (path) => {
-      const result = await workspace.readFile(path);
-      if (!result) return;
-      setFileCache(prev => ({
-        ...prev,
-        [path]: {
-          content: result.content,
-          type: result.type,
-          title: path.split('/').pop() ?? path,
-          updatedAt: 'Just now',
-          size: `${(result.content.length / 1024).toFixed(1)} KB`,
-          hash: result.hash,
-        }
-      }));
+    openFilePaths.forEach((path) => {
+      void workspace.readFile(path).then((result) => {
+        if (!result) return;
+        setFileCache((prev) => ({
+          ...prev,
+          [path]: {
+            content: result.content,
+            type: result.type,
+            title: path.split('/').pop() ?? path,
+            updatedAt: 'Just now',
+            size: `${(result.content.length / 1024).toFixed(1)} KB`,
+            hash: result.hash,
+          },
+        }));
+      });
     });
-  }, [diffSignature, openFilePaths, workspace, workspace.diffs, workspace.isConnected, workspace.readFile, workspace.refreshFiles]);
+  }, [diffSignature, openFilePaths, workspace, workspace.isConnected, workspace.readFile, workspace.refreshFiles]);
 
   // Load layout from localStorage
   useEffect(() => {
@@ -632,6 +633,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
           content: cached.content,
           updatedAt: cached.updatedAt,
           size: cached.size,
+          hash: cached.hash,
           kind: path.endsWith('.md') ? 'markdown' as const : 'text' as const
         };
       })
