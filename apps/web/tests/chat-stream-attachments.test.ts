@@ -88,7 +88,7 @@ describe('chat stream attachments forwarding', () => {
 
     expect(promptBody).not.toBeNull()
     const promptParts = (promptBody?.parts ?? []) as Array<Record<string, unknown>>
-    expect(promptParts).toHaveLength(2)
+    expect(promptParts).toHaveLength(3)
     expect(promptParts[0]).toEqual({
       type: 'text',
       text: 'Please summarize this file',
@@ -97,6 +97,11 @@ describe('chat stream attachments forwarding', () => {
     expect(promptParts[1].filename).toBe('report.pdf')
     expect(promptParts[1].mime).toBe('application/pdf')
     expect(promptParts[1].url).toBe('file:///workspace/.arche/attachments/report.pdf')
+    expect(promptParts[2]).toEqual({
+      type: 'text',
+      text:
+        'Attached workspace files:\n- /workspace/.arche/attachments/report.pdf\nIf direct file parsing is unavailable, inspect these paths with available tools.',
+    })
   })
 
   it('normalizes unsupported octet-stream mime to safe fallback', async () => {

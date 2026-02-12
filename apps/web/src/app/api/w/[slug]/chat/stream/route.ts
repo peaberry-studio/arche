@@ -43,6 +43,15 @@ function toWorkspaceFileUrl(path: string): string {
   return `file:///workspace/${encodedPath}`
 }
 
+function toAttachmentHintText(paths: string[]): string {
+  const lines = [
+    'Attached workspace files:',
+    ...paths.map((path) => `- /workspace/${path}`),
+    'If direct file parsing is unavailable, inspect these paths with available tools.',
+  ]
+  return lines.join('\n')
+}
+
 /**
  * SSE streaming endpoint for chat messages.
  *
@@ -154,6 +163,8 @@ export async function POST(
           }
 
           if (attachments.length > 0) {
+            const attachmentPathsForHint: string[] = []
+
             for (const attachment of attachments) {
               const attachmentPath = normalizeAttachmentPath(attachment.path)
 
@@ -180,6 +191,15 @@ export async function POST(
                 mime,
                 filename: fileName,
                 url: toWorkspaceFileUrl(attachmentPath),
+              })
+
+              attachmentPathsForHint.push(attachmentPath)
+            }
+
+            if (attachmentPathsForHint.length > 0) {
+              promptParts.push({
+                type: 'text',
+                text: toAttachmentHintText(attachmentPathsForHint),
               })
             }
           }
