@@ -1546,7 +1546,7 @@ export function ChatPanel({
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                className="relative mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
                 aria-label="Manage attachments"
                 disabled={isSending || isStartingNewSession || !onSendMessage}
               >
@@ -1649,7 +1649,7 @@ export function ChatPanel({
           />
           <Button
             size="icon"
-            className="mb-0.5 h-8 w-8 shrink-0 rounded-lg"
+            className="h-8 w-8 shrink-0 rounded-lg"
             disabled={isSending || isStartingNewSession || !inputValue.trim() || !onSendMessage}
             onClick={handleSend}
             aria-label="Send message"
