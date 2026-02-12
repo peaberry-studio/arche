@@ -130,7 +130,7 @@ export function WorkspaceHeader({
         </div>
 
         <div className="flex justify-center">
-          <label className="flex w-full max-w-md items-center gap-2 rounded-lg px-2.5 py-1.5 transition-colors hover:bg-foreground/5 focus-within:bg-foreground/5">
+          <label className="flex w-full max-w-md items-center gap-2 rounded-lg bg-foreground/[0.03] px-2.5 py-1.5 transition-colors hover:bg-foreground/5 focus-within:bg-foreground/5">
             <MagnifyingGlass size={14} className="shrink-0 text-muted-foreground/50" />
             <input
               ref={searchInputRef}
