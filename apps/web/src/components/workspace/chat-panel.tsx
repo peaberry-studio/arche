@@ -17,6 +17,7 @@ import {
   Info,
   Lightbulb,
   MagnifyingGlass,
+  Paperclip,
   PaperPlaneTilt,
   PencilSimple,
   Plus,
@@ -1692,9 +1693,6 @@ export function ChatPanel({
                     <UploadSimple size={14} />
                     Upload
                   </button>
-                  <span className="text-xs text-muted-foreground">
-                    {selectedAttachmentPaths.length} selected
-                  </span>
                 </div>
 
                 <div className="scrollbar-custom h-[calc(100%-3rem)] overflow-y-auto pr-1">
@@ -1710,7 +1708,7 @@ export function ChatPanel({
                           <div
                             key={attachment.path}
                             className={cn(
-                              "group/card relative flex min-h-[120px] flex-col rounded-xl border p-3 text-left transition-colors",
+                              "group/card relative flex min-h-[120px] flex-col rounded-xl border p-3 text-left transition-colors duration-200",
                               isSelected
                                 ? "border-primary bg-primary/10"
                                 : "border-border bg-card/40 hover:bg-card/60"
@@ -1724,24 +1722,21 @@ export function ChatPanel({
                               aria-label={`Select ${attachment.name}`}
                             />
                             <div className="flex items-start gap-2">
-                              <File size={16} className={cn("shrink-0", isSelected ? "text-primary" : "text-muted-foreground")} />
+                              <span className="relative mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center">
+                                <File size={16} className={cn("absolute transition-opacity duration-200", isSelected ? "text-primary opacity-0" : "text-muted-foreground opacity-100")} />
+                                <CheckCircle size={16} weight="fill" className={cn("absolute transition-opacity duration-200", isSelected ? "text-primary opacity-100" : "opacity-0")} />
+                              </span>
                               <span className="min-w-0 flex-1 break-all text-sm font-medium text-foreground">
                                 {attachment.name}
                               </span>
-                              <div className="flex shrink-0 items-center gap-0.5">
-                                <span className={cn(
-                                  "transition-opacity",
-                                  isSelected ? "opacity-100" : "opacity-0"
-                                )}>
-                                  <CheckCircle size={14} weight="fill" className="text-primary" />
-                                </span>
+                              <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity duration-200 group-hover/card:opacity-100">
                                 <button
                                   type="button"
                                   onClick={(event) => {
                                     event.stopPropagation();
                                     void handleRenameAttachment(attachment);
                                   }}
-                                  className="relative z-10 rounded-md p-1 text-muted-foreground/0 transition-all hover:bg-foreground/10 hover:text-foreground group-hover/card:text-muted-foreground"
+                                  className="relative z-10 rounded-md p-1 text-muted-foreground transition-colors duration-150 hover:bg-foreground/10 hover:text-foreground"
                                   title="Rename"
                                   disabled={isMutatingAttachments}
                                 >
@@ -1753,7 +1748,7 @@ export function ChatPanel({
                                     event.stopPropagation();
                                     void handleDeleteAttachment(attachment);
                                   }}
-                                  className="relative z-10 rounded-md p-1 text-muted-foreground/0 transition-all hover:bg-destructive/10 hover:text-destructive group-hover/card:text-muted-foreground"
+                                  className="relative z-10 rounded-md p-1 text-muted-foreground transition-colors duration-150 hover:bg-destructive/10 hover:text-destructive"
                                   title="Delete"
                                   disabled={isMutatingAttachments}
                                 >
@@ -1772,6 +1767,21 @@ export function ChatPanel({
                   )}
                 </div>
               </div>
+
+              {selectedAttachmentPaths.length > 0 && (
+                <div className="flex shrink-0 items-center justify-between border-t border-border px-6 py-3">
+                  <span className="text-xs text-muted-foreground">
+                    {selectedAttachmentPaths.length} {selectedAttachmentPaths.length === 1 ? "file" : "files"} selected
+                  </span>
+                  <Button
+                    size="sm"
+                    onClick={() => setIsManageAttachmentsOpen(false)}
+                  >
+                    <Paperclip size={14} />
+                    Attach {selectedAttachmentPaths.length} {selectedAttachmentPaths.length === 1 ? "file" : "files"}
+                  </Button>
+                </div>
+              )}
             </div>
           </DialogContent>
         </Dialog>
