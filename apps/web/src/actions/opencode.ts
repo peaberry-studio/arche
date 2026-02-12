@@ -18,6 +18,30 @@ import type {
 } from "@/lib/opencode/types";
 import { extractTextContent, transformParts } from "@/lib/opencode/transform";
 
+function normalizeWorkspacePath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "");
+}
+
+function isInternalWorkspacePath(path: string): boolean {
+  const normalized = normalizeWorkspacePath(path);
+  return normalized === ".arche" || normalized.startsWith(".arche/");
+}
+
+function normalizeMessageRole(
+  role: unknown
+): "user" | "assistant" | "system" | null {
+  if (role === "user" || role === "assistant" || role === "system") {
+    return role;
+  }
+
+  return null;
+}
+
+function extractUserTextContent(parts: ReturnType<typeof transformParts>): string {
+  const firstText = parts.find((part) => part.type === "text");
+  return firstText ? firstText.text : "";
+}
+
 // ============================================================================
 // Authentication helper
 // ============================================================================
@@ -92,7 +116,7 @@ export async function listFilesAction(
 
     // SDK returns a flat list of files/directories at the given path
     const transformed: WorkspaceFileNode[] = files
-      .filter((f) => !f.ignored)
+      .filter((f) => !f.ignored && !isInternalWorkspacePath(f.path))
       .map((node) => ({
         id: node.path,
         name: node.name,
@@ -188,7 +212,7 @@ export async function loadFileTreeAction(
       const nodes: WorkspaceFileNode[] = [];
 
       for (const item of items) {
-        if (item.ignored) continue;
+        if (item.ignored || isInternalWorkspacePath(item.path)) continue;
 
         const node: WorkspaceFileNode = {
           id: item.path,
@@ -411,10 +435,14 @@ export async function listMessagesAction(
     const result = await client!.session.messages({ sessionID: sessionId });
     const messages = result.data ?? [];
 
-    const transformed: WorkspaceMessage[] = messages.map((m) => {
+    const transformed: WorkspaceMessage[] = [];
+    for (const m of messages) {
+      const role = normalizeMessageRole(m.info.role);
+      if (!role) continue;
+
       const parts = transformParts(m.parts ?? []);
       const rawTimestamp = m.info.time?.created;
-      const isAssistant = m.info.role === "assistant";
+      const isAssistant = role === "assistant";
       const completedAt = (m.info.time as { completed?: number } | undefined)
         ?.completed;
       const pending = isAssistant && !completedAt;
@@ -434,21 +462,22 @@ export async function listMessagesAction(
           : undefined;
       const agentId = typeof info.agent === "string" ? info.agent : undefined;
 
-      return {
+      transformed.push({
         id: m.info.id,
         sessionId,
-        role: m.info.role as "user" | "assistant",
+        role,
         agentId,
         model: providerId && modelId ? { providerId, modelId } : undefined,
-        content: extractTextContent(parts),
+        content:
+          role === "user" ? extractUserTextContent(parts) : extractTextContent(parts),
         timestamp: formatTimestamp(rawTimestamp),
         timestampRaw:
           typeof rawTimestamp === "number" ? rawTimestamp : undefined,
         parts,
         pending,
         statusInfo: pending ? { status: "thinking" } : undefined,
-      };
-    });
+      });
+    }
 
     return { ok: true, messages: transformed };
   } catch (e) {
@@ -682,7 +711,11 @@ export async function getWorkspaceDiffsAction(slug: string): Promise<{
       return { ok: false, error: data.error ?? "workspace_agent_error" };
     }
 
-    return { ok: true, diffs: data.diffs ?? [] };
+    const diffs = (data.diffs ?? []).filter(
+      (diff) => !isInternalWorkspacePath(diff.path)
+    );
+
+    return { ok: true, diffs };
   } catch (e) {
     return {
       ok: false,

@@ -17,7 +17,6 @@ import {
   Info,
   Lightbulb,
   MagnifyingGlass,
-  Paperclip,
   PaperPlaneTilt,
   PencilSimple,
   Plus,
@@ -1708,58 +1707,65 @@ export function ChatPanel({
                       {filteredAttachments.map((attachment) => {
                         const isSelected = selectedAttachmentPaths.includes(attachment.path);
                         return (
-                          <button
+                          <div
                             key={attachment.path}
-                            type="button"
-                            onClick={() => toggleAttachmentSelection(attachment.path)}
                             className={cn(
-                              "flex min-h-[120px] flex-col rounded-xl border p-3 text-left transition-colors",
+                              "group/card relative flex min-h-[120px] flex-col rounded-xl border p-3 text-left transition-colors",
                               isSelected
                                 ? "border-primary bg-primary/10"
                                 : "border-border bg-card/40 hover:bg-card/60"
                             )}
-                            disabled={isMutatingAttachments}
                           >
+                            <button
+                              type="button"
+                              onClick={() => toggleAttachmentSelection(attachment.path)}
+                              className="absolute inset-0 rounded-xl"
+                              disabled={isMutatingAttachments}
+                              aria-label={`Select ${attachment.name}`}
+                            />
                             <div className="flex items-start gap-2">
-                              <File size={16} className={cn(isSelected ? "text-primary" : "text-muted-foreground")} />
+                              <File size={16} className={cn("shrink-0", isSelected ? "text-primary" : "text-muted-foreground")} />
                               <span className="min-w-0 flex-1 break-all text-sm font-medium text-foreground">
                                 {attachment.name}
                               </span>
-                              {isSelected ? (
-                                <CheckCircle size={14} weight="fill" className="text-primary" />
-                              ) : null}
-                            </div>
-                            <div className="mt-2 flex items-center gap-1">
-                              <button
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  void handleRenameAttachment(attachment);
-                                }}
-                                className="rounded p-1 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
-                                title="Rename"
-                                disabled={isMutatingAttachments}
-                              >
-                                <PencilSimple size={12} />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  void handleDeleteAttachment(attachment);
-                                }}
-                                className="rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                                title="Delete"
-                                disabled={isMutatingAttachments}
-                              >
-                                <X size={12} />
-                              </button>
+                              <div className="flex shrink-0 items-center gap-0.5">
+                                <span className={cn(
+                                  "transition-opacity",
+                                  isSelected ? "opacity-100" : "opacity-0"
+                                )}>
+                                  <CheckCircle size={14} weight="fill" className="text-primary" />
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    void handleRenameAttachment(attachment);
+                                  }}
+                                  className="relative z-10 rounded-md p-1 text-muted-foreground/0 transition-all hover:bg-foreground/10 hover:text-foreground group-hover/card:text-muted-foreground"
+                                  title="Rename"
+                                  disabled={isMutatingAttachments}
+                                >
+                                  <PencilSimple size={12} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    void handleDeleteAttachment(attachment);
+                                  }}
+                                  className="relative z-10 rounded-md p-1 text-muted-foreground/0 transition-all hover:bg-destructive/10 hover:text-destructive group-hover/card:text-muted-foreground"
+                                  title="Delete"
+                                  disabled={isMutatingAttachments}
+                                >
+                                  <X size={12} />
+                                </button>
+                              </div>
                             </div>
                             <div className="mt-auto flex items-center justify-between pt-3 text-[11px] text-muted-foreground">
                               <span>{formatAttachmentSize(attachment.size)}</span>
                               <span>{new Date(attachment.uploadedAt).toLocaleDateString()}</span>
                             </div>
-                          </button>
+                          </div>
                         );
                       })}
                     </div>

@@ -1309,6 +1309,13 @@ type gitStatusEntry struct {
   Conflicted bool
 }
 
+func isInternalWorkspacePath(path string) bool {
+  normalized := filepath.ToSlash(path)
+  normalized = strings.TrimPrefix(normalized, "./")
+  normalized = strings.TrimPrefix(normalized, "/")
+  return normalized == ".arche" || strings.HasPrefix(normalized, ".arche/")
+}
+
 func parseGitStatus(output string) []gitStatusEntry {
   raw := []byte(output)
   if len(raw) == 0 {
@@ -1346,6 +1353,9 @@ func parseGitStatus(output string) []gitStatusEntry {
     }
 
     if path == "" {
+      continue
+    }
+    if isInternalWorkspacePath(path) {
       continue
     }
 
