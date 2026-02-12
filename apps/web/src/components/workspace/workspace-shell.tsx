@@ -153,12 +153,37 @@ const PANEL_TRANSITION = `width ${PANEL_ANIM}, min-width ${PANEL_ANIM}, opacity 
 
 export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const isDragging = useRef(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const layoutStorageKey = `arche.workspace.${slug}.layout`;
+  const [searchQuery, setSearchQuery] = useState("");
   
   // Instance startup state
   const [instanceStatus, setInstanceStatus] = useState<'starting' | 'running' | 'error' | null>(null);
   const [instanceError, setInstanceError] = useState<string | null>(null);
+
+  const focusSearchInput = useCallback(() => {
+    const input = searchInputRef.current;
+    if (!input) return;
+    input.focus();
+    input.select();
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.isComposing) return;
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
+      if (event.key.toLowerCase() !== "k") return;
+
+      event.preventDefault();
+      focusSearchInput();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [focusSearchInput]);
 
   // Auto-start instance on mount
   useEffect(() => {
@@ -748,7 +773,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
     const rect = container.getBoundingClientRect();
     const handle = event.currentTarget;
 
-    isDragging.current = true;
+    setIsDragging(true);
     handle.setPointerCapture(event.pointerId);
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
@@ -763,7 +788,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
     };
 
     const onUp = () => {
-      isDragging.current = false;
+      setIsDragging(false);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       handle.releasePointerCapture(event.pointerId);
@@ -782,7 +807,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
     const rect = container.getBoundingClientRect();
     const handle = event.currentTarget;
 
-    isDragging.current = true;
+    setIsDragging(true);
     handle.setPointerCapture(event.pointerId);
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
@@ -797,7 +822,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
     };
 
     const onUp = () => {
-      isDragging.current = false;
+      setIsDragging(false);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       handle.releasePointerCapture(event.pointerId);
@@ -849,6 +874,9 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
           <WorkspaceHeader
             slug={slug}
             status={instanceStatus === 'starting' ? 'provisioning' : 'offline'}
+            searchQuery={searchQuery}
+            onSearchQueryChange={setSearchQuery}
+            searchInputRef={searchInputRef}
           />
           
           <div className="relative z-10 flex flex-1 items-center justify-center">
@@ -919,7 +947,13 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
         }}
       >
         <div className="flex h-full flex-col p-3">
-          <WorkspaceHeader slug={slug} status="provisioning" />
+          <WorkspaceHeader
+            slug={slug}
+            status="provisioning"
+            searchQuery={searchQuery}
+            onSearchQueryChange={setSearchQuery}
+            searchInputRef={searchInputRef}
+          />
           
           <div className="relative z-10 flex flex-1 items-center justify-center">
             <div className="flex flex-col items-center gap-6 text-center">
@@ -958,13 +992,16 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
       }}
     >
       {/* Outer padding container */}
-      <div className="flex h-full flex-col p-3 gap-3">
-        {/* Floating header */}
-        <WorkspaceHeader
-          slug={slug}
-          status="active"
-          onSyncComplete={handleSyncComplete}
-        />
+        <div className="flex h-full flex-col p-3 gap-3">
+          {/* Floating header */}
+          <WorkspaceHeader
+            slug={slug}
+            status="active"
+            onSyncComplete={handleSyncComplete}
+            searchQuery={searchQuery}
+            onSearchQueryChange={setSearchQuery}
+            searchInputRef={searchInputRef}
+          />
 
         {/* Main panels area */}
         <div ref={containerRef} className="relative z-10 flex min-h-0 flex-1 gap-3">
@@ -976,7 +1013,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
               minWidth: leftCollapsed ? 0 : MIN_LEFT_PX,
               opacity: leftCollapsed ? 0 : 1,
               marginRight: leftCollapsed ? -PANEL_GAP : 0,
-              transition: isDragging.current ? "none" : PANEL_TRANSITION,
+              transition: isDragging ? "none" : PANEL_TRANSITION,
             }}
             aria-hidden={leftCollapsed}
           >
@@ -990,6 +1027,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
               fileNodes={workspace.fileTree}
               activeFilePath={activeFilePath}
               onSelectFile={handleOpenFile}
+              searchQuery={searchQuery}
             />
           </div>
 
@@ -1057,7 +1095,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
               opacity: rightCollapsed ? 0 : 1,
               marginLeft: rightCollapsed ? -PANEL_GAP : 0,
               borderWidth: rightCollapsed ? 0 : undefined,
-              transition: isDragging.current ? "none" : PANEL_TRANSITION,
+              transition: isDragging ? "none" : PANEL_TRANSITION,
             }}
             aria-hidden={rightCollapsed}
           >

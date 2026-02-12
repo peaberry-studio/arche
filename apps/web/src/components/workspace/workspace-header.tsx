@@ -1,9 +1,9 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Circle, Palette, SquaresFour } from "@phosphor-icons/react";
+import { Circle, MagnifyingGlass, Palette, SquaresFour, X } from "@phosphor-icons/react";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type RefObject } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -29,6 +29,9 @@ type WorkspaceHeaderProps = {
   slug: string;
   status: "active" | "provisioning" | "offline";
   onSyncComplete?: (status: SyncKbResult['status']) => void;
+  searchQuery: string;
+  onSearchQueryChange: (value: string) => void;
+  searchInputRef: RefObject<HTMLInputElement | null>;
 };
 
 const statusConfig = {
@@ -40,7 +43,10 @@ const statusConfig = {
 export function WorkspaceHeader({
   slug,
   status,
-  onSyncComplete
+  onSyncComplete,
+  searchQuery,
+  onSearchQueryChange,
+  searchInputRef,
 }: WorkspaceHeaderProps) {
   const router = useRouter();
   const statusStyle = statusConfig[status];
@@ -106,7 +112,7 @@ export function WorkspaceHeader({
 
   return (
     <header className="glass-bar relative z-30 shrink-0 rounded-2xl text-card-foreground">
-      <div className="flex h-11 w-full items-center justify-between px-4">
+      <div className="grid h-11 w-full grid-cols-[auto_1fr_auto] items-center gap-3 px-4">
         <div className="flex items-center gap-2">
           <span className="font-[family-name:var(--font-display)] text-base font-semibold tracking-tight">
             Archē
@@ -123,8 +129,41 @@ export function WorkspaceHeader({
           />
         </div>
 
+        <div className="flex justify-center">
+          <label className="flex w-full max-w-md items-center gap-2 rounded-lg px-2.5 py-1.5 transition-colors hover:bg-foreground/5 focus-within:bg-foreground/5">
+            <MagnifyingGlass size={14} className="shrink-0 text-muted-foreground/50" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(event) => onSearchQueryChange(event.target.value)}
+              placeholder="Search..."
+              aria-label="Search chats, knowledge, and agents"
+              className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/40"
+            />
+            {searchQuery.trim().length > 0 ? (
+              <button
+                type="button"
+                aria-label="Clear search"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  onSearchQueryChange("");
+                  searchInputRef.current?.focus();
+                }}
+                className="shrink-0 rounded p-1 text-muted-foreground/60 transition-colors hover:text-foreground"
+              >
+                <X size={11} weight="bold" />
+              </button>
+            ) : (
+              <span className="hidden shrink-0 rounded border border-border/40 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/40 sm:inline-flex">
+                &#8984;K
+              </span>
+            )}
+          </label>
+        </div>
+
         <TooltipProvider delayDuration={2000}>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 justify-self-end">
             {pendingConfig && status === "active" && (
               <Button
                 size="sm"

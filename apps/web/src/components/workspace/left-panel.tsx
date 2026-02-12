@@ -38,6 +38,7 @@ type LeftPanelProps = {
   fileNodes: WorkspaceFileNode[];
   activeFilePath?: string | null;
   onSelectFile: (path: string) => void;
+  searchQuery: string;
 };
 
 function SectionHeader({
@@ -80,9 +81,10 @@ export function LeftPanel({
   fileNodes,
   activeFilePath,
   onSelectFile,
+  searchQuery,
 }: LeftPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const isDragging = useRef(false);
+  const [isDragging, setIsDragging] = useState(false);
 
   const [topRatio, setTopRatio] = useState(3 / 8);
   const [midRatio, setMidRatio] = useState(3 / 8);
@@ -113,7 +115,7 @@ export function LeftPanel({
       const startTopRatio = topRatio;
       const startMidRatio = midRatio;
 
-      isDragging.current = true;
+      setIsDragging(true);
       handle.setPointerCapture(event.pointerId);
       document.body.style.cursor = "row-resize";
       document.body.style.userSelect = "none";
@@ -143,7 +145,7 @@ export function LeftPanel({
       };
 
       const onUp = () => {
-        isDragging.current = false;
+        setIsDragging(false);
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
         handle.releasePointerCapture(event.pointerId);
@@ -167,7 +169,7 @@ export function LeftPanel({
       const startY = event.clientY;
       const startMidRatio = midRatio;
 
-      isDragging.current = true;
+      setIsDragging(true);
       handle.setPointerCapture(event.pointerId);
       document.body.style.cursor = "row-resize";
       document.body.style.userSelect = "none";
@@ -189,7 +191,7 @@ export function LeftPanel({
       };
 
       const onUp = () => {
-        isDragging.current = false;
+        setIsDragging(false);
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
         handle.releasePointerCapture(event.pointerId);
@@ -207,13 +209,13 @@ export function LeftPanel({
     flexGrow: collapsed ? 0 : ratio,
     flexShrink: collapsed ? 0 : 1,
     flexBasis: collapsed ? HEADER_HEIGHT : 0,
-    transition: isDragging.current ? "none" : FLEX_TRANSITION,
+    transition: isDragging ? "none" : FLEX_TRANSITION,
   });
 
   const contentStyle = (collapsed: boolean): React.CSSProperties => ({
     display: "grid",
     gridTemplateRows: collapsed ? "0fr" : "1fr",
-    transition: isDragging.current ? "none" : GRID_TRANSITION,
+    transition: isDragging ? "none" : GRID_TRANSITION,
     minHeight: 0,
   });
 
@@ -241,6 +243,7 @@ export function LeftPanel({
               activeSessionId={activeSessionId}
               onSelectSession={onSelectSession}
               onCreateSession={onCreateSession}
+              query={searchQuery}
             />
           </div>
         </div>
@@ -277,6 +280,7 @@ export function LeftPanel({
               activePath={activeFilePath}
               onSelect={onSelectFile}
               hideHeader
+              query={searchQuery}
             />
           </div>
         </div>
@@ -308,7 +312,7 @@ export function LeftPanel({
         />
         <div className="min-h-0 flex-1" style={contentStyle(bottomCollapsed)}>
           <div className="flex flex-col overflow-hidden" style={{ minHeight: 0 }}>
-            <AgentsPanel agents={agents} onSelectAgent={onSelectAgent} />
+            <AgentsPanel agents={agents} onSelectAgent={onSelectAgent} query={searchQuery} />
           </div>
         </div>
       </div>

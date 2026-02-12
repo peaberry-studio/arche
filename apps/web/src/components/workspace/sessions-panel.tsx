@@ -13,6 +13,7 @@ type SessionsPanelProps = {
   activeSessionId: string | null;
   onSelectSession: (id: string) => void;
   onCreateSession: () => void;
+  query?: string;
 };
 
 export function SessionsPanel({
@@ -20,10 +21,19 @@ export function SessionsPanel({
   activeSessionId,
   onSelectSession,
   onCreateSession,
+  query = "",
 }: SessionsPanelProps) {
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredSessions = useMemo(() => {
+    if (!normalizedQuery) return sessions;
+    return sessions.filter((session) =>
+      session.title.toLowerCase().includes(normalizedQuery)
+    );
+  }, [normalizedQuery, sessions]);
+
   const buckets = useMemo(
-    () => groupByDateBucket(sessions, (s) => s.updatedAtRaw),
-    [sessions]
+    () => groupByDateBucket(filteredSessions, (s) => s.updatedAtRaw),
+    [filteredSessions]
   );
 
   if (sessions.length === 0) {
@@ -35,6 +45,20 @@ export function SessionsPanel({
         <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
           <ChatCircle size={24} weight="bold" className="text-muted-foreground/50" />
           <p className="text-xs text-muted-foreground">No sessions yet</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (filteredSessions.length === 0) {
+    return (
+      <div className="flex flex-1 flex-col">
+        <div className="px-3 pt-3 pb-2">
+          <Button variant="outline" className="w-full" onClick={onCreateSession}><Plus size={14} weight="bold" className="mr-1.5" />New chat</Button>
+        </div>
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+          <ChatCircle size={24} weight="bold" className="text-muted-foreground/50" />
+          <p className="text-xs text-muted-foreground">No chats found</p>
         </div>
       </div>
     );

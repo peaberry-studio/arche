@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { Robot } from "@phosphor-icons/react";
 
 import { cn } from "@/lib/utils";
@@ -8,6 +9,7 @@ import type { AgentCatalogItem } from "@/hooks/use-workspace";
 type AgentsPanelProps = {
   agents: AgentCatalogItem[];
   onSelectAgent: (agent: AgentCatalogItem) => void;
+  query?: string;
 };
 
 const AVATAR_COLORS = [
@@ -29,7 +31,17 @@ function getAvatarColor(id: string): string {
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
-export function AgentsPanel({ agents, onSelectAgent }: AgentsPanelProps) {
+export function AgentsPanel({ agents, onSelectAgent, query = "" }: AgentsPanelProps) {
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredAgents = useMemo(() => {
+    if (!normalizedQuery) return agents;
+    return agents.filter((agent) => {
+      const displayName = agent.displayName.toLowerCase();
+      const model = agent.model?.toLowerCase() ?? "";
+      return displayName.includes(normalizedQuery) || model.includes(normalizedQuery);
+    });
+  }, [agents, normalizedQuery]);
+
   if (agents.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 py-8 text-center">
@@ -39,10 +51,19 @@ export function AgentsPanel({ agents, onSelectAgent }: AgentsPanelProps) {
     );
   }
 
+  if (filteredAgents.length === 0) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 py-8 text-center">
+        <Robot size={24} weight="bold" className="text-muted-foreground/50" />
+        <p className="text-xs text-muted-foreground">No agents found</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 overflow-y-auto px-2 py-1.5 scrollbar-none">
       <div className="space-y-0.5">
-        {agents.map((agent) => {
+        {filteredAgents.map((agent) => {
           const initial = agent.displayName.charAt(0).toUpperCase();
           return (
             <button

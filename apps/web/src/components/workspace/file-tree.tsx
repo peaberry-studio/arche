@@ -33,7 +33,7 @@ export function FileTree({ nodes, activePath, onSelect }: FileTreeProps) {
     const isFolder = node.type === "directory";
     const isOpen = expanded[node.path];
     const isActive = activePath === node.path && !isFolder;
-    const paddingLeft = 8 + depth * 12;
+    const paddingLeft = 4 + depth * 12;
 
     return (
       <div key={node.id}>
