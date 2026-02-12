@@ -7,6 +7,7 @@ import {
   ChatCircle,
   FolderOpen,
   MagnifyingGlass,
+  Plus,
   Robot,
   X,
 } from "@phosphor-icons/react";
@@ -48,11 +49,15 @@ function SectionHeader({
   label,
   collapsed,
   onToggle,
+  onAction,
+  actionIcon: ActionIcon,
 }: {
   icon: typeof ChatCircle;
   label: string;
   collapsed: boolean;
   onToggle: () => void;
+  onAction?: () => void;
+  actionIcon?: typeof Plus;
 }) {
   return (
     <button
@@ -64,6 +69,17 @@ function SectionHeader({
       <span className="flex-1 text-left text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
         {label}
       </span>
+      {onAction && ActionIcon && (
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={(e) => { e.stopPropagation(); onAction(); }}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); e.preventDefault(); onAction(); } }}
+          className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+        >
+          <ActionIcon size={14} weight="bold" />
+        </span>
+      )}
       {collapsed ? (
         <CaretRight size={12} weight="bold" className="text-muted-foreground" />
       ) : (
@@ -270,6 +286,8 @@ export function LeftPanel({
           label="Chats"
           collapsed={topCollapsed}
           onToggle={() => setTopCollapsed(prev => !prev)}
+          onAction={onCreateSession}
+          actionIcon={Plus}
         />
         <div className="min-h-0 flex-1" style={contentStyle(topCollapsed)}>
           <div className="flex flex-col overflow-hidden" style={{ minHeight: 0 }}>

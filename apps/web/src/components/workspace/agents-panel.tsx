@@ -12,24 +12,7 @@ type AgentsPanelProps = {
   query?: string;
 };
 
-const AVATAR_COLORS = [
-  "bg-blue-500/20 text-blue-400",
-  "bg-emerald-500/20 text-emerald-400",
-  "bg-violet-500/20 text-violet-400",
-  "bg-amber-500/20 text-amber-400",
-  "bg-rose-500/20 text-rose-400",
-  "bg-cyan-500/20 text-cyan-400",
-  "bg-pink-500/20 text-pink-400",
-  "bg-teal-500/20 text-teal-400",
-];
-
-function getAvatarColor(id: string): string {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) {
-    hash = (hash * 31 + id.charCodeAt(i)) | 0;
-  }
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
-}
+const AGENT_AVATAR_CLASS_NAME = "border border-border/50 bg-muted/80 text-muted-foreground";
 
 export function AgentsPanel({ agents, onSelectAgent, query = "" }: AgentsPanelProps) {
   const normalizedQuery = query.trim().toLowerCase();
@@ -78,7 +61,7 @@ export function AgentsPanel({ agents, onSelectAgent, query = "" }: AgentsPanelPr
               <div
                 className={cn(
                   "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold",
-                  getAvatarColor(agent.id)
+                  AGENT_AVATAR_CLASS_NAME
                 )}
               >
                 {initial}
