@@ -111,7 +111,7 @@ export function ConnectorsPageClient({ slug }: ConnectorsPageClientProps) {
   }, [])
 
   const handleDelete = useCallback(
-    async (id: string, _name: string) => {
+    async (id: string) => {
       markConnectorBusy(id, true)
       setActionError(null)
 

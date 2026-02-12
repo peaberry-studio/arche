@@ -23,6 +23,18 @@ async function authorizeWorkspace(slug: string) {
 
 type AgentResponse = { ok: true } | { ok: false; error: string }
 
+async function readAgentJson<T>(response: Response): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
+  const raw = await response.text()
+  try {
+    return { ok: true, data: JSON.parse(raw) as T }
+  } catch {
+    if (!response.ok) {
+      return { ok: false, error: `workspace_agent_http_${response.status}` }
+    }
+    return { ok: false, error: 'workspace_agent_invalid_json' }
+  }
+}
+
 function extractAgentError(response: Response, data: AgentResponse): string | null {
   if (!response.ok) {
     return !data.ok ? data.error : `workspace_agent_http_${response.status}`
@@ -278,6 +290,40 @@ export async function resolveWorkspaceConflictAction(
     const data = await response.json() as AgentResponse
 
     const err = extractAgentError(response, data)
+    if (err) return { ok: false, error: err }
+
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'workspace_agent_unreachable' }
+  }
+}
+
+export async function discardWorkspaceFileChangesAction(
+  slug: string,
+  path: string
+): Promise<{ ok: boolean; error?: string }> {
+  const auth = await authorizeWorkspace(slug)
+  if (!auth.ok) return { ok: false, error: auth.error }
+
+  const agent = await createWorkspaceAgentClient(slug)
+  if (!agent) return { ok: false, error: 'instance_unavailable' }
+
+  try {
+    const response = await fetch(`${agent.baseUrl}/git/discard`, {
+      method: 'POST',
+      headers: {
+        Authorization: agent.authHeader,
+        'Content-Type': 'application/json',
+        Accept: 'application/json'
+      },
+      body: JSON.stringify({ path }),
+      cache: 'no-store'
+    })
+
+    const parsed = await readAgentJson<AgentResponse>(response)
+    if (!parsed.ok) return { ok: false, error: parsed.error }
+
+    const err = extractAgentError(response, parsed.data)
     if (err) return { ok: false, error: err }
 
     return { ok: true }

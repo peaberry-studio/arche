@@ -9,9 +9,10 @@ export type WorkspaceThemeId =
   | "lavender-haze"
   | "sunset-glow"
   | "midnight-ember"
-  | "midnight-ash";
+  | "midnight-ash"
+  | "nuclear";
 
-export type DarkVariant = "ember" | "ash";
+export type DarkVariant = "ember" | "ash" | "nuclear";
 
 export type WorkspaceTheme = {
   id: WorkspaceThemeId;
@@ -84,26 +85,26 @@ export const WORKSPACE_THEMES: Record<WorkspaceThemeId, WorkspaceTheme> = {
   "midnight-ember": {
     id: "midnight-ember",
     name: "Midnight Ember",
-    gradient: `
-      radial-gradient(ellipse 80% 60% at 50% -10%, hsl(20 18% 18% / 0.9), transparent 60%),
-      radial-gradient(ellipse 60% 50% at 100% 0%, hsl(25 15% 14% / 0.6), transparent 50%),
-      linear-gradient(180deg, hsl(20 14% 12%), hsl(18 12% 9%))
-    `,
-    swatches: ["hsl(20 14% 14%)", "hsl(18 12% 10%)"],
+    gradient: `linear-gradient(hsl(20 12% 9%), hsl(20 12% 9%))`,
+    swatches: ["hsl(20 14% 14%)", "hsl(24 85% 55%)"],
     isDark: true,
     darkVariant: "ember",
   },
   "midnight-ash": {
     id: "midnight-ash",
     name: "Midnight Ash",
-    gradient: `
-      radial-gradient(ellipse 80% 60% at 50% -10%, hsl(0 0% 18% / 0.9), transparent 60%),
-      radial-gradient(ellipse 60% 50% at 100% 0%, hsl(0 0% 14% / 0.6), transparent 50%),
-      linear-gradient(180deg, hsl(0 0% 12%), hsl(0 0% 9%))
-    `,
-    swatches: ["hsl(0 0% 14%)", "hsl(0 0% 10%)"],
+    gradient: `linear-gradient(hsl(0 0% 9%), hsl(0 0% 9%))`,
+    swatches: ["hsl(0 0% 14%)", "hsl(24 85% 55%)"],
     isDark: true,
     darkVariant: "ash",
+  },
+  "nuclear": {
+    id: "nuclear",
+    name: "Nuclear",
+    gradient: `linear-gradient(hsl(120 8% 6%), hsl(120 8% 6%))`,
+    swatches: ["hsl(120 8% 10%)", "hsl(120 80% 50%)"],
+    isDark: true,
+    darkVariant: "nuclear",
   },
 };
 

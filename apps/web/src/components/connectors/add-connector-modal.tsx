@@ -76,7 +76,7 @@ export function AddConnectorModal({
   const { theme } = useWorkspaceTheme()
   const themeClassName = `theme-${theme.id}`
   const darkModeClasses = theme.isDark
-    ? `dark ${theme.darkVariant === 'ash' ? 'dark-ash' : 'dark-ember'}`
+    ? `dark dark-${theme.darkVariant}`
     : ''
 
   const [selectedType, setSelectedType] = useState<ConnectorType>(DEFAULT_TYPE)

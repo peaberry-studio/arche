@@ -14,7 +14,7 @@ export function DashboardThemeShell({ children }: DashboardThemeShellProps) {
   const themeClassName = `theme-${theme.id}`
 
   const darkModeClasses = theme.isDark
-    ? `dark ${theme.darkVariant === 'ash' ? 'dark-ash' : 'dark-ember'}`
+    ? `dark dark-${theme.darkVariant}`
     : ''
 
   // Sync theme classes to <html> so Radix portals (dialogs, dropdowns)

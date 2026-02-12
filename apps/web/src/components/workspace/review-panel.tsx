@@ -1,13 +1,21 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { CaretDown, CaretRight, File, GitDiff, Minus, Plus } from "@phosphor-icons/react";
+import { CaretDown, CaretRight, File, GitDiff, Minus, Plus, Trash } from "@phosphor-icons/react";
 
 import { ConflictResolverDialog } from "./conflict-resolver-dialog";
 import { PublishKbButton } from "./publish-kb-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DiffViewer } from "@/components/ui/diff-viewer";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import type { WorkspaceDiff } from "@/hooks/use-workspace";
 
@@ -17,6 +25,7 @@ type ReviewPanelProps = {
   isLoading?: boolean;
   error?: string;
   onOpenFile: (path: string) => void;
+  onDiscardFileChanges?: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   onPublish?: () => void;
   onResolveConflict?: (path: string, content: string) => void;
 };
@@ -29,12 +38,17 @@ export function ReviewPanel({
   isLoading,
   error,
   onOpenFile,
+  onDiscardFileChanges,
   onPublish,
   onResolveConflict,
 }: ReviewPanelProps) {
   const [expandedDiffs, setExpandedDiffs] = useState<Record<string, boolean>>({});
   const [conflictPath, setConflictPath] = useState<string | null>(null);
   const [conflictOpen, setConflictOpen] = useState(false);
+  const [discardPath, setDiscardPath] = useState<string | null>(null);
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const [isDiscarding, setIsDiscarding] = useState(false);
+  const [discardError, setDiscardError] = useState<string | null>(null);
 
   const totals = useMemo(() => {
     return diffs.reduce(
@@ -57,6 +71,21 @@ export function ReviewPanel({
   const openConflictResolver = useCallback((path: string) => {
     setConflictPath(path);
     setConflictOpen(true);
+  }, []);
+
+  const openDiscardConfirm = useCallback((path: string) => {
+    setDiscardError(null);
+    setDiscardPath(path);
+    setDiscardOpen(true);
+  }, []);
+
+  const handleDiscardOpenChange = useCallback((open: boolean) => {
+    setDiscardOpen(open);
+    if (!open) {
+      setDiscardPath(null);
+      setDiscardError(null);
+      setIsDiscarding(false);
+    }
   }, []);
 
   const handleConflictOpenChange = useCallback((open: boolean) => {
@@ -163,6 +192,21 @@ export function ReviewPanel({
                     <span className="text-red-500">-{diff.deletions}</span>
                   </span>
                 </button>
+                {onDiscardFileChanges ? (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-7 w-7 shrink-0"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openDiscardConfirm(diff.path);
+                    }}
+                    aria-label="Discard changes"
+                    title="Discard changes"
+                  >
+                    <Trash size={14} weight="bold" />
+                  </Button>
+                ) : null}
                 {diff.conflicted ? (
                   <Button
                     size="sm"
@@ -214,6 +258,54 @@ export function ReviewPanel({
           onResolveConflict?.(path, content);
         }}
       />
+
+      <Dialog open={discardOpen} onOpenChange={handleDiscardOpenChange}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Discard changes?</DialogTitle>
+            <DialogDescription>
+              This will revert the file to the last committed state in your workspace.
+            </DialogDescription>
+          </DialogHeader>
+          {discardPath ? (
+            <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 font-mono text-[11px] text-foreground/80">
+              {discardPath}
+            </div>
+          ) : null}
+          {discardError ? (
+            <p className="text-xs text-destructive">{discardError}</p>
+          ) : null}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => handleDiscardOpenChange(false)}
+              disabled={isDiscarding}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={!discardPath || isDiscarding || !onDiscardFileChanges}
+              onClick={async () => {
+                if (!discardPath || !onDiscardFileChanges) return;
+                setIsDiscarding(true);
+                setDiscardError(null);
+                const result = await onDiscardFileChanges(discardPath);
+                if (result.ok) {
+                  handleDiscardOpenChange(false);
+                  return;
+                }
+                setIsDiscarding(false);
+                setDiscardError(result.error);
+              }}
+            >
+              {isDiscarding ? "Discarding…" : "Discard"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -6,6 +6,7 @@
 @custom-variant dark (&:is(.dark *));
 @custom-variant dark-ember (&:is(.dark-ember *));
 @custom-variant dark-ash (&:is(.dark-ash *));
+@custom-variant dark-nuclear (&:is(.dark-nuclear *));
 
 @theme inline {
   --color-background: hsl(var(--background));
@@ -183,6 +184,45 @@
   --grid-line: hsl(0 0% 92% / 0.18);
 }
 
+/* Dark mode: Nuclear variant (green phosphor terminal) */
+.dark.dark-nuclear {
+  --background: 120 8% 6%;
+  --foreground: 120 60% 75%;
+  --surface: 120 8% 9%;
+  --surface-foreground: 120 55% 72%;
+  --card: 120 8% 10%;
+  --card-foreground: 120 60% 75%;
+  --popover: 120 8% 8%;
+  --popover-foreground: 120 60% 75%;
+  --primary: 120 80% 50%;
+  --primary-foreground: 120 8% 6%;
+  --secondary: 120 8% 13%;
+  --secondary-foreground: 120 60% 75%;
+  --muted: 120 8% 13%;
+  --muted-foreground: 120 30% 45%;
+  --accent: 120 8% 12%;
+  --accent-foreground: 120 60% 75%;
+  --destructive: 0 60% 45%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 120 10% 18%;
+  --input: 120 10% 18%;
+  --ring: 120 80% 50%;
+  --chart-1: 120 80% 50%;
+  --chart-2: 140 60% 45%;
+  --chart-3: 100 55% 50%;
+  --chart-4: 160 50% 40%;
+  --chart-5: 80 60% 55%;
+  --sidebar: 120 8% 7%;
+  --sidebar-foreground: 120 60% 75%;
+  --sidebar-primary: 120 80% 50%;
+  --sidebar-primary-foreground: 120 8% 6%;
+  --sidebar-accent: 120 8% 13%;
+  --sidebar-accent-foreground: 120 60% 75%;
+  --sidebar-border: 120 10% 18%;
+  --sidebar-ring: 120 80% 50%;
+  --grid-line: hsl(120 60% 75% / 0.15);
+}
+
 /* Theme-specific accent palettes */
 .theme-warm-sand {
   --primary: 24 85% 48%;
@@ -266,6 +306,18 @@
   --sidebar-primary: 24 85% 55%;
   --sidebar-primary-foreground: 0 0% 8%;
   --sidebar-ring: 24 80% 50%;
+}
+
+.theme-nuclear {
+  --primary: 120 80% 50%;
+  --primary-foreground: 120 8% 6%;
+  --accent: 120 12% 15%;
+  --accent-foreground: 120 60% 75%;
+  --ring: 120 80% 50%;
+  --chart-1: 120 80% 50%;
+  --sidebar-primary: 120 80% 50%;
+  --sidebar-primary-foreground: 120 8% 6%;
+  --sidebar-ring: 120 80% 50%;
 }
 
 @layer base {
@@ -388,6 +440,100 @@
   }
   .markdown-content img {
     @apply my-3 max-w-full rounded-lg;
+  }
+
+  /* Tiptap rich editor (Markdown-backed) styles */
+  .workspace-tiptap .tiptap-editor {
+    outline: none;
+    min-height: 100%;
+    color: hsl(var(--foreground));
+    font-size: 0.875rem;
+    line-height: 1.6;
+  }
+
+  .workspace-tiptap .tiptap-editor p {
+    margin: 0.5rem 0;
+  }
+
+  .workspace-tiptap .tiptap-editor h1 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 1.2rem 0 0.6rem;
+  }
+
+  .workspace-tiptap .tiptap-editor h2 {
+    font-size: 1.125rem;
+    font-weight: 600;
+    margin: 1.1rem 0 0.5rem;
+  }
+
+  .workspace-tiptap .tiptap-editor h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 1rem 0 0.5rem;
+  }
+
+  .workspace-tiptap .tiptap-editor ul {
+    margin: 0.5rem 0;
+    padding-left: 1.25rem;
+    list-style: disc;
+  }
+
+  .workspace-tiptap .tiptap-editor ol {
+    margin: 0.5rem 0;
+    padding-left: 1.25rem;
+    list-style: decimal;
+  }
+
+  .workspace-tiptap .tiptap-editor li {
+    margin: 0.25rem 0;
+  }
+
+  .workspace-tiptap .tiptap-editor blockquote {
+    margin: 0.75rem 0;
+    padding-left: 1rem;
+    border-left: 2px solid hsl(var(--primary) / 0.3);
+    color: hsl(var(--muted-foreground));
+    font-style: italic;
+  }
+
+  .workspace-tiptap .tiptap-editor code {
+    background: hsl(var(--muted));
+    border: 1px solid hsl(var(--border));
+    border-radius: 0.5rem;
+    padding: 0.08rem 0.35rem;
+    font-family: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+      "Courier New", monospace;
+    font-size: 0.85em;
+  }
+
+  .workspace-tiptap .tiptap-editor pre {
+    background: hsl(var(--muted));
+    border: 1px solid hsl(var(--border));
+    border-radius: 0.75rem;
+    padding: 0.75rem;
+    overflow-x: auto;
+    margin: 0.75rem 0;
+  }
+
+  .workspace-tiptap .tiptap-editor pre code {
+    background: transparent;
+    border: 0;
+    padding: 0;
+  }
+
+  .workspace-tiptap .tiptap-editor a {
+    color: hsl(var(--primary));
+    text-decoration: underline;
+    text-decoration-color: hsl(var(--primary) / 0.4);
+  }
+
+  .workspace-tiptap .tiptap-editor p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    float: left;
+    color: hsl(var(--muted-foreground) / 0.75);
+    pointer-events: none;
+    height: 0;
   }
 
   /* Fondo orgánico sutil - legacy, now we use dynamic themes */

@@ -136,7 +136,17 @@ function getSessionDepth(
 }
 
 // File content cache for preview panel
-type FileContentCache = Record<string, { content: string; type: 'raw' | 'patch'; title: string; updatedAt: string; size: string }>;
+type FileContentCache = Record<
+  string,
+  {
+    content: string;
+    type: "raw" | "patch";
+    title: string;
+    updatedAt: string;
+    size: string;
+    hash?: string;
+  }
+>;
 
 export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -293,6 +303,11 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
     initialFilePath ?? null
   );
   const [fileCache, setFileCache] = useState<FileContentCache>({});
+  const fileCacheRef = useRef(fileCache);
+
+  useEffect(() => {
+    fileCacheRef.current = fileCache;
+  }, [fileCache]);
 
   const refreshOpenFilesCache = useCallback(async () => {
     if (openFilePaths.length === 0) return;
@@ -311,14 +326,15 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
       updates.forEach(({ path, result }) => {
         if (!result) return;
         changed = true;
-        next[path] = {
-          content: result.content,
-          type: result.type,
-          title: path.split("/").pop() ?? path,
-          updatedAt: "Just now",
-          size: `${(result.content.length / 1024).toFixed(1)} KB`
-        };
-      });
+         next[path] = {
+           content: result.content,
+           type: result.type,
+           title: path.split("/").pop() ?? path,
+           updatedAt: "Just now",
+           size: `${(result.content.length / 1024).toFixed(1)} KB`,
+           hash: result.hash,
+         };
+       });
 
       return changed ? next : prev;
     });
@@ -361,6 +377,110 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
     [workspace]
   );
 
+  const handleSaveFile = useCallback(
+    async (path: string, content: string, expectedHash?: string) => {
+      const hashToUse = expectedHash ?? fileCacheRef.current[path]?.hash;
+      const result = await workspace.writeFile(path, content, hashToUse);
+      if (!result.ok) {
+        return { ok: false as const, error: result.error ?? "save_failed" };
+      }
+
+      setFileCache((prev) => {
+        const existing = prev[path];
+        if (!existing) return prev;
+        const size = `${(content.length / 1024).toFixed(1)} KB`;
+        return {
+          ...prev,
+          [path]: {
+            ...existing,
+            content,
+            updatedAt: "Just now",
+            size,
+            hash: result.hash ?? existing.hash,
+          },
+        };
+      });
+
+      workspace.refreshDiffs();
+      workspace.refreshFiles();
+
+      return { ok: true as const, hash: result.hash };
+    },
+    [workspace]
+  );
+
+  const handleReloadFile = useCallback(
+    async (path: string) => {
+      const result = await workspace.readFile(path);
+      if (!result) return;
+
+      setFileCache((prev) => {
+        const existing = prev[path];
+        if (!existing) return prev;
+        return {
+          ...prev,
+          [path]: {
+            ...existing,
+            content: result.content,
+            type: result.type,
+            updatedAt: "Just now",
+            size: `${(result.content.length / 1024).toFixed(1)} KB`,
+            hash: result.hash,
+          },
+        };
+      });
+    },
+    [workspace]
+  );
+
+  const handleDiscardFileChanges = useCallback(
+    async (path: string) => {
+      const result = await workspace.discardFileChanges(path);
+      if (!result.ok) {
+        return { ok: false as const, error: result.error ?? "discard_failed" };
+      }
+
+      const refreshed = await workspace.readFile(path);
+
+      setFileCache((prev) => {
+        const next = { ...prev };
+        if (!refreshed) {
+          delete next[path];
+          return next;
+        }
+        const existing = next[path];
+        if (!existing) return prev;
+
+        next[path] = {
+          ...existing,
+          content: refreshed.content,
+          type: refreshed.type,
+          updatedAt: "Just now",
+          size: `${(refreshed.content.length / 1024).toFixed(1)} KB`,
+          hash: refreshed.hash,
+        };
+        return next;
+      });
+
+      if (!refreshed) {
+        setOpenFilePaths((prev) => {
+          const nextOpen = prev.filter((candidate) => candidate !== path);
+          setActiveFilePath((active) => {
+            if (active !== path) return active;
+            return nextOpen[0] ?? null;
+          });
+          return nextOpen;
+        });
+      }
+
+      workspace.refreshDiffs();
+      workspace.refreshFiles();
+
+      return { ok: true as const };
+    },
+    [workspace]
+  );
+
   const flattenedFilePaths = useMemo(() => {
     const paths: string[] = [];
     const visit = (nodes: WorkspaceFileNode[]) => {
@@ -399,7 +519,10 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
   const diffSignature = useMemo(() => {
     if (workspace.diffs.length === 0) return '';
     return workspace.diffs
-      .map(diff => `${diff.path}:${diff.status}:${diff.additions}:${diff.deletions}`)
+      .map(
+        (diff) =>
+          `${diff.path}:${diff.status}:${diff.additions}:${diff.deletions}:${diff.conflicted ? 1 : 0}:${diff.diff}`
+      )
       .sort()
       .join('|');
   }, [workspace.diffs]);
@@ -408,31 +531,30 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
 
   useEffect(() => {
     if (!workspace.isConnected) return;
-    if (!diffSignature) return;
     if (lastDiffSignatureRef.current === diffSignature) return;
 
     lastDiffSignatureRef.current = diffSignature;
     workspace.refreshFiles();
 
-    const diffPaths = new Set(workspace.diffs.map(diff => diff.path));
-    const pathsToRefresh = openFilePaths.filter(path => diffPaths.has(path));
-    if (pathsToRefresh.length === 0) return;
+    if (openFilePaths.length === 0) return;
 
-    pathsToRefresh.forEach(async (path) => {
-      const result = await workspace.readFile(path);
-      if (!result) return;
-      setFileCache(prev => ({
-        ...prev,
-        [path]: {
-          content: result.content,
-          type: result.type,
-          title: path.split('/').pop() ?? path,
-          updatedAt: 'Just now',
-          size: `${(result.content.length / 1024).toFixed(1)} KB`
-        }
-      }));
+    openFilePaths.forEach((path) => {
+      void workspace.readFile(path).then((result) => {
+        if (!result) return;
+        setFileCache((prev) => ({
+          ...prev,
+          [path]: {
+            content: result.content,
+            type: result.type,
+            title: path.split('/').pop() ?? path,
+            updatedAt: 'Just now',
+            size: `${(result.content.length / 1024).toFixed(1)} KB`,
+            hash: result.hash,
+          },
+        }));
+      });
     });
-  }, [diffSignature, openFilePaths, workspace, workspace.diffs, workspace.isConnected, workspace.readFile, workspace.refreshFiles]);
+  }, [diffSignature, openFilePaths, workspace, workspace.isConnected, workspace.readFile, workspace.refreshFiles]);
 
   // Load layout from localStorage
   useEffect(() => {
@@ -511,6 +633,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
           content: cached.content,
           updatedAt: cached.updatedAt,
           size: cached.size,
+          hash: cached.hash,
           kind: path.endsWith('.md') ? 'markdown' as const : 'text' as const
         };
       })
@@ -529,33 +652,34 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
     setRightCollapsed(false);
 
     // Load file content if not cached
-    if (!fileCache[pathToOpen]) {
+    if (!fileCacheRef.current[pathToOpen]) {
       const result = await workspace.readFile(pathToOpen);
       if (result) {
         setFileCache(prev => ({
           ...prev,
-          [pathToOpen]: {
-            content: result.content,
-            type: result.type,
-            title: pathToOpen.split('/').pop() ?? pathToOpen,
-            updatedAt: 'Just now',
-            size: `${(result.content.length / 1024).toFixed(1)} KB`
-          }
-        }));
-      } else {
-        setFileCache(prev => ({
-          ...prev,
-          [pathToOpen]: {
-            content: 'Unable to load file.',
-            type: 'raw',
-            title: pathToOpen.split('/').pop() ?? pathToOpen,
-            updatedAt: 'Error',
-            size: '0 KB'
-          }
-        }));
+           [pathToOpen]: {
+             content: result.content,
+             type: result.type,
+             title: pathToOpen.split('/').pop() ?? pathToOpen,
+             updatedAt: 'Just now',
+             size: `${(result.content.length / 1024).toFixed(1)} KB`,
+             hash: result.hash,
+           }
+         }));
+       } else {
+         setFileCache(prev => ({
+           ...prev,
+           [pathToOpen]: {
+             content: 'Unable to load file.',
+             type: 'raw',
+             title: pathToOpen.split('/').pop() ?? pathToOpen,
+             updatedAt: 'Error',
+             size: '0 KB',
+           }
+         }));
+       }
       }
-    }
-  }, [fileCache, resolveFilePath, workspace]);
+    }, [resolveFilePath, workspace]);
 
   const handleSelectFile = useCallback((path: string) => {
     setActiveFilePath(path);
@@ -679,7 +803,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
 
   // Build dark mode classes based on theme variant
   const darkModeClasses = theme.isDark
-    ? `dark ${theme.darkVariant === "ash" ? "dark-ash" : "dark-ember"}`
+    ? `dark dark-${theme.darkVariant}`
     : "";
   const themeClassName = `theme-${theme.id}`;
 
@@ -919,21 +1043,24 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
                 minWidth: MIN_RIGHT_PX
               }}
             >
-              <InspectorPanel
-                slug={slug}
-                activeTab={rightTab}
-                onTabChange={setRightTab}
-                openFiles={openFiles}
-                activeFilePath={activeFilePath}
-                onSelectFile={handleSelectFile}
-                onCloseFile={handleCloseFile}
-                diffs={workspace.diffs}
-                isLoadingDiffs={workspace.isLoadingDiffs}
-                diffsError={workspace.diffsError}
-                onOpenFile={handleOpenFile}
-                onPublish={handlePublishComplete}
-                onResolveConflict={handleResolveConflict}
-              />
+                <InspectorPanel
+                  slug={slug}
+                  activeTab={rightTab}
+                  onTabChange={setRightTab}
+                  openFiles={openFiles}
+                  activeFilePath={activeFilePath}
+                  onSelectFile={handleSelectFile}
+                  onCloseFile={handleCloseFile}
+                  diffs={workspace.diffs}
+                  isLoadingDiffs={workspace.isLoadingDiffs}
+                  diffsError={workspace.diffsError}
+                  onOpenFile={handleOpenFile}
+                  onReloadFile={handleReloadFile}
+                  onSaveFile={handleSaveFile}
+                  onDiscardFileChanges={handleDiscardFileChanges}
+                  onPublish={handlePublishComplete}
+                  onResolveConflict={handleResolveConflict}
+                />
             </div>
           )}
         </div>
