@@ -23,7 +23,11 @@
         "codesearch": true,
         "lsp": true,
         "todoread": true,
-        "todowrite": true
+        "todowrite": true,
+        "spreadsheet_inspect": true,
+        "spreadsheet_sample": true,
+        "spreadsheet_query": true,
+        "spreadsheet_stats": true
       }
     },
     "support": {

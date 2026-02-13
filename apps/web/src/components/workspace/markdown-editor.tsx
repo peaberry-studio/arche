@@ -2,9 +2,23 @@
 
 import { useEffect, useRef } from "react";
 
-import { ArrowClockwise, ArrowCounterClockwise } from "@phosphor-icons/react";
-import Link from "@tiptap/extension-link";
+import {
+  ArrowClockwise,
+  ArrowCounterClockwise,
+  Columns,
+  ColumnsPlusRight,
+  Minus,
+  Rows,
+  RowsPlusBottom,
+  Table as TableIcon,
+} from "@phosphor-icons/react";
 import Placeholder from "@tiptap/extension-placeholder";
+import { Table } from "@tiptap/extension-table";
+import { TableCell } from "@tiptap/extension-table-cell";
+import { TableHeader } from "@tiptap/extension-table-header";
+import { TableRow } from "@tiptap/extension-table-row";
+import { TaskItem } from "@tiptap/extension-task-item";
+import { TaskList } from "@tiptap/extension-task-list";
 import { Markdown } from "@tiptap/markdown";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -63,9 +77,18 @@ export function MarkdownEditor({
 
   const editor = useEditor({
     extensions: [
-      StarterKit,
-      Link.configure({ openOnClick: false }),
+      StarterKit.configure({
+        link: {
+          openOnClick: false,
+        },
+      }),
       Placeholder.configure({ placeholder: "Write…" }),
+      TaskList,
+      TaskItem.configure({ nested: true }),
+      Table.configure({ resizable: false }),
+      TableRow,
+      TableHeader,
+      TableCell,
       Markdown.configure({
         markedOptions: {
           gfm: true,
@@ -140,6 +163,7 @@ export function MarkdownEditor({
         : editor?.isActive("heading", { level: 3 })
           ? "H3"
           : "H";
+  const isInTable = editor?.isActive("table") ?? false;
 
   return (
     <div className="flex h-full flex-col">
@@ -224,6 +248,17 @@ export function MarkdownEditor({
             size="sm"
             variant="ghost"
             className="h-7 px-2 text-[11px]"
+            onClick={() => editor?.chain().focus().toggleTaskList().run()}
+            aria-label="Checklist"
+          >
+            <span className={cn(editor?.isActive("taskList") && "text-foreground")}>☑</span>
+          </Button>
+          <div className="mx-1 h-4 w-px bg-white/10" />
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 text-[11px]"
             onClick={() => editor?.chain().focus().toggleBlockquote().run()}
             aria-label="Quote"
           >
@@ -241,6 +276,72 @@ export function MarkdownEditor({
           >
             <span className={cn(editor?.isActive("codeBlock") && "text-foreground")}>
               {"</>"}
+            </span>
+          </Button>
+          <div className="mx-1 h-4 w-px bg-white/10" />
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7"
+            onClick={() => editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
+            aria-label="Insert table"
+            title="Insert table"
+          >
+            <TableIcon size={14} weight="bold" />
+          </Button>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7"
+            onClick={() => editor?.chain().focus().addRowAfter().run()}
+            disabled={!isInTable}
+            aria-label="Add row"
+            title="Add row"
+          >
+            <RowsPlusBottom size={14} weight="bold" />
+          </Button>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7"
+            onClick={() => editor?.chain().focus().addColumnAfter().run()}
+            disabled={!isInTable}
+            aria-label="Add column"
+            title="Add column"
+          >
+            <ColumnsPlusRight size={14} weight="bold" />
+          </Button>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7"
+            onClick={() => editor?.chain().focus().deleteRow().run()}
+            disabled={!isInTable}
+            aria-label="Delete row"
+            title="Delete row"
+          >
+            <span className="flex items-center gap-0.5">
+              <Rows size={12} weight="bold" />
+              <Minus size={10} weight="bold" />
+            </span>
+          </Button>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7"
+            onClick={() => editor?.chain().focus().deleteColumn().run()}
+            disabled={!isInTable}
+            aria-label="Delete column"
+            title="Delete column"
+          >
+            <span className="flex items-center gap-0.5">
+              <Columns size={12} weight="bold" />
+              <Minus size={10} weight="bold" />
             </span>
           </Button>
           <div className="mx-1 h-4 w-px bg-white/10" />

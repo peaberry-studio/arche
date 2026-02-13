@@ -1,11 +1,167 @@
 import { NextRequest } from 'next/server'
 import { getAuthenticatedUser } from '@/lib/auth'
+import { extractPdfText, isPdfMime } from '@/lib/attachments/pdf-text-extractor'
 import { validateSameOrigin } from '@/lib/csrf'
 import { prisma } from '@/lib/prisma'
+import { INITIAL_SSE_PARSE_STATE, parseSseChunk } from '@/lib/sse-parser'
 import { decryptPassword } from '@/lib/spawner/crypto'
+import {
+  isValidContextReferencePath,
+  normalizeAttachmentPath,
+  normalizeWorkspacePath,
+} from '@/lib/workspace-paths'
+import { workspaceAgentFetch } from '@/lib/workspace-agent-client'
+import { getWorkspaceAgentUrl } from '@/lib/workspace-agent/client'
+import {
+  inferAttachmentMimeType,
+  isWorkspaceAttachmentPath,
+  isSpreadsheetMimeType,
+  MAX_ATTACHMENTS_PER_MESSAGE,
+} from '@/lib/workspace-attachments'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+
+type MessageAttachmentInput = {
+  path: string
+  filename?: string
+  mime?: string
+}
+
+type WorkspaceAgentReadResponse = {
+  ok: boolean
+  content?: string
+  encoding?: 'utf-8' | 'base64'
+  error?: string
+}
+
+const MAX_PDF_BYTES_FOR_EXTRACTION = 8 * 1024 * 1024
+const MAX_PDF_TEXT_CHARS = 24_000
+const MAX_CONTEXT_REFERENCES_PER_MESSAGE = 20
+
+function normalizeContextPaths(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+
+  const unique = new Set<string>()
+  const normalized: string[] = []
+
+  for (const item of value) {
+    if (typeof item !== 'string') continue
+    const path = normalizeWorkspacePath(item.trim())
+    if (!isValidContextReferencePath(path) || unique.has(path)) continue
+
+    unique.add(path)
+    normalized.push(path)
+
+    if (normalized.length >= MAX_CONTEXT_REFERENCES_PER_MESSAGE) {
+      break
+    }
+  }
+
+  return normalized
+}
+
+function toContextReferenceText(paths: string[]): string {
+  return [
+    'Workspace context references (open files):',
+    ...paths.map((path) => `@${path}`),
+    'These are references only; inspect files with tools when needed.',
+  ].join('\n')
+}
+
+function normalizeMessageAttachments(
+  value: unknown,
+): MessageAttachmentInput[] {
+  if (!Array.isArray(value)) return []
+
+  return value
+    .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
+    .map((item) => ({
+      path: typeof item.path === 'string' ? normalizeAttachmentPath(item.path) : '',
+      filename: typeof item.filename === 'string' ? item.filename : undefined,
+      mime: typeof item.mime === 'string' ? item.mime : undefined,
+    }))
+    .filter((item) => item.path.length > 0)
+}
+
+function toWorkspaceFileUrl(path: string): string {
+  const normalized = normalizeAttachmentPath(path)
+  const encodedPath = normalized
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/')
+  return `file:///workspace/${encodedPath}`
+}
+
+function toAttachmentHintText(paths: string[]): string {
+  const lines = [
+    'Attached workspace files:',
+    ...paths.map((path) => `- /workspace/${path}`),
+    'If direct file parsing is unavailable, inspect these paths with available tools.',
+  ]
+  return lines.join('\n')
+}
+
+function toPdfExtractedTextPart(path: string, text: string, truncated: boolean): string {
+  const truncationNote = truncated
+    ? '\n\n[The extracted content was truncated to fit the prompt window.]'
+    : ''
+
+  return [
+    `Extracted text from attached PDF: /workspace/${path}`,
+    text,
+    truncationNote,
+  ]
+    .filter((segment) => segment.length > 0)
+    .join('\n\n')
+}
+
+function toPdfExtractionFailureText(path: string): string {
+  return [
+    `Attached PDF could not be extracted automatically: /workspace/${path}`,
+    'Continue by using available tools on this path, or ask the user for an OCR-friendly/text PDF if the file is scanned.',
+  ].join('\n')
+}
+
+function toSpreadsheetToolHintText(path: string): string {
+  return [
+    `Attached spreadsheet file: /workspace/${path}`,
+    'You must use spreadsheet_inspect first to detect sheets and columns, then use spreadsheet_sample/spreadsheet_query/spreadsheet_stats for focused analysis and calculations.',
+  ].join('\n')
+}
+
+function decodeWorkspaceAgentFileContent(data: WorkspaceAgentReadResponse): Buffer | null {
+  if (typeof data.content !== 'string') return null
+
+  if (data.encoding === 'base64') {
+    try {
+      return Buffer.from(data.content, 'base64')
+    } catch {
+      return null
+    }
+  }
+
+  if (data.encoding === 'utf-8' || data.encoding === undefined) {
+    return Buffer.from(data.content, 'utf-8')
+  }
+
+  return null
+}
+
+async function readWorkspaceAttachment(
+  agent: { baseUrl: string; authHeader: string },
+  path: string,
+): Promise<Buffer | null> {
+  const response = await workspaceAgentFetch<WorkspaceAgentReadResponse>(agent, '/files/read', {
+    path,
+  })
+  if (!response.ok) return null
+
+  const decoded = decodeWorkspaceAgentFileContent(response.data)
+  if (!decoded || decoded.length === 0) return null
+  if (decoded.length > MAX_PDF_BYTES_FOR_EXTRACTION) return null
+  return decoded
+}
 
 /**
  * SSE streaming endpoint for chat messages.
@@ -68,12 +224,24 @@ export async function POST(
     sessionId: string
     text?: string
     model?: { providerId: string; modelId: string }
+    attachments?: MessageAttachmentInput[]
+    contextPaths?: string[]
     resume?: boolean
     messageId?: string
   }
+
+  const attachments = normalizeMessageAttachments((body as { attachments?: unknown }).attachments)
+  const contextPaths = normalizeContextPaths((body as { contextPaths?: unknown }).contextPaths)
   
-  if (!sessionId || (!resume && !text)) {
+  if (!sessionId || (!resume && !text && attachments.length === 0)) {
     return new Response(JSON.stringify({ error: 'missing_fields' }), { 
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    })
+  }
+
+  if (attachments.length > MAX_ATTACHMENTS_PER_MESSAGE) {
+    return new Response(JSON.stringify({ error: 'too_many_attachments' }), {
       status: 400,
       headers: { 'Content-Type': 'application/json' }
     })
@@ -82,6 +250,7 @@ export async function POST(
   const password = decryptPassword(instance.serverPassword)
   const authHeader = `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`
   const baseUrl = `http://opencode-${slug}:4096`
+  const workspaceAgentUrl = getWorkspaceAgentUrl(slug)
   
   // Create SSE stream
   const encoder = new TextEncoder()
@@ -98,9 +267,115 @@ export async function POST(
         sendEvent('status', { status: 'connecting' })
         
         if (!resume) {
-          // Start the message (async, non-blocking)
+          const promptParts: Array<
+            { type: 'text'; text: string } |
+            { type: 'file'; mime: string; filename?: string; url: string }
+          > = []
+
+          if (typeof text === 'string' && text.trim().length > 0) {
+            promptParts.push({ type: 'text', text })
+          }
+
+          if (contextPaths.length > 0) {
+            promptParts.push({
+              type: 'text',
+              text: toContextReferenceText(contextPaths),
+            })
+          }
+
+          if (attachments.length > 0) {
+            const attachmentPathsForHint: string[] = []
+
+            for (const attachment of attachments) {
+              const attachmentPath = normalizeAttachmentPath(attachment.path)
+
+              if (!isWorkspaceAttachmentPath(attachmentPath)) {
+                sendEvent('error', { error: 'invalid_attachment_path' })
+                controller.close()
+                return
+              }
+
+              const fileName =
+                attachment.filename ??
+                attachmentPath.split('/').pop() ??
+                'attachment'
+              const attachmentMime = attachment.mime?.trim()
+              const mime =
+                attachmentMime &&
+                attachmentMime.length > 0 &&
+                attachmentMime !== 'application/octet-stream'
+                  ? attachmentMime
+                  : inferAttachmentMimeType(fileName)
+
+              if (isPdfMime(mime)) {
+                const attachmentBytes = await readWorkspaceAttachment(
+                  { baseUrl: workspaceAgentUrl, authHeader },
+                  attachmentPath,
+                )
+
+                if (attachmentBytes) {
+                  const extracted = await extractPdfText(attachmentBytes, MAX_PDF_TEXT_CHARS)
+                  if (extracted.ok) {
+                    promptParts.push({
+                      type: 'text',
+                      text: toPdfExtractedTextPart(
+                        attachmentPath,
+                        extracted.text,
+                        extracted.truncated,
+                      ),
+                    })
+                  } else {
+                    promptParts.push({
+                      type: 'text',
+                      text: toPdfExtractionFailureText(attachmentPath),
+                    })
+                  }
+                } else {
+                  promptParts.push({
+                    type: 'text',
+                    text: toPdfExtractionFailureText(attachmentPath),
+                  })
+                }
+
+                attachmentPathsForHint.push(attachmentPath)
+                continue
+              }
+
+              if (isSpreadsheetMimeType(mime)) {
+                promptParts.push({
+                  type: 'text',
+                  text: toSpreadsheetToolHintText(attachmentPath),
+                })
+                attachmentPathsForHint.push(attachmentPath)
+                continue
+              }
+
+              promptParts.push({
+                type: 'file',
+                mime,
+                filename: fileName,
+                url: toWorkspaceFileUrl(attachmentPath),
+              })
+
+              attachmentPathsForHint.push(attachmentPath)
+            }
+
+            if (attachmentPathsForHint.length > 0) {
+              promptParts.push({
+                type: 'text',
+                text: toAttachmentHintText(attachmentPathsForHint),
+              })
+            }
+          }
+
+          if (promptParts.length === 0) {
+            sendEvent('error', { error: 'missing_fields' })
+            controller.close()
+            return
+          }
+
           const promptBody = {
-            parts: [{ type: 'text', text }],
+            parts: promptParts,
             ...(model && { model: { providerID: model.providerId, modelID: model.modelId } })
           }
           
@@ -153,7 +428,7 @@ export async function POST(
         
         const reader = eventsResponse.body.getReader()
         const decoder = new TextDecoder()
-        let buffer = ''
+        let parseState = INITIAL_SSE_PARSE_STATE
         
         // Track state for the assistant response
         let currentStatus: string | null = null
@@ -180,19 +455,14 @@ export async function POST(
             break
           }
           
-          buffer += decoder.decode(value, { stream: true })
-          
-          // Parse SSE events from buffer
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || ''
-          
-          let eventData = ''
+          const parsed = parseSseChunk(parseState, decoder.decode(value, { stream: true }))
+          parseState = parsed.state
 
-          for (const line of lines) {
-            if (line.startsWith('data:')) {
-              eventData = line.slice(5).trim()
-            } else if (line === '' && eventData) {
-              // End of event, process it
+          for (const parsedEvent of parsed.events) {
+            const eventData = parsedEvent.data
+            if (!eventData) continue
+
+            // End of event, process it
               try {
                 const event = JSON.parse(eventData)
                 
@@ -211,7 +481,6 @@ export async function POST(
                 
                 // Filter events for our session only
                 if (!isWorkspaceEvent && eventSessionId && eventSessionId !== sessionId) {
-                  eventData = ''
                   continue
                 }
                 
@@ -367,9 +636,6 @@ export async function POST(
               } catch {
                 console.log('[stream] Failed to parse event:', eventData.substring(0, 100))
               }
-
-              eventData = ''
-            }
           }
         }
         

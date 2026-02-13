@@ -91,6 +91,7 @@ describe('docker', () => {
         Env: expect.arrayContaining([
           'OPENCODE_SERVER_PASSWORD=secret-password',
           'OPENCODE_SERVER_USERNAME=opencode',
+          'OPENCODE_CONFIG_DIR=/opt/arche/opencode-config',
           'WORKSPACE_AGENT_PORT=4097',
           'WORKSPACE_GIT_AUTHOR_NAME=user-slug',
           'WORKSPACE_GIT_AUTHOR_EMAIL=user-slug@arche.local',

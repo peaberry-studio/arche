@@ -13,6 +13,7 @@ type SessionsPanelProps = {
   activeSessionId: string | null;
   onSelectSession: (id: string) => void;
   onCreateSession: () => void;
+  query?: string;
 };
 
 export function SessionsPanel({
@@ -20,17 +21,26 @@ export function SessionsPanel({
   activeSessionId,
   onSelectSession,
   onCreateSession,
+  query = "",
 }: SessionsPanelProps) {
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredSessions = useMemo(() => {
+    if (!normalizedQuery) return sessions;
+    return sessions.filter((session) =>
+      session.title.toLowerCase().includes(normalizedQuery)
+    );
+  }, [normalizedQuery, sessions]);
+
   const buckets = useMemo(
-    () => groupByDateBucket(sessions, (s) => s.updatedAtRaw),
-    [sessions]
+    () => groupByDateBucket(filteredSessions, (s) => s.updatedAtRaw),
+    [filteredSessions]
   );
 
   if (sessions.length === 0) {
     return (
       <div className="flex flex-1 flex-col">
         <div className="px-3 pt-3 pb-2">
-          <Button variant="outline" className="w-full" onClick={onCreateSession}><Plus size={14} weight="bold" className="mr-1.5" />New chat</Button>
+          <Button variant="ghost" size="sm" className="w-full text-muted-foreground" onClick={onCreateSession}><Plus size={14} weight="bold" className="mr-1.5" />New chat</Button>
         </div>
         <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
           <ChatCircle size={24} weight="bold" className="text-muted-foreground/50" />
@@ -40,11 +50,22 @@ export function SessionsPanel({
     );
   }
 
-  return (
-    <div className="flex-1 overflow-y-auto px-2 pb-4 pt-3 scrollbar-none">
-      <div className="px-1 pb-2">
-        <Button variant="outline" className="w-full" onClick={onCreateSession}><Plus size={14} weight="bold" className="mr-1.5" />New chat</Button>
+  if (filteredSessions.length === 0) {
+    return (
+      <div className="flex flex-1 flex-col">
+        <div className="px-3 pt-3 pb-2">
+          <Button variant="ghost" size="sm" className="w-full text-muted-foreground" onClick={onCreateSession}><Plus size={14} weight="bold" className="mr-1.5" />New chat</Button>
+        </div>
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+          <ChatCircle size={24} weight="bold" className="text-muted-foreground/50" />
+          <p className="text-xs text-muted-foreground">No chats found</p>
+        </div>
       </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 overflow-y-auto px-2 pb-4 pt-1 scrollbar-none">
       {buckets.map((bucket) => (
         <div key={bucket.label} className="mb-3">
           <div className="px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">

@@ -1,10 +1,10 @@
 package main
 
 import (
-  "bytes"
-  "context"
-  "crypto/sha256"
-  "encoding/base64"
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/base64"
   "encoding/hex"
   "encoding/json"
   "errors"
@@ -14,11 +14,12 @@ import (
   "net/http"
   "os"
   "os/exec"
-  "path/filepath"
-  "strconv"
-  "strings"
-  "time"
-  "unicode/utf8"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -92,17 +93,36 @@ type fileReadRequest struct {
 }
 
 type fileReadResponse struct {
-  Ok       bool   `json:"ok"`
-  Path     string `json:"path"`
-  Content  string `json:"content"`
-  Encoding string `json:"encoding"`
-  Hash     string `json:"hash"`
+	Ok       bool   `json:"ok"`
+	Path     string `json:"path"`
+	Content  string `json:"content"`
+	Encoding string `json:"encoding"`
+	Hash     string `json:"hash"`
+}
+
+type fileListRequest struct {
+	Path      string `json:"path"`
+	Recursive bool   `json:"recursive"`
+}
+
+type fileListEntry struct {
+	Path       string `json:"path"`
+	Name       string `json:"name"`
+	Type       string `json:"type"`
+	Size       int64  `json:"size"`
+	ModifiedAt int64  `json:"modifiedAt"`
+}
+
+type fileListResponse struct {
+	Ok      bool            `json:"ok"`
+	Entries []fileListEntry `json:"entries"`
 }
 
 type fileWriteRequest struct {
-  Path         string `json:"path"`
-  Content      string `json:"content"`
-  ExpectedHash string `json:"expectedHash"`
+	Path         string `json:"path"`
+	Content      string `json:"content"`
+	Encoding     string `json:"encoding,omitempty"`
+	ExpectedHash string `json:"expectedHash"`
 }
 
 type fileWriteResponse struct {
@@ -119,6 +139,17 @@ type fileDeleteResponse struct {
   Ok      bool   `json:"ok"`
   Path    string `json:"path"`
   Deleted bool   `json:"deleted"`
+}
+
+type fileRenameRequest struct {
+	Path    string `json:"path"`
+	NewPath string `json:"newPath"`
+}
+
+type fileRenameResponse struct {
+	Ok      bool   `json:"ok"`
+	Path    string `json:"path"`
+	NewPath string `json:"newPath"`
 }
 
 type fileApplyPatchRequest struct {
@@ -178,10 +209,12 @@ func main() {
   mux.HandleFunc("/git/conflict", s.withAuth(s.handleGitConflict))
   mux.HandleFunc("/git/resolve", s.withAuth(s.handleGitResolve))
   mux.HandleFunc("/git/discard", s.withAuth(s.handleGitDiscard))
-  mux.HandleFunc("/files/read", s.withAuth(s.handleFileRead))
-  mux.HandleFunc("/files/write", s.withAuth(s.handleFileWrite))
-  mux.HandleFunc("/files/delete", s.withAuth(s.handleFileDelete))
-  mux.HandleFunc("/files/apply_patch", s.withAuth(s.handleApplyPatch))
+	mux.HandleFunc("/files/read", s.withAuth(s.handleFileRead))
+	mux.HandleFunc("/files/list", s.withAuth(s.handleFileList))
+	mux.HandleFunc("/files/write", s.withAuth(s.handleFileWrite))
+	mux.HandleFunc("/files/delete", s.withAuth(s.handleFileDelete))
+	mux.HandleFunc("/files/rename", s.withAuth(s.handleFileRename))
+	mux.HandleFunc("/files/apply_patch", s.withAuth(s.handleApplyPatch))
   mux.HandleFunc("/kb/sync", s.withAuth(s.handleKbSync))
   mux.HandleFunc("/kb/status", s.withAuth(s.handleKbStatus))
   mux.HandleFunc("/kb/publish", s.withAuth(s.handleKbPublish))
@@ -545,6 +578,10 @@ func (s *server) handleFileRead(w http.ResponseWriter, r *http.Request) {
     writeError(w, http.StatusBadRequest, err.Error())
     return
   }
+  if err := s.ensurePathWithinWorkspace(path); err != nil {
+    writeError(w, http.StatusForbidden, err.Error())
+    return
+  }
 
   info, err := os.Stat(path)
   if err != nil {
@@ -576,6 +613,124 @@ func (s *server) handleFileRead(w http.ResponseWriter, r *http.Request) {
   })
 }
 
+func (s *server) handleFileList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed")
+		return
+	}
+
+	var req fileListRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json")
+		return
+	}
+
+	path, err := s.resolvePath(req.Path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.ensurePathWithinWorkspace(path); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			writeError(w, http.StatusNotFound, "not_found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "stat_failed")
+		return
+	}
+	if !info.IsDir() {
+		writeError(w, http.StatusBadRequest, "not_directory")
+		return
+	}
+
+	workspaceAbs, err := filepath.Abs(s.workspace)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "workspace_invalid")
+		return
+	}
+
+	entries := make([]fileListEntry, 0)
+	appendEntry := func(absPath string, entryInfo os.FileInfo) error {
+		rel, relErr := filepath.Rel(workspaceAbs, absPath)
+		if relErr != nil {
+			return relErr
+		}
+
+		entryType := "file"
+		size := entryInfo.Size()
+		if entryInfo.IsDir() {
+			entryType = "directory"
+			size = 0
+		}
+
+		entries = append(entries, fileListEntry{
+			Path:       filepath.ToSlash(rel),
+			Name:       entryInfo.Name(),
+			Type:       entryType,
+			Size:       size,
+			ModifiedAt: entryInfo.ModTime().UnixMilli(),
+		})
+		return nil
+	}
+
+	if req.Recursive {
+		walkErr := filepath.WalkDir(path, func(currentPath string, dirEntry os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if currentPath == path {
+				return nil
+			}
+
+			entryInfo, infoErr := dirEntry.Info()
+			if infoErr != nil {
+				return infoErr
+			}
+
+			return appendEntry(currentPath, entryInfo)
+		})
+		if walkErr != nil {
+			writeError(w, http.StatusInternalServerError, "list_failed")
+			return
+		}
+	} else {
+		dirEntries, readErr := os.ReadDir(path)
+		if readErr != nil {
+			writeError(w, http.StatusInternalServerError, "list_failed")
+			return
+		}
+
+		for _, dirEntry := range dirEntries {
+			entryInfo, infoErr := dirEntry.Info()
+			if infoErr != nil {
+				writeError(w, http.StatusInternalServerError, "list_failed")
+				return
+			}
+
+			entryPath := filepath.Join(path, dirEntry.Name())
+			if appendErr := appendEntry(entryPath, entryInfo); appendErr != nil {
+				writeError(w, http.StatusInternalServerError, "list_failed")
+				return
+			}
+		}
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Path < entries[j].Path
+	})
+
+	writeJSON(w, http.StatusOK, fileListResponse{
+		Ok:      true,
+		Entries: entries,
+	})
+}
+
 func (s *server) handleFileWrite(w http.ResponseWriter, r *http.Request) {
   if r.Method != http.MethodPost {
     writeError(w, http.StatusMethodNotAllowed, "method_not_allowed")
@@ -591,6 +746,10 @@ func (s *server) handleFileWrite(w http.ResponseWriter, r *http.Request) {
   path, err := s.resolvePath(req.Path)
   if err != nil {
     writeError(w, http.StatusBadRequest, err.Error())
+    return
+  }
+  if err := s.ensurePathWithinWorkspace(path); err != nil {
+    writeError(w, http.StatusForbidden, err.Error())
     return
   }
 
@@ -614,15 +773,30 @@ func (s *server) handleFileWrite(w http.ResponseWriter, r *http.Request) {
     }
   }
 
-  if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-    writeError(w, http.StatusInternalServerError, "mkdir_failed")
-    return
-  }
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		writeError(w, http.StatusInternalServerError, "mkdir_failed")
+		return
+	}
 
-  if err := writeFileAtomic(path, []byte(req.Content), 0o644); err != nil {
-    writeError(w, http.StatusInternalServerError, "write_failed")
-    return
-  }
+	if req.Encoding != "" && req.Encoding != "utf-8" && req.Encoding != "base64" {
+		writeError(w, http.StatusBadRequest, "invalid_encoding")
+		return
+	}
+
+	decodedContent := []byte(req.Content)
+	if req.Encoding == "base64" {
+		binaryContent, decodeErr := base64.StdEncoding.DecodeString(req.Content)
+		if decodeErr != nil {
+			writeError(w, http.StatusBadRequest, "invalid_base64")
+			return
+		}
+		decodedContent = binaryContent
+	}
+
+	if err := writeFileAtomic(path, decodedContent, 0o644); err != nil {
+		writeError(w, http.StatusInternalServerError, "write_failed")
+		return
+	}
 
   data, err := os.ReadFile(path)
   if err != nil {
@@ -654,6 +828,10 @@ func (s *server) handleFileDelete(w http.ResponseWriter, r *http.Request) {
     writeError(w, http.StatusBadRequest, err.Error())
     return
   }
+  if err := s.ensurePathWithinWorkspace(path); err != nil {
+    writeError(w, http.StatusForbidden, err.Error())
+    return
+  }
 
   info, err := os.Stat(path)
   if err != nil {
@@ -674,11 +852,90 @@ func (s *server) handleFileDelete(w http.ResponseWriter, r *http.Request) {
     return
   }
 
-  writeJSON(w, http.StatusOK, fileDeleteResponse{
-    Ok:      true,
-    Path:    req.Path,
-    Deleted: true,
-  })
+	writeJSON(w, http.StatusOK, fileDeleteResponse{
+		Ok:      true,
+		Path:    req.Path,
+		Deleted: true,
+	})
+}
+
+func (s *server) handleFileRename(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed")
+		return
+	}
+
+	var req fileRenameRequest
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json")
+		return
+	}
+
+	oldPath, err := s.resolvePath(req.Path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.ensurePathWithinWorkspace(oldPath); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	newPath, err := s.resolvePath(req.NewPath)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.ensurePathWithinWorkspace(newPath); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	oldInfo, err := os.Stat(oldPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			writeError(w, http.StatusNotFound, "not_found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "stat_failed")
+		return
+	}
+	if oldInfo.IsDir() {
+		writeError(w, http.StatusBadRequest, "is_directory")
+		return
+	}
+
+	if oldPath == newPath {
+		writeJSON(w, http.StatusOK, fileRenameResponse{
+			Ok:      true,
+			Path:    req.Path,
+			NewPath: req.NewPath,
+		})
+		return
+	}
+
+	if _, err := os.Stat(newPath); err == nil {
+		writeError(w, http.StatusConflict, "already_exists")
+		return
+	} else if !errors.Is(err, os.ErrNotExist) {
+		writeError(w, http.StatusInternalServerError, "stat_failed")
+		return
+	}
+
+	if err := os.MkdirAll(filepath.Dir(newPath), 0o755); err != nil {
+		writeError(w, http.StatusInternalServerError, "mkdir_failed")
+		return
+	}
+
+	if err := os.Rename(oldPath, newPath); err != nil {
+		writeError(w, http.StatusInternalServerError, "rename_failed")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, fileRenameResponse{
+		Ok:      true,
+		Path:    req.Path,
+		NewPath: req.NewPath,
+	})
 }
 
 func (s *server) handleApplyPatch(w http.ResponseWriter, r *http.Request) {
@@ -985,7 +1242,7 @@ func (s *server) handleKbPublish(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) gitStatusEntries(ctx context.Context, paths ...string) ([]gitStatusEntry, error) {
-  args := []string{"git", "-c", "core.quotepath=false", "status", "--porcelain=v1", "-z"}
+  args := []string{"git", "-c", "core.quotepath=false", "status", "--porcelain=v1", "-z", "--untracked-files=all"}
   if len(paths) > 0 {
     args = append(args, "--")
     args = append(args, paths...)
@@ -1076,6 +1333,18 @@ type gitStatusEntry struct {
   Conflicted bool
 }
 
+func isInternalWorkspacePath(path string) bool {
+	// NOTE: This is the Go equivalent of @/lib/workspace-paths.ts normalizeWorkspacePath + isInternalWorkspacePath.
+	// Keep both implementations in sync when changing path normalization rules.
+	normalized := filepath.ToSlash(path)
+	normalized = strings.TrimPrefix(normalized, "./")
+	normalized = strings.TrimPrefix(normalized, "/")
+	for strings.Contains(normalized, "//") {
+		normalized = strings.ReplaceAll(normalized, "//", "/")
+	}
+	return normalized == ".arche" || strings.HasPrefix(normalized, ".arche/")
+}
+
 func parseGitStatus(output string) []gitStatusEntry {
   raw := []byte(output)
   if len(raw) == 0 {
@@ -1113,6 +1382,9 @@ func parseGitStatus(output string) []gitStatusEntry {
     }
 
     if path == "" {
+      continue
+    }
+    if isInternalWorkspacePath(path) {
       continue
     }
 
@@ -1359,10 +1631,26 @@ func (s *server) resolvePath(rel string) (string, error) {
     return "", errors.New("invalid_path")
   }
 
-  if !strings.HasPrefix(abs+string(os.PathSeparator), workspaceAbs+string(os.PathSeparator)) && abs != workspaceAbs {
-    return "", errors.New("path_outside_workspace")
-  }
-  return abs, nil
+	if !strings.HasPrefix(abs+string(os.PathSeparator), workspaceAbs+string(os.PathSeparator)) && abs != workspaceAbs {
+		return "", errors.New("path_outside_workspace")
+	}
+	return abs, nil
+}
+
+func (s *server) ensurePathWithinWorkspace(absPath string) error {
+	workspaceAbs, err := filepath.Abs(s.workspace)
+	if err != nil {
+		return errors.New("workspace_invalid")
+	}
+	cleaned := filepath.Clean(absPath)
+	rel, err := filepath.Rel(workspaceAbs, cleaned)
+	if err != nil {
+		return errors.New("path_traversal_rejected")
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return errors.New("path_traversal_rejected")
+	}
+	return nil
 }
 
 func getenv(key, fallback string) string {

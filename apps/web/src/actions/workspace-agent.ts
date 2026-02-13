@@ -106,7 +106,8 @@ export async function writeWorkspaceFileAction(
   slug: string,
   path: string,
   content: string,
-  expectedHash?: string
+  expectedHash?: string,
+  options?: { encoding?: 'utf-8' | 'base64' }
 ): Promise<{ ok: boolean; hash?: string; error?: string }> {
   const auth = await authorizeWorkspace(slug)
   if (!auth.ok) return { ok: false, error: auth.error }
@@ -122,7 +123,12 @@ export async function writeWorkspaceFileAction(
         'Content-Type': 'application/json',
         Accept: 'application/json'
       },
-      body: JSON.stringify({ path, content, expectedHash }),
+      body: JSON.stringify({
+        path,
+        content,
+        expectedHash,
+        encoding: options?.encoding,
+      }),
       cache: 'no-store'
     })
 

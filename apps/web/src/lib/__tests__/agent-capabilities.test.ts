@@ -14,8 +14,16 @@ describe('agent-capabilities', () => {
   })
 
   it('accepts known tools and deduplicates values', () => {
-    const result = validateAgentCapabilityTools(['grep', 'read', 'read'])
-    expect(result).toEqual({ ok: true, tools: ['grep', 'read'] })
+    const result = validateAgentCapabilityTools([
+      'grep',
+      'spreadsheet_query',
+      'read',
+      'read',
+    ])
+    expect(result).toEqual({
+      ok: true,
+      tools: ['grep', 'read', 'spreadsheet_query'],
+    })
   })
 
   it('rejects invalid mcp connector ids', () => {

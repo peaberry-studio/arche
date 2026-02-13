@@ -40,3 +40,6 @@ apps/**/pnpm-debug.log*
 
 # Node (repo root)
 node_modules/
+
+# Workspace internal storage
+.arche/

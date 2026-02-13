@@ -5,6 +5,21 @@
 
 import type { MessagePart } from "@/lib/opencode/types";
 
+export type WorkspaceAttachment = {
+  id: string;
+  path: string;
+  name: string;
+  mime: string;
+  size: number;
+  uploadedAt: number;
+};
+
+export type MessageAttachmentInput = {
+  path: string;
+  filename: string;
+  mime: string;
+};
+
 export type ChatSession = {
   id: string;
   title: string;

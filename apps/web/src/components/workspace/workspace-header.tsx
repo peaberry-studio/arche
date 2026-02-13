@@ -40,7 +40,7 @@ const statusConfig = {
 export function WorkspaceHeader({
   slug,
   status,
-  onSyncComplete
+  onSyncComplete,
 }: WorkspaceHeaderProps) {
   const router = useRouter();
   const statusStyle = statusConfig[status];
@@ -106,7 +106,7 @@ export function WorkspaceHeader({
 
   return (
     <header className="glass-bar relative z-30 shrink-0 rounded-2xl text-card-foreground">
-      <div className="flex h-11 w-full items-center justify-between px-4">
+      <div className="flex h-11 w-full items-center justify-between gap-3 px-4">
         <div className="flex items-center gap-2">
           <span className="font-[family-name:var(--font-display)] text-base font-semibold tracking-tight">
             Archē

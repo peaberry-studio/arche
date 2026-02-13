@@ -9,6 +9,7 @@ Imagen derivada de OpenCode con soporte para Knowledge Base (KB) compartido.
 - Script de inicialización automática del workspace
 - Workspace agent HTTP para diffs y operaciones de archivo
 - Soporte para configuración runtime inyectada por el spawner (`opencode.json` y `AGENTS.md`)
+- Custom tools globales de OpenCode para análisis tabular (`spreadsheet_*`)
 
 ## Workspace Agent
 
@@ -71,6 +72,8 @@ El runtime de configuración lo inyecta el spawner de Arche al crear el contened
 
 - `opencode.json` (merge de CommonWorkspaceConfig + MCP connectors + provider gateway)
 - `AGENTS.md` (si existe en el repo de config)
+
+La imagen también incluye un `OPENCODE_CONFIG_DIR` global (`/opt/arche/opencode-config`) con custom tools siempre disponibles para todos los workspaces.
 
 Si esos archivos no están montados, `entrypoint.sh` mantiene un fallback legacy:
 

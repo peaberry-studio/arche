@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CaretLeft, CaretRight, Eye, File, GitDiff, X } from "@phosphor-icons/react";
+import { CaretLeft, CaretRight, File, GitDiff, X } from "@phosphor-icons/react";
 
 import { Button } from "@/components/ui/button";
 import { useEditorDrafts, type SaveState } from "@/hooks/use-editor-drafts";
@@ -156,8 +156,8 @@ export function InspectorPanel({
               : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
           )}
         >
-          <Eye size={14} weight={activeTab === "preview" ? "fill" : "bold"} />
-          View
+          <File size={14} weight={activeTab === "preview" ? "fill" : "bold"} />
+          Working context
         </button>
         <button
           type="button"

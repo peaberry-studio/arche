@@ -11,6 +11,7 @@ describe('ChatPanel', () => {
   it('shows a starting overlay and hides previous messages', () => {
     const html = renderToStaticMarkup(
       <ChatPanel
+        slug={'alice'}
         sessions={[{ id: 's1', title: 'Old', status: 'idle', updatedAt: 'now', agent: 'OpenCode' }]}
         messages={[
           {
@@ -22,7 +23,7 @@ describe('ChatPanel', () => {
           },
         ]}
         activeSessionId={'s1'}
-        openFilesCount={0}
+        openFilePaths={[]}
         onCloseSession={() => {}}
         onOpenFile={() => {}}
         onSendMessage={async () => {}}

@@ -15,6 +15,10 @@ export const OPENCODE_AGENT_TOOLS = [
   'lsp',
   'todoread',
   'todowrite',
+  'spreadsheet_inspect',
+  'spreadsheet_sample',
+  'spreadsheet_query',
+  'spreadsheet_stats',
 ] as const
 
 export type OpenCodeAgentToolId = (typeof OPENCODE_AGENT_TOOLS)[number]
@@ -37,6 +41,10 @@ export const OPENCODE_AGENT_TOOL_OPTIONS: Array<{
   { id: 'lsp', label: 'Language server queries' },
   { id: 'todoread', label: 'Read todo list' },
   { id: 'todowrite', label: 'Update todo list' },
+  { id: 'spreadsheet_inspect', label: 'Inspect spreadsheets' },
+  { id: 'spreadsheet_sample', label: 'Sample spreadsheet rows' },
+  { id: 'spreadsheet_query', label: 'Query spreadsheet data' },
+  { id: 'spreadsheet_stats', label: 'Spreadsheet statistics' },
 ]
 
 export type AgentCapabilities = {

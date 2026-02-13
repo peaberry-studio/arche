@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { File, MagnifyingGlass, Plus } from "@phosphor-icons/react";
+import { useMemo } from "react";
+import { File, Plus } from "@phosphor-icons/react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -14,6 +14,7 @@ type FileTreePanelProps = {
   activePath?: string | null;
   onSelect: (path: string) => void;
   hideHeader?: boolean;
+  query?: string;
 };
 
 type FlatFile = { name: string; path: string };
@@ -30,15 +31,13 @@ function flattenFiles(nodes: WorkspaceFileNode[]): FlatFile[] {
   return result;
 }
 
-export function FileTreePanel({ nodes, activePath, onSelect, hideHeader }: FileTreePanelProps) {
-  const [query, setQuery] = useState("");
-
+export function FileTreePanel({ nodes, activePath, onSelect, hideHeader, query = "" }: FileTreePanelProps) {
+  const normalizedQuery = query.trim().toLowerCase();
   const files = useMemo(() => flattenFiles(nodes), [nodes]);
   const matches = useMemo(() => {
-    if (!query.trim()) return [];
-    const normalized = query.trim().toLowerCase();
-    return files.filter((file) => file.path.toLowerCase().includes(normalized));
-  }, [files, query]);
+    if (!normalizedQuery) return [];
+    return files.filter((file) => file.path.toLowerCase().includes(normalizedQuery));
+  }, [files, normalizedQuery]);
 
   return (
     <div className="flex h-full flex-col text-card-foreground">
@@ -53,35 +52,22 @@ export function FileTreePanel({ nodes, activePath, onSelect, hideHeader }: FileT
         </div>
       )}
 
-      <div className="px-4 py-3">
-        <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-foreground/5 px-2.5 py-2">
-          <MagnifyingGlass size={14} className="shrink-0 text-muted-foreground" />
-          <input
-            type="text"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search..."
-            className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/60"
-          />
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto px-4 pb-4 scrollbar-none">
+      <div className="flex flex-1 flex-col overflow-y-auto px-2.5 pb-4 scrollbar-none">
         {nodes.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
             <File size={24} weight="bold" className="text-muted-foreground/50" />
             <p className="text-xs text-muted-foreground">
               Empty workspace
             </p>
           </div>
-        ) : query.trim() ? (
+        ) : normalizedQuery && matches.length === 0 ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+            <File size={24} weight="bold" className="text-muted-foreground/50" />
+            <p className="text-xs text-muted-foreground">No files found</p>
+          </div>
+        ) : normalizedQuery ? (
           <div className="space-y-0.5">
-            {matches.length === 0 ? (
-              <p className="py-4 text-center text-xs text-muted-foreground">
-                No results
-              </p>
-            ) : (
-              matches.map((match) => (
+            {matches.map((match) => (
                 <button
                   key={match.path}
                   type="button"
@@ -104,8 +90,7 @@ export function FileTreePanel({ nodes, activePath, onSelect, hideHeader }: FileT
                   />
                   <span className="truncate font-medium">{match.name}</span>
                 </button>
-              ))
-            )}
+            ))}
           </div>
         ) : (
           <FileTree nodes={nodes} activePath={activePath} onSelect={onSelect} />

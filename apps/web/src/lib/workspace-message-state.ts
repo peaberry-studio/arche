@@ -1,0 +1,60 @@
+import type {
+  MessagePart,
+  MessageRole,
+  MessageStatusInfo,
+} from '@/lib/opencode/types'
+
+export type WorkspaceMessageRuntimeState = {
+  pending: boolean
+  statusInfo?: MessageStatusInfo
+}
+
+type DeriveWorkspaceMessageStateInput = {
+  role: MessageRole
+  completedAt?: number
+  parts: MessagePart[]
+}
+
+export function deriveWorkspaceMessageRuntimeState({
+  role,
+  completedAt,
+  parts,
+}: DeriveWorkspaceMessageStateInput): WorkspaceMessageRuntimeState {
+  if (role !== 'assistant') return { pending: false }
+  if (typeof completedAt === 'number' && completedAt > 0) return { pending: false }
+
+  const lastPart = parts[parts.length - 1]
+  if (!lastPart) {
+    return { pending: true, statusInfo: { status: 'thinking' } }
+  }
+
+  if (lastPart.type === 'tool') {
+    if (lastPart.state.status === 'pending' || lastPart.state.status === 'running') {
+      return {
+        pending: true,
+        statusInfo: {
+          status: 'tool-calling',
+          toolName: lastPart.name,
+          detail: lastPart.state.status === 'running' ? lastPart.state.title : undefined,
+        },
+      }
+    }
+
+    if (lastPart.state.status === 'error') {
+      return {
+        pending: false,
+        statusInfo: {
+          status: 'error',
+          toolName: lastPart.name,
+          detail: lastPart.state.error,
+        },
+      }
+    }
+  }
+
+  if (lastPart.type === 'retry') {
+    return { pending: true, statusInfo: { status: 'thinking', detail: lastPart.error } }
+  }
+
+  return { pending: false }
+}

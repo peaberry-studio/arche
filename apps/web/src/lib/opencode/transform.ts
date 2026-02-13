@@ -78,13 +78,32 @@ export function transformParts(parts: unknown[]): MessagePart[] {
         }
 
         case "file": {
+          const source = part.source as Record<string, unknown> | undefined;
+          const sourcePath =
+            typeof part.path === "string"
+              ? part.path
+              : typeof source?.path === "string"
+              ? source.path
+              : undefined;
+          const fileUrl = part.url ? String(part.url) : undefined;
+
+          let resolvedPath = sourcePath;
+          if (!resolvedPath && fileUrl?.startsWith("file:///workspace/")) {
+            try {
+              resolvedPath = decodeURIComponent(
+                fileUrl.slice("file:///workspace/".length)
+              );
+            } catch {
+              resolvedPath = fileUrl.slice("file:///workspace/".length);
+            }
+          }
           return {
             type: "file" as const,
             id: partId,
-            path: String(part.filename ?? part.path ?? ""),
+            path: String(resolvedPath ?? ""),
             filename: part.filename ? String(part.filename) : undefined,
             mime: part.mime ? String(part.mime) : undefined,
-            url: part.url ? String(part.url) : undefined,
+            url: fileUrl,
           };
         }
 
