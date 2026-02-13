@@ -38,7 +38,7 @@ export async function extractPdfText(buffer: Buffer, maxChars: number): Promise<
     if (typeof candidate !== 'function') {
       return { ok: false, error: 'pdf_parser_unavailable' }
     }
-    parsePdf = candidate as PdfParseFn
+    parsePdf = candidate
   } catch {
     return { ok: false, error: 'pdf_parser_unavailable' }
   }

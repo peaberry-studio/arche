@@ -522,22 +522,24 @@ export function useWorkspace({
           }
         }
 
-        const hydratedMessages = result.messages.map((message) => {
-          const resumeState = resumeFailureStateRef.current.get(message.id);
-          if (
-            message.role === "assistant" &&
-            message.pending &&
-            resumeState?.suppressed
-          ) {
-            return {
-              ...message,
-              pending: false,
-              statusInfo: { status: "error", detail: "resume_exhausted" },
-            };
-          }
+        const hydratedMessages: WorkspaceMessage[] = result.messages.map(
+          (message): WorkspaceMessage => {
+            const resumeState = resumeFailureStateRef.current.get(message.id);
+            if (
+              message.role === "assistant" &&
+              message.pending &&
+              resumeState?.suppressed
+            ) {
+              return {
+                ...message,
+                pending: false,
+                statusInfo: { status: "error", detail: "resume_exhausted" },
+              };
+            }
 
-          return message;
-        });
+            return message;
+          }
+        );
 
         setMessages(hydratedMessages);
 
@@ -936,22 +938,24 @@ export function useWorkspace({
               }
             }
 
-            const hydratedMessages = result.messages.map((message) => {
-              const resumeState = resumeFailureStateRef.current.get(message.id);
-              if (
-                message.role === "assistant" &&
-                message.pending &&
-                resumeState?.suppressed
-              ) {
-                return {
-                  ...message,
-                  pending: false,
-                  statusInfo: { status: "error", detail: "resume_exhausted" },
-                };
-              }
+            const hydratedMessages: WorkspaceMessage[] = result.messages.map(
+              (message): WorkspaceMessage => {
+                const resumeState = resumeFailureStateRef.current.get(message.id);
+                if (
+                  message.role === "assistant" &&
+                  message.pending &&
+                  resumeState?.suppressed
+                ) {
+                  return {
+                    ...message,
+                    pending: false,
+                    statusInfo: { status: "error", detail: "resume_exhausted" },
+                  };
+                }
 
-              return message;
-            });
+                return message;
+              }
+            );
 
             setMessages(hydratedMessages);
           } else if (!streamCompleted && !receivedAnyPart) {

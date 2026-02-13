@@ -23,7 +23,7 @@ Host (VPS)
 └── Containers (por usuario)
 └── /workspace/          ← Volumen persistente
     ├── .git/            ← Repo local con remote 'kb'
-    ├── Company/         ← Copiado del KB al init
+    ├── Company/         ← Generado por kickstart al setup inicial
     ├── ...
     └── opencode.json    ← Generado en runtime desde kb-config
 ```
@@ -36,19 +36,22 @@ Host (VPS)
    podman build -t arche-workspace:latest .
    ```
 
-2. **Deploy del KB de contenido al host**:
+2. **Inicializar repos bare de KB y config (vacios)**:
    ```bash
    ./scripts/deploy-kb.sh /opt/arche/kb-content
    ./scripts/deploy-config.sh /opt/arche/kb-config
    ```
 
-3. **Configurar la variable de entorno** en el compose o en producción:
+3. **Configurar la variable de entorno** en el compose o en produccion:
    ```
    KB_CONTENT_HOST_PATH=/opt/arche/kb-content
    KB_CONFIG_HOST_PATH=/opt/arche/kb-config
    ```
 
 ### Sincronización
+
+En una instalacion nueva, el workspace queda bloqueado hasta completar kickstart
+en `/u/[slug]/kickstart`, que escribe el contenido inicial del KB y la config.
 
 Los usuarios pueden sincronizar su workspace con el KB central:
 

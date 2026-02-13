@@ -5,6 +5,7 @@ import { getSessionFromToken, SESSION_COOKIE_NAME } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
 import { startInstance, stopInstance, getInstanceStatus, isSlowStart, listActiveInstances } from '@/lib/spawner/core'
+import { getKickstartStatus } from '@/kickstart/status'
 
 async function getAuthenticatedUser() {
   const cookieStore = await cookies()
@@ -23,6 +24,11 @@ export async function startInstanceAction(slug: string): Promise<SpawnerActionRe
 
   if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
     return { ok: false, error: 'forbidden' }
+  }
+
+  const kickstartStatus = await getKickstartStatus()
+  if (kickstartStatus !== 'ready') {
+    return { ok: false, error: 'setup_required' }
   }
 
   return startInstance(slug, session.user.id)
@@ -98,6 +104,12 @@ export async function ensureInstanceRunningAction(slug: string): Promise<{
   if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
     console.log('[ensureInstanceRunning] Forbidden - slug mismatch')
     return { status: 'error', error: 'forbidden' }
+  }
+
+  const kickstartStatus = await getKickstartStatus()
+  if (kickstartStatus !== 'ready') {
+    console.log('[ensureInstanceRunning] Kickstart setup required')
+    return { status: 'error', error: 'setup_required' }
   }
 
   const instance = await getInstanceStatus(slug)

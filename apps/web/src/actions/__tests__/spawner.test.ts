@@ -33,6 +33,11 @@ vi.mock('@/lib/spawner/core', () => ({
   isSlowStart: vi.fn(() => false),
 }))
 
+const mockGetKickstartStatus = vi.fn()
+vi.mock('@/kickstart/status', () => ({
+  getKickstartStatus: (...args: unknown[]) => mockGetKickstartStatus(...args),
+}))
+
 import { cookies } from 'next/headers'
 import { getSessionFromToken } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
@@ -63,6 +68,7 @@ beforeEach(() => {
   mockCookies.mockResolvedValue({
     get: vi.fn(() => ({ name: 'arche_session', value: 'token-123' })),
   } as never)
+  mockGetKickstartStatus.mockResolvedValue('ready')
 })
 
 describe('startInstanceAction', () => {
@@ -91,6 +97,15 @@ describe('startInstanceAction', () => {
     const result = await startInstanceAction('alice')
     expect(result).toEqual({ ok: true, status: 'running' })
     expect(mockStart).toHaveBeenCalledWith('alice', 'user-1')
+  })
+
+  it('returns setup_required when kickstart is incomplete', async () => {
+    mockGetSession.mockResolvedValue(fakeSession)
+    mockGetKickstartStatus.mockResolvedValue('needs_setup')
+
+    const result = await startInstanceAction('alice')
+    expect(result).toEqual({ ok: false, error: 'setup_required' })
+    expect(mockStart).not.toHaveBeenCalled()
   })
 })
 
@@ -170,5 +185,14 @@ describe('ensureInstanceRunningAction', () => {
     expect(result).toEqual({ status: 'running' })
     expect(mockPrisma.user.findUnique).toHaveBeenCalledWith({ where: { slug: 'alice' }, select: { id: true } })
     expect(mockSync).toHaveBeenCalledWith({ slug: 'alice', userId: 'user-alice' })
+  })
+
+  it('returns setup_required when kickstart is incomplete', async () => {
+    mockGetSession.mockResolvedValue(fakeSession)
+    mockGetKickstartStatus.mockResolvedValue('needs_setup')
+
+    const result = await ensureInstanceRunningAction('alice')
+    expect(result).toEqual({ status: 'error', error: 'setup_required' })
+    expect(mockStatus).not.toHaveBeenCalled()
   })
 })
