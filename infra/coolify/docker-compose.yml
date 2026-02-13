@@ -1,6 +1,10 @@
-# Arche — Coolify Docker Compose
-# Deploy via Coolify's Docker Compose resource
-# See README.md for setup instructions
+# Arche — Coolify Docker Compose (Legacy)
+#
+# RECOMMENDED: Deploy as separate Coolify resources instead of this compose file.
+# See README.md for the recommended setup with native rolling updates.
+#
+# This compose file is kept for backward compatibility and simpler setups
+# where zero-downtime is not required.
 
 name: arche
 
@@ -37,23 +41,6 @@ services:
     networks:
       - default
 
-  migrate:
-    build:
-      context: ../../apps/web
-      dockerfile: Containerfile
-    command: sh -c "pnpm prisma migrate deploy && pnpm prisma db seed"
-    environment:
-      DATABASE_URL: postgresql://postgres:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/arche?schema=public
-      ARCHE_SEED_ADMIN_EMAIL: ${ARCHE_SEED_ADMIN_EMAIL:?}
-      ARCHE_SEED_ADMIN_PASSWORD: ${ARCHE_SEED_ADMIN_PASSWORD:?}
-      ARCHE_SEED_ADMIN_SLUG: ${ARCHE_SEED_ADMIN_SLUG:-admin}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - default
-    restart: "no"
-
   web:
     build:
       context: ../../apps/web
@@ -71,6 +58,11 @@ services:
       ARCHE_ENCRYPTION_KEY: ${ARCHE_ENCRYPTION_KEY:?}
       ARCHE_INTERNAL_TOKEN: ${ARCHE_INTERNAL_TOKEN:?}
 
+      # Gateway (required for connectors)
+      ARCHE_GATEWAY_TOKEN_SECRET: ${ARCHE_GATEWAY_TOKEN_SECRET:?}
+      ARCHE_GATEWAY_TOKEN_TTL_SECONDS: ${ARCHE_GATEWAY_TOKEN_TTL_SECONDS:-86400}
+      ARCHE_GATEWAY_BASE_URL: ${ARCHE_GATEWAY_BASE_URL:-http://web:3000}
+
       # Cookies
       ARCHE_COOKIE_SECURE: ${ARCHE_COOKIE_SECURE:-true}
 
@@ -85,9 +77,14 @@ services:
       OPENCODE_IMAGE: ${OPENCODE_IMAGE:-ghcr.io/anomalyco/opencode:1.1.45}
       OPENCODE_NETWORK: arche_internal
 
-      # Knowledge Base bare repos
-      KB_CONTENT_HOST_PATH: ${KB_CONTENT_HOST_PATH:-/opt/arche/kb-content}
-      KB_CONFIG_HOST_PATH: ${KB_CONFIG_HOST_PATH:-/opt/arche/kb-config}
+      # Knowledge Base (optional)
+      KB_HOST_PATH: ${KB_HOST_PATH:-}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r=>{if(!r.ok)throw 1}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 5
     networks:
       - default
       - internal
@@ -97,8 +94,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
     labels:
       - coolify.managed=true
 
