@@ -403,4 +403,82 @@ describe('chat stream attachments forwarding', () => {
         'Attached workspace files:\n- /workspace/.arche/attachments/sales.xlsx\nIf direct file parsing is unavailable, inspect these paths with available tools.',
     })
   })
+
+  it('parses multi-line SSE events and forwards assistant parts', async () => {
+    const encoder = new TextEncoder()
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+
+      if (url.includes('/prompt_async')) {
+        return new Response(null, { status: 204 })
+      }
+
+      if (url.endsWith('/event')) {
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                [
+                  'event: message',
+                  'data: {"type":"message.updated","properties":{"info":{"id":"msg-1","role":"assistant","sessionID":"session-1"}}}',
+                  '',
+                  '',
+                ].join('\n'),
+              ),
+            )
+            controller.enqueue(
+              encoder.encode(
+                [
+                  'event: message',
+                  'data: {"type":"message.part.updated","properties":{"part":{"type":"text","messageID":"msg-1","sessionID":"session-1"},',
+                  'data: "delta":{"text":"Hello"}}}',
+                  '',
+                  'event: message',
+                  'data: {"type":"session.status","properties":{"status":{"type":"idle"},"sessionID":"session-1"}}',
+                  '',
+                  '',
+                ].join('\n'),
+              ),
+            )
+            controller.close()
+          },
+        })
+
+        return new Response(body, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        })
+      }
+
+      throw new Error(`Unexpected fetch url: ${url}`)
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('@/app/api/w/[slug]/chat/stream/route')
+    const req = new Request('http://localhost/api/w/alice/chat/stream', {
+      method: 'POST',
+      headers: {
+        host: 'localhost',
+        origin: 'http://localhost',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        sessionId: 'session-1',
+        text: 'hello',
+      }),
+    })
+
+    const res = await POST(req as never, {
+      params: Promise.resolve({ slug: 'alice' }),
+    })
+
+    expect(res.status).toBe(200)
+    const sseOutput = await res.text()
+
+    expect(sseOutput).toContain('event: part')
+    expect(sseOutput).toContain('"messageId":"msg-1"')
+    expect(sseOutput).toContain('event: done')
+  })
 })

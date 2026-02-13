@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { getActiveCredentialForUser } from "@/lib/providers/store";
 import { PROVIDERS, type ProviderId } from "@/lib/providers/types";
 import { decryptPassword } from "@/lib/spawner/crypto";
+import { deriveWorkspaceMessageRuntimeState } from "@/lib/workspace-message-state";
 import { isInternalWorkspacePath } from "@/lib/workspace-paths";
 import { createWorkspaceAgentClient } from "@/lib/workspace-agent/client";
 import type {
@@ -434,10 +435,13 @@ export async function listMessagesAction(
 
       const parts = transformParts(m.parts ?? []);
       const rawTimestamp = m.info.time?.created;
-      const isAssistant = role === "assistant";
       const completedAt = (m.info.time as { completed?: number } | undefined)
         ?.completed;
-      const pending = isAssistant && !completedAt;
+      const runtimeState = deriveWorkspaceMessageRuntimeState({
+        role,
+        completedAt,
+        parts,
+      });
       const info = m.info as Record<string, unknown>;
       const infoModel = info.model as Record<string, unknown> | undefined;
       const providerId =
@@ -466,8 +470,8 @@ export async function listMessagesAction(
         timestampRaw:
           typeof rawTimestamp === "number" ? rawTimestamp : undefined,
         parts,
-        pending,
-        statusInfo: pending ? { status: "thinking" } : undefined,
+        pending: runtimeState.pending,
+        statusInfo: runtimeState.statusInfo,
       });
     }
 

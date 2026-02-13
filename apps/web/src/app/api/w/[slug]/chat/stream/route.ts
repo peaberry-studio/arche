@@ -3,6 +3,7 @@ import { getAuthenticatedUser } from '@/lib/auth'
 import { extractPdfText, isPdfMime } from '@/lib/attachments/pdf-text-extractor'
 import { validateSameOrigin } from '@/lib/csrf'
 import { prisma } from '@/lib/prisma'
+import { INITIAL_SSE_PARSE_STATE, parseSseChunk } from '@/lib/sse-parser'
 import { decryptPassword } from '@/lib/spawner/crypto'
 import {
   isValidContextReferencePath,
@@ -427,7 +428,7 @@ export async function POST(
         
         const reader = eventsResponse.body.getReader()
         const decoder = new TextDecoder()
-        let buffer = ''
+        let parseState = INITIAL_SSE_PARSE_STATE
         
         // Track state for the assistant response
         let currentStatus: string | null = null
@@ -454,19 +455,14 @@ export async function POST(
             break
           }
           
-          buffer += decoder.decode(value, { stream: true })
-          
-          // Parse SSE events from buffer
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || ''
-          
-          let eventData = ''
+          const parsed = parseSseChunk(parseState, decoder.decode(value, { stream: true }))
+          parseState = parsed.state
 
-          for (const line of lines) {
-            if (line.startsWith('data:')) {
-              eventData = line.slice(5).trim()
-            } else if (line === '' && eventData) {
-              // End of event, process it
+          for (const parsedEvent of parsed.events) {
+            const eventData = parsedEvent.data
+            if (!eventData) continue
+
+            // End of event, process it
               try {
                 const event = JSON.parse(eventData)
                 
@@ -485,7 +481,6 @@ export async function POST(
                 
                 // Filter events for our session only
                 if (!isWorkspaceEvent && eventSessionId && eventSessionId !== sessionId) {
-                  eventData = ''
                   continue
                 }
                 
@@ -641,9 +636,6 @@ export async function POST(
               } catch {
                 console.log('[stream] Failed to parse event:', eventData.substring(0, 100))
               }
-
-              eventData = ''
-            }
           }
         }
         

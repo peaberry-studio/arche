@@ -32,6 +32,11 @@ import type {
 } from "@/lib/opencode/types";
 import { extractTextContent, transformParts } from "@/lib/opencode/transform";
 import { PROVIDERS, type ProviderId } from "@/lib/providers/types";
+import {
+  canAutoResume,
+  recordResumeFailure,
+  type ResumeFailureState,
+} from "@/lib/workspace-resume-policy";
 import type { MessageAttachmentInput } from "@/types/workspace";
 
 export type WorkspaceDiff = {
@@ -173,6 +178,7 @@ export function useWorkspace({
     targetMessageId: string;
     abortController: AbortController;
   } | null>(null);
+  const resumeFailureStateRef = useRef<Map<string, ResumeFailureState>>(new Map());
 
   // Diffs
   const [diffs, setDiffs] = useState<WorkspaceDiff[]>([]);
@@ -507,9 +513,35 @@ export function useWorkspace({
         result.messages?.length
       );
       if (result.ok && result.messages) {
-        setMessages(result.messages);
+        const pendingIds = new Set(
+          result.messages.filter((message) => message.pending).map((message) => message.id)
+        );
+        for (const [messageId] of resumeFailureStateRef.current) {
+          if (!pendingIds.has(messageId)) {
+            resumeFailureStateRef.current.delete(messageId);
+          }
+        }
 
-        const runtime = extractRuntimeMetadata(result.messages);
+        const hydratedMessages = result.messages.map((message) => {
+          const resumeState = resumeFailureStateRef.current.get(message.id);
+          if (
+            message.role === "assistant" &&
+            message.pending &&
+            resumeState?.suppressed
+          ) {
+            return {
+              ...message,
+              pending: false,
+              statusInfo: { status: "error", detail: "resume_exhausted" },
+            };
+          }
+
+          return message;
+        });
+
+        setMessages(hydratedMessages);
+
+        const runtime = extractRuntimeMetadata(hydratedMessages);
         if (runtime.agentId) {
           syncActiveAgentFromRuntime(runtime.agentId);
         }
@@ -873,11 +905,57 @@ export function useWorkspace({
       } finally {
         const isLatest = streamCounterRef.current === token;
 
-        if (isLatest && (streamCompleted || receivedAnyPart)) {
+        if (mode === "resume") {
+          if (streamCompleted || receivedAnyPart) {
+            resumeFailureStateRef.current.delete(targetMessageId);
+          } else {
+            const nextState = recordResumeFailure(
+              resumeFailureStateRef.current.get(targetMessageId),
+              Date.now()
+            );
+            resumeFailureStateRef.current.set(targetMessageId, nextState);
+
+            updateStatus(
+              "error",
+              undefined,
+              nextState.suppressed ? "resume_exhausted" : "resume_incomplete"
+            );
+          }
+        }
+
+        if (isLatest) {
           await new Promise((resolve) => setTimeout(resolve, 120));
           const result = await listMessagesAction(slug, sessionId);
           if (result.ok && result.messages) {
-            setMessages(result.messages);
+            const pendingIds = new Set(
+              result.messages.filter((message) => message.pending).map((message) => message.id)
+            );
+            for (const [messageId] of resumeFailureStateRef.current) {
+              if (!pendingIds.has(messageId)) {
+                resumeFailureStateRef.current.delete(messageId);
+              }
+            }
+
+            const hydratedMessages = result.messages.map((message) => {
+              const resumeState = resumeFailureStateRef.current.get(message.id);
+              if (
+                message.role === "assistant" &&
+                message.pending &&
+                resumeState?.suppressed
+              ) {
+                return {
+                  ...message,
+                  pending: false,
+                  statusInfo: { status: "error", detail: "resume_exhausted" },
+                };
+              }
+
+              return message;
+            });
+
+            setMessages(hydratedMessages);
+          } else if (!streamCompleted && !receivedAnyPart) {
+            updateStatus("error", undefined, "stream_incomplete");
           }
           scheduleWorkspaceRefresh();
         }
@@ -1202,9 +1280,22 @@ export function useWorkspace({
     if (!activeSessionId || !isConnected) return;
     if (isSendingRef.current) return;
 
+    const now = Date.now();
+
     const pendingAssistant = [...messages]
       .reverse()
-      .find((m) => m.role === "assistant" && m.pending);
+      .find((m) => {
+        if (m.role !== "assistant" || !m.pending) return false;
+
+        const resumeState = resumeFailureStateRef.current.get(m.id);
+        const allowed = canAutoResume(resumeState, now);
+
+        if (allowed && resumeState?.suppressed) {
+          resumeFailureStateRef.current.delete(m.id);
+        }
+
+        return allowed;
+      });
     if (pendingAssistant) {
       const activeStream = activeStreamRef.current;
       if (
