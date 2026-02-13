@@ -31,6 +31,20 @@ function session(slug: string, role: 'USER' | 'ADMIN' = 'USER') {
   }
 }
 
+function emptyEventStreamResponse() {
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.close()
+      },
+    }),
+    {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream' },
+    },
+  )
+}
+
 describe('chat stream attachments forwarding', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -54,6 +68,10 @@ describe('chat stream attachments forwarding', () => {
 
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
+
+      if (url.endsWith('/event')) {
+        return emptyEventStreamResponse()
+      }
 
       if (url.includes('/prompt_async')) {
         promptBody = JSON.parse(String(init?.body)) as Record<string, unknown>
@@ -112,6 +130,10 @@ describe('chat stream attachments forwarding', () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
 
+      if (url.endsWith('/event')) {
+        return emptyEventStreamResponse()
+      }
+
       if (url.includes('/prompt_async')) {
         promptBody = JSON.parse(String(init?.body)) as Record<string, unknown>
         return new Response('prompt_failed', { status: 500 })
@@ -162,6 +184,10 @@ describe('chat stream attachments forwarding', () => {
 
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
+
+      if (url.endsWith('/event')) {
+        return emptyEventStreamResponse()
+      }
 
       if (url.includes(':4097/files/read')) {
         return new Response(
@@ -239,6 +265,10 @@ describe('chat stream attachments forwarding', () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
 
+      if (url.endsWith('/event')) {
+        return emptyEventStreamResponse()
+      }
+
       if (url.includes(':4097/files/read')) {
         return new Response(
           JSON.stringify({
@@ -306,6 +336,10 @@ describe('chat stream attachments forwarding', () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
 
+      if (url.endsWith('/event')) {
+        return emptyEventStreamResponse()
+      }
+
       if (url.includes('/prompt_async')) {
         promptBody = JSON.parse(String(init?.body)) as Record<string, unknown>
         return new Response('prompt_failed', { status: 500 })
@@ -352,6 +386,10 @@ describe('chat stream attachments forwarding', () => {
 
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
+
+      if (url.endsWith('/event')) {
+        return emptyEventStreamResponse()
+      }
 
       if (url.includes('/prompt_async')) {
         promptBody = JSON.parse(String(init?.body)) as Record<string, unknown>
@@ -402,6 +440,54 @@ describe('chat stream attachments forwarding', () => {
       text:
         'Attached workspace files:\n- /workspace/.arche/attachments/sales.xlsx\nIf direct file parsing is unavailable, inspect these paths with available tools.',
     })
+  })
+
+  it('subscribes to event stream before sending prompt', async () => {
+    const fetchUrls: string[] = []
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      fetchUrls.push(url)
+
+      if (url.endsWith('/event')) {
+        return emptyEventStreamResponse()
+      }
+
+      if (url.includes('/prompt_async')) {
+        expect(init?.method).toBe('POST')
+        return new Response('prompt_failed', { status: 500 })
+      }
+
+      throw new Error(`Unexpected fetch url: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('@/app/api/w/[slug]/chat/stream/route')
+    const req = new Request('http://localhost/api/w/alice/chat/stream', {
+      method: 'POST',
+      headers: {
+        host: 'localhost',
+        origin: 'http://localhost',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        sessionId: 'session-1',
+        text: 'hello',
+      }),
+    })
+
+    const res = await POST(req as never, {
+      params: Promise.resolve({ slug: 'alice' }),
+    })
+
+    expect(res.status).toBe(200)
+    await res.text()
+
+    const eventIndex = fetchUrls.findIndex((url) => url.endsWith('/event'))
+    const promptIndex = fetchUrls.findIndex((url) => url.includes('/prompt_async'))
+    expect(eventIndex).toBeGreaterThanOrEqual(0)
+    expect(promptIndex).toBeGreaterThanOrEqual(0)
+    expect(eventIndex).toBeLessThan(promptIndex)
   })
 
   it('parses multi-line SSE events and forwards assistant parts', async () => {

@@ -265,6 +265,35 @@ export async function POST(
       
       try {
         sendEvent('status', { status: 'connecting' })
+
+        // Subscribe first so we don't miss fast session events.
+        const eventsUrl = `${baseUrl}/event`
+        console.log('[stream] Connecting to events:', eventsUrl)
+
+        const eventsResponse = await fetch(eventsUrl, {
+          method: 'GET',
+          headers: {
+            'Authorization': authHeader,
+            'Accept': 'text/event-stream',
+            'Cache-Control': 'no-cache'
+          }
+        })
+
+        console.log('[stream] Events connection:', eventsResponse.status)
+
+        if (!eventsResponse.ok || !eventsResponse.body) {
+          console.log('[stream] Events connection failed')
+          sendEvent('error', { error: 'Failed to connect to event stream' })
+          return
+        }
+
+        const reader = eventsResponse.body.getReader()
+        const decoder = new TextDecoder()
+        let parseState = INITIAL_SSE_PARSE_STATE
+
+        const cancelReader = async () => {
+          await reader.cancel().catch(() => undefined)
+        }
         
         if (!resume) {
           const promptParts: Array<
@@ -291,7 +320,7 @@ export async function POST(
 
               if (!isWorkspaceAttachmentPath(attachmentPath)) {
                 sendEvent('error', { error: 'invalid_attachment_path' })
-                controller.close()
+                await cancelReader()
                 return
               }
 
@@ -370,7 +399,7 @@ export async function POST(
 
           if (promptParts.length === 0) {
             sendEvent('error', { error: 'missing_fields' })
-            controller.close()
+            await cancelReader()
             return
           }
 
@@ -397,38 +426,12 @@ export async function POST(
             const errorText = await promptResponse.text()
             console.log('[stream] prompt_async error:', errorText)
             sendEvent('error', { error: `Failed to start message: ${errorText}` })
-            controller.close()
+            await cancelReader()
             return
           }
         }
         
         sendEvent('status', { status: 'thinking' })
-        
-        // Subscribe to SSE events from OpenCode
-        const eventsUrl = `${baseUrl}/event`
-        console.log('[stream] Connecting to events:', eventsUrl)
-        
-        const eventsResponse = await fetch(eventsUrl, {
-          method: 'GET',
-          headers: {
-            'Authorization': authHeader,
-            'Accept': 'text/event-stream',
-            'Cache-Control': 'no-cache'
-          }
-        })
-        
-        console.log('[stream] Events connection:', eventsResponse.status)
-        
-        if (!eventsResponse.ok || !eventsResponse.body) {
-          console.log('[stream] Events connection failed')
-          sendEvent('error', { error: 'Failed to connect to event stream' })
-          controller.close()
-          return
-        }
-        
-        const reader = eventsResponse.body.getReader()
-        const decoder = new TextDecoder()
-        let parseState = INITIAL_SSE_PARSE_STATE
         
         // Track state for the assistant response
         let currentStatus: string | null = null

@@ -70,6 +70,19 @@ function findAgentInCatalog(
   });
 }
 
+function parseModelString(
+  value?: string
+): { providerId: string; modelId: string } | null {
+  if (!value) return null;
+  const separator = value.indexOf("/");
+  if (separator <= 0 || separator >= value.length - 1) return null;
+
+  return {
+    providerId: value.slice(0, separator),
+    modelId: value.slice(separator + 1),
+  };
+}
+
 export type UseWorkspaceOptions = {
   slug: string;
   /** Poll interval in ms for session status updates */
@@ -196,6 +209,8 @@ export function useWorkspace({
   const [selectedModel, setSelectedModel] = useState<AvailableModel | null>(
     null
   );
+  const modelsRef = useRef<AvailableModel[]>([]);
+  modelsRef.current = models;
   const [agentCatalog, setAgentCatalog] = useState<AgentCatalogItem[]>([]);
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
 
@@ -1192,6 +1207,8 @@ export function useWorkspace({
       } | null;
       if (!response.ok || !data?.agents) return;
       const agents = data.agents;
+      const primary = agents.find((agent) => agent.isPrimary);
+      const primaryModel = parseModelString(primary?.model);
 
       setAgentCatalog(agents);
       setActiveAgentId((current) => {
@@ -1201,9 +1218,39 @@ export function useWorkspace({
             return resolvedCurrent.id;
           }
         }
-        const primary = agents.find((agent) => agent.isPrimary);
         return primary?.id ?? current;
       });
+
+      if (primaryModel) {
+        setSelectedModel((current) => {
+          if (
+            current?.providerId === primaryModel.providerId &&
+            current?.modelId === primaryModel.modelId
+          ) {
+            return current;
+          }
+
+          // Respect runtime/user model decisions that are not global defaults.
+          if (current && !current.isDefault) {
+            return current;
+          }
+
+          const catalogMatch = modelsRef.current.find(
+            (entry) =>
+              entry.providerId === primaryModel.providerId &&
+              entry.modelId === primaryModel.modelId
+          );
+          if (catalogMatch) return catalogMatch;
+
+          return {
+            providerId: primaryModel.providerId,
+            modelId: primaryModel.modelId,
+            providerName: primaryModel.providerId,
+            modelName: primaryModel.modelId,
+            isDefault: false,
+          };
+        });
+      }
     } catch {
       // keep defaults when catalog is unavailable
     }
