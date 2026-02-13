@@ -80,4 +80,4 @@
   loop:
     - "{{ app_dir }}"
     - "{{ data_dir }}"
-    - "{{ users_dir }}"
+    - "{{ users_path }}"

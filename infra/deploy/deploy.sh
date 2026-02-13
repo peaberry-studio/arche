@@ -58,6 +58,7 @@ REMOTE MODE:
     --acme-email    Email for Let's Encrypt ACME account
 
   Optional:
+    --version       Web image tag to deploy (default: latest)
     --user          SSH user (default: root)
     --dry-run       Show what would be done without executing
     --verbose       Enable verbose output
@@ -124,6 +125,7 @@ while [[ $# -gt 0 ]]; do
     --ssh-key)     SSH_KEY="$2";         shift 2 ;;
     --user)        SSH_USER="$2";        shift 2 ;;
     --acme-email)  ACME_EMAIL="$2";      shift 2 ;;
+    --version)     WEB_VERSION="$2";     shift 2 ;;
     --dry-run)     DRY_RUN=true;         shift ;;
     --verbose)     VERBOSE=true;         shift ;;
     -h|--help)     usage 0 ;;
@@ -460,45 +462,119 @@ PLAYBOOK
     podman network create arche-internal
   fi
 
-  # Start the stack
-  log "Starting Podman Compose stack..."
+  # Start base services (postgres, traefik, docker-socket-proxy)
+  # Web is managed outside compose for blue-green deploys
+  log "Starting base services (postgres, traefik, docker-socket-proxy)..."
   podman compose -f "$COMPOSE_OUT" --env-file "$SCRIPT_DIR/.env.local" -p arche up -d
 
-  # Wait for web to be ready
-  log "Waiting for web service to be ready..."
-  RETRIES=30
-  until podman compose -f "$COMPOSE_OUT" -p arche exec -T web sh -c "node -e 'const net=require(\"net\");const s=net.connect(3000,\"127.0.0.1\");s.on(\"connect\",()=>process.exit(0));s.on(\"error\",()=>process.exit(1));'" 2>/dev/null; do
+  # Wait for postgres to be healthy
+  log "Waiting for postgres..."
+  RETRIES=15
+  PG_CONTAINER=""
+  until PG_CONTAINER=$(podman ps --filter label=com.docker.compose.project=arche --filter name=postgres --format '{{.Names}}' | head -1) && \
+        [[ -n "$PG_CONTAINER" ]] && \
+        podman exec "$PG_CONTAINER" pg_isready -U postgres 2>/dev/null; do
     RETRIES=$((RETRIES - 1))
     if [[ $RETRIES -le 0 ]]; then
-      warn "Web service did not become healthy. Continuing with migrations anyway..."
+      warn "Postgres did not become healthy."
       break
     fi
     sleep 2
   done
 
-  # Run migrations
-  log "Running Prisma migrations..."
-  podman compose -f "$COMPOSE_OUT" -p arche exec -T web pnpm prisma migrate deploy || {
-    warn "Migration failed — the web image may not include prisma files."
-    warn "Ensure the Containerfile copies the prisma/ directory."
-  }
+  # Detect compose default network
+  COMPOSE_NETWORK=$(podman network ls --format '{{.Name}}' | grep -E '^arche[_-]default$' | head -1)
+  COMPOSE_NETWORK="${COMPOSE_NETWORK:-arche_default}"
+  log "Using compose network: $COMPOSE_NETWORK"
 
-  # Seed
-  log "Running seed..."
-  podman compose -f "$COMPOSE_OUT" -p arche exec -T web pnpm prisma db seed || {
-    warn "Seed failed — this may be expected if already seeded."
-  }
+  # Find existing web containers (there may be zombies from failed deploys)
+  OLD_WEBS=()
+  while IFS= read -r c; do
+    [[ -n "$c" ]] && OLD_WEBS+=("$c")
+  done < <(podman ps --filter label=arche.role=web --format '{{.Names}}')
+
+  if [[ ${#OLD_WEBS[@]} -gt 0 ]]; then
+    log "Found existing web container(s): ${OLD_WEBS[*]}"
+  fi
+
+  # Build volume args
+  VOLUME_ARGS=(-v "${USERS_DEST}:${USERS_DEST}")
+  if [[ -n "${KB_CONTENT_DEST:-}" && -n "${KB_CONFIG_DEST:-}" ]]; then
+    VOLUME_ARGS+=(-v "${KB_CONTENT_DEST}:/kb-content" -v "${KB_CONFIG_DEST}:/kb-config")
+  fi
+
+  # Start NEW web container alongside the old one(s)
+  NEW_WEB="arche-web-$(date +%s)-$(openssl rand -hex 2)"
+  log "Starting web container: $NEW_WEB"
+  podman run -d \
+    --name "$NEW_WEB" \
+    --env-file "$SCRIPT_DIR/.env.local" \
+    -e ARCHE_GATEWAY_TOKEN_SECRET="${ARCHE_GATEWAY_TOKEN_SECRET}" \
+    -e ARCHE_GATEWAY_TOKEN_TTL_SECONDS="${ARCHE_GATEWAY_TOKEN_TTL_SECONDS}" \
+    -e ARCHE_GATEWAY_BASE_URL="${ARCHE_GATEWAY_BASE_URL}" \
+    --network arche-internal \
+    --network "$COMPOSE_NETWORK" \
+    "${VOLUME_ARGS[@]}" \
+    --label traefik.enable=true \
+    --label "traefik.http.routers.arche-base.rule=Host(\`${LOCAL_DOMAIN}\`)" \
+    --label traefik.http.routers.arche-base.entrypoints=web \
+    --label traefik.http.routers.arche-base.service=arche-web \
+    --label traefik.http.services.arche-web.loadbalancer.server.port=3000 \
+    --label traefik.http.services.arche-web.loadbalancer.healthcheck.path=/api/health \
+    --label traefik.http.services.arche-web.loadbalancer.healthcheck.interval=5s \
+    --label traefik.http.services.arche-web.loadbalancer.healthcheck.timeout=3s \
+    --label "traefik.docker.network=${COMPOSE_NETWORK}" \
+    --label arche.role=web \
+    --label "arche.version=${WEB_VERSION}" \
+    --restart unless-stopped \
+    "${IMAGE_PREFIX}web:${WEB_VERSION}"
+
+  # Wait for web to pass health check (migrations and seed run inside start.sh)
+  log "Waiting for web service to pass health check..."
+  HEALTH_OK=false
+  RETRIES=24
+  until podman exec "$NEW_WEB" node -e "fetch('http://localhost:3000/api/health').then(r=>{if(!r.ok)throw 1}).catch(()=>process.exit(1))" 2>/dev/null; do
+    RETRIES=$((RETRIES - 1))
+    if [[ $RETRIES -le 0 ]]; then
+      break
+    fi
+    sleep 5
+  done
+  [[ $RETRIES -gt 0 ]] && HEALTH_OK=true
+
+  if [[ "$HEALTH_OK" != "true" ]]; then
+    err "Web service did not become healthy after 120 seconds."
+    err "Check logs with: podman logs $NEW_WEB"
+    err "Removing failed container..."
+    podman rm -f "$NEW_WEB" 2>/dev/null || true
+    if [[ ${#OLD_WEBS[@]} -gt 0 ]]; then
+      err "Old container(s) still serving traffic: ${OLD_WEBS[*]}"
+    fi
+    exit 1
+  fi
+
+  # Health check passed — wait for Traefik to discover the new container
+  log "Health check passed. Waiting 15s for Traefik discovery..."
+  sleep 15
+
+  # Stop and remove ALL old web containers
+  for old in "${OLD_WEBS[@]}"; do
+    log "Stopping old web container: $old"
+    podman stop -t 10 "$old" 2>/dev/null || true
+    podman rm "$old" 2>/dev/null || true
+  done
 
   echo ""
-  log "Local deployment ready!"
+  log "Local deployment ready! (version: ${WEB_VERSION})"
   info "  App:   http://${LOCAL_DOMAIN}"
   info "  Dashboard: http://${LOCAL_DOMAIN}/u/${ARCHE_SEED_ADMIN_SLUG}"
   info "  Workspace: http://${LOCAL_DOMAIN}/w/${ARCHE_SEED_ADMIN_SLUG}"
   echo ""
   info "Useful commands:"
-  info "  Logs:     podman compose -f $COMPOSE_OUT -p arche logs -f"
-  info "  Stop:     podman compose -f $COMPOSE_OUT -p arche down"
-  info "  Restart:  podman compose -f $COMPOSE_OUT -p arche restart"
+  info "  Logs:       podman logs -f $NEW_WEB"
+  info "  Base stack: podman compose -f $COMPOSE_OUT -p arche logs -f"
+  info "  Stop web:   podman stop $NEW_WEB && podman rm $NEW_WEB"
+  info "  Stop all:   podman stop $NEW_WEB && podman rm $NEW_WEB && podman compose -f $COMPOSE_OUT -p arche down"
 }
 
 # ---------------------------------------------------------------------------
@@ -650,13 +726,12 @@ PLAYBOOK
     sleep 3
   done
 
-  # Run migrations
+  # In local-dev mode, migrations are NOT run by start.sh (uses pnpm dev, not start.sh)
   log "Running Prisma migrations..."
   podman compose -f "$COMPOSE_OUT" -p arche exec -T web pnpm prisma migrate deploy || {
     warn "Migration failed — check web container logs for details."
   }
 
-  # Seed
   log "Running seed..."
   podman compose -f "$COMPOSE_OUT" -p arche exec -T web pnpm prisma db seed || {
     warn "Seed failed — this may be expected if already seeded."

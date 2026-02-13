@@ -102,13 +102,13 @@ services:
       timeout: 5s
       retries: 5
 
-  web:
 {% if deploy_mode == 'local-dev' %}
+  # In local-dev mode, web is managed by compose (pnpm dev with source mounts).
+  # In remote/local modes, web is managed outside compose via podman run
+  # for true blue-green zero-downtime deployments.
+  web:
     image: node:24-bookworm-slim
     working_dir: /app
-{% else %}
-    image: {{ image_prefix }}web:{{ web_version }}
-{% endif %}
     restart: unless-stopped
     env_file:
       - {{ env_file_name | default('.env') }}
@@ -124,23 +124,10 @@ services:
         condition: service_healthy
     labels:
       - traefik.enable=true
-
-{% if deploy_mode == 'remote' %}
-      # Base router (no forwardAuth — login and bootstrap)
-      - traefik.http.routers.arche-base.rule=Host(`{{ domain }}`)
-      - traefik.http.routers.arche-base.entrypoints=websecure
-      - traefik.http.routers.arche-base.tls=true
-      - traefik.http.routers.arche-base.tls.certresolver=letsencrypt
-      - traefik.http.routers.arche-base.service=arche-web
-{% else %}
-      # Base router (no forwardAuth — login and bootstrap)
       - traefik.http.routers.arche-base.rule=Host(`{{ domain }}`)
       - traefik.http.routers.arche-base.entrypoints=web
       - traefik.http.routers.arche-base.service=arche-web
-{% endif %}
-
       - traefik.http.services.arche-web.loadbalancer.server.port=3000
-{% if deploy_mode == 'local-dev' %}
     volumes:
       - {{ repo_root }}/apps/web:/app
       - arche_web_node_modules:/app/node_modules
@@ -149,11 +136,6 @@ services:
       - {{ kb_content_host_path | default('/opt/arche/kb-content') }}:/kb-content
       - {{ kb_config_host_path | default('/opt/arche/kb-config') }}:/kb-config
     command: sh -lc "apt-get update -y && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/* && corepack enable && pnpm config set store-dir /pnpm/store >/dev/null 2>&1 || true && pnpm install --prefer-offline --force && pnpm prisma generate && pnpm dev"
-{% else %}
-    volumes:
-      - {{ users_path | default('/opt/arche/users') }}:{{ users_path | default('/opt/arche/users') }}
-      - {{ kb_content_host_path | default('/opt/arche/kb-content') }}:/kb-content
-      - {{ kb_config_host_path | default('/opt/arche/kb-config') }}:/kb-config
 {% endif %}
 
 networks:
