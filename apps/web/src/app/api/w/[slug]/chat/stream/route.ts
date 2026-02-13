@@ -4,13 +4,18 @@ import { extractPdfText, isPdfMime } from '@/lib/attachments/pdf-text-extractor'
 import { validateSameOrigin } from '@/lib/csrf'
 import { prisma } from '@/lib/prisma'
 import { decryptPassword } from '@/lib/spawner/crypto'
+import {
+  isValidContextReferencePath,
+  normalizeAttachmentPath,
+  normalizeWorkspacePath,
+} from '@/lib/workspace-paths'
+import { workspaceAgentFetch } from '@/lib/workspace-agent-client'
 import { getWorkspaceAgentUrl } from '@/lib/workspace-agent/client'
 import {
   inferAttachmentMimeType,
   isWorkspaceAttachmentPath,
   isSpreadsheetMimeType,
   MAX_ATTACHMENTS_PER_MESSAGE,
-  normalizeAttachmentPath,
 } from '@/lib/workspace-attachments'
 
 export const runtime = 'nodejs'
@@ -32,24 +37,6 @@ type WorkspaceAgentReadResponse = {
 const MAX_PDF_BYTES_FOR_EXTRACTION = 8 * 1024 * 1024
 const MAX_PDF_TEXT_CHARS = 24_000
 const MAX_CONTEXT_REFERENCES_PER_MESSAGE = 20
-
-function normalizeWorkspacePath(path: string): string {
-  return path
-    .replace(/\\/g, '/')
-    .replace(/^\.\//, '')
-    .replace(/^\/+/, '')
-    .replace(/\/+/g, '/')
-}
-
-function isValidContextReferencePath(path: string): boolean {
-  if (!path) return false
-  if (path === '.arche' || path.startsWith('.arche/')) return false
-
-  const segments = path.split('/').filter((segment) => segment.length > 0)
-  if (segments.length === 0) return false
-
-  return segments.every((segment) => segment !== '.' && segment !== '..')
-}
 
 function normalizeContextPaths(value: unknown): string[] {
   if (!Array.isArray(value)) return []
@@ -161,25 +148,15 @@ function decodeWorkspaceAgentFileContent(data: WorkspaceAgentReadResponse): Buff
 }
 
 async function readWorkspaceAttachment(
-  workspaceAgentUrl: string,
-  authHeader: string,
+  agent: { baseUrl: string; authHeader: string },
   path: string,
 ): Promise<Buffer | null> {
-  const response = await fetch(`${workspaceAgentUrl}/files/read`, {
-    method: 'POST',
-    headers: {
-      'Authorization': authHeader,
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-    },
-    body: JSON.stringify({ path }),
-    cache: 'no-store',
+  const response = await workspaceAgentFetch<WorkspaceAgentReadResponse>(agent, '/files/read', {
+    path,
   })
+  if (!response.ok) return null
 
-  const data = (await response.json().catch(() => null)) as WorkspaceAgentReadResponse | null
-  if (!response.ok || !data?.ok) return null
-
-  const decoded = decodeWorkspaceAgentFileContent(data)
+  const decoded = decodeWorkspaceAgentFileContent(response.data)
   if (!decoded || decoded.length === 0) return null
   if (decoded.length > MAX_PDF_BYTES_FOR_EXTRACTION) return null
   return decoded
@@ -331,8 +308,7 @@ export async function POST(
 
               if (isPdfMime(mime)) {
                 const attachmentBytes = await readWorkspaceAttachment(
-                  workspaceAgentUrl,
-                  authHeader,
+                  { baseUrl: workspaceAgentUrl, authHeader },
                   attachmentPath,
                 )
 

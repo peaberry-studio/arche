@@ -12,6 +12,7 @@ import {
   sanitizeAttachmentFilename,
   WORKSPACE_ATTACHMENTS_DIR,
 } from '@/lib/workspace-attachments'
+import { workspaceAgentFetch, type WorkspaceAgent } from '@/lib/workspace-agent-client'
 import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 
 export const runtime = 'nodejs'
@@ -28,19 +29,6 @@ type WorkspaceAgentListEntry = {
 type WorkspaceAgentListResponse = {
   ok: boolean
   entries?: WorkspaceAgentListEntry[]
-  error?: string
-}
-
-type WorkspaceAgentWriteResponse = {
-  ok: boolean
-  hash?: string
-  error?: string
-}
-
-type WorkspaceAgentRenameResponse = {
-  ok: boolean
-  path?: string
-  newPath?: string
   error?: string
 }
 
@@ -88,34 +76,24 @@ async function getAuthorizedWorkspaceAgent(slug: string) {
   return { ok: true as const, agent }
 }
 
-async function listWorkspaceAttachments(agent: {
-  baseUrl: string
-  authHeader: string
-}): Promise<{ ok: true; attachments: WorkspaceAttachment[] } | { ok: false; error: string }> {
-  const response = await fetch(`${agent.baseUrl}/files/list`, {
-    method: 'POST',
-    headers: {
-      Authorization: agent.authHeader,
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    },
-    body: JSON.stringify({ path: WORKSPACE_ATTACHMENTS_DIR, recursive: false }),
-    cache: 'no-store',
-  })
+async function listWorkspaceAttachments(
+  agent: WorkspaceAgent,
+): Promise<{ ok: true; attachments: WorkspaceAttachment[] } | { ok: false; error: string }> {
+  const response = await workspaceAgentFetch<WorkspaceAgentListResponse>(
+    agent,
+    '/files/list',
+    { path: WORKSPACE_ATTACHMENTS_DIR, recursive: false },
+  )
 
-  if (response.status === 404) {
+  if (!response.ok && response.status === 404) {
     return { ok: true, attachments: [] }
   }
 
-  const data = (await response.json().catch(() => null)) as WorkspaceAgentListResponse | null
   if (!response.ok) {
-    return { ok: false, error: data?.error ?? `workspace_agent_http_${response.status}` }
-  }
-  if (!data?.ok) {
-    return { ok: false, error: data?.error ?? 'workspace_agent_error' }
+    return { ok: false, error: response.error }
   }
 
-  const attachments = (data.entries ?? [])
+  const attachments = (response.data.entries ?? [])
     .filter((entry) => entry.type === 'file')
     .map((entry) => ({
       id: entry.path,
@@ -196,61 +174,83 @@ export async function POST(
   }
 
   const usedNames = new Set(existing.attachments.map((attachment) => attachment.name))
-  const uploaded: WorkspaceAttachment[] = []
-
-  for (const file of files) {
+  const uploadTargets = files.map((file) => {
     const safeName = sanitizeAttachmentFilename(file.name)
     const uniqueName = ensureUniqueAttachmentFilename(safeName, usedNames)
     usedNames.add(uniqueName)
 
-    const path = `${WORKSPACE_ATTACHMENTS_DIR}/${uniqueName}`
-    const bytes = Buffer.from(await file.arrayBuffer())
-    const fileType = file.type.trim()
-    const mime =
-      fileType.length > 0 && fileType !== 'application/octet-stream'
-        ? fileType
-        : inferAttachmentMimeType(uniqueName)
-    const uploadedAt = Date.now()
-
-    const response = await fetch(`${auth.agent.baseUrl}/files/write`, {
-      method: 'POST',
-      headers: {
-        Authorization: auth.agent.authHeader,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify({
-        path,
-        content: bytes.toString('base64'),
-        encoding: 'base64',
-      }),
-      cache: 'no-store',
-    })
-
-    const data = (await response
-      .json()
-      .catch(() => null)) as WorkspaceAgentWriteResponse | null
-
-    if (!response.ok) {
-      return jsonResponse(502, {
-        error: data?.error ?? `workspace_agent_http_${response.status}`,
-      })
-    }
-    if (!data?.ok) {
-      return jsonResponse(502, { error: data?.error ?? 'workspace_agent_error' })
-    }
-
-    uploaded.push({
-      id: path,
-      path,
+    return {
+      file,
       name: uniqueName,
-      mime,
-      size: bytes.length,
-      uploadedAt,
+      path: `${WORKSPACE_ATTACHMENTS_DIR}/${uniqueName}`,
+    }
+  })
+
+  const results = await Promise.allSettled(
+    uploadTargets.map(async ({ file, name, path }) => {
+      const bytes = Buffer.from(await file.arrayBuffer())
+      const fileType = file.type.trim()
+      const mime =
+        fileType.length > 0 && fileType !== 'application/octet-stream'
+          ? fileType
+          : inferAttachmentMimeType(name)
+      const uploadedAt = Date.now()
+
+      const response = await workspaceAgentFetch<{ ok: boolean; hash?: string; error?: string }>(
+        auth.agent,
+        '/files/write',
+        {
+          path,
+          content: bytes.toString('base64'),
+          encoding: 'base64',
+        },
+      )
+
+      if (!response.ok) {
+        throw new Error(response.error)
+      }
+
+      return {
+        id: path,
+        path,
+        name,
+        mime,
+        size: bytes.length,
+        uploadedAt,
+      } satisfies WorkspaceAttachment
+    }),
+  )
+
+  const uploaded: WorkspaceAttachment[] = []
+  const failed: Array<{ name: string; error: string }> = []
+
+  for (let index = 0; index < results.length; index += 1) {
+    const result = results[index]
+    const target = uploadTargets[index]
+
+    if (result.status === 'fulfilled') {
+      uploaded.push(result.value)
+      continue
+    }
+
+    failed.push({
+      name: target.name,
+      error:
+        result.reason instanceof Error && result.reason.message
+          ? result.reason.message
+          : 'upload_failed',
     })
   }
 
-  return jsonResponse(201, { uploaded })
+  if (failed.length > 0 && uploaded.length === 0) {
+    return jsonResponse(502, { error: 'upload_failed', uploaded, failed })
+  }
+
+  if (failed.length > 0) {
+    return jsonResponse(207, { uploaded, failed })
+  }
+
+  return jsonResponse(201, { uploaded, failed: [] })
 }
 
 export async function PATCH(
@@ -286,28 +286,14 @@ export async function PATCH(
 
   const newPath = `${WORKSPACE_ATTACHMENTS_DIR}/${sanitizedName}`
 
-  const response = await fetch(`${auth.agent.baseUrl}/files/rename`, {
-    method: 'POST',
-    headers: {
-      Authorization: auth.agent.authHeader,
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    },
-    body: JSON.stringify({ path, newPath }),
-    cache: 'no-store',
-  })
-
-  const data = (await response
-    .json()
-    .catch(() => null)) as WorkspaceAgentRenameResponse | null
+  const response = await workspaceAgentFetch<{ ok: boolean; path?: string; newPath?: string; error?: string }>(
+    auth.agent,
+    '/files/rename',
+    { path, newPath },
+  )
 
   if (!response.ok) {
-    return jsonResponse(response.status === 409 ? 409 : 502, {
-      error: data?.error ?? `workspace_agent_http_${response.status}`,
-    })
-  }
-  if (!data?.ok) {
-    return jsonResponse(502, { error: data?.error ?? 'workspace_agent_error' })
+    return jsonResponse(response.status === 409 ? 409 : 502, { error: response.error })
   }
 
   const listed = await listWorkspaceAttachments(auth.agent)
@@ -347,28 +333,16 @@ export async function DELETE(
     return jsonResponse(400, { error: 'invalid_path' })
   }
 
-  const response = await fetch(`${auth.agent.baseUrl}/files/delete`, {
-    method: 'POST',
-    headers: {
-      Authorization: auth.agent.authHeader,
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    },
-    body: JSON.stringify({ path }),
-    cache: 'no-store',
-  })
-
-  const data = (await response
-    .json()
-    .catch(() => null)) as WorkspaceAgentWriteResponse | null
+  const response = await workspaceAgentFetch<{ ok: boolean; error?: string }>(
+    auth.agent,
+    '/files/delete',
+    { path },
+  )
 
   if (!response.ok) {
     return jsonResponse(response.status === 404 ? 404 : 502, {
-      error: data?.error ?? `workspace_agent_http_${response.status}`,
+      error: response.error,
     })
-  }
-  if (!data?.ok) {
-    return jsonResponse(502, { error: data?.error ?? 'workspace_agent_error' })
   }
 
   return jsonResponse(200, { ok: true })

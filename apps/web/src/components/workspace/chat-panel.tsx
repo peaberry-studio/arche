@@ -1049,7 +1049,11 @@ export function ChatPanel({
 
       const data = (await response
         .json()
-        .catch(() => null)) as { uploaded?: WorkspaceAttachment[]; error?: string } | null;
+        .catch(() => null)) as {
+        uploaded?: WorkspaceAttachment[];
+        failed?: Array<{ name: string; error: string }>;
+        error?: string;
+      } | null;
 
       if (!response.ok || !data?.uploaded) {
         setAttachmentsError(data?.error ?? "upload_failed");
@@ -1067,13 +1071,18 @@ export function ChatPanel({
         uploaded.forEach((attachment) => selected.add(attachment.path));
         return [...selected];
       });
-      setAttachmentsError(null);
+      if ((data.failed?.length ?? 0) > 0) {
+        setAttachmentsError("upload_partial_failure");
+      } else {
+        setAttachmentsError(null);
+      }
     } catch {
       setAttachmentsError("upload_failed");
     } finally {
+      await refreshAttachments();
       setIsUploadingAttachment(false);
     }
-  }, [slug]);
+  }, [refreshAttachments, slug]);
 
   const handleAttachmentInputChange = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {

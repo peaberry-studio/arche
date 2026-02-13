@@ -578,6 +578,10 @@ func (s *server) handleFileRead(w http.ResponseWriter, r *http.Request) {
     writeError(w, http.StatusBadRequest, err.Error())
     return
   }
+  if err := s.ensurePathWithinWorkspace(path); err != nil {
+    writeError(w, http.StatusForbidden, err.Error())
+    return
+  }
 
   info, err := os.Stat(path)
   if err != nil {
@@ -624,6 +628,10 @@ func (s *server) handleFileList(w http.ResponseWriter, r *http.Request) {
 	path, err := s.resolvePath(req.Path)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.ensurePathWithinWorkspace(path); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
 
@@ -740,6 +748,10 @@ func (s *server) handleFileWrite(w http.ResponseWriter, r *http.Request) {
     writeError(w, http.StatusBadRequest, err.Error())
     return
   }
+  if err := s.ensurePathWithinWorkspace(path); err != nil {
+    writeError(w, http.StatusForbidden, err.Error())
+    return
+  }
 
   if req.ExpectedHash != "" {
     currentHash, ok, err := verifyExpectedHash(path, req.ExpectedHash)
@@ -816,6 +828,10 @@ func (s *server) handleFileDelete(w http.ResponseWriter, r *http.Request) {
     writeError(w, http.StatusBadRequest, err.Error())
     return
   }
+  if err := s.ensurePathWithinWorkspace(path); err != nil {
+    writeError(w, http.StatusForbidden, err.Error())
+    return
+  }
 
   info, err := os.Stat(path)
   if err != nil {
@@ -860,9 +876,17 @@ func (s *server) handleFileRename(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if err := s.ensurePathWithinWorkspace(oldPath); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	newPath, err := s.resolvePath(req.NewPath)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.ensurePathWithinWorkspace(newPath); err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
 
@@ -1310,10 +1334,15 @@ type gitStatusEntry struct {
 }
 
 func isInternalWorkspacePath(path string) bool {
-  normalized := filepath.ToSlash(path)
-  normalized = strings.TrimPrefix(normalized, "./")
-  normalized = strings.TrimPrefix(normalized, "/")
-  return normalized == ".arche" || strings.HasPrefix(normalized, ".arche/")
+	// NOTE: This is the Go equivalent of @/lib/workspace-paths.ts normalizeWorkspacePath + isInternalWorkspacePath.
+	// Keep both implementations in sync when changing path normalization rules.
+	normalized := filepath.ToSlash(path)
+	normalized = strings.TrimPrefix(normalized, "./")
+	normalized = strings.TrimPrefix(normalized, "/")
+	for strings.Contains(normalized, "//") {
+		normalized = strings.ReplaceAll(normalized, "//", "/")
+	}
+	return normalized == ".arche" || strings.HasPrefix(normalized, ".arche/")
 }
 
 func parseGitStatus(output string) []gitStatusEntry {
@@ -1602,10 +1631,26 @@ func (s *server) resolvePath(rel string) (string, error) {
     return "", errors.New("invalid_path")
   }
 
-  if !strings.HasPrefix(abs+string(os.PathSeparator), workspaceAbs+string(os.PathSeparator)) && abs != workspaceAbs {
-    return "", errors.New("path_outside_workspace")
-  }
-  return abs, nil
+	if !strings.HasPrefix(abs+string(os.PathSeparator), workspaceAbs+string(os.PathSeparator)) && abs != workspaceAbs {
+		return "", errors.New("path_outside_workspace")
+	}
+	return abs, nil
+}
+
+func (s *server) ensurePathWithinWorkspace(absPath string) error {
+	workspaceAbs, err := filepath.Abs(s.workspace)
+	if err != nil {
+		return errors.New("workspace_invalid")
+	}
+	cleaned := filepath.Clean(absPath)
+	rel, err := filepath.Rel(workspaceAbs, cleaned)
+	if err != nil {
+		return errors.New("path_traversal_rejected")
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return errors.New("path_traversal_rejected")
+	}
+	return nil
 }
 
 func getenv(key, fallback string) string {

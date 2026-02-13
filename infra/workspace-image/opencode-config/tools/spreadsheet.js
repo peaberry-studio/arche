@@ -28,7 +28,7 @@ function normalizeAttachmentPath(inputPath) {
   return path.posix.join(WORKSPACE_ROOT, relative)
 }
 
-function resolveSpreadsheetPath(inputPath) {
+export function resolveSpreadsheetPath(inputPath) {
   const candidate = normalizeAttachmentPath(inputPath)
   if (!candidate) return { ok: false, error: 'invalid_path' }
   const absolute = path.posix.normalize(candidate)

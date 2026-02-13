@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { getActiveCredentialForUser } from "@/lib/providers/store";
 import { PROVIDERS, type ProviderId } from "@/lib/providers/types";
 import { decryptPassword } from "@/lib/spawner/crypto";
+import { isInternalWorkspacePath } from "@/lib/workspace-paths";
 import { createWorkspaceAgentClient } from "@/lib/workspace-agent/client";
 import type {
   WorkspaceFileNode,
@@ -17,15 +18,6 @@ import type {
   WorkspaceConnectionState,
 } from "@/lib/opencode/types";
 import { extractTextContent, transformParts } from "@/lib/opencode/transform";
-
-function normalizeWorkspacePath(path: string): string {
-  return path.replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "");
-}
-
-function isInternalWorkspacePath(path: string): boolean {
-  const normalized = normalizeWorkspacePath(path);
-  return normalized === ".arche" || normalized.startsWith(".arche/");
-}
 
 function normalizeMessageRole(
   role: unknown

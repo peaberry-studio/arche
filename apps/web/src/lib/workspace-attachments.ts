@@ -1,3 +1,5 @@
+import { normalizeWorkspacePath } from '@/lib/workspace-paths'
+
 const MIME_BY_EXTENSION: Record<string, string> = {
   csv: 'text/csv',
   doc: 'application/msword',
@@ -92,15 +94,13 @@ export function ensureUniqueAttachmentFilename(
 }
 
 export function normalizeAttachmentPath(path: string): string {
-  return path
-    .replace(/\\/g, '/')
-    .replace(/^\.\//, '')
-    .replace(/^\/+/, '')
+  return normalizeWorkspacePath(path)
 }
 
 export function isWorkspaceAttachmentPath(path: string): boolean {
   const normalized = normalizeAttachmentPath(path)
-  return normalized.startsWith(ATTACHMENT_DIR_PREFIX)
+  if (!normalized.startsWith(ATTACHMENT_DIR_PREFIX)) return false
+  return normalized.split('/').every((segment) => segment !== '..')
 }
 
 export function formatAttachmentSize(bytes: number): string {

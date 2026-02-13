@@ -168,6 +168,14 @@ describe('workspace attachments route', () => {
     expect(body.attachments[1].path).toBe('.arche/attachments/first.txt')
   })
 
+  it('GET returns 403 when session slug does not match route slug', async () => {
+    mockGetAuthenticatedUser.mockResolvedValue(session('bob'))
+
+    const { status, body } = await callGetAttachments('alice')
+    expect(status).toBe(403)
+    expect(body.error).toBe('forbidden')
+  })
+
   it('POST enforces same-origin validation', async () => {
     mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
 
@@ -224,6 +232,7 @@ describe('workspace attachments route', () => {
 
     expect(status).toBe(201)
     expect(body.uploaded).toHaveLength(2)
+    expect(body.failed).toEqual([])
     expect(body.uploaded[0].name).toBe('report (1).pdf')
     expect(body.uploaded[1].name).toBe('diagram.png')
 
@@ -232,6 +241,47 @@ describe('workspace attachments route', () => {
     expect(firstWriteBody.encoding).toBe('base64')
     expect(typeof firstWriteBody.content).toBe('string')
     expect(firstWriteBody.content.length).toBeGreaterThan(0)
+  })
+
+  it('POST returns per-file failures without losing successes', async () => {
+    mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            entries: [],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true, hash: 'h1' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: false, error: 'write_failed' }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { status, body } = await callPostAttachments({
+      files: [
+        new File(['ok'], 'ok.txt', { type: 'text/plain' }),
+        new File(['bad'], 'bad.txt', { type: 'text/plain' }),
+      ],
+    })
+
+    expect(status).toBe(207)
+    expect(body.uploaded).toHaveLength(1)
+    expect(body.failed).toHaveLength(1)
+    expect(body.failed[0].name).toBe('bad.txt')
+    expect(body.failed[0].error).toBe('write_failed')
   })
 
   it('PATCH renames a workspace attachment', async () => {
