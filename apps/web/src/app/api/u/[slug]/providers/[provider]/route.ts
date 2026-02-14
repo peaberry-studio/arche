@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent, getAuthenticatedUser } from '@/lib/auth'
 import { validateSameOrigin } from '@/lib/csrf'
+import { getInstanceUrl } from '@/lib/opencode/client'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
 import { prisma } from '@/lib/prisma'
 import { createApiCredential } from '@/lib/providers/store'
@@ -30,7 +31,23 @@ function isProviderId(value: string): value is ProviderId {
 
 async function syncProviderAccessBestEffort(slug: string, userId: string): Promise<void> {
   try {
-    const result = await syncProviderAccessForInstance({ slug, userId })
+    const instance = await prisma.instance.findUnique({
+      where: { slug },
+      select: { password: true },
+    })
+
+    if (!instance) {
+      return
+    }
+
+    const result = await syncProviderAccessForInstance({
+      instance: {
+        baseUrl: getInstanceUrl(slug),
+        authHeader: `Basic ${Buffer.from(`opencode:${instance.password}`).toString('base64')}`,
+      },
+      slug,
+      userId,
+    })
     if (!result.ok && result.error !== 'instance_unavailable') {
       console.error('[providers] Failed to sync provider access', result.error)
     }
