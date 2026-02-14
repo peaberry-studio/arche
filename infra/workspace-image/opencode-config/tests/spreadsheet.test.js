@@ -4,7 +4,7 @@ import fs from 'node:fs/promises'
 
 import * as XLSX from 'xlsx'
 
-import { inspect, query, resolveSpreadsheetPath, sample, stats } from './spreadsheet.js'
+import { inspect, query, resolveSpreadsheetPath, sample, stats } from '../tools/spreadsheet.js'
 
 const FIXTURE_DIR = '/workspace/.arche/attachments'
 const FIXTURE_PATH = `${FIXTURE_DIR}/spreadsheet-test.xlsx`

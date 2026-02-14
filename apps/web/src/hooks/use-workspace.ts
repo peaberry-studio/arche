@@ -55,6 +55,8 @@ export type AgentCatalogItem = {
   isPrimary: boolean;
 };
 
+const STALE_PENDING_ASSISTANT_MS = 5_000;
+
 function normalizeAgentId(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -68,6 +70,19 @@ function findAgentInCatalog(
     if (entry.id === agentId) return true;
     return normalizeAgentId(entry.displayName) === normalized;
   });
+}
+
+function parseModelString(
+  value?: string
+): { providerId: string; modelId: string } | null {
+  if (!value) return null;
+  const separator = value.indexOf("/");
+  if (separator <= 0 || separator >= value.length - 1) return null;
+
+  return {
+    providerId: value.slice(0, separator),
+    modelId: value.slice(separator + 1),
+  };
 }
 
 export type UseWorkspaceOptions = {
@@ -196,6 +211,8 @@ export function useWorkspace({
   const [selectedModel, setSelectedModel] = useState<AvailableModel | null>(
     null
   );
+  const modelsRef = useRef<AvailableModel[]>([]);
+  modelsRef.current = models;
   const [agentCatalog, setAgentCatalog] = useState<AgentCatalogItem[]>([]);
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
 
@@ -522,22 +539,24 @@ export function useWorkspace({
           }
         }
 
-        const hydratedMessages = result.messages.map((message) => {
-          const resumeState = resumeFailureStateRef.current.get(message.id);
-          if (
-            message.role === "assistant" &&
-            message.pending &&
-            resumeState?.suppressed
-          ) {
-            return {
-              ...message,
-              pending: false,
-              statusInfo: { status: "error", detail: "resume_exhausted" },
-            };
-          }
+        const hydratedMessages: WorkspaceMessage[] = result.messages.map(
+          (message): WorkspaceMessage => {
+            const resumeState = resumeFailureStateRef.current.get(message.id);
+            if (
+              message.role === "assistant" &&
+              message.pending &&
+              resumeState?.suppressed
+            ) {
+              return {
+                ...message,
+                pending: false,
+                statusInfo: { status: "error", detail: "resume_exhausted" },
+              };
+            }
 
-          return message;
-        });
+            return message;
+          }
+        );
 
         setMessages(hydratedMessages);
 
@@ -715,11 +734,13 @@ export function useWorkspace({
         mode === "resume" ? targetMessageId : null;
       const bufferedParts = new Map<string, MessagePart[]>();
       let streamCompleted = false;
-      let receivedAnyPart = false;
+      let receivedAssistantPart = false;
+      let receivedStreamData = false;
 
       const flushBufferedParts = (messageId: string) => {
         const buffered = bufferedParts.get(messageId);
         if (!buffered || buffered.length === 0) return;
+        receivedAssistantPart = true;
         buffered.forEach((part) => upsertMessagePart(targetMessageId, part));
         bufferedParts.delete(messageId);
       };
@@ -728,16 +749,17 @@ export function useWorkspace({
         if (!messageId) return;
         const transformed = transformParts([part]);
         if (transformed.length === 0) return;
-        receivedAnyPart = true;
 
         if (mode === "resume") {
           if (messageId !== targetMessageId) return;
+          receivedAssistantPart = true;
           transformed.forEach((p) => upsertMessagePart(targetMessageId, p));
           return;
         }
 
         if (assistantMessageId) {
           if (messageId !== assistantMessageId) return;
+          receivedAssistantPart = true;
           transformed.forEach((p) => upsertMessagePart(targetMessageId, p));
           return;
         }
@@ -815,6 +837,7 @@ export function useWorkspace({
               eventData = line.slice(5).trim();
             } else if (line === "" && eventData) {
               try {
+                receivedStreamData = true;
                 const data = JSON.parse(eventData);
 
                 switch (eventType) {
@@ -906,7 +929,7 @@ export function useWorkspace({
         const isLatest = streamCounterRef.current === token;
 
         if (mode === "resume") {
-          if (streamCompleted || receivedAnyPart) {
+          if (streamCompleted || receivedAssistantPart) {
             resumeFailureStateRef.current.delete(targetMessageId);
           } else {
             const nextState = recordResumeFailure(
@@ -925,7 +948,34 @@ export function useWorkspace({
 
         if (isLatest) {
           await new Promise((resolve) => setTimeout(resolve, 120));
-          const result = await listMessagesAction(slug, sessionId);
+          const loadLatestMessages = async () => {
+            const attempts =
+              mode === "send" && assistantMessageId ? 3 : 1;
+            let latestResult = await listMessagesAction(slug, sessionId);
+
+            for (let attempt = 1; attempt < attempts; attempt += 1) {
+              if (!latestResult.ok || !latestResult.messages) {
+                return latestResult;
+              }
+
+              const assistant = latestResult.messages.find(
+                (message) =>
+                  message.id === assistantMessageId &&
+                  message.role === "assistant"
+              );
+
+              if (assistant) {
+                return latestResult;
+              }
+
+              await new Promise((resolve) => setTimeout(resolve, 120));
+              latestResult = await listMessagesAction(slug, sessionId);
+            }
+
+            return latestResult;
+          };
+
+          const result = await loadLatestMessages();
           if (result.ok && result.messages) {
             const pendingIds = new Set(
               result.messages.filter((message) => message.pending).map((message) => message.id)
@@ -936,26 +986,60 @@ export function useWorkspace({
               }
             }
 
-            const hydratedMessages = result.messages.map((message) => {
-              const resumeState = resumeFailureStateRef.current.get(message.id);
-              if (
-                message.role === "assistant" &&
-                message.pending &&
-                resumeState?.suppressed
-              ) {
-                return {
-                  ...message,
-                  pending: false,
-                  statusInfo: { status: "error", detail: "resume_exhausted" },
-                };
-              }
+            let hydratedMessages: WorkspaceMessage[] = result.messages.map(
+              (message): WorkspaceMessage => {
+                const resumeState = resumeFailureStateRef.current.get(message.id);
+                if (
+                  message.role === "assistant" &&
+                  message.pending &&
+                  resumeState?.suppressed
+                ) {
+                  return {
+                    ...message,
+                    pending: false,
+                    statusInfo: { status: "error", detail: "resume_exhausted" },
+                  };
+                }
 
-              return message;
-            });
+                return message;
+              }
+            );
+
+            if (mode === "send" && assistantMessageId && !receivedAssistantPart) {
+              const assistantMessage = hydratedMessages.find(
+                (message) =>
+                  message.id === assistantMessageId &&
+                  message.role === "assistant"
+              );
+
+              if (
+                assistantMessage &&
+                !assistantMessage.pending &&
+                assistantMessage.parts.length === 0 &&
+                assistantMessage.content.trim().length === 0
+              ) {
+                hydratedMessages = hydratedMessages.map((message) => {
+                  if (message.id !== assistantMessageId) return message;
+                  return {
+                    ...message,
+                    pending: false,
+                    statusInfo: { status: "error", detail: "stream_incomplete" },
+                  };
+                });
+              }
+            }
 
             setMessages(hydratedMessages);
-          } else if (!streamCompleted && !receivedAnyPart) {
-            updateStatus("error", undefined, "stream_incomplete");
+          } else {
+            if (mode === "send" && !receivedStreamData) {
+              setMessages((prev) =>
+                prev.filter((message) => !message.id.startsWith("temp-"))
+              );
+            }
+
+            if (!streamCompleted && !receivedAssistantPart) {
+              updateStatus("error", undefined, "stream_incomplete");
+            }
           }
           scheduleWorkspaceRefresh();
         }
@@ -1034,6 +1118,21 @@ export function useWorkspace({
 
       if (!sessionId) return;
 
+      let resolvedModel = model;
+      if (!resolvedModel) {
+        const primaryModel = parseModelString(
+          agentCatalog.find((agent) => agent.isPrimary)?.model
+        );
+        if (primaryModel) {
+          resolvedModel = primaryModel;
+        } else if (selectedModel) {
+          resolvedModel = {
+            providerId: selectedModel.providerId,
+            modelId: selectedModel.modelId,
+          };
+        }
+      }
+
       // Add optimistic user message
       const tempUserMsgId = `temp-user-${Date.now()}`;
       const tempUserParts: MessagePart[] = [
@@ -1063,6 +1162,7 @@ export function useWorkspace({
         role: "assistant",
         content: "",
         timestamp: "Just now",
+        timestampRaw: Date.now(),
         parts: [],
         pending: true,
         statusInfo: { status: "thinking" },
@@ -1075,12 +1175,19 @@ export function useWorkspace({
         mode: "send",
         targetMessageId: tempAssistantMsgId,
         text,
-        model,
+        model: resolvedModel,
         attachments: messageAttachments,
         contextPaths: messageContextPaths,
       });
     },
-    [abortActiveStream, activeSessionId, createSession, streamChat]
+    [
+      abortActiveStream,
+      activeSessionId,
+      agentCatalog,
+      createSession,
+      selectedModel,
+      streamChat,
+    ]
   );
 
   // Abort session
@@ -1188,6 +1295,8 @@ export function useWorkspace({
       } | null;
       if (!response.ok || !data?.agents) return;
       const agents = data.agents;
+      const primary = agents.find((agent) => agent.isPrimary);
+      const primaryModel = parseModelString(primary?.model);
 
       setAgentCatalog(agents);
       setActiveAgentId((current) => {
@@ -1197,9 +1306,39 @@ export function useWorkspace({
             return resolvedCurrent.id;
           }
         }
-        const primary = agents.find((agent) => agent.isPrimary);
         return primary?.id ?? current;
       });
+
+      if (primaryModel) {
+        setSelectedModel((current) => {
+          if (
+            current?.providerId === primaryModel.providerId &&
+            current?.modelId === primaryModel.modelId
+          ) {
+            return current;
+          }
+
+          // Respect runtime/user model decisions that are not global defaults.
+          if (current && !current.isDefault) {
+            return current;
+          }
+
+          const catalogMatch = modelsRef.current.find(
+            (entry) =>
+              entry.providerId === primaryModel.providerId &&
+              entry.modelId === primaryModel.modelId
+          );
+          if (catalogMatch) return catalogMatch;
+
+          return {
+            providerId: primaryModel.providerId,
+            modelId: primaryModel.modelId,
+            providerName: primaryModel.providerId,
+            modelName: primaryModel.modelId,
+            isDefault: false,
+          };
+        });
+      }
     } catch {
       // keep defaults when catalog is unavailable
     }
@@ -1281,6 +1420,28 @@ export function useWorkspace({
     if (isSendingRef.current) return;
 
     const now = Date.now();
+    const sessionBusy = activeSession?.status === "busy";
+
+    const stalePendingWithoutParts = [...messages].reverse().find((m) => {
+      if (m.role !== "assistant" || !m.pending) return false;
+      if (m.parts.length > 0) return false;
+      if (typeof m.timestampRaw !== "number") return false;
+      return now - m.timestampRaw >= STALE_PENDING_ASSISTANT_MS;
+    });
+
+    if (stalePendingWithoutParts && !sessionBusy) {
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.id !== stalePendingWithoutParts.id) return m;
+          return {
+            ...m,
+            pending: false,
+            statusInfo: { status: "error", detail: "stream_incomplete" },
+          };
+        })
+      );
+      return;
+    }
 
     const pendingAssistant = [...messages]
       .reverse()
@@ -1297,6 +1458,10 @@ export function useWorkspace({
         return allowed;
       });
     if (pendingAssistant) {
+      if (!sessionBusy && pendingAssistant.parts.length === 0) {
+        return;
+      }
+
       const activeStream = activeStreamRef.current;
       if (
         !activeStream ||
@@ -1320,7 +1485,14 @@ export function useWorkspace({
     ) {
       abortActiveStream();
     }
-  }, [abortActiveStream, activeSessionId, isConnected, messages, streamChat]);
+  }, [
+    abortActiveStream,
+    activeSession?.status,
+    activeSessionId,
+    isConnected,
+    messages,
+    streamChat,
+  ]);
 
   // Refresh diffs when triggered by message completion
   useEffect(() => {

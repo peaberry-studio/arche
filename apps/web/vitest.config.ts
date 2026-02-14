@@ -7,8 +7,15 @@ export default defineConfig({
     environment: 'node',
   },
   resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-    },
+    alias: [
+      {
+        find: /^@\/kickstart\/(.*)$/,
+        replacement: `${path.resolve(__dirname, './kickstart')}/$1`,
+      },
+      {
+        find: /^@\//,
+        replacement: `${path.resolve(__dirname, './src')}/`,
+      },
+    ],
   },
 })

@@ -71,7 +71,9 @@ arche/
 
 ## Agentes
 
-El sistema incluye agentes IA especializados definidos en `config/CommonWorkspaceConfig.json`:
+El sistema incluye un catalogo de agentes IA especializados definido en `apps/web/kickstart/agents/`.
+Cada workspace aplica un subconjunto durante el flujo inicial de kickstart y genera
+`CommonWorkspaceConfig.json` en el repo bare de configuracion:
 
 | Agente | Modo | Funcion |
 |--------|------|---------|
@@ -83,9 +85,6 @@ El sistema incluye agentes IA especializados definidos en `config/CommonWorkspac
 | **ads-scripts** | subagent | Guiones para anuncios (UGC/performance) |
 | **performance-marketing** | subagent | Analisis Meta Ads / ASA |
 | **seo** | subagent | Estrategia SEO y contenido |
-| **github-issues** | subagent | Gestion de tareas en GitHub Projects |
-| **code-review** | subagent | Revision de codigo y buenas practicas |
-| **test-orchestrator** | subagent | Diseno y ejecucion de tests |
 
 ## Knowledge Base
 
@@ -106,7 +105,9 @@ kb/
 └── Templates/            # Plantillas operativas (PRD, KB entry, marketing)
 ```
 
-Se despliega como repositorios bare de Git (`kb-content` y `kb-config`) que los contenedores montan y sincronizan.
+Se despliega como repositorios bare de Git (`kb-content` y `kb-config`) que los
+contenedores montan y sincronizan. En una instalacion nueva, ambos repos se
+inicializan vacios y se completan al ejecutar kickstart.
 
 ## Desarrollo local
 
@@ -125,7 +126,7 @@ cp apps/web/.env.example apps/web/.env
 # 2. Construir la imagen de workspace
 podman build -t arche-workspace:latest infra/workspace-image
 
-# 3. Crear red y repos bare de KB
+# 3. Crear red y repos bare de KB/config (vacios)
 podman network create arche-internal
 ./scripts/deploy-kb.sh ~/.arche/kb-content
 ./scripts/deploy-config.sh ~/.arche/kb-config
@@ -140,6 +141,7 @@ podman compose -f infra/compose/compose.yaml exec web pnpm db:seed
 # 6. Abrir la app
 # http://arche.lvh.me:8080
 # Login: admin@example.com / change-me
+# Luego ejecutar kickstart desde /u/<slug>
 ```
 
 ### Desarrollo con hot-reload
@@ -191,7 +193,7 @@ El despliegue remoto usa Ansible para provisionar Podman, TLS via ACME DNS chall
 
 Ver `apps/web/.env.example` para la referencia completa.
 
-## Estructura del codigo fuente (`apps/web/src/`)
+## Estructura del codigo fuente (`apps/web/`)
 
 ```
 src/
@@ -216,6 +218,11 @@ src/
 ├── hooks/                  # Custom hooks (useWorkspace, etc.)
 ├── types/                  # Definiciones de tipos compartidas
 └── contexts/               # React Contexts
+
+kickstart/
+├── agents/                 # Catalogo compartido de agentes
+├── templates/              # startup-tech, marketing-studio, research-group, blank
+└── *.ts                    # Contratos, estado, apply y renderizado
 ```
 
 ## Documentacion adicional

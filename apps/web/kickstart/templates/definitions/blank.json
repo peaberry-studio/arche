@@ -1,0 +1,40 @@
+{
+  "id": "blank",
+  "label": "Blank",
+  "description": "Minimal workspace with only core structure and baseline agents.",
+  "kbSkeleton": [
+    {
+      "type": "dir",
+      "path": "Outputs"
+    },
+    {
+      "type": "file",
+      "path": "Outputs/.gitkeep",
+      "content": ""
+    },
+    {
+      "type": "dir",
+      "path": "Company"
+    },
+    {
+      "type": "file",
+      "path": "Company/00 - Company Profile.md",
+      "content": "# {{companyName}}\n\n## Company Description\n\n{{companyDescription}}\n\n## Mission\n\n- Define your mission statement here.\n\n## Current Priorities\n\n- Add current priorities here.\n"
+    },
+    {
+      "type": "file",
+      "path": "Company/01 - Glossary.md",
+      "content": "# Glossary\n\n| Term | Definition |\n| --- | --- |\n| {{companyName}} | {{companyDescription}} |\n"
+    }
+  ],
+  "agentsMdTemplate": "# AGENTS.md\n\nWorkspace guidelines for **{{companyName}}**.\n\nCompany summary: {{companyDescription}}\n\nUse this workspace as a clean slate. Keep the KB structured, concise, and easy to extend as the team grows.\n",
+  "recommendedAgentIds": [
+    "assistant",
+    "knowledge-curator"
+  ],
+  "recommendedModels": {
+    "assistant": "opencode/kimi-k2.5-free",
+    "knowledge-curator": "opencode/kimi-k2.5-free"
+  },
+  "order": 400
+}

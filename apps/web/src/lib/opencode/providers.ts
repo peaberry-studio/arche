@@ -1,4 +1,3 @@
-import { getInstanceBasicAuth } from '@/lib/opencode/client'
 import { getActiveCredentialForUser } from '@/lib/providers/store'
 import { issueGatewayToken } from '@/lib/providers/tokens'
 import { PROVIDERS, type ProviderId } from '@/lib/providers/types'
@@ -8,17 +7,16 @@ export type SyncProviderAccessResult =
   | { ok: false; error: 'instance_unavailable' | 'sync_failed' }
 
 type SyncProviderAccessInput = {
+  instance: { baseUrl: string; authHeader: string }
   slug: string
   userId: string
+  disposeInstance?: boolean
 }
 
 export async function syncProviderAccessForInstance(
   input: SyncProviderAccessInput,
 ): Promise<SyncProviderAccessResult> {
-  const instance = await getInstanceBasicAuth(input.slug)
-  if (!instance) {
-    return { ok: false, error: 'instance_unavailable' }
-  }
+  const instance = input.instance
 
   try {
     const enabledByProvider = new Map<ProviderId, { version: number }>()
@@ -68,15 +66,17 @@ export async function syncProviderAccessForInstance(
       })
     }
 
-    // OpenCode caches provider discovery; dispose to reload with updated auth.
-    await fetch(`${instance.baseUrl}/instance/dispose`, {
-      method: 'POST',
-      headers: {
-        Authorization: instance.authHeader,
-        Accept: 'application/json',
-      },
-      cache: 'no-store',
-    }).catch(() => {})
+    if (input.disposeInstance !== false) {
+      // OpenCode caches provider discovery; dispose to reload with updated auth.
+      await fetch(`${instance.baseUrl}/instance/dispose`, {
+        method: 'POST',
+        headers: {
+          Authorization: instance.authHeader,
+          Accept: 'application/json',
+        },
+        cache: 'no-store',
+      }).catch(() => {})
+    }
 
     return { ok: true }
   } catch (error) {

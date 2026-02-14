@@ -38,13 +38,19 @@ export function SessionsPanel({
 
   if (sessions.length === 0) {
     return (
-      <div className="flex flex-1 flex-col">
-        <div className="px-3 pt-3 pb-2">
-          <Button variant="ghost" size="sm" className="w-full text-muted-foreground" onClick={onCreateSession}><Plus size={14} weight="bold" className="mr-1.5" />New chat</Button>
-        </div>
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+      <div className="flex flex-1 items-center justify-center px-4">
+        <div className="flex flex-col items-center justify-center gap-2 text-center">
           <ChatCircle size={24} weight="bold" className="text-muted-foreground/50" />
-          <p className="text-xs text-muted-foreground">No sessions yet</p>
+          <p className="text-xs text-muted-foreground">No chats yet</p>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs text-muted-foreground"
+            onClick={onCreateSession}
+          >
+            <Plus size={12} weight="bold" className="mr-1" />
+            New chat
+          </Button>
         </div>
       </div>
     );

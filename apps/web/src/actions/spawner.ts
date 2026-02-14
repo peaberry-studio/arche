@@ -3,8 +3,10 @@
 import { cookies } from 'next/headers'
 import { getSessionFromToken, SESSION_COOKIE_NAME } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { getInstanceBasicAuth } from '@/lib/opencode/client'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
 import { startInstance, stopInstance, getInstanceStatus, isSlowStart, listActiveInstances } from '@/lib/spawner/core'
+import { getKickstartStatus } from '@/kickstart/status'
 
 async function getAuthenticatedUser() {
   const cookieStore = await cookies()
@@ -23,6 +25,11 @@ export async function startInstanceAction(slug: string): Promise<SpawnerActionRe
 
   if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
     return { ok: false, error: 'forbidden' }
+  }
+
+  const kickstartStatus = await getKickstartStatus()
+  if (kickstartStatus !== 'ready') {
+    return { ok: false, error: 'setup_required' }
   }
 
   return startInstance(slug, session.user.id)
@@ -100,27 +107,44 @@ export async function ensureInstanceRunningAction(slug: string): Promise<{
     return { status: 'error', error: 'forbidden' }
   }
 
+  const kickstartStatus = await getKickstartStatus()
+  if (kickstartStatus !== 'ready') {
+    console.log('[ensureInstanceRunning] Kickstart setup required')
+    return { status: 'error', error: 'setup_required' }
+  }
+
   const instance = await getInstanceStatus(slug)
   console.log('[ensureInstanceRunning] Current instance status:', instance?.status ?? 'none')
   
   // Ya está corriendo o iniciando
   if (instance?.status === 'running') {
+    const startedRecently =
+      instance.startedAt instanceof Date &&
+      Date.now() - instance.startedAt.getTime() < 30_000
+
     // Best-effort: keep provider access in sync even when instance was already running.
     // This is important when provider keys are created/rotated after the workspace was started.
-    try {
-      const syncUserId =
-        session.user.slug === slug
-          ? session.user.id
-          : (await prisma.user.findUnique({ where: { slug }, select: { id: true } }))?.id
+    if (!startedRecently) {
+      try {
+        const syncUserId =
+          session.user.slug === slug
+            ? session.user.id
+            : (await prisma.user.findUnique({ where: { slug }, select: { id: true } }))?.id
 
-      if (syncUserId) {
-        const syncResult = await syncProviderAccessForInstance({ slug, userId: syncUserId })
-        if (!syncResult.ok) {
-          console.error('[ensureInstanceRunning] Failed to sync OpenCode providers', syncResult.error)
+        const instanceConn = await getInstanceBasicAuth(slug)
+        if (instanceConn && syncUserId) {
+          const syncResult = await syncProviderAccessForInstance({
+            instance: instanceConn,
+            slug,
+            userId: syncUserId,
+          })
+          if (!syncResult.ok) {
+            console.error('[ensureInstanceRunning] Failed to sync OpenCode providers', syncResult.error)
+          }
         }
+      } catch (err) {
+        console.error('[ensureInstanceRunning] Failed to sync OpenCode providers', err)
       }
-    } catch (err) {
-      console.error('[ensureInstanceRunning] Failed to sync OpenCode providers', err)
     }
 
     return { status: 'running' }

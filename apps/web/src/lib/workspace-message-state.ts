@@ -13,18 +13,23 @@ type DeriveWorkspaceMessageStateInput = {
   role: MessageRole
   completedAt?: number
   parts: MessagePart[]
+  sessionStatus?: 'busy' | 'idle' | 'unknown'
 }
 
 export function deriveWorkspaceMessageRuntimeState({
   role,
   completedAt,
   parts,
+  sessionStatus = 'unknown',
 }: DeriveWorkspaceMessageStateInput): WorkspaceMessageRuntimeState {
   if (role !== 'assistant') return { pending: false }
   if (typeof completedAt === 'number' && completedAt > 0) return { pending: false }
 
   const lastPart = parts[parts.length - 1]
   if (!lastPart) {
+    if (sessionStatus === 'idle') {
+      return { pending: false, statusInfo: { status: 'error', detail: 'stream_incomplete' } }
+    }
     return { pending: true, statusInfo: { status: 'thinking' } }
   }
 

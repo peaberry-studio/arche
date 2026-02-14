@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAuthenticatedUser } from '@/lib/auth'
 import { validateSameOrigin } from '@/lib/csrf'
 import { startInstance, stopInstance } from '@/lib/spawner/core'
+import { getKickstartStatus } from '@/kickstart/status'
 
 export async function POST(
   request: NextRequest,
@@ -22,6 +23,11 @@ export async function POST(
 
   if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
+  }
+
+  const kickstartStatus = await getKickstartStatus()
+  if (kickstartStatus !== 'ready') {
+    return NextResponse.json({ error: 'setup_required' }, { status: 409 })
   }
 
   const stopResult = await stopInstance(slug, session.user.id)

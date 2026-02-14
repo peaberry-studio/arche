@@ -23,6 +23,19 @@ describe('deriveWorkspaceMessageRuntimeState', () => {
     expect(result).toEqual({ pending: true, statusInfo: { status: 'thinking' } })
   })
 
+  it('marks empty assistant response as incomplete when session is idle', () => {
+    const result = deriveWorkspaceMessageRuntimeState({
+      role: 'assistant',
+      parts: [],
+      sessionStatus: 'idle',
+    })
+
+    expect(result).toEqual({
+      pending: false,
+      statusInfo: { status: 'error', detail: 'stream_incomplete' },
+    })
+  })
+
   it('keeps tool-running assistants pending', () => {
     const parts: MessagePart[] = [
       {

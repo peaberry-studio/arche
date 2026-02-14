@@ -9,7 +9,13 @@
       "Bash(npx tsc:*)",
       "Bash(git add:*)",
       "Bash(npx --package typescript tsc:*)",
-      "Skill(commit-commands:commit)"
+      "Skill(commit-commands:commit)",
+      "Bash(git show:*)",
+      "Bash(git diff:*)",
+      "Bash(npx vitest run:*)",
+      "Bash(podman ps:*)",
+      "Bash(podman logs:*)",
+      "Bash(podman exec:*)"
     ]
   }
 }

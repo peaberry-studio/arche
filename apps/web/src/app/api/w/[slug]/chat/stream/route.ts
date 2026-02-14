@@ -38,6 +38,9 @@ type WorkspaceAgentReadResponse = {
 const MAX_PDF_BYTES_FOR_EXTRACTION = 8 * 1024 * 1024
 const MAX_PDF_TEXT_CHARS = 24_000
 const MAX_CONTEXT_REFERENCES_PER_MESSAGE = 20
+const STREAM_RELEVANT_EVENT_TICK_MS = 1000
+const SEND_STREAM_RELEVANT_EVENT_TIMEOUT_MS = 20_000
+const RESUME_STREAM_RELEVANT_EVENT_TIMEOUT_MS = 12_000
 
 function normalizeContextPaths(value: unknown): string[] {
   if (!Array.isArray(value)) return []
@@ -262,9 +265,40 @@ export async function POST(
       }
       
       let aborted = false
+      let promptSent = Boolean(resume)
+      let promptAcknowledged = Boolean(resume)
       
       try {
         sendEvent('status', { status: 'connecting' })
+
+        // Subscribe first so we don't miss fast session events.
+        const eventsUrl = `${baseUrl}/event`
+        console.log('[stream] Connecting to events:', eventsUrl)
+
+        const eventsResponse = await fetch(eventsUrl, {
+          method: 'GET',
+          headers: {
+            'Authorization': authHeader,
+            'Accept': 'text/event-stream',
+            'Cache-Control': 'no-cache'
+          }
+        })
+
+        console.log('[stream] Events connection:', eventsResponse.status)
+
+        if (!eventsResponse.ok || !eventsResponse.body) {
+          console.log('[stream] Events connection failed')
+          sendEvent('error', { error: 'Failed to connect to event stream' })
+          return
+        }
+
+        const reader = eventsResponse.body.getReader()
+        const decoder = new TextDecoder()
+        let parseState = INITIAL_SSE_PARSE_STATE
+
+        const cancelReader = async () => {
+          await reader.cancel().catch(() => undefined)
+        }
         
         if (!resume) {
           const promptParts: Array<
@@ -291,7 +325,7 @@ export async function POST(
 
               if (!isWorkspaceAttachmentPath(attachmentPath)) {
                 sendEvent('error', { error: 'invalid_attachment_path' })
-                controller.close()
+                await cancelReader()
                 return
               }
 
@@ -370,7 +404,7 @@ export async function POST(
 
           if (promptParts.length === 0) {
             sendEvent('error', { error: 'missing_fields' })
-            controller.close()
+            await cancelReader()
             return
           }
 
@@ -397,38 +431,14 @@ export async function POST(
             const errorText = await promptResponse.text()
             console.log('[stream] prompt_async error:', errorText)
             sendEvent('error', { error: `Failed to start message: ${errorText}` })
-            controller.close()
+            await cancelReader()
             return
           }
+
+          promptSent = true
         }
         
         sendEvent('status', { status: 'thinking' })
-        
-        // Subscribe to SSE events from OpenCode
-        const eventsUrl = `${baseUrl}/event`
-        console.log('[stream] Connecting to events:', eventsUrl)
-        
-        const eventsResponse = await fetch(eventsUrl, {
-          method: 'GET',
-          headers: {
-            'Authorization': authHeader,
-            'Accept': 'text/event-stream',
-            'Cache-Control': 'no-cache'
-          }
-        })
-        
-        console.log('[stream] Events connection:', eventsResponse.status)
-        
-        if (!eventsResponse.ok || !eventsResponse.body) {
-          console.log('[stream] Events connection failed')
-          sendEvent('error', { error: 'Failed to connect to event stream' })
-          controller.close()
-          return
-        }
-        
-        const reader = eventsResponse.body.getReader()
-        const decoder = new TextDecoder()
-        let parseState = INITIAL_SSE_PARSE_STATE
         
         // Track state for the assistant response
         let currentStatus: string | null = null
@@ -436,6 +446,17 @@ export async function POST(
         let currentDetail: string | undefined
         let assistantMessageId: string | null = messageId ?? null
         const messageRoles = new Map<string, string>()
+        const seenPartMessageIds = new Set<string>()
+        let assistantMessageSeen = typeof assistantMessageId === 'string'
+        let assistantPartSeen = false
+        let lastRelevantEventAt = Date.now()
+        const relevantEventTimeoutMs = resume
+          ? RESUME_STREAM_RELEVANT_EVENT_TIMEOUT_MS
+          : SEND_STREAM_RELEVANT_EVENT_TIMEOUT_MS
+
+        const markRelevantEvent = () => {
+          lastRelevantEventAt = Date.now()
+        }
 
         const emitStatus = (status: string, toolName?: string, detail?: string) => {
           if (currentStatus === status && currentToolName === toolName && currentDetail === detail) return
@@ -444,13 +465,60 @@ export async function POST(
           currentDetail = detail
           sendEvent('status', { status, toolName, detail })
         }
+
+        const finalizeFromIdle = () => {
+          if (!resume && !assistantMessageSeen) {
+            emitStatus('error', undefined, 'stream_no_assistant_message')
+            sendEvent('error', { error: 'stream_no_assistant_message' })
+            aborted = true
+            return
+          }
+
+          if (!resume && !assistantPartSeen) {
+            emitStatus('error', undefined, 'stream_incomplete')
+            sendEvent('error', { error: 'stream_incomplete' })
+            aborted = true
+            return
+          }
+
+          console.log('[stream] Session idle, completing')
+          emitStatus('complete')
+          sendEvent('done', { refresh: true })
+          aborted = true
+        }
         
         console.log('[stream] Starting to read events...')
         
         while (!aborted) {
-          const { done, value } = await reader.read()
-          
-          if (done) {
+          const readPromise = reader.read()
+          let streamReadResult: ReadableStreamReadResult<Uint8Array> | null = null
+
+          while (!aborted && !streamReadResult) {
+            const readResult = await Promise.race([
+              readPromise.then((result) => ({ type: 'data' as const, result })),
+              new Promise<{ type: 'tick' }>((resolve) =>
+                setTimeout(() => resolve({ type: 'tick' }), STREAM_RELEVANT_EVENT_TICK_MS)
+              ),
+            ])
+
+            if (readResult.type === 'tick') {
+              if (Date.now() - lastRelevantEventAt > relevantEventTimeoutMs) {
+                emitStatus('error', undefined, 'stream_timeout')
+                sendEvent('error', { error: 'stream_timeout' })
+                aborted = true
+              }
+              continue
+            }
+
+            streamReadResult = readResult.result
+          }
+
+          if (aborted || !streamReadResult) {
+            break
+          }
+
+          const { done, value } = streamReadResult
+          if (done || !value) {
             console.log('[stream] Event stream ended')
             break
           }
@@ -478,10 +546,21 @@ export async function POST(
                   eventType === 'file.created' ||
                   eventType === 'file.deleted' ||
                   eventType === 'todo.updated'
+
+                const isSessionScopedEvent =
+                  eventType === 'session.status' ||
+                  eventType === 'session.idle' ||
+                  eventType === 'session.error'
                 
                 // Filter events for our session only
-                if (!isWorkspaceEvent && eventSessionId && eventSessionId !== sessionId) {
-                  continue
+                if (!isWorkspaceEvent) {
+                  if (isSessionScopedEvent && eventSessionId !== sessionId) {
+                    continue
+                  }
+
+                  if (!isSessionScopedEvent && eventSessionId && eventSessionId !== sessionId) {
+                    continue
+                  }
                 }
                 
                 console.log('[stream] Event:', eventType)
@@ -489,31 +568,40 @@ export async function POST(
                 switch (eventType) {
                   // Session status changes
                   case 'session.status': {
+                    markRelevantEvent()
                     const status = event.properties?.status
                     console.log('[stream] Session status:', status?.type)
 
                     if (status?.type === 'busy') {
+                      promptSent = true
+                      promptAcknowledged = true
                       emitStatus('thinking')
                     } else if (status?.type === 'retry') {
+                      promptAcknowledged = true
                       emitStatus('thinking', undefined, status?.message)
                     } else if (status?.type === 'idle') {
-                      console.log('[stream] Session idle, completing')
-                      emitStatus('complete')
-                      sendEvent('done', { refresh: true })
-                      aborted = true
+                      if (!promptSent || !promptAcknowledged) {
+                        console.log('[stream] Ignoring pre-prompt idle session.status event')
+                        break
+                      }
+                      finalizeFromIdle()
                     }
                     break
                   }
 
                   case 'session.idle': {
-                    console.log('[stream] Session idle event, completing')
-                    emitStatus('complete')
-                    sendEvent('done', { refresh: true })
-                    aborted = true
+                    markRelevantEvent()
+                    console.log('[stream] Session idle event')
+                    if (!promptSent || !promptAcknowledged) {
+                      console.log('[stream] Ignoring pre-prompt session.idle event')
+                      break
+                    }
+                    finalizeFromIdle()
                     break
                   }
 
                   case 'session.error': {
+                    markRelevantEvent()
                     const error = event.properties?.error
                     console.log('[stream] Session error:', error)
                     emitStatus('error', undefined, error?.data?.message || 'Unknown error')
@@ -523,6 +611,7 @@ export async function POST(
                   }
 
                   case 'message.updated': {
+                    markRelevantEvent()
                     const info = event.properties?.info
                     if (!info) break
                     messageRoles.set(info.id, info.role)
@@ -531,6 +620,11 @@ export async function POST(
                       assistantMessageId = info.id
                     }
                     if (info.role === 'assistant') {
+                      promptAcknowledged = true
+                      assistantMessageSeen = true
+                      if (seenPartMessageIds.has(info.id)) {
+                        assistantPartSeen = true
+                      }
                       sendEvent('assistant-meta', {
                         providerID: info.providerID,
                         modelID: info.modelID,
@@ -542,14 +636,18 @@ export async function POST(
 
                   // Message part updates
                   case 'message.part.updated': {
+                    markRelevantEvent()
                     const part = event.properties?.part
                     const delta = event.properties?.delta
                     if (!part) break
 
                     const partMessageId = part.messageID
+                    if (typeof partMessageId !== 'string') break
+                    seenPartMessageIds.add(partMessageId)
                     const knownRole = messageRoles.get(partMessageId)
                     if (!assistantMessageId && knownRole === 'assistant') {
                       assistantMessageId = partMessageId
+                      assistantMessageSeen = true
                     }
 
                     const isAssistantPart = assistantMessageId
@@ -559,6 +657,9 @@ export async function POST(
                     sendEvent('part', { messageId: partMessageId, part, delta })
 
                     if (!isAssistantPart) break
+
+                    promptAcknowledged = true
+                    assistantPartSeen = true
 
                     switch (part.type) {
                       case 'text': {

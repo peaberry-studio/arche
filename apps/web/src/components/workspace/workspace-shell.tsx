@@ -172,6 +172,10 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
       if (cancelled) return;
       
       if (result.status === 'error') {
+        if (result.error === 'setup_required') {
+          router.replace(`/u/${slug}?setup=required`);
+          return;
+        }
         setInstanceStatus('error');
         setInstanceError(result.error ?? 'Unknown error');
         return;
@@ -190,6 +194,11 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
             setInstanceStatus('running');
             clearInterval(poll);
           } else if (check.status === 'error') {
+            if (check.error === 'setup_required') {
+              clearInterval(poll);
+              router.replace(`/u/${slug}?setup=required`);
+              return;
+            }
             setInstanceStatus('error');
             setInstanceError(check.error ?? 'Unknown error');
             clearInterval(poll);
@@ -200,7 +209,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
     
     ensureRunning();
     return () => { cancelled = true; };
-  }, [slug]);
+  }, [router, slug]);
 
   // Use workspace hook only when instance is running
   const workspace = useWorkspace({ slug, pollInterval: 5000, enabled: instanceStatus === 'running' });

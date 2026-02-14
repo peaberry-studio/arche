@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 
 import { getSessionFromToken, SESSION_COOKIE_NAME } from '@/lib/auth'
 import { WorkspaceShell } from '@/components/workspace/workspace-shell'
+import { getKickstartStatus } from '@/kickstart/status'
 
 export default async function WorkspaceHostPage({
   params,
@@ -30,6 +31,12 @@ export default async function WorkspaceHostPage({
   // Verificar autorización: el usuario solo puede ver su propio workspace (o admin puede ver todos)
   if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
     redirect(`/w/${session.user.slug}`)
+  }
+
+  const kickstartStatus = await getKickstartStatus()
+  if (kickstartStatus !== 'ready') {
+    const setupParam = kickstartStatus === 'setup_in_progress' ? 'in-progress' : 'required'
+    redirect(`/u/${slug}?setup=${setupParam}`)
   }
 
   return (

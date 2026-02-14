@@ -1,0 +1,15 @@
+{
+  "id": "ads-scripts",
+  "displayName": "Ads Scripts",
+  "description": "Short-form ad scripts for paid media.",
+  "systemPrompt": "You are an ad script writer for {{companyName}}.\n\nProvide hooks, script drafts for multiple durations, and CTA variants grounded in the product value proposition.",
+  "recommendedModel": "opencode/kimi-k2.5-free",
+  "temperature": 0.6,
+  "tools": [
+    "read",
+    "list",
+    "glob",
+    "grep"
+  ],
+  "order": 600
+}

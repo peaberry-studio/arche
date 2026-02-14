@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/lib/opencode/client', () => ({
-  getInstanceBasicAuth: vi.fn(),
-}))
-
 vi.mock('@/lib/providers/store', () => ({
   getActiveCredentialForUser: vi.fn(),
 }))
@@ -12,35 +8,37 @@ vi.mock('@/lib/providers/tokens', () => ({
   issueGatewayToken: vi.fn(),
 }))
 
-import { getInstanceBasicAuth } from '@/lib/opencode/client'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
 import { getActiveCredentialForUser } from '@/lib/providers/store'
 import { issueGatewayToken } from '@/lib/providers/tokens'
 
-const mockGetInstanceBasicAuth = vi.mocked(getInstanceBasicAuth)
 const mockGetActiveCredentialForUser = vi.mocked(getActiveCredentialForUser)
 const mockIssueGatewayToken = vi.mocked(issueGatewayToken)
+
+const fakeInstance = {
+  baseUrl: 'http://opencode-alice:4096',
+  authHeader: 'Basic abc',
+}
 
 describe('syncProviderAccessForInstance', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('returns instance_unavailable when client is missing', async () => {
-    mockGetInstanceBasicAuth.mockResolvedValue(null)
+  it('returns sync_failed when credential lookup throws', async () => {
+    mockGetActiveCredentialForUser.mockRejectedValue(new Error('db error'))
 
-    const result = await syncProviderAccessForInstance({ slug: 'alice', userId: 'user-1' })
+    const result = await syncProviderAccessForInstance({
+      instance: fakeInstance,
+      slug: 'alice',
+      userId: 'user-1',
+    })
 
-    expect(result).toEqual({ ok: false, error: 'instance_unavailable' })
+    expect(result).toEqual({ ok: false, error: 'sync_failed' })
   })
 
   it('sets auth for active credentials and deletes missing providers', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('true', { status: 200 })))
-
-    mockGetInstanceBasicAuth.mockResolvedValue({
-      baseUrl: 'http://opencode-alice:4096',
-      authHeader: 'Basic abc',
-    })
 
     mockGetActiveCredentialForUser.mockImplementation(async ({ providerId }) => {
       if (providerId === 'openai') {
@@ -53,7 +51,11 @@ describe('syncProviderAccessForInstance', () => {
       ({ providerId }) => `token-${providerId}`
     )
 
-    const result = await syncProviderAccessForInstance({ slug: 'alice', userId: 'user-1' })
+    const result = await syncProviderAccessForInstance({
+      instance: fakeInstance,
+      slug: 'alice',
+      userId: 'user-1',
+    })
 
     expect(mockIssueGatewayToken).toHaveBeenCalledWith({
       userId: 'user-1',

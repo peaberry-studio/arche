@@ -33,16 +33,18 @@ podman network create arche-internal
 podman build -t arche-workspace:latest ../workspace-image
 ```
 
-3) **Preparar el KB** (Knowledge Base):
+3) **Preparar repos bare vacios para KB/config**:
 
 ```bash
-# Crear repos bare y deploy
+# Inicializar repos bare vacios (kickstart llena contenido luego)
 mkdir -p /opt/arche
 ../../scripts/deploy-kb.sh /opt/arche/kb-content
 ../../scripts/deploy-config.sh /opt/arche/kb-config
 ```
 
 Los destinos `/opt/arche/kb-content` y `/opt/arche/kb-config` son repos Git bare (sin working tree).
+Una vez levantada la app, completa kickstart desde `/u/<slug>/kickstart` para generar
+el contenido inicial del KB y `CommonWorkspaceConfig.json`.
 
 4) **Variables de entorno de `apps/web`**
 

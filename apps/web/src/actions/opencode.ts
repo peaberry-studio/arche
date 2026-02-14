@@ -428,6 +428,23 @@ export async function listMessagesAction(
     const result = await client!.session.messages({ sessionID: sessionId });
     const messages = result.data ?? [];
 
+    let sessionRuntimeStatus: "busy" | "idle" | "unknown" = "unknown";
+    try {
+      const statusResult = await client!.session.status();
+      const statuses = (statusResult.data ?? {}) as Record<
+        string,
+        { type?: string } | undefined
+      >;
+      const sessionStatus = statuses[sessionId]?.type;
+      if (sessionStatus === "busy" || sessionStatus === "retry") {
+        sessionRuntimeStatus = "busy";
+      } else if (sessionStatus === "idle") {
+        sessionRuntimeStatus = "idle";
+      }
+    } catch {
+      // Keep unknown status when status endpoint fails.
+    }
+
     const transformed: WorkspaceMessage[] = [];
     for (const m of messages) {
       const role = normalizeMessageRole(m.info.role);
@@ -441,6 +458,7 @@ export async function listMessagesAction(
         role,
         completedAt,
         parts,
+        sessionStatus: sessionRuntimeStatus,
       });
       const info = m.info as Record<string, unknown>;
       const infoModel = info.model as Record<string, unknown> | undefined;
