@@ -3,19 +3,27 @@ name: PR Commands
 on:
   issue_comment:
     types: [created]
+  workflow_dispatch:
 
 jobs:
   handle-build-command:
     if: |
-      startsWith(github.event.comment.body, '/build') &&
-      github.event.issue.pull_request != null
+      (github.event_name == 'workflow_dispatch') ||
+      (startsWith(github.event.comment.body, '/build') &&
+      github.event.issue.pull_request != null)
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write
 
     steps:
+      - name: Debug event
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "Manual trigger"
+
       - name: Trigger build via repository dispatch
+        if: github.event_name != 'workflow_dispatch'
         run: |
           curl -X POST \
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
