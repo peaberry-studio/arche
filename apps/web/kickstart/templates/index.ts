@@ -26,6 +26,7 @@ const TEMPLATE_DEFINITION_KEYS = new Set([
   'agentsMdTemplate',
   'recommendedAgentIds',
   'recommendedModels',
+  'promptOverrides',
   'order',
 ])
 
@@ -142,6 +143,28 @@ function parseRecommendedModels(
   return recommendedModels
 }
 
+function parsePromptOverrides(
+  value: unknown,
+  fileName: string
+): Record<string, string> {
+  if (value === undefined) {
+    return {}
+  }
+
+  if (!isRecord(value)) {
+    throw new Error(`Invalid promptOverrides in kickstart template definition: ${fileName}`)
+  }
+
+  const promptOverrides: Record<string, string> = {}
+
+  for (const [agentId, prompt] of Object.entries(value)) {
+    const parsedAgentId = parseNonEmptyString(agentId, 'promptOverrides key', fileName)
+    promptOverrides[parsedAgentId] = parseTemplateMarkdown(prompt, 'promptOverrides', fileName)
+  }
+
+  return promptOverrides
+}
+
 function parseTemplateDefinition(raw: string, fileName: string): ParsedTemplateDefinition {
   let parsedValue: unknown
 
@@ -170,6 +193,7 @@ function parseTemplateDefinition(raw: string, fileName: string): ParsedTemplateD
       recommendedAgentIds,
       fileName
     ),
+    promptOverrides: parsePromptOverrides(parsedValue.promptOverrides, fileName),
   }
 
   return {
@@ -204,8 +228,9 @@ const KICKSTART_TEMPLATE_SUMMARIES: KickstartTemplateSummary[] = KICKSTART_TEMPL
     id: template.id,
     label: template.label,
     description: template.description,
-    recommendedAgentIds: template.recommendedAgentIds,
-    recommendedModels: template.recommendedModels,
+    recommendedAgentIds: [...template.recommendedAgentIds],
+    recommendedModels: { ...template.recommendedModels },
+    promptOverrides: { ...template.promptOverrides },
   })
 )
 

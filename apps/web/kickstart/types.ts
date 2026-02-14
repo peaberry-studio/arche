@@ -38,6 +38,7 @@ export type KickstartTemplateDefinition = {
   agentsMdTemplate: string
   recommendedAgentIds: string[]
   recommendedModels: Record<string, string>
+  promptOverrides: Record<string, string>
 }
 
 export type KickstartTemplateSummary = {
@@ -46,6 +47,7 @@ export type KickstartTemplateSummary = {
   description: string
   recommendedAgentIds: string[]
   recommendedModels: Record<string, string>
+  promptOverrides: Record<string, string>
 }
 
 export type KickstartTemplatesResponse = {

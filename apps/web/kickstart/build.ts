@@ -50,7 +50,10 @@ function resolveAgentSelection(input: KickstartNormalizedApplyInput): ResolvedAg
       input.template.recommendedModels[selection.id] ??
       definition.recommendedModel
 
-    const promptSource = selection.promptOverride ?? definition.systemPrompt
+    const promptSource =
+      selection.promptOverride ??
+      input.template.promptOverrides[selection.id] ??
+      definition.systemPrompt
     const prompt = renderKickstartText(promptSource, input.context)
 
     return [
