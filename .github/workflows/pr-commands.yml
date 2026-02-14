@@ -1,0 +1,41 @@
+name: PR Commands
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  handle-build-command:
+    if: |
+      startsWith(github.event.comment.body, '/build') &&
+      github.event.issue.pull_request != null
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Trigger build via repository dispatch
+        run: |
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/dispatches" \
+            -d '{
+              "event_type": "build-pr-image",
+              "client_payload": {
+                "pr_number": "${{ github.event.issue.number }}",
+                "comment_id": "${{ github.event.comment.id }}",
+                "ref": "${{ github.event.pull_request.head.ref }}"
+              }
+            }'
+
+      - name: Acknowledge build request
+        run: |
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments" \
+            -d '{
+              "body": "🚀 **Build requested**\n\nBuild triggered for PR #${{ github.event.issue.number }}. This comment will be updated with the image URL once the build completes."
+            }'
