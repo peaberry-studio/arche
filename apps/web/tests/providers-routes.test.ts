@@ -12,6 +12,11 @@ vi.mock('@/lib/opencode/providers', () => ({
   syncProviderAccessForInstance: (...args: unknown[]) => mockSyncProviderAccessForInstance(...args),
 }))
 
+const mockGetInstanceUrl = vi.fn((slug: string) => `http://${slug}.test`)
+vi.mock('@/lib/opencode/client', () => ({
+  getInstanceUrl: (...args: unknown[]) => mockGetInstanceUrl(...args),
+}))
+
 const mockFindUnique = vi.fn()
 const mockFindMany = vi.fn()
 const mockUpdateMany = vi.fn()
@@ -19,6 +24,9 @@ const mockCreate = vi.fn()
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     user: {
+      findUnique: (...args: unknown[]) => mockFindUnique(...args),
+    },
+    instance: {
       findUnique: (...args: unknown[]) => mockFindUnique(...args),
     },
     providerCredential: {
@@ -181,7 +189,8 @@ describe('POST /api/u/[slug]/providers/[provider]', () => {
 
   it('creates new credential and audits creation', async () => {
     mockGetAuthenticatedUser.mockResolvedValue(session('admin', 'ADMIN'))
-    mockFindUnique.mockResolvedValue({ id: 'user-1' })
+    mockFindUnique.mockResolvedValueOnce({ id: 'user-1' })
+    mockFindUnique.mockResolvedValueOnce({ serverPassword: 'secret' })
     mockFindMany.mockResolvedValue([{ version: 2 }])
     mockUpdateMany.mockResolvedValue({ count: 1 })
     mockCreate.mockResolvedValue({
@@ -211,7 +220,11 @@ describe('POST /api/u/[slug]/providers/[provider]', () => {
       action: 'provider_credential.created',
       metadata: { providerId: 'openai', credentialId: 'cred-1' },
     })
-    expect(mockSyncProviderAccessForInstance).toHaveBeenCalledWith({ slug: 'alice', userId: 'user-1' })
+    expect(mockSyncProviderAccessForInstance).toHaveBeenCalledWith({
+      instance: { baseUrl: 'http://alice.test', authHeader: 'Basic b3BlbmNvZGU6c2VjcmV0' },
+      slug: 'alice',
+      userId: 'user-1',
+    })
   })
 })
 
@@ -231,7 +244,8 @@ describe('DELETE /api/u/[slug]/providers/[provider]', () => {
 
   it('disables provider credential and syncs running instance', async () => {
     mockGetAuthenticatedUser.mockResolvedValue(session('admin', 'ADMIN'))
-    mockFindUnique.mockResolvedValue({ id: 'user-1' })
+    mockFindUnique.mockResolvedValueOnce({ id: 'user-1' })
+    mockFindUnique.mockResolvedValueOnce({ serverPassword: 'secret' })
     mockUpdateMany.mockResolvedValue({ count: 1 })
 
     const { status, body } = await callDeleteProvider('alice', 'openai')
@@ -250,6 +264,10 @@ describe('DELETE /api/u/[slug]/providers/[provider]', () => {
         targetSlug: 'alice',
       },
     })
-    expect(mockSyncProviderAccessForInstance).toHaveBeenCalledWith({ slug: 'alice', userId: 'user-1' })
+    expect(mockSyncProviderAccessForInstance).toHaveBeenCalledWith({
+      instance: { baseUrl: 'http://alice.test', authHeader: 'Basic b3BlbmNvZGU6c2VjcmV0' },
+      slug: 'alice',
+      userId: 'user-1',
+    })
   })
 })

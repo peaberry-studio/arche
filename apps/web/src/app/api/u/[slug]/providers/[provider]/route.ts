@@ -33,7 +33,7 @@ async function syncProviderAccessBestEffort(slug: string, userId: string): Promi
   try {
     const instance = await prisma.instance.findUnique({
       where: { slug },
-      select: { password: true },
+      select: { serverPassword: true },
     })
 
     if (!instance) {
@@ -43,7 +43,7 @@ async function syncProviderAccessBestEffort(slug: string, userId: string): Promi
     const result = await syncProviderAccessForInstance({
       instance: {
         baseUrl: getInstanceUrl(slug),
-        authHeader: `Basic ${Buffer.from(`opencode:${instance.password}`).toString('base64')}`,
+        authHeader: `Basic ${Buffer.from(`opencode:${instance.serverPassword}`).toString('base64')}`,
       },
       slug,
       userId,
