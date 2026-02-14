@@ -3,6 +3,7 @@
 import { cookies } from 'next/headers'
 import { getSessionFromToken, SESSION_COOKIE_NAME } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { getInstanceBasicAuth } from '@/lib/opencode/client'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
 import { startInstance, stopInstance, getInstanceStatus, isSlowStart, listActiveInstances } from '@/lib/spawner/core'
 import { getKickstartStatus } from '@/kickstart/status'
@@ -130,8 +131,13 @@ export async function ensureInstanceRunningAction(slug: string): Promise<{
             ? session.user.id
             : (await prisma.user.findUnique({ where: { slug }, select: { id: true } }))?.id
 
-        if (syncUserId) {
-          const syncResult = await syncProviderAccessForInstance({ slug, userId: syncUserId })
+        const instanceConn = await getInstanceBasicAuth(slug)
+        if (instanceConn && syncUserId) {
+          const syncResult = await syncProviderAccessForInstance({
+            instance: instanceConn,
+            slug,
+            userId: syncUserId,
+          })
           if (!syncResult.ok) {
             console.error('[ensureInstanceRunning] Failed to sync OpenCode providers', syncResult.error)
           }

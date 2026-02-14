@@ -1,4 +1,3 @@
-import { getInstanceBasicAuth } from '@/lib/opencode/client'
 import { getActiveCredentialForUser } from '@/lib/providers/store'
 import { issueGatewayToken } from '@/lib/providers/tokens'
 import { PROVIDERS, type ProviderId } from '@/lib/providers/types'
@@ -8,6 +7,7 @@ export type SyncProviderAccessResult =
   | { ok: false; error: 'instance_unavailable' | 'sync_failed' }
 
 type SyncProviderAccessInput = {
+  instance: { baseUrl: string; authHeader: string }
   slug: string
   userId: string
   disposeInstance?: boolean
@@ -16,10 +16,7 @@ type SyncProviderAccessInput = {
 export async function syncProviderAccessForInstance(
   input: SyncProviderAccessInput,
 ): Promise<SyncProviderAccessResult> {
-  const instance = await getInstanceBasicAuth(input.slug)
-  if (!instance) {
-    return { ok: false, error: 'instance_unavailable' }
-  }
+  const instance = input.instance
 
   try {
     const enabledByProvider = new Map<ProviderId, { version: number }>()

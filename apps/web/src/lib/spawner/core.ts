@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { auditEvent } from '@/lib/auth'
 import { readCommonWorkspaceConfig, readConfigRepoFile } from '@/lib/common-workspace-config-store'
-import { isInstanceHealthyWithPassword } from '@/lib/opencode/client'
+import { getInstanceUrl, isInstanceHealthyWithPassword } from '@/lib/opencode/client'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
 import * as docker from './docker'
 import { decryptPassword, generatePassword, encryptPassword } from './crypto'
@@ -145,6 +145,22 @@ export async function startInstance(slug: string, userId: string): Promise<Start
       return { ok: false, error: 'timeout', detail: 'healthcheck timeout' }
     }
 
+    // Sync providers and clear OpenCode's discovery cache BEFORE marking as
+    // 'running'. The DB status gates all frontend connections, so providers
+    // must be ready before it flips.
+    const syncUserId = owner?.id ?? userId
+    const syncResult = await syncProviderAccessForInstance({
+      instance: {
+        baseUrl: getInstanceUrl(slug),
+        authHeader: `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`,
+      },
+      slug,
+      userId: syncUserId,
+    })
+    if (!syncResult.ok) {
+      console.error('[spawner] Failed to sync OpenCode providers', syncResult.error)
+    }
+
     await prisma.instance.update({
       where: { slug },
       data: {
@@ -153,17 +169,6 @@ export async function startInstance(slug: string, userId: string): Promise<Start
         appliedConfigSha
       },
     })
-
-    // Provider credentials are per workspace owner (slug), not per actor.
-    const syncUserId = owner?.id ?? userId
-    const syncResult = await syncProviderAccessForInstance({
-      slug,
-      userId: syncUserId,
-      disposeInstance: false,
-    })
-    if (!syncResult.ok) {
-      console.error('[spawner] Failed to sync OpenCode providers', syncResult.error)
-    }
 
     await auditEvent({
       actorUserId: userId,

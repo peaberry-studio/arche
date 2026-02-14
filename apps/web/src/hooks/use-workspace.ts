@@ -1162,6 +1162,7 @@ export function useWorkspace({
         role: "assistant",
         content: "",
         timestamp: "Just now",
+        timestampRaw: Date.now(),
         parts: [],
         pending: true,
         statusInfo: { status: "thinking" },

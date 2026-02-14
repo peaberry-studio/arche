@@ -21,6 +21,7 @@ vi.mock('@/lib/auth', () => ({
 
 // Mock opencode client
 vi.mock('@/lib/opencode/client', () => ({
+  getInstanceUrl: vi.fn((slug: string) => `http://opencode-${slug}:4096`),
   isInstanceHealthyWithPassword: vi.fn(),
 }))
 
@@ -110,12 +111,56 @@ describe('startInstance', () => {
     expect(typeof agentsMd).toBe('string')
     expect(gitAuthor).toEqual({ name: 'alice', email: 'alice@example.com' })
     expect(mockDocker.startContainer).toHaveBeenCalledWith('container-123')
-    expect(mockSync).toHaveBeenCalledWith({ slug: 'alice', userId: 'owner-1', disposeInstance: false })
+    expect(mockSync).toHaveBeenCalledWith({
+      instance: { baseUrl: expect.any(String), authHeader: expect.any(String) },
+      slug: 'alice',
+      userId: 'owner-1',
+    })
     expect(mockAudit).toHaveBeenCalledWith({
       actorUserId: 'user-1',
       action: 'instance.started',
       metadata: { slug: 'alice' },
     })
+  })
+
+  it('syncs providers before marking instance as running', async () => {
+    mockPrisma.instance.findUnique.mockResolvedValue(null)
+    mockPrisma.instance.upsert.mockResolvedValue({} as never)
+    mockPrisma.instance.update.mockResolvedValue({} as never)
+    mockPrisma.user.findUnique.mockResolvedValue({ id: 'owner-1', slug: 'alice', email: 'alice@example.com' } as never)
+    mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
+    mockDocker.startContainer.mockResolvedValue(undefined)
+    mockDocker.isContainerRunning.mockResolvedValue(true)
+
+    let syncCalledBeforeRunning = false
+    mockSync.mockImplementation(async () => {
+      const updateCalls = mockPrisma.instance.update.mock.calls
+      const runningCall = updateCalls.find(
+        (call) => (call[0] as { data?: { status?: string } })?.data?.status === 'running',
+      )
+      syncCalledBeforeRunning = !runningCall
+      return { ok: true }
+    })
+
+    await startInstance('alice', 'user-1')
+
+    expect(syncCalledBeforeRunning).toBe(true)
+    expect(mockSync).toHaveBeenCalled()
+  })
+
+  it('does not suppress dispose when syncing providers', async () => {
+    mockPrisma.instance.findUnique.mockResolvedValue(null)
+    mockPrisma.instance.upsert.mockResolvedValue({} as never)
+    mockPrisma.instance.update.mockResolvedValue({} as never)
+    mockPrisma.user.findUnique.mockResolvedValue({ id: 'owner-1', slug: 'alice', email: 'alice@example.com' } as never)
+    mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
+    mockDocker.startContainer.mockResolvedValue(undefined)
+    mockDocker.isContainerRunning.mockResolvedValue(true)
+
+    await startInstance('alice', 'user-1')
+
+    const syncCall = mockSync.mock.calls[0]?.[0] as { disposeInstance?: boolean } | undefined
+    expect(syncCall).not.toHaveProperty('disposeInstance', false)
   })
 
   it('returns timeout when container never becomes healthy', async () => {

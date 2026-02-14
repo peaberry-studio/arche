@@ -20,6 +20,14 @@ vi.mock('@/lib/prisma', () => ({
   },
 }))
 
+// Mock opencode client (imported by ensureInstanceRunningAction for getInstanceBasicAuth)
+vi.mock('@/lib/opencode/client', () => ({
+  getInstanceBasicAuth: vi.fn().mockResolvedValue({
+    baseUrl: 'http://opencode-alice:4096',
+    authHeader: 'Basic dGVzdA==',
+  }),
+}))
+
 // Mock provider sync (imported by ensureInstanceRunningAction)
 vi.mock('@/lib/opencode/providers', () => ({
   syncProviderAccessForInstance: vi.fn().mockResolvedValue({ ok: true }),
@@ -41,6 +49,7 @@ vi.mock('@/kickstart/status', () => ({
 import { cookies } from 'next/headers'
 import { getSessionFromToken } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { getInstanceBasicAuth } from '@/lib/opencode/client'
 import { startInstance, stopInstance, getInstanceStatus } from '@/lib/spawner/core'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
 import { startInstanceAction, stopInstanceAction, getInstanceStatusAction, ensureInstanceRunningAction } from '../spawner'
@@ -51,6 +60,7 @@ const mockStart = vi.mocked(startInstance)
 const mockStop = vi.mocked(stopInstance)
 const mockStatus = vi.mocked(getInstanceStatus)
 const mockPrisma = vi.mocked(prisma)
+const mockGetInstanceBasicAuth = vi.mocked(getInstanceBasicAuth)
 const mockSync = vi.mocked(syncProviderAccessForInstance)
 
 const fakeSession = {
@@ -171,7 +181,12 @@ describe('ensureInstanceRunningAction', () => {
     const result = await ensureInstanceRunningAction('alice')
 
     expect(result).toEqual({ status: 'running' })
-    expect(mockSync).toHaveBeenCalledWith({ slug: 'alice', userId: 'user-1' })
+    expect(mockGetInstanceBasicAuth).toHaveBeenCalledWith('alice')
+    expect(mockSync).toHaveBeenCalledWith({
+      instance: expect.objectContaining({ baseUrl: expect.any(String), authHeader: expect.any(String) }),
+      slug: 'alice',
+      userId: 'user-1',
+    })
     expect(mockPrisma.user.findUnique).not.toHaveBeenCalled()
   })
 
@@ -197,7 +212,11 @@ describe('ensureInstanceRunningAction', () => {
 
     expect(result).toEqual({ status: 'running' })
     expect(mockPrisma.user.findUnique).toHaveBeenCalledWith({ where: { slug: 'alice' }, select: { id: true } })
-    expect(mockSync).toHaveBeenCalledWith({ slug: 'alice', userId: 'user-alice' })
+    expect(mockSync).toHaveBeenCalledWith({
+      instance: expect.objectContaining({ baseUrl: expect.any(String), authHeader: expect.any(String) }),
+      slug: 'alice',
+      userId: 'user-alice',
+    })
   })
 
   it('returns setup_required when kickstart is incomplete', async () => {
