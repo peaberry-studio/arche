@@ -42,6 +42,18 @@
     group: "{{ deploy_user }}"
     mode: "0750"
 
+- name: Create KB directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: "0750"
+  loop:
+    - "{{ kb_content_host_path | default('/opt/arche/kb-content') }}"
+    - "{{ kb_config_host_path | default('/opt/arche/kb-config') }}"
+  when: kb_content_host_path is defined or kb_config_host_path is defined
+
 - name: Log in to GHCR
   ansible.builtin.command:
     cmd: podman login ghcr.io -u arche-deploy --password-stdin
@@ -110,12 +122,46 @@
 # ---------------------------------------------------------------------------
 # Step 4: Ensure base services are running (postgres, traefik, socket-proxy)
 # ---------------------------------------------------------------------------
-- name: Start base services
+- name: Check if podman compose is available
+  ansible.builtin.command:
+    cmd: podman compose version
+  register: podman_compose_check
+  changed_when: false
+  ignore_errors: true
+
+- name: Debug podman compose availability
+  ansible.builtin.debug:
+    msg: "podman compose available: {{ podman_compose_check.rc == 0 }}"
+
+- name: Start base services (podman compose)
   ansible.builtin.shell:
     cmd: >
       podman compose -f {{ app_dir }}/compose.yml --env-file {{ app_dir }}/.env
       -p arche up -d
   changed_when: true
+  when: podman_compose_check.rc == 0
+
+- name: Start base services (podman-compose fallback)
+  ansible.builtin.shell:
+    cmd: >
+      podman-compose -f {{ app_dir }}/compose.yml --env-file {{ app_dir }}/.env
+      -p arche up -d
+  changed_when: true
+  when: podman_compose_check.rc != 0
+
+- name: Wait for services to start
+  ansible.builtin.pause:
+    seconds: 5
+
+- name: Check running containers
+  ansible.builtin.command:
+    cmd: podman ps --format "{{ '{{' }}.Names{{ '}}' }}"
+  register: running_containers
+  changed_when: false
+
+- name: Debug running containers
+  ansible.builtin.debug:
+    msg: "Running containers: {{ running_containers.stdout }}"
 
 - name: Detect compose default network name
   ansible.builtin.shell:
@@ -132,6 +178,15 @@
     cmd: podman ps --filter name=postgres --filter label=com.docker.compose.project=arche --format '{{ '{{' }}.Names{{ '}}' }}' | head -1
   register: postgres_container_result
   changed_when: false
+
+- name: Debug postgres container
+  ansible.builtin.debug:
+    msg: "Postgres container found: '{{ postgres_container_result.stdout | trim }}'"
+
+- name: Check if postgres container exists
+  ansible.builtin.fail:
+    msg: "Postgres container not found. Check 'podman ps' and 'podman compose logs'"
+  when: postgres_container_result.stdout | trim | length == 0
 
 - name: Wait for postgres to be healthy
   ansible.builtin.shell:
@@ -169,42 +224,34 @@
     msg: "Old container(s): {{ old_web_containers | default(['none']) | join(', ') }} → New container: {{ new_web_container }}"
 
 # 5c. Start the new web container
+- name: Build podman run command
+  ansible.builtin.set_fact:
+    kb_volumes: "{% if kb_content_host_path is defined and kb_content_host_path and kb_config_host_path is defined and kb_config_host_path %}-v {{ kb_content_host_path }}:/kb-content -v {{ kb_config_host_path }}:/kb-config{% endif %}"
+    traefik_labels: "{% if deploy_mode == 'remote' %}--label 'traefik.http.routers.arche-base.rule=Host(`{{ domain }}`)' --label traefik.http.routers.arche-base.entrypoints=websecure --label traefik.http.routers.arche-base.tls=true --label traefik.http.routers.arche-base.tls.certresolver=letsencrypt --label traefik.http.routers.arche-base.service=arche-web{% else %}--label 'traefik.http.routers.arche-base.rule=Host(`{{ domain }}`)' --label traefik.http.routers.arche-base.entrypoints=web --label traefik.http.routers.arche-base.service=arche-web{% endif %}"
+
 - name: Start new web container
   ansible.builtin.shell:
-    cmd: >
-      podman run -d
-      --name {{ new_web_container }}
-      --env-file {{ app_dir }}/.env
-      -e ARCHE_GATEWAY_TOKEN_SECRET="{{ arche_gateway_token_secret }}"
-      -e ARCHE_GATEWAY_TOKEN_TTL_SECONDS="{{ arche_gateway_token_ttl_seconds }}"
-      -e ARCHE_GATEWAY_BASE_URL="{{ arche_gateway_base_url }}"
-      --network arche-internal
-      --network {{ compose_default_network }}
-      -v {{ users_path | default('/opt/arche/users') }}:{{ users_path | default('/opt/arche/users') }}
-{% if kb_content_host_path is defined and kb_content_host_path and kb_config_host_path is defined and kb_config_host_path %}
-      -v {{ kb_content_host_path }}:/kb-content
-      -v {{ kb_config_host_path }}:/kb-config
-{% endif %}
-      --label traefik.enable=true
-{% if deploy_mode == 'remote' %}
-      --label traefik.http.routers.arche-base.rule=Host\(`{{ domain }}`\)
-      --label traefik.http.routers.arche-base.entrypoints=websecure
-      --label traefik.http.routers.arche-base.tls=true
-      --label traefik.http.routers.arche-base.tls.certresolver=letsencrypt
-      --label traefik.http.routers.arche-base.service=arche-web
-{% else %}
-      --label traefik.http.routers.arche-base.rule=Host\(`{{ domain }}`\)
-      --label traefik.http.routers.arche-base.entrypoints=web
-      --label traefik.http.routers.arche-base.service=arche-web
-{% endif %}
-      --label traefik.http.services.arche-web.loadbalancer.server.port=3000
-      --label traefik.http.services.arche-web.loadbalancer.healthcheck.path=/api/health
-      --label traefik.http.services.arche-web.loadbalancer.healthcheck.interval=5s
-      --label traefik.http.services.arche-web.loadbalancer.healthcheck.timeout=3s
-      --label traefik.docker.network={{ compose_default_network }}
-      --label arche.role=web
-      --label arche.version={{ web_version }}
-      --restart unless-stopped
+    cmd: |
+      podman run -d \
+      --name {{ new_web_container }} \
+      --env-file {{ app_dir }}/.env \
+      -e ARCHE_GATEWAY_TOKEN_SECRET="{{ arche_gateway_token_secret }}" \
+      -e ARCHE_GATEWAY_TOKEN_TTL_SECONDS="{{ arche_gateway_token_ttl_seconds }}" \
+      -e ARCHE_GATEWAY_BASE_URL="{{ arche_gateway_base_url }}" \
+      --network arche-internal \
+      --network {{ compose_default_network }} \
+      -v {{ users_path | default('/opt/arche/users') }}:{{ users_path | default('/opt/arche/users') }} \
+      {{ kb_volumes | trim }} \
+      --label traefik.enable=true \
+      {{ traefik_labels | trim }} \
+      --label traefik.http.services.arche-web.loadbalancer.server.port=3000 \
+      --label traefik.http.services.arche-web.loadbalancer.healthcheck.path=/api/health \
+      --label traefik.http.services.arche-web.loadbalancer.healthcheck.interval=5s \
+      --label traefik.http.services.arche-web.loadbalancer.healthcheck.timeout=3s \
+      --label traefik.docker.network={{ compose_default_network }} \
+      --label arche.role=web \
+      --label arche.version={{ web_version }} \
+      --restart unless-stopped \
       {{ image_prefix }}web:{{ web_version }}
   changed_when: true
 

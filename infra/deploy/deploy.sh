@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Arche One-Click Deployer
 # Usage:
-#   Remote:    ./deploy.sh --ip <IP> --domain <DOMAIN> --dns-provider <PROVIDER> --ssh-key <KEY> --acme-email <EMAIL>
+#   Remote:    ./deploy.sh --ip <IP> --domain <DOMAIN> --ssh-key <KEY> --acme-email <EMAIL>
 #   Local:     ./deploy.sh --local
 #   Local dev: ./deploy.sh --local-dev
 
@@ -15,7 +15,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODE=""
 DEPLOY_IP=""
 DEPLOY_DOMAIN=""
-DNS_PROVIDER=""
 SSH_KEY=""
 SSH_USER="root"
 ACME_EMAIL=""
@@ -47,13 +46,11 @@ usage() {
 Arche One-Click Deployer
 
 REMOTE MODE:
-  ./deploy.sh --ip <IP> --domain <DOMAIN> --dns-provider <PROVIDER> \
-              --ssh-key <KEY> --acme-email <EMAIL> [OPTIONS]
+  ./deploy.sh --ip <IP> --domain <DOMAIN> --ssh-key <KEY> --acme-email <EMAIL> [OPTIONS]
 
   Required:
-    --ip            VPS IP address
-    --domain        Production domain (e.g. arche.example.com)
-    --dns-provider  DNS challenge provider: cloudflare | route53 | digitalocean
+    --ip            VPS IP address (IPv4 or IPv6)
+    --domain        Production domain (e.g. arche.example.com or app.arche.example.com)
     --ssh-key       Path to SSH private key
     --acme-email    Email for Let's Encrypt ACME account
 
@@ -62,6 +59,11 @@ REMOTE MODE:
     --user          SSH user (default: root)
     --dry-run       Show what would be done without executing
     --verbose       Enable verbose output
+
+  DNS Setup:
+    The script will verify your domain points to the VPS IP.
+    If not, it will show you exactly which DNS record to add.
+    Works with any domain provider (Cloudflare, GoDaddy, Namecheap, etc.)
 
 LOCAL MODE:
   ./deploy.sh --local
@@ -98,14 +100,8 @@ ENVIRONMENT VARIABLES (via .env or exported):
   ARCHE_SEED_TEST_EMAIL     Seed test user email (optional)
   ARCHE_SEED_TEST_SLUG      Seed test user slug (optional)
   ARCHE_USERS_PATH          Host path for persisted user data (optional)
-  KB_CONTENT_HOST_PATH      Path to the KB content bare repo
-  KB_CONFIG_HOST_PATH       Path to the KB config bare repo
-
-  DNS provider tokens (set the one matching --dns-provider):
-    CF_DNS_API_TOKEN          Cloudflare
-    AWS_ACCESS_KEY_ID         Route53
-    AWS_SECRET_ACCESS_KEY     Route53
-    DO_AUTH_TOKEN             DigitalOcean
+  KB_CONTENT_HOST_PATH      Path del repo bare de contenido KB
+  KB_CONFIG_HOST_PATH       Path del repo bare de configuración
 EOF
   exit "${1:-0}"
 }
@@ -121,7 +117,6 @@ while [[ $# -gt 0 ]]; do
     --local-dev)   MODE="local-dev";   shift ;;
     --ip)          DEPLOY_IP="$2";       shift 2 ;;
     --domain)      DEPLOY_DOMAIN="$2";   shift 2 ;;
-    --dns-provider) DNS_PROVIDER="$2";   shift 2 ;;
     --ssh-key)     SSH_KEY="$2";         shift 2 ;;
     --user)        SSH_USER="$2";        shift 2 ;;
     --acme-email)  ACME_EMAIL="$2";      shift 2 ;;
@@ -140,8 +135,9 @@ if [[ -f "$SCRIPT_DIR/.env" ]]; then
   log "Loading .env file"
   set -a
   # shellcheck source=/dev/null
-  source "$SCRIPT_DIR/.env"
+  source "$SCRIPT_DIR/.env" || { echo "ERROR: Failed to source .env"; exit 1; }
   set +a
+  log ".env file loaded successfully"
 fi
 
 # ---------------------------------------------------------------------------
@@ -150,9 +146,9 @@ fi
 ERRORS=()
 
 validate_remote() {
+  log "Starting validate_remote..."
   [[ -z "$DEPLOY_IP" ]]    && ERRORS+=("--ip is required")
   [[ -z "$DEPLOY_DOMAIN" ]] && ERRORS+=("--domain is required")
-  [[ -z "$DNS_PROVIDER" ]]  && ERRORS+=("--dns-provider is required")
   [[ -z "$SSH_KEY" ]]       && ERRORS+=("--ssh-key is required")
   [[ -z "$ACME_EMAIL" ]]    && ERRORS+=("--acme-email is required")
 
@@ -160,23 +156,18 @@ validate_remote() {
     ERRORS+=("SSH key not found: $SSH_KEY")
   fi
 
-  case "$DNS_PROVIDER" in
-    cloudflare)
-      [[ -z "${CF_DNS_API_TOKEN:-}" ]] && ERRORS+=("CF_DNS_API_TOKEN is required for cloudflare provider")
-      ;;
-    route53)
-      [[ -z "${AWS_ACCESS_KEY_ID:-}" ]]     && ERRORS+=("AWS_ACCESS_KEY_ID is required for route53 provider")
-      [[ -z "${AWS_SECRET_ACCESS_KEY:-}" ]] && ERRORS+=("AWS_SECRET_ACCESS_KEY is required for route53 provider")
-      ;;
-    digitalocean)
-      [[ -z "${DO_AUTH_TOKEN:-}" ]] && ERRORS+=("DO_AUTH_TOKEN is required for digitalocean provider")
-      ;;
-    "")
-      ;; # already reported above
-    *)
-      ERRORS+=("Unsupported --dns-provider: $DNS_PROVIDER (use: cloudflare, route53, digitalocean)")
-      ;;
-  esac
+  # Validate IP address (IPv4 or IPv6)
+  if [[ -n "$DEPLOY_IP" ]]; then
+    # Check if IPv4
+    if [[ "$DEPLOY_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      IP_TYPE="A"
+    # Check if IPv6 (simplified check)
+    elif [[ "$DEPLOY_IP" =~ : ]]; then
+      IP_TYPE="AAAA"
+    else
+      ERRORS+=("Invalid IP address: $DEPLOY_IP (must be IPv4 or IPv6)")
+    fi
+  fi
 
   # Secrets
   [[ -z "${POSTGRES_PASSWORD:-}" ]]         && ERRORS+=("POSTGRES_PASSWORD is required")
@@ -190,6 +181,8 @@ validate_remote() {
 
   # GHCR token for remote pulls
   [[ -z "${GHCR_TOKEN:-}" ]] && ERRORS+=("GHCR_TOKEN is required for remote deployment")
+  
+  log "validate_remote complete, errors: ${#ERRORS[@]}"
 }
 
 validate_local() {
@@ -209,14 +202,16 @@ validate_local() {
   export ARCHE_SEED_TEST_SLUG="${ARCHE_SEED_TEST_SLUG:-peter}"
 }
 
+log "About to determine mode, current MODE=$MODE"
+
 # Determine mode
 if [[ "$MODE" == "local" || "$MODE" == "local-dev" ]]; then
   # Ensure no remote flags were also passed
-  if [[ -n "$DEPLOY_IP" || -n "$DEPLOY_DOMAIN" || -n "$DNS_PROVIDER" || -n "$SSH_KEY" || -n "$ACME_EMAIL" ]]; then
+  if [[ -n "$DEPLOY_IP" || -n "$DEPLOY_DOMAIN" || -n "$SSH_KEY" || -n "$ACME_EMAIL" ]]; then
     ERRORS+=("--${MODE} is mutually exclusive with remote flags (--ip, --domain, etc.)")
   fi
   validate_local
-elif [[ -n "$DEPLOY_IP" || -n "$DEPLOY_DOMAIN" || -n "$DNS_PROVIDER" || -n "$SSH_KEY" || -n "$ACME_EMAIL" ]]; then
+elif [[ -n "$DEPLOY_IP" || -n "$DEPLOY_DOMAIN" || -n "$SSH_KEY" || -n "$ACME_EMAIL" ]]; then
   MODE="remote"
   validate_remote
 else
@@ -232,9 +227,24 @@ if [[ ${#ERRORS[@]} -gt 0 ]]; then
   exit 1
 fi
 
+log "Validation passed, MODE=$MODE"
+
 # ---------------------------------------------------------------------------
-# DNS Record Management
+# DNS Record Management (Simplified - User-guided)
 # ---------------------------------------------------------------------------
+get_dns_record_name() {
+  # Extract subdomain part from domain
+  local domain="$1"
+  local base_domain="$2"
+  
+  if [[ "$domain" == "$base_domain" ]]; then
+    echo "@"
+  else
+    # Remove base domain and trailing dot
+    echo "$domain" | sed "s/\.${base_domain}$//"
+  fi
+}
+
 ensure_dns_record() {
   log "Checking DNS configuration for $DEPLOY_DOMAIN..."
 
@@ -245,176 +255,97 @@ ensure_dns_record() {
     return 0
   fi
 
-  warn "DNS record for $DEPLOY_DOMAIN does not point to $DEPLOY_IP"
-  warn "Current IP: ${CURRENT_IP:-(not set)}"
-  log "Attempting to create/update DNS record automatically..."
+  # Determine record type based on IP format
+  local record_type="A"
+  if [[ "$DEPLOY_IP" =~ : ]]; then
+    record_type="AAAA"
+  fi
 
-  case "$DNS_PROVIDER" in
-    cloudflare)
-      ensure_cloudflare_record
-      ;;
-    route53)
-      ensure_route53_record
-      ;;
-    digitalocean)
-      ensure_digitalocean_record
-      ;;
-    *)
-      err "Cannot auto-configure DNS for provider: $DNS_PROVIDER"
-      err "Please manually create an A record: $DEPLOY_DOMAIN → $DEPLOY_IP"
-      exit 1
-      ;;
-  esac
+  # Show user-friendly instructions
+  echo ""
+  echo "╔════════════════════════════════════════════════════════════════╗"
+  echo "║  DNS CONFIGURATION REQUIRED                                    ║"
+  echo "╚════════════════════════════════════════════════════════════════╝"
+  echo ""
+  warn "Your domain $DEPLOY_DOMAIN is not pointing to $DEPLOY_IP"
+  echo ""
+  echo "📋 ADD THIS DNS RECORD TO YOUR DOMAIN PROVIDER:"
+  echo ""
+  echo "   Type:  $record_type"
+  echo "   Name:  $DEPLOY_DOMAIN"
+  echo "   Value: $DEPLOY_IP"
+  echo "   TTL:   300 (5 minutes)"
+  echo ""
+  echo "📖 QUICK GUIDES FOR POPULAR PROVIDERS:"
+  echo ""
+  echo "   Cloudflare:"
+  echo "     1. Go to dash.cloudflare.com"
+  echo "     2. Select your domain"
+  echo "     3. Go to DNS → Records"
+  echo "     4. Click 'Add record'"
+  echo "     5. Type: $record_type, Name: $DEPLOY_DOMAIN, Content: $DEPLOY_IP"
+  echo ""
+  echo "   GoDaddy:"
+  echo "     1. Go to godaddy.com → My Products"
+  echo "     2. Click 'DNS' next to your domain"
+  echo "     3. Click 'Add'"
+  echo "     4. Type: $record_type, Name: @, Value: $DEPLOY_IP"
+  echo ""
+  echo "   Namecheap:"
+  echo "     1. Go to namecheap.com → Domain List"
+  echo "     2. Click 'Manage' → 'Advanced DNS'"
+  echo "     3. Click 'Add New Record'"
+  echo "     4. Type: $record_type Record, Host: @, Value: $DEPLOY_IP"
+  echo ""
+  echo "   OVH:"
+  echo "     1. Go to ovh.com → Web Cloud"
+  echo "     2. Click your domain → DNS zone"
+  echo "     3. Click 'Add an entry'"
+  echo "     4. Select '$record_type' and fill in the values"
+  echo ""
+  echo "⏳  After adding the record, press ENTER to continue..."
+  echo "    (The script will verify the DNS is working before proceeding)"
+  echo ""
+  
+  read -r
 
-  # Wait for DNS propagation
-  log "Waiting for DNS propagation (this may take 30-60 seconds)..."
-  RETRIES=30
-  until [[ "$(dig +short "$DEPLOY_DOMAIN" 2>/dev/null | head -1)" == "$DEPLOY_IP" ]]; do
-    RETRIES=$((RETRIES - 1))
-    if [[ $RETRIES -le 0 ]]; then
-      warn "DNS propagation timeout. The record was created but may not be visible yet."
-      warn "You can continue, but the deployment may fail if Let's Encrypt cannot resolve the domain."
-      read -p "Continue anyway? (y/N) " -n 1 -r
-      echo
-      if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        exit 1
-      fi
+  # Verify DNS with retries
+  log "Verifying DNS configuration..."
+  local retries=60  # 5 minutes with 5-second intervals
+  local attempt=0
+  
+  while [[ $attempt -lt $retries ]]; do
+    CURRENT_IP=$(dig +short "$DEPLOY_DOMAIN" 2>/dev/null | head -1)
+    if [[ "$CURRENT_IP" == "$DEPLOY_IP" ]]; then
+      log "DNS record verified successfully ✓"
+      log "Domain $DEPLOY_DOMAIN now points to $DEPLOY_IP"
       return 0
     fi
-    sleep 2
-  done
-  log "DNS propagated successfully ✓"
-}
-
-ensure_cloudflare_record() {
-  log "Creating Cloudflare DNS record..."
-
-  # Extract domain parts
-  DOMAIN="$DEPLOY_DOMAIN"
-
-  # Get zone ID
-  ZONE_ID=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=$DOMAIN" \
-    -H "Authorization: Bearer $CF_DNS_API_TOKEN" \
-    -H "Content-Type: application/json" | python3 -c "import sys,json; print(json.load(sys.stdin)['result'][0]['id'])" 2>/dev/null)
-
-  if [[ -z "$ZONE_ID" ]]; then
-    # Try without subdomain (e.g., arche.example.com -> example.com)
-    BASE_DOMAIN=$(echo "$DOMAIN" | sed 's/^[^.]*\.//')
-    ZONE_ID=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones?name=$BASE_DOMAIN" \
-      -H "Authorization: Bearer $CF_DNS_API_TOKEN" \
-      -H "Content-Type: application/json" | python3 -c "import sys,json; data=json.load(sys.stdin); print(data['result'][0]['id'] if data['result'] else '')" 2>/dev/null)
-
-    if [[ -z "$ZONE_ID" ]]; then
-      err "Could not find Cloudflare zone for $DOMAIN or $BASE_DOMAIN"
-      err "Please ensure:"
-      err "  1. Your domain is added to Cloudflare"
-      err "  2. CF_DNS_API_TOKEN has Zone:Read and DNS:Edit permissions"
-      exit 1
+    
+    attempt=$((attempt + 1))
+    if [[ $attempt -lt $retries ]]; then
+      echo -n "."
+      sleep 5
     fi
-  fi
-
-  # Check if record already exists
-  RECORD_ID=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=A&name=$DOMAIN" \
-    -H "Authorization: Bearer $CF_DNS_API_TOKEN" \
-    -H "Content-Type: application/json" | python3 -c "import sys,json; data=json.load(sys.stdin); print(data['result'][0]['id'] if data['result'] else '')" 2>/dev/null)
-
-  if [[ -n "$RECORD_ID" ]]; then
-    # Update existing record
-    curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$RECORD_ID" \
-      -H "Authorization: Bearer $CF_DNS_API_TOKEN" \
-      -H "Content-Type: application/json" \
-      --data "{\"type\":\"A\",\"name\":\"$DOMAIN\",\"content\":\"$DEPLOY_IP\",\"ttl\":120,\"proxied\":false}" > /dev/null
-    log "Updated existing Cloudflare DNS record ✓"
-  else
-    # Create new record
-    curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
-      -H "Authorization: Bearer $CF_DNS_API_TOKEN" \
-      -H "Content-Type: application/json" \
-      --data "{\"type\":\"A\",\"name\":\"$DOMAIN\",\"content\":\"$DEPLOY_IP\",\"ttl\":120,\"proxied\":false}" > /dev/null
-    log "Created new Cloudflare DNS record ✓"
-  fi
-}
-
-ensure_route53_record() {
-  log "Creating Route53 DNS record..."
+  done
   
-  # Check if aws CLI is available
-  if ! command -v aws &>/dev/null; then
-    err "AWS CLI not found. Install it or manually create the DNS record:"
-    err "  $DEPLOY_DOMAIN A $DEPLOY_IP"
-    exit 1
-  fi
-
-  # Extract hosted zone ID
-  HOSTED_ZONE_ID=$(aws route53 list-hosted-zones-by-name --dns-name "$DEPLOY_DOMAIN" --query 'HostedZones[0].Id' --output text 2>/dev/null | cut -d'/' -f3)
+  echo ""
+  warn "DNS verification timed out after 5 minutes"
+  warn "Current DNS value: ${CURRENT_IP:-(not set)}"
+  warn "Expected value: $DEPLOY_IP"
+  echo ""
+  echo "This is normal - DNS can take up to 24-48 hours to propagate worldwide."
+  echo "However, it usually works within 5-30 minutes."
+  echo ""
+  read -p "Do you want to continue anyway? The deployment may fail if Let's Encrypt cannot verify your domain. (y/N): " -n 1 -r
+  echo
   
-  if [[ -z "$HOSTED_ZONE_ID" || "$HOSTED_ZONE_ID" == "None" ]]; then
-    # Try base domain
-    BASE_DOMAIN=$(echo "$DEPLOY_DOMAIN" | sed 's/^[^.]*\.//')
-    HOSTED_ZONE_ID=$(aws route53 list-hosted-zones-by-name --dns-name "$BASE_DOMAIN" --query 'HostedZones[0].Id' --output text 2>/dev/null | cut -d'/' -f3)
+  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    log "Deployment cancelled. Run the script again when DNS is ready."
+    exit 0
   fi
-
-  if [[ -z "$HOSTED_ZONE_ID" || "$HOSTED_ZONE_ID" == "None" ]]; then
-    err "Could not find Route53 hosted zone for $DEPLOY_DOMAIN"
-    exit 1
-  fi
-
-  # Create change batch
-  aws route53 change-resource-record-sets \
-    --hosted-zone-id "$HOSTED_ZONE_ID" \
-    --change-batch '{
-      "Changes": [{
-        "Action": "UPSERT",
-        "ResourceRecordSet": {
-          "Name": "'$DEPLOY_DOMAIN'",
-          "Type": "A",
-          "TTL": 300,
-          "ResourceRecords": [{"Value": "'$DEPLOY_IP'"}]
-        }
-      }]
-    }' > /dev/null
-
-  log "Created/updated Route53 DNS record ✓"
-}
-
-ensure_digitalocean_record() {
-  log "Creating DigitalOcean DNS record..."
-
-  # Extract domain
-  DOMAIN="$DEPLOY_DOMAIN"
   
-  # Get domain name (remove subdomain if present)
-  BASE_DOMAIN=$(echo "$DOMAIN" | sed 's/^[^.]*\.//')
-  
-  # Check if domain exists in DO
-  DOMAIN_CHECK=$(curl -s -X GET "https://api.digitalocean.com/v2/domains/$BASE_DOMAIN" \
-    -H "Authorization: Bearer $DO_AUTH_TOKEN" | python3 -c "import sys,json; data=json.load(sys.stdin); print('ok' if 'domain' in data else '')" 2>/dev/null)
-
-  if [[ -z "$DOMAIN_CHECK" ]]; then
-    err "Domain $BASE_DOMAIN not found in DigitalOcean"
-    err "Please add your domain to DigitalOcean DNS first"
-    exit 1
-  fi
-
-  # Check if record exists
-  RECORD_ID=$(curl -s -X GET "https://api.digitalocean.com/v2/domains/$BASE_DOMAIN/records?type=A&name=$DOMAIN" \
-    -H "Authorization: Bearer $DO_AUTH_TOKEN" | python3 -c "import sys,json; data=json.load(sys.stdin); print(str(data['domain_records'][0]['id']) if data.get('domain_records') else '')" 2>/dev/null)
-
-  if [[ -n "$RECORD_ID" ]]; then
-    # Update existing
-    curl -s -X PUT "https://api.digitalocean.com/v2/domains/$BASE_DOMAIN/records/$RECORD_ID" \
-      -H "Authorization: Bearer $DO_AUTH_TOKEN" \
-      -H "Content-Type: application/json" \
-      -d '{"type":"A","name":"'$DOMAIN'","data":"'$DEPLOY_IP'","ttl":300}' > /dev/null
-    log "Updated existing DigitalOcean DNS record ✓"
-  else
-    # Create new
-    curl -s -X POST "https://api.digitalocean.com/v2/domains/$BASE_DOMAIN/records" \
-      -H "Authorization: Bearer $DO_AUTH_TOKEN" \
-      -H "Content-Type: application/json" \
-      -d '{"type":"A","name":"'$DOMAIN'","data":"'$DEPLOY_IP'","ttl":300}' > /dev/null
-    log "Created new DigitalOcean DNS record ✓"
-  fi
+  warn "Continuing without DNS verification..."
 }
 
 # ---------------------------------------------------------------------------
@@ -451,14 +382,13 @@ ${DEPLOY_IP} ansible_user=${SSH_USER} ansible_ssh_private_key_file=${SSH_KEY}
 EOF
 
   # Export variables so python3 subprocess can read them
-  export DEPLOY_DOMAIN DNS_PROVIDER ACME_EMAIL IMAGE_PREFIX WEB_VERSION OPENCODE_IMAGE
+  export DEPLOY_DOMAIN ACME_EMAIL IMAGE_PREFIX WEB_VERSION OPENCODE_IMAGE
 
   # Build extra vars as JSON (safe for secrets with special characters)
   python3 -c '
 import json, os, sys
 vars = {
     "domain": os.environ["DEPLOY_DOMAIN"],
-    "dns_provider": os.environ["DNS_PROVIDER"],
     "acme_email": os.environ["ACME_EMAIL"],
     "deploy_mode": "remote",
     "image_prefix": os.environ["IMAGE_PREFIX"],
@@ -480,14 +410,6 @@ vars = {
     "kb_config_host_path": os.environ.get("KB_CONFIG_HOST_PATH", "/opt/arche/kb-config"),
     "ghcr_token": os.environ["GHCR_TOKEN"],
 }
-dns = os.environ["DNS_PROVIDER"]
-if dns == "cloudflare":
-    vars["cf_dns_api_token"] = os.environ["CF_DNS_API_TOKEN"]
-elif dns == "route53":
-    vars["aws_access_key_id"] = os.environ["AWS_ACCESS_KEY_ID"]
-    vars["aws_secret_access_key"] = os.environ["AWS_SECRET_ACCESS_KEY"]
-elif dns == "digitalocean":
-    vars["do_auth_token"] = os.environ["DO_AUTH_TOKEN"]
 json.dump(vars, open(sys.argv[1], "w"))
 ' "$EXTRA_VARS_FILE"
 

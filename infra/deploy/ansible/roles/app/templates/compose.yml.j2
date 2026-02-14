@@ -6,7 +6,7 @@ name: arche
 
 services:
   traefik:
-    image: traefik:v3.6.7
+    image: docker.io/traefik:v3.6.7
     restart: unless-stopped
     command:
       - --providers.docker=true
@@ -18,11 +18,10 @@ services:
       - --entrypoints.web.http.redirections.entryPoint.to=websecure
       - --entrypoints.web.http.redirections.entryPoint.scheme=https
       - --entrypoints.websecure.address=:443
-      # ACME DNS challenge
+      # ACME HTTP challenge (no DNS provider needed)
       - --certificatesResolvers.letsencrypt.acme.email={{ acme_email }}
       - --certificatesResolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
-      - --certificatesResolvers.letsencrypt.acme.dnsChallenge.provider={{ dns_provider }}
-      - --certificatesResolvers.letsencrypt.acme.dnsChallenge.resolvers=1.1.1.1:53,8.8.8.8:53
+      - --certificatesResolvers.letsencrypt.acme.httpChallenge.entryPoint=web
 {% else %}
       # HTTP-only (local / local-dev mode)
       - --entrypoints.web.address=:80
@@ -46,17 +45,7 @@ services:
 {% else %}
       - "8080:80"
 {% endif %}
-{% if deploy_mode == 'remote' %}
-    environment:
-{% if dns_provider == 'cloudflare' %}
-      CF_DNS_API_TOKEN: "${CF_DNS_API_TOKEN}"
-{% elif dns_provider == 'route53' %}
-      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID}"
-      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY}"
-{% elif dns_provider == 'digitalocean' %}
-      DO_AUTH_TOKEN: "${DO_AUTH_TOKEN}"
-{% endif %}
-{% endif %}
+
     networks:
       - default
       - arche-internal
@@ -64,7 +53,7 @@ services:
       - docker-socket-proxy
 
   docker-socket-proxy:
-    image: ghcr.io/tecnativa/docker-socket-proxy:master
+    image: ghcr.io/tecnativa/docker-socket-proxy:latest
     restart: unless-stopped
 {% if deploy_mode in ('local', 'local-dev') %}
     user: root
@@ -84,7 +73,7 @@ services:
       - arche-internal
 
   postgres:
-    image: postgres:16
+    image: docker.io/postgres:16
     restart: unless-stopped
     environment:
       POSTGRES_DB: arche
