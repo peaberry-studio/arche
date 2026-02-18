@@ -72,7 +72,7 @@ services:
     networks:
       - arche-internal
     healthcheck:
-      test: ["CMD-SHELL", "curl --unix-socket /var/run/docker.sock http://localhost/version"]
+      test: ["CMD-SHELL", "test -S /var/run/docker.sock"]
       interval: 10s
       timeout: 5s
       retries: 5

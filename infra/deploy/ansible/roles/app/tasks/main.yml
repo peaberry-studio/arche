@@ -54,6 +54,39 @@
     - "{{ kb_config_host_path | default('/opt/arche/kb-config') }}"
   when: kb_content_host_path is defined or kb_config_host_path is defined
 
+- name: Ensure KB repositories are bare
+  ansible.builtin.shell: |
+    set -euo pipefail
+    dir="{{ item }}"
+
+    if git --git-dir="$dir" rev-parse --is-bare-repository >/dev/null 2>&1; then
+      exit 0
+    fi
+
+    if [ -d "$dir/.git" ]; then
+      backup_dir="${dir}.worktree.bak.$(date +%s)"
+      bare_tmp="${dir}.bare"
+      git -c safe.directory="$dir" clone --bare "$dir" "$bare_tmp"
+      mv "$dir" "$backup_dir"
+      mv "$bare_tmp" "$dir"
+      chown -R "{{ deploy_user }}:{{ deploy_user }}" "$dir"
+      exit 0
+    fi
+
+    if [ -d "$dir" ] && [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then
+      backup_dir="${dir}.backup.$(date +%s)"
+      mv "$dir" "$backup_dir"
+    fi
+
+    git init --bare --initial-branch=main "$dir" >/dev/null 2>&1 || git init --bare "$dir"
+    chown -R "{{ deploy_user }}:{{ deploy_user }}" "$dir"
+  args:
+    executable: /bin/bash
+  loop:
+    - "{{ kb_content_host_path | default('/opt/arche/kb-content') }}"
+    - "{{ kb_config_host_path | default('/opt/arche/kb-config') }}"
+  when: kb_content_host_path is defined or kb_config_host_path is defined
+
 - name: Log in to GHCR
   ansible.builtin.command:
     cmd: podman login ghcr.io -u arche-deploy --password-stdin
