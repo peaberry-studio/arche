@@ -27,6 +27,8 @@ describe('workspace path normalization', () => {
 
   it('detects protected workspace paths', () => {
     expect(isProtectedWorkspacePath('.gitignore')).toBe(true)
+    expect(isProtectedWorkspacePath('.gitkeep')).toBe(true)
+    expect(isProtectedWorkspacePath('Company/.gitkeep')).toBe(true)
     expect(isProtectedWorkspacePath('AGENTS.md')).toBe(true)
     expect(isProtectedWorkspacePath('opencode.json')).toBe(true)
     expect(isProtectedWorkspacePath('packages/web/node_modules/react/index.js')).toBe(true)
@@ -42,6 +44,7 @@ describe('workspace path normalization', () => {
   it('detects hidden workspace paths', () => {
     expect(isHiddenWorkspacePath('.arche/attachments/a.txt')).toBe(true)
     expect(isHiddenWorkspacePath('node_modules/react/index.js')).toBe(true)
+    expect(isHiddenWorkspacePath('Company/.gitkeep')).toBe(true)
     expect(isHiddenWorkspacePath('AGENTS.md')).toBe(true)
     expect(isHiddenWorkspacePath('Company/Product/README.md')).toBe(false)
   })
@@ -50,6 +53,7 @@ describe('workspace path normalization', () => {
     expect(isValidContextReferencePath('')).toBe(false)
     expect(isValidContextReferencePath('.arche/secret.txt')).toBe(false)
     expect(isValidContextReferencePath('AGENTS.md')).toBe(false)
+    expect(isValidContextReferencePath('Company/.gitkeep')).toBe(false)
     expect(isValidContextReferencePath('node_modules/react/index.js')).toBe(false)
     expect(isValidContextReferencePath('src/../secret.txt')).toBe(false)
     expect(isValidContextReferencePath('src/app/page.tsx')).toBe(true)

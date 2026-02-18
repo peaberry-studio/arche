@@ -77,12 +77,15 @@ describe('docker', () => {
       }
       expect(writtenConfig.permission?.edit).toMatchObject({
         '.gitignore': 'deny',
+        '.gitkeep': 'deny',
+        '**/.gitkeep': 'deny',
         'opencode.json': 'deny',
         'AGENTS.md': 'deny',
         'node_modules/*': 'deny',
       })
       expect(writtenConfig.permission?.bash).toMatchObject({
         '*AGENTS.md*': 'deny',
+        '*.gitkeep*': 'deny',
         'npm install*': 'deny',
         'pnpm add*': 'deny',
         'yarn create*': 'deny',
@@ -173,6 +176,7 @@ describe('docker', () => {
         '*': 'allow',
         'Company/*': 'allow',
         '.gitignore': 'deny',
+        '.gitkeep': 'deny',
       })
     })
 

@@ -13,6 +13,8 @@ import { getUserDataHostPath, ensureUserDirectory } from "@/lib/user-data";
 
 const WORKSPACE_EDIT_DENY_RULES: Record<string, "deny"> = {
   ".gitignore": "deny",
+  ".gitkeep": "deny",
+  "**/.gitkeep": "deny",
   "opencode.json": "deny",
   "AGENTS.md": "deny",
   "agents.md": "deny",
@@ -24,6 +26,7 @@ const WORKSPACE_EDIT_DENY_RULES: Record<string, "deny"> = {
 
 const WORKSPACE_BASH_DENY_RULES: Record<string, "deny"> = {
   "*.gitignore*": "deny",
+  "*.gitkeep*": "deny",
   "*opencode.json*": "deny",
   "*AGENTS.md*": "deny",
   "*agents.md*": "deny",

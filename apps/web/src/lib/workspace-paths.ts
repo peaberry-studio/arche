@@ -1,5 +1,6 @@
 const PROTECTED_WORKSPACE_ROOT_FILES = new Set([
   '.gitignore',
+  '.gitkeep',
   'opencode.json',
   'agents.md',
 ])
@@ -41,8 +42,17 @@ export function isNodeModulesWorkspacePath(path: string): boolean {
   return segments.some((segment) => segment.toLowerCase() === 'node_modules')
 }
 
+function isGitkeepWorkspacePath(path: string): boolean {
+  const segments = splitPathSegments(path)
+  return segments.some((segment) => segment.toLowerCase() === '.gitkeep')
+}
+
 export function isProtectedWorkspacePath(path: string): boolean {
-  return isRootProtectedWorkspaceFile(path) || isNodeModulesWorkspacePath(path)
+  return (
+    isRootProtectedWorkspaceFile(path) ||
+    isNodeModulesWorkspacePath(path) ||
+    isGitkeepWorkspacePath(path)
+  )
 }
 
 export function isHiddenWorkspacePath(path: string): boolean {
