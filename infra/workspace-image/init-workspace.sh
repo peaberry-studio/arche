@@ -24,12 +24,13 @@ log() {
   echo "[init-workspace] $1"
 }
 
-is_bare_kb() {
-  git --git-dir="$KB_CONTENT_DIR" rev-parse --is-bare-repository >/dev/null 2>&1
+fail() {
+  echo "[init-workspace] $1" >&2
+  exit 1
 }
 
-is_worktree_kb() {
-  git -c safe.directory="$KB_CONTENT_DIR" -C "$KB_CONTENT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1
+is_bare_kb() {
+  git --git-dir="$KB_CONTENT_DIR" rev-parse --is-bare-repository >/dev/null 2>&1
 }
 
 set_workspace_git_identity() {
@@ -58,14 +59,12 @@ ensure_workspace_excludes() {
   fi
 }
 
-kb_available=false
-if is_bare_kb || is_worktree_kb; then
-  kb_available=true
+if [ ! -d "$KB_CONTENT_DIR" ]; then
+  fail "Missing KB content mount at $KB_CONTENT_DIR"
 fi
 
-if [ "$kb_available" = false ]; then
-  log "KB content repository not found at $KB_CONTENT_DIR, skipping initialization"
-  exit 0
+if ! is_bare_kb; then
+  fail "KB content repository at $KB_CONTENT_DIR must be a bare Git repo"
 fi
 
 # Verify whether workspace already has initialized git

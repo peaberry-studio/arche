@@ -17,10 +17,13 @@ ensure_git_safe_directory() {
 ensure_git_safe_directory /workspace
 ensure_git_safe_directory /kb-content
 
-# Initialize workspace with KB if needed
-if [ -d "/kb-content" ]; then
-  /usr/local/bin/init-workspace.sh
+if [ ! -d "/kb-content" ]; then
+  echo "[entrypoint] Missing required /kb-content mount" >&2
+  exit 1
 fi
+
+# Initialize workspace with KB
+/usr/local/bin/init-workspace.sh
 
 # Apply OpenCode config from user-data (written by the spawner).
 # This contains the merged config: agents + MCP connectors + provider gateway.

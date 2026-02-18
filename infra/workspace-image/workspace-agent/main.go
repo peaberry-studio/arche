@@ -1293,9 +1293,6 @@ func (s *server) resolveKbBranch(ctx context.Context) string {
   if s.remoteBranchExists(ctx, "main") {
     return "main"
   }
-  if s.remoteBranchExists(ctx, "master") {
-    return "master"
-  }
 
   current := s.currentBranch(ctx)
   if current != "" && s.remoteBranchExists(ctx, current) {

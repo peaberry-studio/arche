@@ -146,18 +146,14 @@ services:
       - arche_web_node_modules:/app/node_modules
       - arche_pnpm_store:/pnpm/store
       - {{ users_path | default('/opt/arche/users') }}:{{ users_path | default('/opt/arche/users') }}
-{% if kb_content_host_path is defined and kb_content_host_path and kb_config_host_path is defined and kb_config_host_path %}
-      - {{ kb_content_host_path }}:/kb-content
-      - {{ kb_config_host_path }}:/kb-config
-{% endif %}
+      - {{ kb_content_host_path | default('/opt/arche/kb-content') }}:/kb-content
+      - {{ kb_config_host_path | default('/opt/arche/kb-config') }}:/kb-config
     command: sh -lc "apt-get update -y && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/* && corepack enable && pnpm config set store-dir /pnpm/store >/dev/null 2>&1 || true && pnpm install --prefer-offline --force && pnpm prisma generate && pnpm dev"
 {% else %}
     volumes:
       - {{ users_path | default('/opt/arche/users') }}:{{ users_path | default('/opt/arche/users') }}
-{% if kb_content_host_path is defined and kb_content_host_path and kb_config_host_path is defined and kb_config_host_path %}
-      - {{ kb_content_host_path }}:/kb-content
-      - {{ kb_config_host_path }}:/kb-config
-{% endif %}
+      - {{ kb_content_host_path | default('/opt/arche/kb-content') }}:/kb-content
+      - {{ kb_config_host_path | default('/opt/arche/kb-config') }}:/kb-config
 {% endif %}
 
 networks:

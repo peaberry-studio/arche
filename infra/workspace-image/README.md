@@ -75,10 +75,12 @@ Runtime config is injected by Arche spawner when creating the container:
 
 The image also includes a global `OPENCODE_CONFIG_DIR` (`/opt/arche/opencode-config`) with custom tools always available to all workspaces.
 
-If these files are not mounted, `entrypoint.sh` keeps a legacy fallback:
+At startup, `entrypoint.sh` copies mounted runtime files into `/workspace`:
 
-- copy `/user-data/opencode-config.json` -> `/workspace/opencode.json`
-- copy `/user-data/AGENTS.md` -> `/workspace/AGENTS.md`
+- copy `/tmp/arche-user-data/opencode-config.json` -> `/workspace/opencode.json`
+- copy `/tmp/arche-user-data/AGENTS.md` -> `/workspace/AGENTS.md`
+
+`/kb-content` is mandatory. The container exits on startup if the mount is missing.
 
 ## KB Sync
 

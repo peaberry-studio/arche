@@ -85,9 +85,9 @@ services:
       OPENCODE_IMAGE: arche-workspace:latest
       OPENCODE_NETWORK: arche-internal
       # Path to KB content bare repo on host
-      KB_CONTENT_HOST_PATH: ${KB_CONTENT_HOST_PATH:-}
+      KB_CONTENT_HOST_PATH: ${KB_CONTENT_HOST_PATH:-/opt/arche/kb-content}
       # Path to KB config bare repo on host
-      KB_CONFIG_HOST_PATH: ${KB_CONFIG_HOST_PATH:-}
+      KB_CONFIG_HOST_PATH: ${KB_CONFIG_HOST_PATH:-/opt/arche/kb-config}
       # Path for persistent user data
       ARCHE_USERS_PATH: ${ARCHE_USERS_PATH:-/tmp/arche-users}
     networks:
@@ -118,4 +118,3 @@ networks:
 volumes:
   arche_postgres:
   arche_web_node_modules:
-  arche_kb:
