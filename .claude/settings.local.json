@@ -15,7 +15,9 @@
       "Bash(npx vitest run:*)",
       "Bash(podman ps:*)",
       "Bash(podman logs:*)",
-      "Bash(podman exec:*)"
+      "Bash(podman exec:*)",
+      "Bash(pnpm --filter web lint:*)",
+      "Bash(pnpm --filter web test)"
     ]
   }
 }
