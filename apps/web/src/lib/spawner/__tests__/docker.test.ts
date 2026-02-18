@@ -67,6 +67,31 @@ describe('docker', () => {
 
       await createContainer('user-slug', 'secret-password', configContent)
 
+      const configCall = mockWriteFile.mock.calls.find(
+        (call: unknown[]) =>
+          typeof call[0] === 'string' &&
+          (call[0] as string).endsWith('opencode-config.json')
+      )
+      const writtenConfig = JSON.parse(String(configCall?.[1])) as {
+        permission?: {
+          edit?: Record<string, string>
+          bash?: Record<string, string>
+        }
+      }
+      expect(writtenConfig.permission?.edit).toMatchObject({
+        '.gitignore': 'deny',
+        'opencode.json': 'deny',
+        'AGENTS.md': 'deny',
+        'node_modules/*': 'deny',
+      })
+      expect(writtenConfig.permission?.bash).toMatchObject({
+        '*AGENTS.md*': 'deny',
+        'npm install*': 'deny',
+        'pnpm add*': 'deny',
+        'yarn create*': 'deny',
+        'bun init*': 'deny',
+      })
+
       expect(Docker).toHaveBeenCalledWith({
         host: 'test-proxy',
         port: 2375,
@@ -110,6 +135,46 @@ describe('docker', () => {
           'arche.managed': 'true',
           'arche.user.slug': 'user-slug',
         },
+      })
+    })
+
+    it('merges existing permission rules with workspace protection', async () => {
+      const configContent = JSON.stringify({
+        permission: {
+          bash: {
+            '*': 'ask',
+            'git *': 'allow',
+          },
+          edit: {
+            '*': 'allow',
+            'Company/*': 'allow',
+          },
+        },
+      })
+
+      await createContainer('user-slug', 'secret-password', configContent)
+
+      const configCall = mockWriteFile.mock.calls.find(
+        (call: unknown[]) =>
+          typeof call[0] === 'string' &&
+          (call[0] as string).endsWith('opencode-config.json')
+      )
+      const writtenConfig = JSON.parse(String(configCall?.[1])) as {
+        permission?: {
+          edit?: Record<string, string>
+          bash?: Record<string, string>
+        }
+      }
+
+      expect(writtenConfig.permission?.bash).toMatchObject({
+        '*': 'ask',
+        'git *': 'allow',
+        'npm install*': 'deny',
+      })
+      expect(writtenConfig.permission?.edit).toMatchObject({
+        '*': 'allow',
+        'Company/*': 'allow',
+        '.gitignore': 'deny',
       })
     })
 

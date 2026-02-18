@@ -8,6 +8,10 @@ import type { SyncKbResult } from "@/app/api/instances/[slug]/sync-kb/route";
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { useWorkspace } from "@/hooks/use-workspace";
 import type { WorkspaceFileNode, WorkspaceSession } from "@/lib/opencode/types";
+import {
+  isProtectedWorkspacePath,
+  normalizeWorkspacePath,
+} from "@/lib/workspace-paths";
 import { takeWorkspaceStartPrompt } from "@/lib/workspace-start-prompt";
 import { cn } from "@/lib/utils";
 
@@ -336,11 +340,18 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
   }, [focusSearchInput]);
 
   // File viewing state
+  const safeInitialFilePath = useMemo(() => {
+    if (!initialFilePath) return null;
+    const normalized = normalizeWorkspacePath(initialFilePath);
+    if (!normalized || isProtectedWorkspacePath(normalized)) return null;
+    return normalized;
+  }, [initialFilePath]);
+
   const [openFilePaths, setOpenFilePaths] = useState<string[]>(
-    initialFilePath ? [initialFilePath] : []
+    safeInitialFilePath ? [safeInitialFilePath] : []
   );
   const [activeFilePath, setActiveFilePath] = useState<string | null>(
-    initialFilePath ?? null
+    safeInitialFilePath
   );
   const [fileCache, setFileCache] = useState<FileContentCache>({});
   const fileCacheRef = useRef(fileCache);
@@ -741,40 +752,45 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
   const handleOpenFile = useCallback(async (path: string) => {
     const resolvedPath = resolveFilePath(path);
     const pathToOpen = resolvedPath || path;
+    const normalizedPath = normalizeWorkspacePath(pathToOpen);
+
+    if (!normalizedPath || isProtectedWorkspacePath(normalizedPath)) {
+      return;
+    }
 
     // Add to open files if not already open
-    setOpenFilePaths(prev => prev.includes(pathToOpen) ? prev : [...prev, pathToOpen]);
-    setActiveFilePath(pathToOpen);
+    setOpenFilePaths(prev => prev.includes(normalizedPath) ? prev : [...prev, normalizedPath]);
+    setActiveFilePath(normalizedPath);
     setRightTab("preview");
     setRightCollapsed(false);
 
     // Load file content if not cached
-    if (!fileCacheRef.current[pathToOpen]) {
-      const result = await workspace.readFile(pathToOpen);
+    if (!fileCacheRef.current[normalizedPath]) {
+      const result = await workspace.readFile(normalizedPath);
       if (result) {
         setFileCache(prev => ({
           ...prev,
-           [pathToOpen]: {
-             content: result.content,
-             type: result.type,
-             title: pathToOpen.split('/').pop() ?? pathToOpen,
-             updatedAt: 'Just now',
-             size: `${(result.content.length / 1024).toFixed(1)} KB`,
-             hash: result.hash,
-           }
+           [normalizedPath]: {
+              content: result.content,
+              type: result.type,
+              title: normalizedPath.split('/').pop() ?? normalizedPath,
+              updatedAt: 'Just now',
+              size: `${(result.content.length / 1024).toFixed(1)} KB`,
+              hash: result.hash,
+            }
          }));
        } else {
          setFileCache(prev => ({
            ...prev,
-           [pathToOpen]: {
-             content: 'Unable to load file.',
-             type: 'raw',
-             title: pathToOpen.split('/').pop() ?? pathToOpen,
-             updatedAt: 'Error',
-             size: '0 KB',
-           }
-         }));
-       }
+           [normalizedPath]: {
+              content: 'Unable to load file.',
+              type: 'raw',
+              title: normalizedPath.split('/').pop() ?? normalizedPath,
+              updatedAt: 'Error',
+              size: '0 KB',
+            }
+          }));
+        }
       }
     }, [resolveFilePath, workspace]);
 

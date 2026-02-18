@@ -8,7 +8,10 @@ import { getActiveCredentialForUser } from "@/lib/providers/store";
 import { PROVIDERS, type ProviderId } from "@/lib/providers/types";
 import { decryptPassword } from "@/lib/spawner/crypto";
 import { deriveWorkspaceMessageRuntimeState } from "@/lib/workspace-message-state";
-import { isInternalWorkspacePath } from "@/lib/workspace-paths";
+import {
+  isHiddenWorkspacePath,
+  isProtectedWorkspacePath,
+} from "@/lib/workspace-paths";
 import { createWorkspaceAgentClient } from "@/lib/workspace-agent/client";
 import type {
   WorkspaceFileNode,
@@ -109,7 +112,7 @@ export async function listFilesAction(
 
     // SDK returns a flat list of files/directories at the given path
     const transformed: WorkspaceFileNode[] = files
-      .filter((f) => !f.ignored && !isInternalWorkspacePath(f.path))
+      .filter((f) => !f.ignored && !isHiddenWorkspacePath(f.path))
       .map((node) => ({
         id: node.path,
         name: node.name,
@@ -131,6 +134,10 @@ export async function readFileAction(
   content?: WorkspaceFileContent;
   error?: string;
 }> {
+  if (isProtectedWorkspacePath(path)) {
+    return { ok: false, error: "protected_path" };
+  }
+
   const { error, client } = await getAuthorizedClient(slug);
   if (error) return { ok: false, error };
 
@@ -172,7 +179,10 @@ export async function searchFilesAction(
 
   try {
     const result = await client!.find.files({ query, limit: 50 });
-    return { ok: true, files: result.data ?? [] };
+    const files = (result.data ?? []).filter(
+      (path) => !isHiddenWorkspacePath(path)
+    );
+    return { ok: true, files };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "unknown" };
   }
@@ -205,7 +215,7 @@ export async function loadFileTreeAction(
       const nodes: WorkspaceFileNode[] = [];
 
       for (const item of items) {
-        if (item.ignored || isInternalWorkspacePath(item.path)) continue;
+        if (item.ignored || isHiddenWorkspacePath(item.path)) continue;
 
         const node: WorkspaceFileNode = {
           id: item.path,
@@ -726,7 +736,7 @@ export async function getWorkspaceDiffsAction(slug: string): Promise<{
     }
 
     const diffs = (data.diffs ?? []).filter(
-      (diff) => !isInternalWorkspacePath(diff.path)
+      (diff) => !isHiddenWorkspacePath(diff.path)
     );
 
     return { ok: true, diffs };

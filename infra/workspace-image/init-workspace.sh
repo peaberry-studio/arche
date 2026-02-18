@@ -52,6 +52,10 @@ ensure_workspace_excludes() {
   if ! grep -qx "AGENTS.md" "$exclude_file"; then
     echo "AGENTS.md" >> "$exclude_file"
   fi
+
+  if ! grep -qx "node_modules/" "$exclude_file"; then
+    echo "node_modules/" >> "$exclude_file"
+  fi
 }
 
 kb_available=false

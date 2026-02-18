@@ -3,6 +3,7 @@
 import { cookies } from 'next/headers'
 import { getSessionFromToken, SESSION_COOKIE_NAME } from '@/lib/auth'
 import type { WorkspaceFileContent } from '@/lib/opencode/types'
+import { isProtectedWorkspacePath } from '@/lib/workspace-paths'
 import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 
 async function getAuthenticatedUser() {
@@ -45,6 +46,10 @@ function extractAgentError(response: Response, data: AgentResponse): string | nu
   return null
 }
 
+function isWorkspacePathProtected(path: string): boolean {
+  return isProtectedWorkspacePath(path)
+}
+
 export async function readWorkspaceFileAction(slug: string, path: string): Promise<{
   ok: boolean
   content?: WorkspaceFileContent
@@ -53,6 +58,9 @@ export async function readWorkspaceFileAction(slug: string, path: string): Promi
 }> {
   const auth = await authorizeWorkspace(slug)
   if (!auth.ok) return { ok: false, error: auth.error }
+  if (isWorkspacePathProtected(path)) {
+    return { ok: false, error: 'protected_path' }
+  }
 
   const agent = await createWorkspaceAgentClient(slug)
   if (!agent) return { ok: false, error: 'instance_unavailable' }
@@ -111,6 +119,9 @@ export async function writeWorkspaceFileAction(
 ): Promise<{ ok: boolean; hash?: string; error?: string }> {
   const auth = await authorizeWorkspace(slug)
   if (!auth.ok) return { ok: false, error: auth.error }
+  if (isWorkspacePathProtected(path)) {
+    return { ok: false, error: 'protected_path' }
+  }
 
   const agent = await createWorkspaceAgentClient(slug)
   if (!agent) return { ok: false, error: 'instance_unavailable' }
@@ -149,6 +160,9 @@ export async function deleteWorkspaceFileAction(
 ): Promise<{ ok: boolean; error?: string }> {
   const auth = await authorizeWorkspace(slug)
   if (!auth.ok) return { ok: false, error: auth.error }
+  if (isWorkspacePathProtected(path)) {
+    return { ok: false, error: 'protected_path' }
+  }
 
   const agent = await createWorkspaceAgentClient(slug)
   if (!agent) return { ok: false, error: 'instance_unavailable' }
@@ -225,6 +239,9 @@ export async function getWorkspaceConflictAction(
 ): Promise<{ ok: boolean; conflict?: WorkspaceConflictDetails; error?: string }> {
   const auth = await authorizeWorkspace(slug)
   if (!auth.ok) return { ok: false, error: auth.error }
+  if (isWorkspacePathProtected(path)) {
+    return { ok: false, error: 'protected_path' }
+  }
 
   const agent = await createWorkspaceAgentClient(slug)
   if (!agent) return { ok: false, error: 'instance_unavailable' }
@@ -277,6 +294,9 @@ export async function resolveWorkspaceConflictAction(
 ): Promise<{ ok: boolean; error?: string }> {
   const auth = await authorizeWorkspace(slug)
   if (!auth.ok) return { ok: false, error: auth.error }
+  if (isWorkspacePathProtected(payload.path)) {
+    return { ok: false, error: 'protected_path' }
+  }
 
   const agent = await createWorkspaceAgentClient(slug)
   if (!agent) return { ok: false, error: 'instance_unavailable' }
@@ -310,6 +330,9 @@ export async function discardWorkspaceFileChangesAction(
 ): Promise<{ ok: boolean; error?: string }> {
   const auth = await authorizeWorkspace(slug)
   if (!auth.ok) return { ok: false, error: auth.error }
+  if (isWorkspacePathProtected(path)) {
+    return { ok: false, error: 'protected_path' }
+  }
 
   const agent = await createWorkspaceAgentClient(slug)
   if (!agent) return { ok: false, error: 'instance_unavailable' }

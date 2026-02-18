@@ -11,6 +11,70 @@ import {
 } from "./config";
 import { getUserDataHostPath, ensureUserDirectory } from "@/lib/user-data";
 
+const WORKSPACE_EDIT_DENY_RULES: Record<string, "deny"> = {
+  ".gitignore": "deny",
+  "opencode.json": "deny",
+  "AGENTS.md": "deny",
+  "agents.md": "deny",
+  "node_modules": "deny",
+  "node_modules/*": "deny",
+  "*/node_modules": "deny",
+  "*/node_modules/*": "deny",
+};
+
+const WORKSPACE_BASH_DENY_RULES: Record<string, "deny"> = {
+  "*.gitignore*": "deny",
+  "*opencode.json*": "deny",
+  "*AGENTS.md*": "deny",
+  "*agents.md*": "deny",
+  "npm install*": "deny",
+  "npm i*": "deny",
+  "npm ci*": "deny",
+  "npm init*": "deny",
+  "npm create*": "deny",
+  "pnpm install*": "deny",
+  "pnpm add*": "deny",
+  "pnpm init*": "deny",
+  "pnpm create*": "deny",
+  "yarn install*": "deny",
+  "yarn add*": "deny",
+  "yarn init*": "deny",
+  "yarn create*": "deny",
+  "bun install*": "deny",
+  "bun add*": "deny",
+  "bun init*": "deny",
+  "bun create*": "deny",
+};
+
+function mergePermissionRule(
+  current: unknown,
+  enforced: Record<string, "allow" | "ask" | "deny">
+): Record<string, unknown> {
+  if (typeof current === "string") {
+    return { "*": current, ...enforced };
+  }
+
+  if (current && typeof current === "object") {
+    return { ...(current as Record<string, unknown>), ...enforced };
+  }
+
+  return { ...enforced };
+}
+
+function withWorkspacePermissionGuards(config: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...config };
+  const permission =
+    next.permission && typeof next.permission === "object"
+      ? { ...(next.permission as Record<string, unknown>) }
+      : {};
+
+  permission.edit = mergePermissionRule(permission.edit, WORKSPACE_EDIT_DENY_RULES);
+  permission.bash = mergePermissionRule(permission.bash, WORKSPACE_BASH_DENY_RULES);
+
+  next.permission = permission;
+  return next;
+}
+
 function getContainerClient(): Docker {
   const socketPath = getContainerSocketPath();
   if (socketPath) {
@@ -57,9 +121,13 @@ export async function createContainer(
   };
 
   // Merge passed-in config (agents, MCP connectors, etc.) with provider gateway
-  const mergedConfig = opencodeConfigContent
-    ? { ...JSON.parse(opencodeConfigContent), ...providerGatewayConfig }
-    : providerGatewayConfig;
+  const baseConfig = opencodeConfigContent
+    ? (JSON.parse(opencodeConfigContent) as Record<string, unknown>)
+    : {};
+  const mergedConfig = withWorkspacePermissionGuards({
+    ...baseConfig,
+    ...providerGatewayConfig,
+  });
 
   // Ensure volumes exist for persistent workspace and OpenCode state
   for (const name of [
