@@ -51,7 +51,7 @@ services:
       - arche-internal
     depends_on:
       - docker-socket-proxy
-
+  
   docker-socket-proxy:
     image: ghcr.io/tecnativa/docker-socket-proxy:latest
     restart: unless-stopped
@@ -71,6 +71,11 @@ services:
       - {{ podman_socket_path }}:/var/run/docker.sock:ro
     networks:
       - arche-internal
+    healthcheck:
+      test: ["CMD-SHELL", "curl --unix-socket /var/run/docker.sock http://localhost/version"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   postgres:
     image: docker.io/postgres:16
