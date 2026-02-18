@@ -15,7 +15,7 @@ export default async function WorkspaceHostPage({
   const { slug } = await params
   const search = await searchParams
 
-  // Verificar autenticación
+  // Verify authentication
   const cookieStore = await cookies()
   const token = cookieStore.get(SESSION_COOKIE_NAME)?.value
   
@@ -28,7 +28,7 @@ export default async function WorkspaceHostPage({
     redirect('/login')
   }
 
-  // Verificar autorización: el usuario solo puede ver su propio workspace (o admin puede ver todos)
+  // Verify authorization: user can only access their own workspace (or admin can access all)
   if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
     redirect(`/w/${session.user.slug}`)
   }

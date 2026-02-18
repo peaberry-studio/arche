@@ -123,7 +123,7 @@ export async function createContainer(
     Image: getOpencodeImage(),
     name: containerName,
     WorkingDir: "/workspace",
-    // La imagen arche-workspace tiene entrypoint wrapper que inicializa el workspace
+    // arche-workspace image has an entrypoint wrapper that initializes the workspace
     Cmd: ["serve", "--hostname", "0.0.0.0", "--port", "4096"],
     Env: env,
     HostConfig: {

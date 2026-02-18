@@ -42,7 +42,7 @@ export default function LoginPage() {
   const [challengeToken, setChallengeToken] = useState("");
   const [show2FA, setShow2FA] = useState(false);
 
-  // Redirigir automáticamente al dashboard después de login exitoso
+  // Automatically redirect to the dashboard after successful login
   useEffect(() => {
     if (result?.data?.ok && result.data.user?.slug) {
       const timeout = setTimeout(() => {

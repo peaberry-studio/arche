@@ -1,19 +1,19 @@
 # Arche Workspace Image
 
-Imagen derivada de OpenCode con soporte para Knowledge Base (KB) compartido.
+Image derived from OpenCode with support for a shared Knowledge Base (KB).
 
-## Características
+## Features
 
-- Basada en `ghcr.io/anomalyco/opencode`
-- Incluye `git` para sincronización de KB
-- Script de inicialización automática del workspace
-- Workspace agent HTTP para diffs y operaciones de archivo
-- Soporte para configuración runtime inyectada por el spawner (`opencode.json` y `AGENTS.md`)
-- Custom tools globales de OpenCode para análisis tabular (`spreadsheet_*`)
+- Based on `ghcr.io/anomalyco/opencode`
+- Includes `git` for KB sync
+- Automatic workspace initialization script
+- Workspace agent HTTP service for diffs and file operations
+- Support for runtime config injected by the spawner (`opencode.json` and `AGENTS.md`)
+- Global OpenCode custom tools for tabular analysis (`spreadsheet_*`)
 
 ## Workspace Agent
 
-Servicio interno que expone operaciones acotadas sobre el workspace:
+Internal service exposing scoped workspace operations:
 
 - `GET /git/diffs`
 - `POST /files/read`
@@ -27,23 +27,23 @@ Servicio interno que expone operaciones acotadas sobre el workspace:
 ## Build
 
 ```bash
-# Desde este directorio
+# From this directory
 podman build -t arche-workspace .
 
-# Con versión específica de OpenCode
+# With a specific OpenCode version
 podman build --build-arg OPENCODE_VERSION=1.1.45 -t arche-workspace:1.1.45 .
 ```
 
-## Uso
+## Usage
 
-El container usa estos montajes principales:
+The container uses these main mounts:
 
-1. `/workspace` - Volumen persistente del usuario (read-write)
-2. `/kb-content` - Repo Git bare de contenido KB (read-write)
-3. `/home/workspace/.local/share/opencode` - Estado persistente de OpenCode (sesiones/UI)
-4. `/home/workspace/.local/state/opencode` - Estado runtime de OpenCode
-5. `/workspace/opencode.json` - Config runtime (read-only, bind de archivo)
-6. `/workspace/AGENTS.md` - Instrucciones runtime (read-only, bind de archivo, opcional)
+1. `/workspace` - User persistent volume (read-write)
+2. `/kb-content` - KB content bare Git repo (read-write)
+3. `/home/workspace/.local/share/opencode` - OpenCode persistent state (sessions/UI)
+4. `/home/workspace/.local/state/opencode` - OpenCode runtime state
+5. `/workspace/opencode.json` - Runtime config (read-only file bind)
+6. `/workspace/AGENTS.md` - Runtime instructions (read-only file bind, optional)
 
 ```bash
 podman run -d \
@@ -56,48 +56,48 @@ podman run -d \
   arche-workspace serve --hostname 0.0.0.0 --port 4096
 ```
 
-## Inicialización del Workspace
+## Workspace Initialization
 
-Al iniciar, el script `init-workspace.sh` ejecuta:
+At startup, `init-workspace.sh` runs:
 
-1. Si `/workspace` no tiene `.git` y está vacío:
-   - Clona el repo bare de `/kb-content` a `/workspace`
-   - Configura el remote `kb` apuntando a `/kb-content`
+1. If `/workspace` has no `.git` and is empty:
+   - Clones `/kb-content` bare repo into `/workspace`
+   - Configures `kb` remote pointing to `/kb-content`
 
-2. Si `/workspace` ya tiene `.git`:
-   - No clona nada (respeta el trabajo del usuario)
-   - Añade remote `kb` si no existe
+2. If `/workspace` already has `.git`:
+   - Does not clone (preserves user work)
+   - Adds `kb` remote if missing
 
-El runtime de configuración lo inyecta el spawner de Arche al crear el contenedor:
+Runtime config is injected by Arche spawner when creating the container:
 
-- `opencode.json` (merge de CommonWorkspaceConfig + MCP connectors + provider gateway)
-- `AGENTS.md` (si existe en el repo de config)
+- `opencode.json` (merge of CommonWorkspaceConfig + MCP connectors + provider gateway)
+- `AGENTS.md` (if present in config repo)
 
-La imagen también incluye un `OPENCODE_CONFIG_DIR` global (`/opt/arche/opencode-config`) con custom tools siempre disponibles para todos los workspaces.
+The image also includes a global `OPENCODE_CONFIG_DIR` (`/opt/arche/opencode-config`) with custom tools always available to all workspaces.
 
-Si esos archivos no están montados, `entrypoint.sh` mantiene un fallback legacy:
+If these files are not mounted, `entrypoint.sh` keeps a legacy fallback:
 
-- intentar copiar `/user-data/opencode-config.json` -> `/workspace/opencode.json`
-- intentar copiar `/user-data/AGENTS.md` -> `/workspace/AGENTS.md`
+- copy `/user-data/opencode-config.json` -> `/workspace/opencode.json`
+- copy `/user-data/AGENTS.md` -> `/workspace/AGENTS.md`
 
-## Sincronización de KB
+## KB Sync
 
-Desde dentro del container, el usuario puede sincronizar con:
+Inside the container, users can sync with:
 
 ```bash
 cd /workspace
 git fetch kb
-git merge kb/main  # o git rebase kb/main
+git merge kb/main  # or git rebase kb/main
 ```
 
-Si hay conflictos, Git los marcará y el usuario puede resolverlos.
+If conflicts appear, Git marks them and the user can resolve them.
 
-## Variables de Entorno
+## Environment Variables
 
-| Variable | Default | Descripción |
+| Variable | Default | Description |
 |----------|---------|-------------|
-| `WORKSPACE_DIR` | `/workspace` | Directorio del workspace |
-| `KB_CONTENT_DIR` | `/kb-content` | Repo bare de contenido KB montado |
-| `KB_REMOTE_NAME` | `kb` | Nombre del remote Git para el KB |
-| `WORKSPACE_AGENT_PORT` | `4097` | Puerto del workspace agent |
-| `WORKSPACE_AGENT_ADDR` | `0.0.0.0:4097` | Dirección bind del workspace agent |
+| `WORKSPACE_DIR` | `/workspace` | Workspace directory |
+| `KB_CONTENT_DIR` | `/kb-content` | Mounted KB content bare repo |
+| `KB_REMOTE_NAME` | `kb` | KB Git remote name |
+| `WORKSPACE_AGENT_PORT` | `4097` | Workspace agent port |
+| `WORKSPACE_AGENT_ADDR` | `0.0.0.0:4097` | Workspace agent bind address |

@@ -149,16 +149,16 @@ async function testConnection(
 /**
  * POST /api/u/[slug]/connectors/[id]/test
  *
- * Prueba la conexión del conector.
+ * Tests connector connectivity.
  *
  * Response: { ok: boolean, tested: boolean, message?: string }
  *
- * Códigos:
- * - 200: Test ejecutado (ok indica si fue exitoso, tested si realmente se probó)
- * - 401: No autenticado
- * - 403: No autorizado
- * - 404: Usuario o conector no encontrado
- * - 409: Conector deshabilitado
+ * Status codes:
+ * - 200: Test executed (`ok` indicates success, `tested` indicates test was actually run)
+ * - 401: Not authenticated
+ * - 403: Not authorized
+ * - 404: User or connector not found
+ * - 409: Connector disabled
  */
 export async function POST(
   request: NextRequest,
@@ -176,12 +176,12 @@ export async function POST(
 
   const { slug, id } = await params
 
-  // Verificar autorización
+  // Verify authorization
   if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
-  // Obtener usuario
+  // Get user
   const user = await prisma.user.findUnique({
     where: { slug },
     select: { id: true },
@@ -191,7 +191,7 @@ export async function POST(
     return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
   }
 
-  // Obtener conector verificando ownership
+  // Get connector while verifying ownership
   const connector = await prisma.connector.findFirst({
     where: { id, userId: user.id },
   })
@@ -200,12 +200,12 @@ export async function POST(
     return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })
   }
 
-  // Verificar que está habilitado
+  // Verify connector is enabled
   if (!connector.enabled) {
     return NextResponse.json({ error: 'connector_disabled' }, { status: 409 })
   }
 
-  // Desencriptar config y probar conexión
+  // Decrypt config and test connection
   let config: Record<string, unknown>
   try {
     config = decryptConfig(connector.config)

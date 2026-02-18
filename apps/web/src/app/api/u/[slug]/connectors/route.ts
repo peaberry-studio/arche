@@ -25,15 +25,15 @@ export interface ConnectorListItem {
 /**
  * GET /api/u/[slug]/connectors
  *
- * Lista los conectores del usuario (sin config/credentials).
+ * Lists user connectors (without config/credentials).
  *
  * Response: { connectors: ConnectorListItem[] }
  *
- * Códigos:
- * - 200: Lista de conectores
- * - 401: No autenticado
- * - 403: No autorizado (otro usuario)
- * - 404: Usuario no encontrado
+ * Status codes:
+ * - 200: Connector list
+ * - 401: Not authenticated
+ * - 403: Not authorized (different user)
+ * - 404: User not found
  */
 export async function GET(
   request: NextRequest,
@@ -46,12 +46,12 @@ export async function GET(
 
   const { slug } = await params
 
-  // Verificar autorización: owner OR ADMIN
+  // Verify authorization: owner OR ADMIN
   if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
-  // Obtener usuario por slug
+  // Get user by slug
   const user = await prisma.user.findUnique({
     where: { slug },
     select: { id: true },
@@ -61,7 +61,7 @@ export async function GET(
     return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
   }
 
-  // Listar conectores (sin config)
+  // List connectors (without config)
   const connectors = await prisma.connector.findMany({
     where: { userId: user.id },
     select: {
@@ -123,17 +123,17 @@ export interface ConnectorResponse {
 /**
  * POST /api/u/[slug]/connectors
  *
- * Crea un nuevo conector.
+ * Creates a new connector.
  *
  * Request: { type, name, config }
  * Response: { id, type, name, enabled, createdAt }
  *
- * Códigos:
- * - 201: Conector creado
- * - 400: Validación fallida (tipo inválido, campos faltantes)
- * - 401: No autenticado
- * - 403: No autorizado
- * - 404: Usuario no encontrado
+ * Status codes:
+ * - 201: Connector created
+ * - 400: Validation failed (invalid type, missing fields)
+ * - 401: Not authenticated
+ * - 403: Not authorized
+ * - 404: User not found
  */
 export async function POST(
   request: NextRequest,
@@ -151,12 +151,12 @@ export async function POST(
 
   const { slug } = await params
 
-  // Verificar autorización
+  // Verify authorization
   if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
-  // Obtener usuario
+  // Get user
   const user = await prisma.user.findUnique({
     where: { slug },
     select: { id: true },
@@ -166,7 +166,7 @@ export async function POST(
     return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
   }
 
-  // Parsear body
+  // Parse request body
   let body: CreateConnectorRequest
   try {
     body = await request.json()
@@ -177,7 +177,7 @@ export async function POST(
     throw err
   }
 
-  // Validar que body es un objeto
+  // Validate body is an object
   if (body === null || typeof body !== 'object' || Array.isArray(body)) {
     return NextResponse.json(
       { error: 'invalid_body', message: 'Request body must be a JSON object' },
@@ -187,7 +187,7 @@ export async function POST(
 
   const { type, name, config } = body
 
-  // Validar campos requeridos
+  // Validate required fields
   if (!type || !name || !config) {
     return NextResponse.json(
       { error: 'missing_fields', message: 'type, name, and config are required' },
@@ -195,7 +195,7 @@ export async function POST(
     )
   }
 
-  // Validar que config es un objeto no-null
+  // Validate config is a non-null object
   if (typeof config !== 'object' || Array.isArray(config)) {
     return NextResponse.json(
       { error: 'invalid_config', message: 'config must be a non-null object' },
@@ -203,7 +203,7 @@ export async function POST(
     )
   }
 
-  // Validar nombre
+  // Validate name
   const nameValidation = validateConnectorName(name)
   if (!nameValidation.valid) {
     return NextResponse.json(
@@ -212,7 +212,7 @@ export async function POST(
     )
   }
 
-  // Validar tipo de conector
+  // Validate connector type
   if (!validateConnectorType(type)) {
     return NextResponse.json(
       { error: 'invalid_type', message: `Invalid connector type: ${type}` },
@@ -220,7 +220,7 @@ export async function POST(
     )
   }
 
-  // Validar config según tipo
+  // Validate config by connector type
   const configValidation = validateConnectorConfig(type, config)
   if (!configValidation.valid) {
     return NextResponse.json(
@@ -252,7 +252,7 @@ export async function POST(
     }
   }
 
-  // Encriptar config
+  // Encrypt config
   let encryptedConfig: string
   try {
     encryptedConfig = encryptConfig(config)
@@ -264,7 +264,7 @@ export async function POST(
     )
   }
 
-  // Crear conector
+  // Create connector
   const connector = await prisma.connector.create({
     data: {
       userId: user.id,

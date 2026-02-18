@@ -249,7 +249,7 @@ export async function getInstanceStatus(slug: string) {
 
   if (!instance) return null
 
-  // Si la DB dice running/starting pero no hay containerId, está desincronizado
+  // If the DB says running/starting but there is no containerId, it is out of sync
   if ((instance.status === 'running' || instance.status === 'starting') && !instance.containerId) {
     await prisma.instance.update({
       where: { slug },
@@ -258,13 +258,13 @@ export async function getInstanceStatus(slug: string) {
     return { ...instance, status: 'stopped' as const, containerId: null }
   }
 
-  // Si hay containerId, verificar que el contenedor realmente existe y está corriendo
+  // If there is a containerId, verify the container actually exists and is running
   if (instance.containerId && (instance.status === 'running' || instance.status === 'starting')) {
     const isRunning = await docker.isContainerRunning(instance.containerId)
 
     if (!isRunning) {
-      // El contenedor no existe o no está corriendo - sincronizar DB
-      // Intentar limpiar el contenedor si existe
+      // Container does not exist or is not running - sync DB
+      // Try to remove the container if it still exists
       await docker.removeContainer(instance.containerId).catch(() => {})
 
       await prisma.instance.update({
@@ -274,7 +274,7 @@ export async function getInstanceStatus(slug: string) {
       return { ...instance, status: 'stopped' as const, containerId: null }
     }
 
-    // Verificar que OpenCode realmente responde
+    // Verify OpenCode is actually responding
     try {
       const password = decryptPassword(instance.serverPassword)
       const isHealthy = await isInstanceHealthyWithPassword(slug, password)
@@ -290,8 +290,8 @@ export async function getInstanceStatus(slug: string) {
       }
 
       if (instance.status === 'running') {
-        // El contenedor está running pero OpenCode no responde - marcar como starting
-        // para que el frontend espere y reintente
+        // Container is running but OpenCode is not responding - mark as starting
+        // so the frontend waits and retries
         return { ...instance, status: 'starting' as const }
       }
     } catch (err) {

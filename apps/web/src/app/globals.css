@@ -58,33 +58,33 @@
 
 :root {
   --radius: 0.625rem;
-  /* Fondo base del shell exterior */
+  /* Base background for outer shell */
   --background: 40 20% 96%;
-  /* Texto principal con buen contraste */
+  /* Main text with strong contrast */
   --foreground: 20 15% 12%;
-  /* Superficie intermedia: paneles laterales, header, footer */
+  /* Mid surface: side panels, header, footer */
   --surface: 35 16% 93%;
   --surface-foreground: 20 15% 15%;
-  /* Cards / panel principal: blanco elevado que "flota" */
+  /* Cards / main panel: elevated white that "floats" */
   --card: 40 25% 99%;
   --card-foreground: 20 15% 12%;
   --popover: 0 0% 100%;
   --popover-foreground: 20 15% 12%;
-  /* Mandarina principal */
+  /* Primary tangerine */
   --primary: 24 85% 48%;
   --primary-foreground: 0 0% 100%;
-  /* Secundario más neutro */
+  /* More neutral secondary */
   --secondary: 30 15% 93%;
   --secondary-foreground: 20 15% 20%;
-  /* Muted con mejor contraste */
+  /* Muted with better contrast */
   --muted: 30 12% 92%;
   --muted-foreground: 20 12% 38%;
-  /* Accent sutil */
+  /* Subtle accent */
   --accent: 28 25% 94%;
   --accent-foreground: 20 15% 18%;
   --destructive: 0 70% 50%;
   --destructive-foreground: 0 0% 100%;
-  /* Bordes más visibles */
+  /* More visible borders */
   --border: 30 10% 82%;
   --input: 30 10% 82%;
   --ring: 24 85% 48%;
@@ -331,7 +331,7 @@
 }
 
 @layer utilities {
-  /* Ocultar scrollbar nativo */
+  /* Hide native scrollbar */
   .scrollbar-none {
     -ms-overflow-style: none;
     scrollbar-width: none;
@@ -620,7 +620,7 @@
     height: 0;
   }
 
-  /* Fondo orgánico sutil - legacy, now we use dynamic themes */
+  /* Subtle organic background - legacy, now we use dynamic themes */
   .organic-background {
     background-image: radial-gradient(
         ellipse 80% 60% at 50% -10%,
@@ -673,20 +673,20 @@
       inset 0 1px 0 hsl(0 0% 100% / 0.04);
   }
 
-  /* Superficie para cards elevadas */
+  /* Surface for elevated cards */
   .surface-elevated {
     background: hsl(var(--card));
     box-shadow: 0 1px 2px hsl(20 15% 15% / 0.03),
       0 2px 4px hsl(20 15% 15% / 0.02);
   }
 
-  /* Sombra mínima para hover states */
+  /* Minimal shadow for hover states */
   .shadow-subtle {
     box-shadow: 0 1px 3px hsl(20 15% 15% / 0.04),
       0 1px 2px hsl(20 15% 15% / 0.02);
   }
 
-  /* Focus ring consistente */
+  /* Consistent focus ring */
   .focus-ring {
     @apply outline-none ring-2 ring-ring/20 ring-offset-2 ring-offset-background;
   }

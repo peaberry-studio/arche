@@ -28,11 +28,11 @@ func TestGitStatusEntriesReturnsNestedUntrackedFiles(t *testing.T) {
   runGit(t, ctx, workspace, "add", "README.md")
   runGit(t, ctx, workspace, "commit", "-m", "baseline")
 
-  nestedPath := filepath.Join(workspace, "Outputs", "Comunicaciones", "2026-02-12 - Resumen.md")
+  nestedPath := filepath.Join(workspace, "Outputs", "Communications", "2026-02-12 - Summary.md")
   if err := os.MkdirAll(filepath.Dir(nestedPath), 0o755); err != nil {
     t.Fatalf("create nested directory: %v", err)
   }
-  if err := os.WriteFile(nestedPath, []byte("contenido\n"), 0o644); err != nil {
+  if err := os.WriteFile(nestedPath, []byte("content\n"), 0o644); err != nil {
     t.Fatalf("write nested file: %v", err)
   }
 
@@ -42,7 +42,7 @@ func TestGitStatusEntriesReturnsNestedUntrackedFiles(t *testing.T) {
     t.Fatalf("gitStatusEntries failed: %v", err)
   }
 
-  expected := filepath.ToSlash("Outputs/Comunicaciones/2026-02-12 - Resumen.md")
+  expected := filepath.ToSlash("Outputs/Communications/2026-02-12 - Summary.md")
   for _, entry := range entries {
     if entry.Path == expected {
       if entry.Untracked != true {

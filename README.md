@@ -1,24 +1,24 @@
 # Arche
 
-Plataforma de agentes IA especializados con workspaces aislados, base de conocimiento compartida y orquestación de contenedores.
+Specialized AI agent platform with isolated workspaces, a shared knowledge base, and container orchestration.
 
-Arche permite a equipos desplegar agentes IA que conocen la identidad, el tono, los productos y los procesos de la empresa. Cada usuario obtiene un workspace con contenedores dedicados (OpenCode), acceso a una Knowledge Base (Obsidian vault) y un catálogo de agentes configurables (soporte, copywriting, SEO, marketing, requisitos, etc.).
+Arche lets teams deploy AI agents that understand company identity, tone, products, and internal processes. Each user gets a dedicated containerized workspace (OpenCode), access to a shared Knowledge Base (Obsidian vault), and a configurable agent catalog (support, copywriting, SEO, marketing, requirements, and more).
 
-## Arquitectura general
+## High-Level Architecture
 
 ```
 arche/
 ├── apps/web/          # Next.js 16 (React 19) - UI + BFF + Spawner
-├── config/            # Definiciones de agentes y configuración compartida
+├── config/            # Agent definitions and shared runtime config
 ├── kb/                # Knowledge Base (Obsidian vault)
 ├── infra/
-│   ├── compose/       # Stack local (Podman Compose)
-│   ├── deploy/        # Deployer VPS (Ansible + Bash)
-│   └── workspace-image/  # Imagen Docker del workspace (OpenCode + git)
-└── scripts/           # Scripts de despliegue de KB y config
+│   ├── compose/       # Local stack (Podman Compose)
+│   ├── deploy/        # VPS deployer (Ansible + Bash)
+│   └── workspace-image/  # Workspace Docker image (OpenCode + git)
+└── scripts/           # KB and config deployment scripts
 ```
 
-### Flujo de datos
+### Data Flow
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -43,108 +43,106 @@ arche/
 
 ## Tech Stack
 
-| Capa | Tecnología |
+| Layer | Technology |
 |------|-----------|
 | Framework | Next.js 16.1 + React 19 + TypeScript 5 |
-| Estilos | Tailwind CSS 4 + shadcn/ui (Radix) |
-| Base de datos | PostgreSQL 16 + Prisma 7 |
-| Auth | Sesiones HTTP-only + Argon2 + TOTP 2FA |
-| Cifrado | AES-256-GCM (conectores, passwords de instancia) |
-| Contenedores | Podman + Traefik v3 + docker-socket-proxy |
-| Workspaces | OpenCode AI SDK (@opencode-ai/sdk) |
+| Styling | Tailwind CSS 4 + shadcn/ui (Radix) |
+| Database | PostgreSQL 16 + Prisma 7 |
+| Auth | HTTP-only sessions + Argon2 + TOTP 2FA |
+| Encryption | AES-256-GCM (connectors, instance passwords) |
+| Containers | Podman + Traefik v3 + docker-socket-proxy |
+| Workspaces | OpenCode AI SDK (`@opencode-ai/sdk`) |
 | Package manager | pnpm 10 |
 | Tests | Vitest 3 |
 | Lint | ESLint 9 |
-| CI/CD | GitHub Actions (build + push a GHCR) |
+| CI/CD | GitHub Actions (build + push to GHCR) |
 | Deploy | Ansible + Bash (VPS) / Podman Compose (local) |
 
-## Modelo de datos (Prisma)
+## Data Model (Prisma)
 
-| Modelo | Descripcion |
+| Model | Description |
 |--------|-------------|
-| `User` | Cuentas (email, slug, role, Argon2 hash, campos TOTP) |
-| `Session` | Sesiones con token hash, expiracion, IP y user agent |
-| `Instance` | Workspace contenedorizado (status, containerId, password cifrado, configSha) |
-| `Connector` | Integraciones externas (Linear, Notion, Slack, GitHub) con config cifrada |
-| `AuditEvent` | Log de acciones (actor, action, metadata) |
-| `TwoFactorRecovery` | Codigos de recuperacion 2FA (uso unico) |
+| `User` | Accounts (email, slug, role, Argon2 hash, TOTP fields) |
+| `Session` | Sessions with token hash, expiration, IP, and user agent |
+| `Instance` | Containerized workspace (status, containerId, encrypted password, configSha) |
+| `Connector` | External integrations (Linear, Notion, Slack, GitHub) with encrypted config |
+| `AuditEvent` | Action log (actor, action, metadata) |
+| `TwoFactorRecovery` | One-time 2FA recovery codes |
 
-## Agentes
+## Agents
 
-El sistema incluye un catalogo de agentes IA especializados definido en `apps/web/kickstart/agents/`.
-Cada workspace aplica un subconjunto durante el flujo inicial de kickstart y genera
-`CommonWorkspaceConfig.json` en el repo bare de configuracion:
+The system includes a catalog of specialized AI agents defined in `apps/web/kickstart/agents/`.
+Each workspace applies a subset during kickstart and generates
+`CommonWorkspaceConfig.json` in the config bare repo:
 
-| Agente | Modo | Funcion |
+| Agent | Mode | Function |
 |--------|------|---------|
-| **assistant** | primary | Orquestador general, delega a especializados |
-| **support** | subagent | Diagnostico de incidencias y soporte de producto |
-| **requirements** | subagent | Redaccion de PRDs y especificaciones |
-| **knowledge-curator** | subagent | Mantenimiento y normalizacion del KB |
-| **copywriter** | subagent | Copy con voz y tono de marca |
-| **ads-scripts** | subagent | Guiones para anuncios (UGC/performance) |
-| **performance-marketing** | subagent | Analisis Meta Ads / ASA |
-| **seo** | subagent | Estrategia SEO y contenido |
+| **assistant** | primary | General orchestrator, delegates to specialists |
+| **support** | subagent | Incident diagnosis and product support |
+| **requirements** | subagent | PRD and product spec writing |
+| **knowledge-curator** | subagent | KB maintenance and normalization |
+| **copywriter** | subagent | Brand voice and tone copy |
+| **ads-scripts** | subagent | Ad scripts (UGC/performance) |
+| **performance-marketing** | subagent | Meta Ads / ASA analysis |
+| **seo** | subagent | SEO strategy and content |
 
 ## Knowledge Base
 
-El KB es un vault de Obsidian montado en cada workspace:
+The KB is an Obsidian vault mounted in each workspace:
 
 ```
 kb/
 ├── Company/
-│   ├── 01 - Identidad de marca.md
-│   ├── 02 - Voz y tono.md
-│   ├── 03 - Glosario.md
-│   ├── 05 - Canales y contacto.md
-│   ├── People/           # Fichas del equipo
+│   ├── 01 - Brand Identity.md
+│   ├── 02 - Voice and Tone.md
+│   ├── 03 - Glossary.md
+│   ├── 05 - Channels and Contact.md
+│   ├── People/           # Team profiles
 │   └── Product/
 │       ├── 00 - Overview.md
-│       ├── 01 - Soporte - Indice KB.md
+│       ├── 01 - Support - KB Index.md
 │       └── docs/         # Help center
-└── Templates/            # Plantillas operativas (PRD, KB entry, marketing)
+└── Templates/            # Operational templates (PRD, KB entry, marketing)
 ```
 
-Se despliega como repositorios bare de Git (`kb-content` y `kb-config`) que los
-contenedores montan y sincronizan. En una instalacion nueva, ambos repos se
-inicializan vacios y se completan al ejecutar kickstart.
+It is deployed as bare Git repositories (`kb-content` and `kb-config`) that containers mount and sync. In a new installation, both repos start empty and are populated by kickstart.
 
-## Desarrollo local
+## Local Development
 
-### Requisitos previos
+### Prerequisites
 
-- Podman (o Docker) con Compose
+- Podman (or Docker) with Compose
 - pnpm 10+
 - Node.js 24+
 
-### Pasos
+### Steps
 
 ```bash
-# 1. Clonar y configurar variables de entorno
+# 1. Clone and configure environment variables
 cp apps/web/.env.example apps/web/.env
 
-# 2. Construir la imagen de workspace
+# 2. Build the workspace image
 podman build -t arche-workspace:latest infra/workspace-image
 
-# 3. Crear red y repos bare de KB/config (vacios)
+# 3. Create network and bare KB/config repos (empty)
 podman network create arche-internal
 ./scripts/deploy-kb.sh ~/.arche/kb-content
 ./scripts/deploy-config.sh ~/.arche/kb-config
 
-# 4. Levantar el stack completo
+# 4. Start the full stack
 podman compose -f infra/compose/compose.yaml up -d --build
 
-# 5. Migraciones y seed
+# 5. Migrations and seed
 podman compose -f infra/compose/compose.yaml exec web pnpm prisma migrate dev --name init
 podman compose -f infra/compose/compose.yaml exec web pnpm db:seed
 
-# 6. Abrir la app
+# 6. Open the app
 # http://arche.lvh.me:8080
 # Login: admin@example.com / change-me
-# Luego ejecutar kickstart desde /u/<slug>
+# Then run kickstart from /u/<slug>
 ```
 
-### Desarrollo con hot-reload
+### Development with Hot Reload
 
 ```bash
 cd infra/deploy
@@ -152,84 +150,84 @@ cp .env.example .env
 ./deploy.sh --local-dev
 ```
 
-### Scripts disponibles (`apps/web`)
+### Available Scripts (`apps/web`)
 
-| Script | Comando |
+| Script | Command |
 |--------|---------|
 | Dev server | `pnpm dev` |
 | Build | `pnpm build` |
 | Lint | `pnpm lint` |
 | Tests | `pnpm test` |
 | Tests (watch) | `pnpm test:watch` |
-| Generar Prisma | `pnpm prisma:generate` |
-| Migraciones | `pnpm db:migrate` |
+| Generate Prisma client | `pnpm prisma:generate` |
+| Migrations | `pnpm db:migrate` |
 | Seed | `pnpm db:seed` |
 
-## Despliegue
+## Deployment
 
-Tres modos disponibles via `infra/deploy/deploy.sh`:
+Three modes are available through `infra/deploy/deploy.sh`:
 
-| Modo | Comando | TLS | Uso |
+| Mode | Command | TLS | Usage |
 |------|---------|-----|-----|
-| Local dev | `./deploy.sh --local-dev` | No | Desarrollo con hot-reload |
-| Local prod | `./deploy.sh --local` | No | Testing de imagen en local |
-| Remoto (VPS) | `./deploy.sh` | Si (ACME) | Produccion |
+| Local dev | `./deploy.sh --local-dev` | No | Hot-reload development |
+| Local prod | `./deploy.sh --local` | No | Local image testing |
+| Remote (VPS) | `./deploy.sh` | Yes (ACME) | Production |
 
-El despliegue remoto usa Ansible para provisionar Podman, TLS via ACME DNS challenge, y gestion de secretos.
+Remote deployment uses Ansible to provision Podman, ACME DNS challenge for TLS, and managed secrets.
 
-## Variables de entorno clave
+## Key Environment Variables
 
-| Variable | Descripcion |
+| Variable | Description |
 |----------|-------------|
-| `DATABASE_URL` | Connection string de PostgreSQL |
-| `ARCHE_DOMAIN` | Dominio principal (ej: `arche.lvh.me`) |
-| `ARCHE_SESSION_PEPPER` | Pepper para hashing de sesiones |
-| `ARCHE_ENCRYPTION_KEY` | Clave AES-256-GCM (base64, 32 bytes) |
-| `CONTAINER_PROXY_HOST` | Host del docker-socket-proxy |
-| `OPENCODE_IMAGE` | Imagen del workspace |
-| `OPENCODE_NETWORK` | Red interna de contenedores |
-| `KB_CONTENT_HOST_PATH` | Path al repo bare de contenido KB |
-| `KB_CONFIG_HOST_PATH` | Path al repo bare de configuracion |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `ARCHE_DOMAIN` | Main domain (e.g. `arche.lvh.me`) |
+| `ARCHE_SESSION_PEPPER` | Pepper for session hashing |
+| `ARCHE_ENCRYPTION_KEY` | AES-256-GCM key (base64, 32 bytes) |
+| `CONTAINER_PROXY_HOST` | docker-socket-proxy host |
+| `OPENCODE_IMAGE` | Workspace image |
+| `OPENCODE_NETWORK` | Internal container network |
+| `KB_CONTENT_HOST_PATH` | Path to KB content bare repo |
+| `KB_CONFIG_HOST_PATH` | Path to config bare repo |
 
-Ver `apps/web/.env.example` para la referencia completa.
+See `apps/web/.env.example` for the complete reference.
 
-## Estructura del codigo fuente (`apps/web/`)
+## Source Code Structure (`apps/web/`)
 
 ```
 src/
-├── app/                    # App Router (paginas + API routes)
+├── app/                    # App Router (pages + API routes)
 │   ├── api/
-│   │   ├── u/[slug]/       # APIs de usuario (agentes, conectores)
-│   │   ├── w/[slug]/       # APIs de workspace (chat streaming)
-│   │   └── instances/[slug]/ # Control de instancias
-│   ├── auth/               # Flujos de auth (login, logout, 2FA)
-│   ├── u/[slug]/           # Dashboard de usuario
-│   └── w/[slug]/           # UI del workspace
+│   │   ├── u/[slug]/       # User APIs (agents, connectors)
+│   │   ├── w/[slug]/       # Workspace APIs (chat streaming)
+│   │   └── instances/[slug]/ # Instance control
+│   ├── auth/               # Auth flows (login, logout, 2FA)
+│   ├── u/[slug]/           # User dashboard
+│   └── w/[slug]/           # Workspace UI
 ├── components/
-│   ├── ui/                 # Primitivos shadcn/ui
-│   ├── workspace/          # Componentes del workspace
-│   └── agents/             # Componentes de agentes
+│   ├── ui/                 # shadcn/ui primitives
+│   ├── workspace/          # Workspace components
+│   └── agents/             # Agent components
 ├── lib/
-│   ├── spawner/            # Lifecycle de contenedores
-│   ├── workspace-agent/    # Cliente HTTP del workspace agent
-│   ├── connectors/         # Tipos y cifrado de conectores
-│   └── auth.ts             # Utilidades de autenticacion
+│   ├── spawner/            # Container lifecycle
+│   ├── workspace-agent/    # Workspace agent HTTP client
+│   ├── connectors/         # Connector types and encryption
+│   └── auth.ts             # Auth utilities
 ├── actions/                # Server Actions (Next.js)
 ├── hooks/                  # Custom hooks (useWorkspace, etc.)
-├── types/                  # Definiciones de tipos compartidas
+├── types/                  # Shared type definitions
 └── contexts/               # React Contexts
 
 kickstart/
-├── agents/                 # Catalogo compartido de agentes
+├── agents/                 # Shared agent catalog
 ├── templates/              # startup-tech, marketing-studio, research-group, blank
-└── *.ts                    # Contratos, estado, apply y renderizado
+└── *.ts                    # Contracts, state, apply and rendering
 ```
 
-## Documentacion adicional
+## Additional Documentation
 
-- [`apps/web/README.md`](apps/web/README.md) - Setup local detallado, auth, spawner
-- [`config/README.md`](config/README.md) - Configuracion de agentes
-- [`infra/README.md`](infra/README.md) - Arquitectura de infraestructura y KB
-- [`infra/compose/README.md`](infra/compose/README.md) - Stack de Podman Compose
-- [`infra/deploy/README.md`](infra/deploy/README.md) - Guia de despliegue VPS
-- [`infra/workspace-image/README.md`](infra/workspace-image/README.md) - Imagen del workspace
+- [`apps/web/README.md`](apps/web/README.md) - Detailed local setup, auth, spawner
+- [`config/README.md`](config/README.md) - Agent configuration
+- [`infra/README.md`](infra/README.md) - Infrastructure and KB architecture
+- [`infra/compose/README.md`](infra/compose/README.md) - Podman Compose stack
+- [`infra/deploy/README.md`](infra/deploy/README.md) - VPS deployment guide
+- [`infra/workspace-image/README.md`](infra/workspace-image/README.md) - Workspace image

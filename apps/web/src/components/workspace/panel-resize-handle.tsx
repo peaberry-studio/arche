@@ -21,11 +21,11 @@ export function PanelResizeHandle({
       aria-orientation="vertical"
       aria-label={
         position === "left"
-          ? "Redimensionar panel izquierdo"
-          : "Redimensionar panel derecho"
+          ? "Resize left panel"
+          : "Resize right panel"
       }
     >
-      {/* Área de hit invisible más grande para facilitar el arrastre */}
+      {/* Larger invisible hit area to make dragging easier */}
       <div className="absolute inset-y-0 -left-1.5 -right-1.5" />
     </div>
   );

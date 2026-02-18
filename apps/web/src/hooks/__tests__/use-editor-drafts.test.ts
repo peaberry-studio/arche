@@ -20,13 +20,13 @@ describe("useEditorDrafts", () => {
     vi.useRealTimers();
   });
 
-  it("getDraft sin draft devuelve fallback", () => {
+  it("getDraft without draft returns fallback", () => {
     const { result } = renderHook(() => useEditorDrafts({ onSave: undefined }));
 
     expect(result.current.getDraft("kb/note.md", "fallback")).toBe("fallback");
   });
 
-  it("getDraft con draft devuelve el draft", () => {
+  it("getDraft with draft returns the draft", () => {
     const { result } = renderHook(() => useEditorDrafts({ onSave: undefined }));
 
     act(() => {
@@ -36,7 +36,7 @@ describe("useEditorDrafts", () => {
     expect(result.current.getDraft("kb/note.md", "fallback")).toBe("draft");
   });
 
-  it("handleChange almacena draft y pone state=dirty", () => {
+  it("handleChange stores draft and sets state=dirty", () => {
     const { result } = renderHook(() => useEditorDrafts({ onSave: undefined }));
 
     act(() => {
@@ -47,7 +47,7 @@ describe("useEditorDrafts", () => {
     expect(result.current.getSaveState("kb/note.md")).toBe("dirty");
   });
 
-  it("autosave dispara tras debounce y termina en saved", async () => {
+  it("autosave runs after debounce and ends in saved", async () => {
     const onSave = vi.fn<
       (path: string, content: string) => Promise<SaveResult>
     >(async () => ({ ok: true }));
@@ -67,7 +67,7 @@ describe("useEditorDrafts", () => {
     expect(result.current.getSaveError("kb/note.md")).toBeNull();
   });
 
-  it("save fallido pone state=error con mensaje", async () => {
+  it("failed save sets state=error with message", async () => {
     const onSave = vi.fn<
       (path: string, content: string) => Promise<SaveResult>
     >(async () => ({ ok: false, error: "save_failed" }));
@@ -84,7 +84,7 @@ describe("useEditorDrafts", () => {
     expect(result.current.getSaveError("kb/note.md")).toBe("save_failed");
   });
 
-  it("clearDraft cancela timer, borra draft y resetea a idle", async () => {
+  it("clearDraft cancels timer, clears draft, and resets to idle", async () => {
     const onSave = vi.fn<
       (path: string, content: string) => Promise<SaveResult>
     >(async () => ({ ok: true }));
@@ -103,7 +103,7 @@ describe("useEditorDrafts", () => {
     expect(result.current.getSaveError("kb/note.md")).toBeNull();
   });
 
-  it("ediciones rapidas solo salvan la ultima", async () => {
+  it("quick edits only save the latest", async () => {
     const onSave = vi.fn<
       (path: string, content: string) => Promise<SaveResult>
     >(async () => ({ ok: true }));
@@ -121,7 +121,7 @@ describe("useEditorDrafts", () => {
     expect(result.current.getSaveState("kb/note.md")).toBe("saved");
   });
 
-  it("onSave usa la referencia mas reciente cuando cambia entre schedule y fire", async () => {
+  it("onSave uses the most recent reference when changed between schedule and fire", async () => {
     const firstOnSave = vi.fn<
       (path: string, content: string) => Promise<SaveResult>
     >(async () => ({ ok: true }));
@@ -148,7 +148,7 @@ describe("useEditorDrafts", () => {
     expect(secondOnSave).toHaveBeenCalledWith("kb/note.md", "value", undefined);
   });
 
-  it("mantiene expectedHash base aunque cambie sourceHash durante el draft", async () => {
+  it("keeps base expectedHash even if sourceHash changes during draft", async () => {
     const onSave = vi.fn<
       (path: string, content: string, expectedHash?: string) => Promise<SaveResult>
     >(async () => ({ ok: true, hash: "hash-saved" }));
@@ -165,7 +165,7 @@ describe("useEditorDrafts", () => {
     expect(onSave).toHaveBeenCalledWith("kb/note.md", "second", "hash-a");
   });
 
-  it("no save cuando content === baseline", async () => {
+  it("does not save when content === baseline", async () => {
     const onSave = vi.fn<
       (path: string, content: string) => Promise<SaveResult>
     >(async () => ({ ok: true }));

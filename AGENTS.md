@@ -1,100 +1,100 @@
 # AGENTS.md
 
-Guia obligatoria para agentes de codigo (Claude Code, Cursor, OpenCode, etc.) que trabajen en este repositorio. Leela antes de hacer cualquier cambio.
+Mandatory guide for coding agents (Claude Code, Cursor, OpenCode, etc.) working in this repository. Read it before making any change.
 
-## Que es Arche
+## What Arche Is
 
-Arche es una plataforma de agentes IA especializados con workspaces aislados por usuario. Cada workspace es un contenedor OpenCode con acceso a una Knowledge Base compartida (Obsidian vault) y un catalogo de agentes configurables.
+Arche is a platform of specialized AI agents with isolated per-user workspaces. Each workspace is an OpenCode container with access to a shared Knowledge Base (Obsidian vault) and a catalog of configurable agents.
 
-**Componentes principales:**
+**Main components:**
 
-- `apps/web/` - App Next.js 16 (React 19, TypeScript). Es el BFF (Backend for Frontend), la UI y el spawner de contenedores.
-- `config/` - Definiciones de agentes y configuracion de runtime (`CommonWorkspaceConfig.json`).
-- `kb/` - Knowledge Base (Obsidian vault). No es codigo; son notas Markdown.
-- `infra/` - Infraestructura: Podman Compose, Ansible deployer, imagen del workspace.
-- `scripts/` - Scripts de despliegue de KB y config a repositorios bare.
+- `apps/web/` - Next.js 16 app (React 19, TypeScript). It is the BFF (Backend for Frontend), the UI, and the container spawner.
+- `config/` - Agent definitions and runtime configuration (`CommonWorkspaceConfig.json`).
+- `kb/` - Knowledge Base (Obsidian vault). It is not code; it is Markdown notes.
+- `infra/` - Infrastructure: Podman Compose, Ansible deployer, workspace image.
+- `scripts/` - Deployment scripts for KB and config bare repositories.
 
-## Stack tecnico
+## Technical Stack
 
 - **Framework:** Next.js 16 + React 19 + TypeScript 5 (strict mode)
-- **Estilos:** Tailwind CSS 4 + shadcn/ui (Radix primitives)
+- **Styling:** Tailwind CSS 4 + shadcn/ui (Radix primitives)
 - **DB:** PostgreSQL 16 + Prisma 7
-- **Auth:** Sesiones HTTP-only con Argon2 + TOTP 2FA
-- **Cifrado:** AES-256-GCM para conectores y passwords de instancia
-- **Contenedores:** Podman + Traefik + docker-socket-proxy
+- **Auth:** HTTP-only sessions with Argon2 + TOTP 2FA
+- **Encryption:** AES-256-GCM for connectors and instance passwords
+- **Containers:** Podman + Traefik + docker-socket-proxy
 - **Package manager:** pnpm (no npm, no yarn)
 - **Tests:** Vitest 3
 - **Lint:** ESLint 9
 
 ---
 
-## Reglas generales
+## General Rules
 
-### 1. No inventes, pregunta
+### 1. Do not invent, ask
 
-- Si no encuentras la informacion que necesitas en el codigo o la documentacion, pregunta al usuario.
-- No inventes nombres de funciones, endpoints, variables de entorno ni paths que no hayas verificado.
-- No asumas que un patron existe: lee el codigo antes de replicarlo.
+- If you cannot find the information you need in the code or docs, ask the user.
+- Do not invent function names, endpoints, environment variables, or paths you did not verify.
+- Do not assume a pattern exists: read the code before reproducing it.
 
-### 2. Lee antes de escribir
+### 2. Read before writing
 
-- Siempre lee el fichero que vas a modificar antes de editarlo.
-- Entiende el contexto circundante: que hace el modulo, quien lo importa, que patron sigue.
-- Revisa los ficheros vecinos para mantener consistencia.
+- Always read the file you are going to modify before editing it.
+- Understand surrounding context: what the module does, who imports it, what pattern it follows.
+- Review nearby files to keep consistency.
 
-### 3. Minimo cambio necesario
+### 3. Minimum necessary change
 
-- Haz solo lo que se pide. No refactorices, no "mejores" codigo adyacente, no anadas docstrings ni comentarios donde no se piden.
-- No anadas error handling, validaciones ni fallbacks para escenarios que no pueden ocurrir.
-- No crees abstracciones prematuras ni helpers para operaciones que ocurren una sola vez.
-- Si eliminas algo que ya no se usa, eliminalo por completo (sin `// removed`, sin variables `_unused`, sin re-exports de compatibilidad).
+- Do only what was requested. Do not refactor or "improve" adjacent code, and do not add docstrings/comments unless requested.
+- Do not add error handling, validation, or fallbacks for scenarios that cannot happen.
+- Do not create premature abstractions or helpers for one-off operations.
+- If you remove something unused, remove it completely (no `// removed`, no `_unused` vars, no compatibility re-exports).
 
-### 4. No rompas lo que funciona
+### 4. Do not break working code
 
-- Ejecuta los tests antes y despues de tus cambios: `pnpm test` desde `apps/web/`.
-- Si los tests fallan por tu cambio, arreglalo antes de dar el trabajo por terminado.
-- No desactives tests ni hooks de git (`--no-verify`) salvo que el usuario lo pida explicitamente.
+- Run tests before and after your changes: `pnpm test` from `apps/web/`.
+- If tests fail because of your change, fix them before finishing.
+- Do not disable tests or git hooks (`--no-verify`) unless the user explicitly asks.
 
 ---
 
-## Convenciones de codigo
+## Code Conventions
 
-### Nombrado
+### Naming
 
-| Elemento | Convencion | Ejemplo |
+| Element | Convention | Example |
 |----------|-----------|---------|
-| Ficheros | kebab-case | `agent-card.tsx`, `workspace-shell.tsx` |
-| Componentes React | PascalCase | `AgentCard`, `WorkspaceShell` |
-| Funciones / variables | camelCase | `startInstance`, `isConnected` |
-| Tipos / interfaces | PascalCase | `AgentCardProps`, `SpawnerActionResult` |
-| Constantes | SCREAMING_SNAKE_CASE | `MIN_LEFT_PX`, `IDLE_TIMEOUT_MS` |
-| Hooks | camelCase con prefijo `use` | `useWorkspace`, `useWorkspaceTheme` |
+| Files | kebab-case | `agent-card.tsx`, `workspace-shell.tsx` |
+| React components | PascalCase | `AgentCard`, `WorkspaceShell` |
+| Functions / variables | camelCase | `startInstance`, `isConnected` |
+| Types / interfaces | PascalCase | `AgentCardProps`, `SpawnerActionResult` |
+| Constants | SCREAMING_SNAKE_CASE | `MIN_LEFT_PX`, `IDLE_TIMEOUT_MS` |
+| Hooks | camelCase with `use` prefix | `useWorkspace`, `useWorkspaceTheme` |
 
 ### Imports
 
-Orden obligatorio:
+Required order:
 
 ```tsx
-// 1. Librerias de React / Next.js
+// 1. React / Next.js libraries
 import { useCallback, useState } from 'react'
 import { NextRequest, NextResponse } from 'next/server'
 
-// 2. Dependencias externas
+// 2. External dependencies
 import { PrismaClient } from '@prisma/client'
 
-// 3. Imports internos con alias @/
+// 3. Internal imports using @/
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useWorkspace } from '@/hooks/use-workspace'
 ```
 
-- Usa siempre el alias `@/` para imports internos. Nunca uses rutas relativas como `../../lib/utils`.
-- Ordena alfabeticamente dentro de cada grupo.
+- Always use the `@/` alias for internal imports. Never use relative paths like `../../lib/utils`.
+- Sort alphabetically inside each group.
 
-### Componentes React
+### React Components
 
 ```tsx
-// Tipo de props encima del componente
+// Props type above the component
 type AgentCardProps = {
   displayName: string
   agentId: string
@@ -106,130 +106,130 @@ export function AgentCard({ displayName, agentId, description }: AgentCardProps)
 }
 ```
 
-- Usa `type` (no `interface`) para props, con sufijo `Props`.
-- Exporta funciones nombradas (`export function`), no `export default`.
-- Marca componentes cliente con `'use client'` en la primera linea del fichero.
-- Marca server actions con `'use server'` en la primera linea.
+- Use `type` (not `interface`) for props, with `Props` suffix.
+- Export named functions (`export function`), not `export default`.
+- Mark client components with `'use client'` on the first line of the file.
+- Mark server actions with `'use server'` on the first line.
 
-### Estilos
+### Styling
 
-- Usa clases de Tailwind. No crees CSS custom salvo necesidad real.
-- Combina clases con la utilidad `cn()` de `@/lib/utils`:
+- Use Tailwind classes. Do not add custom CSS unless there is a real need.
+- Combine classes with `cn()` from `@/lib/utils`:
   ```tsx
   <div className={cn('flex items-center', isActive && 'bg-primary')} />
   ```
-- Los componentes UI base (shadcn/ui) viven en `src/components/ui/`. No los modifiques a menos que sea necesario; crea wrappers si hace falta.
+- Base UI components (shadcn/ui) live in `src/components/ui/`. Do not modify them unless necessary; create wrappers when needed.
 
 ### TypeScript
 
-- **Strict mode habilitado.** No uses `any` ni `as` sin justificacion.
-- Usa tipos explicitos en fronteras de modulo (exports, API routes, server actions).
-- Dentro de implementaciones, deja que TypeScript infiera.
-- Usa discriminated unions para resultados con error:
+- **Strict mode is enabled.** Do not use `any` or `as` without justification.
+- Use explicit types at module boundaries (exports, API routes, server actions).
+- Inside implementations, let TypeScript infer where possible.
+- Use discriminated unions for error-capable results:
   ```tsx
   type Result =
     | { ok: true; data: Instance }
     | { ok: false; error: string }
   ```
 
-### Manejo de errores
+### Error Handling
 
-- Devuelve objetos `Result` tipados en vez de lanzar excepciones.
-- Valida solo en fronteras del sistema (input de usuario, APIs externas). Confia en el codigo interno.
-- No swallees errores: si capturas, anade contexto y reenvialos.
+- Return typed `Result` objects instead of throwing exceptions.
+- Validate only at system boundaries (user input, external APIs). Trust internal code.
+- Do not swallow errors: if you catch, add context and rethrow/return.
 
 ---
 
-## Patrones de arquitectura
+## Architecture Patterns
 
-### API routes (BFF)
+### API Routes (BFF)
 
 ```
-/api/u/[slug]/...      → APIs de usuario (agentes, conectores)
-/api/w/[slug]/...      → APIs de workspace (chat streaming via SSE)
-/api/instances/[slug]/ → Control de instancias (start, stop, restart)
+/api/u/[slug]/...      → User APIs (agents, connectors)
+/api/w/[slug]/...      → Workspace APIs (chat streaming via SSE)
+/api/instances/[slug]/ → Instance control (start, stop, restart)
 ```
 
-- Extraer sesion de cookies con `getSession()`.
-- Verificar autorizacion despues de autenticacion.
-- Respuestas JSON con codigos HTTP explicitos.
-- Errores: `{ error: string }`.
+- Extract session from cookies with `getSession()`.
+- Verify authorization after authentication.
+- Return JSON responses with explicit HTTP status codes.
+- Error payload format: `{ error: string }`.
 
 ### Server Actions (`src/actions/`)
 
-- Ficheros marcados con `'use server'`.
-- Devuelven objetos `Result` tipados, nunca lanzan.
-- Nombres descriptivos en camelCase: `startInstance`, `stopInstance`.
+- Files are marked with `'use server'`.
+- They return typed `Result` objects and never throw.
+- Use descriptive camelCase names: `startInstance`, `stopInstance`.
 
-### Spawner (ciclo de vida de contenedores)
+### Spawner (Container Lifecycle)
 
-El spawner en `src/lib/spawner/` gestiona la creacion, salud y destruccion de contenedores:
+The spawner in `src/lib/spawner/` manages container creation, health, and cleanup:
 
-- `core.ts` - Maquina de estados principal.
-- `docker.ts` - Wrapper sobre la API de Podman/Docker.
-- `crypto.ts` - Cifrado AES-256-GCM de passwords.
-- `reaper.ts` - Daemon de limpieza por inactividad.
+- `core.ts` - Main state machine.
+- `docker.ts` - Wrapper around Podman/Docker API.
+- `crypto.ts` - AES-256-GCM password encryption.
+- `reaper.ts` - Idle cleanup daemon.
 
-No modifiques el spawner sin entender el flujo completo: crear contenedor -> health check -> registrar en DB -> servir.
+Do not modify the spawner without understanding the full flow: create container -> health check -> register in DB -> serve.
 
-### Configuracion de agentes
+### Agent Configuration
 
-- Fuente de verdad: `config/CommonWorkspaceConfig.json`.
-- Tipos: `src/lib/workspace-config.ts`.
-- Store: `src/lib/common-workspace-config-store.ts` (lectura/escritura atomica con deteccion de conflictos por hash SHA256).
-- El config se despliega a un repo bare de Git y se monta read-only en los contenedores.
+- Source of truth: `config/CommonWorkspaceConfig.json`.
+- Types: `src/lib/workspace-config.ts`.
+- Store: `src/lib/common-workspace-config-store.ts` (atomic read/write with SHA256 hash conflict detection).
+- Config is deployed to a bare Git repository and mounted read-only into containers.
 
-### Chat streaming
+### Chat Streaming
 
 - Endpoint: `POST /api/w/[slug]/chat/stream`
-- Protocolo: Server-Sent Events (SSE)
-- Eventos: `status`, `message`, `part`, `agent`, `assistant-meta`, `done`, `error`
-- Hook cliente: `useWorkspace` en `src/hooks/use-workspace.ts`
+- Protocol: Server-Sent Events (SSE)
+- Events: `status`, `message`, `part`, `agent`, `assistant-meta`, `done`, `error`
+- Client hook: `useWorkspace` in `src/hooks/use-workspace.ts`
 
-### Base de datos (Prisma)
+### Database (Prisma)
 
 - Schema: `prisma/schema.prisma`
-- Migraciones: `prisma/migrations/`
+- Migrations: `prisma/migrations/`
 - Singleton: `src/lib/prisma.ts`
-- Para cambios de schema: crea una migracion con `pnpm db:migrate`, nunca edites migraciones existentes.
+- For schema changes: create a migration with `pnpm db:migrate`; never edit existing migrations.
 
 ---
 
-## Seguridad
+## Security
 
-Estas reglas son **obligatorias** y no se deben ignorar bajo ningun concepto:
+These rules are **mandatory** and must never be ignored:
 
-- **Nunca commitees secretos:** ni `.env`, ni credenciales, ni claves API, ni tokens.
-- **Cifrado:** los conectores y passwords de instancia usan AES-256-GCM. Usa las funciones existentes en `lib/spawner/crypto.ts` y `lib/connectors/`.
-- **Sesiones:** tokens hasheados en DB, cookies HTTP-only. No expongas tokens raw.
-- **Sanitizacion:** no confies en input de usuario sin validar en fronteras del sistema.
-- **Audit:** las acciones sensibles deben crear un `AuditEvent`.
-- **Contenedores:** la red `arche-internal` es interna. No expongas puertos de contenedores al host sin pasar por Traefik.
-- **OWASP Top 10:** revisa activamente que tu codigo no introduzca XSS, inyeccion SQL, CSRF, etc.
+- **Never commit secrets:** no `.env`, credentials, API keys, or tokens.
+- **Encryption:** connectors and instance passwords use AES-256-GCM. Use existing functions in `lib/spawner/crypto.ts` and `lib/connectors/`.
+- **Sessions:** tokens are hashed in DB, cookies are HTTP-only. Never expose raw tokens.
+- **Sanitization:** never trust user input without boundary validation.
+- **Audit:** sensitive actions must create an `AuditEvent`.
+- **Containers:** `arche-internal` is an internal network. Do not expose container ports directly on host outside Traefik.
+- **OWASP Top 10:** actively verify your code does not introduce XSS, SQL injection, CSRF, etc.
 
 ---
 
-## Git y commits
+## Git and Commits
 
-### Formato de commits (Conventional Commits)
+### Commit format (Conventional Commits)
 
 ```
-<type>(<scope>): <descripcion corta>
+<type>(<scope>): <short description>
 
-[cuerpo opcional]
+[optional body]
 ```
 
-**Tipos:**
-- `feat` - Nueva funcionalidad
-- `fix` - Correccion de bug
-- `chore` - Mantenimiento, limpieza
-- `refactor` - Reestructuracion sin cambio funcional
-- `test` - Tests nuevos o modificados
-- `docs` - Documentacion
+**Types:**
+- `feat` - New functionality
+- `fix` - Bug fix
+- `chore` - Maintenance/cleanup
+- `refactor` - Structural change without behavior change
+- `test` - New or modified tests
+- `docs` - Documentation
 
-**Scopes comunes:** `web`, `config`, `infra`, `spawner`, `workspace`, `auth`, `agents`
+**Common scopes:** `web`, `config`, `infra`, `spawner`, `workspace`, `auth`, `agents`
 
-**Ejemplos:**
+**Examples:**
 ```
 feat(agents): add temperature slider to agent editor
 fix(spawner): handle container timeout on slow networks
@@ -237,36 +237,36 @@ chore: remove legacy duplicate files
 test(spawner): add health check retry tests
 ```
 
-### Reglas de Git
+### Git Rules
 
-- No hagas force push a `main`.
-- No uses `--no-verify` salvo peticion explicita del usuario.
-- No hagas commit de ficheros que no estan relacionados con tu cambio.
-- Crea commits nuevos, no enmiendes commits existentes salvo que se pida.
-- Usa `git add <ficheros especificos>` en vez de `git add .` o `git add -A`.
+- Do not force-push to `main`.
+- Do not use `--no-verify` unless the user explicitly requests it.
+- Do not commit files unrelated to your change.
+- Create new commits; do not amend existing commits unless requested.
+- Use `git add <specific-files>` instead of `git add .` or `git add -A`.
 
 ---
 
 ## Knowledge Base (KB)
 
-El directorio `kb/` es un vault de Obsidian, **no es codigo**. Si trabajas sobre el:
+The `kb/` directory is an Obsidian vault, **not code**. If you work there:
 
-- Lee `config/AGENTS.md` para las convenciones especificas del vault.
-- Ediciones minimas: no reescribas estructura ni tono existente.
-- Usa wikilinks (`[[Nota]]`) para enlaces internos.
-- Respeta el idioma existente (espanol).
-- No introduzcas ficheros de configuracion (`package.json`, etc.) en el vault.
+- Read `config/AGENTS.md` for vault-specific conventions.
+- Keep edits minimal; do not rewrite structure or tone broadly.
+- Use wikilinks (`[[Note]]`) for internal links.
+- Respect existing language in each note.
+- Do not introduce tooling/config files (`package.json`, etc.) in the vault.
 
 ---
 
 ## Tests
 
-- Framework: Vitest 3 (configurado en `vitest.config.ts`)
-- Ubicacion: junto al codigo en carpetas `__tests__/`
-- Nombrado: `<modulo>.test.ts` para unit, `<modulo>.e2e.test.ts` para integracion
-- Ejecutar: `pnpm test` (all), `pnpm test:watch` (watch mode)
+- Framework: Vitest 3 (configured in `vitest.config.ts`)
+- Location: next to code in `__tests__/` folders
+- Naming: `<module>.test.ts` for unit, `<module>.e2e.test.ts` for integration
+- Run: `pnpm test` (all), `pnpm test:watch` (watch mode)
 
-### Patrones de test
+### Test Patterns
 
 ```typescript
 describe('startInstance', () => {
@@ -280,61 +280,61 @@ describe('startInstance', () => {
 })
 ```
 
-- Usa `vi.mock()` para dependencias.
-- Tests deterministas: sin dependencias de red ni de tiempo.
-- Prefiere table-driven tests para multiples casos similares.
+- Use `vi.mock()` for dependencies.
+- Tests must be deterministic: no network or time dependencies.
+- Prefer table-driven tests for multiple similar cases.
 
 ---
 
-## Estructura de directorios - Donde va cada cosa
+## Directory Structure - Where Things Go
 
-| Necesito... | Lo pongo en... |
+| I need... | Put it in... |
 |-------------|---------------|
-| Un componente de UI reutilizable (boton, dialog, etc.) | `src/components/ui/` |
-| Un componente de feature (workspace, agents) | `src/components/<feature>/` |
-| Un custom hook | `src/hooks/` |
-| Logica de negocio / utilidades | `src/lib/` |
-| Un server action | `src/actions/` |
-| Un API route | `src/app/api/...` |
-| Una pagina | `src/app/<ruta>/page.tsx` |
-| Un tipo compartido | `src/types/` |
-| Un React Context | `src/contexts/` |
-| Un test | `<modulo>/__tests__/<nombre>.test.ts` |
-| Config de agentes | `config/CommonWorkspaceConfig.json` |
-| Contenido del KB | `kb/` (seguir convenciones de `config/AGENTS.md`) |
+| Reusable UI component (button, dialog, etc.) | `src/components/ui/` |
+| Feature component (workspace, agents) | `src/components/<feature>/` |
+| Custom hook | `src/hooks/` |
+| Business logic / utilities | `src/lib/` |
+| Server action | `src/actions/` |
+| API route | `src/app/api/...` |
+| Page | `src/app/<route>/page.tsx` |
+| Shared type | `src/types/` |
+| React Context | `src/contexts/` |
+| Test | `<module>/__tests__/<name>.test.ts` |
+| Agent config | `config/CommonWorkspaceConfig.json` |
+| KB content | `kb/` (follow `config/AGENTS.md` conventions) |
 | Infra / compose | `infra/` |
 
 ---
 
-## Checklist antes de entregar un cambio
+## Checklist Before Delivering a Change
 
-- [ ] He leido los ficheros que voy a modificar antes de editarlos.
-- [ ] Mi cambio hace solo lo que se pidio, sin extras.
-- [ ] Los imports siguen el orden y usan el alias `@/`.
-- [ ] Los nombres siguen las convenciones (kebab-case ficheros, PascalCase componentes, etc.).
-- [ ] No he introducido `any`, `as unknown`, ni type casts innecesarios.
-- [ ] No he introducido vulnerabilidades de seguridad (XSS, inyeccion, secretos expuestos).
-- [ ] Los tests pasan: `pnpm test`.
-- [ ] El linter pasa: `pnpm lint`.
-- [ ] El commit sigue Conventional Commits.
-- [ ] No he commiteado ficheros sensibles (`.env`, credenciales, claves).
+- [ ] I read the files I will modify before editing.
+- [ ] My change does only what was requested, no extras.
+- [ ] Imports follow ordering and use the `@/` alias.
+- [ ] Names follow conventions (kebab-case files, PascalCase components, etc.).
+- [ ] I did not introduce `any`, `as unknown`, or unnecessary casts.
+- [ ] I did not introduce security vulnerabilities (XSS, injection, exposed secrets).
+- [ ] Tests pass: `pnpm test`.
+- [ ] Linter passes: `pnpm lint`.
+- [ ] Commit follows Conventional Commits.
+- [ ] I did not commit sensitive files (`.env`, credentials, keys).
 
 ---
 
-## Comandos rapidos
+## Quick Commands
 
 ```bash
-# Desde apps/web/
+# From apps/web/
 pnpm dev                    # Dev server (0.0.0.0:3000)
-pnpm build                  # Build de produccion
-pnpm test                   # Ejecutar tests
-pnpm test:watch             # Tests en modo watch
+pnpm build                  # Production build
+pnpm test                   # Run tests
+pnpm test:watch             # Run tests in watch mode
 pnpm lint                   # Lint
-pnpm prisma:generate        # Regenerar cliente Prisma
-pnpm db:migrate             # Crear migracion
-pnpm db:seed                # Seed de datos iniciales
+pnpm prisma:generate        # Regenerate Prisma client
+pnpm db:migrate             # Create migration
+pnpm db:seed                # Seed initial data
 
-# Stack completo (desde raiz)
+# Full stack (from repo root)
 podman compose -f infra/compose/compose.yaml up -d --build
 podman compose -f infra/compose/compose.yaml down
 podman compose -f infra/compose/compose.yaml logs -f web

@@ -97,8 +97,8 @@ ENVIRONMENT VARIABLES (via .env or exported):
   ARCHE_SEED_TEST_EMAIL     Seed test user email (optional)
   ARCHE_SEED_TEST_SLUG      Seed test user slug (optional)
   ARCHE_USERS_PATH          Host path for persisted user data (optional)
-  KB_CONTENT_HOST_PATH      Path del repo bare de contenido KB
-  KB_CONFIG_HOST_PATH       Path del repo bare de configuración
+  KB_CONTENT_HOST_PATH      Path to the KB content bare repo
+  KB_CONFIG_HOST_PATH       Path to the KB config bare repo
 
   DNS provider tokens (set the one matching --dns-provider):
     CF_DNS_API_TOKEN          Cloudflare

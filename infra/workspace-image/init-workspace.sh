@@ -1,15 +1,15 @@
 #!/bin/sh
 # init-workspace.sh
-# Inicializa el workspace con el KB si está vacío o no tiene git inicializado.
+# Initializes workspace with KB if empty or without initialized git.
 #
-# Comportamiento:
-# - Si /workspace no tiene .git y está vacío: clona el repo KB y configura remote
-# - Si /workspace ya tiene .git: no hace nada (el usuario ya tiene su repo)
+# Behavior:
+# - If /workspace has no .git and is empty: clone KB repo and configure remote
+# - If /workspace already has .git: do nothing (user already has their repo)
 #
-# Variables de entorno:
-# - WORKSPACE_DIR: directorio del workspace (default: /workspace)
-# - KB_CONTENT_DIR: directorio del repo bare de contenido montado (default: /kb-content)
-# - KB_REMOTE_NAME: nombre del remote para el KB (default: kb)
+# Environment variables:
+# - WORKSPACE_DIR: workspace directory (default: /workspace)
+# - KB_CONTENT_DIR: mounted bare KB content repo directory (default: /kb-content)
+# - KB_REMOTE_NAME: remote name for KB (default: kb)
 
 set -e
 
@@ -19,7 +19,7 @@ KB_REMOTE_NAME="${KB_REMOTE_NAME:-kb}"
 WORKSPACE_GIT_AUTHOR_NAME="${WORKSPACE_GIT_AUTHOR_NAME:-Arche Workspace}"
 WORKSPACE_GIT_AUTHOR_EMAIL="${WORKSPACE_GIT_AUTHOR_EMAIL:-workspace@arche.local}"
 
-# Función para logging
+# Logging function
 log() {
   echo "[init-workspace] $1"
 }
@@ -64,11 +64,11 @@ if [ "$kb_available" = false ]; then
   exit 0
 fi
 
-# Verificar si el workspace ya tiene git inicializado
+# Verify whether workspace already has initialized git
 if [ -d "$WORKSPACE_DIR/.git" ]; then
   log "Workspace already has git initialized, skipping KB clone"
   
-  # Verificar si el remote del KB existe, si no, añadirlo
+  # Verify whether KB remote exists, add it if missing
   cd "$WORKSPACE_DIR"
   if ! git remote get-url "$KB_REMOTE_NAME" > /dev/null 2>&1; then
     log "Adding KB remote: $KB_CONTENT_DIR"

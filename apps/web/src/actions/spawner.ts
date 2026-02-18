@@ -67,9 +67,9 @@ export async function listActiveInstancesAction() {
   const session = await getAuthenticatedUser()
   if (!session) return []
 
-  // Solo admins pueden ver todas las instancias activas
+  // Only admins can view all active instances
   if (session.user.role !== 'ADMIN') {
-    // Usuarios normales solo ven su propia instancia si está activa
+    // Regular users can only see their own instance if it is active
     const own = await getInstanceStatus(session.user.slug)
     if (own && (own.status === 'running' || own.status === 'starting')) {
       return [{
@@ -86,8 +86,8 @@ export async function listActiveInstancesAction() {
 }
 
 /**
- * Asegura que la instancia esté corriendo. Si no lo está, la inicia.
- * Retorna el estado actual de la instancia.
+ * Ensures the instance is running. If not, it starts it.
+ * Returns the current instance status.
  */
 export async function ensureInstanceRunningAction(slug: string): Promise<{
   status: 'running' | 'starting' | 'error'
@@ -116,7 +116,7 @@ export async function ensureInstanceRunningAction(slug: string): Promise<{
   const instance = await getInstanceStatus(slug)
   console.log('[ensureInstanceRunning] Current instance status:', instance?.status ?? 'none')
   
-  // Ya está corriendo o iniciando
+  // Already running or starting
   if (instance?.status === 'running') {
     const startedRecently =
       instance.startedAt instanceof Date &&
@@ -153,7 +153,7 @@ export async function ensureInstanceRunningAction(slug: string): Promise<{
     return { status: 'starting' }
   }
 
-  // Necesita iniciar
+  // Needs to start
   console.log('[ensureInstanceRunning] Starting instance...')
   const result = await startInstance(slug, session.user.id)
   console.log('[ensureInstanceRunning] Start result:', result)

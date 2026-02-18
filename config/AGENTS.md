@@ -13,7 +13,7 @@ notes and predictable file naming.
 - `Outputs/Meetings/`: meeting notes (pattern: `YYYY-MM-DD - <Title>.md`).
 - `.obsidian/`: Obsidian app configuration (JSON). Avoid editing unless explicitly requested.
 - `Company/Product/docs/`: product documentation/help center (primary source for support).
-- `Outputs/Comunicaciones/`: outputs ready to publish (blog/newsletter/Discord/social).
+- `Outputs/Communications/`: publication-ready outputs (blog/newsletter/Discord/social).
 
 ## Agent Workflow (Vault)
 
@@ -54,11 +54,9 @@ Notes:
 ### General Principles
 
 - Prefer small, targeted edits; avoid rewrites unless asked.
-- Preserve the author voice/language (Spanish content exists); do not translate
-  headings or rewrite tone unless requested.
-- En contenido en prosa, usar ortografía normal en español (tildes, ñ, etc.). No
-  corregir identificadores, comandos, rutas, ni contenido dentro de `backticks` o
-  bloques de código.
+- Preserve the author voice/language; do not translate headings or rewrite tone unless requested.
+- In prose content, use normal language orthography. Do not alter identifiers, commands,
+  paths, or content inside `backticks` or code blocks.
 - Preserve existing structure (headings, ordering, ToC links, and list
   indentation). If you change a heading, update the table of contents.
 
@@ -91,7 +89,7 @@ Notes:
 - For meeting notes, keep the established pattern:
   - `Outputs/Meetings/YYYY-MM-DD - <Title>.md`
 - For communications outputs, keep the pattern:
-  - `Outputs/Comunicaciones/YYYY-MM-DD - <Canal> - <Nombre semantico>.md`
+  - `Outputs/Communications/YYYY-MM-DD - <Channel> - <SemanticName>.md`
 - Avoid introducing new top-level folders without a clear need.
 
 ### Obsidian-Specific Notes

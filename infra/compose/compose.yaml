@@ -9,17 +9,17 @@
 name: arche
 
 services:
-  # Proxy de seguridad para el Podman socket.
-  # Filtra operaciones permitidas; tanto Traefik como web lo usan.
+  # Security proxy for the Podman socket.
+  # Filters allowed operations; both Traefik and web use it.
   docker-socket-proxy:
     image: ghcr.io/tecnativa/docker-socket-proxy:master
     environment:
-      CONTAINERS: 1 # listar/inspeccionar contenedores
-      NETWORKS: 1 # ver redes
-      IMAGES: 1 # ver imágenes
-      INFO: 1 # info del daemon
-      POST: 1 # crear contenedores (para spawner)
-      VOLUMES: 1 # crear volúmenes para workspaces
+      CONTAINERS: 1 # list/inspect containers
+      NETWORKS: 1 # inspect networks
+      IMAGES: 1 # inspect images
+      INFO: 1 # daemon info
+      POST: 1 # create containers (for spawner)
+      VOLUMES: 1 # create workspace volumes
     volumes:
       - /run/podman/podman.sock:/var/run/docker.sock:ro
     networks:
@@ -64,10 +64,10 @@ services:
       # Base host
       ARCHE_DOMAIN: arche.lvh.me
 
-      # Postgres dentro del stack.
+      # Postgres inside the stack.
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/arche?schema=public
 
-      # Seed primer admin (idempotente)
+      # Seed initial admin (idempotent)
       ARCHE_SEED_ADMIN_EMAIL: admin@example.com
       ARCHE_SEED_ADMIN_PASSWORD: change-me
       ARCHE_SEED_ADMIN_SLUG: admin
@@ -81,17 +81,17 @@ services:
       ARCHE_GATEWAY_TOKEN_SECRET: ${ARCHE_GATEWAY_TOKEN_SECRET:-}
       ARCHE_GATEWAY_TOKEN_TTL_SECONDS: ${ARCHE_GATEWAY_TOKEN_TTL_SECONDS:-}
       ARCHE_GATEWAY_BASE_URL: ${ARCHE_GATEWAY_BASE_URL:-}
-      # Usar imagen personalizada con git (build con: podman build -t arche-workspace infra/workspace-image)
+      # Use custom image with git (build with: podman build -t arche-workspace infra/workspace-image)
       OPENCODE_IMAGE: arche-workspace:latest
       OPENCODE_NETWORK: arche-internal
-      # Path al repo bare de contenido KB en host
+      # Path to KB content bare repo on host
       KB_CONTENT_HOST_PATH: ${KB_CONTENT_HOST_PATH:-}
-      # Path al repo bare de configuración en host
+      # Path to KB config bare repo on host
       KB_CONFIG_HOST_PATH: ${KB_CONFIG_HOST_PATH:-}
-      # Paths montados en web para lectura Git
+      # Paths mounted in web for Git reads
       ARCHE_KB_CONTENT_PATH: /kb-content
       ARCHE_CONFIG_REPO_PATH: /kb-config
-      # Path para datos persistentes de usuario
+      # Path for persistent user data
       ARCHE_USERS_PATH: ${ARCHE_USERS_PATH:-/tmp/arche-users}
     networks:
       - default

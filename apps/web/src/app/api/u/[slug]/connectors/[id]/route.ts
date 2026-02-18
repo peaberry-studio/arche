@@ -46,15 +46,15 @@ function sanitizeConfigForResponse(type: ConnectorType, config: Record<string, u
 /**
  * GET /api/u/[slug]/connectors/[id]
  *
- * Obtiene un conector individual CON config desencriptado (para edición).
+ * Returns a single connector WITH decrypted config (for editing).
  *
  * Response: ConnectorDetail
  *
- * Códigos:
- * - 200: Conector encontrado
- * - 401: No autenticado
- * - 403: No autorizado
- * - 404: Usuario o conector no encontrado
+ * Status codes:
+ * - 200: Connector found
+ * - 401: Not authenticated
+ * - 403: Not authorized
+ * - 404: User or connector not found
  */
 export async function GET(
   request: NextRequest,
@@ -67,12 +67,12 @@ export async function GET(
 
   const { slug, id } = await params
 
-  // Verificar autorización
+  // Verify authorization
   if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
-  // Obtener usuario
+  // Get user
   const user = await prisma.user.findUnique({
     where: { slug },
     select: { id: true },
@@ -82,7 +82,7 @@ export async function GET(
     return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
   }
 
-  // Obtener conector verificando ownership en una sola query
+  // Get connector and verify ownership in a single query
   const connector = await prisma.connector.findFirst({
     where: { id, userId: user.id },
   })
@@ -91,7 +91,7 @@ export async function GET(
     return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })
   }
 
-  // Desencriptar config
+  // Decrypt config
   let config: Record<string, unknown>
   try {
     config = decryptConfig(connector.config)
@@ -129,17 +129,17 @@ export interface UpdateConnectorRequest {
 /**
  * PATCH /api/u/[slug]/connectors/[id]
  *
- * Actualiza un conector.
+ * Updates a connector.
  *
  * Request: { name?, config?, enabled? }
  * Response: ConnectorDetail
  *
- * Códigos:
- * - 200: Conector actualizado
- * - 400: Validación fallida
- * - 401: No autenticado
- * - 403: No autorizado
- * - 404: Usuario o conector no encontrado
+ * Status codes:
+ * - 200: Connector updated
+ * - 400: Validation failed
+ * - 401: Not authenticated
+ * - 403: Not authorized
+ * - 404: User or connector not found
  */
 export async function PATCH(
   request: NextRequest,
@@ -157,12 +157,12 @@ export async function PATCH(
 
   const { slug, id } = await params
 
-  // Verificar autorización
+  // Verify authorization
   if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
-  // Obtener usuario
+  // Get user
   const user = await prisma.user.findUnique({
     where: { slug },
     select: { id: true },
@@ -172,7 +172,7 @@ export async function PATCH(
     return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
   }
 
-  // Obtener conector existente verificando ownership
+  // Get existing connector and verify ownership
   const existingConnector = await prisma.connector.findFirst({
     where: { id, userId: user.id },
   })
@@ -181,7 +181,7 @@ export async function PATCH(
     return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })
   }
 
-  // Parsear body
+  // Parse request body
   let body: UpdateConnectorRequest
   try {
     body = await request.json()
@@ -192,7 +192,7 @@ export async function PATCH(
     throw err
   }
 
-  // Validar que body es un objeto
+  // Validate body is an object
   if (body === null || typeof body !== 'object' || Array.isArray(body)) {
     return NextResponse.json(
       { error: 'invalid_body', message: 'Request body must be a JSON object' },
@@ -202,7 +202,7 @@ export async function PATCH(
 
   const { name, config, enabled } = body
 
-  // Preparar datos para actualizar
+  // Prepare data to update
   const updateData: { name?: string; config?: string; enabled?: boolean } = {}
 
   if (name !== undefined) {
@@ -227,22 +227,22 @@ export async function PATCH(
   }
 
   if (config !== undefined) {
-    // Validar que config es un objeto no-null
+    // Validate config is a non-null object
     if (config === null || typeof config !== 'object' || Array.isArray(config)) {
       return NextResponse.json(
         { error: 'invalid_config', message: 'config must be a non-null object' },
         { status: 400 }
       )
     }
-    // Validar tipo del conector (defensa contra datos corruptos)
+    // Validate connector type (defense against corrupted data)
     if (!validateConnectorType(existingConnector.type)) {
       return NextResponse.json(
         { error: 'invalid_connector_type', message: 'Connector has invalid type in database' },
         { status: 500 }
       )
     }
-    // NOTA: config es "replace total", no merge parcial.
-    // Cliente debe enviar config completo con todos los campos requeridos.
+    // NOTE: config is "full replace", not partial merge.
+    // Client must send the complete config with all required fields.
     const connectorType = existingConnector.type as ConnectorType
     const configValidation = validateConnectorConfig(connectorType, config)
     if (!configValidation.valid) {
@@ -265,7 +265,7 @@ export async function PATCH(
     }
   }
 
-  // Validar que hay al menos un campo para actualizar
+  // Validate at least one field was provided for update
   if (Object.keys(updateData).length === 0) {
     return NextResponse.json(
       { error: 'no_fields', message: 'At least one field (name, config, enabled) must be provided' },
@@ -273,8 +273,8 @@ export async function PATCH(
     )
   }
 
-  // Si NO estamos actualizando config, validar que podemos desencriptar el existente
-  // ANTES de aplicar cambios (evita mutación + 500 si config está corrupto)
+  // If config is NOT being updated, validate that existing config can be decrypted
+  // BEFORE applying changes (prevents mutation + 500 if config is corrupted)
   let existingDecryptedConfig: Record<string, unknown> | null = null
   if (config === undefined) {
     try {
@@ -287,18 +287,18 @@ export async function PATCH(
     }
   }
 
-  // Actualizar conector atómicamente verificando ownership (evita TOCTOU)
+  // Update connector atomically while verifying ownership (prevents TOCTOU)
   const result = await prisma.connector.updateMany({
     where: { id, userId: user.id },
     data: updateData,
   })
 
   if (result.count === 0) {
-    // Ownership cambió concurrentemente o conector fue eliminado
+    // Ownership changed concurrently or connector was deleted
     return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })
   }
 
-  // Obtener conector actualizado para response
+  // Get updated connector for response
   const connector = await prisma.connector.findUnique({
     where: { id },
   })
@@ -315,10 +315,10 @@ export async function PATCH(
     metadata: { connectorId: connector.id, fields: Object.keys(updateData) },
   })
 
-  // Para response: usar config del request si lo actualizamos, o el existente ya desencriptado
+  // For response: use request config if updated, otherwise use existing decrypted config
   const responseConfig = config !== undefined
-    ? config  // Ya validamos que es correcto, usamos el input directamente
-    : existingDecryptedConfig!  // Ya desencriptamos antes del update
+    ? config  // Already validated, use input directly
+    : existingDecryptedConfig!  // Already decrypted before update
 
   const connectorType = validateConnectorType(connector.type) ? connector.type : null
   const authType = getConnectorAuthType(responseConfig)
@@ -341,15 +341,15 @@ export async function PATCH(
 /**
  * DELETE /api/u/[slug]/connectors/[id]
  *
- * Elimina un conector.
+ * Deletes a connector.
  *
  * Response: { ok: true }
  *
- * Códigos:
- * - 200: Conector eliminado
- * - 401: No autenticado
- * - 403: No autorizado
- * - 404: Usuario o conector no encontrado
+ * Status codes:
+ * - 200: Connector deleted
+ * - 401: Not authenticated
+ * - 403: Not authorized
+ * - 404: User or connector not found
  */
 export async function DELETE(
   request: NextRequest,
@@ -367,12 +367,12 @@ export async function DELETE(
 
   const { slug, id } = await params
 
-  // Verificar autorización
+  // Verify authorization
   if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
-  // Obtener usuario
+  // Get user
   const user = await prisma.user.findUnique({
     where: { slug },
     select: { id: true },
@@ -382,7 +382,7 @@ export async function DELETE(
     return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
   }
 
-  // Eliminar conector atómicamente verificando ownership (evita TOCTOU)
+  // Delete connector atomically while verifying ownership (prevents TOCTOU)
   const result = await prisma.connector.deleteMany({
     where: { id, userId: user.id },
   })

@@ -1,75 +1,75 @@
 # Infra (Compose)
 
-Este módulo levanta el stack local completo para Arche usando Podman Compose.
+This module starts the full local Arche stack using Podman Compose.
 
-Incluye (v0):
+Includes (v0):
 
-- Traefik (edge) con routing por host.
+- Traefik (edge) with host-based routing.
 - Postgres.
 - `apps/web` (Next.js: UI + BFF).
 
-## Requisitos
+## Requirements
 
 - Podman + podman-compose.
 
-## Dominios locales (recomendado)
+## Local domains (recommended)
 
-Para probar subdominios sin tocar DNS, usa `lvh.me` (resuelve a `127.0.0.1`).
+To test subdomains without touching DNS, use `lvh.me` (resolves to `127.0.0.1`).
 
 - Base: `arche.lvh.me`
-- Usuario: `admin.arche.lvh.me`
+- User: `admin.arche.lvh.me`
 
-## Arranque (local)
+## Startup (local)
 
-1) **Crear la red interna** (una sola vez):
+1) **Create internal network** (one-time):
 
 ```bash
 podman network create arche-internal
 ```
 
-2) **Build de la imagen de workspace** (una sola vez o cuando cambie):
+2) **Build workspace image** (one-time or when changed):
 
 ```bash
 podman build -t arche-workspace:latest ../workspace-image
 ```
 
-3) **Preparar repos bare vacios para KB/config**:
+3) **Prepare empty bare repos for KB/config**:
 
 ```bash
-# Inicializar repos bare vacios (kickstart llena contenido luego)
+# Initialize empty bare repos (kickstart fills content later)
 mkdir -p /opt/arche
 ../../scripts/deploy-kb.sh /opt/arche/kb-content
 ../../scripts/deploy-config.sh /opt/arche/kb-config
 ```
 
-Los destinos `/opt/arche/kb-content` y `/opt/arche/kb-config` son repos Git bare (sin working tree).
-Una vez levantada la app, completa kickstart desde `/u/<slug>/kickstart` para generar
-el contenido inicial del KB y `CommonWorkspaceConfig.json`.
+`/opt/arche/kb-content` and `/opt/arche/kb-config` are bare Git repos (no working tree).
+Once the app is up, complete kickstart at `/u/<slug>/kickstart` to generate
+initial KB content and `CommonWorkspaceConfig.json`.
 
-4) **Variables de entorno de `apps/web`**
+4) **`apps/web` environment variables**
 
-Copia `apps/web/.env.example` a `apps/web/.env`.
+Copy `apps/web/.env.example` to `apps/web/.env`.
 
-Recomendado para local:
+Recommended for local:
 
 - `ARCHE_DOMAIN="arche.lvh.me"`
 
-5) **Levantar el stack** (modo único de desarrollo local)
+5) **Start the stack** (single local dev mode)
 
-Desde la raíz del repo:
+From repo root:
 
 ```bash
 podman compose -f infra/compose/compose.yaml up -d --build
 ```
 
-6) **Migraciones + seed**
+6) **Migrations + seed**
 
 ```bash
 podman compose -f infra/compose/compose.yaml exec web pnpm prisma migrate dev --name init
 podman compose -f infra/compose/compose.yaml exec web pnpm db:seed
 ```
 
-7) **Verificación rápida**
+7) **Quick verification**
 
 - Home: http://arche.lvh.me:8080
 
@@ -82,29 +82,29 @@ curl -i \
   -d '{"email":"admin@example.com","password":"change-me"}'
 ```
 
-Nota: ya no se usa `forwardAuth` ni subdominios por usuario.
+Note: `forwardAuth` and per-user subdomains are no longer used.
 
-## Operación
+## Operation
 
-- Logs Traefik:
+- Traefik logs:
 
 ```bash
 podman compose -f infra/compose/compose.yaml logs -f traefik
 ```
 
-- Logs Web:
+- Web logs:
 
 ```bash
 podman compose -f infra/compose/compose.yaml logs -f web
 ```
 
-- Parar (sin borrar datos):
+- Stop (without deleting data):
 
 ```bash
 podman compose -f infra/compose/compose.yaml down
 ```
 
-- Reset total (borra volúmenes):
+- Full reset (deletes volumes):
 
 ```bash
 podman compose -f infra/compose/compose.yaml down -v

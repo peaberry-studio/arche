@@ -1,71 +1,71 @@
 # Arche Web (Next.js)
 
-Esta app se levanta siempre dentro del stack completo (Traefik + Postgres + Web) usando `infra/compose/compose.yaml`.
+This app always runs inside the full stack (Traefik + Postgres + Web) using `infra/compose/compose.yaml`.
 
-## Paso a paso (local)
+## Step by Step (Local)
 
-### 1) Variables de entorno
+### 1) Environment Variables
 
-Copia `apps/web/.env.example` a `apps/web/.env`.
+Copy `apps/web/.env.example` to `apps/web/.env`.
 
-Recomendado en local:
+Recommended for local:
 
 - `ARCHE_DOMAIN="arche.lvh.me"`
 
-### 2) Levantar el stack completo
+### 2) Start the full stack
 
-Desde la raíz del repo:
+From the repo root:
 
 ```bash
 podman compose -f infra/compose/compose.yaml up -d --build
 ```
 
-### 3) Migraciones + seed (Prisma)
+### 3) Migrations + seed (Prisma)
 
 ```bash
 podman compose -f infra/compose/compose.yaml exec web pnpm prisma migrate dev --name init
 podman compose -f infra/compose/compose.yaml exec web pnpm db:seed
 ```
 
-### 4) Abrir la app
+### 4) Open the app
 
 - `http://arche.lvh.me:8080`
 
-### 5) Verificar la base de datos
+### 5) Verify database
 
 ```bash
 podman compose -f infra/compose/compose.yaml exec postgres psql -U postgres -d arche -c "\\dt"
 ```
 
-### 6) Parar / resetear
+### 6) Stop / reset
 
-- Parar (sin borrar datos):
+- Stop (without deleting data):
 
 ```bash
 podman compose -f infra/compose/compose.yaml down
 ```
 
-- Reset total (borra volúmenes):
+- Full reset (deletes volumes):
 
 ```bash
 podman compose -f infra/compose/compose.yaml down -v
 ```
 
-## Regenerar la app (comando)
+## Re-generate the app (command)
 
 ```bash
 npx create-next-app@latest "apps/web" --ts --eslint --app --import-alias "@/*" --use-pnpm --disable-git --yes
 ```
 
-## Auth + sesiones (BFF)
+## Auth + sessions (BFF)
 
 Endpoints:
 
 - `POST /auth/login`
 - `POST /auth/logout`
-- Nota: ya no se usa `forwardAuth` ni subdominios por usuario.
+- Note: `forwardAuth` and per-user subdomains are no longer used.
 
-Login (captura el `Set-Cookie`):
+Login (capture `Set-Cookie`):
 
 ```bash
 curl -i \
@@ -79,26 +79,26 @@ Logout:
 ```bash
 curl -i \
   -X POST "http://arche.lvh.me:8080/auth/logout" \
-  --cookie "arche_session=<pega_aqui_el_valor_del_cookie>"
+  --cookie "arche_session=<paste_cookie_value_here>"
 ```
 
 ## Package manager
 
-En este repo usamos `pnpm` por defecto.
+This repo uses `pnpm` by default.
 
 ## UI
 
-La UI usa Tailwind + shadcn/ui. Los componentes viven en `src/components/ui`.
+The UI uses Tailwind + shadcn/ui. Components live in `src/components/ui`.
 
-Notas:
+Notes:
 
-- `tailwindcss-animate` esta instalado para compatibilidad con componentes shadcn.
+- `tailwindcss-animate` is installed for compatibility with shadcn components.
 
 ## Spawner (Workspaces)
 
-El spawner es el módulo que crea y gestiona contenedores para cada workspace de usuario.
+The spawner is the module that creates and manages containers for each user workspace.
 
-### Arquitectura
+### Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -124,42 +124,42 @@ El spawner es el módulo que crea y gestiona contenedores para cada workspace de
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Configuración
+### Configuration
 
-El spawner puede conectarse al container runtime de dos formas:
+The spawner can connect to the container runtime in two ways:
 
-1. **Via proxy HTTP** (recomendado para Podman Compose):
+1. **Via HTTP proxy** (recommended for Podman Compose):
    ```env
    CONTAINER_SOCKET_PATH=""
    CONTAINER_PROXY_HOST="docker-socket-proxy"
    CONTAINER_PROXY_PORT="2375"
    ```
 
-2. **Via socket local** (para desarrollo sin Podman Compose):
+2. **Via local socket** (for development without Podman Compose):
    ```env
    CONTAINER_SOCKET_PATH="/run/podman/podman.sock"
    ```
 
-**IMPORTANTE**: Si defines `CONTAINER_SOCKET_PATH`, tiene prioridad sobre el proxy. Déjalo vacío cuando uses Podman Compose.
+**IMPORTANT**: If `CONTAINER_SOCKET_PATH` is defined, it takes precedence over the proxy. Leave it empty when using Podman Compose.
 
-### Variables de entorno del spawner
+### Spawner environment variables
 
-| Variable | Descripción | Valor desarrollo |
+| Variable | Description | Development value |
 |----------|-------------|------------------|
-| `CONTAINER_SOCKET_PATH` | Socket del runtime (vacío = usar proxy) | `""` |
-| `CONTAINER_PROXY_HOST` | Host del proxy | `docker-socket-proxy` |
-| `CONTAINER_PROXY_PORT` | Puerto del proxy | `2375` |
-| `OPENCODE_IMAGE` | Imagen de workspace | `arche-workspace:latest` |
-| `OPENCODE_NETWORK` | Red interna de contenedores | `arche-internal` |
-| `ARCHE_ENCRYPTION_KEY` | Clave AES-256 (base64, 32 bytes) | Ver `.env.example` |
-| `ARCHE_START_TIMEOUT_MS` | Timeout de arranque | `120000` |
-| `ARCHE_IDLE_TIMEOUT_MINUTES` | Inactividad antes de parar | `30` |
-| `KB_CONTENT_HOST_PATH` | Path al repo bare de contenido KB | `~/.arche/kb-content` |
-| `KB_CONFIG_HOST_PATH` | Path al repo bare de configuración | `~/.arche/kb-config` |
+| `CONTAINER_SOCKET_PATH` | Runtime socket (empty = use proxy) | `""` |
+| `CONTAINER_PROXY_HOST` | Proxy host | `docker-socket-proxy` |
+| `CONTAINER_PROXY_PORT` | Proxy port | `2375` |
+| `OPENCODE_IMAGE` | Workspace image | `arche-workspace:latest` |
+| `OPENCODE_NETWORK` | Internal container network | `arche-internal` |
+| `ARCHE_ENCRYPTION_KEY` | AES-256 key (base64, 32 bytes) | See `.env.example` |
+| `ARCHE_START_TIMEOUT_MS` | Startup timeout | `120000` |
+| `ARCHE_IDLE_TIMEOUT_MINUTES` | Idle time before stop | `30` |
+| `KB_CONTENT_HOST_PATH` | Path to KB content bare repo | `~/.arche/kb-content` |
+| `KB_CONFIG_HOST_PATH` | Path to config bare repo | `~/.arche/kb-config` |
 
-### Construir la imagen de workspace
+### Build workspace image
 
-La imagen `arche-workspace:latest` extiende OpenCode con git y scripts de inicialización:
+`arche-workspace:latest` extends OpenCode with git and initialization scripts:
 
 ```bash
 podman build -t arche-workspace:latest infra/workspace-image
@@ -168,14 +168,14 @@ podman build -t arche-workspace:latest infra/workspace-image
 ### Troubleshooting
 
 **Error: `Invalid key length`**
-- `ARCHE_ENCRYPTION_KEY` debe ser exactamente 32 bytes codificados en base64
-- Generar una válida: `openssl rand -base64 32`
+- `ARCHE_ENCRYPTION_KEY` must be exactly 32 bytes encoded in base64
+- Generate one: `openssl rand -base64 32`
 
 **Error: `connect ENOENT /var/run/docker.sock`**
-- Estás en Podman Compose pero `CONTAINER_SOCKET_PATH` está definido
-- Solución: dejar `CONTAINER_SOCKET_PATH=""` en el `.env`
+- You are on Podman Compose but `CONTAINER_SOCKET_PATH` is defined
+- Fix: set `CONTAINER_SOCKET_PATH=""` in `.env`
 
-**Error: `start_failed` sin más detalles**
-- Revisar logs: `podman logs arche-web-1`
-- Verificar que la imagen existe: `podman images | grep arche-workspace`
-- Verificar que la red existe: `podman network ls | grep arche-internal`
+**Error: `start_failed` with no details**
+- Check logs: `podman logs arche-web-1`
+- Verify image exists: `podman images | grep arche-workspace`
+- Verify network exists: `podman network ls | grep arche-internal`

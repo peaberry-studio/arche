@@ -17,7 +17,7 @@ ensure_git_safe_directory() {
 ensure_git_safe_directory /workspace
 ensure_git_safe_directory /kb-content
 
-# Inicializar workspace con KB si es necesario
+# Initialize workspace with KB if needed
 if [ -d "/kb-content" ]; then
   /usr/local/bin/init-workspace.sh
 fi
@@ -33,12 +33,12 @@ if [ -f "/tmp/arche-user-data/AGENTS.md" ]; then
   cp /tmp/arche-user-data/AGENTS.md /workspace/AGENTS.md
 fi
 
-# Iniciar workspace-agent si está disponible
+# Start workspace-agent if available
 # Logs go to stdout/stderr (captured by container runtime)
 if command -v workspace-agent >/dev/null 2>&1; then
   WORKSPACE_AGENT_ADDR="${WORKSPACE_AGENT_ADDR:-0.0.0.0:${WORKSPACE_AGENT_PORT:-4097}}"
   workspace-agent --addr "$WORKSPACE_AGENT_ADDR" &
 fi
 
-# Ejecutar OpenCode con los argumentos originales
+# Run OpenCode with original arguments
 exec opencode "$@"

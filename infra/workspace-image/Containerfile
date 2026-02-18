@@ -1,5 +1,5 @@
-# Imagen derivada de OpenCode con git y script de inicialización
-# Uso: podman build -t arche-workspace .
+# Image derived from OpenCode with git and init script
+# Usage: podman build -t arche-workspace .
 
 ARG OPENCODE_VERSION=1.1.45
 
@@ -11,7 +11,7 @@ RUN CGO_ENABLED=0 go build -o /workspace-agent
 
 FROM ghcr.io/anomalyco/opencode:${OPENCODE_VERSION}
 
-# Instalar git (necesario para sync de KB)
+# Install git (required for KB sync)
 USER root
 RUN apk add --no-cache git nodejs npm
 
@@ -31,11 +31,11 @@ RUN addgroup -g 1000 workspace && \
 # Workspace agent (HTTP API for git/file ops)
 COPY --from=workspace-agent /workspace-agent /usr/local/bin/workspace-agent
 
-# Script de inicialización del workspace
+# Workspace initialization script
 COPY init-workspace.sh /usr/local/bin/init-workspace.sh
 RUN chmod +x /usr/local/bin/init-workspace.sh
 
-# Entrypoint wrapper que inicializa el workspace antes de arrancar OpenCode
+# Entrypoint wrapper that initializes workspace before starting OpenCode
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 

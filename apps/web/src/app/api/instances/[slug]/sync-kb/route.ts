@@ -14,18 +14,18 @@ export interface SyncKbResult {
 /**
  * POST /api/instances/[slug]/sync-kb
  * 
- * Sincroniza el Knowledge Base en el workspace del usuario.
- * Ejecuta git fetch + git merge desde el remote 'kb'.
+ * Syncs the Knowledge Base in the user's workspace.
+ * Runs git fetch + git merge from the `kb` remote.
  * 
- * Respuestas:
- * - 200 { ok: true, status: 'synced' } - Sync exitoso sin conflictos
- * - 200 { ok: true, status: 'conflicts', conflicts: [...] } - Hay conflictos que resolver
- * - 200 { ok: false, status: 'no_remote' } - El remote 'kb' no existe
- * - 200 { ok: false, status: 'error', message: '...' } - Error durante el sync
- * - 401 - No autenticado
- * - 403 - No autorizado para esta instancia
- * - 404 - Instancia no encontrada
- * - 409 - Instancia no está corriendo
+ * Responses:
+ * - 200 { ok: true, status: 'synced' } - Sync succeeded with no conflicts
+ * - 200 { ok: true, status: 'conflicts', conflicts: [...] } - Conflicts need resolution
+ * - 200 { ok: false, status: 'no_remote' } - `kb` remote does not exist
+ * - 200 { ok: false, status: 'error', message: '...' } - Error during sync
+ * - 401 - Not authenticated
+ * - 403 - Not authorized for this instance
+ * - 404 - Instance not found
+ * - 409 - Instance is not running
  */
 export async function POST(
   request: NextRequest,
@@ -43,12 +43,12 @@ export async function POST(
 
   const { slug } = await params
 
-  // Verificar autorización
+  // Verify authorization
   if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
-  // Obtener instancia
+  // Get instance
   const instance = await prisma.instance.findUnique({
     where: { slug },
     select: { containerId: true, status: true },
@@ -101,7 +101,7 @@ export async function POST(
 /**
  * GET /api/instances/[slug]/sync-kb
  * 
- * Obtiene el estado actual del sync (si hay conflictos pendientes, etc.)
+ * Gets current sync status (pending conflicts, etc.)
  */
 export async function GET(
   request: NextRequest,
