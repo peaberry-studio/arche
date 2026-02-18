@@ -26,7 +26,7 @@ const instrumentSerif = Instrument_Serif({
 });
 
 export const metadata: Metadata = {
-  title: "Arche",
+  title: "Archē",
   description: "Enterprise AI that learns and specializes for your company",
   icons: {
     icon: [
@@ -49,7 +49,7 @@ export const metadata: Metadata = {
     ],
   },
   appleWebApp: {
-    title: "Arche",
+    title: "Archē",
   },
   manifest: "/site.webmanifest?v=2",
 };
