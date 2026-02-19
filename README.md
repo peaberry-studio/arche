@@ -159,7 +159,7 @@ Two modes are available through `infra/deploy/deploy.sh`:
 | Mode | Command | TLS | Usage |
 |------|---------|-----|-----|
 | Local dev | `./deploy.sh --local-dev` | No | Hot-reload development |
-| Remote (VPS) | `./deploy.sh` | Yes (ACME) | Production |
+| Remote (VPS) | `./deploy.sh --ip <IP> --domain <DOMAIN> --ssh-key <KEY> --acme-email <EMAIL>` | Yes (ACME) | Production |
 
 Remote deployment uses Ansible to provision Podman, ACME HTTP challenge for TLS, and managed secrets.
 

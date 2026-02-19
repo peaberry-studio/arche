@@ -18,7 +18,6 @@ err()  { printf "${RED}[rollback]${NC} %s\n" "$*" >&2; }
 
 APP_DIR="${ARCHE_APP_DIR:-/opt/arche}"
 DATA_DIR="${ARCHE_DATA_DIR:-/opt/arche/data}"
-COMPOSE_FILE="${APP_DIR}/compose.yml"
 ENV_FILE="${APP_DIR}/.env"
 IMAGE_PREFIX="${IMAGE_PREFIX:-ghcr.io/peaberry-studio/arche/}"
 

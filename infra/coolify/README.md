@@ -189,6 +189,7 @@ You only need to build a custom image if you want to override `OPENCODE_IMAGE`.
    | `ARCHE_SESSION_PEPPER` | Yes | Session security key |
    | `ARCHE_ENCRYPTION_KEY` | Yes | Encryption key for secrets |
    | `ARCHE_INTERNAL_TOKEN` | Yes | Internal API token |
+   | `ARCHE_GATEWAY_TOKEN_SECRET` | Yes | Gateway token signing secret |
    | `ARCHE_SEED_ADMIN_EMAIL` | Yes | Initial admin email |
    | `ARCHE_SEED_ADMIN_PASSWORD` | Yes | Initial admin password |
    | `ARCHE_SEED_ADMIN_SLUG` | No | Admin URL slug (default: `admin`) |
@@ -204,6 +205,7 @@ You only need to build a custom image if you want to override `OPENCODE_IMAGE`.
    echo "ARCHE_SESSION_PEPPER=$(openssl rand -base64 32)"
    echo "ARCHE_ENCRYPTION_KEY=$(openssl rand -base64 32)"
    echo "ARCHE_INTERNAL_TOKEN=$(openssl rand -base64 32)"
+   echo "ARCHE_GATEWAY_TOKEN_SECRET=$(openssl rand -base64 32)"
    ```
 
 5. **Set domain** for the `web` service in Coolify's domain settings

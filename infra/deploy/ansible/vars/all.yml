@@ -1,5 +1,5 @@
 ---
-# Deployment mode: "remote" or "local"
+# Deployment mode: "remote" or "local-dev"
 deploy_mode: "{{ lookup('env', 'DEPLOY_MODE') | default('remote', true) }}"
 
 # Domain

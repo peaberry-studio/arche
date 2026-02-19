@@ -181,10 +181,10 @@ validate_remote() {
   if [[ -n "$DEPLOY_IP" ]]; then
     # Check if IPv4
     if [[ "$DEPLOY_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-      IP_TYPE="A"
+      true
     # Check if IPv6 (simplified check)
     elif [[ "$DEPLOY_IP" =~ : ]]; then
-      IP_TYPE="AAAA"
+      true
     else
       ERRORS+=("Invalid IP address: $DEPLOY_IP (must be IPv4 or IPv6)")
     fi
@@ -253,19 +253,6 @@ log "Validation passed, MODE=$MODE"
 # ---------------------------------------------------------------------------
 # DNS Record Management (Simplified - User-guided)
 # ---------------------------------------------------------------------------
-get_dns_record_name() {
-  # Extract subdomain part from domain
-  local domain="$1"
-  local base_domain="$2"
-  
-  if [[ "$domain" == "$base_domain" ]]; then
-    echo "@"
-  else
-    # Remove base domain and trailing dot
-    echo "$domain" | sed "s/\.${base_domain}$//"
-  fi
-}
-
 ensure_dns_record() {
   log "Checking DNS configuration for $DEPLOY_DOMAIN..."
 
@@ -469,7 +456,7 @@ deploy_local_dev() {
   fi
 
   if ! podman compose version &>/dev/null; then
-    err "podman-compose not found. Install podman-compose first."
+    err "podman compose not found. Install Podman with Compose support first."
     exit 1
   fi
 
