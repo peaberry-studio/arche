@@ -299,7 +299,7 @@
       podman exec {{ new_web_container }}
       node -e "fetch('http://localhost:3000/api/health').then(r=>{if(!r.ok)throw 1}).catch(()=>process.exit(1))"
   register: health_check
-  retries: 24
+  retries: 36
   delay: 5
   until: health_check.rc == 0
   changed_when: false
@@ -329,7 +329,7 @@
 - name: "AUTO-ROLLBACK: Fail deployment"
   ansible.builtin.fail:
     msg: >
-      New web container '{{ new_web_container }}' failed health check after 120 seconds.
+      New web container '{{ new_web_container }}' failed health check after 180 seconds.
       It has been removed. Old container(s) still serving: {{ old_web_containers | default(['none']) | join(', ') }}.
       See logs above for details.
   when: health_check.rc != 0
