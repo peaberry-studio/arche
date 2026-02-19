@@ -106,6 +106,7 @@ async function cloneRepoToTemp(
   await fs.writeFile(safeConfig, `[safe]\n\tdirectory = ${root}\n`, 'utf-8')
   const cloneResult = await runGit(['clone', '--quiet', root, dir], {
     env: {
+      ...process.env,
       GIT_CONFIG_GLOBAL: safeConfig,
     },
   })
