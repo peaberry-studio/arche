@@ -38,7 +38,7 @@
 
   post_tasks:
     - name: Verify running containers
-      ansible.builtin.command: podman-compose -f {{ app_dir }}/compose.yml ps --format json
+      ansible.builtin.command: podman ps --filter "label=com.docker.compose.project=arche" --format "{{'{{'}}.Names{{'}}'}} - {{'{{'}}.Status{{'}}'}}"
       register: containers
       changed_when: false
 
@@ -46,5 +46,7 @@
       ansible.builtin.debug:
         msg:
           - "Arche deployed successfully!"
+          - "Running containers:"
+          - "{{ containers.stdout | default('No containers found') }}"
           - "App:   https://{{ domain }}"
           - "Dashboard: https://{{ domain }}/u/{{ arche_seed_admin_slug }}"
