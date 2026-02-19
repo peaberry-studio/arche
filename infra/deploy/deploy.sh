@@ -317,7 +317,13 @@ ensure_dns_record() {
   echo "⏳  After adding the record, press ENTER to continue..."
   echo "    (The script will verify the DNS is working before proceeding)"
   echo ""
-  
+
+  if [[ ! -t 0 ]]; then
+    err "DNS is not configured and this shell is non-interactive."
+    err "Set the DNS record, or rerun with --skip-ensure-dns-record."
+    exit 1
+  fi
+
   read -r
 
   # Verify DNS with retries
@@ -348,6 +354,13 @@ ensure_dns_record() {
   echo "This is normal - DNS can take up to 24-48 hours to propagate worldwide."
   echo "However, it usually works within 5-30 minutes."
   echo ""
+
+  if [[ ! -t 0 ]]; then
+    err "DNS verification timed out in non-interactive mode."
+    err "Set the DNS record, or rerun with --skip-ensure-dns-record."
+    exit 1
+  fi
+
   read -p "Do you want to continue anyway? The deployment may fail if Let's Encrypt cannot verify your domain. (y/N): " -n 1 -r
   echo
   
