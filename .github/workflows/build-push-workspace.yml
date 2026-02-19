@@ -1,0 +1,86 @@
+name: Build & Push Workspace Image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "infra/workspace-image/**"
+      - ".github/workflows/build-push-workspace.yml"
+  repository_dispatch:
+    types: [build-pr-image]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number (for PR builds)"
+        required: false
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/workspace
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.client_payload.ref || github.ref }}
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Determine image tags
+        id: tags
+        run: |
+          if [[ "${{ github.event_name }}" == "repository_dispatch" ]] || [[ -n "${{ github.event.inputs.pr_number }}" ]]; then
+            PR_NUM="${{ github.event.client_payload.pr_number || github.event.inputs.pr_number }}"
+            echo "PR_NUMBER=$PR_NUM" >> $GITHUB_OUTPUT
+            echo "TAG=pr-$PR_NUM" >> $GITHUB_OUTPUT
+            echo "Building PR workspace image with tag: pr-$PR_NUM"
+          else
+            echo "TAG=latest" >> $GITHUB_OUTPUT
+            echo "SHA_TAG=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+            echo "Building main workspace image with tags: latest, $(git rev-parse --short HEAD)"
+          fi
+
+      - name: Build image
+        run: |
+          if [[ "${{ steps.tags.outputs.PR_NUMBER }}" != "" ]]; then
+            podman build \
+              -t $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.TAG }} \
+              -f infra/workspace-image/Containerfile infra/workspace-image
+          else
+            podman build \
+              -t $REGISTRY/$IMAGE_NAME:latest \
+              -t $REGISTRY/$IMAGE_NAME:$(git rev-parse --short HEAD) \
+              -f infra/workspace-image/Containerfile infra/workspace-image
+          fi
+
+      - name: Push image
+        run: |
+          if [[ "${{ steps.tags.outputs.PR_NUMBER }}" != "" ]]; then
+            podman push $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.TAG }}
+            echo "Pushed PR workspace image: $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.TAG }}"
+          else
+            podman push $REGISTRY/$IMAGE_NAME:latest
+            podman push $REGISTRY/$IMAGE_NAME:$(git rev-parse --short HEAD)
+          fi
+
+      - name: Comment PR with image info
+        if: steps.tags.outputs.PR_NUMBER != ''
+        run: |
+          IMAGE="$REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.TAG }}"
+          BODY="📦 **Workspace Image Built Successfully**%0A%0A\`\`\`%0A$IMAGE%0A\`\`\`"
+
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/issues/${{ steps.tags.outputs.PR_NUMBER }}/comments" \
+            -d "{\"body\": \"$BODY\"}"
