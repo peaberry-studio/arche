@@ -77,10 +77,11 @@ jobs:
         if: steps.tags.outputs.PR_NUMBER != ''
         run: |
           IMAGE="$REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.TAG }}"
-          BODY="📦 **Workspace Image Built Successfully**%0A%0A\`\`\`%0A$IMAGE%0A\`\`\`"
+          BODY=$(printf '📦 **PR Workspace Image Built Successfully**\n\n```\n%s\n```' "$IMAGE")
+          PAYLOAD=$(jq -nc --arg body "$BODY" '{body: $body}')
 
           curl -X POST \
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/${{ github.repository }}/issues/${{ steps.tags.outputs.PR_NUMBER }}/comments" \
-            -d "{\"body\": \"$BODY\"}"
+            -d "$PAYLOAD"
