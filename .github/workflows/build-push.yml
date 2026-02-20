@@ -3,6 +3,8 @@ name: Build & Push Web Image
 on:
   push:
     branches: [main]
+    tags:
+      - "v*.*.*"
     paths:
       - "apps/web/**"
       - ".github/workflows/build-push.yml"
@@ -39,48 +41,64 @@ jobs:
       - name: Determine image tags
         id: tags
         run: |
+          SHA_TAG="$(git rev-parse --short HEAD)"
+          echo "SHA_TAG=$SHA_TAG" >> "$GITHUB_OUTPUT"
+
           if [[ "${{ github.event_name }}" == "repository_dispatch" ]] || [[ -n "${{ github.event.inputs.pr_number }}" ]]; then
             PR_NUM="${{ github.event.client_payload.pr_number || github.event.inputs.pr_number }}"
             echo "PR_NUMBER=$PR_NUM" >> $GITHUB_OUTPUT
-            echo "TAG=pr-$PR_NUM" >> $GITHUB_OUTPUT
+            echo "PR_TAG=pr-$PR_NUM" >> $GITHUB_OUTPUT
+            echo "MODE=pr" >> $GITHUB_OUTPUT
             echo "Building PR image with tag: pr-$PR_NUM"
+          elif [[ "${GITHUB_REF_TYPE}" == "tag" ]] && [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "RELEASE_TAG=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "MODE=release" >> "$GITHUB_OUTPUT"
+            echo "Building release image with tags: ${GITHUB_REF_NAME}, ${SHA_TAG}"
           else
-            echo "TAG=latest" >> $GITHUB_OUTPUT
-            echo "SHA_TAG=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-            echo "Building main branch image with tags: latest, $(git rev-parse --short HEAD)"
+            echo "MODE=main" >> "$GITHUB_OUTPUT"
+            echo "Building main branch image with tags: latest, ${SHA_TAG}"
           fi
 
       - name: Build image
         run: |
-          if [[ "${{ steps.tags.outputs.PR_NUMBER }}" != "" ]]; then
-            podman build --build-arg GIT_SHA=$(git rev-parse --short HEAD) \
-              -t $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.TAG }} \
+          if [[ "${{ steps.tags.outputs.MODE }}" == "pr" ]]; then
+            podman build --build-arg GIT_SHA="${{ steps.tags.outputs.SHA_TAG }}" \
+              -t $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.PR_TAG }} \
+              -f apps/web/Containerfile apps/web
+          elif [[ "${{ steps.tags.outputs.MODE }}" == "release" ]]; then
+            podman build --build-arg GIT_SHA="${{ steps.tags.outputs.SHA_TAG }}" \
+              -t $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.RELEASE_TAG }} \
+              -t $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.SHA_TAG }} \
               -f apps/web/Containerfile apps/web
           else
-            podman build --build-arg GIT_SHA=$(git rev-parse --short HEAD) \
+            podman build --build-arg GIT_SHA="${{ steps.tags.outputs.SHA_TAG }}" \
               -t $REGISTRY/$IMAGE_NAME:latest \
-              -t $REGISTRY/$IMAGE_NAME:$(git rev-parse --short HEAD) \
+              -t $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.SHA_TAG }} \
               -f apps/web/Containerfile apps/web
           fi
 
       - name: Push image
         run: |
-          if [[ "${{ steps.tags.outputs.PR_NUMBER }}" != "" ]]; then
-            podman push $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.TAG }}
-            echo "Pushed PR image: $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.TAG }}"
+          if [[ "${{ steps.tags.outputs.MODE }}" == "pr" ]]; then
+            podman push $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.PR_TAG }}
+            echo "Pushed PR image: $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.PR_TAG }}"
+          elif [[ "${{ steps.tags.outputs.MODE }}" == "release" ]]; then
+            podman push $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.RELEASE_TAG }}
+            podman push $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.SHA_TAG }}
           else
             podman push $REGISTRY/$IMAGE_NAME:latest
-            podman push $REGISTRY/$IMAGE_NAME:$(git rev-parse --short HEAD)
+            podman push $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.SHA_TAG }}
           fi
 
       - name: Comment PR with image info
-        if: steps.tags.outputs.PR_NUMBER != ''
+        if: steps.tags.outputs.MODE == 'pr'
         run: |
-          IMAGE="$REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.TAG }}"
-          BODY="📦 **PR Image Built Successfully**%0A%0A\`\`\`%0A$IMAGE%0A\`\`\`"
+          IMAGE="$REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.PR_TAG }}"
+          BODY=$(printf '📦 **PR Image Built Successfully**\n\n```\n%s\n```' "$IMAGE")
+          PAYLOAD=$(jq -nc --arg body "$BODY" '{body: $body}')
 
           curl -X POST \
             -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/${{ github.repository }}/issues/${{ steps.tags.outputs.PR_NUMBER }}/comments" \
-            -d "{\"body\": \"$BODY\"}"
+            -d "$PAYLOAD"

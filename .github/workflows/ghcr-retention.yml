@@ -1,0 +1,84 @@
+name: GHCR Retention
+
+on:
+  workflow_run:
+    workflows:
+      - Build & Push Web Image
+      - Build & Push Workspace Image
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      keep_pr_versions:
+        description: "Newest PR-tagged versions to keep per package"
+        required: false
+        default: "30"
+        type: string
+
+jobs:
+  prune-pr-images:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Prune old PR-tagged package versions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+          KEEP_PR_VERSIONS: ${{ github.event.inputs.keep_pr_versions || '30' }}
+        run: |
+          set -euo pipefail
+
+          if ! [[ "${KEEP_PR_VERSIONS}" =~ ^[0-9]+$ ]]; then
+            echo "Invalid KEEP_PR_VERSIONS='${KEEP_PR_VERSIONS}', expected integer" >&2
+            exit 1
+          fi
+
+          prune_package() {
+            local package_name="$1"
+            local encoded_package="${package_name//\//%2F}"
+            local tmp_file
+            tmp_file="$(mktemp)"
+
+            echo "Checking ${package_name}"
+            if ! gh api --paginate \
+              "/orgs/${OWNER}/packages/container/${encoded_package}/versions?per_page=100" \
+              --jq '.[] | {id, updated_at, tags: (.metadata.container.tags // [])}' > "${tmp_file}"; then
+              echo "Package not found or not accessible: ${package_name}"
+              rm -f "${tmp_file}"
+              return
+            fi
+
+            local delete_ids
+            delete_ids="$(
+              jq -s -r --argjson keep "${KEEP_PR_VERSIONS}" '
+                [ .[]
+                  | select((.tags | map(test("^pr-")) | any))
+                  | {id, updated_at}
+                ]
+                | sort_by(.updated_at)
+                | reverse
+                | .[$keep:]
+                | .[].id
+              ' "${tmp_file}"
+            )"
+
+            rm -f "${tmp_file}"
+
+            if [[ -z "${delete_ids}" ]]; then
+              echo "No old PR-tagged versions to delete for ${package_name}"
+              return
+            fi
+
+            while IFS= read -r version_id; do
+              [[ -z "${version_id}" ]] && continue
+              echo "Deleting ${package_name} version id=${version_id}"
+              gh api --method DELETE "/orgs/${OWNER}/packages/container/${encoded_package}/versions/${version_id}"
+            done <<< "${delete_ids}"
+          }
+
+          prune_package "${REPO}/web"
+          prune_package "${REPO}/workspace"
