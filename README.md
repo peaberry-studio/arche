@@ -219,3 +219,7 @@ kickstart/
 - [`infra/compose/README.md`](infra/compose/README.md) - Podman Compose stack
 - [`infra/deploy/README.md`](infra/deploy/README.md) - VPS deployment guide
 - [`infra/workspace-image/README.md`](infra/workspace-image/README.md) - Workspace image
+
+## License
+
+This project is licensed under the Apache License 2.0. See [`LICENSE`](LICENSE).
