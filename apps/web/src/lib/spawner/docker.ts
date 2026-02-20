@@ -183,6 +183,11 @@ export async function createContainer(
     `OPENCODE_SERVER_PASSWORD=${password}`,
     `OPENCODE_SERVER_USERNAME=opencode`,
     `OPENCODE_CONFIG_DIR=/opt/arche/opencode-config`,
+    // The workspace image runs as root for Podman volume compatibility.
+    // Force HOME/XDG to mounted /home/workspace paths so session data persists.
+    `HOME=/home/workspace`,
+    `XDG_DATA_HOME=/home/workspace/.local/share`,
+    `XDG_STATE_HOME=/home/workspace/.local/state`,
     `WORKSPACE_AGENT_PORT=${getWorkspaceAgentPort()}`,
     `WORKSPACE_GIT_AUTHOR_NAME=${gitAuthor?.name ?? slug}`,
     `WORKSPACE_GIT_AUTHOR_EMAIL=${gitAuthor?.email ?? `${slug}@arche.local`}`,
