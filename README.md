@@ -154,15 +154,14 @@ cp .env.example .env
 
 ## Deployment
 
-Three modes are available through `infra/deploy/deploy.sh`:
+Two modes are available through `infra/deploy/deploy.sh`:
 
 | Mode | Command | TLS | Usage |
 |------|---------|-----|-----|
 | Local dev | `./deploy.sh --local-dev` | No | Hot-reload development |
-| Local prod | `./deploy.sh --local` | No | Local image testing |
-| Remote (VPS) | `./deploy.sh` | Yes (ACME) | Production |
+| Remote (VPS) | `./deploy.sh --ip <IP> --domain <DOMAIN> --ssh-key <KEY> --acme-email <EMAIL> [--skip-ensure-dns-record]` | Yes (ACME) | Production |
 
-Remote deployment uses Ansible to provision Podman, ACME DNS challenge for TLS, and managed secrets.
+Remote deployment uses Ansible to provision Podman, ACME HTTP challenge for TLS, and managed secrets.
 
 ## Key Environment Variables
 

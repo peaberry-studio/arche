@@ -96,7 +96,7 @@ describe('config', () => {
 
       const { getOpencodeImage } = await import('../config')
 
-      expect(getOpencodeImage()).toBe('ghcr.io/anomalyco/opencode:1.1.45')
+      expect(getOpencodeImage()).toBe('ghcr.io/peaberry-studio/arche/workspace:latest')
     })
 
     it('returns custom image from env', async () => {

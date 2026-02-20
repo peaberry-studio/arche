@@ -5,7 +5,7 @@
  * - Podman running locally
  * - CONTAINER_SOCKET_PATH env var pointing to the socket
  * - Network `arche-internal` created
- * - Image `ghcr.io/anomalyco/opencode:1.1.45` pulled
+ * - Image `ghcr.io/peaberry-studio/arche/workspace:latest` pulled (or OPENCODE_IMAGE override available)
  *
  * Run: CONTAINER_SOCKET_PATH=/path/to/podman.sock pnpm test -- --testPathPattern e2e
  */

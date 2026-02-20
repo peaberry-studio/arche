@@ -1,4 +1,48 @@
 ---
+# =============================================================================
+# Arche App Deployment — True Blue-Green Zero-Downtime Strategy
+#
+# The web container is managed outside of compose via `podman run` so that
+# both old and new containers run simultaneously during deploys. Traefik
+# discovers both via Docker labels, health-checks them, and only routes
+# to the healthy one.
+#
+# Flow:
+#   1. Setup (dirs, auth, render templates, network)
+#   2. Pre-deploy backup (pg_dump)
+#   3. Pull new web image
+#   4. Ensure base services are running (postgres, traefik, socket-proxy)
+#   5. Start NEW web container alongside the old one (podman run)
+#   6. Wait for new container to pass health checks
+#   7. Stop and remove old web container
+#   8. Record deployed version
+#
+# On failure at step 6:
+#   - Remove the new container
+#   - Old container is still running and serving traffic
+#   - Deployment aborts with error
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Step 1: Setup
+# ---------------------------------------------------------------------------
+- name: Configure UFW defaults (allow routed traffic for Podman bridges)
+  community.general.ufw:
+    direction: routed
+    default: allow
+
+- name: Allow DNS (UDP) from Podman bridge interfaces
+  ansible.builtin.command:
+    cmd: ufw allow in on podman+ to any port 53 proto udp
+  register: ufw_dns_udp
+  changed_when: "'Skipping adding existing rule' not in ufw_dns_udp.stdout"
+
+- name: Allow DNS (TCP) from Podman bridge interfaces
+  ansible.builtin.command:
+    cmd: ufw allow in on podman+ to any port 53 proto tcp
+  register: ufw_dns_tcp
+  changed_when: "'Skipping adding existing rule' not in ufw_dns_tcp.stdout"
+
 - name: Create users data directory
   ansible.builtin.file:
     path: "{{ users_path | default('/opt/arche/users') }}"
@@ -7,13 +51,85 @@
     group: "{{ deploy_user }}"
     mode: "0750"
 
+- name: Create backups directory
+  ansible.builtin.file:
+    path: "{{ data_dir }}/backups"
+    state: directory
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: "0750"
+
+- name: Create KB directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ deploy_user }}"
+    group: "{{ deploy_user }}"
+    mode: "0750"
+  loop:
+    - "{{ kb_content_host_path | default('/opt/arche/kb-content') }}"
+    - "{{ kb_config_host_path | default('/opt/arche/kb-config') }}"
+  when: kb_content_host_path is defined or kb_config_host_path is defined
+
+- name: Ensure KB repositories are bare
+  ansible.builtin.shell: |
+    set -euo pipefail
+    dir="{{ item }}"
+
+    if git --git-dir="$dir" rev-parse --is-bare-repository >/dev/null 2>&1; then
+      exit 0
+    fi
+
+    if [ -d "$dir/.git" ]; then
+      backup_dir="${dir}.worktree.bak.$(date +%s)"
+      bare_tmp="${dir}.bare"
+      git -c safe.directory="$dir" clone --bare "$dir" "$bare_tmp"
+      mv "$dir" "$backup_dir"
+      mv "$bare_tmp" "$dir"
+      chown -R "{{ deploy_user }}:{{ deploy_user }}" "$dir"
+      exit 0
+    fi
+
+    if [ -d "$dir" ] && [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then
+      backup_dir="${dir}.backup.$(date +%s)"
+      mv "$dir" "$backup_dir"
+    fi
+
+    git init --bare --initial-branch=main "$dir" >/dev/null 2>&1 || git init --bare "$dir"
+    chown -R "{{ deploy_user }}:{{ deploy_user }}" "$dir"
+  args:
+    executable: /bin/bash
+  loop:
+    - "{{ kb_content_host_path | default('/opt/arche/kb-content') }}"
+    - "{{ kb_config_host_path | default('/opt/arche/kb-config') }}"
+  when: kb_content_host_path is defined or kb_config_host_path is defined
+
 - name: Log in to GHCR
   ansible.builtin.command:
     cmd: podman login ghcr.io -u arche-deploy --password-stdin
     stdin: "{{ ghcr_token }}"
-  changed_when: true
+  register: ghcr_login_result
+  changed_when: ghcr_login_result.rc == 0
+  failed_when: false
   no_log: true
   when: ghcr_token | length > 0
+
+- name: Warn when GHCR login fails and continue with anonymous pulls
+  ansible.builtin.debug:
+    msg: "GHCR login failed; continuing with anonymous image pulls"
+  when:
+    - ghcr_token | length > 0
+    - ghcr_login_result.rc != 0
+
+- name: Pull configured workspace image from GHCR
+  ansible.builtin.command:
+    cmd: podman pull {{ opencode_image }}
+  changed_when: true
+  when:
+    - opencode_image is defined
+    - opencode_image | length > 0
+    - opencode_image != "arche-workspace:latest"
+    - opencode_image is search("^ghcr\\.io/")
 
 - name: Render compose.yml
   ansible.builtin.template:
@@ -37,48 +153,261 @@
   register: network_create
   changed_when: network_create.rc == 0
   failed_when: network_create.rc != 0 and 'already exists' not in network_create.stderr
+
+# ---------------------------------------------------------------------------
+# Step 2: Pre-deploy database backup
+# ---------------------------------------------------------------------------
+- name: Check if postgres container is running
+  ansible.builtin.shell:
+    cmd: podman ps --filter name=postgres --filter label=com.docker.compose.project=arche --format '{{ '{{' }}.Names{{ '}}' }}' 2>/dev/null | head -1
+  register: postgres_for_backup
+  changed_when: false
+  failed_when: false
+
+- name: Backup database before deployment
+  ansible.builtin.shell:
+    cmd: >
+      podman exec {{ postgres_for_backup.stdout | trim }}
+      pg_dump -U postgres --format=custom arche
+      > {{ data_dir }}/backups/arche-pre-deploy-$(date +%Y%m%d-%H%M%S).dump
+  register: backup_result
+  when: postgres_for_backup.stdout | trim | length > 0
+  failed_when: backup_result.rc != 0
+
+- name: Rotate old backups (keep last 10)
+  ansible.builtin.shell:
+    cmd: ls -t {{ data_dir }}/backups/arche-*.dump 2>/dev/null | tail -n +11 | xargs -r rm
+  changed_when: false
   ignore_errors: true
 
-- name: Pull images
+# ---------------------------------------------------------------------------
+# Step 3: Pull new web image
+# ---------------------------------------------------------------------------
+- name: Pull new web image
   ansible.builtin.command:
-    cmd: podman-compose -f {{ app_dir }}/compose.yml pull
+    cmd: podman pull {{ image_prefix }}web:{{ web_version }}
   changed_when: true
 
-- name: Stop existing containers
+# ---------------------------------------------------------------------------
+# Step 4: Ensure base services are running (postgres, traefik, socket-proxy)
+# ---------------------------------------------------------------------------
+- name: Check if podman compose is available
   ansible.builtin.command:
-    cmd: podman-compose -f {{ app_dir }}/compose.yml down --remove-orphans
-  changed_when: true
+    cmd: podman compose version
+  register: podman_compose_check
+  changed_when: false
   ignore_errors: true
 
-- name: Start containers
+- name: Debug podman compose availability
+  ansible.builtin.debug:
+    msg: "podman compose available: {{ podman_compose_check.rc == 0 }}"
+
+- name: Start base services (podman compose)
+  ansible.builtin.shell:
+    cmd: >
+      podman compose -f {{ app_dir }}/compose.yml --env-file {{ app_dir }}/.env
+      -p arche up -d postgres traefik docker-socket-proxy
+  changed_when: true
+  when: podman_compose_check.rc == 0
+
+- name: Start base services (podman-compose fallback)
+  ansible.builtin.shell:
+    cmd: >
+      podman-compose -f {{ app_dir }}/compose.yml --env-file {{ app_dir }}/.env
+      -p arche up -d postgres traefik docker-socket-proxy
+  changed_when: true
+  when: podman_compose_check.rc != 0
+
+- name: Wait for services to start
+  ansible.builtin.pause:
+    seconds: 5
+
+- name: Check running containers
   ansible.builtin.command:
-    cmd: podman-compose -f {{ app_dir }}/compose.yml --env-file {{ app_dir }}/.env up -d
+    cmd: podman ps --format "{{ '{{' }}.Names{{ '}}' }}"
+  register: running_containers
+  changed_when: false
+
+- name: Debug running containers
+  ansible.builtin.debug:
+    msg: "Running containers: {{ running_containers.stdout }}"
+
+- name: Detect compose default network name
+  ansible.builtin.shell:
+    cmd: podman network ls --format '{{ '{{' }}.Name{{ '}}' }}' | grep -E '^arche[_-]default$' | head -1
+  register: compose_network_result
+  changed_when: false
+
+- name: Set compose default network
+  ansible.builtin.set_fact:
+    compose_default_network: "{{ compose_network_result.stdout | trim | default('arche_default', true) }}"
+
+- name: Detect postgres container name
+  ansible.builtin.shell:
+    cmd: podman ps --filter name=postgres --filter label=com.docker.compose.project=arche --format '{{ '{{' }}.Names{{ '}}' }}' | head -1
+  register: postgres_container_result
+  changed_when: false
+
+- name: Debug postgres container
+  ansible.builtin.debug:
+    msg: "Postgres container found: '{{ postgres_container_result.stdout | trim }}'"
+
+- name: Check if postgres container exists
+  ansible.builtin.fail:
+    msg: "Postgres container not found. Check 'podman ps' and 'podman compose logs'"
+  when: postgres_container_result.stdout | trim | length == 0
+
+- name: Wait for postgres to be healthy
+  ansible.builtin.shell:
+    cmd: podman exec {{ postgres_container_result.stdout | trim }} pg_isready -U postgres
+  register: pg_ready
+  retries: 15
+  delay: 2
+  until: pg_ready.rc == 0
+  changed_when: false
+
+# ---------------------------------------------------------------------------
+# Step 5: Blue-green web swap via podman run
+# ---------------------------------------------------------------------------
+
+# 5a. Generate a unique name for the new container
+- name: Generate new container name
+  ansible.builtin.set_fact:
+    new_web_container: "arche-web-{{ ansible_date_time.epoch }}-{{ 9999 | random }}"
+  changed_when: false
+
+# 5b. Find all currently running web containers (may include zombies from failed deploys)
+- name: Find old web containers
+  ansible.builtin.shell:
+    cmd: |
+      {
+        podman ps --filter label=arche.role=web --format '{{ '{{' }}.Names{{ '}}' }}'
+        podman ps --filter label=com.docker.compose.project=arche --filter label=com.docker.compose.service=web --format '{{ '{{' }}.Names{{ '}}' }}'
+      } | sed "/^$/d" | sort -u
+  register: old_web_result
+  changed_when: false
+  failed_when: false
+
+- name: Set old web container list
+  ansible.builtin.set_fact:
+    old_web_containers: "{{ old_web_result.stdout_lines | default([]) }}"
+
+- name: Display blue-green status
+  ansible.builtin.debug:
+    msg: "Old container(s): {{ old_web_containers | default(['none']) | join(', ') }} → New container: {{ new_web_container }}"
+
+# 5c. Start the new web container
+- name: Build podman run command
+  ansible.builtin.set_fact:
+    kb_volumes: "{% if kb_content_host_path is defined and kb_content_host_path and kb_config_host_path is defined and kb_config_host_path %}-v {{ kb_content_host_path }}:/kb-content -v {{ kb_config_host_path }}:/kb-config{% endif %}"
+    traefik_labels: "{% if deploy_mode == 'remote' %}--label 'traefik.http.routers.arche-base.rule=Host(`{{ domain }}`)' --label traefik.http.routers.arche-base.entrypoints=websecure --label traefik.http.routers.arche-base.tls=true --label traefik.http.routers.arche-base.tls.certresolver=letsencrypt --label traefik.http.routers.arche-base.service=arche-web{% else %}--label 'traefik.http.routers.arche-base.rule=Host(`{{ domain }}`)' --label traefik.http.routers.arche-base.entrypoints=web --label traefik.http.routers.arche-base.service=arche-web{% endif %}"
+
+- name: Start new web container
+  ansible.builtin.shell:
+    cmd: |
+      podman run -d \
+      --name {{ new_web_container }} \
+      --env-file {{ app_dir }}/.env \
+      -e ARCHE_GATEWAY_TOKEN_SECRET="{{ arche_gateway_token_secret }}" \
+      -e ARCHE_GATEWAY_TOKEN_TTL_SECONDS="{{ arche_gateway_token_ttl_seconds }}" \
+      -e ARCHE_GATEWAY_BASE_URL="{{ arche_gateway_base_url }}" \
+      --network arche-internal \
+      --network {{ compose_default_network }} \
+      -v {{ users_path | default('/opt/arche/users') }}:{{ users_path | default('/opt/arche/users') }} \
+      {{ kb_volumes | trim }} \
+      --label traefik.enable=true \
+      {{ traefik_labels | trim }} \
+      --label traefik.http.services.arche-web.loadbalancer.server.port=3000 \
+      --label traefik.http.services.arche-web.loadbalancer.healthcheck.path=/api/health \
+      --label traefik.http.services.arche-web.loadbalancer.healthcheck.interval=5s \
+      --label traefik.http.services.arche-web.loadbalancer.healthcheck.timeout=3s \
+      --label traefik.docker.network={{ compose_default_network }} \
+      --label arche.role=web \
+      --label arche.version={{ web_version }} \
+      --restart unless-stopped \
+      {{ image_prefix }}web:{{ web_version }}
   changed_when: true
 
-- name: Wait for web service to be ready
-  ansible.builtin.command:
-    cmd: podman-compose -f {{ app_dir }}/compose.yml exec -T web sh -c "curl -sf http://localhost:3000/ > /dev/null 2>&1"
+# 5d. Wait for the new container to pass health check
+- name: Wait for new web container to pass health check
+  ansible.builtin.shell:
+    cmd: >
+      podman exec {{ new_web_container }}
+      node -e "fetch('http://localhost:3000/api/health').then(r=>{if(!r.ok)throw 1}).catch(()=>process.exit(1))"
   register: health_check
-  retries: 30
+  retries: 36
   delay: 5
   until: health_check.rc == 0
   changed_when: false
   ignore_errors: true
 
-- name: Run Prisma migrations
-  ansible.builtin.command:
-    cmd: podman-compose -f {{ app_dir }}/compose.yml exec -T web pnpm prisma migrate deploy
-  changed_when: true
-  register: migration_result
+# 5e. On failure: capture logs, remove the new container, keep old running
+- name: "AUTO-ROLLBACK: Capture logs from failed container"
+  ansible.builtin.shell:
+    cmd: podman logs --tail 50 {{ new_web_container }}
+  register: failed_container_logs
+  when: health_check.rc != 0
+  changed_when: false
   ignore_errors: true
 
-- name: Display migration result
+- name: "AUTO-ROLLBACK: Display failed container logs"
   ansible.builtin.debug:
-    var: migration_result.stdout_lines
-  when: migration_result.stdout_lines is defined
+    msg: "{{ failed_container_logs.stdout | default('no logs available') }}"
+  when: health_check.rc != 0
 
-- name: Run seed
-  ansible.builtin.command:
-    cmd: podman-compose -f {{ app_dir }}/compose.yml exec -T web pnpm prisma db seed
+- name: "AUTO-ROLLBACK: Remove failed new container"
+  ansible.builtin.shell:
+    cmd: podman rm -f {{ new_web_container }}
+  when: health_check.rc != 0
   changed_when: true
   ignore_errors: true
+
+- name: "AUTO-ROLLBACK: Fail deployment"
+  ansible.builtin.fail:
+    msg: >
+      New web container '{{ new_web_container }}' failed health check after 180 seconds.
+      It has been removed. Old container(s) still serving: {{ old_web_containers | default(['none']) | join(', ') }}.
+      See logs above for details.
+  when: health_check.rc != 0
+
+# 5f. On success: wait for Traefik discovery, then stop and remove old containers
+- name: Wait for Traefik to discover new container
+  ansible.builtin.pause:
+    seconds: 15
+  when: health_check.rc == 0
+
+- name: Stop and remove old web containers
+  ansible.builtin.shell:
+    cmd: podman stop -t 10 {{ item }} && podman rm {{ item }}
+  loop: "{{ old_web_containers | default([]) }}"
+  when: old_web_containers | default([]) | length > 0
+  changed_when: true
+  ignore_errors: true
+
+# ---------------------------------------------------------------------------
+# Step 6: Post-deploy verification
+# ---------------------------------------------------------------------------
+- name: Verify deployed version via health endpoint
+  ansible.builtin.shell:
+    cmd: >
+      podman exec {{ new_web_container }}
+      node -e "fetch('http://localhost:3000/api/health').then(r=>r.json()).then(d=>console.log(JSON.stringify(d))).catch(()=>process.exit(1))"
+  register: version_check
+  changed_when: false
+  ignore_errors: true
+
+- name: Display deployed version
+  ansible.builtin.debug:
+    msg: "Health endpoint response: {{ version_check.stdout | default('unavailable') }}"
+  when: version_check.stdout is defined
+
+# ---------------------------------------------------------------------------
+# Step 7: Record deployed version
+# ---------------------------------------------------------------------------
+- name: Record deployed version
+  ansible.builtin.copy:
+    content: "{{ web_version }}"
+    dest: "{{ app_dir }}/.current-version"
+    owner: deploy
+    group: deploy
+    mode: "0644"

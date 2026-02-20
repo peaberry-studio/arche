@@ -18,7 +18,7 @@ export function getContainerProxyUrl(): string {
 }
 
 export function getOpencodeImage(): string {
-  return process.env.OPENCODE_IMAGE || 'ghcr.io/anomalyco/opencode:1.1.45'
+  return process.env.OPENCODE_IMAGE || 'ghcr.io/peaberry-studio/arche/workspace:latest'
 }
 
 export function getOpencodeNetwork(): string {

@@ -1,12 +1,12 @@
 # Arche One-Click Deployer
 
-Deploy Arche to a VPS or run the production stack locally for testing.
+Deploy Arche to a VPS or run the local development stack with hot reload.
 
 ## Architecture
 
 ```
 Local Machine
-  ./deploy.sh --ip X --domain Y --dns-provider Z --ssh-key K --acme-email E
+  ./deploy.sh --ip X --domain Y --ssh-key K --acme-email E
               │ SSH (Ansible)
               ▼
 Remote VPS (/opt/arche)
@@ -43,32 +43,13 @@ Remote VPS (/opt/arche)
 
 ## Deployment Modes
 
-The deployer has three modes: **local** for testing the production stack, **local-dev** for active development with hot reload, and **remote** for deploying to a VPS.
-
-### Local mode
-
-Runs the full production stack (Traefik, Postgres, Web) on your machine using Podman. Useful for testing the production image, Traefik routing, and the complete compose setup without a VPS.
-
-- Domain: `arche.lvh.me` (resolves to `127.0.0.1`, no `/etc/hosts` needed)
-- No TLS (HTTP only on port 8080)
-- No SSH — Ansible runs locally to render templates
-- Secrets default to insecure dev values if not set
-- Podman socket is auto-detected (macOS Podman Machine and Linux both supported)
-
-```bash
-cd infra/deploy
-cp .env.example .env   # edit if needed, defaults work for local
-./deploy.sh --local
-```
-
-Open http://arche.lvh.me:8080 — login with `admin@example.com` / `change-me`.
+The deployer has two modes: **local-dev** for active development with hot reload, and **remote** for deploying to a VPS.
 
 ### Local dev mode
 
-Like `--local` but mounts your source code for hot reload via `next dev`. Use this for active development against the full stack (Traefik, Postgres, socket proxy).
+Mounts your source code for hot reload via `next dev`. Use this for active development against the full stack (Traefik, Postgres, socket proxy).
 
 - **App**: http://arche.lvh.me:8080
-- **Traefik dashboard**: http://localhost:8081
 - **Traefik dashboard**: http://localhost:8081
 - **Postgres**: `localhost:5432`
 - Source from `apps/web/` is bind-mounted; `node_modules` lives in a named volume
@@ -84,7 +65,7 @@ cp .env.example .env   # edit if needed, defaults work for local
 
 Edit files in `apps/web/src/` and Next.js hot reloads automatically.
 
-> **Note**: `--local` and `--local-dev` both use project name `arche`. Only one can run at a time. Run `podman compose -f <compose-file> -p arche down` before switching modes.
+> **Note**: `--local-dev` uses project name `arche`. Run `podman compose -f <compose-file> -p arche down` before re-running if a previous stack is still active.
 
 > **macOS**: Podman Machine mounts `$HOME` into the VM by default, so source bind mounts work for repos under `$HOME`. Repos outside `$HOME` need manual Podman Machine volume configuration.
 
@@ -93,10 +74,10 @@ Edit files in `apps/web/src/` and Next.js hot reloads automatically.
 
 Deploys to a VPS via SSH using Ansible. The playbook provisions Podman (if missing), renders the compose and env templates, pulls images from GHCR, runs migrations, and seeds the database.
 
-- Domain: any single hostname (apex or subdomain), with TLS via ACME DNS challenge
+- Domain: any single hostname (apex or subdomain), with TLS via ACME HTTP challenge
 - HTTPS on port 443, HTTP redirects to HTTPS
 - Requires all secrets set in `.env` or exported
-- Requires SSH access and a DNS provider token for ACME DNS challenge
+- Requires SSH access and open ports 80/443 to complete ACME HTTP challenge
 
 ```bash
 cd infra/deploy
@@ -106,9 +87,9 @@ cp .env.example .env
 ./deploy.sh \
   --ip 203.0.113.50 \
   --domain arche.example.com \
-  --dns-provider cloudflare \
   --ssh-key ~/.ssh/id_rsa \
-  --acme-email admin@example.com
+  --acme-email admin@example.com \
+  --skip-ensure-dns-record
 ```
 
 ## CLI Reference
@@ -119,10 +100,10 @@ cp .env.example .env
 |------|----------|-------------|
 | `--ip` | Yes | VPS IP address |
 | `--domain` | Yes | Production domain |
-| `--dns-provider` | Yes | `cloudflare`, `route53`, or `digitalocean` |
 | `--ssh-key` | Yes | Path to SSH private key |
 | `--acme-email` | Yes | Let's Encrypt ACME email |
 | `--user` | No | SSH user (default: `root`) |
+| `--skip-ensure-dns-record` | No | Skip `ensure_dns_record` verification before running Ansible |
 | `--dry-run` | No | Show what would be done |
 | `--verbose` | No | Verbose Ansible output |
 
@@ -130,7 +111,6 @@ cp .env.example .env
 
 | Flag | Description |
 |------|-------------|
-| `--local` | Run production stack locally (mutually exclusive with remote flags) |
 | `--local-dev` | Run dev stack with source-mounted hot reload (mutually exclusive with remote flags) |
 
 ## Environment Variables
@@ -141,7 +121,6 @@ Set in `.env` or export before running `deploy.sh`.
 
 | Variable | Description |
 |----------|-------------|
-| `GHCR_TOKEN` | GitHub Container Registry token |
 | `POSTGRES_PASSWORD` | Database password |
 | `ARCHE_SESSION_PEPPER` | Session pepper (`openssl rand -base64 32`) |
 | `ARCHE_ENCRYPTION_KEY` | Encryption key (`openssl rand -base64 32`) |
@@ -150,6 +129,12 @@ Set in `.env` or export before running `deploy.sh`.
 | `ARCHE_SEED_ADMIN_PASSWORD` | Seed admin password |
 | `ARCHE_SEED_ADMIN_SLUG` | Seed admin URL slug |
 
+### Optional (remote auth)
+
+| Variable | Description |
+|----------|-------------|
+| `GHCR_TOKEN` | GitHub Container Registry token (optional for public images) |
+
 ### Optional (seed test user)
 
 | Variable | Description |
@@ -157,13 +142,9 @@ Set in `.env` or export before running `deploy.sh`.
 | `ARCHE_SEED_TEST_EMAIL` | Seed test user email |
 | `ARCHE_SEED_TEST_SLUG` | Seed test user URL slug |
 
-### DNS provider tokens
+### ACME notes
 
-| Provider | Variable(s) |
-|----------|-------------|
-| `cloudflare` | `CF_DNS_API_TOKEN` |
-| `route53` | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` |
-| `digitalocean` | `DO_AUTH_TOKEN` |
+No DNS provider token is required. Traefik uses ACME HTTP challenge on entrypoint `web` (port 80).
 
 ### Optional overrides
 
@@ -171,7 +152,7 @@ Set in `.env` or export before running `deploy.sh`.
 |----------|---------|
 | `IMAGE_PREFIX` | `ghcr.io/peaberry-studio/arche/` |
 | `WEB_VERSION` | `latest` |
-| `OPENCODE_IMAGE` | `ghcr.io/anomalyco/opencode:1.1.45` |
+| `OPENCODE_IMAGE` | `arche-workspace:latest` |
 | `PODMAN_SOCKET_PATH` | Auto-detected (see below) |
 
 ## Podman Socket
@@ -183,7 +164,7 @@ The `docker-socket-proxy` container needs access to the Podman socket. The deplo
 | Linux rootful Podman (VPS) | `/run/podman/podman.sock` |
 | macOS Podman Machine (dev) | `/run/user/<uid>/podman/podman.sock` (VM-internal) |
 
-In local mode on macOS, the proxy runs with `user: root` and `security_opt: [label=disable]` to access the rootless socket inside the Podman VM.
+In local-dev mode on macOS, the proxy runs with `user: root` and `security_opt: [label=disable]` to access the rootless socket inside the Podman VM.
 
 To override, set `PODMAN_SOCKET_PATH` before running `deploy.sh`.
 
@@ -191,11 +172,9 @@ To override, set `PODMAN_SOCKET_PATH` before running `deploy.sh`.
 
 On remote deploys, the playbook auto-detects whether Podman and a `deploy` user exist. If either is missing, it runs the `common` and `podman` roles to provision the server. On subsequent deploys, only the `app` role runs.
 
-## DNS Provider Notes
+## ACME Notes
 
-Only DNS-01 challenge providers are supported.
-
-HTTP-01 challenge is **not** supported.
+HTTP-01 challenge is used in remote mode. Make sure your domain resolves to the VPS and ports `80/443` are reachable.
 
 ## Services
 
@@ -231,15 +210,14 @@ cd /opt/arche && podman compose logs -f
 podman compose restart
 
 # Re-deploy (from local machine)
-./deploy.sh --ip <IP> --domain <DOMAIN> --dns-provider <PROVIDER> \
-            --ssh-key <KEY> --acme-email <EMAIL>
+./deploy.sh --ip <IP> --domain <DOMAIN> --ssh-key <KEY> --acme-email <EMAIL> [--skip-ensure-dns-record]
 ```
 
 ## Troubleshooting
 
 **SSH connection fails**: Ensure the SSH key has access and the user can log in (`ssh -i <key> <user>@<ip>`).
 
-**ACME certificate not issued**: Check Traefik logs (`podman compose logs traefik`). Verify DNS provider token is correct and has zone edit permissions.
+**ACME certificate not issued**: Check Traefik logs (`podman compose logs traefik`). Verify domain A/AAAA records point to the VPS and ports `80/443` are reachable.
 
 **Web service unhealthy**: Check web logs (`podman compose logs web`). Ensure `DATABASE_URL` is correct and Postgres is running.
 

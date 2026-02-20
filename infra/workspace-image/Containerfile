@@ -3,7 +3,7 @@
 
 ARG OPENCODE_VERSION=1.1.45
 
-FROM golang:1.22-alpine AS workspace-agent
+FROM docker.io/golang:1.22-alpine AS workspace-agent
 WORKDIR /src
 COPY workspace-agent/go.mod ./
 COPY workspace-agent/main.go ./
@@ -39,8 +39,9 @@ RUN chmod +x /usr/local/bin/init-workspace.sh
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
-# Switch back to non-root user
-USER workspace
+# Keep root user for compatibility with Podman named volumes created as root.
+# OpenCode still binds to an internal network and uses HTTP basic auth.
+USER root
 WORKDIR /workspace
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

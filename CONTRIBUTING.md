@@ -19,17 +19,10 @@ This project is moving to open source, and we welcome bug fixes, docs updates, t
 
 ## Local Development
 
-From the repository root:
+From `infra/deploy/`:
 
 ```bash
-cp apps/web/.env.example apps/web/.env
-podman build -t arche-workspace:latest infra/workspace-image
-podman network create arche-internal
-./scripts/deploy-kb.sh ~/.arche/kb-content
-./scripts/deploy-config.sh ~/.arche/kb-config
-podman compose -f infra/compose/compose.yaml up -d --build
-podman compose -f infra/compose/compose.yaml exec web pnpm prisma migrate dev --name init
-podman compose -f infra/compose/compose.yaml exec web pnpm db:seed
+./deploy.sh --local-dev
 ```
 
 App URL: `http://arche.lvh.me:8080`
