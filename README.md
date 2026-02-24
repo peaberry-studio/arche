@@ -54,7 +54,7 @@ arche/
 | Package manager | pnpm 10 |
 | Tests | Vitest 3 |
 | Lint | ESLint 9 |
-| CI/CD | GitHub Actions (build + push to GHCR) |
+| CI/CD | GitHub Actions (build + push to Docker Hub) |
 | Deploy | Ansible + Bash (VPS) / Podman Compose (local) |
 
 ## Data Model (Prisma)

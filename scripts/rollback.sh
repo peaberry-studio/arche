@@ -19,7 +19,7 @@ err()  { printf "${RED}[rollback]${NC} %s\n" "$*" >&2; }
 APP_DIR="${ARCHE_APP_DIR:-/opt/arche}"
 DATA_DIR="${ARCHE_DATA_DIR:-/opt/arche/data}"
 ENV_FILE="${APP_DIR}/.env"
-IMAGE_PREFIX="${IMAGE_PREFIX:-ghcr.io/peaberry-studio/arche/}"
+IMAGE_PREFIX="${IMAGE_PREFIX:-docker.io/peaberrystudio/arche-}"
 
 ROLLBACK_VERSION=""
 RESTORE_DB=""

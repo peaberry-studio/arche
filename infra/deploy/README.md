@@ -72,7 +72,7 @@ Edit files in `apps/web/src/` and Next.js hot reloads automatically.
 
 ### Remote mode
 
-Deploys to a VPS via SSH using Ansible. The playbook provisions Podman (if missing), renders the compose and env templates, deploys images (from GHCR or local VPS builds), runs migrations, and seeds the database.
+Deploys to a VPS via SSH using Ansible. The playbook provisions Podman (if missing), renders the compose and env templates, deploys images (from Docker Hub or local VPS builds), runs migrations, and seeds the database.
 
 - Domain: any single hostname (apex or subdomain), with TLS via ACME HTTP challenge
 - HTTPS on port 443, HTTP redirects to HTTPS
@@ -129,12 +129,6 @@ Set in `.env` or export before running `deploy.sh`.
 | `ARCHE_SEED_ADMIN_PASSWORD` | Seed admin password |
 | `ARCHE_SEED_ADMIN_SLUG` | Seed admin URL slug |
 
-### Optional (remote auth)
-
-| Variable | Description |
-|----------|-------------|
-| `GHCR_TOKEN` | GitHub Container Registry token (optional for public images) |
-
 ### Optional (seed test user)
 
 | Variable | Description |
@@ -150,10 +144,10 @@ No DNS provider token is required. Traefik uses ACME HTTP challenge on entrypoin
 
 | Variable | Default |
 |----------|---------|
-| `IMAGE_PREFIX` | `ghcr.io/peaberry-studio/arche/` |
+| `IMAGE_PREFIX` | `docker.io/peaberrystudio/arche-` |
 | `WEB_VERSION` | `latest` |
 | `WEB_IMAGE` | `<IMAGE_PREFIX>web:<WEB_VERSION>` |
-| `OPENCODE_IMAGE` | `arche-workspace:latest` |
+| `OPENCODE_IMAGE` | `docker.io/peaberrystudio/arche-workspace:latest` |
 | `PODMAN_SOCKET_PATH` | Auto-detected (see below) |
 
 To build the web image directly on the VPS, set `WEB_IMAGE=arche-web:latest`.

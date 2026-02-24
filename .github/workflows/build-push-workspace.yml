@@ -18,15 +18,14 @@ on:
         type: string
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}/workspace
+  REGISTRY: docker.io
+  IMAGE_NAME: peaberrystudio/arche-workspace
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
       pull-requests: write
 
     steps:
@@ -35,8 +34,8 @@ jobs:
         with:
           ref: ${{ github.event.client_payload.ref || github.ref }}
 
-      - name: Log in to GHCR
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
+      - name: Log in to Docker Hub
+        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | podman login docker.io -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
       - name: Determine image tags
         id: tags

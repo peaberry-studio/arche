@@ -50,7 +50,7 @@ Step 1 is required for kickstart-enabled workspaces.
 ### Step 2: Deploy docker-socket-proxy
 
 1. Create a **Service** or **Application** resource
-2. Use Docker Image: `ghcr.io/tecnativa/docker-socket-proxy:master`
+2. Use Docker Image: `docker.io/tecnativa/docker-socket-proxy:master`
 3. Set environment variables:
    ```
    CONTAINERS=1
@@ -168,7 +168,7 @@ git init --bare --initial-branch=main /opt/arche/kb-config
 
 Set `KB_HOST_PATH=/opt/arche/kb` in the web app environment variables.
 
-By default, Coolify deployments use `ghcr.io/peaberry-studio/arche/workspace:latest` for user workspaces.
+By default, Coolify deployments use `docker.io/peaberrystudio/arche-workspace:latest` for user workspaces.
 You only need to build a custom image if you want to override `OPENCODE_IMAGE`.
 
 ## Deployment Steps in Coolify
@@ -193,7 +193,7 @@ You only need to build a custom image if you want to override `OPENCODE_IMAGE`.
    | `ARCHE_SEED_ADMIN_EMAIL` | Yes | Initial admin email |
    | `ARCHE_SEED_ADMIN_PASSWORD` | Yes | Initial admin password |
    | `ARCHE_SEED_ADMIN_SLUG` | No | Admin URL slug (default: `admin`) |
-   | `OPENCODE_IMAGE` | No | Workspace image (default: `ghcr.io/peaberry-studio/arche/workspace:latest`) |
+   | `OPENCODE_IMAGE` | No | Workspace image (default: `docker.io/peaberrystudio/arche-workspace:latest`) |
    | `KB_CONTENT_HOST_PATH` | No | Host path for KB content bare repo (default: `/opt/arche/kb-content`) |
    | `KB_CONFIG_HOST_PATH` | No | Host path for config bare repo (default: `/opt/arche/kb-config`) |
    | `ARCHE_COOKIE_SECURE` | No | Cookie security (default: `true`) |

@@ -4,7 +4,7 @@ Image derived from OpenCode with support for a shared Knowledge Base (KB).
 
 ## Features
 
-- Based on `ghcr.io/anomalyco/opencode`
+- Based on `docker.io/anomalyco/opencode`
 - Includes `git` for KB sync
 - Automatic workspace initialization script
 - Workspace agent HTTP service for diffs and file operations

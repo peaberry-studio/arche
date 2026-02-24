@@ -18,7 +18,7 @@ export function getContainerProxyUrl(): string {
 }
 
 export function getOpencodeImage(): string {
-  return process.env.OPENCODE_IMAGE || 'ghcr.io/peaberry-studio/arche/workspace:latest'
+  return process.env.OPENCODE_IMAGE || 'docker.io/peaberrystudio/arche-workspace:latest'
 }
 
 export function getOpencodeNetwork(): string {

@@ -22,10 +22,10 @@ VERBOSE=false
 SKIP_ENSURE_DNS_RECORD=false
 LOCAL_DOMAIN="arche.lvh.me"
 
-# GHCR defaults
-IMAGE_PREFIX="${IMAGE_PREFIX:-ghcr.io/peaberry-studio/arche/}"
+# Docker Hub defaults
+IMAGE_PREFIX="${IMAGE_PREFIX:-docker.io/peaberrystudio/arche-}"
 WEB_VERSION="${WEB_VERSION:-latest}"
-OPENCODE_IMAGE="${OPENCODE_IMAGE:-arche-workspace:latest}"
+OPENCODE_IMAGE="${OPENCODE_IMAGE:-docker.io/peaberrystudio/arche-workspace:latest}"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -430,10 +430,10 @@ deploy_remote() {
     ensure_dns_record
   fi
 
-  # Build workspace image on remote host when using default OPENCODE_IMAGE
+  # Build workspace image on remote host when using the local build sentinel image
   prepare_remote_workspace_image
 
-  # Build web image on remote host when using local WEB_IMAGE
+  # Build web image on remote host when using the local build sentinel image
   prepare_remote_web_image
 
   # Generate temporary inventory and extra-vars file
@@ -474,7 +474,6 @@ vars = {
     "arche_seed_test_slug": os.environ.get("ARCHE_SEED_TEST_SLUG", ""),
     "kb_content_host_path": os.environ.get("KB_CONTENT_HOST_PATH", "/opt/arche/kb-content"),
     "kb_config_host_path": os.environ.get("KB_CONFIG_HOST_PATH", "/opt/arche/kb-config"),
-    "ghcr_token": os.environ.get("GHCR_TOKEN", ""),
 }
 json.dump(vars, open(sys.argv[1], "w"))
 ' "$EXTRA_VARS_FILE"

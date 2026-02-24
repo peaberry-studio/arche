@@ -50,7 +50,7 @@ services:
       - docker-socket-proxy
   
   docker-socket-proxy:
-    image: ghcr.io/tecnativa/docker-socket-proxy:latest
+    image: docker.io/tecnativa/docker-socket-proxy:latest
     restart: unless-stopped
 {% if deploy_mode == 'local-dev' %}
     user: root

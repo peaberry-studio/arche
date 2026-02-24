@@ -12,7 +12,7 @@ services:
   # Security proxy for the Podman socket.
   # Filters allowed operations; both Traefik and web use it.
   docker-socket-proxy:
-    image: ghcr.io/tecnativa/docker-socket-proxy:master
+    image: docker.io/tecnativa/docker-socket-proxy:master
     environment:
       CONTAINERS: 1 # list/inspect containers
       NETWORKS: 1 # inspect networks

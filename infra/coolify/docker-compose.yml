@@ -10,7 +10,7 @@ name: arche
 
 services:
   docker-socket-proxy:
-    image: ghcr.io/tecnativa/docker-socket-proxy:master
+    image: docker.io/tecnativa/docker-socket-proxy:master
     restart: unless-stopped
     environment:
       CONTAINERS: 1
@@ -72,7 +72,7 @@ services:
       # Spawner config
       CONTAINER_PROXY_HOST: docker-socket-proxy
       CONTAINER_PROXY_PORT: "2375"
-      OPENCODE_IMAGE: ${OPENCODE_IMAGE:-ghcr.io/peaberry-studio/arche/workspace:latest}
+      OPENCODE_IMAGE: ${OPENCODE_IMAGE:-docker.io/peaberrystudio/arche-workspace:latest}
       OPENCODE_NETWORK: arche_internal
 
       # Knowledge Base (optional)

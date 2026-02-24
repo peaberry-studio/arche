@@ -104,24 +104,7 @@
     - "{{ kb_config_host_path | default('/opt/arche/kb-config') }}"
   when: kb_content_host_path is defined or kb_config_host_path is defined
 
-- name: Log in to GHCR
-  ansible.builtin.command:
-    cmd: podman login ghcr.io -u arche-deploy --password-stdin
-    stdin: "{{ ghcr_token }}"
-  register: ghcr_login_result
-  changed_when: ghcr_login_result.rc == 0
-  failed_when: false
-  no_log: true
-  when: ghcr_token | length > 0
-
-- name: Warn when GHCR login fails and continue with anonymous pulls
-  ansible.builtin.debug:
-    msg: "GHCR login failed; continuing with anonymous image pulls"
-  when:
-    - ghcr_token | length > 0
-    - ghcr_login_result.rc != 0
-
-- name: Pull configured workspace image from GHCR
+- name: Pull configured workspace image
   ansible.builtin.command:
     cmd: podman pull {{ opencode_image }}
   changed_when: true
@@ -129,7 +112,6 @@
     - opencode_image is defined
     - opencode_image | length > 0
     - opencode_image != "arche-workspace:latest"
-    - opencode_image is search("^ghcr\\.io/")
 
 - name: Render compose.yml
   ansible.builtin.template:
