@@ -14,6 +14,7 @@ podman_socket_path: "{{ lookup('env', 'PODMAN_SOCKET_PATH') | default('/run/podm
 # Container images
 image_prefix: "{{ lookup('env', 'IMAGE_PREFIX') | default('ghcr.io/peaberry-studio/arche/', true) }}"
 web_version: "{{ lookup('env', 'WEB_VERSION') | default('latest', true) }}"
+web_image: "{{ lookup('env', 'WEB_IMAGE') | default(image_prefix ~ 'web:' ~ web_version, true) }}"
 opencode_image: "{{ lookup('env', 'OPENCODE_IMAGE') | default('arche-workspace:latest', true) }}"
 
 # GHCR auth

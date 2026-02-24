@@ -72,6 +72,37 @@ prepare_remote_workspace_image() {
     "cd /tmp/arche-workspace-image-src && podman build --build-arg OPENCODE_VERSION=1.1.45 -t arche-workspace:latest ."
 }
 
+prepare_remote_web_image() {
+  if [[ "$WEB_IMAGE" != "arche-web:latest" ]]; then
+    log "Skipping remote web image build (WEB_IMAGE=$WEB_IMAGE)"
+    return
+  fi
+
+  if $DRY_RUN; then
+    warn "DRY RUN — skipping remote web image build"
+    return
+  fi
+
+  local repo_root="$SCRIPT_DIR/../.."
+  repo_root="$(cd "$repo_root" && pwd)"
+  local web_src="$repo_root/apps/web"
+
+  if [[ ! -f "$web_src/Containerfile" ]]; then
+    err "Cannot find apps/web/Containerfile in $repo_root"
+    err "Run this script from within the arche repository."
+    exit 1
+  fi
+
+  log "Syncing web image sources to remote host..."
+  tar -C "$repo_root" -czf - apps/web | \
+    ssh -o BatchMode=yes -o ConnectTimeout=10 -i "$SSH_KEY" "${SSH_USER}@${DEPLOY_IP}" \
+      "rm -rf /tmp/arche-web-src && mkdir -p /tmp/arche-web-src && tar -xzf - -C /tmp/arche-web-src --strip-components=2"
+
+  log "Building web image on remote host: arche-web:latest"
+  ssh -o BatchMode=yes -o ConnectTimeout=10 -i "$SSH_KEY" "${SSH_USER}@${DEPLOY_IP}" \
+    "cd /tmp/arche-web-src && podman build -t arche-web:latest ."
+}
+
 usage() {
   cat <<'EOF'
 Arche One-Click Deployer
@@ -124,6 +155,7 @@ ENVIRONMENT VARIABLES (via .env or exported):
   ARCHE_SEED_TEST_EMAIL     Seed test user email (optional)
   ARCHE_SEED_TEST_SLUG      Seed test user slug (optional)
   ARCHE_USERS_PATH          Host path for persisted user data (optional)
+  WEB_IMAGE                 Web app image (set arche-web:latest to build on VPS)
   KB_CONTENT_HOST_PATH      Path to the KB content bare repo
   KB_CONFIG_HOST_PATH       Path to the KB config bare repo
 EOF
@@ -163,6 +195,8 @@ if [[ -f "$SCRIPT_DIR/.env" ]]; then
   set +a
   log ".env file loaded successfully"
 fi
+
+WEB_IMAGE="${WEB_IMAGE:-${IMAGE_PREFIX}web:${WEB_VERSION}}"
 
 # ---------------------------------------------------------------------------
 # Validation
@@ -399,6 +433,9 @@ deploy_remote() {
   # Build workspace image on remote host when using default OPENCODE_IMAGE
   prepare_remote_workspace_image
 
+  # Build web image on remote host when using local WEB_IMAGE
+  prepare_remote_web_image
+
   # Generate temporary inventory and extra-vars file
   INVENTORY=$(mktemp)
   EXTRA_VARS_FILE=$(mktemp)
@@ -410,7 +447,7 @@ ${DEPLOY_IP} ansible_user=${SSH_USER} ansible_ssh_private_key_file=${SSH_KEY}
 EOF
 
   # Export variables so python3 subprocess can read them
-  export DEPLOY_DOMAIN ACME_EMAIL IMAGE_PREFIX WEB_VERSION OPENCODE_IMAGE
+  export DEPLOY_DOMAIN ACME_EMAIL IMAGE_PREFIX WEB_VERSION WEB_IMAGE OPENCODE_IMAGE
 
   # Build extra vars as JSON (safe for secrets with special characters)
   python3 -c '
@@ -421,6 +458,7 @@ vars = {
     "deploy_mode": "remote",
     "image_prefix": os.environ["IMAGE_PREFIX"],
     "web_version": os.environ["WEB_VERSION"],
+    "web_image": os.environ["WEB_IMAGE"],
     "opencode_image": os.environ["OPENCODE_IMAGE"],
     "postgres_password": os.environ["POSTGRES_PASSWORD"],
     "arche_session_pepper": os.environ["ARCHE_SESSION_PEPPER"],

@@ -72,7 +72,7 @@ Edit files in `apps/web/src/` and Next.js hot reloads automatically.
 
 ### Remote mode
 
-Deploys to a VPS via SSH using Ansible. The playbook provisions Podman (if missing), renders the compose and env templates, pulls images from GHCR, runs migrations, and seeds the database.
+Deploys to a VPS via SSH using Ansible. The playbook provisions Podman (if missing), renders the compose and env templates, deploys images (from GHCR or local VPS builds), runs migrations, and seeds the database.
 
 - Domain: any single hostname (apex or subdomain), with TLS via ACME HTTP challenge
 - HTTPS on port 443, HTTP redirects to HTTPS
@@ -152,8 +152,12 @@ No DNS provider token is required. Traefik uses ACME HTTP challenge on entrypoin
 |----------|---------|
 | `IMAGE_PREFIX` | `ghcr.io/peaberry-studio/arche/` |
 | `WEB_VERSION` | `latest` |
+| `WEB_IMAGE` | `<IMAGE_PREFIX>web:<WEB_VERSION>` |
 | `OPENCODE_IMAGE` | `arche-workspace:latest` |
 | `PODMAN_SOCKET_PATH` | Auto-detected (see below) |
+
+To build the web image directly on the VPS, set `WEB_IMAGE=arche-web:latest`.
+To build the workspace image directly on the VPS, set `OPENCODE_IMAGE=arche-workspace:latest`.
 
 ## Podman Socket
 
@@ -183,7 +187,7 @@ HTTP-01 challenge is used in remote mode. Make sure your domain resolves to the 
 | Traefik | `traefik:v3.6.7` | Reverse proxy, TLS termination, routing |
 | docker-socket-proxy | `tecnativa/docker-socket-proxy:0.3` | Secure container API access |
 | PostgreSQL | `postgres:16` | Database |
-| Web | GHCR image | Next.js app (BFF + spawner) |
+| Web | Configurable (`WEB_IMAGE`) | Next.js app (BFF + spawner) |
 
 ## Directory Structure (VPS)
 

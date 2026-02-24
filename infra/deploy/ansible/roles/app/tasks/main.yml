@@ -181,12 +181,13 @@
   ignore_errors: true
 
 # ---------------------------------------------------------------------------
-# Step 3: Pull new web image
+# Step 3: Pull new web image (unless built locally)
 # ---------------------------------------------------------------------------
 - name: Pull new web image
   ansible.builtin.command:
-    cmd: podman pull {{ image_prefix }}web:{{ web_version }}
+    cmd: podman pull {{ web_image }}
   changed_when: true
+  when: web_image != "arche-web:latest"
 
 # ---------------------------------------------------------------------------
 # Step 4: Ensure base services are running (postgres, traefik, socket-proxy)
@@ -325,7 +326,7 @@
       --label arche.role=web \
       --label arche.version={{ web_version }} \
       --restart unless-stopped \
-      {{ image_prefix }}web:{{ web_version }}
+      {{ web_image }}
   changed_when: true
 
 # 5d. Wait for the new container to pass health check
