@@ -140,14 +140,14 @@ jobs:
             jq -r --rawfile keep_ids_raw "$keep_ids_file" '
               ($keep_ids_raw | split("\n") | map(select(length > 0) | tonumber)) as $keep_ids
               | .[]
-              | select($keep_ids | index(.id))
-              | "KEEP   id=\(.id) updated_at=\(.updated_at) tags=\((.tags | if length == 0 then \"<untagged>\" else join(\",\") end))"
+              | select(.id as $id | $keep_ids | index($id))
+              | "KEEP   id=\(.id) updated_at=\(.updated_at) tags=\((.tags | if length == 0 then "<untagged>" else join(",") end))"
             ' "$versions_json" || true
 
             jq -r --rawfile keep_ids_raw "$keep_ids_file" '
               ($keep_ids_raw | split("\n") | map(select(length > 0) | tonumber)) as $keep_ids
               | .[]
-              | select(($keep_ids | index(.id)) | not)
+              | select((.id as $id | $keep_ids | index($id)) | not)
               | .id
             ' "$versions_json" > "$delete_ids_file"
 
@@ -161,8 +161,8 @@ jobs:
             jq -r --rawfile keep_ids_raw "$keep_ids_file" '
               ($keep_ids_raw | split("\n") | map(select(length > 0) | tonumber)) as $keep_ids
               | .[]
-              | select(($keep_ids | index(.id)) | not)
-              | "DELETE id=\(.id) updated_at=\(.updated_at) tags=\((.tags | if length == 0 then \"<untagged>\" else join(\",\") end))"
+              | select((.id as $id | $keep_ids | index($id)) | not)
+              | "DELETE id=\(.id) updated_at=\(.updated_at) tags=\((.tags | if length == 0 then "<untagged>" else join(",") end))"
             ' "$versions_json"
 
             while IFS= read -r version_id; do
