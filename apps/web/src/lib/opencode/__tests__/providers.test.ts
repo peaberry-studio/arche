@@ -54,13 +54,12 @@ describe('syncProviderAccessForInstance', () => {
     expect(putCalls[0]![0]).toBe(`${fakeInstance.baseUrl}/auth/openai`)
     expect(putCalls[1]![0]).toBe(`${fakeInstance.baseUrl}/auth/anthropic`)
 
-    // Verify DELETE for disabled providers
+    // Verify DELETE for disabled managed providers
     const deleteCalls = mockFetch.mock.calls.filter(
       (call) => (call[1] as RequestInit)?.method === 'DELETE',
     )
-    expect(deleteCalls).toHaveLength(2)
+    expect(deleteCalls).toHaveLength(1)
     expect(deleteCalls[0]![0]).toBe(`${fakeInstance.baseUrl}/auth/openrouter`)
-    expect(deleteCalls[1]![0]).toBe(`${fakeInstance.baseUrl}/auth/opencode`)
 
     // Verify gateway tokens were issued for enabled providers
     expect(mockIssueToken).toHaveBeenCalledTimes(2)

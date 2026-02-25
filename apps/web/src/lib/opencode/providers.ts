@@ -36,6 +36,11 @@ export async function syncProviderAccessForInstance(
       const url = `${instance.baseUrl}/auth/${providerId}`
 
       if (!enabled) {
+        if (providerId === 'opencode') {
+          // Preserve native Zen authentication when no Arche-managed credential exists.
+          continue
+        }
+
         await fetch(url, {
           method: 'DELETE',
           headers: {
