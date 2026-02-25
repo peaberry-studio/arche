@@ -35,12 +35,14 @@
     - role: podman
       when: needs_provision
     - role: app
+      when: not (bootstrap_only | default(false) | bool)
 
   post_tasks:
     - name: Verify running containers
       ansible.builtin.command: podman ps --filter "label=com.docker.compose.project=arche" --format "{{'{{'}}.Names{{'}}'}} - {{'{{'}}.Status{{'}}'}}"
       register: containers
       changed_when: false
+      when: not (bootstrap_only | default(false) | bool)
 
     - name: Display deployment status
       ansible.builtin.debug:
@@ -50,3 +52,4 @@
           - "{{ containers.stdout | default('No containers found') }}"
           - "App:   https://{{ domain }}"
           - "Dashboard: https://{{ domain }}/u/{{ arche_seed_admin_slug }}"
+      when: not (bootstrap_only | default(false) | bool)
