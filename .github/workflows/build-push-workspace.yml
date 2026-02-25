@@ -5,9 +5,6 @@ on:
     branches: [main]
     tags:
       - "v*.*.*"
-    paths:
-      - "infra/workspace-image/**"
-      - ".github/workflows/build-push-workspace.yml"
   repository_dispatch:
     types: [build-pr-image]
   workflow_dispatch:
@@ -53,7 +50,7 @@ jobs:
           elif [[ "${GITHUB_REF_TYPE}" == "tag" ]] && [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "RELEASE_TAG=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
             echo "MODE=release" >> "$GITHUB_OUTPUT"
-            echo "Building release workspace image with tags: ${GITHUB_REF_NAME}, ${SHA_TAG}"
+            echo "Building release workspace image with tag: ${GITHUB_REF_NAME}"
           else
             echo "MODE=main" >> "$GITHUB_OUTPUT"
             echo "Building main workspace image with tags: latest, ${SHA_TAG}"
@@ -68,7 +65,6 @@ jobs:
           elif [[ "${{ steps.tags.outputs.MODE }}" == "release" ]]; then
             podman build \
               -t $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.RELEASE_TAG }} \
-              -t $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.SHA_TAG }} \
               -f infra/workspace-image/Containerfile infra/workspace-image
           else
             podman build \
@@ -84,7 +80,6 @@ jobs:
             echo "Pushed PR workspace image: $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.PR_TAG }}"
           elif [[ "${{ steps.tags.outputs.MODE }}" == "release" ]]; then
             podman push $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.RELEASE_TAG }}
-            podman push $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.SHA_TAG }}
           else
             podman push $REGISTRY/$IMAGE_NAME:latest
             podman push $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.SHA_TAG }}
