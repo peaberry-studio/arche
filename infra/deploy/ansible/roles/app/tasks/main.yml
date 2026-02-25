@@ -329,12 +329,19 @@
       {{ web_image }}
   changed_when: true
 
+- name: Ensure new web container has stable web alias on arche-internal
+  ansible.builtin.shell:
+    cmd: >
+      podman network disconnect arche-internal {{ new_web_container }} >/dev/null 2>&1 || true;
+      podman network connect --alias web arche-internal {{ new_web_container }}
+  changed_when: true
+
 # 5d. Wait for the new container to pass health check
 - name: Wait for new web container to pass health check
   ansible.builtin.shell:
     cmd: >
       podman exec {{ new_web_container }}
-      node -e "fetch('http://localhost:3000/api/health').then(r=>{if(!r.ok)throw 1}).catch(()=>process.exit(1))"
+      node -e "Promise.all([fetch('http://localhost:3000/api/health'),fetch('http://web:3000/api/health')]).then(([local,alias])=>{if(!local.ok||!alias.ok)throw 1}).catch(()=>process.exit(1))"
   register: health_check
   retries: 36
   delay: 5

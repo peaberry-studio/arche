@@ -203,6 +203,34 @@ WEB_IMAGE="${WEB_IMAGE:-${IMAGE_PREFIX}web:${WEB_VERSION}}"
 # ---------------------------------------------------------------------------
 ERRORS=()
 
+validate_encryption_key() {
+  local key="${ARCHE_ENCRYPTION_KEY:-}"
+  local decoded_length
+
+  if [[ -z "$key" ]]; then
+    return
+  fi
+
+  decoded_length="$(python3 - <<'PY'
+import base64
+import os
+
+key = os.environ.get("ARCHE_ENCRYPTION_KEY", "")
+
+try:
+  decoded = base64.b64decode(key, validate=True)
+except Exception:
+  print(-1)
+else:
+  print(len(decoded))
+PY
+)"
+
+  if [[ "$decoded_length" != "32" ]]; then
+    ERRORS+=("ARCHE_ENCRYPTION_KEY must decode from base64 to exactly 32 bytes (example: openssl rand -base64 32)")
+  fi
+}
+
 validate_remote() {
   log "Starting validate_remote..."
   [[ -z "$DEPLOY_IP" ]]    && ERRORS+=("--ip is required")
@@ -237,6 +265,8 @@ validate_remote() {
   [[ -z "${ARCHE_SEED_ADMIN_PASSWORD:-}" ]] && ERRORS+=("ARCHE_SEED_ADMIN_PASSWORD is required")
   [[ -z "${ARCHE_SEED_ADMIN_SLUG:-}" ]]     && ERRORS+=("ARCHE_SEED_ADMIN_SLUG is required")
 
+  validate_encryption_key
+
   log "validate_remote complete, errors: ${#ERRORS[@]}"
 }
 
@@ -255,6 +285,8 @@ validate_local() {
   export ARCHE_SEED_ADMIN_SLUG="${ARCHE_SEED_ADMIN_SLUG:-admin}"
   export ARCHE_SEED_TEST_EMAIL="${ARCHE_SEED_TEST_EMAIL:-peter@example.com}"
   export ARCHE_SEED_TEST_SLUG="${ARCHE_SEED_TEST_SLUG:-peter}"
+
+  validate_encryption_key
 }
 
 log "About to determine mode, current MODE=$MODE"
