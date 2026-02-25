@@ -430,12 +430,6 @@ deploy_remote() {
     ensure_dns_record
   fi
 
-  # Build workspace image on remote host when using default OPENCODE_IMAGE
-  prepare_remote_workspace_image
-
-  # Build web image on remote host when using local WEB_IMAGE
-  prepare_remote_web_image
-
   # Generate temporary inventory and extra-vars file
   INVENTORY=$(mktemp)
   EXTRA_VARS_FILE=$(mktemp)
@@ -482,8 +476,41 @@ json.dump(vars, open(sys.argv[1], "w"))
   ANSIBLE_ARGS=(
     -i "$INVENTORY"
     --extra-vars "@${EXTRA_VARS_FILE}"
+    --extra-vars "bootstrap_only=false"
     "$SCRIPT_DIR/ansible/playbooks/site.yml"
   )
+
+  NEEDS_REMOTE_BUILD=false
+  if [[ "$OPENCODE_IMAGE" == "arche-workspace:latest" || "$WEB_IMAGE" == "arche-web:latest" ]]; then
+    NEEDS_REMOTE_BUILD=true
+  fi
+
+  if $NEEDS_REMOTE_BUILD; then
+    log "Ensuring remote host is provisioned before image build..."
+    BOOTSTRAP_ARGS=(
+      -i "$INVENTORY"
+      --extra-vars "@${EXTRA_VARS_FILE}"
+      --extra-vars "bootstrap_only=true"
+      "$SCRIPT_DIR/ansible/playbooks/site.yml"
+    )
+
+    if $VERBOSE; then
+      BOOTSTRAP_ARGS+=(-vvv)
+    fi
+
+    if $DRY_RUN; then
+      BOOTSTRAP_ARGS+=(--check)
+    fi
+
+    log "Running Ansible bootstrap playbook..."
+    ANSIBLE_CONFIG="$SCRIPT_DIR/ansible.cfg" ansible-playbook "${BOOTSTRAP_ARGS[@]}"
+  fi
+
+  # Build workspace image on remote host when using default OPENCODE_IMAGE
+  prepare_remote_workspace_image
+
+  # Build web image on remote host when using local WEB_IMAGE
+  prepare_remote_web_image
 
   if $VERBOSE; then
     ANSIBLE_ARGS+=(-vvv)
