@@ -50,7 +50,7 @@ Step 1 is required for kickstart-enabled workspaces.
 ### Step 2: Deploy docker-socket-proxy
 
 1. Create a **Service** or **Application** resource
-2. Use Docker Image: `docker.io/tecnativa/docker-socket-proxy:master`
+2. Use Docker Image: `ghcr.io/tecnativa/docker-socket-proxy:master`
 3. Set environment variables:
    ```
    CONTAINERS=1

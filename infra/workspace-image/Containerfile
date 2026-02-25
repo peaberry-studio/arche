@@ -9,7 +9,7 @@ COPY workspace-agent/go.mod ./
 COPY workspace-agent/main.go ./
 RUN CGO_ENABLED=0 go build -o /workspace-agent
 
-FROM docker.io/anomalyco/opencode:${OPENCODE_VERSION}
+FROM ghcr.io/anomalyco/opencode:${OPENCODE_VERSION}
 
 # Install git (required for KB sync)
 USER root
