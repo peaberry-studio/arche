@@ -120,6 +120,11 @@ export async function createContainer(
           baseURL: "http://web:3000/api/internal/providers/openrouter",
         },
       },
+      opencode: {
+        options: {
+          baseURL: "http://web:3000/api/internal/providers/opencode",
+        },
+      },
     },
   };
 

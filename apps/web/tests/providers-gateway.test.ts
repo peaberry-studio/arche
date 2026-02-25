@@ -410,4 +410,40 @@ describe('providers gateway', () => {
     expect(headers.get('authorization')).toBe('Bearer or-key')
     expect(headers.get('x-api-key')).toBe(null)
   })
+
+  it('proxies to OpenCode Zen with real api key', async () => {
+    mockVerifyGatewayToken.mockReturnValue({
+      userId: 'user-1',
+      workspaceSlug: 'ws',
+      providerId: 'opencode',
+      version: 1,
+      exp: Math.floor(Date.now() / 1000) + 1000,
+    })
+    mockGetActiveCredentialForUser.mockResolvedValue({
+      id: 'cred-oc',
+      type: 'api',
+      secret: 'encrypted',
+      version: 1,
+    })
+    mockDecryptProviderSecret.mockReturnValue({ apiKey: 'oc-key' })
+
+    ;(global.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+      new Response('ok', { status: 200 })
+    )
+
+    await callProxy({
+      provider: 'opencode',
+      path: ['models'],
+      method: 'GET',
+      headers: {
+        Authorization: 'Bearer internal-token',
+      },
+    })
+
+    const [url, options] = (global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(url).toBe('https://opencode.ai/zen/v1/models?foo=bar')
+    const headers = options.headers as Headers
+    expect(headers.get('authorization')).toBe('Bearer oc-key')
+    expect(headers.get('x-api-key')).toBe(null)
+  })
 })

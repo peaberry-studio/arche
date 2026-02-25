@@ -138,6 +138,7 @@ export function WorkspaceFooter({
     if (providerId === "openai") return "OpenAI";
     if (providerId === "anthropic") return "Anthropic";
     if (providerId === "openrouter") return "OpenRouter";
+    if (providerId === "opencode") return "OpenCode Zen";
     return providerId;
   };
 

@@ -72,6 +72,7 @@ describe('syncProviderAccessForInstance', () => {
     // DELETE auth for other providers (best-effort)
     expect(urls).toContain('http://opencode-alice:4096/auth/anthropic')
     expect(urls).toContain('http://opencode-alice:4096/auth/openrouter')
+    expect(urls).toContain('http://opencode-alice:4096/auth/opencode')
     // Dispose refresh
     expect(urls).toContain('http://opencode-alice:4096/instance/dispose')
 

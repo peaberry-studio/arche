@@ -11,6 +11,7 @@ const PROVIDER_BASE_URL: Record<ProviderId, string> = {
   openai: 'https://api.openai.com/v1',
   anthropic: 'https://api.anthropic.com/v1',
   openrouter: 'https://openrouter.ai/api/v1',
+  opencode: 'https://opencode.ai/zen/v1',
 }
 
 const OPENAI_RESPONSES_MAX_FETCH_ATTEMPTS = 3
@@ -42,7 +43,7 @@ function isProviderId(value: string): value is ProviderId {
 }
 
 function extractGatewayToken(providerId: ProviderId, headers: Headers): string | null {
-  if (providerId === 'openai' || providerId === 'openrouter') {
+  if (providerId === 'openai' || providerId === 'openrouter' || providerId === 'opencode') {
     const header = headers.get('authorization')
     if (!header) return null
     const match = header.match(/^Bearer\s+(.+)$/i)
@@ -241,7 +242,7 @@ async function handleProxy(
   // downstream clients to attempt decoding a second time.
   headers.set('accept-encoding', 'identity')
 
-  if (provider === 'openai' || provider === 'openrouter') {
+  if (provider === 'openai' || provider === 'openrouter' || provider === 'opencode') {
     headers.set('authorization', `Bearer ${apiKey}`)
   } else {
     headers.set('x-api-key', apiKey)

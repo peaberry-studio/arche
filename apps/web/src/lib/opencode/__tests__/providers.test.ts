@@ -31,7 +31,7 @@ describe('syncProviderAccessForInstance', () => {
   it('calls provider auth endpoints for each enabled provider', async () => {
     const mockFetch = vi.mocked(globalThis.fetch)
 
-    // openai enabled, anthropic enabled, openrouter not
+    // openai enabled, anthropic enabled, openrouter/opencode not
     mockGetCredential.mockImplementation(async ({ providerId }) => {
       if (providerId === 'openai') return { id: '1', version: 1 } as never
       if (providerId === 'anthropic') return { id: '2', version: 2 } as never
@@ -54,12 +54,13 @@ describe('syncProviderAccessForInstance', () => {
     expect(putCalls[0]![0]).toBe(`${fakeInstance.baseUrl}/auth/openai`)
     expect(putCalls[1]![0]).toBe(`${fakeInstance.baseUrl}/auth/anthropic`)
 
-    // Verify DELETE for disabled provider
+    // Verify DELETE for disabled providers
     const deleteCalls = mockFetch.mock.calls.filter(
       (call) => (call[1] as RequestInit)?.method === 'DELETE',
     )
-    expect(deleteCalls).toHaveLength(1)
+    expect(deleteCalls).toHaveLength(2)
     expect(deleteCalls[0]![0]).toBe(`${fakeInstance.baseUrl}/auth/openrouter`)
+    expect(deleteCalls[1]![0]).toBe(`${fakeInstance.baseUrl}/auth/opencode`)
 
     // Verify gateway tokens were issued for enabled providers
     expect(mockIssueToken).toHaveBeenCalledTimes(2)
