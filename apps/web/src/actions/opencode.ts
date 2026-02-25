@@ -23,6 +23,12 @@ import type {
 } from "@/lib/opencode/types";
 import { extractTextContent, transformParts } from "@/lib/opencode/transform";
 
+const CREDENTIAL_REQUIRED_PROVIDER_IDS = new Set<ProviderId>([
+  "openai",
+  "anthropic",
+  "openrouter",
+]);
+
 function normalizeMessageRole(
   role: unknown
 ): "user" | "assistant" | "system" | null {
@@ -874,10 +880,13 @@ export async function listModelsAction(slug: string): Promise<{
     const models: AvailableModel[] = [];
 
     for (const provider of providers ?? []) {
-      // Only expose paid providers when the workspace owner has an active key.
+      const providerId = provider.id as ProviderId;
+
+      // OpenCode Zen can be available via native workspace auth even without
+      // an Arche-managed API credential.
       if (
-        PROVIDERS.includes(provider.id as ProviderId) &&
-        !enabledProviderIds.has(provider.id as ProviderId)
+        CREDENTIAL_REQUIRED_PROVIDER_IDS.has(providerId) &&
+        !enabledProviderIds.has(providerId)
       ) {
         continue;
       }

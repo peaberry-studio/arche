@@ -193,42 +193,58 @@ async function handleProxy(
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
-  let payload: ReturnType<typeof verifyGatewayToken>
+  let payload: ReturnType<typeof verifyGatewayToken> | null = null
+  let apiKey: string | null = null
+
   try {
     payload = verifyGatewayToken(token)
   } catch {
-    return NextResponse.json({ error: 'invalid_token' }, { status: 401 })
+    if (provider !== 'opencode') {
+      return NextResponse.json({ error: 'invalid_token' }, { status: 401 })
+    }
+
+    // When no Arche-managed credential is configured, OpenCode Zen may be
+    // authenticated natively in the workspace. In that case, forward the
+    // workspace token as-is.
+    apiKey = token
   }
 
-  if (payload.providerId !== provider) {
-    return NextResponse.json({ error: 'provider_mismatch' }, { status: 403 })
+  if (payload) {
+    if (payload.providerId !== provider) {
+      return NextResponse.json({ error: 'provider_mismatch' }, { status: 403 })
+    }
+
+    const credential = await getActiveCredentialForUser({
+      userId: payload.userId,
+      providerId: provider,
+    })
+
+    if (!credential) {
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+    }
+
+    if (credential.type !== 'api') {
+      return NextResponse.json({ error: 'unsupported_credential' }, { status: 501 })
+    }
+
+    let secret: ReturnType<typeof decryptProviderSecret>
+    try {
+      secret = decryptProviderSecret(credential.secret)
+    } catch {
+      return NextResponse.json({ error: 'invalid_credentials' }, { status: 500 })
+    }
+
+    if (!('apiKey' in secret) || typeof secret.apiKey !== 'string' || !secret.apiKey.trim()) {
+      return NextResponse.json({ error: 'unsupported_credential' }, { status: 501 })
+    }
+
+    apiKey = secret.apiKey.trim()
   }
 
-  const credential = await getActiveCredentialForUser({
-    userId: payload.userId,
-    providerId: provider,
-  })
-
-  if (!credential) {
+  if (!apiKey) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
-  if (credential.type !== 'api') {
-    return NextResponse.json({ error: 'unsupported_credential' }, { status: 501 })
-  }
-
-  let secret: ReturnType<typeof decryptProviderSecret>
-  try {
-    secret = decryptProviderSecret(credential.secret)
-  } catch {
-    return NextResponse.json({ error: 'invalid_credentials' }, { status: 500 })
-  }
-
-  if (!('apiKey' in secret) || typeof secret.apiKey !== 'string' || !secret.apiKey.trim()) {
-    return NextResponse.json({ error: 'unsupported_credential' }, { status: 501 })
-  }
-
-  const apiKey = secret.apiKey.trim()
   const upstreamUrl = buildUpstreamUrl(PROVIDER_BASE_URL[provider], pathSegments, new URL(request.url))
 
   const headers = new Headers(request.headers)
