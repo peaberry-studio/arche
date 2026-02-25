@@ -7,14 +7,8 @@ import {
   validateCommonWorkspaceConfig,
 } from '@/lib/workspace-config'
 import { isKickstartApplyLocked } from '@/kickstart/lock'
-import { contentRepoPathsExist } from '@/kickstart/repositories'
+import { contentRepoHasTrackedFiles } from '@/kickstart/repositories'
 import type { KickstartStatus } from '@/kickstart/types'
-
-const REQUIRED_KB_PATHS: Array<{ path: string; type: 'file' | 'dir' }> = [
-  { path: 'Outputs', type: 'dir' },
-  { path: 'Company/00 - Company Profile.md', type: 'file' },
-  { path: 'Company/01 - Glossary.md', type: 'file' },
-]
 
 type GetKickstartStatusOptions = {
   ignoreLock?: boolean
@@ -37,7 +31,7 @@ async function isConfigReady(): Promise<boolean> {
 }
 
 async function isKbReady(): Promise<boolean> {
-  return contentRepoPathsExist(REQUIRED_KB_PATHS)
+  return contentRepoHasTrackedFiles()
 }
 
 export async function getKickstartStatus(

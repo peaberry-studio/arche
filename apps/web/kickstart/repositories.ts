@@ -444,6 +444,25 @@ export async function contentRepoPathsExist(
   return bareRepoPathsExist(root, requiredPaths)
 }
 
+export async function contentRepoHasTrackedFiles(): Promise<boolean> {
+  const root = await resolveKickstartContentRepoRoot()
+  if (!root) return false
+
+  if (!(await hasBareRepoLayout(root))) {
+    return false
+  }
+
+  const tree = await runGit(['--git-dir', root, 'ls-tree', '-r', '--name-only', 'HEAD'])
+  if (!tree.ok) {
+    return false
+  }
+
+  return tree.stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .some((line) => line.length > 0)
+}
+
 export async function contentRepoPathExists(
   repoPath: string,
   expectedType: 'file' | 'dir'
