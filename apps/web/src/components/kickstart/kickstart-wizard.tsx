@@ -97,6 +97,20 @@ function parseImportedTemplate(
     }
   }
 
+  const templateId = value.id
+  const templateLabel = value.label
+  const templateDescription = value.description
+  const agentsMdTemplate = value.agentsMdTemplate
+
+  if (
+    typeof templateId !== 'string' ||
+    typeof templateLabel !== 'string' ||
+    typeof templateDescription !== 'string' ||
+    typeof agentsMdTemplate !== 'string'
+  ) {
+    return { ok: false, error: 'Template fields have invalid types.' }
+  }
+
   if (!Array.isArray(value.kbSkeleton) || value.kbSkeleton.length === 0) {
     return { ok: false, error: 'kbSkeleton must be a non-empty array.' }
   }
@@ -194,35 +208,31 @@ function parseImportedTemplate(
     }
   }
 
-  const kbSkeleton = value.kbSkeleton.flatMap((entry) => {
+  const kbSkeleton = value.kbSkeleton.flatMap<KickstartTemplateDefinition['kbSkeleton'][number]>((entry) => {
     if (!isRecord(entry)) {
       return []
     }
 
     if (entry.type === 'dir') {
-      return [
-        {
-          type: 'dir' as const,
-          path: String(entry.path).trim(),
-        },
-      ]
+      return {
+        type: 'dir',
+        path: String(entry.path).trim(),
+      }
     }
 
-    return [
-      {
-        type: 'file' as const,
-        path: String(entry.path).trim(),
-        content: String(entry.content),
-      },
-    ]
+    return {
+      type: 'file',
+      path: String(entry.path).trim(),
+      content: String(entry.content),
+    }
   })
 
   const template: KickstartTemplateDefinition = {
-    id: value.id.trim(),
-    label: value.label.trim(),
-    description: value.description.trim(),
+    id: templateId.trim(),
+    label: templateLabel.trim(),
+    description: templateDescription.trim(),
     kbSkeleton,
-    agentsMdTemplate: value.agentsMdTemplate,
+    agentsMdTemplate,
     recommendedAgentIds,
     agentOverrides,
   }
