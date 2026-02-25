@@ -4,16 +4,19 @@ import {
 } from '@/kickstart/agents/catalog'
 import { hasOnlyAllowedKeys, isRecord } from '@/kickstart/parse-utils'
 import { getRequiredAgentIdsForTemplate } from '@/kickstart/required-agent-ids'
+import { parseKickstartTemplateDefinitionValue } from '@/kickstart/templates/definition-parser'
 import { getKickstartTemplateById } from '@/kickstart/templates'
 import type {
   KickstartNormalizedAgentSelection,
   KickstartNormalizedApplyInput,
+  KickstartTemplateDefinition,
 } from '@/kickstart/types'
 
 const TOP_LEVEL_KEYS = new Set([
   'companyName',
   'companyDescription',
   'templateId',
+  'template',
   'agents',
 ])
 
@@ -191,6 +194,56 @@ function parseAgents(
   return { ok: true, value: selections }
 }
 
+function parseTemplate(payload: Record<string, unknown>): ValidationResult<KickstartTemplateDefinition> {
+  const hasTemplateId = payload.templateId !== undefined
+  const hasTemplate = payload.template !== undefined
+
+  if (!hasTemplateId && !hasTemplate) {
+    return {
+      ok: false,
+      message: 'either templateId or template is required',
+    }
+  }
+
+  if (hasTemplateId && hasTemplate) {
+    return {
+      ok: false,
+      message: 'templateId and template cannot be provided together',
+    }
+  }
+
+  if (hasTemplateId) {
+    const parsedTemplateId = parseRequiredString(payload.templateId, 'templateId', 80)
+    if (!parsedTemplateId.ok) {
+      return parsedTemplateId
+    }
+
+    const template = getKickstartTemplateById(parsedTemplateId.value)
+    if (!template) {
+      return {
+        ok: false,
+        message: `unknown template id: ${parsedTemplateId.value}`,
+      }
+    }
+
+    return { ok: true, value: template }
+  }
+
+  try {
+    const parsedTemplate = parseKickstartTemplateDefinitionValue(
+      payload.template,
+      'kickstart apply payload template'
+    )
+
+    return { ok: true, value: parsedTemplate.definition }
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : 'invalid template object',
+    }
+  }
+}
+
 export function parseKickstartApplyPayload(
   payload: unknown
 ): KickstartPayloadValidationResult {
@@ -228,21 +281,12 @@ export function parseKickstartApplyPayload(
     }
   }
 
-  const parsedTemplateId = parseRequiredString(payload.templateId, 'templateId', 80)
-  if (!parsedTemplateId.ok) {
-    return { ok: false, error: 'invalid_payload', message: parsedTemplateId.message }
+  const parsedTemplate = parseTemplate(payload)
+  if (!parsedTemplate.ok) {
+    return { ok: false, error: 'invalid_payload', message: parsedTemplate.message }
   }
 
-  const template = getKickstartTemplateById(parsedTemplateId.value)
-  if (!template) {
-    return {
-      ok: false,
-      error: 'invalid_payload',
-      message: `unknown template id: ${parsedTemplateId.value}`,
-    }
-  }
-
-  const parsedAgents = parseAgents(payload.agents, template.id)
+  const parsedAgents = parseAgents(payload.agents, parsedTemplate.value.id)
   if (!parsedAgents.ok) {
     return { ok: false, error: 'invalid_payload', message: parsedAgents.message }
   }
@@ -254,7 +298,7 @@ export function parseKickstartApplyPayload(
         companyName: parsedCompanyName.value,
         companyDescription: parsedCompanyDescription.value,
       },
-      template,
+      template: parsedTemplate.value,
       agents: parsedAgents.value,
     },
   }

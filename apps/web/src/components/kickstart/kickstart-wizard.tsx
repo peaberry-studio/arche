@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   CheckCircle,
@@ -13,7 +13,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { getRequiredAgentIdsForTemplate } from '@/kickstart/required-agent-ids'
 import type {
+  KickstartApplyRequestPayload,
   KickstartStatus,
+  KickstartTemplateDefinition,
+  KickstartTemplateSummary,
   KickstartTemplatesResponse,
 } from '@/kickstart/types'
 import { cn } from '@/lib/utils'
@@ -34,6 +37,10 @@ type ModelOption = {
   label: string
 }
 
+type ImportTemplateResult =
+  | { ok: true; template: KickstartTemplateDefinition }
+  | { ok: false; error: string }
+
 const STEPS = [
   'Company details',
   'Template selection',
@@ -41,8 +48,186 @@ const STEPS = [
   'Review and apply',
 ]
 
+const IMPORT_TEMPLATE_ID = '__imported-template__'
+const CORE_AGENT_PROMPT_OVERRIDE_BLOCKLIST = new Set(['assistant', 'knowledge-curator'])
+
 function unique(values: string[]): string[] {
   return Array.from(new Set(values))
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function parseImportedTemplate(
+  value: unknown,
+  knownAgentIds: ReadonlySet<string>
+): ImportTemplateResult {
+  if (!isRecord(value)) {
+    return { ok: false, error: 'Template JSON must be an object.' }
+  }
+
+  const allowedKeys = new Set([
+    'id',
+    'label',
+    'description',
+    'kbSkeleton',
+    'agentsMdTemplate',
+    'recommendedAgentIds',
+    'agentOverrides',
+    'order',
+  ])
+
+  for (const key of Object.keys(value)) {
+    if (!allowedKeys.has(key)) {
+      return { ok: false, error: `Unsupported template field: ${key}` }
+    }
+  }
+
+  const requiredStringFieldEntries: Array<[string, unknown]> = [
+    ['id', value.id],
+    ['label', value.label],
+    ['description', value.description],
+    ['agentsMdTemplate', value.agentsMdTemplate],
+  ]
+
+  for (const [field, fieldValue] of requiredStringFieldEntries) {
+    if (typeof fieldValue !== 'string' || fieldValue.trim().length === 0) {
+      return { ok: false, error: `${field} must be a non-empty string.` }
+    }
+  }
+
+  if (!Array.isArray(value.kbSkeleton) || value.kbSkeleton.length === 0) {
+    return { ok: false, error: 'kbSkeleton must be a non-empty array.' }
+  }
+
+  for (const entry of value.kbSkeleton) {
+    if (!isRecord(entry)) {
+      return { ok: false, error: 'kbSkeleton entries must be objects.' }
+    }
+
+    if (entry.type !== 'dir' && entry.type !== 'file') {
+      return { ok: false, error: 'kbSkeleton entry type must be "dir" or "file".' }
+    }
+
+    if (typeof entry.path !== 'string' || entry.path.trim().length === 0) {
+      return { ok: false, error: 'kbSkeleton entry path must be a non-empty string.' }
+    }
+
+    if (entry.type === 'file' && typeof entry.content !== 'string') {
+      return { ok: false, error: 'kbSkeleton file entry content must be a string.' }
+    }
+  }
+
+  if (!Array.isArray(value.recommendedAgentIds) || value.recommendedAgentIds.length === 0) {
+    return { ok: false, error: 'recommendedAgentIds must be a non-empty array.' }
+  }
+
+  const recommendedAgentIds: string[] = []
+  const seenRecommended = new Set<string>()
+  for (const agentIdValue of value.recommendedAgentIds) {
+    if (typeof agentIdValue !== 'string' || agentIdValue.trim().length === 0) {
+      return { ok: false, error: 'Each recommendedAgentId must be a non-empty string.' }
+    }
+
+    const agentId = agentIdValue.trim()
+    if (!knownAgentIds.has(agentId)) {
+      return { ok: false, error: `Unknown agent id in recommendedAgentIds: ${agentId}` }
+    }
+
+    if (!seenRecommended.has(agentId)) {
+      seenRecommended.add(agentId)
+      recommendedAgentIds.push(agentId)
+    }
+  }
+
+  if (!isRecord(value.agentOverrides)) {
+    return { ok: false, error: 'agentOverrides must be an object.' }
+  }
+
+  const agentOverrides: Record<string, { model?: string; prompt?: string }> = {}
+  for (const [agentId, overrideValue] of Object.entries(value.agentOverrides)) {
+    if (!knownAgentIds.has(agentId)) {
+      return { ok: false, error: `Unknown agent id in agentOverrides: ${agentId}` }
+    }
+
+    if (!isRecord(overrideValue)) {
+      return { ok: false, error: `agentOverrides.${agentId} must be an object.` }
+    }
+
+    const overrideKeys = Object.keys(overrideValue)
+    if (overrideKeys.some((key) => key !== 'model' && key !== 'prompt')) {
+      return {
+        ok: false,
+        error: `agentOverrides.${agentId} supports only "model" and "prompt".`,
+      }
+    }
+
+    const model = overrideValue.model
+    const prompt = overrideValue.prompt
+
+    if (model !== undefined && (typeof model !== 'string' || model.trim().length === 0)) {
+      return { ok: false, error: `agentOverrides.${agentId}.model must be a non-empty string.` }
+    }
+
+    if (prompt !== undefined && (typeof prompt !== 'string' || prompt.trim().length === 0)) {
+      return { ok: false, error: `agentOverrides.${agentId}.prompt must be a non-empty string.` }
+    }
+
+    if (prompt !== undefined && CORE_AGENT_PROMPT_OVERRIDE_BLOCKLIST.has(agentId)) {
+      return {
+        ok: false,
+        error: `Prompt overrides are not allowed for core agent: ${agentId}`,
+      }
+    }
+
+    if (model === undefined && prompt === undefined) {
+      return {
+        ok: false,
+        error: `agentOverrides.${agentId} must define at least one field.`,
+      }
+    }
+
+    agentOverrides[agentId] = {
+      ...(model !== undefined ? { model: model.trim() } : {}),
+      ...(prompt !== undefined ? { prompt } : {}),
+    }
+  }
+
+  const kbSkeleton = value.kbSkeleton.flatMap((entry) => {
+    if (!isRecord(entry)) {
+      return []
+    }
+
+    if (entry.type === 'dir') {
+      return [
+        {
+          type: 'dir' as const,
+          path: String(entry.path).trim(),
+        },
+      ]
+    }
+
+    return [
+      {
+        type: 'file' as const,
+        path: String(entry.path).trim(),
+        content: String(entry.content),
+      },
+    ]
+  })
+
+  const template: KickstartTemplateDefinition = {
+    id: value.id.trim(),
+    label: value.label.trim(),
+    description: value.description.trim(),
+    kbSkeleton,
+    agentsMdTemplate: value.agentsMdTemplate,
+    recommendedAgentIds,
+    agentOverrides,
+  }
+
+  return { ok: true, template }
 }
 
 export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
@@ -59,8 +244,11 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
   const [companyName, setCompanyName] = useState('')
   const [companyDescription, setCompanyDescription] = useState('')
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
+  const [importedTemplate, setImportedTemplate] = useState<KickstartTemplateDefinition | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
   const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([])
   const [agentOverrides, setAgentOverrides] = useState<Record<string, AgentOverride>>({})
+  const importInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -137,9 +325,23 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
   }, [slug])
 
   const selectedTemplate = useMemo(() => {
+    if (selectedTemplateId === IMPORT_TEMPLATE_ID) {
+      if (!importedTemplate) return null
+
+      const importedTemplateSummary: KickstartTemplateSummary = {
+        id: importedTemplate.id,
+        label: importedTemplate.label,
+        description: importedTemplate.description,
+        recommendedAgentIds: importedTemplate.recommendedAgentIds,
+        agentOverrides: importedTemplate.agentOverrides,
+      }
+
+      return importedTemplateSummary
+    }
+
     if (!catalog) return null
     return catalog.templates.find((template) => template.id === selectedTemplateId) ?? null
-  }, [catalog, selectedTemplateId])
+  }, [catalog, importedTemplate, selectedTemplateId])
 
   const agentById = useMemo(() => {
     return new Map((catalog?.agents ?? []).map((agent) => [agent.id, agent]))
@@ -232,6 +434,55 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
       ])
     )
     setApplyError(null)
+    setImportError(null)
+  }
+
+  function handleImportButtonClick() {
+    importInputRef.current?.click()
+  }
+
+  async function handleImportTemplate(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+
+    if (!file || !catalog) {
+      return
+    }
+
+    const knownAgentIds = new Set((catalog.agents ?? []).map((agent) => agent.id))
+
+    let rawContent = ''
+    try {
+      rawContent = await file.text()
+    } catch {
+      setImportError('Failed to read selected template file.')
+      return
+    }
+
+    let parsedJson: unknown
+    try {
+      parsedJson = JSON.parse(rawContent)
+    } catch {
+      setImportError('Invalid JSON file.')
+      return
+    }
+
+    const parsedTemplate = parseImportedTemplate(parsedJson, knownAgentIds)
+    if (!parsedTemplate.ok) {
+      setImportError(parsedTemplate.error)
+      return
+    }
+
+    setImportedTemplate(parsedTemplate.template)
+    setSelectedTemplateId(IMPORT_TEMPLATE_ID)
+    setSelectedAgentIds(
+      unique([
+        ...getRequiredAgentIdsForTemplate(parsedTemplate.template.id),
+        ...parsedTemplate.template.recommendedAgentIds,
+      ])
+    )
+    setApplyError(null)
+    setImportError(null)
   }
 
   function toggleAgent(agentId: string) {
@@ -261,25 +512,29 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
     setIsApplying(true)
 
     try {
+      const payload: KickstartApplyRequestPayload = {
+        companyName: companyName.trim(),
+        companyDescription: companyDescription.trim(),
+        agents: selectedAgentIds.map((agentId) => {
+          const resolved = resolveAgentValue(agentId)
+          return {
+            id: agentId,
+            model: resolved.model,
+            prompt: resolved.prompt,
+            temperature: resolved.temperature,
+          }
+        }),
+        ...(selectedTemplateId === IMPORT_TEMPLATE_ID && importedTemplate
+          ? { template: importedTemplate }
+          : { templateId: selectedTemplate.id }),
+      }
+
       const response = await fetch(`/api/u/${slug}/kickstart/apply`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
         },
-        body: JSON.stringify({
-          companyName: companyName.trim(),
-          companyDescription: companyDescription.trim(),
-          templateId: selectedTemplate.id,
-          agents: selectedAgentIds.map((agentId) => {
-            const resolved = resolveAgentValue(agentId)
-            return {
-              id: agentId,
-              model: resolved.model,
-              prompt: resolved.prompt,
-              temperature: resolved.temperature,
-            }
-          }),
-        }),
+        body: JSON.stringify(payload),
       })
 
       const data = (await response.json().catch(() => null)) as {
@@ -425,7 +680,48 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
                   </button>
                 )
               })}
+
+              <button
+                type="button"
+                onClick={handleImportButtonClick}
+                className={cn(
+                  'rounded-2xl border p-4 text-left transition-colors',
+                  selectedTemplateId === IMPORT_TEMPLATE_ID
+                    ? 'border-primary/55 bg-primary/10'
+                    : 'border-border/60 bg-background/40 hover:border-border'
+                )}
+              >
+                <p className="font-medium text-foreground">Import</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Upload a custom template JSON from your computer.
+                </p>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  {importedTemplate
+                    ? `Loaded: ${importedTemplate.label}`
+                    : 'Template file must follow kickstart template definition schema.'}
+                </p>
+              </button>
             </div>
+
+            <input
+              ref={importInputRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={handleImportTemplate}
+            />
+
+            {importError && (
+              <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                {importError}
+              </div>
+            )}
+
+            {selectedTemplateId === IMPORT_TEMPLATE_ID && importedTemplate && (
+              <div className="rounded-xl border border-border/60 bg-background/40 px-4 py-3 text-sm text-muted-foreground">
+                Imported template ID: <span className="font-medium text-foreground">{importedTemplate.id}</span>
+              </div>
+            )}
           </div>
         )}
 

@@ -65,12 +65,19 @@ export type KickstartAgentSelectionInput = {
   temperature?: number
 }
 
-export type KickstartApplyRequestPayload = {
-  companyName: string
-  companyDescription: string
-  templateId: string
-  agents: KickstartAgentSelectionInput[]
-}
+export type KickstartApplyRequestPayload =
+  | {
+      companyName: string
+      companyDescription: string
+      templateId: string
+      agents: KickstartAgentSelectionInput[]
+    }
+  | {
+      companyName: string
+      companyDescription: string
+      template: KickstartTemplateDefinition
+      agents: KickstartAgentSelectionInput[]
+    }
 
 export type KickstartNormalizedAgentSelection = {
   id: string

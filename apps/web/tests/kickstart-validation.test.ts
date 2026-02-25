@@ -14,6 +14,32 @@ function buildValidPayload() {
   }
 }
 
+function buildValidCustomTemplate() {
+  return {
+    id: 'custom-template',
+    label: 'Custom Template',
+    description: 'Uploaded by user',
+    kbSkeleton: [
+      {
+        type: 'dir',
+        path: 'Company',
+      },
+      {
+        type: 'file',
+        path: 'Company/00 - Company Profile.md',
+        content: '# {{ companyName }}',
+      },
+    ],
+    agentsMdTemplate: '# Agents',
+    recommendedAgentIds: ['assistant'],
+    agentOverrides: {
+      assistant: {
+        model: 'openai/gpt-5',
+      },
+    },
+  }
+}
+
 describe('kickstart payload validation', () => {
   it.each([
     {
@@ -84,6 +110,46 @@ describe('kickstart payload validation', () => {
     expect(parsed.ok).toBe(valid)
     if (!valid && !parsed.ok) {
       expect(parsed.message).toContain(message)
+    }
+  })
+
+  it('accepts custom template object instead of templateId', () => {
+    const parsed = parseKickstartApplyPayload({
+      companyName: 'Acme Labs',
+      companyDescription: 'Analytics tools for operations teams',
+      template: buildValidCustomTemplate(),
+      agents: [{ id: 'assistant' }],
+    })
+
+    expect(parsed.ok).toBe(true)
+  })
+
+  it('rejects payload when templateId and template are both provided', () => {
+    const parsed = parseKickstartApplyPayload({
+      ...buildValidPayload(),
+      template: buildValidCustomTemplate(),
+    })
+
+    expect(parsed.ok).toBe(false)
+    if (!parsed.ok) {
+      expect(parsed.message).toContain('cannot be provided together')
+    }
+  })
+
+  it('rejects custom template object with unknown recommended agent', () => {
+    const parsed = parseKickstartApplyPayload({
+      companyName: 'Acme Labs',
+      companyDescription: 'Analytics tools for operations teams',
+      template: {
+        ...buildValidCustomTemplate(),
+        recommendedAgentIds: ['unknown-agent'],
+      },
+      agents: [{ id: 'assistant' }],
+    })
+
+    expect(parsed.ok).toBe(false)
+    if (!parsed.ok) {
+      expect(parsed.message).toContain('Unknown agent id in recommendedAgentIds')
     }
   })
 })

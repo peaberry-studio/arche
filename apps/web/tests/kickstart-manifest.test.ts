@@ -137,4 +137,48 @@ describe('kickstart artifact generation', () => {
     expect(output).toContain('Known Acme Labs')
     expect(output).toContain('{{ malicious }}')
   })
+
+  it('builds artifacts when payload uses an imported custom template', () => {
+    const parsed = parseKickstartApplyPayload({
+      companyName: 'Acme Labs',
+      companyDescription: 'Analytics tools for operations teams',
+      template: {
+        id: 'custom-template',
+        label: 'Custom Template',
+        description: 'Imported template',
+        kbSkeleton: [
+          { type: 'dir', path: 'Company' },
+          {
+            type: 'file',
+            path: 'Company/00 - Company Profile.md',
+            content: '# {{ companyName }}',
+          },
+        ],
+        agentsMdTemplate: '# Agents for {{ companyName }}',
+        recommendedAgentIds: ['assistant'],
+        agentOverrides: {
+          assistant: {
+            model: 'openai/gpt-5',
+          },
+        },
+      },
+      agents: [{ id: 'assistant' }],
+    })
+
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) {
+      return
+    }
+
+    const built = buildKickstartArtifacts(parsed.input)
+    expect(built.ok).toBe(true)
+    if (!built.ok) {
+      return
+    }
+
+    const profileFile = built.artifacts.kbFiles.find(
+      (file) => file.path === 'Company/00 - Company Profile.md'
+    )
+    expect(profileFile?.content).toContain('Acme Labs')
+  })
 })
