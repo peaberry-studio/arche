@@ -27,6 +27,7 @@ postgres_password: "{{ lookup('env', 'POSTGRES_PASSWORD') | default('postgres', 
 arche_session_pepper: "{{ lookup('env', 'ARCHE_SESSION_PEPPER') | default('', true) }}"
 arche_encryption_key: "{{ lookup('env', 'ARCHE_ENCRYPTION_KEY') | default('', true) }}"
 arche_internal_token: "{{ lookup('env', 'ARCHE_INTERNAL_TOKEN') | default('', true) }}"
+arche_connector_oauth_state_secret: "{{ lookup('env', 'ARCHE_CONNECTOR_OAUTH_STATE_SECRET') | default('', true) }}"
 
 # Gateway
 arche_gateway_token_secret: "{{ lookup('env', 'ARCHE_GATEWAY_TOKEN_SECRET') | default('', true) }}"

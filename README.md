@@ -170,6 +170,7 @@ Remote deployment uses Ansible to provision Podman, ACME HTTP challenge for TLS,
 | `DATABASE_URL` | PostgreSQL connection string |
 | `ARCHE_DOMAIN` | Main domain (e.g. `arche.lvh.me`) |
 | `ARCHE_SESSION_PEPPER` | Pepper for session hashing |
+| `ARCHE_CONNECTOR_OAUTH_STATE_SECRET` | Secret used to protect connector OAuth state (required in production for OAuth flows) |
 | `ARCHE_ENCRYPTION_KEY` | AES-256-GCM key (base64, 32 bytes) |
 | `CONTAINER_PROXY_HOST` | docker-socket-proxy host |
 | `OPENCODE_IMAGE` | Workspace image |

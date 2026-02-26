@@ -125,6 +125,7 @@ Set in `.env` or export before running `deploy.sh`.
 | `ARCHE_SESSION_PEPPER` | Session pepper (`openssl rand -base64 32`) |
 | `ARCHE_ENCRYPTION_KEY` | Encryption key (`openssl rand -base64 32`) |
 | `ARCHE_INTERNAL_TOKEN` | Internal API token (`openssl rand -base64 32`) |
+| `ARCHE_CONNECTOR_OAUTH_STATE_SECRET` | Connector OAuth state secret (`openssl rand -base64 32`) |
 | `ARCHE_SEED_ADMIN_EMAIL` | Seed admin email |
 | `ARCHE_SEED_ADMIN_PASSWORD` | Seed admin password |
 | `ARCHE_SEED_ADMIN_SLUG` | Seed admin URL slug |

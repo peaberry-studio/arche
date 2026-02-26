@@ -94,6 +94,7 @@ Set these in the web application's environment variables in Coolify:
 | `ARCHE_ENCRYPTION_KEY` | Yes | `openssl rand -base64 32` |
 | `ARCHE_INTERNAL_TOKEN` | Yes | `openssl rand -base64 32` |
 | `ARCHE_GATEWAY_TOKEN_SECRET` | Yes | `openssl rand -base64 32` |
+| `ARCHE_CONNECTOR_OAUTH_STATE_SECRET` | Yes | `openssl rand -base64 32` |
 | `ARCHE_GATEWAY_TOKEN_TTL_SECONDS` | No | Default: `86400` (24h) |
 | `ARCHE_GATEWAY_BASE_URL` | No | Default: `http://localhost:3000` |
 | `ARCHE_COOKIE_SECURE` | No | Default: `true` |
@@ -190,6 +191,7 @@ You only need to build a custom image if you want to override `OPENCODE_IMAGE`.
    | `ARCHE_ENCRYPTION_KEY` | Yes | Encryption key for secrets |
    | `ARCHE_INTERNAL_TOKEN` | Yes | Internal API token |
    | `ARCHE_GATEWAY_TOKEN_SECRET` | Yes | Gateway token signing secret |
+   | `ARCHE_CONNECTOR_OAUTH_STATE_SECRET` | Yes | Connector OAuth state secret |
    | `ARCHE_SEED_ADMIN_EMAIL` | Yes | Initial admin email |
    | `ARCHE_SEED_ADMIN_PASSWORD` | Yes | Initial admin password |
    | `ARCHE_SEED_ADMIN_SLUG` | No | Admin URL slug (default: `admin`) |
@@ -206,6 +208,7 @@ You only need to build a custom image if you want to override `OPENCODE_IMAGE`.
    echo "ARCHE_ENCRYPTION_KEY=$(openssl rand -base64 32)"
    echo "ARCHE_INTERNAL_TOKEN=$(openssl rand -base64 32)"
    echo "ARCHE_GATEWAY_TOKEN_SECRET=$(openssl rand -base64 32)"
+   echo "ARCHE_CONNECTOR_OAUTH_STATE_SECRET=$(openssl rand -base64 32)"
    ```
 
 5. **Set domain** for the `web` service in Coolify's domain settings
