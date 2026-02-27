@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+import { getKickstartStatus } from '@/kickstart/status'
 import { getAuthenticatedUser } from '@/lib/auth'
 import { validateSameOrigin } from '@/lib/csrf'
+import { prisma } from '@/lib/prisma'
 import { startInstance, stopInstance } from '@/lib/spawner/core'
-import { getKickstartStatus } from '@/kickstart/status'
 
 export async function POST(
   request: NextRequest,
@@ -23,6 +24,15 @@ export async function POST(
 
   if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { slug },
+    select: { id: true },
+  })
+
+  if (!user) {
+    return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
   }
 
   const kickstartStatus = await getKickstartStatus()
