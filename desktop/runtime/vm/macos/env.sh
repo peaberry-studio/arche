@@ -20,7 +20,11 @@ VM_BASE_ZST="$VM_DIR/podman-machine.aarch64.applehv.raw.zst"
 VM_BASE_RAW="$VM_DIR/base.raw"
 VM_DISK="$VM_DIR/$VM_NAME.raw"
 EFI_STORE="$VM_DIR/$VM_NAME.efi"
-NET_SOCK="$VM_DIR/$VM_NAME.sock"
+
+# Keep vfkit/gvproxy unix socket paths short and without spaces.
+# macOS unix domain sockets have strict path length limits.
+NET_DIR="${ARCHE_DESKTOP_VM_NET_DIR:-/tmp/arche-desktop-vm}"
+NET_SOCK="$NET_DIR/$VM_NAME.sock"
 
 GVPROXY_LOG="$VM_DIR/gvproxy.log"
 GVPROXY_PID="$VM_DIR/gvproxy.pid"
@@ -42,6 +46,7 @@ export VM_BASE_ZST
 export VM_BASE_RAW
 export VM_DISK
 export EFI_STORE
+export NET_DIR
 export NET_SOCK
 export GVPROXY_LOG
 export GVPROXY_PID
@@ -53,3 +58,4 @@ export SSH_PUB
 export IGNITION_FILE
 
 mkdir -p "$VM_DIR" "$DATA_DIR" "$DATA_DIR/users"
+mkdir -p "$NET_DIR"

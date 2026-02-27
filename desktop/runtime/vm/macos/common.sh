@@ -125,7 +125,9 @@ start_gvproxy() {
     return
   fi
 
-  "$GVPROXY_BIN" \
+  rm -f "$NET_SOCK"
+
+  nohup "$GVPROXY_BIN" \
     --mtu 1500 \
     --ssh-port "$SSH_PORT" \
     --listen-vfkit "unixgram://$NET_SOCK" \
