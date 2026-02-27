@@ -1,0 +1,5 @@
+tauri/node_modules/
+tauri/dist/
+tauri/src-tauri/target/
+runtime/artifacts/images/*.tar
+runtime/artifacts/bin/

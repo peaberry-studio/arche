@@ -215,6 +215,7 @@ kickstart/
 ## Additional Documentation
 
 - [`apps/web/README.md`](apps/web/README.md) - Detailed local setup, auth, spawner
+- [`desktop/README.md`](desktop/README.md) - Desktop POC (Tauri + embedded WebView)
 - [`infra/README.md`](infra/README.md) - Infrastructure and KB architecture
 - [`infra/compose/README.md`](infra/compose/README.md) - Podman Compose stack
 - [`infra/deploy/README.md`](infra/deploy/README.md) - VPS deployment guide

@@ -1,0 +1,81 @@
+name: arche-desktop
+
+services:
+  docker-socket-proxy:
+    image: ghcr.io/tecnativa/docker-socket-proxy:master
+    restart: unless-stopped
+    user: root
+    security_opt:
+      - label=disable
+    environment:
+      CONTAINERS: 1
+      NETWORKS: 1
+      IMAGES: 1
+      INFO: 1
+      POST: 1
+      VOLUMES: 1
+    volumes:
+      - ${PODMAN_SOCKET_PATH}:/var/run/docker.sock:ro
+    networks:
+      - arche-internal
+
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: arche
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - arche_desktop_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  web:
+    image: arche-web:desktop
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      docker-socket-proxy:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/arche?schema=public
+      ARCHE_DOMAIN: localhost
+      ARCHE_PUBLIC_BASE_URL: http://127.0.0.1:4510
+      ARCHE_COOKIE_SECURE: "false"
+      ARCHE_SESSION_PEPPER: ${ARCHE_SESSION_PEPPER}
+      ARCHE_ENCRYPTION_KEY: ${ARCHE_ENCRYPTION_KEY}
+      ARCHE_CONNECTOR_OAUTH_STATE_SECRET: ${ARCHE_CONNECTOR_OAUTH_STATE_SECRET}
+      ARCHE_GATEWAY_TOKEN_SECRET: ${ARCHE_GATEWAY_TOKEN_SECRET}
+      ARCHE_SEED_ADMIN_EMAIL: admin@example.com
+      ARCHE_SEED_ADMIN_PASSWORD: change-me
+      ARCHE_SEED_ADMIN_SLUG: admin
+      CONTAINER_PROXY_HOST: docker-socket-proxy
+      CONTAINER_PROXY_PORT: "2375"
+      OPENCODE_IMAGE: arche-workspace:desktop
+      OPENCODE_NETWORK: arche-internal
+      KB_CONTENT_HOST_PATH: /opt/arche/kb-content
+      KB_CONFIG_HOST_PATH: /opt/arche/kb-config
+      ARCHE_USERS_PATH: /opt/arche/users
+    ports:
+      - 4510:3000
+    volumes:
+      - ${ARCHE_DESKTOP_DATA_DIR}/kb-content:/kb-content
+      - ${ARCHE_DESKTOP_DATA_DIR}/kb-config:/kb-config
+      - ${ARCHE_DESKTOP_DATA_DIR}/users:/opt/arche/users
+    networks:
+      - default
+      - arche-internal
+
+networks:
+  default:
+  arche-internal:
+    name: arche-internal
+    external: true
+
+volumes:
+  arche_desktop_postgres:

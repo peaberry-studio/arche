@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Arche Desktop</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <main id="app">
+      <section class="controls">
+        <h1>Arche Desktop POC</h1>
+        <div class="buttons">
+          <button id="start-btn">Start Arche</button>
+          <button id="stop-btn">Stop Arche</button>
+          <button id="refresh-btn">Refresh Status</button>
+        </div>
+        <pre id="status"></pre>
+      </section>
+      <section class="logs">
+        <h2>Runtime Logs</h2>
+        <pre id="logs"></pre>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
