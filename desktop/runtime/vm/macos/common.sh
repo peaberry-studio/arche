@@ -12,6 +12,7 @@ EMBEDDED_BIN_DIR="$RUNTIME_ROOT/artifacts/bin"
 
 default_vfkit_bin="/opt/podman/bin/vfkit"
 default_gvproxy_bin="/opt/podman/bin/gvproxy"
+default_zstd_bin="zstd"
 
 if [[ -x "$EMBEDDED_BIN_DIR/vfkit" ]]; then
   default_vfkit_bin="$EMBEDDED_BIN_DIR/vfkit"
@@ -21,8 +22,15 @@ if [[ -x "$EMBEDDED_BIN_DIR/gvproxy" ]]; then
   default_gvproxy_bin="$EMBEDDED_BIN_DIR/gvproxy"
 fi
 
+if [[ -x "$EMBEDDED_BIN_DIR/zstd" ]]; then
+  if "$EMBEDDED_BIN_DIR/zstd" --version >/dev/null 2>&1; then
+    default_zstd_bin="$EMBEDDED_BIN_DIR/zstd"
+  fi
+fi
+
 VFKIT_BIN="${ARCHE_DESKTOP_VFKIT_BIN:-$default_vfkit_bin}"
 GVPROXY_BIN="${ARCHE_DESKTOP_GVPROXY_BIN:-$default_gvproxy_bin}"
+ZSTD_BIN="${ARCHE_DESKTOP_ZSTD_BIN:-$default_zstd_bin}"
 
 VM_IMAGE_URL_DEFAULT="https://github.com/containers/podman-machine-os/releases/download/v5.8.0/podman-machine.aarch64.applehv.raw.zst"
 VM_IMAGE_URL="${ARCHE_DESKTOP_VM_IMAGE_URL:-$VM_IMAGE_URL_DEFAULT}"
@@ -42,7 +50,7 @@ pid_running() {
 
 require_tools() {
   local missing=0
-  for bin in "$VFKIT_BIN" "$GVPROXY_BIN" ssh ssh-keygen scp curl zstd; do
+  for bin in "$VFKIT_BIN" "$GVPROXY_BIN" "$ZSTD_BIN" ssh ssh-keygen scp curl; do
     if [[ "$bin" == /* ]]; then
       if [[ ! -x "$bin" ]]; then
         echo "missing runtime binary: $bin" >&2
@@ -114,7 +122,7 @@ ensure_vm_disk() {
 
   if [[ ! -f "$VM_BASE_RAW" ]]; then
     echo "decompressing base VM image..."
-    zstd -d -f "$seed" -o "$VM_BASE_RAW"
+    "$ZSTD_BIN" -d -f "$seed" -o "$VM_BASE_RAW"
   fi
 
   cp -c "$VM_BASE_RAW" "$VM_DISK" 2>/dev/null || cp "$VM_BASE_RAW" "$VM_DISK"

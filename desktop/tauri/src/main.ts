@@ -11,16 +11,35 @@ function setStatus(value: unknown) {
   statusEl.textContent = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
 }
 
+function formatError(error: unknown) {
+  if (error instanceof Error) {
+    return {
+      message: error.message,
+      stack: error.stack,
+    }
+  }
+  return { error }
+}
+
 function setLogs(value: string) {
   if (!logsEl) return
   logsEl.textContent = value
 }
 
 async function refresh() {
-  const status = await invoke('status_arche')
-  setStatus(status)
-  const logs = await invoke<string>('tail_logs')
-  setLogs(logs)
+  try {
+    const status = await invoke('status_arche')
+    setStatus(status)
+  } catch (error) {
+    setStatus({ action: 'status_arche', ...formatError(error) })
+  }
+
+  try {
+    const logs = await invoke<string>('tail_logs')
+    setLogs(logs)
+  } catch (error) {
+    setLogs(JSON.stringify({ action: 'tail_logs', ...formatError(error) }, null, 2))
+  }
 }
 
 startBtn?.addEventListener('click', async () => {
@@ -28,10 +47,16 @@ startBtn?.addEventListener('click', async () => {
   try {
     const output = await invoke('start_arche')
     setStatus(output)
+    await refresh()
   } catch (error) {
-    setStatus({ error })
+    setStatus({ action: 'start_arche', ...formatError(error) })
+    try {
+      const logs = await invoke<string>('tail_logs')
+      setLogs(logs)
+    } catch {
+      // no-op
+    }
   }
-  await refresh()
 })
 
 stopBtn?.addEventListener('click', async () => {
@@ -39,10 +64,10 @@ stopBtn?.addEventListener('click', async () => {
   try {
     const output = await invoke('stop_arche')
     setStatus(output)
+    await refresh()
   } catch (error) {
-    setStatus({ error })
+    setStatus({ action: 'stop_arche', ...formatError(error) })
   }
-  await refresh()
 })
 
 refreshBtn?.addEventListener('click', async () => {
