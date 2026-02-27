@@ -43,14 +43,24 @@ const providersResponse = {
         id: 'openai',
         name: 'OpenAI',
         models: {
-          'gpt-5.2': { name: 'GPT-5.2' },
+          'gpt-5.2': {
+            name: 'GPT-5.2',
+            cost: { input: 1, output: 2 },
+          },
         },
       },
       {
         id: 'opencode',
         name: 'OpenCode Zen',
         models: {
-          'scene-free': { name: 'Scene Free' },
+          'big-pickle': {
+            name: 'Big Pickle',
+            cost: { input: 3, output: 4 },
+          },
+          'scene-free': {
+            name: 'Scene Free',
+            cost: { input: 0, output: 0 },
+          },
         },
       },
     ],
@@ -96,6 +106,11 @@ describe('listModelsAction', () => {
     )
     expect(result.models).not.toEqual(
       expect.arrayContaining([
+        expect.objectContaining({ providerId: 'opencode', modelId: 'big-pickle' }),
+      ]),
+    )
+    expect(result.models).not.toEqual(
+      expect.arrayContaining([
         expect.objectContaining({ providerId: 'openai', modelId: 'gpt-5.2' }),
       ]),
     )
@@ -122,6 +137,107 @@ describe('listModelsAction', () => {
       expect.arrayContaining([
         expect.objectContaining({ providerId: 'openai', modelId: 'gpt-5.2' }),
         expect.objectContaining({ providerId: 'opencode', modelId: 'scene-free' }),
+      ]),
+    )
+    expect(result.models).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ providerId: 'opencode', modelId: 'big-pickle' }),
+      ]),
+    )
+  })
+
+  describe('isPublicOpencodeModel edge cases', () => {
+    it.each([
+      ['cost is null', { name: 'Null Cost', cost: null }],
+      ['cost is missing', { name: 'No Cost' }],
+      ['cost.output is missing', { name: 'Partial Cost', cost: { input: 0 } }],
+      ['cost.output is a string', { name: 'String Cost', cost: { input: 0, output: '0' } }],
+      ['cost is a number', { name: 'Number Cost', cost: 0 }],
+    ])('excludes model when %s (no credential)', async (_label, modelDef) => {
+      mockGetActiveCredentialForUser.mockResolvedValue(null)
+
+      mockCreateInstanceClient.mockResolvedValue({
+        config: {
+          providers: vi.fn().mockResolvedValue({
+            data: {
+              providers: [
+                {
+                  id: 'opencode',
+                  name: 'OpenCode Zen',
+                  models: { 'edge-model': modelDef },
+                },
+              ],
+              default: {},
+            },
+          }),
+        },
+      } as never)
+
+      const result = await listModelsAction('alice')
+      expect(result.ok).toBe(true)
+      expect(result.models).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ modelId: 'edge-model' }),
+        ]),
+      )
+    })
+
+    it('accepts model with negative zero cost (IEEE 754: -0 === 0)', async () => {
+      mockGetActiveCredentialForUser.mockResolvedValue(null)
+
+      mockCreateInstanceClient.mockResolvedValue({
+        config: {
+          providers: vi.fn().mockResolvedValue({
+            data: {
+              providers: [
+                {
+                  id: 'opencode',
+                  name: 'OpenCode Zen',
+                  models: {
+                    'neg-zero': {
+                      name: 'Neg Zero',
+                      cost: { input: -0, output: 0 },
+                    },
+                  },
+                },
+              ],
+              default: {},
+            },
+          }),
+        },
+      } as never)
+
+      const result = await listModelsAction('alice')
+      expect(result.ok).toBe(true)
+      expect(result.models).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ modelId: 'neg-zero' }),
+        ]),
+      )
+    })
+  })
+
+  it('includes non-free OpenCode Zen models when an OpenCode credential exists', async () => {
+    mockGetActiveCredentialForUser.mockImplementation(async ({ providerId }) => {
+      if (providerId === 'opencode') {
+        return {
+          id: 'cred-opencode',
+          type: 'api',
+          secret: 'encrypted',
+          version: 1,
+        }
+      }
+
+      return null
+    })
+
+    const result = await listModelsAction('alice')
+
+    expect(result.ok).toBe(true)
+    expect(result.models).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ providerId: 'opencode', modelId: 'scene-free' }),
+        expect.objectContaining({ providerId: 'opencode', modelId: 'big-pickle' }),
       ]),
     )
   })

@@ -49,6 +49,21 @@ const WORKSPACE_BASH_DENY_RULES: Record<string, "deny"> = {
   "bun create*": "deny",
 };
 
+const DEFAULT_SMALL_MODEL = "opencode/gpt-5-nano";
+
+function asNonEmptyString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function resolveSmallModel(config: Record<string, unknown>): string {
+  const explicitSmallModel = asNonEmptyString(config.small_model);
+  if (explicitSmallModel) return explicitSmallModel;
+
+  return DEFAULT_SMALL_MODEL;
+}
+
 function mergePermissionRule(
   current: unknown,
   enforced: Record<string, "allow" | "ask" | "deny">
@@ -135,6 +150,7 @@ export async function createContainer(
   const mergedConfig = withWorkspacePermissionGuards({
     ...baseConfig,
     ...providerGatewayConfig,
+    small_model: resolveSmallModel(baseConfig),
   });
 
   // Ensure volumes exist for persistent workspace and OpenCode state

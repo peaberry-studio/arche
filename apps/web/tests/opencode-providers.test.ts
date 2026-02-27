@@ -63,6 +63,12 @@ describe('syncProviderAccessForInstance', () => {
       providerId: 'openai',
       version: 2,
     })
+    expect(mockIssueGatewayToken).toHaveBeenCalledWith({
+      userId: 'user-1',
+      workspaceSlug: 'alice',
+      providerId: 'opencode',
+      version: 0,
+    })
 
     const calls = (global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
     const urls = calls.map((c) => c[0])
@@ -72,7 +78,7 @@ describe('syncProviderAccessForInstance', () => {
     // DELETE auth for managed providers without credentials (best-effort)
     expect(urls).toContain('http://opencode-alice:4096/auth/anthropic')
     expect(urls).toContain('http://opencode-alice:4096/auth/openrouter')
-    expect(urls).not.toContain('http://opencode-alice:4096/auth/opencode')
+    expect(urls).toContain('http://opencode-alice:4096/auth/opencode')
     // Dispose refresh
     expect(urls).toContain('http://opencode-alice:4096/instance/dispose')
 

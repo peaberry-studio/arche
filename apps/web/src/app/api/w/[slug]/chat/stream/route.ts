@@ -173,6 +173,7 @@ async function readWorkspaceAttachment(
  * - status: { status: 'connecting' | 'thinking' | 'reasoning' | 'tool-calling' | 'writing' | 'complete' | 'error', toolName?, detail? }
  * - message: { id, role, sessionId }
  * - part: { messageId, part, delta? }
+ * - session: { type, sessionId?, title? }
  * - workspace-updated: { type, path? }
  * - done: { refresh: true } - Stream complete, client should refresh messages
  * - error: { error: string }
@@ -466,25 +467,43 @@ export async function POST(
           sendEvent('status', { status, toolName, detail })
         }
 
+        const finishStream = (terminal: { kind: 'done' } | { kind: 'error'; detail: string; error: string }) => {
+          if (aborted) {
+            return
+          }
+
+          if (terminal.kind === 'error') {
+            emitStatus('error', undefined, terminal.detail)
+            sendEvent('error', { error: terminal.error })
+          } else {
+            console.log('[stream] Session idle, completing')
+            emitStatus('complete')
+            sendEvent('done', { refresh: true })
+          }
+
+          aborted = true
+        }
+
+        const finishWithError = (detail: string, error: string) => {
+          finishStream({ kind: 'error', detail, error })
+        }
+
+        const finishDone = () => {
+          finishStream({ kind: 'done' })
+        }
+
         const finalizeFromIdle = () => {
           if (!resume && !assistantMessageSeen) {
-            emitStatus('error', undefined, 'stream_no_assistant_message')
-            sendEvent('error', { error: 'stream_no_assistant_message' })
-            aborted = true
+            finishWithError('stream_no_assistant_message', 'stream_no_assistant_message')
             return
           }
 
           if (!resume && !assistantPartSeen) {
-            emitStatus('error', undefined, 'stream_incomplete')
-            sendEvent('error', { error: 'stream_incomplete' })
-            aborted = true
+            finishWithError('stream_incomplete', 'stream_incomplete')
             return
           }
 
-          console.log('[stream] Session idle, completing')
-          emitStatus('complete')
-          sendEvent('done', { refresh: true })
-          aborted = true
+          finishDone()
         }
         
         console.log('[stream] Starting to read events...')
@@ -503,9 +522,7 @@ export async function POST(
 
             if (readResult.type === 'tick') {
               if (Date.now() - lastRelevantEventAt > relevantEventTimeoutMs) {
-                emitStatus('error', undefined, 'stream_timeout')
-                sendEvent('error', { error: 'stream_timeout' })
-                aborted = true
+                finishWithError('stream_timeout', 'stream_timeout')
               }
               continue
             }
@@ -526,13 +543,14 @@ export async function POST(
           const parsed = parseSseChunk(parseState, decoder.decode(value, { stream: true }))
           parseState = parsed.state
 
+          eventLoop:
           for (const parsedEvent of parsed.events) {
             const eventData = parsedEvent.data
             if (!eventData) continue
 
             // End of event, process it
-              try {
-                const event = JSON.parse(eventData)
+            try {
+              const event = JSON.parse(eventData)
                 
                 // Get sessionID from event
                 const eventSessionId =
@@ -540,32 +558,32 @@ export async function POST(
                   event.properties?.info?.sessionID ||
                   event.properties?.part?.sessionID
 
-                const eventType = typeof event.type === 'string' ? event.type : ''
-                const isWorkspaceEvent =
-                  eventType === 'file.edited' ||
-                  eventType === 'file.created' ||
-                  eventType === 'file.deleted' ||
-                  eventType === 'todo.updated'
+              const eventType = typeof event.type === 'string' ? event.type : ''
+              const isWorkspaceEvent =
+                eventType === 'file.edited' ||
+                eventType === 'file.created' ||
+                eventType === 'file.deleted' ||
+                eventType === 'todo.updated'
 
-                const isSessionScopedEvent =
-                  eventType === 'session.status' ||
-                  eventType === 'session.idle' ||
-                  eventType === 'session.error'
+              const isSessionScopedEvent =
+                eventType === 'session.status' ||
+                eventType === 'session.idle' ||
+                eventType === 'session.error'
                 
-                // Filter events for our session only
-                if (!isWorkspaceEvent) {
-                  if (isSessionScopedEvent && eventSessionId !== sessionId) {
-                    continue
-                  }
-
-                  if (!isSessionScopedEvent && eventSessionId && eventSessionId !== sessionId) {
-                    continue
-                  }
+              // Filter events for our session only
+              if (!isWorkspaceEvent) {
+                if (isSessionScopedEvent && eventSessionId !== sessionId) {
+                  continue
                 }
+
+                if (!isSessionScopedEvent && eventSessionId && eventSessionId !== sessionId) {
+                  continue
+                }
+              }
+
+              console.log('[stream] Event:', eventType)
                 
-                console.log('[stream] Event:', eventType)
-                
-                switch (eventType) {
+              switch (eventType) {
                   // Session status changes
                   case 'session.status': {
                     markRelevantEvent()
@@ -585,6 +603,9 @@ export async function POST(
                         break
                       }
                       finalizeFromIdle()
+                      if (aborted) {
+                        break eventLoop
+                      }
                     }
                     break
                   }
@@ -597,6 +618,9 @@ export async function POST(
                       break
                     }
                     finalizeFromIdle()
+                    if (aborted) {
+                      break eventLoop
+                    }
                     break
                   }
 
@@ -604,9 +628,11 @@ export async function POST(
                     markRelevantEvent()
                     const error = event.properties?.error
                     console.log('[stream] Session error:', error)
-                    emitStatus('error', undefined, error?.data?.message || 'Unknown error')
-                    sendEvent('error', { error: error?.data?.message || 'Unknown error' })
-                    aborted = true
+                    const errorMessage = error?.data?.message || 'Unknown error'
+                    finishWithError(errorMessage, errorMessage)
+                    if (aborted) {
+                      break eventLoop
+                    }
                     break
                   }
 
@@ -725,18 +751,39 @@ export async function POST(
                     break
                   }
 
-                  // Ignore other event types
                   case 'session.updated':
-                  case 'session.created':
-                    // These are informational, don't need to forward
-                    break
+                  case 'session.created': {
+                    const sessionInfo =
+                      event.properties?.info && typeof event.properties.info === 'object'
+                        ? (event.properties.info as Record<string, unknown>)
+                        : undefined
+                    const sessionTitle =
+                      typeof sessionInfo?.title === 'string'
+                        ? sessionInfo.title
+                        : typeof event.properties?.title === 'string'
+                        ? event.properties.title
+                        : undefined
+                    const updatedSessionId =
+                      typeof eventSessionId === 'string'
+                        ? eventSessionId
+                        : typeof sessionInfo?.id === 'string'
+                        ? sessionInfo.id
+                        : undefined
 
-                  default:
-                    console.log('[stream] Unhandled event type:', eventType)
-                }
-              } catch {
-                console.log('[stream] Failed to parse event:', eventData.substring(0, 100))
+                    sendEvent('session', {
+                      type: eventType,
+                      sessionId: updatedSessionId,
+                      title: sessionTitle,
+                    })
+                    break
+                  }
+
+                default:
+                  console.log('[stream] Unhandled event type:', eventType)
               }
+            } catch {
+              console.log('[stream] Failed to parse event:', eventData.substring(0, 100))
+            }
           }
         }
         

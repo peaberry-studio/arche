@@ -1,6 +1,6 @@
 import { getActiveCredentialForUser } from '@/lib/providers/store'
 import { issueGatewayToken } from '@/lib/providers/tokens'
-import { PROVIDERS, type ProviderId } from '@/lib/providers/types'
+import { OPENCODE_PUBLIC_VERSION, PROVIDERS, type ProviderId } from '@/lib/providers/types'
 
 export type SyncProviderAccessResult =
   | { ok: true }
@@ -22,22 +22,39 @@ export async function syncProviderAccessForInstance(
     const enabledByProvider = new Map<ProviderId, { version: number }>()
 
     for (const providerId of PROVIDERS) {
-      const pid = providerId as ProviderId
       const credential = await getActiveCredentialForUser({
         userId: input.userId,
-        providerId: pid,
+        providerId,
       })
       if (!credential) continue
-      enabledByProvider.set(pid, { version: credential.version })
+      enabledByProvider.set(providerId, { version: credential.version })
     }
 
     for (const providerId of PROVIDERS) {
-      const enabled = enabledByProvider.get(providerId as ProviderId)
+      const enabled = enabledByProvider.get(providerId)
       const url = `${instance.baseUrl}/auth/${providerId}`
 
       if (!enabled) {
         if (providerId === 'opencode') {
-          // Preserve native Zen authentication when no Arche-managed credential exists.
+          // Keep OpenCode provider authenticated through gateway even without an
+          // Arche-managed credential. Gateway token version 0 maps to public Zen access.
+          const token = issueGatewayToken({
+            userId: input.userId,
+            workspaceSlug: input.slug,
+            providerId,
+            version: OPENCODE_PUBLIC_VERSION,
+          })
+
+          await fetch(url, {
+            method: 'PUT',
+            headers: {
+              Authorization: instance.authHeader,
+              Accept: 'application/json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ type: 'api', key: token }),
+            cache: 'no-store',
+          })
           continue
         }
 
@@ -55,7 +72,7 @@ export async function syncProviderAccessForInstance(
       const token = issueGatewayToken({
         userId: input.userId,
         workspaceSlug: input.slug,
-        providerId: providerId as ProviderId,
+        providerId,
         version: enabled.version,
       })
 

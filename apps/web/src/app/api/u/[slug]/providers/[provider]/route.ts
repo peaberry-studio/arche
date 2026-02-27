@@ -6,7 +6,7 @@ import { getInstanceUrl } from '@/lib/opencode/client'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
 import { prisma } from '@/lib/prisma'
 import { createApiCredential } from '@/lib/providers/store'
-import { PROVIDERS, type ProviderId } from '@/lib/providers/types'
+import { isProviderId, type ProviderId } from '@/lib/providers/types'
 
 export interface CreateProviderCredentialRequest {
   apiKey: string
@@ -23,10 +23,6 @@ export interface ProviderCredentialResponse {
 export interface DisableProviderCredentialResponse {
   ok: true
   status: 'disabled' | 'missing'
-}
-
-function isProviderId(value: string): value is ProviderId {
-  return PROVIDERS.includes(value as ProviderId)
 }
 
 async function syncProviderAccessBestEffort(slug: string, userId: string): Promise<void> {

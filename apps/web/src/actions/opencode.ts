@@ -5,7 +5,12 @@ import { getSessionFromToken, SESSION_COOKIE_NAME } from "@/lib/auth";
 import { createInstanceClient } from "@/lib/opencode/client";
 import { prisma } from "@/lib/prisma";
 import { getActiveCredentialForUser } from "@/lib/providers/store";
-import { PROVIDERS, type ProviderId } from "@/lib/providers/types";
+import {
+  CREDENTIAL_REQUIRED_PROVIDER_IDS,
+  isProviderId,
+  PROVIDERS,
+  type ProviderId,
+} from "@/lib/providers/types";
 import { decryptPassword } from "@/lib/spawner/crypto";
 import { deriveWorkspaceMessageRuntimeState } from "@/lib/workspace-message-state";
 import {
@@ -23,12 +28,6 @@ import type {
 } from "@/lib/opencode/types";
 import { extractTextContent, transformParts } from "@/lib/opencode/transform";
 
-const CREDENTIAL_REQUIRED_PROVIDER_IDS = new Set<ProviderId>([
-  "openai",
-  "anthropic",
-  "openrouter",
-]);
-
 function normalizeMessageRole(
   role: unknown
 ): "user" | "assistant" | "system" | null {
@@ -37,6 +36,22 @@ function normalizeMessageRole(
   }
 
   return null;
+}
+
+function isZeroCost(value: unknown): boolean {
+  return typeof value === "number" && value === 0;
+}
+
+function isPublicOpencodeModel(model: unknown): boolean {
+  if (!model || typeof model !== "object") return false;
+
+  const cost = (model as { cost?: unknown }).cost;
+  if (!cost || typeof cost !== "object") return false;
+
+  const inputCost = (cost as { input?: unknown }).input;
+  const outputCost = (cost as { output?: unknown }).output;
+
+  return isZeroCost(inputCost) && isZeroCost(outputCost);
 }
 
 function extractUserTextContent(parts: ReturnType<typeof transformParts>): string {
@@ -870,6 +885,7 @@ export async function listModelsAction(slug: string): Promise<{
     });
     if (credential) enabledProviderIds.add(providerId);
   }
+  const hasOpencodeCredential = enabledProviderIds.has("opencode");
 
   try {
     const result = await client.config.providers();
@@ -880,12 +896,16 @@ export async function listModelsAction(slug: string): Promise<{
     const models: AvailableModel[] = [];
 
     for (const provider of providers ?? []) {
-      const providerId = provider.id as ProviderId;
+      if (!isProviderId(provider.id)) {
+        continue;
+      }
+
+      const providerId = provider.id;
 
       // OpenCode Zen can be available via native workspace auth even without
       // an Arche-managed API credential.
       if (
-        CREDENTIAL_REQUIRED_PROVIDER_IDS.has(providerId) &&
+        CREDENTIAL_REQUIRED_PROVIDER_IDS.includes(providerId) &&
         !enabledProviderIds.has(providerId)
       ) {
         continue;
@@ -894,9 +914,17 @@ export async function listModelsAction(slug: string): Promise<{
       // Models is an object with modelId as key
       const providerModels = provider.models ?? {};
       for (const [modelId, model] of Object.entries(providerModels)) {
-        const isDefault = defaults?.[provider.id] === modelId;
+        if (
+          providerId === "opencode" &&
+          !hasOpencodeCredential &&
+          !isPublicOpencodeModel(model)
+        ) {
+          continue;
+        }
+
+        const isDefault = defaults?.[providerId] === modelId;
         models.push({
-          providerId: provider.id,
+          providerId,
           providerName: provider.name,
           modelId,
           modelName: model.name ?? modelId,
