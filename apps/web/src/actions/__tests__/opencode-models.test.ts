@@ -43,15 +43,24 @@ const providersResponse = {
         id: 'openai',
         name: 'OpenAI',
         models: {
-          'gpt-5.2': { name: 'GPT-5.2' },
+          'gpt-5.2': {
+            name: 'GPT-5.2',
+            cost: { input: 1, output: 2 },
+          },
         },
       },
       {
         id: 'opencode',
         name: 'OpenCode Zen',
         models: {
-          'big-pickle': { name: 'Big Pickle' },
-          'scene-free': { name: 'Scene Free' },
+          'big-pickle': {
+            name: 'Big Pickle',
+            cost: { input: 3, output: 4 },
+          },
+          'scene-free': {
+            name: 'Scene Free',
+            cost: { input: 0, output: 0 },
+          },
         },
       },
     ],

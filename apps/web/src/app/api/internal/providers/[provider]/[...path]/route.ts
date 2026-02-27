@@ -39,7 +39,7 @@ const HOP_BY_HOP_HEADERS = [
 ]
 
 function isProviderId(value: string): value is ProviderId {
-  return PROVIDERS.includes(value as ProviderId)
+  return PROVIDERS.some((providerId) => providerId === value)
 }
 
 function extractGatewayToken(providerId: ProviderId, headers: Headers): string | null {

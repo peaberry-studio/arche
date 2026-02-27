@@ -467,39 +467,43 @@ export async function POST(
           sendEvent('status', { status, toolName, detail })
         }
 
-        const finishWithError = (detail: string, error: string): boolean => {
+        const finishStream = (terminal: { kind: 'done' } | { kind: 'error'; detail: string; error: string }) => {
           if (aborted) {
-            return false
+            return
           }
 
-          emitStatus('error', undefined, detail)
-          sendEvent('error', { error })
-          aborted = true
-          return true
-        }
-
-        const finishDone = (): boolean => {
-          if (aborted) {
-            return false
+          if (terminal.kind === 'error') {
+            emitStatus('error', undefined, terminal.detail)
+            sendEvent('error', { error: terminal.error })
+          } else {
+            console.log('[stream] Session idle, completing')
+            emitStatus('complete')
+            sendEvent('done', { refresh: true })
           }
 
-          console.log('[stream] Session idle, completing')
-          emitStatus('complete')
-          sendEvent('done', { refresh: true })
           aborted = true
-          return true
         }
 
-        const finalizeFromIdle = (): boolean => {
+        const finishWithError = (detail: string, error: string) => {
+          finishStream({ kind: 'error', detail, error })
+        }
+
+        const finishDone = () => {
+          finishStream({ kind: 'done' })
+        }
+
+        const finalizeFromIdle = () => {
           if (!resume && !assistantMessageSeen) {
-            return finishWithError('stream_no_assistant_message', 'stream_no_assistant_message')
+            finishWithError('stream_no_assistant_message', 'stream_no_assistant_message')
+            return
           }
 
           if (!resume && !assistantPartSeen) {
-            return finishWithError('stream_incomplete', 'stream_incomplete')
+            finishWithError('stream_incomplete', 'stream_incomplete')
+            return
           }
 
-          return finishDone()
+          finishDone()
         }
         
         console.log('[stream] Starting to read events...')
@@ -602,7 +606,8 @@ export async function POST(
                         console.log('[stream] Ignoring pre-prompt idle session.status event')
                         break
                       }
-                      stopCurrentChunk = finalizeFromIdle()
+                      finalizeFromIdle()
+                      stopCurrentChunk = aborted
                     }
                     break
                   }
@@ -614,7 +619,8 @@ export async function POST(
                       console.log('[stream] Ignoring pre-prompt session.idle event')
                       break
                     }
-                    stopCurrentChunk = finalizeFromIdle()
+                    finalizeFromIdle()
+                    stopCurrentChunk = aborted
                     break
                   }
 
@@ -623,7 +629,8 @@ export async function POST(
                     const error = event.properties?.error
                     console.log('[stream] Session error:', error)
                     const errorMessage = error?.data?.message || 'Unknown error'
-                    stopCurrentChunk = finishWithError(errorMessage, errorMessage)
+                    finishWithError(errorMessage, errorMessage)
+                    stopCurrentChunk = aborted
                     break
                   }
 

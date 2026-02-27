@@ -22,17 +22,16 @@ export async function syncProviderAccessForInstance(
     const enabledByProvider = new Map<ProviderId, { version: number }>()
 
     for (const providerId of PROVIDERS) {
-      const pid = providerId as ProviderId
       const credential = await getActiveCredentialForUser({
         userId: input.userId,
-        providerId: pid,
+        providerId,
       })
       if (!credential) continue
-      enabledByProvider.set(pid, { version: credential.version })
+      enabledByProvider.set(providerId, { version: credential.version })
     }
 
     for (const providerId of PROVIDERS) {
-      const enabled = enabledByProvider.get(providerId as ProviderId)
+      const enabled = enabledByProvider.get(providerId)
       const url = `${instance.baseUrl}/auth/${providerId}`
 
       if (!enabled) {
@@ -42,7 +41,7 @@ export async function syncProviderAccessForInstance(
           const token = issueGatewayToken({
             userId: input.userId,
             workspaceSlug: input.slug,
-            providerId: providerId as ProviderId,
+            providerId,
             version: 0,
           })
 
@@ -73,7 +72,7 @@ export async function syncProviderAccessForInstance(
       const token = issueGatewayToken({
         userId: input.userId,
         workspaceSlug: input.slug,
-        providerId: providerId as ProviderId,
+        providerId,
         version: enabled.version,
       })
 

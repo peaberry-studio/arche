@@ -37,8 +37,24 @@ function normalizeMessageRole(
   return null;
 }
 
-function isLikelyFreeOpencodeModel(modelId: string): boolean {
-  return modelId.toLowerCase().includes("free");
+function isProviderId(value: string): value is ProviderId {
+  return PROVIDERS.some((providerId) => providerId === value);
+}
+
+function isZeroCost(value: unknown): value is 0 {
+  return typeof value === "number" && value === 0;
+}
+
+function isPublicOpencodeModel(model: unknown): boolean {
+  if (!model || typeof model !== "object") return false;
+
+  const cost = (model as { cost?: unknown }).cost;
+  if (!cost || typeof cost !== "object") return false;
+
+  const inputCost = (cost as { input?: unknown }).input;
+  const outputCost = (cost as { output?: unknown }).output;
+
+  return isZeroCost(inputCost) && isZeroCost(outputCost);
 }
 
 function extractUserTextContent(parts: ReturnType<typeof transformParts>): string {
@@ -883,7 +899,11 @@ export async function listModelsAction(slug: string): Promise<{
     const models: AvailableModel[] = [];
 
     for (const provider of providers ?? []) {
-      const providerId = provider.id as ProviderId;
+      if (!isProviderId(provider.id)) {
+        continue;
+      }
+
+      const providerId = provider.id;
 
       // OpenCode Zen can be available via native workspace auth even without
       // an Arche-managed API credential.
@@ -900,14 +920,14 @@ export async function listModelsAction(slug: string): Promise<{
         if (
           providerId === "opencode" &&
           !hasOpencodeCredential &&
-          !isLikelyFreeOpencodeModel(modelId)
+          !isPublicOpencodeModel(model)
         ) {
           continue;
         }
 
-        const isDefault = defaults?.[provider.id] === modelId;
+        const isDefault = defaults?.[providerId] === modelId;
         models.push({
-          providerId: provider.id,
+          providerId,
           providerName: provider.name,
           modelId,
           modelName: model.name ?? modelId,
