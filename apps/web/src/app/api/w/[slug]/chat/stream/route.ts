@@ -549,8 +549,8 @@ export async function POST(
             if (!eventData) continue
 
             // End of event, process it
-              try {
-                const event = JSON.parse(eventData)
+            try {
+              const event = JSON.parse(eventData)
                 
                 // Get sessionID from event
                 const eventSessionId =
@@ -558,32 +558,32 @@ export async function POST(
                   event.properties?.info?.sessionID ||
                   event.properties?.part?.sessionID
 
-                const eventType = typeof event.type === 'string' ? event.type : ''
-                const isWorkspaceEvent =
-                  eventType === 'file.edited' ||
-                  eventType === 'file.created' ||
-                  eventType === 'file.deleted' ||
-                  eventType === 'todo.updated'
+              const eventType = typeof event.type === 'string' ? event.type : ''
+              const isWorkspaceEvent =
+                eventType === 'file.edited' ||
+                eventType === 'file.created' ||
+                eventType === 'file.deleted' ||
+                eventType === 'todo.updated'
 
-                const isSessionScopedEvent =
-                  eventType === 'session.status' ||
-                  eventType === 'session.idle' ||
-                  eventType === 'session.error'
+              const isSessionScopedEvent =
+                eventType === 'session.status' ||
+                eventType === 'session.idle' ||
+                eventType === 'session.error'
                 
-                // Filter events for our session only
-                if (!isWorkspaceEvent) {
-                  if (isSessionScopedEvent && eventSessionId !== sessionId) {
-                    continue
-                  }
-
-                  if (!isSessionScopedEvent && eventSessionId && eventSessionId !== sessionId) {
-                    continue
-                  }
+              // Filter events for our session only
+              if (!isWorkspaceEvent) {
+                if (isSessionScopedEvent && eventSessionId !== sessionId) {
+                  continue
                 }
+
+                if (!isSessionScopedEvent && eventSessionId && eventSessionId !== sessionId) {
+                  continue
+                }
+              }
+
+              console.log('[stream] Event:', eventType)
                 
-                console.log('[stream] Event:', eventType)
-                
-                switch (eventType) {
+              switch (eventType) {
                   // Session status changes
                   case 'session.status': {
                     markRelevantEvent()
@@ -769,12 +769,12 @@ export async function POST(
                     break
                   }
 
-                  default:
-                    console.log('[stream] Unhandled event type:', eventType)
-                }
-              } catch {
-                console.log('[stream] Failed to parse event:', eventData.substring(0, 100))
+                default:
+                  console.log('[stream] Unhandled event type:', eventType)
               }
+            } catch {
+              console.log('[stream] Failed to parse event:', eventData.substring(0, 100))
+            }
           }
         }
         
