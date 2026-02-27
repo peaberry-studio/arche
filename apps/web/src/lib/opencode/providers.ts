@@ -1,6 +1,6 @@
 import { getActiveCredentialForUser } from '@/lib/providers/store'
 import { issueGatewayToken } from '@/lib/providers/tokens'
-import { PROVIDERS, type ProviderId } from '@/lib/providers/types'
+import { OPENCODE_PUBLIC_VERSION, PROVIDERS, type ProviderId } from '@/lib/providers/types'
 
 export type SyncProviderAccessResult =
   | { ok: true }
@@ -42,7 +42,7 @@ export async function syncProviderAccessForInstance(
             userId: input.userId,
             workspaceSlug: input.slug,
             providerId,
-            version: 0,
+            version: OPENCODE_PUBLIC_VERSION,
           })
 
           await fetch(url, {

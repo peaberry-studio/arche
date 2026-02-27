@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { getActiveCredentialForUser } from "@/lib/providers/store";
 import {
   CREDENTIAL_REQUIRED_PROVIDER_IDS,
+  isProviderId,
   PROVIDERS,
   type ProviderId,
 } from "@/lib/providers/types";
@@ -37,11 +38,7 @@ function normalizeMessageRole(
   return null;
 }
 
-function isProviderId(value: string): value is ProviderId {
-  return PROVIDERS.some((providerId) => providerId === value);
-}
-
-function isZeroCost(value: unknown): value is 0 {
+function isZeroCost(value: unknown): boolean {
   return typeof value === "number" && value === 0;
 }
 

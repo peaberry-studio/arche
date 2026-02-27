@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { decryptProviderSecret } from '@/lib/providers/crypto'
 import { getActiveCredentialForUser } from '@/lib/providers/store'
 import { verifyGatewayToken } from '@/lib/providers/tokens'
-import { PROVIDERS, type ProviderId } from '@/lib/providers/types'
+import { isProviderId, OPENCODE_PUBLIC_API_KEY, OPENCODE_PUBLIC_VERSION, type ProviderId } from '@/lib/providers/types'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -37,10 +37,6 @@ const HOP_BY_HOP_HEADERS = [
   'transfer-encoding',
   'upgrade',
 ]
-
-function isProviderId(value: string): value is ProviderId {
-  return PROVIDERS.some((providerId) => providerId === value)
-}
 
 function extractGatewayToken(providerId: ProviderId, headers: Headers): string | null {
   if (providerId === 'openai' || providerId === 'openrouter') {
@@ -233,8 +229,8 @@ async function handleProxy(
     })
 
     if (!credential) {
-      if (provider === 'opencode' && payload.version === 0) {
-        apiKey = 'public'
+      if (provider === 'opencode' && payload.version === OPENCODE_PUBLIC_VERSION) {
+        apiKey = OPENCODE_PUBLIC_API_KEY
       } else {
         return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
       }

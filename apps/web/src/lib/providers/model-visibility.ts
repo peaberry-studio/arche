@@ -1,26 +1,20 @@
 import type { AvailableModel } from '@/lib/opencode/types'
-import { CREDENTIAL_REQUIRED_PROVIDER_IDS, PROVIDERS, type ProviderId } from '@/lib/providers/types'
-
-const credentialRequiredProviderIds = new Set<ProviderId>(CREDENTIAL_REQUIRED_PROVIDER_IDS)
-
-function toProviderId(value: string): ProviderId | null {
-  return PROVIDERS.find((providerId) => providerId === value) ?? null
-}
+import { CREDENTIAL_REQUIRED_PROVIDER_IDS, isProviderId } from '@/lib/providers/types'
+import type { ProviderId } from '@/lib/providers/types'
 
 export function filterModelsByEnabledProviders(
   models: AvailableModel[],
   enabledProviderIds: Set<ProviderId>,
 ): AvailableModel[] {
   return models.filter((model) => {
-    const providerId = toProviderId(model.providerId)
-    if (!providerId) {
+    if (!isProviderId(model.providerId)) {
       return true
     }
 
-    if (!credentialRequiredProviderIds.has(providerId)) {
+    if (!CREDENTIAL_REQUIRED_PROVIDER_IDS.includes(model.providerId)) {
       return true
     }
 
-    return enabledProviderIds.has(providerId)
+    return enabledProviderIds.has(model.providerId)
   })
 }
