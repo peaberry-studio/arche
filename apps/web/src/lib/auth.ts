@@ -103,7 +103,20 @@ export async function getSessionFromToken(token: string): Promise<{
   const tokenHash = hashSessionToken(token)
   const session = await prisma.session.findUnique({
     where: { tokenHash },
-    include: { user: true }
+    select: {
+      id: true,
+      expiresAt: true,
+      revokedAt: true,
+      userId: true,
+      user: {
+        select: {
+          id: true,
+          email: true,
+          slug: true,
+          role: true
+        }
+      }
+    }
   })
 
   if (!session) return null
