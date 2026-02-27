@@ -244,6 +244,25 @@ describe('docker', () => {
       expect(writtenConfig.small_model).toBe('opencode/gpt-5-nano')
     })
 
+    it('ignores config.model when resolving small_model fallback', async () => {
+      const configContent = JSON.stringify({
+        model: 'opencode/expensive-model',
+      })
+
+      await createContainer('user-slug', 'secret-password', configContent)
+
+      const configCall = mockWriteFile.mock.calls.find(
+        (call: unknown[]) =>
+          typeof call[0] === 'string' &&
+          (call[0] as string).endsWith('opencode-config.json')
+      )
+      const writtenConfig = JSON.parse(String(configCall?.[1])) as {
+        small_model?: string
+      }
+
+      expect(writtenConfig.small_model).toBe('opencode/gpt-5-nano')
+    })
+
     it('uses provided git author identity when passed', async () => {
       await createContainer('user-slug', 'secret-password', undefined, undefined, {
         name: 'alice',

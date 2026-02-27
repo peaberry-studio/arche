@@ -61,9 +61,6 @@ function resolveSmallModel(config: Record<string, unknown>): string {
   const explicitSmallModel = asNonEmptyString(config.small_model);
   if (explicitSmallModel) return explicitSmallModel;
 
-  const explicitModel = asNonEmptyString(config.model);
-  if (explicitModel) return explicitModel;
-
   return DEFAULT_SMALL_MODEL;
 }
 
