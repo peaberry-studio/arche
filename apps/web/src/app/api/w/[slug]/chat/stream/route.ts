@@ -467,29 +467,39 @@ export async function POST(
           sendEvent('status', { status, toolName, detail })
         }
 
-        const finalizeFromIdle = () => {
+        const finishWithError = (detail: string, error: string): boolean => {
           if (aborted) {
-            return
+            return false
           }
 
-          if (!resume && !assistantMessageSeen) {
-            emitStatus('error', undefined, 'stream_no_assistant_message')
-            sendEvent('error', { error: 'stream_no_assistant_message' })
-            aborted = true
-            return
-          }
+          emitStatus('error', undefined, detail)
+          sendEvent('error', { error })
+          aborted = true
+          return true
+        }
 
-          if (!resume && !assistantPartSeen) {
-            emitStatus('error', undefined, 'stream_incomplete')
-            sendEvent('error', { error: 'stream_incomplete' })
-            aborted = true
-            return
+        const finishDone = (): boolean => {
+          if (aborted) {
+            return false
           }
 
           console.log('[stream] Session idle, completing')
           emitStatus('complete')
           sendEvent('done', { refresh: true })
           aborted = true
+          return true
+        }
+
+        const finalizeFromIdle = (): boolean => {
+          if (!resume && !assistantMessageSeen) {
+            return finishWithError('stream_no_assistant_message', 'stream_no_assistant_message')
+          }
+
+          if (!resume && !assistantPartSeen) {
+            return finishWithError('stream_incomplete', 'stream_incomplete')
+          }
+
+          return finishDone()
         }
         
         console.log('[stream] Starting to read events...')
@@ -508,9 +518,7 @@ export async function POST(
 
             if (readResult.type === 'tick') {
               if (Date.now() - lastRelevantEventAt > relevantEventTimeoutMs) {
-                emitStatus('error', undefined, 'stream_timeout')
-                sendEvent('error', { error: 'stream_timeout' })
-                aborted = true
+                finishWithError('stream_timeout', 'stream_timeout')
               }
               continue
             }
@@ -531,8 +539,9 @@ export async function POST(
           const parsed = parseSseChunk(parseState, decoder.decode(value, { stream: true }))
           parseState = parsed.state
 
+          let stopCurrentChunk = false
           for (const parsedEvent of parsed.events) {
-            if (aborted) {
+            if (stopCurrentChunk) {
               break
             }
 
@@ -593,7 +602,7 @@ export async function POST(
                         console.log('[stream] Ignoring pre-prompt idle session.status event')
                         break
                       }
-                      finalizeFromIdle()
+                      stopCurrentChunk = finalizeFromIdle()
                     }
                     break
                   }
@@ -605,7 +614,7 @@ export async function POST(
                       console.log('[stream] Ignoring pre-prompt session.idle event')
                       break
                     }
-                    finalizeFromIdle()
+                    stopCurrentChunk = finalizeFromIdle()
                     break
                   }
 
@@ -613,9 +622,8 @@ export async function POST(
                     markRelevantEvent()
                     const error = event.properties?.error
                     console.log('[stream] Session error:', error)
-                    emitStatus('error', undefined, error?.data?.message || 'Unknown error')
-                    sendEvent('error', { error: error?.data?.message || 'Unknown error' })
-                    aborted = true
+                    const errorMessage = error?.data?.message || 'Unknown error'
+                    stopCurrentChunk = finishWithError(errorMessage, errorMessage)
                     break
                   }
 
