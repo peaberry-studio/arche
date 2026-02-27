@@ -173,6 +173,7 @@ async function readWorkspaceAttachment(
  * - status: { status: 'connecting' | 'thinking' | 'reasoning' | 'tool-calling' | 'writing' | 'complete' | 'error', toolName?, detail? }
  * - message: { id, role, sessionId }
  * - part: { messageId, part, delta? }
+ * - session: { type, sessionId?, title? }
  * - workspace-updated: { type, path? }
  * - done: { refresh: true } - Stream complete, client should refresh messages
  * - error: { error: string }
@@ -467,6 +468,10 @@ export async function POST(
         }
 
         const finalizeFromIdle = () => {
+          if (aborted) {
+            return
+          }
+
           if (!resume && !assistantMessageSeen) {
             emitStatus('error', undefined, 'stream_no_assistant_message')
             sendEvent('error', { error: 'stream_no_assistant_message' })
@@ -527,6 +532,10 @@ export async function POST(
           parseState = parsed.state
 
           for (const parsedEvent of parsed.events) {
+            if (aborted) {
+              break
+            }
+
             const eventData = parsedEvent.data
             if (!eventData) continue
 
@@ -725,11 +734,32 @@ export async function POST(
                     break
                   }
 
-                  // Ignore other event types
                   case 'session.updated':
-                  case 'session.created':
-                    // These are informational, don't need to forward
+                  case 'session.created': {
+                    const sessionInfo =
+                      event.properties?.info && typeof event.properties.info === 'object'
+                        ? (event.properties.info as Record<string, unknown>)
+                        : undefined
+                    const sessionTitle =
+                      typeof sessionInfo?.title === 'string'
+                        ? sessionInfo.title
+                        : typeof event.properties?.title === 'string'
+                        ? event.properties.title
+                        : undefined
+                    const updatedSessionId =
+                      typeof eventSessionId === 'string'
+                        ? eventSessionId
+                        : typeof sessionInfo?.id === 'string'
+                        ? sessionInfo.id
+                        : undefined
+
+                    sendEvent('session', {
+                      type: eventType,
+                      sessionId: updatedSessionId,
+                      title: sessionTitle,
+                    })
                     break
+                  }
 
                   default:
                     console.log('[stream] Unhandled event type:', eventType)

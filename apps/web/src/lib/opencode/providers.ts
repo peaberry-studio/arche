@@ -37,7 +37,25 @@ export async function syncProviderAccessForInstance(
 
       if (!enabled) {
         if (providerId === 'opencode') {
-          // Preserve native Zen authentication when no Arche-managed credential exists.
+          // Keep OpenCode provider authenticated through gateway even without an
+          // Arche-managed credential. Gateway token version 0 maps to public Zen access.
+          const token = issueGatewayToken({
+            userId: input.userId,
+            workspaceSlug: input.slug,
+            providerId: providerId as ProviderId,
+            version: 0,
+          })
+
+          await fetch(url, {
+            method: 'PUT',
+            headers: {
+              Authorization: instance.authHeader,
+              Accept: 'application/json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ type: 'api', key: token }),
+            cache: 'no-store',
+          })
           continue
         }
 

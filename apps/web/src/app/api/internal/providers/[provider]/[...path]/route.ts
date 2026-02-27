@@ -43,11 +43,24 @@ function isProviderId(value: string): value is ProviderId {
 }
 
 function extractGatewayToken(providerId: ProviderId, headers: Headers): string | null {
-  if (providerId === 'openai' || providerId === 'openrouter' || providerId === 'opencode') {
+  if (providerId === 'openai' || providerId === 'openrouter') {
     const header = headers.get('authorization')
     if (!header) return null
     const match = header.match(/^Bearer\s+(.+)$/i)
     return match?.[1]?.trim() || null
+  }
+
+  if (providerId === 'opencode') {
+    const authorization = headers.get('authorization')
+    if (authorization) {
+      const match = authorization.match(/^Bearer\s+(.+)$/i)
+      if (match?.[1]?.trim()) {
+        return match[1].trim()
+      }
+    }
+
+    const apiKey = headers.get('x-api-key')
+    return apiKey?.trim() || null
   }
 
   const apiKey = headers.get('x-api-key')
@@ -220,25 +233,31 @@ async function handleProxy(
     })
 
     if (!credential) {
-      return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+      if (provider === 'opencode' && payload.version === 0) {
+        apiKey = 'public'
+      } else {
+        return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+      }
     }
 
-    if (credential.type !== 'api') {
-      return NextResponse.json({ error: 'unsupported_credential' }, { status: 501 })
-    }
+    if (credential) {
+      if (credential.type !== 'api') {
+        return NextResponse.json({ error: 'unsupported_credential' }, { status: 501 })
+      }
 
-    let secret: ReturnType<typeof decryptProviderSecret>
-    try {
-      secret = decryptProviderSecret(credential.secret)
-    } catch {
-      return NextResponse.json({ error: 'invalid_credentials' }, { status: 500 })
-    }
+      let secret: ReturnType<typeof decryptProviderSecret>
+      try {
+        secret = decryptProviderSecret(credential.secret)
+      } catch {
+        return NextResponse.json({ error: 'invalid_credentials' }, { status: 500 })
+      }
 
-    if (!('apiKey' in secret) || typeof secret.apiKey !== 'string' || !secret.apiKey.trim()) {
-      return NextResponse.json({ error: 'unsupported_credential' }, { status: 501 })
-    }
+      if (!('apiKey' in secret) || typeof secret.apiKey !== 'string' || !secret.apiKey.trim()) {
+        return NextResponse.json({ error: 'unsupported_credential' }, { status: 501 })
+      }
 
-    apiKey = secret.apiKey.trim()
+      apiKey = secret.apiKey.trim()
+    }
   }
 
   if (!apiKey) {
@@ -258,9 +277,13 @@ async function handleProxy(
   // downstream clients to attempt decoding a second time.
   headers.set('accept-encoding', 'identity')
 
-  if (provider === 'openai' || provider === 'openrouter' || provider === 'opencode') {
+  const usesAnthropicAuthStyle = provider === 'anthropic' || (provider === 'opencode' && pathSegments[0] === 'messages')
+
+  if (!usesAnthropicAuthStyle) {
     headers.set('authorization', `Bearer ${apiKey}`)
+    headers.delete('x-api-key')
   } else {
+    headers.delete('authorization')
     headers.set('x-api-key', apiKey)
     if (!headers.has('anthropic-version')) {
       headers.set('anthropic-version', '2023-06-01')

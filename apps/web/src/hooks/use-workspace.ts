@@ -31,7 +31,8 @@ import type {
   MessagePart,
 } from "@/lib/opencode/types";
 import { extractTextContent, transformParts } from "@/lib/opencode/transform";
-import { PROVIDERS, type ProviderId } from "@/lib/providers/types";
+import { filterModelsByEnabledProviders } from "@/lib/providers/model-visibility";
+import type { ProviderId } from "@/lib/providers/types";
 import {
   canAutoResume,
   recordResumeFailure,
@@ -203,6 +204,9 @@ export function useWorkspace({
   const [filesRefreshTrigger, setFilesRefreshTrigger] = useState(0);
   const isLoadingDiffsRef = useRef(false);
   const workspaceRefreshTimeoutRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const sessionsRefreshTimeoutRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
 
@@ -679,6 +683,15 @@ export function useWorkspace({
     }, 250);
   }, []);
 
+  const scheduleSessionsRefresh = useCallback(() => {
+    if (sessionsRefreshTimeoutRef.current) return;
+
+    sessionsRefreshTimeoutRef.current = setTimeout(() => {
+      sessionsRefreshTimeoutRef.current = null;
+      void loadSessions();
+    }, 100);
+  }, [loadSessions]);
+
   type StreamMode = "send" | "resume";
   type StreamOptions = {
     sessionId: string;
@@ -895,8 +908,27 @@ export function useWorkspace({
                     break;
                   }
 
+                  case "session": {
+                    const sessionId =
+                      typeof data.sessionId === "string" ? data.sessionId : null;
+                    const title =
+                      typeof data.title === "string" ? data.title : null;
+
+                    if (sessionId && title) {
+                      setSessions((prev) =>
+                        prev.map((session) =>
+                          session.id === sessionId ? { ...session, title } : session
+                        )
+                      );
+                    }
+
+                    scheduleSessionsRefresh();
+                    break;
+                  }
+
                   case "done": {
                     streamCompleted = true;
+                    scheduleSessionsRefresh();
                     break;
                   }
 
@@ -1058,6 +1090,7 @@ export function useWorkspace({
       syncActiveAgentFromRuntime,
       syncSelectedModel,
       scheduleWorkspaceRefresh,
+      scheduleSessionsRefresh,
     ]
   );
 
@@ -1096,9 +1129,6 @@ export function useWorkspace({
       );
 
       const forceNewSession = options?.forceNewSession === true;
-      if (forceNewSession) {
-        setIsStartingNewSession(true);
-      }
 
       let sessionId = activeSessionId;
       if (forceNewSession || !sessionId) {
@@ -1118,17 +1148,57 @@ export function useWorkspace({
 
       if (!sessionId) return;
 
-      let resolvedModel = model;
+      let availableModels = modelsRef.current;
+      if (availableModels.length === 0) {
+        const latestModels = await listModelsAction(slug);
+        if (latestModels.ok && latestModels.models && latestModels.models.length > 0) {
+          availableModels = latestModels.models;
+          setModels(availableModels);
+          modelsRef.current = availableModels;
+        }
+      }
+
+      const isModelAvailable = (candidate?: {
+        providerId: string;
+        modelId: string;
+      } | null) => {
+        if (!candidate) return false;
+        return availableModels.some(
+          (entry) =>
+            entry.providerId === candidate.providerId &&
+            entry.modelId === candidate.modelId
+        );
+      };
+
+      let resolvedModel = isModelAvailable(model) ? model : undefined;
+
       if (!resolvedModel) {
         const primaryModel = parseModelString(
           agentCatalog.find((agent) => agent.isPrimary)?.model
         );
-        if (primaryModel) {
+        if (isModelAvailable(primaryModel)) {
           resolvedModel = primaryModel;
-        } else if (selectedModel) {
+        }
+      }
+
+      if (!resolvedModel && selectedModel) {
+        const selectedCandidate = {
+          providerId: selectedModel.providerId,
+          modelId: selectedModel.modelId,
+        };
+        if (isModelAvailable(selectedCandidate)) {
+          resolvedModel = selectedCandidate;
+        }
+      }
+
+      if (!resolvedModel) {
+        const fallbackModel =
+          availableModels.find((entry) => entry.isDefault) ??
+          availableModels[0];
+        if (fallbackModel) {
           resolvedModel = {
-            providerId: selectedModel.providerId,
-            modelId: selectedModel.modelId,
+            providerId: fallbackModel.providerId,
+            modelId: fallbackModel.modelId,
           };
         }
       }
@@ -1186,6 +1256,7 @@ export function useWorkspace({
       agentCatalog,
       createSession,
       selectedModel,
+      slug,
       streamChat,
     ]
   );
@@ -1258,10 +1329,7 @@ export function useWorkspace({
             .map((p) => p.providerId)
         );
 
-        nextModels = nextModels.filter((m) => {
-          if (!PROVIDERS.includes(m.providerId as ProviderId)) return true;
-          return enabled.has(m.providerId as ProviderId);
-        });
+        nextModels = filterModelsByEnabledProviders(nextModels, enabled);
       }
     } catch {
       // ignore — fall back to server action list
@@ -1524,6 +1592,10 @@ export function useWorkspace({
       if (workspaceRefreshTimeoutRef.current) {
         clearTimeout(workspaceRefreshTimeoutRef.current);
         workspaceRefreshTimeoutRef.current = null;
+      }
+      if (sessionsRefreshTimeoutRef.current) {
+        clearTimeout(sessionsRefreshTimeoutRef.current);
+        sessionsRefreshTimeoutRef.current = null;
       }
       abortActiveStream();
     };

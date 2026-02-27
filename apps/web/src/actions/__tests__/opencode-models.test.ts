@@ -50,6 +50,7 @@ const providersResponse = {
         id: 'opencode',
         name: 'OpenCode Zen',
         models: {
+          'big-pickle': { name: 'Big Pickle' },
           'scene-free': { name: 'Scene Free' },
         },
       },
@@ -96,6 +97,11 @@ describe('listModelsAction', () => {
     )
     expect(result.models).not.toEqual(
       expect.arrayContaining([
+        expect.objectContaining({ providerId: 'opencode', modelId: 'big-pickle' }),
+      ]),
+    )
+    expect(result.models).not.toEqual(
+      expect.arrayContaining([
         expect.objectContaining({ providerId: 'openai', modelId: 'gpt-5.2' }),
       ]),
     )
@@ -122,6 +128,36 @@ describe('listModelsAction', () => {
       expect.arrayContaining([
         expect.objectContaining({ providerId: 'openai', modelId: 'gpt-5.2' }),
         expect.objectContaining({ providerId: 'opencode', modelId: 'scene-free' }),
+      ]),
+    )
+    expect(result.models).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ providerId: 'opencode', modelId: 'big-pickle' }),
+      ]),
+    )
+  })
+
+  it('includes non-free OpenCode Zen models when an OpenCode credential exists', async () => {
+    mockGetActiveCredentialForUser.mockImplementation(async ({ providerId }) => {
+      if (providerId === 'opencode') {
+        return {
+          id: 'cred-opencode',
+          type: 'api',
+          secret: 'encrypted',
+          version: 1,
+        }
+      }
+
+      return null
+    })
+
+    const result = await listModelsAction('alice')
+
+    expect(result.ok).toBe(true)
+    expect(result.models).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ providerId: 'opencode', modelId: 'scene-free' }),
+        expect.objectContaining({ providerId: 'opencode', modelId: 'big-pickle' }),
       ]),
     )
   })

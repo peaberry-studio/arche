@@ -447,6 +447,108 @@ describe('providers gateway', () => {
     expect(headers.get('x-api-key')).toBe(null)
   })
 
+  it('maps opencode gateway tokens without credentials to public bearer access', async () => {
+    mockVerifyGatewayToken.mockReturnValue({
+      userId: 'user-1',
+      workspaceSlug: 'ws',
+      providerId: 'opencode',
+      version: 0,
+      exp: Math.floor(Date.now() / 1000) + 1000,
+    })
+    mockGetActiveCredentialForUser.mockResolvedValue(null)
+
+    ;(global.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+      new Response('ok', { status: 200 })
+    )
+
+    await callProxy({
+      provider: 'opencode',
+      path: ['responses'],
+      headers: {
+        Authorization: 'Bearer internal-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ model: 'gpt-5-nano', input: 'hello' }),
+      query: '',
+    })
+
+    const [url, options] = (global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(url).toBe('https://opencode.ai/zen/v1/responses')
+    const headers = options.headers as Headers
+    expect(headers.get('authorization')).toBe('Bearer public')
+    expect(headers.get('x-api-key')).toBe(null)
+  })
+
+  it('maps opencode gateway tokens without credentials to public x-api-key for messages', async () => {
+    mockVerifyGatewayToken.mockReturnValue({
+      userId: 'user-1',
+      workspaceSlug: 'ws',
+      providerId: 'opencode',
+      version: 0,
+      exp: Math.floor(Date.now() / 1000) + 1000,
+    })
+    mockGetActiveCredentialForUser.mockResolvedValue(null)
+
+    ;(global.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+      new Response('ok', { status: 200 })
+    )
+
+    await callProxy({
+      provider: 'opencode',
+      path: ['messages'],
+      headers: {
+        Authorization: 'Bearer internal-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ model: 'big-pickle', messages: [] }),
+    })
+
+    const [url, options] = (global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(url).toBe('https://opencode.ai/zen/v1/messages?foo=bar')
+    const headers = options.headers as Headers
+    expect(headers.get('authorization')).toBe(null)
+    expect(headers.get('x-api-key')).toBe('public')
+    expect(headers.get('anthropic-version')).toBe('2023-06-01')
+  })
+
+  it('proxies OpenCode Zen messages using Anthropic-style auth headers', async () => {
+    mockVerifyGatewayToken.mockReturnValue({
+      userId: 'user-1',
+      workspaceSlug: 'ws',
+      providerId: 'opencode',
+      version: 1,
+      exp: Math.floor(Date.now() / 1000) + 1000,
+    })
+    mockGetActiveCredentialForUser.mockResolvedValue({
+      id: 'cred-oc',
+      type: 'api',
+      secret: 'encrypted',
+      version: 1,
+    })
+    mockDecryptProviderSecret.mockReturnValue({ apiKey: 'oc-key' })
+
+    ;(global.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+      new Response('ok', { status: 200 })
+    )
+
+    await callProxy({
+      provider: 'opencode',
+      path: ['messages'],
+      headers: {
+        Authorization: 'Bearer internal-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ model: 'big-pickle', messages: [] }),
+    })
+
+    const [url, options] = (global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(url).toBe('https://opencode.ai/zen/v1/messages?foo=bar')
+    const headers = options.headers as Headers
+    expect(headers.get('authorization')).toBe(null)
+    expect(headers.get('x-api-key')).toBe('oc-key')
+    expect(headers.get('anthropic-version')).toBe('2023-06-01')
+  })
+
   it('passes through OpenCode Zen workspace tokens when not gateway-managed', async () => {
     mockVerifyGatewayToken.mockImplementation(() => {
       throw new Error('invalid_token')
@@ -469,6 +571,34 @@ describe('providers gateway', () => {
     expect(url).toBe('https://opencode.ai/zen/v1/models?foo=bar')
     const headers = options.headers as Headers
     expect(headers.get('authorization')).toBe('Bearer zen-user-token')
+    expect(mockGetActiveCredentialForUser).not.toHaveBeenCalled()
+  })
+
+  it('accepts OpenCode Zen passthrough tokens in x-api-key for messages', async () => {
+    mockVerifyGatewayToken.mockImplementation(() => {
+      throw new Error('invalid_token')
+    })
+
+    ;(global.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+      new Response('ok', { status: 200 })
+    )
+
+    await callProxy({
+      provider: 'opencode',
+      path: ['messages'],
+      headers: {
+        'x-api-key': 'zen-user-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ model: 'big-pickle', messages: [] }),
+    })
+
+    const [url, options] = (global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(url).toBe('https://opencode.ai/zen/v1/messages?foo=bar')
+    const headers = options.headers as Headers
+    expect(headers.get('authorization')).toBe(null)
+    expect(headers.get('x-api-key')).toBe('zen-user-token')
+    expect(headers.get('anthropic-version')).toBe('2023-06-01')
     expect(mockGetActiveCredentialForUser).not.toHaveBeenCalled()
   })
 })
