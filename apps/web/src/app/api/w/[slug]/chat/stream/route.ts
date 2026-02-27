@@ -543,12 +543,8 @@ export async function POST(
           const parsed = parseSseChunk(parseState, decoder.decode(value, { stream: true }))
           parseState = parsed.state
 
-          let stopCurrentChunk = false
+          eventLoop:
           for (const parsedEvent of parsed.events) {
-            if (stopCurrentChunk) {
-              break
-            }
-
             const eventData = parsedEvent.data
             if (!eventData) continue
 
@@ -607,7 +603,9 @@ export async function POST(
                         break
                       }
                       finalizeFromIdle()
-                      stopCurrentChunk = aborted
+                      if (aborted) {
+                        break eventLoop
+                      }
                     }
                     break
                   }
@@ -620,7 +618,9 @@ export async function POST(
                       break
                     }
                     finalizeFromIdle()
-                    stopCurrentChunk = aborted
+                    if (aborted) {
+                      break eventLoop
+                    }
                     break
                   }
 
@@ -630,7 +630,9 @@ export async function POST(
                     console.log('[stream] Session error:', error)
                     const errorMessage = error?.data?.message || 'Unknown error'
                     finishWithError(errorMessage, errorMessage)
-                    stopCurrentChunk = aborted
+                    if (aborted) {
+                      break eventLoop
+                    }
                     break
                   }
 
