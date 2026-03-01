@@ -15,6 +15,15 @@
           <button id="stop-btn">Stop Arche</button>
           <button id="refresh-btn">Refresh Status</button>
         </div>
+        <div id="start-progress" class="start-progress" data-active="false">
+          <div class="start-progress-header">
+            <strong id="start-progress-label">Idle</strong>
+            <span id="start-progress-percent">0%</span>
+          </div>
+          <div class="start-progress-track">
+            <div id="start-progress-fill" class="start-progress-fill"></div>
+          </div>
+        </div>
         <pre id="status"></pre>
       </section>
       <section class="logs">

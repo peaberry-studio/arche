@@ -13,7 +13,20 @@ VM_DIR="${ARCHE_DESKTOP_VM_DIR:-$APP_SUPPORT_DIR/vm}"
 DATA_DIR="${ARCHE_DESKTOP_DATA_DIR:-$APP_SUPPORT_DIR/data}"
 
 VM_NAME="arche-desktop"
-SSH_PORT="${ARCHE_DESKTOP_VM_SSH_PORT:-22243}"
+SSH_PORT_FILE="$VM_DIR/ssh-port"
+SSH_PORT_DEFAULT="22243"
+if [[ -n "${ARCHE_DESKTOP_VM_SSH_PORT:-}" ]]; then
+  SSH_PORT="$ARCHE_DESKTOP_VM_SSH_PORT"
+elif [[ -f "$SSH_PORT_FILE" ]]; then
+  SSH_PORT="$(cat "$SSH_PORT_FILE" 2>/dev/null || true)"
+else
+  SSH_PORT="$SSH_PORT_DEFAULT"
+fi
+
+if [[ ! "$SSH_PORT" =~ ^[0-9]+$ ]] || (( SSH_PORT < 1 || SSH_PORT > 65535 )); then
+  SSH_PORT="$SSH_PORT_DEFAULT"
+fi
+
 WEB_PORT="${ARCHE_DESKTOP_WEB_PORT:-4510}"
 
 VM_BASE_ZST="$VM_DIR/podman-machine.aarch64.applehv.raw.zst"
@@ -41,6 +54,7 @@ export VM_DIR
 export DATA_DIR
 export VM_NAME
 export SSH_PORT
+export SSH_PORT_FILE
 export WEB_PORT
 export VM_BASE_ZST
 export VM_BASE_RAW

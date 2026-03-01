@@ -10,10 +10,17 @@ fi
 
 source "$RUNTIME_ROOT/vm/macos/common.sh"
 
+emit_progress() {
+  printf 'ARCHE_PROGRESS|%s|%s\n' "$1" "$2"
+}
+
+emit_progress "prepare" "Validating runtime dependencies"
 require_tools
 ensure_ssh_key
 ensure_ignition
+emit_progress "vm_disk" "Provisioning VM disk image"
 ensure_vm_disk
+emit_progress "vm_boot" "Booting virtual machine"
 start_gvproxy
 start_vfkit
 wait_for_ssh
@@ -35,12 +42,12 @@ ensure_host_image_tar() {
 
   if ! command -v podman >/dev/null 2>&1; then
     echo "missing bundled image artifact and podman unavailable: $tar_name" >&2
-    exit 1
+    return 1
   fi
 
   if ! podman image exists "$image"; then
     echo "missing local image: $image" >&2
-    exit 1
+    return 1
   fi
 
   podman save -o "$tar_path" "$image"
@@ -55,18 +62,24 @@ load_remote_image_if_missing() {
     return
   fi
 
-  local tar_path
-  tar_path="$(ensure_host_image_tar "$image" "$tar_name")"
+  local tar_path=""
+  if tar_path="$(ensure_host_image_tar "$image" "$tar_name")"; then
+    if scp -i "$SSH_KEY" -P "$SSH_PORT" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$tar_path" core@127.0.0.1:/var/home/core/ && with_vm_ssh "podman load -i /var/home/core/$tar_name"; then
+      return
+    fi
+    echo "warning: failed to load bundled image '$tar_name'; falling back to registry pull for $image" >&2
+  fi
 
-  scp -i "$SSH_KEY" -P "$SSH_PORT" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$tar_path" core@127.0.0.1:/var/home/core/
-  with_vm_ssh "podman load -i /var/home/core/$tar_name"
+  with_vm_ssh "podman pull $image"
 }
 
+emit_progress "images" "Loading runtime container images"
 load_remote_image_if_missing "arche-web:desktop" "arche-web-desktop.tar"
 load_remote_image_if_missing "arche-workspace:desktop" "arche-workspace-desktop.tar"
 load_remote_image_if_missing "postgres:16" "postgres-16.tar"
-load_remote_image_if_missing "ghcr.io/tecnativa/docker-socket-proxy:master" "docker-socket-proxy-master.tar"
+load_remote_image_if_missing "docker.io/alpine/socat:1.8.0.3" "alpine-socat-1.8.0.3.tar"
 
+emit_progress "services" "Starting desktop services inside VM"
 with_vm_ssh "mkdir -p /var/home/core/arche/data/users /var/home/core/arche/data/kb-content /var/home/core/arche/data/kb-config"
 
 with_vm_ssh "bash -s" <<'EOF'
@@ -97,14 +110,11 @@ podman rm -f arche-desktop-web arche-desktop-postgres arche-desktop-docker-socke
 podman run -d --name arche-desktop-docker-socket-proxy \
   --restart unless-stopped \
   --network arche-internal \
-  -e CONTAINERS=1 \
-  -e NETWORKS=1 \
-  -e IMAGES=1 \
-  -e INFO=1 \
-  -e POST=1 \
-  -e VOLUMES=1 \
+  --security-opt label=disable \
   -v /run/user/1000/podman/podman.sock:/var/run/docker.sock:ro \
-  ghcr.io/tecnativa/docker-socket-proxy:master
+  docker.io/alpine/socat:1.8.0.3 \
+  TCP-LISTEN:2375,reuseaddr,fork \
+  UNIX-CONNECT:/var/run/docker.sock
 
 podman run -d --name arche-desktop-postgres \
   --restart unless-stopped \
@@ -142,7 +152,7 @@ podman run -d --name arche-desktop-web \
   --network arche-desktop-default \
   -p 4510:3000 \
   -e DATABASE_URL=postgresql://postgres:postgres@arche-desktop-postgres:5432/arche?schema=public \
-  -e ARCHE_DOMAIN=localhost \
+  -e ARCHE_DOMAIN=127.0.0.1 \
   -e ARCHE_PUBLIC_BASE_URL=http://127.0.0.1:4510 \
   -e ARCHE_COOKIE_SECURE=false \
   -e ARCHE_SESSION_PEPPER="$ARCHE_SESSION_PEPPER" \
@@ -172,8 +182,10 @@ EOF
 
 ensure_local_tunnel
 
+emit_progress "health" "Waiting for Arche healthcheck"
 for _ in {1..90}; do
   if curl -fsS "http://127.0.0.1:$WEB_PORT/api/health" >/dev/null 2>&1; then
+    emit_progress "ready" "Arche runtime is ready"
     echo "{\"ok\":true,\"url\":\"http://127.0.0.1:$WEB_PORT\"}"
     exit 0
   fi

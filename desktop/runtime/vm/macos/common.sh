@@ -48,6 +48,59 @@ pid_running() {
   kill -0 "$pid" >/dev/null 2>&1
 }
 
+persist_ssh_port() {
+  printf '%s\n' "$SSH_PORT" > "$SSH_PORT_FILE"
+}
+
+port_is_listening() {
+  local port="$1"
+
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1
+    return
+  fi
+
+  if command -v netstat >/dev/null 2>&1; then
+    netstat -an 2>/dev/null | grep -Eq "[\\.:]$port[[:space:]].*LISTEN"
+    return
+  fi
+
+  return 1
+}
+
+next_available_ssh_port() {
+  local start_port="$1"
+  local candidate="$start_port"
+  local upper_bound=$((start_port + 200))
+
+  while (( candidate <= upper_bound )); do
+    if ! port_is_listening "$candidate"; then
+      echo "$candidate"
+      return 0
+    fi
+    candidate=$((candidate + 1))
+  done
+
+  return 1
+}
+
+start_gvproxy_once() {
+  local port="$1"
+
+  rm -f "$NET_SOCK" "$GVPROXY_PID"
+  : > "$GVPROXY_LOG"
+
+  nohup "$GVPROXY_BIN" \
+    --mtu 1500 \
+    --ssh-port "$port" \
+    --listen-vfkit "unixgram://$NET_SOCK" \
+    --log-file "$GVPROXY_LOG" \
+    --pid-file "$GVPROXY_PID" >/dev/null 2>&1 &
+
+  sleep 1
+  pid_running "$GVPROXY_PID"
+}
+
 require_tools() {
   local missing=0
   for bin in "$VFKIT_BIN" "$GVPROXY_BIN" "$ZSTD_BIN" ssh ssh-keygen scp curl; do
@@ -93,36 +146,121 @@ ensure_ignition() {
 EOF
 }
 
+copy_seed_from_podman_cache() {
+  local cache_dirs=(
+    "$HOME/.local/share/containers/podman/machine/applehv/cache"
+    "$HOME/.local/share/containers/podman/machine/libkrun/cache"
+  )
+  local cache_dir
+  local candidate
+
+  for cache_dir in "${cache_dirs[@]}"; do
+    if [[ ! -d "$cache_dir" ]]; then
+      continue
+    fi
+
+    for candidate in "$cache_dir"/*.raw.zst; do
+      if [[ ! -f "$candidate" ]]; then
+        continue
+      fi
+      cp -c "$candidate" "$VM_BASE_ZST" 2>/dev/null || cp "$candidate" "$VM_BASE_ZST"
+      return 0
+    done
+  done
+
+  return 1
+}
+
+copy_base_raw_from_podman_machine() {
+  local machine_dirs=(
+    "$HOME/.local/share/containers/podman/machine/applehv"
+    "$HOME/.local/share/containers/podman/machine/libkrun"
+  )
+  local machine_dir
+  local candidate
+
+  for machine_dir in "${machine_dirs[@]}"; do
+    if [[ ! -d "$machine_dir" ]]; then
+      continue
+    fi
+
+    for candidate in "$machine_dir"/*.raw; do
+      if [[ ! -f "$candidate" ]]; then
+        continue
+      fi
+      cp -c "$candidate" "$VM_BASE_RAW" 2>/dev/null || cp "$candidate" "$VM_BASE_RAW"
+      return 0
+    done
+  done
+
+  return 1
+}
+
+download_seed_zst() {
+  local temp_path="$VM_BASE_ZST.download"
+
+  rm -f "$temp_path"
+  if ! curl -fL --retry 10 --retry-delay 2 --retry-all-errors "$VM_IMAGE_URL" -o "$temp_path"; then
+    rm -f "$temp_path"
+    return 1
+  fi
+
+  if [[ ! -s "$temp_path" ]]; then
+    rm -f "$temp_path"
+    return 1
+  fi
+
+  mv "$temp_path" "$VM_BASE_ZST"
+}
+
 locate_seed_zst() {
-  if [[ -f "$VM_BASE_ZST" ]]; then
-    echo "$VM_BASE_ZST"
-    return
+  if [[ -f "$VM_BASE_ZST" && ! -s "$VM_BASE_ZST" ]]; then
+    rm -f "$VM_BASE_ZST"
   fi
 
-  local cached
-  cached="$(ls "$HOME/.local/share/containers/podman/machine/libkrun/cache"/*.raw.zst 2>/dev/null | head -n 1 || true)"
-  if [[ -n "$cached" && -f "$cached" ]]; then
-    cp "$cached" "$VM_BASE_ZST"
+  if [[ -s "$VM_BASE_ZST" ]]; then
     echo "$VM_BASE_ZST"
-    return
+    return 0
   fi
 
-  echo "downloading base VM image..."
-  curl -fL --retry 3 --retry-delay 2 "$VM_IMAGE_URL" -o "$VM_BASE_ZST"
+  if copy_seed_from_podman_cache; then
+    echo "$VM_BASE_ZST"
+    return 0
+  fi
+
+  echo "downloading base VM image..." >&2
+  if ! download_seed_zst; then
+    echo "failed to download base VM image from $VM_IMAGE_URL" >&2
+    return 1
+  fi
+
   echo "$VM_BASE_ZST"
 }
 
 ensure_vm_disk() {
-  if [[ -f "$VM_DISK" ]]; then
+  if [[ -f "$VM_DISK" && -s "$VM_DISK" ]]; then
     return
   fi
 
-  local seed
-  seed="$(locate_seed_zst)"
+  if [[ -f "$VM_BASE_RAW" && ! -s "$VM_BASE_RAW" ]]; then
+    rm -f "$VM_BASE_RAW"
+  fi
 
-  if [[ ! -f "$VM_BASE_RAW" ]]; then
-    echo "decompressing base VM image..."
-    "$ZSTD_BIN" -d -f "$seed" -o "$VM_BASE_RAW"
+  if [[ ! -s "$VM_BASE_RAW" ]]; then
+    if ! copy_base_raw_from_podman_machine; then
+      local seed
+      if ! seed="$(locate_seed_zst)"; then
+        echo "failed to provision base VM image" >&2
+        exit 1
+      fi
+
+      echo "decompressing base VM image..."
+      if ! "$ZSTD_BIN" -d -f "$seed" -o "$VM_BASE_RAW"; then
+        rm -f "$VM_BASE_RAW"
+        echo "failed to decompress base VM image: $seed" >&2
+        exit 1
+      fi
+    fi
   fi
 
   cp -c "$VM_BASE_RAW" "$VM_DISK" 2>/dev/null || cp "$VM_BASE_RAW" "$VM_DISK"
@@ -130,23 +268,44 @@ ensure_vm_disk() {
 
 start_gvproxy() {
   if pid_running "$GVPROXY_PID"; then
-    return
+    if port_is_listening "$SSH_PORT"; then
+      persist_ssh_port
+      return
+    fi
+
+    kill "$(cat "$GVPROXY_PID")" >/dev/null 2>&1 || true
+    rm -f "$GVPROXY_PID"
   fi
 
-  rm -f "$NET_SOCK"
+  local try_port="$SSH_PORT"
+  local max_attempts=8
+  local attempt=1
 
-  nohup "$GVPROXY_BIN" \
-    --mtu 1500 \
-    --ssh-port "$SSH_PORT" \
-    --listen-vfkit "unixgram://$NET_SOCK" \
-    --log-file "$GVPROXY_LOG" \
-    --pid-file "$GVPROXY_PID" >/dev/null 2>&1 &
+  while (( attempt <= max_attempts )); do
+    if start_gvproxy_once "$try_port"; then
+      SSH_PORT="$try_port"
+      persist_ssh_port
+      return
+    fi
 
-  sleep 1
-  if ! pid_running "$GVPROXY_PID"; then
-    echo "failed to start gvproxy" >&2
-    exit 1
-  fi
+    if ! grep -q "address already in use" "$GVPROXY_LOG" 2>/dev/null; then
+      echo "failed to start gvproxy" >&2
+      exit 1
+    fi
+
+    local next_port
+    if ! next_port="$(next_available_ssh_port "$((try_port + 1))")"; then
+      echo "failed to find free SSH port for gvproxy" >&2
+      exit 1
+    fi
+
+    echo "gvproxy SSH port $try_port is busy; retrying with $next_port" >&2
+    try_port="$next_port"
+    attempt=$((attempt + 1))
+  done
+
+  echo "failed to start gvproxy after retrying alternative SSH ports" >&2
+  exit 1
 }
 
 start_vfkit() {
@@ -174,7 +333,7 @@ wait_for_ssh() {
     fi
     sleep 2
   done
-  echo "vm ssh did not become ready" >&2
+  echo "vm ssh did not become ready on port $SSH_PORT" >&2
   exit 1
 }
 

@@ -24,11 +24,11 @@ ensure_image() {
 ensure_image "arche-web:desktop"
 ensure_image "arche-workspace:desktop"
 ensure_image "postgres:16"
-ensure_image "ghcr.io/tecnativa/docker-socket-proxy:master"
+ensure_image "docker.io/alpine/socat:1.8.0.3"
 
 podman save -o "$ARTIFACT_DIR/arche-web-desktop.tar" "arche-web:desktop"
 podman save -o "$ARTIFACT_DIR/arche-workspace-desktop.tar" "arche-workspace:desktop"
 podman save -o "$ARTIFACT_DIR/postgres-16.tar" "postgres:16"
-podman save -o "$ARTIFACT_DIR/docker-socket-proxy-master.tar" "ghcr.io/tecnativa/docker-socket-proxy:master"
+podman save -o "$ARTIFACT_DIR/alpine-socat-1.8.0.3.tar" "docker.io/alpine/socat:1.8.0.3"
 
 echo "exported image archives to $ARTIFACT_DIR"

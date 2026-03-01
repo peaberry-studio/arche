@@ -17,16 +17,27 @@ export function shouldUseSecureCookies(headers?: Headers): boolean {
   return process.env.NODE_ENV === 'production'
 }
 
+function normalizeCookieDomain(value: string): string | undefined {
+  const normalized = value.trim().replace(/^\./, '').toLowerCase()
+  if (!normalized) return undefined
+
+  if (normalized === 'localhost') return undefined
+  if (normalized.includes(':')) return undefined
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(normalized)) return undefined
+
+  return `.${normalized}`
+}
+
 export function getCookieDomain(): string | undefined {
   // In development, don't set domain to allow localhost to work
   if (process.env.NODE_ENV !== 'production') return undefined
 
-  const explicit = process.env.ARCHE_COOKIE_DOMAIN?.trim()
-  if (explicit) return explicit
+  const explicit = process.env.ARCHE_COOKIE_DOMAIN ?? ''
+  const explicitDomain = normalizeCookieDomain(explicit)
+  if (explicitDomain) return explicitDomain
 
-  const base = process.env.ARCHE_DOMAIN?.trim()
-  if (!base) return undefined
-  return `.${base.replace(/^\./, '')}`
+  const base = process.env.ARCHE_DOMAIN ?? ''
+  return normalizeCookieDomain(base)
 }
 
 export function getSessionTtlDays(): number {

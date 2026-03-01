@@ -20,7 +20,12 @@ fi
 
 source "$RUNTIME_ROOT/macos/env.sh" "$RUNTIME_ROOT"
 
+emit_progress() {
+  printf 'ARCHE_PROGRESS|%s|%s\n' "$1" "$2"
+}
+
 DATA_DIR="${ARCHE_DESKTOP_DATA_DIR:-$HOME/Library/Application Support/ArcheDesktop/data}"
+emit_progress "prepare" "Preparing local runtime directories"
 mkdir -p "$DATA_DIR" "$DATA_DIR/users"
 
 "$RUNTIME_ROOT/scripts/init-bare-repo.sh" "$DATA_DIR/kb-content"
@@ -60,13 +65,17 @@ if ! podman image exists arche-workspace:desktop; then
   exit 1
 fi
 
+emit_progress "services" "Starting desktop services on host podman"
 podman compose -f "$COMPOSE_FILE" -p arche-desktop up -d
 
+emit_progress "migrate" "Applying database migrations"
 podman compose -f "$COMPOSE_FILE" -p arche-desktop exec -T web pnpm prisma migrate deploy
 podman compose -f "$COMPOSE_FILE" -p arche-desktop exec -T web pnpm prisma db seed || true
 
+emit_progress "health" "Waiting for Arche healthcheck"
 for _ in {1..60}; do
   if curl -fsS "http://127.0.0.1:4510/api/health" >/dev/null 2>&1; then
+    emit_progress "ready" "Arche runtime is ready"
     echo '{"ok":true,"url":"http://127.0.0.1:4510"}'
     exit 0
   fi
