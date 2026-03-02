@@ -1,0 +1,69 @@
+{
+  "name": "@arche/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "main.mjs",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --mac dmg --arm64 --publish never"
+  },
+  "dependencies": {
+    "argon2": "^0.31.2",
+    "embedded-postgres": "^18.2.0-beta.16",
+    "opencode-ai": "^1.2.15",
+    "pg": "^8.18.0"
+  },
+  "devDependencies": {
+    "electron": "^36.2.1",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "studio.peaberry.arche.desktop",
+    "productName": "Arche Desktop",
+    "asar": false,
+    "publish": null,
+    "files": [
+      "main.mjs",
+      "splash.html",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "runtime",
+        "to": "runtime"
+      },
+      {
+        "from": "icons/icon.icns",
+        "to": "icons/icon.icns"
+      }
+    ],
+    "directories": {
+      "output": "../dist"
+    },
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "identity": null,
+      "target": [
+        "dmg"
+      ],
+      "artifactName": "Arche-Desktop_${version}_${arch}.${ext}",
+      "icon": "icons/icon.icns"
+    },
+    "dmg": {
+      "contents": [
+        {
+          "type": "file",
+          "x": 160,
+          "y": 220
+        },
+        {
+          "type": "link",
+          "path": "/Applications",
+          "x": 430,
+          "y": 220
+        }
+      ]
+    }
+  }
+}

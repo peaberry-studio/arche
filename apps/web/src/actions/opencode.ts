@@ -1,8 +1,7 @@
 "use server";
 
-import { cookies } from "next/headers";
-import { getSessionFromToken, SESSION_COOKIE_NAME } from "@/lib/auth";
-import { createInstanceClient } from "@/lib/opencode/client";
+import { getAuthenticatedUser } from "@/lib/auth";
+import { createInstanceClient, getInstanceUrl } from "@/lib/opencode/client";
 import { prisma } from "@/lib/prisma";
 import { getActiveCredentialForUser } from "@/lib/providers/store";
 import { PROVIDERS, type ProviderId } from "@/lib/providers/types";
@@ -42,17 +41,6 @@ function normalizeMessageRole(
 function extractUserTextContent(parts: ReturnType<typeof transformParts>): string {
   const firstText = parts.find((part) => part.type === "text");
   return firstText ? firstText.text : "";
-}
-
-// ============================================================================
-// Authentication helper
-// ============================================================================
-
-async function getAuthenticatedUser() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
-  if (!token) return null;
-  return getSessionFromToken(token);
 }
 
 async function getAuthorizedClient(slug: string) {
@@ -565,7 +553,7 @@ export async function sendMessageAction(
     const authHeader = `Basic ${Buffer.from(`opencode:${password}`).toString(
       "base64"
     )}`;
-    const baseUrl = `http://opencode-${slug}:4096`;
+    const baseUrl = getInstanceUrl(slug);
 
     console.log(
       "[sendMessageAction] Sending to:",

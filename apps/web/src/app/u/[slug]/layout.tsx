@@ -1,10 +1,9 @@
-import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 
 import { DashboardNav } from '@/components/dashboard/dashboard-nav'
 import { DashboardThemeShell } from '@/components/dashboard/dashboard-theme-shell'
 import { WorkspaceThemeProvider } from '@/contexts/workspace-theme-context'
-import { getSessionFromToken, SESSION_COOKIE_NAME } from '@/lib/auth'
+import { getAuthenticatedUser } from '@/lib/auth'
 
 export default async function DashboardLayout({
   children,
@@ -15,14 +14,7 @@ export default async function DashboardLayout({
 }) {
   const { slug } = await params
 
-  const cookieStore = await cookies()
-  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value
-
-  if (!token) {
-    redirect('/login')
-  }
-
-  const session = await getSessionFromToken(token)
+  const session = await getAuthenticatedUser()
   if (!session) {
     redirect('/login')
   }

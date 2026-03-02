@@ -1,12 +1,21 @@
 import { prisma } from '@/lib/prisma'
 import { decryptPassword } from '@/lib/spawner/crypto'
-import { getWorkspaceAgentPort } from '@/lib/spawner/config'
+import {
+  getLocalInstanceHost,
+  getSpawnerBackend,
+  getWorkspaceAgentPortForSlug,
+} from '@/lib/spawner/config'
 
 const DEFAULT_USERNAME = 'opencode'
 
 export function getWorkspaceAgentUrl(slug: string): string {
+  const port = getWorkspaceAgentPortForSlug(slug)
+  if (getSpawnerBackend() === 'local') {
+    const host = getLocalInstanceHost()
+    return `http://${host}:${port}`
+  }
+
   const containerName = `opencode-${slug}`
-  const port = getWorkspaceAgentPort()
   return `http://${containerName}:${port}`
 }
 

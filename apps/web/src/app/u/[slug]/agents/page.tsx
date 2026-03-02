@@ -1,9 +1,8 @@
-import { cookies } from 'next/headers'
 import Link from 'next/link'
 
 import { AgentsPageClient } from '@/components/agents/agents-page'
 import { Button } from '@/components/ui/button'
-import { getSessionFromToken, SESSION_COOKIE_NAME } from '@/lib/auth'
+import { getAuthenticatedUser } from '@/lib/auth'
 
 export default async function AgentsPage({
   params
@@ -12,9 +11,7 @@ export default async function AgentsPage({
 }) {
   const { slug } = await params
 
-  const cookieStore = await cookies()
-  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value
-  const session = token ? await getSessionFromToken(token) : null
+  const session = await getAuthenticatedUser()
   const isAdmin = session?.user.role === 'ADMIN'
 
   return (

@@ -1,6 +1,15 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { auditEvent, createSession, getCookieDomain, SESSION_COOKIE_NAME, shouldUseSecureCookies, verifyPassword } from '@/lib/auth'
+import {
+  auditEvent,
+  createSession,
+  getAuthenticatedUser,
+  getCookieDomain,
+  isDesktopNoAuthEnabled,
+  SESSION_COOKIE_NAME,
+  shouldUseSecureCookies,
+  verifyPassword,
+} from '@/lib/auth'
 import { hashSessionToken, newSessionToken } from '@/lib/security'
 
 // Pending 2FA challenges: hashedToken -> { userId, expiresAt }
@@ -17,6 +26,19 @@ setInterval(() => {
 }, 5 * 60 * 1000).unref()
 
 export async function POST(request: Request) {
+  if (isDesktopNoAuthEnabled()) {
+    const desktopSession = await getAuthenticatedUser()
+    if (!desktopSession) {
+      return NextResponse.json({ ok: false, error: 'desktop_user_unavailable' }, { status: 503 })
+    }
+
+    return NextResponse.json({
+      ok: true,
+      requires2FA: false,
+      user: desktopSession.user,
+    })
+  }
+
   const body = await request.json().catch(() => null)
   const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : ''
   const password = typeof body?.password === 'string' ? body.password : ''

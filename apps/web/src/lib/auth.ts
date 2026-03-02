@@ -5,6 +5,11 @@ import { hashSessionToken, newSessionToken } from '@/lib/security'
 
 export const SESSION_COOKIE_NAME = 'arche_session'
 
+export function isDesktopNoAuthEnabled(): boolean {
+  const raw = process.env.ARCHE_DESKTOP_NO_AUTH?.trim().toLowerCase()
+  return raw === '1' || raw === 'true' || raw === 'yes'
+}
+
 export function shouldUseSecureCookies(headers?: Headers): boolean {
   const raw = process.env.ARCHE_COOKIE_SECURE?.trim().toLowerCase()
   if (raw === 'true') return true
@@ -96,10 +101,79 @@ export async function revokeSession(token: string): Promise<void> {
   })
 }
 
+type AuthenticatedSession = {
+  user: { id: string; email: string; slug: string; role: string }
+  sessionId: string
+}
+
+async function createDesktopFallbackUser(): Promise<AuthenticatedSession | null> {
+  const configuredSlug = process.env.ARCHE_DESKTOP_DEFAULT_USER_SLUG?.trim().toLowerCase()
+  const slug = configuredSlug || 'admin'
+  const email = process.env.ARCHE_DESKTOP_DEFAULT_USER_EMAIL?.trim().toLowerCase() || `${slug}@localhost`
+
+  try {
+    const passwordHash = await argon2.hash(newSessionToken())
+    const user = await prisma.user.upsert({
+      where: { slug },
+      update: {},
+      create: {
+        email,
+        passwordHash,
+        role: 'ADMIN',
+        slug,
+      },
+      select: { id: true, email: true, slug: true, role: true },
+    })
+
+    return { user, sessionId: `desktop-no-auth:${user.id}` }
+  } catch {
+    return null
+  }
+}
+
+async function getDesktopBypassSession(): Promise<AuthenticatedSession | null> {
+  const preferredSlug = process.env.ARCHE_DESKTOP_DEFAULT_USER_SLUG?.trim().toLowerCase()
+  if (preferredSlug) {
+    const preferred = await prisma.user.findUnique({
+      where: { slug: preferredSlug },
+      select: { id: true, email: true, slug: true, role: true },
+    })
+    if (preferred) {
+      return { user: preferred, sessionId: `desktop-no-auth:${preferred.id}` }
+    }
+  }
+
+  const admin = await prisma.user.findFirst({
+    where: { role: 'ADMIN' },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true, email: true, slug: true, role: true },
+  })
+  if (admin) {
+    return { user: admin, sessionId: `desktop-no-auth:${admin.id}` }
+  }
+
+  const firstUser = await prisma.user.findFirst({
+    orderBy: { createdAt: 'asc' },
+    select: { id: true, email: true, slug: true, role: true },
+  })
+  if (!firstUser) {
+    return createDesktopFallbackUser()
+  }
+
+  return { user: firstUser, sessionId: `desktop-no-auth:${firstUser.id}` }
+}
+
 export async function getSessionFromToken(token: string): Promise<{
   user: { id: string; email: string; slug: string; role: string }
   sessionId: string
 } | null> {
+  if (isDesktopNoAuthEnabled()) {
+    const bypassSession = await getDesktopBypassSession()
+    if (bypassSession) return bypassSession
+  }
+
+  if (!token) return null
+
   const tokenHash = hashSessionToken(token)
   const session = await prisma.session.findUnique({
     where: { tokenHash },
@@ -138,6 +212,11 @@ export async function getAuthenticatedUser() {
   const { cookies } = await import('next/headers')
   const cookieStore = await cookies()
   const token = cookieStore.get(SESSION_COOKIE_NAME)?.value
-  if (!token) return null
+  if (!token) {
+    if (isDesktopNoAuthEnabled()) {
+      return getDesktopBypassSession()
+    }
+    return null
+  }
   return getSessionFromToken(token)
 }

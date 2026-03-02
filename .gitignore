@@ -40,6 +40,13 @@ apps/**/pnpm-debug.log*
 
 # Node (repo root)
 node_modules/
+.pnpm-store/
+
+# Desktop app artifacts
+desktop/app/node_modules/
+desktop/app/dist/
+desktop/app/runtime/
+desktop/dist/
 
 # Workspace internal storage
 .arche/

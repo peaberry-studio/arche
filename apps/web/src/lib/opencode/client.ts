@@ -8,6 +8,7 @@
 import { createOpencodeClient, type OpencodeClient } from '@opencode-ai/sdk/v2/client'
 import { prisma } from '@/lib/prisma'
 import { decryptPassword } from '@/lib/spawner/crypto'
+import { getLocalInstanceHost, getOpencodePortForSlug, getSpawnerBackend } from '@/lib/spawner/config'
 
 const OPENCODE_PORT = 4096
 
@@ -16,6 +17,12 @@ const OPENCODE_PORT = 4096
  * Container names follow the pattern: opencode-{slug}
  */
 export function getInstanceUrl(slug: string): string {
+  if (getSpawnerBackend() === 'local') {
+    const host = getLocalInstanceHost()
+    const port = getOpencodePortForSlug(slug)
+    return `http://${host}:${port}`
+  }
+
   const containerName = `opencode-${slug}`
   return `http://${containerName}:${OPENCODE_PORT}`
 }

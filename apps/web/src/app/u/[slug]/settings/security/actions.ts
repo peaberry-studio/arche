@@ -1,12 +1,10 @@
 'use server'
 
-import { cookies } from 'next/headers'
 import argon2 from 'argon2'
 
 import { prisma } from '@/lib/prisma'
 import {
-  SESSION_COOKIE_NAME,
-  getSessionFromToken,
+  getAuthenticatedUser,
   auditEvent,
   verifyPassword,
 } from '@/lib/auth'
@@ -20,13 +18,6 @@ import {
 } from '@/lib/totp'
 
 const ISSUER = 'Arche'
-
-async function getAuthenticatedUser() {
-  const cookieStore = await cookies()
-  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value
-  if (!token) return null
-  return getSessionFromToken(token)
-}
 
 export async function initiate2FASetup(): Promise<
   { ok: true; qrUri: string; secret: string } | { ok: false; error: string }
