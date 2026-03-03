@@ -35,7 +35,17 @@ ensure_host_image_tar() {
   local tar_path="$HOST_IMAGE_CACHE_DIR/$tar_name"
 
   if [[ -f "$IMAGE_ARTIFACT_DIR/$tar_name" ]]; then
-    cp "$IMAGE_ARTIFACT_DIR/$tar_name" "$tar_path"
+    local src_size dst_size
+    src_size="$(stat -f%z "$IMAGE_ARTIFACT_DIR/$tar_name" 2>/dev/null || echo 0)"
+    dst_size="$(stat -f%z "$tar_path" 2>/dev/null || echo -1)"
+    if [[ "$src_size" != "$dst_size" ]]; then
+      cp "$IMAGE_ARTIFACT_DIR/$tar_name" "$tar_path"
+    fi
+    echo "$tar_path"
+    return
+  fi
+
+  if [[ -f "$tar_path" && -s "$tar_path" ]]; then
     echo "$tar_path"
     return
   fi
@@ -64,9 +74,13 @@ load_remote_image_if_missing() {
 
   local tar_path=""
   if tar_path="$(ensure_host_image_tar "$image" "$tar_name")"; then
-    if scp -i "$SSH_KEY" -P "$SSH_PORT" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$tar_path" core@127.0.0.1:/var/home/core/ && with_vm_ssh "podman load -i /var/home/core/$tar_name"; then
+    if scp -i "$SSH_KEY" -P "$SSH_PORT" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+         "$tar_path" core@127.0.0.1:/var/home/core/ \
+       && with_vm_ssh "podman load -i /var/home/core/$tar_name"; then
+      with_vm_ssh "rm -f /var/home/core/$tar_name" || true
       return
     fi
+    with_vm_ssh "rm -f /var/home/core/$tar_name" 2>/dev/null || true
     echo "warning: failed to load bundled image '$tar_name'; falling back to registry pull for $image" >&2
   fi
 

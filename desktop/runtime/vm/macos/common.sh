@@ -35,6 +35,25 @@ ZSTD_BIN="${ARCHE_DESKTOP_ZSTD_BIN:-$default_zstd_bin}"
 VM_IMAGE_URL_DEFAULT="https://github.com/containers/podman-machine-os/releases/download/v5.8.0/podman-machine.aarch64.applehv.raw.zst"
 VM_IMAGE_URL="${ARCHE_DESKTOP_VM_IMAGE_URL:-$VM_IMAGE_URL_DEFAULT}"
 
+detect_vm_resources() {
+  local total_mem_mb
+  total_mem_mb="$(( $(sysctl -n hw.memsize) / 1048576 ))"
+  local total_cpus
+  total_cpus="$(sysctl -n hw.logicalcpu)"
+
+  local default_mem=$((total_mem_mb / 2))
+  if (( default_mem < 2048 )); then default_mem=2048
+  elif (( default_mem > 8192 )); then default_mem=8192; fi
+
+  local default_cpus=$((total_cpus / 2))
+  if (( default_cpus < 2 )); then default_cpus=2; fi
+
+  VM_MEMORY="${ARCHE_DESKTOP_VM_MEMORY:-$default_mem}"
+  VM_CPUS="${ARCHE_DESKTOP_VM_CPUS:-$default_cpus}"
+}
+
+detect_vm_resources
+
 pid_running() {
   local pid_file="$1"
   if [[ ! -f "$pid_file" ]]; then
@@ -264,6 +283,10 @@ ensure_vm_disk() {
   fi
 
   cp -c "$VM_BASE_RAW" "$VM_DISK" 2>/dev/null || cp "$VM_BASE_RAW" "$VM_DISK"
+
+  # Clean up decompressed base image (~7-10 GB); the .zst (~700 MB) is
+  # kept as a compact recovery source for future re-provisioning.
+  rm -f "$VM_BASE_RAW"
 }
 
 start_gvproxy() {
@@ -314,8 +337,8 @@ start_vfkit() {
   fi
 
   nohup "$VFKIT_BIN" \
-    --cpus 4 \
-    --memory 6144 \
+    --cpus "$VM_CPUS" \
+    --memory "$VM_MEMORY" \
     --bootloader "efi,variable-store=$EFI_STORE,create" \
     --ignition "$IGNITION_FILE" \
     --device "virtio-blk,path=$VM_DISK" \

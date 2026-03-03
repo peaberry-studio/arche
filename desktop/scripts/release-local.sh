@@ -32,8 +32,19 @@ printf "[desktop-release] Bundle vfkit and gvproxy runtime binaries\n"
 printf "[desktop-release] Install Tauri dependencies\n"
 pnpm install --dir "$TAURI_DIR"
 
+# Move heavy image tars out of the bundle tree so they are not included in
+# the DMG.  The selective resources list in tauri.conf.json already excludes
+# artifacts/images/, but this acts as a safety net in case the glob changes.
+STAGING_DIR="$TAURI_DIR/src-tauri/target/image-staging"
+mkdir -p "$STAGING_DIR"
+mv "$REPO_ROOT/desktop/runtime/artifacts/images"/*.tar "$STAGING_DIR/" 2>/dev/null || true
+
 printf "[desktop-release] Build DMG\n"
 pnpm --dir "$TAURI_DIR" tauri build
+
+# Restore image tars so subsequent scripts or re-runs can find them.
+mv "$STAGING_DIR"/*.tar "$REPO_ROOT/desktop/runtime/artifacts/images/" 2>/dev/null || true
+rm -rf "$STAGING_DIR"
 
 DMG_PATH="$TAURI_DIR/src-tauri/target/release/bundle/dmg/Arche_0.1.0_aarch64.dmg"
 

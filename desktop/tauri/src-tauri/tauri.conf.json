@@ -27,7 +27,10 @@
     "active": true,
     "targets": "all",
     "resources": [
-      "../../runtime"
+      "../../runtime/vm",
+      "../../runtime/compose.desktop.yml",
+      "../../runtime/artifacts/bin",
+      "../../runtime/artifacts/lib"
     ],
     "macOS": {
       "minimumSystemVersion": "14.0"
