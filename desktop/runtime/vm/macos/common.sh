@@ -266,19 +266,21 @@ ensure_vm_disk() {
   fi
 
   if [[ ! -s "$VM_BASE_RAW" ]]; then
-    if ! copy_base_raw_from_podman_machine; then
-      local seed
-      if ! seed="$(locate_seed_zst)"; then
-        echo "failed to provision base VM image" >&2
-        exit 1
-      fi
+    # NOTE: we intentionally skip copy_base_raw_from_podman_machine here.
+    # Podman Machine disks contain virtiofs mount units (Users, private,
+    # var/folders) that do not exist under vfkit, causing the VM to drop
+    # into emergency mode.  Always decompress from the clean seed image.
+    local seed
+    if ! seed="$(locate_seed_zst)"; then
+      echo "failed to provision base VM image" >&2
+      exit 1
+    fi
 
-      echo "decompressing base VM image..."
-      if ! "$ZSTD_BIN" -d -f "$seed" -o "$VM_BASE_RAW"; then
-        rm -f "$VM_BASE_RAW"
-        echo "failed to decompress base VM image: $seed" >&2
-        exit 1
-      fi
+    echo "decompressing base VM image..."
+    if ! "$ZSTD_BIN" -d -f "$seed" -o "$VM_BASE_RAW"; then
+      rm -f "$VM_BASE_RAW"
+      echo "failed to decompress base VM image: $seed" >&2
+      exit 1
     fi
   fi
 
