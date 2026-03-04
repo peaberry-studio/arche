@@ -30,7 +30,8 @@
       "../../runtime/vm",
       "../../runtime/compose.desktop.yml",
       "../../runtime/artifacts/bin",
-      "../../runtime/artifacts/lib"
+      "../../runtime/artifacts/lib",
+      "../../runtime/artifacts/images"
     ],
     "macOS": {
       "minimumSystemVersion": "14.0"

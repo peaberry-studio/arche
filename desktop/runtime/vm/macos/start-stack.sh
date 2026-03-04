@@ -67,6 +67,7 @@ ensure_host_image_tar() {
 load_remote_image_if_missing() {
   local image="$1"
   local tar_name="$2"
+  local allow_registry_pull="${3:-true}"
 
   if with_vm_ssh "podman image exists $image" >/dev/null 2>&1; then
     return
@@ -84,12 +85,17 @@ load_remote_image_if_missing() {
     echo "warning: failed to load bundled image '$tar_name'; falling back to registry pull for $image" >&2
   fi
 
+  if [[ "$allow_registry_pull" != "true" ]]; then
+    echo "required local image artifact '$tar_name' is unavailable for $image" >&2
+    return 1
+  fi
+
   with_vm_ssh "podman pull $image"
 }
 
 emit_progress "images" "Loading runtime container images"
-load_remote_image_if_missing "arche-web:desktop" "arche-web-desktop.tar"
-load_remote_image_if_missing "arche-workspace:desktop" "arche-workspace-desktop.tar"
+load_remote_image_if_missing "arche-web:desktop" "arche-web-desktop.tar" "false"
+load_remote_image_if_missing "arche-workspace:desktop" "arche-workspace-desktop.tar" "false"
 load_remote_image_if_missing "postgres:16" "postgres-16.tar"
 load_remote_image_if_missing "docker.io/alpine/socat:1.8.0.3" "alpine-socat-1.8.0.3.tar"
 
