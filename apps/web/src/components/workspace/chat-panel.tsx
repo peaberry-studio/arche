@@ -1221,12 +1221,21 @@ export function ChatPanel({
     }
   }, [handleSend]);
 
-  // Auto-resize textarea
-  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInputValue(e.target.value);
-    const textarea = e.target;
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    if (!inputValue) {
+      textarea.style.height = "auto";
+      return;
+    }
+
     textarea.style.height = "auto";
     textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
+  }, [inputValue]);
+
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInputValue(e.target.value);
   }, []);
 
   // Get the current status from the last pending message (if any)
