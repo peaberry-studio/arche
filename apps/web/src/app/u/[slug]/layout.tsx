@@ -32,7 +32,7 @@ export default async function DashboardLayout({
   }
 
   return (
-    <WorkspaceThemeProvider>
+    <WorkspaceThemeProvider key={slug} storageScope={slug}>
       <DashboardThemeShell>
         <div className="mx-auto max-w-6xl px-6 pt-6">
           <DashboardNav slug={slug} />

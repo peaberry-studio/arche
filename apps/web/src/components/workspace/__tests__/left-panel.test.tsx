@@ -1,8 +1,8 @@
 /** @vitest-environment jsdom */
 
 import { createRef } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LeftPanel } from "@/components/workspace/left-panel";
 import type { AgentCatalogItem } from "@/hooks/use-workspace";
@@ -68,11 +68,20 @@ const agents: AgentCatalogItem[] = [
 ];
 
 describe("LeftPanel", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
   it("filters sections using internal search state", () => {
     const onCreateKnowledgeFile = vi.fn().mockResolvedValue({ ok: true as const });
 
     render(
       <LeftPanel
+        slug="alice"
         sessions={sessions}
         activeSessionId={"s1"}
         onSelectSession={vi.fn()}
@@ -117,6 +126,7 @@ describe("LeftPanel", () => {
 
     render(
       <LeftPanel
+        slug="alice"
         sessions={sessions}
         activeSessionId={"s1"}
         onSelectSession={vi.fn()}
@@ -144,6 +154,79 @@ describe("LeftPanel", () => {
 
     await waitFor(() => {
       expect(onCreateKnowledgeFile).toHaveBeenCalledWith("docs/release-plan.md");
+    });
+  });
+
+  it("hydrates subpanel collapsed state from browser storage", () => {
+    window.localStorage.setItem(
+      "arche.workspace.alice.left-panel",
+      JSON.stringify({
+        topCollapsed: true,
+        midCollapsed: false,
+        bottomCollapsed: true,
+        topRatio: 0.2,
+        midRatio: 0.5,
+      })
+    );
+
+    render(
+      <LeftPanel
+        slug="alice"
+        sessions={sessions}
+        activeSessionId={"s1"}
+        onSelectSession={vi.fn()}
+        onCreateSession={vi.fn()}
+        agents={agents}
+        onSelectAgent={vi.fn()}
+        onOpenExpertsSettings={vi.fn()}
+        fileNodes={fileNodes}
+        activeFilePath={null}
+        onSelectFile={vi.fn()}
+        onCreateKnowledgeFile={vi.fn().mockResolvedValue({ ok: true as const })}
+        searchInputRef={createRef<HTMLInputElement>()}
+      />
+    );
+
+    const chatsSection = screen
+      .getByRole("button", { name: "Chats" })
+      .closest(".glass-panel");
+    const expertsSection = screen
+      .getByRole("button", { name: "Experts" })
+      .closest(".glass-panel");
+
+    expect(chatsSection?.getAttribute("style")).toContain("flex: 0 0 32px");
+    expect(expertsSection?.getAttribute("style")).toContain("flex: 0 0 32px");
+  });
+
+  it("persists subpanel collapsed state to browser storage", async () => {
+    render(
+      <LeftPanel
+        slug="alice"
+        sessions={sessions}
+        activeSessionId={"s1"}
+        onSelectSession={vi.fn()}
+        onCreateSession={vi.fn()}
+        agents={agents}
+        onSelectAgent={vi.fn()}
+        onOpenExpertsSettings={vi.fn()}
+        fileNodes={fileNodes}
+        activeFilePath={null}
+        onSelectFile={vi.fn()}
+        onCreateKnowledgeFile={vi.fn().mockResolvedValue({ ok: true as const })}
+        searchInputRef={createRef<HTMLInputElement>()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /knowledge/i }));
+
+    await waitFor(() => {
+      const raw = window.localStorage.getItem("arche.workspace.alice.left-panel");
+      expect(raw).toBeTruthy();
+
+      const parsed = JSON.parse(raw as string) as {
+        midCollapsed?: boolean;
+      };
+      expect(parsed.midCollapsed).toBe(true);
     });
   });
 });

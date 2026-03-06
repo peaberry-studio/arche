@@ -37,6 +37,8 @@ const FLEX_TRANSITION = `flex-grow ${ANIM}, flex-basis ${ANIM}`;
 const GRID_TRANSITION = `grid-template-rows ${ANIM}`;
 
 type LeftPanelProps = {
+  slug: string;
+
   // Sessions
   sessions: WorkspaceSession[];
   activeSessionId: string | null;
@@ -59,6 +61,87 @@ type LeftPanelProps = {
 type DirectoryOption = {
   path: string;
   label: string;
+};
+
+type StoredLeftPanelState = {
+  topRatio?: number;
+  midRatio?: number;
+  topCollapsed?: boolean;
+  midCollapsed?: boolean;
+  bottomCollapsed?: boolean;
+};
+
+type NormalizedLeftPanelState = {
+  topRatio: number;
+  midRatio: number;
+  topCollapsed: boolean;
+  midCollapsed: boolean;
+  bottomCollapsed: boolean;
+};
+
+const DEFAULT_TOP_RATIO = 3 / 8;
+const DEFAULT_MID_RATIO = 3 / 8;
+const DEFAULT_LEFT_PANEL_STATE: NormalizedLeftPanelState = {
+  topRatio: DEFAULT_TOP_RATIO,
+  midRatio: DEFAULT_MID_RATIO,
+  topCollapsed: false,
+  midCollapsed: false,
+  bottomCollapsed: false,
+};
+
+const isValidRatio = (value: unknown): value is number => {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 && value < 1;
+};
+
+const loadStoredLeftPanelState = (key: string): StoredLeftPanelState | null => {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw) as StoredLeftPanelState;
+  } catch {
+    return null;
+  }
+};
+
+const persistLeftPanelState = (key: string, state: StoredLeftPanelState) => {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(key, JSON.stringify(state));
+  } catch {
+    // Ignore storage access errors.
+  }
+};
+
+const getInitialLeftPanelState = (key: string): NormalizedLeftPanelState => {
+  const stored = loadStoredLeftPanelState(key);
+  if (!stored) {
+    return { ...DEFAULT_LEFT_PANEL_STATE };
+  }
+
+  const hasValidRatios =
+    isValidRatio(stored.topRatio) &&
+    isValidRatio(stored.midRatio) &&
+    stored.topRatio + stored.midRatio < 1;
+
+  return {
+    topRatio: hasValidRatios ? stored.topRatio : DEFAULT_TOP_RATIO,
+    midRatio: hasValidRatios ? stored.midRatio : DEFAULT_MID_RATIO,
+    topCollapsed:
+      typeof stored.topCollapsed === "boolean"
+        ? stored.topCollapsed
+        : DEFAULT_LEFT_PANEL_STATE.topCollapsed,
+    midCollapsed:
+      typeof stored.midCollapsed === "boolean"
+        ? stored.midCollapsed
+        : DEFAULT_LEFT_PANEL_STATE.midCollapsed,
+    bottomCollapsed:
+      typeof stored.bottomCollapsed === "boolean"
+        ? stored.bottomCollapsed
+        : DEFAULT_LEFT_PANEL_STATE.bottomCollapsed,
+  };
 };
 
 function collectDirectoryOptions(nodes: WorkspaceFileNode[], depth = 0): DirectoryOption[] {
@@ -124,6 +207,7 @@ function SectionHeader({
 }
 
 export function LeftPanel({
+  slug,
   sessions,
   activeSessionId,
   onSelectSession,
@@ -147,12 +231,20 @@ export function LeftPanel({
   const [createFileError, setCreateFileError] = useState<string | null>(null);
   const [isCreatingFile, setIsCreatingFile] = useState(false);
 
-  const [topRatio, setTopRatio] = useState(3 / 8);
-  const [midRatio, setMidRatio] = useState(3 / 8);
+  const leftPanelStorageKey = useMemo(() => `arche.workspace.${slug}.left-panel`, [slug]);
+  const initialPanelState = useMemo(
+    () => getInitialLeftPanelState(leftPanelStorageKey),
+    [leftPanelStorageKey]
+  );
 
-  const [topCollapsed, setTopCollapsed] = useState(false);
-  const [midCollapsed, setMidCollapsed] = useState(false);
-  const [bottomCollapsed, setBottomCollapsed] = useState(false);
+  const [topRatio, setTopRatio] = useState(() => initialPanelState.topRatio);
+  const [midRatio, setMidRatio] = useState(() => initialPanelState.midRatio);
+
+  const [topCollapsed, setTopCollapsed] = useState(() => initialPanelState.topCollapsed);
+  const [midCollapsed, setMidCollapsed] = useState(() => initialPanelState.midCollapsed);
+  const [bottomCollapsed, setBottomCollapsed] = useState(
+    () => initialPanelState.bottomCollapsed
+  );
 
   const directoryOptions = useMemo(
     () => collectDirectoryOptions(fileNodes),
@@ -168,6 +260,23 @@ export function LeftPanel({
 
     return () => cancelAnimationFrame(frame);
   }, [isCreateFileDialogOpen]);
+
+  useEffect(() => {
+    persistLeftPanelState(leftPanelStorageKey, {
+      topRatio,
+      midRatio,
+      topCollapsed,
+      midCollapsed,
+      bottomCollapsed,
+    });
+  }, [
+    bottomCollapsed,
+    leftPanelStorageKey,
+    midCollapsed,
+    midRatio,
+    topCollapsed,
+    topRatio,
+  ]);
 
   const resetCreateFileDialog = useCallback(() => {
     setNewFileName("");

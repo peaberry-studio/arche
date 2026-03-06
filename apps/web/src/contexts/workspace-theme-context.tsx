@@ -1,6 +1,15 @@
 "use client";
 
-import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 
 export type WorkspaceThemeId =
   | "warm-sand"
@@ -110,7 +119,63 @@ export const WORKSPACE_THEMES: Record<WorkspaceThemeId, WorkspaceTheme> = {
 
 export const DEFAULT_THEME_ID: WorkspaceThemeId = "midnight-ash";
 
-const STORAGE_KEY = "arche.workspace.theme";
+const LEGACY_STORAGE_KEY = "arche.workspace.theme";
+const STORAGE_KEY_PREFIX = "arche.workspace";
+const ROOT_THEME_OWNER_ATTR = "data-arche-theme-owner";
+
+const ALL_THEME_CLASSES = Object.keys(WORKSPACE_THEMES).map(
+  (themeId) => `theme-${themeId}`
+);
+
+const ALL_DARK_VARIANT_CLASSES = Array.from(
+  new Set(
+    Object.values(WORKSPACE_THEMES)
+      .map((theme) =>
+        theme.isDark && theme.darkVariant ? `dark-${theme.darkVariant}` : null
+      )
+      .filter((className): className is string => className !== null)
+  )
+);
+
+function getStorageKey(scope: string): string {
+  return `${STORAGE_KEY_PREFIX}.${scope}.theme`;
+}
+
+function isWorkspaceThemeId(value: string): value is WorkspaceThemeId {
+  return value in WORKSPACE_THEMES;
+}
+
+function loadThemeFromStorage(scope: string): WorkspaceThemeId | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const scopedStorageKey = getStorageKey(scope);
+    const stored = window.localStorage.getItem(scopedStorageKey);
+    if (stored && isWorkspaceThemeId(stored)) {
+      return stored;
+    }
+
+    const legacy = window.localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (legacy && isWorkspaceThemeId(legacy)) {
+      window.localStorage.setItem(scopedStorageKey, legacy);
+      return legacy;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function applyThemeClasses(root: HTMLElement, theme: WorkspaceTheme) {
+  root.classList.remove(...ALL_THEME_CLASSES);
+  root.classList.remove("dark", ...ALL_DARK_VARIANT_CLASSES);
+  root.classList.add(`theme-${theme.id}`);
+
+  if (theme.isDark && theme.darkVariant) {
+    root.classList.add("dark", `dark-${theme.darkVariant}`);
+  }
+}
 
 type WorkspaceThemeContextValue = {
   theme: WorkspaceTheme;
@@ -123,25 +188,70 @@ const WorkspaceThemeContext = createContext<WorkspaceThemeContextValue | null>(
   null
 );
 
-export function WorkspaceThemeProvider({ children }: { children: ReactNode }) {
+type WorkspaceThemeProviderProps = {
+  children: ReactNode;
+  storageScope?: string;
+};
+
+export function WorkspaceThemeProvider({
+  children,
+  storageScope = "global",
+}: WorkspaceThemeProviderProps) {
+  const storageKey = useMemo(() => getStorageKey(storageScope), [storageScope]);
+  const rootThemeOwnerId = useId();
+
   const [themeId, setThemeIdState] = useState<WorkspaceThemeId>(() => {
-    if (typeof window === "undefined") return DEFAULT_THEME_ID;
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (stored && stored in WORKSPACE_THEMES) {
-      return stored as WorkspaceThemeId;
-    }
-    return DEFAULT_THEME_ID;
+    const stored = loadThemeFromStorage(storageScope);
+    return stored ?? DEFAULT_THEME_ID;
   });
 
-  const setThemeId = useCallback((id: WorkspaceThemeId) => {
-    setThemeIdState(id);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(STORAGE_KEY, id);
-    }
-  }, []);
+  const setThemeId = useCallback(
+    (id: WorkspaceThemeId) => {
+      setThemeIdState(id);
+      try {
+        window.localStorage.setItem(storageKey, id);
+      } catch {
+        // Ignore storage access errors.
+      }
+    },
+    [storageKey]
+  );
 
   const theme = WORKSPACE_THEMES[themeId];
-  const themes = Object.values(WORKSPACE_THEMES);
+  const themes = useMemo(() => Object.values(WORKSPACE_THEMES), []);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const ownerId = rootThemeOwnerId;
+    root.setAttribute(ROOT_THEME_OWNER_ATTR, ownerId);
+    applyThemeClasses(root, theme);
+
+    return () => {
+      if (root.getAttribute(ROOT_THEME_OWNER_ATTR) !== ownerId) return;
+      root.classList.remove(...ALL_THEME_CLASSES);
+      root.classList.remove("dark", ...ALL_DARK_VARIANT_CLASSES);
+      root.removeAttribute(ROOT_THEME_OWNER_ATTR);
+    };
+  }, [rootThemeOwnerId, theme]);
+
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.storageArea !== window.localStorage) return;
+      if (event.key !== storageKey) return;
+
+      if (event.newValue && isWorkspaceThemeId(event.newValue)) {
+        setThemeIdState(event.newValue);
+        return;
+      }
+
+      setThemeIdState(DEFAULT_THEME_ID);
+    };
+
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [storageKey]);
 
   return (
     <WorkspaceThemeContext.Provider
