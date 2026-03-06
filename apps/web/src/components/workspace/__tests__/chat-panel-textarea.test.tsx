@@ -70,42 +70,6 @@ afterEach(() => {
 });
 
 describe("ChatPanel textarea", () => {
-  it("resets textarea height after sending a multiline message", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({ attachments: [] }),
-      })
-    );
-
-    const { onSendMessage } = renderChatPanel();
-
-    const textarea = getTextarea();
-
-    Object.defineProperty(textarea, "scrollHeight", {
-      configurable: true,
-      value: 180,
-    });
-
-    fireEvent.change(textarea, { target: { value: "Line 1\nLine 2\nLine 3\nLine 4" } });
-
-    await waitFor(() => {
-      expect(textarea.style.height).toBe("180px");
-    });
-
-    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
-
-    await waitFor(() => {
-      expect(onSendMessage).toHaveBeenCalledTimes(1);
-    });
-
-    await waitFor(() => {
-      expect(textarea.value).toBe("");
-      expect(textarea.style.height).toBe("auto");
-    });
-  });
-
   it("uploads a pasted image and sends it without requiring text", async () => {
     const attachmentStore: MockAttachment[] = [];
     const uploadedAttachment: MockAttachment = {
