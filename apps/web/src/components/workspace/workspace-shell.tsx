@@ -31,6 +31,7 @@ type StoredLayoutState = {
   rightWidth?: number;
   leftCollapsed?: boolean;
   rightCollapsed?: boolean;
+  rightTab?: "preview" | "review";
 };
 
 const MIN_LEFT_PX = 200;
@@ -94,7 +95,11 @@ const loadStoredLayout = (key: string): StoredLayoutState | null => {
 
 const persistLayout = (key: string, state: StoredLayoutState) => {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(key, JSON.stringify(state));
+  try {
+    window.localStorage.setItem(key, JSON.stringify(state));
+  } catch {
+    // ignore storage errors
+  }
 };
 
 function resolveRootSessionId(
@@ -313,7 +318,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [rightTab, setRightTab] = useState<"preview" | "review">("preview");
-  const [hasHydrated, setHasHydrated] = useState(false);
+  const [hydratedLayoutKey, setHydratedLayoutKey] = useState<string | null>(null);
 
   const focusSearchInput = useCallback(() => {
     if (leftCollapsed) setLeftCollapsed(false);
@@ -624,20 +629,22 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
 
     if (typeof stored?.leftCollapsed === "boolean") setLeftCollapsed(stored.leftCollapsed);
     if (typeof stored?.rightCollapsed === "boolean") setRightCollapsed(stored.rightCollapsed);
-    
-    setHasHydrated(true);
+    if (stored?.rightTab === "preview" || stored?.rightTab === "review") setRightTab(stored.rightTab);
+
+    setHydratedLayoutKey(layoutStorageKey);
   }, [layoutStorageKey]);
 
   // Persist layout
   useEffect(() => {
-    if (!hasHydrated) return;
+    if (hydratedLayoutKey !== layoutStorageKey) return;
     persistLayout(layoutStorageKey, {
       leftWidth,
       rightWidth,
       leftCollapsed,
-      rightCollapsed
+      rightCollapsed,
+      rightTab,
     });
-  }, [layoutStorageKey, leftWidth, rightWidth, leftCollapsed, rightCollapsed, hasHydrated]);
+  }, [layoutStorageKey, leftWidth, rightWidth, leftCollapsed, rightCollapsed, rightTab, hydratedLayoutKey]);
 
   // Map workspace sessions to UI format
   const uiSessions = useMemo(() => {
@@ -924,17 +931,6 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
     : "";
   const themeClassName = `theme-${theme.id}`;
 
-  // Sync theme classes to <html> so Radix portals (dropdowns, tooltips)
-  // rendered outside this container still inherit the correct theme.
-  useEffect(() => {
-    const root = document.documentElement;
-    const classes = [themeClassName, ...(darkModeClasses ? darkModeClasses.split(" ") : [])];
-    classes.forEach((c) => root.classList.add(c));
-    return () => {
-      classes.forEach((c) => root.classList.remove(c));
-    };
-  }, [darkModeClasses, themeClassName]);
-
   // Loading screen while instance is starting
   if (instanceStatus !== 'running') {
     return (
@@ -1090,6 +1086,8 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
             aria-hidden={leftCollapsed}
           >
             <LeftPanel
+              key={slug}
+              slug={slug}
               sessions={rootSessions}
               activeSessionId={activeRootSessionId}
               onSelectSession={handleSelectSession}

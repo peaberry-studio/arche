@@ -1,8 +1,8 @@
 /** @vitest-environment jsdom */
 
 import { createRef } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LeftPanel } from "@/components/workspace/left-panel";
 import type { AgentCatalogItem } from "@/hooks/use-workspace";
@@ -67,26 +67,33 @@ const agents: AgentCatalogItem[] = [
   },
 ];
 
+const defaultProps = {
+  slug: "alice",
+  sessions,
+  activeSessionId: "s1" as string | null,
+  onSelectSession: vi.fn(),
+  onCreateSession: vi.fn(),
+  agents,
+  onSelectAgent: vi.fn(),
+  onOpenExpertsSettings: vi.fn(),
+  fileNodes,
+  activeFilePath: null as string | null,
+  onSelectFile: vi.fn(),
+  onCreateKnowledgeFile: vi.fn().mockResolvedValue({ ok: true as const }),
+  searchInputRef: createRef<HTMLInputElement>(),
+};
+
+beforeEach(() => {
+  localStorage.clear();
+});
+
+afterEach(() => {
+  cleanup();
+});
+
 describe("LeftPanel", () => {
   it("filters sections using internal search state", () => {
-    const onCreateKnowledgeFile = vi.fn().mockResolvedValue({ ok: true as const });
-
-    render(
-      <LeftPanel
-        sessions={sessions}
-        activeSessionId={"s1"}
-        onSelectSession={vi.fn()}
-        onCreateSession={vi.fn()}
-        agents={agents}
-        onSelectAgent={vi.fn()}
-        onOpenExpertsSettings={vi.fn()}
-        fileNodes={fileNodes}
-        activeFilePath={null}
-        onSelectFile={vi.fn()}
-        onCreateKnowledgeFile={onCreateKnowledgeFile}
-        searchInputRef={createRef<HTMLInputElement>()}
-      />
-    );
+    render(<LeftPanel {...defaultProps} />);
 
     const searchInput = screen.getByLabelText("Search chats, knowledge, and experts");
     if (!(searchInput instanceof HTMLInputElement)) {
@@ -115,22 +122,7 @@ describe("LeftPanel", () => {
   it("creates a markdown file in the selected directory", async () => {
     const onCreateKnowledgeFile = vi.fn().mockResolvedValue({ ok: true as const });
 
-    render(
-      <LeftPanel
-        sessions={sessions}
-        activeSessionId={"s1"}
-        onSelectSession={vi.fn()}
-        onCreateSession={vi.fn()}
-        agents={agents}
-        onSelectAgent={vi.fn()}
-        onOpenExpertsSettings={vi.fn()}
-        fileNodes={fileNodes}
-        activeFilePath={null}
-        onSelectFile={vi.fn()}
-        onCreateKnowledgeFile={onCreateKnowledgeFile}
-        searchInputRef={createRef<HTMLInputElement>()}
-      />
-    );
+    render(<LeftPanel {...defaultProps} onCreateKnowledgeFile={onCreateKnowledgeFile} />);
 
     const createFileButtons = screen.getAllByRole("button", { name: "Create file" });
     fireEvent.click(createFileButtons[createFileButtons.length - 1]);
@@ -145,5 +137,48 @@ describe("LeftPanel", () => {
     await waitFor(() => {
       expect(onCreateKnowledgeFile).toHaveBeenCalledWith("docs/release-plan.md");
     });
+  });
+
+  it("hydrates subpanel collapsed state from storage", () => {
+    localStorage.setItem(
+      "arche.workspace.alice.left-panel",
+      JSON.stringify({ topCollapsed: true, midCollapsed: false, bottomCollapsed: true })
+    );
+
+    render(<LeftPanel {...defaultProps} />);
+
+    // The Chats section header should be present but its content collapsed
+    // We verify by checking the aria-hidden or structure; simpler: check toggle button clicks work
+    // The toggle buttons (SectionHeader) are always visible; we verify collapse state indirectly
+    // by checking that Sessions content is hidden (grid-template-rows: 0fr)
+    const chatHeaders = screen.getAllByRole("button").filter(
+      (btn) => btn.textContent?.includes("Chats")
+    );
+    expect(chatHeaders.length).toBeGreaterThan(0);
+    // topCollapsed = true means the section has flexBasis: HEADER_HEIGHT and grow: 0
+    // We can check that the persisted value was loaded by verifying what gets persisted back
+    expect(localStorage.getItem("arche.workspace.alice.left-panel")).toContain('"topCollapsed":true');
+  });
+
+  it("persists subpanel collapsed state to storage on toggle", () => {
+    render(<LeftPanel {...defaultProps} />);
+
+    // The persist effect runs on mount with default state
+    // Toggle the Chats section to collapsed
+    const chatToggleBtn = screen.getAllByRole("button").find(
+      (btn) => btn.querySelector("span")?.textContent?.includes("Chats") ||
+               btn.textContent?.trim().startsWith("Chats")
+    );
+
+    if (!chatToggleBtn) {
+      throw new Error("Could not find Chats toggle button");
+    }
+
+    fireEvent.click(chatToggleBtn);
+
+    const stored = localStorage.getItem("arche.workspace.alice.left-panel");
+    expect(stored).not.toBeNull();
+    const parsed = JSON.parse(stored!);
+    expect(parsed.topCollapsed).toBe(true);
   });
 });

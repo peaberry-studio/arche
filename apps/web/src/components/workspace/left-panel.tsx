@@ -36,7 +36,73 @@ const ANIM = "200ms ease-out";
 const FLEX_TRANSITION = `flex-grow ${ANIM}, flex-basis ${ANIM}`;
 const GRID_TRANSITION = `grid-template-rows ${ANIM}`;
 
+const DEFAULT_TOP_RATIO = 3 / 8;
+const DEFAULT_MID_RATIO = 3 / 8;
+
+type StoredLeftPanelState = {
+  topRatio?: number;
+  midRatio?: number;
+  topCollapsed?: boolean;
+  midCollapsed?: boolean;
+  bottomCollapsed?: boolean;
+};
+
+type NormalizedLeftPanelState = {
+  topRatio: number;
+  midRatio: number;
+  topCollapsed: boolean;
+  midCollapsed: boolean;
+  bottomCollapsed: boolean;
+};
+
+const DEFAULT_LEFT_PANEL_STATE: NormalizedLeftPanelState = {
+  topRatio: DEFAULT_TOP_RATIO,
+  midRatio: DEFAULT_MID_RATIO,
+  topCollapsed: false,
+  midCollapsed: false,
+  bottomCollapsed: false,
+};
+
+function isValidRatio(value: unknown): value is number {
+  return typeof value === "number" && isFinite(value) && value > 0 && value < 1;
+}
+
+function loadStoredLeftPanelState(key: string): StoredLeftPanelState | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.localStorage.getItem(key);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as StoredLeftPanelState;
+  } catch {
+    return null;
+  }
+}
+
+function persistLeftPanelState(key: string, state: NormalizedLeftPanelState) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(state));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function getInitialLeftPanelState(key: string): NormalizedLeftPanelState {
+  const stored = loadStoredLeftPanelState(key);
+  if (!stored) return DEFAULT_LEFT_PANEL_STATE;
+
+  return {
+    topRatio: isValidRatio(stored.topRatio) ? stored.topRatio : DEFAULT_TOP_RATIO,
+    midRatio: isValidRatio(stored.midRatio) ? stored.midRatio : DEFAULT_MID_RATIO,
+    topCollapsed: typeof stored.topCollapsed === "boolean" ? stored.topCollapsed : false,
+    midCollapsed: typeof stored.midCollapsed === "boolean" ? stored.midCollapsed : false,
+    bottomCollapsed: typeof stored.bottomCollapsed === "boolean" ? stored.bottomCollapsed : false,
+  };
+}
+
 type LeftPanelProps = {
+  slug: string;
+
   // Sessions
   sessions: WorkspaceSession[];
   activeSessionId: string | null;
@@ -124,6 +190,7 @@ function SectionHeader({
 }
 
 export function LeftPanel({
+  slug,
   sessions,
   activeSessionId,
   onSelectSession,
@@ -147,17 +214,24 @@ export function LeftPanel({
   const [createFileError, setCreateFileError] = useState<string | null>(null);
   const [isCreatingFile, setIsCreatingFile] = useState(false);
 
-  const [topRatio, setTopRatio] = useState(3 / 8);
-  const [midRatio, setMidRatio] = useState(3 / 8);
+  const leftPanelStorageKey = useMemo(() => `arche.workspace.${slug}.left-panel`, [slug]);
+  const initialPanelState = useMemo(() => getInitialLeftPanelState(leftPanelStorageKey), [leftPanelStorageKey]);
 
-  const [topCollapsed, setTopCollapsed] = useState(false);
-  const [midCollapsed, setMidCollapsed] = useState(false);
-  const [bottomCollapsed, setBottomCollapsed] = useState(false);
+  const [topRatio, setTopRatio] = useState(initialPanelState.topRatio);
+  const [midRatio, setMidRatio] = useState(initialPanelState.midRatio);
+
+  const [topCollapsed, setTopCollapsed] = useState(initialPanelState.topCollapsed);
+  const [midCollapsed, setMidCollapsed] = useState(initialPanelState.midCollapsed);
+  const [bottomCollapsed, setBottomCollapsed] = useState(initialPanelState.bottomCollapsed);
 
   const directoryOptions = useMemo(
     () => collectDirectoryOptions(fileNodes),
     [fileNodes]
   );
+
+  useEffect(() => {
+    persistLeftPanelState(leftPanelStorageKey, { topRatio, midRatio, topCollapsed, midCollapsed, bottomCollapsed });
+  }, [leftPanelStorageKey, topRatio, midRatio, topCollapsed, midCollapsed, bottomCollapsed]);
 
   useEffect(() => {
     if (!isCreateFileDialogOpen) return;

@@ -5,6 +5,7 @@ import { DashboardNav } from '@/components/dashboard/dashboard-nav'
 import { DashboardThemeShell } from '@/components/dashboard/dashboard-theme-shell'
 import { WorkspaceThemeProvider } from '@/contexts/workspace-theme-context'
 import { getSessionFromToken, SESSION_COOKIE_NAME } from '@/lib/auth'
+import { DEFAULT_THEME_ID, getWorkspaceThemeCookieName, isWorkspaceThemeId } from '@/lib/workspace-theme'
 
 export default async function DashboardLayout({
   children,
@@ -31,8 +32,13 @@ export default async function DashboardLayout({
     redirect(`/u/${session.user.slug}`)
   }
 
+  const storedThemeId = cookieStore.get(getWorkspaceThemeCookieName(slug))?.value
+  const initialThemeId = storedThemeId && isWorkspaceThemeId(storedThemeId)
+    ? storedThemeId
+    : DEFAULT_THEME_ID
+
   return (
-    <WorkspaceThemeProvider>
+    <WorkspaceThemeProvider key={slug} storageScope={slug} initialThemeId={initialThemeId}>
       <DashboardThemeShell>
         <div className="mx-auto max-w-6xl px-6 pt-6">
           <DashboardNav slug={slug} />
