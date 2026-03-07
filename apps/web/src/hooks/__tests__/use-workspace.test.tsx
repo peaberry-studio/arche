@@ -120,6 +120,7 @@ describe("useWorkspace", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.clearAllMocks();
     vi.unstubAllGlobals();
   });
@@ -169,5 +170,50 @@ describe("useWorkspace", () => {
     expect(result.current.selectedModel?.modelId).toBe("gpt-5.2");
     expect(result.current.hasManualModelSelection).toBe(true);
     expect(result.current.agentDefaultModel?.modelId).toBe("gpt-5.4");
+  });
+
+  it("clears a manual model override when the model is no longer available", async () => {
+    vi.useFakeTimers();
+    opencodeMocks.checkConnectionAction
+      .mockResolvedValueOnce({ status: "disconnected" })
+      .mockResolvedValue({ status: "connected" });
+    opencodeMocks.listModelsAction.mockResolvedValue({
+      ok: true,
+      models: [
+        {
+          providerId: "openai",
+          providerName: "OpenAI",
+          modelId: "gpt-5.2",
+          modelName: "GPT 5.2",
+          isDefault: true,
+        },
+      ],
+    });
+
+    const { result } = renderHook(() =>
+      useWorkspace({ slug: "alice", pollInterval: 0 })
+    );
+
+    act(() => {
+      result.current.setSelectedModel({
+        providerId: "openai",
+        providerName: "OpenAI",
+        modelId: "gpt-5.4",
+        modelName: "GPT 5.4",
+        isDefault: false,
+      });
+    });
+
+    expect(result.current.hasManualModelSelection).toBe(true);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+
+    vi.useRealTimers();
+
+    expect(result.current.hasManualModelSelection).toBe(false);
+    expect(result.current.agentDefaultModel?.modelId).toBe("gpt-5.4");
+    expect(result.current.selectedModel?.modelId).toBe("gpt-5.2");
   });
 });

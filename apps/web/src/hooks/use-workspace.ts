@@ -104,6 +104,16 @@ function resolveModelEntry(
   };
 }
 
+function hasModelEntry(
+  providerId: string,
+  modelId: string,
+  models: AvailableModel[]
+): boolean {
+  return models.some(
+    (entry) => entry.providerId === providerId && entry.modelId === modelId
+  );
+}
+
 function getPrimaryAgent(catalog: AgentCatalogItem[]): AgentCatalogItem | null {
   return catalog.find((agent) => agent.isPrimary) ?? null;
 }
@@ -1310,6 +1320,9 @@ export function useWorkspace({
 
     setManualSelectedModel((current) => {
       if (!current) return null;
+      if (!hasModelEntry(current.providerId, current.modelId, nextModels)) {
+        return null;
+      }
       return resolveModelEntry(current.providerId, current.modelId, nextModels);
     });
     setRuntimeSelectedModel((current) => {
