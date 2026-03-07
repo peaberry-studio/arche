@@ -1059,7 +1059,7 @@ export function ChatPanel({
       const imageFilesFromItems = Array.from(clipboardData.items ?? [])
         .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
         .map((item) => item.getAsFile())
-        .filter((file): file is File => Boolean(file) && file.size > 0);
+        .filter((file): file is File => file !== null && file.size > 0);
 
       const imageFiles =
         imageFilesFromItems.length > 0
