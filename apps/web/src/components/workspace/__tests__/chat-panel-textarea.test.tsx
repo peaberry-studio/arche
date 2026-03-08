@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ChatPanel } from "@/components/workspace/chat-panel";
+import { WorkspaceThemeProvider } from "@/contexts/workspace-theme-context";
 
 vi.mock("next/image", () => ({
   default: () => null,
@@ -32,17 +33,19 @@ function renderChatPanel(
   props?: Partial<ComponentProps<typeof ChatPanel>>
 ) {
   render(
-    <ChatPanel
-      slug={"alice"}
-      sessions={[{ id: "s1", title: "Chat", status: "idle", updatedAt: "now", agent: "OpenCode" }]}
-      messages={[]}
-      activeSessionId={"s1"}
-      openFilePaths={[]}
-      onCloseSession={vi.fn()}
-      onOpenFile={vi.fn()}
-      onSendMessage={onSendMessage}
-      {...props}
-    />
+    <WorkspaceThemeProvider storageScope="alice">
+      <ChatPanel
+        slug={"alice"}
+        sessions={[{ id: "s1", title: "Chat", status: "idle", updatedAt: "now", agent: "OpenCode" }]}
+        messages={[]}
+        activeSessionId={"s1"}
+        openFilePaths={[]}
+        onCloseSession={vi.fn()}
+        onOpenFile={vi.fn()}
+        onSendMessage={onSendMessage}
+        {...props}
+      />
+    </WorkspaceThemeProvider>
   );
 
   return { onSendMessage };

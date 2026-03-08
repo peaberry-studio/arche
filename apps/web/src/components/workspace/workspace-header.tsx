@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Circle, Palette, SquaresFour } from "@phosphor-icons/react";
+import { Circle, Minus, Palette, Plus, SquaresFour } from "@phosphor-icons/react";
 
 import { useEffect, useMemo, useState } from "react";
 
@@ -44,7 +44,16 @@ export function WorkspaceHeader({
 }: WorkspaceHeaderProps) {
   const router = useRouter();
   const statusStyle = statusConfig[status];
-  const { themes, themeId, setThemeId } = useWorkspaceTheme();
+  const {
+    canDecreaseChatFontSize,
+    canIncreaseChatFontSize,
+    chatFontSize,
+    decreaseChatFontSize,
+    increaseChatFontSize,
+    themes,
+    themeId,
+    setThemeId,
+  } = useWorkspaceTheme();
   const [pendingConfig, setPendingConfig] = useState(false);
   const [isRestarting, setIsRestarting] = useState(false);
 
@@ -159,7 +168,7 @@ export function WorkspaceHeader({
                 </TooltipTrigger>
                 <TooltipContent side="bottom">Change theme</TooltipContent>
               </Tooltip>
-              <DropdownMenuContent align="end" sideOffset={8} className="min-w-[180px]">
+              <DropdownMenuContent align="end" sideOffset={8} className="min-w-[220px]">
                 <DropdownMenuLabel className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                   Light
                 </DropdownMenuLabel>
@@ -221,6 +230,49 @@ export function WorkspaceHeader({
                     )}
                   </DropdownMenuItem>
                 ))}
+
+                <DropdownMenuSeparator />
+
+                <div className="px-2 py-1.5">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Font size
+                    </span>
+                    <span className="text-xs font-medium tabular-nums text-foreground/80">
+                      {chatFontSize}px
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className="h-7 w-7"
+                      onClick={decreaseChatFontSize}
+                      disabled={!canDecreaseChatFontSize}
+                      aria-label="Decrease chat font size"
+                    >
+                      <Minus size={14} weight="bold" />
+                    </Button>
+
+                    <div className="flex-1 rounded-md border border-border/60 bg-muted/30 px-2.5 py-1 text-center text-xs text-muted-foreground">
+                      Chat only
+                    </div>
+
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      className="h-7 w-7"
+                      onClick={increaseChatFontSize}
+                      disabled={!canIncreaseChatFontSize}
+                      aria-label="Increase chat font size"
+                    >
+                      <Plus size={14} weight="bold" />
+                    </Button>
+                  </div>
+                </div>
               </DropdownMenuContent>
             </DropdownMenu>
 

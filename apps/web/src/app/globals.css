@@ -464,6 +464,62 @@
     @apply my-3 max-w-full rounded-lg;
   }
 
+  .workspace-chat-content {
+    --workspace-chat-font-size: 15px;
+    --workspace-chat-font-size-xs: 13px;
+    --workspace-chat-font-size-note: 12px;
+    --workspace-chat-font-size-micro: 11px;
+    --workspace-chat-line-height: 1.65;
+  }
+
+  .workspace-chat-content .text-sm {
+    font-size: var(--workspace-chat-font-size);
+    line-height: var(--workspace-chat-line-height);
+  }
+
+  .workspace-chat-content .text-xs {
+    font-size: var(--workspace-chat-font-size-xs);
+    line-height: 1.5;
+  }
+
+  .workspace-chat-content .chat-text-note {
+    font-size: var(--workspace-chat-font-size-note);
+    line-height: 1.45;
+  }
+
+  .workspace-chat-content .chat-text-micro {
+    font-size: var(--workspace-chat-font-size-micro);
+    line-height: 1.4;
+  }
+
+  .workspace-chat-content .markdown-content {
+    font-size: var(--workspace-chat-font-size);
+    line-height: var(--workspace-chat-line-height);
+  }
+
+  .workspace-chat-content .markdown-content h1 {
+    font-size: calc(var(--workspace-chat-font-size) * 1.43);
+  }
+
+  .workspace-chat-content .markdown-content h2 {
+    font-size: calc(var(--workspace-chat-font-size) * 1.29);
+  }
+
+  .workspace-chat-content .markdown-content h3 {
+    font-size: calc(var(--workspace-chat-font-size) * 1.14);
+  }
+
+  .workspace-chat-content .markdown-content h4,
+  .workspace-chat-content .markdown-content h5,
+  .workspace-chat-content .markdown-content h6,
+  .workspace-chat-content .markdown-content code {
+    font-size: 1em;
+  }
+
+  .workspace-chat-content .markdown-content pre code {
+    font-size: 0.95em;
+  }
+
   /* Tiptap rich editor (Markdown-backed) styles */
   .workspace-tiptap .tiptap-editor {
     outline: none;

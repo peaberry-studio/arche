@@ -3,14 +3,20 @@
 import { createContext, useCallback, useContext, useEffect, useId, useMemo, useState, type ReactNode } from "react";
 
 import {
+  DEFAULT_CHAT_FONT_SIZE,
   DEFAULT_THEME_ID,
+  getWorkspaceChatFontSizeCookieName,
+  getWorkspaceChatFontSizeStorageKey,
   getWorkspaceThemeCookieName,
   getWorkspaceThemeStorageKey,
+  isWorkspaceChatFontSize,
   isWorkspaceThemeId,
+  WORKSPACE_CHAT_FONT_SIZES,
+  type WorkspaceChatFontSize,
   type WorkspaceThemeId,
 } from '@/lib/workspace-theme'
 
-export { DEFAULT_THEME_ID } from '@/lib/workspace-theme'
+export { DEFAULT_CHAT_FONT_SIZE, DEFAULT_THEME_ID } from '@/lib/workspace-theme'
 
 export type DarkVariant = "ember" | "ash" | "nuclear";
 
@@ -111,6 +117,8 @@ export const WORKSPACE_THEMES: Record<WorkspaceThemeId, WorkspaceTheme> = {
 const ROOT_THEME_OWNER_ATTR = "data-arche-theme-owner";
 const ALL_THEME_CLASSES = Object.keys(WORKSPACE_THEMES).map((id) => `theme-${id}`);
 const ALL_DARK_VARIANT_CLASSES = ["dark-ember", "dark-ash", "dark-nuclear"];
+const MIN_CHAT_FONT_SIZE = WORKSPACE_CHAT_FONT_SIZES[0]
+const MAX_CHAT_FONT_SIZE = WORKSPACE_CHAT_FONT_SIZES[WORKSPACE_CHAT_FONT_SIZES.length - 1]
 
 function readStoredThemeId(storageKey: string): WorkspaceThemeId | null {
   try {
@@ -121,11 +129,28 @@ function readStoredThemeId(storageKey: string): WorkspaceThemeId | null {
   }
 }
 
+function readStoredChatFontSize(storageKey: string): WorkspaceChatFontSize | null {
+  try {
+    const stored = window.localStorage.getItem(storageKey)
+    const parsed = stored ? Number.parseInt(stored, 10) : Number.NaN
+    return isWorkspaceChatFontSize(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
 function persistThemeCookie(scope: string, themeId: WorkspaceThemeId) {
   if (typeof document === 'undefined') return;
 
   const secure = window.location.protocol === 'https:' ? '; Secure' : '';
   document.cookie = `${getWorkspaceThemeCookieName(scope)}=${themeId}; Path=/; Max-Age=31536000; SameSite=Lax${secure}`;
+}
+
+function persistChatFontSizeCookie(scope: string, chatFontSize: WorkspaceChatFontSize) {
+  if (typeof document === 'undefined') return
+
+  const secure = window.location.protocol === 'https:' ? '; Secure' : ''
+  document.cookie = `${getWorkspaceChatFontSizeCookieName(scope)}=${chatFontSize}; Path=/; Max-Age=31536000; SameSite=Lax${secure}`
 }
 
 function applyThemeClasses(root: HTMLElement, theme: WorkspaceTheme) {
@@ -142,6 +167,12 @@ function applyThemeClasses(root: HTMLElement, theme: WorkspaceTheme) {
 type WorkspaceThemeContextValue = {
   theme: WorkspaceTheme;
   themeId: WorkspaceThemeId;
+  chatFontSize: WorkspaceChatFontSize;
+  canDecreaseChatFontSize: boolean;
+  canIncreaseChatFontSize: boolean;
+  decreaseChatFontSize: () => void;
+  increaseChatFontSize: () => void;
+  setChatFontSize: (size: WorkspaceChatFontSize) => void;
   setThemeId: (id: WorkspaceThemeId) => void;
   themes: WorkspaceTheme[];
 };
@@ -153,15 +184,19 @@ const WorkspaceThemeContext = createContext<WorkspaceThemeContextValue | null>(
 export function WorkspaceThemeProvider({
   children,
   storageScope = "global",
+  initialChatFontSize = DEFAULT_CHAT_FONT_SIZE,
   initialThemeId = DEFAULT_THEME_ID,
 }: {
   children: ReactNode;
   storageScope?: string;
+  initialChatFontSize?: WorkspaceChatFontSize;
   initialThemeId?: WorkspaceThemeId;
 }) {
+  const chatFontSizeStorageKey = useMemo(() => getWorkspaceChatFontSizeStorageKey(storageScope), [storageScope]);
   const storageKey = useMemo(() => getWorkspaceThemeStorageKey(storageScope), [storageScope]);
   const rootThemeOwnerId = useId();
 
+  const [chatFontSize, setChatFontSizeState] = useState<WorkspaceChatFontSize>(initialChatFontSize)
   const [themeId, setThemeIdState] = useState<WorkspaceThemeId>(initialThemeId)
 
   const setThemeId = useCallback(
@@ -179,8 +214,49 @@ export function WorkspaceThemeProvider({
     [storageKey, storageScope]
   );
 
+  const setChatFontSize = useCallback(
+    (size: WorkspaceChatFontSize) => {
+      setChatFontSizeState(size)
+      if (typeof window !== 'undefined') {
+        try {
+          window.localStorage.setItem(chatFontSizeStorageKey, String(size))
+        } catch {
+          // ignore storage errors
+        }
+        persistChatFontSizeCookie(storageScope, size)
+      }
+    },
+    [chatFontSizeStorageKey, storageScope]
+  )
+
+  const canDecreaseChatFontSize = chatFontSize > MIN_CHAT_FONT_SIZE
+  const canIncreaseChatFontSize = chatFontSize < MAX_CHAT_FONT_SIZE
+
+  const decreaseChatFontSize = useCallback(() => {
+    const nextChatFontSize = Math.max(MIN_CHAT_FONT_SIZE, chatFontSize - 1)
+    if (isWorkspaceChatFontSize(nextChatFontSize)) {
+      setChatFontSize(nextChatFontSize)
+    }
+  }, [chatFontSize, setChatFontSize])
+
+  const increaseChatFontSize = useCallback(() => {
+    const nextChatFontSize = Math.min(MAX_CHAT_FONT_SIZE, chatFontSize + 1)
+    if (isWorkspaceChatFontSize(nextChatFontSize)) {
+      setChatFontSize(nextChatFontSize)
+    }
+  }, [chatFontSize, setChatFontSize])
+
   const theme = WORKSPACE_THEMES[themeId];
   const themes = useMemo(() => Object.values(WORKSPACE_THEMES), []);
+
+  useEffect(() => {
+    const storedChatFontSize = readStoredChatFontSize(chatFontSizeStorageKey)
+    if (!storedChatFontSize || storedChatFontSize === chatFontSize) return
+
+    queueMicrotask(() => {
+      setChatFontSizeState((currentChatFontSize) => currentChatFontSize === storedChatFontSize ? currentChatFontSize : storedChatFontSize)
+    })
+  }, [chatFontSizeStorageKey, chatFontSize])
 
   useEffect(() => {
     const storedThemeId = readStoredThemeId(storageKey)
@@ -190,6 +266,16 @@ export function WorkspaceThemeProvider({
       setThemeIdState((currentThemeId) => currentThemeId === storedThemeId ? currentThemeId : storedThemeId)
     })
   }, [storageKey, themeId])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(chatFontSizeStorageKey, String(chatFontSize))
+    } catch {
+      // ignore storage errors
+    }
+
+    persistChatFontSizeCookie(storageScope, chatFontSize)
+  }, [chatFontSize, chatFontSizeStorageKey, storageScope])
 
   useEffect(() => {
     try {
@@ -203,21 +289,30 @@ export function WorkspaceThemeProvider({
 
   useEffect(() => {
     const handleStorage = (event: StorageEvent) => {
-      if (event.key !== storageKey) return
+      if (event.key === storageKey) {
+        const nextThemeId = event.newValue && isWorkspaceThemeId(event.newValue)
+          ? event.newValue
+          : null
 
-      const nextThemeId = event.newValue && isWorkspaceThemeId(event.newValue)
-        ? event.newValue
-        : null
+        if (!nextThemeId) return
 
-      if (!nextThemeId) return
+        setThemeIdState(nextThemeId)
+        persistThemeCookie(storageScope, nextThemeId)
+        return
+      }
 
-      setThemeIdState(nextThemeId)
-      persistThemeCookie(storageScope, nextThemeId)
+      if (event.key !== chatFontSizeStorageKey) return
+
+      const nextChatFontSize = event.newValue ? Number.parseInt(event.newValue, 10) : Number.NaN
+      if (!isWorkspaceChatFontSize(nextChatFontSize)) return
+
+      setChatFontSizeState(nextChatFontSize)
+      persistChatFontSizeCookie(storageScope, nextChatFontSize)
     }
 
     window.addEventListener('storage', handleStorage)
     return () => window.removeEventListener('storage', handleStorage)
-  }, [storageKey, storageScope])
+  }, [chatFontSizeStorageKey, storageKey, storageScope])
 
   useEffect(() => {
     const root = document.documentElement;
@@ -232,7 +327,18 @@ export function WorkspaceThemeProvider({
 
   return (
     <WorkspaceThemeContext.Provider
-      value={{ theme, themeId, setThemeId, themes }}
+      value={{
+        canDecreaseChatFontSize,
+        canIncreaseChatFontSize,
+        chatFontSize,
+        decreaseChatFontSize,
+        increaseChatFontSize,
+        setChatFontSize,
+        theme,
+        themeId,
+        setThemeId,
+        themes,
+      }}
     >
       {children}
     </WorkspaceThemeContext.Provider>

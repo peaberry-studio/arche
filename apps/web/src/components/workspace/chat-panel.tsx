@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect, useMemo, useCallback } from "react";
+import { useRef, useState, useEffect, useMemo, useCallback, type CSSProperties } from "react";
 import {
   ArrowClockwise,
   CaretDown,
@@ -52,6 +52,7 @@ import {
   DialogHeader,
   DialogTitle
 } from "@/components/ui/dialog";
+import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { formatAttachmentSize } from "@/lib/workspace-attachments";
 import { cn } from "@/lib/utils";
 import type {
@@ -243,7 +244,7 @@ function MessageFooter({ message, showTimestamp = true }: { message: ChatMessage
   // Only show timestamp when message is complete (not streaming) and showTimestamp is true
   const timestamp = !message.pending && showTimestamp ? (
     <span className={cn(
-      "text-[10px] text-muted-foreground/60",
+      "chat-text-micro text-muted-foreground/60",
       isUser ? "px-1" : ""
     )}>
       {message.timestamp}
@@ -440,10 +441,10 @@ function ReasoningBlock({ text, isPending }: { text: string; isPending: boolean 
         <Lightbulb size={12} weight="fill" className="text-primary" />
         <span>Reasoning</span>
         {canCollapse && (
-          <span className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground">
-            {isOpen ? "Hide" : "Show"}
-            <CaretDown size={12} className={cn("transition-transform", isOpen && "rotate-180")} />
-          </span>
+            <span className="chat-text-note ml-auto flex items-center gap-1 text-muted-foreground">
+              {isOpen ? "Hide" : "Show"}
+              <CaretDown size={12} className={cn("transition-transform", isOpen && "rotate-180")} />
+            </span>
         )}
       </button>
       {displayedOpen && (
@@ -520,7 +521,7 @@ function ToolGroup({
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-2">
           {totalCount > 1 && (
-            <span className="text-[10px] text-muted-foreground">
+            <span className="chat-text-micro text-muted-foreground">
               {completedCount > 0 ? `${completedCount} done` : ""}
               {runningCount > 0 ? `${completedCount > 0 ? " · " : ""}${runningCount} running` : ""}
               {errorCount > 0 ? `${completedCount > 0 || runningCount > 0 ? " · " : ""}${errorCount} error` : ""}
@@ -533,7 +534,7 @@ function ToolGroup({
                 event.stopPropagation();
                 onOpenFile(headerDisplay.path!);
               }}
-              className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground cursor-pointer"
+              className="chat-text-micro inline-flex cursor-pointer items-center gap-1 text-muted-foreground hover:text-foreground"
             >
               Open
               <CaretRight size={12} />
@@ -575,7 +576,7 @@ function ToolGroup({
                             event.stopPropagation();
                             onOpenFile(detail.path!);
                           }}
-                          className="ml-auto inline-flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground cursor-pointer"
+                          className="chat-text-micro ml-auto inline-flex shrink-0 cursor-pointer items-center gap-1 text-muted-foreground hover:text-foreground"
                         >
                           Open
                           <CaretRight size={12} />
@@ -583,7 +584,7 @@ function ToolGroup({
                       )}
                     </div>
                     {itemError && getStateError(part.state) && (
-                      <div className="mt-0.5 text-[11px] text-destructive">{getStateError(part.state)}</div>
+                      <div className="chat-text-note mt-0.5 text-destructive">{getStateError(part.state)}</div>
                     )}
                   </div>
                 </div>
@@ -610,7 +611,7 @@ function FileGroup({ parts, onOpenFile }: { parts: FilePart[]; onOpenFile: (path
         <File size={12} weight="bold" className="text-primary" />
         <span className="font-medium">Files</span>
         <span className="text-muted-foreground">{totalCount} {totalCount === 1 ? "file" : "files"}</span>
-        <span className="ml-auto text-[10px] text-muted-foreground">
+        <span className="chat-text-micro ml-auto text-muted-foreground">
           {isOpen ? "Hide" : "Show"}
         </span>
         <CaretDown size={12} className={cn("transition-transform", isOpen && "rotate-180")} />
@@ -829,12 +830,23 @@ export function ChatPanel({
   pendingInsert,
   onPendingInsertConsumed
 }: ChatPanelProps) {
+  const { chatFontSize } = useWorkspaceTheme();
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId),
     [sessions, activeSessionId]
   );
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatContentStyle = useMemo(
+    () => ({
+      '--workspace-chat-font-size': `${chatFontSize}px`,
+      '--workspace-chat-font-size-xs': `${Math.max(chatFontSize - 2, 12)}px`,
+      '--workspace-chat-font-size-note': `${Math.max(chatFontSize - 3, 11)}px`,
+      '--workspace-chat-font-size-micro': `${Math.max(chatFontSize - 4, 10)}px`,
+      '--workspace-chat-line-height': '1.65',
+    }) satisfies CSSProperties,
+    [chatFontSize]
+  );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const [inputValue, setInputValue] = useState("");
@@ -1363,7 +1375,7 @@ export function ChatPanel({
       ) : null}
 
       {/* Messages area */}
-      <div className="flex-1 overflow-y-auto px-6 py-6 scrollbar-custom">
+      <div className="workspace-chat-content flex-1 overflow-y-auto px-6 py-6 scrollbar-custom" style={chatContentStyle}>
         {isStartingNewSession ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
             <div className="h-16 w-16 animate-spin rounded-full border-4 border-muted border-t-primary" />

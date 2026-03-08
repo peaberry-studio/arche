@@ -6,6 +6,7 @@ import { renderToString } from 'react-dom/server'
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_CHAT_FONT_SIZE,
   DEFAULT_THEME_ID,
   useWorkspaceTheme,
   WorkspaceThemeProvider,
@@ -25,6 +26,29 @@ function ThemeSetter({ id }: { id: string }) {
         onClick={() => setThemeId(id as Parameters<typeof setThemeId>[0])}
       >
         set
+      </button>
+    </>
+  );
+}
+
+function ChatFontSizeDisplay() {
+  const { chatFontSize } = useWorkspaceTheme();
+  return <div data-testid="chat-font-size">{chatFontSize}</div>;
+}
+
+function ChatFontSizeSetter({ size }: { size: number }) {
+  const { chatFontSize, setChatFontSize } = useWorkspaceTheme();
+  return (
+    <>
+      <div data-testid="chat-font-size">{chatFontSize}</div>
+      <button
+        onClick={() => {
+          if (size === 14 || size === 15 || size === 16 || size === 17 || size === 18) {
+            setChatFontSize(size)
+          }
+        }}
+      >
+        set font size
       </button>
     </>
   );
@@ -174,6 +198,58 @@ describe("WorkspaceThemeProvider", () => {
     });
 
     expect(screen.getByTestId("theme-id").textContent).toBe("forest-dew");
+  });
+
+  it("loads chat font size from scoped storage key", () => {
+    localStorage.setItem("arche.workspace.alice.chat-font-size", "17");
+
+    render(
+      <WorkspaceThemeProvider storageScope="alice">
+        <ChatFontSizeDisplay />
+      </WorkspaceThemeProvider>
+    );
+
+    return waitFor(() => {
+      expect(screen.getByTestId("chat-font-size").textContent).toBe("17");
+    })
+  });
+
+  it("saves chat font size to scoped storage key on setChatFontSize", () => {
+    render(
+      <WorkspaceThemeProvider storageScope="bob">
+        <ChatFontSizeSetter size={18} />
+      </WorkspaceThemeProvider>
+    );
+
+    act(() => {
+      screen.getByRole("button", { name: "set font size" }).click();
+    });
+
+    expect(localStorage.getItem("arche.workspace.bob.chat-font-size")).toBe("18");
+    expect(localStorage.getItem("arche.workspace.alice.chat-font-size")).toBeNull();
+    expect(document.cookie).toContain("arche-workspace-chat-font-size-bob=18");
+  });
+
+  it("syncs chat font size across tabs via storage event", () => {
+    render(
+      <WorkspaceThemeProvider storageScope="alice">
+        <ChatFontSizeDisplay />
+      </WorkspaceThemeProvider>
+    );
+
+    expect(screen.getByTestId("chat-font-size").textContent).toBe(String(DEFAULT_CHAT_FONT_SIZE));
+
+    act(() => {
+      localStorage.setItem("arche.workspace.alice.chat-font-size", "16");
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: "arche.workspace.alice.chat-font-size",
+          newValue: "16",
+        })
+      );
+    });
+
+    expect(screen.getByTestId("chat-font-size").textContent).toBe("16");
   });
 
   it("ignores storage events for other scopes", () => {

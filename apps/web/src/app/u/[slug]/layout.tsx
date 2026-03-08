@@ -5,7 +5,14 @@ import { DashboardNav } from '@/components/dashboard/dashboard-nav'
 import { DashboardThemeShell } from '@/components/dashboard/dashboard-theme-shell'
 import { WorkspaceThemeProvider } from '@/contexts/workspace-theme-context'
 import { getSessionFromToken, SESSION_COOKIE_NAME } from '@/lib/auth'
-import { DEFAULT_THEME_ID, getWorkspaceThemeCookieName, isWorkspaceThemeId } from '@/lib/workspace-theme'
+import {
+  DEFAULT_CHAT_FONT_SIZE,
+  DEFAULT_THEME_ID,
+  getWorkspaceChatFontSizeCookieName,
+  getWorkspaceThemeCookieName,
+  isWorkspaceChatFontSize,
+  isWorkspaceThemeId,
+} from '@/lib/workspace-theme'
 
 export default async function DashboardLayout({
   children,
@@ -17,6 +24,7 @@ export default async function DashboardLayout({
   const { slug } = await params
 
   const cookieStore = await cookies()
+  const storedChatFontSize = cookieStore.get(getWorkspaceChatFontSizeCookieName(slug))?.value
   const token = cookieStore.get(SESSION_COOKIE_NAME)?.value
 
   if (!token) {
@@ -33,12 +41,18 @@ export default async function DashboardLayout({
   }
 
   const storedThemeId = cookieStore.get(getWorkspaceThemeCookieName(slug))?.value
+  const initialChatFontSize = storedChatFontSize ? Number.parseInt(storedChatFontSize, 10) : Number.NaN
   const initialThemeId = storedThemeId && isWorkspaceThemeId(storedThemeId)
     ? storedThemeId
     : DEFAULT_THEME_ID
 
   return (
-    <WorkspaceThemeProvider key={slug} storageScope={slug} initialThemeId={initialThemeId}>
+    <WorkspaceThemeProvider
+      key={slug}
+      storageScope={slug}
+      initialChatFontSize={isWorkspaceChatFontSize(initialChatFontSize) ? initialChatFontSize : DEFAULT_CHAT_FONT_SIZE}
+      initialThemeId={initialThemeId}
+    >
       <DashboardThemeShell>
         <div className="mx-auto max-w-6xl px-6 pt-6">
           <DashboardNav slug={slug} />
