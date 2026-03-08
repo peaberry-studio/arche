@@ -847,7 +847,7 @@ export function ChatPanel({
       '--workspace-chat-font-size-note': `${Math.max(chatFontSize - 3, 11)}px`,
       '--workspace-chat-font-size-micro': `${Math.max(chatFontSize - 4, 10)}px`,
       '--workspace-chat-line-height': '1.65',
-    }) satisfies CSSProperties,
+    }) as CSSProperties,
     [chatFontFamily, chatFontSize]
   );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
