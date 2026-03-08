@@ -19,8 +19,8 @@ RUN apk add --no-cache git nodejs npm
 WORKDIR /opt/arche/opencode-config
 COPY opencode-config/package.json /opt/arche/opencode-config/package.json
 RUN npm install --omit=dev
-COPY opencode-config/tools /opt/arche/opencode-config/tools
-RUN find /opt/arche/opencode-config/tools -type f \( -name '*.test.*' -o -name '*.spec.*' \) -delete
+RUN mkdir -p /opt/arche/opencode-config/tools
+COPY opencode-config/tools/spreadsheet.js /opt/arche/opencode-config/tools/spreadsheet.js
 
 # Create non-root user for running the workspace
 RUN addgroup -g 1000 workspace && \
