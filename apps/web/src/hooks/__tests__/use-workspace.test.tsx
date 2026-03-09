@@ -32,6 +32,7 @@ vi.mock("@/actions/workspace-agent", () => workspaceAgentMocks);
 
 describe("useWorkspace", () => {
   beforeEach(() => {
+    localStorage.clear();
     opencodeMocks.checkConnectionAction.mockResolvedValue({ status: "connected" });
     opencodeMocks.listSessionsAction.mockResolvedValue({
       ok: true,
@@ -170,6 +171,65 @@ describe("useWorkspace", () => {
     expect(result.current.selectedModel?.modelId).toBe("gpt-5.2");
     expect(result.current.hasManualModelSelection).toBe(true);
     expect(result.current.agentDefaultModel?.modelId).toBe("gpt-5.4");
+  });
+
+  it("restores the stored active session on reload instead of defaulting to the first returned child session", async () => {
+    localStorage.setItem("arche.workspace.alice.active-session", "root");
+    opencodeMocks.listSessionsAction.mockResolvedValue({
+      ok: true,
+      sessions: [
+        {
+          id: "child",
+          title: "Child",
+          status: "idle",
+          updatedAt: "now",
+          parentId: "root",
+        },
+        {
+          id: "root",
+          title: "Root",
+          status: "idle",
+          updatedAt: "now",
+        },
+      ],
+    });
+
+    const { result } = renderHook(() =>
+      useWorkspace({ slug: "alice", pollInterval: 0 })
+    );
+
+    await waitFor(() => {
+      expect(result.current.activeSessionId).toBe("root");
+    });
+  });
+
+  it("falls back to the first root session when no stored selection exists", async () => {
+    opencodeMocks.listSessionsAction.mockResolvedValue({
+      ok: true,
+      sessions: [
+        {
+          id: "child",
+          title: "Child",
+          status: "idle",
+          updatedAt: "now",
+          parentId: "root",
+        },
+        {
+          id: "root",
+          title: "Root",
+          status: "idle",
+          updatedAt: "now",
+        },
+      ],
+    });
+
+    const { result } = renderHook(() =>
+      useWorkspace({ slug: "alice", pollInterval: 0 })
+    );
+
+    await waitFor(() => {
+      expect(result.current.activeSessionId).toBe("root");
+    });
   });
 
   it("clears a manual model override when the model is no longer available", async () => {

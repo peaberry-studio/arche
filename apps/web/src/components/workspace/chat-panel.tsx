@@ -88,6 +88,8 @@ type ChatPanelProps = {
   hasManualModelSelection?: boolean;
   onSelectModel?: (model: AvailableModel | null) => void;
   activeAgentName?: string | null;
+  isReadOnly?: boolean;
+  onReturnToMainConversation?: () => void;
   pendingInsert?: string | null;
   onPendingInsertConsumed?: () => void;
 };
@@ -827,6 +829,8 @@ export function ChatPanel({
   hasManualModelSelection = false,
   onSelectModel,
   activeAgentName,
+  isReadOnly = false,
+  onReturnToMainConversation,
   pendingInsert,
   onPendingInsertConsumed
 }: ChatPanelProps) {
@@ -1064,7 +1068,13 @@ export function ChatPanel({
 
   const handleTextareaPaste = useCallback(
     async (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-      if (isSending || isStartingNewSession || isUploadingAttachment || !onSendMessage) {
+      if (
+        isReadOnly ||
+        isSending ||
+        isStartingNewSession ||
+        isUploadingAttachment ||
+        !onSendMessage
+      ) {
         return;
       }
 
@@ -1091,6 +1101,7 @@ export function ChatPanel({
     },
     [
       handleUploadAttachments,
+      isReadOnly,
       isSending,
       isStartingNewSession,
       isUploadingAttachment,
@@ -1237,6 +1248,7 @@ export function ChatPanel({
     const hasSelectedAttachments = selectedAttachments.length > 0;
     if (
       (!text && !hasSelectedAttachments) ||
+      isReadOnly ||
       !onSendMessage ||
       isSending ||
       isStartingNewSession ||
@@ -1270,6 +1282,7 @@ export function ChatPanel({
   }, [
     contextPathsToSend,
     inputValue,
+    isReadOnly,
     onSendMessage,
     isSending,
     isStartingNewSession,
@@ -1735,6 +1748,25 @@ export function ChatPanel({
           </div>
         )}
 
+        {isReadOnly ? (
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+            <div className="flex items-center gap-2 text-amber-50/90">
+              <Info size={16} weight="fill" className="text-amber-300" />
+              <span>Subagent sessions are read-only. Return to the main conversation to continue chatting.</span>
+            </div>
+            {onReturnToMainConversation ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={onReturnToMainConversation}
+              >
+                Main conversation
+              </Button>
+            ) : null}
+          </div>
+        ) : (
+          <>
         {selectedAttachments.length > 0 && (
           <div className="mb-3 flex flex-wrap gap-2">
             {selectedAttachments.map((attachment) => (
@@ -1906,6 +1938,8 @@ export function ChatPanel({
             )}
           </Button>
         </div>
+          </>
+        )}
 
         <Dialog open={isManageAttachmentsOpen} onOpenChange={setIsManageAttachmentsOpen}>
           <DialogContent className="h-[88vh] w-[min(96vw,1100px)] max-w-none p-0">

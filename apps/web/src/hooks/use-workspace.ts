@@ -58,6 +58,36 @@ export type AgentCatalogItem = {
 const STALE_PENDING_ASSISTANT_MS = 5_000;
 const INSTANCE_ACTIVITY_HEARTBEAT_MS = 20_000;
 
+function getActiveSessionStorageKey(slug: string): string {
+  return `arche.workspace.${slug}.active-session`;
+}
+
+function loadStoredActiveSessionId(key: string): string | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const value = window.localStorage.getItem(key);
+    return value && value.trim().length > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistActiveSessionId(key: string, sessionId: string | null): void {
+  if (typeof window === "undefined") return;
+
+  try {
+    if (sessionId) {
+      window.localStorage.setItem(key, sessionId);
+      return;
+    }
+
+    window.localStorage.removeItem(key);
+  } catch {
+    // Ignore storage access errors.
+  }
+}
+
 function normalizeAgentId(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -198,6 +228,7 @@ export function useWorkspace({
   pollInterval = 5000,
   enabled = true,
 }: UseWorkspaceOptions): UseWorkspaceReturn {
+  const activeSessionStorageKey = getActiveSessionStorageKey(slug);
   // Connection state
   const [connection, setConnection] = useState<WorkspaceConnectionState>({
     status: "connecting",
@@ -447,25 +478,38 @@ export function useWorkspace({
       );
       if (result.ok && result.sessions) {
         setSessions(result.sessions);
-
-        // Auto-select first session if none selected
-        // Use functional update to avoid dependency on activeSessionId
         const sessions = result.sessions;
-        setActiveSessionId((prev) => {
-          if (!prev && sessions.length > 0) {
-            console.log(
-              "[useWorkspace] Auto-selecting first session:",
-              sessions[0].id
-            );
-            return sessions[0].id;
-          }
-          return prev;
-        });
+        const sessionIds = new Set(sessions.map((session) => session.id));
+        const currentSessionId = activeSessionIdRef.current;
+        const storedSessionId = loadStoredActiveSessionId(activeSessionStorageKey);
+        const firstRootSession = sessions.find(
+          (session) => !session.parentId || !sessionIds.has(session.parentId)
+        );
+        const nextActiveSessionId =
+          (currentSessionId && sessionIds.has(currentSessionId)
+            ? currentSessionId
+            : null) ??
+          (storedSessionId && sessionIds.has(storedSessionId)
+            ? storedSessionId
+            : null) ??
+          firstRootSession?.id ??
+          sessions[0]?.id ??
+          null;
+
+        if (nextActiveSessionId !== currentSessionId) {
+          console.log(
+            "[useWorkspace] Selecting session after load:",
+            nextActiveSessionId
+          );
+          activeSessionIdRef.current = nextActiveSessionId;
+          setActiveSessionId(nextActiveSessionId);
+          setMessages([]);
+        }
       }
     } finally {
       setIsLoadingSessions(false);
     }
-  }, [slug]);
+  }, [activeSessionStorageKey, slug]);
 
   const abortActiveStream = useCallback(() => {
     if (activeStreamRef.current) {
@@ -1418,6 +1462,10 @@ export function useWorkspace({
   ]);
 
   // Load messages when active session changes
+  useEffect(() => {
+    persistActiveSessionId(activeSessionStorageKey, activeSessionId);
+  }, [activeSessionId, activeSessionStorageKey]);
+
   useEffect(() => {
     console.log(
       "[useWorkspace] activeSessionId changed:",

@@ -274,6 +274,15 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
     }));
   }, [activeRootSessionId, sessionsById, workspace.sessions]);
 
+  const isInspectingSubagentSession = useMemo(() => {
+    if (!workspace.activeSessionId) return false;
+
+    const activeSession = sessionsById.get(workspace.activeSessionId);
+    if (!activeSession) return false;
+
+    return getSessionDepth(activeSession, sessionsById) > 0;
+  }, [sessionsById, workspace.activeSessionId]);
+
   // Auto-sync KB on first connection
   const hasAutoSynced = useRef(false);
 
@@ -1125,6 +1134,12 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
               hasManualModelSelection={workspace.hasManualModelSelection}
               onSelectModel={workspace.setSelectedModel}
               activeAgentName={workspace.activeAgentName}
+              isReadOnly={isInspectingSubagentSession}
+              onReturnToMainConversation={
+                activeRootSessionId
+                  ? () => workspace.selectSession(activeRootSessionId)
+                  : undefined
+              }
               pendingInsert={pendingInsert}
               onPendingInsertConsumed={handlePendingInsertConsumed}
             />

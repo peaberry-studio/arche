@@ -365,4 +365,30 @@ describe("ChatPanel textarea", () => {
       }
     );
   });
+
+  it("renders subagent sessions as read-only inspection views", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ attachments: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const onReturnToMainConversation = vi.fn();
+
+    renderChatPanel(undefined, {
+      isReadOnly: true,
+      onReturnToMainConversation,
+    });
+
+    expect(
+      screen.getByText(
+        "Subagent sessions are read-only. Return to the main conversation to continue chatting."
+      )
+    ).toBeTruthy();
+    expect(screen.queryByPlaceholderText("Type a message...")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Main conversation" }));
+    expect(onReturnToMainConversation).toHaveBeenCalledTimes(1);
+  });
 });
