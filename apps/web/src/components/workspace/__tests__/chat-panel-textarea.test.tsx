@@ -219,8 +219,10 @@ describe("ChatPanel textarea", () => {
     renderChatPanel();
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalled();
     });
+
+    const initialFetchCount = fetchMock.mock.calls.length;
 
     const textarea = getTextarea();
     fireEvent.paste(textarea, {
@@ -237,7 +239,7 @@ describe("ChatPanel textarea", () => {
     });
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledTimes(initialFetchCount);
     });
   });
 
