@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import type { MessageStatusInfo } from "@/lib/opencode/types";
+import { getWorkspaceToolDisplay } from "@/lib/workspace-tool-display";
 import { cn } from "@/lib/utils";
 
 type BitmapPattern = "orbit" | "scan" | "columns" | "wave-rows" | "diagonal-swipe";
@@ -201,10 +202,24 @@ function BitmapGlyph({ pattern }: { pattern: BitmapPattern }) {
   );
 }
 
-export function StatusIndicator({ currentStatus }: { currentStatus: MessageStatusInfo | null }) {
+export function StatusIndicator({
+  currentStatus,
+  connectorNamesById,
+}: {
+  currentStatus: MessageStatusInfo | null;
+  connectorNamesById?: Record<string, string>;
+}) {
   if (!currentStatus) return null;
 
   const { status, toolName, detail } = currentStatus;
+  const toolDisplay = toolName ? getWorkspaceToolDisplay(toolName, connectorNamesById) : null;
+  const toolStatusLabel = toolDisplay?.isConnectorTool
+    ? toolDisplay.commandLabel
+      ? `${toolDisplay.groupLabel} -> ${toolDisplay.commandLabel}...`
+      : `${toolDisplay.groupLabel}...`
+    : toolName
+      ? `Using ${toolName}...`
+      : "Running tool...";
 
   const statusConfig: Record<string, { pattern: BitmapPattern; label: string; className: string }> = {
     thinking: {
@@ -219,7 +234,7 @@ export function StatusIndicator({ currentStatus }: { currentStatus: MessageStatu
     },
     "tool-calling": {
       pattern: "columns",
-      label: toolName ? `Using ${toolName}...` : "Running tool...",
+      label: toolStatusLabel,
       className: "text-primary",
     },
     writing: {

@@ -53,6 +53,8 @@ import {
   DialogTitle
 } from "@/components/ui/dialog";
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
+import type { AvailableModel, MessagePart } from "@/lib/opencode/types";
+import { getWorkspaceToolDisplay } from "@/lib/workspace-tool-display";
 import { formatAttachmentSize } from "@/lib/workspace-attachments";
 import { cn } from "@/lib/utils";
 import type {
@@ -61,7 +63,6 @@ import type {
   MessageAttachmentInput,
   WorkspaceAttachment
 } from "@/types/workspace";
-import type { AvailableModel, MessagePart } from "@/lib/opencode/types";
 
 type ChatPanelProps = {
   slug: string;
@@ -95,6 +96,11 @@ type ChatPanelProps = {
 };
 
 type ContextMode = "auto" | "manual" | "off";
+
+type ConnectorSummary = {
+  id: string;
+  name: string;
+};
 
 const MAX_CONTEXT_PATHS_PER_MESSAGE = 20;
 
@@ -306,11 +312,26 @@ const TOOL_LABELS: Record<string, string> = {
   todoread: "Reviewing plan"
 };
 
-function getToolLabel(tool: string) {
+function getToolLabel(tool: string, connectorNamesById?: Record<string, string>) {
+  const toolDisplay = getWorkspaceToolDisplay(tool, connectorNamesById);
+  if (toolDisplay.isConnectorTool) return toolDisplay.groupLabel;
   return TOOL_LABELS[tool] ?? tool;
 }
 
-function getToolDisplay(tool: string, input?: Record<string, unknown>, fallbackTitle?: string): ToolDisplay {
+function getToolDisplay(
+  tool: string,
+  input?: Record<string, unknown>,
+  fallbackTitle?: string,
+  connectorNamesById?: Record<string, string>
+): ToolDisplay {
+  const toolDisplay = getWorkspaceToolDisplay(tool, connectorNamesById);
+  if (toolDisplay.isConnectorTool) {
+    return {
+      summary: toolDisplay.commandLabel,
+      label: toolDisplay.commandLabel ?? fallbackTitle,
+    };
+  }
+
   const rawPath = typeof input?.path === "string" ? input.path : undefined;
   const normalizedPath = rawPath === "" ? "/" : rawPath;
   const filePath = getString(input?.filePath) ?? getString(input?.filename);
@@ -463,11 +484,13 @@ function ReasoningBlock({ text, isPending }: { text: string; isPending: boolean 
 function ToolGroup({
   tool,
   parts,
-  onOpenFile
+  onOpenFile,
+  connectorNamesById,
 }: {
   tool: string;
   parts: ToolPart[];
   onOpenFile?: (path: string) => void;
+  connectorNamesById?: Record<string, string>;
 }) {
   const getStateTitle = (state: ToolPart['state'] | undefined): string | undefined => {
     if (!state) return undefined;
@@ -489,9 +512,14 @@ function ToolGroup({
 
   const [isOpen, setIsOpen] = useState(() => (totalCount === 1 ? isRunning || isError : false));
 
-  const toolLabel = getToolLabel(tool);
+  const toolLabel = getToolLabel(tool, connectorNamesById);
   const lastPart = parts[parts.length - 1];
-  const headerDisplay = getToolDisplay(tool, lastPart?.state.input, getStateTitle(lastPart?.state) || lastPart?.name || toolLabel);
+  const headerDisplay = getToolDisplay(
+    tool,
+    lastPart?.state.input,
+    getStateTitle(lastPart?.state) || lastPart?.name || toolLabel,
+    connectorNamesById
+  );
   const summary = totalCount > 1
     ? `${totalCount} ${totalCount === 1 ? "call" : "calls"}${headerDisplay.summary ? ` · ${headerDisplay.summary}` : ""}`
     : headerDisplay.summary || getStateTitle(lastPart?.state) || lastPart?.name || tool;
@@ -554,7 +582,12 @@ function ToolGroup({
               const itemRunning = part.state.status === "running" || part.state.status === "pending";
               const itemError = part.state.status === "error";
               const itemComplete = part.state.status === "completed";
-              const detail = getToolDisplay(tool, part.state.input, getStateTitle(part.state) || part.name);
+              const detail = getToolDisplay(
+                tool,
+                part.state.input,
+                getStateTitle(part.state) || part.name,
+                connectorNamesById
+              );
               const title = detail.label || getStateTitle(part.state) || part.name;
               
               return (
@@ -869,6 +902,7 @@ export function ChatPanel({
   const [isMutatingAttachments, setIsMutatingAttachments] = useState(false);
   const [contextMode, setContextMode] = useState<ContextMode>("auto");
   const [manualContextPaths, setManualContextPaths] = useState<string[]>([]);
+  const [connectorNamesById, setConnectorNamesById] = useState<Record<string, string>>({});
 
   const selectedAttachments = useMemo(
     () =>
@@ -931,6 +965,42 @@ export function ChatPanel({
       // Ignore storage access errors
     }
   }, [contextMode, contextModeStorageKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadConnectors = async () => {
+      const response = await fetch(`/api/u/${slug}/connectors`, { cache: "no-store" });
+      if (!response.ok || cancelled) return;
+
+      const data = (await response.json().catch(() => null)) as
+        | { connectors?: ConnectorSummary[] }
+        | null;
+
+      if (cancelled) return;
+
+      const nextConnectors = Array.isArray(data?.connectors) ? data.connectors : [];
+      setConnectorNamesById(
+        nextConnectors.reduce<Record<string, string>>((accumulator, connector) => {
+          const name = connector.name.trim();
+          if (name) {
+            accumulator[connector.id] = name;
+          }
+          return accumulator;
+        }, {})
+      );
+    };
+
+    void loadConnectors().catch(() => {
+      if (!cancelled) {
+        setConnectorNamesById({});
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [slug]);
 
   useEffect(() => {
     setManualContextPaths((previous) =>
@@ -1436,6 +1506,7 @@ export function ChatPanel({
                                   tool={group.tool}
                                   parts={group.parts}
                                   onOpenFile={onOpenFile}
+                                  connectorNamesById={connectorNamesById}
                                 />
                               );
                             }
@@ -1522,7 +1593,7 @@ export function ChatPanel({
               );
             })}
             {/* Status indicator at the bottom - always visible when processing */}
-            <StatusIndicator currentStatus={currentStatus} />
+            <StatusIndicator currentStatus={currentStatus} connectorNamesById={connectorNamesById} />
             <div ref={messagesEndRef} />
           </div>
         )}
