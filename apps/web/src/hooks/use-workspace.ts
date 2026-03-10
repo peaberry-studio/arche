@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import {
   checkConnectionAction,
   listSessionsAction,
@@ -244,11 +244,12 @@ export function useWorkspace({
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
 
   // Messages
-  const [messages, setMessages] = useState<WorkspaceMessage[]>([]);
-  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
-  const [isSending, setIsSending] = useState(false);
+  const [messagesBySession, setMessagesBySession] = useState<
+    Record<string, WorkspaceMessage[]>
+  >({});
+  const [loadingMessageSessionIds, setLoadingMessageSessionIds] = useState<string[]>([]);
+  const [sendingSessionIds, setSendingSessionIds] = useState<string[]>([]);
   const [isStartingNewSession, setIsStartingNewSession] = useState(false);
-  const isSendingRef = useRef(false); // Ref to track sending state without causing re-renders
   // Sync ref so async callbacks can read the *current* activeSessionId
   const activeSessionIdRef = useRef(activeSessionId);
   activeSessionIdRef.current = activeSessionId;
@@ -285,6 +286,14 @@ export function useWorkspace({
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
 
   const isConnected = connection.status === "connected";
+  const messages = useMemo(
+    () => (activeSessionId ? messagesBySession[activeSessionId] ?? [] : []),
+    [activeSessionId, messagesBySession]
+  );
+  const isLoadingMessages = activeSessionId
+    ? loadingMessageSessionIds.includes(activeSessionId)
+    : false;
+  const isSending = activeSessionId ? sendingSessionIds.includes(activeSessionId) : false;
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? null;
   const activeCatalogAgent = activeAgentId
@@ -374,6 +383,68 @@ export function useWorkspace({
 
     return { agentId: null, model: null };
   }, []);
+
+  const updateSessionMessages = useCallback(
+    (
+      sessionId: string,
+      updater: SetStateAction<WorkspaceMessage[]>
+    ) => {
+      setMessagesBySession((prev) => {
+        const previousMessages = prev[sessionId] ?? [];
+        const nextMessages =
+          typeof updater === "function"
+            ? updater(previousMessages)
+            : updater;
+
+        if (nextMessages === previousMessages) return prev;
+
+        return {
+          ...prev,
+          [sessionId]: nextMessages,
+        };
+      });
+    },
+    []
+  );
+
+  const setSessionLoading = useCallback((sessionId: string, isLoading: boolean) => {
+    setLoadingMessageSessionIds((prev) => {
+      if (isLoading) {
+        return prev.includes(sessionId) ? prev : [...prev, sessionId];
+      }
+
+      return prev.filter((id) => id !== sessionId);
+    });
+  }, []);
+
+  const setSessionSending = useCallback((sessionId: string, isSessionSending: boolean) => {
+    setSendingSessionIds((prev) => {
+      if (isSessionSending) {
+        return prev.includes(sessionId) ? prev : [...prev, sessionId];
+      }
+
+      return prev.filter((id) => id !== sessionId);
+    });
+  }, []);
+
+  const syncRuntimeMetadataForSession = useCallback(
+    (sessionId: string, items: WorkspaceMessage[]) => {
+      if (activeSessionIdRef.current !== sessionId) return;
+
+      const runtime = extractRuntimeMetadata(items);
+      if (runtime.agentId) {
+        syncActiveAgentFromRuntime(runtime.agentId);
+      } else {
+        setActiveAgentId(primaryAgent?.id ?? null);
+      }
+      if (runtime.model) {
+        syncRuntimeSelectedModel(runtime.model.providerId, runtime.model.modelId);
+      } else {
+        setRuntimeSelectedModel(null);
+      }
+    },
+    [extractRuntimeMetadata, primaryAgent, syncActiveAgentFromRuntime, syncRuntimeSelectedModel]
+  );
 
   // Check connection
   const checkConnection = useCallback(async () => {
@@ -503,7 +574,6 @@ export function useWorkspace({
           );
           activeSessionIdRef.current = nextActiveSessionId;
           setActiveSessionId(nextActiveSessionId);
-          setMessages([]);
         }
       }
     } finally {
@@ -513,24 +583,22 @@ export function useWorkspace({
 
   const abortActiveStream = useCallback(() => {
     if (activeStreamRef.current) {
+      const { sessionId } = activeStreamRef.current;
       activeStreamRef.current.abortController.abort();
       activeStreamRef.current = null;
       streamCounterRef.current += 1;
-      setIsSending(false);
-      isSendingRef.current = false;
+      setSessionSending(sessionId, false);
     }
-  }, []);
+  }, [setSessionSending]);
 
   // Select session
   const selectSession = useCallback(
     (id: string) => {
-      abortActiveStream();
       setActiveSessionId(id);
-      activeSessionIdRef.current = id; // Sync ref immediately so in-flight refreshMessages can detect staleness
-      setMessages([]); // Clear messages when switching sessions
+      activeSessionIdRef.current = id;
       resetSessionSelectionState();
     },
-    [abortActiveStream, resetSessionSelectionState]
+    [resetSessionSelectionState]
   );
 
   // Create session
@@ -540,14 +608,14 @@ export function useWorkspace({
       if (result.ok && result.session) {
         setSessions((prev) => [result.session!, ...prev]);
         setActiveSessionId(result.session.id);
-        activeSessionIdRef.current = result.session.id; // Sync ref immediately so in-flight refreshMessages can detect staleness
-        setMessages([]);
+        activeSessionIdRef.current = result.session.id;
+        updateSessionMessages(result.session.id, []);
         resetSessionSelectionState();
         return result.session;
       }
       return null;
     },
-    [resetSessionSelectionState, slug]
+    [resetSessionSelectionState, slug, updateSessionMessages]
   );
 
   // Delete session
@@ -565,6 +633,15 @@ export function useWorkspace({
           }
           return filtered;
         });
+        setMessagesBySession((prev) => {
+          if (!(id in prev)) return prev;
+
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+        setLoadingMessageSessionIds((prev) => prev.filter((sessionId) => sessionId !== id));
+        setSendingSessionIds((prev) => prev.filter((sessionId) => sessionId !== id));
         return true;
       }
       return false;
@@ -588,35 +665,31 @@ export function useWorkspace({
   );
 
   // Load messages for active session
-  const refreshMessages = useCallback(async () => {
-    if (!activeSessionId) {
+  const refreshMessages = useCallback(async (sessionIdOverride?: string) => {
+    const targetSessionId = sessionIdOverride ?? activeSessionIdRef.current;
+
+    if (!targetSessionId) {
       console.log(
         "[useWorkspace] refreshMessages: no activeSessionId, skipping"
       );
       return;
     }
 
-    // Don't refresh if we're currently sending a message (use ref to avoid dependency)
-    if (isSendingRef.current) {
+    const activeStream = activeStreamRef.current;
+    if (activeStream?.sessionId === targetSessionId) {
       console.log(
         "[useWorkspace] refreshMessages: skipping, currently sending"
       );
       return;
     }
 
-    const targetSessionId = activeSessionId;
-
     console.log(
       "[useWorkspace] refreshMessages: loading for session",
       targetSessionId
     );
-    setIsLoadingMessages(true);
+    setSessionLoading(targetSessionId, true);
     try {
       const result = await listMessagesAction(slug, targetSessionId);
-
-      // If the active session changed while the request was in flight,
-      // discard this result to avoid overwriting messages from the new session.
-      if (activeSessionIdRef.current !== targetSessionId) return;
 
       console.log(
         "[useWorkspace] refreshMessages result:",
@@ -653,30 +726,17 @@ export function useWorkspace({
           }
         );
 
-        setMessages(hydratedMessages);
-
-        const runtime = extractRuntimeMetadata(hydratedMessages);
-        if (runtime.agentId) {
-          syncActiveAgentFromRuntime(runtime.agentId);
-        } else {
-          setActiveAgentId(primaryAgent?.id ?? null);
-        }
-        if (runtime.model) {
-          syncRuntimeSelectedModel(runtime.model.providerId, runtime.model.modelId);
-        } else {
-          setRuntimeSelectedModel(null);
-        }
+        updateSessionMessages(targetSessionId, hydratedMessages);
+        syncRuntimeMetadataForSession(targetSessionId, hydratedMessages);
       }
     } finally {
-      setIsLoadingMessages(false);
+      setSessionLoading(targetSessionId, false);
     }
   }, [
     slug,
-    activeSessionId,
-    extractRuntimeMetadata,
-    primaryAgent,
-    syncActiveAgentFromRuntime,
-    syncRuntimeSelectedModel,
+    setSessionLoading,
+    syncRuntimeMetadataForSession,
+    updateSessionMessages,
   ]);
 
   const deriveStatusInfoFromPart = useCallback((part: MessagePart) => {
@@ -735,8 +795,8 @@ export function useWorkspace({
   }, []);
 
   const upsertMessagePart = useCallback(
-    (messageId: string, part: MessagePart) => {
-      setMessages((prev) =>
+    (sessionId: string, messageId: string, part: MessagePart) => {
+      updateSessionMessages(sessionId, (prev) =>
         prev.map((m) => {
           if (m.id !== messageId) return m;
           const nextParts = m.parts ? [...m.parts] : [];
@@ -766,7 +826,7 @@ export function useWorkspace({
         })
       );
     },
-    [deriveStatusInfoFromPart]
+    [deriveStatusInfoFromPart, updateSessionMessages]
   );
 
   const scheduleWorkspaceRefresh = useCallback(() => {
@@ -813,11 +873,10 @@ export function useWorkspace({
         abortController,
       };
 
-      setIsSending(true);
-      isSendingRef.current = true;
+      setSessionSending(sessionId, true);
 
       if (mode === "resume") {
-        setMessages((prev) =>
+        updateSessionMessages(sessionId, (prev) =>
           prev.map((m) =>
             m.id === targetMessageId
               ? {
@@ -841,7 +900,7 @@ export function useWorkspace({
         const buffered = bufferedParts.get(messageId);
         if (!buffered || buffered.length === 0) return;
         receivedAssistantPart = true;
-        buffered.forEach((part) => upsertMessagePart(targetMessageId, part));
+        buffered.forEach((part) => upsertMessagePart(sessionId, targetMessageId, part));
         bufferedParts.delete(messageId);
       };
 
@@ -853,14 +912,14 @@ export function useWorkspace({
         if (mode === "resume") {
           if (messageId !== targetMessageId) return;
           receivedAssistantPart = true;
-          transformed.forEach((p) => upsertMessagePart(targetMessageId, p));
+          transformed.forEach((p) => upsertMessagePart(sessionId, targetMessageId, p));
           return;
         }
 
         if (assistantMessageId) {
           if (messageId !== assistantMessageId) return;
           receivedAssistantPart = true;
-          transformed.forEach((p) => upsertMessagePart(targetMessageId, p));
+          transformed.forEach((p) => upsertMessagePart(sessionId, targetMessageId, p));
           return;
         }
 
@@ -875,7 +934,7 @@ export function useWorkspace({
         detail?: string
       ) => {
         const isTerminal = status === "complete" || status === "error";
-        setMessages((prev) =>
+        updateSessionMessages(sessionId, (prev) =>
           prev.map((m) => {
             if (m.id !== targetMessageId) return m;
             return {
@@ -965,19 +1024,26 @@ export function useWorkspace({
 
                   case "assistant-meta": {
                     if (
+                      activeSessionIdRef.current === sessionId &&
                       typeof data.providerID === "string" &&
                       typeof data.modelID === "string"
                     ) {
                       syncRuntimeSelectedModel(data.providerID, data.modelID);
                     }
-                    if (typeof data.agent === "string") {
+                    if (
+                      activeSessionIdRef.current === sessionId &&
+                      typeof data.agent === "string"
+                    ) {
                       syncActiveAgentFromRuntime(data.agent);
                     }
                     break;
                   }
 
                   case "agent": {
-                    if (typeof data.agent === "string") {
+                    if (
+                      activeSessionIdRef.current === sessionId &&
+                      typeof data.agent === "string"
+                    ) {
                       syncActiveAgentFromRuntime(data.agent);
                     }
                     break;
@@ -1129,10 +1195,11 @@ export function useWorkspace({
               }
             }
 
-            setMessages(hydratedMessages);
+            updateSessionMessages(sessionId, hydratedMessages);
+            syncRuntimeMetadataForSession(sessionId, hydratedMessages);
           } else {
             if (mode === "send" && !receivedStreamData) {
-              setMessages((prev) =>
+              updateSessionMessages(sessionId, (prev) =>
                 prev.filter((message) => !message.id.startsWith("temp-"))
               );
             }
@@ -1145,8 +1212,7 @@ export function useWorkspace({
         }
 
         if (isLatest) {
-          setIsSending(false);
-          isSendingRef.current = false;
+          setSessionSending(sessionId, false);
           activeStreamRef.current = null;
         }
       }
@@ -1158,6 +1224,9 @@ export function useWorkspace({
       syncActiveAgentFromRuntime,
       syncRuntimeSelectedModel,
       scheduleWorkspaceRefresh,
+      setSessionSending,
+      syncRuntimeMetadataForSession,
+      updateSessionMessages,
     ]
   );
 
@@ -1179,7 +1248,7 @@ export function useWorkspace({
         options,
       });
 
-      if (isSendingRef.current) return;
+      if (activeStreamRef.current) return;
 
       const messageAttachments = (options?.attachments ?? []).filter(
         (attachment) =>
@@ -1264,7 +1333,7 @@ export function useWorkspace({
       };
 
       abortActiveStream();
-      setMessages((prev) => [...prev, tempUserMsg, tempAssistantMsg]);
+      updateSessionMessages(sessionId, (prev) => [...prev, tempUserMsg, tempAssistantMsg]);
       await streamChat({
         sessionId,
         mode: "send",
@@ -1281,6 +1350,7 @@ export function useWorkspace({
       createSession,
       manualSelectedModel,
       streamChat,
+      updateSessionMessages,
     ]
   );
 
@@ -1474,13 +1544,15 @@ export function useWorkspace({
       isConnected
     );
     if (activeSessionId && isConnected) {
-      refreshMessages();
+      refreshMessages(activeSessionId);
     }
   }, [activeSessionId, isConnected, refreshMessages]);
 
   useEffect(() => {
     if (!activeSessionId || !isConnected) return;
-    if (isSendingRef.current) return;
+
+    const activeStream = activeStreamRef.current;
+    if (activeStream?.sessionId === activeSessionId) return;
 
     const now = Date.now();
     const sessionBusy = activeSession?.status === "busy";
@@ -1493,7 +1565,7 @@ export function useWorkspace({
     });
 
     if (stalePendingWithoutParts && !sessionBusy) {
-      setMessages((prev) =>
+      updateSessionMessages(activeSessionId, (prev) =>
         prev.map((m) => {
           if (m.id !== stalePendingWithoutParts.id) return m;
           return {
@@ -1525,7 +1597,6 @@ export function useWorkspace({
         return;
       }
 
-      const activeStream = activeStreamRef.current;
       if (
         !activeStream ||
         activeStream.sessionId !== activeSessionId ||
@@ -1540,7 +1611,6 @@ export function useWorkspace({
       return;
     }
 
-    const activeStream = activeStreamRef.current;
     if (
       activeStream &&
       activeStream.sessionId === activeSessionId &&
@@ -1555,6 +1625,7 @@ export function useWorkspace({
     isConnected,
     messages,
     streamChat,
+    updateSessionMessages,
   ]);
 
   // Refresh diffs when triggered by message completion
@@ -1607,10 +1678,32 @@ export function useWorkspace({
     const interval = setInterval(() => {
       loadSessions();
       refreshDiffs();
+
+      const sessionIdsToRefresh = new Set<string>();
+      sessions.forEach((session) => {
+        if (session.status === "busy") {
+          sessionIdsToRefresh.add(session.id);
+        }
+      });
+      if (activeSessionId) {
+        sessionIdsToRefresh.add(activeSessionId);
+      }
+
+      sessionIdsToRefresh.forEach((sessionId) => {
+        void refreshMessages(sessionId);
+      });
     }, pollInterval);
 
     return () => clearInterval(interval);
-  }, [isConnected, pollInterval, loadSessions, refreshDiffs]);
+  }, [
+    activeSessionId,
+    isConnected,
+    loadSessions,
+    pollInterval,
+    refreshDiffs,
+    refreshMessages,
+    sessions,
+  ]);
 
   useEffect(() => {
     return () => {

@@ -4,6 +4,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useWorkspace } from "@/hooks/use-workspace";
+import type { WorkspaceMessage } from "@/lib/opencode/types";
 
 const opencodeMocks = vi.hoisted(() => ({
   checkConnectionAction: vi.fn(),
@@ -29,6 +30,26 @@ const workspaceAgentMocks = vi.hoisted(() => ({
 
 vi.mock("@/actions/opencode", () => opencodeMocks);
 vi.mock("@/actions/workspace-agent", () => workspaceAgentMocks);
+
+function createPendingStreamBody() {
+  let resolveRead: ((value: ReadableStreamReadResult<Uint8Array>) => void) | null = null;
+
+  return {
+    body: {
+      getReader() {
+        return {
+          read: () =>
+            new Promise<ReadableStreamReadResult<Uint8Array>>((resolve) => {
+              resolveRead = resolve;
+            }),
+        };
+      },
+    },
+    close() {
+      resolveRead?.({ done: true, value: undefined });
+    },
+  };
+}
 
 describe("useWorkspace", () => {
   beforeEach(() => {
@@ -275,5 +296,139 @@ describe("useWorkspace", () => {
     expect(result.current.hasManualModelSelection).toBe(false);
     expect(result.current.agentDefaultModel?.modelId).toBe("gpt-5.4");
     expect(result.current.selectedModel?.modelId).toBe("gpt-5.2");
+  });
+
+  it("keeps the root session live while inspecting a subagent tab", async () => {
+    localStorage.setItem("arche.workspace.alice.active-session", "root");
+
+    const sessionMessages: Record<string, WorkspaceMessage[]> = {
+      root: [],
+      child: [
+        {
+          id: "child-message",
+          sessionId: "child",
+          role: "assistant",
+          content: "Child progress",
+          timestamp: "now",
+          parts: [],
+          pending: false,
+        },
+      ],
+    };
+    const stream = createPendingStreamBody();
+    let streamSignal: AbortSignal | undefined;
+
+    opencodeMocks.listSessionsAction.mockResolvedValue({
+      ok: true,
+      sessions: [
+        { id: "child", title: "Child", status: "idle", updatedAt: "now", parentId: "root" },
+        { id: "root", title: "Root", status: "busy", updatedAt: "now" },
+      ],
+    });
+    opencodeMocks.listMessagesAction.mockImplementation(async (_slug: string, sessionId: string) => ({
+      ok: true,
+      messages: sessionMessages[sessionId] ?? [],
+    }));
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === "/api/u/alice/agents") {
+          return {
+            ok: true,
+            json: async () => ({
+              agents: [
+                {
+                  id: "assistant",
+                  displayName: "Assistant",
+                  model: "openai/gpt-5.4",
+                  isPrimary: true,
+                },
+              ],
+            }),
+          };
+        }
+
+        if (String(input) === "/api/w/alice/chat/stream") {
+          streamSignal = init?.signal as AbortSignal | undefined;
+          return {
+            ok: true,
+            body: stream.body,
+          };
+        }
+
+        throw new Error(`Unexpected fetch: ${String(input)}`);
+      })
+    );
+
+    const { result } = renderHook(() =>
+      useWorkspace({ slug: "alice", pollInterval: 0 })
+    );
+
+    await waitFor(() => {
+      expect(result.current.activeSessionId).toBe("root");
+    });
+
+    act(() => {
+      void result.current.sendMessage("Investigate this");
+    });
+
+    await waitFor(() => {
+      expect(result.current.messages).toHaveLength(2);
+    });
+
+    act(() => {
+      result.current.selectSession("child");
+    });
+
+    await waitFor(() => {
+      expect(result.current.activeSessionId).toBe("child");
+      expect(result.current.messages.map((message) => message.content)).toEqual([
+        "Child progress",
+      ]);
+    });
+
+    expect(streamSignal?.aborted).toBe(false);
+
+    act(() => {
+      result.current.selectSession("root");
+    });
+
+    await waitFor(() => {
+      expect(result.current.activeSessionId).toBe("root");
+      expect(result.current.messages).toHaveLength(2);
+    });
+
+    sessionMessages.root = [
+      {
+        id: "user-message",
+        sessionId: "root",
+        role: "user",
+        content: "Investigate this",
+        timestamp: "now",
+        parts: [{ type: "text", text: "Investigate this" }],
+        pending: false,
+      },
+      {
+        id: "assistant-message",
+        sessionId: "root",
+        role: "assistant",
+        content: "Done now",
+        timestamp: "now",
+        parts: [{ type: "text", text: "Done now" }],
+        pending: false,
+      },
+    ];
+
+    act(() => {
+      stream.close();
+    });
+
+    await waitFor(() => {
+      expect(result.current.messages.map((message) => message.content)).toEqual([
+        "Investigate this",
+        "Done now",
+      ]);
+    });
   });
 });
