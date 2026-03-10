@@ -28,7 +28,7 @@ describe('ChatPanel', () => {
           openFilePaths={[]}
           onCloseSession={() => {}}
           onOpenFile={() => {}}
-          onSendMessage={async () => {}}
+          onSendMessage={async () => true}
           isStartingNewSession={true}
         />
       </WorkspaceThemeProvider>

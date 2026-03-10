@@ -201,7 +201,7 @@ export type UseWorkspaceReturn = {
       attachments?: MessageAttachmentInput[];
       contextPaths?: string[];
     }
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   abortSession: () => Promise<void>;
   refreshMessages: () => Promise<void>;
 
@@ -250,17 +250,18 @@ export function useWorkspace({
   const [loadingMessageSessionIds, setLoadingMessageSessionIds] = useState<string[]>([]);
   const [sendingSessionIds, setSendingSessionIds] = useState<string[]>([]);
   const [isStartingNewSession, setIsStartingNewSession] = useState(false);
+  const sendingSessionIdsRef = useRef<Set<string>>(new Set());
   // Sync ref so async callbacks can read the *current* activeSessionId
   const activeSessionIdRef = useRef(activeSessionId);
   activeSessionIdRef.current = activeSessionId;
   const streamCounterRef = useRef(0);
-  const activeStreamRef = useRef<{
+  const activeStreamsRef = useRef(new Map<string, {
     token: number;
     sessionId: string;
     mode: "send" | "resume";
     targetMessageId: string;
     abortController: AbortController;
-  } | null>(null);
+  }>());
   const resumeFailureStateRef = useRef<Map<string, ResumeFailureState>>(new Map());
 
   // Diffs
@@ -419,11 +420,14 @@ export function useWorkspace({
 
   const setSessionSending = useCallback((sessionId: string, isSessionSending: boolean) => {
     setSendingSessionIds((prev) => {
-      if (isSessionSending) {
-        return prev.includes(sessionId) ? prev : [...prev, sessionId];
-      }
+      const next = isSessionSending
+        ? prev.includes(sessionId)
+          ? prev
+          : [...prev, sessionId]
+        : prev.filter((id) => id !== sessionId);
 
-      return prev.filter((id) => id !== sessionId);
+      sendingSessionIdsRef.current = new Set(next);
+      return next;
     });
   }, []);
 
@@ -581,14 +585,27 @@ export function useWorkspace({
     }
   }, [activeSessionStorageKey, slug]);
 
-  const abortActiveStream = useCallback(() => {
-    if (activeStreamRef.current) {
-      const { sessionId } = activeStreamRef.current;
-      activeStreamRef.current.abortController.abort();
-      activeStreamRef.current = null;
+  const abortSessionStream = useCallback(
+    (sessionId: string) => {
+      const activeStream = activeStreamsRef.current.get(sessionId);
+      if (!activeStream) return;
+
+      activeStream.abortController.abort();
+      activeStreamsRef.current.delete(sessionId);
       streamCounterRef.current += 1;
       setSessionSending(sessionId, false);
+    },
+    [setSessionSending]
+  );
+
+  const abortAllStreams = useCallback(() => {
+    for (const sessionId of activeStreamsRef.current.keys()) {
+      const activeStream = activeStreamsRef.current.get(sessionId);
+      activeStream?.abortController.abort();
+      setSessionSending(sessionId, false);
     }
+    activeStreamsRef.current.clear();
+    streamCounterRef.current += 1;
   }, [setSessionSending]);
 
   // Select session
@@ -641,7 +658,11 @@ export function useWorkspace({
           return next;
         });
         setLoadingMessageSessionIds((prev) => prev.filter((sessionId) => sessionId !== id));
-        setSendingSessionIds((prev) => prev.filter((sessionId) => sessionId !== id));
+        setSendingSessionIds((prev) => {
+          const next = prev.filter((sessionId) => sessionId !== id);
+          sendingSessionIdsRef.current = new Set(next);
+          return next;
+        });
         return true;
       }
       return false;
@@ -675,8 +696,7 @@ export function useWorkspace({
       return;
     }
 
-    const activeStream = activeStreamRef.current;
-    if (activeStream?.sessionId === targetSessionId) {
+    if (sendingSessionIdsRef.current.has(targetSessionId)) {
       console.log(
         "[useWorkspace] refreshMessages: skipping, currently sending"
       );
@@ -860,18 +880,18 @@ export function useWorkspace({
       attachments,
       contextPaths,
     }: StreamOptions) => {
-      abortActiveStream();
+      abortSessionStream(sessionId);
 
       const token = streamCounterRef.current + 1;
       streamCounterRef.current = token;
       const abortController = new AbortController();
-      activeStreamRef.current = {
+      activeStreamsRef.current.set(sessionId, {
         token,
         sessionId,
         mode,
         targetMessageId,
         abortController,
-      };
+      });
 
       setSessionSending(sessionId, true);
 
@@ -1092,7 +1112,7 @@ export function useWorkspace({
           error instanceof Error ? error.message : "Unknown error"
         );
       } finally {
-        const isLatest = streamCounterRef.current === token;
+        const isLatest = activeStreamsRef.current.get(sessionId)?.token === token;
 
         if (mode === "resume") {
           if (streamCompleted || receivedAssistantPart) {
@@ -1212,13 +1232,13 @@ export function useWorkspace({
         }
 
         if (isLatest) {
+          activeStreamsRef.current.delete(sessionId);
           setSessionSending(sessionId, false);
-          activeStreamRef.current = null;
         }
       }
     },
     [
-      abortActiveStream,
+      abortSessionStream,
       slug,
       upsertMessagePart,
       syncActiveAgentFromRuntime,
@@ -1244,11 +1264,11 @@ export function useWorkspace({
       console.log("[useWorkspace] sendMessage called", {
         text,
         model,
-        activeSessionId,
+        activeSessionId: activeSessionIdRef.current,
         options,
       });
 
-      if (activeStreamRef.current) return;
+      const targetSessionId = activeSessionIdRef.current;
 
       const messageAttachments = (options?.attachments ?? []).filter(
         (attachment) =>
@@ -1269,7 +1289,7 @@ export function useWorkspace({
         setIsStartingNewSession(true);
       }
 
-      let sessionId = activeSessionId;
+      let sessionId = targetSessionId;
       if (forceNewSession || !sessionId) {
         if (forceNewSession) {
           setIsStartingNewSession(true);
@@ -1285,7 +1305,11 @@ export function useWorkspace({
         }
       }
 
-      if (!sessionId) return;
+      if (!sessionId) return false;
+
+      if (sendingSessionIdsRef.current.has(sessionId)) {
+        return false;
+      }
 
       let resolvedModel = model;
       if (!resolvedModel) {
@@ -1332,7 +1356,6 @@ export function useWorkspace({
         statusInfo: { status: "thinking" },
       };
 
-      abortActiveStream();
       updateSessionMessages(sessionId, (prev) => [...prev, tempUserMsg, tempAssistantMsg]);
       await streamChat({
         sessionId,
@@ -1343,10 +1366,9 @@ export function useWorkspace({
         attachments: messageAttachments,
         contextPaths: messageContextPaths,
       });
+      return true;
     },
     [
-      abortActiveStream,
-      activeSessionId,
       createSession,
       manualSelectedModel,
       streamChat,
@@ -1357,9 +1379,9 @@ export function useWorkspace({
   // Abort session
   const abortSession = useCallback(async () => {
     if (!activeSessionId) return;
-    abortActiveStream();
+    abortSessionStream(activeSessionId);
     await abortSessionAction(slug, activeSessionId);
-  }, [abortActiveStream, slug, activeSessionId]);
+  }, [abortSessionStream, slug, activeSessionId]);
 
   // Load diffs
   const refreshDiffs = useCallback(async (options?: { force?: boolean }) => {
@@ -1550,9 +1572,7 @@ export function useWorkspace({
 
   useEffect(() => {
     if (!activeSessionId || !isConnected) return;
-
-    const activeStream = activeStreamRef.current;
-    if (activeStream?.sessionId === activeSessionId) return;
+    if (sendingSessionIdsRef.current.has(activeSessionId)) return;
 
     const now = Date.now();
     const sessionBusy = activeSession?.status === "busy";
@@ -1597,6 +1617,7 @@ export function useWorkspace({
         return;
       }
 
+      const activeStream = activeStreamsRef.current.get(activeSessionId);
       if (
         !activeStream ||
         activeStream.sessionId !== activeSessionId ||
@@ -1611,15 +1632,16 @@ export function useWorkspace({
       return;
     }
 
+    const activeStream = activeStreamsRef.current.get(activeSessionId);
     if (
       activeStream &&
       activeStream.sessionId === activeSessionId &&
       activeStream.mode === "resume"
     ) {
-      abortActiveStream();
+      abortSessionStream(activeSessionId);
     }
   }, [
-    abortActiveStream,
+    abortSessionStream,
     activeSession?.status,
     activeSessionId,
     isConnected,
@@ -1711,9 +1733,9 @@ export function useWorkspace({
         clearTimeout(workspaceRefreshTimeoutRef.current);
         workspaceRefreshTimeoutRef.current = null;
       }
-      abortActiveStream();
+      abortAllStreams();
     };
-  }, [abortActiveStream]);
+  }, [abortAllStreams]);
 
   return {
     connection,

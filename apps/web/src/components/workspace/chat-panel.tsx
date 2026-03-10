@@ -79,7 +79,7 @@ type ChatPanelProps = {
     text: string,
     model?: { providerId: string; modelId: string },
     options?: { attachments?: MessageAttachmentInput[]; contextPaths?: string[] }
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   isSending?: boolean;
   isStartingNewSession?: boolean;
   models?: AvailableModel[];
@@ -1255,11 +1255,6 @@ export function ChatPanel({
       isUploadingAttachment
     ) return;
     
-    setInputValue("");
-    
-    // Mantener el focus en el textarea
-    textareaRef.current?.focus();
-    
     const model =
       hasManualModelSelection && selectedModel
         ? { providerId: selectedModel.providerId, modelId: selectedModel.modelId }
@@ -1274,10 +1269,18 @@ export function ChatPanel({
     );
     const messageContextPaths = [...contextPathsToSend];
     
-    await onSendMessage(text, model, {
+    const accepted = await onSendMessage(text, model, {
       attachments: messageAttachments,
       contextPaths: messageContextPaths,
     });
+
+    if (!accepted) {
+      textareaRef.current?.focus();
+      return;
+    }
+
+    setInputValue("");
+    textareaRef.current?.focus();
     setSelectedAttachmentPaths([]);
   }, [
     contextPathsToSend,

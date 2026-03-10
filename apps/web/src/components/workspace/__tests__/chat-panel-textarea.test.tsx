@@ -29,7 +29,7 @@ const defaultModel = {
 };
 
 function renderChatPanel(
-  onSendMessage = vi.fn().mockResolvedValue(undefined),
+  onSendMessage = vi.fn().mockResolvedValue(true),
   props?: Partial<ComponentProps<typeof ChatPanel>>
 ) {
   render(
@@ -87,7 +87,7 @@ afterEach(() => {
 
 describe("ChatPanel textarea", () => {
   it("resets textarea height after sending a multiline message", async () => {
-    const onSendMessage = vi.fn().mockResolvedValue(undefined);
+    const onSendMessage = vi.fn().mockResolvedValue(true);
 
     vi.stubGlobal(
       "fetch",
@@ -169,7 +169,7 @@ describe("ChatPanel textarea", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    const onSendMessage = vi.fn().mockResolvedValue(undefined);
+    const onSendMessage = vi.fn().mockResolvedValue(true);
     renderChatPanel(onSendMessage);
 
     const textarea = getTextarea();
@@ -313,7 +313,7 @@ describe("ChatPanel textarea", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const onSendMessage = vi.fn().mockResolvedValue(undefined);
+    const onSendMessage = vi.fn().mockResolvedValue(true);
     renderChatPanel(onSendMessage, {
       models: [defaultModel],
       selectedModel: defaultModel,
@@ -341,7 +341,7 @@ describe("ChatPanel textarea", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const onSendMessage = vi.fn().mockResolvedValue(undefined);
+    const onSendMessage = vi.fn().mockResolvedValue(true);
     renderChatPanel(onSendMessage, {
       models: [defaultModel],
       selectedModel: defaultModel,
@@ -364,6 +364,27 @@ describe("ChatPanel textarea", () => {
         contextPaths: [],
       }
     );
+  });
+
+  it("keeps the draft when the send is rejected", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ attachments: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const onSendMessage = vi.fn().mockResolvedValue(false);
+    renderChatPanel(onSendMessage);
+
+    const textarea = getTextarea();
+    fireEvent.change(textarea, { target: { value: "hello" } });
+    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
+
+    await waitFor(() => {
+      expect(onSendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    expect(textarea.value).toBe("hello");
   });
 
   it("renders subagent sessions as read-only inspection views", async () => {

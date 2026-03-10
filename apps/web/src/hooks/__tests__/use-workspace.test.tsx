@@ -431,4 +431,125 @@ describe("useWorkspace", () => {
       ]);
     });
   });
+
+  it("supports sending in another session while a previous session is still streaming", async () => {
+    opencodeMocks.listSessionsAction.mockResolvedValue({
+      ok: true,
+      sessions: [
+        { id: "s1", title: "First", status: "idle", updatedAt: "now" },
+        { id: "s2", title: "Second", status: "idle", updatedAt: "now" },
+      ],
+    });
+    opencodeMocks.listMessagesAction.mockImplementation(async (_slug: string, sessionId: string) => {
+      if (sessionId === "s1") {
+        return { ok: true, messages: [] };
+      }
+
+      if (sessionId === "s2") {
+        return { ok: true, messages: [] };
+      }
+
+      return { ok: true, messages: [] };
+    });
+
+    const streamClosers: Array<() => void> = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/u/alice/agents") {
+        return {
+          ok: true,
+          json: async () => ({
+            agents: [
+              {
+                id: "assistant",
+                displayName: "Assistant",
+                model: "openai/gpt-5.4",
+                isPrimary: true,
+              },
+            ],
+          }),
+        };
+      }
+
+      if (String(input) === "/api/u/alice/providers") {
+        return {
+          ok: true,
+          json: async () => ({ providers: [] }),
+        };
+      }
+
+      if (String(input) === "/api/w/alice/chat/stream") {
+        let closeStream = () => {};
+        const streamDone = new Promise<void>((resolve) => {
+          closeStream = resolve;
+        });
+        streamClosers.push(closeStream);
+
+        return {
+          ok: true,
+          body: {
+            getReader() {
+              return {
+                read: async () => {
+                  await streamDone;
+                  return { done: true, value: undefined };
+                },
+              };
+            },
+          },
+        };
+      }
+
+      throw new Error(`Unexpected fetch: ${String(input)}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() =>
+      useWorkspace({ slug: "alice", pollInterval: 0 })
+    );
+
+    await waitFor(() => {
+      expect(result.current.activeSessionId).toBe("s1");
+    });
+
+    let firstSendPromise: Promise<boolean> | undefined;
+    await act(async () => {
+      firstSendPromise = result.current.sendMessage("first");
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSending).toBe(true);
+      expect(result.current.messages.some((message) => message.content === "first")).toBe(true);
+    });
+
+    act(() => {
+      result.current.selectSession("s2");
+    });
+
+    await waitFor(() => {
+      expect(result.current.activeSessionId).toBe("s2");
+      expect(result.current.isSending).toBe(false);
+    });
+
+    let secondSendPromise: Promise<boolean> | undefined;
+    await act(async () => {
+      secondSendPromise = result.current.sendMessage("second");
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSending).toBe(true);
+      expect(result.current.messages.some((message) => message.content === "second")).toBe(true);
+    });
+
+    expect(
+      fetchMock.mock.calls.filter(([input]) => String(input) === "/api/w/alice/chat/stream")
+    ).toHaveLength(2);
+
+    streamClosers.forEach((closeStream) => closeStream());
+
+    await act(async () => {
+      await Promise.all([firstSendPromise, secondSendPromise]);
+    });
+  });
 });
