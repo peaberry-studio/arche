@@ -1934,7 +1934,7 @@ export function ChatPanel({
             size="icon"
             className={cn(
               "h-8 w-8 shrink-0 rounded-lg",
-              isSending && "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              isSending && "bg-foreground/8 text-foreground hover:bg-foreground/12"
             )}
             disabled={
               isStartingNewSession
