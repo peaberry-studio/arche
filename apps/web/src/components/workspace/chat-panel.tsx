@@ -68,7 +68,7 @@ type ChatPanelProps = {
   sessions: ChatSession[];
   messages: ChatMessage[];
   activeSessionId: string | null;
-  sessionTabs?: Array<{ id: string; title: string; depth: number }>;
+  sessionTabs?: Array<{ id: string; title: string; depth: number; status?: string }>;
   openFilePaths: string[];
   onCloseSession: (id: string) => void;
   onSelectSessionTab?: (id: string) => void;
@@ -1367,6 +1367,8 @@ export function ChatPanel({
             {sessionTabs.map((sessionTab) => {
               const isSubtask = sessionTab.depth > 0;
               const isActive = sessionTab.id === activeSessionId;
+              const isBusy = sessionTab.status === "busy";
+              const isError = sessionTab.status === "error";
 
               return (
                 <button
@@ -1385,6 +1387,11 @@ export function ChatPanel({
                   ) : (
                     <ChatCircle size={12} weight={isActive ? "fill" : "bold"} />
                   )}
+                  {isBusy ? (
+                    <SpinnerGap size={11} className="animate-spin text-primary" />
+                  ) : isError ? (
+                    <XCircle size={11} weight="fill" className="text-destructive" />
+                  ) : null}
                   <span className="max-w-[180px] truncate">{sessionTab.title}</span>
                 </button>
               );

@@ -271,6 +271,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
       id: session.id,
       title: session.title,
       depth: getSessionDepth(session, sessionsById),
+      status: session.status,
     }));
   }, [activeRootSessionId, sessionsById, workspace.sessions]);
 
