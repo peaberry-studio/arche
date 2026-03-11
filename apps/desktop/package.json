@@ -7,13 +7,19 @@
   "scripts": {
     "dev": "tsc && electron dist/main.js",
     "build": "tsc",
-    "start": "electron dist/main.js"
+    "start": "electron dist/main.js",
+    "pack": "electron-builder --dir --config electron-builder.config.js",
+    "dist": "electron-builder --config electron-builder.config.js",
+    "dist:mac": "electron-builder --mac --config electron-builder.config.js",
+    "dist:linux": "electron-builder --linux --config electron-builder.config.js",
+    "dist:win": "electron-builder --win --config electron-builder.config.js"
   },
   "dependencies": {
     "electron-is-dev": "^3.0.1"
   },
   "devDependencies": {
     "electron": "^35.1.2",
+    "electron-builder": "^26.0.12",
     "typescript": "^5.9.3"
   }
 }
