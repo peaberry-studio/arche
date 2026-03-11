@@ -911,7 +911,7 @@ export function useWorkspace({
             : undefined;
 
         const toolDetail = taskAgent
-          ? `to ${taskAgent}${stateTitle ? ` - ${stateTitle}` : ""}`
+          ? `to ${taskAgent.charAt(0).toUpperCase() + taskAgent.slice(1)}`
           : stateTitle;
 
         if (part.state.status === "error") {

@@ -308,7 +308,7 @@ const TOOL_LABELS: Record<string, string> = {
   apply_patch: "Applying changes",
   webfetch: "Searching the web",
   bash: "Running command",
-  task: "Delegating task",
+  task: "Delegating",
   todowrite: "Planning",
   todoread: "Reviewing plan"
 };
@@ -426,13 +426,13 @@ function getToolDisplay(
     case "task": {
       const subagentType = getString(input?.subagent_type);
       const taskDescription = getString(input?.description);
+      const agentLabel = subagentType
+        ? subagentType.charAt(0).toUpperCase() + subagentType.slice(1)
+        : undefined;
       return {
-        summary: [
-          subagentType ? `agent=${subagentType}` : undefined,
-          taskDescription,
-        ].filter(Boolean).join(" · ") || fallbackTitle,
-        label: subagentType ? `agent=${subagentType}` : fallbackTitle,
-        meta: taskDescription,
+        summary: taskDescription || agentLabel || fallbackTitle,
+        label: agentLabel || fallbackTitle,
+        meta: agentLabel && taskDescription ? taskDescription : undefined,
       };
     }
     default:
@@ -482,26 +482,99 @@ function ReasoningBlock({ text, isPending }: { text: string; isPending: boolean 
   );
 }
 
+type SessionTabInfo = { id: string; title: string; depth: number; status?: string };
+
+function DelegationCard({
+  parts,
+  sessionTabs,
+  onSelectSessionTab,
+}: {
+  parts: ToolPart[];
+  sessionTabs?: SessionTabInfo[];
+  onSelectSessionTab?: (id: string) => void;
+}) {
+  const getStateError = (state: ToolPart['state']): string | undefined => {
+    return 'error' in state && typeof state.error === 'string' ? state.error : undefined;
+  };
+
+  return (
+    <div className="my-2 space-y-2">
+      {parts.map((part) => {
+        const subagentType = getString(part.state.input?.subagent_type);
+        const taskDescription = getString(part.state.input?.description);
+        const agentLabel = subagentType
+          ? subagentType.charAt(0).toUpperCase() + subagentType.slice(1)
+          : null;
+
+        const isRunning = part.state.status === "running" || part.state.status === "pending";
+        const isError = part.state.status === "error";
+        const isComplete = part.state.status === "completed";
+
+        // Try to find a matching child session tab for this delegation
+        const matchingTab = sessionTabs?.find((tab) => {
+          if (tab.depth === 0) return false;
+          if (!agentLabel) return false;
+          // Match by title containing the agent name (case-insensitive)
+          return tab.title.toLowerCase().includes(subagentType!.toLowerCase());
+        }) ?? (sessionTabs?.find((tab) => tab.depth > 0) ?? null);
+
+        const canNavigate = !!matchingTab && !!onSelectSessionTab;
+
+        return (
+          <div key={part.id} className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5">
+            <div className="flex items-center gap-2">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                {isRunning && <SpinnerGap size={14} className="shrink-0 animate-spin text-primary" />}
+                {isError && <XCircle size={14} weight="fill" className="shrink-0 text-destructive" />}
+                {isComplete && <CheckCircle size={14} weight="fill" className="shrink-0 text-primary" />}
+                <TreeStructure size={14} weight="fill" className="shrink-0 text-primary" />
+                <span className="text-xs font-medium text-foreground">
+                  {agentLabel ? `Delegated to ${agentLabel}` : "Delegated task"}
+                </span>
+              </div>
+              {canNavigate && (
+                <button
+                  type="button"
+                  onClick={() => onSelectSessionTab!(matchingTab!.id)}
+                  className="chat-text-micro inline-flex shrink-0 cursor-pointer items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-primary transition-colors hover:bg-primary/20"
+                >
+                  View
+                  <CaretRight size={12} />
+                </button>
+              )}
+            </div>
+            {taskDescription && (
+              <p className="mt-1 pl-[22px] text-xs text-muted-foreground">
+                {taskDescription}
+              </p>
+            )}
+            {isError && getStateError(part.state) && (
+              <p className="mt-1 pl-[22px] text-xs text-destructive">
+                {getStateError(part.state)}
+              </p>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ToolGroup({
   tool,
   parts,
   onOpenFile,
   connectorNamesById,
+  sessionTabs,
+  onSelectSessionTab,
 }: {
   tool: string;
   parts: ToolPart[];
   onOpenFile?: (path: string) => void;
   connectorNamesById?: Record<string, string>;
+  sessionTabs?: SessionTabInfo[];
+  onSelectSessionTab?: (id: string) => void;
 }) {
-  const getStateTitle = (state: ToolPart['state'] | undefined): string | undefined => {
-    if (!state) return undefined;
-    return 'title' in state && typeof state.title === 'string' ? state.title : undefined;
-  };
-
-  const getStateError = (state: ToolPart['state']): string | undefined => {
-    return 'error' in state && typeof state.error === 'string' ? state.error : undefined;
-  };
-
   const runningCount = parts.filter(p => p.state.status === "running" || p.state.status === "pending").length;
   const errorCount = parts.filter(p => p.state.status === "error").length;
   const completedCount = parts.filter(p => p.state.status === "completed").length;
@@ -512,6 +585,26 @@ function ToolGroup({
   const canExpand = totalCount > 1 || isError;
 
   const [isOpen, setIsOpen] = useState(() => (totalCount === 1 ? isRunning || isError : false));
+
+  // Delegate to the dedicated card for task tool calls
+  if (tool === "task") {
+    return (
+      <DelegationCard
+        parts={parts}
+        sessionTabs={sessionTabs}
+        onSelectSessionTab={onSelectSessionTab}
+      />
+    );
+  }
+
+  const getStateTitle = (state: ToolPart['state'] | undefined): string | undefined => {
+    if (!state) return undefined;
+    return 'title' in state && typeof state.title === 'string' ? state.title : undefined;
+  };
+
+  const getStateError = (state: ToolPart['state']): string | undefined => {
+    return 'error' in state && typeof state.error === 'string' ? state.error : undefined;
+  };
 
   const toolLabel = getToolLabel(tool, connectorNamesById);
   const lastPart = parts[parts.length - 1];
@@ -731,11 +824,15 @@ function groupMessageParts(parts: MessagePart[]): PartGroup[] {
 function MessagePartRenderer({ 
   part, 
   onOpenFile,
-  isPending
+  isPending,
+  sessionTabs,
+  onSelectSessionTab,
 }: { 
   part: MessagePart; 
   onOpenFile: (path: string) => void;
   isPending: boolean;
+  sessionTabs?: SessionTabInfo[];
+  onSelectSessionTab?: (id: string) => void;
 }) {
   switch (part.type) {
     case 'text':
@@ -751,7 +848,15 @@ function MessagePartRenderer({
       return <ReasoningBlock text={part.text} isPending={isPending} />;
     
     case 'tool': {
-      return <ToolGroup tool={part.name} parts={[part]} onOpenFile={onOpenFile} />;
+      return (
+        <ToolGroup
+          tool={part.name}
+          parts={[part]}
+          onOpenFile={onOpenFile}
+          sessionTabs={sessionTabs}
+          onSelectSessionTab={onSelectSessionTab}
+        />
+      );
     }
     
     case 'file':
@@ -1521,6 +1626,8 @@ export function ChatPanel({
                                   parts={group.parts}
                                   onOpenFile={onOpenFile}
                                   connectorNamesById={connectorNamesById}
+                                  sessionTabs={sessionTabs}
+                                  onSelectSessionTab={onSelectSessionTab}
                                 />
                               );
                             }
@@ -1541,6 +1648,8 @@ export function ChatPanel({
                                 part={group.part}
                                 onOpenFile={onOpenFile}
                                 isPending={!!message.pending}
+                                sessionTabs={sessionTabs}
+                                onSelectSessionTab={onSelectSessionTab}
                               />
                             );
                           })}

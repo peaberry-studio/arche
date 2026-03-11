@@ -213,13 +213,18 @@ export function StatusIndicator({
 
   const { status, toolName, detail } = currentStatus;
   const toolDisplay = toolName ? getWorkspaceToolDisplay(toolName, connectorNamesById) : null;
-  const toolStatusLabel = toolDisplay?.isConnectorTool
-    ? toolDisplay.commandLabel
-      ? `${toolDisplay.groupLabel} -> ${toolDisplay.commandLabel}...`
-      : `${toolDisplay.groupLabel}...`
-    : toolName
-      ? `Using ${toolName}...`
-      : "Running tool...";
+  const isTaskDelegation = toolName === "task";
+  const toolStatusLabel = isTaskDelegation
+    ? detail
+      ? `Delegating ${detail}...`
+      : "Delegating task..."
+    : toolDisplay?.isConnectorTool
+      ? toolDisplay.commandLabel
+        ? `${toolDisplay.groupLabel} -> ${toolDisplay.commandLabel}...`
+        : `${toolDisplay.groupLabel}...`
+      : toolName
+        ? `Using ${toolName}...`
+        : "Running tool...";
 
   const statusConfig: Record<string, { pattern: BitmapPattern; label: string; className: string }> = {
     thinking: {

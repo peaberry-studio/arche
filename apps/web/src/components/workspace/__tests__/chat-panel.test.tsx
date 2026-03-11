@@ -106,4 +106,107 @@ describe('ChatPanel', () => {
     expect(html).toContain('Using Linear -&gt; get issue...')
     expect(html).not.toContain('arche_linear_conn123_get_issue')
   })
+
+  it('renders task delegation with friendly labels instead of agent=', () => {
+    const html = renderChatPanel({
+      messages: [
+        {
+          id: 'm1',
+          sessionId: 's1',
+          role: 'assistant',
+          content: '',
+          timestamp: 'now',
+          parts: [
+            {
+              type: 'tool',
+              id: 'tool-1',
+              name: 'task',
+              state: {
+                status: 'running',
+                input: {
+                  subagent_type: 'linear',
+                  description: 'Resumen proyectos Linear',
+                },
+              },
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(html).toContain('Delegated to Linear')
+    expect(html).toContain('Resumen proyectos Linear')
+    expect(html).not.toContain('agent=')
+  })
+
+  it('shows a View button when a matching subagent session tab exists', () => {
+    const html = renderChatPanel({
+      sessionTabs: [
+        { id: 's1', title: 'Main', depth: 0, status: 'idle' },
+        { id: 's-linear', title: 'Linear task', depth: 1, status: 'busy' },
+      ],
+      onSelectSessionTab: () => {},
+      messages: [
+        {
+          id: 'm1',
+          sessionId: 's1',
+          role: 'assistant',
+          content: '',
+          timestamp: 'now',
+          parts: [
+            {
+              type: 'tool',
+              id: 'tool-1',
+              name: 'task',
+              state: {
+                status: 'running',
+                input: {
+                  subagent_type: 'linear',
+                  description: 'Fetch issues',
+                },
+              },
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(html).toContain('View')
+    expect(html).toContain('Delegated to Linear')
+  })
+
+  it('renders completed delegation without View button when no session tabs', () => {
+    const html = renderChatPanel({
+      messages: [
+        {
+          id: 'm1',
+          sessionId: 's1',
+          role: 'assistant',
+          content: '',
+          timestamp: 'now',
+          parts: [
+            {
+              type: 'tool',
+              id: 'tool-1',
+              name: 'task',
+              state: {
+                status: 'completed',
+                input: {
+                  subagent_type: 'linear',
+                  description: 'Done with issues',
+                },
+                output: 'result',
+                title: 'task done',
+              },
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(html).toContain('Delegated to Linear')
+    expect(html).toContain('Done with issues')
+    expect(html).not.toContain('View')
+    expect(html).not.toContain('agent=')
+  })
 })
