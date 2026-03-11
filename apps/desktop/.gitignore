@@ -1,0 +1,9 @@
+# Downloaded OpenCode binary (fetched at build time)
+bin/
+
+# Electron build output
+dist/
+release/
+
+# Dependencies
+node_modules/

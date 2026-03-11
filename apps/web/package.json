@@ -11,7 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "prisma:generate": "prisma generate",
-    "prisma:generate:desktop": "prisma generate --schema=prisma/schema.sqlite.prisma",
+    "prisma:generate:desktop": "prisma generate --config=prisma.config.desktop.ts",
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed"
   },

@@ -3,8 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChildProcess } from 'child_process'
 
 const mockSpawn = vi.fn()
+const mockExistsSync = vi.fn()
+
 vi.mock('child_process', () => ({
   spawn: (...args: unknown[]) => mockSpawn(...args),
+}))
+
+vi.mock('fs', () => ({
+  existsSync: (...args: unknown[]) => mockExistsSync(...args),
 }))
 
 function makeChildProcess(overrides: Partial<ChildProcess> = {}): ChildProcess {
@@ -23,12 +29,23 @@ function makeChildProcess(overrides: Partial<ChildProcess> = {}): ChildProcess {
 }
 
 describe('desktopWorkspaceHost', () => {
+  const originalEnv = process.env
+  const originalResourcesPath = process.resourcesPath
+
   beforeEach(() => {
     vi.resetModules()
     vi.clearAllMocks()
+    process.env = { ...originalEnv }
+    delete process.env.ARCHE_OPENCODE_BIN
+    // @ts-expect-error -- reset for test isolation
+    process.resourcesPath = undefined
+    mockExistsSync.mockReturnValue(false)
   })
 
   afterEach(() => {
+    process.env = originalEnv
+    // @ts-expect-error -- restore for test isolation
+    process.resourcesPath = originalResourcesPath
     vi.restoreAllMocks()
   })
 
@@ -41,6 +58,23 @@ describe('desktopWorkspaceHost', () => {
 
     expect(result).toEqual({ ok: true, status: 'started' })
     expect(mockSpawn).toHaveBeenCalledOnce()
+  })
+
+  it('spawns opencode with serve command and correct args', async () => {
+    const child = makeChildProcess()
+    mockSpawn.mockReturnValue(child)
+
+    const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
+    await desktopWorkspaceHost.start('local', 'user-1')
+
+    expect(mockSpawn).toHaveBeenCalledWith(
+      'opencode',
+      ['serve', '--hostname', '127.0.0.1', '--port', '4096'],
+      expect.objectContaining({
+        stdio: 'pipe',
+        detached: false,
+      }),
+    )
   })
 
   it('returns already_running when workspace is already started', async () => {
@@ -139,5 +173,59 @@ describe('desktopWorkspaceHost', () => {
     const conn = await desktopWorkspaceHost.getConnection('local')
     const decoded = Buffer.from(conn!.authHeader.replace('Basic ', ''), 'base64').toString()
     expect(decoded).toBe('opencode:arche-desktop')
+  })
+})
+
+describe('getOpencodeBinary', () => {
+  const originalEnv = process.env
+  const originalResourcesPath = process.resourcesPath
+
+  beforeEach(() => {
+    vi.resetModules()
+    vi.clearAllMocks()
+    process.env = { ...originalEnv }
+    delete process.env.ARCHE_OPENCODE_BIN
+    // @ts-expect-error -- reset for test isolation
+    process.resourcesPath = undefined
+    mockExistsSync.mockReturnValue(false)
+  })
+
+  afterEach(() => {
+    process.env = originalEnv
+    // @ts-expect-error -- restore for test isolation
+    process.resourcesPath = originalResourcesPath
+    vi.restoreAllMocks()
+  })
+
+  it('returns ARCHE_OPENCODE_BIN env var when set', async () => {
+    process.env.ARCHE_OPENCODE_BIN = '/custom/path/opencode'
+
+    const { getOpencodeBinary } = await import('../workspace-host-desktop')
+    expect(getOpencodeBinary()).toBe('/custom/path/opencode')
+  })
+
+  it('returns bundled binary path when running in packaged Electron', async () => {
+    // @ts-expect-error -- simulating Electron packaged environment
+    process.resourcesPath = '/Applications/Arche.app/Contents/Resources'
+    mockExistsSync.mockReturnValue(true)
+
+    const { getOpencodeBinary } = await import('../workspace-host-desktop')
+    expect(getOpencodeBinary()).toBe(
+      '/Applications/Arche.app/Contents/Resources/bin/opencode',
+    )
+  })
+
+  it('falls back to PATH lookup when not packaged', async () => {
+    const { getOpencodeBinary } = await import('../workspace-host-desktop')
+    expect(getOpencodeBinary()).toBe('opencode')
+  })
+
+  it('falls back to PATH when resourcesPath exists but binary does not', async () => {
+    // @ts-expect-error -- simulating Electron environment
+    process.resourcesPath = '/some/resources'
+    mockExistsSync.mockReturnValue(false)
+
+    const { getOpencodeBinary } = await import('../workspace-host-desktop')
+    expect(getOpencodeBinary()).toBe('opencode')
   })
 })

@@ -1,3 +1,5 @@
+import { existsSync } from 'fs'
+import { join } from 'path'
 import { spawn, type ChildProcess } from 'child_process'
 
 import type { WorkspaceHost, WorkspaceHostConnection, WorkspaceHostStatus } from '@/lib/runtime/types'
@@ -17,8 +19,28 @@ type LocalProcess = {
 
 const processes = new Map<string, LocalProcess>()
 
-function getOpencodeBinary(): string {
-  return process.env.ARCHE_OPENCODE_BIN || 'opencode'
+/**
+ * Resolves the OpenCode binary path. Priority:
+ * 1. ARCHE_OPENCODE_BIN env var (explicit override)
+ * 2. Bundled binary inside Electron's extraResources (packaged app)
+ * 3. Fallback to PATH lookup (development)
+ */
+export function getOpencodeBinary(): string {
+  if (process.env.ARCHE_OPENCODE_BIN) {
+    return process.env.ARCHE_OPENCODE_BIN
+  }
+
+  // In a packaged Electron app, process.resourcesPath points to the
+  // Resources directory inside the .app bundle. The binary is placed
+  // there by electron-builder's extraResources config.
+  if (process.resourcesPath) {
+    const bundled = join(process.resourcesPath, 'bin', 'opencode')
+    if (existsSync(bundled)) {
+      return bundled
+    }
+  }
+
+  return 'opencode'
 }
 
 function makeAuthHeader(username: string, password: string): string {
@@ -37,16 +59,19 @@ export const desktopWorkspaceHost: WorkspaceHost = {
     const password = process.env.OPENCODE_SERVER_PASSWORD || DEFAULT_PASSWORD
 
     try {
-      const child = spawn(getOpencodeBinary(), ['server'], {
-        env: {
-          ...process.env,
-          OPENCODE_SERVER_PASSWORD: password,
-          OPENCODE_SERVER_USERNAME: DEFAULT_USERNAME,
-          PORT: String(port),
+      const child = spawn(
+        getOpencodeBinary(),
+        ['serve', '--hostname', '127.0.0.1', '--port', String(port)],
+        {
+          env: {
+            ...process.env,
+            OPENCODE_SERVER_PASSWORD: password,
+            OPENCODE_SERVER_USERNAME: DEFAULT_USERNAME,
+          },
+          stdio: 'pipe',
+          detached: false,
         },
-        stdio: 'pipe',
-        detached: false,
-      })
+      )
 
       child.on('error', () => {
         processes.delete(slug)

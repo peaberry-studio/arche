@@ -27,6 +27,10 @@ module.exports = {
       to: 'web/public',
       filter: ['**/*'],
     },
+    {
+      from: 'bin/opencode',
+      to: 'bin/opencode',
+    },
   ],
   mac: {
     category: 'public.app-category.developer-tools',

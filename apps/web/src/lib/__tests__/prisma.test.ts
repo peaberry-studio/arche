@@ -23,6 +23,8 @@ describe('prisma dispatcher', () => {
     globalThis.prisma = undefined
     // @ts-expect-error -- reset global for test isolation
     globalThis.prismaPool = undefined
+    // @ts-expect-error -- reset global for test isolation
+    globalThis.prismaDesktopClient = undefined
   })
 
   afterEach(() => {
@@ -31,6 +33,8 @@ describe('prisma dispatcher', () => {
     globalThis.prisma = undefined
     // @ts-expect-error -- reset global for test isolation
     globalThis.prismaPool = undefined
+    // @ts-expect-error -- reset global for test isolation
+    globalThis.prismaDesktopClient = undefined
   })
 
   it('creates a PrismaClient in web mode', async () => {
@@ -49,9 +53,47 @@ describe('prisma dispatcher', () => {
     await expect(import('../prisma')).rejects.toThrow('DATABASE_URL is required')
   })
 
-  it('throws in desktop mode (not yet implemented)', async () => {
+  it('creates a desktop proxy in desktop mode', async () => {
     process.env.ARCHE_RUNTIME_MODE = 'desktop'
 
-    await expect(import('../prisma')).rejects.toThrow('Desktop Prisma client not yet implemented')
+    const { prisma } = await import('../prisma')
+    expect(prisma).toBeDefined()
+    // The proxy is a real object but accessing model properties
+    // throws because initDesktopPrisma() hasn't been called
+    expect(() => prisma.user).toThrow('Desktop Prisma client not initialized')
+  })
+
+  it('desktop proxy works after initDesktopPrisma is called', async () => {
+    process.env.ARCHE_RUNTIME_MODE = 'desktop'
+
+    const mockClient = {
+      user: { findMany: vi.fn() },
+      $executeRawUnsafe: vi.fn(),
+    }
+
+    // Pre-set the global to simulate initDesktopPrisma() having run
+    // @ts-expect-error -- setting global for test
+    globalThis.prismaDesktopClient = mockClient
+
+    const { prisma } = await import('../prisma')
+    expect(prisma.user).toBe(mockClient.user)
+  })
+
+  it('initDesktopPrisma initializes the desktop client', async () => {
+    process.env.ARCHE_RUNTIME_MODE = 'desktop'
+
+    const mockClient = {
+      $executeRawUnsafe: vi.fn(),
+    }
+
+    vi.doMock('@/lib/prisma-desktop', () => ({
+      getDesktopPrismaClient: vi.fn().mockResolvedValue(mockClient),
+      initDesktopDatabase: vi.fn().mockResolvedValue(undefined),
+    }))
+
+    const { initDesktopPrisma } = await import('../prisma')
+    await initDesktopPrisma()
+
+    expect(globalThis.prismaDesktopClient).toBe(mockClient)
   })
 })
