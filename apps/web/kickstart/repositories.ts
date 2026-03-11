@@ -1,22 +1,20 @@
-import { execFile } from 'child_process'
 import { promises as fs } from 'fs'
-import { tmpdir } from 'os'
 import path from 'path'
-import { promisify } from 'util'
 
+import {
+  cleanupClone,
+  cloneRepoToTemp,
+  detectDefaultBranch,
+  hasBareRepoLayout,
+  isGitAvailable,
+  resolveRepoRoot,
+  runGit,
+} from '@/lib/git/bare-repo'
 import { normalizeRepoPath } from '@/kickstart/parse-utils'
 import type { KickstartRenderedFile } from '@/kickstart/types'
 
 const CONFIG_REPO_ROOT = '/kb-config'
 const CONTENT_REPO_ROOT = '/kb-content'
-
-const execFileAsync = promisify(execFile)
-
-let gitAvailabilityCache: boolean | null = null
-
-type GitResult =
-  | { ok: true; stdout: string }
-  | { ok: false; stderr: string }
 
 type CommitPushResult =
   | { ok: true }
@@ -39,108 +37,12 @@ function isPushConflict(stderr: string): boolean {
   )
 }
 
-async function runGit(
-  args: string[],
-  options?: { cwd?: string; env?: NodeJS.ProcessEnv }
-): Promise<GitResult> {
-  try {
-    const result = await execFileAsync('git', args, {
-      cwd: options?.cwd,
-      encoding: 'utf-8',
-      env: options?.env ? { ...process.env, ...options.env } : process.env,
-    })
-    return { ok: true, stdout: result.stdout ?? '' }
-  } catch (error) {
-    if (error && typeof error === 'object' && 'stderr' in error) {
-      return {
-        ok: false,
-        stderr: String((error as { stderr?: string }).stderr ?? ''),
-      }
-    }
-    return { ok: false, stderr: 'git_failed' }
-  }
-}
-
-async function isGitAvailable(): Promise<boolean> {
-  if (gitAvailabilityCache !== null) return gitAvailabilityCache
-  const result = await runGit(['--version'])
-  gitAvailabilityCache = result.ok
-  return gitAvailabilityCache
-}
-
-async function hasBareRepoLayout(root: string): Promise<boolean> {
-  try {
-    const [head, objects, refs] = await Promise.all([
-      fs.stat(path.join(root, 'HEAD')),
-      fs.stat(path.join(root, 'objects')),
-      fs.stat(path.join(root, 'refs')),
-    ])
-    return head.isFile() && objects.isDirectory() && refs.isDirectory()
-  } catch {
-    return false
-  }
-}
-
-async function resolveRepoRoot(root: string): Promise<string | null> {
-  try {
-    const stats = await fs.stat(root)
-    return stats.isDirectory() ? root : null
-  } catch {
-    return null
-  }
-}
-
 export async function resolveKickstartConfigRepoRoot(): Promise<string | null> {
   return resolveRepoRoot(CONFIG_REPO_ROOT)
 }
 
 export async function resolveKickstartContentRepoRoot(): Promise<string | null> {
   return resolveRepoRoot(CONTENT_REPO_ROOT)
-}
-
-async function cloneRepoToTemp(
-  root: string,
-  gitEnv: NodeJS.ProcessEnv
-): Promise<{ ok: true; dir: string } | { ok: false }> {
-  const dir = await fs.mkdtemp(path.join(tmpdir(), 'arche-kickstart-'))
-  const cloneResult = await runGit(['clone', '--quiet', root, dir], {
-    env: gitEnv,
-  })
-  if (!cloneResult.ok) {
-    await fs.rm(dir, { recursive: true, force: true }).catch(() => {})
-    return { ok: false }
-  }
-  return { ok: true, dir }
-}
-
-async function detectDefaultBranch(
-  repoDir: string,
-  gitEnv: NodeJS.ProcessEnv
-): Promise<string> {
-  const originHead = await runGit(
-    ['symbolic-ref', '-q', '--short', 'refs/remotes/origin/HEAD'],
-    { cwd: repoDir, env: gitEnv }
-  )
-  if (originHead.ok) {
-    const ref = originHead.stdout.trim()
-    if (ref.startsWith('origin/')) {
-      return ref.slice('origin/'.length)
-    }
-  }
-
-  const hasMain = await runGit(
-    ['show-ref', '--verify', '--quiet', 'refs/remotes/origin/main'],
-    { cwd: repoDir, env: gitEnv }
-  )
-  if (hasMain.ok) return 'main'
-
-  const hasMaster = await runGit(
-    ['show-ref', '--verify', '--quiet', 'refs/remotes/origin/master'],
-    { cwd: repoDir, env: gitEnv }
-  )
-  if (hasMaster.ok) return 'master'
-
-  return 'main'
 }
 
 async function ensureBranch(
@@ -167,39 +69,22 @@ async function withBareRepoCheckout<T>(
     return { ok: false, error: 'write_failed' }
   }
 
-  const safeConfigDir = await fs.mkdtemp(path.join(tmpdir(), 'arche-kickstart-safe-'))
-  const safeConfig = path.join(safeConfigDir, 'gitconfig')
-  const resolvedRoot = await fs.realpath(root).catch(() => root)
-  const safeDirectories = Array.from(new Set([root, resolvedRoot]))
-  const safeConfigContent = safeDirectories
-    .map((safeDirectory) => `[safe]\n\tdirectory = ${safeDirectory}\n`)
-    .join('')
-
-  await fs.writeFile(safeConfig, safeConfigContent, 'utf-8')
-
-  const gitEnv: NodeJS.ProcessEnv = {
-    ...process.env,
-    GIT_CONFIG_GLOBAL: safeConfig,
-  }
-
-  const clone = await cloneRepoToTemp(root, gitEnv)
+  const clone = await cloneRepoToTemp(root)
   if (!clone.ok) {
-    await fs.rm(safeConfigDir, { recursive: true, force: true }).catch(() => {})
     return { ok: false, error: 'write_failed' }
   }
 
   try {
-    const branch = await detectDefaultBranch(clone.dir, gitEnv)
-    const ready = await ensureBranch(clone.dir, branch, gitEnv)
+    const branch = await detectDefaultBranch(clone.dir, clone.gitEnv)
+    const ready = await ensureBranch(clone.dir, branch, clone.gitEnv)
     if (!ready) {
       return { ok: false, error: 'write_failed' }
     }
 
-    const value = await operation({ dir: clone.dir, branch, gitEnv })
+    const value = await operation({ dir: clone.dir, branch, gitEnv: clone.gitEnv })
     return { ok: true, value }
   } finally {
-    await fs.rm(clone.dir, { recursive: true, force: true }).catch(() => {})
-    await fs.rm(safeConfigDir, { recursive: true, force: true }).catch(() => {})
+    await cleanupClone(clone)
   }
 }
 
