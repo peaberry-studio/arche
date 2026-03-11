@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
+
 import { prisma } from '@/lib/prisma'
-import { getAuthenticatedUser } from '@/lib/auth'
 import { PROVIDERS, type ProviderId } from '@/lib/providers/types'
+import { withAuth } from '@/lib/runtime/with-auth'
 
 export type ProviderListStatus = 'enabled' | 'disabled' | 'missing'
 
@@ -14,67 +15,56 @@ export interface ProviderListItem {
 
 type ProviderListResponse = { providers: ProviderListItem[] }
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> }
-): Promise<NextResponse<ProviderListResponse | { error: string }>> {
-  const session = await getAuthenticatedUser()
-  if (!session) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-  }
+export const GET = withAuth<ProviderListResponse | { error: string }>(
+  { csrf: false },
+  async (_request, { slug }) => {
+    const user = await prisma.user.findUnique({
+      where: { slug },
+      select: { id: true },
+    })
 
-  const { slug } = await params
-
-  if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
-    return NextResponse.json({ error: 'forbidden' }, { status: 403 })
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { slug },
-    select: { id: true },
-  })
-
-  if (!user) {
-    return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
-  }
-
-  const credentials = await prisma.providerCredential.findMany({
-    where: {
-      userId: user.id,
-      providerId: { in: [...PROVIDERS] },
-    },
-    select: {
-      providerId: true,
-      status: true,
-      type: true,
-      version: true,
-    },
-    orderBy: {
-      version: 'desc',
-    },
-  })
-
-  const latestByProvider = new Map<ProviderId, (typeof credentials)[number]>()
-  for (const credential of credentials) {
-    const providerId = credential.providerId as ProviderId
-    if (!latestByProvider.has(providerId)) {
-      latestByProvider.set(providerId, credential)
-    }
-  }
-
-  const providers = PROVIDERS.map((providerId) => {
-    const credential = latestByProvider.get(providerId)
-    if (!credential) {
-      return { providerId, status: 'missing' as const }
+    if (!user) {
+      return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
     }
 
-    return {
-      providerId,
-      status: credential.status,
-      type: credential.type ?? undefined,
-      version: credential.version ?? undefined,
-    }
-  })
+    const credentials = await prisma.providerCredential.findMany({
+      where: {
+        userId: user.id,
+        providerId: { in: [...PROVIDERS] },
+      },
+      select: {
+        providerId: true,
+        status: true,
+        type: true,
+        version: true,
+      },
+      orderBy: {
+        version: 'desc',
+      },
+    })
 
-  return NextResponse.json({ providers })
-}
+    const latestByProvider = new Map<ProviderId, (typeof credentials)[number]>()
+    for (const credential of credentials) {
+      const providerId = credential.providerId as ProviderId
+      if (!latestByProvider.has(providerId)) {
+        latestByProvider.set(providerId, credential)
+      }
+    }
+
+    const providers = PROVIDERS.map((providerId) => {
+      const credential = latestByProvider.get(providerId)
+      if (!credential) {
+        return { providerId, status: 'missing' as const }
+      }
+
+      return {
+        providerId,
+        status: credential.status,
+        type: credential.type ?? undefined,
+        version: credential.version ?? undefined,
+      }
+    })
+
+    return NextResponse.json({ providers })
+  }
+)
