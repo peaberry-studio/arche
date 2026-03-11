@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 
-import { prisma } from '@/lib/prisma'
 import { PROVIDERS, type ProviderId } from '@/lib/providers/types'
 import { withAuth } from '@/lib/runtime/with-auth'
+import { providerService, userService } from '@/lib/services'
 
 export type ProviderListStatus = 'enabled' | 'disabled' | 'missing'
 
@@ -18,30 +18,13 @@ type ProviderListResponse = { providers: ProviderListItem[] }
 export const GET = withAuth<ProviderListResponse | { error: string }>(
   { csrf: false },
   async (_request, { slug }) => {
-    const user = await prisma.user.findUnique({
-      where: { slug },
-      select: { id: true },
-    })
+    const user = await userService.findIdBySlug(slug)
 
     if (!user) {
       return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
     }
 
-    const credentials = await prisma.providerCredential.findMany({
-      where: {
-        userId: user.id,
-        providerId: { in: [...PROVIDERS] },
-      },
-      select: {
-        providerId: true,
-        status: true,
-        type: true,
-        version: true,
-      },
-      orderBy: {
-        version: 'desc',
-      },
-    })
+    const credentials = await providerService.findCredentialsByUserAndProviders(user.id, [...PROVIDERS])
 
     const latestByProvider = new Map<ProviderId, (typeof credentials)[number]>()
     for (const credential of credentials) {

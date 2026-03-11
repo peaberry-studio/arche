@@ -2,15 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent, getAuthenticatedUser } from '@/lib/auth'
 import { decryptConfig, encryptConfig } from '@/lib/connectors/crypto'
-import { buildConfigWithOAuth } from '@/lib/connectors/oauth-config'
 import {
   exchangeConnectorOAuthCode,
   isOAuthConnectorType,
   verifyConnectorOAuthState,
 } from '@/lib/connectors/oauth'
-import { getPublicBaseUrl } from '@/lib/http'
+import { buildConfigWithOAuth } from '@/lib/connectors/oauth-config'
 import { validateConnectorType } from '@/lib/connectors/validators'
-import { prisma } from '@/lib/prisma'
+import { getPublicBaseUrl } from '@/lib/http'
+import { connectorService } from '@/lib/services'
 
 function buildRedirect(baseUrl: string, slug: string, status: 'success' | 'error', message?: string): URL {
   const url = new URL(`/u/${slug}/connectors`, baseUrl)
@@ -65,17 +65,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'error', 'missing_code'))
   }
 
-  const connector = await prisma.connector.findFirst({
-    where: {
-      id: parsedState.connectorId,
-      userId: parsedState.userId,
-    },
-    select: {
-      id: true,
-      type: true,
-      config: true,
-    },
-  })
+  const connector = await connectorService.findByIdAndUserIdSelect(
+    parsedState.connectorId,
+    parsedState.userId,
+    { id: true, type: true, config: true },
+  )
 
   if (!connector || !validateConnectorType(connector.type) || !isOAuthConnectorType(connector.type)) {
     return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'error', 'connector_not_found'))
@@ -113,12 +107,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       },
     })
 
-    await prisma.connector.update({
-      where: { id: connector.id },
-      data: {
-        config: encryptConfig(nextConfig),
-        enabled: true,
-      },
+    await connectorService.updateById(connector.id, {
+      config: encryptConfig(nextConfig),
+      enabled: true,
     })
 
     await auditEvent({

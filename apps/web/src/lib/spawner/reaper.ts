@@ -1,7 +1,6 @@
-import { prisma } from '@/lib/prisma'
+import { auditService, instanceService } from '@/lib/services'
 import { getIdleTimeoutMinutes } from './config'
 import * as docker from './docker'
-import { auditEvent } from '@/lib/auth'
 
 let reaperInterval: NodeJS.Timeout | null = null
 
@@ -9,12 +8,7 @@ export async function reapIdleInstances(): Promise<number> {
   const timeoutMinutes = getIdleTimeoutMinutes()
   const threshold = new Date(Date.now() - timeoutMinutes * 60 * 1000)
 
-  const idleInstances = await prisma.instance.findMany({
-    where: {
-      status: 'running',
-      lastActivityAt: { lt: threshold },
-    },
-  })
+  const idleInstances = await instanceService.findIdleInstances(threshold)
 
   let reapedCount = 0
 
@@ -25,16 +19,9 @@ export async function reapIdleInstances(): Promise<number> {
         await docker.removeContainer(instance.containerId).catch(() => {})
       }
 
-      await prisma.instance.update({
-        where: { id: instance.id },
-        data: {
-          status: 'stopped',
-          stoppedAt: new Date(),
-          containerId: null,
-        },
-      })
+      await instanceService.setStoppedById(instance.id)
 
-      await auditEvent({
+      await auditService.createEvent({
         actorUserId: null,
         action: 'instance.reaped_idle',
         metadata: {

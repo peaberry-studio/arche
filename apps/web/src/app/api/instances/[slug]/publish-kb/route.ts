@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 
-import { prisma } from '@/lib/prisma'
 import { withAuth } from '@/lib/runtime/with-auth'
+import { instanceService } from '@/lib/services'
 import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 
 export interface PublishKbResult {
@@ -15,10 +15,7 @@ export interface PublishKbResult {
 export const POST = withAuth<PublishKbResult | { error: string }>(
   { csrf: true },
   async (_request, { slug }) => {
-    const instance = await prisma.instance.findUnique({
-      where: { slug },
-      select: { containerId: true, status: true },
-    })
+    const instance = await instanceService.findContainerStatusBySlug(slug)
 
     if (!instance) {
       return NextResponse.json({ error: 'not_found' }, { status: 404 })

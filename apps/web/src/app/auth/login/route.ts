@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+
 import { auditEvent, createSession, getCookieDomain, SESSION_COOKIE_NAME, shouldUseSecureCookies, verifyPassword } from '@/lib/auth'
 import { hashSessionToken, newSessionToken } from '@/lib/security'
+import { userService } from '@/lib/services'
 
 // Pending 2FA challenges: hashedToken -> { userId, expiresAt }
 // NOTE: In-memory storage — only works in single-process deployments (Docker/Podman).
@@ -25,10 +26,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: 'invalid_request' }, { status: 400 })
   }
 
-  const user = await prisma.user.findUnique({
-    where: { email },
-    select: { id: true, email: true, slug: true, role: true, passwordHash: true, totpEnabled: true },
-  })
+  const user = await userService.findLoginByEmail(email)
   if (!user) {
     await auditEvent({ action: 'auth.login.failed', metadata: { email } })
     return NextResponse.json({ ok: false, error: 'invalid_credentials' }, { status: 401 })

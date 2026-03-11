@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 
-import { prisma } from '@/lib/prisma'
 import { withAuth } from '@/lib/runtime/with-auth'
+import { instanceService } from '@/lib/services'
 import { getRuntimeConfigHashForSlug } from '@/lib/spawner/runtime-config-hash'
 
 type ConfigStatusResponse = {
@@ -21,10 +21,7 @@ export const GET = withAuth<ConfigStatusResponse | { error: string }>(
       return NextResponse.json({ error: runtime.error ?? 'read_failed' }, { status })
     }
 
-    const instance = await prisma.instance.findUnique({
-      where: { slug },
-      select: { appliedConfigSha: true }
-    })
+    const instance = await instanceService.findAppliedConfigShaBySlug(slug)
 
     const pending = instance?.appliedConfigSha !== runtime.hash
     return NextResponse.json({ pending })

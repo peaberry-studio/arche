@@ -5,7 +5,7 @@ import { Prisma, UserRole } from '@prisma/client'
 
 import { auditEvent, getAuthenticatedUser } from '@/lib/auth'
 import { validateSameOrigin } from '@/lib/csrf'
-import { prisma } from '@/lib/prisma'
+import { userService } from '@/lib/services'
 import { validateSlug } from '@/lib/validation/slug'
 
 type TeamUserListItem = {
@@ -64,19 +64,7 @@ export async function GET(
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
-  const users = await prisma.user.findMany({
-    select: {
-      id: true,
-      email: true,
-      slug: true,
-      role: true,
-      createdAt: true,
-    },
-    orderBy: [
-      { role: 'asc' },
-      { createdAt: 'desc' },
-    ],
-  })
+  const users = await userService.findTeamMembers()
 
   return NextResponse.json({
     users: users.map(toTeamUserListItem),
@@ -142,15 +130,7 @@ export async function POST(
     return NextResponse.json({ error: 'invalid_role' }, { status: 400 })
   }
 
-  const existingUser = await prisma.user.findFirst({
-    where: {
-      OR: [{ email }, { slug: userSlug }],
-    },
-    select: {
-      email: true,
-      slug: true,
-    },
-  })
+  const existingUser = await userService.findExistingByEmailOrSlug(email, userSlug)
 
   if (existingUser) {
     const error = existingUser.email === email ? 'email_in_use' : 'slug_in_use'
@@ -160,20 +140,11 @@ export async function POST(
   const passwordHash = await argon2.hash(password)
 
   try {
-    const createdUser = await prisma.user.create({
-      data: {
-        email,
-        slug: userSlug,
-        role,
-        passwordHash,
-      },
-      select: {
-        id: true,
-        email: true,
-        slug: true,
-        role: true,
-        createdAt: true,
-      },
+    const createdUser = await userService.create({
+      email,
+      slug: userSlug,
+      role,
+      passwordHash,
     })
 
     await auditEvent({

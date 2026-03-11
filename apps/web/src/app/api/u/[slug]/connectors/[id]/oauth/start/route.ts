@@ -5,7 +5,7 @@ import { isOAuthConnectorType, prepareConnectorOAuthAuthorization } from '@/lib/
 import { validateConnectorType } from '@/lib/connectors/validators'
 import { validateSameOrigin } from '@/lib/csrf'
 import { getPublicBaseUrl } from '@/lib/http'
-import { prisma } from '@/lib/prisma'
+import { connectorService, userService } from '@/lib/services'
 
 type StartOAuthResponse = {
   authorizeUrl: string
@@ -30,19 +30,13 @@ export async function POST(
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
-  const user = await prisma.user.findUnique({
-    where: { slug },
-    select: { id: true },
-  })
+  const user = await userService.findIdBySlug(slug)
 
   if (!user) {
     return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
   }
 
-  const connector = await prisma.connector.findFirst({
-    where: { id, userId: user.id },
-    select: { id: true, type: true },
-  })
+  const connector = await connectorService.findByIdAndUserIdSelect(id, user.id, { id: true, type: true })
   if (!connector) {
     return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })
   }

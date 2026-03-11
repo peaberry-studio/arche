@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 
 import { getCommonWorkspaceConfigHash } from '@/lib/common-workspace-config-store'
-import { prisma } from '@/lib/prisma'
+import { connectorService, userService } from '@/lib/services'
 
 export type RuntimeConfigHashResult =
   | { ok: true; hash: string }
@@ -13,10 +13,7 @@ export async function getRuntimeConfigHashForSlug(slug: string): Promise<Runtime
     return { ok: false, error: common.error ?? 'read_failed' }
   }
 
-  const user = await prisma.user.findUnique({
-    where: { slug },
-    select: { id: true },
-  })
+  const user = await userService.findIdBySlug(slug)
 
   if (!user) {
     return { ok: false, error: 'user_not_found' }
@@ -24,16 +21,7 @@ export async function getRuntimeConfigHashForSlug(slug: string): Promise<Runtime
 
   let connectors: Array<{ id: string; type: string; enabled: boolean; updatedAt: Date }> = []
   try {
-    connectors = await prisma.connector.findMany({
-      where: { userId: user.id },
-      select: {
-        id: true,
-        type: true,
-        enabled: true,
-        updatedAt: true,
-      },
-      orderBy: { id: 'asc' },
-    })
+    connectors = await connectorService.findHashEntriesByUserId(user.id)
   } catch {
     connectors = []
   }

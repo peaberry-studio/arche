@@ -1,17 +1,14 @@
 import { NextResponse } from 'next/server'
 
 import { getKickstartStatus } from '@/kickstart/status'
-import { prisma } from '@/lib/prisma'
 import { withAuth } from '@/lib/runtime/with-auth'
+import { userService } from '@/lib/services'
 import { startInstance, stopInstance } from '@/lib/spawner/core'
 
 export const POST = withAuth<{ ok: boolean; status?: string } | { error: string }>(
   { csrf: true },
   async (_request, { user, slug }) => {
-    const dbUser = await prisma.user.findUnique({
-      where: { slug },
-      select: { id: true },
-    })
+    const dbUser = await userService.findIdBySlug(slug)
 
     if (!dbUser) {
       return NextResponse.json({ error: 'user_not_found' }, { status: 404 })

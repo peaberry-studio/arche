@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server'
 
-import { prisma } from '@/lib/prisma'
+import { healthService } from '@/lib/services'
 
 const HEADERS = { 'Cache-Control': 'no-store' }
 
 export async function GET() {
-  try {
-    await prisma.$queryRaw`SELECT 1`
+  const ok = await healthService.pingDatabase()
 
+  if (ok) {
     return NextResponse.json(
       {
         status: 'ok',
@@ -15,10 +15,10 @@ export async function GET() {
       },
       { headers: HEADERS },
     )
-  } catch {
-    return NextResponse.json(
-      { status: 'error' },
-      { status: 503, headers: HEADERS },
-    )
   }
+
+  return NextResponse.json(
+    { status: 'error' },
+    { status: 503, headers: HEADERS },
+  )
 }

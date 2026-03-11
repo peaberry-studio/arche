@@ -3,9 +3,9 @@
 import { cookies } from "next/headers";
 import { getSessionFromToken, SESSION_COOKIE_NAME } from "@/lib/auth";
 import { createInstanceClient } from "@/lib/opencode/client";
-import { prisma } from "@/lib/prisma";
 import { getActiveCredentialForUser } from "@/lib/providers/store";
 import { PROVIDERS, type ProviderId } from "@/lib/providers/types";
+import { instanceService, userService } from "@/lib/services";
 import { decryptPassword } from "@/lib/spawner/crypto";
 import { deriveWorkspaceMessageRuntimeState } from "@/lib/workspace-message-state";
 import {
@@ -543,10 +543,7 @@ export async function sendMessageAction(
 
   try {
     // Get credentials for direct fetch (bypassing SDK due to streaming issues)
-    const instance = await prisma.instance.findUnique({
-      where: { slug },
-      select: { serverPassword: true, status: true },
-    });
+    const instance = await instanceService.findCredentialsBySlug(slug);
 
     if (
       !instance ||
@@ -848,12 +845,7 @@ export async function listModelsAction(slug: string): Promise<{
   const ownerUserId =
     session.user.slug === slug
       ? session.user.id
-      : (
-          await prisma.user.findUnique({
-            where: { slug },
-            select: { id: true },
-          })
-        )?.id;
+      : (await userService.findIdBySlug(slug))?.id;
 
   if (!ownerUserId) {
     return { ok: false, error: "user_not_found" };
