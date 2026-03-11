@@ -33,8 +33,9 @@ export function getOpencodeBinary(): string {
   // In a packaged Electron app, process.resourcesPath points to the
   // Resources directory inside the .app bundle. The binary is placed
   // there by electron-builder's extraResources config.
-  if (process.resourcesPath) {
-    const bundled = join(process.resourcesPath, 'bin', 'opencode')
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath
+  if (resourcesPath) {
+    const bundled = join(resourcesPath, 'bin', 'opencode')
     if (existsSync(bundled)) {
       return bundled
     }

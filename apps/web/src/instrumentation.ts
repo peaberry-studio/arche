@@ -7,6 +7,8 @@ export async function register() {
     const { initDesktopPrisma } = await import('@/lib/prisma')
     await initDesktopPrisma()
   } else {
+    const { initWebPrisma } = await import('@/lib/prisma')
+    await initWebPrisma()
     const { startReaper } = await import('@/lib/spawner/reaper')
     startReaper()
   }

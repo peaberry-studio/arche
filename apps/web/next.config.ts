@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
   watchOptions: {
     pollIntervalMs: 1000,
   },
+  ...(process.env.ARCHE_RUNTIME_MODE === "desktop" && { output: "standalone" }),
 };
 
 export default nextConfig;
