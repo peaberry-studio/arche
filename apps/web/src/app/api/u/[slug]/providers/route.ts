@@ -42,7 +42,7 @@ export const GET = withAuth<ProviderListResponse | { error: string }>(
 
       return {
         providerId,
-        status: credential.status,
+        status: credential.status as ProviderListStatus,
         type: credential.type ?? undefined,
         version: credential.version ?? undefined,
       }

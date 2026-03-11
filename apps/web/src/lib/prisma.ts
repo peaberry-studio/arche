@@ -1,23 +1,25 @@
-import { PrismaClient } from '@prisma/client'
-import { PrismaPg } from '@prisma/adapter-pg'
-import { Pool } from 'pg'
+import type { PrismaClient } from '@prisma/client'
 
 import { isDesktop } from '@/lib/runtime/mode'
 
 declare global {
   // eslint-disable-next-line no-var
   var prisma: PrismaClient | undefined
-  // eslint-disable-next-line no-var
-  var prismaPool: Pool | undefined
+  // eslint-disable-next-line no-var, @typescript-eslint/no-explicit-any
+  var prismaPool: any
   // eslint-disable-next-line no-var
   var prismaDesktopClient: PrismaClient | undefined
 }
 
-function createWebClient(): PrismaClient {
+async function createWebClient(): Promise<PrismaClient> {
   const connectionString = process.env.DATABASE_URL
   if (!connectionString) {
     throw new Error('DATABASE_URL is required')
   }
+
+  const { PrismaClient } = await import('@prisma/client')
+  const { PrismaPg } = await import('@prisma/adapter-pg')
+  const { Pool } = await import('pg')
 
   const pool = globalThis.prismaPool ?? new Pool({ connectionString })
   if (process.env.NODE_ENV !== 'production') globalThis.prismaPool = pool
@@ -40,6 +42,15 @@ export async function initDesktopPrisma(): Promise<void> {
   await initDesktopDatabase()
 }
 
+/**
+ * Initialize the web PostgreSQL Prisma client. Called during instrumentation
+ * in web (non-desktop) mode.
+ */
+export async function initWebPrisma(): Promise<void> {
+  if (globalThis.prisma) return
+  globalThis.prisma = await createWebClient()
+}
+
 function createDesktopProxy(): PrismaClient {
   return new Proxy({} as PrismaClient, {
     get(_target, prop) {
@@ -49,7 +60,25 @@ function createDesktopProxy(): PrismaClient {
           'Desktop Prisma client not initialized. Call initDesktopPrisma() at startup.'
         )
       }
-      const value = (client as Record<string | symbol, unknown>)[prop]
+      const value = (client as unknown as Record<string | symbol, unknown>)[prop]
+      if (typeof value === 'function') {
+        return value.bind(client)
+      }
+      return value
+    },
+  })
+}
+
+function createWebProxy(): PrismaClient {
+  return new Proxy({} as PrismaClient, {
+    get(_target, prop) {
+      const client = globalThis.prisma
+      if (!client) {
+        throw new Error(
+          'Web Prisma client not initialized. Call initWebPrisma() at startup.'
+        )
+      }
+      const value = (client as unknown as Record<string | symbol, unknown>)[prop]
       if (typeof value === 'function') {
         return value.bind(client)
       }
@@ -63,9 +92,7 @@ function initPrisma(): PrismaClient {
     return createDesktopProxy()
   }
 
-  return createWebClient()
+  return createWebProxy()
 }
 
 export const prisma: PrismaClient = globalThis.prisma ?? initPrisma()
-
-if (!isDesktop() && process.env.NODE_ENV !== 'production') globalThis.prisma = prisma

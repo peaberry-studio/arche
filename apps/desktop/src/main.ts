@@ -30,7 +30,9 @@ function getDataDir(): string {
 
 function setDesktopEnv(): void {
   process.env.ARCHE_RUNTIME_MODE = 'desktop'
-  process.env.NODE_ENV = process.env.NODE_ENV || 'production'
+  if (app.isPackaged) {
+    process.env.NODE_ENV = 'production'
+  }
   process.env.ARCHE_DATA_DIR = getDataDir()
 }
 

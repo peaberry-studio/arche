@@ -12,15 +12,15 @@ echo "==> Building Arche Desktop"
 echo "==> [1/5] Downloading OpenCode binary..."
 "$SCRIPT_DIR/download-opencode.sh"
 
-# Step 2: Build the Next.js web app in standalone mode
-echo "==> [2/5] Building Next.js web app..."
-cd "$WEB_DIR"
-ARCHE_RUNTIME_MODE=desktop pnpm build
-
-# Step 3: Generate the SQLite Prisma client
-echo "==> [3/5] Generating SQLite Prisma client..."
+# Step 2: Generate the SQLite Prisma client (must precede Next.js build)
+echo "==> [2/5] Generating SQLite Prisma client..."
 cd "$WEB_DIR"
 pnpm prisma:generate:desktop
+
+# Step 3: Build the Next.js web app in standalone mode
+echo "==> [3/5] Building Next.js web app..."
+cd "$WEB_DIR"
+ARCHE_RUNTIME_MODE=desktop pnpm build
 
 # Step 4: Compile the Electron TypeScript
 echo "==> [4/5] Compiling Electron main process..."

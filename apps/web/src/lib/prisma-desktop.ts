@@ -138,13 +138,16 @@ export async function getDesktopPrismaClient(): Promise<DesktopPrismaClient> {
   const dbPath = getDesktopDatabasePath()
   ensureDirectoryExists(dbPath)
 
-  const { PrismaClient } = await import('@/generated/prisma-desktop') as {
-    PrismaClient: new (opts: { datasourceUrl: string }) => DesktopPrismaClient
+  // Prisma 7 client engine requires a driver adapter for SQLite
+  const { PrismaBetterSqlite3 } = await import('@prisma/adapter-better-sqlite3')
+  const adapter = new PrismaBetterSqlite3({ url: `file:${dbPath}` })
+
+  const { PrismaClient } = await import('@/generated/prisma-desktop') as unknown as {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    PrismaClient: new (opts: { adapter: any }) => DesktopPrismaClient
   }
 
-  clientInstance = new PrismaClient({
-    datasourceUrl: `file:${dbPath}`,
-  })
+  clientInstance = new PrismaClient({ adapter })
 
   return clientInstance
 }

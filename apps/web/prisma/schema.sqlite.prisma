@@ -1,6 +1,5 @@
 generator client {
   provider = "prisma-client-js"
-  engineType = "library"
   output   = "../src/generated/prisma-desktop"
 }
 
