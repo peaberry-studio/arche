@@ -5,8 +5,8 @@ import { UserRole } from '@prisma/client'
 import { auditEvent } from '@/lib/auth'
 import { validateSameOrigin } from '@/lib/csrf'
 import { getSession } from '@/lib/runtime/session'
+import { stopWorkspace } from '@/lib/runtime/workspace-host'
 import { instanceService, userService } from '@/lib/services'
-import { stopInstance } from '@/lib/spawner/core'
 
 type TeamUserResponse = {
   id: string
@@ -154,7 +154,7 @@ export async function DELETE(
     }
   }
 
-  await stopInstance(targetUser.slug, session.user.id).catch(() => {})
+  await stopWorkspace(targetUser.slug, session.user.id).catch(() => {})
 
   await instanceService.deleteBySlug(targetUser.slug)
 

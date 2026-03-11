@@ -1,10 +1,10 @@
 'use server'
 
-import { getInstanceBasicAuth } from '@/lib/opencode/client'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
 import { getSession } from '@/lib/runtime/session'
+import { getWorkspaceConnection, getWorkspaceStatus, startWorkspace, stopWorkspace } from '@/lib/runtime/workspace-host'
 import { userService } from '@/lib/services'
-import { startInstance, stopInstance, getInstanceStatus, isSlowStart, listActiveInstances } from '@/lib/spawner/core'
+import { isSlowStart, listActiveInstances } from '@/lib/spawner/core'
 import { getKickstartStatus } from '@/kickstart/status'
 
 export type SpawnerActionResult =
@@ -24,7 +24,7 @@ export async function startInstanceAction(slug: string): Promise<SpawnerActionRe
     return { ok: false, error: 'setup_required' }
   }
 
-  return startInstance(slug, session.user.id)
+  return startWorkspace(slug, session.user.id)
 }
 
 export async function stopInstanceAction(slug: string): Promise<SpawnerActionResult> {
@@ -35,7 +35,7 @@ export async function stopInstanceAction(slug: string): Promise<SpawnerActionRes
     return { ok: false, error: 'forbidden' }
   }
 
-  return stopInstance(slug, session.user.id)
+  return stopWorkspace(slug, session.user.id)
 }
 
 export async function getInstanceStatusAction(slug: string) {
@@ -46,7 +46,7 @@ export async function getInstanceStatusAction(slug: string) {
     return null
   }
 
-  const instance = await getInstanceStatus(slug)
+  const instance = await getWorkspaceStatus(slug)
   if (!instance) return { status: 'stopped' as const, slowStart: false }
 
   return {
@@ -62,7 +62,7 @@ export async function listActiveInstancesAction() {
   // Only admins can view all active instances
   if (session.user.role !== 'ADMIN') {
     // Regular users can only see their own instance if it is active
-    const own = await getInstanceStatus(session.user.slug)
+    const own = await getWorkspaceStatus(session.user.slug)
     if (own && (own.status === 'running' || own.status === 'starting')) {
       return [{
         slug: session.user.slug,
@@ -105,7 +105,7 @@ export async function ensureInstanceRunningAction(slug: string): Promise<{
     return { status: 'error', error: 'setup_required' }
   }
 
-  const instance = await getInstanceStatus(slug)
+  const instance = await getWorkspaceStatus(slug)
   console.log('[ensureInstanceRunning] Current instance status:', instance?.status ?? 'none')
   
   // Already running or starting
@@ -123,7 +123,7 @@ export async function ensureInstanceRunningAction(slug: string): Promise<{
             ? session.user.id
             : (await userService.findIdBySlug(slug))?.id
 
-        const instanceConn = await getInstanceBasicAuth(slug)
+        const instanceConn = await getWorkspaceConnection(slug)
         if (instanceConn && syncUserId) {
           const syncResult = await syncProviderAccessForInstance({
             instance: instanceConn,
@@ -147,7 +147,7 @@ export async function ensureInstanceRunningAction(slug: string): Promise<{
 
   // Needs to start
   console.log('[ensureInstanceRunning] Starting instance...')
-  const result = await startInstance(slug, session.user.id)
+  const result = await startWorkspace(slug, session.user.id)
   console.log('[ensureInstanceRunning] Start result:', result)
   
   if (!result.ok) {

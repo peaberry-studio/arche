@@ -24,8 +24,6 @@ export type WorkspaceHostStatus = {
   startedAt: Date | null
   stoppedAt: Date | null
   lastActivityAt: Date | null
-  containerId: string | null
-  serverPassword: string
 }
 
 export type WorkspaceHost = {

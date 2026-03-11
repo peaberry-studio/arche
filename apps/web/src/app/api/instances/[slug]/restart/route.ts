@@ -2,8 +2,8 @@ import { NextResponse } from 'next/server'
 
 import { getKickstartStatus } from '@/kickstart/status'
 import { withAuth } from '@/lib/runtime/with-auth'
+import { startWorkspace, stopWorkspace } from '@/lib/runtime/workspace-host'
 import { userService } from '@/lib/services'
-import { startInstance, stopInstance } from '@/lib/spawner/core'
 
 export const POST = withAuth<{ ok: boolean; status?: string } | { error: string }>(
   { csrf: true },
@@ -19,12 +19,12 @@ export const POST = withAuth<{ ok: boolean; status?: string } | { error: string 
       return NextResponse.json({ error: 'setup_required' }, { status: 409 })
     }
 
-    const stopResult = await stopInstance(slug, user.id)
+    const stopResult = await stopWorkspace(slug, user.id)
     if (!stopResult.ok && stopResult.error !== 'not_running') {
       return NextResponse.json({ error: stopResult.error }, { status: 500 })
     }
 
-    const startResult = await startInstance(slug, user.id)
+    const startResult = await startWorkspace(slug, user.id)
     if (!startResult.ok) {
       const status = startResult.error === 'already_running' ? 409 : 500
       return NextResponse.json({ error: startResult.error }, { status })
