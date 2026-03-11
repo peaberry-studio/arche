@@ -24,7 +24,7 @@ export function parseConnectorToolName(toolName: string): {
 
   const [, connectorType, connectorId, commandName] = match
   return {
-    connectorType,
+    connectorType: connectorType as ConnectorType,
     connectorId,
     commandName,
   }

@@ -29,7 +29,7 @@ const defaultModel = {
 };
 
 function renderChatPanel(
-  onSendMessage = vi.fn().mockResolvedValue(undefined),
+  onSendMessage = vi.fn().mockResolvedValue(true),
   props?: Partial<ComponentProps<typeof ChatPanel>>
 ) {
   render(
@@ -87,7 +87,7 @@ afterEach(() => {
 
 describe("ChatPanel textarea", () => {
   it("resets textarea height after sending a multiline message", async () => {
-    const onSendMessage = vi.fn().mockResolvedValue(undefined);
+    const onSendMessage = vi.fn().mockResolvedValue(true);
 
     vi.stubGlobal(
       "fetch",
@@ -169,7 +169,7 @@ describe("ChatPanel textarea", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    const onSendMessage = vi.fn().mockResolvedValue(undefined);
+    const onSendMessage = vi.fn().mockResolvedValue(true);
     renderChatPanel(onSendMessage);
 
     const textarea = getTextarea();
@@ -315,7 +315,7 @@ describe("ChatPanel textarea", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const onSendMessage = vi.fn().mockResolvedValue(undefined);
+    const onSendMessage = vi.fn().mockResolvedValue(true);
     renderChatPanel(onSendMessage, {
       models: [defaultModel],
       selectedModel: defaultModel,
@@ -343,7 +343,7 @@ describe("ChatPanel textarea", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const onSendMessage = vi.fn().mockResolvedValue(undefined);
+    const onSendMessage = vi.fn().mockResolvedValue(true);
     renderChatPanel(onSendMessage, {
       models: [defaultModel],
       selectedModel: defaultModel,
