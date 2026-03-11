@@ -1,0 +1,19 @@
+{
+  "name": "@arche/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Arche Desktop — local AI workspace",
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "tsc && electron dist/main.js",
+    "build": "tsc",
+    "start": "electron dist/main.js"
+  },
+  "dependencies": {
+    "electron-is-dev": "^3.0.1"
+  },
+  "devDependencies": {
+    "electron": "^35.1.2",
+    "typescript": "^5.9.3"
+  }
+}
