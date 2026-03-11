@@ -2,9 +2,9 @@
 
 import { cookies } from 'next/headers'
 import { getSessionFromToken, SESSION_COOKIE_NAME } from '@/lib/auth'
-import { prisma } from '@/lib/prisma'
 import { getInstanceBasicAuth } from '@/lib/opencode/client'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
+import { userService } from '@/lib/services'
 import { startInstance, stopInstance, getInstanceStatus, isSlowStart, listActiveInstances } from '@/lib/spawner/core'
 import { getKickstartStatus } from '@/kickstart/status'
 
@@ -129,7 +129,7 @@ export async function ensureInstanceRunningAction(slug: string): Promise<{
         const syncUserId =
           session.user.slug === slug
             ? session.user.id
-            : (await prisma.user.findUnique({ where: { slug }, select: { id: true } }))?.id
+            : (await userService.findIdBySlug(slug))?.id
 
         const instanceConn = await getInstanceBasicAuth(slug)
         if (instanceConn && syncUserId) {

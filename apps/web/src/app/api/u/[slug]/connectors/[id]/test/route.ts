@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+
 import { getAuthenticatedUser } from '@/lib/auth'
 import { decryptConfig } from '@/lib/connectors/crypto'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
@@ -6,8 +7,8 @@ import { refreshConnectorOAuthConfigIfNeeded } from '@/lib/connectors/oauth-refr
 import type { ConnectorType } from '@/lib/connectors/types'
 import { validateConnectorType } from '@/lib/connectors/validators'
 import { validateSameOrigin } from '@/lib/csrf'
-import { prisma } from '@/lib/prisma'
 import { validateConnectorTestEndpoint } from '@/lib/security/ssrf'
+import { connectorService, userService } from '@/lib/services'
 
 export interface TestConnectionResult {
   ok: boolean
@@ -249,19 +250,14 @@ export async function POST(
   }
 
   // Get user
-  const user = await prisma.user.findUnique({
-    where: { slug },
-    select: { id: true },
-  })
+  const user = await userService.findIdBySlug(slug)
 
   if (!user) {
     return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
   }
 
   // Get connector while verifying ownership
-  const connector = await prisma.connector.findFirst({
-    where: { id, userId: user.id },
-  })
+  const connector = await connectorService.findByIdAndUserId(id, user.id)
 
   if (!connector) {
     return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })

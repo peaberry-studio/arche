@@ -6,7 +6,8 @@
  */
 
 import { createOpencodeClient, type OpencodeClient } from '@opencode-ai/sdk/v2/client'
-import { prisma } from '@/lib/prisma'
+
+import { instanceService } from '@/lib/services'
 import { decryptPassword } from '@/lib/spawner/crypto'
 
 const OPENCODE_PORT = 4096
@@ -24,10 +25,7 @@ export function getInstanceUrl(slug: string): string {
  * Get credentials for authenticating with an OpenCode instance.
  */
 async function getInstanceCredentials(slug: string): Promise<{ username: string; password: string } | null> {
-  const instance = await prisma.instance.findUnique({
-    where: { slug },
-    select: { serverPassword: true, status: true }
-  })
+  const instance = await instanceService.findCredentialsBySlug(slug)
   
   if (!instance || !instance.serverPassword || instance.status !== 'running') {
     return null

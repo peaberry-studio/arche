@@ -1,7 +1,8 @@
 import argon2 from 'argon2'
-import { prisma } from '@/lib/prisma'
+
 import { getClientIp } from '@/lib/http'
 import { hashSessionToken, newSessionToken } from '@/lib/security'
+import { auditService, sessionService } from '@/lib/services'
 
 export const SESSION_COOKIE_NAME = 'arche_session'
 
@@ -41,17 +42,7 @@ export async function auditEvent(args: {
   action: string
   metadata?: unknown
 }): Promise<void> {
-  try {
-    await prisma.auditEvent.create({
-      data: {
-        actorUserId: args.actorUserId ?? null,
-        action: args.action,
-        metadata: args.metadata ?? undefined
-      }
-    })
-  } catch {
-    // best-effort
-  }
+  return auditService.createEvent(args)
 }
 
 export async function verifyPassword(password: string, passwordHash: string): Promise<boolean> {
@@ -70,14 +61,12 @@ export async function createSession(params: {
   const ip = getClientIp(params.headers)
   const userAgent = params.headers.get('user-agent') || null
 
-  await prisma.session.create({
-    data: {
-      userId: params.userId,
-      tokenHash,
-      expiresAt,
-      ip,
-      userAgent
-    }
+  await sessionService.create({
+    userId: params.userId,
+    tokenHash,
+    expiresAt,
+    ip,
+    userAgent,
   })
 
   return { token, expiresAt }
@@ -85,15 +74,7 @@ export async function createSession(params: {
 
 export async function revokeSession(token: string): Promise<void> {
   const tokenHash = hashSessionToken(token)
-  await prisma.session.updateMany({
-    where: {
-      tokenHash,
-      revokedAt: null
-    },
-    data: {
-      revokedAt: new Date()
-    }
-  })
+  await sessionService.revokeByTokenHash(tokenHash)
 }
 
 export async function getSessionFromToken(token: string): Promise<{
@@ -101,36 +82,13 @@ export async function getSessionFromToken(token: string): Promise<{
   sessionId: string
 } | null> {
   const tokenHash = hashSessionToken(token)
-  const session = await prisma.session.findUnique({
-    where: { tokenHash },
-    select: {
-      id: true,
-      expiresAt: true,
-      revokedAt: true,
-      userId: true,
-      user: {
-        select: {
-          id: true,
-          email: true,
-          slug: true,
-          role: true
-        }
-      }
-    }
-  })
+  const session = await sessionService.findByTokenHash(tokenHash)
 
   if (!session) return null
   if (session.revokedAt) return null
   if (session.expiresAt.getTime() <= Date.now()) return null
 
-  await prisma.session
-    .update({
-      where: { id: session.id },
-      data: {
-        lastSeenAt: new Date()
-      }
-    })
-    .catch(() => {})
+  await sessionService.touchLastSeen(session.id).catch(() => {})
 
   return {
     user: {

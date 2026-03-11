@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server'
+
 import argon2 from 'argon2'
-import { prisma } from '@/lib/prisma'
+
 import { auditEvent, createSession, getCookieDomain, SESSION_COOKIE_NAME, shouldUseSecureCookies } from '@/lib/auth'
-import { hashSessionToken } from '@/lib/security'
-import { decryptSecret, verifyTotp } from '@/lib/totp'
 import { checkRateLimit, resetRateLimit } from '@/lib/rate-limit'
+import { hashSessionToken } from '@/lib/security'
+import { userService } from '@/lib/services'
+import { decryptSecret, verifyTotp } from '@/lib/totp'
 import { pending2FAMap } from '../login/route'
 
 export async function POST(request: Request) {
@@ -33,13 +35,7 @@ export async function POST(request: Request) {
     )
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id: challenge.userId },
-    select: {
-      id: true, email: true, slug: true, role: true, totpSecret: true, totpLastUsedAt: true,
-      twoFactorRecovery: { where: { usedAt: null }, select: { id: true, codeHash: true } },
-    },
-  })
+  const user = await userService.find2faById(challenge.userId)
 
   if (!user || !user.totpSecret) {
     pending2FAMap.delete(hashedToken)
@@ -52,7 +48,7 @@ export async function POST(request: Request) {
   if (isRecoveryCode) {
     for (const recovery of user.twoFactorRecovery) {
       if (await argon2.verify(recovery.codeHash, code.toUpperCase())) {
-        await prisma.twoFactorRecovery.update({ where: { id: recovery.id }, data: { usedAt: new Date() } })
+        await userService.markRecoveryCodeUsed(recovery.id)
         verified = true
         await auditEvent({
           actorUserId: user.id,
@@ -76,10 +72,7 @@ export async function POST(request: Request) {
 
   // Update last used timestamp for replay protection (only for TOTP, not recovery codes)
   if (totpWindowStart) {
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { totpLastUsedAt: totpWindowStart },
-    })
+    await userService.updateTotpLastUsedAt(user.id, totpWindowStart)
   }
 
   pending2FAMap.delete(hashedToken)

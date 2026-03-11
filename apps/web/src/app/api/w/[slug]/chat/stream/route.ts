@@ -1,8 +1,9 @@
 import { NextRequest } from 'next/server'
+
 import { getAuthenticatedUser } from '@/lib/auth'
 import { extractPdfText, isPdfMime } from '@/lib/attachments/pdf-text-extractor'
 import { validateSameOrigin } from '@/lib/csrf'
-import { prisma } from '@/lib/prisma'
+import { instanceService } from '@/lib/services'
 import { INITIAL_SSE_PARSE_STATE, parseSseChunk } from '@/lib/sse-parser'
 import { decryptPassword } from '@/lib/spawner/crypto'
 import {
@@ -209,10 +210,7 @@ export async function POST(
   }
   
   // Get instance credentials
-  const instance = await prisma.instance.findUnique({
-    where: { slug },
-    select: { serverPassword: true, status: true }
-  })
+  const instance = await instanceService.findCredentialsBySlug(slug)
   
   if (!instance || !instance.serverPassword || instance.status !== 'running') {
     return new Response(JSON.stringify({ error: 'instance_unavailable' }), { 

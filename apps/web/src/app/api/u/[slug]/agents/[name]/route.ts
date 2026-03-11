@@ -10,8 +10,8 @@ import { auditEvent } from '@/lib/auth'
 import { readCommonWorkspaceConfig, writeCommonWorkspaceConfig } from '@/lib/common-workspace-config-store'
 import type { ConnectorType } from '@/lib/connectors/types'
 import { validateConnectorType } from '@/lib/connectors/validators'
-import { prisma } from '@/lib/prisma'
 import { withAuth } from '@/lib/runtime/with-auth'
+import { connectorService, userService } from '@/lib/services'
 import {
   type CommonWorkspaceConfig,
   ensurePrimaryAgent,
@@ -78,23 +78,17 @@ async function loadCommonConfig() {
 }
 
 async function loadEnabledConnectorsForSlug(slug: string): Promise<EnabledConnector[]> {
-  const user = await prisma.user.findUnique({
-    where: { slug },
-    select: { id: true },
-  })
+  const user = await userService.findIdBySlug(slug)
   if (!user) return []
 
-  const connectors = await prisma.connector.findMany({
-    where: { userId: user.id, enabled: true },
-    select: { id: true, type: true, enabled: true },
-  })
+  const connectors = await connectorService.findEnabledByUserId(user.id)
 
   const enabled: EnabledConnector[] = []
   for (const connector of connectors) {
     if (!validateConnectorType(connector.type)) continue
     enabled.push({
       id: connector.id,
-      type: connector.type,
+      type: connector.type as ConnectorType,
       enabled: connector.enabled,
     })
   }

@@ -4,9 +4,9 @@ import { auditEvent, getAuthenticatedUser } from '@/lib/auth'
 import { validateSameOrigin } from '@/lib/csrf'
 import { getInstanceUrl } from '@/lib/opencode/client'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
-import { prisma } from '@/lib/prisma'
 import { createApiCredential } from '@/lib/providers/store'
 import { PROVIDERS, type ProviderId } from '@/lib/providers/types'
+import { instanceService, providerService, userService } from '@/lib/services'
 
 export interface CreateProviderCredentialRequest {
   apiKey: string
@@ -31,10 +31,7 @@ function isProviderId(value: string): value is ProviderId {
 
 async function syncProviderAccessBestEffort(slug: string, userId: string): Promise<void> {
   try {
-    const instance = await prisma.instance.findUnique({
-      where: { slug },
-      select: { serverPassword: true },
-    })
+    const instance = await instanceService.findServerPasswordBySlug(slug)
 
     if (!instance) {
       return
@@ -95,10 +92,7 @@ async function getProviderMutationContext(
     }
   }
 
-  const user = await prisma.user.findUnique({
-    where: { slug },
-    select: { id: true },
-  })
+  const user = await userService.findIdBySlug(slug)
 
   if (!user) {
     return {
@@ -153,20 +147,12 @@ export async function POST(
     )
   }
 
-  const latest = await prisma.providerCredential.findMany({
-    where: { userId: context.targetUserId, providerId: context.provider },
-    select: { version: true },
-    orderBy: { version: 'desc' },
-    take: 1,
-  })
+  const latest = await providerService.findLatestVersion(context.targetUserId, context.provider)
 
   const lastVersion = latest[0]?.version ?? 0
   const nextVersion = lastVersion + 1
 
-  await prisma.providerCredential.updateMany({
-    where: { userId: context.targetUserId, providerId: context.provider },
-    data: { status: 'disabled' },
-  })
+  await providerService.disableAllForProvider(context.targetUserId, context.provider)
 
   const credential = await createApiCredential({
     userId: context.targetUserId,
@@ -204,16 +190,7 @@ export async function DELETE(
     return context.response
   }
 
-  const result = await prisma.providerCredential.updateMany({
-    where: {
-      userId: context.targetUserId,
-      providerId: context.provider,
-      status: 'enabled',
-    },
-    data: {
-      status: 'disabled',
-    },
-  })
+  const result = await providerService.disableEnabledForProvider(context.targetUserId, context.provider)
 
   await syncProviderAccessBestEffort(context.targetSlug, context.targetUserId)
 

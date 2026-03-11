@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { decryptConfig } from '@/lib/connectors/crypto'
+import { verifyConnectorGatewayToken } from '@/lib/connectors/gateway-tokens'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
 import { refreshConnectorOAuthConfigIfNeeded } from '@/lib/connectors/oauth-refresh'
-import { verifyConnectorGatewayToken } from '@/lib/connectors/gateway-tokens'
 import { validateConnectorType } from '@/lib/connectors/validators'
-import { prisma } from '@/lib/prisma'
+import { connectorService } from '@/lib/services'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -46,19 +46,7 @@ async function handleProxy(
     return NextResponse.json({ error: 'connector_mismatch' }, { status: 403 })
   }
 
-  const connector = await prisma.connector.findFirst({
-    where: {
-      id,
-      userId: payload.userId,
-      enabled: true,
-    },
-    select: {
-      id: true,
-      type: true,
-      config: true,
-      userId: true,
-    },
-  })
+  const connector = await connectorService.findEnabledByIdAndUserId(id, payload.userId)
 
   if (!connector) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
