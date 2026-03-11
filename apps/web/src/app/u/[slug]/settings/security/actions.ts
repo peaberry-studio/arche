@@ -1,14 +1,12 @@
 'use server'
 
-import { cookies } from 'next/headers'
 import argon2 from 'argon2'
 
 import {
-  SESSION_COOKIE_NAME,
-  getSessionFromToken,
   auditEvent,
   verifyPassword,
 } from '@/lib/auth'
+import { getSession } from '@/lib/runtime/session'
 import { userService } from '@/lib/services'
 import {
   generateSecret,
@@ -21,17 +19,10 @@ import {
 
 const ISSUER = 'Arche'
 
-async function getAuthenticatedUser() {
-  const cookieStore = await cookies()
-  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value
-  if (!token) return null
-  return getSessionFromToken(token)
-}
-
 export async function initiate2FASetup(): Promise<
   { ok: true; qrUri: string; secret: string } | { ok: false; error: string }
 > {
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) return { ok: false, error: 'Not authenticated' }
 
   const user = await userService.findById(session.user.id)
@@ -56,7 +47,7 @@ export async function initiate2FASetup(): Promise<
 export async function verify2FASetup(
   code: string
 ): Promise<{ ok: true; recoveryCodes: string[] } | { ok: false; error: string }> {
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) return { ok: false, error: 'Not authenticated' }
 
   const user = await userService.findById(session.user.id)
@@ -95,7 +86,7 @@ export async function verify2FASetup(
 export async function disable2FA(
   password: string
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) return { ok: false, error: 'Not authenticated' }
 
   const user = await userService.findById(session.user.id)
@@ -120,7 +111,7 @@ export async function regenerateRecoveryCodes(password: string): Promise<
 > {
   if (!password) return { ok: false, error: 'Password is required' }
 
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) return { ok: false, error: 'Not authenticated' }
 
   const user = await userService.findById(session.user.id)
@@ -152,7 +143,7 @@ export async function get2FAStatus(): Promise<
   | { ok: true; enabled: boolean; verifiedAt: Date | null; recoveryCodesRemaining: number }
   | { ok: false; error: string }
 > {
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) return { ok: false, error: 'Not authenticated' }
 
   const user = await userService.findById(session.user.id)

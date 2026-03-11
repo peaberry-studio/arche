@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { getAuthenticatedUser, auditEvent } from '@/lib/auth'
+import { auditEvent } from '@/lib/auth'
 import { encryptConfig, decryptConfig } from '@/lib/connectors/crypto'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
 import type { ConnectorType } from '@/lib/connectors/types'
@@ -10,6 +10,7 @@ import {
   validateConnectorType,
 } from '@/lib/connectors/validators'
 import { validateSameOrigin } from '@/lib/csrf'
+import { getSession } from '@/lib/runtime/session'
 import { connectorService, userService } from '@/lib/services'
 
 export interface ConnectorDetail {
@@ -61,7 +62,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string; id: string }> }
 ): Promise<NextResponse<ConnectorDetail | { error: string }>> {
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
@@ -141,7 +142,7 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string; id: string }> }
 ): Promise<NextResponse<ConnectorDetail | { error: string; message?: string }>> {
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
@@ -341,7 +342,7 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string; id: string }> }
 ): Promise<NextResponse<{ ok: true } | { error: string }>> {
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { auditEvent, getAuthenticatedUser } from '@/lib/auth'
+import { auditEvent } from '@/lib/auth'
 import { decryptConfig, encryptConfig } from '@/lib/connectors/crypto'
 import {
   exchangeConnectorOAuthCode,
@@ -10,6 +10,7 @@ import {
 import { buildConfigWithOAuth } from '@/lib/connectors/oauth-config'
 import { validateConnectorType } from '@/lib/connectors/validators'
 import { getPublicBaseUrl } from '@/lib/http'
+import { getSession } from '@/lib/runtime/session'
 import { connectorService } from '@/lib/services'
 
 function buildRedirect(baseUrl: string, slug: string, status: 'success' | 'error', message?: string): URL {
@@ -23,7 +24,7 @@ function buildRedirect(baseUrl: string, slug: string, status: 'success' | 'error
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const baseUrl = getPublicBaseUrl(request.headers, request.nextUrl.origin)
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   const code = request.nextUrl.searchParams.get('code')
   const state = request.nextUrl.searchParams.get('state')
   const providerError = request.nextUrl.searchParams.get('error')

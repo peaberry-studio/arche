@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation'
 import { DashboardNav } from '@/components/dashboard/dashboard-nav'
 import { DashboardThemeShell } from '@/components/dashboard/dashboard-theme-shell'
 import { WorkspaceThemeProvider } from '@/contexts/workspace-theme-context'
-import { getSessionFromToken, SESSION_COOKIE_NAME } from '@/lib/auth'
+import { getSession } from '@/lib/runtime/session'
 import {
   DEFAULT_CHAT_FONT_FAMILY,
   DEFAULT_CHAT_FONT_SIZE,
@@ -31,13 +31,8 @@ export default async function DashboardLayout({
   const cookieStore = await cookies()
   const storedChatFontFamily = cookieStore.get(getWorkspaceChatFontFamilyCookieName(slug))?.value
   const storedChatFontSize = cookieStore.get(getWorkspaceChatFontSizeCookieName(slug))?.value
-  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value
 
-  if (!token) {
-    redirect('/login')
-  }
-
-  const session = await getSessionFromToken(token)
+  const session = await getSession()
   if (!session) {
     redirect('/login')
   }

@@ -1,12 +1,11 @@
-import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 
-import { SESSION_COOKIE_NAME, getSessionFromToken } from '@/lib/auth'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { get2FAStatus } from './actions'
-import { TotpSetupWizard } from '@/components/totp-setup-wizard'
 import { ThemePicker } from '@/components/dashboard/theme-picker'
+import { TotpSetupWizard } from '@/components/totp-setup-wizard'
+import { getSession } from '@/lib/runtime/session'
+import { get2FAStatus } from './actions'
 
 export default async function SecuritySettingsPage({
   params,
@@ -15,11 +14,7 @@ export default async function SecuritySettingsPage({
 }) {
   await params
 
-  const cookieStore = await cookies()
-  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value
-  if (!token) redirect('/login')
-
-  const session = await getSessionFromToken(token)
+  const session = await getSession()
   if (!session) redirect('/login')
 
   const status = await get2FAStatus()

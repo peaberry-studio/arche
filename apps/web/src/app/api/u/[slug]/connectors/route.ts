@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { getAuthenticatedUser, auditEvent } from '@/lib/auth'
+import { auditEvent } from '@/lib/auth'
 import { decryptConfig, encryptConfig } from '@/lib/connectors/crypto'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
 import {
@@ -9,6 +9,7 @@ import {
   validateConnectorName,
 } from '@/lib/connectors/validators'
 import { validateSameOrigin } from '@/lib/csrf'
+import { getSession } from '@/lib/runtime/session'
 import { connectorService, userService } from '@/lib/services'
 
 export interface ConnectorListItem {
@@ -40,7 +41,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
 ): Promise<NextResponse<{ connectors: ConnectorListItem[] } | { error: string }>> {
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
@@ -126,7 +127,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
 ): Promise<NextResponse<ConnectorResponse | { error: string; message?: string }>> {
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }

@@ -1,26 +1,18 @@
 'use server'
 
-import { cookies } from 'next/headers'
-import { getSessionFromToken, SESSION_COOKIE_NAME } from '@/lib/auth'
 import { getInstanceBasicAuth } from '@/lib/opencode/client'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
+import { getSession } from '@/lib/runtime/session'
 import { userService } from '@/lib/services'
 import { startInstance, stopInstance, getInstanceStatus, isSlowStart, listActiveInstances } from '@/lib/spawner/core'
 import { getKickstartStatus } from '@/kickstart/status'
-
-async function getAuthenticatedUser() {
-  const cookieStore = await cookies()
-  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value
-  if (!token) return null
-  return getSessionFromToken(token)
-}
 
 export type SpawnerActionResult =
   | { ok: true; status: string }
   | { ok: false; error: string }
 
 export async function startInstanceAction(slug: string): Promise<SpawnerActionResult> {
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) return { ok: false, error: 'unauthorized' }
 
   if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
@@ -36,7 +28,7 @@ export async function startInstanceAction(slug: string): Promise<SpawnerActionRe
 }
 
 export async function stopInstanceAction(slug: string): Promise<SpawnerActionResult> {
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) return { ok: false, error: 'unauthorized' }
 
   if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
@@ -47,7 +39,7 @@ export async function stopInstanceAction(slug: string): Promise<SpawnerActionRes
 }
 
 export async function getInstanceStatusAction(slug: string) {
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) return null
 
   if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
@@ -64,7 +56,7 @@ export async function getInstanceStatusAction(slug: string) {
 }
 
 export async function listActiveInstancesAction() {
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) return []
 
   // Only admins can view all active instances
@@ -95,7 +87,7 @@ export async function ensureInstanceRunningAction(slug: string): Promise<{
 }> {
   console.log('[ensureInstanceRunning] Starting for slug:', slug)
   
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) {
     console.log('[ensureInstanceRunning] No session - unauthorized')
     return { status: 'error', error: 'unauthorized' }

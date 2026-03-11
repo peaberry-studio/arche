@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { getAuthenticatedUser } from '@/lib/auth'
+import { getSession } from '@/lib/runtime/session'
 import { decryptConfig } from '@/lib/connectors/crypto'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
 import { refreshConnectorOAuthConfigIfNeeded } from '@/lib/connectors/oauth-refresh'
@@ -232,7 +232,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string; id: string }> }
 ): Promise<NextResponse<TestConnectionResult | { error: string }>> {
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }

@@ -1,7 +1,5 @@
-import { cookies } from 'next/headers'
-
 import { TeamPageClient } from '@/components/team/team-page-client'
-import { getSessionFromToken, SESSION_COOKIE_NAME } from '@/lib/auth'
+import { getSession } from '@/lib/runtime/session'
 
 export default async function TeamPage({
   params
@@ -10,9 +8,7 @@ export default async function TeamPage({
 }) {
   const { slug } = await params
 
-  const cookieStore = await cookies()
-  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value
-  const session = token ? await getSessionFromToken(token) : null
+  const session = await getSession()
 
   return (
     <TeamPageClient

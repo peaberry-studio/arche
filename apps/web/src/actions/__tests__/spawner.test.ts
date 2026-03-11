@@ -1,14 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// Mock next/headers
-vi.mock('next/headers', () => ({
-  cookies: vi.fn(),
-}))
-
-// Mock auth
-vi.mock('@/lib/auth', () => ({
-  SESSION_COOKIE_NAME: 'arche_session',
-  getSessionFromToken: vi.fn(),
+// Mock runtime session
+vi.mock('@/lib/runtime/session', () => ({
+  getSession: vi.fn(),
 }))
 
 // Mock prisma (imported by actions for provider sync)
@@ -46,16 +40,14 @@ vi.mock('@/kickstart/status', () => ({
   getKickstartStatus: (...args: unknown[]) => mockGetKickstartStatus(...args),
 }))
 
-import { cookies } from 'next/headers'
-import { getSessionFromToken } from '@/lib/auth'
+import { getSession } from '@/lib/runtime/session'
 import { prisma } from '@/lib/prisma'
 import { getInstanceBasicAuth } from '@/lib/opencode/client'
 import { startInstance, stopInstance, getInstanceStatus } from '@/lib/spawner/core'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
 import { startInstanceAction, stopInstanceAction, getInstanceStatusAction, ensureInstanceRunningAction } from '../spawner'
 
-const mockCookies = vi.mocked(cookies)
-const mockGetSession = vi.mocked(getSessionFromToken)
+const mockGetSession = vi.mocked(getSession)
 const mockStart = vi.mocked(startInstance)
 const mockStop = vi.mocked(stopInstance)
 const mockStatus = vi.mocked(getInstanceStatus)
@@ -75,9 +67,6 @@ const adminSession = {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockCookies.mockResolvedValue({
-    get: vi.fn(() => ({ name: 'arche_session', value: 'token-123' })),
-  } as never)
   mockGetKickstartStatus.mockResolvedValue('ready')
 })
 

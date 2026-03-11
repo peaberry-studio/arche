@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { getAuthenticatedUser } from '@/lib/auth'
 import { validateSameOrigin } from '@/lib/csrf'
+import { getSession } from '@/lib/runtime/session'
 import { instanceService } from '@/lib/services'
 
 export async function PATCH(
@@ -20,7 +20,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'forbidden' }, { status: 403 })
     }
 
-    const session = await getAuthenticatedUser()
+    const session = await getSession()
     if (!session) {
       return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
     }

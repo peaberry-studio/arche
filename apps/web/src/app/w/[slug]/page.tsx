@@ -1,8 +1,7 @@
-import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 
-import { getSessionFromToken, SESSION_COOKIE_NAME } from '@/lib/auth'
 import { WorkspaceShell } from '@/components/workspace/workspace-shell'
+import { getSession } from '@/lib/runtime/session'
 import { getKickstartStatus } from '@/kickstart/status'
 
 export default async function WorkspaceHostPage({
@@ -16,14 +15,7 @@ export default async function WorkspaceHostPage({
   const search = await searchParams
 
   // Verify authentication
-  const cookieStore = await cookies()
-  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value
-  
-  if (!token) {
-    redirect('/login')
-  }
-
-  const session = await getSessionFromToken(token)
+  const session = await getSession()
   if (!session) {
     redirect('/login')
   }

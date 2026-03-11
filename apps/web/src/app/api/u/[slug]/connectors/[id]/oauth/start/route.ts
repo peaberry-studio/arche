@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { auditEvent, getAuthenticatedUser } from '@/lib/auth'
+import { auditEvent } from '@/lib/auth'
 import { isOAuthConnectorType, prepareConnectorOAuthAuthorization } from '@/lib/connectors/oauth'
 import { validateConnectorType } from '@/lib/connectors/validators'
 import { validateSameOrigin } from '@/lib/csrf'
+import { getSession } from '@/lib/runtime/session'
 import { getPublicBaseUrl } from '@/lib/http'
 import { connectorService, userService } from '@/lib/services'
 
@@ -15,7 +16,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string; id: string }> }
 ): Promise<NextResponse<StartOAuthResponse | { error: string; message?: string }>> {
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }

@@ -3,8 +3,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import argon2 from 'argon2'
 import { Prisma, UserRole } from '@prisma/client'
 
-import { auditEvent, getAuthenticatedUser } from '@/lib/auth'
+import { auditEvent } from '@/lib/auth'
 import { validateSameOrigin } from '@/lib/csrf'
+import { getSession } from '@/lib/runtime/session'
 import { userService } from '@/lib/services'
 import { validateSlug } from '@/lib/validation/slug'
 
@@ -53,7 +54,7 @@ export async function GET(
 ): Promise<NextResponse<TeamListResponse | { error: string }>> {
   void request
 
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
@@ -75,7 +76,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
 ): Promise<NextResponse<{ user: TeamUserListItem } | { error: string; message?: string }>> {
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }

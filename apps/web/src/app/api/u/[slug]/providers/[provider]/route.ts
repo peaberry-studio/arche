@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { auditEvent, getAuthenticatedUser } from '@/lib/auth'
+import { auditEvent } from '@/lib/auth'
 import { validateSameOrigin } from '@/lib/csrf'
+import { getSession } from '@/lib/runtime/session'
 import { getInstanceUrl } from '@/lib/opencode/client'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
 import { createApiCredential } from '@/lib/providers/store'
@@ -60,7 +61,7 @@ async function getProviderMutationContext(
   | { ok: true; sessionUserId: string; provider: ProviderId; targetUserId: string; targetSlug: string }
   | { ok: false; response: NextResponse<{ error: string }> }
 > {
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) {
     return {
       ok: false,

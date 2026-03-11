@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { UserRole } from '@prisma/client'
 
-import { auditEvent, getAuthenticatedUser } from '@/lib/auth'
+import { auditEvent } from '@/lib/auth'
 import { validateSameOrigin } from '@/lib/csrf'
+import { getSession } from '@/lib/runtime/session'
 import { instanceService, userService } from '@/lib/services'
 import { stopInstance } from '@/lib/spawner/core'
 
@@ -39,7 +40,7 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string; id: string }> }
 ): Promise<NextResponse<{ user: TeamUserResponse } | { error: string }>> {
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
@@ -120,7 +121,7 @@ export async function DELETE(
 ): Promise<NextResponse<{ ok: true } | { error: string }>> {
   void request
 
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }

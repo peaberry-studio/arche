@@ -1,8 +1,8 @@
 import { NextRequest } from 'next/server'
 
-import { getAuthenticatedUser } from '@/lib/auth'
 import { extractPdfText, isPdfMime } from '@/lib/attachments/pdf-text-extractor'
 import { validateSameOrigin } from '@/lib/csrf'
+import { getSession } from '@/lib/runtime/session'
 import { instanceService } from '@/lib/services'
 import { INITIAL_SSE_PARSE_STATE, parseSseChunk } from '@/lib/sse-parser'
 import { decryptPassword } from '@/lib/spawner/crypto'
@@ -185,7 +185,7 @@ export async function POST(
   const { slug } = await params
 
   // Authenticate user
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) {
     return new Response(JSON.stringify({ error: 'unauthorized' }), {
       status: 401,
