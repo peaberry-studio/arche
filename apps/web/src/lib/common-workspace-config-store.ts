@@ -12,6 +12,7 @@ import {
   runGit,
   runGitOnBareRepo,
 } from '@/lib/git/bare-repo'
+import { getKbConfigRoot, getKbContentRoot } from '@/lib/runtime/paths'
 
 type ConfigReadResult =
   | { ok: true; content: string; hash: string; path: string }
@@ -28,16 +29,14 @@ export type KbRecentFileUpdate = {
   committedAt: string
 }
 
-const CONFIG_REPO_ROOT = '/kb-config'
-const CONTENT_REPO_ROOT = '/kb-content'
 const CONFIG_FILE_NAME = 'CommonWorkspaceConfig.json'
 
 async function resolveConfigRepoRoot(): Promise<string | null> {
-  return resolveRepoRoot(CONFIG_REPO_ROOT)
+  return resolveRepoRoot(getKbConfigRoot())
 }
 
 async function resolveContentRepoRoot(): Promise<string | null> {
-  return resolveRepoRoot(CONTENT_REPO_ROOT)
+  return resolveRepoRoot(getKbContentRoot())
 }
 
 export async function readCommonWorkspaceConfig(): Promise<ConfigReadResult> {

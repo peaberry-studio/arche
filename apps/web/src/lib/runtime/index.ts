@@ -2,6 +2,12 @@ export { getRuntimeMode, isWeb, isDesktop, type RuntimeMode } from '@/lib/runtim
 export { getRuntimeCapabilities, type RuntimeCapabilities } from '@/lib/runtime/capabilities'
 export { getSession } from '@/lib/runtime/session'
 export {
+  getKbConfigRoot,
+  getKbContentRoot,
+  getUserDataPath,
+  getUsersBasePath,
+} from '@/lib/runtime/paths'
+export {
   getWorkspaceAgentConnection,
   getWorkspaceConnection,
   getWorkspaceStatus,

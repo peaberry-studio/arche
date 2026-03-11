@@ -10,11 +10,9 @@ import {
   resolveRepoRoot,
   runGit,
 } from '@/lib/git/bare-repo'
+import { getKbConfigRoot, getKbContentRoot } from '@/lib/runtime/paths'
 import { normalizeRepoPath } from '@/kickstart/parse-utils'
 import type { KickstartRenderedFile } from '@/kickstart/types'
-
-const CONFIG_REPO_ROOT = '/kb-config'
-const CONTENT_REPO_ROOT = '/kb-content'
 
 type CommitPushResult =
   | { ok: true }
@@ -38,11 +36,11 @@ function isPushConflict(stderr: string): boolean {
 }
 
 export async function resolveKickstartConfigRepoRoot(): Promise<string | null> {
-  return resolveRepoRoot(CONFIG_REPO_ROOT)
+  return resolveRepoRoot(getKbConfigRoot())
 }
 
 export async function resolveKickstartContentRepoRoot(): Promise<string | null> {
-  return resolveRepoRoot(CONTENT_REPO_ROOT)
+  return resolveRepoRoot(getKbContentRoot())
 }
 
 async function ensureBranch(
