@@ -268,6 +268,7 @@ function SectionHeader({
 function MinifiedLeftPanel({
   slug,
   status,
+  onCreateSession,
   onToggleLeft,
   onExpandWithSection,
   onSyncComplete,
@@ -275,6 +276,7 @@ function MinifiedLeftPanel({
 }: {
   slug: string;
   status: "active" | "provisioning" | "offline";
+  onCreateSession: () => void;
   onToggleLeft: () => void;
   onExpandWithSection: (section: "chats" | "knowledge" | "experts") => void;
   onSyncComplete?: (status: SyncKbResult["status"]) => void;
@@ -319,6 +321,20 @@ function MinifiedLeftPanel({
         <div className="my-2 h-px w-6 bg-border/40" />
 
         {/* Section shortcuts — click expands panel and opens section */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={onCreateSession}
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+              aria-label="New chat"
+            >
+              <Plus size={16} weight="bold" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">New chat</TooltipContent>
+        </Tooltip>
+
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -500,6 +516,7 @@ export function LeftPanel({
       <MinifiedLeftPanel
         slug={slug}
         status={status}
+        onCreateSession={onCreateSession}
         onToggleLeft={onToggleLeft}
         onExpandWithSection={handleExpandWithSection}
         onSyncComplete={onSyncComplete}

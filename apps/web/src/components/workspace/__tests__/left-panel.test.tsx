@@ -203,4 +203,14 @@ describe("LeftPanel", () => {
     const parsed = JSON.parse(stored!);
     expect(parsed.topCollapsed).toBe(true);
   });
+
+  it("shows a new chat button when the left panel is collapsed", () => {
+    const onCreateSession = vi.fn();
+
+    renderLeftPanel({ leftCollapsed: true, onCreateSession });
+
+    fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+
+    expect(onCreateSession).toHaveBeenCalledTimes(1);
+  });
 });

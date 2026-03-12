@@ -346,11 +346,23 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
     });
   }, [leftCollapsed]);
 
+  const handleCreateSession = useCallback(async () => {
+    await workspace.createSession(`Session ${rootSessions.length + 1}`);
+  }, [rootSessions.length, workspace]);
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.isComposing) return;
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
-      if (event.key.toLowerCase() !== "k") return;
+      const key = event.key.toLowerCase();
+
+      if (key === "i") {
+        event.preventDefault();
+        void handleCreateSession();
+        return;
+      }
+
+      if (key !== "k") return;
 
       event.preventDefault();
       focusSearchInput();
@@ -360,7 +372,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [focusSearchInput]);
+  }, [focusSearchInput, handleCreateSession]);
 
   // File viewing state
   const safeInitialFilePath = useMemo(() => {
@@ -842,10 +854,6 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
   const handleSelectSessionTab = useCallback((sessionId: string) => {
     workspace.selectSession(sessionId);
   }, [workspace]);
-
-  const handleCreateSession = useCallback(async () => {
-    await workspace.createSession(`Session ${rootSessions.length + 1}`);
-  }, [rootSessions.length, workspace]);
 
   const handleCloseSession = useCallback(async (sessionId: string) => {
     await workspace.deleteSession(sessionId);
