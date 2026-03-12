@@ -269,12 +269,14 @@ function MinifiedLeftPanel({
   slug,
   status,
   onToggleLeft,
+  onExpandWithSection,
   onSyncComplete,
   onNavigateSettings,
 }: {
   slug: string;
   status: "active" | "provisioning" | "offline";
   onToggleLeft: () => void;
+  onExpandWithSection: (section: "chats" | "knowledge" | "experts") => void;
   onSyncComplete?: (status: SyncKbResult["status"]) => void;
   onNavigateSettings: () => void;
 }) {
@@ -316,12 +318,12 @@ function MinifiedLeftPanel({
 
         <div className="my-2 h-px w-6 bg-border/40" />
 
-        {/* Section shortcuts — click expands panel */}
+        {/* Section shortcuts — click expands panel and opens section */}
         <Tooltip>
           <TooltipTrigger asChild>
             <button
               type="button"
-              onClick={onToggleLeft}
+              onClick={() => onExpandWithSection("chats")}
               className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
               aria-label="Chats"
             >
@@ -335,7 +337,7 @@ function MinifiedLeftPanel({
           <TooltipTrigger asChild>
             <button
               type="button"
-              onClick={onToggleLeft}
+              onClick={() => onExpandWithSection("knowledge")}
               className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
               aria-label="Knowledge"
             >
@@ -349,7 +351,7 @@ function MinifiedLeftPanel({
           <TooltipTrigger asChild>
             <button
               type="button"
-              onClick={onToggleLeft}
+              onClick={() => onExpandWithSection("experts")}
               className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
               aria-label="Experts"
             >
@@ -485,6 +487,13 @@ export function LeftPanel({
   onCreateKnowledgeFile,
   searchInputRef,
 }: LeftPanelProps) {
+  const pendingSectionRef = useRef<"chats" | "knowledge" | "experts" | null>(null);
+
+  const handleExpandWithSection = useCallback((section: "chats" | "knowledge" | "experts") => {
+    pendingSectionRef.current = section;
+    onToggleLeft();
+  }, [onToggleLeft]);
+
   // --- Minified state ---
   if (leftCollapsed) {
     return (
@@ -492,6 +501,7 @@ export function LeftPanel({
         slug={slug}
         status={status}
         onToggleLeft={onToggleLeft}
+        onExpandWithSection={handleExpandWithSection}
         onSyncComplete={onSyncComplete}
         onNavigateSettings={onNavigateSettings}
       />
@@ -521,6 +531,7 @@ export function LeftPanel({
       onSelectFile={onSelectFile}
       onCreateKnowledgeFile={onCreateKnowledgeFile}
       searchInputRef={searchInputRef}
+      pendingSectionRef={pendingSectionRef}
     />
   );
 }
@@ -545,7 +556,8 @@ function ExpandedLeftPanel({
   onSelectFile,
   onCreateKnowledgeFile,
   searchInputRef,
-}: LeftPanelProps) {
+  pendingSectionRef,
+}: LeftPanelProps & { pendingSectionRef?: RefObject<"chats" | "knowledge" | "experts" | null> }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const newFileNameRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -565,6 +577,16 @@ function ExpandedLeftPanel({
   const [topCollapsed, setTopCollapsed] = useState(initialPanelState.topCollapsed);
   const [midCollapsed, setMidCollapsed] = useState(initialPanelState.midCollapsed);
   const [bottomCollapsed, setBottomCollapsed] = useState(initialPanelState.bottomCollapsed);
+
+  // Expand the requested section when coming from a minified panel click
+  useEffect(() => {
+    const section = pendingSectionRef?.current;
+    if (!section) return;
+    pendingSectionRef.current = null;
+    if (section === "chats") setTopCollapsed(false);
+    else if (section === "knowledge") setMidCollapsed(false);
+    else if (section === "experts") setBottomCollapsed(false);
+  }); // intentionally no deps — runs every render but only acts when ref is set
 
   const directoryOptions = useMemo(
     () => collectDirectoryOptions(fileNodes),
@@ -882,7 +904,7 @@ function ExpandedLeftPanel({
       </div>
 
       {/* Search bar (no container) */}
-      <label className="flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 transition-colors hover:bg-foreground/5 focus-within:bg-foreground/5">
+      <label className="mt-0.5 mb-1.5 flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 transition-colors hover:bg-foreground/5 focus-within:bg-foreground/5">
           <MagnifyingGlass size={14} className="shrink-0 text-muted-foreground/50" />
           <input
             ref={searchInputRef}
@@ -1131,7 +1153,7 @@ function ExpandedLeftPanel({
               </TooltipTrigger>
               <TooltipContent side="top">Change theme</TooltipContent>
             </Tooltip>
-            <DropdownMenuContent side="top" align="end" className="min-w-[220px]">
+            <DropdownMenuContent side="top" align="start" className="min-w-[220px]">
               <DropdownMenuLabel className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Light</DropdownMenuLabel>
               {lightThemes.map((t) => (
                 <DropdownMenuItem key={t.id} onClick={() => setThemeId(t.id)} className={cn("flex items-center gap-3", themeId === t.id && "bg-primary/10")}>
