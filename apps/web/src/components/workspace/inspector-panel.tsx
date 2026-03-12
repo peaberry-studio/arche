@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLineLeft, CaretLeft, CaretRight, File, GitDiff, SquareHalf, X } from "@phosphor-icons/react";
+import { ArrowLineLeft, ArrowLineRight, CaretLeft, CaretRight, File, GitDiff, X } from "@phosphor-icons/react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -328,7 +328,7 @@ function ExpandedInspectorPanel({
           className="ml-auto flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
           aria-label="Collapse panel"
         >
-          <SquareHalf size={14} weight="bold" />
+          <ArrowLineRight size={14} weight="bold" />
         </button>
       </div>
 

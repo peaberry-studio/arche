@@ -1530,7 +1530,7 @@ export function ChatPanel({
   return (
     <div className="flex h-full flex-col text-card-foreground">
       {/* Session header — shows tabs when multiple sessions exist, otherwise plain title */}
-      <div className="flex h-11 shrink-0 items-center gap-1 border-b border-white/10 pl-2 pr-2">
+      <div className="glass-panel mx-3 mt-3 flex h-11 shrink-0 items-center gap-1 rounded-2xl pl-2 pr-2">
         {sessionTabs.length > 1 ? (
           <div className="min-w-0 flex-1 overflow-x-auto scrollbar-none">
             <div className="flex items-center gap-1">
@@ -1746,7 +1746,7 @@ export function ChatPanel({
       </div>
 
       {/* Input area */}
-      <div className="border-t border-white/10 px-6 py-5">
+      <div className="glass-panel mx-3 mb-3 rounded-2xl px-6 py-5">
         {/* Model selector and context - same row */}
         {(models.length > 0 || normalizedOpenFilePaths.length > 0 || activeAgentName) && (
           <div className="mb-3 flex items-center gap-4">

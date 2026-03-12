@@ -14,7 +14,7 @@ import {
   Plugs,
   Plus,
   Robot,
-  SidebarSimple,
+  ArrowLineLeft,
   SlidersHorizontal,
   X,
 } from "@phosphor-icons/react";
@@ -1024,7 +1024,7 @@ function ExpandedLeftPanel({
           className="ml-auto flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
           aria-label="Collapse panel"
         >
-          <SidebarSimple size={14} weight="bold" />
+          <ArrowLineLeft size={14} weight="bold" />
         </button>
       </div>
 
