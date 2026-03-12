@@ -190,7 +190,7 @@ describe('desktopWorkspaceHost', () => {
 
     const conn = await desktopWorkspaceHost.getConnection('local')
     expect(conn).not.toBeNull()
-    expect(conn!.baseUrl).toBe('http://localhost:4096')
+    expect(conn!.baseUrl).toBe('http://127.0.0.1:4096')
     expect(conn!.authHeader).toMatch(/^Basic /)
   })
 
@@ -203,7 +203,7 @@ describe('desktopWorkspaceHost', () => {
 
     const conn = await desktopWorkspaceHost.getAgentConnection('local')
     expect(conn).not.toBeNull()
-    expect(conn!.baseUrl).toBe('http://localhost:4097')
+    expect(conn!.baseUrl).toBe('http://127.0.0.1:4097')
   })
 
   it('returns null connection for stopped workspace', async () => {
@@ -234,7 +234,7 @@ describe('desktopWorkspaceHost', () => {
 
     expect(syncProviderAccessForInstance).toHaveBeenCalledWith({
       instance: {
-        baseUrl: 'http://localhost:4096',
+        baseUrl: 'http://127.0.0.1:4096',
         authHeader: expect.stringMatching(/^Basic /),
       },
       slug: 'local',

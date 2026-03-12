@@ -12,15 +12,16 @@ import { decryptPassword } from '@/lib/spawner/crypto'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 
 const OPENCODE_PORT = 4096
+const DESKTOP_LOOPBACK_HOST = '127.0.0.1'
 
 /**
  * Get the internal network URL for an OpenCode instance.
  * Container names follow the pattern: opencode-{slug}
- * In desktop mode, use localhost instead of container hostname.
+ * In desktop mode, use the IPv4 loopback address instead of container hostname.
  */
 export function getInstanceUrl(slug: string): string {
   const caps = getRuntimeCapabilities()
-  const host = caps.containers ? `opencode-${slug}` : 'localhost'
+  const host = caps.containers ? `opencode-${slug}` : DESKTOP_LOOPBACK_HOST
   return `http://${host}:${OPENCODE_PORT}`
 }
 
