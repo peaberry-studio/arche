@@ -1751,21 +1751,16 @@ export function ChatPanel({
         {(models.length > 0 || normalizedOpenFilePaths.length > 0 || activeAgentName) && (
           <div className="mb-3 flex items-center gap-4">
             {activeAgentName && (
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                  Agent
-                </span>
-                <span className="rounded-lg bg-foreground/5 px-2.5 py-1.5 text-xs text-foreground">
-                  {activeAgentName}
-                </span>
-              </div>
+              <span className="text-xs text-foreground">
+                {activeAgentName}
+              </span>
             )}
 
             {/* Model selector */}
             {models.length > 0 && (
               <div className="flex items-center gap-2">
                 <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                  Model
+                  using
                 </span>
                 <DropdownMenu onOpenChange={(open) => { if (!open) setModelSearch(""); }}>
                   <DropdownMenuTrigger asChild>
