@@ -5,6 +5,7 @@ on:
     workflows:
       - Build & Push Web Image
       - Build & Push Workspace Image
+      - Build & Deploy
     types: [completed]
   schedule:
     - cron: "17 * * * *"

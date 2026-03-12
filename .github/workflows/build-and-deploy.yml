@@ -1,0 +1,66 @@
+name: Build & Deploy
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy-vps
+  cancel-in-progress: false
+
+jobs:
+  build-web:
+    uses: ./.github/workflows/build-push.yml
+    secrets: inherit
+
+  build-workspace:
+    uses: ./.github/workflows/build-push-workspace.yml
+    secrets: inherit
+
+  deploy:
+    needs: [build-web, build-workspace]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Ansible
+        run: |
+          pip install ansible
+          ansible-galaxy collection install community.general
+
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          ARCHE_SESSION_PEPPER: ${{ secrets.ARCHE_SESSION_PEPPER }}
+          ARCHE_ENCRYPTION_KEY: ${{ secrets.ARCHE_ENCRYPTION_KEY }}
+          ARCHE_INTERNAL_TOKEN: ${{ secrets.ARCHE_INTERNAL_TOKEN }}
+          ARCHE_CONNECTOR_OAUTH_STATE_SECRET: ${{ secrets.ARCHE_CONNECTOR_OAUTH_STATE_SECRET }}
+          ARCHE_GATEWAY_TOKEN_SECRET: ${{ secrets.ARCHE_GATEWAY_TOKEN_SECRET }}
+          ARCHE_SEED_ADMIN_EMAIL: ${{ secrets.ARCHE_SEED_ADMIN_EMAIL }}
+          ARCHE_SEED_ADMIN_PASSWORD: ${{ secrets.ARCHE_SEED_ADMIN_PASSWORD }}
+          ARCHE_SEED_ADMIN_SLUG: ${{ secrets.ARCHE_SEED_ADMIN_SLUG }}
+          OPENCODE_IMAGE: ghcr.io/peaberry-studio/arche/workspace:latest
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          USER_FLAG=()
+          if [[ -n "${VPS_USER}" ]]; then
+            USER_FLAG=(--user "${VPS_USER}")
+          fi
+
+          cd infra/deploy
+          ./deploy.sh \
+            --ip "${{ secrets.VPS_HOST }}" \
+            --domain "${{ secrets.VPS_DOMAIN }}" \
+            --ssh-key ~/.ssh/deploy_key \
+            --acme-email "${{ secrets.ACME_EMAIL }}" \
+            "${USER_FLAG[@]}" \
+            --version "$(git rev-parse --short HEAD)" \
+            --skip-ensure-dns-record

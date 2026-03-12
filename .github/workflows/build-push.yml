@@ -1,8 +1,8 @@
 name: Build & Push Web Image
 
 on:
+  workflow_call:
   push:
-    branches: [main]
     tags:
       - "v*.*.*"
   repository_dispatch:

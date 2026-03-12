@@ -138,6 +138,7 @@
     owner: deploy
     group: deploy
     mode: "0644"
+  no_log: true
 
 - name: Render .env file
   ansible.builtin.template:
@@ -146,6 +147,7 @@
     owner: deploy
     group: deploy
     mode: "0600"
+  no_log: true
 
 - name: Ensure arche-internal network exists
   ansible.builtin.command:
@@ -328,6 +330,7 @@
       --restart unless-stopped \
       {{ web_image }}
   changed_when: true
+  no_log: true
 
 - name: Ensure new web container has stable web alias on arche-internal
   ansible.builtin.shell:
