@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { UserRole } from '@prisma/client'
-
 import { auditEvent } from '@/lib/auth'
 import { validateSameOrigin } from '@/lib/csrf'
 import { getSession } from '@/lib/runtime/session'
 import { stopWorkspace } from '@/lib/runtime/workspace-host'
 import { instanceService, userService } from '@/lib/services'
+
+type UserRole = 'ADMIN' | 'USER'
 
 type TeamUserResponse = {
   id: string
@@ -72,10 +72,10 @@ export async function PATCH(
   }
 
   const role =
-    body.role === UserRole.ADMIN
-      ? UserRole.ADMIN
-      : body.role === UserRole.USER
-        ? UserRole.USER
+    body.role === 'ADMIN'
+      ? 'ADMIN'
+      : body.role === 'USER'
+        ? 'USER'
         : null
 
   if (!role) {
@@ -88,7 +88,7 @@ export async function PATCH(
     return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
   }
 
-  if (targetUser.role === UserRole.ADMIN && role === UserRole.USER) {
+  if (targetUser.role === 'ADMIN' && role === 'USER') {
     const adminCount = await userService.countAdmins()
     if (adminCount <= 1) {
       return NextResponse.json({ error: 'last_admin' }, { status: 409 })

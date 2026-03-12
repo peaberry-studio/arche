@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import argon2 from 'argon2'
-import { Prisma, UserRole } from '@prisma/client'
 
 import { auditEvent } from '@/lib/auth'
 import { validateSameOrigin } from '@/lib/csrf'
 import { getSession } from '@/lib/runtime/session'
 import { userService } from '@/lib/services'
 import { validateSlug } from '@/lib/validation/slug'
+
+type UserRole = 'ADMIN' | 'USER'
 
 type TeamUserListItem = {
   id: string
@@ -112,7 +113,7 @@ export async function POST(
   const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''
   const userSlug = typeof body.slug === 'string' ? body.slug.trim().toLowerCase() : ''
   const password = typeof body.password === 'string' ? body.password : ''
-  const role = body.role === UserRole.ADMIN ? UserRole.ADMIN : body.role === UserRole.USER ? UserRole.USER : null
+  const role = body.role === 'ADMIN' ? 'ADMIN' : body.role === 'USER' ? 'USER' : null
 
   if (!email || !isValidEmail(email)) {
     return NextResponse.json({ error: 'invalid_email' }, { status: 400 })
@@ -161,7 +162,7 @@ export async function POST(
       { status: 201 }
     )
   } catch (err) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+    if (typeof err === 'object' && err !== null && 'code' in err && err.code === 'P2002') {
       return NextResponse.json({ error: 'user_exists' }, { status: 409 })
     }
 

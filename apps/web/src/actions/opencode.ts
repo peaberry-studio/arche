@@ -1,6 +1,6 @@
 "use server";
 
-import { createInstanceClient } from "@/lib/opencode/client";
+import { createInstanceClient, getInstanceUrl } from "@/lib/opencode/client";
 import { extractTextContent, transformParts } from "@/lib/opencode/transform";
 import type {
   AvailableModel,
@@ -550,7 +550,7 @@ export async function sendMessageAction(
     const authHeader = `Basic ${Buffer.from(`opencode:${password}`).toString(
       "base64"
     )}`;
-    const baseUrl = `http://opencode-${slug}:4096`;
+    const baseUrl = getInstanceUrl(slug);
 
     console.log(
       "[sendMessageAction] Sending to:",

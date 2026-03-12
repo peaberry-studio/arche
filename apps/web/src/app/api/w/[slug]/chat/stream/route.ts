@@ -6,6 +6,7 @@ import { getSession } from '@/lib/runtime/session'
 import { instanceService } from '@/lib/services'
 import { INITIAL_SSE_PARSE_STATE, parseSseChunk } from '@/lib/sse-parser'
 import { decryptPassword } from '@/lib/spawner/crypto'
+import { getInstanceUrl } from '@/lib/opencode/client'
 import {
   isValidContextReferencePath,
   normalizeAttachmentPath,
@@ -250,7 +251,7 @@ export async function POST(
   
   const password = decryptPassword(instance.serverPassword)
   const authHeader = `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`
-  const baseUrl = `http://opencode-${slug}:4096`
+  const baseUrl = getInstanceUrl(slug)
   const workspaceAgentUrl = getWorkspaceAgentUrl(slug)
   
   // Create SSE stream

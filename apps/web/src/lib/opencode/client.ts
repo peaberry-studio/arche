@@ -9,16 +9,19 @@ import { createOpencodeClient, type OpencodeClient } from '@opencode-ai/sdk/v2/c
 
 import { instanceService } from '@/lib/services'
 import { decryptPassword } from '@/lib/spawner/crypto'
+import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 
 const OPENCODE_PORT = 4096
 
 /**
  * Get the internal network URL for an OpenCode instance.
  * Container names follow the pattern: opencode-{slug}
+ * In desktop mode, use localhost instead of container hostname.
  */
 export function getInstanceUrl(slug: string): string {
-  const containerName = `opencode-${slug}`
-  return `http://${containerName}:${OPENCODE_PORT}`
+  const caps = getRuntimeCapabilities()
+  const host = caps.containers ? `opencode-${slug}` : 'localhost'
+  return `http://${host}:${OPENCODE_PORT}`
 }
 
 /**

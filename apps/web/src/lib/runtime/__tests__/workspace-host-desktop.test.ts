@@ -4,6 +4,8 @@ import type { ChildProcess } from 'child_process'
 
 const mockSpawn = vi.fn()
 const mockExistsSync = vi.fn()
+const mockMkdirSync = vi.fn()
+const mockWriteFileSync = vi.fn()
 
 vi.mock('child_process', () => ({
   spawn: (...args: unknown[]) => mockSpawn(...args),
@@ -11,7 +13,27 @@ vi.mock('child_process', () => ({
 
 vi.mock('fs', () => ({
   existsSync: (...args: unknown[]) => mockExistsSync(...args),
+  mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
+  writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
 }))
+
+vi.mock('@/lib/services', () => ({
+  instanceService: {
+    upsertStarting: vi.fn().mockResolvedValue(undefined),
+    setRunning: vi.fn().mockResolvedValue(undefined),
+    setStopped: vi.fn().mockResolvedValue(undefined),
+  },
+}))
+
+vi.mock('@/lib/spawner/crypto', () => ({
+  encryptPassword: vi.fn((p: string) => `enc:${p}`),
+}))
+
+vi.mock('@/lib/opencode/providers', () => ({
+  syncProviderAccessForInstance: vi.fn().mockResolvedValue({ ok: true }),
+}))
+
+const mockFetch = vi.fn()
 
 function makeChildProcess(overrides: Partial<ChildProcess> = {}): ChildProcess {
   const listeners: Record<string, ((...args: unknown[]) => void)[]> = {}
@@ -28,6 +50,13 @@ function makeChildProcess(overrides: Partial<ChildProcess> = {}): ChildProcess {
   } as unknown as ChildProcess
 }
 
+function mockHealthyFetch() {
+  mockFetch.mockResolvedValue({
+    ok: true,
+    json: () => Promise.resolve({ healthy: true }),
+  })
+}
+
 describe('desktopWorkspaceHost', () => {
   const originalEnv = process.env
   const originalResourcesPath = process.resourcesPath
@@ -35,18 +64,19 @@ describe('desktopWorkspaceHost', () => {
   beforeEach(() => {
     vi.resetModules()
     vi.clearAllMocks()
+    vi.stubGlobal('fetch', mockFetch)
     process.env = { ...originalEnv }
     delete process.env.ARCHE_OPENCODE_BIN
     // @ts-expect-error -- reset for test isolation
     process.resourcesPath = undefined
     mockExistsSync.mockReturnValue(false)
+    mockHealthyFetch()
   })
 
   afterEach(() => {
     process.env = originalEnv
     // @ts-expect-error -- restore for test isolation
     process.resourcesPath = originalResourcesPath
-    vi.restoreAllMocks()
   })
 
   it('starts a workspace and returns started status', async () => {
@@ -173,6 +203,38 @@ describe('desktopWorkspaceHost', () => {
     const conn = await desktopWorkspaceHost.getConnection('local')
     const decoded = Buffer.from(conn!.authHeader.replace('Basic ', ''), 'base64').toString()
     expect(decoded).toBe('opencode:arche-desktop')
+  })
+
+  it('syncs providers after health check', async () => {
+    const child = makeChildProcess()
+    mockSpawn.mockReturnValue(child)
+
+    const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
+    const { syncProviderAccessForInstance } = await import('@/lib/opencode/providers')
+    await desktopWorkspaceHost.start('local', 'user-1')
+
+    expect(syncProviderAccessForInstance).toHaveBeenCalledWith({
+      instance: {
+        baseUrl: 'http://localhost:4096',
+        authHeader: expect.stringMatching(/^Basic /),
+      },
+      slug: 'local',
+      userId: 'user-1',
+    })
+  })
+
+  it('stores instance credentials in DB on start', async () => {
+    const child = makeChildProcess()
+    mockSpawn.mockReturnValue(child)
+    mockHealthyFetch()
+
+    const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
+    const result = await desktopWorkspaceHost.start('local', 'user-1')
+
+    expect(result).toEqual({ ok: true, status: 'started' })
+
+    const { instanceService } = await import('@/lib/services')
+    expect(instanceService.upsertStarting).toHaveBeenCalledWith('local', expect.any(String))
   })
 })
 

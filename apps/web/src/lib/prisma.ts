@@ -3,11 +3,9 @@ import type { PrismaClient } from '@prisma/client'
 import { isDesktop } from '@/lib/runtime/mode'
 
 declare global {
-  // eslint-disable-next-line no-var
   var prisma: PrismaClient | undefined
-  // eslint-disable-next-line no-var, @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   var prismaPool: any
-  // eslint-disable-next-line no-var
   var prismaDesktopClient: PrismaClient | undefined
 }
 

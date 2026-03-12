@@ -41,16 +41,20 @@ describe('prisma dispatcher', () => {
     delete process.env.ARCHE_RUNTIME_MODE
     process.env.DATABASE_URL = 'postgresql://localhost/test'
 
-    const { prisma } = await import('../prisma')
+    const { initWebPrisma, prisma } = await import('../prisma')
+    await initWebPrisma()
+
     expect(prisma).toBeDefined()
-    expect(prisma).toHaveProperty('_isMockClient', true)
+    expect((prisma as unknown as { _isMockClient?: boolean })._isMockClient).toBe(true)
   })
 
   it('throws when DATABASE_URL is missing in web mode', async () => {
     delete process.env.ARCHE_RUNTIME_MODE
     delete process.env.DATABASE_URL
 
-    await expect(import('../prisma')).rejects.toThrow('DATABASE_URL is required')
+    const { initWebPrisma } = await import('../prisma')
+
+    await expect(initWebPrisma()).rejects.toThrow('DATABASE_URL is required')
   })
 
   it('creates a desktop proxy in desktop mode', async () => {

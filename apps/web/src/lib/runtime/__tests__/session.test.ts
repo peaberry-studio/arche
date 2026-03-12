@@ -1,8 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockGetAuthenticatedUser = vi.fn()
+const mockGetDesktopSession = vi.fn()
+
 vi.mock('@/lib/auth', () => ({
   getAuthenticatedUser: (...args: unknown[]) => mockGetAuthenticatedUser(...args),
+}))
+
+vi.mock('@/lib/runtime/session-desktop', () => ({
+  getDesktopSession: (...args: unknown[]) => mockGetDesktopSession(...args),
 }))
 
 describe('runtime session dispatcher', () => {
@@ -12,6 +18,10 @@ describe('runtime session dispatcher', () => {
     vi.resetModules()
     vi.clearAllMocks()
     process.env = { ...originalEnv }
+    mockGetDesktopSession.mockResolvedValue({
+      user: { id: 'local', email: 'local@arche.local', slug: 'local', role: 'ADMIN' },
+      sessionId: 'local',
+    })
   })
 
   afterEach(() => {
