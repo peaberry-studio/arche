@@ -1621,7 +1621,7 @@ export function ChatPanel({
   return (
     <div className="flex h-full flex-col text-card-foreground">
       {/* Session header — shows tabs when multiple sessions exist, otherwise plain title */}
-      <div className="glass-panel -mt-px mx-3 flex h-11 shrink-0 items-center gap-1 rounded-b-2xl pl-2 pr-2">
+      <div className="mx-3 mt-2 flex min-h-11 shrink-0 items-center gap-1 border-b border-border/35 px-2 py-1">
         {sessionTabs.length > 1 ? (
           <div className="min-w-0 flex-1 overflow-x-auto scrollbar-none">
             <div className="flex items-center gap-1">

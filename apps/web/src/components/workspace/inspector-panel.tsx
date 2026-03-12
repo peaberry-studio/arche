@@ -286,13 +286,13 @@ function ExpandedInspectorPanel({
   };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-xl bg-foreground/[0.03] text-card-foreground">
-      <div className="flex h-11 shrink-0 items-center gap-1 border-b border-white/5 pl-2 pr-2">
+    <div className="flex h-full flex-col overflow-hidden bg-foreground/[0.03] py-2 pr-2 text-card-foreground">
+      <div className="flex min-h-11 shrink-0 items-center gap-1 px-2 pb-1.5 pt-1">
         <button
           type="button"
           onClick={() => onTabChange("preview")}
           className={cn(
-            "flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-medium transition-colors",
+            "ml-1 flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-medium transition-colors",
             activeTab === "preview"
               ? "bg-primary/10 text-primary"
               : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
@@ -324,7 +324,7 @@ function ExpandedInspectorPanel({
         <button
           type="button"
           onClick={onToggleRight}
-          className="ml-auto flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+          className="ml-auto mr-1 flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
           aria-label="Collapse panel"
         >
           <ArrowLineRight size={14} weight="bold" />
