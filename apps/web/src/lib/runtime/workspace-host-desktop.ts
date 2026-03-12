@@ -11,10 +11,11 @@ const DEFAULT_PORT = 4096
 const DEFAULT_AGENT_PORT = 4097
 const DEFAULT_USERNAME = 'opencode'
 const DEFAULT_PASSWORD = 'arche-desktop'
+const LOOPBACK_HOST = '127.0.0.1'
 const NEXT_PORT = 3000
 
 function getDesktopProviderGatewayConfig(): Record<string, unknown> {
-  const gateway = `http://localhost:${NEXT_PORT}/api/internal/providers`
+  const gateway = `http://${LOOPBACK_HOST}:${NEXT_PORT}/api/internal/providers`
   return {
     provider: {
       openai: { options: { baseURL: `${gateway}/openai` } },
@@ -192,7 +193,7 @@ export const desktopWorkspaceHost: WorkspaceHost = {
         startedAt: new Date(),
       })
 
-      const healthy = await waitForHealthy('localhost', port, DEFAULT_USERNAME, password)
+      const healthy = await waitForHealthy(LOOPBACK_HOST, port, DEFAULT_USERNAME, password)
       if (!healthy) {
         child.kill('SIGTERM')
         processes.delete(slug)
@@ -201,7 +202,7 @@ export const desktopWorkspaceHost: WorkspaceHost = {
 
       const syncResult = await syncProviderAccessForInstance({
         instance: {
-          baseUrl: `http://localhost:${port}`,
+          baseUrl: `http://${LOOPBACK_HOST}:${port}`,
           authHeader: makeAuthHeader(DEFAULT_USERNAME, password),
         },
         slug,
@@ -255,7 +256,7 @@ export const desktopWorkspaceHost: WorkspaceHost = {
     if (!entry || entry.process.killed) return null
 
     return {
-      baseUrl: `http://localhost:${entry.port}`,
+      baseUrl: `http://${LOOPBACK_HOST}:${entry.port}`,
       authHeader: makeAuthHeader(DEFAULT_USERNAME, entry.password),
     }
   },
@@ -265,7 +266,7 @@ export const desktopWorkspaceHost: WorkspaceHost = {
     if (!entry || entry.process.killed) return null
 
     return {
-      baseUrl: `http://localhost:${entry.agentPort}`,
+      baseUrl: `http://${LOOPBACK_HOST}:${entry.agentPort}`,
       authHeader: makeAuthHeader(DEFAULT_USERNAME, entry.password),
     }
   },

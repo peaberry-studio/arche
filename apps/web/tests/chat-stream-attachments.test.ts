@@ -931,4 +931,74 @@ describe('chat stream attachments forwarding', () => {
     expect(sseOutput).toContain('"messageId":"msg-o1"')
     expect(sseOutput).toContain('event: done')
   })
+
+  it('ignores post-response fetch failed session errors after assistant output started', async () => {
+    const encoder = new TextEncoder()
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+
+      if (url.includes('/prompt_async')) {
+        return new Response(null, { status: 204 })
+      }
+
+      if (url.endsWith('/event')) {
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                [
+                  'event: message',
+                  'data: {"type":"message.updated","properties":{"info":{"id":"msg-1","role":"assistant","sessionID":"session-1"}}}',
+                  '',
+                  'event: message',
+                  'data: {"type":"message.part.updated","properties":{"part":{"id":"part-1","type":"text","text":"Hola","messageID":"msg-1","sessionID":"session-1"},"delta":"Hola"}}',
+                  '',
+                  'event: message',
+                  'data: {"type":"session.error","properties":{"error":{"data":{"message":"fetch failed"}},"sessionID":"session-1"}}',
+                  '',
+                  '',
+                ].join('\n'),
+              ),
+            )
+            controller.close()
+          },
+        })
+
+        return new Response(body, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        })
+      }
+
+      throw new Error(`Unexpected fetch url: ${url}`)
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('@/app/api/w/[slug]/chat/stream/route')
+    const req = new Request('http://localhost/api/w/alice/chat/stream', {
+      method: 'POST',
+      headers: {
+        host: 'localhost',
+        origin: 'http://localhost',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        sessionId: 'session-1',
+        text: 'hola',
+      }),
+    })
+
+    const res = await POST(req as never, {
+      params: Promise.resolve({ slug: 'alice' }),
+    })
+
+    expect(res.status).toBe(200)
+    const sseOutput = await res.text()
+
+    expect(sseOutput).toContain('event: part')
+    expect(sseOutput).not.toContain('event: error')
+    expect(sseOutput).not.toContain('fetch failed')
+  })
 })
