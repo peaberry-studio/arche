@@ -1082,7 +1082,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
         <div ref={containerRef} className="relative z-10 flex min-h-0 flex-1 gap-3">
           {/* Left panel - Sessions / Experts / Knowledge (floating) */}
           <div
-            className="shrink-0 overflow-hidden"
+            className="shrink-0 overflow-hidden py-3"
             style={{
               width: leftCollapsed ? COLLAPSED_PANEL_PX : leftWidth,
               minWidth: leftCollapsed ? COLLAPSED_PANEL_PX : MIN_LEFT_PX,
@@ -1188,7 +1188,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
 
           {/* Right panel - Inspector (floating) */}
           <div
-            className="shrink-0 overflow-hidden"
+            className="shrink-0 overflow-hidden py-3"
             style={{
               width: rightCollapsed ? COLLAPSED_PANEL_PX : rightWidth,
               minWidth: rightCollapsed ? COLLAPSED_PANEL_PX : MIN_RIGHT_PX,

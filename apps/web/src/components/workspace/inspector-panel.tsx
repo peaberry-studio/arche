@@ -288,7 +288,7 @@ function ExpandedInspectorPanel({
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl bg-foreground/[0.03] text-card-foreground">
-      <div className="flex h-11 shrink-0 items-center gap-1 border-b border-white/10 pl-2 pr-2">
+      <div className="flex h-11 shrink-0 items-center gap-1 border-b border-white/5 pl-2 pr-2">
         <button
           type="button"
           onClick={() => onTabChange("preview")}
@@ -340,7 +340,7 @@ function ExpandedInspectorPanel({
           {openFiles.length > 0 ? (
             <div className="flex h-full min-h-0 flex-col">
                 {/* File tabs */}
-                <div className="flex items-center border-b border-white/10">
+                <div className="flex items-center border-b border-white/5">
                   {canScrollLeft && (
                     <Button
                       size="icon"
@@ -432,7 +432,7 @@ function ExpandedInspectorPanel({
                             <span>{activeFile.updatedAt}</span>
                           </div>
                         </div>
-                        <div className="border-t border-white/10" />
+                        <div className="border-t border-white/5" />
                         <div className="px-6 py-6">
                           <MarkdownPreview content={activeFile.content} />
                         </div>
