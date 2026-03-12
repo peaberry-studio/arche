@@ -126,6 +126,20 @@ describe('desktopWorkspaceHost', () => {
     )
   })
 
+  it('writes desktop provider gateway config with the IPv4 loopback host', async () => {
+    const child = makeChildProcess()
+    mockSpawn.mockReturnValue(child)
+
+    const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
+    await desktopWorkspaceHost.start('local', 'user-1')
+
+    expect(mockWriteFileSync).toHaveBeenCalledWith(
+      expect.stringContaining('opencode.json'),
+      expect.stringContaining('http://127.0.0.1:3000/api/internal/providers/openai'),
+      'utf-8',
+    )
+  })
+
   it('returns already_running when workspace is already started', async () => {
     const child = makeChildProcess()
     mockSpawn.mockReturnValue(child)

@@ -34,14 +34,14 @@ describe('createWorkspaceAgentClient', () => {
     process.env = originalEnv
   })
 
-  it('uses localhost for the workspace agent in desktop mode', async () => {
+  it('uses the IPv4 loopback host for the workspace agent in desktop mode', async () => {
     process.env.ARCHE_RUNTIME_MODE = 'desktop'
 
     const { createWorkspaceAgentClient } = await import('../client')
     const agent = await createWorkspaceAgentClient('local')
 
     expect(agent).toEqual({
-      baseUrl: 'http://localhost:4097',
+      baseUrl: 'http://127.0.0.1:4097',
       authHeader: expect.any(String),
     })
   })

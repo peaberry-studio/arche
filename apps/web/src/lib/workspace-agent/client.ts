@@ -4,10 +4,11 @@ import { decryptPassword } from '@/lib/spawner/crypto'
 import { getWorkspaceAgentPort } from '@/lib/spawner/config'
 
 const DEFAULT_USERNAME = 'opencode'
+const DESKTOP_LOOPBACK_HOST = '127.0.0.1'
 
 export function getWorkspaceAgentUrl(slug: string): string {
   const caps = getRuntimeCapabilities()
-  const host = caps.containers ? `opencode-${slug}` : 'localhost'
+  const host = caps.containers ? `opencode-${slug}` : DESKTOP_LOOPBACK_HOST
   const port = getWorkspaceAgentPort()
   return `http://${host}:${port}`
 }
