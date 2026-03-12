@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { Circle } from "@phosphor-icons/react";
 
 import { ChatPanel } from "./chat-panel";
+import { CosmicLoader } from "./cosmic-loader";
 import { LeftPanel } from "./left-panel";
 import { InspectorPanel } from "./inspector-panel";
 
@@ -1010,9 +1011,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
               )}
               {instanceStatus === null && (
                 <>
-                  <div className="relative">
-                    <div className="h-16 w-16 animate-pulse rounded-full bg-muted" />
-                  </div>
+                  <CosmicLoader />
                   <div className="space-y-2">
                     <h2 className="font-[family-name:var(--font-display)] text-xl font-semibold">
                       Connecting...
@@ -1048,9 +1047,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
 
           <div className="relative z-10 flex flex-1 items-center justify-center">
             <div className="flex flex-col items-center gap-6 text-center">
-              <div className="relative">
-                <div className="h-16 w-16 animate-spin rounded-full border-4 border-muted border-t-primary" />
-              </div>
+              <CosmicLoader />
               <div className="space-y-2">
                 <h2 className="font-[family-name:var(--font-display)] text-xl font-semibold">
                   Connecting to OpenCode
