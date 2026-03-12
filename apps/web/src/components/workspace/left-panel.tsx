@@ -193,6 +193,7 @@ type LeftPanelProps = {
   activeFilePath?: string | null;
   onSelectFile: (path: string) => void;
   onCreateKnowledgeFile: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  canCreateKnowledgeFile?: boolean;
   searchInputRef: RefObject<HTMLInputElement | null>;
 };
 
@@ -485,6 +486,7 @@ export function LeftPanel({
   activeFilePath,
   onSelectFile,
   onCreateKnowledgeFile,
+  canCreateKnowledgeFile = true,
   searchInputRef,
 }: LeftPanelProps) {
   const pendingSectionRef = useRef<"chats" | "knowledge" | "experts" | null>(null);
@@ -530,6 +532,7 @@ export function LeftPanel({
       activeFilePath={activeFilePath}
       onSelectFile={onSelectFile}
       onCreateKnowledgeFile={onCreateKnowledgeFile}
+      canCreateKnowledgeFile={canCreateKnowledgeFile}
       searchInputRef={searchInputRef}
       pendingSectionRef={pendingSectionRef}
     />
@@ -555,6 +558,7 @@ function ExpandedLeftPanel({
   activeFilePath,
   onSelectFile,
   onCreateKnowledgeFile,
+  canCreateKnowledgeFile = true,
   searchInputRef,
   pendingSectionRef,
 }: LeftPanelProps & { pendingSectionRef?: RefObject<"chats" | "knowledge" | "experts" | null> }) {
@@ -984,9 +988,9 @@ function ExpandedLeftPanel({
           icon={Database}
           label="Knowledge"
           onToggle={() => setMidCollapsed(prev => !prev)}
-          onAction={handleOpenCreateFileDialog}
-          actionIcon={Plus}
-          actionLabel="Create file"
+          onAction={canCreateKnowledgeFile ? handleOpenCreateFileDialog : undefined}
+          actionIcon={canCreateKnowledgeFile ? Plus : undefined}
+          actionLabel={canCreateKnowledgeFile ? "Create file" : undefined}
         />
         <div className="min-h-0 flex-1" style={contentStyle(midCollapsed)}>
           <div className="flex flex-col overflow-hidden" style={{ minHeight: 0 }}>

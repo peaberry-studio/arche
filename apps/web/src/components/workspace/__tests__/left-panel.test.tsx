@@ -91,6 +91,23 @@ const defaultProps = {
   searchInputRef: createRef<HTMLInputElement>(),
 };
 
+const localStorageMock = (() => {
+  let store: Record<string, string> = {};
+
+  return {
+    getItem: (key: string) => store[key] ?? null,
+    setItem: (key: string, value: string) => {
+      store[key] = value;
+    },
+    removeItem: (key: string) => {
+      delete store[key];
+    },
+    clear: () => {
+      store = {};
+    },
+  };
+})();
+
 function renderLeftPanel(overrides?: Partial<typeof defaultProps>) {
   return render(
     <WorkspaceThemeProvider storageScope="alice">
@@ -100,6 +117,7 @@ function renderLeftPanel(overrides?: Partial<typeof defaultProps>) {
 }
 
 beforeEach(() => {
+  vi.stubGlobal("localStorage", localStorageMock);
   localStorage.clear();
   // Mock fetch for connectors/providers
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
@@ -111,6 +129,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("LeftPanel", () => {
@@ -159,6 +178,12 @@ describe("LeftPanel", () => {
     await waitFor(() => {
       expect(onCreateKnowledgeFile).toHaveBeenCalledWith("docs/release-plan.md");
     });
+  });
+
+  it("hides create file controls when knowledge editing is disabled", () => {
+    renderLeftPanel({ canCreateKnowledgeFile: false });
+
+    expect(screen.queryByRole("button", { name: "Create file" })).toBeNull();
   });
 
   it("hydrates subpanel collapsed state from storage", () => {

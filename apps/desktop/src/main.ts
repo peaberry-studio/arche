@@ -30,6 +30,7 @@ function getDataDir(): string {
 
 function setDesktopEnv(): void {
   process.env.ARCHE_RUNTIME_MODE = 'desktop'
+  process.env.ARCHE_DESKTOP_PLATFORM = process.platform
   if (app.isPackaged) {
     process.env.NODE_ENV = 'production'
   }
@@ -151,6 +152,8 @@ function createWindow(): void {
     minWidth: 800,
     minHeight: 600,
     title: 'Arche',
+    backgroundColor: '#f7f4ef',
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : undefined,
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,

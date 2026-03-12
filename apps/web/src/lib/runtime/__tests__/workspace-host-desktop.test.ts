@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
 
 import type { ChildProcess } from 'child_process'
 
@@ -103,6 +103,25 @@ describe('desktopWorkspaceHost', () => {
       expect.objectContaining({
         stdio: 'pipe',
         detached: false,
+      }),
+    )
+  })
+
+  it('passes NODE_ENV through to the spawned process environment', async () => {
+    const child = makeChildProcess()
+    mockSpawn.mockReturnValue(child)
+    process.env.NODE_ENV = 'production'
+
+    const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
+    await desktopWorkspaceHost.start('local', 'user-1')
+
+    expect(mockSpawn).toHaveBeenCalledWith(
+      'opencode',
+      ['serve', '--hostname', '127.0.0.1', '--port', '4096'],
+      expect.objectContaining({
+        env: expect.objectContaining({
+          NODE_ENV: 'production',
+        }),
       }),
     )
   })
@@ -235,6 +254,16 @@ describe('desktopWorkspaceHost', () => {
 
     const { instanceService } = await import('@/lib/services')
     expect(instanceService.upsertStarting).toHaveBeenCalledWith('local', expect.any(String))
+  })
+
+  it('exposes detailed start failures in its return type', async () => {
+    const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
+    expect(desktopWorkspaceHost).toBeDefined()
+
+    expectTypeOf<Awaited<ReturnType<typeof desktopWorkspaceHost.start>>>().toEqualTypeOf<
+      | { ok: true; status: string }
+      | { ok: false; error: string; detail?: string }
+    >()
   })
 })
 
