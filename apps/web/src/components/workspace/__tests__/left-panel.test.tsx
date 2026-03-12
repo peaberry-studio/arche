@@ -209,7 +209,13 @@ describe("LeftPanel", () => {
 
     renderLeftPanel({ leftCollapsed: true, onCreateSession });
 
-    fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+    const newChatButton = screen.getByRole("button", { name: "New chat" });
+
+    expect(newChatButton.className).toContain("bg-primary/12");
+    expect(newChatButton.className).toContain("text-primary");
+    expect(newChatButton.className).toContain("mb-1");
+
+    fireEvent.click(newChatButton);
 
     expect(onCreateSession).toHaveBeenCalledTimes(1);
   });

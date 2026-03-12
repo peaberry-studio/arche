@@ -191,7 +191,6 @@ function ExpandedInspectorPanel({
   activeTab,
   onTabChange,
   onToggleRight,
-  pendingDiffsForBadge = 0,
   openFiles,
   activeFilePath,
   onSelectFile,

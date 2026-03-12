@@ -343,6 +343,7 @@ export function useWorkspace({
   }>());
   const resumeFailureStateRef = useRef<Map<string, ResumeFailureState>>(new Map());
   const sessionExecutorsRef = useRef(new Map<string, SerialJobExecutor>());
+  const isMountedRef = useRef(true);
 
   // Workspace refresh scheduling (diffs + files after stream completion)
   const workspaceRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -785,7 +786,7 @@ export function useWorkspace({
       }
       return false;
     },
-    [abortSessionStream, clearSessionSelectionState, slug]
+    [abortSessionStream, clearSessionSelectionState, setSessionStreamStatusTo, slug]
   );
 
   const renameSession = useCallback(
@@ -1304,8 +1305,12 @@ export function useWorkspace({
           }
         }
 
-        if (isLatest) {
+        if (isLatest && isMountedRef.current) {
           await new Promise((resolve) => setTimeout(resolve, 250));
+          if (!isMountedRef.current) {
+            return;
+          }
+
           const loadLatestMessages = async () => {
             const MAX_ATTEMPTS =
               mode === "send" && assistantMessageId ? 5 : 1;
@@ -1336,7 +1341,11 @@ export function useWorkspace({
           };
 
           const result = await loadLatestMessages();
-          if (result.ok && result.messages) {
+          if (!isMountedRef.current) {
+            return;
+          }
+
+          if (result?.ok && result.messages) {
             const pendingIds = new Set(
               result.messages.filter((message) => message.pending).map((message) => message.id)
             );
@@ -1405,7 +1414,7 @@ export function useWorkspace({
           scheduleWorkspaceRefresh();
         }
 
-        if (isLatest) {
+        if (isLatest && isMountedRef.current) {
           activeStreamsRef.current.delete(sessionId);
           setSessionStreamStatusTo(sessionId, "ready");
         }
@@ -1844,6 +1853,7 @@ export function useWorkspace({
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      isMountedRef.current = false;
       if (workspaceRefreshTimeoutRef.current) {
         clearTimeout(workspaceRefreshTimeoutRef.current);
         workspaceRefreshTimeoutRef.current = null;

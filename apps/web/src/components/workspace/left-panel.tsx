@@ -326,7 +326,7 @@ function MinifiedLeftPanel({
             <button
               type="button"
               onClick={onCreateSession}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+              className="mb-1 flex h-8 w-8 items-center justify-center rounded-lg bg-primary/12 text-primary transition-colors hover:bg-primary/18"
               aria-label="New chat"
             >
               <Plus size={16} weight="bold" />
@@ -603,7 +603,7 @@ function ExpandedLeftPanel({
     if (section === "chats") setTopCollapsed(false);
     else if (section === "knowledge") setMidCollapsed(false);
     else if (section === "experts") setBottomCollapsed(false);
-  }); // intentionally no deps — runs every render but only acts when ref is set
+  }, [pendingSectionRef]);
 
   const directoryOptions = useMemo(
     () => collectDirectoryOptions(fileNodes),
