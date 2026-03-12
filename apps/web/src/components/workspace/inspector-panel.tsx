@@ -285,52 +285,130 @@ function ExpandedInspectorPanel({
     });
   };
 
+  const isReviewActive = activeTab === "review";
+
+  const handleToggleReview = useCallback(() => {
+    onTabChange(isReviewActive ? "preview" : "review");
+  }, [isReviewActive, onTabChange]);
+
   return (
     <div className="flex h-full flex-col overflow-hidden bg-foreground/[0.03] py-2 pr-2 text-card-foreground">
-      <div className="flex min-h-11 shrink-0 items-center gap-1 px-2 pb-1.5 pt-1">
-        <button
-          type="button"
-          onClick={() => onTabChange("preview")}
-          className={cn(
-            "ml-1 flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-medium transition-colors",
-            activeTab === "preview"
-              ? "bg-primary/10 text-primary"
-              : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
-          )}
-        >
-          <File size={14} weight={activeTab === "preview" ? "fill" : "bold"} />
-          Working context
-        </button>
-        <button
-          type="button"
-          onClick={() => onTabChange("review")}
-          className={cn(
-            "flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-medium transition-colors",
-            activeTab === "review"
-              ? "bg-primary/10 text-primary"
-              : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
-          )}
-        >
-          <GitDiff size={14} weight={activeTab === "review" ? "fill" : "bold"} />
-          Review
-          {pendingDiffs > 0 ? (
-            <span className="ml-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/20 px-1 text-[10px] font-semibold text-primary">
-              {pendingDiffs}
-            </span>
-          ) : null}
-        </button>
+      {/* Single top bar: file tabs (left) + action buttons (right) */}
+      <div className="flex min-h-11 shrink-0 items-center">
+        {/* File tabs — scrollable, take available space */}
+        {activeTab === "preview" && openFiles.length > 0 ? (
+          <div className="flex min-w-0 flex-1 items-center">
+            {canScrollLeft && (
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7 shrink-0"
+                onClick={() => scrollTabs("left")}
+                aria-label="Scroll izquierda"
+              >
+                <CaretLeft size={12} weight="bold" />
+              </Button>
+            )}
 
-        {/* Toggle collapse — aligned to the right */}
-        <button
-          type="button"
-          onClick={onToggleRight}
-          className="ml-auto mr-1 flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
-          aria-label="Collapse panel"
-        >
-          <ArrowLineRight size={14} weight="bold" />
-        </button>
+            <div
+              ref={tabsRef}
+              className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto pl-3 pr-2 py-2 scrollbar-none"
+              style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+            >
+              {openFiles.map((file) => (
+                <div
+                  key={file.path}
+                  className={cn(
+                    "group flex shrink-0 items-center gap-1 rounded-lg pl-2.5 pr-1 py-1 text-xs transition-colors",
+                    file.path === activeFilePath
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+                  )}
+                >
+                  <button
+                    type="button"
+                    onClick={() => onSelectFile(file.path)}
+                    className="flex items-center gap-1.5"
+                  >
+                    <span className="max-w-[120px] truncate font-medium">{file.title}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onCloseFile(file.path);
+                    }}
+                    className={cn(
+                      "ml-0.5 rounded p-0.5 transition-colors",
+                      "opacity-0 group-hover:opacity-100",
+                      "hover:bg-foreground/10",
+                      file.path === activeFilePath && "opacity-100"
+                    )}
+                    aria-label={`Close ${file.title}`}
+                  >
+                    <X size={12} weight="bold" />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {canScrollRight && (
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7 shrink-0"
+                onClick={() => scrollTabs("right")}
+                aria-label="Scroll derecha"
+              >
+                <CaretRight size={12} weight="bold" />
+              </Button>
+            )}
+          </div>
+        ) : (
+          <div className="min-w-0 flex-1 pl-5 pr-3">
+            <p className="text-sm font-medium text-foreground">
+              {isReviewActive ? "Review mode" : "Working context"}
+            </p>
+          </div>
+        )}
+
+        {/* Action buttons — always visible, pinned right */}
+        <div className="flex shrink-0 items-center gap-1.5 pr-1">
+          {/* Review toggle */}
+          <button
+            type="button"
+            onClick={handleToggleReview}
+            className={cn(
+              "relative flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors",
+              isReviewActive
+                ? "bg-primary text-primary-foreground"
+                : "bg-primary/10 text-primary hover:bg-primary/20"
+            )}
+            aria-label={isReviewActive ? "Back to files" : "Review"}
+            aria-pressed={isReviewActive}
+          >
+            <GitDiff size={13} weight={isReviewActive ? "fill" : "bold"} />
+            Review
+            {pendingDiffs > 0 && !isReviewActive ? (
+              <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+                {pendingDiffs > 99 ? "99+" : pendingDiffs}
+              </span>
+            ) : null}
+          </button>
+
+          {/* Collapse panel */}
+          <button
+            type="button"
+            onClick={onToggleRight}
+            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+            aria-label="Collapse panel"
+          >
+            <ArrowLineRight size={14} weight="bold" />
+          </button>
+        </div>
       </div>
 
+      {/* Content area */}
       <div className="relative flex-1 min-h-0">
         <div
           className={cn("absolute inset-0", activeTab !== "preview" && "hidden")}
@@ -338,107 +416,38 @@ function ExpandedInspectorPanel({
         >
           {openFiles.length > 0 ? (
             <div className="flex h-full min-h-0 flex-col">
-                {/* File tabs */}
-                <div className="flex items-center border-b border-white/5">
-                  {canScrollLeft && (
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-7 w-7 shrink-0"
-                      onClick={() => scrollTabs("left")}
-                      aria-label="Scroll izquierda"
-                    >
-                      <CaretLeft size={12} weight="bold" />
-                    </Button>
-                  )}
-
-                  <div
-                    ref={tabsRef}
-                    className="flex flex-1 items-center gap-0.5 overflow-x-auto pl-3 pr-2 py-2 scrollbar-none"
-                    style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
-                  >
-                    {openFiles.map((file) => (
-                      <div
-                        key={file.path}
-                        className={cn(
-                          "group flex shrink-0 items-center gap-1 rounded-lg pl-2.5 pr-1 py-1 text-xs transition-colors",
-                          file.path === activeFilePath
-                            ? "bg-primary/10 text-primary"
-                            : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
-                        )}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => onSelectFile(file.path)}
-                          className="flex items-center gap-1.5"
-                        >
-                          <span className="max-w-[120px] truncate font-medium">{file.title}</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onCloseFile(file.path);
-                          }}
-                          className={cn(
-                            "ml-0.5 rounded p-0.5 transition-colors",
-                            "opacity-0 group-hover:opacity-100",
-                            "hover:bg-foreground/10",
-                            file.path === activeFilePath && "opacity-100"
-                          )}
-                          aria-label={`Close ${file.title}`}
-                        >
-                          <X size={12} weight="bold" />
-                        </button>
+              {/* File content */}
+              {activeFile ? (
+                <div className="flex-1 min-h-0 overflow-y-auto scrollbar-none">
+                  {activeFile.kind === "markdown" && activeDraft != null ? (
+                    <MarkdownEditor
+                      value={activeDraft}
+                      onChange={(next) =>
+                        handleChange(activeFile.path, next, activeFile.content, activeFile.hash)
+                      }
+                      saveState={activeSaveState}
+                      saveError={activeSaveError}
+                      modifiedAt={activeFile.updatedAt}
+                      onReload={onReloadFile ? () => void handleReload(activeFile.path) : undefined}
+                    />
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between gap-3 px-5 py-3">
+                        <p className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">
+                          {activeFile.path}
+                        </p>
+                        <div className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+                          <span>{activeFile.updatedAt}</span>
+                        </div>
                       </div>
-                    ))}
-                  </div>
-
-                  {canScrollRight && (
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-7 w-7 shrink-0"
-                      onClick={() => scrollTabs("right")}
-                      aria-label="Scroll derecha"
-                    >
-                      <CaretRight size={12} weight="bold" />
-                    </Button>
+                      <div className="border-t border-white/5" />
+                      <div className="px-6 py-6">
+                        <MarkdownPreview content={activeFile.content} />
+                      </div>
+                    </>
                   )}
                 </div>
-
-                {/* File content */}
-                {activeFile ? (
-                  <div className="flex-1 min-h-0 overflow-y-auto scrollbar-none">
-                    {activeFile.kind === "markdown" && activeDraft != null ? (
-                      <MarkdownEditor
-                        value={activeDraft}
-                        onChange={(next) =>
-                          handleChange(activeFile.path, next, activeFile.content, activeFile.hash)
-                        }
-                        saveState={activeSaveState}
-                        saveError={activeSaveError}
-                        modifiedAt={activeFile.updatedAt}
-                        onReload={onReloadFile ? () => void handleReload(activeFile.path) : undefined}
-                      />
-                    ) : (
-                      <>
-                        <div className="flex items-center justify-between gap-3 px-5 py-3">
-                          <p className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">
-                            {activeFile.path}
-                          </p>
-                          <div className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-                            <span>{activeFile.updatedAt}</span>
-                          </div>
-                        </div>
-                        <div className="border-t border-white/5" />
-                        <div className="px-6 py-6">
-                          <MarkdownPreview content={activeFile.content} />
-                        </div>
-                      </>
-                    )}
-                  </div>
-                ) : null}
+              ) : null}
             </div>
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-3 p-4 text-center">
