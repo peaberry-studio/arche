@@ -44,14 +44,6 @@ const STREAM_RELEVANT_EVENT_TICK_MS = 1000
 const SEND_STREAM_RELEVANT_EVENT_TIMEOUT_MS = 20_000
 const RESUME_STREAM_RELEVANT_EVENT_TIMEOUT_MS = 12_000
 
-function isIgnorablePostResponseSessionError(errorMessage: unknown, assistantPartSeen: boolean): boolean {
-  if (!assistantPartSeen || typeof errorMessage !== 'string') {
-    return false
-  }
-
-  return errorMessage.trim().toLowerCase() === 'fetch failed'
-}
-
 function normalizeContextPaths(value: unknown): string[] {
   if (!Array.isArray(value)) return []
 
@@ -630,11 +622,6 @@ export async function POST(
                     markRelevantEvent()
                     const error = event.properties?.error
                     const errorMessage = error?.data?.message || 'Unknown error'
-
-                    if (isIgnorablePostResponseSessionError(errorMessage, assistantPartSeen)) {
-                      console.log('[stream] Ignoring post-response session error:', errorMessage)
-                      break
-                    }
 
                     console.log('[stream] Session error:', error)
                     emitStatus('error', undefined, errorMessage)

@@ -11,10 +11,16 @@ vi.mock('@/lib/auth', () => ({
 }))
 
 const mockFindUnique = vi.fn()
+const mockInitDesktopPrisma = vi.fn()
+const mockUserUpsert = vi.fn()
 vi.mock('@/lib/prisma', () => ({
+  initDesktopPrisma: (...args: unknown[]) => mockInitDesktopPrisma(...args),
   prisma: {
     instance: {
       findUnique: (...args: unknown[]) => mockFindUnique(...args),
+    },
+    user: {
+      upsert: (...args: unknown[]) => mockUserUpsert(...args),
     },
   },
 }))
@@ -49,17 +55,26 @@ describe('chat stream attachments forwarding', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.resetModules()
+    delete process.env.ARCHE_RUNTIME_MODE
 
     mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
     mockFindUnique.mockResolvedValue({
       serverPassword: 'encrypted-password',
       status: 'running',
     })
+    mockInitDesktopPrisma.mockResolvedValue(undefined)
+    mockUserUpsert.mockResolvedValue({
+      id: 'local',
+      email: 'local@arche.local',
+      slug: 'local',
+      role: 'ADMIN',
+    })
     mockDecryptPassword.mockReturnValue('secret-password')
     mockExtractPdfText.mockResolvedValue({ text: 'Extracted report body' })
   })
 
   afterEach(() => {
+    delete process.env.ARCHE_RUNTIME_MODE
     vi.unstubAllGlobals()
   })
 
@@ -932,7 +947,8 @@ describe('chat stream attachments forwarding', () => {
     expect(sseOutput).toContain('event: done')
   })
 
-  it('ignores post-response fetch failed session errors after assistant output started', async () => {
+  it('does not ignore post-response fetch failed session errors in desktop mode', async () => {
+    process.env.ARCHE_RUNTIME_MODE = 'desktop'
     const encoder = new TextEncoder()
 
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -955,7 +971,7 @@ describe('chat stream attachments forwarding', () => {
                   'data: {"type":"message.part.updated","properties":{"part":{"id":"part-1","type":"text","text":"Hola","messageID":"msg-1","sessionID":"session-1"},"delta":"Hola"}}',
                   '',
                   'event: message',
-                  'data: {"type":"session.error","properties":{"error":{"data":{"message":"fetch failed"}},"sessionID":"session-1"}}',
+                  'data: {"type":"session.error","properties":{"error":{"name":"UnknownError","data":{"message":"fetch failed"}},"sessionID":"session-1"}}',
                   '',
                   '',
                 ].join('\n'),
@@ -998,7 +1014,7 @@ describe('chat stream attachments forwarding', () => {
     const sseOutput = await res.text()
 
     expect(sseOutput).toContain('event: part')
-    expect(sseOutput).not.toContain('event: error')
-    expect(sseOutput).not.toContain('fetch failed')
+    expect(sseOutput).toContain('event: error')
+    expect(sseOutput).toContain('fetch failed')
   })
 })
