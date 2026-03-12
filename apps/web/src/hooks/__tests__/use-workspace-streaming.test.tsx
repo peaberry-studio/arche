@@ -644,7 +644,7 @@ describe("useWorkspace streaming", () => {
       });
     });
 
-    it("removes temp messages when send fails without any stream data", async () => {
+    it("preserves a local error message when send fails without any stream data", async () => {
       vi.stubGlobal(
         "fetch",
         vi.fn(async (input: RequestInfo | URL) => {
@@ -672,12 +672,14 @@ describe("useWorkspace streaming", () => {
 
       await waitFor(() => {
         expect(result.current.isSending).toBe(false);
-        // Temp messages should have been removed since no stream data was received
-        // AND listMessages also failed
         const tempMessages = result.current.messages.filter((m) =>
           m.id.startsWith("temp-")
         );
-        expect(tempMessages).toHaveLength(0);
+        expect(tempMessages).toHaveLength(2);
+        expect(tempMessages[1]?.statusInfo).toEqual({
+          status: "error",
+          detail: "server_error",
+        });
       });
     });
   });
@@ -1229,12 +1231,13 @@ describe("useWorkspace streaming", () => {
         expect(result.current.isSending).toBe(false);
       });
 
-      // When the HTTP error occurs:
-      // 1. updateStatus("error", ..., "rate_limited") sets the temp assistant error
-      // 2. The finally block's reconciliation fetches messages (returns empty)
-      // 3. Since no stream data was received, temp messages are removed
-      // So the messages end up empty
-      expect(result.current.messages).toHaveLength(0);
+      expect(result.current.messages).toHaveLength(2);
+      expect(result.current.messages[0]?.role).toBe("user");
+      expect(result.current.messages[1]?.role).toBe("assistant");
+      expect(result.current.messages[1]?.statusInfo).toEqual({
+        status: "error",
+        detail: "rate_limited",
+      });
     });
 
     it("preserves error status when reconciliation returns the error message", async () => {
@@ -1269,8 +1272,11 @@ describe("useWorkspace streaming", () => {
 
       await waitFor(() => {
         expect(result.current.isSending).toBe(false);
-        // Temp messages removed (no stream data + failed reconciliation)
-        expect(result.current.messages).toHaveLength(0);
+        expect(result.current.messages).toHaveLength(2);
+        expect(result.current.messages[1]?.statusInfo).toEqual({
+          status: "error",
+          detail: "rate_limited",
+        });
       });
     });
   });

@@ -23,10 +23,13 @@ export function deriveWorkspaceMessageRuntimeState({
   sessionStatus = 'unknown',
 }: DeriveWorkspaceMessageStateInput): WorkspaceMessageRuntimeState {
   if (role !== 'assistant') return { pending: false }
-  if (typeof completedAt === 'number' && completedAt > 0) return { pending: false }
 
   const lastPart = parts[parts.length - 1]
   if (!lastPart) {
+    if (typeof completedAt === 'number' && completedAt > 0) {
+      return { pending: false, statusInfo: { status: 'error', detail: 'stream_incomplete' } }
+    }
+
     if (sessionStatus === 'idle') {
       return { pending: false, statusInfo: { status: 'error', detail: 'stream_incomplete' } }
     }
@@ -59,6 +62,10 @@ export function deriveWorkspaceMessageRuntimeState({
 
   if (lastPart.type === 'retry') {
     return { pending: true, statusInfo: { status: 'thinking', detail: lastPart.error } }
+  }
+
+  if (typeof completedAt === 'number' && completedAt > 0) {
+    return { pending: false }
   }
 
   return { pending: false }

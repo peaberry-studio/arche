@@ -107,6 +107,29 @@ describe('ChatPanel', () => {
     expect(html).not.toContain('arche_linear_conn123_get_issue')
   })
 
+  it('renders assistant errors as a friendly inline notice', () => {
+    const html = renderChatPanel({
+      messages: [
+        {
+          id: 'm1',
+          sessionId: 's1',
+          role: 'assistant',
+          content: '',
+          timestamp: 'now',
+          parts: [],
+          pending: false,
+          statusInfo: {
+            status: 'error',
+            detail: 'rate_limited',
+          },
+        },
+      ],
+    })
+
+    expect(html).toContain('Rate limited')
+    expect(html).toContain('Too many requests were sent at once. Try again in a moment.')
+  })
+
   it('renders task delegation with friendly labels instead of agent=', () => {
     const html = renderChatPanel({
       messages: [

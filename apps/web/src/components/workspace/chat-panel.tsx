@@ -277,6 +277,98 @@ function MessageFooter({ message, showTimestamp = true }: { message: ChatMessage
   );
 }
 
+const CHAT_ERROR_MESSAGES: Record<string, { title: string; description?: string }> = {
+  cancelled: {
+    title: "Response cancelled",
+    description: "The message was stopped before it finished.",
+  },
+  forbidden: {
+    title: "Permission denied",
+    description: "You are not allowed to perform this action.",
+  },
+  instance_unavailable: {
+    title: "Workspace unavailable",
+    description: "The workspace is not ready right now. Try again in a moment.",
+  },
+  missing_fields: {
+    title: "Message couldn't be sent",
+    description: "The request was incomplete, so it never reached the model.",
+  },
+  rate_limited: {
+    title: "Rate limited",
+    description: "Too many requests were sent at once. Try again in a moment.",
+  },
+  resume_exhausted: {
+    title: "Couldn't resume response",
+    description: "We retried the interrupted response, but it still could not be recovered.",
+  },
+  resume_incomplete: {
+    title: "Response interrupted",
+    description: "The previous response could not be resumed completely.",
+  },
+  stream_incomplete: {
+    title: "Response interrupted",
+    description: "The model stopped before returning any visible content.",
+  },
+  too_many_attachments: {
+    title: "Too many attachments",
+    description: "Remove some files and try sending the message again.",
+  },
+  unauthorized: {
+    title: "Session expired",
+    description: "Sign in again and retry your message.",
+  },
+};
+
+function humanizeChatErrorCode(code: string): string {
+  if (!/^[a-z0-9_]+$/.test(code)) return code;
+  const phrase = code.replace(/_/g, " ");
+  return phrase.charAt(0).toUpperCase() + phrase.slice(1);
+}
+
+function getChatErrorCopy(detail?: string): { title: string; description?: string } {
+  const source = detail?.trim();
+  if (!source) {
+    return {
+      title: "Message failed",
+      description: "Something went wrong before the assistant could answer.",
+    };
+  }
+
+  const mapped = CHAT_ERROR_MESSAGES[source];
+  if (mapped) return mapped;
+
+  if (/^[a-z0-9_]+$/.test(source)) {
+    return {
+      title: "Message failed",
+      description: humanizeChatErrorCode(source),
+    };
+  }
+
+  return {
+    title: "Message failed",
+    description: source,
+  };
+}
+
+function AssistantErrorNotice({ detail }: { detail?: string }) {
+  const copy = getChatErrorCopy(detail);
+
+  return (
+    <div className="my-2 rounded-xl border border-destructive/25 bg-destructive/5 px-3.5 py-3 text-sm">
+      <div className="flex items-start gap-2.5">
+        <XCircle size={16} weight="fill" className="shrink-0 text-destructive" />
+        <div className="min-w-0">
+          <p className="leading-none font-medium text-foreground">{copy.title}</p>
+          {copy.description ? (
+            <p className="mt-1 text-sm text-muted-foreground">{copy.description}</p>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 type ToolPart = Extract<MessagePart, { type: "tool" }>;
 type FilePart = Extract<MessagePart, { type: "file" }>;
 
@@ -1624,6 +1716,10 @@ export function ChatPanel({
               // i.e., if there's no next message, or the next message is in a different minute
               const nextMessage = messages[index + 1];
               const showTimestamp = !nextMessage || !isSameMinute(message.timestampRaw, nextMessage.timestampRaw);
+              const assistantErrorDetail =
+                message.role === "assistant" && message.statusInfo?.status === "error"
+                  ? message.statusInfo.detail
+                  : undefined;
               
               return (
                 <div
@@ -1683,8 +1779,8 @@ export function ChatPanel({
                           </ReactMarkdown>
                         </div>
                       ) : null}
-                      {/* Don't show anything for empty pending messages - status indicator is at the bottom */}
-                      
+                      {assistantErrorDetail ? <AssistantErrorNotice detail={assistantErrorDetail} /> : null}
+                       
                       {message.attachments && message.attachments.length > 0 ? (
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           {message.attachments.map((attachment) => (
