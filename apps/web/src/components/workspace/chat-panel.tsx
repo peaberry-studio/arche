@@ -600,7 +600,6 @@ function DelegationCard({
 
         const isRunning = part.state.status === "running" || part.state.status === "pending";
         const isError = part.state.status === "error";
-        const isComplete = part.state.status === "completed";
 
         // Try to find a matching child session tab for this delegation
         const matchingTab = sessionTabs?.find((tab) => {
@@ -618,7 +617,6 @@ function DelegationCard({
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 {isRunning && <SpinnerGap size={14} className="shrink-0 animate-spin text-primary" />}
                 {isError && <XCircle size={14} weight="fill" className="shrink-0 text-destructive" />}
-                {isComplete && <CheckCircle size={14} weight="fill" className="shrink-0 text-primary" />}
                 <TreeStructure size={14} weight="fill" className="shrink-0 text-primary" />
                 <span className="text-xs font-medium text-foreground">
                   {agentLabel ? `Delegated to ${agentLabel}` : "Delegated task"}
