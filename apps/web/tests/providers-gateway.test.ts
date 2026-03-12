@@ -15,6 +15,11 @@ vi.mock('@/lib/providers/crypto', () => ({
   decryptProviderSecret: (...args: unknown[]) => mockDecryptProviderSecret(...args),
 }))
 
+const mockGetRuntimeCapabilities = vi.fn()
+vi.mock('@/lib/runtime/capabilities', () => ({
+  getRuntimeCapabilities: (...args: unknown[]) => mockGetRuntimeCapabilities(...args),
+}))
+
 type ProxyCallInput = {
   provider?: string
   path?: string[]
@@ -67,6 +72,16 @@ describe('providers gateway', () => {
     vi.clearAllMocks()
     vi.resetModules()
     vi.stubGlobal('fetch', vi.fn())
+    mockGetRuntimeCapabilities.mockReturnValue({
+      multiUser: true,
+      auth: true,
+      containers: true,
+      csrf: true,
+      twoFactor: true,
+      teamManagement: true,
+      connectors: true,
+      kickstart: true,
+    })
 
     mockVerifyGatewayToken.mockReturnValue({
       userId: 'user-1',
@@ -470,5 +485,37 @@ describe('providers gateway', () => {
     const headers = options.headers as Headers
     expect(headers.get('authorization')).toBe('Bearer zen-user-token')
     expect(mockGetActiveCredentialForUser).not.toHaveBeenCalled()
+  })
+
+  it('allows anonymous OpenCode Zen requests in desktop mode', async () => {
+    mockGetRuntimeCapabilities.mockReturnValue({
+      multiUser: false,
+      auth: false,
+      containers: false,
+      csrf: false,
+      twoFactor: false,
+      teamManagement: false,
+      connectors: false,
+      kickstart: false,
+    })
+
+    ;(global.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+      new Response('ok', { status: 200 })
+    )
+
+    await callProxy({
+      provider: 'opencode',
+      path: ['messages'],
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ input: 'hello' }),
+    })
+
+    const [url, options] = (global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(url).toBe('https://opencode.ai/zen/v1/messages?foo=bar')
+    const headers = options.headers as Headers
+    expect(headers.get('authorization')).toBe(null)
   })
 })

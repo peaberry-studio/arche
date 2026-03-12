@@ -3,6 +3,7 @@ import { decryptProviderSecret } from '@/lib/providers/crypto'
 import { getActiveCredentialForUser } from '@/lib/providers/store'
 import { verifyGatewayToken } from '@/lib/providers/tokens'
 import { PROVIDERS, type ProviderId } from '@/lib/providers/types'
+import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -188,25 +189,30 @@ async function handleProxy(
     return NextResponse.json({ error: 'invalid_provider' }, { status: 400 })
   }
 
+  const caps = getRuntimeCapabilities()
   const token = extractGatewayToken(provider, request.headers)
-  if (!token) {
+  const allowAnonymousOpencode = provider === 'opencode' && !caps.auth
+
+  if (!token && !allowAnonymousOpencode) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
   let payload: ReturnType<typeof verifyGatewayToken> | null = null
   let apiKey: string | null = null
 
-  try {
-    payload = verifyGatewayToken(token)
-  } catch {
-    if (provider !== 'opencode') {
-      return NextResponse.json({ error: 'invalid_token' }, { status: 401 })
-    }
+  if (token) {
+    try {
+      payload = verifyGatewayToken(token)
+    } catch {
+      if (provider !== 'opencode') {
+        return NextResponse.json({ error: 'invalid_token' }, { status: 401 })
+      }
 
-    // When no Arche-managed credential is configured, OpenCode Zen may be
-    // authenticated natively in the workspace. In that case, forward the
-    // workspace token as-is.
-    apiKey = token
+      // When no Arche-managed credential is configured, OpenCode Zen may be
+      // authenticated natively in the workspace. In that case, forward the
+      // workspace token as-is.
+      apiKey = token
+    }
   }
 
   if (payload) {
@@ -241,7 +247,7 @@ async function handleProxy(
     apiKey = secret.apiKey.trim()
   }
 
-  if (!apiKey) {
+  if (!apiKey && !allowAnonymousOpencode) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
@@ -259,7 +265,11 @@ async function handleProxy(
   headers.set('accept-encoding', 'identity')
 
   if (provider === 'openai' || provider === 'openrouter' || provider === 'opencode') {
+    if (!apiKey) {
+      headers.delete('authorization')
+    } else {
     headers.set('authorization', `Bearer ${apiKey}`)
+    }
   } else {
     headers.set('x-api-key', apiKey)
     if (!headers.has('anthropic-version')) {

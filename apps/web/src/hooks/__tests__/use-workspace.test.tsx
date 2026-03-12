@@ -31,6 +31,23 @@ const workspaceAgentMocks = vi.hoisted(() => ({
 vi.mock("@/actions/opencode", () => opencodeMocks);
 vi.mock("@/actions/workspace-agent", () => workspaceAgentMocks);
 
+function createStorageMock() {
+  let store: Record<string, string> = {};
+
+  return {
+    getItem: (key: string) => store[key] ?? null,
+    setItem: (key: string, value: string) => {
+      store[key] = value;
+    },
+    removeItem: (key: string) => {
+      delete store[key];
+    },
+    clear: () => {
+      store = {};
+    },
+  };
+}
+
 function createPendingStreamBody() {
   let resolveRead: ((value: ReadableStreamReadResult<Uint8Array>) => void) | null = null;
 
@@ -53,7 +70,10 @@ function createPendingStreamBody() {
 
 describe("useWorkspace", () => {
   beforeEach(() => {
+    vi.stubGlobal("localStorage", createStorageMock());
+    vi.stubGlobal("sessionStorage", createStorageMock());
     localStorage.clear();
+    sessionStorage.clear();
     opencodeMocks.checkConnectionAction.mockResolvedValue({ status: "connected" });
     opencodeMocks.listSessionsAction.mockResolvedValue({
       ok: true,
@@ -136,6 +156,15 @@ describe("useWorkspace", () => {
           };
         }
 
+        if (String(input) === "/api/u/alice/providers") {
+          return {
+            ok: true,
+            json: async () => ({
+              providers: [{ providerId: "openai", status: "enabled" }],
+            }),
+          };
+        }
+
         throw new Error(`Unexpected fetch: ${String(input)}`);
       })
     );
@@ -193,6 +222,63 @@ describe("useWorkspace", () => {
     expect(result.current.selectedModel?.modelId).toBe("gpt-5.2");
     expect(result.current.hasManualModelSelection).toBe(true);
     expect(result.current.agentDefaultModel?.modelId).toBe("gpt-5.4");
+  });
+
+  it("keeps opencode models available when provider credentials are missing", async () => {
+    opencodeMocks.listModelsAction.mockResolvedValue({
+      ok: true,
+      models: [
+        {
+          providerId: "opencode",
+          providerName: "OpenCode",
+          modelId: "free-model",
+          modelName: "Free model",
+          isDefault: true,
+        },
+      ],
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === "/api/u/alice/agents") {
+          return {
+            ok: true,
+            json: async () => ({
+              agents: [
+                {
+                  id: "assistant",
+                  displayName: "Assistant",
+                  model: "opencode/free-model",
+                  isPrimary: true,
+                },
+              ],
+            }),
+          };
+        }
+
+        if (String(input) === "/api/u/alice/providers") {
+          return {
+            ok: true,
+            json: async () => ({
+              providers: [{ providerId: "opencode", status: "missing" }],
+            }),
+          };
+        }
+
+        throw new Error(`Unexpected fetch: ${String(input)}`);
+      })
+    );
+
+    const { result } = renderHook(() =>
+      useWorkspace({ slug: "alice", pollInterval: 0 })
+    );
+
+    await waitFor(() => {
+      expect(result.current.models).toHaveLength(1);
+      expect(result.current.models[0]?.providerId).toBe("opencode");
+      expect(result.current.agentDefaultModel?.providerId).toBe("opencode");
+    });
   });
 
   it("keeps the requested manual title when the OpenCode update response is stale", async () => {

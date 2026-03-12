@@ -42,6 +42,11 @@ export type AgentCatalogItem = {
   isPrimary: boolean;
 };
 
+type ProviderStatusEntry = {
+  providerId: ProviderId;
+  status: string;
+};
+
 const STALE_PENDING_ASSISTANT_MS = 5_000;
 const RESUME_POLL_INTERVAL_MS = 4_000;
 const EMPTY_WORKSPACE_MESSAGES: WorkspaceMessage[] = [];
@@ -92,6 +97,23 @@ function areMessagesEqual(left: WorkspaceMessage, right: WorkspaceMessage): bool
 function areMessageListsEqual(left: WorkspaceMessage[], right: WorkspaceMessage[]): boolean {
   if (left.length !== right.length) return false;
   return left.every((message, index) => areMessagesEqual(message, right[index]));
+}
+
+export function filterModelsByProviderStatus(
+  models: AvailableModel[],
+  providerStatuses: ProviderStatusEntry[]
+): AvailableModel[] {
+  const enabledProviders = new Set(
+    providerStatuses
+      .filter((provider) => provider.status === "enabled")
+      .map((provider) => provider.providerId)
+  );
+
+  return models.filter((model) => {
+    if (!PROVIDERS.includes(model.providerId as ProviderId)) return true;
+    if (model.providerId === "opencode") return true;
+    return enabledProviders.has(model.providerId as ProviderId);
+  });
 }
 
 function getActiveSessionStorageKey(slug: string): string {
@@ -216,6 +238,7 @@ export type UseWorkspaceOptions = {
   pollInterval?: number;
   /** Skip connection attempts when false */
   enabled?: boolean;
+  workspaceAgentEnabled?: boolean;
 };
 
 export type UseWorkspaceReturn = {
@@ -289,6 +312,7 @@ export function useWorkspace({
   slug,
   pollInterval = 5000,
   enabled = true,
+  workspaceAgentEnabled = true,
 }: UseWorkspaceOptions): UseWorkspaceReturn {
   const activeSessionStorageKey = getActiveSessionStorageKey(slug);
 
@@ -307,8 +331,12 @@ export function useWorkspace({
     () => onConnectedRef.current(),
   );
 
-  const files = useWorkspaceFiles(slug);
-  const diffsHook = useWorkspaceDiffs(slug, enabled, isConnected);
+  const files = useWorkspaceFiles(slug, workspaceAgentEnabled);
+  const diffsHook = useWorkspaceDiffs(
+    slug,
+    enabled && workspaceAgentEnabled,
+    isConnected
+  );
   useInstanceHeartbeat(slug, enabled);
 
   // Sessions
@@ -1491,6 +1519,7 @@ export function useWorkspace({
     },
     [
       abortSessionStream,
+      loadSessions,
       slug,
       upsertMessagePart,
       syncActiveAgentFromRuntime,
@@ -1668,18 +1697,12 @@ export function useWorkspace({
       });
       if (response.ok) {
         const data = (await response.json()) as {
-          providers?: Array<{ providerId: ProviderId; status: string }>;
+          providers?: ProviderStatusEntry[];
         };
-        const enabledProviders = new Set(
-          (data.providers ?? [])
-            .filter((p) => p.status === "enabled")
-            .map((p) => p.providerId)
+        nextModels = filterModelsByProviderStatus(
+          nextModels,
+          data.providers ?? []
         );
-
-        nextModels = nextModels.filter((m) => {
-          if (!PROVIDERS.includes(m.providerId as ProviderId)) return true;
-          return enabledProviders.has(m.providerId as ProviderId);
-        });
       }
     } catch {
       // ignore — fall back to server action list

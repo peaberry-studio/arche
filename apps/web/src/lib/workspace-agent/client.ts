@@ -1,13 +1,15 @@
 import { instanceService } from '@/lib/services'
+import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { decryptPassword } from '@/lib/spawner/crypto'
 import { getWorkspaceAgentPort } from '@/lib/spawner/config'
 
 const DEFAULT_USERNAME = 'opencode'
 
 export function getWorkspaceAgentUrl(slug: string): string {
-  const containerName = `opencode-${slug}`
+  const caps = getRuntimeCapabilities()
+  const host = caps.containers ? `opencode-${slug}` : 'localhost'
   const port = getWorkspaceAgentPort()
-  return `http://${containerName}:${port}`
+  return `http://${host}:${port}`
 }
 
 export async function createWorkspaceAgentClient(slug: string): Promise<{

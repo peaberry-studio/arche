@@ -1,0 +1,39 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const mockInitDesktopPrisma = vi.fn()
+const mockUpsert = vi.fn()
+
+vi.mock('@/lib/prisma', () => ({
+  initDesktopPrisma: (...args: unknown[]) => mockInitDesktopPrisma(...args),
+  prisma: {
+    user: {
+      upsert: (...args: unknown[]) => mockUpsert(...args),
+    },
+  },
+}))
+
+describe('getDesktopSession', () => {
+  beforeEach(() => {
+    vi.resetModules()
+    vi.clearAllMocks()
+    mockInitDesktopPrisma.mockResolvedValue(undefined)
+    mockUpsert.mockResolvedValue({
+      id: 'local',
+      email: 'local@arche.local',
+      slug: 'local',
+      role: 'ADMIN',
+    })
+  })
+
+  it('initializes desktop prisma before loading the local user session', async () => {
+    const { getDesktopSession } = await import('../session-desktop')
+
+    await getDesktopSession()
+
+    expect(mockInitDesktopPrisma).toHaveBeenCalledOnce()
+    expect(mockUpsert).toHaveBeenCalledOnce()
+    expect(mockInitDesktopPrisma.mock.invocationCallOrder[0]).toBeLessThan(
+      mockUpsert.mock.invocationCallOrder[0],
+    )
+  })
+})

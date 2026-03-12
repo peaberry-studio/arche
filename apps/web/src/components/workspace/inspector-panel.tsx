@@ -40,6 +40,7 @@ type WorkspaceFile = {
 type InspectorPanelProps = {
   slug: string;
   activeTab: "preview" | "review";
+  workspaceAgentEnabled?: boolean;
   onTabChange: (tab: "preview" | "review") => void;
   rightCollapsed: boolean;
   onToggleRight: () => void;
@@ -142,6 +143,7 @@ function MinifiedInspectorPanel({
 export function InspectorPanel({
   slug,
   activeTab,
+  workspaceAgentEnabled = true,
   onTabChange,
   rightCollapsed,
   onToggleRight,
@@ -177,6 +179,7 @@ export function InspectorPanel({
     <ExpandedInspectorPanel
       slug={slug}
       activeTab={activeTab}
+      workspaceAgentEnabled={workspaceAgentEnabled}
       onTabChange={onTabChange}
       onToggleRight={onToggleRight}
       pendingDiffsForBadge={pendingDiffsForBadge}
@@ -201,6 +204,7 @@ export function InspectorPanel({
 function ExpandedInspectorPanel({
   slug,
   activeTab,
+  workspaceAgentEnabled = true,
   onTabChange,
   onToggleRight,
   openFiles,
@@ -261,6 +265,7 @@ function ExpandedInspectorPanel({
   const activeDraft = activeFile
     ? getDraft(activeFile.path, activeFile.content)
     : null;
+  const canEditMarkdown = workspaceAgentEnabled && Boolean(onSaveFile);
   const activeSaveState: SaveState = activeFile
     ? getSaveState(activeFile.path)
     : "idle";
@@ -449,7 +454,7 @@ function ExpandedInspectorPanel({
               {/* File content */}
               {activeFile ? (
                 <div className="flex-1 min-h-0 overflow-y-auto scrollbar-none">
-                  {activeFile.kind === "markdown" && activeDraft != null ? (
+                  {activeFile.kind === "markdown" && activeDraft != null && canEditMarkdown ? (
                     <MarkdownEditor
                       value={activeDraft}
                       onChange={(next) =>
@@ -489,23 +494,25 @@ function ExpandedInspectorPanel({
           )}
         </div>
 
-        <div
-          className={cn(
-            "absolute inset-0 overflow-y-auto scrollbar-none p-5",
-            activeTab !== "review" && "hidden"
-          )}
-        >
-          <ReviewPanel
-            slug={slug}
-            diffs={diffs}
-            isLoading={Boolean(isLoadingDiffs)}
-            error={diffsError ?? undefined}
-            onOpenFile={onOpenFile}
-            onDiscardFileChanges={onDiscardFileChanges}
-            onPublish={onPublish}
-            onResolveConflict={onResolveConflict}
-          />
-        </div>
+        {workspaceAgentEnabled && (
+          <div
+            className={cn(
+              "absolute inset-0 overflow-y-auto scrollbar-none p-5",
+              activeTab !== "review" && "hidden"
+            )}
+          >
+            <ReviewPanel
+              slug={slug}
+              diffs={diffs}
+              isLoading={Boolean(isLoadingDiffs)}
+              error={diffsError ?? undefined}
+              onOpenFile={onOpenFile}
+              onDiscardFileChanges={onDiscardFileChanges}
+              onPublish={onPublish}
+              onResolveConflict={onResolveConflict}
+            />
+          </div>
+        )}
       </div>
       </div>
     </TooltipProvider>

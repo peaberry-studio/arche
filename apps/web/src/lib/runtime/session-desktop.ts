@@ -1,6 +1,6 @@
 import type { RuntimeSessionResult } from '@/lib/runtime/types'
 
-import { prisma } from '@/lib/prisma'
+import { initDesktopPrisma, prisma } from '@/lib/prisma'
 
 const DESKTOP_USER_ID = 'local'
 const DESKTOP_USER_EMAIL = 'local@arche.local'
@@ -8,6 +8,8 @@ const DESKTOP_USER_SLUG = 'local'
 const DESKTOP_PASSWORD_HASH = 'desktop-local'
 
 export async function getDesktopSession(): Promise<RuntimeSessionResult> {
+  await initDesktopPrisma()
+
   const user = await prisma.user.upsert({
     where: { slug: DESKTOP_USER_SLUG },
     update: {

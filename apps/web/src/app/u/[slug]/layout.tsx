@@ -4,7 +4,9 @@ import { redirect } from 'next/navigation'
 import { DashboardNav } from '@/components/dashboard/dashboard-nav'
 import { DashboardThemeShell } from '@/components/dashboard/dashboard-theme-shell'
 import { WorkspaceThemeProvider } from '@/contexts/workspace-theme-context'
+import { shouldUseCurrentMacOsInsetTitleBar } from '@/lib/runtime/desktop-window-chrome'
 import { getSession } from '@/lib/runtime/session'
+import { cn } from '@/lib/utils'
 import {
   DEFAULT_CHAT_FONT_FAMILY,
   DEFAULT_CHAT_FONT_SIZE,
@@ -50,6 +52,7 @@ export default async function DashboardLayout({
 
   const initialThemeId = storedThemeId && isWorkspaceThemeId(storedThemeId) ? storedThemeId : DEFAULT_THEME_ID
   const initialIsDark = storedDarkMode === 'true' ? true : storedDarkMode === 'false' ? false : DEFAULT_DARK_MODE
+  const macDesktopWindowInset = shouldUseCurrentMacOsInsetTitleBar()
 
   return (
     <WorkspaceThemeProvider
@@ -61,7 +64,12 @@ export default async function DashboardLayout({
       initialThemeId={initialThemeId}
     >
       <DashboardThemeShell>
-        <div className="mx-auto max-w-6xl px-6 pt-6">
+        <div
+          className={cn(
+            'mx-auto max-w-6xl px-6',
+            macDesktopWindowInset ? 'pt-14' : 'pt-6',
+          )}
+        >
           <DashboardNav slug={slug} />
         </div>
 

@@ -121,7 +121,10 @@ async function waitForHealthy(
 }
 
 export const desktopWorkspaceHost: WorkspaceHost = {
-  async start(slug: string, userId: string): Promise<{ ok: true; status: string } | { ok: false; error: string }> {
+  async start(
+    slug: string,
+    userId: string,
+  ): Promise<{ ok: true; status: string } | { ok: false; error: string; detail?: string }> {
     const existing = processes.get(slug)
     if (existing && !existing.process.killed) {
       return { ok: true, status: 'already_running' }
@@ -134,7 +137,8 @@ export const desktopWorkspaceHost: WorkspaceHost = {
     const workspaceDir = getWorkspaceDir(slug)
     const encryptedPassword = encryptPassword(password)
 
-    const safeEnv = {
+    const safeEnv: NodeJS.ProcessEnv = {
+      NODE_ENV: process.env.NODE_ENV,
       PATH: process.env.PATH,
       SHELL: process.env.SHELL,
       TERM: process.env.TERM,
