@@ -1,9 +1,18 @@
-import { createHash } from 'crypto'
 import { promises as fs } from 'fs'
-import { tmpdir } from 'os'
 import path from 'path'
-import { execFile } from 'child_process'
-import { promisify } from 'util'
+
+import {
+  cleanupClone,
+  cloneRepoToTemp,
+  detectDefaultBranch,
+  hasBareRepoLayout,
+  hashContent,
+  isGitAvailable,
+  resolveRepoRoot,
+  runGit,
+  runGitOnBareRepo,
+} from '@/lib/git/bare-repo'
+import { getKbConfigRoot, getKbContentRoot } from '@/lib/runtime/paths'
 
 type ConfigReadResult =
   | { ok: true; content: string; hash: string; path: string }
@@ -20,130 +29,14 @@ export type KbRecentFileUpdate = {
   committedAt: string
 }
 
-const CONFIG_REPO_ROOT = '/kb-config'
-const CONTENT_REPO_ROOT = '/kb-content'
 const CONFIG_FILE_NAME = 'CommonWorkspaceConfig.json'
-const execFileAsync = promisify(execFile)
-
-async function hasBareRepoLayout(root: string): Promise<boolean> {
-  try {
-    const [head, objects, refs] = await Promise.all([
-      fs.stat(path.join(root, 'HEAD')),
-      fs.stat(path.join(root, 'objects')),
-      fs.stat(path.join(root, 'refs'))
-    ])
-    return head.isFile() && objects.isDirectory() && refs.isDirectory()
-  } catch {
-    return false
-  }
-}
-
-let gitAvailabilityCache: boolean | null = null
-
-async function isGitAvailable(): Promise<boolean> {
-  if (gitAvailabilityCache !== null) return gitAvailabilityCache
-  const result = await runGit(['--version'])
-  gitAvailabilityCache = result.ok
-  return gitAvailabilityCache
-}
-
-function hashContent(content: string): string {
-  return createHash('sha256').update(content).digest('hex')
-}
-
-async function resolveRepoRoot(root: string): Promise<string | null> {
-  try {
-    const stats = await fs.stat(root)
-    return stats.isDirectory() ? root : null
-  } catch {
-    return null
-  }
-}
 
 async function resolveConfigRepoRoot(): Promise<string | null> {
-  return resolveRepoRoot(CONFIG_REPO_ROOT)
+  return resolveRepoRoot(getKbConfigRoot())
 }
 
 async function resolveContentRepoRoot(): Promise<string | null> {
-  return resolveRepoRoot(CONTENT_REPO_ROOT)
-}
-
-async function runGit(
-  args: string[],
-  options?: { cwd?: string; env?: NodeJS.ProcessEnv }
-): Promise<{ ok: true; stdout: string } | { ok: false; stderr: string }> {
-  try {
-    const result = await execFileAsync('git', args, {
-      cwd: options?.cwd,
-      encoding: 'utf-8',
-      env: options?.env ? { ...process.env, ...options.env } : process.env,
-    })
-    return { ok: true, stdout: result.stdout ?? '' }
-  } catch (error) {
-    if (error && typeof error === 'object' && 'stderr' in error) {
-      return { ok: false, stderr: String((error as { stderr?: string }).stderr ?? '') }
-    }
-    return { ok: false, stderr: 'git_failed' }
-  }
-}
-
-async function runGitOnRepo(root: string, args: string[]): Promise<{ ok: true; stdout: string } | { ok: false; stderr: string }> {
-  if (!(await hasBareRepoLayout(root))) {
-    return { ok: false, stderr: 'not_bare_repository' }
-  }
-
-  if (!(await isGitAvailable())) {
-    return { ok: false, stderr: 'git_unavailable' }
-  }
-
-  return runGit(['--git-dir', root, ...args])
-}
-
-async function cloneRepoToTemp(
-  root: string
-): Promise<
-  | { ok: true; dir: string; gitEnv: NodeJS.ProcessEnv; safeConfigDir: string }
-  | { ok: false }
-> {
-  const dir = await fs.mkdtemp(path.join(tmpdir(), 'arche-kb-'))
-  const safeConfigDir = await fs.mkdtemp(path.join(tmpdir(), 'arche-kb-safe-'))
-  const safeConfig = path.join(safeConfigDir, 'gitconfig')
-  const resolvedRoot = await fs.realpath(root).catch(() => root)
-  const safeDirectories = Array.from(new Set([root, resolvedRoot]))
-  const safeConfigContent = safeDirectories
-    .map((safeDirectory) => `[safe]\n\tdirectory = ${safeDirectory}\n`)
-    .join('')
-  await fs.writeFile(safeConfig, safeConfigContent, 'utf-8')
-
-  const gitEnv: NodeJS.ProcessEnv = {
-    ...process.env,
-    GIT_CONFIG_GLOBAL: safeConfig,
-  }
-  const clone = await runGit(['clone', '--quiet', root, dir], { env: gitEnv })
-  if (!clone.ok) {
-    await fs.rm(dir, { recursive: true, force: true }).catch(() => {})
-    await fs.rm(safeConfigDir, { recursive: true, force: true }).catch(() => {})
-    return { ok: false }
-  }
-  return { ok: true, dir, gitEnv, safeConfigDir }
-}
-
-async function detectDefaultBranch(
-  repoDir: string,
-  gitEnv: NodeJS.ProcessEnv
-): Promise<string> {
-  const ref = await runGit(['symbolic-ref', '-q', '--short', 'refs/remotes/origin/HEAD'], {
-    cwd: repoDir,
-    env: gitEnv,
-  })
-  if (ref.ok) {
-    const value = ref.stdout.trim()
-    if (value.startsWith('origin/')) {
-      return value.slice('origin/'.length)
-    }
-  }
-
-  return 'main'
+  return resolveRepoRoot(getKbContentRoot())
 }
 
 export async function readCommonWorkspaceConfig(): Promise<ConfigReadResult> {
@@ -172,8 +65,7 @@ export async function readCommonWorkspaceConfig(): Promise<ConfigReadResult> {
     }
     return { ok: false, error: 'read_failed' }
   } finally {
-    await fs.rm(clone.dir, { recursive: true, force: true }).catch(() => {})
-    await fs.rm(clone.safeConfigDir, { recursive: true, force: true }).catch(() => {})
+    await cleanupClone(clone)
   }
 }
 
@@ -198,8 +90,7 @@ export async function writeCommonWorkspaceConfig(
   const configPath = path.join(clone.dir, CONFIG_FILE_NAME)
   const current = await fs.readFile(configPath, 'utf-8').catch(() => '')
   if (expectedHash && current && hashContent(current) !== expectedHash) {
-    await fs.rm(clone.dir, { recursive: true, force: true }).catch(() => {})
-    await fs.rm(clone.safeConfigDir, { recursive: true, force: true }).catch(() => {})
+    await cleanupClone(clone)
     return { ok: false, error: 'conflict' }
   }
 
@@ -251,8 +142,7 @@ export async function writeCommonWorkspaceConfig(
 
     return { ok: true, hash: hashContent(content) }
   } finally {
-    await fs.rm(clone.dir, { recursive: true, force: true }).catch(() => {})
-    await fs.rm(clone.safeConfigDir, { recursive: true, force: true }).catch(() => {})
+    await cleanupClone(clone)
   }
 }
 
@@ -266,7 +156,7 @@ export async function listRecentKbFileUpdates(limit = 10): Promise<{
   const root = await resolveContentRepoRoot()
   if (!root) return { ok: false, error: 'kb_unavailable' }
 
-  const logResult = await runGitOnRepo(root, [
+  const logResult = await runGitOnBareRepo(root, [
     'log',
     '--name-only',
     '--date=iso-strict',
@@ -331,8 +221,7 @@ export async function readConfigRepoFile(
   } catch {
     return { ok: false }
   } finally {
-    await fs.rm(clone.dir, { recursive: true, force: true }).catch(() => {})
-    await fs.rm(clone.safeConfigDir, { recursive: true, force: true }).catch(() => {})
+    await cleanupClone(clone)
   }
 }
 

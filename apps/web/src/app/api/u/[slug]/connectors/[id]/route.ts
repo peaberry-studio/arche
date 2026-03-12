@@ -1,15 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
-import { getAuthenticatedUser, auditEvent } from '@/lib/auth'
-import { validateSameOrigin } from '@/lib/csrf'
+
+import { auditEvent } from '@/lib/auth'
 import { encryptConfig, decryptConfig } from '@/lib/connectors/crypto'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
+import type { ConnectorType } from '@/lib/connectors/types'
 import {
   validateConnectorConfig,
   validateConnectorName,
   validateConnectorType,
 } from '@/lib/connectors/validators'
-import type { ConnectorType } from '@/lib/connectors/types'
+import { validateSameOrigin } from '@/lib/csrf'
+import { getSession } from '@/lib/runtime/session'
+import { connectorService, userService } from '@/lib/services'
 
 export interface ConnectorDetail {
   id: string
@@ -60,7 +62,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string; id: string }> }
 ): Promise<NextResponse<ConnectorDetail | { error: string }>> {
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
@@ -73,19 +75,14 @@ export async function GET(
   }
 
   // Get user
-  const user = await prisma.user.findUnique({
-    where: { slug },
-    select: { id: true },
-  })
+  const user = await userService.findIdBySlug(slug)
 
   if (!user) {
     return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
   }
 
   // Get connector and verify ownership in a single query
-  const connector = await prisma.connector.findFirst({
-    where: { id, userId: user.id },
-  })
+  const connector = await connectorService.findByIdAndUserId(id, user.id)
 
   if (!connector) {
     return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })
@@ -145,7 +142,7 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string; id: string }> }
 ): Promise<NextResponse<ConnectorDetail | { error: string; message?: string }>> {
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
@@ -163,19 +160,14 @@ export async function PATCH(
   }
 
   // Get user
-  const user = await prisma.user.findUnique({
-    where: { slug },
-    select: { id: true },
-  })
+  const user = await userService.findIdBySlug(slug)
 
   if (!user) {
     return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
   }
 
   // Get existing connector and verify ownership
-  const existingConnector = await prisma.connector.findFirst({
-    where: { id, userId: user.id },
-  })
+  const existingConnector = await connectorService.findByIdAndUserId(id, user.id)
 
   if (!existingConnector) {
     return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })
@@ -288,10 +280,7 @@ export async function PATCH(
   }
 
   // Update connector atomically while verifying ownership (prevents TOCTOU)
-  const result = await prisma.connector.updateMany({
-    where: { id, userId: user.id },
-    data: updateData,
-  })
+  const result = await connectorService.updateManyByIdAndUserId(id, user.id, updateData)
 
   if (result.count === 0) {
     // Ownership changed concurrently or connector was deleted
@@ -299,9 +288,7 @@ export async function PATCH(
   }
 
   // Get updated connector for response
-  const connector = await prisma.connector.findUnique({
-    where: { id },
-  })
+  const connector = await connectorService.findById(id)
 
   // Defensive check (shouldn't happen given updateMany succeeded)
   if (!connector) {
@@ -355,7 +342,7 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string; id: string }> }
 ): Promise<NextResponse<{ ok: true } | { error: string }>> {
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
@@ -373,19 +360,14 @@ export async function DELETE(
   }
 
   // Get user
-  const user = await prisma.user.findUnique({
-    where: { slug },
-    select: { id: true },
-  })
+  const user = await userService.findIdBySlug(slug)
 
   if (!user) {
     return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
   }
 
   // Delete connector atomically while verifying ownership (prevents TOCTOU)
-  const result = await prisma.connector.deleteMany({
-    where: { id, userId: user.id },
-  })
+  const result = await connectorService.deleteManyByIdAndUserId(id, user.id)
 
   if (result.count === 0) {
     return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })

@@ -1,9 +1,8 @@
-import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 
 import { AgentForm } from '@/components/agents/agent-form'
-import { getSessionFromToken, SESSION_COOKIE_NAME } from '@/lib/auth'
+import { getSession } from '@/lib/runtime/session'
 
 export default async function NewAgentPage({
   params
@@ -12,9 +11,7 @@ export default async function NewAgentPage({
 }) {
   const { slug } = await params
 
-  const cookieStore = await cookies()
-  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value
-  const session = token ? await getSessionFromToken(token) : null
+  const session = await getSession()
 
   if (session?.user.role !== 'ADMIN') {
     redirect(`/u/${slug}/agents`)

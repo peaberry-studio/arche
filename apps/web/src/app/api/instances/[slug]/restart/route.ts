@@ -1,55 +1,35 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 
 import { getKickstartStatus } from '@/kickstart/status'
-import { getAuthenticatedUser } from '@/lib/auth'
-import { validateSameOrigin } from '@/lib/csrf'
-import { prisma } from '@/lib/prisma'
-import { startInstance, stopInstance } from '@/lib/spawner/core'
+import { withAuth } from '@/lib/runtime/with-auth'
+import { startWorkspace, stopWorkspace } from '@/lib/runtime/workspace-host'
+import { userService } from '@/lib/services'
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> }
-): Promise<NextResponse<{ ok: boolean; status?: string } | { error: string }>> {
-  const session = await getAuthenticatedUser()
-  if (!session) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+export const POST = withAuth<{ ok: boolean; status?: string } | { error: string }>(
+  { csrf: true },
+  async (_request, { user, slug }) => {
+    const dbUser = await userService.findIdBySlug(slug)
+
+    if (!dbUser) {
+      return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
+    }
+
+    const kickstartStatus = await getKickstartStatus()
+    if (kickstartStatus !== 'ready') {
+      return NextResponse.json({ error: 'setup_required' }, { status: 409 })
+    }
+
+    const stopResult = await stopWorkspace(slug, user.id)
+    if (!stopResult.ok && stopResult.error !== 'not_running') {
+      return NextResponse.json({ error: stopResult.error }, { status: 500 })
+    }
+
+    const startResult = await startWorkspace(slug, user.id)
+    if (!startResult.ok) {
+      const status = startResult.error === 'already_running' ? 409 : 500
+      return NextResponse.json({ error: startResult.error }, { status })
+    }
+
+    return NextResponse.json({ ok: true, status: startResult.status })
   }
-
-  const originValidation = validateSameOrigin(request)
-  if (!originValidation.ok) {
-    return NextResponse.json({ error: 'forbidden' }, { status: 403 })
-  }
-
-  const { slug } = await params
-
-  if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
-    return NextResponse.json({ error: 'forbidden' }, { status: 403 })
-  }
-
-  const user = await prisma.user.findUnique({
-    where: { slug },
-    select: { id: true },
-  })
-
-  if (!user) {
-    return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
-  }
-
-  const kickstartStatus = await getKickstartStatus()
-  if (kickstartStatus !== 'ready') {
-    return NextResponse.json({ error: 'setup_required' }, { status: 409 })
-  }
-
-  const stopResult = await stopInstance(slug, session.user.id)
-  if (!stopResult.ok && stopResult.error !== 'not_running') {
-    return NextResponse.json({ error: stopResult.error }, { status: 500 })
-  }
-
-  const startResult = await startInstance(slug, session.user.id)
-  if (!startResult.ok) {
-    const status = startResult.error === 'already_running' ? 409 : 500
-    return NextResponse.json({ error: startResult.error }, { status })
-  }
-
-  return NextResponse.json({ ok: true, status: startResult.status })
-}
+)

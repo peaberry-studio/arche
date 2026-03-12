@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
-import { getAuthenticatedUser } from '@/lib/auth'
-import { validateSameOrigin } from '@/lib/csrf'
+import { NextResponse } from 'next/server'
+
+import { withAuth } from '@/lib/runtime/with-auth'
+import { instanceService } from '@/lib/services'
 import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 
 export interface SyncKbResult {
@@ -27,136 +27,101 @@ export interface SyncKbResult {
  * - 404 - Instance not found
  * - 409 - Instance is not running
  */
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> }
-): Promise<NextResponse<SyncKbResult | { error: string }>> {
-  const session = await getAuthenticatedUser()
-  if (!session) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-  }
+export const POST = withAuth<SyncKbResult | { error: string }>(
+  { csrf: true },
+  async (_request, { slug }) => {
+    const instance = await instanceService.findContainerStatusBySlug(slug)
 
-  const originValidation = validateSameOrigin(request)
-  if (!originValidation.ok) {
-    return NextResponse.json({ error: 'forbidden' }, { status: 403 })
-  }
-
-  const { slug } = await params
-
-  // Verify authorization
-  if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
-    return NextResponse.json({ error: 'forbidden' }, { status: 403 })
-  }
-
-  // Get instance
-  const instance = await prisma.instance.findUnique({
-    where: { slug },
-    select: { containerId: true, status: true },
-  })
-
-  if (!instance) {
-    return NextResponse.json({ error: 'not_found' }, { status: 404 })
-  }
-
-  if (instance.status !== 'running' || !instance.containerId) {
-    return NextResponse.json({ error: 'instance_not_running' }, { status: 409 })
-  }
-
-  try {
-    const agent = await createWorkspaceAgentClient(slug)
-    if (!agent) {
-      return NextResponse.json({ error: 'instance_unavailable' }, { status: 409 })
+    if (!instance) {
+      return NextResponse.json({ error: 'not_found' }, { status: 404 })
     }
 
-    const response = await fetch(`${agent.baseUrl}/kb/sync`, {
-      method: 'POST',
-      headers: {
-        Authorization: agent.authHeader,
-        Accept: 'application/json'
-      },
-      cache: 'no-store'
-    })
+    if (instance.status !== 'running' || !instance.containerId) {
+      return NextResponse.json({ error: 'instance_not_running' }, { status: 409 })
+    }
 
-    const data = await response.json().catch(() => null) as SyncKbResult | null
-    if (!response.ok || !data) {
-      const errorText = data?.message ?? `workspace_agent_http_${response.status}`
+    try {
+      const agent = await createWorkspaceAgentClient(slug)
+      if (!agent) {
+        return NextResponse.json({ error: 'instance_unavailable' }, { status: 409 })
+      }
+
+      const response = await fetch(`${agent.baseUrl}/kb/sync`, {
+        method: 'POST',
+        headers: {
+          Authorization: agent.authHeader,
+          Accept: 'application/json'
+        },
+        cache: 'no-store'
+      })
+
+      const data = await response.json().catch(() => null) as SyncKbResult | null
+      if (!response.ok || !data) {
+        const errorText = data?.message ?? `workspace_agent_http_${response.status}`
+        return NextResponse.json({
+          ok: false,
+          status: 'error',
+          message: errorText,
+        })
+      }
+
+      return NextResponse.json(data)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error'
       return NextResponse.json({
         ok: false,
         status: 'error',
-        message: errorText,
+        message,
       })
     }
-
-    return NextResponse.json(data)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    return NextResponse.json({
-      ok: false,
-      status: 'error',
-      message,
-    })
   }
-}
+)
 
 /**
  * GET /api/instances/[slug]/sync-kb
  * 
  * Gets current sync status (pending conflicts, etc.)
  */
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> }
-): Promise<NextResponse<{ hasConflicts: boolean; conflicts?: string[] } | { error: string }>> {
-  const session = await getAuthenticatedUser()
-  if (!session) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-  }
+export const GET = withAuth<{ hasConflicts: boolean; conflicts?: string[] } | { error: string }>(
+  { csrf: false },
+  async (_request, { slug }) => {
+    const instance = await instanceService.findContainerStatusBySlug(slug)
 
-  const { slug } = await params
-
-  if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
-    return NextResponse.json({ error: 'forbidden' }, { status: 403 })
-  }
-
-  const instance = await prisma.instance.findUnique({
-    where: { slug },
-    select: { containerId: true, status: true },
-  })
-
-  if (!instance) {
-    return NextResponse.json({ error: 'not_found' }, { status: 404 })
-  }
-
-  if (instance.status !== 'running' || !instance.containerId) {
-    return NextResponse.json({ error: 'instance_not_running' }, { status: 409 })
-  }
-
-  try {
-    const agent = await createWorkspaceAgentClient(slug)
-    if (!agent) {
-      return NextResponse.json({ error: 'instance_unavailable' }, { status: 409 })
+    if (!instance) {
+      return NextResponse.json({ error: 'not_found' }, { status: 404 })
     }
 
-    const response = await fetch(`${agent.baseUrl}/kb/status`, {
-      headers: {
-        Authorization: agent.authHeader,
-        Accept: 'application/json'
-      },
-      cache: 'no-store'
-    })
-
-    const data = await response.json().catch(() => null) as { ok?: boolean; hasConflicts?: boolean; conflicts?: string[]; error?: string } | null
-    if (!response.ok || !data || data.ok === false) {
-      const errorText = data?.error ?? `workspace_agent_http_${response.status}`
-      return NextResponse.json({ error: errorText }, { status: 500 })
+    if (instance.status !== 'running' || !instance.containerId) {
+      return NextResponse.json({ error: 'instance_not_running' }, { status: 409 })
     }
 
-    return NextResponse.json({
-      hasConflicts: Boolean(data.hasConflicts),
-      conflicts: data.conflicts && data.conflicts.length > 0 ? data.conflicts : undefined,
-    })
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    return NextResponse.json({ error: message }, { status: 500 })
+    try {
+      const agent = await createWorkspaceAgentClient(slug)
+      if (!agent) {
+        return NextResponse.json({ error: 'instance_unavailable' }, { status: 409 })
+      }
+
+      const response = await fetch(`${agent.baseUrl}/kb/status`, {
+        headers: {
+          Authorization: agent.authHeader,
+          Accept: 'application/json'
+        },
+        cache: 'no-store'
+      })
+
+      const data = await response.json().catch(() => null) as { ok?: boolean; hasConflicts?: boolean; conflicts?: string[]; error?: string } | null
+      if (!response.ok || !data || data.ok === false) {
+        const errorText = data?.error ?? `workspace_agent_http_${response.status}`
+        return NextResponse.json({ error: errorText }, { status: 500 })
+      }
+
+      return NextResponse.json({
+        hasConflicts: Boolean(data.hasConflicts),
+        conflicts: data.conflicts && data.conflicts.length > 0 ? data.conflicts : undefined,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      return NextResponse.json({ error: message }, { status: 500 })
+    }
   }
-}
+)

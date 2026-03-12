@@ -23,8 +23,8 @@ vi.mock('@/lib/auth', () => ({
   auditEvent: vi.fn(),
 }))
 
-vi.mock('@/lib/spawner/core', () => ({
-  stopInstance: vi.fn(),
+vi.mock('@/lib/runtime/workspace-host', () => ({
+  stopWorkspace: vi.fn(),
 }))
 
 const mockUserFindUnique = vi.fn()

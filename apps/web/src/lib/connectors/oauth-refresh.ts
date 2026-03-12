@@ -60,11 +60,8 @@ export async function refreshConnectorOAuthConfigIfNeeded(
     })
 
     const encrypted = encryptConfig(nextConfig)
-    const { prisma } = await import('@/lib/prisma')
-    await prisma.connector.update({
-      where: { id: connector.id },
-      data: { config: encrypted },
-    })
+    const { connectorService } = await import('@/lib/services')
+    await connectorService.updateById(connector.id, { config: encrypted })
 
     return encrypted
   } catch {

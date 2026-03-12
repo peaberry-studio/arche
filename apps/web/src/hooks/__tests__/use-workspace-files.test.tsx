@@ -102,6 +102,16 @@ describe("useWorkspaceFiles", () => {
     expect(file).toEqual({ content: "# Hello", type: "raw" });
   });
 
+  it("skips workspace agent reads when workspace agent support is disabled", async () => {
+    const { result } = renderHook(() => useWorkspaceFiles("alice", false));
+
+    const file = await act(async () => result.current.readFile("README.md"));
+
+    expect(workspaceAgentMocks.readWorkspaceFileAction).not.toHaveBeenCalled();
+    expect(opencodeMocks.readFileAction).toHaveBeenCalledWith("alice", "README.md");
+    expect(file).toEqual({ content: "# Hello", type: "raw" });
+  });
+
   it("returns workspace agent result when available", async () => {
     workspaceAgentMocks.readWorkspaceFileAction.mockResolvedValue({
       ok: true,
@@ -155,6 +165,17 @@ describe("useWorkspaceFiles", () => {
     );
 
     expect(writeResult).toEqual({ ok: false, error: "conflict" });
+  });
+
+  it("returns unsupported_in_desktop for writes when workspace agent support is disabled", async () => {
+    const { result } = renderHook(() => useWorkspaceFiles("alice", false));
+
+    const writeResult = await act(async () =>
+      result.current.writeFile("file.txt", "content")
+    );
+
+    expect(workspaceAgentMocks.writeWorkspaceFileAction).not.toHaveBeenCalled();
+    expect(writeResult).toEqual({ ok: false, error: "unsupported_in_desktop" });
   });
 
   it("deletes file and returns boolean", async () => {

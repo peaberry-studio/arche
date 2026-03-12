@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 
 import type { ComponentProps } from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ChatPanel } from "@/components/workspace/chat-panel";
@@ -86,6 +86,22 @@ afterEach(() => {
 });
 
 describe("ChatPanel textarea", () => {
+  it("does not load or render attachments when attachments are disabled", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderChatPanel(undefined, { attachmentsEnabled: false });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(
+      fetchMock.mock.calls.some(([input]) => input === "/api/w/alice/attachments")
+    ).toBe(false);
+    expect(screen.queryByRole("button", { name: "Manage attachments" })).toBeNull();
+  });
+
   it("resets textarea height after sending a multiline message", async () => {
     const onSendMessage = vi.fn().mockResolvedValue(true);
 

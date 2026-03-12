@@ -31,6 +31,7 @@ type WorkspaceFile = {
 type InspectorPanelProps = {
   slug: string;
   activeTab: "preview" | "review";
+  workspaceAgentEnabled?: boolean;
   onTabChange: (tab: "preview" | "review") => void;
   rightCollapsed: boolean;
   onToggleRight: () => void;
@@ -132,6 +133,7 @@ function MinifiedInspectorPanel({
 export function InspectorPanel({
   slug,
   activeTab,
+  workspaceAgentEnabled = true,
   onTabChange,
   rightCollapsed,
   onToggleRight,
@@ -166,6 +168,7 @@ export function InspectorPanel({
     <ExpandedInspectorPanel
       slug={slug}
       activeTab={activeTab}
+      workspaceAgentEnabled={workspaceAgentEnabled}
       onTabChange={onTabChange}
       onToggleRight={onToggleRight}
       pendingDiffsForBadge={pendingDiffsForBadge}
@@ -189,6 +192,7 @@ export function InspectorPanel({
 function ExpandedInspectorPanel({
   slug,
   activeTab,
+  workspaceAgentEnabled = true,
   onTabChange,
   onToggleRight,
   openFiles,
@@ -248,6 +252,7 @@ function ExpandedInspectorPanel({
   const activeDraft = activeFile
     ? getDraft(activeFile.path, activeFile.content)
     : null;
+  const canEditMarkdown = workspaceAgentEnabled && Boolean(onSaveFile);
   const activeSaveState: SaveState = activeFile
     ? getSaveState(activeFile.path)
     : "idle";
@@ -301,24 +306,26 @@ function ExpandedInspectorPanel({
           <File size={14} weight={activeTab === "preview" ? "fill" : "bold"} />
           Working context
         </button>
-        <button
-          type="button"
-          onClick={() => onTabChange("review")}
-          className={cn(
-            "flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-medium transition-colors",
-            activeTab === "review"
-              ? "bg-primary/10 text-primary"
-              : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
-          )}
-        >
-          <GitDiff size={14} weight={activeTab === "review" ? "fill" : "bold"} />
-          Review
-          {pendingDiffs > 0 ? (
-            <span className="ml-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/20 px-1 text-[10px] font-semibold text-primary">
-              {pendingDiffs}
-            </span>
-          ) : null}
-        </button>
+        {workspaceAgentEnabled && (
+          <button
+            type="button"
+            onClick={() => onTabChange("review")}
+            className={cn(
+              "flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-medium transition-colors",
+              activeTab === "review"
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+            )}
+          >
+            <GitDiff size={14} weight={activeTab === "review" ? "fill" : "bold"} />
+            Review
+            {pendingDiffs > 0 ? (
+              <span className="ml-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/20 px-1 text-[10px] font-semibold text-primary">
+                {pendingDiffs}
+              </span>
+            ) : null}
+          </button>
+        )}
 
         {/* Toggle collapse — aligned to the right */}
         <button
@@ -410,7 +417,7 @@ function ExpandedInspectorPanel({
                 {/* File content */}
                 {activeFile ? (
                   <div className="flex-1 min-h-0 overflow-y-auto scrollbar-none">
-                    {activeFile.kind === "markdown" && activeDraft != null ? (
+                    {activeFile.kind === "markdown" && activeDraft != null && canEditMarkdown ? (
                       <MarkdownEditor
                         value={activeDraft}
                         onChange={(next) =>
@@ -450,23 +457,25 @@ function ExpandedInspectorPanel({
           )}
         </div>
 
-        <div
-          className={cn(
-            "absolute inset-0 overflow-y-auto scrollbar-none p-5",
-            activeTab !== "review" && "hidden"
-          )}
-        >
-          <ReviewPanel
-            slug={slug}
-            diffs={diffs}
-            isLoading={Boolean(isLoadingDiffs)}
-            error={diffsError ?? undefined}
-            onOpenFile={onOpenFile}
-            onDiscardFileChanges={onDiscardFileChanges}
-            onPublish={onPublish}
-            onResolveConflict={onResolveConflict}
-          />
-        </div>
+        {workspaceAgentEnabled && (
+          <div
+            className={cn(
+              "absolute inset-0 overflow-y-auto scrollbar-none p-5",
+              activeTab !== "review" && "hidden"
+            )}
+          >
+            <ReviewPanel
+              slug={slug}
+              diffs={diffs}
+              isLoading={Boolean(isLoadingDiffs)}
+              error={diffsError ?? undefined}
+              onOpenFile={onOpenFile}
+              onDiscardFileChanges={onDiscardFileChanges}
+              onPublish={onPublish}
+              onResolveConflict={onResolveConflict}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

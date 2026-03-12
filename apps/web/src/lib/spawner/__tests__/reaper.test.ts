@@ -1,16 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-vi.mock('@/lib/prisma', () => ({
-  prisma: {
-    instance: {
-      findMany: vi.fn(),
-      update: vi.fn(),
-    },
+vi.mock('@/lib/services', () => ({
+  instanceService: {
+    findIdleInstances: vi.fn(),
+    setStoppedById: vi.fn(),
   },
-}))
-
-vi.mock('@/lib/auth', () => ({
-  auditEvent: vi.fn(),
+  auditService: {
+    createEvent: vi.fn(),
+  },
 }))
 
 vi.mock('../docker', () => ({
@@ -18,11 +15,11 @@ vi.mock('../docker', () => ({
   removeContainer: vi.fn(),
 }))
 
-import { prisma } from '@/lib/prisma'
+import { instanceService } from '@/lib/services'
 import * as docker from '../docker'
 import { reapIdleInstances, startReaper, stopReaper } from '../reaper'
 
-const mockPrisma = vi.mocked(prisma)
+const mockInstance = vi.mocked(instanceService)
 const mockDocker = vi.mocked(docker)
 
 beforeEach(() => {
@@ -37,17 +34,12 @@ afterEach(() => {
 
 describe('reapIdleInstances', () => {
   it('returns 0 when no idle instances', async () => {
-    mockPrisma.instance.findMany.mockResolvedValue([])
+    mockInstance.findIdleInstances.mockResolvedValue([])
 
     const count = await reapIdleInstances()
 
     expect(count).toBe(0)
-    expect(mockPrisma.instance.findMany).toHaveBeenCalledWith({
-      where: {
-        status: 'running',
-        lastActivityAt: { lt: expect.any(Date) },
-      },
-    })
+    expect(mockInstance.findIdleInstances).toHaveBeenCalledWith(expect.any(Date))
   })
 
   it('stops and removes idle instances', async () => {
@@ -61,25 +53,19 @@ describe('reapIdleInstances', () => {
       startedAt: new Date(),
       stoppedAt: null,
       lastActivityAt: new Date(Date.now() - 60 * 60 * 1000), // 1h ago
+      appliedConfigSha: null,
     }
-    mockPrisma.instance.findMany.mockResolvedValue([idleInstance])
+    mockInstance.findIdleInstances.mockResolvedValue([idleInstance])
     mockDocker.stopContainer.mockResolvedValue(undefined)
     mockDocker.removeContainer.mockResolvedValue(undefined)
-    mockPrisma.instance.update.mockResolvedValue({} as never)
+    mockInstance.setStoppedById.mockResolvedValue({} as never)
 
     const count = await reapIdleInstances()
 
     expect(count).toBe(1)
     expect(mockDocker.stopContainer).toHaveBeenCalledWith('container-abc')
     expect(mockDocker.removeContainer).toHaveBeenCalledWith('container-abc')
-    expect(mockPrisma.instance.update).toHaveBeenCalledWith({
-      where: { id: 'inst-1' },
-      data: {
-        status: 'stopped',
-        stoppedAt: expect.any(Date),
-        containerId: null,
-      },
-    })
+    expect(mockInstance.setStoppedById).toHaveBeenCalledWith('inst-1')
   })
 
   it('continues reaping other instances if one fails', async () => {
@@ -89,20 +75,22 @@ describe('reapIdleInstances', () => {
         containerId: 'c1', serverPassword: 'enc',
         createdAt: new Date(), startedAt: new Date(),
         stoppedAt: null, lastActivityAt: new Date(Date.now() - 60 * 60 * 1000),
+        appliedConfigSha: null,
       },
       {
         id: 'inst-2', slug: 'bob', status: 'running' as const,
         containerId: 'c2', serverPassword: 'enc',
         createdAt: new Date(), startedAt: new Date(),
         stoppedAt: null, lastActivityAt: new Date(Date.now() - 60 * 60 * 1000),
+        appliedConfigSha: null,
       },
     ]
-    mockPrisma.instance.findMany.mockResolvedValue(instances)
+    mockInstance.findIdleInstances.mockResolvedValue(instances)
     mockDocker.stopContainer
       .mockRejectedValueOnce(new Error('fail'))
       .mockResolvedValueOnce(undefined)
     mockDocker.removeContainer.mockResolvedValue(undefined)
-    mockPrisma.instance.update
+    mockInstance.setStoppedById
       .mockRejectedValueOnce(new Error('db fail'))
       .mockResolvedValueOnce({} as never)
 
@@ -118,9 +106,10 @@ describe('reapIdleInstances', () => {
       containerId: null, serverPassword: 'enc',
       createdAt: new Date(), startedAt: new Date(),
       stoppedAt: null, lastActivityAt: new Date(Date.now() - 60 * 60 * 1000),
+      appliedConfigSha: null,
     }
-    mockPrisma.instance.findMany.mockResolvedValue([instance])
-    mockPrisma.instance.update.mockResolvedValue({} as never)
+    mockInstance.findIdleInstances.mockResolvedValue([instance])
+    mockInstance.setStoppedById.mockResolvedValue({} as never)
 
     const count = await reapIdleInstances()
 
@@ -131,24 +120,24 @@ describe('reapIdleInstances', () => {
 
 describe('startReaper / stopReaper', () => {
   it('starts interval that calls reapIdleInstances', async () => {
-    mockPrisma.instance.findMany.mockResolvedValue([])
+    mockInstance.findIdleInstances.mockResolvedValue([])
 
     startReaper()
 
     // Initial call on start
-    expect(mockPrisma.instance.findMany).toHaveBeenCalledTimes(1)
+    expect(mockInstance.findIdleInstances).toHaveBeenCalledTimes(1)
 
     stopReaper()
   })
 
   it('calling startReaper twice does not create duplicate intervals', () => {
-    mockPrisma.instance.findMany.mockResolvedValue([])
+    mockInstance.findIdleInstances.mockResolvedValue([])
 
     startReaper()
     startReaper()
 
     // Only one initial call
-    expect(mockPrisma.instance.findMany).toHaveBeenCalledTimes(1)
+    expect(mockInstance.findIdleInstances).toHaveBeenCalledTimes(1)
 
     stopReaper()
   })

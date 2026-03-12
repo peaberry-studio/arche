@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { auditEvent, getAuthenticatedUser } from '@/lib/auth'
+import { auditEvent } from '@/lib/auth'
 import { isOAuthConnectorType, prepareConnectorOAuthAuthorization } from '@/lib/connectors/oauth'
 import { validateConnectorType } from '@/lib/connectors/validators'
 import { validateSameOrigin } from '@/lib/csrf'
+import { getSession } from '@/lib/runtime/session'
 import { getPublicBaseUrl } from '@/lib/http'
-import { prisma } from '@/lib/prisma'
+import { connectorService, userService } from '@/lib/services'
 
 type StartOAuthResponse = {
   authorizeUrl: string
@@ -15,7 +16,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string; id: string }> }
 ): Promise<NextResponse<StartOAuthResponse | { error: string; message?: string }>> {
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
@@ -30,19 +31,13 @@ export async function POST(
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
-  const user = await prisma.user.findUnique({
-    where: { slug },
-    select: { id: true },
-  })
+  const user = await userService.findIdBySlug(slug)
 
   if (!user) {
     return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
   }
 
-  const connector = await prisma.connector.findFirst({
-    where: { id, userId: user.id },
-    select: { id: true, type: true },
-  })
+  const connector = await connectorService.findByIdAndUserIdSelect(id, user.id, { id: true, type: true })
   if (!connector) {
     return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })
   }

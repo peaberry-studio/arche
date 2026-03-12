@@ -31,7 +31,10 @@ export type UseWorkspaceFilesReturn = {
   discardFileChanges: (path: string) => Promise<{ ok: boolean; error?: string }>;
 };
 
-export function useWorkspaceFiles(slug: string): UseWorkspaceFilesReturn {
+export function useWorkspaceFiles(
+  slug: string,
+  workspaceAgentEnabled = true
+): UseWorkspaceFilesReturn {
   const [fileTree, setFileTree] = useState<WorkspaceFileNode[]>([]);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
 
@@ -49,13 +52,15 @@ export function useWorkspaceFiles(slug: string): UseWorkspaceFilesReturn {
 
   const readFile = useCallback(
     async (path: string) => {
-      const agentResult = await readWorkspaceFileAction(slug, path);
-      if (agentResult.ok && agentResult.content) {
-        return {
-          content: agentResult.content.content,
-          type: agentResult.content.type,
-          hash: agentResult.hash,
-        };
+      if (workspaceAgentEnabled) {
+        const agentResult = await readWorkspaceFileAction(slug, path);
+        if (agentResult.ok && agentResult.content) {
+          return {
+            content: agentResult.content.content,
+            type: agentResult.content.type,
+            hash: agentResult.hash,
+          };
+        }
       }
 
       const result = await readFileAction(slug, path);
@@ -65,11 +70,15 @@ export function useWorkspaceFiles(slug: string): UseWorkspaceFilesReturn {
 
       return null;
     },
-    [slug]
+    [slug, workspaceAgentEnabled]
   );
 
   const writeFile = useCallback(
     async (path: string, content: string, expectedHash?: string) => {
+      if (!workspaceAgentEnabled) {
+        return { ok: false, error: "unsupported_in_desktop" };
+      }
+
       const result = await writeWorkspaceFileAction(
         slug,
         path,
@@ -81,27 +90,38 @@ export function useWorkspaceFiles(slug: string): UseWorkspaceFilesReturn {
       }
       return { ok: false, error: result.error };
     },
-    [slug]
+    [slug, workspaceAgentEnabled]
   );
 
   const deleteFile = useCallback(
     async (path: string) => {
+      if (!workspaceAgentEnabled) return false;
+
       const result = await deleteWorkspaceFileAction(slug, path);
       return result.ok;
     },
-    [slug]
+    [slug, workspaceAgentEnabled]
   );
 
   const applyPatch = useCallback(
     async (patch: string) => {
+      if (!workspaceAgentEnabled) return false;
+
       const result = await applyWorkspacePatchAction(slug, patch);
       return result.ok;
     },
-    [slug]
+    [slug, workspaceAgentEnabled]
   );
 
   const discardFileChanges = useCallback(
     async (path: string) => {
+      if (!workspaceAgentEnabled) {
+        return {
+          ok: false,
+          error: "unsupported_in_desktop",
+        };
+      }
+
       try {
         const result = await discardWorkspaceFileChangesAction(slug, path);
         return result;
@@ -112,7 +132,7 @@ export function useWorkspaceFiles(slug: string): UseWorkspaceFilesReturn {
         };
       }
     },
-    [slug]
+    [slug, workspaceAgentEnabled]
   );
 
   return {

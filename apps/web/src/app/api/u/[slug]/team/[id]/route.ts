@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { UserRole } from '@prisma/client'
-
-import { auditEvent, getAuthenticatedUser } from '@/lib/auth'
+import { auditEvent } from '@/lib/auth'
 import { validateSameOrigin } from '@/lib/csrf'
-import { prisma } from '@/lib/prisma'
-import { stopInstance } from '@/lib/spawner/core'
+import { getSession } from '@/lib/runtime/session'
+import { stopWorkspace } from '@/lib/runtime/workspace-host'
+import { instanceService, userService } from '@/lib/services'
+
+type UserRole = 'ADMIN' | 'USER'
 
 type TeamUserResponse = {
   id: string
@@ -39,7 +40,7 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string; id: string }> }
 ): Promise<NextResponse<{ user: TeamUserResponse } | { error: string }>> {
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
@@ -71,33 +72,24 @@ export async function PATCH(
   }
 
   const role =
-    body.role === UserRole.ADMIN
-      ? UserRole.ADMIN
-      : body.role === UserRole.USER
-        ? UserRole.USER
+    body.role === 'ADMIN'
+      ? 'ADMIN'
+      : body.role === 'USER'
+        ? 'USER'
         : null
 
   if (!role) {
     return NextResponse.json({ error: 'invalid_role' }, { status: 400 })
   }
 
-  const targetUser = await prisma.user.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      email: true,
-      slug: true,
-      role: true,
-      createdAt: true,
-    },
-  })
+  const targetUser = await userService.findTeamMemberById(id)
 
   if (!targetUser) {
     return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
   }
 
-  if (targetUser.role === UserRole.ADMIN && role === UserRole.USER) {
-    const adminCount = await prisma.user.count({ where: { role: UserRole.ADMIN } })
+  if (targetUser.role === 'ADMIN' && role === 'USER') {
+    const adminCount = await userService.countAdmins()
     if (adminCount <= 1) {
       return NextResponse.json({ error: 'last_admin' }, { status: 409 })
     }
@@ -107,17 +99,7 @@ export async function PATCH(
     return NextResponse.json({ user: toTeamUserResponse(targetUser) })
   }
 
-  const updatedUser = await prisma.user.update({
-    where: { id: targetUser.id },
-    data: { role },
-    select: {
-      id: true,
-      email: true,
-      slug: true,
-      role: true,
-      createdAt: true,
-    },
-  })
+  const updatedUser = await userService.updateRole(targetUser.id, role)
 
   await auditEvent({
     actorUserId: session.user.id,
@@ -139,7 +121,7 @@ export async function DELETE(
 ): Promise<NextResponse<{ ok: true } | { error: string }>> {
   void request
 
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
@@ -159,31 +141,24 @@ export async function DELETE(
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
-  const targetUser = await prisma.user.findUnique({
-    where: { id },
-    select: { id: true, slug: true, role: true, email: true },
-  })
+  const targetUser = await userService.findTeamMemberById(id)
 
   if (!targetUser) {
     return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
   }
 
   if (targetUser.role === 'ADMIN') {
-    const adminCount = await prisma.user.count({ where: { role: UserRole.ADMIN } })
+    const adminCount = await userService.countAdmins()
     if (adminCount <= 1) {
       return NextResponse.json({ error: 'last_admin' }, { status: 409 })
     }
   }
 
-  await stopInstance(targetUser.slug, session.user.id).catch(() => {})
+  await stopWorkspace(targetUser.slug, session.user.id).catch(() => {})
 
-  await prisma.instance.deleteMany({
-    where: { slug: targetUser.slug },
-  })
+  await instanceService.deleteBySlug(targetUser.slug)
 
-  const result = await prisma.user.deleteMany({
-    where: { id: targetUser.id },
-  })
+  const result = await userService.deleteById(targetUser.id)
 
   if (result.count === 0) {
     return NextResponse.json({ error: 'user_not_found' }, { status: 404 })

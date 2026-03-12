@@ -41,5 +41,9 @@ apps/**/pnpm-debug.log*
 # Node (repo root)
 node_modules/
 
+# Electron desktop build output
+apps/desktop/dist/
+apps/desktop/release/
+
 # Workspace internal storage
 .arche/

@@ -770,6 +770,17 @@
       inset 0 1px 0 hsl(0 0% 100% / 0.04);
   }
 
+  .desktop-titlebar-drag {
+    -webkit-app-region: drag;
+    app-region: drag;
+    user-select: none;
+  }
+
+  .desktop-titlebar-no-drag {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+  }
+
   /* Surface for elevated cards */
   .surface-elevated {
     background: hsl(var(--card));

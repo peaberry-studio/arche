@@ -25,6 +25,8 @@ import { InspectorPanel } from "./inspector-panel";
 type WorkspaceShellProps = {
   slug: string;
   initialFilePath?: string | null;
+  macDesktopWindowInset?: boolean;
+  workspaceAgentEnabled?: boolean;
 };
 
 type StoredLayoutState = {
@@ -169,7 +171,12 @@ const statusConfig = {
 const PANEL_ANIM = "200ms ease-out";
 const PANEL_TRANSITION = `width ${PANEL_ANIM}, min-width ${PANEL_ANIM}, opacity ${PANEL_ANIM}, margin ${PANEL_ANIM}, border-width ${PANEL_ANIM}`;
 
-export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
+export function WorkspaceShell({
+  slug,
+  initialFilePath,
+  macDesktopWindowInset = false,
+  workspaceAgentEnabled = true,
+}: WorkspaceShellProps) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -179,6 +186,8 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
   // Instance startup state
   const [instanceStatus, setInstanceStatus] = useState<'starting' | 'running' | 'error' | null>(null);
   const [instanceError, setInstanceError] = useState<string | null>(null);
+  const [rightTab, setRightTab] = useState<"preview" | "review">("preview");
+  const effectiveRightTab = workspaceAgentEnabled ? rightTab : "preview";
 
   // Auto-start instance on mount
   useEffect(() => {
@@ -229,7 +238,12 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
   }, [router, slug]);
 
   // Use workspace hook only when instance is running
-  const workspace = useWorkspace({ slug, pollInterval: 5000, enabled: instanceStatus === 'running' });
+  const workspace = useWorkspace({
+    slug,
+    pollInterval: 5000,
+    enabled: instanceStatus === 'running',
+    workspaceAgentEnabled,
+  });
 
   const sessionsById = useMemo(() => {
     const map = new Map<string, WorkspaceSession>();
@@ -335,7 +349,6 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
   const [minCenterWidth, setMinCenterWidth] = useState(MIN_CENTER_PX);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
-  const [rightTab, setRightTab] = useState<"preview" | "review">("preview");
   const [hydratedLayoutKey, setHydratedLayoutKey] = useState<string | null>(null);
 
   const focusSearchInput = useCallback(() => {
@@ -659,10 +672,15 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
 
     if (typeof stored?.leftCollapsed === "boolean") setLeftCollapsed(stored.leftCollapsed);
     if (typeof stored?.rightCollapsed === "boolean") setRightCollapsed(stored.rightCollapsed);
-    if (stored?.rightTab === "preview" || stored?.rightTab === "review") setRightTab(stored.rightTab);
+    if (
+      stored?.rightTab === "preview" ||
+      (workspaceAgentEnabled && stored?.rightTab === "review")
+    ) {
+      setRightTab(stored.rightTab);
+    }
 
     setHydratedLayoutKey(layoutStorageKey);
-  }, [layoutStorageKey]);
+  }, [layoutStorageKey, workspaceAgentEnabled]);
 
   // Persist layout
   useEffect(() => {
@@ -672,9 +690,9 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
       rightWidth,
       leftCollapsed,
       rightCollapsed,
-      rightTab,
+      rightTab: effectiveRightTab,
     });
-  }, [layoutStorageKey, leftWidth, rightWidth, leftCollapsed, rightCollapsed, rightTab, hydratedLayoutKey]);
+  }, [effectiveRightTab, hydratedLayoutKey, layoutStorageKey, leftCollapsed, leftWidth, rightCollapsed, rightWidth]);
 
   // Map workspace sessions to UI format
   const uiSessions = useMemo(() => {
@@ -737,6 +755,10 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
 
   const handleCreateKnowledgeFile = useCallback(
     async (path: string) => {
+      if (!workspaceAgentEnabled) {
+        return { ok: false as const, error: "unsupported_in_desktop" };
+      }
+
       const normalizedPath = normalizePath(path).replace(/^\/+/, "");
       if (!normalizedPath) {
         return { ok: false as const, error: "invalid_path" };
@@ -782,7 +804,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
 
       return { ok: true as const };
     },
-    [filePathSet, normalizePath, openFilePaths, workspace]
+    [filePathSet, normalizePath, openFilePaths, workspace, workspaceAgentEnabled]
   );
 
   // File handlers
@@ -883,9 +905,10 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
   }, []);
 
   const handleOpenReview = useCallback(() => {
+    if (!workspaceAgentEnabled) return;
     setRightCollapsed(false);
     setRightTab("review");
-  }, []);
+  }, [workspaceAgentEnabled]);
 
   // Resize handlers - now work via the gap area between panels
   const handleResizeLeft = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
@@ -973,6 +996,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
       <div
         className={cn(
           'flex h-screen flex-col overflow-hidden bg-background text-foreground',
+          macDesktopWindowInset && 'pt-9',
           darkModeClasses,
           themeClassName,
         )}
@@ -1041,6 +1065,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
       <div
         className={cn(
           'flex h-screen flex-col overflow-hidden bg-background text-foreground',
+          macDesktopWindowInset && 'pt-9',
           darkModeClasses,
           themeClassName,
         )}
@@ -1077,6 +1102,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
     <div
       className={cn(
         'flex h-screen flex-col overflow-hidden bg-background text-foreground',
+        macDesktopWindowInset && 'pt-9',
         darkModeClasses,
         themeClassName,
       )}
@@ -1116,6 +1142,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
               activeFilePath={activeFilePath}
               onSelectFile={handleOpenFile}
               onCreateKnowledgeFile={handleCreateKnowledgeFile}
+              canCreateKnowledgeFile={workspaceAgentEnabled}
               searchInputRef={searchInputRef}
             />
           </div>
@@ -1141,6 +1168,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
             <ChatPanel
               key={workspace.activeSessionId ?? "no-session"}
               slug={slug}
+              attachmentsEnabled={workspaceAgentEnabled}
               sessions={uiSessions}
               messages={uiMessages}
               activeSessionId={workspace.activeSessionId}
@@ -1203,7 +1231,8 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
           >
             <InspectorPanel
               slug={slug}
-              activeTab={rightTab}
+              activeTab={effectiveRightTab}
+              workspaceAgentEnabled={workspaceAgentEnabled}
               onTabChange={setRightTab}
               rightCollapsed={rightCollapsed}
               onToggleRight={handleToggleRight}
@@ -1218,10 +1247,10 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
               diffsError={workspace.diffsError}
               onOpenFile={handleOpenFile}
               onReloadFile={handleReloadFile}
-              onSaveFile={handleSaveFile}
-              onDiscardFileChanges={handleDiscardFileChanges}
-              onPublish={handlePublishComplete}
-              onResolveConflict={handleResolveConflict}
+              onSaveFile={workspaceAgentEnabled ? handleSaveFile : undefined}
+              onDiscardFileChanges={workspaceAgentEnabled ? handleDiscardFileChanges : undefined}
+              onPublish={workspaceAgentEnabled ? handlePublishComplete : undefined}
+              onResolveConflict={workspaceAgentEnabled ? handleResolveConflict : undefined}
             />
           </div>
         </div>

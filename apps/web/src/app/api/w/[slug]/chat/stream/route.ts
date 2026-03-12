@@ -1,10 +1,12 @@
 import { NextRequest } from 'next/server'
-import { getAuthenticatedUser } from '@/lib/auth'
+
 import { extractPdfText, isPdfMime } from '@/lib/attachments/pdf-text-extractor'
 import { validateSameOrigin } from '@/lib/csrf'
-import { prisma } from '@/lib/prisma'
+import { getSession } from '@/lib/runtime/session'
+import { instanceService } from '@/lib/services'
 import { INITIAL_SSE_PARSE_STATE, parseSseChunk } from '@/lib/sse-parser'
 import { decryptPassword } from '@/lib/spawner/crypto'
+import { getInstanceUrl } from '@/lib/opencode/client'
 import {
   isValidContextReferencePath,
   normalizeAttachmentPath,
@@ -41,6 +43,14 @@ const MAX_CONTEXT_REFERENCES_PER_MESSAGE = 20
 const STREAM_RELEVANT_EVENT_TICK_MS = 1000
 const SEND_STREAM_RELEVANT_EVENT_TIMEOUT_MS = 20_000
 const RESUME_STREAM_RELEVANT_EVENT_TIMEOUT_MS = 12_000
+
+function isIgnorablePostResponseSessionError(errorMessage: unknown, assistantPartSeen: boolean): boolean {
+  if (!assistantPartSeen || typeof errorMessage !== 'string') {
+    return false
+  }
+
+  return errorMessage.trim().toLowerCase() === 'fetch failed'
+}
 
 function normalizeContextPaths(value: unknown): string[] {
   if (!Array.isArray(value)) return []
@@ -184,7 +194,7 @@ export async function POST(
   const { slug } = await params
 
   // Authenticate user
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) {
     return new Response(JSON.stringify({ error: 'unauthorized' }), {
       status: 401,
@@ -209,10 +219,7 @@ export async function POST(
   }
   
   // Get instance credentials
-  const instance = await prisma.instance.findUnique({
-    where: { slug },
-    select: { serverPassword: true, status: true }
-  })
+  const instance = await instanceService.findCredentialsBySlug(slug)
   
   if (!instance || !instance.serverPassword || instance.status !== 'running') {
     return new Response(JSON.stringify({ error: 'instance_unavailable' }), { 
@@ -252,7 +259,7 @@ export async function POST(
   
   const password = decryptPassword(instance.serverPassword)
   const authHeader = `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`
-  const baseUrl = `http://opencode-${slug}:4096`
+  const baseUrl = getInstanceUrl(slug)
   const workspaceAgentUrl = getWorkspaceAgentUrl(slug)
   
   // Create SSE stream
@@ -622,9 +629,16 @@ export async function POST(
                   case 'session.error': {
                     markRelevantEvent()
                     const error = event.properties?.error
+                    const errorMessage = error?.data?.message || 'Unknown error'
+
+                    if (isIgnorablePostResponseSessionError(errorMessage, assistantPartSeen)) {
+                      console.log('[stream] Ignoring post-response session error:', errorMessage)
+                      break
+                    }
+
                     console.log('[stream] Session error:', error)
-                    emitStatus('error', undefined, error?.data?.message || 'Unknown error')
-                    sendEvent('error', { error: error?.data?.message || 'Unknown error' })
+                    emitStatus('error', undefined, errorMessage)
+                    sendEvent('error', { error: errorMessage })
                     aborted = true
                     break
                   }

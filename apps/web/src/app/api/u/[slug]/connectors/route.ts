@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
-import { getAuthenticatedUser, auditEvent } from '@/lib/auth'
-import { validateSameOrigin } from '@/lib/csrf'
+
+import { auditEvent } from '@/lib/auth'
 import { decryptConfig, encryptConfig } from '@/lib/connectors/crypto'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
 import {
@@ -9,6 +8,9 @@ import {
   validateConnectorConfig,
   validateConnectorName,
 } from '@/lib/connectors/validators'
+import { validateSameOrigin } from '@/lib/csrf'
+import { getSession } from '@/lib/runtime/session'
+import { connectorService, userService } from '@/lib/services'
 
 export interface ConnectorListItem {
   id: string
@@ -39,7 +41,7 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
 ): Promise<NextResponse<{ connectors: ConnectorListItem[] } | { error: string }>> {
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
@@ -52,28 +54,14 @@ export async function GET(
   }
 
   // Get user by slug
-  const user = await prisma.user.findUnique({
-    where: { slug },
-    select: { id: true },
-  })
+  const user = await userService.findIdBySlug(slug)
 
   if (!user) {
     return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
   }
 
   // List connectors (without config)
-  const connectors = await prisma.connector.findMany({
-    where: { userId: user.id },
-    select: {
-      id: true,
-      type: true,
-      name: true,
-      enabled: true,
-      config: true,
-      createdAt: true,
-    },
-    orderBy: { createdAt: 'desc' },
-  })
+  const connectors = await connectorService.findManyByUserId(user.id)
 
   return NextResponse.json({
     connectors: connectors.filter((c) => validateConnectorType(c.type)).map((c) => {
@@ -139,7 +127,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
 ): Promise<NextResponse<ConnectorResponse | { error: string; message?: string }>> {
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
@@ -157,10 +145,7 @@ export async function POST(
   }
 
   // Get user
-  const user = await prisma.user.findUnique({
-    where: { slug },
-    select: { id: true },
-  })
+  const user = await userService.findIdBySlug(slug)
 
   if (!user) {
     return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
@@ -233,13 +218,7 @@ export async function POST(
   }
 
   if (type === 'linear' || type === 'notion') {
-    const existing = await prisma.connector.findFirst({
-      where: {
-        userId: user.id,
-        type,
-      },
-      select: { id: true },
-    })
+    const existing = await connectorService.findFirstByUserIdAndType(user.id, type)
 
     if (existing) {
       return NextResponse.json(
@@ -265,21 +244,12 @@ export async function POST(
   }
 
   // Create connector
-  const connector = await prisma.connector.create({
-    data: {
-      userId: user.id,
-      type,
-      name: name.trim(),
-      config: encryptedConfig,
-      enabled: true,
-    },
-    select: {
-      id: true,
-      type: true,
-      name: true,
-      enabled: true,
-      createdAt: true,
-    },
+  const connector = await connectorService.create({
+    userId: user.id,
+    type,
+    name: name.trim(),
+    config: encryptedConfig,
+    enabled: true,
   })
 
   // Audit log

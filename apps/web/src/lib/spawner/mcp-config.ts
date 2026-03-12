@@ -189,18 +189,12 @@ export function buildMcpConfigFromConnectors(
 }
 
 export async function buildMcpConfigForSlug(slug: string): Promise<McpConfig | null> {
-  const { prisma } = await import('@/lib/prisma')
+  const { userService, connectorService } = await import('@/lib/services')
 
-  const user = await prisma.user.findUnique({
-    where: { slug },
-    select: { id: true },
-  })
+  const user = await userService.findIdBySlug(slug)
   if (!user) return null
 
-  const connectors = await prisma.connector.findMany({
-    where: { userId: user.id, enabled: true },
-    select: { id: true, type: true, name: true, config: true, enabled: true },
-  })
+  const connectors = await connectorService.findEnabledMcpByUserId(user.id)
 
   const oauthGatewayTargets: Record<string, GatewayTarget> = {}
   const gatewayBase = getConnectorGatewayBaseUrl()

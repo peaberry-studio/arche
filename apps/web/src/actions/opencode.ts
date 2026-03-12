@@ -1,27 +1,26 @@
 "use server";
 
-import { cookies } from "next/headers";
-import { getSessionFromToken, SESSION_COOKIE_NAME } from "@/lib/auth";
-import { createInstanceClient } from "@/lib/opencode/client";
-import { prisma } from "@/lib/prisma";
+import { createInstanceClient, getInstanceUrl } from "@/lib/opencode/client";
+import { extractTextContent, transformParts } from "@/lib/opencode/transform";
+import type {
+  AvailableModel,
+  WorkspaceConnectionState,
+  WorkspaceFileContent,
+  WorkspaceFileNode,
+  WorkspaceMessage,
+  WorkspaceSession,
+} from "@/lib/opencode/types";
 import { getActiveCredentialForUser } from "@/lib/providers/store";
 import { PROVIDERS, type ProviderId } from "@/lib/providers/types";
+import { getSession } from "@/lib/runtime/session";
+import { instanceService, userService } from "@/lib/services";
 import { decryptPassword } from "@/lib/spawner/crypto";
+import { createWorkspaceAgentClient } from "@/lib/workspace-agent/client";
 import { deriveWorkspaceMessageRuntimeState } from "@/lib/workspace-message-state";
 import {
   isHiddenWorkspacePath,
   isProtectedWorkspacePath,
 } from "@/lib/workspace-paths";
-import { createWorkspaceAgentClient } from "@/lib/workspace-agent/client";
-import type {
-  WorkspaceFileNode,
-  WorkspaceFileContent,
-  WorkspaceSession,
-  WorkspaceMessage,
-  AvailableModel,
-  WorkspaceConnectionState,
-} from "@/lib/opencode/types";
-import { extractTextContent, transformParts } from "@/lib/opencode/transform";
 
 const CREDENTIAL_REQUIRED_PROVIDER_IDS = new Set<ProviderId>([
   "openai",
@@ -44,19 +43,8 @@ function extractUserTextContent(parts: ReturnType<typeof transformParts>): strin
   return firstText ? firstText.text : "";
 }
 
-// ============================================================================
-// Authentication helper
-// ============================================================================
-
-async function getAuthenticatedUser() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
-  if (!token) return null;
-  return getSessionFromToken(token);
-}
-
 async function getAuthorizedClient(slug: string) {
-  const session = await getAuthenticatedUser();
+  const session = await getSession();
   if (!session) return { error: "unauthorized" as const, client: null };
 
   if (session.user.slug !== slug && session.user.role !== "ADMIN") {
@@ -533,7 +521,7 @@ export async function sendMessageAction(
   });
 
   // Verify user is authorized
-  const session = await getAuthenticatedUser();
+  const session = await getSession();
   if (!session) {
     return { ok: false, error: "unauthorized" };
   }
@@ -543,10 +531,7 @@ export async function sendMessageAction(
 
   try {
     // Get credentials for direct fetch (bypassing SDK due to streaming issues)
-    const instance = await prisma.instance.findUnique({
-      where: { slug },
-      select: { serverPassword: true, status: true },
-    });
+    const instance = await instanceService.findCredentialsBySlug(slug);
 
     if (
       !instance ||
@@ -565,7 +550,7 @@ export async function sendMessageAction(
     const authHeader = `Basic ${Buffer.from(`opencode:${password}`).toString(
       "base64"
     )}`;
-    const baseUrl = `http://opencode-${slug}:4096`;
+    const baseUrl = getInstanceUrl(slug);
 
     console.log(
       "[sendMessageAction] Sending to:",
@@ -705,7 +690,7 @@ export async function getWorkspaceDiffsAction(slug: string): Promise<{
   diffs?: GitDiffEntry[];
   error?: string;
 }> {
-  const session = await getAuthenticatedUser();
+  const session = await getSession();
   if (!session) return { ok: false, error: "unauthorized" };
 
   if (session.user.slug !== slug && session.user.role !== "ADMIN") {
@@ -838,7 +823,7 @@ export async function listModelsAction(slug: string): Promise<{
   models?: AvailableModel[];
   error?: string;
 }> {
-  const session = await getAuthenticatedUser();
+  const session = await getSession();
   if (!session) return { ok: false, error: "unauthorized" };
 
   if (session.user.slug !== slug && session.user.role !== "ADMIN") {
@@ -848,12 +833,7 @@ export async function listModelsAction(slug: string): Promise<{
   const ownerUserId =
     session.user.slug === slug
       ? session.user.id
-      : (
-          await prisma.user.findUnique({
-            where: { slug },
-            select: { id: true },
-          })
-        )?.id;
+      : (await userService.findIdBySlug(slug))?.id;
 
   if (!ownerUserId) {
     return { ok: false, error: "user_not_found" };

@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/prisma'
+import { providerService } from '@/lib/services'
 import { encryptProviderSecret } from './crypto'
 import type { ProviderId } from './types'
 
@@ -18,21 +18,13 @@ export type CreateApiCredentialInput = {
 
 export async function createApiCredential(input: CreateApiCredentialInput): Promise<ProviderCredentialRecord> {
   const secret = encryptProviderSecret({ apiKey: input.apiKey })
-  return prisma.providerCredential.create({
-    data: {
-      userId: input.userId,
-      providerId: input.providerId,
-      type: 'api',
-      status: 'enabled',
-      version: input.version,
-      secret,
-    },
-    select: {
-      id: true,
-      type: true,
-      secret: true,
-      version: true,
-    },
+  return providerService.createCredential({
+    userId: input.userId,
+    providerId: input.providerId,
+    type: 'api',
+    status: 'enabled',
+    version: input.version,
+    secret,
   })
 }
 
@@ -44,20 +36,5 @@ export type ActiveCredentialInput = {
 export async function getActiveCredentialForUser(
   input: ActiveCredentialInput,
 ): Promise<ProviderCredentialRecord | null> {
-  return prisma.providerCredential.findFirst({
-    where: {
-      userId: input.userId,
-      providerId: input.providerId,
-      status: 'enabled',
-    },
-    orderBy: {
-      version: 'desc',
-    },
-    select: {
-      id: true,
-      type: true,
-      secret: true,
-      version: true,
-    },
-  })
+  return providerService.findActiveCredential(input.userId, input.providerId)
 }

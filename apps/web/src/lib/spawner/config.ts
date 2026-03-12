@@ -57,6 +57,4 @@ export function getKbContentHostPath(): string {
   return value
 }
 
-export function getUsersBasePath(): string {
-  return process.env.ARCHE_USERS_PATH || '/opt/arche/users'
-}
+

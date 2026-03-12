@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 
-import { getAuthenticatedUser } from '@/lib/auth'
+import { getSession } from '@/lib/runtime/session'
 import { validateSameOrigin } from '@/lib/csrf'
 import {
   ensureUniqueAttachmentFilename,
@@ -56,7 +56,7 @@ function normalizeAndValidateAttachmentPath(path: unknown): string | null {
 }
 
 async function getAuthorizedWorkspaceAgent(slug: string) {
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) {
     return { ok: false as const, response: jsonResponse(401, { error: 'unauthorized' }) }
   }

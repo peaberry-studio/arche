@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 
 import { KickstartWizard } from '@/components/kickstart/kickstart-wizard'
-import { getAuthenticatedUser } from '@/lib/auth'
+import { getSession } from '@/lib/runtime/session'
 import { getKickstartStatus } from '@/kickstart/status'
 
 export default async function KickstartPage({
@@ -9,7 +9,7 @@ export default async function KickstartPage({
 }: {
   params: Promise<{ slug: string }>
 }) {
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) {
     redirect('/login')
   }

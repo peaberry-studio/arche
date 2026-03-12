@@ -1,20 +1,12 @@
 'use server'
 
-import { cookies } from 'next/headers'
-import { getSessionFromToken, SESSION_COOKIE_NAME } from '@/lib/auth'
 import type { WorkspaceFileContent } from '@/lib/opencode/types'
+import { getSession } from '@/lib/runtime/session'
 import { isProtectedWorkspacePath } from '@/lib/workspace-paths'
 import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 
-async function getAuthenticatedUser() {
-  const cookieStore = await cookies()
-  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value
-  if (!token) return null
-  return getSessionFromToken(token)
-}
-
 async function authorizeWorkspace(slug: string) {
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) return { ok: false as const, error: 'unauthorized' as const }
   if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
     return { ok: false as const, error: 'forbidden' as const }

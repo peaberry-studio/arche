@@ -4,7 +4,7 @@ import { ConnectorsWidget } from '@/components/dashboard/connectors-widget'
 import { DashboardHero } from '@/components/dashboard/dashboard-hero'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { getAuthenticatedUser } from '@/lib/auth'
+import { getSession } from '@/lib/runtime/session'
 import {
   listRecentKbFileUpdates,
   readCommonWorkspaceConfig,
@@ -73,7 +73,7 @@ export default async function WorkspacePage({
 
   const [kickstartStatus, session] = await Promise.all([
     getKickstartStatus(),
-    getAuthenticatedUser(),
+    getSession(),
   ])
 
   const isAdmin = session?.user.role === 'ADMIN'

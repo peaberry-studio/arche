@@ -1,12 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('next/headers', () => ({
-  cookies: vi.fn(),
-}))
-
-vi.mock('@/lib/auth', () => ({
-  SESSION_COOKIE_NAME: 'arche_session',
-  getSessionFromToken: vi.fn(),
+vi.mock('@/lib/runtime/session', () => ({
+  getSession: vi.fn(),
 }))
 
 vi.mock('@/lib/opencode/client', () => ({
@@ -25,14 +20,12 @@ vi.mock('@/lib/providers/store', () => ({
   getActiveCredentialForUser: vi.fn(),
 }))
 
-import { cookies } from 'next/headers'
-import { getSessionFromToken } from '@/lib/auth'
+import { getSession } from '@/lib/runtime/session'
 import { createInstanceClient } from '@/lib/opencode/client'
 import { getActiveCredentialForUser } from '@/lib/providers/store'
 import { listModelsAction } from '../opencode'
 
-const mockCookies = vi.mocked(cookies)
-const mockGetSessionFromToken = vi.mocked(getSessionFromToken)
+const mockGetSession = vi.mocked(getSession)
 const mockCreateInstanceClient = vi.mocked(createInstanceClient)
 const mockGetActiveCredentialForUser = vi.mocked(getActiveCredentialForUser)
 
@@ -63,17 +56,16 @@ const providersResponse = {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockCookies.mockResolvedValue({
-    get: vi.fn(() => ({ name: 'arche_session', value: 'token-123' })),
-  } as never)
 
-  mockGetSessionFromToken.mockResolvedValue({
+  mockGetSession.mockResolvedValue({
     user: {
       id: 'user-1',
+      email: 'alice@test.com',
       slug: 'alice',
       role: 'USER',
     },
-  } as never)
+    sessionId: 'sess-1',
+  })
 
   mockCreateInstanceClient.mockResolvedValue({
     config: {

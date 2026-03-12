@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import argon2 from 'argon2'
-import { Prisma, UserRole } from '@prisma/client'
 
-import { auditEvent, getAuthenticatedUser } from '@/lib/auth'
+import { auditEvent } from '@/lib/auth'
 import { validateSameOrigin } from '@/lib/csrf'
-import { prisma } from '@/lib/prisma'
+import { getSession } from '@/lib/runtime/session'
+import { userService } from '@/lib/services'
 import { validateSlug } from '@/lib/validation/slug'
+
+type UserRole = 'ADMIN' | 'USER'
 
 type TeamUserListItem = {
   id: string
@@ -53,7 +55,7 @@ export async function GET(
 ): Promise<NextResponse<TeamListResponse | { error: string }>> {
   void request
 
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
@@ -64,19 +66,7 @@ export async function GET(
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
-  const users = await prisma.user.findMany({
-    select: {
-      id: true,
-      email: true,
-      slug: true,
-      role: true,
-      createdAt: true,
-    },
-    orderBy: [
-      { role: 'asc' },
-      { createdAt: 'desc' },
-    ],
-  })
+  const users = await userService.findTeamMembers()
 
   return NextResponse.json({
     users: users.map(toTeamUserListItem),
@@ -87,7 +77,7 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
 ): Promise<NextResponse<{ user: TeamUserListItem } | { error: string; message?: string }>> {
-  const session = await getAuthenticatedUser()
+  const session = await getSession()
   if (!session) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
@@ -123,7 +113,7 @@ export async function POST(
   const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''
   const userSlug = typeof body.slug === 'string' ? body.slug.trim().toLowerCase() : ''
   const password = typeof body.password === 'string' ? body.password : ''
-  const role = body.role === UserRole.ADMIN ? UserRole.ADMIN : body.role === UserRole.USER ? UserRole.USER : null
+  const role = body.role === 'ADMIN' ? 'ADMIN' : body.role === 'USER' ? 'USER' : null
 
   if (!email || !isValidEmail(email)) {
     return NextResponse.json({ error: 'invalid_email' }, { status: 400 })
@@ -142,15 +132,7 @@ export async function POST(
     return NextResponse.json({ error: 'invalid_role' }, { status: 400 })
   }
 
-  const existingUser = await prisma.user.findFirst({
-    where: {
-      OR: [{ email }, { slug: userSlug }],
-    },
-    select: {
-      email: true,
-      slug: true,
-    },
-  })
+  const existingUser = await userService.findExistingByEmailOrSlug(email, userSlug)
 
   if (existingUser) {
     const error = existingUser.email === email ? 'email_in_use' : 'slug_in_use'
@@ -160,20 +142,11 @@ export async function POST(
   const passwordHash = await argon2.hash(password)
 
   try {
-    const createdUser = await prisma.user.create({
-      data: {
-        email,
-        slug: userSlug,
-        role,
-        passwordHash,
-      },
-      select: {
-        id: true,
-        email: true,
-        slug: true,
-        role: true,
-        createdAt: true,
-      },
+    const createdUser = await userService.create({
+      email,
+      slug: userSlug,
+      role,
+      passwordHash,
     })
 
     await auditEvent({
@@ -189,7 +162,7 @@ export async function POST(
       { status: 201 }
     )
   } catch (err) {
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+    if (typeof err === 'object' && err !== null && 'code' in err && err.code === 'P2002') {
       return NextResponse.json({ error: 'user_exists' }, { status: 409 })
     }
 

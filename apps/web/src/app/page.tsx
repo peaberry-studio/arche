@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation";
 
-import { getAuthenticatedUser } from "@/lib/auth";
+import { getSession } from "@/lib/runtime/session";
 
 export default async function Home() {
-  const session = await getAuthenticatedUser();
+  const session = await getSession();
 
   if (!session) {
     redirect("/login");
