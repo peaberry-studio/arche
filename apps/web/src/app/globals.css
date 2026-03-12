@@ -788,3 +788,8 @@
     @apply outline-none ring-2 ring-ring/20 ring-offset-2 ring-offset-background;
   }
 }
+
+@keyframes cosmic-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
