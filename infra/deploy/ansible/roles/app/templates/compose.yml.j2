@@ -126,7 +126,7 @@ services:
       - {{ users_path | default('/opt/arche/users') }}:{{ users_path | default('/opt/arche/users') }}
       - {{ kb_content_host_path | default('/opt/arche/kb-content') }}:/kb-content
       - {{ kb_config_host_path | default('/opt/arche/kb-config') }}:/kb-config
-    command: sh -lc "apt-get update -y && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/* && corepack enable && pnpm config set store-dir /pnpm/store >/dev/null 2>&1 || true && pnpm install --prefer-offline --force && pnpm prisma generate && pnpm dev"
+    command: sh -lc "apt-get update -y && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/* && corepack enable && pnpm config set store-dir /pnpm/store >/dev/null 2>&1 || true && pnpm install --prefer-offline --force && pnpm prisma generate && WATCHPACK_POLLING=true pnpm next dev --webpack -H 0.0.0.0 -p 3000"
 {% endif %}
 
 networks:
