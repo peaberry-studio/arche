@@ -1410,13 +1410,15 @@ export function useWorkspace({
               terminalErrorDetail &&
               hydratedMessages.length === 0
             ) {
+              const fallbackTerminalErrorDetail = terminalErrorDetail;
+
               updateSessionMessages(sessionId, (prev) =>
                 prev.map((message) => {
                   if (message.id !== assistantMessageId) return message;
                   return {
                     ...message,
                     pending: false,
-                    statusInfo: { status: "error", detail: terminalErrorDetail },
+                    statusInfo: { status: "error", detail: fallbackTerminalErrorDetail },
                   };
                 })
               );
