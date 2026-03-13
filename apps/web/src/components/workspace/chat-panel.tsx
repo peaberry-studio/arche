@@ -2043,9 +2043,9 @@ export function ChatPanel({
         )}
 
         {isReadOnly ? (
-          <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-            <div className="flex items-center gap-2 text-amber-50/90">
-              <Info size={16} weight="fill" className="text-amber-300" />
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-100">
+            <div className="flex items-center gap-2 text-amber-800 dark:text-amber-50/90">
+              <Info size={16} weight="fill" className="text-amber-500 dark:text-amber-300" />
               <span>Subagent sessions are read-only. Return to the main conversation to continue chatting.</span>
             </div>
             {onReturnToMainConversation ? (
