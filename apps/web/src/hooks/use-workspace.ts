@@ -98,6 +98,10 @@ function getActiveSessionStorageKey(slug: string): string {
   return `arche.workspace.${slug}.active-session`;
 }
 
+function getSessionTitleOverridesStorageKey(slug: string): string {
+  return `arche.workspace.${slug}.session-title-overrides`;
+}
+
 function readStoredValue(storage: Storage, key: string): string | null {
   const value = storage.getItem(key);
   return value && value.trim().length > 0 ? value : null;
@@ -116,6 +120,30 @@ function loadStoredActiveSessionId(key: string): string | null {
   }
 }
 
+function loadStoredSessionTitleOverrides(key: string): Record<string, string> {
+  if (typeof window === "undefined") return {};
+
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return {};
+
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return {};
+
+    return Object.fromEntries(
+      Object.entries(parsed).filter(
+        (entry): entry is [string, string] =>
+          typeof entry[0] === "string" &&
+          typeof entry[1] === "string" &&
+          entry[0].trim().length > 0 &&
+          entry[1].trim().length > 0
+      )
+    );
+  } catch {
+    return {};
+  }
+}
+
 function persistActiveSessionId(key: string, sessionId: string | null): void {
   if (typeof window === "undefined") return;
 
@@ -131,6 +159,62 @@ function persistActiveSessionId(key: string, sessionId: string | null): void {
   } catch {
     // Ignore storage access errors.
   }
+}
+
+function persistSessionTitleOverrides(
+  key: string,
+  overrides: Record<string, string>
+): void {
+  if (typeof window === "undefined") return;
+
+  try {
+    if (Object.keys(overrides).length === 0) {
+      window.localStorage.removeItem(key);
+      return;
+    }
+
+    window.localStorage.setItem(key, JSON.stringify(overrides));
+  } catch {
+    // Ignore storage access errors.
+  }
+}
+
+function applySessionTitleOverrides(
+  sessions: WorkspaceSession[],
+  overrides: Record<string, string>
+): WorkspaceSession[] {
+  let changed = false;
+
+  const nextSessions = sessions.map((session) => {
+    const overrideTitle = overrides[session.id]?.trim();
+    if (!overrideTitle || overrideTitle === session.title) {
+      return session;
+    }
+
+    changed = true;
+    return { ...session, title: overrideTitle };
+  });
+
+  return changed ? nextSessions : sessions;
+}
+
+function pruneSessionTitleOverrides(
+  overrides: Record<string, string>,
+  sessionIds: Set<string>
+): Record<string, string> {
+  let changed = false;
+  const nextOverrides: Record<string, string> = {};
+
+  for (const [sessionId, title] of Object.entries(overrides)) {
+    if (!sessionIds.has(sessionId)) {
+      changed = true;
+      continue;
+    }
+
+    nextOverrides[sessionId] = title;
+  }
+
+  return changed ? nextOverrides : overrides;
 }
 
 function normalizeAgentId(value: string): string {
@@ -291,6 +375,7 @@ export function useWorkspace({
   enabled = true,
 }: UseWorkspaceOptions): UseWorkspaceReturn {
   const activeSessionStorageKey = getActiveSessionStorageKey(slug);
+  const sessionTitleOverridesStorageKey = getSessionTitleOverridesStorageKey(slug);
 
   // --- Sub-hooks ---
   // onConnectedRef holds the real init callback. We declare it as a ref so
@@ -313,6 +398,9 @@ export function useWorkspace({
 
   // Sessions
   const [sessions, setSessions] = useState<WorkspaceSession[]>([]);
+  const [sessionTitleOverrides, setSessionTitleOverrides] = useState<Record<string, string>>(() =>
+    loadStoredSessionTitleOverrides(sessionTitleOverridesStorageKey)
+  );
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
 
@@ -333,6 +421,8 @@ export function useWorkspace({
   activeSessionIdRef.current = activeSessionId;
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
+  const sessionTitleOverridesRef = useRef(sessionTitleOverrides);
+  sessionTitleOverridesRef.current = sessionTitleOverrides;
   const streamCounterRef = useRef(0);
   const activeStreamsRef = useRef(new Map<string, {
     token: number;
@@ -651,9 +741,16 @@ export function useWorkspace({
         result.sessions?.length
       );
       if (result.ok && result.sessions) {
-        setSessions(result.sessions);
-        const sessions = result.sessions;
+        const sessions = applySessionTitleOverrides(
+          result.sessions,
+          sessionTitleOverridesRef.current
+        );
+
+        setSessions(sessions);
         const sessionIds = new Set(sessions.map((session) => session.id));
+        setSessionTitleOverrides((prev) =>
+          pruneSessionTitleOverrides(prev, sessionIds)
+        );
         setSessionSelectionState((prev) => {
           let changed = false;
           const next: Record<string, SessionSelectionState> = {};
@@ -781,6 +878,13 @@ export function useWorkspace({
         setLoadingMessageSessionIds((prev) => prev.filter((sessionId) => sessionId !== id));
         setSessionStreamStatusTo(id, "ready");
         clearSessionSelectionState(id);
+        setSessionTitleOverrides((prev) => {
+          if (!(id in prev)) return prev;
+
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
         sessionExecutorsRef.current.delete(id);
         return true;
       }
@@ -791,10 +895,25 @@ export function useWorkspace({
 
   const renameSession = useCallback(
     async (id: string, title: string) => {
-      const result = await updateSessionAction(slug, id, title);
-      if (result.ok && result.session) {
+      const nextTitle = title.trim();
+      if (!nextTitle) return false;
+
+      const result = await updateSessionAction(slug, id, nextTitle);
+      if (result.ok) {
+        setSessionTitleOverrides((prev) => {
+          if (prev[id] === nextTitle) return prev;
+          return { ...prev, [id]: nextTitle };
+        });
         setSessions((prev) =>
-          prev.map((s) => (s.id === id ? result.session! : s))
+          prev.map((session) => {
+            if (session.id !== id) return session;
+
+            return {
+              ...session,
+              ...(result.session ?? {}),
+              title: nextTitle,
+            };
+          })
         );
         return true;
       }
@@ -1738,6 +1857,14 @@ export function useWorkspace({
   useEffect(() => {
     persistActiveSessionId(activeSessionStorageKey, activeSessionId);
   }, [activeSessionId, activeSessionStorageKey]);
+
+  useEffect(() => {
+    setSessionTitleOverrides(loadStoredSessionTitleOverrides(sessionTitleOverridesStorageKey));
+  }, [sessionTitleOverridesStorageKey]);
+
+  useEffect(() => {
+    persistSessionTitleOverrides(sessionTitleOverridesStorageKey, sessionTitleOverrides);
+  }, [sessionTitleOverrides, sessionTitleOverridesStorageKey]);
 
   // Load messages when active session changes
   useEffect(() => {

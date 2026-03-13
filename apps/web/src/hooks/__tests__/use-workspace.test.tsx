@@ -195,6 +195,50 @@ describe("useWorkspace", () => {
     expect(result.current.agentDefaultModel?.modelId).toBe("gpt-5.4");
   });
 
+  it("keeps the requested manual title when the OpenCode update response is stale", async () => {
+    opencodeMocks.updateSessionAction.mockResolvedValue({
+      ok: true,
+      session: { id: "s1", title: "Existing", status: "idle", updatedAt: "later" },
+    });
+
+    const { result } = renderHook(() =>
+      useWorkspace({ slug: "alice", pollInterval: 0 })
+    );
+
+    await waitFor(() => {
+      expect(result.current.sessions[0]?.title).toBe("Existing");
+    });
+
+    await act(async () => {
+      await result.current.renameSession("s1", "Release plan");
+    });
+
+    await waitFor(() => {
+      expect(result.current.sessions[0]?.title).toBe("Release plan");
+    });
+
+    expect(
+      JSON.parse(
+        localStorage.getItem("arche.workspace.alice.session-title-overrides") ?? "{}"
+      )
+    ).toEqual({ s1: "Release plan" });
+  });
+
+  it("reapplies stored manual session titles when sessions are reloaded", async () => {
+    localStorage.setItem(
+      "arche.workspace.alice.session-title-overrides",
+      JSON.stringify({ s1: "Pinned title" })
+    );
+
+    const { result } = renderHook(() =>
+      useWorkspace({ slug: "alice", pollInterval: 0 })
+    );
+
+    await waitFor(() => {
+      expect(result.current.sessions[0]?.title).toBe("Pinned title");
+    });
+  });
+
   it("keeps manual model selection scoped to each session", async () => {
     opencodeMocks.listSessionsAction.mockResolvedValue({
       ok: true,
