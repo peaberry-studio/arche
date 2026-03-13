@@ -196,6 +196,17 @@ describe("useWorkspace", () => {
   });
 
   it("keeps the requested manual title when the OpenCode update response is stale", async () => {
+    opencodeMocks.listSessionsAction.mockReset();
+    opencodeMocks.listSessionsAction
+      .mockResolvedValueOnce({
+        ok: true,
+        sessions: [{ id: "s1", title: "Existing", status: "idle", updatedAt: "now" }],
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        sessions: [{ id: "s1", title: "Release plan", status: "idle", updatedAt: "later" }],
+      });
+
     opencodeMocks.updateSessionAction.mockResolvedValue({
       ok: true,
       session: { id: "s1", title: "Existing", status: "idle", updatedAt: "later" },
@@ -216,27 +227,69 @@ describe("useWorkspace", () => {
     await waitFor(() => {
       expect(result.current.sessions[0]?.title).toBe("Release plan");
     });
-
-    expect(
-      JSON.parse(
-        localStorage.getItem("arche.workspace.alice.session-title-overrides") ?? "{}"
-      )
-    ).toEqual({ s1: "Release plan" });
   });
 
-  it("reapplies stored manual session titles when sessions are reloaded", async () => {
-    localStorage.setItem(
-      "arche.workspace.alice.session-title-overrides",
-      JSON.stringify({ s1: "Pinned title" })
-    );
+  it("ignores stale session loads that started before a rename mutation", async () => {
+    let resolveStaleSessions:
+      | ((value: { ok: boolean; sessions: Array<{ id: string; title: string; status: string; updatedAt: string }> }) => void)
+      | null = null;
+
+    opencodeMocks.listSessionsAction.mockReset();
+    opencodeMocks.listSessionsAction
+      .mockResolvedValueOnce({
+        ok: true,
+        sessions: [{ id: "s1", title: "Existing", status: "idle", updatedAt: "now" }],
+      })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveStaleSessions = resolve;
+          })
+      )
+      .mockResolvedValueOnce({
+        ok: true,
+        sessions: [{ id: "s1", title: "Release plan", status: "idle", updatedAt: "fresh" }],
+      });
+
+    opencodeMocks.updateSessionAction.mockResolvedValue({
+      ok: true,
+      session: { id: "s1", title: "Release plan", status: "idle", updatedAt: "fresh" },
+    });
 
     const { result } = renderHook(() =>
-      useWorkspace({ slug: "alice", pollInterval: 0 })
+      useWorkspace({ slug: "alice", pollInterval: 1000 })
     );
 
     await waitFor(() => {
-      expect(result.current.sessions[0]?.title).toBe("Pinned title");
+      expect(result.current.sessions[0]?.title).toBe("Existing");
     });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+    });
+
+    await waitFor(() => {
+      expect(opencodeMocks.listSessionsAction).toHaveBeenCalledTimes(2);
+    }, { timeout: 2000 });
+
+    await act(async () => {
+      await result.current.renameSession("s1", "Release plan");
+    });
+
+    await waitFor(() => {
+      expect(opencodeMocks.listSessionsAction).toHaveBeenCalledTimes(3);
+      expect(result.current.sessions[0]?.title).toBe("Release plan");
+    }, { timeout: 2000 });
+
+    await act(async () => {
+      resolveStaleSessions?.({
+        ok: true,
+        sessions: [{ id: "s1", title: "Existing", status: "idle", updatedAt: "stale" }],
+      });
+      await Promise.resolve();
+    });
+
+    expect(result.current.sessions[0]?.title).toBe("Release plan");
   });
 
   it("keeps manual model selection scoped to each session", async () => {
