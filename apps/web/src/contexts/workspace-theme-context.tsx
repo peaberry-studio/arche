@@ -37,7 +37,7 @@ export const WORKSPACE_THEMES: Record<WorkspaceThemeId, WorkspaceTheme> = {
   "warm-sand": {
     id: "warm-sand",
     name: "Sand",
-    swatch: "hsl(24 85% 48%)",
+    swatch: "hsl(24 55% 58%)",
   },
   "ocean-mist": {
     id: "ocean-mist",

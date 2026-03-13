@@ -56,51 +56,51 @@
 
 :root {
   --radius: 0.625rem;
-  /* Base background for outer shell – warm off-white, less bright */
-  --background: 40 22% 94%;
+  /* Base background – warm cream, easier on the eyes */
+  --background: 36 28% 91%;
   /* Main text with strong contrast */
   --foreground: 20 15% 12%;
   /* Mid surface: side panels, header, footer */
-  --surface: 35 18% 90%;
+  --surface: 34 22% 87%;
   --surface-foreground: 20 15% 15%;
-  /* Cards / main panel: tinted, no longer near-pure-white */
-  --card: 40 20% 96%;
+  /* Cards / main panel: warm cream, not pure-white */
+  --card: 38 24% 93%;
   --card-foreground: 20 15% 12%;
-  --popover: 40 16% 97%;
+  --popover: 38 20% 94%;
   --popover-foreground: 20 15% 12%;
-  /* Primary tangerine */
-  --primary: 24 85% 48%;
-  --primary-foreground: 24 30% 10%;
+  /* Primary – soft peach-orange (pastel) */
+  --primary: 24 55% 58%;
+  --primary-foreground: 24 40% 14%;
   /* Warm secondary */
-  --secondary: 30 16% 91%;
+  --secondary: 30 16% 88%;
   --secondary-foreground: 20 15% 20%;
   /* Muted with better contrast */
-  --muted: 30 14% 90%;
+  --muted: 30 14% 87%;
   --muted-foreground: 20 12% 38%;
-  /* Accent – visible tint against background */
-  --accent: 28 32% 86%;
+  /* Accent – soft warm tint */
+  --accent: 28 28% 84%;
   --accent-foreground: 20 15% 18%;
   --destructive: 0 70% 50%;
   --destructive-foreground: 0 0% 100%;
   /* Tinted borders */
-  --border: 30 12% 80%;
-  --input: 30 12% 80%;
-  --ring: 24 85% 48%;
+  --border: 30 12% 78%;
+  --input: 30 12% 78%;
+  --ring: 24 55% 58%;
   /* Charts */
-  --chart-1: 24 85% 48%;
-  --chart-2: 12 65% 45%;
-  --chart-3: 40 55% 45%;
-  --chart-4: 18 55% 35%;
-  --chart-5: 32 60% 55%;
+  --chart-1: 24 55% 58%;
+  --chart-2: 12 45% 52%;
+  --chart-3: 40 40% 52%;
+  --chart-4: 18 40% 42%;
+  --chart-5: 32 45% 58%;
   /* Sidebar */
-  --sidebar: 40 22% 94%;
+  --sidebar: 36 28% 91%;
   --sidebar-foreground: 20 15% 12%;
-  --sidebar-primary: 24 85% 48%;
-  --sidebar-primary-foreground: 24 30% 10%;
-  --sidebar-accent: 30 22% 85%;
+  --sidebar-primary: 24 55% 58%;
+  --sidebar-primary-foreground: 24 40% 14%;
+  --sidebar-accent: 30 22% 83%;
   --sidebar-accent-foreground: 20 15% 20%;
-  --sidebar-border: 30 14% 83%;
-  --sidebar-ring: 24 85% 48%;
+  --sidebar-border: 30 14% 80%;
+  --sidebar-ring: 24 55% 58%;
   --grid-line: hsl(20 15% 12% / 0.22);
 }
 
@@ -114,7 +114,7 @@
   --card-foreground: 0 0% 92%;
   --popover: 0 0% 10%;
   --popover-foreground: 0 0% 92%;
-  --primary: 24 85% 55%;
+  --primary: 24 55% 62%;
   --primary-foreground: 0 0% 8%;
   --secondary: 0 0% 15%;
   --secondary-foreground: 0 0% 92%;
@@ -126,34 +126,34 @@
   --destructive-foreground: 0 0% 100%;
   --border: 0 0% 20%;
   --input: 0 0% 20%;
-  --ring: 24 80% 50%;
-  --chart-1: 24 85% 55%;
-  --chart-2: 12 65% 50%;
-  --chart-3: 40 55% 50%;
-  --chart-4: 18 50% 42%;
-  --chart-5: 32 60% 60%;
+  --ring: 24 50% 56%;
+  --chart-1: 24 55% 62%;
+  --chart-2: 12 45% 55%;
+  --chart-3: 40 40% 55%;
+  --chart-4: 18 40% 48%;
+  --chart-5: 32 45% 62%;
   --sidebar: 0 0% 9%;
   --sidebar-foreground: 0 0% 92%;
-  --sidebar-primary: 24 85% 55%;
+  --sidebar-primary: 24 55% 62%;
   --sidebar-primary-foreground: 0 0% 8%;
   --sidebar-accent: 0 0% 18%;
   --sidebar-accent-foreground: 0 0% 92%;
   --sidebar-border: 0 0% 20%;
-  --sidebar-ring: 24 80% 50%;
+  --sidebar-ring: 24 50% 56%;
   --grid-line: hsl(0 0% 92% / 0.18);
 }
 
 /* Theme-specific palettes */
 .theme-warm-sand {
-  --primary: 24 85% 48%;
-  --primary-foreground: 24 30% 10%;
-  --accent: 28 30% 87%;
+  --primary: 24 55% 58%;
+  --primary-foreground: 24 40% 14%;
+  --accent: 28 28% 84%;
   --accent-foreground: 20 15% 18%;
-  --ring: 24 85% 48%;
-  --chart-1: 24 85% 48%;
-  --sidebar-primary: 24 85% 48%;
-  --sidebar-primary-foreground: 24 30% 10%;
-  --sidebar-ring: 24 85% 48%;
+  --ring: 24 55% 58%;
+  --chart-1: 24 55% 58%;
+  --sidebar-primary: 24 55% 58%;
+  --sidebar-primary-foreground: 24 40% 14%;
+  --sidebar-ring: 24 55% 58%;
 }
 
 .theme-ocean-mist {

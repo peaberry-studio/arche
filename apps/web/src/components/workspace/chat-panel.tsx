@@ -718,22 +718,22 @@ function ToolGroup({
           setIsOpen(prev => !prev);
         }}
         className={cn(
-          "flex w-full items-center gap-2 px-3 py-2 text-xs",
+          "flex w-full items-start gap-2 px-3 py-2 text-xs",
           canExpand ? "cursor-pointer" : "cursor-default"
         )}
       >
-        <div className="flex min-w-0 items-center gap-2">
-          {isRunning && <SpinnerGap size={12} className="animate-spin text-primary" />}
-          {!isRunning && isError && <XCircle size={12} weight="fill" className="text-destructive" />}
-          {!isRunning && !isError && <CheckCircle size={12} weight="fill" className="text-primary" />}
-          <span className="font-medium">{toolLabel}</span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            {isRunning && <SpinnerGap size={12} className="animate-spin text-primary" />}
+            {!isRunning && isError && <XCircle size={12} weight="fill" className="text-destructive" />}
+            {!isRunning && !isError && <CheckCircle size={12} weight="fill" className="text-primary" />}
+            <span className="shrink-0 whitespace-nowrap font-medium">{toolLabel}</span>
+          </div>
           {showSummary && (
-            <span className="min-w-0 truncate text-muted-foreground">
-              {summary}
-            </span>
+            <p className="mt-0.5 truncate pl-5 text-muted-foreground">{summary}</p>
           )}
         </div>
-        <div className="ml-auto flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           {totalCount > 1 && (
             <span className="chat-text-micro text-muted-foreground">
               {completedCount > 0 ? `${completedCount} done` : ""}
