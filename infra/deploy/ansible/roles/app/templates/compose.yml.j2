@@ -103,10 +103,13 @@ services:
     restart: unless-stopped
     env_file:
       - {{ env_file_name | default('.env') }}
+    ports:
+      - "3000:3000"
     environment:
       ARCHE_GATEWAY_TOKEN_SECRET: "${ARCHE_GATEWAY_TOKEN_SECRET}"
       ARCHE_GATEWAY_TOKEN_TTL_SECONDS: "${ARCHE_GATEWAY_TOKEN_TTL_SECONDS}"
       ARCHE_GATEWAY_BASE_URL: "${ARCHE_GATEWAY_BASE_URL}"
+      WATCHPACK_POLLING: "true"
     networks:
       - default
       - arche-internal
