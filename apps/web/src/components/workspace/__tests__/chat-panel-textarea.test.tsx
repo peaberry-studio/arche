@@ -124,6 +124,35 @@ describe("ChatPanel textarea", () => {
     });
   });
 
+  it("allows typing during streaming but keeps Enter from sending", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ attachments: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const onSendMessage = vi.fn().mockResolvedValue(true);
+    const onAbortMessage = vi.fn();
+
+    renderChatPanel(onSendMessage, {
+      isSending: true,
+      onAbortMessage,
+    });
+
+    const textarea = getTextarea();
+
+    expect(textarea.disabled).toBe(false);
+    expect(screen.getByRole("button", { name: "Cancel response" })).toBeTruthy();
+
+    fireEvent.change(textarea, { target: { value: "next prompt draft" } });
+
+    expect(textarea.value).toBe("next prompt draft");
+
+    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
+
+    expect(onSendMessage).not.toHaveBeenCalled();
+  });
+
   it("uploads a pasted image and sends it without requiring text", async () => {
     const attachmentStore: MockAttachment[] = [];
     const uploadedAttachment: MockAttachment = {

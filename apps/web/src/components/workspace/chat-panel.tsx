@@ -2209,7 +2209,7 @@ export function ChatPanel({
             onPaste={handleTextareaPaste}
             className="max-h-[200px] flex-1 resize-none bg-transparent px-1.5 py-1.5 text-sm leading-5 text-foreground outline-none placeholder:text-muted-foreground/60"
             placeholder="Type a message..."
-            disabled={isSending || isStartingNewSession || !onSendMessage}
+            disabled={isStartingNewSession || !onSendMessage}
             rows={1}
           />
           <Button
