@@ -59,6 +59,10 @@ describe("ChatPanel interactions", () => {
   });
 
   it("renames the active session inline from the session menu", async () => {
+    const renameSessionSpy = vi.fn(async (id: string, title: string) => {
+      return { id, title };
+    });
+
     function Harness() {
       const [sessions, setSessions] = useState(baseSessions);
 
@@ -73,6 +77,7 @@ describe("ChatPanel interactions", () => {
             onCloseSession={() => {}}
             onOpenFile={() => {}}
             onRenameSession={async (id, title) => {
+              await renameSessionSpy(id, title);
               setSessions((previous) =>
                 previous.map((session) =>
                   session.id === id ? { ...session, title } : session
@@ -92,8 +97,18 @@ describe("ChatPanel interactions", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: /rename session/i }));
 
     const input = screen.getByRole("textbox", { name: /session title/i });
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(input);
+    });
+
     fireEvent.change(input, { target: { value: "Release plan" } });
     fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(renameSessionSpy).toHaveBeenCalledTimes(1);
+      expect(renameSessionSpy).toHaveBeenCalledWith("s1", "Release plan");
+    });
 
     await waitFor(() => {
       expect(screen.getByText("Release plan")).toBeTruthy();

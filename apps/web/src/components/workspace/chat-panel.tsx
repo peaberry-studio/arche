@@ -1116,6 +1116,8 @@ export function ChatPanel({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const preventSessionMenuAutoFocusRef = useRef(false);
+  const ignoreNextTitleBlurRef = useRef(false);
   const [inputValue, setInputValue] = useState("");
   const [modelSearch, setModelSearch] = useState("");
   const [attachments, setAttachments] = useState<WorkspaceAttachment[]>([]);
@@ -1180,16 +1182,17 @@ export function ChatPanel({
   const startSessionRename = useCallback(() => {
     if (!activeSession || !onRenameSession) return;
 
+    preventSessionMenuAutoFocusRef.current = true;
     setEditingSessionId(activeSession.id);
     setDraftTitle(activeSession.title);
     setRenameError(null);
   }, [activeSession, onRenameSession]);
 
-  const submitSessionRename = useCallback(async () => {
+  const submitSessionRename = useCallback(async (rawTitle?: string) => {
     if (!activeSession || !onRenameSession || isSavingTitle) return;
     if (editingSessionId !== activeSession.id) return;
 
-    const nextTitle = draftTitle.trim();
+    const nextTitle = (rawTitle ?? titleInputRef.current?.value ?? draftTitle).trim();
     if (!nextTitle || nextTitle === activeSession.title) {
       cancelSessionRename();
       return;
@@ -1223,7 +1226,11 @@ export function ChatPanel({
     (event: ReactKeyboardEvent<HTMLInputElement>) => {
       if (event.key === "Enter") {
         event.preventDefault();
-        void submitSessionRename();
+        ignoreNextTitleBlurRef.current = true;
+        requestAnimationFrame(() => {
+          ignoreNextTitleBlurRef.current = false;
+        });
+        void submitSessionRename(event.currentTarget.value);
         return;
       }
 
@@ -1789,8 +1796,13 @@ export function ChatPanel({
                       <input
                         ref={titleInputRef}
                         value={draftTitle}
-                        onBlur={() => {
-                          void submitSessionRename();
+                        onBlur={(event) => {
+                          if (ignoreNextTitleBlurRef.current) {
+                            ignoreNextTitleBlurRef.current = false;
+                            return;
+                          }
+
+                          void submitSessionRename(event.currentTarget.value);
                         }}
                         onChange={(event) => {
                           setDraftTitle(event.target.value);
@@ -1843,8 +1855,13 @@ export function ChatPanel({
               <input
                 ref={titleInputRef}
                 value={draftTitle}
-                onBlur={() => {
-                  void submitSessionRename();
+                onBlur={(event) => {
+                  if (ignoreNextTitleBlurRef.current) {
+                    ignoreNextTitleBlurRef.current = false;
+                    return;
+                  }
+
+                  void submitSessionRename(event.currentTarget.value);
                 }}
                 onChange={(event) => {
                   setDraftTitle(event.target.value);
@@ -1879,7 +1896,16 @@ export function ChatPanel({
                 <DotsThree size={16} weight="bold" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" sideOffset={4}>
+            <DropdownMenuContent
+              align="end"
+              sideOffset={4}
+              onCloseAutoFocus={(event) => {
+                if (!preventSessionMenuAutoFocusRef.current) return;
+
+                event.preventDefault();
+                preventSessionMenuAutoFocusRef.current = false;
+              }}
+            >
               {onRenameSession ? (
                 <DropdownMenuItem onSelect={startSessionRename}>
                   <PencilSimple size={14} />
