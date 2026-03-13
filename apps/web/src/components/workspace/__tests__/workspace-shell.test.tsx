@@ -20,11 +20,8 @@ vi.mock("@/actions/spawner", () => ({
 
 vi.mock("@/contexts/workspace-theme-context", () => ({
   useWorkspaceTheme: () => ({
-    theme: {
-      id: "test",
-      isDark: false,
-      darkVariant: "midnight",
-    },
+    themeId: "warm-sand",
+    isDark: false,
   }),
 }));
 

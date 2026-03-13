@@ -957,13 +957,11 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
   }, [leftCollapsed, leftWidth]);
 
   // Get theme from context
-  const { theme } = useWorkspaceTheme();
+  const { themeId, isDark } = useWorkspaceTheme();
 
-  // Build dark mode classes based on theme variant
-  const darkModeClasses = theme.isDark
-    ? `dark dark-${theme.darkVariant}`
-    : "";
-  const themeClassName = `theme-${theme.id}`;
+  // Build theme classes
+  const darkModeClasses = isDark ? "dark" : "";
+  const themeClassName = `theme-${themeId}`;
 
   // Loading screen while instance is starting
   if (instanceStatus !== 'running') {

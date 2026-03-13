@@ -10,12 +10,14 @@ import {
   GearSix,
   MagnifyingGlass,
   Minus,
+  Moon,
   Palette,
   Plugs,
   Plus,
   Robot,
   ArrowLineLeft,
   SlidersHorizontal,
+  Sun,
   X,
 } from "@phosphor-icons/react";
 
@@ -286,6 +288,8 @@ function MinifiedLeftPanel({
     themes,
     themeId,
     setThemeId,
+    isDark,
+    toggleDark,
     chatFontFamily,
     setChatFontFamily,
     chatFontSize,
@@ -294,11 +298,6 @@ function MinifiedLeftPanel({
     canIncreaseChatFontSize,
     canDecreaseChatFontSize,
   } = useWorkspaceTheme();
-
-  const { lightThemes, darkThemes } = useMemo(() => ({
-    lightThemes: themes.filter((t) => !t.isDark),
-    darkThemes: themes.filter((t) => t.isDark),
-  }), [themes]);
 
   return (
     <TooltipProvider delayDuration={400}>
@@ -412,34 +411,39 @@ function MinifiedLeftPanel({
             <TooltipContent side="right">Change theme</TooltipContent>
           </Tooltip>
           <DropdownMenuContent side="right" align="end" className="min-w-[220px]">
-            <DropdownMenuLabel className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Light</DropdownMenuLabel>
-            {lightThemes.map((t) => (
-              <DropdownMenuItem key={t.id} onClick={() => setThemeId(t.id)} className={cn("flex items-center gap-3", themeId === t.id && "bg-primary/10")}>
-                <div className="flex h-5 w-8 overflow-hidden rounded-md border border-border/50">
-                  <div className="w-1/2" style={{ backgroundColor: t.swatches[0] }} />
-                  <div className="w-1/2" style={{ backgroundColor: t.swatches[1] }} />
-                </div>
-                <span className="text-sm">{t.name}</span>
-                {themeId === t.id && <span className="ml-auto text-[10px] text-primary">Active</span>}
-              </DropdownMenuItem>
-            ))}
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Dark</DropdownMenuLabel>
-            {darkThemes.map((t) => (
-              <DropdownMenuItem key={t.id} onClick={() => setThemeId(t.id)} className={cn("flex items-center gap-3", themeId === t.id && "bg-primary/10")}>
-                <div className="flex h-5 w-8 overflow-hidden rounded-md border border-border/50">
-                  <div className="w-1/2" style={{ backgroundColor: t.swatches[0] }} />
-                  <div className="w-1/2" style={{ backgroundColor: t.swatches[1] }} />
-                </div>
-                <span className="text-sm">{t.name}</span>
-                {themeId === t.id && <span className="ml-auto text-[10px] text-primary">Active</span>}
-              </DropdownMenuItem>
-            ))}
+            <DropdownMenuLabel className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Theme</DropdownMenuLabel>
+            <div className="flex items-center gap-1.5 px-2 py-1.5">
+              {themes.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setThemeId(t.id)}
+                  className={cn(
+                    "flex h-7 w-7 items-center justify-center rounded-full border-2 transition-all",
+                    themeId === t.id ? "border-foreground" : "border-transparent hover:scale-110",
+                  )}
+                  aria-label={t.name}
+                  title={t.name}
+                >
+                  <div className="h-5 w-5 rounded-full" style={{ backgroundColor: t.swatch }} />
+                </button>
+              ))}
+              <div className="mx-0.5 h-5 w-px bg-border/60" />
+              <button
+                type="button"
+                onClick={toggleDark}
+                className="relative flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground hover:bg-foreground/5"
+                aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+                title={isDark ? "Light mode" : "Dark mode"}
+              >
+                <Sun size={14} weight="bold" className={cn("absolute transition-all duration-300", isDark ? "rotate-90 scale-0 opacity-0" : "rotate-0 scale-100 opacity-100")} />
+                <Moon size={14} weight="bold" className={cn("absolute transition-all duration-300", isDark ? "rotate-0 scale-100 opacity-100" : "-rotate-90 scale-0 opacity-0")} />
+              </button>
+            </div>
             <DropdownMenuSeparator />
             <div className="px-2 py-1.5">
-              <div className="mb-2 flex items-center justify-between gap-3">
+              <div className="mb-2">
                 <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Font style</span>
-                <span className="text-xs font-medium text-foreground/80">{chatFontFamily === "sans" ? "Sans" : "Serif"}</span>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <Button type="button" size="sm" variant={chatFontFamily === "sans" ? "secondary" : "outline"} className="h-8" onClick={() => setChatFontFamily("sans")}>Sans</Button>
@@ -615,6 +619,8 @@ function ExpandedLeftPanel({
     themes,
     themeId,
     setThemeId,
+    isDark,
+    toggleDark,
     chatFontFamily,
     setChatFontFamily,
     chatFontSize,
@@ -623,11 +629,6 @@ function ExpandedLeftPanel({
     canIncreaseChatFontSize,
     canDecreaseChatFontSize,
   } = useWorkspaceTheme();
-
-  const { lightThemes, darkThemes } = useMemo(() => ({
-    lightThemes: themes.filter((t) => !t.isDark),
-    darkThemes: themes.filter((t) => t.isDark),
-  }), [themes]);
 
   // Connectors / providers
   const [connectors, setConnectors] = useState<ConnectorSummary[]>([]);
@@ -1171,34 +1172,39 @@ function ExpandedLeftPanel({
               <TooltipContent side="top">Change theme</TooltipContent>
             </Tooltip>
             <DropdownMenuContent side="top" align="start" className="min-w-[220px]">
-              <DropdownMenuLabel className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Light</DropdownMenuLabel>
-              {lightThemes.map((t) => (
-                <DropdownMenuItem key={t.id} onClick={() => setThemeId(t.id)} className={cn("flex items-center gap-3", themeId === t.id && "bg-primary/10")}>
-                  <div className="flex h-5 w-8 overflow-hidden rounded-md border border-border/50">
-                    <div className="w-1/2" style={{ backgroundColor: t.swatches[0] }} />
-                    <div className="w-1/2" style={{ backgroundColor: t.swatches[1] }} />
-                  </div>
-                  <span className="text-sm">{t.name}</span>
-                  {themeId === t.id && <span className="ml-auto text-[10px] text-primary">Active</span>}
-                </DropdownMenuItem>
-              ))}
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Dark</DropdownMenuLabel>
-              {darkThemes.map((t) => (
-                <DropdownMenuItem key={t.id} onClick={() => setThemeId(t.id)} className={cn("flex items-center gap-3", themeId === t.id && "bg-primary/10")}>
-                  <div className="flex h-5 w-8 overflow-hidden rounded-md border border-border/50">
-                    <div className="w-1/2" style={{ backgroundColor: t.swatches[0] }} />
-                    <div className="w-1/2" style={{ backgroundColor: t.swatches[1] }} />
-                  </div>
-                  <span className="text-sm">{t.name}</span>
-                  {themeId === t.id && <span className="ml-auto text-[10px] text-primary">Active</span>}
-                </DropdownMenuItem>
-              ))}
+              <DropdownMenuLabel className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Theme</DropdownMenuLabel>
+              <div className="flex items-center gap-1.5 px-2 py-1.5">
+                {themes.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setThemeId(t.id)}
+                    className={cn(
+                      "flex h-7 w-7 items-center justify-center rounded-full border-2 transition-all",
+                      themeId === t.id ? "border-foreground" : "border-transparent hover:scale-110",
+                    )}
+                    aria-label={t.name}
+                    title={t.name}
+                  >
+                    <div className="h-5 w-5 rounded-full" style={{ backgroundColor: t.swatch }} />
+                  </button>
+                ))}
+                <div className="mx-0.5 h-5 w-px bg-border/60" />
+                <button
+                  type="button"
+                  onClick={toggleDark}
+                  className="relative flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground hover:bg-foreground/5"
+                  aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+                  title={isDark ? "Light mode" : "Dark mode"}
+                >
+                  <Sun size={14} weight="bold" className={cn("absolute transition-all duration-300", isDark ? "rotate-90 scale-0 opacity-0" : "rotate-0 scale-100 opacity-100")} />
+                  <Moon size={14} weight="bold" className={cn("absolute transition-all duration-300", isDark ? "rotate-0 scale-100 opacity-100" : "-rotate-90 scale-0 opacity-0")} />
+                </button>
+              </div>
               <DropdownMenuSeparator />
               <div className="px-2 py-1.5">
-                <div className="mb-2 flex items-center justify-between gap-3">
+                <div className="mb-2">
                   <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Font style</span>
-                  <span className="text-xs font-medium text-foreground/80">{chatFontFamily === "sans" ? "Sans" : "Serif"}</span>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <Button type="button" size="sm" variant={chatFontFamily === "sans" ? "secondary" : "outline"} className="h-8" onClick={() => setChatFontFamily("sans")}>Sans</Button>

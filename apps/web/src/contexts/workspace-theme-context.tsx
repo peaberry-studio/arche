@@ -5,11 +5,14 @@ import { createContext, useCallback, useContext, useEffect, useId, useMemo, useS
 import {
   DEFAULT_CHAT_FONT_FAMILY,
   DEFAULT_CHAT_FONT_SIZE,
+  DEFAULT_DARK_MODE,
   DEFAULT_THEME_ID,
   getWorkspaceChatFontFamilyCookieName,
   getWorkspaceChatFontFamilyStorageKey,
   getWorkspaceChatFontSizeCookieName,
   getWorkspaceChatFontSizeStorageKey,
+  getWorkspaceDarkModeCookieName,
+  getWorkspaceDarkModeStorageKey,
   getWorkspaceThemeCookieName,
   getWorkspaceThemeStorageKey,
   isWorkspaceChatFontFamily,
@@ -21,84 +24,45 @@ import {
   type WorkspaceThemeId,
 } from '@/lib/workspace-theme'
 
-export { DEFAULT_CHAT_FONT_FAMILY, DEFAULT_CHAT_FONT_SIZE, DEFAULT_THEME_ID } from '@/lib/workspace-theme'
-
-export type DarkVariant = "ember" | "ash" | "nuclear";
+export { DEFAULT_CHAT_FONT_FAMILY, DEFAULT_CHAT_FONT_SIZE, DEFAULT_DARK_MODE, DEFAULT_THEME_ID } from '@/lib/workspace-theme'
 
 export type WorkspaceTheme = {
   id: WorkspaceThemeId;
   name: string;
-  /** Preview swatch colors for the picker UI */
-  swatches: [string, string];
-  /** Whether this theme uses dark mode colors */
-  isDark: boolean;
-  /** Dark mode color variant (only for dark themes) */
-  darkVariant?: DarkVariant;
+  /** Primary color swatch for the picker UI */
+  swatch: string;
 };
 
 export const WORKSPACE_THEMES: Record<WorkspaceThemeId, WorkspaceTheme> = {
-  "warm-papyrus": {
-    id: "warm-papyrus",
-    name: "Warm Papyrus",
-    swatches: ["hsl(44 42% 93%)", "hsl(28 78% 58%)"],
-    isDark: false,
-  },
   "warm-sand": {
     id: "warm-sand",
-    name: "Warm Sand",
-    swatches: ["hsl(40 20% 97%)", "hsl(35 18% 92%)"],
-    isDark: false,
+    name: "Sand",
+    swatch: "hsl(24 85% 48%)",
   },
   "ocean-mist": {
     id: "ocean-mist",
-    name: "Ocean Mist",
-    swatches: ["hsl(200 25% 96%)", "hsl(195 30% 88%)"],
-    isDark: false,
+    name: "Ocean",
+    swatch: "hsl(195 22% 50%)",
   },
   "forest-dew": {
     id: "forest-dew",
-    name: "Forest Dew",
-    swatches: ["hsl(140 18% 96%)", "hsl(150 25% 88%)"],
-    isDark: false,
+    name: "Forest",
+    swatch: "hsl(152 20% 46%)",
   },
   "lavender-haze": {
     id: "lavender-haze",
-    name: "Lavender Haze",
-    swatches: ["hsl(270 20% 97%)", "hsl(275 28% 90%)"],
-    isDark: false,
+    name: "Lavender",
+    swatch: "hsl(272 20% 58%)",
   },
   "sunset-glow": {
     id: "sunset-glow",
-    name: "Sunset Glow",
-    swatches: ["hsl(25 30% 96%)", "hsl(340 30% 90%)"],
-    isDark: false,
-  },
-  "midnight-ember": {
-    id: "midnight-ember",
-    name: "Midnight Ember",
-    swatches: ["hsl(20 14% 14%)", "hsl(24 85% 55%)"],
-    isDark: true,
-    darkVariant: "ember",
-  },
-  "midnight-ash": {
-    id: "midnight-ash",
-    name: "Midnight Ash",
-    swatches: ["hsl(0 0% 14%)", "hsl(24 85% 55%)"],
-    isDark: true,
-    darkVariant: "ash",
-  },
-  "nuclear": {
-    id: "nuclear",
-    name: "Nuclear",
-    swatches: ["hsl(120 8% 10%)", "hsl(120 80% 50%)"],
-    isDark: true,
-    darkVariant: "nuclear",
+    name: "Sunset",
+    swatch: "hsl(348 26% 56%)",
   },
 };
 
 const ROOT_THEME_OWNER_ATTR = "data-arche-theme-owner";
 const ALL_THEME_CLASSES = Object.keys(WORKSPACE_THEMES).map((id) => `theme-${id}`);
-const ALL_DARK_VARIANT_CLASSES = ["dark-ember", "dark-ash", "dark-nuclear"];
 const MIN_CHAT_FONT_SIZE = WORKSPACE_CHAT_FONT_SIZES[0]
 const MAX_CHAT_FONT_SIZE = WORKSPACE_CHAT_FONT_SIZES[WORKSPACE_CHAT_FONT_SIZES.length - 1]
 
@@ -106,6 +70,17 @@ function readStoredThemeId(storageKey: string): WorkspaceThemeId | null {
   try {
     const stored = window.localStorage.getItem(storageKey)
     return stored && isWorkspaceThemeId(stored) ? stored : null
+  } catch {
+    return null
+  }
+}
+
+function readStoredDarkMode(storageKey: string): boolean | null {
+  try {
+    const stored = window.localStorage.getItem(storageKey)
+    if (stored === 'true') return true
+    if (stored === 'false') return false
+    return null
   } catch {
     return null
   }
@@ -137,6 +112,13 @@ function persistThemeCookie(scope: string, themeId: WorkspaceThemeId) {
   document.cookie = `${getWorkspaceThemeCookieName(scope)}=${themeId}; Path=/; Max-Age=31536000; SameSite=Lax${secure}`;
 }
 
+function persistDarkModeCookie(scope: string, isDark: boolean) {
+  if (typeof document === 'undefined') return;
+
+  const secure = window.location.protocol === 'https:' ? '; Secure' : '';
+  document.cookie = `${getWorkspaceDarkModeCookieName(scope)}=${isDark ? 'true' : 'false'}; Path=/; Max-Age=31536000; SameSite=Lax${secure}`;
+}
+
 function persistChatFontSizeCookie(scope: string, chatFontSize: WorkspaceChatFontSize) {
   if (typeof document === 'undefined') return
 
@@ -151,20 +133,20 @@ function persistChatFontFamilyCookie(scope: string, chatFontFamily: WorkspaceCha
   document.cookie = `${getWorkspaceChatFontFamilyCookieName(scope)}=${chatFontFamily}; Path=/; Max-Age=31536000; SameSite=Lax${secure}`
 }
 
-function applyThemeClasses(root: HTMLElement, theme: WorkspaceTheme) {
-  root.classList.remove(...ALL_THEME_CLASSES, "dark", ...ALL_DARK_VARIANT_CLASSES);
-  root.classList.add(`theme-${theme.id}`);
-  if (theme.isDark) {
+function applyThemeClasses(root: HTMLElement, themeId: WorkspaceThemeId, isDark: boolean) {
+  root.classList.remove(...ALL_THEME_CLASSES, "dark");
+  root.classList.add(`theme-${themeId}`);
+  if (isDark) {
     root.classList.add("dark");
-    if (theme.darkVariant) {
-      root.classList.add(`dark-${theme.darkVariant}`);
-    }
   }
 }
 
 type WorkspaceThemeContextValue = {
   theme: WorkspaceTheme;
   themeId: WorkspaceThemeId;
+  isDark: boolean;
+  setDark: (dark: boolean) => void;
+  toggleDark: () => void;
   chatFontFamily: WorkspaceChatFontFamily;
   chatFontSize: WorkspaceChatFontSize;
   setChatFontFamily: (family: WorkspaceChatFontFamily) => void;
@@ -186,21 +168,25 @@ export function WorkspaceThemeProvider({
   storageScope = "global",
   initialChatFontFamily = DEFAULT_CHAT_FONT_FAMILY,
   initialChatFontSize = DEFAULT_CHAT_FONT_SIZE,
+  initialIsDark = DEFAULT_DARK_MODE,
   initialThemeId = DEFAULT_THEME_ID,
 }: {
   children: ReactNode;
   storageScope?: string;
   initialChatFontFamily?: WorkspaceChatFontFamily;
   initialChatFontSize?: WorkspaceChatFontSize;
+  initialIsDark?: boolean;
   initialThemeId?: WorkspaceThemeId;
 }) {
   const chatFontFamilyStorageKey = useMemo(() => getWorkspaceChatFontFamilyStorageKey(storageScope), [storageScope]);
   const chatFontSizeStorageKey = useMemo(() => getWorkspaceChatFontSizeStorageKey(storageScope), [storageScope]);
+  const darkModeStorageKey = useMemo(() => getWorkspaceDarkModeStorageKey(storageScope), [storageScope]);
   const storageKey = useMemo(() => getWorkspaceThemeStorageKey(storageScope), [storageScope]);
   const rootThemeOwnerId = useId();
 
   const [chatFontFamily, setChatFontFamilyState] = useState<WorkspaceChatFontFamily>(initialChatFontFamily)
   const [chatFontSize, setChatFontSizeState] = useState<WorkspaceChatFontSize>(initialChatFontSize)
+  const [isDark, setDarkState] = useState(initialIsDark)
   const [themeId, setThemeIdState] = useState<WorkspaceThemeId>(initialThemeId)
 
   const setThemeId = useCallback(
@@ -217,6 +203,25 @@ export function WorkspaceThemeProvider({
     },
     [storageKey, storageScope]
   );
+
+  const setDark = useCallback(
+    (dark: boolean) => {
+      setDarkState(dark)
+      if (typeof window !== "undefined") {
+        try {
+          window.localStorage.setItem(darkModeStorageKey, String(dark));
+        } catch {
+          // ignore storage errors
+        }
+        persistDarkModeCookie(storageScope, dark)
+      }
+    },
+    [darkModeStorageKey, storageScope]
+  );
+
+  const toggleDark = useCallback(() => {
+    setDark(!isDark)
+  }, [isDark, setDark])
 
   const setChatFontSize = useCallback(
     (size: WorkspaceChatFontSize) => {
@@ -268,33 +273,47 @@ export function WorkspaceThemeProvider({
   const theme = WORKSPACE_THEMES[themeId];
   const themes = useMemo(() => Object.values(WORKSPACE_THEMES), []);
 
+  // Reconcile localStorage → state on mount (chat font family)
   useEffect(() => {
     const storedChatFontFamily = readStoredChatFontFamily(chatFontFamilyStorageKey)
     if (!storedChatFontFamily || storedChatFontFamily === chatFontFamily) return
 
     queueMicrotask(() => {
-      setChatFontFamilyState((currentChatFontFamily) => currentChatFontFamily === storedChatFontFamily ? currentChatFontFamily : storedChatFontFamily)
+      setChatFontFamilyState((current) => current === storedChatFontFamily ? current : storedChatFontFamily)
     })
   }, [chatFontFamilyStorageKey, chatFontFamily])
 
+  // Reconcile localStorage → state on mount (chat font size)
   useEffect(() => {
     const storedChatFontSize = readStoredChatFontSize(chatFontSizeStorageKey)
     if (!storedChatFontSize || storedChatFontSize === chatFontSize) return
 
     queueMicrotask(() => {
-      setChatFontSizeState((currentChatFontSize) => currentChatFontSize === storedChatFontSize ? currentChatFontSize : storedChatFontSize)
+      setChatFontSizeState((current) => current === storedChatFontSize ? current : storedChatFontSize)
     })
   }, [chatFontSizeStorageKey, chatFontSize])
 
+  // Reconcile localStorage → state on mount (theme ID)
   useEffect(() => {
     const storedThemeId = readStoredThemeId(storageKey)
     if (!storedThemeId || storedThemeId === themeId) return
 
     queueMicrotask(() => {
-      setThemeIdState((currentThemeId) => currentThemeId === storedThemeId ? currentThemeId : storedThemeId)
+      setThemeIdState((current) => current === storedThemeId ? current : storedThemeId)
     })
   }, [storageKey, themeId])
 
+  // Reconcile localStorage → state on mount (dark mode)
+  useEffect(() => {
+    const storedDarkMode = readStoredDarkMode(darkModeStorageKey)
+    if (storedDarkMode === null || storedDarkMode === isDark) return
+
+    queueMicrotask(() => {
+      setDarkState((current) => current === storedDarkMode ? current : storedDarkMode)
+    })
+  }, [darkModeStorageKey, isDark])
+
+  // Persist chat font family
   useEffect(() => {
     try {
       window.localStorage.setItem(chatFontFamilyStorageKey, chatFontFamily)
@@ -305,6 +324,7 @@ export function WorkspaceThemeProvider({
     persistChatFontFamilyCookie(storageScope, chatFontFamily)
   }, [chatFontFamily, chatFontFamilyStorageKey, storageScope])
 
+  // Persist chat font size
   useEffect(() => {
     try {
       window.localStorage.setItem(chatFontSizeStorageKey, String(chatFontSize))
@@ -315,6 +335,7 @@ export function WorkspaceThemeProvider({
     persistChatFontSizeCookie(storageScope, chatFontSize)
   }, [chatFontSize, chatFontSizeStorageKey, storageScope])
 
+  // Persist theme ID
   useEffect(() => {
     try {
       window.localStorage.setItem(storageKey, themeId)
@@ -325,6 +346,18 @@ export function WorkspaceThemeProvider({
     persistThemeCookie(storageScope, themeId)
   }, [storageKey, storageScope, themeId])
 
+  // Persist dark mode
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(darkModeStorageKey, String(isDark))
+    } catch {
+      // ignore storage errors
+    }
+
+    persistDarkModeCookie(storageScope, isDark)
+  }, [darkModeStorageKey, isDark, storageScope])
+
+  // Cross-tab sync via storage events
   useEffect(() => {
     const handleStorage = (event: StorageEvent) => {
       if (event.key === storageKey) {
@@ -336,6 +369,17 @@ export function WorkspaceThemeProvider({
 
         setThemeIdState(nextThemeId)
         persistThemeCookie(storageScope, nextThemeId)
+        return
+      }
+
+      if (event.key === darkModeStorageKey) {
+        if (event.newValue === 'true') {
+          setDarkState(true)
+          persistDarkModeCookie(storageScope, true)
+        } else if (event.newValue === 'false') {
+          setDarkState(false)
+          persistDarkModeCookie(storageScope, false)
+        }
         return
       }
 
@@ -362,18 +406,31 @@ export function WorkspaceThemeProvider({
 
     window.addEventListener('storage', handleStorage)
     return () => window.removeEventListener('storage', handleStorage)
-  }, [chatFontFamilyStorageKey, chatFontSizeStorageKey, storageKey, storageScope])
+  }, [chatFontFamilyStorageKey, chatFontSizeStorageKey, darkModeStorageKey, storageKey, storageScope])
 
+  // Apply theme classes to <html>
   useEffect(() => {
     const root = document.documentElement;
     root.setAttribute(ROOT_THEME_OWNER_ATTR, rootThemeOwnerId);
-    applyThemeClasses(root, theme);
+    applyThemeClasses(root, themeId, isDark);
     return () => {
       if (root.getAttribute(ROOT_THEME_OWNER_ATTR) !== rootThemeOwnerId) return;
-      root.classList.remove(...ALL_THEME_CLASSES, "dark", ...ALL_DARK_VARIANT_CLASSES);
+      root.classList.remove(...ALL_THEME_CLASSES, "dark");
       root.removeAttribute(ROOT_THEME_OWNER_ATTR);
     };
-  }, [rootThemeOwnerId, theme]);
+  }, [isDark, rootThemeOwnerId, themeId]);
+
+  // Global keyboard shortcut: Cmd/Ctrl+U toggles dark mode
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === 'u') {
+        event.preventDefault();
+        toggleDark();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [toggleDark]);
 
   return (
     <WorkspaceThemeContext.Provider
@@ -384,12 +441,15 @@ export function WorkspaceThemeProvider({
         chatFontSize,
         decreaseChatFontSize,
         increaseChatFontSize,
+        isDark,
         setChatFontFamily,
         setChatFontSize,
+        setDark,
+        setThemeId,
         theme,
         themeId,
-        setThemeId,
         themes,
+        toggleDark,
       }}
     >
       {children}

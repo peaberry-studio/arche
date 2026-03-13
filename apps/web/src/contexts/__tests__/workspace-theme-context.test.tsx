@@ -18,6 +18,11 @@ function ThemeDisplay() {
   return <div data-testid="theme-id">{themeId}</div>;
 }
 
+function DarkModeDisplay() {
+  const { isDark } = useWorkspaceTheme();
+  return <div data-testid="is-dark">{String(isDark)}</div>;
+}
+
 function ThemeSetter({ id }: { id: string }) {
   const { setThemeId, themeId } = useWorkspaceTheme();
   return (
@@ -28,6 +33,16 @@ function ThemeSetter({ id }: { id: string }) {
       >
         set
       </button>
+    </>
+  );
+}
+
+function DarkToggle() {
+  const { isDark, toggleDark } = useWorkspaceTheme();
+  return (
+    <>
+      <div data-testid="is-dark">{String(isDark)}</div>
+      <button onClick={toggleDark}>toggle dark</button>
     </>
   );
 }
@@ -93,7 +108,7 @@ afterEach(() => {
 
 describe("WorkspaceThemeProvider", () => {
   it("loads theme from scoped storage key", () => {
-    localStorage.setItem("arche.workspace.alice.theme", "warm-sand");
+    localStorage.setItem("arche.workspace.alice.theme", "ocean-mist");
 
     render(
       <WorkspaceThemeProvider storageScope="alice">
@@ -102,7 +117,7 @@ describe("WorkspaceThemeProvider", () => {
     );
 
     return waitFor(() => {
-      expect(screen.getByTestId("theme-id").textContent).toBe("warm-sand");
+      expect(screen.getByTestId("theme-id").textContent).toBe("ocean-mist");
     })
   });
 
@@ -122,9 +137,7 @@ describe("WorkspaceThemeProvider", () => {
     expect(document.cookie).toContain("arche-workspace-theme-bob=ocean-mist");
   });
 
-  it("uses default theme when no stored key exists (no legacy fallback)", () => {
-    localStorage.setItem("arche.workspace.theme", "warm-sand"); // old global key
-
+  it("uses default theme when no stored key exists", () => {
     render(
       <WorkspaceThemeProvider storageScope="new-user">
         <ThemeDisplay />
@@ -135,7 +148,7 @@ describe("WorkspaceThemeProvider", () => {
   });
 
   it("hydrates from the server theme and reconciles to localStorage without mismatch", async () => {
-    localStorage.setItem("arche.workspace.alice.theme", "warm-sand");
+    localStorage.setItem("arche.workspace.alice.theme", "ocean-mist");
 
     const recoverableErrors: string[] = []
     const container = document.createElement('div')
@@ -162,11 +175,11 @@ describe("WorkspaceThemeProvider", () => {
 
     try {
       await waitFor(() => {
-        expect(container.textContent).toContain('warm-sand')
+        expect(container.textContent).toContain('ocean-mist')
       })
 
       await waitFor(() => {
-        expect(document.cookie).toContain('arche-workspace-theme-alice=warm-sand')
+        expect(document.cookie).toContain('arche-workspace-theme-alice=ocean-mist')
       })
 
       expect(recoverableErrors).toEqual([])
@@ -178,32 +191,51 @@ describe("WorkspaceThemeProvider", () => {
     }
   });
 
-  it("applies correct html classes and removes stale dark classes on theme change", () => {
+  it("applies correct html classes and removes dark class on theme change", () => {
     render(
-      <WorkspaceThemeProvider storageScope="test">
-        <ThemeSetter id="warm-papyrus" />
+      <WorkspaceThemeProvider storageScope="test" initialIsDark>
+        <ThemeSetter id="ocean-mist" />
       </WorkspaceThemeProvider>
     );
 
-    // Default theme is midnight-ash (dark)
+    // Starts in dark mode with default theme
     const root = document.documentElement;
-    expect(root.classList.contains("theme-midnight-ash")).toBe(true);
+    expect(root.classList.contains(`theme-${DEFAULT_THEME_ID}`)).toBe(true);
     expect(root.classList.contains("dark")).toBe(true);
-    expect(root.classList.contains("dark-ash")).toBe(true);
 
     act(() => {
       screen.getByRole("button", { name: "set" }).click();
     });
 
-    // After switching to warm-papyrus (light theme)
-    expect(root.classList.contains("theme-warm-papyrus")).toBe(true);
-    expect(root.classList.contains("theme-midnight-ash")).toBe(false);
-    expect(root.classList.contains("dark")).toBe(false);
-    expect(root.classList.contains("dark-ash")).toBe(false);
+    // After switching to ocean-mist (still dark because we only changed color)
+    expect(root.classList.contains("theme-ocean-mist")).toBe(true);
+    expect(root.classList.contains(`theme-${DEFAULT_THEME_ID}`)).toBe(false);
+    expect(root.classList.contains("dark")).toBe(true);
   });
 
-  it("accepts warm-papyrus from scoped storage", () => {
-    localStorage.setItem("arche.workspace.alice.theme", "warm-papyrus");
+  it("toggles dark mode independently of color", () => {
+    render(
+      <WorkspaceThemeProvider storageScope="test">
+        <DarkToggle />
+      </WorkspaceThemeProvider>
+    );
+
+    const root = document.documentElement;
+    expect(root.classList.contains("dark")).toBe(false);
+    expect(screen.getByTestId("is-dark").textContent).toBe("false");
+
+    act(() => {
+      screen.getByRole("button", { name: "toggle dark" }).click();
+    });
+
+    expect(root.classList.contains("dark")).toBe(true);
+    expect(screen.getByTestId("is-dark").textContent).toBe("true");
+    expect(localStorage.getItem("arche.workspace.test.dark-mode")).toBe("true");
+    expect(document.cookie).toContain("arche-workspace-dark-mode-test=true");
+  });
+
+  it("accepts lavender-haze from scoped storage", () => {
+    localStorage.setItem("arche.workspace.alice.theme", "lavender-haze");
 
     render(
       <WorkspaceThemeProvider storageScope="alice">
@@ -212,8 +244,8 @@ describe("WorkspaceThemeProvider", () => {
     );
 
     return waitFor(() => {
-      expect(screen.getByTestId("theme-id").textContent).toBe("warm-papyrus");
-      expect(document.documentElement.classList.contains("theme-warm-papyrus")).toBe(true);
+      expect(screen.getByTestId("theme-id").textContent).toBe("lavender-haze");
+      expect(document.documentElement.classList.contains("theme-lavender-haze")).toBe(true);
     })
   });
 
@@ -237,6 +269,28 @@ describe("WorkspaceThemeProvider", () => {
     });
 
     expect(screen.getByTestId("theme-id").textContent).toBe("forest-dew");
+  });
+
+  it("syncs dark mode across tabs via storage event", () => {
+    render(
+      <WorkspaceThemeProvider storageScope="alice">
+        <DarkModeDisplay />
+      </WorkspaceThemeProvider>
+    );
+
+    expect(screen.getByTestId("is-dark").textContent).toBe("false");
+
+    act(() => {
+      localStorage.setItem("arche.workspace.alice.dark-mode", "true");
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: "arche.workspace.alice.dark-mode",
+          newValue: "true",
+        })
+      );
+    });
+
+    expect(screen.getByTestId("is-dark").textContent).toBe("true");
   });
 
   it("loads chat font size from scoped storage key", () => {
@@ -371,11 +425,12 @@ describe("WorkspaceThemeProvider", () => {
     );
 
     const root = document.documentElement;
-    expect(root.classList.contains("theme-midnight-ash")).toBe(true);
+    expect(root.classList.contains(`theme-${DEFAULT_THEME_ID}`)).toBe(true);
 
     unmount();
 
-    expect(root.classList.contains("theme-midnight-ash")).toBe(false);
+    expect(root.classList.contains(`theme-${DEFAULT_THEME_ID}`)).toBe(false);
     expect(root.hasAttribute("data-arche-theme-owner")).toBe(false);
   });
+
 });
