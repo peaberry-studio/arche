@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type MouseEvent } from "react";
 import { CaretRight, File, Folder, FolderOpen } from "@phosphor-icons/react";
 
 import { cn } from "@/lib/utils";
@@ -10,11 +10,15 @@ type FileTreeProps = {
   nodes: WorkspaceFileNode[];
   activePath?: string | null;
   onSelect: (path: string) => void;
+  onFileContextMenu?: (
+    file: Pick<WorkspaceFileNode, "name" | "path">,
+    event: MouseEvent<HTMLButtonElement>
+  ) => void;
 };
 
 type TreeState = Record<string, boolean>;
 
-export function FileTree({ nodes, activePath, onSelect }: FileTreeProps) {
+export function FileTree({ nodes, activePath, onSelect, onFileContextMenu }: FileTreeProps) {
   const initialExpanded = useMemo<TreeState>(() => {
     const state: TreeState = {};
     nodes.forEach((node) => {
@@ -40,6 +44,10 @@ export function FileTree({ nodes, activePath, onSelect }: FileTreeProps) {
         <button
           type="button"
           onClick={() => (isFolder ? toggle(node.path) : onSelect(node.path))}
+          onContextMenu={(event) => {
+            if (isFolder) return;
+            onFileContextMenu?.({ name: node.name, path: node.path }, event);
+          }}
           className={cn(
             "group flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[13px]",
             "transition-colors hover:bg-muted/60",

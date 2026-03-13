@@ -1,7 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLineLeft, ArrowLineRight, CaretLeft, CaretRight, File, GitDiff, X } from "@phosphor-icons/react";
+import {
+  ArrowLineLeft,
+  ArrowLineRight,
+  CaretLeft,
+  CaretRight,
+  DownloadSimple,
+  File,
+  GitDiff,
+  X,
+} from "@phosphor-icons/react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -44,6 +53,7 @@ type InspectorPanelProps = {
   isLoadingDiffs?: boolean;
   diffsError?: string | null;
   onOpenFile: (path: string) => void;
+  onDownloadFile?: (path: string) => void;
   onReloadFile?: (path: string) => Promise<void>;
   onSaveFile?: (
     path: string,
@@ -144,6 +154,7 @@ export function InspectorPanel({
   isLoadingDiffs,
   diffsError,
   onOpenFile,
+  onDownloadFile,
   onReloadFile,
   onSaveFile,
   onDiscardFileChanges,
@@ -177,6 +188,7 @@ export function InspectorPanel({
       isLoadingDiffs={isLoadingDiffs}
       diffsError={diffsError}
       onOpenFile={onOpenFile}
+      onDownloadFile={onDownloadFile}
       onReloadFile={onReloadFile}
       onSaveFile={onSaveFile}
       onDiscardFileChanges={onDiscardFileChanges}
@@ -199,6 +211,7 @@ function ExpandedInspectorPanel({
   isLoadingDiffs,
   diffsError,
   onOpenFile,
+  onDownloadFile,
   onReloadFile,
   onSaveFile,
   onDiscardFileChanges,
@@ -292,7 +305,8 @@ function ExpandedInspectorPanel({
   }, [isReviewActive, onTabChange]);
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-foreground/[0.03] py-2 pr-2 text-card-foreground">
+    <TooltipProvider delayDuration={200}>
+      <div className="flex h-full flex-col overflow-hidden bg-foreground/[0.03] py-2 pr-2 text-card-foreground">
       {/* Single top bar: file tabs (left) + action buttons (right) */}
       <div className="flex min-h-11 shrink-0 items-center">
         {/* File tabs — scrollable, take available space */}
@@ -374,6 +388,22 @@ function ExpandedInspectorPanel({
 
         {/* Action buttons — always visible, pinned right */}
         <div className="flex shrink-0 items-center gap-1.5 pr-1">
+          {!isReviewActive && activeFile && onDownloadFile ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => onDownloadFile(activeFile.path)}
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+                  aria-label={`Download ${activeFile.title}`}
+                >
+                  <DownloadSimple size={14} weight="bold" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Download file</TooltipContent>
+            </Tooltip>
+          ) : null}
+
           {/* Review toggle */}
           <button
             type="button"
@@ -477,6 +507,7 @@ function ExpandedInspectorPanel({
           />
         </div>
       </div>
-    </div>
+      </div>
+    </TooltipProvider>
   );
 }

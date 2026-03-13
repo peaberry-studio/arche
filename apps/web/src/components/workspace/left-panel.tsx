@@ -33,7 +33,6 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -194,6 +193,7 @@ type LeftPanelProps = {
   fileNodes: WorkspaceFileNode[];
   activeFilePath?: string | null;
   onSelectFile: (path: string) => void;
+  onDownloadFile?: (path: string) => void;
   onCreateKnowledgeFile: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   searchInputRef: RefObject<HTMLInputElement | null>;
 };
@@ -504,6 +504,7 @@ export function LeftPanel({
   fileNodes,
   activeFilePath,
   onSelectFile,
+  onDownloadFile,
   onCreateKnowledgeFile,
   searchInputRef,
 }: LeftPanelProps) {
@@ -550,6 +551,7 @@ export function LeftPanel({
       fileNodes={fileNodes}
       activeFilePath={activeFilePath}
       onSelectFile={onSelectFile}
+      onDownloadFile={onDownloadFile}
       onCreateKnowledgeFile={onCreateKnowledgeFile}
       searchInputRef={searchInputRef}
       pendingSectionRef={pendingSectionRef}
@@ -575,6 +577,7 @@ function ExpandedLeftPanel({
   fileNodes,
   activeFilePath,
   onSelectFile,
+  onDownloadFile,
   onCreateKnowledgeFile,
   searchInputRef,
   pendingSectionRef,
@@ -1012,6 +1015,7 @@ function ExpandedLeftPanel({
               nodes={fileNodes}
               activePath={activeFilePath}
               onSelect={onSelectFile}
+              onDownloadFile={onDownloadFile}
               hideHeader
               query={searchQuery}
             />

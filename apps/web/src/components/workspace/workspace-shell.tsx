@@ -12,6 +12,7 @@ import {
   isProtectedWorkspacePath,
   normalizeWorkspacePath,
 } from "@/lib/workspace-paths";
+import { downloadWorkspaceFile } from "@/lib/workspace-file-download";
 import { takeWorkspaceStartPrompt } from "@/lib/workspace-start-prompt";
 import { cn } from "@/lib/utils";
 
@@ -859,6 +860,20 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
     await workspace.deleteSession(sessionId);
   }, [workspace]);
 
+  const handleRenameSession = useCallback(
+    async (sessionId: string, title: string) => {
+      return workspace.renameSession(sessionId, title);
+    },
+    [workspace]
+  );
+
+  const handleDownloadFile = useCallback(
+    (path: string) => {
+      downloadWorkspaceFile(slug, path);
+    },
+    [slug]
+  );
+
   // Agent mention insertion
   const [pendingInsert, setPendingInsert] = useState<{
     sessionId: string;
@@ -1113,6 +1128,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
               fileNodes={workspace.fileTree}
               activeFilePath={activeFilePath}
               onSelectFile={handleOpenFile}
+              onDownloadFile={handleDownloadFile}
               onCreateKnowledgeFile={handleCreateKnowledgeFile}
               searchInputRef={searchInputRef}
             />
@@ -1146,6 +1162,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
               sessionTabs={activeSessionTabs}
               openFilePaths={openFilePaths}
               onCloseSession={handleCloseSession}
+              onRenameSession={handleRenameSession}
               onSelectSessionTab={handleSelectSessionTab}
               onOpenFile={handleOpenFile}
               onShowContext={() => {
@@ -1215,6 +1232,7 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
               isLoadingDiffs={workspace.isLoadingDiffs}
               diffsError={workspace.diffsError}
               onOpenFile={handleOpenFile}
+              onDownloadFile={handleDownloadFile}
               onReloadFile={handleReloadFile}
               onSaveFile={handleSaveFile}
               onDiscardFileChanges={handleDiscardFileChanges}

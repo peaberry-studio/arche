@@ -1,6 +1,14 @@
 "use client";
 
-import { useRef, useState, useEffect, useMemo, useCallback, type CSSProperties } from "react";
+import {
+  useRef,
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import {
   ArrowClockwise,
   CaretDown,
@@ -9,6 +17,7 @@ import {
   CheckCircle,
   Circle,
   Copy,
+  DownloadSimple,
   DotsThree,
   File,
   FolderOpen,
@@ -54,6 +63,10 @@ import {
 } from "@/components/ui/dialog";
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import type { AvailableModel, MessagePart } from "@/lib/opencode/types";
+import {
+  buildWorkspaceSessionMarkdown,
+  getWorkspaceSessionExportFilename,
+} from "@/lib/workspace-session-export";
 import { getWorkspaceToolDisplay } from "@/lib/workspace-tool-display";
 import { formatAttachmentSize } from "@/lib/workspace-attachments";
 import { cn } from "@/lib/utils";
@@ -72,6 +85,7 @@ type ChatPanelProps = {
   sessionTabs?: Array<{ id: string; title: string; depth: number; status?: string }>;
   openFilePaths: string[];
   onCloseSession: (id: string) => void;
+  onRenameSession?: (id: string, title: string) => Promise<boolean>;
   onSelectSessionTab?: (id: string) => void;
   onOpenFile: (path: string) => void;
   onShowContext?: () => void;
@@ -349,6 +363,19 @@ function getChatErrorCopy(detail?: string): { title: string; description?: strin
     title: "Message failed",
     description: source,
   };
+}
+
+function downloadMarkdownFile(filename: string, content: string) {
+  const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
 function AssistantErrorNotice({ detail }: { detail?: string }) {
@@ -1046,6 +1073,7 @@ export function ChatPanel({
   sessionTabs = [],
   openFilePaths,
   onCloseSession,
+  onRenameSession,
   onSelectSessionTab,
   onOpenFile,
   onShowContext,
@@ -1087,6 +1115,7 @@ export function ChatPanel({
   );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
   const [inputValue, setInputValue] = useState("");
   const [modelSearch, setModelSearch] = useState("");
   const [attachments, setAttachments] = useState<WorkspaceAttachment[]>([]);
@@ -1101,6 +1130,10 @@ export function ChatPanel({
   const [contextMode, setContextMode] = useState<ContextMode>("auto");
   const [manualContextPaths, setManualContextPaths] = useState<string[]>([]);
   const [connectorNamesById, setConnectorNamesById] = useState<Record<string, string>>({});
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [draftTitle, setDraftTitle] = useState("");
+  const [isSavingTitle, setIsSavingTitle] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
 
   const selectedAttachments = useMemo(
     () =>
@@ -1131,6 +1164,102 @@ export function ChatPanel({
     () => new Set(normalizedOpenFilePaths),
     [normalizedOpenFilePaths]
   );
+
+  const isEditingActiveSessionTitle = Boolean(
+    activeSession && editingSessionId === activeSession.id
+  );
+
+  const cancelSessionRename = useCallback(() => {
+    if (isSavingTitle) return;
+
+    setEditingSessionId(null);
+    setDraftTitle("");
+    setRenameError(null);
+  }, [isSavingTitle]);
+
+  const startSessionRename = useCallback(() => {
+    if (!activeSession || !onRenameSession) return;
+
+    setEditingSessionId(activeSession.id);
+    setDraftTitle(activeSession.title);
+    setRenameError(null);
+  }, [activeSession, onRenameSession]);
+
+  const submitSessionRename = useCallback(async () => {
+    if (!activeSession || !onRenameSession || isSavingTitle) return;
+    if (editingSessionId !== activeSession.id) return;
+
+    const nextTitle = draftTitle.trim();
+    if (!nextTitle || nextTitle === activeSession.title) {
+      cancelSessionRename();
+      return;
+    }
+
+    setIsSavingTitle(true);
+    setRenameError(null);
+
+    const renamed = await onRenameSession(activeSession.id, nextTitle);
+
+    setIsSavingTitle(false);
+
+    if (!renamed) {
+      setRenameError("rename_failed");
+      return;
+    }
+
+    setEditingSessionId(null);
+    setDraftTitle("");
+    setRenameError(null);
+  }, [
+    activeSession,
+    cancelSessionRename,
+    draftTitle,
+    editingSessionId,
+    isSavingTitle,
+    onRenameSession,
+  ]);
+
+  const handleTitleInputKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        void submitSessionRename();
+        return;
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        cancelSessionRename();
+      }
+    },
+    [cancelSessionRename, submitSessionRename]
+  );
+
+  const handleExportSessionMarkdown = useCallback(() => {
+    if (!activeSession || typeof document === "undefined") return;
+
+    const markdown = buildWorkspaceSessionMarkdown(activeSession.title, messages);
+    const filename = getWorkspaceSessionExportFilename(activeSession.title);
+    downloadMarkdownFile(filename, markdown);
+  }, [activeSession, messages]);
+
+  useEffect(() => {
+    setEditingSessionId(null);
+    setDraftTitle("");
+    setIsSavingTitle(false);
+    setRenameError(null);
+  }, [activeSessionId]);
+
+  useEffect(() => {
+    if (!isEditingActiveSessionTitle) return;
+
+    const frameId = requestAnimationFrame(() => {
+      titleInputRef.current?.focus();
+      titleInputRef.current?.select();
+    });
+
+    return () => cancelAnimationFrame(frameId);
+  }, [isEditingActiveSessionTitle]);
 
   const effectiveContextPaths = useMemo(() => {
     if (contextMode === "off") return [];
@@ -1616,18 +1745,67 @@ export function ChatPanel({
     return lastMessage.statusInfo;
   }, [messages]);
 
+  const titleInputClassName = cn(
+    "h-8 min-w-[180px] rounded-md border bg-background/80 px-2.5 text-sm font-medium text-foreground outline-none transition-colors",
+    "focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-offset-0",
+    renameError
+      ? "border-destructive/40 focus-visible:ring-destructive/20"
+      : "border-primary/20 focus-visible:ring-primary/20"
+  );
+
   return (
     <div className="flex h-full flex-col text-card-foreground">
       {/* Session header — shows tabs when multiple sessions exist, otherwise plain title */}
-      <div className="mx-3 mt-2 flex min-h-11 shrink-0 items-center gap-1 border-b border-border/35 px-2 py-1">
+      <div className="mx-3 mt-2 flex min-h-11 shrink-0 items-center gap-2 border-b border-border/35 px-2 py-1">
         {sessionTabs.length > 1 ? (
           <div className="min-w-0 flex-1 overflow-x-auto scrollbar-none">
             <div className="flex items-center gap-1">
               {sessionTabs.map((sessionTab) => {
                 const isSubtask = sessionTab.depth > 0;
                 const isActive = sessionTab.id === activeSessionId;
+                const isEditing = isActive && editingSessionId === sessionTab.id;
                 const isBusy = sessionTab.status === "busy";
                 const isError = sessionTab.status === "error";
+
+                if (isEditing) {
+                  return (
+                    <div
+                      key={sessionTab.id}
+                      className={cn(
+                        "flex shrink-0 items-center gap-1.5 rounded-lg px-2 py-1",
+                        isActive ? "bg-primary/10 text-primary" : "text-muted-foreground"
+                      )}
+                    >
+                      {isSubtask ? (
+                        <TreeStructure size={12} weight="fill" className="shrink-0" />
+                      ) : (
+                        <ChatCircle size={12} weight="fill" className="shrink-0" />
+                      )}
+                      {isBusy ? (
+                        <SpinnerGap size={11} className="shrink-0 animate-spin text-primary" />
+                      ) : isError ? (
+                        <XCircle size={11} weight="fill" className="shrink-0 text-destructive" />
+                      ) : null}
+                      <input
+                        ref={titleInputRef}
+                        value={draftTitle}
+                        onBlur={() => {
+                          void submitSessionRename();
+                        }}
+                        onChange={(event) => {
+                          setDraftTitle(event.target.value);
+                          if (renameError) {
+                            setRenameError(null);
+                          }
+                        }}
+                        onKeyDown={handleTitleInputKeyDown}
+                        className={cn(titleInputClassName, "w-[min(240px,45vw)] text-xs")}
+                        aria-label="Session title"
+                        disabled={isSavingTitle}
+                      />
+                    </div>
+                  );
+                }
 
                 return (
                   <button
@@ -1661,11 +1839,34 @@ export function ChatPanel({
           </div>
         ) : (
           <div className="min-w-0 flex-1 px-2">
-            <p className="truncate text-sm font-medium text-foreground">
-              {activeSession?.title ?? "No active session"}
-            </p>
+            {isEditingActiveSessionTitle ? (
+              <input
+                ref={titleInputRef}
+                value={draftTitle}
+                onBlur={() => {
+                  void submitSessionRename();
+                }}
+                onChange={(event) => {
+                  setDraftTitle(event.target.value);
+                  if (renameError) {
+                    setRenameError(null);
+                  }
+                }}
+                onKeyDown={handleTitleInputKeyDown}
+                className={cn(titleInputClassName, "w-full")}
+                aria-label="Session title"
+                disabled={isSavingTitle}
+              />
+            ) : (
+              <p className="truncate text-sm font-medium text-foreground">
+                {activeSession?.title ?? "No active session"}
+              </p>
+            )}
           </div>
         )}
+        {renameError ? (
+          <span className="chat-text-note shrink-0 text-destructive">Rename failed</span>
+        ) : null}
         {activeSession ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -1679,8 +1880,19 @@ export function ChatPanel({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" sideOffset={4}>
+              {onRenameSession ? (
+                <DropdownMenuItem onSelect={startSessionRename}>
+                  <PencilSimple size={14} />
+                  Rename session
+                </DropdownMenuItem>
+              ) : null}
+              <DropdownMenuItem onSelect={handleExportSessionMarkdown}>
+                <DownloadSimple size={14} />
+                Export to MD
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem
-                onClick={() => onCloseSession(activeSession.id)}
+                onSelect={() => onCloseSession(activeSession.id)}
                 className="text-destructive focus:text-destructive"
               >
                 <X size={14} />
