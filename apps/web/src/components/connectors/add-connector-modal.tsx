@@ -73,11 +73,9 @@ export function AddConnectorModal({
   onOpenChange,
   onSaved,
 }: AddConnectorModalProps) {
-  const { theme } = useWorkspaceTheme()
-  const themeClassName = `theme-${theme.id}`
-  const darkModeClasses = theme.isDark
-    ? `dark dark-${theme.darkVariant}`
-    : ''
+  const { themeId, isDark } = useWorkspaceTheme()
+  const themeClassName = `theme-${themeId}`
+  const darkModeClasses = isDark ? 'dark' : ''
 
   const [selectedType, setSelectedType] = useState<ConnectorType>(DEFAULT_TYPE)
   const [authType, setAuthType] = useState<ConnectorAuthType>('oauth')

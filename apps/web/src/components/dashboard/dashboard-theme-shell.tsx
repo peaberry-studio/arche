@@ -10,16 +10,11 @@ type DashboardThemeShellProps = {
 }
 
 export function DashboardThemeShell({ children }: DashboardThemeShellProps) {
-  const { theme } = useWorkspaceTheme()
-  const themeClassName = `theme-${theme.id}`
-
-  const darkModeClasses = theme.isDark
-    ? `dark dark-${theme.darkVariant}`
-    : ''
+  const { themeId, isDark } = useWorkspaceTheme()
 
   return (
     <div
-      className={cn('relative min-h-screen bg-background text-foreground', darkModeClasses, themeClassName)}
+      className={cn('relative min-h-screen bg-background text-foreground', isDark && 'dark', `theme-${themeId}`)}
     >
       {/* Subtle dot-grid overlay — fades out towards center */}
       <div
