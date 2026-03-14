@@ -97,7 +97,7 @@ describe("WorkspaceShell", () => {
     );
 
     await waitFor(() => {
-      expect(createSessionMock).toHaveBeenCalledWith("Session 1");
+      expect(createSessionMock).toHaveBeenCalledWith();
     });
   });
 });

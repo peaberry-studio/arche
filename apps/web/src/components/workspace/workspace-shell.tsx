@@ -348,8 +348,8 @@ export function WorkspaceShell({ slug, initialFilePath }: WorkspaceShellProps) {
   }, [leftCollapsed]);
 
   const handleCreateSession = useCallback(async () => {
-    await workspace.createSession(`Session ${rootSessions.length + 1}`);
-  }, [rootSessions.length, workspace]);
+    await workspace.createSession();
+  }, [workspace]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
