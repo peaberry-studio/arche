@@ -824,9 +824,9 @@ export function useWorkspace({
       const nextTitle = title.trim();
       if (!nextTitle) return false;
 
+      markSessionsMutated();
       const result = await updateSessionAction(slug, id, nextTitle);
       if (result.ok) {
-        markSessionsMutated();
         setSessions((prev) =>
           prev.map((session) => {
             if (session.id !== id) return session;
@@ -838,10 +838,10 @@ export function useWorkspace({
             };
           })
         );
-        void loadSessions();
         return true;
       }
 
+      // On failure, re-sync from backend to restore the real state.
       void loadSessions();
       return false;
     },
