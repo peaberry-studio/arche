@@ -96,7 +96,7 @@ export async function GET(
 
   const filename = normalizedPath.split("/").pop() ?? "download"
 
-  return new Response(content, {
+  return new Response(new Uint8Array(content), {
     status: 200,
     headers: {
       "Cache-Control": "no-store",
