@@ -8,9 +8,9 @@ DESKTOP_DIR="$ROOT_DIR/apps/desktop"
 
 echo "==> Building Arche Desktop"
 
-# Step 1: Download the OpenCode binary for the current platform
-echo "==> [1/5] Downloading OpenCode binary..."
-"$SCRIPT_DIR/download-opencode.sh"
+# Step 1: Prepare bundled runtime binaries for the current platform
+echo "==> [1/5] Preparing desktop runtime binaries..."
+bash "$SCRIPT_DIR/prepare-desktop-runtime.sh"
 
 # Step 2: Generate the SQLite Prisma client (must precede Next.js build)
 echo "==> [2/5] Generating SQLite Prisma client..."

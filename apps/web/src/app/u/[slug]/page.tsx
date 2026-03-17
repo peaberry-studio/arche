@@ -87,7 +87,7 @@ export default async function WorkspacePage({
 
           <div className="relative z-10 max-w-3xl space-y-5">
             <p className="text-xs uppercase tracking-[0.18em] text-primary/80">Kickstart Required</p>
-            <h1 className="font-[family-name:var(--font-display)] text-3xl leading-tight sm:text-4xl">
+            <h1 className="type-display text-3xl leading-tight sm:text-4xl">
               Configure your workspace before opening it
             </h1>
             <p className="text-sm text-muted-foreground sm:text-base">

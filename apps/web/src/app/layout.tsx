@@ -13,20 +13,20 @@ const geistMono = Geist_Mono({
 });
 
 const spaceGrotesk = Space_Grotesk({
-  variable: "--font-display",
+  variable: "--font-space-grotesk",
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
 });
 
 const instrumentSerif = Instrument_Serif({
-  variable: "--font-serif",
+  variable: "--font-instrument-serif",
   subsets: ["latin"],
   weight: "400",
   style: "italic",
 });
 
 const libreBaskerville = Libre_Baskerville({
-  variable: "--font-chat-serif",
+  variable: "--font-libre-baskerville",
   subsets: ["latin"],
   weight: ["400", "700"],
 });

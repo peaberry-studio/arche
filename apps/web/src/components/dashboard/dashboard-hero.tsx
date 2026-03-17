@@ -44,7 +44,7 @@ export function DashboardHero({ slug }: DashboardHeroProps) {
 
   return (
     <section className="flex flex-col items-center justify-center px-4 py-16 sm:py-24">
-      <h1 className="mb-10 text-center font-[family-name:var(--font-serif)] text-3xl italic text-foreground/90 sm:text-4xl md:text-5xl">
+      <h1 className="type-serif mb-10 text-center text-3xl italic text-foreground/90 sm:text-4xl md:text-5xl">
         What do you want to work on today?
       </h1>
 

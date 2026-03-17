@@ -5,15 +5,16 @@
   "description": "Arche Desktop — local AI workspace",
   "main": "dist/main.js",
   "scripts": {
-    "dev": "tsc && electron dist/main.js",
+    "prepare:runtime": "bash ../../scripts/prepare-desktop-runtime.sh",
+    "dev": "pnpm prepare:runtime && tsc && electron dist/main.js",
     "build": "tsc",
-    "test": "pnpm build && node --test tests/runtime-supervisor.test.js",
+    "test": "pnpm build && node --test tests/runtime-supervisor.test.js tests/runtime-binaries.test.js tests/runtime-network.test.js",
     "start": "electron dist/main.js",
-    "pack": "electron-builder --dir --config electron-builder.config.js",
-    "dist": "electron-builder --config electron-builder.config.js",
-    "dist:mac": "electron-builder --mac --config electron-builder.config.js",
-    "dist:linux": "electron-builder --linux --config electron-builder.config.js",
-    "dist:win": "electron-builder --win --config electron-builder.config.js"
+    "pack": "pnpm prepare:runtime && electron-builder --dir --config electron-builder.config.js",
+    "dist": "pnpm prepare:runtime && electron-builder --config electron-builder.config.js",
+    "dist:mac": "pnpm prepare:runtime && electron-builder --mac --config electron-builder.config.js",
+    "dist:linux": "pnpm prepare:runtime && electron-builder --linux --config electron-builder.config.js",
+    "dist:win": "pnpm prepare:runtime && electron-builder --win --config electron-builder.config.js"
   },
   "dependencies": {
     "electron-is-dev": "^3.0.1"

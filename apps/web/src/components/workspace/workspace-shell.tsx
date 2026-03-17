@@ -1016,7 +1016,7 @@ export function WorkspaceShell({
       >
         <div className="flex h-full flex-col p-3">
           <div className="flex items-center gap-2 p-4">
-            <span className="font-[family-name:var(--font-display)] text-base font-semibold tracking-tight">Archē</span>
+            <span className="type-display text-base font-semibold tracking-tight">Archē</span>
             <span className="text-sm text-muted-foreground">/</span>
             <span className="text-sm text-muted-foreground">{slug}</span>
             <Circle size={8} weight="fill" className={cn(loadingStyle.color, loadingStyle.pulse && "animate-pulse")} />
@@ -1030,7 +1030,7 @@ export function WorkspaceShell({
                     <div className="h-16 w-16 animate-spin rounded-full border-4 border-muted border-t-primary" />
                   </div>
                   <div className="space-y-2">
-                    <h2 className="font-[family-name:var(--font-display)] text-xl font-semibold">
+                    <h2 className="type-display text-xl font-semibold">
                       Starting workspace
                     </h2>
                     <p className="text-sm text-muted-foreground">
@@ -1045,7 +1045,7 @@ export function WorkspaceShell({
                     <span className="text-2xl">!</span>
                   </div>
                   <div className="space-y-2">
-                    <h2 className="font-[family-name:var(--font-display)] text-xl font-semibold text-destructive">
+                    <h2 className="type-display text-xl font-semibold text-destructive">
                       Failed to start
                     </h2>
                     <p className="text-sm text-muted-foreground">
@@ -1058,7 +1058,7 @@ export function WorkspaceShell({
                 <>
                   <CosmicLoader />
                   <div className="space-y-2">
-                    <h2 className="font-[family-name:var(--font-display)] text-xl font-semibold">
+                    <h2 className="type-display text-xl font-semibold">
                       Connecting...
                     </h2>
                   </div>
@@ -1085,7 +1085,7 @@ export function WorkspaceShell({
       >
         <div className="flex h-full flex-col p-3">
           <div className="flex items-center gap-2 p-4">
-            <span className="font-[family-name:var(--font-display)] text-base font-semibold tracking-tight">Archē</span>
+            <span className="type-display text-base font-semibold tracking-tight">Archē</span>
             <span className="text-sm text-muted-foreground">/</span>
             <span className="text-sm text-muted-foreground">{slug}</span>
             <Circle size={8} weight="fill" className={cn(connectingStyle.color, connectingStyle.pulse && "animate-pulse")} />
@@ -1095,7 +1095,7 @@ export function WorkspaceShell({
             <div className="flex flex-col items-center gap-6 text-center">
               <CosmicLoader />
               <div className="space-y-2">
-                <h2 className="font-[family-name:var(--font-display)] text-xl font-semibold">
+                <h2 className="type-display text-xl font-semibold">
                   Connecting to OpenCode
                 </h2>
                 <p className="text-sm text-muted-foreground">

@@ -104,7 +104,7 @@ export default function LoginPage() {
         <div className="space-y-8">
           {/* Header */}
           <div className="space-y-2 text-center">
-            <h1 className="font-[family-name:var(--font-display)] text-3xl font-semibold tracking-tight">
+            <h1 className="type-display text-3xl font-semibold tracking-tight"> 
               Welcome back
             </h1>
             <p className="text-muted-foreground">

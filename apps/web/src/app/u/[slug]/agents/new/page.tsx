@@ -30,7 +30,7 @@ export default async function NewAgentPage({
             </Link>
           </div>
           <div className="space-y-2">
-            <h1 className="font-[family-name:var(--font-display)] text-3xl font-semibold tracking-tight">
+            <h1 className="type-display text-3xl font-semibold tracking-tight">
               Create agent
             </h1>
             <p className="text-muted-foreground">

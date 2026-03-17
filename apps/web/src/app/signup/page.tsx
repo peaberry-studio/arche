@@ -25,7 +25,7 @@ export default function SignupPage() {
         <div className="space-y-8">
           {/* Header */}
           <div className="space-y-2 text-center">
-            <h1 className="font-[family-name:var(--font-display)] text-3xl font-semibold tracking-tight">
+            <h1 className="type-display text-3xl font-semibold tracking-tight">
               Create your workspace
             </h1>
             <p className="text-muted-foreground">

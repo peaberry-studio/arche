@@ -268,9 +268,12 @@ async function handleProxy(
     if (!apiKey) {
       headers.delete('authorization')
     } else {
-    headers.set('authorization', `Bearer ${apiKey}`)
+      headers.set('authorization', `Bearer ${apiKey}`)
     }
   } else {
+    if (!apiKey) {
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+    }
     headers.set('x-api-key', apiKey)
     if (!headers.has('anthropic-version')) {
       headers.set('anthropic-version', '2023-06-01')

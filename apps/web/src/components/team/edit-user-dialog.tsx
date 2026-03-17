@@ -233,7 +233,7 @@ export function EditUserDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="scrollbar-custom max-h-[90vh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle className="font-[family-name:var(--font-display)] text-xl">
+          <DialogTitle className="type-display text-xl">
             Edit user
           </DialogTitle>
           <DialogDescription>

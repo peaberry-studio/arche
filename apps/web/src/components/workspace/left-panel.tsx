@@ -907,7 +907,7 @@ function ExpandedLeftPanel({
           onClick={onNavigateDashboard}
           className="flex items-center gap-1.5 truncate transition-colors hover:opacity-80"
         >
-          <span className="font-[family-name:var(--font-display)] text-base font-semibold tracking-tight">
+          <span className="type-display text-base font-semibold tracking-tight">
             Archē
           </span>
           <span className="text-sm text-muted-foreground">/</span>

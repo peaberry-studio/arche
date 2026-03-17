@@ -83,7 +83,7 @@ export function CreateUserDialog({ open, slug, onOpenChange, onUserCreated }: Cr
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="scrollbar-custom max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle className="font-[family-name:var(--font-display)] text-xl">
+          <DialogTitle className="type-display text-xl">
             Add user
           </DialogTitle>
           <DialogDescription>

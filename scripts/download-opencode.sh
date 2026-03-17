@@ -53,6 +53,16 @@ URL="$BASE_URL/$ASSET"
 
 mkdir -p "$OUTPUT_DIR"
 
+OUTPUT_NAME="opencode"
+if [[ "$PLATFORM" == windows-* ]]; then
+  OUTPUT_NAME="opencode.exe"
+fi
+
+if [ -f "$OUTPUT_DIR/$OUTPUT_NAME" ] && [ "${FORCE_DOWNLOAD:-0}" != "1" ]; then
+  echo "==> OpenCode already present at $OUTPUT_DIR/$OUTPUT_NAME"
+  exit 0
+fi
+
 echo "==> Downloading OpenCode v$VERSION for $PLATFORM"
 echo "    URL: $URL"
 
@@ -88,8 +98,10 @@ if [ -z "$BINARY" ]; then
   exit 1
 fi
 
-cp "$BINARY" "$OUTPUT_DIR/"
-chmod +x "$OUTPUT_DIR/$(basename "$BINARY")"
+cp "$BINARY" "$OUTPUT_DIR/$OUTPUT_NAME"
+if [[ "$OUTPUT_NAME" != *.exe ]]; then
+  chmod +x "$OUTPUT_DIR/$OUTPUT_NAME"
+fi
 
-echo "==> OpenCode v$VERSION installed to $OUTPUT_DIR/$(basename "$BINARY")"
-echo "    Size: $(du -h "$OUTPUT_DIR/$(basename "$BINARY")" | cut -f1)"
+echo "==> OpenCode v$VERSION installed to $OUTPUT_DIR/$OUTPUT_NAME"
+echo "    Size: $(du -h "$OUTPUT_DIR/$OUTPUT_NAME" | cut -f1)"

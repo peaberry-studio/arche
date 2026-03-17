@@ -577,7 +577,7 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
   if (loadError) {
     return (
       <div className="glass-panel rounded-3xl border-destructive/25 px-8 py-12">
-        <h2 className="font-[family-name:var(--font-display)] text-xl text-destructive">
+        <h2 className="type-display text-xl text-destructive">
           Kickstart unavailable
         </h2>
         <p className="mt-2 text-sm text-muted-foreground">{loadError}</p>
@@ -629,7 +629,7 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
         {step === 1 && (
           <div className="space-y-5">
             <div>
-              <h2 className="font-[family-name:var(--font-display)] text-2xl">Company details</h2>
+              <h2 className="type-display text-2xl">Company details</h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 This context is used to render the initial KB and baseline prompts.
               </p>
@@ -661,7 +661,7 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
         {step === 2 && (
           <div className="space-y-5">
             <div>
-              <h2 className="font-[family-name:var(--font-display)] text-2xl">Template selection</h2>
+              <h2 className="type-display text-2xl">Template selection</h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 Pick the baseline structure that best matches your operating model.
               </p>
@@ -738,7 +738,7 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
         {step === 3 && (
           <div className="space-y-5">
             <div>
-              <h2 className="font-[family-name:var(--font-display)] text-2xl">Agent selection</h2>
+              <h2 className="type-display text-2xl">Agent selection</h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 Start from template recommendations, then tune the final set.
               </p>
@@ -789,7 +789,7 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
         {step === 4 && (
           <div className="space-y-5">
             <div>
-              <h2 className="font-[family-name:var(--font-display)] text-2xl">Review and apply</h2>
+              <h2 className="type-display text-2xl">Review and apply</h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 Finalize per-agent model and prompt defaults before generating KB and config.
               </p>

@@ -20,7 +20,7 @@ export function SettingsPageContent({
     <main className="relative mx-auto max-w-6xl px-6 py-10">
       <div className="space-y-8">
         <div>
-          <h1 className="font-[family-name:var(--font-display)] text-3xl font-semibold tracking-tight">
+          <h1 className="type-display text-3xl font-semibold tracking-tight">
             Settings
           </h1>
         </div>

@@ -31,6 +31,14 @@ module.exports = {
       from: 'bin/opencode',
       to: 'bin/opencode',
     },
+    {
+      from: 'bin/workspace-agent',
+      to: 'bin/workspace-agent',
+    },
+    {
+      from: 'bin/node',
+      to: 'bin/node',
+    },
   ],
   mac: {
     category: 'public.app-category.developer-tools',

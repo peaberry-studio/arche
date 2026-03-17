@@ -23,7 +23,7 @@ export function DashboardNav({ slug }: { slug: string }) {
       <div className="flex items-center">
         <Link
           href="/"
-          className="mr-2 font-[family-name:var(--font-display)] text-base font-semibold"
+          className="type-display mr-2 text-base font-semibold"
         >
           Archē
         </Link>

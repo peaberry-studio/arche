@@ -1,22 +1,29 @@
 import { app, BrowserWindow, dialog, shell } from 'electron'
-import { existsSync, mkdirSync } from 'fs'
+import { existsSync, mkdirSync, rmSync } from 'fs'
 import { join } from 'path'
 
+import {
+  getMissingPackagedRuntimeBinaries,
+  getPackagedNodeBinaryPath,
+  getRuntimeBinaryEnv,
+} from './runtime-binaries'
+import { findAvailablePort } from './runtime-network'
 import { probeHttpServerReady, RuntimeSupervisor } from './runtime-supervisor'
 
-const DEV_PORT = 3000
-const PROD_PORT = 3000
+const DEFAULT_DESKTOP_WEB_PORT = 3000
+const LOOPBACK_HOST = '127.0.0.1'
 
 let mainWindow: BrowserWindow | null = null
 let nextSupervisor: RuntimeSupervisor | null = null
+let nextPort = DEFAULT_DESKTOP_WEB_PORT
 let runtimeShutdownRequested = false
 
 function getPort(): number {
-  return app.isPackaged ? PROD_PORT : DEV_PORT
+  return nextPort
 }
 
 function getNextUrl(): string {
-  return `http://127.0.0.1:${getPort()}`
+  return `http://${LOOPBACK_HOST}:${getPort()}`
 }
 
 function getWebAppDir(): string {
@@ -37,6 +44,7 @@ function setDesktopEnv(): void {
     process.env.NODE_ENV = 'production'
   }
   process.env.ARCHE_DATA_DIR = getDataDir()
+  process.env.ARCHE_DESKTOP_WEB_HOST = LOOPBACK_HOST
 }
 
 function ensureDataDirectories(): void {
@@ -55,28 +63,40 @@ function ensureDataDirectories(): void {
   }
 }
 
-function getOpencodeBinaryPath(): string {
-  if (process.env.ARCHE_OPENCODE_BIN) {
-    return process.env.ARCHE_OPENCODE_BIN
-  }
-
+function resetDesktopDevNextArtifacts(): void {
   if (app.isPackaged) {
-    return join(process.resourcesPath, 'bin', 'opencode')
+    return
   }
 
-  // Development: look in apps/desktop/bin/ first, then fall back to PATH
-  const devBin = join(__dirname, '..', 'bin', 'opencode')
-  if (existsSync(devBin)) {
-    return devBin
+  const desktopDistDir = join(getWebAppDir(), '.next-desktop')
+  if (existsSync(desktopDistDir)) {
+    rmSync(desktopDistDir, { recursive: true, force: true })
   }
-
-  return 'opencode'
 }
 
-function verifyOpencodeBinary(): boolean {
-  const binary = getOpencodeBinaryPath()
-  if (binary === 'opencode') return true // PATH lookup, assume available in dev
-  return existsSync(binary)
+function getRuntimeBinaryOptions() {
+  return {
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    devBaseDir: __dirname,
+    env: process.env,
+    platform: process.platform,
+  }
+}
+
+function getDesktopRuntimeEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    ...getRuntimeBinaryEnv(getRuntimeBinaryOptions()),
+  }
+}
+
+function verifyPackagedRuntimeBinaries(): string[] {
+  if (!app.isPackaged) {
+    return []
+  }
+
+  return getMissingPackagedRuntimeBinaries(getRuntimeBinaryOptions())
 }
 
 async function startNextServer(): Promise<void> {
@@ -90,20 +110,29 @@ async function startNextServer(): Promise<void> {
 function createNextSupervisor(): RuntimeSupervisor {
   return new RuntimeSupervisor({
     componentName: 'next',
-    command: app.isPackaged ? 'node' : 'pnpm',
-    args: app.isPackaged ? ['server.js'] : ['dev'],
+    command: app.isPackaged ? getPackagedNodeBinaryPath(getRuntimeBinaryOptions()) : 'pnpm',
+    args: app.isPackaged
+      ? ['server.js']
+      : ['exec', 'next', 'dev', '-H', LOOPBACK_HOST, '-p', String(getPort())],
     cwd: getWebAppDir(),
     env: {
-      ...process.env,
+      ...getDesktopRuntimeEnv(),
       ARCHE_RUNTIME_MODE: 'desktop',
+      ARCHE_DESKTOP_NEXT_DIST_DIR: '.next-desktop',
+      ARCHE_DESKTOP_WEB_PORT: String(getPort()),
       PORT: String(getPort()),
-      HOSTNAME: '127.0.0.1',
+      HOSTNAME: LOOPBACK_HOST,
     },
     probeReadiness: () => probeHttpServerReady(getNextUrl()),
     log: (event) => {
       process.stdout.write(`[desktop-supervisor] ${JSON.stringify(event)}\n`)
     },
   })
+}
+
+async function initializeDesktopWebPort(): Promise<void> {
+  nextPort = await findAvailablePort(DEFAULT_DESKTOP_WEB_PORT, LOOPBACK_HOST)
+  process.env.ARCHE_DESKTOP_WEB_PORT = String(nextPort)
 }
 
 function createWindow(): void {
@@ -149,12 +178,17 @@ async function shutdownDesktopRuntime(): Promise<void> {
 app.whenReady().then(async () => {
   setDesktopEnv()
   ensureDataDirectories()
+  resetDesktopDevNextArtifacts()
+  await initializeDesktopWebPort()
 
-  if (!verifyOpencodeBinary()) {
+  const missingRuntimeBinaries = verifyPackagedRuntimeBinaries()
+  if (missingRuntimeBinaries.length > 0) {
     dialog.showErrorBox(
       'Arche',
-      'OpenCode binary not found. The application may not have been packaged correctly.',
+      `Missing packaged runtime binaries: ${missingRuntimeBinaries.join(', ')}.`,
     )
+    app.quit()
+    return
   }
 
   try {
