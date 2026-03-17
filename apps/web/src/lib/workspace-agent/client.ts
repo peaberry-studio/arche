@@ -5,11 +5,18 @@ import { getWorkspaceAgentPort } from '@/lib/spawner/config'
 
 const DEFAULT_USERNAME = 'opencode'
 const DESKTOP_LOOPBACK_HOST = '127.0.0.1'
+const DESKTOP_WORKSPACE_AGENT_PORT_ENV = 'ARCHE_DESKTOP_WORKSPACE_AGENT_PORT'
+
+function getDesktopWorkspaceAgentPort(): number {
+  const raw = process.env[DESKTOP_WORKSPACE_AGENT_PORT_ENV]
+  const parsed = raw ? Number(raw) : Number.NaN
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : getWorkspaceAgentPort()
+}
 
 export function getWorkspaceAgentUrl(slug: string): string {
   const caps = getRuntimeCapabilities()
   const host = caps.containers ? `opencode-${slug}` : DESKTOP_LOOPBACK_HOST
-  const port = getWorkspaceAgentPort()
+  const port = caps.containers ? getWorkspaceAgentPort() : getDesktopWorkspaceAgentPort()
   return `http://${host}:${port}`
 }
 

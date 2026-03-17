@@ -152,6 +152,53 @@ cp .env.example .env
 | Migrations | `pnpm db:migrate` |
 | Seed | `pnpm db:seed` |
 
+## Desktop Development (`apps/desktop`)
+
+Desktop runs the same web app inside Electron in local single-user mode.
+
+### Prerequisites
+
+- Node.js 24+
+- pnpm 10+
+- Go 1.22+ (required to build `workspace-agent`)
+- `curl`, `tar`, `unzip` (used by runtime preparation scripts)
+
+### Steps (new machine)
+
+```bash
+# 1) Install web dependencies
+cd apps/web
+pnpm install
+
+# 2) Optional: regenerate desktop Prisma client
+pnpm prisma:generate:desktop
+
+# 3) Install desktop dependencies
+cd ../desktop
+pnpm install
+
+# 4) Start Electron desktop in dev mode
+pnpm dev
+```
+
+### Runtime preparation notes
+
+- `pnpm dev` in `apps/desktop` already runs `pnpm prepare:runtime` automatically.
+- `prepare:runtime` downloads bundled `node` + `opencode`, and builds `workspace-agent` into `apps/desktop/bin`.
+- Run `pnpm prepare:runtime` manually only if you want to prefetch/update binaries.
+- To force re-download of bundled binaries:
+
+```bash
+cd apps/desktop
+FORCE_DOWNLOAD=1 pnpm prepare:runtime
+```
+
+### Build desktop distributable
+
+```bash
+bash scripts/build-desktop.sh
+```
+
 ## Deployment
 
 Two modes are available through `infra/deploy/deploy.sh`:
@@ -215,6 +262,7 @@ kickstart/
 ## Additional Documentation
 
 - [`apps/web/README.md`](apps/web/README.md) - Detailed local setup, auth, spawner
+- [`apps/desktop/README.md`](apps/desktop/README.md) - Desktop local runtime setup and packaging
 - [`infra/README.md`](infra/README.md) - Infrastructure and KB architecture
 - [`infra/compose/README.md`](infra/compose/README.md) - Podman Compose stack
 - [`infra/deploy/README.md`](infra/deploy/README.md) - VPS deployment guide

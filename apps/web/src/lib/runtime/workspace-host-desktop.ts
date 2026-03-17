@@ -22,6 +22,8 @@ const DEFAULT_NEXT_PORT = 3000
 const DEFAULT_START_TIMEOUT_MS = 30_000
 const DEFAULT_START_INTERVAL_MS = 500
 const SHUTDOWN_TIMEOUT_MS = 5_000
+const DESKTOP_OPENCODE_PORT_ENV = 'ARCHE_DESKTOP_OPENCODE_PORT'
+const DESKTOP_WORKSPACE_AGENT_PORT_ENV = 'ARCHE_DESKTOP_WORKSPACE_AGENT_PORT'
 
 type RuntimeState = 'stopped' | 'starting' | 'running' | 'error'
 
@@ -74,6 +76,32 @@ function logDesktopRuntime(
   }
 
   console.log(`[desktop-runtime] ${JSON.stringify(payload)}`)
+}
+
+function setDesktopRuntimePortEnv(runtime: Pick<LocalRuntime, 'port' | 'agentPort' | 'workspaceAgentAvailable'>): void {
+  process.env[DESKTOP_OPENCODE_PORT_ENV] = String(runtime.port)
+
+  if (runtime.workspaceAgentAvailable) {
+    process.env[DESKTOP_WORKSPACE_AGENT_PORT_ENV] = String(runtime.agentPort)
+    process.env.WORKSPACE_AGENT_PORT = String(runtime.agentPort)
+    return
+  }
+
+  delete process.env[DESKTOP_WORKSPACE_AGENT_PORT_ENV]
+  delete process.env.WORKSPACE_AGENT_PORT
+}
+
+function syncDesktopRuntimePortEnv(): void {
+  const runtime = Array.from(runtimes.values())[0]
+
+  if (!runtime) {
+    delete process.env[DESKTOP_OPENCODE_PORT_ENV]
+    delete process.env[DESKTOP_WORKSPACE_AGENT_PORT_ENV]
+    delete process.env.WORKSPACE_AGENT_PORT
+    return
+  }
+
+  setDesktopRuntimePortEnv(runtime)
 }
 
 function getDesktopProviderGatewayConfig(): Record<string, unknown> {
@@ -392,6 +420,7 @@ async function stopRuntime(slug: string, persistStoppedState: boolean): Promise<
     ])
 
     runtimes.delete(slug)
+    syncDesktopRuntimePortEnv()
 
     if (persistStoppedState) {
       await instanceService.setStopped(slug)
@@ -446,6 +475,7 @@ export const desktopWorkspaceHost: WorkspaceHost = {
 
     const existing = runtimes.get(slug)
     if (existing && existing.state === 'running') {
+      setDesktopRuntimePortEnv(existing)
       return { ok: true, status: 'already_running' }
     }
 
@@ -535,6 +565,7 @@ export const desktopWorkspaceHost: WorkspaceHost = {
       stopPromise: null,
       lastErrorDetail: null,
     })
+    setDesktopRuntimePortEnv({ port, agentPort, workspaceAgentAvailable })
 
     logDesktopRuntime(slug, 'runtime', 'state_changed', 'starting')
 

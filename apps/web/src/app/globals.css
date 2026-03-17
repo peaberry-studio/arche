@@ -485,6 +485,9 @@
   }
   body {
     @apply bg-background text-foreground antialiased;
+    --font-display: var(--font-space-grotesk);
+    --font-serif: var(--font-instrument-serif);
+    --font-chat-serif: var(--font-libre-baskerville);
     font-family: var(--font-geist-sans), system-ui, sans-serif;
   }
 }

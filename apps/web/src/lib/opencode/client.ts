@@ -11,8 +11,15 @@ import { instanceService } from '@/lib/services'
 import { decryptPassword } from '@/lib/spawner/crypto'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 
-const OPENCODE_PORT = 4096
+const DEFAULT_OPENCODE_PORT = 4096
 const DESKTOP_LOOPBACK_HOST = '127.0.0.1'
+const DESKTOP_OPENCODE_PORT_ENV = 'ARCHE_DESKTOP_OPENCODE_PORT'
+
+function getDesktopOpencodePort(): number {
+  const raw = process.env[DESKTOP_OPENCODE_PORT_ENV]
+  const parsed = raw ? Number(raw) : Number.NaN
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_OPENCODE_PORT
+}
 
 /**
  * Get the internal network URL for an OpenCode instance.
@@ -22,7 +29,8 @@ const DESKTOP_LOOPBACK_HOST = '127.0.0.1'
 export function getInstanceUrl(slug: string): string {
   const caps = getRuntimeCapabilities()
   const host = caps.containers ? `opencode-${slug}` : DESKTOP_LOOPBACK_HOST
-  return `http://${host}:${OPENCODE_PORT}`
+  const port = caps.containers ? DEFAULT_OPENCODE_PORT : getDesktopOpencodePort()
+  return `http://${host}:${port}`
 }
 
 /**

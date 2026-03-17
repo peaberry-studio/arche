@@ -22,6 +22,7 @@ describe('createWorkspaceAgentClient', () => {
     process.env = { ...originalEnv }
     delete process.env.ARCHE_RUNTIME_MODE
     delete process.env.WORKSPACE_AGENT_PORT
+    delete process.env.ARCHE_DESKTOP_WORKSPACE_AGENT_PORT
 
     mockFindCredentialsBySlug.mockResolvedValue({
       serverPassword: 'encrypted-password',
@@ -42,6 +43,19 @@ describe('createWorkspaceAgentClient', () => {
 
     expect(agent).toEqual({
       baseUrl: 'http://127.0.0.1:4097',
+      authHeader: expect.any(String),
+    })
+  })
+
+  it('uses the runtime-selected workspace-agent port in desktop mode', async () => {
+    process.env.ARCHE_RUNTIME_MODE = 'desktop'
+    process.env.ARCHE_DESKTOP_WORKSPACE_AGENT_PORT = '4197'
+
+    const { createWorkspaceAgentClient } = await import('../client')
+    const agent = await createWorkspaceAgentClient('local')
+
+    expect(agent).toEqual({
+      baseUrl: 'http://127.0.0.1:4197',
       authHeader: expect.any(String),
     })
   })
