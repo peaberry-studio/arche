@@ -1,20 +1,22 @@
 import { app, BrowserWindow, dialog, shell } from 'electron'
 import { existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
-import { spawn, type ChildProcess } from 'child_process'
+
+import { probeHttpServerReady, RuntimeSupervisor } from './runtime-supervisor'
 
 const DEV_PORT = 3000
 const PROD_PORT = 3000
 
 let mainWindow: BrowserWindow | null = null
-let nextProcess: ChildProcess | null = null
+let nextSupervisor: RuntimeSupervisor | null = null
+let runtimeShutdownRequested = false
 
 function getPort(): number {
   return app.isPackaged ? PROD_PORT : DEV_PORT
 }
 
 function getNextUrl(): string {
-  return `http://localhost:${getPort()}`
+  return `http://127.0.0.1:${getPort()}`
 }
 
 function getWebAppDir(): string {
@@ -78,70 +80,29 @@ function verifyOpencodeBinary(): boolean {
 }
 
 async function startNextServer(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const port = getPort()
-    const webDir = getWebAppDir()
+  if (!nextSupervisor) {
+    nextSupervisor = createNextSupervisor()
+  }
 
-    if (app.isPackaged) {
-      // In packaged mode, run the standalone Next.js server directly
-      nextProcess = spawn('node', ['server.js'], {
-        cwd: webDir,
-        env: {
-          ...process.env,
-          ARCHE_RUNTIME_MODE: 'desktop',
-          PORT: String(port),
-          HOSTNAME: '127.0.0.1',
-        },
-        stdio: 'pipe',
-      })
-    } else {
-      // In development, use pnpm dev
-      nextProcess = spawn('pnpm', ['dev'], {
-        cwd: webDir,
-        env: {
-          ...process.env,
-          ARCHE_RUNTIME_MODE: 'desktop',
-          PORT: String(port),
-        },
-        stdio: 'pipe',
-        shell: true,
-      })
-    }
+  await nextSupervisor.start()
+}
 
-    let started = false
-
-    const onData = (data: Buffer): void => {
-      const output = data.toString()
-      process.stdout.write(`[next] ${output}`)
-
-      if (!started && output.includes('Ready')) {
-        started = true
-        resolve()
-      }
-    }
-
-    nextProcess.stdout?.on('data', onData)
-    nextProcess.stderr?.on('data', (data: Buffer) => {
-      process.stderr.write(`[next:err] ${data.toString()}`)
-    })
-
-    nextProcess.on('error', (error) => {
-      if (!started) reject(error)
-    })
-
-    nextProcess.on('exit', (code) => {
-      if (!started) reject(new Error(`Next.js exited with code ${code}`))
-      nextProcess = null
-    })
-
-    // Timeout: if Next.js hasn't started in 30s, resolve anyway
-    // (the window will show a loading state)
-    setTimeout(() => {
-      if (!started) {
-        started = true
-        resolve()
-      }
-    }, 30_000)
+function createNextSupervisor(): RuntimeSupervisor {
+  return new RuntimeSupervisor({
+    componentName: 'next',
+    command: app.isPackaged ? 'node' : 'pnpm',
+    args: app.isPackaged ? ['server.js'] : ['dev'],
+    cwd: getWebAppDir(),
+    env: {
+      ...process.env,
+      ARCHE_RUNTIME_MODE: 'desktop',
+      PORT: String(getPort()),
+      HOSTNAME: '127.0.0.1',
+    },
+    probeReadiness: () => probeHttpServerReady(getNextUrl()),
+    log: (event) => {
+      process.stdout.write(`[desktop-supervisor] ${JSON.stringify(event)}\n`)
+    },
   })
 }
 
@@ -177,11 +138,12 @@ function createWindow(): void {
   })
 }
 
-function stopNextServer(): void {
-  if (nextProcess && !nextProcess.killed) {
-    nextProcess.kill('SIGTERM')
-    nextProcess = null
+async function shutdownDesktopRuntime(): Promise<void> {
+  if (!nextSupervisor) {
+    return
   }
+
+  await nextSupervisor.stop()
 }
 
 app.whenReady().then(async () => {
@@ -199,6 +161,9 @@ app.whenReady().then(async () => {
     await startNextServer()
   } catch (error) {
     console.error('Failed to start Next.js server:', error)
+    dialog.showErrorBox('Arche', 'Failed to start the local desktop runtime.')
+    app.quit()
+    return
   }
 
   createWindow()
@@ -216,6 +181,12 @@ app.on('window-all-closed', () => {
   }
 })
 
-app.on('before-quit', () => {
-  stopNextServer()
+app.on('before-quit', (event) => {
+  if (!runtimeShutdownRequested) {
+    runtimeShutdownRequested = true
+    event.preventDefault()
+    void shutdownDesktopRuntime().finally(() => {
+      app.quit()
+    })
+  }
 })

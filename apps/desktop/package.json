@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "tsc && electron dist/main.js",
     "build": "tsc",
+    "test": "pnpm build && node --test tests/runtime-supervisor.test.js",
     "start": "electron dist/main.js",
     "pack": "electron-builder --dir --config electron-builder.config.js",
     "dist": "electron-builder --config electron-builder.config.js",
