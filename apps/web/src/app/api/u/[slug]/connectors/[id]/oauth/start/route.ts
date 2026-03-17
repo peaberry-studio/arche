@@ -3,41 +3,26 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auditEvent } from '@/lib/auth'
 import { isOAuthConnectorType, prepareConnectorOAuthAuthorization } from '@/lib/connectors/oauth'
 import { validateConnectorType } from '@/lib/connectors/validators'
-import { validateSameOrigin } from '@/lib/csrf'
-import { getSession } from '@/lib/runtime/session'
 import { getPublicBaseUrl } from '@/lib/http'
+import { withAuth } from '@/lib/runtime/with-auth'
 import { connectorService, userService } from '@/lib/services'
 
 type StartOAuthResponse = {
   authorizeUrl: string
 }
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ slug: string; id: string }> }
-): Promise<NextResponse<StartOAuthResponse | { error: string; message?: string }>> {
-  const session = await getSession()
-  if (!session) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-  }
+export const POST = withAuth<
+  StartOAuthResponse | { error: string; message?: string },
+  { slug: string; id: string }
+>({ csrf: true }, async (request: NextRequest, { user: actorUser, slug, params: { id } }) => {
 
-  const originValidation = validateSameOrigin(request)
-  if (!originValidation.ok) {
-    return NextResponse.json({ error: 'forbidden' }, { status: 403 })
-  }
+  const targetUser = await userService.findIdBySlug(slug)
 
-  const { slug, id } = await params
-  if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
-    return NextResponse.json({ error: 'forbidden' }, { status: 403 })
-  }
-
-  const user = await userService.findIdBySlug(slug)
-
-  if (!user) {
+  if (!targetUser) {
     return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
   }
 
-  const connector = await connectorService.findByIdAndUserIdSelect(id, user.id, { id: true, type: true })
+  const connector = await connectorService.findByIdAndUserIdSelect(id, targetUser.id, { id: true, type: true })
   if (!connector) {
     return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })
   }
@@ -53,7 +38,7 @@ export async function POST(
     const prepared = await prepareConnectorOAuthAuthorization({
       connectorId: connector.id,
       slug,
-      userId: user.id,
+      userId: targetUser.id,
       connectorType: connector.type,
       redirectUri,
     })
@@ -84,10 +69,10 @@ export async function POST(
   }
 
   await auditEvent({
-    actorUserId: session.user.id,
+    actorUserId: actorUser.id,
     action: 'connector.oauth_started',
     metadata: { connectorId: connector.id, connectorType: connector.type },
   })
 
   return NextResponse.json({ authorizeUrl })
-}
+})

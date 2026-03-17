@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server"
 
-import { getAuthenticatedUser } from "@/lib/auth"
+import { withAuth } from "@/lib/runtime/with-auth"
 import { workspaceAgentFetch } from "@/lib/workspace-agent-client"
 import { createWorkspaceAgentClient } from "@/lib/workspace-agent/client"
 import {
@@ -55,53 +55,42 @@ function buildContentDisposition(filename: string): string {
   return `attachment; filename="${fallbackName}"; filename*=UTF-8''${encodeURIComponent(filename)}`
 }
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> }
-) {
-  const { slug } = await params
+export const GET = withAuth<{ error: string }>(
+  { csrf: false },
+  async (request: NextRequest, { slug }) => {
+    const requestUrl = new URL(request.url)
+    const normalizedPath = normalizeWorkspacePath(requestUrl.searchParams.get("path") ?? "")
+    if (!isValidDownloadPath(normalizedPath)) {
+      return jsonResponse(400, { error: "invalid_path" })
+    }
 
-  const session = await getAuthenticatedUser()
-  if (!session) {
-    return jsonResponse(401, { error: "unauthorized" })
-  }
+    const agent = await createWorkspaceAgentClient(slug)
+    if (!agent) {
+      return jsonResponse(503, { error: "instance_unavailable" })
+    }
 
-  if (session.user.slug !== slug && session.user.role !== "ADMIN") {
-    return jsonResponse(403, { error: "forbidden" })
-  }
+    const response = await workspaceAgentFetch<WorkspaceAgentReadResponse>(agent, "/files/read", {
+      path: normalizedPath,
+    })
 
-  const requestUrl = new URL(request.url)
-  const normalizedPath = normalizeWorkspacePath(requestUrl.searchParams.get("path") ?? "")
-  if (!isValidDownloadPath(normalizedPath)) {
-    return jsonResponse(400, { error: "invalid_path" })
-  }
+    if (!response.ok) {
+      return jsonResponse(response.status === 404 ? 404 : 502, { error: response.error })
+    }
 
-  const agent = await createWorkspaceAgentClient(slug)
-  if (!agent) {
-    return jsonResponse(503, { error: "instance_unavailable" })
-  }
+    const content = decodeWorkspaceFileContent(response.data)
+    if (!content) {
+      return jsonResponse(502, { error: "invalid_file_content" })
+    }
 
-  const response = await workspaceAgentFetch<WorkspaceAgentReadResponse>(agent, "/files/read", {
-    path: normalizedPath,
-  })
+    const filename = normalizedPath.split("/").pop() ?? "download"
 
-  if (!response.ok) {
-    return jsonResponse(response.status === 404 ? 404 : 502, { error: response.error })
-  }
-
-  const content = decodeWorkspaceFileContent(response.data)
-  if (!content) {
-    return jsonResponse(502, { error: "invalid_file_content" })
-  }
-
-  const filename = normalizedPath.split("/").pop() ?? "download"
-
-  return new Response(new Uint8Array(content), {
-    status: 200,
-    headers: {
-      "Cache-Control": "no-store",
-      "Content-Disposition": buildContentDisposition(filename),
-      "Content-Type": inferAttachmentMimeType(filename),
-    },
-  })
-}
+    return new Response(new Uint8Array(content), {
+      status: 200,
+      headers: {
+        "Cache-Control": "no-store",
+        "Content-Disposition": buildContentDisposition(filename),
+        "Content-Type": inferAttachmentMimeType(filename),
+      },
+    })
+  },
+)

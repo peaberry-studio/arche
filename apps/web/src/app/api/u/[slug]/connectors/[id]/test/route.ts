@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { getSession } from '@/lib/runtime/session'
 import { decryptConfig } from '@/lib/connectors/crypto'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
 import { refreshConnectorOAuthConfigIfNeeded } from '@/lib/connectors/oauth-refresh'
 import type { ConnectorType } from '@/lib/connectors/types'
 import { validateConnectorType } from '@/lib/connectors/validators'
-import { validateSameOrigin } from '@/lib/csrf'
+import { withAuth } from '@/lib/runtime/with-auth'
 import { validateConnectorTestEndpoint } from '@/lib/security/ssrf'
 import { connectorService, userService } from '@/lib/services'
 
@@ -228,90 +227,69 @@ async function testConnection(
  * - 404: User or connector not found
  * - 409: Connector disabled
  */
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ slug: string; id: string }> }
-): Promise<NextResponse<TestConnectionResult | { error: string }>> {
-  const session = await getSession()
-  if (!session) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-  }
+export const POST = withAuth<TestConnectionResult | { error: string }, { slug: string; id: string }>(
+  { csrf: true },
+  async (_request: NextRequest, { slug, params: { id } }) => {
+    const user = await userService.findIdBySlug(slug)
 
-  const originValidation = validateSameOrigin(request)
-  if (!originValidation.ok) {
-    return NextResponse.json({ error: 'forbidden' }, { status: 403 })
-  }
-
-  const { slug, id } = await params
-
-  // Verify authorization
-  if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
-    return NextResponse.json({ error: 'forbidden' }, { status: 403 })
-  }
-
-  // Get user
-  const user = await userService.findIdBySlug(slug)
-
-  if (!user) {
-    return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
-  }
-
-  // Get connector while verifying ownership
-  const connector = await connectorService.findByIdAndUserId(id, user.id)
-
-  if (!connector) {
-    return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })
-  }
-
-  // Verify connector is enabled
-  if (!connector.enabled) {
-    return NextResponse.json({ error: 'connector_disabled' }, { status: 409 })
-  }
-
-  // Decrypt config and test connection
-  const refreshedConfig = await refreshConnectorOAuthConfigIfNeeded({
-    id: connector.id,
-    type: connector.type,
-    config: connector.config,
-  })
-
-  let config: Record<string, unknown>
-  try {
-    config = decryptConfig(refreshedConfig ?? connector.config)
-  } catch {
-    return NextResponse.json(
-      { error: 'config_corrupted', message: 'Failed to decrypt connector configuration' },
-      { status: 500 }
-    )
-  }
-
-  if (!validateConnectorType(connector.type)) {
-    return NextResponse.json({ error: 'unsupported_connector_type' }, { status: 400 })
-  }
-
-  let customEndpointUrl: URL | undefined
-  if (connector.type === 'custom') {
-    const endpoint = typeof config.endpoint === 'string' ? config.endpoint : ''
-    if (endpoint) {
-      const endpointValidation = await validateConnectorTestEndpoint(endpoint)
-      if (!endpointValidation.ok) {
-        return NextResponse.json({ error: endpointValidation.error }, { status: 400 })
-      }
-      customEndpointUrl = endpointValidation.url
+    if (!user) {
+      return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
     }
-  }
 
-  const result = await testConnection(connector.type, config, { customEndpointUrl })
+    const connector = await connectorService.findByIdAndUserId(id, user.id)
 
-  if (result.ok && getConnectorAuthType(config) === 'oauth') {
-    const message = result.message ?? 'Connection verified.'
-    return NextResponse.json({
-      ...result,
-      message:
-        `${message} Restart the workspace to apply the updated connector credentials. ` +
-        'If it is still unavailable in chat, enable this connector in Agent capabilities.',
+    if (!connector) {
+      return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })
+    }
+
+    if (!connector.enabled) {
+      return NextResponse.json({ error: 'connector_disabled' }, { status: 409 })
+    }
+
+    const refreshedConfig = await refreshConnectorOAuthConfigIfNeeded({
+      id: connector.id,
+      type: connector.type,
+      config: connector.config,
     })
-  }
 
-  return NextResponse.json(result)
-}
+    let config: Record<string, unknown>
+    try {
+      config = decryptConfig(refreshedConfig ?? connector.config)
+    } catch {
+      return NextResponse.json(
+        { error: 'config_corrupted', message: 'Failed to decrypt connector configuration' },
+        { status: 500 }
+      )
+    }
+
+    if (!validateConnectorType(connector.type)) {
+      return NextResponse.json({ error: 'unsupported_connector_type' }, { status: 400 })
+    }
+
+    let customEndpointUrl: URL | undefined
+    if (connector.type === 'custom') {
+      const endpoint = typeof config.endpoint === 'string' ? config.endpoint : ''
+      if (endpoint) {
+        const endpointValidation = await validateConnectorTestEndpoint(endpoint)
+        if (!endpointValidation.ok) {
+          return NextResponse.json({ error: endpointValidation.error }, { status: 400 })
+        }
+        customEndpointUrl = endpointValidation.url
+      }
+    }
+
+    const result = await testConnection(connector.type, config, { customEndpointUrl })
+
+    if (result.ok && getConnectorAuthType(config) === 'oauth') {
+      const message = result.message ?? 'Connection verified.'
+      return NextResponse.json({
+        ...result,
+        message:
+          `${message} Restart the workspace to apply the updated connector credentials. ` +
+          'If it is still unavailable in chat, enable this connector in Agent capabilities.',
+      })
+    }
+
+    return NextResponse.json(result)
+  },
+)

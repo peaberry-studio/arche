@@ -9,8 +9,7 @@ import {
   validateConnectorName,
   validateConnectorType,
 } from '@/lib/connectors/validators'
-import { validateSameOrigin } from '@/lib/csrf'
-import { getSession } from '@/lib/runtime/session'
+import { withAuth } from '@/lib/runtime/with-auth'
 import { connectorService, userService } from '@/lib/services'
 
 export interface ConnectorDetail {
@@ -58,64 +57,49 @@ function sanitizeConfigForResponse(type: ConnectorType, config: Record<string, u
  * - 403: Not authorized
  * - 404: User or connector not found
  */
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ slug: string; id: string }> }
-): Promise<NextResponse<ConnectorDetail | { error: string }>> {
-  const session = await getSession()
-  if (!session) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-  }
+export const GET = withAuth<ConnectorDetail | { error: string }, { slug: string; id: string }>(
+  { csrf: false },
+  async (_request: NextRequest, { slug, params: { id } }) => {
+    const user = await userService.findIdBySlug(slug)
 
-  const { slug, id } = await params
+    if (!user) {
+      return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
+    }
 
-  // Verify authorization
-  if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
-    return NextResponse.json({ error: 'forbidden' }, { status: 403 })
-  }
+    const connector = await connectorService.findByIdAndUserId(id, user.id)
 
-  // Get user
-  const user = await userService.findIdBySlug(slug)
+    if (!connector) {
+      return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })
+    }
 
-  if (!user) {
-    return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
-  }
+    let config: Record<string, unknown>
+    try {
+      config = decryptConfig(connector.config)
+    } catch {
+      return NextResponse.json(
+        { error: 'config_corrupted', message: 'Failed to decrypt connector configuration' },
+        { status: 500 }
+      )
+    }
 
-  // Get connector and verify ownership in a single query
-  const connector = await connectorService.findByIdAndUserId(id, user.id)
-
-  if (!connector) {
-    return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })
-  }
-
-  // Decrypt config
-  let config: Record<string, unknown>
-  try {
-    config = decryptConfig(connector.config)
-  } catch {
-    return NextResponse.json(
-      { error: 'config_corrupted', message: 'Failed to decrypt connector configuration' },
-      { status: 500 }
-    )
-  }
-
-  return NextResponse.json({
-    id: connector.id,
-    type: connector.type,
-    name: connector.name,
-    config: validateConnectorType(connector.type) ? sanitizeConfigForResponse(connector.type, config) : config,
-    enabled: connector.enabled,
-    authType: getConnectorAuthType(config),
-    oauthConnected: validateConnectorType(connector.type)
-      ? Boolean(getConnectorOAuthConfig(connector.type, config)?.accessToken)
-      : false,
-    oauthExpiresAt: validateConnectorType(connector.type)
-      ? getConnectorOAuthConfig(connector.type, config)?.expiresAt
-      : undefined,
-    createdAt: connector.createdAt.toISOString(),
-    updatedAt: connector.updatedAt.toISOString(),
-  })
-}
+    return NextResponse.json({
+      id: connector.id,
+      type: connector.type,
+      name: connector.name,
+      config: validateConnectorType(connector.type) ? sanitizeConfigForResponse(connector.type, config) : config,
+      enabled: connector.enabled,
+      authType: getConnectorAuthType(config),
+      oauthConnected: validateConnectorType(connector.type)
+        ? Boolean(getConnectorOAuthConfig(connector.type, config)?.accessToken)
+        : false,
+      oauthExpiresAt: validateConnectorType(connector.type)
+        ? getConnectorOAuthConfig(connector.type, config)?.expiresAt
+        : undefined,
+      createdAt: connector.createdAt.toISOString(),
+      updatedAt: connector.updatedAt.toISOString(),
+    })
+  },
+)
 
 export interface UpdateConnectorRequest {
   name?: string
@@ -138,36 +122,17 @@ export interface UpdateConnectorRequest {
  * - 403: Not authorized
  * - 404: User or connector not found
  */
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ slug: string; id: string }> }
-): Promise<NextResponse<ConnectorDetail | { error: string; message?: string }>> {
-  const session = await getSession()
-  if (!session) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-  }
+export const PATCH = withAuth<
+  ConnectorDetail | { error: string; message?: string },
+  { slug: string; id: string }
+>({ csrf: true }, async (request: NextRequest, { user, slug, params: { id } }) => {
+  const targetUser = await userService.findIdBySlug(slug)
 
-  const originValidation = validateSameOrigin(request)
-  if (!originValidation.ok) {
-    return NextResponse.json({ error: 'forbidden' }, { status: 403 })
-  }
-
-  const { slug, id } = await params
-
-  // Verify authorization
-  if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
-    return NextResponse.json({ error: 'forbidden' }, { status: 403 })
-  }
-
-  // Get user
-  const user = await userService.findIdBySlug(slug)
-
-  if (!user) {
+  if (!targetUser) {
     return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
   }
 
-  // Get existing connector and verify ownership
-  const existingConnector = await connectorService.findByIdAndUserId(id, user.id)
+  const existingConnector = await connectorService.findByIdAndUserId(id, targetUser.id)
 
   if (!existingConnector) {
     return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })
@@ -280,7 +245,7 @@ export async function PATCH(
   }
 
   // Update connector atomically while verifying ownership (prevents TOCTOU)
-  const result = await connectorService.updateManyByIdAndUserId(id, user.id, updateData)
+  const result = await connectorService.updateManyByIdAndUserId(id, targetUser.id, updateData)
 
   if (result.count === 0) {
     // Ownership changed concurrently or connector was deleted
@@ -297,7 +262,7 @@ export async function PATCH(
 
   // Audit log
   await auditEvent({
-    actorUserId: session.user.id,
+    actorUserId: user.id,
     action: 'connector.updated',
     metadata: { connectorId: connector.id, fields: Object.keys(updateData) },
   })
@@ -323,7 +288,7 @@ export async function PATCH(
     createdAt: connector.createdAt.toISOString(),
     updatedAt: connector.updatedAt.toISOString(),
   })
-}
+})
 
 /**
  * DELETE /api/u/[slug]/connectors/[id]
@@ -338,47 +303,27 @@ export async function PATCH(
  * - 403: Not authorized
  * - 404: User or connector not found
  */
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ slug: string; id: string }> }
-): Promise<NextResponse<{ ok: true } | { error: string }>> {
-  const session = await getSession()
-  if (!session) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-  }
+export const DELETE = withAuth<{ ok: true } | { error: string }, { slug: string; id: string }>(
+  { csrf: true },
+  async (_request: NextRequest, { user, slug, params: { id } }) => {
+    const targetUser = await userService.findIdBySlug(slug)
 
-  const originValidation = validateSameOrigin(request)
-  if (!originValidation.ok) {
-    return NextResponse.json({ error: 'forbidden' }, { status: 403 })
-  }
+    if (!targetUser) {
+      return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
+    }
 
-  const { slug, id } = await params
+    const result = await connectorService.deleteManyByIdAndUserId(id, targetUser.id)
 
-  // Verify authorization
-  if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
-    return NextResponse.json({ error: 'forbidden' }, { status: 403 })
-  }
+    if (result.count === 0) {
+      return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })
+    }
 
-  // Get user
-  const user = await userService.findIdBySlug(slug)
+    await auditEvent({
+      actorUserId: user.id,
+      action: 'connector.deleted',
+      metadata: { connectorId: id },
+    })
 
-  if (!user) {
-    return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
-  }
-
-  // Delete connector atomically while verifying ownership (prevents TOCTOU)
-  const result = await connectorService.deleteManyByIdAndUserId(id, user.id)
-
-  if (result.count === 0) {
-    return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })
-  }
-
-  // Audit log
-  await auditEvent({
-    actorUserId: session.user.id,
-    action: 'connector.deleted',
-    metadata: { connectorId: id },
-  })
-
-  return NextResponse.json({ ok: true })
-}
+    return NextResponse.json({ ok: true })
+  },
+)

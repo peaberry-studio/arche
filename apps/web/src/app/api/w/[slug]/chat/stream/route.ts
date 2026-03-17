@@ -1,12 +1,11 @@
 import { NextRequest } from 'next/server'
 
 import { extractPdfText, isPdfMime } from '@/lib/attachments/pdf-text-extractor'
-import { validateSameOrigin } from '@/lib/csrf'
-import { getSession } from '@/lib/runtime/session'
+import { getInstanceUrl } from '@/lib/opencode/client'
+import { withAuth } from '@/lib/runtime/with-auth'
 import { instanceService } from '@/lib/services'
 import { INITIAL_SSE_PARSE_STATE, parseSseChunk } from '@/lib/sse-parser'
 import { decryptPassword } from '@/lib/spawner/crypto'
-import { getInstanceUrl } from '@/lib/opencode/client'
 import {
   isValidContextReferencePath,
   normalizeAttachmentPath,
@@ -179,37 +178,9 @@ async function readWorkspaceAttachment(
  * - done: { refresh: true } - Stream complete, client should refresh messages
  * - error: { error: string }
  */
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> }
-) {
-  const { slug } = await params
-
-  // Authenticate user
-  const session = await getSession()
-  if (!session) {
-    return new Response(JSON.stringify({ error: 'unauthorized' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json' }
-    })
-  }
-
-  const originValidation = validateSameOrigin(request)
-  if (!originValidation.ok) {
-    return new Response(JSON.stringify({ error: 'forbidden' }), {
-      status: 403,
-      headers: { 'Content-Type': 'application/json' }
-    })
-  }
-
-  // Check authorization
-  if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
-    return new Response(JSON.stringify({ error: 'forbidden' }), {
-      status: 403,
-      headers: { 'Content-Type': 'application/json' }
-    })
-  }
-  
+export const POST = withAuth(
+  { csrf: true },
+  async (request: NextRequest, { slug }) => {
   // Get instance credentials
   const instance = await instanceService.findCredentialsBySlug(slug)
   
@@ -787,4 +758,5 @@ export async function POST(
       'X-Accel-Buffering': 'no'
     }
   })
-}
+  },
+)

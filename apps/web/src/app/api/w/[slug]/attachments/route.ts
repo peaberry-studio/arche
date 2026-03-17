@@ -1,7 +1,6 @@
 import { NextRequest } from 'next/server'
 
-import { getSession } from '@/lib/runtime/session'
-import { validateSameOrigin } from '@/lib/csrf'
+import { withAuth } from '@/lib/runtime/with-auth'
 import {
   ensureUniqueAttachmentFilename,
   inferAttachmentMimeType,
@@ -55,16 +54,7 @@ function normalizeAndValidateAttachmentPath(path: unknown): string | null {
   return normalized
 }
 
-async function getAuthorizedWorkspaceAgent(slug: string) {
-  const session = await getSession()
-  if (!session) {
-    return { ok: false as const, response: jsonResponse(401, { error: 'unauthorized' }) }
-  }
-
-  if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
-    return { ok: false as const, response: jsonResponse(403, { error: 'forbidden' }) }
-  }
-
+async function getWorkspaceAgentForSlug(slug: string) {
   const agent = await createWorkspaceAgentClient(slug)
   if (!agent) {
     return {
@@ -108,242 +98,220 @@ async function listWorkspaceAttachments(
   return { ok: true, attachments }
 }
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> },
-) {
-  const { slug } = await params
-  const auth = await getAuthorizedWorkspaceAgent(slug)
-  if (!auth.ok) return auth.response
+export const GET = withAuth(
+  { csrf: false },
+  async (request: NextRequest, { slug }) => {
+    const auth = await getWorkspaceAgentForSlug(slug)
+    if (!auth.ok) return auth.response
 
-  try {
+    try {
+      const listed = await listWorkspaceAttachments(auth.agent)
+      if (!listed.ok) {
+        return jsonResponse(502, { error: listed.error })
+      }
+
+      const { searchParams } = new URL(request.url)
+      const limitParam = Number(searchParams.get('limit'))
+      const hasLimit = Number.isFinite(limitParam) && limitParam > 0
+      const limited = hasLimit
+        ? listed.attachments.slice(0, Math.min(limitParam, 50))
+        : listed.attachments
+
+      return jsonResponse(200, { attachments: limited })
+    } catch (error) {
+      return jsonResponse(500, {
+        error: error instanceof Error ? error.message : 'attachments_list_failed',
+      })
+    }
+  },
+)
+
+export const POST = withAuth(
+  { csrf: true },
+  async (request: NextRequest, { slug }) => {
+    const auth = await getWorkspaceAgentForSlug(slug)
+    if (!auth.ok) return auth.response
+
+    const formData = await request.formData()
+    const files = formData
+      .getAll('files')
+      .filter((value): value is File => value instanceof File)
+
+    if (files.length === 0) {
+      return jsonResponse(400, { error: 'missing_files' })
+    }
+
+    if (files.length > MAX_ATTACHMENTS_PER_UPLOAD) {
+      return jsonResponse(400, { error: 'too_many_files' })
+    }
+
+    if (files.some((file) => file.size > MAX_ATTACHMENT_UPLOAD_BYTES)) {
+      return jsonResponse(413, { error: 'file_too_large' })
+    }
+
+    const existing = await listWorkspaceAttachments(auth.agent)
+    if (!existing.ok) {
+      return jsonResponse(502, { error: existing.error })
+    }
+
+    const usedNames = new Set(existing.attachments.map((attachment) => attachment.name))
+    const uploadTargets = files.map((file) => {
+      const safeName = sanitizeAttachmentFilename(file.name)
+      const uniqueName = ensureUniqueAttachmentFilename(safeName, usedNames)
+      usedNames.add(uniqueName)
+
+      return {
+        file,
+        name: uniqueName,
+        path: `${WORKSPACE_ATTACHMENTS_DIR}/${uniqueName}`,
+      }
+    })
+
+    const results = await Promise.allSettled(
+      uploadTargets.map(async ({ file, name, path }) => {
+        const bytes = Buffer.from(await file.arrayBuffer())
+        const fileType = file.type.trim()
+        const mime =
+          fileType.length > 0 && fileType !== 'application/octet-stream'
+            ? fileType
+            : inferAttachmentMimeType(name)
+        const uploadedAt = Date.now()
+
+        const response = await workspaceAgentFetch<{ ok: boolean; hash?: string; error?: string }>(
+          auth.agent,
+          '/files/write',
+          {
+            path,
+            content: bytes.toString('base64'),
+            encoding: 'base64',
+          },
+        )
+
+        if (!response.ok) {
+          throw new Error(response.error)
+        }
+
+        return {
+          id: path,
+          path,
+          name,
+          mime,
+          size: bytes.length,
+          uploadedAt,
+        } satisfies WorkspaceAttachment
+      }),
+    )
+
+    const uploaded: WorkspaceAttachment[] = []
+    const failed: Array<{ name: string; error: string }> = []
+
+    for (let index = 0; index < results.length; index += 1) {
+      const result = results[index]
+      const target = uploadTargets[index]
+
+      if (result.status === 'fulfilled') {
+        uploaded.push(result.value)
+        continue
+      }
+
+      failed.push({
+        name: target.name,
+        error:
+          result.reason instanceof Error && result.reason.message
+            ? result.reason.message
+            : 'upload_failed',
+      })
+    }
+
+    if (failed.length > 0 && uploaded.length === 0) {
+      return jsonResponse(502, { error: 'upload_failed', uploaded, failed })
+    }
+
+    if (failed.length > 0) {
+      return jsonResponse(207, { uploaded, failed })
+    }
+
+    return jsonResponse(201, { uploaded, failed: [] })
+  },
+)
+
+export const PATCH = withAuth(
+  { csrf: true },
+  async (request: NextRequest, { slug }) => {
+    const auth = await getWorkspaceAgentForSlug(slug)
+    if (!auth.ok) return auth.response
+
+    const body = (await request
+      .json()
+      .catch(() => null)) as { path?: unknown; name?: unknown } | null
+    const path = normalizeAndValidateAttachmentPath(body?.path)
+    if (!path) {
+      return jsonResponse(400, { error: 'invalid_path' })
+    }
+
+    if (typeof body?.name !== 'string') {
+      return jsonResponse(400, { error: 'invalid_name' })
+    }
+
+    const sanitizedName = sanitizeAttachmentFilename(body.name)
+    if (sanitizedName.length === 0) {
+      return jsonResponse(400, { error: 'invalid_name' })
+    }
+
+    const newPath = `${WORKSPACE_ATTACHMENTS_DIR}/${sanitizedName}`
+
+    const response = await workspaceAgentFetch<{ ok: boolean; path?: string; newPath?: string; error?: string }>(
+      auth.agent,
+      '/files/rename',
+      { path, newPath },
+    )
+
+    if (!response.ok) {
+      return jsonResponse(response.status === 409 ? 409 : 502, { error: response.error })
+    }
+
     const listed = await listWorkspaceAttachments(auth.agent)
     if (!listed.ok) {
       return jsonResponse(502, { error: listed.error })
     }
 
-    const { searchParams } = new URL(request.url)
-    const limitParam = Number(searchParams.get('limit'))
-    const hasLimit = Number.isFinite(limitParam) && limitParam > 0
-    const limited = hasLimit
-      ? listed.attachments.slice(0, Math.min(limitParam, 50))
-      : listed.attachments
-
-    return jsonResponse(200, { attachments: limited })
-  } catch (error) {
-    return jsonResponse(500, {
-      error: error instanceof Error ? error.message : 'attachments_list_failed',
-    })
-  }
-}
-
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> },
-) {
-  const { slug } = await params
-
-  const auth = await getAuthorizedWorkspaceAgent(slug)
-  if (!auth.ok) return auth.response
-
-  const originValidation = validateSameOrigin(request)
-  if (!originValidation.ok) {
-    return jsonResponse(403, { error: 'forbidden' })
-  }
-
-  const formData = await request.formData()
-  const files = formData
-    .getAll('files')
-    .filter((value): value is File => value instanceof File)
-
-  if (files.length === 0) {
-    return jsonResponse(400, { error: 'missing_files' })
-  }
-
-  if (files.length > MAX_ATTACHMENTS_PER_UPLOAD) {
-    return jsonResponse(400, { error: 'too_many_files' })
-  }
-
-  if (files.some((file) => file.size > MAX_ATTACHMENT_UPLOAD_BYTES)) {
-    return jsonResponse(413, { error: 'file_too_large' })
-  }
-
-  const existing = await listWorkspaceAttachments(auth.agent)
-  if (!existing.ok) {
-    return jsonResponse(502, { error: existing.error })
-  }
-
-  const usedNames = new Set(existing.attachments.map((attachment) => attachment.name))
-  const uploadTargets = files.map((file) => {
-    const safeName = sanitizeAttachmentFilename(file.name)
-    const uniqueName = ensureUniqueAttachmentFilename(safeName, usedNames)
-    usedNames.add(uniqueName)
-
-    return {
-      file,
-      name: uniqueName,
-      path: `${WORKSPACE_ATTACHMENTS_DIR}/${uniqueName}`,
-    }
-  })
-
-  const results = await Promise.allSettled(
-    uploadTargets.map(async ({ file, name, path }) => {
-      const bytes = Buffer.from(await file.arrayBuffer())
-      const fileType = file.type.trim()
-      const mime =
-        fileType.length > 0 && fileType !== 'application/octet-stream'
-          ? fileType
-          : inferAttachmentMimeType(name)
-      const uploadedAt = Date.now()
-
-      const response = await workspaceAgentFetch<{ ok: boolean; hash?: string; error?: string }>(
-        auth.agent,
-        '/files/write',
-        {
-          path,
-          content: bytes.toString('base64'),
-          encoding: 'base64',
-        },
-      )
-
-      if (!response.ok) {
-        throw new Error(response.error)
-      }
-
-      return {
-        id: path,
-        path,
-        name,
-        mime,
-        size: bytes.length,
-        uploadedAt,
-      } satisfies WorkspaceAttachment
-    }),
-  )
-
-  const uploaded: WorkspaceAttachment[] = []
-  const failed: Array<{ name: string; error: string }> = []
-
-  for (let index = 0; index < results.length; index += 1) {
-    const result = results[index]
-    const target = uploadTargets[index]
-
-    if (result.status === 'fulfilled') {
-      uploaded.push(result.value)
-      continue
+    const updatedAttachment = listed.attachments.find(
+      (attachment) => attachment.path === newPath,
+    )
+    if (!updatedAttachment) {
+      return jsonResponse(404, { error: 'not_found' })
     }
 
-    failed.push({
-      name: target.name,
-      error:
-        result.reason instanceof Error && result.reason.message
-          ? result.reason.message
-          : 'upload_failed',
-    })
-  }
+    return jsonResponse(200, { attachment: updatedAttachment })
+  },
+)
 
-  if (failed.length > 0 && uploaded.length === 0) {
-    return jsonResponse(502, { error: 'upload_failed', uploaded, failed })
-  }
+export const DELETE = withAuth(
+  { csrf: true },
+  async (request: NextRequest, { slug }) => {
+    const auth = await getWorkspaceAgentForSlug(slug)
+    if (!auth.ok) return auth.response
 
-  if (failed.length > 0) {
-    return jsonResponse(207, { uploaded, failed })
-  }
+    const body = (await request
+      .json()
+      .catch(() => null)) as { path?: unknown } | null
+    const path = normalizeAndValidateAttachmentPath(body?.path)
+    if (!path) {
+      return jsonResponse(400, { error: 'invalid_path' })
+    }
 
-  return jsonResponse(201, { uploaded, failed: [] })
-}
+    const response = await workspaceAgentFetch<{ ok: boolean; error?: string }>(
+      auth.agent,
+      '/files/delete',
+      { path },
+    )
 
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> },
-) {
-  const { slug } = await params
+    if (!response.ok) {
+      return jsonResponse(response.status === 404 ? 404 : 502, {
+        error: response.error,
+      })
+    }
 
-  const auth = await getAuthorizedWorkspaceAgent(slug)
-  if (!auth.ok) return auth.response
-
-  const originValidation = validateSameOrigin(request)
-  if (!originValidation.ok) {
-    return jsonResponse(403, { error: 'forbidden' })
-  }
-
-  const body = (await request
-    .json()
-    .catch(() => null)) as { path?: unknown; name?: unknown } | null
-  const path = normalizeAndValidateAttachmentPath(body?.path)
-  if (!path) {
-    return jsonResponse(400, { error: 'invalid_path' })
-  }
-
-  if (typeof body?.name !== 'string') {
-    return jsonResponse(400, { error: 'invalid_name' })
-  }
-
-  const sanitizedName = sanitizeAttachmentFilename(body.name)
-  if (sanitizedName.length === 0) {
-    return jsonResponse(400, { error: 'invalid_name' })
-  }
-
-  const newPath = `${WORKSPACE_ATTACHMENTS_DIR}/${sanitizedName}`
-
-  const response = await workspaceAgentFetch<{ ok: boolean; path?: string; newPath?: string; error?: string }>(
-    auth.agent,
-    '/files/rename',
-    { path, newPath },
-  )
-
-  if (!response.ok) {
-    return jsonResponse(response.status === 409 ? 409 : 502, { error: response.error })
-  }
-
-  const listed = await listWorkspaceAttachments(auth.agent)
-  if (!listed.ok) {
-    return jsonResponse(502, { error: listed.error })
-  }
-
-  const updatedAttachment = listed.attachments.find(
-    (attachment) => attachment.path === newPath,
-  )
-  if (!updatedAttachment) {
-    return jsonResponse(404, { error: 'not_found' })
-  }
-
-  return jsonResponse(200, { attachment: updatedAttachment })
-}
-
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ slug: string }> },
-) {
-  const { slug } = await params
-
-  const auth = await getAuthorizedWorkspaceAgent(slug)
-  if (!auth.ok) return auth.response
-
-  const originValidation = validateSameOrigin(request)
-  if (!originValidation.ok) {
-    return jsonResponse(403, { error: 'forbidden' })
-  }
-
-  const body = (await request
-    .json()
-    .catch(() => null)) as { path?: unknown } | null
-  const path = normalizeAndValidateAttachmentPath(body?.path)
-  if (!path) {
-    return jsonResponse(400, { error: 'invalid_path' })
-  }
-
-  const response = await workspaceAgentFetch<{ ok: boolean; error?: string }>(
-    auth.agent,
-    '/files/delete',
-    { path },
-  )
-
-  if (!response.ok) {
-    return jsonResponse(response.status === 404 ? 404 : 502, {
-      error: response.error,
-    })
-  }
-
-  return jsonResponse(200, { ok: true })
-}
+    return jsonResponse(200, { ok: true })
+  },
+)

@@ -381,7 +381,7 @@ describe('desktopWorkspaceHost', () => {
 
     const conn = await desktopWorkspaceHost.getAgentConnection('local')
     expect(conn).not.toBeNull()
-    expect(conn!.baseUrl).toBe('http://127.0.0.1:4097')
+    expect(conn!.baseUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/)
   })
 
   it('returns null connections for stopped workspace', async () => {

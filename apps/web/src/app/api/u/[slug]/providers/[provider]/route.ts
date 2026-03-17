@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
-import { validateSameOrigin } from '@/lib/csrf'
-import { getSession } from '@/lib/runtime/session'
 import { getInstanceUrl } from '@/lib/opencode/client'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
 import { createApiCredential } from '@/lib/providers/store'
 import { PROVIDERS, type ProviderId } from '@/lib/providers/types'
+import { withAuth } from '@/lib/runtime/with-auth'
 import { instanceService, providerService, userService } from '@/lib/services'
 
 export interface CreateProviderCredentialRequest {
@@ -55,36 +54,20 @@ async function syncProviderAccessBestEffort(slug: string, userId: string): Promi
 }
 
 async function getProviderMutationContext(
-  request: NextRequest,
-  params: Promise<{ slug: string; provider: string }>
+  user: { id: string; role: string },
+  params: { slug: string; provider: string }
 ): Promise<
   | { ok: true; sessionUserId: string; provider: ProviderId; targetUserId: string; targetSlug: string }
   | { ok: false; response: NextResponse<{ error: string }> }
 > {
-  const session = await getSession()
-  if (!session) {
-    return {
-      ok: false,
-      response: NextResponse.json({ error: 'unauthorized' }, { status: 401 }),
-    }
-  }
-
-  const originValidation = validateSameOrigin(request)
-  if (!originValidation.ok) {
+  if (user.role !== 'ADMIN') {
     return {
       ok: false,
       response: NextResponse.json({ error: 'forbidden' }, { status: 403 }),
     }
   }
 
-  if (session.user.role !== 'ADMIN') {
-    return {
-      ok: false,
-      response: NextResponse.json({ error: 'forbidden' }, { status: 403 }),
-    }
-  }
-
-  const { slug, provider } = await params
+  const { slug, provider } = params
 
   if (!isProviderId(provider)) {
     return {
@@ -93,9 +76,9 @@ async function getProviderMutationContext(
     }
   }
 
-  const user = await userService.findIdBySlug(slug)
+  const targetUser = await userService.findIdBySlug(slug)
 
-  if (!user) {
+  if (!targetUser) {
     return {
       ok: false,
       response: NextResponse.json({ error: 'user_not_found' }, { status: 404 }),
@@ -104,18 +87,18 @@ async function getProviderMutationContext(
 
   return {
     ok: true,
-    sessionUserId: session.user.id,
+    sessionUserId: user.id,
     provider,
-    targetUserId: user.id,
+    targetUserId: targetUser.id,
     targetSlug: slug,
   }
 }
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: Promise<{ slug: string; provider: string }> }
-): Promise<NextResponse<ProviderCredentialResponse | { error: string; message?: string }>> {
-  const context = await getProviderMutationContext(request, params)
+export const POST = withAuth<
+  ProviderCredentialResponse | { error: string; message?: string },
+  { slug: string; provider: string }
+>({ csrf: true }, async (request: NextRequest, { user, params }) => {
+  const context = await getProviderMutationContext(user, params)
   if (!context.ok) {
     return context.response
   }
@@ -180,13 +163,13 @@ export async function POST(
     },
     { status: 201 }
   )
-}
+})
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ slug: string; provider: string }> }
-): Promise<NextResponse<DisableProviderCredentialResponse | { error: string }>> {
-  const context = await getProviderMutationContext(request, params)
+export const DELETE = withAuth<
+  DisableProviderCredentialResponse | { error: string },
+  { slug: string; provider: string }
+>({ csrf: true }, async (_request: NextRequest, { user, params }) => {
+  const context = await getProviderMutationContext(user, params)
   if (!context.ok) {
     return context.response
   }
@@ -209,4 +192,4 @@ export async function DELETE(
     ok: true,
     status: result.count > 0 ? 'disabled' : 'missing',
   })
-}
+})

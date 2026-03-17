@@ -18,25 +18,25 @@ type AuthOptions = {
 
 export function withAuth<T, P extends { slug: string } = { slug: string }>(
   options: AuthOptions,
-  handler: (request: NextRequest, context: AuthContext<P>) => Promise<NextResponse<T>>
+  handler: (request: NextRequest, context: AuthContext<P>) => Promise<Response | NextResponse<T>>
 ) {
   return async (
     request: NextRequest,
     { params }: { params: Promise<P> }
-  ): Promise<NextResponse<T | { error: string }>> => {
+  ): Promise<Response | NextResponse<T | { error: string }>> => {
     const caps = getRuntimeCapabilities()
     const resolvedParams = await params
-
-    const session = await getSession()
-    if (!session) {
-      return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-    }
 
     if (options.csrf && caps.csrf) {
       const originValidation = validateSameOrigin(request)
       if (!originValidation.ok) {
         return NextResponse.json({ error: 'forbidden' }, { status: 403 })
       }
+    }
+
+    const session = await getSession()
+    if (!session) {
+      return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
     }
 
     if (session.user.slug !== resolvedParams.slug && session.user.role !== 'ADMIN') {
