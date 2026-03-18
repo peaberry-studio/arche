@@ -1,15 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+const mockPrismaClient = vi.fn().mockImplementation(() => ({ _isMockClient: true }))
+const mockPrismaPg = vi.fn()
+const mockPool = vi.fn()
+
+vi.mock('@prisma/client', () => ({
+  PrismaClient: mockPrismaClient,
+}))
+
 vi.mock('@prisma/adapter-pg', () => ({
-  PrismaPg: vi.fn(),
+  PrismaPg: mockPrismaPg,
 }))
 
 vi.mock('pg', () => ({
-  Pool: vi.fn(),
-}))
-
-vi.mock('@prisma/client', () => ({
-  PrismaClient: vi.fn().mockImplementation(() => ({ _isMockClient: true })),
+  Pool: mockPool,
 }))
 
 describe('prisma dispatcher', () => {
@@ -95,7 +99,7 @@ describe('prisma dispatcher', () => {
       initDesktopDatabase: vi.fn().mockResolvedValue(undefined),
     }))
 
-    const { initDesktopPrisma } = await import('../prisma')
+    const { initDesktopPrisma } = await import('../prisma-desktop-init')
     await initDesktopPrisma()
 
     expect(globalThis.prismaDesktopClient).toBe(mockClient)

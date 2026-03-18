@@ -1,6 +1,7 @@
 import type { RuntimeSessionResult } from '@/lib/runtime/types'
 
-import { initDesktopPrisma, prisma } from '@/lib/prisma'
+import { prisma } from '@/lib/prisma'
+import { initDesktopPrisma } from '@/lib/prisma-desktop-init'
 
 const DESKTOP_USER_ID = 'local'
 const DESKTOP_USER_EMAIL = 'local@arche.local'

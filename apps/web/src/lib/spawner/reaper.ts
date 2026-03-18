@@ -1,6 +1,5 @@
 import { auditService, instanceService } from '@/lib/services'
 import { getIdleTimeoutMinutes } from './config'
-import * as docker from './docker'
 
 let reaperInterval: NodeJS.Timeout | null = null
 
@@ -15,6 +14,7 @@ export async function reapIdleInstances(): Promise<number> {
   for (const instance of idleInstances) {
     try {
       if (instance.containerId) {
+        const docker = await import('./docker')
         await docker.stopContainer(instance.containerId).catch(() => {})
         await docker.removeContainer(instance.containerId).catch(() => {})
       }

@@ -2,6 +2,14 @@ import type { PrismaClient } from '@prisma/client'
 
 import { isDesktop } from '@/lib/runtime/mode'
 
+function importRuntimeModule<T>(specifier: string): Promise<T> {
+  if (process.env.VITEST) {
+    return import(specifier) as Promise<T>
+  }
+
+  return Function('runtimeSpecifier', 'return import(runtimeSpecifier)')(specifier) as Promise<T>
+}
+
 declare global {
   var prisma: PrismaClient | undefined
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -15,29 +23,15 @@ async function createWebClient(): Promise<PrismaClient> {
     throw new Error('DATABASE_URL is required')
   }
 
-  const { PrismaClient } = await import('@prisma/client')
-  const { PrismaPg } = await import('@prisma/adapter-pg')
-  const { Pool } = await import('pg')
+  const { PrismaClient } = await importRuntimeModule<typeof import('@prisma/client')>('@prisma/client')
+  const { PrismaPg } = await importRuntimeModule<typeof import('@prisma/adapter-pg')>('@prisma/adapter-pg')
+  const { Pool } = await importRuntimeModule<typeof import('pg')>('pg')
 
   const pool = globalThis.prismaPool ?? new Pool({ connectionString })
   if (process.env.NODE_ENV !== 'production') globalThis.prismaPool = pool
 
   const adapter = new PrismaPg(pool)
   return new PrismaClient({ adapter })
-}
-
-/**
- * Initialize the desktop SQLite Prisma client. Must be called once before
- * any service accesses `prisma`. Typically called during app startup
- * (e.g. in Next.js instrumentation or a startup module).
- */
-export async function initDesktopPrisma(): Promise<void> {
-  if (globalThis.prismaDesktopClient) return
-
-  const { getDesktopPrismaClient, initDesktopDatabase } = await import('@/lib/prisma-desktop')
-  const client = await getDesktopPrismaClient()
-  globalThis.prismaDesktopClient = client as PrismaClient
-  await initDesktopDatabase()
 }
 
 /**

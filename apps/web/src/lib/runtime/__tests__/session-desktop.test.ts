@@ -3,8 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mockInitDesktopPrisma = vi.fn()
 const mockUpsert = vi.fn()
 
-vi.mock('@/lib/prisma', () => ({
+vi.mock('@/lib/prisma-desktop-init', () => ({
   initDesktopPrisma: (...args: unknown[]) => mockInitDesktopPrisma(...args),
+}))
+
+vi.mock('@/lib/prisma', () => ({
   prisma: {
     user: {
       upsert: (...args: unknown[]) => mockUpsert(...args),

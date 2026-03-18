@@ -1,6 +1,5 @@
 import { chmod, writeFile } from "fs/promises";
 import { join } from "path";
-import Docker from "dockerode";
 import {
   getContainerSocketPath,
   getContainerProxyUrl,
@@ -10,6 +9,22 @@ import {
   getWorkspaceAgentPort,
 } from "./config";
 import { getUserDataHostPath, ensureUserDirectory } from "@/lib/user-data";
+
+type DockerConstructor = typeof import("dockerode")["default"];
+type DockerClient = InstanceType<DockerConstructor>;
+
+function importRuntimeModule<T>(specifier: string): Promise<T> {
+  if (process.env.VITEST) {
+    return import(specifier) as Promise<T>;
+  }
+
+  return Function("runtimeSpecifier", "return import(runtimeSpecifier)")(specifier) as Promise<T>;
+}
+
+async function getDockerConstructor(): Promise<DockerConstructor> {
+  const dockerModule = await importRuntimeModule<typeof import("dockerode")>("dockerode");
+  return dockerModule.default;
+}
 
 const WORKSPACE_EDIT_DENY_RULES: Record<string, "deny"> = {
   ".gitignore": "deny",
@@ -78,7 +93,8 @@ function withWorkspacePermissionGuards(config: Record<string, unknown>): Record<
   return next;
 }
 
-function getContainerClient(): Docker {
+async function getContainerClient(): Promise<DockerClient> {
+  const Docker = await getDockerConstructor();
   const socketPath = getContainerSocketPath();
   if (socketPath) {
     return new Docker({ socketPath });
@@ -97,7 +113,7 @@ export async function createContainer(
   agentsMd?: string,
   gitAuthor?: { name: string; email?: string }
 ) {
-  const docker = getContainerClient();
+  const docker = await getContainerClient();
   const containerName = `opencode-${slug}`;
   const volumeName = `arche-workspace-${slug}`;
   const opencodeShareVolumeName = `arche-opencode-share-${slug}`;
@@ -218,25 +234,25 @@ export async function createContainer(
 }
 
 export async function startContainer(containerId: string): Promise<void> {
-  const docker = getContainerClient();
+  const docker = await getContainerClient();
   const container = docker.getContainer(containerId);
   await container.start();
 }
 
 export async function stopContainer(containerId: string): Promise<void> {
-  const docker = getContainerClient();
+  const docker = await getContainerClient();
   const container = docker.getContainer(containerId);
   await container.stop({ t: 10 });
 }
 
 export async function removeContainer(containerId: string): Promise<void> {
-  const docker = getContainerClient();
+  const docker = await getContainerClient();
   const container = docker.getContainer(containerId);
   await container.remove({ force: true });
 }
 
 export async function inspectContainer(containerId: string) {
-  const docker = getContainerClient();
+  const docker = await getContainerClient();
   const container = docker.getContainer(containerId);
   return container.inspect();
 }
@@ -296,7 +312,7 @@ export async function execInContainer(
   cmd: string[],
   options: { workingDir?: string; timeout?: number } = {}
 ): Promise<ExecResult> {
-  const docker = getContainerClient();
+  const docker = await getContainerClient();
   const container = docker.getContainer(containerId);
 
   const exec = await container.exec({

@@ -14,8 +14,10 @@ const mockDockerInstance = {
   createVolume: vi.fn().mockResolvedValue({}),
 }
 
+const mockDockerConstructor = vi.fn(() => mockDockerInstance)
+
 vi.mock('dockerode', () => ({
-  default: vi.fn(() => mockDockerInstance),
+  default: mockDockerConstructor,
 }))
 
 const mockWriteFile = vi.fn().mockResolvedValue(undefined)
@@ -30,7 +32,6 @@ vi.mock('@/lib/user-data', () => ({
   ensureUserDirectory: vi.fn().mockResolvedValue('/opt/arche/users/user-slug'),
 }))
 
-import Docker from 'dockerode'
 import {
   createContainer,
   startContainer,
@@ -92,7 +93,7 @@ describe('docker', () => {
         'bun init*': 'deny',
       })
 
-      expect(Docker).toHaveBeenCalledWith({
+      expect(mockDockerConstructor).toHaveBeenCalledWith({
         host: 'test-proxy',
         port: 2375,
       })
