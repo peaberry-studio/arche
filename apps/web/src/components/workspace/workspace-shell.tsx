@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Circle } from "@phosphor-icons/react";
 
 import { ensureInstanceRunningAction } from "@/actions/spawner";
 import type { SyncKbResult } from "@/app/api/instances/[slug]/sync-kb/route";
@@ -13,10 +14,17 @@ import {
   normalizeWorkspacePath,
 } from "@/lib/workspace-paths";
 import { downloadWorkspaceFile } from "@/lib/workspace-file-download";
+import {
+  getWorkspaceLayoutCookieName,
+  getWorkspaceLayoutStorageKey,
+  type NormalizedLeftPanelState,
+  persistWorkspacePanelState,
+  parseWorkspaceLayoutState,
+  readWorkspacePanelState,
+  type StoredLayoutState,
+} from "@/lib/workspace-panel-state";
 import { takeWorkspaceStartPrompt } from "@/lib/workspace-start-prompt";
 import { cn } from "@/lib/utils";
-
-import { Circle } from "@phosphor-icons/react";
 
 import { ChatPanel } from "./chat-panel";
 import { CosmicLoader } from "./cosmic-loader";
@@ -26,16 +34,10 @@ import { InspectorPanel } from "./inspector-panel";
 type WorkspaceShellProps = {
   slug: string;
   initialFilePath?: string | null;
+  initialLayoutState?: StoredLayoutState | null;
+  initialLeftPanelState?: NormalizedLeftPanelState | null;
   macDesktopWindowInset?: boolean;
   workspaceAgentEnabled?: boolean;
-};
-
-type StoredLayoutState = {
-  leftWidth?: number;
-  rightWidth?: number;
-  leftCollapsed?: boolean;
-  rightCollapsed?: boolean;
-  rightTab?: "preview" | "review";
 };
 
 const MIN_LEFT_PX = 200;
@@ -87,24 +89,11 @@ const getContainerWidth = (container: HTMLDivElement | null) => {
   return MIN_LEFT_PX + MIN_RIGHT_PX + MIN_CENTER_PX;
 };
 
-const loadStoredLayout = (key: string): StoredLayoutState | null => {
-  if (typeof window === "undefined") return null;
-  const raw = window.localStorage.getItem(key);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as StoredLayoutState;
-  } catch {
-    return null;
-  }
-};
+const loadStoredLayout = (storageKey: string, cookieName: string): StoredLayoutState | null =>
+  readWorkspacePanelState(storageKey, cookieName, parseWorkspaceLayoutState);
 
-const persistLayout = (key: string, state: StoredLayoutState) => {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(key, JSON.stringify(state));
-  } catch {
-    // ignore storage errors
-  }
+const persistLayout = (storageKey: string, cookieName: string, state: StoredLayoutState) => {
+  persistWorkspacePanelState(storageKey, cookieName, state);
 };
 
 function resolveRootSessionId(
@@ -175,6 +164,8 @@ const PANEL_TRANSITION = `width ${PANEL_ANIM}, min-width ${PANEL_ANIM}, opacity 
 export function WorkspaceShell({
   slug,
   initialFilePath,
+  initialLayoutState = null,
+  initialLeftPanelState = null,
   macDesktopWindowInset = false,
   workspaceAgentEnabled = true,
 }: WorkspaceShellProps) {
@@ -182,7 +173,8 @@ export function WorkspaceShell({
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const layoutStorageKey = `arche.workspace.${slug}.layout`;
+  const layoutCookieName = getWorkspaceLayoutCookieName(slug);
+  const layoutStorageKey = getWorkspaceLayoutStorageKey(slug);
   
   // Instance startup state
   const [instanceStatus, setInstanceStatus] = useState<'starting' | 'running' | 'error' | null>(null);
@@ -345,11 +337,11 @@ export function WorkspaceShell({
   }, [workspace, workspace.isConnected, slug]);
 
   // Layout state
-  const [leftWidth, setLeftWidth] = useState(MIN_LEFT_PX);
-  const [rightWidth, setRightWidth] = useState(MIN_RIGHT_PX);
+  const [leftWidth, setLeftWidth] = useState(initialLayoutState?.leftWidth ?? MIN_LEFT_PX);
+  const [rightWidth, setRightWidth] = useState(initialLayoutState?.rightWidth ?? MIN_RIGHT_PX);
   const [minCenterWidth, setMinCenterWidth] = useState(MIN_CENTER_PX);
-  const [leftCollapsed, setLeftCollapsed] = useState(false);
-  const [rightCollapsed, setRightCollapsed] = useState(false);
+  const [leftCollapsed, setLeftCollapsed] = useState(initialLayoutState?.leftCollapsed ?? false);
+  const [rightCollapsed, setRightCollapsed] = useState(initialLayoutState?.rightCollapsed ?? false);
   const [hydratedLayoutKey, setHydratedLayoutKey] = useState<string | null>(null);
 
   const focusSearchInput = useCallback(() => {
@@ -658,7 +650,7 @@ export function WorkspaceShell({
 
   // Load layout from localStorage
   useEffect(() => {
-    const stored = loadStoredLayout(layoutStorageKey);
+    const stored = loadStoredLayout(layoutStorageKey, layoutCookieName) ?? initialLayoutState;
     const containerWidth = getContainerWidth(containerRef.current);
     let leftCandidate = containerWidth * DEFAULT_LEFT_RATIO;
     let rightCandidate = containerWidth * DEFAULT_RIGHT_RATIO;
@@ -681,19 +673,19 @@ export function WorkspaceShell({
     }
 
     setHydratedLayoutKey(layoutStorageKey);
-  }, [layoutStorageKey, workspaceAgentEnabled]);
+  }, [initialLayoutState, layoutCookieName, layoutStorageKey, workspaceAgentEnabled]);
 
   // Persist layout
   useEffect(() => {
     if (hydratedLayoutKey !== layoutStorageKey) return;
-    persistLayout(layoutStorageKey, {
+    persistLayout(layoutStorageKey, layoutCookieName, {
       leftWidth,
       rightWidth,
       leftCollapsed,
       rightCollapsed,
       rightTab: effectiveRightTab,
     });
-  }, [effectiveRightTab, hydratedLayoutKey, layoutStorageKey, leftCollapsed, leftWidth, rightCollapsed, rightWidth]);
+  }, [effectiveRightTab, hydratedLayoutKey, layoutCookieName, layoutStorageKey, leftCollapsed, leftWidth, rightCollapsed, rightWidth]);
 
   // Map workspace sessions to UI format
   const uiSessions = useMemo(() => {
@@ -1157,6 +1149,7 @@ export function WorkspaceShell({
               onDownloadFile={handleDownloadFile}
               onCreateKnowledgeFile={handleCreateKnowledgeFile}
               canCreateKnowledgeFile={workspaceAgentEnabled}
+              initialPanelState={initialLeftPanelState}
               searchInputRef={searchInputRef}
             />
           </div>

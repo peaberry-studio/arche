@@ -47,8 +47,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { SyncKbResult } from "@/app/api/instances/[slug]/sync-kb/route";
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
-import type { WorkspaceFileNode, WorkspaceSession } from "@/lib/opencode/types";
 import type { AgentCatalogItem } from "@/hooks/use-workspace";
+import type { WorkspaceFileNode, WorkspaceSession } from "@/lib/opencode/types";
+import {
+  DEFAULT_LEFT_PANEL_STATE,
+  getWorkspaceLeftPanelCookieName,
+  getWorkspaceLeftPanelStorageKey,
+  normalizeLeftPanelState,
+  type NormalizedLeftPanelState,
+  parseStoredLeftPanelState,
+  persistWorkspacePanelState,
+  readWorkspacePanelState,
+  type StoredLeftPanelState,
+} from "@/lib/workspace-panel-state";
 import { cn } from "@/lib/utils";
 
 import { AgentsPanel } from "./agents-panel";
@@ -63,68 +74,23 @@ const ANIM = "200ms ease-out";
 const FLEX_TRANSITION = `flex-grow ${ANIM}, flex-basis ${ANIM}`;
 const GRID_TRANSITION = `grid-template-rows ${ANIM}`;
 
-const DEFAULT_TOP_RATIO = 3 / 8;
-const DEFAULT_MID_RATIO = 3 / 8;
-
-type StoredLeftPanelState = {
-  topRatio?: number;
-  midRatio?: number;
-  topCollapsed?: boolean;
-  midCollapsed?: boolean;
-  bottomCollapsed?: boolean;
-};
-
-type NormalizedLeftPanelState = {
-  topRatio: number;
-  midRatio: number;
-  topCollapsed: boolean;
-  midCollapsed: boolean;
-  bottomCollapsed: boolean;
-};
-
-const DEFAULT_LEFT_PANEL_STATE: NormalizedLeftPanelState = {
-  topRatio: DEFAULT_TOP_RATIO,
-  midRatio: DEFAULT_MID_RATIO,
-  topCollapsed: false,
-  midCollapsed: false,
-  bottomCollapsed: false,
-};
-
-function isValidRatio(value: unknown): value is number {
-  return typeof value === "number" && isFinite(value) && value > 0 && value < 1;
+function loadStoredLeftPanelState(storageKey: string, cookieName: string): StoredLeftPanelState | null {
+  return readWorkspacePanelState(storageKey, cookieName, parseStoredLeftPanelState);
 }
 
-function loadStoredLeftPanelState(key: string): StoredLeftPanelState | null {
-  if (typeof window === "undefined") return null;
-  const raw = window.localStorage.getItem(key);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as StoredLeftPanelState;
-  } catch {
-    return null;
-  }
+function persistLeftPanelState(storageKey: string, cookieName: string, state: NormalizedLeftPanelState) {
+  persistWorkspacePanelState(storageKey, cookieName, state);
 }
 
-function persistLeftPanelState(key: string, state: NormalizedLeftPanelState) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(key, JSON.stringify(state));
-  } catch {
-    // ignore storage errors
-  }
-}
-
-function getInitialLeftPanelState(key: string): NormalizedLeftPanelState {
-  const stored = loadStoredLeftPanelState(key);
-  if (!stored) return DEFAULT_LEFT_PANEL_STATE;
-
-  return {
-    topRatio: isValidRatio(stored.topRatio) ? stored.topRatio : DEFAULT_TOP_RATIO,
-    midRatio: isValidRatio(stored.midRatio) ? stored.midRatio : DEFAULT_MID_RATIO,
-    topCollapsed: typeof stored.topCollapsed === "boolean" ? stored.topCollapsed : false,
-    midCollapsed: typeof stored.midCollapsed === "boolean" ? stored.midCollapsed : false,
-    bottomCollapsed: typeof stored.bottomCollapsed === "boolean" ? stored.bottomCollapsed : false,
-  };
+function getInitialLeftPanelState(
+  storageKey: string,
+  cookieName: string,
+  initialPanelState?: NormalizedLeftPanelState | null,
+): NormalizedLeftPanelState {
+  const stored = loadStoredLeftPanelState(storageKey, cookieName);
+  if (stored) return normalizeLeftPanelState(stored);
+  if (initialPanelState) return initialPanelState;
+  return DEFAULT_LEFT_PANEL_STATE;
 }
 
 // --- Connector / Provider types (moved from workspace-footer) ---
@@ -196,6 +162,7 @@ type LeftPanelProps = {
   onDownloadFile?: (path: string) => void;
   onCreateKnowledgeFile: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   canCreateKnowledgeFile?: boolean;
+  initialPanelState?: NormalizedLeftPanelState | null;
   searchInputRef: RefObject<HTMLInputElement | null>;
 };
 
@@ -508,6 +475,7 @@ export function LeftPanel({
   onDownloadFile,
   onCreateKnowledgeFile,
   canCreateKnowledgeFile = true,
+  initialPanelState,
   searchInputRef,
 }: LeftPanelProps) {
   const pendingSectionRef = useRef<"chats" | "knowledge" | "experts" | null>(null);
@@ -556,6 +524,7 @@ export function LeftPanel({
       onDownloadFile={onDownloadFile}
       onCreateKnowledgeFile={onCreateKnowledgeFile}
       canCreateKnowledgeFile={canCreateKnowledgeFile}
+      initialPanelState={initialPanelState}
       searchInputRef={searchInputRef}
       pendingSectionRef={pendingSectionRef}
     />
@@ -583,6 +552,7 @@ function ExpandedLeftPanel({
   onDownloadFile,
   onCreateKnowledgeFile,
   canCreateKnowledgeFile = true,
+  initialPanelState,
   searchInputRef,
   pendingSectionRef,
 }: LeftPanelProps & { pendingSectionRef?: RefObject<"chats" | "knowledge" | "experts" | null> }) {
@@ -596,15 +566,19 @@ function ExpandedLeftPanel({
   const [createFileError, setCreateFileError] = useState<string | null>(null);
   const [isCreatingFile, setIsCreatingFile] = useState(false);
 
-  const leftPanelStorageKey = useMemo(() => `arche.workspace.${slug}.left-panel`, [slug]);
-  const initialPanelState = useMemo(() => getInitialLeftPanelState(leftPanelStorageKey), [leftPanelStorageKey]);
+  const leftPanelCookieName = useMemo(() => getWorkspaceLeftPanelCookieName(slug), [slug]);
+  const leftPanelStorageKey = useMemo(() => getWorkspaceLeftPanelStorageKey(slug), [slug]);
+  const resolvedInitialPanelState = useMemo(
+    () => getInitialLeftPanelState(leftPanelStorageKey, leftPanelCookieName, initialPanelState),
+    [initialPanelState, leftPanelCookieName, leftPanelStorageKey]
+  );
 
-  const [topRatio, setTopRatio] = useState(initialPanelState.topRatio);
-  const [midRatio, setMidRatio] = useState(initialPanelState.midRatio);
+  const [topRatio, setTopRatio] = useState(resolvedInitialPanelState.topRatio);
+  const [midRatio, setMidRatio] = useState(resolvedInitialPanelState.midRatio);
 
-  const [topCollapsed, setTopCollapsed] = useState(initialPanelState.topCollapsed);
-  const [midCollapsed, setMidCollapsed] = useState(initialPanelState.midCollapsed);
-  const [bottomCollapsed, setBottomCollapsed] = useState(initialPanelState.bottomCollapsed);
+  const [topCollapsed, setTopCollapsed] = useState(resolvedInitialPanelState.topCollapsed);
+  const [midCollapsed, setMidCollapsed] = useState(resolvedInitialPanelState.midCollapsed);
+  const [bottomCollapsed, setBottomCollapsed] = useState(resolvedInitialPanelState.bottomCollapsed);
 
   // Expand the requested section when coming from a minified panel click
   useEffect(() => {
@@ -690,8 +664,8 @@ function ExpandedLeftPanel({
   );
 
   useEffect(() => {
-    persistLeftPanelState(leftPanelStorageKey, { topRatio, midRatio, topCollapsed, midCollapsed, bottomCollapsed });
-  }, [leftPanelStorageKey, topRatio, midRatio, topCollapsed, midCollapsed, bottomCollapsed]);
+    persistLeftPanelState(leftPanelStorageKey, leftPanelCookieName, { topRatio, midRatio, topCollapsed, midCollapsed, bottomCollapsed });
+  }, [leftPanelCookieName, leftPanelStorageKey, topRatio, midRatio, topCollapsed, midCollapsed, bottomCollapsed]);
 
   useEffect(() => {
     if (!isCreateFileDialogOpen) return;
