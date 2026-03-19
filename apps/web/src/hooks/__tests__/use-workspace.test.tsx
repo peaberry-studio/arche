@@ -944,6 +944,124 @@ describe("useWorkspace", () => {
     });
   });
 
+  describe("idle polling optimization", () => {
+    it("does not poll diffs when all sessions are idle", async () => {
+      opencodeMocks.listSessionsAction.mockResolvedValue({
+        ok: true,
+        sessions: [
+          { id: "s1", title: "First", status: "idle", updatedAt: "now" },
+        ],
+      });
+
+      const { result } = renderHook(() =>
+        useWorkspace({ slug: "alice", pollInterval: 200 })
+      );
+
+      await waitFor(() => {
+        expect(result.current.isConnected).toBe(true);
+        expect(result.current.activeSessionId).toBe("s1");
+      });
+
+      opencodeMocks.getWorkspaceDiffsAction.mockClear();
+
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      });
+
+      expect(opencodeMocks.getWorkspaceDiffsAction).not.toHaveBeenCalled();
+    });
+
+    it("does not poll messages for the active session when it is idle", async () => {
+      opencodeMocks.listSessionsAction.mockResolvedValue({
+        ok: true,
+        sessions: [
+          { id: "s1", title: "First", status: "idle", updatedAt: "now" },
+        ],
+      });
+
+      const { result } = renderHook(() =>
+        useWorkspace({ slug: "alice", pollInterval: 200 })
+      );
+
+      await waitFor(() => {
+        expect(result.current.isConnected).toBe(true);
+        expect(result.current.activeSessionId).toBe("s1");
+      });
+
+      opencodeMocks.listMessagesAction.mockClear();
+
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      });
+
+      expect(opencodeMocks.listMessagesAction).not.toHaveBeenCalled();
+    });
+
+    it("polls diffs and messages when a session is busy", async () => {
+      opencodeMocks.listSessionsAction.mockResolvedValue({
+        ok: true,
+        sessions: [
+          { id: "s1", title: "First", status: "busy", updatedAt: "now" },
+        ],
+      });
+
+      const { result } = renderHook(() =>
+        useWorkspace({ slug: "alice", pollInterval: 200 })
+      );
+
+      await waitFor(() => {
+        expect(result.current.isConnected).toBe(true);
+        expect(result.current.activeSessionId).toBe("s1");
+      });
+
+      opencodeMocks.getWorkspaceDiffsAction.mockClear();
+      opencodeMocks.listMessagesAction.mockClear();
+
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      });
+
+      expect(opencodeMocks.getWorkspaceDiffsAction).toHaveBeenCalled();
+      expect(opencodeMocks.listMessagesAction).toHaveBeenCalledWith("alice", "s1");
+    });
+
+    it("polls messages only for busy sessions, not the idle active session", async () => {
+      opencodeMocks.listSessionsAction.mockResolvedValue({
+        ok: true,
+        sessions: [
+          { id: "s1", title: "First", status: "idle", updatedAt: "now" },
+          { id: "s2", title: "Second", status: "busy", updatedAt: "now" },
+        ],
+      });
+
+      const { result } = renderHook(() =>
+        useWorkspace({ slug: "alice", pollInterval: 200 })
+      );
+
+      await waitFor(() => {
+        expect(result.current.isConnected).toBe(true);
+        expect(result.current.activeSessionId).toBe("s1");
+      });
+
+      opencodeMocks.getWorkspaceDiffsAction.mockClear();
+      opencodeMocks.listMessagesAction.mockClear();
+
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      });
+
+      // Diffs should be polled because s2 is busy
+      expect(opencodeMocks.getWorkspaceDiffsAction).toHaveBeenCalled();
+      // Messages for s2 (busy) should be polled
+      expect(opencodeMocks.listMessagesAction).toHaveBeenCalledWith("alice", "s2");
+      // Messages for s1 (idle active) should NOT be polled
+      const s1Calls = opencodeMocks.listMessagesAction.mock.calls.filter(
+        ([, sessionId]: [string, string]) => sessionId === "s1"
+      );
+      expect(s1Calls).toHaveLength(0);
+    });
+  });
+
   it("preserves the active message list reference when refresh returns identical messages", async () => {
     const { result } = renderHook(() =>
       useWorkspace({ slug: "alice", pollInterval: 0 })
