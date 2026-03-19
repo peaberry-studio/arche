@@ -59,6 +59,7 @@ export default async function WorkspaceHostPage({
       initialLeftPanelState={initialLeftPanelState}
       macDesktopWindowInset={macDesktopWindowInset}
       workspaceAgentEnabled={caps.workspaceAgent}
+      reaperEnabled={caps.reaper}
     />
   )
 }

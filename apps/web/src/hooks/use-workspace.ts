@@ -28,7 +28,6 @@ import {
   type ResumeFailureState,
 } from "@/lib/workspace-resume-policy";
 import { SerialJobExecutor } from "@/lib/serial-job-executor";
-import { getRuntimeCapabilities } from "@/lib/runtime/capabilities";
 import { useInstanceHeartbeat } from "@/hooks/use-instance-heartbeat";
 import { useWorkspaceConnection } from "@/hooks/use-workspace-connection";
 import { useWorkspaceDiffs, type WorkspaceDiff } from "@/hooks/use-workspace-diffs";
@@ -241,6 +240,8 @@ export type UseWorkspaceOptions = {
   /** Skip connection attempts when false */
   enabled?: boolean;
   workspaceAgentEnabled?: boolean;
+  /** Enable instance heartbeat for idle timeout (web mode) */
+  reaperEnabled?: boolean;
 };
 
 export type UseWorkspaceReturn = {
@@ -315,6 +316,7 @@ export function useWorkspace({
   pollInterval = 5000,
   enabled = true,
   workspaceAgentEnabled = true,
+  reaperEnabled = true,
 }: UseWorkspaceOptions): UseWorkspaceReturn {
   const activeSessionStorageKey = getActiveSessionStorageKey(slug);
 
@@ -339,8 +341,7 @@ export function useWorkspace({
     enabled && workspaceAgentEnabled,
     isConnected
   );
-  const caps = getRuntimeCapabilities();
-  useInstanceHeartbeat(slug, enabled && caps.reaper);
+  useInstanceHeartbeat(slug, enabled && reaperEnabled);
 
   // Sessions
   const [sessions, setSessions] = useState<WorkspaceSession[]>([]);

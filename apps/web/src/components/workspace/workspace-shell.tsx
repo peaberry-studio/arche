@@ -38,6 +38,7 @@ type WorkspaceShellProps = {
   initialLeftPanelState?: NormalizedLeftPanelState | null;
   macDesktopWindowInset?: boolean;
   workspaceAgentEnabled?: boolean;
+  reaperEnabled?: boolean;
 };
 
 const MIN_LEFT_PX = 200;
@@ -168,6 +169,7 @@ export function WorkspaceShell({
   initialLeftPanelState = null,
   macDesktopWindowInset = false,
   workspaceAgentEnabled = true,
+  reaperEnabled = true,
 }: WorkspaceShellProps) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -236,6 +238,7 @@ export function WorkspaceShell({
     pollInterval: 5000,
     enabled: instanceStatus === 'running',
     workspaceAgentEnabled,
+    reaperEnabled,
   });
 
   const sessionsById = useMemo(() => {
