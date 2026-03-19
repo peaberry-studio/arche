@@ -39,4 +39,23 @@ describe('getDesktopSession', () => {
       mockUpsert.mock.invocationCallOrder[0],
     )
   })
+
+  it('caches the session and does not call upsert on subsequent calls', async () => {
+    const { getDesktopSession } = await import('../session-desktop')
+
+    const result1 = await getDesktopSession()
+    const result2 = await getDesktopSession()
+
+    expect(mockUpsert).toHaveBeenCalledOnce()
+    expect(result1).toEqual(result2)
+    expect(result1).toEqual({
+      user: {
+        id: 'local',
+        email: 'local@arche.local',
+        slug: 'local',
+        role: 'ADMIN',
+      },
+      sessionId: 'local',
+    })
+  })
 })

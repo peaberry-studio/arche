@@ -8,7 +8,11 @@ const DESKTOP_USER_EMAIL = 'local@arche.local'
 const DESKTOP_USER_SLUG = 'local'
 const DESKTOP_PASSWORD_HASH = 'desktop-local'
 
+let cachedSession: RuntimeSessionResult | null = null
+
 export async function getDesktopSession(): Promise<RuntimeSessionResult> {
+  if (cachedSession) return cachedSession
+
   await initDesktopPrisma()
 
   const user = await prisma.user.upsert({
@@ -33,8 +37,10 @@ export async function getDesktopSession(): Promise<RuntimeSessionResult> {
     },
   })
 
-  return {
+  cachedSession = {
     user,
     sessionId: user.id,
   }
+
+  return cachedSession
 }
