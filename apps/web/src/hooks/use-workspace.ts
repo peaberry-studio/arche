@@ -1989,17 +1989,29 @@ export function useWorkspace({
 
     const interval = setInterval(() => {
       loadSessions();
-      diffsHook.refreshDiffs();
 
       const currentSessions = sessionsRef.current;
       const currentActiveSessionId = activeSessionIdRef.current;
+      const hasBusySessions = currentSessions.some(
+        (session) => session.status === "busy",
+      );
+
+      if (hasBusySessions) {
+        diffsHook.refreshDiffs();
+      }
+
       const sessionIdsToRefresh = new Set<string>();
       currentSessions.forEach((session) => {
         if (session.status === "busy") {
           sessionIdsToRefresh.add(session.id);
         }
       });
-      if (currentActiveSessionId) {
+      if (
+        currentActiveSessionId &&
+        currentSessions.some(
+          (s) => s.id === currentActiveSessionId && s.status === "busy",
+        )
+      ) {
         sessionIdsToRefresh.add(currentActiveSessionId);
       }
 
