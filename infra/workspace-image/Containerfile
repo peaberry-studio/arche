@@ -1,7 +1,7 @@
 # Image derived from OpenCode with git and init script
 # Usage: podman build -t arche-workspace .
 
-ARG OPENCODE_VERSION=1.2.24
+ARG OPENCODE_VERSION
 
 FROM docker.io/golang:1.22-alpine AS workspace-agent
 WORKDIR /src

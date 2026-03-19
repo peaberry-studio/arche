@@ -30,7 +30,7 @@ podman network create arche-internal
 2) **Build workspace image** (one-time or when changed):
 
 ```bash
-podman build -t arche-workspace:latest ../workspace-image
+podman build --build-arg OPENCODE_VERSION="$(cat ../../versions/opencode.version)" -t arche-workspace:latest ../workspace-image
 ```
 
 3) **Prepare empty bare repos for KB/config**:

@@ -162,7 +162,7 @@ The spawner can connect to the container runtime in two ways:
 `arche-workspace:latest` extends OpenCode with git and initialization scripts:
 
 ```bash
-podman build -t arche-workspace:latest infra/workspace-image
+podman build --build-arg OPENCODE_VERSION="$(cat versions/opencode.version)" -t arche-workspace:latest infra/workspace-image
 ```
 
 ### Troubleshooting

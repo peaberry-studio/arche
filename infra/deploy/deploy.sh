@@ -7,6 +7,29 @@ set -euo pipefail
 #   Local dev: ./deploy.sh --local-dev
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+OPENCODE_VERSION_FILE="$REPO_ROOT/versions/opencode.version"
+
+resolve_opencode_version() {
+  if [[ -n "${OPENCODE_VERSION:-}" ]]; then
+    printf '%s' "$OPENCODE_VERSION"
+    return
+  fi
+
+  if [[ ! -f "$OPENCODE_VERSION_FILE" ]]; then
+    printf 'Missing OpenCode version file: %s\n' "$OPENCODE_VERSION_FILE" >&2
+    exit 1
+  fi
+
+  local version
+  version="$(tr -d '[:space:]' < "$OPENCODE_VERSION_FILE")"
+  if [[ -z "$version" ]]; then
+    printf 'OpenCode version file is empty: %s\n' "$OPENCODE_VERSION_FILE" >&2
+    exit 1
+  fi
+
+  printf '%s' "$version"
+}
 
 # ---------------------------------------------------------------------------
 # Defaults
@@ -26,6 +49,7 @@ LOCAL_DOMAIN="arche.lvh.me"
 IMAGE_PREFIX="${IMAGE_PREFIX:-ghcr.io/peaberry-studio/arche/}"
 WEB_VERSION="${WEB_VERSION:-latest}"
 OPENCODE_IMAGE="${OPENCODE_IMAGE:-arche-workspace:latest}"
+RESOLVED_OPENCODE_VERSION="$(resolve_opencode_version)"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -52,8 +76,7 @@ prepare_remote_workspace_image() {
     return
   fi
 
-  local repo_root="$SCRIPT_DIR/../.."
-  repo_root="$(cd "$repo_root" && pwd)"
+  local repo_root="$REPO_ROOT"
   local workspace_src="$repo_root/infra/workspace-image"
 
   if [[ ! -f "$workspace_src/Containerfile" ]]; then
@@ -69,7 +92,7 @@ prepare_remote_workspace_image() {
 
   log "Building workspace image on remote host: arche-workspace:latest"
   ssh -o BatchMode=yes -o ConnectTimeout=10 -i "$SSH_KEY" "${SSH_USER}@${DEPLOY_IP}" \
-    "cd /tmp/arche-workspace-image-src && podman build --build-arg OPENCODE_VERSION=1.2.24 -t arche-workspace:latest ."
+    "cd /tmp/arche-workspace-image-src && podman build --build-arg OPENCODE_VERSION=$RESOLVED_OPENCODE_VERSION -t arche-workspace:latest ."
 }
 
 prepare_remote_web_image() {
@@ -156,6 +179,7 @@ ENVIRONMENT VARIABLES (via .env or exported):
   ARCHE_SEED_TEST_EMAIL     Seed test user email (optional)
   ARCHE_SEED_TEST_SLUG      Seed test user slug (optional)
   ARCHE_USERS_PATH          Host path for persisted user data (optional)
+  OPENCODE_VERSION          OpenCode version override (optional)
   WEB_IMAGE                 Web app image (set arche-web:latest to build on VPS)
   KB_CONTENT_HOST_PATH      Path to the KB content bare repo
   KB_CONFIG_HOST_PATH       Path to the KB config bare repo
@@ -595,8 +619,6 @@ deploy_local_dev() {
   log "Using Podman socket: $PODMAN_SOCKET_PATH"
 
   # Compute repo root and validate source tree
-  REPO_ROOT="$SCRIPT_DIR/../.."
-  REPO_ROOT="$(cd "$REPO_ROOT" && pwd)"
   if [[ ! -f "$REPO_ROOT/apps/web/package.json" ]]; then
     err "Cannot find apps/web/package.json in $REPO_ROOT"
     err "Run this script from within the arche repository."
@@ -605,7 +627,7 @@ deploy_local_dev() {
 
   # Build workspace image
   log "Building workspace image: arche-workspace:latest"
-  podman build -t arche-workspace:latest "$REPO_ROOT/infra/workspace-image"
+  podman build --build-arg OPENCODE_VERSION="$RESOLVED_OPENCODE_VERSION" -t arche-workspace:latest "$REPO_ROOT/infra/workspace-image"
 
   # Deploy Knowledge Base
   KB_CONTENT_DEST="${KB_CONTENT_HOST_PATH:-$HOME/.arche/kb-content}"

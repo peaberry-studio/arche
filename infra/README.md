@@ -33,7 +33,7 @@ Host (VPS)
 1. **Build the workspace image** (includes git):
    ```bash
    cd infra/workspace-image
-   podman build -t arche-workspace:latest .
+   podman build --build-arg OPENCODE_VERSION="$(cat ../../versions/opencode.version)" -t arche-workspace:latest .
    ```
 
 2. **Initialize KB and config bare repos (empty)**:

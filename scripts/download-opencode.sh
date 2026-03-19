@@ -5,14 +5,29 @@ set -euo pipefail
 # Usage: ./scripts/download-opencode.sh [version] [output-dir]
 #
 # Defaults:
-#   version:    1.2.24
+#   version:    versions/opencode.version
 #   output-dir: apps/desktop/bin
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+OPENCODE_VERSION_FILE="$ROOT_DIR/versions/opencode.version"
 
-VERSION="${1:-1.2.24}"
+if [[ $# -ge 1 && -n "$1" ]]; then
+  VERSION="$1"
+else
+  if [[ ! -f "$OPENCODE_VERSION_FILE" ]]; then
+    echo "Error: Missing OpenCode version file at $OPENCODE_VERSION_FILE" >&2
+    exit 1
+  fi
+  VERSION="$(tr -d '[:space:]' < "$OPENCODE_VERSION_FILE")"
+fi
+
 OUTPUT_DIR="${2:-$ROOT_DIR/apps/desktop/bin}"
+
+if [[ -z "$VERSION" ]]; then
+  echo "Error: OpenCode version is empty" >&2
+  exit 1
+fi
 
 REPO="anomalyco/opencode"
 BASE_URL="https://github.com/$REPO/releases/download/v$VERSION"

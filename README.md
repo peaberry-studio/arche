@@ -111,7 +111,7 @@ Runtime behavior:
 cp apps/web/.env.example apps/web/.env
 
 # 2. Build the workspace image
-podman build -t arche-workspace:latest infra/workspace-image
+podman build --build-arg OPENCODE_VERSION="$(cat versions/opencode.version)" -t arche-workspace:latest infra/workspace-image
 
 # 3. Create network and bare KB/config repos (empty)
 podman network create arche-internal

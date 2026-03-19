@@ -56,18 +56,31 @@ jobs:
             echo "Building main workspace image with tags: latest, ${SHA_TAG}"
           fi
 
+      - name: Resolve OpenCode version
+        id: opencode
+        run: |
+          OPENCODE_VERSION="$(tr -d '[:space:]' < versions/opencode.version)"
+          if [[ -z "$OPENCODE_VERSION" ]]; then
+            echo "OpenCode version is empty" >&2
+            exit 1
+          fi
+          echo "OPENCODE_VERSION=$OPENCODE_VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Build image
         run: |
           if [[ "${{ steps.tags.outputs.MODE }}" == "pr" ]]; then
             podman build \
+              --build-arg OPENCODE_VERSION=${{ steps.opencode.outputs.OPENCODE_VERSION }} \
               -t $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.PR_TAG }} \
               -f infra/workspace-image/Containerfile infra/workspace-image
           elif [[ "${{ steps.tags.outputs.MODE }}" == "release" ]]; then
             podman build \
+              --build-arg OPENCODE_VERSION=${{ steps.opencode.outputs.OPENCODE_VERSION }} \
               -t $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.RELEASE_TAG }} \
               -f infra/workspace-image/Containerfile infra/workspace-image
           else
             podman build \
+              --build-arg OPENCODE_VERSION=${{ steps.opencode.outputs.OPENCODE_VERSION }} \
               -t $REGISTRY/$IMAGE_NAME:latest \
               -t $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.SHA_TAG }} \
               -f infra/workspace-image/Containerfile infra/workspace-image

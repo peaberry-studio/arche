@@ -10,7 +10,7 @@ import {
 } from "./config";
 import { getUserDataHostPath, ensureUserDirectory } from "@/lib/user-data";
 
-type DockerConstructor = typeof import("dockerode")["default"];
+type DockerConstructor = typeof import("dockerode");
 type DockerClient = InstanceType<DockerConstructor>;
 
 function importRuntimeModule<T>(specifier: string): Promise<T> {
@@ -23,7 +23,8 @@ function importRuntimeModule<T>(specifier: string): Promise<T> {
 
 async function getDockerConstructor(): Promise<DockerConstructor> {
   const dockerModule = await importRuntimeModule<typeof import("dockerode")>("dockerode");
-  return dockerModule.default;
+  const defaultExport = (dockerModule as { default?: DockerConstructor }).default;
+  return defaultExport ?? dockerModule;
 }
 
 const WORKSPACE_EDIT_DENY_RULES: Record<string, "deny"> = {
