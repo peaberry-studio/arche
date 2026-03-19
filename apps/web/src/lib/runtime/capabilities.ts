@@ -4,6 +4,7 @@ export type RuntimeCapabilities = {
   multiUser: boolean
   auth: boolean
   containers: boolean
+  workspaceAgent: boolean
   csrf: boolean
   twoFactor: boolean
   teamManagement: boolean
@@ -15,6 +16,7 @@ const WEB_CAPABILITIES: RuntimeCapabilities = {
   multiUser: true,
   auth: true,
   containers: true,
+  workspaceAgent: true,
   csrf: true,
   twoFactor: true,
   teamManagement: true,
@@ -26,6 +28,7 @@ const DESKTOP_CAPABILITIES: RuntimeCapabilities = {
   multiUser: false,
   auth: false,
   containers: false,
+  workspaceAgent: true,
   csrf: false,
   twoFactor: false,
   teamManagement: false,
