@@ -877,6 +877,81 @@ describe('chat stream attachments forwarding', () => {
     expect(sseOutput).toContain('event: done')
   })
 
+  it('forwards message.part.delta events as part updates', async () => {
+    const encoder = new TextEncoder()
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+
+      if (url.includes('/prompt_async')) {
+        return new Response(null, { status: 204 })
+      }
+
+      if (url.endsWith('/event')) {
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                [
+                  'event: message',
+                  'data: {"type":"message.updated","properties":{"info":{"id":"msg-1","role":"assistant","sessionID":"session-1"}}}',
+                  '',
+                  'event: message',
+                  'data: {"type":"message.part.delta","properties":{"messageID":"msg-1","partID":"part-1","partType":"text","delta":"Hel"}}',
+                  '',
+                  'event: message',
+                  'data: {"type":"message.part.delta","properties":{"messageID":"msg-1","partID":"part-1","partType":"text","delta":{"text":"lo"}}}',
+                  '',
+                  'event: message',
+                  'data: {"type":"session.status","properties":{"status":{"type":"idle"},"sessionID":"session-1"}}',
+                  '',
+                  '',
+                ].join('\n'),
+              ),
+            )
+            controller.close()
+          },
+        })
+
+        return new Response(body, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        })
+      }
+
+      throw new Error(`Unexpected fetch url: ${url}`)
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('@/app/api/w/[slug]/chat/stream/route')
+    const req = new Request('http://localhost/api/w/alice/chat/stream', {
+      method: 'POST',
+      headers: {
+        host: 'localhost',
+        origin: 'http://localhost',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        sessionId: 'session-1',
+        text: 'hello',
+      }),
+    })
+
+    const res = await POST(req as never, {
+      params: Promise.resolve({ slug: 'alice' }),
+    })
+
+    expect(res.status).toBe(200)
+    const sseOutput = await res.text()
+
+    expect(sseOutput).toContain('event: part')
+    expect(sseOutput).toContain('"messageId":"msg-1"')
+    expect(sseOutput).toContain('"delta":"Hel"')
+    expect(sseOutput).toContain('"delta":{"text":"lo"}')
+    expect(sseOutput).toContain('event: done')
+  })
+
   it('keeps assistant part when part arrives before message metadata', async () => {
     const encoder = new TextEncoder()
 

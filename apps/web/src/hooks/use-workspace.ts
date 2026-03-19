@@ -100,6 +100,68 @@ function areMessageListsEqual(left: WorkspaceMessage[], right: WorkspaceMessage[
   return left.every((message, index) => areMessagesEqual(message, right[index]));
 }
 
+function extractPartDeltaText(delta: unknown): string | null {
+  if (typeof delta === "string") {
+    return delta;
+  }
+
+  if (!delta || typeof delta !== "object") {
+    return null;
+  }
+
+  const maybeText = (delta as { text?: unknown }).text;
+  return typeof maybeText === "string" ? maybeText : null;
+}
+
+function applyDeltaToPart(
+  messageId: string,
+  part: unknown,
+  delta: unknown,
+  textAccumulatorByPart: Map<string, string>
+): unknown {
+  if (!part || typeof part !== "object") {
+    return part;
+  }
+
+  const partRecord = part as Record<string, unknown>;
+  const partType = partRecord.type;
+  if (partType !== "text" && partType !== "reasoning") {
+    return part;
+  }
+
+  const partId =
+    typeof partRecord.id === "string" && partRecord.id.trim().length > 0
+      ? partRecord.id
+      : `${String(partType)}:${messageId}`;
+  const accumulatorKey = `${messageId}:${partId}`;
+  const partText = typeof partRecord.text === "string" ? partRecord.text : "";
+
+  if (partText.length > 0) {
+    textAccumulatorByPart.set(accumulatorKey, partText);
+    return {
+      ...partRecord,
+      id: partId,
+    };
+  }
+
+  const deltaText = extractPartDeltaText(delta);
+  if (!deltaText || deltaText.length === 0) {
+    return {
+      ...partRecord,
+      id: partId,
+    };
+  }
+
+  const nextText = `${textAccumulatorByPart.get(accumulatorKey) ?? ""}${deltaText}`;
+  textAccumulatorByPart.set(accumulatorKey, nextText);
+
+  return {
+    ...partRecord,
+    id: partId,
+    text: nextText,
+  };
+}
+
 export function filterModelsByProviderStatus(
   models: AvailableModel[],
   providerStatuses: ProviderStatusEntry[]
@@ -1124,6 +1186,7 @@ export function useWorkspace({
       let assistantMessageId: string | null =
         mode === "resume" ? targetMessageId : null;
       const bufferedParts = new Map<string, MessagePart[]>();
+      const textAccumulatorByPart = new Map<string, string>();
       let streamCompleted = false;
       let receivedAssistantPart = false;
       let receivedStreamData = false;
@@ -1156,9 +1219,10 @@ export function useWorkspace({
         bufferedParts.delete(messageId);
       };
 
-      const handlePartUpdate = (part: unknown, messageId?: string) => {
+      const handlePartUpdate = (part: unknown, delta: unknown, messageId?: string) => {
         if (!messageId) return;
-        const transformed = transformParts([part]);
+        const withDelta = applyDeltaToPart(messageId, part, delta, textAccumulatorByPart);
+        const transformed = transformParts([withDelta]);
         if (transformed.length === 0) return;
 
         if (mode === "resume") {
@@ -1307,7 +1371,7 @@ export function useWorkspace({
                 case "part": {
                   if (!data.part) break;
                   const messageId = data.messageId ?? data.part?.messageID;
-                  handlePartUpdate(data.part, messageId);
+                  handlePartUpdate(data.part, data.delta, messageId);
                   break;
                 }
 

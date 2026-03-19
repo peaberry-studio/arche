@@ -50,6 +50,7 @@ function createStorageMock() {
 
 function createPendingStreamBody() {
   let resolveRead: ((value: ReadableStreamReadResult<Uint8Array>) => void) | null = null;
+  let closed = false;
 
   return {
     body: {
@@ -57,12 +58,17 @@ function createPendingStreamBody() {
         return {
           read: () =>
             new Promise<ReadableStreamReadResult<Uint8Array>>((resolve) => {
+              if (closed) {
+                resolve({ done: true, value: undefined });
+                return;
+              }
               resolveRead = resolve;
             }),
         };
       },
     },
     close() {
+      closed = true;
       resolveRead?.({ done: true, value: undefined });
     },
   };
@@ -679,6 +685,14 @@ describe("useWorkspace", () => {
 
     act(() => {
       stream.close();
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSending).toBe(false);
+    });
+
+    await act(async () => {
+      await result.current.refreshMessages();
     });
 
     await waitFor(() => {

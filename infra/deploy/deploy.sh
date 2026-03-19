@@ -69,7 +69,7 @@ prepare_remote_workspace_image() {
 
   log "Building workspace image on remote host: arche-workspace:latest"
   ssh -o BatchMode=yes -o ConnectTimeout=10 -i "$SSH_KEY" "${SSH_USER}@${DEPLOY_IP}" \
-    "cd /tmp/arche-workspace-image-src && podman build --build-arg OPENCODE_VERSION=1.1.45 -t arche-workspace:latest ."
+    "cd /tmp/arche-workspace-image-src && podman build --build-arg OPENCODE_VERSION=1.2.24 -t arche-workspace:latest ."
 }
 
 prepare_remote_web_image() {

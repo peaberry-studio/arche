@@ -709,6 +709,76 @@ export const POST = withAuth(
                     break
                   }
 
+                  case 'message.part.delta': {
+                    markRelevantEvent()
+
+                    const properties =
+                      event.properties && typeof event.properties === 'object'
+                        ? event.properties as Record<string, unknown>
+                        : null
+                    const rawPart =
+                      properties?.part && typeof properties.part === 'object'
+                        ? properties.part as Record<string, unknown>
+                        : null
+                    const delta = properties?.delta ?? rawPart?.delta ?? properties?.text ?? properties?.value
+                    const partMessageId =
+                      typeof rawPart?.messageID === 'string'
+                        ? rawPart.messageID
+                        : typeof properties?.messageID === 'string'
+                          ? properties.messageID
+                          : typeof assistantMessageId === 'string'
+                            ? assistantMessageId
+                            : null
+
+                    if (!partMessageId) break
+                    seenPartMessageIds.add(partMessageId)
+
+                    const knownRole = messageRoles.get(partMessageId)
+                    if (!assistantMessageId && knownRole === 'assistant') {
+                      assistantMessageId = partMessageId
+                      assistantMessageSeen = true
+                    }
+
+                    const isAssistantPart = assistantMessageId
+                      ? partMessageId === assistantMessageId
+                      : knownRole === 'assistant'
+
+                    const part: Record<string, unknown> = rawPart ? { ...rawPart } : {}
+                    if (typeof part.id !== 'string') {
+                      if (typeof properties?.partID === 'string') {
+                        part.id = properties.partID
+                      } else if (typeof properties?.id === 'string') {
+                        part.id = properties.id
+                      }
+                    }
+                    if (typeof part.type !== 'string') {
+                      part.type = typeof properties?.partType === 'string' ? properties.partType : 'text'
+                    }
+                    if (typeof part.messageID !== 'string') {
+                      part.messageID = partMessageId
+                    }
+                    if (typeof part.sessionID !== 'string' && typeof eventSessionId === 'string') {
+                      part.sessionID = eventSessionId
+                    }
+
+                    sendEvent('part', { messageId: partMessageId, part, delta })
+
+                    if (!isAssistantPart) break
+
+                    promptAcknowledged = true
+                    assistantPartSeen = true
+
+                    const partType = typeof part.type === 'string' ? part.type : 'text'
+                    if (partType === 'reasoning') {
+                      emitStatus('reasoning')
+                    } else if (partType === 'text') {
+                      emitStatus('writing')
+                    } else {
+                      emitStatus('thinking')
+                    }
+                    break
+                  }
+
                   case 'file.edited':
                   case 'file.created':
                   case 'file.deleted':

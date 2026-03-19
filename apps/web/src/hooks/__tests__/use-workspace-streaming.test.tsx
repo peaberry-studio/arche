@@ -907,6 +907,66 @@ describe("useWorkspace streaming", () => {
         expect(assistant?.content).toContain("hello back");
       });
     });
+
+    it("streams delta-only text updates progressively", async () => {
+      const sse = createSSEStream();
+      stubFetchWithStream(() => sse);
+
+      const result = await renderConnectedHook();
+
+      await act(async () => {
+        await result.current.sendMessage("hello");
+      });
+
+      act(() => {
+        sse.push(
+          sseEvent("message", {
+            id: "assistant-1",
+            role: "assistant",
+          })
+        );
+        sse.push(
+          sseEvent("part", {
+            messageId: "assistant-1",
+            part: {
+              id: "part-1",
+              type: "text",
+              text: "",
+              messageID: "assistant-1",
+            },
+            delta: "hello ",
+          })
+        );
+      });
+
+      await waitFor(() => {
+        const assistant = result.current.messages.find((m) => m.role === "assistant");
+        expect(assistant?.content).toContain("hello ");
+      });
+
+      act(() => {
+        sse.push(
+          sseEvent("part", {
+            messageId: "assistant-1",
+            part: {
+              id: "part-1",
+              type: "text",
+              text: "",
+              messageID: "assistant-1",
+            },
+            delta: { text: "world" },
+          })
+        );
+        sse.push(sseEvent("done", {}));
+        sse.close();
+      });
+
+      await waitFor(() => {
+        expect(result.current.isSending).toBe(false);
+        const assistant = result.current.messages.find((m) => m.role === "assistant");
+        expect(assistant?.content).toContain("hello world");
+      });
+    });
   });
 
   // -----------------------------------------------------------------------
@@ -1543,7 +1603,7 @@ describe("useWorkspace streaming", () => {
         ],
       });
 
-      const sse = createSSEStream();
+      const openedStreams: Array<ReturnType<typeof createSSEStream>> = [];
       vi.stubGlobal(
         "fetch",
         vi.fn(async (input: RequestInfo | URL) => {
@@ -1551,7 +1611,9 @@ describe("useWorkspace streaming", () => {
             return { ok: true, json: async () => ({ agents: DEFAULT_AGENTS }) };
           }
           if (String(input) === "/api/w/alice/chat/stream") {
-            return { ok: true, body: sse };
+            const stream = createSSEStream();
+            openedStreams.push(stream);
+            return { ok: true, body: stream };
           }
           throw new Error(`Unexpected fetch: ${String(input)}`);
         })
@@ -1566,7 +1628,9 @@ describe("useWorkspace streaming", () => {
       });
 
       // Close the stream without any assistant data (simulates timeout/disconnect)
-      act(() => { sse.close(); });
+      act(() => {
+        openedStreams[0]?.close();
+      });
 
       // Wait for finally block to run
       await act(async () => {
