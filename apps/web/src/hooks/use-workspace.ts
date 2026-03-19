@@ -1330,6 +1330,14 @@ export function useWorkspace({
               // Invalid JSON, skip
             }
           }
+
+          // In Electron's Turbopack dev server, the HTTP response body doesn't
+          // signal EOF after controller.close(), so reader.read() hangs
+          // indefinitely. Break as soon as the server signals completion.
+          if (streamCompleted) {
+            reader.cancel().catch(() => {});
+            break;
+          }
         }
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") {
@@ -1944,6 +1952,7 @@ export function useWorkspace({
 
   // Cleanup on unmount
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
       if (workspaceRefreshTimeoutRef.current) {
