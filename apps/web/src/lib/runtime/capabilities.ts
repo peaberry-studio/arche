@@ -5,6 +5,7 @@ export type RuntimeCapabilities = {
   auth: boolean
   containers: boolean
   workspaceAgent: boolean
+  reaper: boolean
   csrf: boolean
   twoFactor: boolean
   teamManagement: boolean
@@ -17,6 +18,7 @@ const WEB_CAPABILITIES: RuntimeCapabilities = {
   auth: true,
   containers: true,
   workspaceAgent: true,
+  reaper: true,
   csrf: true,
   twoFactor: true,
   teamManagement: true,
@@ -29,6 +31,7 @@ const DESKTOP_CAPABILITIES: RuntimeCapabilities = {
   auth: false,
   containers: false,
   workspaceAgent: true,
+  reaper: false,
   csrf: false,
   twoFactor: false,
   teamManagement: false,

@@ -28,6 +28,7 @@ import {
   type ResumeFailureState,
 } from "@/lib/workspace-resume-policy";
 import { SerialJobExecutor } from "@/lib/serial-job-executor";
+import { getRuntimeCapabilities } from "@/lib/runtime/capabilities";
 import { useInstanceHeartbeat } from "@/hooks/use-instance-heartbeat";
 import { useWorkspaceConnection } from "@/hooks/use-workspace-connection";
 import { useWorkspaceDiffs, type WorkspaceDiff } from "@/hooks/use-workspace-diffs";
@@ -338,7 +339,8 @@ export function useWorkspace({
     enabled && workspaceAgentEnabled,
     isConnected
   );
-  useInstanceHeartbeat(slug, enabled);
+  const caps = getRuntimeCapabilities();
+  useInstanceHeartbeat(slug, enabled && caps.reaper);
 
   // Sessions
   const [sessions, setSessions] = useState<WorkspaceSession[]>([]);
