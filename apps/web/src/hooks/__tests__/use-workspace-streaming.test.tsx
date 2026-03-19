@@ -215,6 +215,55 @@ describe("useWorkspace streaming", () => {
       });
     });
 
+    it("releases isSending after done even if the final refresh hangs", async () => {
+      const sse = createSSEStream();
+      stubFetchWithStream(() => sse);
+
+      const result = await renderConnectedHook({ pollInterval: 60_000 });
+
+      opencodeMocks.listMessagesAction.mockImplementation(
+        () => new Promise(() => undefined)
+      );
+
+      await act(async () => {
+        await result.current.sendMessage("hello");
+      });
+
+      await waitFor(() => {
+        expect(result.current.isSending).toBe(true);
+      });
+
+      act(() => {
+        sse.push(
+          sseEvent("message", {
+            id: "assistant-1",
+            role: "assistant",
+          })
+        );
+        sse.push(
+          sseEvent("part", {
+            messageId: "assistant-1",
+            part: {
+              id: "part-1",
+              type: "text",
+              text: "hello back",
+              messageID: "assistant-1",
+            },
+            delta: "hello back",
+          })
+        );
+        sse.push(sseEvent("done", {}));
+        sse.close();
+      });
+
+      await waitFor(() => {
+        expect(result.current.isSending).toBe(false);
+        const assistant = result.current.messages.find((message) => message.role === "assistant");
+        expect(assistant?.content).toContain("hello back");
+        expect(assistant?.pending).toBe(false);
+      });
+    });
+
     it("shows isSending=false when switching to a non-streaming session", async () => {
       opencodeMocks.listSessionsAction.mockResolvedValue({
         ok: true,
@@ -815,6 +864,48 @@ describe("useWorkspace streaming", () => {
       expect(callsAfterRefresh).toBe(callsBefore);
 
       act(() => { sse.close(); });
+    });
+
+    it("parses split part and done events across stream reads", async () => {
+      const sse = createSSEStream();
+      stubFetchWithStream(() => sse);
+
+      const result = await renderConnectedHook();
+
+      await act(async () => {
+        await result.current.sendMessage("hello");
+      });
+
+      act(() => {
+        sse.push(
+          sseEvent("message", {
+            id: "assistant-1",
+            role: "assistant",
+          })
+        );
+        sse.push("event:part\n");
+        sse.push(
+          `data:${JSON.stringify({
+            messageId: "assistant-1",
+            part: {
+              id: "part-1",
+              type: "text",
+              text: "hello back",
+              messageID: "assistant-1",
+            },
+            delta: "hello back",
+          })}\n\n`
+        );
+        sse.push("event:done\n");
+        sse.push(`data:${JSON.stringify({ refresh: true })}\n\n`);
+        sse.close();
+      });
+
+      await waitFor(() => {
+        expect(result.current.isSending).toBe(false);
+        const assistant = result.current.messages.find((m) => m.role === "assistant");
+        expect(assistant?.content).toContain("hello back");
+      });
     });
   });
 

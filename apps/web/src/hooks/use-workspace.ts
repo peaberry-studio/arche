@@ -21,6 +21,7 @@ import type {
 } from "@/lib/opencode/types";
 import { extractTextContent, transformParts } from "@/lib/opencode/transform";
 import { PROVIDERS, type ProviderId } from "@/lib/providers/types";
+import { INITIAL_SSE_PARSE_STATE, parseSseChunk } from "@/lib/sse-parser";
 import {
   canAutoResume,
   recordResumeFailure,
@@ -373,6 +374,7 @@ export function useWorkspace({
   }>());
   const resumeFailureStateRef = useRef<Map<string, ResumeFailureState>>(new Map());
   const sessionExecutorsRef = useRef(new Map<string, SerialJobExecutor>());
+  const latestStreamTokensRef = useRef(new Map<string, number>());
   const isMountedRef = useRef(true);
 
   // Workspace refresh scheduling (diffs + files after stream completion)
@@ -757,6 +759,9 @@ export function useWorkspace({
 
       activeStream.abortController.abort();
       activeStreamsRef.current.delete(sessionId);
+      if (latestStreamTokensRef.current.get(sessionId) === activeStream.token) {
+        latestStreamTokensRef.current.delete(sessionId);
+      }
       streamCounterRef.current += 1;
       setSessionStreamStatusTo(sessionId, "ready");
     },
@@ -767,6 +772,7 @@ export function useWorkspace({
     for (const sessionId of activeStreamsRef.current.keys()) {
       const activeStream = activeStreamsRef.current.get(sessionId);
       activeStream?.abortController.abort();
+      latestStreamTokensRef.current.delete(sessionId);
       setSessionStreamStatusTo(sessionId, "ready");
     }
     activeStreamsRef.current.clear();
@@ -1094,6 +1100,7 @@ export function useWorkspace({
         targetMessageId,
         abortController,
       });
+      latestStreamTokensRef.current.set(sessionId, token);
 
       setSessionStreamStatusTo(sessionId, "submitted");
 
@@ -1239,101 +1246,88 @@ export function useWorkspace({
         }
 
         const decoder = new TextDecoder();
-        let buffer = "";
+        let parseState = INITIAL_SSE_PARSE_STATE;
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          buffer += decoder.decode(value, { stream: true });
+          const parsed = parseSseChunk(parseState, decoder.decode(value, { stream: true }));
+          parseState = parsed.state;
 
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
+          for (const parsedEvent of parsed.events) {
+            try {
+              receivedStreamData = true;
+              setSessionStreamStatusTo(sessionId, "streaming");
+              const data = JSON.parse(parsedEvent.data);
 
-          let eventType = "";
-          let eventData = "";
-
-          for (const line of lines) {
-            if (line.startsWith("event:")) {
-              eventType = line.slice(6).trim();
-            } else if (line.startsWith("data:")) {
-              eventData = line.slice(5).trim();
-            } else if (line === "" && eventData) {
-              try {
-                receivedStreamData = true;
-                setSessionStreamStatusTo(sessionId, "streaming");
-                const data = JSON.parse(eventData);
-
-                switch (eventType) {
-                  case "status": {
-                    const status = data.status as MessageStatus;
-                    updateStatus(status, data.toolName, data.detail);
-                    if (status === "complete" || status === "error") {
-                      streamCompleted = true;
-                    }
-                    break;
+              switch (parsedEvent.event) {
+                case "status": {
+                  const status = data.status as MessageStatus;
+                  updateStatus(status, data.toolName, data.detail);
+                  if (status === "complete" || status === "error") {
+                    streamCompleted = true;
                   }
+                  break;
+                }
 
-                  case "message": {
-                    if (
-                      mode === "send" &&
-                      data.role === "assistant" &&
-                      !assistantMessageId &&
-                      typeof data.id === "string"
-                    ) {
-                      assistantMessageId = data.id;
-                      flushBufferedParts(data.id);
-                    }
-                    break;
+                case "message": {
+                  if (
+                    mode === "send" &&
+                    data.role === "assistant" &&
+                    !assistantMessageId &&
+                    typeof data.id === "string"
+                  ) {
+                    assistantMessageId = data.id;
+                    flushBufferedParts(data.id);
                   }
+                  break;
+                }
 
-                  case "assistant-meta": {
-                    if (typeof data.providerID === "string" && typeof data.modelID === "string") {
-                      syncRuntimeSelectedModel(sessionId, data.providerID, data.modelID);
-                    }
-                    if (typeof data.agent === "string") {
-                      syncActiveAgentFromRuntime(sessionId, data.agent);
-                    }
-                    break;
+                case "assistant-meta": {
+                  if (typeof data.providerID === "string" && typeof data.modelID === "string") {
+                    syncRuntimeSelectedModel(sessionId, data.providerID, data.modelID);
                   }
+                  if (typeof data.agent === "string") {
+                    syncActiveAgentFromRuntime(sessionId, data.agent);
+                  }
+                  break;
+                }
 
-                  case "agent": {
-                    if (typeof data.agent === "string") {
-                      syncActiveAgentFromRuntime(sessionId, data.agent);
-                    }
-                    break;
+                case "agent": {
+                  if (typeof data.agent === "string") {
+                    syncActiveAgentFromRuntime(sessionId, data.agent);
                   }
+                  break;
+                }
 
-                  case "part": {
-                    if (!data.part) break;
-                    const messageId = data.messageId ?? data.part?.messageID;
-                    handlePartUpdate(data.part, messageId);
-                    break;
-                  }
+                case "part": {
+                  if (!data.part) break;
+                  const messageId = data.messageId ?? data.part?.messageID;
+                  handlePartUpdate(data.part, messageId);
+                  break;
+                }
 
-                  case "workspace-updated": {
-                    scheduleWorkspaceRefresh();
-                    break;
-                  }
+                case "workspace-updated": {
+                  scheduleWorkspaceRefresh();
+                  break;
+                }
 
                   case "done": {
+                    updateStatus("complete");
                     streamCompleted = true;
                     break;
                   }
 
-                  case "error": {
-                    terminalErrorDetail = typeof data.error === "string" ? data.error : terminalErrorDetail;
-                    updateStatus("error", undefined, data.error);
-                    streamCompleted = true;
-                    break;
-                  }
+                case "error": {
+                  terminalErrorDetail = typeof data.error === "string" ? data.error : terminalErrorDetail;
+                  updateStatus("error", undefined, data.error);
+                  streamCompleted = true;
+                  break;
                 }
-              } catch {
-                // Invalid JSON, skip
               }
-
-              eventType = "";
-              eventData = "";
+            } catch {
+              // Invalid JSON, skip
             }
           }
         }
@@ -1353,7 +1347,7 @@ export function useWorkspace({
           clearInterval(resumePollInterval);
         }
 
-        const isLatest = activeStreamsRef.current.get(sessionId)?.token === token;
+        const isLatestStream = () => latestStreamTokensRef.current.get(sessionId) === token;
 
         if (mode === "resume") {
           if (streamCompleted || receivedAssistantPart) {
@@ -1381,9 +1375,16 @@ export function useWorkspace({
           }
         }
 
-        if (isLatest && isMountedRef.current) {
+        if (isLatestStream()) {
+          activeStreamsRef.current.delete(sessionId);
+          if (isMountedRef.current) {
+            setSessionStreamStatusTo(sessionId, "ready");
+          }
+        }
+
+        if (isLatestStream() && isMountedRef.current) {
           await new Promise((resolve) => setTimeout(resolve, 250));
-          if (!isMountedRef.current) {
+          if (!isMountedRef.current || !isLatestStream()) {
             return;
           }
 
@@ -1417,7 +1418,7 @@ export function useWorkspace({
           };
 
           const result = await loadLatestMessages();
-          if (!isMountedRef.current) {
+          if (!isMountedRef.current || !isLatestStream()) {
             return;
           }
 
@@ -1511,9 +1512,8 @@ export function useWorkspace({
           scheduleWorkspaceRefresh();
         }
 
-        if (isLatest && isMountedRef.current) {
-          activeStreamsRef.current.delete(sessionId);
-          setSessionStreamStatusTo(sessionId, "ready");
+        if (isLatestStream()) {
+          latestStreamTokensRef.current.delete(sessionId);
         }
       }
     },

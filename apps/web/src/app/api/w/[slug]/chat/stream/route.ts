@@ -456,6 +456,8 @@ export const POST = withAuth(
         }
 
         const finalizeFromIdle = () => {
+          if (aborted) return
+
           if (!resume && !assistantMessageSeen) {
             emitStatus('error', undefined, 'stream_no_assistant_message')
             sendEvent('error', { error: 'stream_no_assistant_message' })
@@ -509,6 +511,9 @@ export const POST = withAuth(
           const { done, value } = streamReadResult
           if (done || !value) {
             console.log('[stream] Event stream ended')
+            if (!resume && !aborted) {
+              finalizeFromIdle()
+            }
             break
           }
           
@@ -516,6 +521,10 @@ export const POST = withAuth(
           parseState = parsed.state
 
           for (const parsedEvent of parsed.events) {
+            if (aborted) {
+              break
+            }
+
             const eventData = parsedEvent.data
             if (!eventData) continue
 
