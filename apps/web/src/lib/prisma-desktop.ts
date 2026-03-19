@@ -19,6 +19,10 @@ function importRuntimeModule<T>(specifier: string): Promise<T> {
  * IMPORTANT: If you modify schema.sqlite.prisma, regenerate these statements.
  */
 const SCHEMA_DDL = [
+  `CREATE TABLE IF NOT EXISTS "_arche_schema_meta" (
+    "key" TEXT NOT NULL PRIMARY KEY,
+    "value" TEXT
+  )`,
   `CREATE TABLE IF NOT EXISTS "users" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "email" TEXT NOT NULL,
@@ -113,6 +117,8 @@ const SCHEMA_DDL = [
   `CREATE INDEX IF NOT EXISTS "two_factor_recovery_user_id_idx" ON "two_factor_recovery"("user_id")`,
 ]
 
+const SCHEMA_VERSION = '1'
+
 function getDesktopDatabasePath(): string {
   if (process.env.DATABASE_URL) {
     return process.env.DATABASE_URL.replace(/^file:/, '')
@@ -132,27 +138,51 @@ function ensureDirectoryExists(filePath: string): void {
 type DesktopPrismaClient = any
 
 let clientInstance: DesktopPrismaClient | null = null
+let clientPromise: Promise<DesktopPrismaClient> | null = null
 
 export async function initDesktopDatabase(): Promise<void> {
   const client = await getDesktopPrismaClient()
-  for (const ddl of SCHEMA_DDL) {
-    await client.$executeRawUnsafe(ddl)
+
+  await client.$executeRawUnsafe(SCHEMA_DDL[0])
+
+  const result = await client.$queryRaw<{ value: string }[]>`
+    SELECT value FROM _arche_schema_meta WHERE key = 'schema_version'
+  `
+
+  const storedVersion = result[0]?.value
+
+  if (storedVersion === SCHEMA_VERSION) {
+    return
   }
+
+  for (let i = 1; i < SCHEMA_DDL.length; i++) {
+    await client.$executeRawUnsafe(SCHEMA_DDL[i])
+  }
+
+  await client.$executeRawUnsafe(
+    `INSERT OR REPLACE INTO _arche_schema_meta (key, value) VALUES ('schema_version', '${SCHEMA_VERSION}')`,
+  )
 }
 
 export async function getDesktopPrismaClient(): Promise<DesktopPrismaClient> {
   if (clientInstance) return clientInstance
 
+  if (!clientPromise) {
+    clientPromise = createClient()
+  }
+
+  return clientPromise
+}
+
+async function createClient(): Promise<DesktopPrismaClient> {
   const dbPath = getDesktopDatabasePath()
   ensureDirectoryExists(dbPath)
 
-  // Prisma 7 client engine requires a driver adapter for SQLite
   const { PrismaBetterSqlite3 } = await importRuntimeModule<typeof import('@prisma/adapter-better-sqlite3')>('@prisma/adapter-better-sqlite3')
   const adapter = new PrismaBetterSqlite3({ url: `file:${dbPath}` })
 
   const { PrismaClient } = await import('@/generated/prisma-desktop') as unknown as {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    PrismaClient: new (opts: { adapter: any }) => DesktopPrismaClient
+    PrismaClient: new (opts: { adapter: unknown }) => DesktopPrismaClient
   }
 
   clientInstance = new PrismaClient({ adapter })
