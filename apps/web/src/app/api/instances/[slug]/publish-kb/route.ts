@@ -15,13 +15,13 @@ export interface PublishKbResult {
 export const POST = withAuth<PublishKbResult | { error: string }>(
   { csrf: true },
   async (_request, { slug }) => {
-    const instance = await instanceService.findContainerStatusBySlug(slug)
+    const instance = await instanceService.findReachableBySlug(slug)
 
     if (!instance) {
       return NextResponse.json({ error: 'not_found' }, { status: 404 })
     }
 
-    if (instance.status !== 'running' || !instance.containerId) {
+    if (!instance.reachable) {
       return NextResponse.json({ error: 'instance_not_running' }, { status: 409 })
     }
 

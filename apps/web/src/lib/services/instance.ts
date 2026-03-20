@@ -1,6 +1,7 @@
 import type { InstanceStatus } from '@prisma/client'
 
 import { prisma } from '@/lib/prisma'
+import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 
 // ---------------------------------------------------------------------------
 // Query return shapes (only expose what consumers actually need)
@@ -74,6 +75,16 @@ export function findContainerStatusBySlug(slug: string): Promise<{ containerId: 
     where: { slug },
     select: { containerId: true, status: true },
   })
+}
+
+export async function findReachableBySlug(slug: string): Promise<{ containerId: string | null; status: InstanceStatus; reachable: boolean } | null> {
+  const instance = await findContainerStatusBySlug(slug)
+  if (!instance) return null
+
+  const caps = getRuntimeCapabilities()
+  const reachable = instance.status === 'running' && (!caps.containers || !!instance.containerId)
+
+  return { ...instance, reachable }
 }
 
 export function findAppliedConfigShaBySlug(slug: string): Promise<{ appliedConfigSha: string | null } | null> {

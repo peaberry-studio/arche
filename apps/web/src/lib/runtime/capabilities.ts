@@ -36,7 +36,7 @@ const DESKTOP_CAPABILITIES: RuntimeCapabilities = {
   twoFactor: false,
   teamManagement: false,
   connectors: false,
-  kickstart: false,
+  kickstart: true,
 }
 
 const CAPABILITIES_BY_MODE: Record<RuntimeMode, RuntimeCapabilities> = {

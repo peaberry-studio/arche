@@ -30,13 +30,13 @@ export interface SyncKbResult {
 export const POST = withAuth<SyncKbResult | { error: string }>(
   { csrf: true },
   async (_request, { slug }) => {
-    const instance = await instanceService.findContainerStatusBySlug(slug)
+    const instance = await instanceService.findReachableBySlug(slug)
 
     if (!instance) {
       return NextResponse.json({ error: 'not_found' }, { status: 404 })
     }
 
-    if (instance.status !== 'running' || !instance.containerId) {
+    if (!instance.reachable) {
       return NextResponse.json({ error: 'instance_not_running' }, { status: 409 })
     }
 
@@ -85,13 +85,13 @@ export const POST = withAuth<SyncKbResult | { error: string }>(
 export const GET = withAuth<{ hasConflicts: boolean; conflicts?: string[] } | { error: string }>(
   { csrf: false },
   async (_request, { slug }) => {
-    const instance = await instanceService.findContainerStatusBySlug(slug)
+    const instance = await instanceService.findReachableBySlug(slug)
 
     if (!instance) {
       return NextResponse.json({ error: 'not_found' }, { status: 404 })
     }
 
-    if (instance.status !== 'running' || !instance.containerId) {
+    if (!instance.reachable) {
       return NextResponse.json({ error: 'instance_not_running' }, { status: 409 })
     }
 

@@ -43,7 +43,7 @@ describe('runtime capabilities', () => {
     expect(caps.twoFactor).toBe(false)
     expect(caps.teamManagement).toBe(false)
     expect(caps.connectors).toBe(false)
-    expect(caps.kickstart).toBe(false)
+    expect(caps.kickstart).toBe(true)
   })
 
   it('always returns a valid object (no undefined fields)', async () => {

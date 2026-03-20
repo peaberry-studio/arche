@@ -1,5 +1,7 @@
 import { app, BrowserWindow, dialog, shell } from 'electron'
-import { existsSync, mkdirSync, rmSync } from 'fs'
+import { execFileSync } from 'child_process'
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
 import { join } from 'path'
 
 import {
@@ -60,6 +62,27 @@ function ensureDataDirectories(): void {
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true })
     }
+  }
+
+  ensureBareRepo(join(dataDir, 'kb-config'))
+  ensureBareRepo(join(dataDir, 'kb-content'))
+}
+
+function ensureBareRepo(dir: string): void {
+  if (existsSync(join(dir, 'HEAD'))) {
+    return
+  }
+
+  execFileSync('git', ['init', '--bare', dir])
+
+  // Create an initial empty commit so the repo has a valid HEAD
+  const tmpClone = join(mkdtempSync(join(tmpdir(), 'arche-init-')), 'repo')
+  try {
+    execFileSync('git', ['clone', dir, tmpClone])
+    execFileSync('git', ['commit', '--allow-empty', '-m', 'Initial commit'], { cwd: tmpClone })
+    execFileSync('git', ['push', 'origin', 'HEAD:refs/heads/main'], { cwd: tmpClone })
+  } finally {
+    rmSync(join(tmpClone, '..'), { recursive: true, force: true })
   }
 }
 
