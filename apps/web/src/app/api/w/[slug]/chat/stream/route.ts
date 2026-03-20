@@ -37,6 +37,7 @@ type WorkspaceAgentReadResponse = {
 }
 
 const MAX_PDF_BYTES_FOR_EXTRACTION = 8 * 1024 * 1024
+const MAX_IMAGE_BYTES_FOR_INLINE = 8 * 1024 * 1024
 const MAX_PDF_TEXT_CHARS = 24_000
 const MAX_CONTEXT_REFERENCES_PER_MESSAGE = 20
 const STREAM_RELEVANT_EVENT_TICK_MS = 1000
@@ -86,6 +87,32 @@ function normalizeMessageAttachments(
       mime: typeof item.mime === 'string' ? item.mime : undefined,
     }))
     .filter((item) => item.path.length > 0)
+}
+
+const IMAGE_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+])
+
+function isImageMime(mime: string): boolean {
+  return IMAGE_MIME_TYPES.has(mime.toLowerCase())
+}
+
+async function readWorkspaceImageAttachment(
+  agent: { baseUrl: string; authHeader: string },
+  path: string,
+): Promise<Buffer | null> {
+  const response = await workspaceAgentFetch<WorkspaceAgentReadResponse>(agent, '/files/read', {
+    path,
+  })
+  if (!response.ok) return null
+
+  const decoded = decodeWorkspaceAgentFileContent(response.data)
+  if (!decoded || decoded.length === 0) return null
+  if (decoded.length > MAX_IMAGE_BYTES_FOR_INLINE) return null
+  return decoded
 }
 
 function toWorkspaceFileUrl(path: string): string {
@@ -369,6 +396,33 @@ export const POST = withAuth(
                   type: 'text',
                   text: toSpreadsheetToolHintText(attachmentPath),
                 })
+                attachmentPathsForHint.push(attachmentPath)
+                continue
+              }
+
+              if (isImageMime(mime)) {
+                const imageBytes = await readWorkspaceImageAttachment(
+                  { baseUrl: workspaceAgentUrl, authHeader },
+                  attachmentPath,
+                )
+
+                if (imageBytes) {
+                  const base64 = imageBytes.toString('base64')
+                  promptParts.push({
+                    type: 'file',
+                    mime,
+                    filename: fileName,
+                    url: `data:${mime};base64,${base64}`,
+                  })
+                } else {
+                  promptParts.push({
+                    type: 'file',
+                    mime,
+                    filename: fileName,
+                    url: toWorkspaceFileUrl(attachmentPath),
+                  })
+                }
+
                 attachmentPathsForHint.push(attachmentPath)
                 continue
               }

@@ -457,6 +457,149 @@ describe('chat stream attachments forwarding', () => {
     })
   })
 
+  it('inlines image attachments as data URLs', async () => {
+    let promptBody: Record<string, unknown> | null = null
+    const fakeImageBytes = Buffer.from('fake-png-content')
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+
+      if (url.endsWith('/event')) {
+        return emptyEventStreamResponse()
+      }
+
+      if (url.includes(':4097/files/read')) {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            content: fakeImageBytes.toString('base64'),
+            encoding: 'base64',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        )
+      }
+
+      if (url.includes('/prompt_async')) {
+        promptBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+        return new Response('prompt_failed', { status: 500 })
+      }
+
+      throw new Error(`Unexpected fetch url: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('@/app/api/w/[slug]/chat/stream/route')
+    const req = new Request('http://localhost/api/w/alice/chat/stream', {
+      method: 'POST',
+      headers: {
+        host: 'localhost',
+        origin: 'http://localhost',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        sessionId: 'session-1',
+        text: 'What does this image show?',
+        attachments: [
+          {
+            path: '.arche/attachments/screenshot.png',
+            filename: 'screenshot.png',
+            mime: 'image/png',
+          },
+        ],
+      }),
+    })
+
+    const res = await POST(req as never, {
+      params: Promise.resolve({ slug: 'alice' }),
+    })
+
+    expect(res.status).toBe(200)
+    await res.text()
+
+    expect(promptBody).not.toBeNull()
+    const promptParts = (promptBody?.parts ?? []) as Array<Record<string, unknown>>
+    expect(promptParts).toHaveLength(3)
+    expect(promptParts[0]).toEqual({
+      type: 'text',
+      text: 'What does this image show?',
+    })
+    expect(promptParts[1]).toEqual({
+      type: 'file',
+      mime: 'image/png',
+      filename: 'screenshot.png',
+      url: `data:image/png;base64,${fakeImageBytes.toString('base64')}`,
+    })
+    expect(promptParts[2]).toEqual({
+      type: 'text',
+      text:
+        'Attached workspace files:\n- /workspace/.arche/attachments/screenshot.png\nIf direct file parsing is unavailable, inspect these paths with available tools.',
+    })
+  })
+
+  it('falls back to file URL when image read fails', async () => {
+    let promptBody: Record<string, unknown> | null = null
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+
+      if (url.endsWith('/event')) {
+        return emptyEventStreamResponse()
+      }
+
+      if (url.includes(':4097/files/read')) {
+        return new Response(
+          JSON.stringify({ ok: false, error: 'not_found' }),
+          { status: 404, headers: { 'Content-Type': 'application/json' } },
+        )
+      }
+
+      if (url.includes('/prompt_async')) {
+        promptBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+        return new Response('prompt_failed', { status: 500 })
+      }
+
+      throw new Error(`Unexpected fetch url: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('@/app/api/w/[slug]/chat/stream/route')
+    const req = new Request('http://localhost/api/w/alice/chat/stream', {
+      method: 'POST',
+      headers: {
+        host: 'localhost',
+        origin: 'http://localhost',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        sessionId: 'session-1',
+        text: 'Describe this',
+        attachments: [
+          {
+            path: '.arche/attachments/photo.jpg',
+            filename: 'photo.jpg',
+            mime: 'image/jpeg',
+          },
+        ],
+      }),
+    })
+
+    const res = await POST(req as never, {
+      params: Promise.resolve({ slug: 'alice' }),
+    })
+
+    expect(res.status).toBe(200)
+    await res.text()
+
+    expect(promptBody).not.toBeNull()
+    const promptParts = (promptBody?.parts ?? []) as Array<Record<string, unknown>>
+    expect(promptParts[1]).toEqual({
+      type: 'file',
+      mime: 'image/jpeg',
+      filename: 'photo.jpg',
+      url: 'file:///workspace/.arche/attachments/photo.jpg',
+    })
+  })
+
   it('subscribes to event stream before sending prompt', async () => {
     const fetchUrls: string[] = []
 

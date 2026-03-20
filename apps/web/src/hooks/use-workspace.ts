@@ -1560,14 +1560,35 @@ export function useWorkspace({
               hydratedMessages.length === 0
             ) {
               const fallbackTerminalErrorDetail = terminalErrorDetail;
+              const idToUpdate = assistantMessageId ?? targetMessageId;
 
               updateSessionMessages(sessionId, (prev) =>
                 prev.map((message) => {
-                  if (message.id !== assistantMessageId) return message;
+                  if (message.id !== idToUpdate) return message;
                   return {
                     ...message,
                     pending: false,
                     statusInfo: { status: "error", detail: fallbackTerminalErrorDetail },
+                  };
+                })
+              );
+            } else if (
+              mode === "send" &&
+              terminalErrorDetail &&
+              !assistantMessageId
+            ) {
+              // Stream received initial events (e.g. "thinking" status) but
+              // the prompt failed before creating an assistant message on the
+              // server. Preserve temp messages and show error.
+              const fallbackDetail = terminalErrorDetail;
+
+              updateSessionMessages(sessionId, (prev) =>
+                prev.map((message) => {
+                  if (message.id !== targetMessageId) return message;
+                  return {
+                    ...message,
+                    pending: false,
+                    statusInfo: { status: "error", detail: fallbackDetail },
                   };
                 })
               );
