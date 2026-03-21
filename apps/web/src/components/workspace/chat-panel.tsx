@@ -746,7 +746,7 @@ function ToolGroup({
           setIsOpen(prev => !prev);
         }}
         className={cn(
-          "flex w-full items-start gap-2 px-3 py-2 text-xs",
+          "flex w-full items-start gap-2 px-3 py-2 text-left text-xs",
           canExpand ? "cursor-pointer" : "cursor-default"
         )}
       >
@@ -758,7 +758,7 @@ function ToolGroup({
             <span className="shrink-0 whitespace-nowrap font-medium">{toolLabel}</span>
           </div>
           {showSummary && (
-            <p className="mt-0.5 truncate pl-5 text-muted-foreground">{summary}</p>
+            <p className="mt-0.5 truncate pl-5 text-left text-muted-foreground">{summary}</p>
           )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -853,7 +853,7 @@ function FileGroup({ parts, onOpenFile }: { parts: FilePart[]; onOpenFile: (path
       <button
         type="button"
         onClick={() => setIsOpen(prev => !prev)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-xs"
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs"
       >
         <File size={12} weight="bold" className="text-primary" />
         <span className="font-medium">Files</span>
