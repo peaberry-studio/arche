@@ -106,4 +106,59 @@ describe('prisma dispatcher', () => {
 
     expect(globalThis.prismaDesktopClient).toBe(mockClient)
   })
+
+  it('initDesktopPrisma rejects if getDesktopPrismaClient throws', async () => {
+    process.env.ARCHE_RUNTIME_MODE = 'desktop'
+
+    vi.doMock('@/lib/prisma-desktop', () => ({
+      getDesktopPrismaClient: vi.fn().mockRejectedValue(new Error('sqlite open failed')),
+      initDesktopDatabase: vi.fn(),
+    }))
+
+    const { initDesktopPrisma } = await import('../prisma-desktop-init')
+    await expect(initDesktopPrisma()).rejects.toThrow('sqlite open failed')
+    expect(globalThis.prismaDesktopClient).toBeUndefined()
+  })
+
+  it('initDesktopPrisma sets client even if initDesktopDatabase fails', async () => {
+    process.env.ARCHE_RUNTIME_MODE = 'desktop'
+
+    const mockClient = { $executeRawUnsafe: vi.fn(), $executeRaw: vi.fn() }
+
+    vi.doMock('@/lib/prisma-desktop', () => ({
+      getDesktopPrismaClient: vi.fn().mockResolvedValue(mockClient),
+      initDesktopDatabase: vi.fn().mockRejectedValue(new Error('DDL failed')),
+    }))
+
+    const { initDesktopPrisma } = await import('../prisma-desktop-init')
+    await expect(initDesktopPrisma()).rejects.toThrow('DDL failed')
+    // Client is set before initDesktopDatabase runs (line 22 runs before line 23)
+    expect(globalThis.prismaDesktopClient).toBe(mockClient)
+  })
+
+  it('concurrent initDesktopPrisma calls share the same promise', async () => {
+    process.env.ARCHE_RUNTIME_MODE = 'desktop'
+
+    let resolveInit: () => void
+    const initPromise = new Promise<void>((r) => { resolveInit = r })
+    const mockClient = { $executeRawUnsafe: vi.fn(), $executeRaw: vi.fn() }
+
+    vi.doMock('@/lib/prisma-desktop', () => ({
+      getDesktopPrismaClient: vi.fn().mockImplementation(() => {
+        return initPromise.then(() => mockClient)
+      }),
+      initDesktopDatabase: vi.fn().mockResolvedValue(undefined),
+    }))
+
+    const { initDesktopPrisma } = await import('../prisma-desktop-init')
+    const p1 = initDesktopPrisma()
+    const p2 = initDesktopPrisma()
+
+    resolveInit!()
+    await Promise.all([p1, p2])
+
+    // getDesktopPrismaClient should only be called once
+    const { getDesktopPrismaClient } = await import('@/lib/prisma-desktop')
+    expect(getDesktopPrismaClient).toHaveBeenCalledTimes(1)
+  })
 })

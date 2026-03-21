@@ -37,6 +37,8 @@ type RuntimeSupervisorOptions = {
   readyTimeoutMs?: number
   readyPollIntervalMs?: number
   shutdownTimeoutMs?: number
+  restartOnCrash?: boolean
+  maxRestarts?: number
   platform?: NodeJS.Platform
   spawnProcess?: SpawnProcess
   log?: (event: RuntimeLogEvent) => void
@@ -98,6 +100,7 @@ export class RuntimeSupervisor {
   private startPromise: Promise<void> | null = null
   private stopPromise: Promise<void> | null = null
   private expectedExit = false
+  private restartCount = 0
 
   constructor(options: RuntimeSupervisorOptions) {
     this.options = options
@@ -289,6 +292,25 @@ export class RuntimeSupervisor {
     }
 
     this.child = null
+
+    const maxRestarts = this.options.maxRestarts ?? 3
+    if (
+      this.options.restartOnCrash &&
+      this.state === 'running' &&
+      this.restartCount < maxRestarts
+    ) {
+      this.restartCount++
+      this.log({
+        event: 'restart',
+        state: this.state,
+        detail: `attempt=${this.restartCount}/${maxRestarts}`,
+      })
+      void this.startInternal().catch(() => {
+        this.transition('error', `restart failed after ${this.restartCount} attempts`)
+      })
+      return
+    }
+
     this.transition('error', `code=${String(code)} signal=${String(signal)}`)
   }
 

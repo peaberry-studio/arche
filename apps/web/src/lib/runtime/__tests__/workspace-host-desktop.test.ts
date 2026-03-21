@@ -499,4 +499,62 @@ describe('binary resolution', () => {
     expect(getOpencodeBinary()).toBe('opencode')
     expect(getWorkspaceAgentBinary()).toBe('workspace-agent')
   })
+
+  it('returns start_failed when health check times out', async () => {
+    // Make health check always fail so it times out
+    mockFetch.mockRejectedValue(new Error('connection refused'))
+
+    const opencodeChild = makeChildProcess()
+    const workspaceAgentChild = makeChildProcess()
+    mockSpawn.mockReturnValueOnce(opencodeChild).mockReturnValueOnce(workspaceAgentChild)
+
+    // Use fast timeout so the test doesn't hang
+    process.env.ARCHE_DESKTOP_START_TIMEOUT_MS = '100'
+    process.env.ARCHE_DESKTOP_START_INTERVAL_MS = '10'
+
+    const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
+    const result = await desktopWorkspaceHost.start('local', 'user-1')
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error).toBe('start_failed')
+    }
+  }, 10000)
+
+  it('propagates git init errors on start', async () => {
+    // Make existsSync return false for .git so git init runs, then throw
+    mockExistsSync.mockImplementation((target: string) => {
+      if (target.endsWith('.git')) return false
+      if (target === '/mock/bin/workspace-agent') return true
+      return false
+    })
+    mockExecFileSync.mockImplementation(() => {
+      throw new Error('git not found')
+    })
+
+    const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
+    await expect(desktopWorkspaceHost.start('local', 'user-1')).rejects.toThrow('git not found')
+  })
+
+  it('concurrent stop calls on the same slug do not error', async () => {
+    // Restore mocks for this test
+    mockExecFileSync.mockReturnValue('')
+    mockExistsSync.mockImplementation((target: string) => target === '/mock/bin/workspace-agent')
+    mockHealthyFetch()
+
+    const opencodeChild = makeChildProcess()
+    const workspaceAgentChild = makeChildProcess()
+    mockSpawn.mockReturnValueOnce(opencodeChild).mockReturnValueOnce(workspaceAgentChild)
+
+    const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
+    await desktopWorkspaceHost.start('local', 'user-1')
+
+    // Fire two stops concurrently
+    const p1 = desktopWorkspaceHost.stop('local')
+    const p2 = desktopWorkspaceHost.stop('local')
+
+    const [r1, r2] = await Promise.all([p1, p2])
+    expect(r1.ok).toBe(true)
+    expect(r2.ok).toBe(true)
+  })
 })

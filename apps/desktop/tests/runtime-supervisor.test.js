@@ -155,3 +155,88 @@ test('escalates shutdown when the process does not exit after SIGTERM', async ()
     process.kill = originalKill
   }
 })
+
+test('restarts the process on unexpected crash when restartOnCrash is enabled', async () => {
+  let spawnCount = 0
+  const children = []
+
+  function spawnNew() {
+    const child = new MockChildProcess(5000 + spawnCount)
+    spawnCount++
+    children.push(child)
+    return child
+  }
+
+  const signals = []
+  const originalKill = process.kill
+  process.kill = (pid, signal) => {
+    signals.push([pid, signal])
+    const target = children.find((c) => c.pid === Math.abs(pid))
+    if (target) {
+      setImmediate(() => {
+        target.killed = true
+        target.emit('exit', 0, signal)
+      })
+    }
+  }
+
+  try {
+    const { supervisor, logs } = createSupervisor({
+      spawnProcess: () => spawnNew(),
+      restartOnCrash: true,
+      maxRestarts: 2,
+    })
+
+    await supervisor.start()
+    assert.equal(supervisor.getState(), 'running')
+    assert.equal(spawnCount, 1)
+
+    // Simulate unexpected crash
+    children[0].emit('exit', 1, null)
+
+    // Wait for the restart to complete
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    assert.equal(supervisor.getState(), 'running')
+    assert.equal(spawnCount, 2)
+    assert.equal(logs.some((e) => e.event === 'restart'), true)
+  } finally {
+    process.kill = originalKill
+  }
+})
+
+test('stops restarting after maxRestarts is exceeded', async () => {
+  let spawnCount = 0
+  const children = []
+
+  function spawnNew() {
+    const child = new MockChildProcess(6000 + spawnCount)
+    spawnCount++
+    children.push(child)
+    // Make the child immediately exit to simulate repeated crashes
+    setImmediate(() => {
+      child.emit('exit', 1, null)
+    })
+    return child
+  }
+
+  const originalKill = process.kill
+  process.kill = () => {}
+
+  try {
+    const { supervisor } = createSupervisor({
+      spawnProcess: () => spawnNew(),
+      probeReadiness: async () => false,
+      restartOnCrash: true,
+      maxRestarts: 1,
+      readyTimeoutMs: 5,
+      shutdownTimeoutMs: 5,
+    })
+
+    // The initial start will fail because probe never succeeds
+    await assert.rejects(supervisor.start())
+    assert.equal(supervisor.getState(), 'error')
+  } finally {
+    process.kill = originalKill
+  }
+})

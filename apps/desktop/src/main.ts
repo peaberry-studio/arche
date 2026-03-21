@@ -148,6 +148,8 @@ function createNextSupervisor(): RuntimeSupervisor {
       HOSTNAME: LOOPBACK_HOST,
     },
     probeReadiness: () => probeHttpServerReady(getNextUrl()),
+    restartOnCrash: true,
+    maxRestarts: 3,
     log: (event) => {
       process.stdout.write(`[desktop-supervisor] ${JSON.stringify(event)}\n`)
     },
