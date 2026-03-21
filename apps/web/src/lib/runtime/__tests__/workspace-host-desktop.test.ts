@@ -34,6 +34,7 @@ vi.mock('@/lib/services', () => ({
     setError: vi.fn().mockResolvedValue(undefined),
     setRunning: vi.fn().mockResolvedValue(undefined),
     setStopped: vi.fn().mockResolvedValue(undefined),
+    findActiveInstances: vi.fn().mockResolvedValue([]),
   },
 }))
 
@@ -583,5 +584,99 @@ describe('binary resolution', () => {
     const [r1, r2] = await Promise.all([p1, p2])
     expect(r1.ok).toBe(true)
     expect(r2.ok).toBe(true)
+  })
+})
+
+describe('desktop instance reconciliation', () => {
+  const originalEnv = process.env
+  const originalResourcesPath = process.resourcesPath
+
+  beforeEach(() => {
+    vi.resetModules()
+    vi.clearAllMocks()
+    vi.stubGlobal('fetch', mockFetch)
+    process.env = { ...originalEnv }
+    delete process.env.ARCHE_OPENCODE_BIN
+    process.env.ARCHE_WORKSPACE_AGENT_BIN = '/mock/bin/workspace-agent'
+    delete process.env.ARCHE_DESKTOP_WEB_PORT
+    delete process.env.ARCHE_DESKTOP_START_TIMEOUT_MS
+    delete process.env.ARCHE_DESKTOP_START_INTERVAL_MS
+    delete process.env.OPENCODE_SERVER_PASSWORD
+    // @ts-expect-error test isolation
+    process.resourcesPath = undefined
+    // @ts-expect-error test isolation
+    globalThis.archeDesktopCleanupRegistered = undefined
+    mockExistsSync.mockImplementation((target: string) => target === '/mock/bin/workspace-agent')
+    mockRandomBytes.mockReturnValue({ toString: () => 'generated-password' })
+    mockHealthyFetch()
+  })
+
+  afterEach(() => {
+    process.env = originalEnv
+    // @ts-expect-error test isolation
+    process.resourcesPath = originalResourcesPath
+  })
+
+  it('marks stale running instances as stopped on first start', async () => {
+    const { instanceService } = await import('@/lib/services')
+    vi.mocked(instanceService.findActiveInstances).mockResolvedValue([
+      { slug: 'orphan-1', status: 'running', startedAt: new Date(), lastActivityAt: new Date() },
+      { slug: 'orphan-2', status: 'starting', startedAt: new Date(), lastActivityAt: null },
+    ])
+
+    const opencodeChild = makeChildProcess()
+    const workspaceAgentChild = makeChildProcess()
+    mockSpawn.mockReturnValueOnce(opencodeChild).mockReturnValueOnce(workspaceAgentChild)
+
+    const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
+    await desktopWorkspaceHost.start('local', 'user-1')
+
+    expect(instanceService.setStopped).toHaveBeenCalledWith('orphan-1')
+    expect(instanceService.setStopped).toHaveBeenCalledWith('orphan-2')
+  })
+
+  it('only reconciles once across multiple start calls', async () => {
+    const { instanceService } = await import('@/lib/services')
+    vi.mocked(instanceService.findActiveInstances).mockResolvedValue([
+      { slug: 'orphan', status: 'running', startedAt: new Date(), lastActivityAt: new Date() },
+    ])
+
+    const child1 = makeChildProcess()
+    const agent1 = makeChildProcess()
+    const child2 = makeChildProcess()
+    const agent2 = makeChildProcess()
+    mockSpawn.mockReturnValueOnce(child1).mockReturnValueOnce(agent1)
+
+    const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
+    await desktopWorkspaceHost.start('local', 'user-1')
+
+    // Stop the first workspace
+    const stopPromise = desktopWorkspaceHost.stop('local')
+    child1.emit('exit', 0, 'SIGTERM')
+    agent1.emit('exit', 0, 'SIGTERM')
+    await stopPromise
+
+    // Start a second workspace — reconciliation should NOT run again
+    vi.mocked(instanceService.findActiveInstances).mockClear()
+    mockSpawn.mockReturnValueOnce(child2).mockReturnValueOnce(agent2)
+    await desktopWorkspaceHost.start('local2', 'user-1')
+
+    expect(instanceService.findActiveInstances).not.toHaveBeenCalled()
+  })
+
+  it('does not mark instances that have backing processes', async () => {
+    const { instanceService } = await import('@/lib/services')
+    vi.mocked(instanceService.findActiveInstances).mockResolvedValue([])
+
+    const opencodeChild = makeChildProcess()
+    const workspaceAgentChild = makeChildProcess()
+    mockSpawn.mockReturnValueOnce(opencodeChild).mockReturnValueOnce(workspaceAgentChild)
+
+    const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
+    await desktopWorkspaceHost.start('local', 'user-1')
+
+    // setStopped should only have been called for reconciliation (none in this case),
+    // not for the running workspace
+    expect(instanceService.setStopped).not.toHaveBeenCalled()
   })
 })

@@ -252,6 +252,28 @@ function createManagedProcess(name: ManagedProcess['name'], child: ChildProcess)
 }
 
 // ---------------------------------------------------------------------------
+// Startup reconciliation
+// ---------------------------------------------------------------------------
+
+let reconciled = false
+
+export async function reconcileDesktopInstances(): Promise<void> {
+  if (reconciled) return
+  reconciled = true
+
+  const activeInstances = await instanceService.findActiveInstances()
+  if (activeInstances.length === 0) return
+
+  for (const instance of activeInstances) {
+    if (!runtimes.has(instance.slug)) {
+      logDesktopRuntime(instance.slug, 'runtime', 'reconcile_stopped',
+        `status=${instance.status} had no backing process after restart`)
+      await instanceService.setStopped(instance.slug)
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // WorkspaceHost implementation
 // ---------------------------------------------------------------------------
 
@@ -261,6 +283,7 @@ export const desktopWorkspaceHost: WorkspaceHost = {
     userId: string,
   ): Promise<{ ok: true; status: string } | { ok: false; error: string; detail?: string }> {
     ensureCleanupHooks()
+    await reconcileDesktopInstances()
 
     const existing = runtimes.get(slug)
     if (existing && existing.state === 'running') {
