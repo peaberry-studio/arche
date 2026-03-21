@@ -8,6 +8,11 @@ vi.mock('@/lib/runtime/session', () => ({
   getSession: () => mockGetSession(),
 }))
 
+const mockIsDesktop = vi.fn(() => false)
+vi.mock('@/lib/runtime/mode', () => ({
+  isDesktop: () => mockIsDesktop(),
+}))
+
 vi.mock('@/lib/runtime/capabilities', () => ({
   getRuntimeCapabilities: () => ({
     multiUser: true,
@@ -26,6 +31,12 @@ vi.mock('@/lib/csrf', () => ({
     const origin = request.headers.get('origin')
     return origin ? { ok: true } : { ok: false }
   }),
+}))
+
+const mockValidateDesktopToken = vi.fn(() => false)
+vi.mock('@/lib/runtime/desktop/token', () => ({
+  DESKTOP_TOKEN_HEADER: 'x-arche-desktop-token',
+  validateDesktopToken: (token: string | null) => mockValidateDesktopToken(token),
 }))
 
 import { withAuth } from '../with-auth'
@@ -163,5 +174,82 @@ describe('withAuth wrapper', () => {
       slug: 'alice',
       params: { slug: 'alice' },
     })
+  })
+})
+
+describe('withAuth desktop token validation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockIsDesktop.mockReturnValue(true)
+    mockGetSession.mockResolvedValue({
+      user: { id: 'local', email: 'local@arche.local', slug: 'local', role: 'ADMIN' },
+      sessionId: 'local',
+    })
+  })
+
+  it('returns 401 when desktop token is missing', async () => {
+    mockValidateDesktopToken.mockReturnValue(false)
+
+    const handler = makeHandler()
+    const wrapped = withAuth({ csrf: false }, handler)
+    const req = makeRequest('GET', 'http://localhost/api/u/local/agents')
+    const res = await wrapped(req, { params: Promise.resolve({ slug: 'local' }) })
+
+    expect(res.status).toBe(401)
+    expect(handler).not.toHaveBeenCalled()
+    expect(mockValidateDesktopToken).toHaveBeenCalledWith(null)
+  })
+
+  it('returns 401 when desktop token is invalid', async () => {
+    mockValidateDesktopToken.mockReturnValue(false)
+
+    const handler = makeHandler()
+    const wrapped = withAuth({ csrf: false }, handler)
+    const req = makeRequest('GET', 'http://localhost/api/u/local/agents', {
+      'x-arche-desktop-token': 'wrong-token',
+    })
+    const res = await wrapped(req, { params: Promise.resolve({ slug: 'local' }) })
+
+    expect(res.status).toBe(401)
+    expect(handler).not.toHaveBeenCalled()
+    expect(mockValidateDesktopToken).toHaveBeenCalledWith('wrong-token')
+  })
+
+  it('allows request when desktop token is valid', async () => {
+    mockValidateDesktopToken.mockReturnValue(true)
+
+    const handler = makeHandler()
+    const wrapped = withAuth({ csrf: false }, handler)
+    const req = makeRequest('GET', 'http://localhost/api/u/local/agents', {
+      'x-arche-desktop-token': 'valid-token',
+    })
+    const res = await wrapped(req, { params: Promise.resolve({ slug: 'local' }) })
+
+    expect(res.status).toBe(200)
+    expect(handler).toHaveBeenCalledOnce()
+  })
+
+  it('skips token check in web mode', async () => {
+    mockIsDesktop.mockReturnValue(false)
+
+    const handler = makeHandler()
+    const wrapped = withAuth({ csrf: false }, handler)
+    const req = makeRequest('GET', 'http://localhost/api/u/local/agents')
+    const res = await wrapped(req, { params: Promise.resolve({ slug: 'local' }) })
+
+    expect(res.status).toBe(200)
+    expect(mockValidateDesktopToken).not.toHaveBeenCalled()
+  })
+
+  it('validates token before checking CSRF', async () => {
+    mockValidateDesktopToken.mockReturnValue(false)
+
+    const handler = makeHandler()
+    const wrapped = withAuth({ csrf: true }, handler)
+    const req = makeRequest('POST', 'http://localhost/api/u/local/agents')
+    const res = await wrapped(req, { params: Promise.resolve({ slug: 'local' }) })
+
+    // Should fail on token check (401) not CSRF check (403)
+    expect(res.status).toBe(401)
   })
 })

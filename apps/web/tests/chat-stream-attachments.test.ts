@@ -30,6 +30,11 @@ vi.mock('@/lib/spawner/crypto', () => ({
   decryptPassword: (...args: unknown[]) => mockDecryptPassword(...args),
 }))
 
+vi.mock('@/lib/runtime/desktop/token', () => ({
+  DESKTOP_TOKEN_HEADER: 'x-arche-desktop-token',
+  validateDesktopToken: () => true,
+}))
+
 function session(slug: string, role: 'USER' | 'ADMIN' = 'USER') {
   return {
     user: { id: 'user-1', email: 'alice@example.com', slug, role },
