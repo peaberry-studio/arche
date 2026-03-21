@@ -124,5 +124,54 @@ describe('workspace-host dispatcher', () => {
       const result = await stopWorkspace('local', 'user-1')
       expect(result).toEqual({ ok: true, status: 'already_stopped' })
     })
+
+    it('isWorkspaceReachable returns false for stopped workspace', async () => {
+      const { isWorkspaceReachable } = await import('../workspace-host')
+      expect(await isWorkspaceReachable('local')).toBe(false)
+    })
+  })
+
+  describe('isWorkspaceReachable', () => {
+    beforeEach(() => {
+      delete process.env.ARCHE_RUNTIME_MODE
+    })
+
+    it('returns false when no instance found', async () => {
+      const { getInstanceStatus } = await import('@/lib/spawner/core')
+      vi.mocked(getInstanceStatus).mockResolvedValue(null)
+
+      const { isWorkspaceReachable } = await import('../workspace-host')
+      expect(await isWorkspaceReachable('unknown')).toBe(false)
+    })
+
+    it('returns true when workspace status is running', async () => {
+      const { getInstanceStatus } = await import('@/lib/spawner/core')
+      vi.mocked(getInstanceStatus).mockResolvedValue({
+        status: 'running',
+        startedAt: new Date(),
+        stoppedAt: null,
+        lastActivityAt: new Date(),
+        containerId: 'c1',
+        serverPassword: 'pwd',
+      })
+
+      const { isWorkspaceReachable } = await import('../workspace-host')
+      expect(await isWorkspaceReachable('alice')).toBe(true)
+    })
+
+    it('returns false when workspace status is stopped', async () => {
+      const { getInstanceStatus } = await import('@/lib/spawner/core')
+      vi.mocked(getInstanceStatus).mockResolvedValue({
+        status: 'stopped',
+        startedAt: new Date(),
+        stoppedAt: new Date(),
+        lastActivityAt: null,
+        containerId: null,
+        serverPassword: 'pwd',
+      })
+
+      const { isWorkspaceReachable } = await import('../workspace-host')
+      expect(await isWorkspaceReachable('alice')).toBe(false)
+    })
   })
 })

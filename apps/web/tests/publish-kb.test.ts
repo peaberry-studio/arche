@@ -7,6 +7,11 @@ vi.mock('@/lib/workspace-agent/client', () => ({
   createWorkspaceAgentClient: (...args: unknown[]) => mockCreateWorkspaceAgentClient(...args),
 }))
 
+const mockIsWorkspaceReachable = vi.fn()
+vi.mock('@/lib/runtime/workspace-host', () => ({
+  isWorkspaceReachable: (...args: unknown[]) => mockIsWorkspaceReachable(...args),
+}))
+
 const mockFindUnique = vi.fn()
 vi.mock('@/lib/prisma', () => ({
   prisma: { instance: { findUnique: (...args: unknown[]) => mockFindUnique(...args) } },
@@ -61,6 +66,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     vi.clearAllMocks()
     vi.resetModules()
     vi.stubGlobal('fetch', vi.fn())
+    mockIsWorkspaceReachable.mockResolvedValue(true)
   })
 
   it('returns 401 without session cookie', async () => {
@@ -95,17 +101,19 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     expect(body.error).toBe('forbidden')
   })
 
-  it('returns 404 when instance not found', async () => {
+  it('returns 409 when instance not found', async () => {
     mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
     mockFindUnique.mockResolvedValue(null)
+    mockIsWorkspaceReachable.mockResolvedValue(false)
     const { status, body } = await callPOST('alice')
-    expect(status).toBe(404)
-    expect(body.error).toBe('not_found')
+    expect(status).toBe(409)
+    expect(body.error).toBe('instance_not_running')
   })
 
   it('returns 409 when instance not running', async () => {
     mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
     mockFindUnique.mockResolvedValue(instance('stopped'))
+    mockIsWorkspaceReachable.mockResolvedValue(false)
     const { status, body } = await callPOST('alice')
     expect(status).toBe(409)
     expect(body.error).toBe('instance_not_running')

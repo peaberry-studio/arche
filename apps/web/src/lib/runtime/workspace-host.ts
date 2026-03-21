@@ -39,3 +39,8 @@ export async function getWorkspaceAgentConnection(
 ): Promise<WorkspaceHostConnection | null> {
   return getWorkspaceHost().getAgentConnection(slug)
 }
+
+export async function isWorkspaceReachable(slug: string): Promise<boolean> {
+  const status = await getWorkspaceHost().getStatus(slug)
+  return status?.status === 'running'
+}

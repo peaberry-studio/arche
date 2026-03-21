@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 
+import { isWorkspaceReachable } from '@/lib/runtime/workspace-host'
 import { withAuth } from '@/lib/runtime/with-auth'
-import { instanceService } from '@/lib/services'
 import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 
 export interface PublishKbResult {
@@ -15,13 +15,9 @@ export interface PublishKbResult {
 export const POST = withAuth<PublishKbResult | { error: string }>(
   { csrf: true },
   async (_request, { slug }) => {
-    const instance = await instanceService.findReachableBySlug(slug)
+    const reachable = await isWorkspaceReachable(slug)
 
-    if (!instance) {
-      return NextResponse.json({ error: 'not_found' }, { status: 404 })
-    }
-
-    if (!instance.reachable) {
+    if (!reachable) {
       return NextResponse.json({ error: 'instance_not_running' }, { status: 409 })
     }
 
