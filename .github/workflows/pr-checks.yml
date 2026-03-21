@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "apps/web/**"
+      - "apps/desktop/**"
       - ".github/workflows/pr-checks.yml"
 
 jobs:
@@ -35,6 +36,34 @@ jobs:
 
       - name: Lint
         run: pnpm lint
+
+      - name: Test
+        run: pnpm test
+
+  desktop-build-test:
+    name: Desktop - Build & Test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    defaults:
+      run:
+        working-directory: apps/desktop
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Test
         run: pnpm test
