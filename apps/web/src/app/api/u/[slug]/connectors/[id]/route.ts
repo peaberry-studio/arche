@@ -9,6 +9,7 @@ import {
   validateConnectorName,
   validateConnectorType,
 } from '@/lib/connectors/validators'
+import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { connectorService, userService } from '@/lib/services'
 
@@ -60,6 +61,9 @@ function sanitizeConfigForResponse(type: ConnectorType, config: Record<string, u
 export const GET = withAuth<ConnectorDetail | { error: string }, { slug: string; id: string }>(
   { csrf: false },
   async (_request: NextRequest, { slug, params: { id } }) => {
+    const denied = requireCapability('connectors')
+    if (denied) return denied
+
     const user = await userService.findIdBySlug(slug)
 
     if (!user) {
@@ -126,6 +130,9 @@ export const PATCH = withAuth<
   ConnectorDetail | { error: string; message?: string },
   { slug: string; id: string }
 >({ csrf: true }, async (request: NextRequest, { user, slug, params: { id } }) => {
+  const denied = requireCapability('connectors')
+  if (denied) return denied
+
   const targetUser = await userService.findIdBySlug(slug)
 
   if (!targetUser) {
@@ -306,6 +313,9 @@ export const PATCH = withAuth<
 export const DELETE = withAuth<{ ok: true } | { error: string }, { slug: string; id: string }>(
   { csrf: true },
   async (_request: NextRequest, { user, slug, params: { id } }) => {
+    const denied = requireCapability('connectors')
+    if (denied) return denied
+
     const targetUser = await userService.findIdBySlug(slug)
 
     if (!targetUser) {

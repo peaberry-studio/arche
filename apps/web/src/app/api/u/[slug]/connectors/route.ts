@@ -8,6 +8,7 @@ import {
   validateConnectorConfig,
   validateConnectorName,
 } from '@/lib/connectors/validators'
+import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { connectorService, userService } from '@/lib/services'
 
@@ -39,6 +40,9 @@ export interface ConnectorListItem {
 export const GET = withAuth<{ connectors: ConnectorListItem[] } | { error: string }>(
   { csrf: false },
   async (_request: NextRequest, { slug }) => {
+    const denied = requireCapability('connectors')
+    if (denied) return denied
+
     const user = await userService.findIdBySlug(slug)
 
     if (!user) {
@@ -111,6 +115,9 @@ export interface ConnectorResponse {
 export const POST = withAuth<ConnectorResponse | { error: string; message?: string }>(
   { csrf: true },
   async (request: NextRequest, { user, slug }) => {
+    const denied = requireCapability('connectors')
+    if (denied) return denied
+
     const targetUser = await userService.findIdBySlug(slug)
 
     if (!targetUser) {

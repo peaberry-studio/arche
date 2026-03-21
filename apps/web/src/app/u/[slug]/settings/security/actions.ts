@@ -6,6 +6,7 @@ import {
   auditEvent,
   verifyPassword,
 } from '@/lib/auth'
+import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { getSession } from '@/lib/runtime/session'
 import { userService } from '@/lib/services'
 import {
@@ -22,6 +23,8 @@ const ISSUER = 'Arche'
 export async function initiate2FASetup(): Promise<
   { ok: true; qrUri: string; secret: string } | { ok: false; error: string }
 > {
+  if (!getRuntimeCapabilities().twoFactor) return { ok: false, error: '2FA is not available in this runtime mode' }
+
   const session = await getSession()
   if (!session) return { ok: false, error: 'Not authenticated' }
 
@@ -47,6 +50,8 @@ export async function initiate2FASetup(): Promise<
 export async function verify2FASetup(
   code: string
 ): Promise<{ ok: true; recoveryCodes: string[] } | { ok: false; error: string }> {
+  if (!getRuntimeCapabilities().twoFactor) return { ok: false, error: '2FA is not available in this runtime mode' }
+
   const session = await getSession()
   if (!session) return { ok: false, error: 'Not authenticated' }
 
@@ -86,6 +91,8 @@ export async function verify2FASetup(
 export async function disable2FA(
   password: string
 ): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!getRuntimeCapabilities().twoFactor) return { ok: false, error: '2FA is not available in this runtime mode' }
+
   const session = await getSession()
   if (!session) return { ok: false, error: 'Not authenticated' }
 
@@ -109,6 +116,8 @@ export async function disable2FA(
 export async function regenerateRecoveryCodes(password: string): Promise<
   { ok: true; recoveryCodes: string[] } | { ok: false; error: string }
 > {
+  if (!getRuntimeCapabilities().twoFactor) return { ok: false, error: '2FA is not available in this runtime mode' }
+
   if (!password) return { ok: false, error: 'Password is required' }
 
   const session = await getSession()
@@ -143,6 +152,8 @@ export async function get2FAStatus(): Promise<
   | { ok: true; enabled: boolean; verifiedAt: Date | null; recoveryCodesRemaining: number }
   | { ok: false; error: string }
 > {
+  if (!getRuntimeCapabilities().twoFactor) return { ok: false, error: '2FA is not available in this runtime mode' }
+
   const session = await getSession()
   if (!session) return { ok: false, error: 'Not authenticated' }
 

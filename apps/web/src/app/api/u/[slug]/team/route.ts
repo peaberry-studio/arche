@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import argon2 from 'argon2'
 
 import { auditEvent } from '@/lib/auth'
+import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { userService } from '@/lib/services'
 import { validateSlug } from '@/lib/validation/slug'
@@ -53,6 +54,9 @@ export const GET = withAuth<TeamListResponse | { error: string }>(
   async (request: NextRequest) => {
     void request
 
+    const denied = requireCapability('teamManagement')
+    if (denied) return denied
+
     const users = await userService.findTeamMembers()
 
     return NextResponse.json({
@@ -64,6 +68,9 @@ export const GET = withAuth<TeamListResponse | { error: string }>(
 export const POST = withAuth<{ user: TeamUserListItem } | { error: string; message?: string }>(
   { csrf: true },
   async (request: NextRequest, { user }) => {
+    const denied = requireCapability('teamManagement')
+    if (denied) return denied
+
     if (user.role !== 'ADMIN') {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 })
     }

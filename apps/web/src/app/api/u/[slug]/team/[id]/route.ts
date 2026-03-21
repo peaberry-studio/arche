@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
+import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { stopWorkspace } from '@/lib/runtime/workspace-host'
 import { instanceService, userService } from '@/lib/services'
@@ -38,6 +39,9 @@ function toTeamUserResponse(user: {
 export const PATCH = withAuth<{ user: TeamUserResponse } | { error: string }, { slug: string; id: string }>(
   { csrf: true },
   async (request: NextRequest, { user, params: { id } }) => {
+    const denied = requireCapability('teamManagement')
+    if (denied) return denied
+
     if (user.role !== 'ADMIN') {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 })
     }
@@ -102,6 +106,9 @@ export const DELETE = withAuth<{ ok: true } | { error: string }, { slug: string;
   { csrf: true },
   async (request: NextRequest, { user, params: { id } }) => {
     void request
+
+    const deleteDenied = requireCapability('teamManagement')
+    if (deleteDenied) return deleteDenied
 
     if (user.role !== 'ADMIN') {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 })

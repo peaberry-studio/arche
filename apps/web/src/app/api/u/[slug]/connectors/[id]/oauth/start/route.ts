@@ -4,6 +4,7 @@ import { auditEvent } from '@/lib/auth'
 import { isOAuthConnectorType, prepareConnectorOAuthAuthorization } from '@/lib/connectors/oauth'
 import { validateConnectorType } from '@/lib/connectors/validators'
 import { getPublicBaseUrl } from '@/lib/http'
+import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { connectorService, userService } from '@/lib/services'
 
@@ -15,6 +16,8 @@ export const POST = withAuth<
   StartOAuthResponse | { error: string; message?: string },
   { slug: string; id: string }
 >({ csrf: true }, async (request: NextRequest, { user: actorUser, slug, params: { id } }) => {
+  const denied = requireCapability('connectors')
+  if (denied) return denied
 
   const targetUser = await userService.findIdBySlug(slug)
 

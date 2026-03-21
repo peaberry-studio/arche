@@ -5,6 +5,7 @@ import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/
 import { refreshConnectorOAuthConfigIfNeeded } from '@/lib/connectors/oauth-refresh'
 import type { ConnectorType } from '@/lib/connectors/types'
 import { validateConnectorType } from '@/lib/connectors/validators'
+import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { validateConnectorTestEndpoint } from '@/lib/security/ssrf'
 import { connectorService, userService } from '@/lib/services'
@@ -230,6 +231,9 @@ async function testConnection(
 export const POST = withAuth<TestConnectionResult | { error: string }, { slug: string; id: string }>(
   { csrf: true },
   async (_request: NextRequest, { slug, params: { id } }) => {
+    const denied = requireCapability('connectors')
+    if (denied) return denied
+
     const user = await userService.findIdBySlug(slug)
 
     if (!user) {
