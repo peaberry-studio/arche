@@ -63,6 +63,8 @@ describe('prisma dispatcher', () => {
 
   it('creates a desktop proxy in desktop mode', async () => {
     process.env.ARCHE_RUNTIME_MODE = 'desktop'
+    process.env.ARCHE_DESKTOP_PLATFORM = 'darwin'
+    process.env.ARCHE_DESKTOP_WEB_HOST = '127.0.0.1'
 
     const { prisma } = await import('../prisma')
     expect(prisma).toBeDefined()
@@ -73,6 +75,8 @@ describe('prisma dispatcher', () => {
 
   it('desktop proxy works after initDesktopPrisma is called', async () => {
     process.env.ARCHE_RUNTIME_MODE = 'desktop'
+    process.env.ARCHE_DESKTOP_PLATFORM = 'darwin'
+    process.env.ARCHE_DESKTOP_WEB_HOST = '127.0.0.1'
 
     const mockClient = {
       user: { findMany: vi.fn() },

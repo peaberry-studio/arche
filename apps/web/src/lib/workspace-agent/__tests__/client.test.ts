@@ -37,6 +37,8 @@ describe('createWorkspaceAgentClient', () => {
 
   it('uses the IPv4 loopback host for the workspace agent in desktop mode', async () => {
     process.env.ARCHE_RUNTIME_MODE = 'desktop'
+    process.env.ARCHE_DESKTOP_PLATFORM = 'darwin'
+    process.env.ARCHE_DESKTOP_WEB_HOST = '127.0.0.1'
 
     const { createWorkspaceAgentClient } = await import('../client')
     const agent = await createWorkspaceAgentClient('local')
@@ -49,6 +51,8 @@ describe('createWorkspaceAgentClient', () => {
 
   it('uses the runtime-selected workspace-agent port in desktop mode', async () => {
     process.env.ARCHE_RUNTIME_MODE = 'desktop'
+    process.env.ARCHE_DESKTOP_PLATFORM = 'darwin'
+    process.env.ARCHE_DESKTOP_WEB_HOST = '127.0.0.1'
     process.env.ARCHE_DESKTOP_WORKSPACE_AGENT_PORT = '4197'
 
     const { createWorkspaceAgentClient } = await import('../client')

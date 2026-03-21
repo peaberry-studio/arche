@@ -24,6 +24,8 @@ describe('getInstanceUrl', () => {
 
   it('uses loopback with the default desktop port in desktop mode', async () => {
     process.env.ARCHE_RUNTIME_MODE = 'desktop'
+    process.env.ARCHE_DESKTOP_PLATFORM = 'darwin'
+    process.env.ARCHE_DESKTOP_WEB_HOST = '127.0.0.1'
 
     const { getInstanceUrl } = await import('../client')
 
@@ -32,6 +34,8 @@ describe('getInstanceUrl', () => {
 
   it('uses the runtime-selected desktop port when available', async () => {
     process.env.ARCHE_RUNTIME_MODE = 'desktop'
+    process.env.ARCHE_DESKTOP_PLATFORM = 'darwin'
+    process.env.ARCHE_DESKTOP_WEB_HOST = '127.0.0.1'
     process.env.ARCHE_DESKTOP_OPENCODE_PORT = '4196'
 
     const { getInstanceUrl } = await import('../client')

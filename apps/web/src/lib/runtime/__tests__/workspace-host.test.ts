@@ -95,6 +95,8 @@ describe('workspace-host dispatcher', () => {
   describe('desktop mode', () => {
     beforeEach(() => {
       process.env.ARCHE_RUNTIME_MODE = 'desktop'
+      process.env.ARCHE_DESKTOP_PLATFORM = 'darwin'
+      process.env.ARCHE_DESKTOP_WEB_HOST = '127.0.0.1'
     })
 
     it('returns stopped status for unknown slug', async () => {

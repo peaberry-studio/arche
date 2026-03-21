@@ -56,6 +56,8 @@ describe('runtime session dispatcher', () => {
 
   it('returns synthetic local user in desktop mode', async () => {
     process.env.ARCHE_RUNTIME_MODE = 'desktop'
+    process.env.ARCHE_DESKTOP_PLATFORM = 'darwin'
+    process.env.ARCHE_DESKTOP_WEB_HOST = '127.0.0.1'
 
     const { getSession } = await import('../session')
     const result = await getSession()

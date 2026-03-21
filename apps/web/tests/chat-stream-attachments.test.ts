@@ -1237,6 +1237,8 @@ describe('chat stream attachments forwarding', () => {
 
   it('does not ignore post-response fetch failed session errors in desktop mode', async () => {
     process.env.ARCHE_RUNTIME_MODE = 'desktop'
+    process.env.ARCHE_DESKTOP_PLATFORM = 'darwin'
+    process.env.ARCHE_DESKTOP_WEB_HOST = '127.0.0.1'
     const encoder = new TextEncoder()
 
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
