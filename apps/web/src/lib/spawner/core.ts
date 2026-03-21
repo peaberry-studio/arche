@@ -7,6 +7,7 @@ import * as docker from './docker'
 import { decryptPassword, generatePassword, encryptPassword } from './crypto'
 import { getStartExpectedMs, getStartTimeoutMs } from './config'
 import { buildMcpConfigForSlug } from './mcp-config'
+import { injectSelfDelegationGuards, remapAgentConnectorTools } from './agent-config-transforms'
 import { getRuntimeConfigHashForSlug } from './runtime-config-hash'
 
 export type StartResult =
@@ -84,14 +85,22 @@ export async function startInstance(slug: string, userId: string): Promise<Start
         }
       }
 
-      // Merge MCP connectors config
+      // Merge MCP connectors config and remap connector IDs for the current user
       const mcpConfig = await buildMcpConfigForSlug(slug)
       if (mcpConfig?.mcp && Object.keys(mcpConfig.mcp).length > 0) {
+        const userMcpKeys = new Set(Object.keys(mcpConfig.mcp))
+        baseConfig = remapAgentConnectorTools(baseConfig, userMcpKeys)
         baseConfig = { ...baseConfig, mcp: mcpConfig.mcp }
+      } else {
+        // No connectors: clean up orphaned MCP tool references
+        baseConfig = remapAgentConnectorTools(baseConfig, new Set())
       }
 
-      if (Object.keys(baseConfig).length > 0) {
-        opencodeConfigContent = JSON.stringify(baseConfig)
+      // Inject self-delegation guards into sub-agent prompts
+      const guardedConfig = injectSelfDelegationGuards(baseConfig)
+
+      if (Object.keys(guardedConfig).length > 0) {
+        opencodeConfigContent = JSON.stringify(guardedConfig)
       }
     } catch {
       console.warn('[spawner] Config build failed')

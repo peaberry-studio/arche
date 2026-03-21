@@ -77,6 +77,7 @@ import { prisma } from '@/lib/prisma'
 import { auditEvent } from '@/lib/auth'
 import { isInstanceHealthyWithPassword } from '@/lib/opencode/client'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
+import { readCommonWorkspaceConfig } from '@/lib/common-workspace-config-store'
 import * as docker from '../docker'
 import { buildMcpConfigForSlug } from '../mcp-config'
 import { startInstance, stopInstance, getInstanceStatus, isSlowStart } from '../core'
@@ -87,6 +88,7 @@ const mockBuildMcpConfigForSlug = vi.mocked(buildMcpConfigForSlug)
 const mockAudit = vi.mocked(auditEvent)
 const mockHealth = vi.mocked(isInstanceHealthyWithPassword)
 const mockSync = vi.mocked(syncProviderAccessForInstance)
+const mockReadCommonWorkspaceConfig = vi.mocked(readCommonWorkspaceConfig)
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -309,5 +311,76 @@ describe('isSlowStart', () => {
   it('returns false if starting but within expected time', () => {
     const recent = new Date(Date.now() - 1_000) // 1s ago
     expect(isSlowStart({ status: 'starting', startedAt: recent })).toBe(false)
+  })
+})
+
+describe('startInstance – agent config transforms', () => {
+  it('remaps connector IDs and injects self-delegation guards', async () => {
+    // Workspace config has an agent with admin's connector ID
+    mockReadCommonWorkspaceConfig.mockResolvedValue({
+      ok: true,
+      content: JSON.stringify({
+        $schema: 'https://opencode.ai/config.json',
+        default_agent: 'assistant',
+        agent: {
+          assistant: {
+            mode: 'primary',
+            prompt: 'You are helpful.',
+            tools: { task: true, bash: true },
+          },
+          linear: {
+            mode: 'subagent',
+            prompt: 'Handle Linear tasks.',
+            tools: { task: true, 'arche_*': false, 'arche_linear_admin111_*': true },
+          },
+        },
+      }),
+      hash: 'hash',
+      path: '/kb-config/CommonWorkspaceConfig.json',
+    } as never)
+
+    // User has their own linear connector with a different ID
+    mockBuildMcpConfigForSlug.mockResolvedValue({
+      $schema: 'https://opencode.ai/config.json',
+      mcp: {
+        arche_linear_user999: {
+          type: 'remote',
+          url: 'https://mcp.linear.app/mcp',
+          enabled: true,
+          headers: { Authorization: 'Bearer tok' },
+          oauth: false,
+        },
+      },
+    })
+
+    mockPrisma.instance.findUnique.mockResolvedValue(null)
+    mockPrisma.instance.upsert.mockResolvedValue({} as never)
+    mockPrisma.instance.update.mockResolvedValue({} as never)
+    mockPrisma.user.findUnique.mockResolvedValue({ id: 'owner-1', slug: 'bob', email: 'bob@example.com' } as never)
+    mockDocker.createContainer.mockResolvedValue({ id: 'container-456' } as never)
+    mockDocker.startContainer.mockResolvedValue(undefined)
+    mockDocker.isContainerRunning.mockResolvedValue(true)
+
+    await startInstance('bob', 'user-2')
+
+    const configContent = mockDocker.createContainer.mock.calls[0]?.[2] as string
+    expect(configContent).toBeDefined()
+
+    const parsed = JSON.parse(configContent)
+
+    // Connector ID should be remapped from admin111 to user999
+    const linearTools = parsed.agent.linear.tools
+    expect(linearTools['arche_linear_user999_*']).toBe(true)
+    expect(linearTools['arche_linear_admin111_*']).toBeUndefined()
+    expect(linearTools['arche_*']).toBe(false)
+
+    // Self-delegation guard should be injected into the sub-agent
+    const linearPrompt = parsed.agent.linear.prompt as string
+    expect(linearPrompt).toContain('## Delegation constraint')
+    expect(linearPrompt).toContain('MUST NEVER use the task tool to invoke yourself ("linear")')
+
+    // Primary agent should NOT have a guard
+    const assistantPrompt = parsed.agent.assistant.prompt as string
+    expect(assistantPrompt).not.toContain('Delegation constraint')
   })
 })
