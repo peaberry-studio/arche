@@ -191,6 +191,16 @@ function getWorkspaceDir(slug: string): string {
     execFileSync('git', ['init', '-b', 'main', workspaceDir])
     execFileSync('git', ['commit', '--allow-empty', '-m', 'Initial commit'], { cwd: workspaceDir })
   }
+  // Ensure the kb remote points to the bare KB content repo
+  const kbContentDir = getKbContentRoot()
+  try {
+    const currentUrl = execFileSync('git', ['remote', 'get-url', 'kb'], { cwd: workspaceDir, encoding: 'utf-8' }).trim()
+    if (currentUrl !== kbContentDir) {
+      execFileSync('git', ['remote', 'set-url', 'kb', kbContentDir], { cwd: workspaceDir })
+    }
+  } catch {
+    execFileSync('git', ['remote', 'add', 'kb', kbContentDir], { cwd: workspaceDir })
+  }
   return workspaceDir
 }
 
