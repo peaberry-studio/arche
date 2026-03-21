@@ -35,6 +35,10 @@ vi.mock('@/lib/runtime/desktop/token', () => ({
   validateDesktopToken: () => true,
 }))
 
+vi.mock('@/lib/prisma-desktop-init', () => ({
+  initDesktopPrisma: () => Promise.resolve(),
+}))
+
 function session(slug: string, role: 'USER' | 'ADMIN' = 'USER') {
   return {
     user: { id: 'user-1', email: 'alice@example.com', slug, role },
