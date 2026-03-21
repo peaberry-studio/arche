@@ -64,10 +64,14 @@ export default async function DashboardLayout({
       initialThemeId={initialThemeId}
     >
       <DashboardThemeShell>
+        {macDesktopWindowInset && (
+          <div className="desktop-titlebar-drag absolute inset-x-0 top-0 z-50 h-10" />
+        )}
         <div
           className={cn(
             'mx-auto max-w-6xl px-6',
             macDesktopWindowInset ? 'pt-14' : 'pt-6',
+            macDesktopWindowInset && 'desktop-no-select',
           )}
         >
           <DashboardNav slug={slug} />

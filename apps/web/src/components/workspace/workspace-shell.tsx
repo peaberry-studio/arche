@@ -1004,7 +1004,7 @@ export function WorkspaceShell({
       <div
         className={cn(
           'flex h-screen flex-col overflow-hidden bg-background text-foreground',
-          macDesktopWindowInset && 'pt-9',
+          macDesktopWindowInset && 'pt-10',
           darkModeClasses,
           themeClassName,
         )}
@@ -1073,7 +1073,7 @@ export function WorkspaceShell({
       <div
         className={cn(
           'flex h-screen flex-col overflow-hidden bg-background text-foreground',
-          macDesktopWindowInset && 'pt-9',
+          macDesktopWindowInset && 'pt-10',
           darkModeClasses,
           themeClassName,
         )}
@@ -1110,11 +1110,16 @@ export function WorkspaceShell({
     <div
       className={cn(
         'flex h-screen flex-col overflow-hidden bg-background text-foreground',
-        macDesktopWindowInset && 'pt-9',
+        macDesktopWindowInset && 'pt-10',
+        macDesktopWindowInset && 'desktop-no-select',
         darkModeClasses,
         themeClassName,
       )}
     >
+      {/* Drag region for macOS frameless window */}
+      {macDesktopWindowInset && (
+        <div className="desktop-titlebar-drag absolute inset-x-0 top-0 z-50 h-10" />
+      )}
       {/* Outer padding container — no header/footer, panels fill 100% height */}
         <div className="flex h-full flex-col pl-3">
         {/* Main panels area */}

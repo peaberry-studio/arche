@@ -1779,7 +1779,7 @@ export function ChatPanel({
   );
 
   return (
-    <div className="flex h-full flex-col text-card-foreground">
+    <div className="desktop-select-enabled flex h-full flex-col text-card-foreground">
       {/* Session header — shows tabs when multiple sessions exist, otherwise plain title */}
       <div className="mx-3 mt-2 flex min-h-11 shrink-0 items-center gap-2 border-b border-border/35 px-2 py-1">
         {sessionTabs.length > 1 ? (

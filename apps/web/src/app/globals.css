@@ -904,6 +904,18 @@
     app-region: no-drag;
   }
 
+  /* Desktop: disable text selection globally, re-enable in chat */
+  .desktop-no-select {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .desktop-no-select .desktop-select-enabled,
+  .desktop-no-select .desktop-select-enabled * {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
   /* Surface for elevated cards */
   .surface-elevated {
     background: hsl(var(--card));
