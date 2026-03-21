@@ -1,5 +1,6 @@
-import { app, BrowserWindow, dialog, shell } from 'electron'
+import { app, BrowserWindow, dialog, session, shell } from 'electron'
 import { execFileSync } from 'child_process'
+import { randomBytes } from 'crypto'
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -14,11 +15,17 @@ import { probeHttpServerReady, RuntimeSupervisor } from './runtime-supervisor'
 
 const DEFAULT_DESKTOP_WEB_PORT = 3000
 const LOOPBACK_HOST = '127.0.0.1'
+const DESKTOP_TOKEN_HEADER = 'x-arche-desktop-token'
 
 let mainWindow: BrowserWindow | null = null
 let nextSupervisor: RuntimeSupervisor | null = null
 let nextPort = DEFAULT_DESKTOP_WEB_PORT
 let runtimeShutdownRequested = false
+let desktopApiToken = ''
+
+function generateDesktopApiToken(): string {
+  return randomBytes(32).toString('base64url')
+}
 
 function getPort(): number {
   return nextPort
@@ -47,6 +54,9 @@ function setDesktopEnv(): void {
   }
   process.env.ARCHE_DATA_DIR = getDataDir()
   process.env.ARCHE_DESKTOP_WEB_HOST = LOOPBACK_HOST
+
+  desktopApiToken = generateDesktopApiToken()
+  process.env.ARCHE_DESKTOP_API_TOKEN = desktopApiToken
 }
 
 function ensureDataDirectories(): void {
@@ -161,6 +171,17 @@ async function initializeDesktopWebPort(): Promise<void> {
   process.env.ARCHE_DESKTOP_WEB_PORT = String(nextPort)
 }
 
+function installTokenHeaderInjection(): void {
+  const nextOrigin = getNextUrl()
+  session.defaultSession.webRequest.onBeforeSendHeaders(
+    { urls: [`${nextOrigin}/*`] },
+    (details, callback) => {
+      details.requestHeaders[DESKTOP_TOKEN_HEADER] = desktopApiToken
+      callback({ requestHeaders: details.requestHeaders })
+    },
+  )
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -227,6 +248,7 @@ app.whenReady().then(async () => {
     return
   }
 
+  installTokenHeaderInjection()
   createWindow()
 
   app.on('activate', () => {
