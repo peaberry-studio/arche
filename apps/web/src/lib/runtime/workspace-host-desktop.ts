@@ -1,7 +1,5 @@
-import { randomBytes } from 'crypto'
-import { execFileSync, spawn, type ChildProcess } from 'child_process'
-import { existsSync, mkdirSync, writeFileSync } from 'fs'
-import { createServer } from 'net'
+import { spawn, type ChildProcess } from 'child_process'
+import { writeFileSync } from 'fs'
 import { join } from 'path'
 
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
@@ -11,14 +9,29 @@ import { instanceService } from '@/lib/services'
 import { getWorkspaceAgentPort } from '@/lib/spawner/config'
 import { encryptPassword } from '@/lib/spawner/crypto'
 
+import { findAvailablePort } from '@/lib/runtime/desktop/network'
+import { waitForHttpReady, waitForOpenCodeHealthy } from '@/lib/runtime/desktop/health'
+import { getArcheOpencodeDataDir, getWorkspaceDir } from '@/lib/runtime/desktop/workspace-dirs'
+import {
+  DEFAULT_USERNAME,
+  LOOPBACK_HOST,
+  canSpawnWorkspaceAgent,
+  createSafeEnv,
+  generateDesktopPassword,
+  getDesktopProviderGatewayConfig,
+  getOpencodeBinary,
+  getWorkspaceAgentBinary,
+  makeAuthHeader,
+} from '@/lib/runtime/desktop/config'
+
+// Re-export for consumers that import from this module
+export { getOpencodeBinary, getWorkspaceAgentBinary }
+
 declare global {
   var archeDesktopCleanupRegistered: boolean | undefined
 }
 
 const DEFAULT_PORT = 4096
-const DEFAULT_USERNAME = 'opencode'
-const LOOPBACK_HOST = '127.0.0.1'
-const DEFAULT_NEXT_PORT = 3000
 const DEFAULT_START_TIMEOUT_MS = 30_000
 const DEFAULT_START_INTERVAL_MS = 500
 const SHUTDOWN_TIMEOUT_MS = 5_000
@@ -49,6 +62,10 @@ type LocalRuntime = {
 
 const runtimes = new Map<string, LocalRuntime>()
 
+// ---------------------------------------------------------------------------
+// Timing helpers
+// ---------------------------------------------------------------------------
+
 function getStartTimeoutMs(): number {
   const raw = process.env.ARCHE_DESKTOP_START_TIMEOUT_MS
   const parsed = raw ? Number(raw) : Number.NaN
@@ -61,22 +78,23 @@ function getStartIntervalMs(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_START_INTERVAL_MS
 }
 
+// ---------------------------------------------------------------------------
+// Logging
+// ---------------------------------------------------------------------------
+
 function logDesktopRuntime(
   slug: string,
   component: string,
   event: string,
   detail?: string,
 ): void {
-  const payload = {
-    slug,
-    component,
-    event,
-    detail,
-    mode: 'desktop',
-  }
-
+  const payload = { slug, component, event, detail, mode: 'desktop' }
   console.log(`[desktop-runtime] ${JSON.stringify(payload)}`)
 }
+
+// ---------------------------------------------------------------------------
+// Port env sync
+// ---------------------------------------------------------------------------
 
 function setDesktopRuntimePortEnv(runtime: Pick<LocalRuntime, 'port' | 'agentPort' | 'workspaceAgentAvailable'>): void {
   process.env[DESKTOP_OPENCODE_PORT_ENV] = String(runtime.port)
@@ -104,187 +122,9 @@ function syncDesktopRuntimePortEnv(): void {
   setDesktopRuntimePortEnv(runtime)
 }
 
-function getDesktopProviderGatewayConfig(): Record<string, unknown> {
-  const gateway = `http://${LOOPBACK_HOST}:${getDesktopWebPort()}/api/internal/providers`
-  return {
-    provider: {
-      openai: { options: { baseURL: `${gateway}/openai` } },
-      anthropic: { options: { baseURL: `${gateway}/anthropic` } },
-      openrouter: { options: { baseURL: `${gateway}/openrouter` } },
-      opencode: { options: { baseURL: `${gateway}/opencode` } },
-    },
-  }
-}
-
-function getDesktopWebPort(): number {
-  const raw = process.env.ARCHE_DESKTOP_WEB_PORT ?? process.env.PORT
-  const parsed = raw ? Number(raw) : Number.NaN
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_NEXT_PORT
-}
-
-async function findAvailablePort(preferredPort: number, excludedPorts: number[] = []): Promise<number> {
-  const preferredResult = await tryListen(preferredPort)
-  if (preferredResult.ok && !excludedPorts.includes(preferredResult.port)) {
-    return preferredResult.port
-  }
-
-  if (!preferredResult.ok && preferredResult.errorCode !== 'EADDRINUSE') {
-    throw preferredResult.error
-  }
-
-  const fallbackResult = await tryListen(0)
-  if (!fallbackResult.ok) {
-    throw fallbackResult.error
-  }
-
-  if (excludedPorts.includes(fallbackResult.port)) {
-    return findAvailablePort(0, excludedPorts)
-  }
-
-  return fallbackResult.port
-}
-
-type ListenResult =
-  | { ok: true; port: number }
-  | { ok: false; error: Error; errorCode?: string }
-
-async function tryListen(port: number): Promise<ListenResult> {
-  return new Promise((resolve) => {
-    const server = createServer()
-
-    server.once('error', (error: NodeJS.ErrnoException) => {
-      resolve({ ok: false, error, errorCode: error.code })
-    })
-
-    server.listen(port, LOOPBACK_HOST, () => {
-      const address = server.address()
-      if (!address || typeof address === 'string') {
-        server.close(() => {
-          resolve({ ok: false, error: new Error('Failed to resolve listening port') })
-        })
-        return
-      }
-
-      server.close(() => {
-        resolve({ ok: true, port: address.port })
-      })
-    })
-  })
-}
-
-function getArcheOpencodeDataDir(): string {
-  const baseDir = process.env.ARCHE_OPENCODE_DATA_DIR || join(process.env.HOME || '', '.arche-opencode')
-  const workspaceDir = join(baseDir, 'data')
-  if (!existsSync(workspaceDir)) {
-    mkdirSync(workspaceDir, { recursive: true })
-  }
-  return workspaceDir
-}
-
-function getWorkspaceDir(slug: string): string {
-  const baseDir = process.env.ARCHE_OPENCODE_DATA_DIR || join(process.env.HOME || '', '.arche-opencode')
-  const workspaceDir = join(baseDir, 'workspaces', slug)
-  if (!existsSync(workspaceDir)) {
-    mkdirSync(workspaceDir, { recursive: true })
-  }
-  if (!existsSync(join(workspaceDir, '.git'))) {
-    execFileSync('git', ['init', '-b', 'main', workspaceDir])
-    execFileSync('git', ['commit', '--allow-empty', '-m', 'Initial commit'], { cwd: workspaceDir })
-  }
-  // Ensure the kb remote points to the bare KB content repo
-  const kbContentDir = getKbContentRoot()
-  try {
-    const currentUrl = execFileSync('git', ['remote', 'get-url', 'kb'], { cwd: workspaceDir, encoding: 'utf-8' }).trim()
-    if (currentUrl !== kbContentDir) {
-      execFileSync('git', ['remote', 'set-url', 'kb', kbContentDir], { cwd: workspaceDir })
-    }
-  } catch {
-    execFileSync('git', ['remote', 'add', 'kb', kbContentDir], { cwd: workspaceDir })
-  }
-  return workspaceDir
-}
-
-function resolveBundledBinary(binaryName: string): string | null {
-  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath
-  if (!resourcesPath) {
-    return null
-  }
-
-  const bundledPath = join(resourcesPath, 'bin', binaryName)
-  return existsSync(bundledPath) ? bundledPath : null
-}
-
-export function getOpencodeBinary(): string {
-  if (process.env.ARCHE_OPENCODE_BIN) {
-    return process.env.ARCHE_OPENCODE_BIN
-  }
-
-  return resolveBundledBinary('opencode') ?? 'opencode'
-}
-
-export function getWorkspaceAgentBinary(): string {
-  if (process.env.ARCHE_WORKSPACE_AGENT_BIN) {
-    return process.env.ARCHE_WORKSPACE_AGENT_BIN
-  }
-
-  return resolveBundledBinary('workspace-agent') ?? 'workspace-agent'
-}
-
-function hasBinaryOnPath(binaryName: string): boolean {
-  const pathValue = process.env.PATH
-  if (!pathValue) {
-    return false
-  }
-
-  for (const part of pathValue.split(':')) {
-    if (!part) {
-      continue
-    }
-
-    if (existsSync(join(part, binaryName))) {
-      return true
-    }
-  }
-
-  return false
-}
-
-function canSpawnWorkspaceAgent(): boolean {
-  if (process.env.ARCHE_WORKSPACE_AGENT_BIN) {
-    return existsSync(process.env.ARCHE_WORKSPACE_AGENT_BIN)
-  }
-
-  if (resolveBundledBinary('workspace-agent')) {
-    return true
-  }
-
-  if (hasBinaryOnPath('workspace-agent')) {
-    return true
-  }
-
-  return false
-}
-
-function makeAuthHeader(username: string, password: string): string {
-  return `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`
-}
-
-function generateDesktopPassword(): string {
-  return randomBytes(24).toString('base64url')
-}
-
-function createSafeEnv(): NodeJS.ProcessEnv {
-  return {
-    NODE_ENV: process.env.NODE_ENV,
-    PATH: process.env.PATH,
-    SHELL: process.env.SHELL,
-    TERM: process.env.TERM,
-    USER: process.env.USER,
-    LANG: process.env.LANG,
-    LC_ALL: process.env.LC_ALL,
-    HOME: process.env.HOME,
-  }
-}
+// ---------------------------------------------------------------------------
+// Process lifecycle
+// ---------------------------------------------------------------------------
 
 function attachChildLogging(slug: string, processName: ManagedProcess['name'], child: ChildProcess): void {
   child.stdout?.on('data', (data: Buffer | string) => {
@@ -316,10 +156,7 @@ function markRuntimeError(slug: string, detail: string): void {
   })
 }
 
-function registerProcessExit(
-  slug: string,
-  managed: ManagedProcess,
-): void {
+function registerProcessExit(slug: string, managed: ManagedProcess): void {
   managed.child.on('error', (error) => {
     const detail = error instanceof Error ? error.message : 'spawn_failed'
     logDesktopRuntime(slug, managed.name, 'error', detail)
@@ -335,63 +172,6 @@ function registerProcessExit(
       markRuntimeError(slug, `${managed.name}:code=${String(code)} signal=${String(signal)}`)
     }
   })
-}
-
-async function waitForHttpReady(
-  url: string,
-  headers: Record<string, string>,
-): Promise<boolean> {
-  const deadline = Date.now() + getStartTimeoutMs()
-
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(url, {
-        method: 'GET',
-        headers,
-        signal: AbortSignal.timeout(3_000),
-      })
-
-      if (response.ok || response.status === 401 || response.status === 404) {
-        return true
-      }
-    } catch {
-      // keep polling until timeout
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, getStartIntervalMs()))
-  }
-
-  return false
-}
-
-async function waitForOpenCodeHealthy(port: number, password: string): Promise<boolean> {
-  const authHeader = makeAuthHeader(DEFAULT_USERNAME, password)
-  const deadline = Date.now() + getStartTimeoutMs()
-
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(`http://${LOOPBACK_HOST}:${port}/global/health`, {
-        headers: {
-          Authorization: authHeader,
-          Accept: 'application/json',
-        },
-        signal: AbortSignal.timeout(3_000),
-      })
-
-      if (response.ok) {
-        const data = await response.json().catch(() => null)
-        if (data?.healthy === true) {
-          return true
-        }
-      }
-    } catch {
-      // keep polling until timeout
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, getStartIntervalMs()))
-  }
-
-  return false
 }
 
 async function stopManagedProcess(slug: string, managed: ManagedProcess): Promise<void> {
@@ -468,13 +248,12 @@ function ensureCleanupHooks(): void {
 }
 
 function createManagedProcess(name: ManagedProcess['name'], child: ChildProcess): ManagedProcess {
-  return {
-    name,
-    child,
-    ready: false,
-    expectedExit: false,
-  }
+  return { name, child, ready: false, expectedExit: false }
 }
+
+// ---------------------------------------------------------------------------
+// WorkspaceHost implementation
+// ---------------------------------------------------------------------------
 
 export const desktopWorkspaceHost: WorkspaceHost = {
   async start(
@@ -579,14 +358,17 @@ export const desktopWorkspaceHost: WorkspaceHost = {
 
     logDesktopRuntime(slug, 'runtime', 'state_changed', 'starting')
 
+    const timeoutMs = getStartTimeoutMs()
+    const intervalMs = getStartIntervalMs()
+
     try {
       const [opencodeReady, workspaceAgentReady] = await Promise.all([
-        waitForOpenCodeHealthy(port, password),
+        waitForOpenCodeHealthy(port, password, timeoutMs, intervalMs),
         workspaceAgentProcess
           ? waitForHttpReady(`http://${LOOPBACK_HOST}:${agentPort}/health`, {
               Authorization: authHeader,
               Accept: 'application/json',
-            })
+            }, timeoutMs, intervalMs)
           : Promise.resolve(false),
       ])
 
