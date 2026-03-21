@@ -1615,7 +1615,6 @@ export function useWorkspace({
     },
     [
       abortSessionStream,
-      loadSessions,
       slug,
       upsertMessagePart,
       syncActiveAgentFromRuntime,

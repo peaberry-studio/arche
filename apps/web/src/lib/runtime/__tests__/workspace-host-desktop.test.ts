@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'v
 import type { ChildProcess } from 'child_process'
 
 const mockSpawn = vi.fn()
+const mockExecFileSync = vi.fn()
 const mockExistsSync = vi.fn()
 const mockMkdirSync = vi.fn()
 const mockWriteFileSync = vi.fn()
@@ -14,6 +15,7 @@ vi.mock('crypto', () => ({
 
 vi.mock('child_process', () => ({
   spawn: (...args: unknown[]) => mockSpawn(...args),
+  execFileSync: (...args: unknown[]) => mockExecFileSync(...args),
 }))
 
 vi.mock('fs', () => ({

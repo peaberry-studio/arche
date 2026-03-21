@@ -146,7 +146,7 @@ function parseCapabilities(
 
 export const GET = withAuth<AgentsListResponse | { error: string }>(
   { csrf: false },
-  async (_request, { slug }) => {
+  async (_request, _context) => {
     const configResult = await loadCommonConfig()
     if (!configResult.ok) {
       if (configResult.error === 'not_found') {

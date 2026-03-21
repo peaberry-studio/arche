@@ -140,7 +140,7 @@ type AgentRouteParams = { slug: string; name: string }
 
 export const GET = withAuth<AgentDetailResponse | { error: string }, AgentRouteParams>(
   { csrf: false },
-  async (_request, { slug, params: { name } }) => {
+  async (_request, { params: { name } }) => {
     const configResult = await loadCommonConfig()
     if (!configResult.ok) {
       const status =
