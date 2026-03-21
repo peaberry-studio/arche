@@ -63,6 +63,8 @@ function makeChildProcess(overrides: Partial<ChildProcess> = {}): ChildProcess {
 
   const child = {
     killed: false,
+    exitCode: null as number | null,
+    signalCode: null as string | null,
     kill: vi.fn(function kill(this: ChildProcess) {
       child.killed = true
       return true
@@ -438,6 +440,28 @@ describe('desktopWorkspaceHost', () => {
     expect(instanceService.upsertStarting).toHaveBeenCalledWith('local', 'enc:generated-password')
   })
 
+  it('stopManagedProcess waits for actual exit, not just killed flag', async () => {
+    const opencodeChild = makeChildProcess()
+    const workspaceAgentChild = makeChildProcess()
+    mockSpawn.mockReturnValueOnce(opencodeChild).mockReturnValueOnce(workspaceAgentChild)
+
+    const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
+    await desktopWorkspaceHost.start('local', 'user-1')
+
+    const stopPromise = desktopWorkspaceHost.stop('local', 'user-1')
+
+    // After kill(), child.killed is true but exitCode is still null.
+    // stop must NOT have resolved yet — it should be waiting for exit.
+    expect(opencodeChild.killed).toBe(true)
+
+    // Simulate the process actually exiting after a delay
+    opencodeChild.emit('exit', 0, 'SIGTERM')
+    workspaceAgentChild.emit('exit', 0, 'SIGTERM')
+
+    const result = await stopPromise
+    expect(result).toEqual({ ok: true, status: 'stopped' })
+  })
+
   it('exposes detailed start failures in its return type', async () => {
     const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
     expect(desktopWorkspaceHost).toBeDefined()
@@ -543,15 +567,18 @@ describe('binary resolution', () => {
     mockHealthyFetch()
 
     const opencodeChild = makeChildProcess()
-    const workspaceAgentChild = makeChildProcess()
-    mockSpawn.mockReturnValueOnce(opencodeChild).mockReturnValueOnce(workspaceAgentChild)
+    // Reset mockSpawn to clear any unconsumed mockReturnValueOnce from prior tests
+    mockSpawn.mockReset()
+    mockSpawn.mockReturnValueOnce(opencodeChild)
 
     const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
     await desktopWorkspaceHost.start('local', 'user-1')
 
-    // Fire two stops concurrently
+    // Fire two stops concurrently, then simulate processes exiting
     const p1 = desktopWorkspaceHost.stop('local')
     const p2 = desktopWorkspaceHost.stop('local')
+
+    opencodeChild.emit('exit', 0, 'SIGTERM')
 
     const [r1, r2] = await Promise.all([p1, p2])
     expect(r1.ok).toBe(true)

@@ -179,7 +179,7 @@ async function stopManagedProcess(slug: string, managed: ManagedProcess): Promis
   managed.child.kill('SIGTERM')
 
   const exited = await new Promise<boolean>((resolve) => {
-    if (managed.child.killed) {
+    if (managed.child.exitCode !== null || managed.child.signalCode !== null) {
       resolve(true)
       return
     }
