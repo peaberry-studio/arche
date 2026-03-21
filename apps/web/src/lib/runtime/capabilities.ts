@@ -32,7 +32,7 @@ const DESKTOP_CAPABILITIES: RuntimeCapabilities = {
   containers: false,
   workspaceAgent: true,
   reaper: false,
-  csrf: false,
+  csrf: true,
   twoFactor: false,
   teamManagement: false,
   connectors: false,
