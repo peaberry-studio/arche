@@ -77,6 +77,7 @@ describe('prisma dispatcher', () => {
     const mockClient = {
       user: { findMany: vi.fn() },
       $executeRawUnsafe: vi.fn(),
+      $executeRaw: vi.fn(),
     }
 
     // Pre-set the global to simulate initDesktopPrisma() having run
@@ -92,6 +93,7 @@ describe('prisma dispatcher', () => {
 
     const mockClient = {
       $executeRawUnsafe: vi.fn(),
+      $executeRaw: vi.fn(),
     }
 
     vi.doMock('@/lib/prisma-desktop', () => ({

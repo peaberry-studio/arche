@@ -87,6 +87,24 @@ trap 'rm -rf "$TMPDIR_DL"' EXIT
 ARCHIVE="$TMPDIR_DL/$ASSET"
 curl -fSL -o "$ARCHIVE" "$URL"
 
+# Verify SHA256 checksum if a .sha256 asset is published alongside the binary
+CHECKSUM_URL="$BASE_URL/$ASSET.sha256"
+echo "==> Verifying checksum..."
+CHECKSUM_FILE="$TMPDIR_DL/$ASSET.sha256"
+if curl -fSL -o "$CHECKSUM_FILE" "$CHECKSUM_URL" 2>/dev/null; then
+  EXPECTED_HASH="$(awk '{print $1}' "$CHECKSUM_FILE")"
+  ACTUAL_HASH="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
+  if [ "$ACTUAL_HASH" != "$EXPECTED_HASH" ]; then
+    echo "Error: checksum mismatch for $ASSET" >&2
+    echo "  expected: $EXPECTED_HASH" >&2
+    echo "  actual:   $ACTUAL_HASH" >&2
+    exit 1
+  fi
+  echo "    Checksum OK: $ACTUAL_HASH"
+else
+  echo "    Warning: no .sha256 asset found; skipping checksum verification" >&2
+fi
+
 echo "==> Extracting..."
 
 case "$ASSET" in

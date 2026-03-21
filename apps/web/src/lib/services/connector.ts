@@ -126,7 +126,10 @@ export function create(data: {
   })
 }
 
-export function updateById(id: string, data: Record<string, unknown>) {
+/** Update a connector by ID without ownership check. Only use from internal/system flows
+ *  (e.g. OAuth token refresh) where the connector was already validated upstream.
+ *  For user-facing routes, use updateManyByIdAndUserId instead. */
+export function updateByIdUnsafe(id: string, data: Record<string, unknown>) {
   return prisma.connector.update({
     where: { id },
     data,

@@ -108,7 +108,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       },
     })
 
-    await connectorService.updateById(connector.id, {
+    await connectorService.updateByIdUnsafe(connector.id, {
       config: encryptConfig(nextConfig),
       enabled: true,
     })

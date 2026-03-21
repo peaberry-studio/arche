@@ -65,6 +65,27 @@ trap 'rm -rf "$TMPDIR_DL"' EXIT
 ARCHIVE="$TMPDIR_DL/$ASSET"
 curl -fSL -o "$ARCHIVE" "$URL"
 
+# Verify SHA256 checksum against official Node.js SHASUMS
+SHASUMS_URL="https://nodejs.org/dist/v$VERSION/SHASUMS256.txt"
+echo "==> Verifying checksum..."
+SHASUMS_FILE="$TMPDIR_DL/SHASUMS256.txt"
+curl -fSL -o "$SHASUMS_FILE" "$SHASUMS_URL"
+
+EXPECTED_HASH="$(grep "  $ASSET\$" "$SHASUMS_FILE" | awk '{print $1}')"
+if [ -z "$EXPECTED_HASH" ]; then
+  echo "Error: checksum not found for $ASSET in SHASUMS256.txt" >&2
+  exit 1
+fi
+
+ACTUAL_HASH="$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')"
+if [ "$ACTUAL_HASH" != "$EXPECTED_HASH" ]; then
+  echo "Error: checksum mismatch for $ASSET" >&2
+  echo "  expected: $EXPECTED_HASH" >&2
+  echo "  actual:   $ACTUAL_HASH" >&2
+  exit 1
+fi
+echo "    Checksum OK: $ACTUAL_HASH"
+
 case "$ASSET" in
   *.tar.gz)
     tar -xzf "$ARCHIVE" -C "$TMPDIR_DL"

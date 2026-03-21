@@ -441,11 +441,7 @@ async function stopRuntime(slug: string, persistStoppedState: boolean): Promise<
     }
   })()
 
-  try {
-    await runtime.stopPromise
-  } finally {
-    runtime.stopPromise = null
-  }
+  await runtime.stopPromise
 }
 
 async function stopAllDesktopRuntimes(): Promise<void> {

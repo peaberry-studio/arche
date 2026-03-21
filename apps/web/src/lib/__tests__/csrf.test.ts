@@ -24,7 +24,7 @@ describe('csrf validateSameOrigin', () => {
     }
   })
 
-  it('returns ok=true when csrf capability is disabled in desktop mode', async () => {
+  it('returns ok=false when Origin is missing regardless of runtime mode', async () => {
     process.env.ARCHE_RUNTIME_MODE = 'desktop'
     const { validateSameOrigin } = await import('@/lib/csrf')
 
@@ -35,7 +35,8 @@ describe('csrf validateSameOrigin', () => {
       },
     })
 
-    expect(validateSameOrigin(request)).toEqual({ ok: true })
+    // validateSameOrigin always validates; callers (withAuth) gate on caps.csrf
+    expect(validateSameOrigin(request)).toEqual({ ok: false })
   })
 
   it('returns ok=false when Origin is missing', async () => {

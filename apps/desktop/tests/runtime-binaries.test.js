@@ -31,10 +31,9 @@ test('resolves bundled development binaries from apps/desktop/bin', () => {
   }
 })
 
-test('prefers explicit env overrides for runtime binaries', () => {
+test('prefers explicit env overrides in development mode', () => {
   const options = {
-    isPackaged: true,
-    resourcesPath: '/Applications/Arche.app/Contents/Resources',
+    isPackaged: false,
     devBaseDir: '/repo/apps/desktop/dist',
     env: {
       ARCHE_OPENCODE_BIN: '/custom/opencode',
@@ -46,7 +45,38 @@ test('prefers explicit env overrides for runtime binaries', () => {
 
   assert.equal(resolveRuntimeBinaryPath('opencode', options), '/custom/opencode')
   assert.equal(resolveRuntimeBinaryPath('workspace-agent', options), '/custom/workspace-agent')
-  assert.equal(getPackagedNodeBinaryPath(options), '/custom/node')
+  assert.equal(resolveRuntimeBinaryPath('node', options), '/custom/node')
+})
+
+test('ignores env overrides in packaged builds', () => {
+  const originalExistsSync = fs.existsSync
+  fs.existsSync = (target) => target.includes('/Resources/bin/')
+
+  try {
+    const options = {
+      isPackaged: true,
+      resourcesPath: '/Applications/Arche.app/Contents/Resources',
+      devBaseDir: '/repo/apps/desktop/dist',
+      env: {
+        ARCHE_OPENCODE_BIN: '/custom/opencode',
+        ARCHE_WORKSPACE_AGENT_BIN: '/custom/workspace-agent',
+        ARCHE_NODE_BIN: '/custom/node',
+      },
+      platform: 'darwin',
+    }
+
+    // Should resolve to bundled paths, not env overrides
+    assert.equal(
+      resolveRuntimeBinaryPath('opencode', options),
+      '/Applications/Arche.app/Contents/Resources/bin/opencode',
+    )
+    assert.equal(
+      resolveRuntimeBinaryPath('node', options),
+      '/Applications/Arche.app/Contents/Resources/bin/node',
+    )
+  } finally {
+    fs.existsSync = originalExistsSync
+  }
 })
 
 test('returns missing packaged runtime binaries when bundle is incomplete', () => {

@@ -1,12 +1,9 @@
 import { getPublicBaseUrl } from '@/lib/http'
-import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 
+/** Validates that the request origin matches the expected origin.
+ *  Callers are responsible for gating on runtime capabilities (caps.csrf)
+ *  before invoking this function. */
 export function validateSameOrigin(request: Request): { ok: true } | { ok: false } {
-  const caps = getRuntimeCapabilities()
-  if (!caps.csrf) {
-    return { ok: true }
-  }
-
   const origin = request.headers.get('origin')
   if (!origin || origin === 'null') {
     return { ok: false }

@@ -44,6 +44,13 @@ describe('runtime paths', () => {
       const { getUserDataPath } = await import('../paths')
       expect(getUserDataPath('alice')).toBe('/opt/arche/users/alice')
     })
+
+    it('rejects directory traversal slugs', async () => {
+      const { getUserDataPath } = await import('../paths')
+      expect(() => getUserDataPath('../etc')).toThrow()
+      expect(() => getUserDataPath('foo/../../bar')).toThrow()
+      expect(() => getUserDataPath('foo\\bar')).toThrow()
+    })
   })
 
   describe('desktop mode', () => {
@@ -67,6 +74,14 @@ describe('runtime paths', () => {
       process.env.HOME = '/Users/testuser'
       const { getKbConfigRoot } = await import('../paths')
       expect(getKbConfigRoot()).toBe('/Users/testuser/.arche/kb-config')
+    })
+
+    it('rejects directory traversal slugs', async () => {
+      process.env.ARCHE_DATA_DIR = '/tmp/arche-test'
+      const { getUserDataPath } = await import('../paths')
+      expect(() => getUserDataPath('../etc')).toThrow()
+      expect(() => getUserDataPath('foo/../../bar')).toThrow()
+      expect(() => getUserDataPath('foo\\bar')).toThrow()
     })
   })
 })

@@ -40,9 +40,11 @@ export function resolveRuntimeBinaryPath(
   binaryName: RuntimeBinaryName,
   options: RuntimeBinaryOptions,
 ): string | null {
-  const envValue = options.env?.[ENV_VAR_BY_BINARY[binaryName]]
-  if (envValue) {
-    return envValue
+  if (!options.isPackaged) {
+    const envValue = options.env?.[ENV_VAR_BY_BINARY[binaryName]]
+    if (envValue) {
+      return envValue
+    }
   }
 
   const bundledCandidate = getBundledBinaryCandidate(binaryName, options)

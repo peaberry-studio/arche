@@ -159,9 +159,7 @@ export async function initDesktopDatabase(): Promise<void> {
     await client.$executeRawUnsafe(SCHEMA_DDL[i])
   }
 
-  await client.$executeRawUnsafe(
-    `INSERT OR REPLACE INTO _arche_schema_meta (key, value) VALUES ('schema_version', '${SCHEMA_VERSION}')`,
-  )
+  await client.$executeRaw`INSERT OR REPLACE INTO _arche_schema_meta (key, value) VALUES ('schema_version', ${SCHEMA_VERSION})`
 }
 
 export async function getDesktopPrismaClient(): Promise<DesktopPrismaClient> {

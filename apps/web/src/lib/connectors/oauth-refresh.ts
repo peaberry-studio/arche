@@ -61,7 +61,7 @@ export async function refreshConnectorOAuthConfigIfNeeded(
 
     const encrypted = encryptConfig(nextConfig)
     const { connectorService } = await import('@/lib/services')
-    await connectorService.updateById(connector.id, { config: encrypted })
+    await connectorService.updateByIdUnsafe(connector.id, { config: encrypted })
 
     return encrypted
   } catch {

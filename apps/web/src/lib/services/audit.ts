@@ -13,7 +13,7 @@ export async function createEvent(args: {
         metadata: args.metadata ?? undefined,
       },
     })
-  } catch {
-    // best-effort
+  } catch (e) {
+    console.warn('audit event failed:', args.action, e)
   }
 }

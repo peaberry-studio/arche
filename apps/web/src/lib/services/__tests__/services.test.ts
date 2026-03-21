@@ -172,5 +172,16 @@ describe('service layer', () => {
         data: expect.objectContaining({ actorUserId: 'u1', action: 'user.login' }),
       })
     })
+
+    it('createEvent logs a warning when prisma call fails', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      mockPrisma.auditEvent.create.mockRejectedValue(new Error('db down'))
+
+      const { auditService } = await import('../index')
+      await auditService.createEvent({ action: 'user.login' })
+
+      expect(warnSpy).toHaveBeenCalledWith('audit event failed:', 'user.login', expect.any(Error))
+      warnSpy.mockRestore()
+    })
   })
 })
