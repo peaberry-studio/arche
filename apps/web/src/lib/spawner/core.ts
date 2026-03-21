@@ -76,11 +76,10 @@ export async function startInstance(slug: string, userId: string): Promise<Start
         baseConfig = remapAgentConnectorTools(baseConfig, userMcpKeys)
         baseConfig = { ...baseConfig, mcp: mcpConfig.mcp }
       } else {
-        // No connectors: clean up orphaned MCP tool references
         baseConfig = remapAgentConnectorTools(baseConfig, new Set())
       }
 
-      // Inject self-delegation guards into sub-agent prompts
+
       const guardedConfig = injectSelfDelegationGuards(baseConfig)
 
       if (Object.keys(guardedConfig).length > 0) {

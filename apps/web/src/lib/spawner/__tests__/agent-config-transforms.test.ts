@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest'
+
+
 import { injectSelfDelegationGuards, remapAgentConnectorTools } from '../agent-config-transforms'
 
 describe('injectSelfDelegationGuards', () => {
@@ -16,7 +18,6 @@ describe('injectSelfDelegationGuards', () => {
     expect(linearPrompt).toContain('## Delegation constraint')
     expect(linearPrompt).toContain('MUST NEVER use the task tool to invoke yourself ("linear")')
     expect(linearPrompt).toContain('You may delegate to: assistant.')
-    // Original prompt preserved
     expect(linearPrompt).toMatch(/^Handle Linear\./)
   })
 
@@ -28,7 +29,6 @@ describe('injectSelfDelegationGuards', () => {
     }
 
     const result = injectSelfDelegationGuards(config) as typeof config
-
     expect(result.agent.assistant.prompt).toBe('You are helpful.')
   })
 
@@ -40,7 +40,6 @@ describe('injectSelfDelegationGuards', () => {
     }
 
     const result = injectSelfDelegationGuards(config) as typeof config
-
     expect(result.agent.reader.prompt).toBe('Read files.')
   })
 
@@ -104,7 +103,6 @@ describe('injectSelfDelegationGuards', () => {
     }
 
     const result = injectSelfDelegationGuards(config) as typeof config
-
     expect(result.agent.worker.prompt).toBe('Worker.')
   })
 })
@@ -273,8 +271,6 @@ describe('remapAgentConnectorTools', () => {
     const userKeys = new Set(['arche_linear_same123'])
 
     const result = remapAgentConnectorTools(config, userKeys)
-
-    // Should return the exact same reference (no changes)
     expect(result).toBe(config)
   })
 

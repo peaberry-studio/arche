@@ -81,13 +81,13 @@ vi.mock('../crypto', () => ({
   decryptPassword: vi.fn(() => 'test-password-123'),
 }))
 
-import { instanceService, userService, auditService } from '@/lib/services'
+import { readCommonWorkspaceConfig } from '@/lib/common-workspace-config-store'
 import { isInstanceHealthyWithPassword } from '@/lib/opencode/client'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
-import { readCommonWorkspaceConfig } from '@/lib/common-workspace-config-store'
+import { auditService, instanceService, userService } from '@/lib/services'
+import { startInstance, stopInstance, getInstanceStatus, isSlowStart } from '../core'
 import * as docker from '../docker'
 import { buildMcpConfigForSlug } from '../mcp-config'
-import { startInstance, stopInstance, getInstanceStatus, isSlowStart } from '../core'
 
 const mockInstance = vi.mocked(instanceService)
 const mockUser = vi.mocked(userService)
@@ -327,9 +327,8 @@ describe('isSlowStart', () => {
   })
 })
 
-describe('startInstance – agent config transforms', () => {
+describe('startInstance - agent config transforms', () => {
   it('remaps connector IDs and injects self-delegation guards', async () => {
-    // Workspace config has an agent with admin's connector ID
     mockReadCommonWorkspaceConfig.mockResolvedValue({
       ok: true,
       content: JSON.stringify({
@@ -352,7 +351,6 @@ describe('startInstance – agent config transforms', () => {
       path: '/kb-config/CommonWorkspaceConfig.json',
     } as never)
 
-    // User has their own linear connector with a different ID
     mockBuildMcpConfigForSlug.mockResolvedValue({
       $schema: 'https://opencode.ai/config.json',
       mcp: {
@@ -366,10 +364,11 @@ describe('startInstance – agent config transforms', () => {
       },
     })
 
-    mockPrisma.instance.findUnique.mockResolvedValue(null)
-    mockPrisma.instance.upsert.mockResolvedValue({} as never)
-    mockPrisma.instance.update.mockResolvedValue({} as never)
-    mockPrisma.user.findUnique.mockResolvedValue({ id: 'owner-1', slug: 'bob', email: 'bob@example.com' } as never)
+    mockInstance.findBySlug.mockResolvedValue(null)
+    mockInstance.upsertStarting.mockResolvedValue({} as never)
+    mockInstance.setContainerId.mockResolvedValue({} as never)
+    mockInstance.setRunning.mockResolvedValue({} as never)
+    mockUser.findIdentityBySlug.mockResolvedValue({ id: 'owner-1', slug: 'bob', email: 'bob@example.com' })
     mockDocker.createContainer.mockResolvedValue({ id: 'container-456' } as never)
     mockDocker.startContainer.mockResolvedValue(undefined)
     mockDocker.isContainerRunning.mockResolvedValue(true)
@@ -381,18 +380,15 @@ describe('startInstance – agent config transforms', () => {
 
     const parsed = JSON.parse(configContent)
 
-    // Connector ID should be remapped from admin111 to user999
     const linearTools = parsed.agent.linear.tools
     expect(linearTools['arche_linear_user999_*']).toBe(true)
     expect(linearTools['arche_linear_admin111_*']).toBeUndefined()
     expect(linearTools['arche_*']).toBe(false)
 
-    // Self-delegation guard should be injected into the sub-agent
     const linearPrompt = parsed.agent.linear.prompt as string
     expect(linearPrompt).toContain('## Delegation constraint')
     expect(linearPrompt).toContain('MUST NEVER use the task tool to invoke yourself ("linear")')
 
-    // Primary agent should NOT have a guard
     const assistantPrompt = parsed.agent.assistant.prompt as string
     expect(assistantPrompt).not.toContain('Delegation constraint')
   })
