@@ -410,26 +410,28 @@ function ExpandedInspectorPanel({
           ) : null}
 
           {/* Review toggle */}
-          <button
-            type="button"
-            onClick={handleToggleReview}
-            className={cn(
-              "relative flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors",
-              isReviewActive
-                ? "bg-primary text-primary-foreground"
-                : "bg-primary/10 text-primary hover:bg-primary/20"
-            )}
-            aria-label={isReviewActive ? "Back to files" : "Review"}
-            aria-pressed={isReviewActive}
-          >
-            <GitDiff size={13} weight={isReviewActive ? "fill" : "bold"} />
-            Review
-            {pendingDiffs > 0 && !isReviewActive ? (
-              <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
-                {pendingDiffs > 99 ? "99+" : pendingDiffs}
-              </span>
-            ) : null}
-          </button>
+          {workspaceAgentEnabled && (
+            <button
+              type="button"
+              onClick={handleToggleReview}
+              className={cn(
+                "relative flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors",
+                isReviewActive
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-primary/10 text-primary hover:bg-primary/20"
+              )}
+              aria-label={isReviewActive ? "Back to files" : "Review"}
+              aria-pressed={isReviewActive}
+            >
+              <GitDiff size={13} weight={isReviewActive ? "fill" : "bold"} />
+              Review
+              {pendingDiffs > 0 && !isReviewActive ? (
+                <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+                  {pendingDiffs > 99 ? "99+" : pendingDiffs}
+                </span>
+              ) : null}
+            </button>
+          )}
 
           {/* Collapse panel */}
           <button

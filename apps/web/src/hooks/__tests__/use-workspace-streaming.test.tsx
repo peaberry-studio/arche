@@ -1190,6 +1190,12 @@ describe("useWorkspace streaming", () => {
 
     it("polls for sessions and messages at the configured interval", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
+
+      // Set up a busy session so polling refreshes messages
+      opencodeMocks.listSessionsAction.mockResolvedValue({
+        ok: true,
+        sessions: [{ id: "s1", title: "Existing", status: "busy", updatedAt: "now" }],
+      });
       stubFetchWithStream(() => createSSEStream());
 
       await renderConnectedHook({ pollInterval: 2000 });
