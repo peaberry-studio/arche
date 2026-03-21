@@ -1,5 +1,5 @@
 import { randomBytes } from 'crypto'
-import { spawn, type ChildProcess } from 'child_process'
+import { execFileSync, spawn, type ChildProcess } from 'child_process'
 import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { createServer } from 'net'
 import { join } from 'path'
@@ -186,6 +186,10 @@ function getWorkspaceDir(slug: string): string {
   const workspaceDir = join(baseDir, 'workspaces', slug)
   if (!existsSync(workspaceDir)) {
     mkdirSync(workspaceDir, { recursive: true })
+  }
+  if (!existsSync(join(workspaceDir, '.git'))) {
+    execFileSync('git', ['init', '-b', 'main', workspaceDir])
+    execFileSync('git', ['commit', '--allow-empty', '-m', 'Initial commit'], { cwd: workspaceDir })
   }
   return workspaceDir
 }

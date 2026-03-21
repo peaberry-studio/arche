@@ -81,6 +81,7 @@ function ensureBareRepo(dir: string): void {
     execFileSync('git', ['clone', dir, tmpClone])
     execFileSync('git', ['commit', '--allow-empty', '-m', 'Initial commit'], { cwd: tmpClone })
     execFileSync('git', ['push', 'origin', 'HEAD:refs/heads/main'], { cwd: tmpClone })
+    execFileSync('git', ['symbolic-ref', 'HEAD', 'refs/heads/main'], { cwd: dir })
   } finally {
     rmSync(join(tmpClone, '..'), { recursive: true, force: true })
   }
