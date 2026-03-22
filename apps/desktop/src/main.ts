@@ -1,9 +1,9 @@
 import { app, BrowserWindow, dialog, session, shell } from 'electron'
-import { execFileSync } from 'child_process'
 import { randomBytes } from 'crypto'
+import { exec as dugiteExec, resolveGitBinary } from 'dugite'
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
-import { join } from 'path'
+import { dirname, join } from 'path'
 
 import {
   getMissingPackagedRuntimeBinaries,
@@ -59,7 +59,13 @@ function setDesktopEnv(): void {
   process.env.ARCHE_DESKTOP_API_TOKEN = desktopApiToken
 }
 
-function ensureDataDirectories(): void {
+function injectBundledGitIntoPath(): void {
+  const gitBinDir = dirname(resolveGitBinary())
+  const sep = process.platform === 'win32' ? ';' : ':'
+  process.env.PATH = `${gitBinDir}${sep}${process.env.PATH || ''}`
+}
+
+async function ensureDataDirectories(): Promise<void> {
   const dataDir = getDataDir()
   const dirs = [
     dataDir,
@@ -74,24 +80,24 @@ function ensureDataDirectories(): void {
     }
   }
 
-  ensureBareRepo(join(dataDir, 'kb-config'))
-  ensureBareRepo(join(dataDir, 'kb-content'))
+  await ensureBareRepo(join(dataDir, 'kb-config'))
+  await ensureBareRepo(join(dataDir, 'kb-content'))
 }
 
-function ensureBareRepo(dir: string): void {
+async function ensureBareRepo(dir: string): Promise<void> {
   if (existsSync(join(dir, 'HEAD'))) {
     return
   }
 
-  execFileSync('git', ['init', '--bare', dir])
+  await dugiteExec(['init', '--bare', dir], '.')
 
   // Create an initial empty commit so the repo has a valid HEAD
   const tmpClone = join(mkdtempSync(join(tmpdir(), 'arche-init-')), 'repo')
   try {
-    execFileSync('git', ['clone', dir, tmpClone])
-    execFileSync('git', ['commit', '--allow-empty', '-m', 'Initial commit'], { cwd: tmpClone })
-    execFileSync('git', ['push', 'origin', 'HEAD:refs/heads/main'], { cwd: tmpClone })
-    execFileSync('git', ['symbolic-ref', 'HEAD', 'refs/heads/main'], { cwd: dir })
+    await dugiteExec(['clone', dir, tmpClone], '.')
+    await dugiteExec(['commit', '--allow-empty', '-m', 'Initial commit'], tmpClone)
+    await dugiteExec(['push', 'origin', 'HEAD:refs/heads/main'], tmpClone)
+    await dugiteExec(['symbolic-ref', 'HEAD', 'refs/heads/main'], dir)
   } finally {
     rmSync(join(tmpClone, '..'), { recursive: true, force: true })
   }
@@ -225,7 +231,8 @@ async function shutdownDesktopRuntime(): Promise<void> {
 
 app.whenReady().then(async () => {
   setDesktopEnv()
-  ensureDataDirectories()
+  injectBundledGitIntoPath()
+  await ensureDataDirectories()
   resetDesktopDevNextArtifacts()
   await initializeDesktopWebPort()
 

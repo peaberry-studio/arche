@@ -11,6 +11,9 @@ module.exports = {
     'node_modules/**/*',
     'package.json',
   ],
+  asarUnpack: [
+    'node_modules/dugite/git/**',
+  ],
   extraResources: [
     {
       from: '../web/.next/standalone',

@@ -17,6 +17,7 @@
     "dist:win": "pnpm prepare:runtime && electron-builder --win --config electron-builder.config.js"
   },
   "dependencies": {
+    "dugite": "^3.2.1",
     "electron-is-dev": "^3.0.1"
   },
   "devDependencies": {
@@ -26,6 +27,7 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
+      "dugite",
       "electron"
     ]
   }
