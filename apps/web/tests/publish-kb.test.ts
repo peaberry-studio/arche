@@ -176,29 +176,6 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     expect(body.files).toEqual(['file1.md', 'file2.md'])
   })
 
-  it('publishes when the workspace agent is available even if reachability check reports false', async () => {
-    mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
-    mockIsWorkspaceReachable.mockResolvedValue(false)
-    mockCreateWorkspaceAgentClient.mockResolvedValue({
-      baseUrl: 'http://agent',
-      authHeader: 'Basic abc'
-    })
-    mockFetchResponse({
-      ok: true,
-      status: 'published',
-      commitHash: 'abc1234',
-      files: ['file1.md']
-    })
-
-    const { status, body } = await callPOST('alice')
-
-    expect(status).toBe(200)
-    expect(body.ok).toBe(true)
-    expect(body.status).toBe('published')
-    expect(body.commitHash).toBe('abc1234')
-    expect(body.files).toEqual(['file1.md'])
-  })
-
   it('returns push_rejected when push fails with rejected', async () => {
     mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
     mockFindUnique.mockResolvedValue(instance())

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 
+import { isWorkspaceReachable } from '@/lib/runtime/workspace-host'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 
@@ -29,10 +30,16 @@ export interface SyncKbResult {
 export const POST = withAuth<SyncKbResult | { error: string }>(
   { csrf: true },
   async (_request, { slug }) => {
+    const reachable = await isWorkspaceReachable(slug)
+
+    if (!reachable) {
+      return NextResponse.json({ error: 'instance_not_running' }, { status: 409 })
+    }
+
     try {
       const agent = await createWorkspaceAgentClient(slug)
       if (!agent) {
-        return NextResponse.json({ error: 'instance_not_running' }, { status: 409 })
+        return NextResponse.json({ error: 'instance_unavailable' }, { status: 409 })
       }
 
       const response = await fetch(`${agent.baseUrl}/kb/sync`, {
@@ -74,10 +81,16 @@ export const POST = withAuth<SyncKbResult | { error: string }>(
 export const GET = withAuth<{ hasConflicts: boolean; conflicts?: string[] } | { error: string }>(
   { csrf: false },
   async (_request, { slug }) => {
+    const reachable = await isWorkspaceReachable(slug)
+
+    if (!reachable) {
+      return NextResponse.json({ error: 'instance_not_running' }, { status: 409 })
+    }
+
     try {
       const agent = await createWorkspaceAgentClient(slug)
       if (!agent) {
-        return NextResponse.json({ error: 'instance_not_running' }, { status: 409 })
+        return NextResponse.json({ error: 'instance_unavailable' }, { status: 409 })
       }
 
       const response = await fetch(`${agent.baseUrl}/kb/status`, {
