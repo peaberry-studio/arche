@@ -44,6 +44,9 @@ export function createSafeEnv(): NodeJS.ProcessEnv {
     LANG: process.env.LANG,
     LC_ALL: process.env.LC_ALL,
     HOME: process.env.HOME,
+    GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL,
+    GIT_CONFIG_NOSYSTEM: process.env.GIT_CONFIG_NOSYSTEM,
+    GIT_TERMINAL_PROMPT: process.env.GIT_TERMINAL_PROMPT,
   }
 }
 

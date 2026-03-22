@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, session, shell } from 'electron'
 import { randomBytes } from 'crypto'
 import { exec as dugiteExec, resolveGitBinary } from 'dugite'
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { dirname, join } from 'path'
 
@@ -16,6 +16,8 @@ import { probeHttpServerReady, RuntimeSupervisor } from './runtime-supervisor'
 const DEFAULT_DESKTOP_WEB_PORT = 3000
 const LOOPBACK_HOST = '127.0.0.1'
 const DESKTOP_TOKEN_HEADER = 'x-arche-desktop-token'
+const DESKTOP_GIT_AUTHOR_NAME = 'Arche Workspace'
+const DESKTOP_GIT_AUTHOR_EMAIL = 'workspace@arche.local'
 
 let mainWindow: BrowserWindow | null = null
 let nextSupervisor: RuntimeSupervisor | null = null
@@ -46,6 +48,31 @@ function getDataDir(): string {
   return process.env.ARCHE_DATA_DIR || join(app.getPath('home'), '.arche')
 }
 
+function ensureIsolatedDesktopGitEnvironment(): void {
+  const gitConfigDir = join(getDataDir(), 'git')
+  if (!existsSync(gitConfigDir)) {
+    mkdirSync(gitConfigDir, { recursive: true })
+  }
+
+  const gitConfigPath = join(gitConfigDir, 'config')
+  const gitConfig = [
+    '[user]',
+    `\tname = ${DESKTOP_GIT_AUTHOR_NAME}`,
+    `\temail = ${DESKTOP_GIT_AUTHOR_EMAIL}`,
+    '[commit]',
+    '\tgpgsign = false',
+    '[tag]',
+    '\tgpgSign = false',
+    '',
+  ].join('\n')
+
+  writeFileSync(gitConfigPath, gitConfig, 'utf-8')
+
+  process.env.GIT_CONFIG_GLOBAL = gitConfigPath
+  process.env.GIT_CONFIG_NOSYSTEM = '1'
+  process.env.GIT_TERMINAL_PROMPT = '0'
+}
+
 function setDesktopEnv(): void {
   process.env.ARCHE_RUNTIME_MODE = 'desktop'
   process.env.ARCHE_DESKTOP_PLATFORM = process.platform
@@ -54,6 +81,7 @@ function setDesktopEnv(): void {
   }
   process.env.ARCHE_DATA_DIR = getDataDir()
   process.env.ARCHE_DESKTOP_WEB_HOST = LOOPBACK_HOST
+  ensureIsolatedDesktopGitEnvironment()
 
   desktopApiToken = generateDesktopApiToken()
   process.env.ARCHE_DESKTOP_API_TOKEN = desktopApiToken
