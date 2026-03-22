@@ -23,7 +23,6 @@ import {
   FolderOpen,
   GitDiff,
   Info,
-  Lightbulb,
   MagnifyingGlass,
   Paperclip,
   PaperPlaneTilt,
@@ -564,36 +563,22 @@ function getToolDisplay(
 }
 
 function ReasoningBlock({ text, isPending }: { text: string; isPending: boolean }) {
-  const COLLAPSE_THRESHOLD = 280;
-  const [isOpen, setIsOpen] = useState(() => text.length <= COLLAPSE_THRESHOLD);
-  const canCollapse = text.length > COLLAPSE_THRESHOLD;
+  const [isOpen, setIsOpen] = useState(false);
   const displayedOpen = isPending ? true : isOpen;
 
   return (
-    <div className="my-2 rounded-lg border border-primary/20 bg-primary/5">
+    <div className="my-1">
       <button
         type="button"
-        onClick={() => {
-          if (!canCollapse) return;
-          setIsOpen(prev => !prev);
-        }}
-        className={cn(
-          "flex w-full items-center gap-2 px-3 py-2 text-xs font-medium",
-          canCollapse ? "cursor-pointer" : "cursor-default"
-        )}
+        onClick={() => setIsOpen(prev => !prev)}
+        className="flex items-center gap-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
       >
-        <Lightbulb size={12} weight="fill" className="text-primary" />
+        <CaretDown size={10} className={cn("transition-transform", displayedOpen && "rotate-180")} />
         <span>Reasoning</span>
-        {canCollapse && (
-            <span className="chat-text-note ml-auto flex items-center gap-1 text-muted-foreground">
-              {isOpen ? "Hide" : "Show"}
-              <CaretDown size={12} className={cn("transition-transform", isOpen && "rotate-180")} />
-            </span>
-        )}
       </button>
       {displayedOpen && (
-        <div className="px-3 pb-3">
-          <p className="whitespace-pre-wrap text-sm text-foreground/80">
+        <div className="ml-4 border-l border-border/40 pl-3 pt-1">
+          <p className="whitespace-pre-wrap text-xs text-muted-foreground">
             {text}
           </p>
         </div>
