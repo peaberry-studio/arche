@@ -2079,7 +2079,7 @@ export function ChatPanel({
       </div>
 
       {/* Input area */}
-      <div className="glass-panel -mb-px mx-3 rounded-t-2xl px-4 pb-4 pt-4">
+      <div className="mx-3 px-4 pb-4 pt-2">
         {/* Status, context & model selector row */}
         {(models.length > 0 || normalizedOpenFilePaths.length > 0 || currentStatus) && (
           <div className="mb-3 flex items-center gap-3">
