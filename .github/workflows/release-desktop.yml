@@ -1,0 +1,129 @@
+name: Release Desktop
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    name: Build macOS (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+          - runner: macos-13
+            arch: x64
+
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: infra/workspace-image/workspace-agent/go.mod
+
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: pnpm install --frozen-lockfile
+
+      - name: Install desktop dependencies
+        working-directory: apps/desktop
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare runtime binaries
+        run: bash scripts/prepare-desktop-runtime.sh
+
+      - name: Generate Prisma clients
+        working-directory: apps/web
+        run: |
+          pnpm prisma:generate
+          pnpm prisma:generate:desktop
+
+      - name: Build Next.js web app
+        working-directory: apps/web
+        env:
+          ARCHE_RUNTIME_MODE: desktop
+          ARCHE_DESKTOP_PLATFORM: darwin
+          ARCHE_DESKTOP_WEB_HOST: 127.0.0.1
+        run: pnpm build
+
+      - name: Compile Electron TypeScript
+        working-directory: apps/desktop
+        run: pnpm build
+
+      - name: Sync version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        working-directory: apps/desktop
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          node -e "
+            const pkg = require('./package.json');
+            pkg.version = '$VERSION';
+            require('fs').writeFileSync('./package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+          echo "Desktop version set to $VERSION"
+
+      - name: Package DMG
+        working-directory: apps/desktop
+        env:
+          # Code signing — optional. Without these, the build produces an
+          # unsigned DMG (triggers "unidentified developer" on macOS).
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          # Prevent electron-builder from searching the runner keychain
+          # when no certificate is provided.
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+          # Notarization — optional. Only takes effect when the app is signed
+          # and electron-builder.config.js has notarize enabled.
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: pnpm exec electron-builder --mac --${{ matrix.arch }} --config electron-builder.config.js
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-macos-${{ matrix.arch }}
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-macos
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
+          draft: false

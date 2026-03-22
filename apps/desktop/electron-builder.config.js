@@ -48,6 +48,9 @@ module.exports = {
     ],
     hardenedRuntime: true,
     gatekeeperAssess: false,
+    notarize: process.env.APPLE_TEAM_ID
+      ? { teamId: process.env.APPLE_TEAM_ID }
+      : false,
   },
   linux: {
     category: 'Development',
