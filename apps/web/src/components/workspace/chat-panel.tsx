@@ -1933,7 +1933,7 @@ export function ChatPanel({
       </div>
 
       {/* Messages area */}
-      <div ref={scrollContainerRef} onScroll={handleScrollContainer} className="workspace-chat-content mx-3 flex-1 overflow-y-auto px-6 py-6 scrollbar-custom" style={chatContentStyle}>
+      <div ref={scrollContainerRef} onScroll={handleScrollContainer} className="workspace-chat-content mx-3 flex-1 overflow-y-auto px-2 py-6 scrollbar-custom" style={chatContentStyle}>
         {isStartingNewSession ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
             <div className="h-16 w-16 animate-spin rounded-full border-4 border-muted border-t-primary" />
@@ -2079,7 +2079,7 @@ export function ChatPanel({
       </div>
 
       {/* Input area */}
-      <div className="mx-3 px-4 pb-4 pt-2">
+      <div className="mx-3 px-2 pb-4 pt-2">
         {/* Status, context & model selector row */}
         {(models.length > 0 || normalizedOpenFilePaths.length > 0 || currentStatus) && (
           <div className="mb-3 flex items-center gap-3">
