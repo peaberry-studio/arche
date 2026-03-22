@@ -6,11 +6,11 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WEB_DIR="$ROOT_DIR/apps/web"
 DESKTOP_DIR="$ROOT_DIR/apps/desktop"
 NODE_BIN_DIR="$(cd "$(dirname "$(command -v node)")" && pwd)"
-PNPM_BIN="$NODE_BIN_DIR/pnpm"
+PNPM_BIN="$(command -v pnpm 2>/dev/null || true)"
 
-if [[ ! -x "$PNPM_BIN" ]]; then
-  echo "ERROR: Expected pnpm next to the active node binary at $PNPM_BIN"
-  echo "Activate the intended Node toolchain before running this script."
+if [[ -z "$PNPM_BIN" || ! -x "$PNPM_BIN" ]]; then
+  echo "ERROR: pnpm not found in PATH."
+  echo "Install pnpm or activate the intended Node toolchain before running this script."
   exit 1
 fi
 
