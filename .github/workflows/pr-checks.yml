@@ -6,6 +6,7 @@ on:
     paths:
       - "apps/web/**"
       - "apps/desktop/**"
+      - "scripts/**"
       - ".github/workflows/pr-checks.yml"
 
 jobs:
