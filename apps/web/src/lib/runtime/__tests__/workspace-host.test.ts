@@ -14,6 +14,13 @@ vi.mock('@/lib/workspace-agent/client', () => ({
   createWorkspaceAgentClient: vi.fn().mockResolvedValue(null),
 }))
 
+const mockFindStatusBySlug = vi.fn()
+vi.mock('@/lib/services', () => ({
+  instanceService: {
+    findStatusBySlug: (...args: unknown[]) => mockFindStatusBySlug(...args),
+  },
+}))
+
 describe('workspace-host dispatcher', () => {
   const originalEnv = process.env
 
@@ -21,6 +28,7 @@ describe('workspace-host dispatcher', () => {
     vi.resetModules()
     vi.clearAllMocks()
     process.env = { ...originalEnv }
+    mockFindStatusBySlug.mockResolvedValue(null)
   })
 
   afterEach(() => {

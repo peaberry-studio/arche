@@ -34,6 +34,7 @@ vi.mock('@/lib/services', () => ({
     setError: vi.fn().mockResolvedValue(undefined),
     setRunning: vi.fn().mockResolvedValue(undefined),
     setStopped: vi.fn().mockResolvedValue(undefined),
+    findStatusBySlug: vi.fn().mockResolvedValue(null),
     findActiveInstances: vi.fn().mockResolvedValue([]),
   },
 }))
@@ -43,6 +44,7 @@ vi.mock('@/lib/spawner/config', () => ({
 }))
 
 vi.mock('@/lib/spawner/crypto', () => ({
+  decryptPassword: vi.fn((p: string) => p.replace(/^enc:/, '')),
   encryptPassword: vi.fn((p: string) => `enc:${p}`),
 }))
 
@@ -359,6 +361,29 @@ describe('desktopWorkspaceHost', () => {
       startedAt: null,
       stoppedAt: null,
       lastActivityAt: null,
+    })
+  })
+
+  it('rebuilds running status from persisted desktop instance state when the in-memory runtime is missing', async () => {
+    const { instanceService } = await import('@/lib/services')
+    vi.mocked(instanceService.findStatusBySlug).mockResolvedValue({
+      status: 'running',
+      startedAt: new Date('2026-03-22T18:00:00.000Z'),
+      stoppedAt: null,
+      lastActivityAt: new Date('2026-03-22T18:05:00.000Z'),
+      containerId: null,
+      serverPassword: 'enc:persisted-password',
+    })
+    process.env.ARCHE_DESKTOP_OPENCODE_PORT = '4096'
+
+    const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
+    const status = await desktopWorkspaceHost.getStatus('local')
+
+    expect(status).toEqual({
+      status: 'running',
+      startedAt: new Date('2026-03-22T18:00:00.000Z'),
+      stoppedAt: null,
+      lastActivityAt: new Date('2026-03-22T18:05:00.000Z'),
     })
   })
 

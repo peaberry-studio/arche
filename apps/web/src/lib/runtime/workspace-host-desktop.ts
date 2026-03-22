@@ -7,10 +7,10 @@ import type { WorkspaceHost, WorkspaceHostConnection, WorkspaceHostStatus } from
 import { getKbContentRoot } from '@/lib/runtime/paths'
 import { instanceService } from '@/lib/services'
 import { getWorkspaceAgentPort } from '@/lib/spawner/config'
-import { encryptPassword } from '@/lib/spawner/crypto'
+import { decryptPassword, encryptPassword } from '@/lib/spawner/crypto'
 
 import { findAvailablePort } from '@/lib/runtime/desktop/network'
-import { waitForHttpReady, waitForOpenCodeHealthy } from '@/lib/runtime/desktop/health'
+import { checkOpenCodeHealthy, waitForHttpReady, waitForOpenCodeHealthy } from '@/lib/runtime/desktop/health'
 import { getArcheOpencodeDataDir, getWorkspaceDir } from '@/lib/runtime/desktop/workspace-dirs'
 import {
   DEFAULT_USERNAME,
@@ -120,6 +120,12 @@ function syncDesktopRuntimePortEnv(): void {
   }
 
   setDesktopRuntimePortEnv(runtime)
+}
+
+function getDesktopRuntimePortFromEnv(): number {
+  const raw = process.env[DESKTOP_OPENCODE_PORT_ENV]
+  const parsed = raw ? Number(raw) : Number.NaN
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_PORT
 }
 
 // ---------------------------------------------------------------------------
@@ -455,11 +461,38 @@ export const desktopWorkspaceHost: WorkspaceHost = {
   async getStatus(slug: string): Promise<WorkspaceHostStatus | null> {
     const runtime = runtimes.get(slug)
     if (!runtime) {
+      const instance = await instanceService.findStatusBySlug(slug)
+      if (!instance) {
+        return {
+          status: 'stopped',
+          startedAt: null,
+          stoppedAt: null,
+          lastActivityAt: null,
+        }
+      }
+
+      if (instance.status === 'running' || instance.status === 'starting') {
+        try {
+          const password = decryptPassword(instance.serverPassword)
+          const healthy = await checkOpenCodeHealthy(getDesktopRuntimePortFromEnv(), password)
+          if (healthy) {
+            return {
+              status: 'running',
+              startedAt: instance.startedAt,
+              stoppedAt: null,
+              lastActivityAt: instance.lastActivityAt,
+            }
+          }
+        } catch (error) {
+          console.error('[desktop-runtime] Failed to rebuild persisted status', { slug, error })
+        }
+      }
+
       return {
-        status: 'stopped',
-        startedAt: null,
-        stoppedAt: null,
-        lastActivityAt: null,
+        status: instance.status === 'error' ? 'error' : 'stopped',
+        startedAt: instance.startedAt,
+        stoppedAt: instance.stoppedAt,
+        lastActivityAt: instance.lastActivityAt,
       }
     }
 
