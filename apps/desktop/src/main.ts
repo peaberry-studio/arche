@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, session, shell } from 'electron'
 import { randomBytes } from 'crypto'
-import { exec as dugiteExec, resolveGitBinary } from 'dugite'
+import { exec as dugiteExecRaw, resolveGitBinary } from 'dugite'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { dirname, join } from 'path'
@@ -85,6 +85,16 @@ function setDesktopEnv(): void {
 
   desktopApiToken = generateDesktopApiToken()
   process.env.ARCHE_DESKTOP_API_TOKEN = desktopApiToken
+}
+
+async function dugiteExec(args: string[], cwd: string): Promise<string> {
+  const result = await dugiteExecRaw(args, cwd)
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `git ${args[0]} failed (exit ${result.exitCode}): ${result.stderr}`,
+    )
+  }
+  return result.stdout
 }
 
 function injectBundledGitIntoPath(): void {
