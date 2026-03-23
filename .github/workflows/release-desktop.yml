@@ -83,19 +83,29 @@ jobs:
       - name: Package DMG
         working-directory: apps/desktop
         env:
-          # Code signing — optional. Without these, the build produces an
-          # unsigned DMG (triggers "unidentified developer" on macOS).
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           # Prevent electron-builder from searching the runner keychain
           # when no certificate is provided.
           CSC_IDENTITY_AUTO_DISCOVERY: false
-          # Notarization — optional. Only takes effect when the app is signed
-          # and electron-builder.config.js has notarize enabled.
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: pnpm exec electron-builder --mac --${{ matrix.arch }} --config electron-builder.config.js
+          # Secrets are passed via INPUT_* vars and conditionally exported
+          # below. Setting CSC_LINK to an empty string causes electron-builder
+          # to treat it as a file path and fail with "not a file".
+          INPUT_CSC_LINK: ${{ secrets.CSC_LINK }}
+          INPUT_CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          INPUT_APPLE_ID: ${{ secrets.APPLE_ID }}
+          INPUT_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          INPUT_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # Only export signing/notarization vars when secrets are configured.
+          if [ -n "$INPUT_CSC_LINK" ]; then
+            export CSC_LINK="$INPUT_CSC_LINK"
+            export CSC_KEY_PASSWORD="$INPUT_CSC_KEY_PASSWORD"
+          fi
+          if [ -n "$INPUT_APPLE_ID" ]; then
+            export APPLE_ID="$INPUT_APPLE_ID"
+            export APPLE_APP_SPECIFIC_PASSWORD="$INPUT_APPLE_APP_SPECIFIC_PASSWORD"
+            export APPLE_TEAM_ID="$INPUT_APPLE_TEAM_ID"
+          fi
+          pnpm exec electron-builder --mac --${{ matrix.arch }} --publish never --config electron-builder.config.js
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
