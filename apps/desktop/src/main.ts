@@ -39,7 +39,9 @@ function getNextUrl(): string {
 
 function getWebAppDir(): string {
   if (app.isPackaged) {
-    return join(process.resourcesPath, 'web')
+    // Next.js standalone output in a monorepo preserves the full directory
+    // structure, so server.js lives under apps/web/ within the standalone tree.
+    return join(process.resourcesPath, 'web', 'apps', 'web')
   }
   return join(__dirname, '..', '..', 'web')
 }

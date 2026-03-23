@@ -3,14 +3,6 @@ import { dirname, join } from 'path'
 
 import { getKbConfigRoot } from '@/lib/runtime/paths'
 
-function importRuntimeModule<T>(specifier: string): Promise<T> {
-  if (process.env.VITEST) {
-    return import(specifier) as Promise<T>
-  }
-
-  return Function('runtimeSpecifier', 'return import(runtimeSpecifier)')(specifier) as Promise<T>
-}
-
 /**
  * DDL statements to initialize the SQLite database schema.
  * Generated from prisma/schema.sqlite.prisma via:
@@ -176,7 +168,7 @@ async function createClient(): Promise<DesktopPrismaClient> {
   const dbPath = getDesktopDatabasePath()
   ensureDirectoryExists(dbPath)
 
-  const { PrismaBetterSqlite3 } = await importRuntimeModule<typeof import('@prisma/adapter-better-sqlite3')>('@prisma/adapter-better-sqlite3')
+  const { PrismaBetterSqlite3 } = await import('@prisma/adapter-better-sqlite3')
   const adapter = new PrismaBetterSqlite3({ url: `file:${dbPath}` })
 
   const { PrismaClient } = await import('@/generated/prisma-desktop') as unknown as {

@@ -21,13 +21,11 @@ module.exports = {
       filter: ['**/*'],
     },
     {
+      // Next.js standalone in a monorepo nests the app under apps/web/.
+      // Static assets are excluded from standalone and must be placed where
+      // server.js expects them: alongside its own .next directory.
       from: '../web/.next/static',
-      to: 'web/.next/static',
-      filter: ['**/*'],
-    },
-    {
-      from: '../web/public',
-      to: 'web/public',
+      to: 'web/apps/web/.next/static',
       filter: ['**/*'],
     },
     {

@@ -8,7 +8,7 @@ const repoRoot = resolve(configDir, "..", "..");
 const nextConfig: NextConfig = {
   allowedDevOrigins: ["arche.lvh.me", "127.0.0.1", "localhost"],
   ...(process.env.ARCHE_DESKTOP_NEXT_DIST_DIR && { distDir: process.env.ARCHE_DESKTOP_NEXT_DIST_DIR }),
-  serverExternalPackages: ["dockerode"],
+  serverExternalPackages: ["dockerode", "better-sqlite3", "@prisma/adapter-better-sqlite3"],
   turbopack: {
     root: repoRoot,
   },
