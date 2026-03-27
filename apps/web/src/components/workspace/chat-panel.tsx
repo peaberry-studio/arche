@@ -1845,155 +1845,171 @@ export function ChatPanel({
         ) : null}
       </div>
 
-      <div className="mx-auto flex w-full max-w-[800px] min-h-0 flex-1 flex-col">
       {/* Messages area */}
-      <div ref={scrollContainerRef} onScroll={handleScrollContainer} className="workspace-chat-content flex-1 overflow-y-auto px-5 py-6 scrollbar-custom" style={chatContentStyle}>
-        {isStartingNewSession ? (
-          <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-            <div className="h-16 w-16 animate-spin rounded-full border-4 border-muted border-t-primary" />
-            <p className="max-w-[260px] text-sm text-muted-foreground">
-              Starting a new conversation...
-            </p>
-          </div>
-        ) : messages.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
-            <ChatCircle size={32} className="text-muted-foreground/30" />
-            <p className="max-w-[240px] text-sm text-muted-foreground">
-              Describe what you need and the agent will start working.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-6">
-            {messages.map((message, index) => {
-              // Only show timestamp if this is the last message in a "same-minute" group
-              // i.e., if there's no next message, or the next message is in a different minute
-              const nextMessage = messages[index + 1];
-              const showTimestamp = !nextMessage || !isSameMinute(message.timestampRaw, nextMessage.timestampRaw);
-              const assistantErrorDetail =
-                message.role === "assistant" && message.statusInfo?.status === "error"
-                  ? message.statusInfo.detail
-                  : undefined;
-              
-              return (
-                <div
-                  key={message.id}
-                  className={cn(
-                    "group/message flex flex-col gap-1.5",
-                    message.role === "user" ? "items-end" : "items-start"
-                  )}
-                >
-                  {message.role === "assistant" ? (
-                    // Assistant messages: no bubble, full width
-                    <div className="w-full text-sm leading-relaxed text-foreground">
-                      {/* Render message parts if available, otherwise fall back to content */}
-                      {message.parts && message.parts.length > 0 ? (
-                        <div className="space-y-2">
-                          {groupMessageParts(message.parts).map((group, groupIndex) => {
-                            if (group.type === "tool-group") {
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={scrollContainerRef}
+          onScroll={handleScrollContainer}
+          className="workspace-chat-content h-full overflow-y-auto scrollbar-custom"
+          style={chatContentStyle}
+        >
+          <div className="mx-auto flex min-h-full w-full max-w-[800px] flex-col px-5 py-6">
+            {isStartingNewSession ? (
+            <div className="grid min-h-full place-items-center text-center">
+              <div className="flex flex-col items-center gap-3">
+                <div className="h-16 w-16 animate-spin rounded-full border-4 border-muted border-t-primary" />
+                <p className="max-w-[260px] text-sm text-muted-foreground">
+                  Starting a new conversation...
+                </p>
+              </div>
+            </div>
+          ) : messages.length === 0 ? (
+            <div className="grid min-h-full place-items-center text-center">
+              <div className="flex flex-col items-center gap-3">
+                <ChatCircle size={32} className="text-muted-foreground/30" />
+                <p className="max-w-[240px] text-sm text-muted-foreground">
+                  Describe what you need and the agent will start working.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {messages.map((message, index) => {
+                // Only show timestamp if this is the last message in a "same-minute" group
+                // i.e., if there's no next message, or the next message is in a different minute
+                const nextMessage = messages[index + 1];
+                const showTimestamp = !nextMessage || !isSameMinute(message.timestampRaw, nextMessage.timestampRaw);
+                const assistantErrorDetail =
+                  message.role === "assistant" && message.statusInfo?.status === "error"
+                    ? message.statusInfo.detail
+                    : undefined;
+
+                return (
+                  <div
+                    key={message.id}
+                    className={cn(
+                      "group/message flex flex-col gap-1.5",
+                      message.role === "user" ? "items-end" : "items-start"
+                    )}
+                  >
+                    {message.role === "assistant" ? (
+                      // Assistant messages: no bubble, full width
+                      <div className="w-full text-sm leading-relaxed text-foreground">
+                        {/* Render message parts if available, otherwise fall back to content */}
+                        {message.parts && message.parts.length > 0 ? (
+                          <div className="space-y-2">
+                            {groupMessageParts(message.parts).map((group, groupIndex) => {
+                              if (group.type === "tool-group") {
+                                return (
+                                  <ToolGroup
+                                    key={`${message.id}-tool-${groupIndex}-${group.tool}`}
+                                    tool={group.tool}
+                                    parts={group.parts}
+                                    onOpenFile={onOpenFile}
+                                    connectorNamesById={connectorNamesById}
+                                    sessionTabs={sessionTabs}
+                                    onSelectSessionTab={onSelectSessionTab}
+                                  />
+                                );
+                              }
+
+                              if (group.type === "file-group") {
+                                return (
+                                  <FileGroup
+                                    key={`${message.id}-file-${groupIndex}`}
+                                    parts={group.parts}
+                                    onOpenFile={onOpenFile}
+                                  />
+                                );
+                              }
+
                               return (
-                                <ToolGroup
-                                  key={`${message.id}-tool-${groupIndex}-${group.tool}`}
-                                  tool={group.tool}
-                                  parts={group.parts}
+                                <MessagePartRenderer
+                                  key={`${message.id}-part-${groupIndex}`}
+                                  part={group.part}
                                   onOpenFile={onOpenFile}
-                                  connectorNamesById={connectorNamesById}
+                                  isPending={!!message.pending}
                                   sessionTabs={sessionTabs}
                                   onSelectSessionTab={onSelectSessionTab}
                                 />
                               );
-                            }
+                            })}
+                          </div>
+                        ) : message.content ? (
+                          <div className="markdown-content">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={workspaceMarkdownComponents}>
+                              {message.content}
+                            </ReactMarkdown>
+                          </div>
+                        ) : null}
+                        {assistantErrorDetail ? <AssistantErrorNotice detail={assistantErrorDetail} /> : null}
 
-                            if (group.type === "file-group") {
-                              return (
-                                <FileGroup
-                                  key={`${message.id}-file-${groupIndex}`}
-                                  parts={group.parts}
-                                  onOpenFile={onOpenFile}
-                                />
-                              );
-                            }
-
-                            return (
-                              <MessagePartRenderer
-                                key={`${message.id}-part-${groupIndex}`}
-                                part={group.part}
-                                onOpenFile={onOpenFile}
-                                isPending={!!message.pending}
-                                sessionTabs={sessionTabs}
-                                onSelectSessionTab={onSelectSessionTab}
-                              />
-                            );
-                          })}
-                        </div>
-                      ) : message.content ? (
-                        <div className="markdown-content">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]} components={workspaceMarkdownComponents}>
-                            {message.content}
-                          </ReactMarkdown>
-                        </div>
-                      ) : null}
-                      {assistantErrorDetail ? <AssistantErrorNotice detail={assistantErrorDetail} /> : null}
-                       
-                      {message.attachments && message.attachments.length > 0 ? (
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {message.attachments.map((attachment) => (
-                            <button
-                              key={`${message.id}-${attachment.label}`}
-                              type="button"
-                              onClick={() =>
-                                attachment.path ? onOpenFile(attachment.path) : undefined
-                              }
-                              className="flex items-center gap-1 rounded bg-muted/60 px-2 py-0.5 text-xs text-foreground/80 hover:bg-muted"
-                            >
-                              <File size={10} weight="bold" />
-                              {attachment.label}
-                            </button>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : (
-                    // User messages: gray bubble
-                    <div
-                      className={cn(
-                        "max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed",
-                        message.role === "user"
-                          ? "bg-muted/60 text-foreground"
-                          : "bg-muted/40 text-muted-foreground italic"
-                      )}
-                    >
-                      <p className="whitespace-pre-wrap">{message.content}</p>
-                      {message.attachments && message.attachments.length > 0 ? (
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {message.attachments.map((attachment) => (
-                            <button
-                              key={`${message.id}-${attachment.label}`}
-                              type="button"
-                              onClick={() =>
-                                attachment.path ? onOpenFile(attachment.path) : undefined
-                              }
-                              className="flex items-center gap-1 rounded bg-background/60 px-2 py-0.5 text-xs text-foreground/80 hover:bg-background"
-                            >
-                              <File size={10} weight="bold" />
-                              {attachment.label}
-                            </button>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  )}
-                  <MessageFooter message={message} showTimestamp={showTimestamp} />
-                </div>
-              );
-            })}
-            {/* Spacer so scroll-to-bottom still works when status moves to toolbar */}
-            <div ref={messagesEndRef} />
+                        {message.attachments && message.attachments.length > 0 ? (
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {message.attachments.map((attachment) => (
+                              <button
+                                key={`${message.id}-${attachment.label}`}
+                                type="button"
+                                onClick={() =>
+                                  attachment.path ? onOpenFile(attachment.path) : undefined
+                                }
+                                className="flex items-center gap-1 rounded bg-muted/60 px-2 py-0.5 text-xs text-foreground/80 hover:bg-muted"
+                              >
+                                <File size={10} weight="bold" />
+                                {attachment.label}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : (
+                      // User messages: gray bubble
+                      <div
+                        className={cn(
+                          "max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed",
+                          message.role === "user"
+                            ? "bg-muted/60 text-foreground"
+                            : "bg-muted/40 text-muted-foreground italic"
+                        )}
+                      >
+                        <p className="whitespace-pre-wrap">{message.content}</p>
+                        {message.attachments && message.attachments.length > 0 ? (
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {message.attachments.map((attachment) => (
+                              <button
+                                key={`${message.id}-${attachment.label}`}
+                                type="button"
+                                onClick={() =>
+                                  attachment.path ? onOpenFile(attachment.path) : undefined
+                                }
+                                className="flex items-center gap-1 rounded bg-background/60 px-2 py-0.5 text-xs text-foreground/80 hover:bg-background"
+                              >
+                                <File size={10} weight="bold" />
+                                {attachment.label}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
+                    <MessageFooter message={message} showTimestamp={showTimestamp} />
+                  </div>
+                );
+              })}
+              {/* Spacer so scroll-to-bottom still works when status moves to toolbar */}
+              <div ref={messagesEndRef} />
+            </div>
+            )}
           </div>
-        )}
+        </div>
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-background via-background/90 to-transparent"
+        />
       </div>
 
       {/* Input area */}
-      <div className="px-5 pb-4 pt-2">
+      <div className="mx-auto w-full max-w-[800px] px-5 pb-4 pt-2">
         {/* Status, context & model selector row */}
         {(models.length > 0 || normalizedOpenFilePaths.length > 0 || currentStatus) && (
           <div className="mb-3 flex items-center gap-3">
@@ -2525,7 +2541,6 @@ export function ChatPanel({
             </DialogContent>
           </Dialog>
         )}
-      </div>
       </div>
     </div>
   );

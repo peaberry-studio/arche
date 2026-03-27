@@ -84,6 +84,7 @@ export function SessionsPanel({
           <div className="space-y-0.5">
             {bucket.items.map((session) => {
               const indicatorClassName = getIndicatorClassName(session);
+              const hasIndicator = indicatorClassName !== null;
 
               return (
                 <button
@@ -91,22 +92,26 @@ export function SessionsPanel({
                   type="button"
                   onClick={() => onSelectSession(session.id)}
                   className={cn(
-                    "group/session flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] transition-colors",
+                    "group/session flex w-full items-center gap-0 rounded-lg px-2 py-1.5 text-left text-[13px] transition-colors",
                     "hover:bg-foreground/5",
                     activeSessionId === session.id
                       ? "bg-primary/10 text-primary"
                       : "text-foreground/80"
                   )}
                 >
-                  {indicatorClassName ? (
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "overflow-hidden transition-[width,margin,opacity] duration-200 ease-out",
+                      hasIndicator ? "mr-2 w-2 opacity-100" : "mr-0 w-0 opacity-0"
+                    )}
+                  >
                     <Circle
                       size={8}
                       weight="fill"
-                      className={cn("shrink-0", indicatorClassName)}
+                      className={cn("shrink-0", indicatorClassName ?? "text-transparent")}
                     />
-                  ) : (
-                    <span aria-hidden className="h-2 w-2 shrink-0" />
-                  )}
+                  </span>
                   <span className="flex-1 truncate font-medium">{session.title}</span>
                   <span className="max-w-0 shrink-0 overflow-hidden whitespace-nowrap text-[11px] text-muted-foreground/60 opacity-0 transition-all duration-200 group-hover/session:max-w-24 group-hover/session:opacity-100">
                     {session.updatedAt}

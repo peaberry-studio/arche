@@ -50,7 +50,13 @@ describe("SessionsPanel", () => {
     const busyRow = screen.getByRole("button", { name: /busy chat/i });
     const doneRow = screen.getByRole("button", { name: /done chat/i });
 
-    expect(idleRow.querySelector("svg")).toBeNull();
+    const idleIndicatorWrapper = idleRow.querySelector('span[aria-hidden="true"]');
+    const busyIndicatorWrapper = busyRow.querySelector('span[aria-hidden="true"]');
+
+    expect(idleIndicatorWrapper?.className).toContain("w-0");
+    expect(idleIndicatorWrapper?.className).toContain("opacity-0");
+    expect(busyIndicatorWrapper?.className).toContain("w-2");
+    expect(busyIndicatorWrapper?.className).toContain("opacity-100");
     expect(busyRow.querySelector("svg.text-amber-400")).toBeTruthy();
     expect(doneRow.querySelector("svg.text-green-400")).toBeTruthy();
   });
