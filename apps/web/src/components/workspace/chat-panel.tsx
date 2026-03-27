@@ -19,6 +19,7 @@ import {
   Copy,
   DownloadSimple,
   DotsThree,
+  EnvelopeSimple,
   File,
   FolderOpen,
   GitDiff,
@@ -119,6 +120,27 @@ type ConnectorSummary = {
 
 const MAX_CONTEXT_PATHS_PER_MESSAGE = 20;
 
+async function copyTextToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    document.body.removeChild(textarea);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Check if two timestamps are in the same minute.
  */
@@ -170,19 +192,8 @@ function MessageFooter({ message, showTimestamp = true }: { message: ChatMessage
       .join('\n') || '';
     
     try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(textToCopy);
-      } else {
-        // Fallback for older browsers or non-HTTPS contexts
-        const textarea = document.createElement('textarea');
-        textarea.value = textToCopy;
-        textarea.style.position = 'fixed';
-        textarea.style.opacity = '0';
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textarea);
-      }
+      const copied = await copyTextToClipboard(textToCopy);
+      if (!copied) return;
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
@@ -417,6 +428,92 @@ type ToolDisplay = {
   path?: string;
 };
 
+type EmailDraftOutput = {
+  subject: string;
+  body: string;
+  to: string[];
+  cc: string[];
+  bcc: string[];
+  copyText: string;
+};
+
+function normalizeEmailRecipientList(value: unknown): string[] {
+  const source = Array.isArray(value)
+    ? value.map((item) => String(item))
+    : typeof value === "string"
+      ? value.split(",")
+      : [];
+
+  const recipients: string[] = [];
+  const seen = new Set<string>();
+
+  for (const entry of source) {
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+
+    const dedupeKey = trimmed.toLowerCase();
+    if (seen.has(dedupeKey)) continue;
+
+    seen.add(dedupeKey);
+    recipients.push(trimmed);
+  }
+
+  return recipients;
+}
+
+function buildEmailDraftCopyText(draft: Omit<EmailDraftOutput, "copyText">): string {
+  const lines: string[] = [];
+
+  if (draft.to.length > 0) lines.push(`To: ${draft.to.join(", ")}`);
+  if (draft.cc.length > 0) lines.push(`Cc: ${draft.cc.join(", ")}`);
+  if (draft.bcc.length > 0) lines.push(`Bcc: ${draft.bcc.join(", ")}`);
+
+  lines.push(`Subject: ${draft.subject}`, "", draft.body);
+  return lines.join("\n");
+}
+
+function parseEmailDraftOutput(rawOutput?: string): EmailDraftOutput | null {
+  const source = rawOutput?.trim();
+  if (!source) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source);
+  } catch {
+    return null;
+  }
+
+  if (!parsed || typeof parsed !== "object") {
+    return null;
+  }
+
+  const root = parsed as Record<string, unknown>;
+  const payload =
+    root.draft && typeof root.draft === "object"
+      ? (root.draft as Record<string, unknown>)
+      : root;
+
+  const subject = getString(payload.subject);
+  const bodySource = getString(payload.body);
+  const body = bodySource
+    ? bodySource.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim()
+    : undefined;
+
+  if (!subject || !body) return null;
+
+  const to = normalizeEmailRecipientList(payload.to);
+  const cc = normalizeEmailRecipientList(payload.cc);
+  const bcc = normalizeEmailRecipientList(payload.bcc);
+
+  const copyTextSource = getString(payload.copyText) ?? getString(root.copyText);
+  const normalizedDraft = { subject, body, to, cc, bcc };
+
+  return {
+    ...normalizedDraft,
+    copyText: copyTextSource ?? buildEmailDraftCopyText(normalizedDraft),
+  };
+}
+
 const TOOL_LABELS: Record<string, string> = {
   glob: "Searching documents",
   grep: "Searching information",
@@ -428,6 +525,7 @@ const TOOL_LABELS: Record<string, string> = {
   webfetch: "Searching the web",
   bash: "Running command",
   task: "Delegating",
+  email_draft: "Drafting email",
   todowrite: "Planning",
   todoread: "Reviewing plan"
 };
@@ -663,6 +761,80 @@ function DelegationCard({
   );
 }
 
+function EmailDraftCard({
+  draft,
+  isRunning,
+}: {
+  draft: EmailDraftOutput;
+  isRunning: boolean;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(async () => {
+    const copiedToClipboard = await copyTextToClipboard(draft.copyText);
+    if (!copiedToClipboard) return;
+
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [draft.copyText]);
+
+  const recipientRows = [
+    { label: "To", values: draft.to },
+    { label: "Cc", values: draft.cc },
+    { label: "Bcc", values: draft.bcc },
+  ].filter((row) => row.values.length > 0);
+
+  return (
+    <div className="my-2 rounded-xl border border-primary/25 bg-primary/5 px-3.5 py-3 text-sm">
+      <div className="flex items-start gap-2.5">
+        <EnvelopeSimple size={16} weight="fill" className="mt-0.5 shrink-0 text-primary" />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <p className="text-xs font-semibold tracking-wide text-primary uppercase">Email draft</p>
+            {isRunning ? (
+              <span className="chat-text-micro inline-flex items-center gap-1 text-muted-foreground">
+                <SpinnerGap size={12} className="animate-spin" />
+                Updating
+              </span>
+            ) : null}
+          </div>
+
+          {recipientRows.length > 0 ? (
+            <div className="mt-1.5 space-y-0.5">
+              {recipientRows.map((row) => (
+                <p key={row.label} className="chat-text-note text-muted-foreground">
+                  <span className="font-medium text-foreground">{row.label}:</span>{" "}
+                  {row.values.join(", ")}
+                </p>
+              ))}
+            </div>
+          ) : null}
+
+          <p className="mt-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Subject</p>
+          <p className="mt-0.5 text-sm font-medium text-foreground">{draft.subject}</p>
+
+          <p className="mt-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Body</p>
+          <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{draft.body}</p>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          title="Copy email draft"
+          aria-label="Copy email draft"
+        >
+          {copied ? (
+            <CheckCircle size={14} weight="fill" className="text-primary" />
+          ) : (
+            <Copy size={14} />
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ToolGroup({
   tool,
   parts,
@@ -698,6 +870,25 @@ function ToolGroup({
         onSelectSessionTab={onSelectSessionTab}
       />
     );
+  }
+
+  if (tool === "email_draft") {
+    let latestDraft: EmailDraftOutput | null = null;
+
+    for (let index = parts.length - 1; index >= 0; index -= 1) {
+      const part = parts[index];
+      if (part.state.status !== "completed") continue;
+
+      const parsedDraft = parseEmailDraftOutput(part.state.output);
+      if (!parsedDraft) continue;
+
+      latestDraft = parsedDraft;
+      break;
+    }
+
+    if (latestDraft) {
+      return <EmailDraftCard draft={latestDraft} isRunning={isRunning} />;
+    }
   }
 
   const getStateTitle = (state: ToolPart['state'] | undefined): string | undefined => {

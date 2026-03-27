@@ -9,4 +9,9 @@ describe.runIf(existsSync(containerfilePath))('workspace image', () => {
     const containerfile = readFileSync(containerfilePath, 'utf8')
     expect(containerfile).toMatch(/apk add --no-cache .*nodejs.*npm/)
   })
+
+  it('copies the email_draft custom tool into the workspace image', () => {
+    const containerfile = readFileSync(containerfilePath, 'utf8')
+    expect(containerfile).toContain('opencode-config/tools/email.js')
+  })
 })

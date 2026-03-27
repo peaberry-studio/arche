@@ -6,7 +6,11 @@ import * as docker from './docker'
 import { decryptPassword, generatePassword, encryptPassword } from './crypto'
 import { getStartExpectedMs, getStartTimeoutMs } from './config'
 import { buildMcpConfigForSlug } from './mcp-config'
-import { injectSelfDelegationGuards, remapAgentConnectorTools } from './agent-config-transforms'
+import {
+  injectAlwaysOnAgentTools,
+  injectSelfDelegationGuards,
+  remapAgentConnectorTools,
+} from './agent-config-transforms'
 import { getRuntimeConfigHashForSlug } from './runtime-config-hash'
 
 export type StartResult =
@@ -80,6 +84,7 @@ export async function startInstance(slug: string, userId: string): Promise<Start
       }
 
 
+      baseConfig = injectAlwaysOnAgentTools(baseConfig)
       const guardedConfig = injectSelfDelegationGuards(baseConfig)
 
       if (Object.keys(guardedConfig).length > 0) {
