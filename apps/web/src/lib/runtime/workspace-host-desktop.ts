@@ -15,10 +15,10 @@ import { getArcheOpencodeDataDir, getWorkspaceDir } from '@/lib/runtime/desktop/
 import {
   DEFAULT_USERNAME,
   LOOPBACK_HOST,
+  buildDesktopOpencodeConfig,
   canSpawnWorkspaceAgent,
   createSafeEnv,
   generateDesktopPassword,
-  getDesktopProviderGatewayConfig,
   getOpencodeBinary,
   getWorkspaceAgentBinary,
   makeAuthHeader,
@@ -309,11 +309,8 @@ export const desktopWorkspaceHost: WorkspaceHost = {
     const port = await findAvailablePort(DEFAULT_PORT)
     const agentPort = await findAvailablePort(preferredAgentPort, [port])
 
-    writeFileSync(
-      join(workspaceDir, 'opencode.json'),
-      JSON.stringify(getDesktopProviderGatewayConfig()),
-      'utf-8',
-    )
+    const opencodeConfig = await buildDesktopOpencodeConfig(slug)
+    writeFileSync(join(workspaceDir, 'opencode.json'), JSON.stringify(opencodeConfig), 'utf-8')
 
     await instanceService.upsertStarting(slug, encryptedPassword)
 
