@@ -34,6 +34,38 @@ export function getDesktopProviderGatewayConfig(): Record<string, unknown> {
   }
 }
 
+function resolveFallbackDesktopOpencodeConfigDir(): string | null {
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath
+  if (resourcesPath) {
+    const bundledPath = join(resourcesPath, 'opencode-config')
+    if (existsSync(bundledPath)) {
+      return bundledPath
+    }
+  }
+
+  const candidates = [
+    join(process.cwd(), 'infra', 'workspace-image', 'opencode-config'),
+    join(process.cwd(), '..', '..', 'infra', 'workspace-image', 'opencode-config'),
+  ]
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate
+    }
+  }
+
+  return null
+}
+
+export function getDesktopOpencodeConfigDir(): string | null {
+  const explicitPath = process.env.ARCHE_OPENCODE_CONFIG_DIR
+  if (explicitPath && existsSync(explicitPath)) {
+    return explicitPath
+  }
+
+  return resolveFallbackDesktopOpencodeConfigDir()
+}
+
 function parseJsonConfig(content: string): Record<string, unknown> {
   try {
     const parsed = JSON.parse(content)

@@ -150,6 +150,7 @@ describe('desktopWorkspaceHost', () => {
     delete process.env.ARCHE_DESKTOP_WEB_PORT
     delete process.env.ARCHE_DESKTOP_START_TIMEOUT_MS
     delete process.env.ARCHE_DESKTOP_START_INTERVAL_MS
+    delete process.env.ARCHE_OPENCODE_CONFIG_DIR
     delete process.env.OPENCODE_SERVER_PASSWORD
     // @ts-expect-error test isolation
     process.resourcesPath = undefined
@@ -232,6 +233,28 @@ describe('desktopWorkspaceHost', () => {
     )
   })
 
+  it('passes OPENCODE_CONFIG_DIR to opencode when configured', async () => {
+    const opencodeChild = makeChildProcess()
+    const workspaceAgentChild = makeChildProcess()
+    mockSpawn.mockReturnValueOnce(opencodeChild).mockReturnValueOnce(workspaceAgentChild)
+    process.env.ARCHE_OPENCODE_CONFIG_DIR = '/mock/opencode-config'
+    mockExistsSync.mockImplementation(
+      (target: string) => target === '/mock/bin/workspace-agent' || target === '/mock/opencode-config',
+    )
+
+    const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
+    await desktopWorkspaceHost.start('local', 'user-1')
+
+    expect(mockSpawn).toHaveBeenNthCalledWith(
+      1,
+      'opencode',
+      expect.any(Array),
+      expect.objectContaining({
+        env: expect.objectContaining({ OPENCODE_CONFIG_DIR: '/mock/opencode-config' }),
+      }),
+    )
+  })
+
   it('writes desktop provider gateway config with the IPv4 loopback host', async () => {
     const opencodeChild = makeChildProcess()
     const workspaceAgentChild = makeChildProcess()
@@ -286,7 +309,10 @@ describe('desktopWorkspaceHost', () => {
     const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
     await desktopWorkspaceHost.start('local', 'user-1')
 
-    const configRaw = mockWriteFileSync.mock.calls[0]?.[1]
+    const opencodeConfigCall = mockWriteFileSync.mock.calls.find((call) =>
+      String(call[0]).includes('opencode.json'),
+    )
+    const configRaw = opencodeConfigCall?.[1]
     expect(typeof configRaw).toBe('string')
 
     const config = JSON.parse(String(configRaw)) as {
@@ -557,6 +583,7 @@ describe('binary resolution', () => {
     process.env = { ...originalEnv }
     delete process.env.ARCHE_OPENCODE_BIN
     delete process.env.ARCHE_WORKSPACE_AGENT_BIN
+    delete process.env.ARCHE_OPENCODE_CONFIG_DIR
     // @ts-expect-error test isolation
     process.resourcesPath = undefined
     mockExistsSync.mockReturnValue(false)
@@ -676,6 +703,7 @@ describe('desktop instance reconciliation', () => {
     delete process.env.ARCHE_DESKTOP_WEB_PORT
     delete process.env.ARCHE_DESKTOP_START_TIMEOUT_MS
     delete process.env.ARCHE_DESKTOP_START_INTERVAL_MS
+    delete process.env.ARCHE_OPENCODE_CONFIG_DIR
     delete process.env.OPENCODE_SERVER_PASSWORD
     // @ts-expect-error test isolation
     process.resourcesPath = undefined

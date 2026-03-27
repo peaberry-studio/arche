@@ -19,6 +19,7 @@ import {
   canSpawnWorkspaceAgent,
   createSafeEnv,
   generateDesktopPassword,
+  getDesktopOpencodeConfigDir,
   getOpencodeBinary,
   getWorkspaceAgentBinary,
   makeAuthHeader,
@@ -305,6 +306,7 @@ export const desktopWorkspaceHost: WorkspaceHost = {
     const authHeader = makeAuthHeader(DEFAULT_USERNAME, password)
     const preferredAgentPort = getWorkspaceAgentPort()
     const safeEnv = createSafeEnv()
+    const opencodeConfigDir = getDesktopOpencodeConfigDir()
 
     const port = await findAvailablePort(DEFAULT_PORT)
     const agentPort = await findAvailablePort(preferredAgentPort, [port])
@@ -320,6 +322,7 @@ export const desktopWorkspaceHost: WorkspaceHost = {
         cwd: workspaceDir,
         env: {
           ...safeEnv,
+          ...(opencodeConfigDir ? { OPENCODE_CONFIG_DIR: opencodeConfigDir } : {}),
           OPENCODE_SERVER_PASSWORD: password,
           OPENCODE_SERVER_USERNAME: DEFAULT_USERNAME,
           HOME: archeDataDir,
