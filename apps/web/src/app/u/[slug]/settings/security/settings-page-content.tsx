@@ -95,11 +95,9 @@ export function SettingsPageContent({
           </section>
         ) : null}
 
-        <footer className="border-t border-border/60 pt-4">
-          <p className="text-center text-xs text-muted-foreground">
-            Made with 💪 by Peaberry Studio - Arche build {releaseVersion}
-          </p>
-        </footer>
+        <p className="pt-6 text-center text-[11px] tracking-wide text-muted-foreground/50">
+          Peaberry Studio &middot; Arche {releaseVersion}
+        </p>
       </div>
     </main>
   )

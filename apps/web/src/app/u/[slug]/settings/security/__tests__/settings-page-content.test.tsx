@@ -28,9 +28,8 @@ describe('SettingsPageContent', () => {
     expect(screen.getByText('Appearance')).toBeTruthy()
     expect(screen.queryByText('Two-factor authentication')).toBeNull()
     expect(screen.queryByText('Set up 2FA')).toBeNull()
-    expect(
-      screen.getByText('Made with 💪 by Peaberry Studio - Arche build 03'),
-    ).toBeTruthy()
+    expect(screen.getByText(/Peaberry Studio/)).toBeTruthy()
+    expect(screen.getByText(/Arche 03/)).toBeTruthy()
   })
 
   it('renders the two-factor section in web mode', () => {
