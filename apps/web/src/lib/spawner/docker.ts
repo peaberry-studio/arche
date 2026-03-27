@@ -162,8 +162,8 @@ export async function createContainer(
   ]) {
     try {
       await docker.createVolume({ Name: name });
-    } catch {
-      // Volume might already exist, ignore error
+    } catch (err) {
+      console.warn('[docker] Volume creation skipped (may already exist):', { name, error: err instanceof Error ? err.message : err })
     }
   }
 
@@ -293,7 +293,8 @@ export async function isOpencodeHealthy(containerId: string): Promise<boolean> {
     // Parse the health response
     const data = JSON.parse(result.stdout);
     return data.healthy === true;
-  } catch {
+  } catch (err) {
+    console.warn('[docker] Health check failed:', { containerId, error: err instanceof Error ? err.message : err });
     return false;
   }
 }
@@ -376,8 +377,8 @@ export async function execInContainer(
             stdout,
             stderr,
           });
-        } catch {
-          // If we can't inspect, assume success if we got output
+        } catch (inspectErr) {
+          console.warn('[docker] exec.inspect() failed, assuming exit code 0:', inspectErr instanceof Error ? inspectErr.message : inspectErr);
           resolve({ exitCode: 0, stdout, stderr });
         }
       });
