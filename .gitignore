@@ -47,3 +47,7 @@ apps/desktop/release/
 
 # Workspace internal storage
 .arche/
+
+# Infrastructure secrets (never commit .env or .env.local*)
+infra/**/.env
+infra/**/.env.local*
