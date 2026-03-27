@@ -1764,9 +1764,9 @@ export function ChatPanel({
   );
 
   return (
-    <div className="desktop-select-enabled flex h-full flex-col text-card-foreground">
+    <div className="desktop-select-enabled flex h-full min-h-0 flex-col text-card-foreground">
       {/* Session header */}
-      <div className="mx-3 mt-2 flex min-h-11 shrink-0 items-center gap-2 border-b border-border/35 px-2 py-1">
+      <div className="mt-2 flex min-h-11 shrink-0 items-center gap-2 border-b border-border/35 px-5 py-1">
         <div className="min-w-0 flex-1">
           {isEditingActiveSessionTitle ? (
             <input
@@ -1845,8 +1845,9 @@ export function ChatPanel({
         ) : null}
       </div>
 
+      <div className="mx-auto flex w-full max-w-[800px] min-h-0 flex-1 flex-col">
       {/* Messages area */}
-      <div ref={scrollContainerRef} onScroll={handleScrollContainer} className="workspace-chat-content mx-3 flex-1 overflow-y-auto px-2 py-6 scrollbar-custom" style={chatContentStyle}>
+      <div ref={scrollContainerRef} onScroll={handleScrollContainer} className="workspace-chat-content flex-1 overflow-y-auto px-5 py-6 scrollbar-custom" style={chatContentStyle}>
         {isStartingNewSession ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
             <div className="h-16 w-16 animate-spin rounded-full border-4 border-muted border-t-primary" />
@@ -1992,7 +1993,7 @@ export function ChatPanel({
       </div>
 
       {/* Input area */}
-      <div className="mx-3 px-2 pb-4 pt-2">
+      <div className="px-5 pb-4 pt-2">
         {/* Status, context & model selector row */}
         {(models.length > 0 || normalizedOpenFilePaths.length > 0 || currentStatus) && (
           <div className="mb-3 flex items-center gap-3">
@@ -2524,6 +2525,7 @@ export function ChatPanel({
             </DialogContent>
           </Dialog>
         )}
+      </div>
       </div>
     </div>
   );
