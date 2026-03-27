@@ -146,9 +146,14 @@ export async function createContainer(
   };
 
   // Merge passed-in config (agents, MCP connectors, etc.) with provider gateway
-  const baseConfig = opencodeConfigContent
-    ? (JSON.parse(opencodeConfigContent) as Record<string, unknown>)
-    : {};
+  const baseConfig: Record<string, unknown> = (() => {
+    if (!opencodeConfigContent) return {};
+    const parsed: unknown = JSON.parse(opencodeConfigContent);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("Invalid opencode config: expected a JSON object");
+    }
+    return parsed as Record<string, unknown>;
+  })();
   const mergedConfig = withWorkspacePermissionGuards({
     ...baseConfig,
     ...providerGatewayConfig,

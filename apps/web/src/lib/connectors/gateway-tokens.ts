@@ -64,7 +64,11 @@ export function verifyConnectorGatewayToken(token: string): ConnectorGatewayToke
     throw new Error('invalid_token')
   }
 
-  const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as ConnectorGatewayTokenPayload
+  const raw: unknown = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'))
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error('invalid_token')
+  }
+  const payload = raw as ConnectorGatewayTokenPayload
   if (!isValidPayload(payload)) {
     throw new Error('invalid_token')
   }
