@@ -236,4 +236,46 @@ describe('ChatPanel', () => {
     expect(html).not.toContain('View')
     expect(html).not.toContain('agent=')
   })
+
+  it('renders a dedicated email draft card for email_draft tool output', () => {
+    const html = renderChatPanel({
+      messages: [
+        {
+          id: 'm1',
+          sessionId: 's1',
+          role: 'assistant',
+          content: '',
+          timestamp: 'now',
+          parts: [
+            {
+              type: 'tool',
+              id: 'tool-email-1',
+              name: 'email_draft',
+              state: {
+                status: 'completed',
+                input: {},
+                output: JSON.stringify({
+                  ok: true,
+                  format: 'email-draft',
+                  subject: 'Follow-up on Q2 proposal',
+                  body: 'Hi Ana,\n\nThanks for your time today.',
+                  to: ['ana@example.com'],
+                }),
+                title: 'email draft',
+              },
+            },
+            {
+              type: 'text',
+              text: 'If you want, I can make it more formal.',
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(html).toContain('Email draft')
+    expect(html).toContain('Follow-up on Q2 proposal')
+    expect(html).toContain('ana@example.com')
+    expect(html).toContain('If you want, I can make it more formal.')
+  })
 })

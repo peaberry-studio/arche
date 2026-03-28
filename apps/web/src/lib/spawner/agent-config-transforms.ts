@@ -1,6 +1,54 @@
 import { MCP_TOOL_PATTERN } from '@/lib/agent-capabilities'
 
 const MCP_SERVER_KEY_PATTERN = /^arche_(linear|notion|custom)_([a-z0-9]+)$/
+const ALWAYS_ENABLED_TOOLS = ['email_draft'] as const
+
+function isToolMap(value: unknown): value is Record<string, boolean> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+export function injectAlwaysOnAgentTools(
+  config: Record<string, unknown>,
+): Record<string, unknown> {
+  const agents = config.agent as Record<string, Record<string, unknown>> | undefined
+  if (!agents || typeof agents !== 'object') return config
+
+  const nextAgents: Record<string, Record<string, unknown>> = {}
+  let changed = false
+
+  for (const [agentId, agent] of Object.entries(agents)) {
+    if (!agent || typeof agent !== 'object') {
+      nextAgents[agentId] = agent
+      continue
+    }
+
+    if (!isToolMap(agent.tools)) {
+      nextAgents[agentId] = agent
+      continue
+    }
+
+    const currentTools = agent.tools
+    const nextTools: Record<string, boolean> = { ...currentTools }
+    let toolsChanged = false
+
+    for (const toolName of ALWAYS_ENABLED_TOOLS) {
+      if (nextTools[toolName] === true) continue
+      nextTools[toolName] = true
+      toolsChanged = true
+    }
+
+    if (toolsChanged) {
+      nextAgents[agentId] = { ...agent, tools: nextTools }
+      changed = true
+      continue
+    }
+
+    nextAgents[agentId] = agent
+  }
+
+  if (!changed) return config
+  return { ...config, agent: nextAgents }
+}
 
 export function injectSelfDelegationGuards(
   config: Record<string, unknown>,

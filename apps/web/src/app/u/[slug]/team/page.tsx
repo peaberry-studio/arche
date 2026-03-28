@@ -1,4 +1,5 @@
 import { TeamPageClient } from '@/components/team/team-page-client'
+import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { getSession } from '@/lib/runtime/session'
 
 export default async function TeamPage({
@@ -9,12 +10,14 @@ export default async function TeamPage({
   const { slug } = await params
 
   const session = await getSession()
+  const caps = getRuntimeCapabilities()
 
   return (
     <TeamPageClient
       slug={slug}
       isAdmin={session?.user.role === 'ADMIN'}
       currentUserId={session?.user.id ?? null}
+      canManageUsers={caps.teamManagement}
     />
   )
 }
