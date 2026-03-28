@@ -827,10 +827,9 @@ export function ChatPanel({
   );
 
   return (
-    <div className="desktop-select-enabled flex h-full flex-col text-card-foreground">
+    <div className="desktop-select-enabled flex h-full min-h-0 flex-col text-card-foreground">
       <ChatPanelSessionHeader
         activeSession={activeSession}
-        activeSessionId={activeSessionId}
         canRenameSession={Boolean(onRenameSession)}
         draftTitle={draftTitle}
         editingSessionId={editingSessionId}
@@ -838,7 +837,6 @@ export function ChatPanel({
         isSavingTitle={isSavingTitle}
         onCloseSession={onCloseSession}
         onExportSessionMarkdown={handleExportSessionMarkdown}
-        onSelectSessionTab={onSelectSessionTab}
         onStartSessionRename={startSessionRename}
         onSubmitSessionRename={submitSessionRename}
         onTitleInputChange={(nextTitle) => {
@@ -850,7 +848,6 @@ export function ChatPanel({
         onTitleInputKeyDown={handleTitleInputKeyDown}
         preventSessionMenuAutoFocusRef={preventSessionMenuAutoFocusRef}
         renameError={renameError}
-        sessionTabs={sessionTabs}
         titleInputClassName={titleInputClassName}
         titleInputRef={titleInputRef}
       />
@@ -869,7 +866,7 @@ export function ChatPanel({
       />
 
       {/* Input area */}
-      <div className="mx-3 px-2 pb-4 pt-2">
+      <div className="mx-auto w-full max-w-[800px] px-5 pb-4 pt-2">
         {/* Status, context & model selector row */}
         {(models.length > 0 || normalizedOpenFilePaths.length > 0 || currentStatus) && (
           <div className="mb-3 flex items-center gap-3">

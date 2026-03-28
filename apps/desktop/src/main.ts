@@ -102,6 +102,9 @@ function setDesktopEnv(): void {
   if (app.isPackaged) {
     process.env.NODE_ENV = 'production'
   }
+  if (!process.env.ARCHE_RELEASE_VERSION) {
+    process.env.ARCHE_RELEASE_VERSION = app.getVersion()
+  }
   process.env.ARCHE_DATA_DIR = getDataDir()
   process.env.ARCHE_DESKTOP_WEB_HOST = LOOPBACK_HOST
 

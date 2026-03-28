@@ -57,7 +57,12 @@ export async function startInstance(slug: string, userId: string): Promise<Start
       const commonConfigResult = await readCommonWorkspaceConfig()
       if (commonConfigResult.ok) {
         try {
-          baseConfig = JSON.parse(commonConfigResult.content)
+          const parsed: unknown = JSON.parse(commonConfigResult.content)
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            baseConfig = parsed as Record<string, unknown>
+          } else {
+            console.warn('[spawner] CommonWorkspaceConfig is not a JSON object')
+          }
         } catch {
           console.warn('[spawner] Failed to parse CommonWorkspaceConfig')
         }

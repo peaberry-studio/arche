@@ -1196,47 +1196,47 @@ export function WorkspaceShell({
             className="flex min-w-0 flex-1 items-stretch justify-center"
             style={{ minWidth: minCenterWidth }}
           >
-            <div className="flex h-full w-full max-w-[800px] flex-col overflow-hidden">
-            <ChatPanel
-              key={workspace.activeSessionId ?? "no-session"}
-              slug={slug}
-              attachmentsEnabled={workspaceAgentEnabled}
-              sessions={uiSessions}
-              messages={uiMessages}
-              activeSessionId={workspace.activeSessionId}
-              isStartingNewSession={workspace.isStartingNewSession}
-              sessionTabs={activeSessionTabs}
-              openFilePaths={openFilePaths}
-              onCloseSession={handleCloseSession}
-              onRenameSession={handleRenameSession}
-              onSelectSessionTab={handleSelectSessionTab}
-              onOpenFile={handleOpenFile}
-              onShowContext={() => {
-                setRightCollapsed(false);
-                setRightTab("preview");
-              }}
-              onSendMessage={workspace.sendMessage}
-              onAbortMessage={workspace.abortSession}
-              isSending={workspace.isSending}
-              models={workspace.models}
-              agentDefaultModel={workspace.agentDefaultModel}
-              selectedModel={workspace.selectedModel}
-              hasManualModelSelection={workspace.hasManualModelSelection}
-              onSelectModel={workspace.setSelectedModel}
-              activeAgentName={workspace.activeAgentName}
-              isReadOnly={isInspectingSubagentSession}
-              onReturnToMainConversation={
-                activeRootSessionId
-                  ? () => workspace.selectSession(activeRootSessionId)
-                  : undefined
-              }
-              pendingInsert={
-                pendingInsert?.sessionId === workspace.activeSessionId
-                  ? pendingInsert.value
-                  : null
-              }
-              onPendingInsertConsumed={handlePendingInsertConsumed}
-            />
+            <div className="flex h-full w-full min-w-0 flex-col overflow-hidden">
+              <ChatPanel
+                key={workspace.activeSessionId ?? "no-session"}
+                slug={slug}
+                attachmentsEnabled={workspaceAgentEnabled}
+                sessions={uiSessions}
+                messages={uiMessages}
+                activeSessionId={workspace.activeSessionId}
+                isStartingNewSession={workspace.isStartingNewSession}
+                sessionTabs={activeSessionTabs}
+                openFilePaths={openFilePaths}
+                onCloseSession={handleCloseSession}
+                onRenameSession={handleRenameSession}
+                onSelectSessionTab={handleSelectSessionTab}
+                onOpenFile={handleOpenFile}
+                onShowContext={() => {
+                  setRightCollapsed(false);
+                  setRightTab("preview");
+                }}
+                onSendMessage={workspace.sendMessage}
+                onAbortMessage={workspace.abortSession}
+                isSending={workspace.isSending}
+                models={workspace.models}
+                agentDefaultModel={workspace.agentDefaultModel}
+                selectedModel={workspace.selectedModel}
+                hasManualModelSelection={workspace.hasManualModelSelection}
+                onSelectModel={workspace.setSelectedModel}
+                activeAgentName={workspace.activeAgentName}
+                isReadOnly={isInspectingSubagentSession}
+                onReturnToMainConversation={
+                  activeRootSessionId
+                    ? () => workspace.selectSession(activeRootSessionId)
+                    : undefined
+                }
+                pendingInsert={
+                  pendingInsert?.sessionId === workspace.activeSessionId
+                    ? pendingInsert.value
+                    : null
+                }
+                onPendingInsertConsumed={handlePendingInsertConsumed}
+              />
             </div>
           </div>
 

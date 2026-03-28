@@ -21,12 +21,15 @@ describe('SettingsPageContent', () => {
         enabled={false}
         verifiedAt={null}
         recoveryCodesRemaining={0}
+        releaseVersion="03"
       />,
     )
 
     expect(screen.getByText('Appearance')).toBeTruthy()
     expect(screen.queryByText('Two-factor authentication')).toBeNull()
     expect(screen.queryByText('Set up 2FA')).toBeNull()
+    expect(screen.getByText(/Peaberry Studio/)).toBeTruthy()
+    expect(screen.getByText(/Arche 03/)).toBeTruthy()
   })
 
   it('renders the two-factor section in web mode', () => {
@@ -36,6 +39,7 @@ describe('SettingsPageContent', () => {
         enabled={false}
         verifiedAt={null}
         recoveryCodesRemaining={0}
+        releaseVersion="03"
       />,
     )
 

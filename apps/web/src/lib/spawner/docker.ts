@@ -20,6 +20,12 @@ function importRuntimeModule<T>(specifier: string): Promise<T> {
     return import(specifier) as Promise<T>;
   }
 
+  // SECURITY NOTE: Function() is used intentionally as a bundler bypass.
+  // Next.js/webpack statically analyzes import() calls and may fail to resolve
+  // dynamic specifiers at build time. The Function() constructor creates a scope
+  // where import() is opaque to the bundler, ensuring the module is loaded at
+  // runtime from node_modules. The specifier is NOT user-controlled — it is
+  // always a hardcoded package name passed by callers within this module.
   return Function("runtimeSpecifier", "return import(runtimeSpecifier)")(specifier) as Promise<T>;
 }
 
@@ -81,9 +87,14 @@ export async function createContainer(
   };
 
   // Merge passed-in config (agents, MCP connectors, etc.) with provider gateway
-  const baseConfig = opencodeConfigContent
-    ? (JSON.parse(opencodeConfigContent) as Record<string, unknown>)
-    : {};
+  const baseConfig: Record<string, unknown> = (() => {
+    if (!opencodeConfigContent) return {};
+    const parsed: unknown = JSON.parse(opencodeConfigContent);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("Invalid opencode config: expected a JSON object");
+    }
+    return parsed as Record<string, unknown>;
+  })();
   const mergedConfig = withWorkspacePermissionGuards({
     ...baseConfig,
     ...providerGatewayConfig,
