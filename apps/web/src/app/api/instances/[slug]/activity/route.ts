@@ -1,3 +1,5 @@
+import crypto from 'node:crypto'
+
 import { NextRequest, NextResponse } from 'next/server'
 
 import { withAuth } from '@/lib/runtime/with-auth'
@@ -30,7 +32,14 @@ export async function PATCH(
 ) {
   const internalToken = process.env.ARCHE_INTERNAL_TOKEN
   const auth = request.headers.get('authorization')
-  const internalAuthOk = Boolean(internalToken) && auth === `Bearer ${internalToken}`
+  const internalAuthOk = (() => {
+    if (!internalToken || !auth) return false
+    const expected = `Bearer ${internalToken}`
+    const expectedBuf = Buffer.from(expected)
+    const actualBuf = Buffer.from(auth)
+    if (expectedBuf.length !== actualBuf.length) return false
+    return crypto.timingSafeEqual(expectedBuf, actualBuf)
+  })()
 
   if (internalAuthOk) {
     const { slug } = await params

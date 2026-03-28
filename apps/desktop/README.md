@@ -37,11 +37,12 @@ pnpm dev
 
 ## Runtime Preparation
 
-`pnpm prepare:runtime` does three things:
+`pnpm prepare:runtime` does four things:
 
 1. Downloads a bundled Node.js runtime into `apps/desktop/bin`
 2. Downloads `opencode` into `apps/desktop/bin`
 3. Builds `workspace-agent` from `infra/workspace-image/workspace-agent`
+4. Prepares `opencode-config` (custom tools + dependencies) in `apps/desktop/bin/opencode-config`
 
 Run it manually when you want to prefetch/update binaries:
 

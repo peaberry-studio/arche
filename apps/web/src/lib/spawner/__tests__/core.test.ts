@@ -384,6 +384,10 @@ describe('startInstance - agent config transforms', () => {
     expect(linearTools['arche_linear_user999_*']).toBe(true)
     expect(linearTools['arche_linear_admin111_*']).toBeUndefined()
     expect(linearTools['arche_*']).toBe(false)
+    expect(linearTools.email_draft).toBe(true)
+
+    const assistantTools = parsed.agent.assistant.tools
+    expect(assistantTools.email_draft).toBe(true)
 
     const linearPrompt = parsed.agent.linear.prompt as string
     expect(linearPrompt).toContain('## Delegation constraint')

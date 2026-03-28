@@ -6,7 +6,12 @@ import * as docker from './docker'
 import { decryptPassword, generatePassword, encryptPassword } from './crypto'
 import { getStartExpectedMs, getStartTimeoutMs } from './config'
 import { buildMcpConfigForSlug } from './mcp-config'
-import { injectSelfDelegationGuards, remapAgentConnectorTools } from './agent-config-transforms'
+import {
+  injectAlwaysOnAgentTools,
+  injectSelfDelegationGuards,
+  remapAgentConnectorTools,
+} from './agent-config-transforms'
+import { withWorkspaceIdentity } from './runtime-config-utils'
 import { getRuntimeConfigHashForSlug } from './runtime-config-hash'
 
 export type StartResult =
@@ -26,17 +31,6 @@ function getErrorDetail(err: unknown): string | undefined {
   }
 
   return error.json?.message ?? error.message ?? error.reason
-}
-
-function withWorkspaceIdentity(agentsMd: string, identity: { slug: string; email?: string | null }): string {
-  const emailLine = identity.email ? `- Email: ${identity.email}\n` : ''
-  const block =
-    `\n\n## Workspace User Identity\n\n` +
-    `Use this identity as the primary user context for this workspace session.\n\n` +
-    `- Slug: ${identity.slug}\n` +
-    emailLine
-
-  return agentsMd + block
 }
 
 export async function startInstance(slug: string, userId: string): Promise<StartResult> {
@@ -63,7 +57,12 @@ export async function startInstance(slug: string, userId: string): Promise<Start
       const commonConfigResult = await readCommonWorkspaceConfig()
       if (commonConfigResult.ok) {
         try {
-          baseConfig = JSON.parse(commonConfigResult.content)
+          const parsed: unknown = JSON.parse(commonConfigResult.content)
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            baseConfig = parsed as Record<string, unknown>
+          } else {
+            console.warn('[spawner] CommonWorkspaceConfig is not a JSON object')
+          }
         } catch {
           console.warn('[spawner] Failed to parse CommonWorkspaceConfig')
         }
@@ -80,13 +79,14 @@ export async function startInstance(slug: string, userId: string): Promise<Start
       }
 
 
+      baseConfig = injectAlwaysOnAgentTools(baseConfig)
       const guardedConfig = injectSelfDelegationGuards(baseConfig)
 
       if (Object.keys(guardedConfig).length > 0) {
         opencodeConfigContent = JSON.stringify(guardedConfig)
       }
-    } catch {
-      console.warn('[spawner] Config build failed')
+    } catch (err) {
+      console.warn('[spawner] Config build failed:', err)
     }
 
     // Read AGENTS.md from config repo to inject into workspace
@@ -96,8 +96,8 @@ export async function startInstance(slug: string, userId: string): Promise<Start
       if (agentsResult.ok) {
         agentsMd = agentsResult.content
       }
-    } catch {
-      console.warn('[spawner] Failed to read AGENTS.md')
+    } catch (err) {
+      console.warn('[spawner] Failed to read AGENTS.md:', err)
     }
 
     const owner = await userService.findIdentityBySlug(slug)

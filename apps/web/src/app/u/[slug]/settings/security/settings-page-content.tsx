@@ -8,6 +8,7 @@ type SettingsPageContentProps = {
   enabled: boolean
   verifiedAt: Date | null
   recoveryCodesRemaining: number
+  releaseVersion: string
 }
 
 export function SettingsPageContent({
@@ -15,6 +16,7 @@ export function SettingsPageContent({
   enabled,
   verifiedAt,
   recoveryCodesRemaining,
+  releaseVersion,
 }: SettingsPageContentProps) {
   return (
     <main className="relative mx-auto max-w-6xl px-6 py-10">
@@ -92,6 +94,10 @@ export function SettingsPageContent({
             )}
           </section>
         ) : null}
+
+        <p className="pt-6 text-center text-[11px] tracking-wide text-muted-foreground/50">
+          Peaberry Studio &middot; Arche {releaseVersion}
+        </p>
       </div>
     </main>
   )

@@ -50,6 +50,27 @@ function getDataDir(): string {
   return process.env.ARCHE_DATA_DIR || join(app.getPath('home'), '.arche')
 }
 
+function resolveDesktopOpencodeConfigDir(): string | null {
+  const explicitPath = process.env.ARCHE_OPENCODE_CONFIG_DIR
+  if (explicitPath && existsSync(explicitPath)) {
+    return explicitPath
+  }
+
+  if (app.isPackaged) {
+    const bundledPath = join(process.resourcesPath, 'opencode-config')
+    if (existsSync(bundledPath)) {
+      return bundledPath
+    }
+  }
+
+  const devPath = join(__dirname, '..', '..', '..', 'infra', 'workspace-image', 'opencode-config')
+  if (existsSync(devPath)) {
+    return devPath
+  }
+
+  return null
+}
+
 function ensureIsolatedDesktopGitEnvironment(): void {
   const gitConfigDir = join(getDataDir(), 'git')
   if (!existsSync(gitConfigDir)) {
@@ -81,8 +102,19 @@ function setDesktopEnv(): void {
   if (app.isPackaged) {
     process.env.NODE_ENV = 'production'
   }
+  if (!process.env.ARCHE_RELEASE_VERSION) {
+    process.env.ARCHE_RELEASE_VERSION = app.getVersion()
+  }
   process.env.ARCHE_DATA_DIR = getDataDir()
   process.env.ARCHE_DESKTOP_WEB_HOST = LOOPBACK_HOST
+
+  const opencodeConfigDir = resolveDesktopOpencodeConfigDir()
+  if (opencodeConfigDir) {
+    process.env.ARCHE_OPENCODE_CONFIG_DIR = opencodeConfigDir
+  } else {
+    delete process.env.ARCHE_OPENCODE_CONFIG_DIR
+  }
+
   ensureIsolatedDesktopGitEnvironment()
 
   desktopApiToken = generateDesktopApiToken()
@@ -200,6 +232,7 @@ function createNextSupervisor(): RuntimeSupervisor {
       ARCHE_RUNTIME_MODE: 'desktop',
       ARCHE_DESKTOP_NEXT_DIST_DIR: '.next-desktop',
       ARCHE_DESKTOP_WEB_PORT: String(getPort()),
+      ARCHE_CONNECTOR_GATEWAY_BASE_URL: `http://${LOOPBACK_HOST}:${getPort()}/api/internal/mcp/connectors`,
       PORT: String(getPort()),
       HOSTNAME: LOOPBACK_HOST,
     },
@@ -280,7 +313,7 @@ app.whenReady().then(async () => {
   if (missingRuntimeBinaries.length > 0) {
     dialog.showErrorBox(
       'Arche',
-      `Missing packaged runtime binaries: ${missingRuntimeBinaries.join(', ')}.`,
+      `Missing packaged runtime resources: ${missingRuntimeBinaries.join(', ')}.`,
     )
     app.quit()
     return

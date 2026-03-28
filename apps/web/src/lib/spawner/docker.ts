@@ -1,5 +1,8 @@
 import { chmod, writeFile } from "fs/promises";
 import { join } from "path";
+
+import { withWorkspacePermissionGuards } from "@/lib/spawner/runtime-config-utils";
+import { getUserDataHostPath, ensureUserDirectory } from "@/lib/user-data";
 import {
   getContainerSocketPath,
   getContainerProxyUrl,
@@ -8,7 +11,6 @@ import {
   getKbContentHostPath,
   getWorkspaceAgentPort,
 } from "./config";
-import { getUserDataHostPath, ensureUserDirectory } from "@/lib/user-data";
 
 type DockerConstructor = typeof import("dockerode");
 type DockerClient = InstanceType<DockerConstructor>;
@@ -18,6 +20,12 @@ function importRuntimeModule<T>(specifier: string): Promise<T> {
     return import(specifier) as Promise<T>;
   }
 
+  // SECURITY NOTE: Function() is used intentionally as a bundler bypass.
+  // Next.js/webpack statically analyzes import() calls and may fail to resolve
+  // dynamic specifiers at build time. The Function() constructor creates a scope
+  // where import() is opaque to the bundler, ensuring the module is loaded at
+  // runtime from node_modules. The specifier is NOT user-controlled — it is
+  // always a hardcoded package name passed by callers within this module.
   return Function("runtimeSpecifier", "return import(runtimeSpecifier)")(specifier) as Promise<T>;
 }
 
@@ -25,73 +33,6 @@ async function getDockerConstructor(): Promise<DockerConstructor> {
   const dockerModule = await importRuntimeModule<typeof import("dockerode")>("dockerode");
   const defaultExport = (dockerModule as { default?: DockerConstructor }).default;
   return defaultExport ?? dockerModule;
-}
-
-const WORKSPACE_EDIT_DENY_RULES: Record<string, "deny"> = {
-  ".gitignore": "deny",
-  ".gitkeep": "deny",
-  "**/.gitkeep": "deny",
-  "opencode.json": "deny",
-  "AGENTS.md": "deny",
-  "agents.md": "deny",
-  "node_modules": "deny",
-  "node_modules/*": "deny",
-  "*/node_modules": "deny",
-  "*/node_modules/*": "deny",
-};
-
-const WORKSPACE_BASH_DENY_RULES: Record<string, "deny"> = {
-  "*.gitignore*": "deny",
-  "*.gitkeep*": "deny",
-  "*opencode.json*": "deny",
-  "*AGENTS.md*": "deny",
-  "*agents.md*": "deny",
-  "npm install*": "deny",
-  "npm i*": "deny",
-  "npm ci*": "deny",
-  "npm init*": "deny",
-  "npm create*": "deny",
-  "pnpm install*": "deny",
-  "pnpm add*": "deny",
-  "pnpm init*": "deny",
-  "pnpm create*": "deny",
-  "yarn install*": "deny",
-  "yarn add*": "deny",
-  "yarn init*": "deny",
-  "yarn create*": "deny",
-  "bun install*": "deny",
-  "bun add*": "deny",
-  "bun init*": "deny",
-  "bun create*": "deny",
-};
-
-function mergePermissionRule(
-  current: unknown,
-  enforced: Record<string, "allow" | "ask" | "deny">
-): Record<string, unknown> {
-  if (typeof current === "string") {
-    return { "*": current, ...enforced };
-  }
-
-  if (current && typeof current === "object") {
-    return { ...(current as Record<string, unknown>), ...enforced };
-  }
-
-  return { ...enforced };
-}
-
-function withWorkspacePermissionGuards(config: Record<string, unknown>): Record<string, unknown> {
-  const next = { ...config };
-  const permission =
-    next.permission && typeof next.permission === "object"
-      ? { ...(next.permission as Record<string, unknown>) }
-      : {};
-
-  permission.edit = mergePermissionRule(permission.edit, WORKSPACE_EDIT_DENY_RULES);
-  permission.bash = mergePermissionRule(permission.bash, WORKSPACE_BASH_DENY_RULES);
-
-  next.permission = permission;
-  return next;
 }
 
 async function getContainerClient(): Promise<DockerClient> {
@@ -146,9 +87,14 @@ export async function createContainer(
   };
 
   // Merge passed-in config (agents, MCP connectors, etc.) with provider gateway
-  const baseConfig = opencodeConfigContent
-    ? (JSON.parse(opencodeConfigContent) as Record<string, unknown>)
-    : {};
+  const baseConfig: Record<string, unknown> = (() => {
+    if (!opencodeConfigContent) return {};
+    const parsed: unknown = JSON.parse(opencodeConfigContent);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("Invalid opencode config: expected a JSON object");
+    }
+    return parsed as Record<string, unknown>;
+  })();
   const mergedConfig = withWorkspacePermissionGuards({
     ...baseConfig,
     ...providerGatewayConfig,
@@ -162,8 +108,8 @@ export async function createContainer(
   ]) {
     try {
       await docker.createVolume({ Name: name });
-    } catch {
-      // Volume might already exist, ignore error
+    } catch (err) {
+      console.warn('[docker] Volume creation skipped (may already exist):', { name, error: err instanceof Error ? err.message : err })
     }
   }
 
@@ -293,7 +239,8 @@ export async function isOpencodeHealthy(containerId: string): Promise<boolean> {
     // Parse the health response
     const data = JSON.parse(result.stdout);
     return data.healthy === true;
-  } catch {
+  } catch (err) {
+    console.warn('[docker] Health check failed:', { containerId, error: err instanceof Error ? err.message : err });
     return false;
   }
 }
@@ -376,8 +323,8 @@ export async function execInContainer(
             stdout,
             stderr,
           });
-        } catch {
-          // If we can't inspect, assume success if we got output
+        } catch (inspectErr) {
+          console.warn('[docker] exec.inspect() failed, assuming exit code 0:', inspectErr instanceof Error ? inspectErr.message : inspectErr);
           resolve({ exitCode: 0, stdout, stderr });
         }
       });

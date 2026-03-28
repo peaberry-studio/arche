@@ -38,6 +38,13 @@ export function SessionsPanel({
     [filteredSessions]
   );
 
+  const getIndicatorClassName = (session: WorkspaceSession): string | null => {
+    if (session.status === "busy") return "text-amber-400";
+    if (session.status === "error") return "text-red-400";
+    if (unseenCompletedSessions.has(session.id)) return "text-green-400";
+    return null;
+  };
+
   if (sessions.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center px-4">
@@ -75,39 +82,43 @@ export function SessionsPanel({
             {bucket.label}
           </div>
           <div className="space-y-0.5">
-            {bucket.items.map((session) => (
-              <button
-                key={session.id}
-                type="button"
-                onClick={() => onSelectSession(session.id)}
-                className={cn(
-                  "flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] transition-colors",
-                  "hover:bg-foreground/5",
-                  activeSessionId === session.id
-                    ? "bg-primary/10 text-primary"
-                    : "text-foreground/80"
-                )}
-              >
-                <Circle
-                  size={8}
-                  weight="fill"
+            {bucket.items.map((session) => {
+              const indicatorClassName = getIndicatorClassName(session);
+              const hasIndicator = indicatorClassName !== null;
+
+              return (
+                <button
+                  key={session.id}
+                  type="button"
+                  onClick={() => onSelectSession(session.id)}
                   className={cn(
-                    "shrink-0",
-                    session.status === "busy"
-                      ? "text-amber-400"
-                      : session.status === "error"
-                        ? "text-red-400"
-                        : unseenCompletedSessions.has(session.id)
-                          ? "text-green-400"
-                          : "text-muted-foreground/40"
+                    "group/session flex w-full items-center gap-0 rounded-lg px-2 py-1.5 text-left text-[13px] transition-colors",
+                    "hover:bg-foreground/5",
+                    activeSessionId === session.id
+                      ? "bg-primary/10 text-primary"
+                      : "text-foreground/80"
                   )}
-                />
-                <span className="flex-1 truncate font-medium">{session.title}</span>
-                <span className="shrink-0 text-[11px] text-muted-foreground/60">
-                  {session.updatedAt}
-                </span>
-              </button>
-            ))}
+                >
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "overflow-hidden transition-[width,margin,opacity] duration-200 ease-out",
+                      hasIndicator ? "mr-2 w-2 opacity-100" : "mr-0 w-0 opacity-0"
+                    )}
+                  >
+                    <Circle
+                      size={8}
+                      weight="fill"
+                      className={cn("shrink-0", indicatorClassName ?? "text-transparent")}
+                    />
+                  </span>
+                  <span className="flex-1 truncate font-medium">{session.title}</span>
+                  <span className="max-w-0 shrink-0 overflow-hidden whitespace-nowrap text-[11px] text-muted-foreground/60 opacity-0 transition-all duration-200 group-hover/session:max-w-24 group-hover/session:opacity-100">
+                    {session.updatedAt}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
       ))}
