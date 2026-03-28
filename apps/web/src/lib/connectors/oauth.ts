@@ -51,6 +51,7 @@ function getOAuthStateSecret(): string {
   if (process.env.NODE_ENV === 'production') {
     throw new Error('ARCHE_CONNECTOR_OAUTH_STATE_SECRET is required in production')
   }
+  console.warn('[security] Using insecure development secret for OAuth state. Set ARCHE_CONNECTOR_OAUTH_STATE_SECRET env var.')
   return 'dev-insecure-connector-oauth-state-secret'
 }
 
