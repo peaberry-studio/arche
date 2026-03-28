@@ -362,8 +362,25 @@ export function WorkspaceShell({
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.isComposing) return;
-      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
+      if (!(event.metaKey || event.ctrlKey) || event.shiftKey) return;
+
       const key = event.key.toLowerCase();
+      const isMetaCombo = event.metaKey || event.ctrlKey;
+      const isPlainMetaCombo = isMetaCombo && !event.altKey;
+      const isKeyB = key === "b" || event.code === "KeyB";
+
+      if (isKeyB) {
+        event.preventDefault();
+        if (event.altKey) {
+          setRightCollapsed((prev) => !prev);
+          return;
+        }
+
+        setLeftCollapsed((prev) => !prev);
+        return;
+      }
+
+      if (!isPlainMetaCombo) return;
 
       if (key === ".") {
         event.preventDefault();
