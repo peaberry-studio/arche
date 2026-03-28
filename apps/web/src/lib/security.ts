@@ -6,6 +6,7 @@ export function getSessionPepper(): string {
   if (process.env.NODE_ENV === 'production') {
     throw new Error('ARCHE_SESSION_PEPPER is required in production')
   }
+  console.warn('[security] Using insecure development secret for session pepper. Set ARCHE_SESSION_PEPPER env var.')
   return 'dev-insecure-pepper'
 }
 
