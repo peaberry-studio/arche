@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+const mockGetContainerProxyUrl = vi.fn(() => 'http://docker-socket-proxy:2375')
+vi.mock('@/lib/spawner/config', () => ({
+  getContainerProxyUrl: (...args: unknown[]) => mockGetContainerProxyUrl(...args),
+}))
+
 const mockPrisma = {
   instance: {
     findUnique: vi.fn(),
@@ -345,6 +350,62 @@ describe('service layer', () => {
       const result = await healthService.pingDatabase()
 
       expect(result).toBe(false)
+    })
+
+    it('checkContainerProxy returns true when proxy responds ok', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response('OK', { status: 200 }),
+      )
+
+      const { healthService } = await import('../index')
+      const result = await healthService.checkContainerProxy()
+
+      expect(result).toBe(true)
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://docker-socket-proxy:2375/_ping',
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      )
+      fetchSpy.mockRestore()
+    })
+
+    it('checkContainerProxy returns false when proxy returns non-ok status', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response('Service Unavailable', { status: 503 }),
+      )
+
+      const { healthService } = await import('../index')
+      const result = await healthService.checkContainerProxy()
+
+      expect(result).toBe(false)
+      fetchSpy.mockRestore()
+    })
+
+    it('checkContainerProxy returns false when fetch throws', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(
+        new Error('network error'),
+      )
+
+      const { healthService } = await import('../index')
+      const result = await healthService.checkContainerProxy()
+
+      expect(result).toBe(false)
+      fetchSpy.mockRestore()
+    })
+
+    it('checkContainerProxy uses getContainerProxyUrl', async () => {
+      mockGetContainerProxyUrl.mockReturnValue('http://custom-host:1234')
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response('OK', { status: 200 }),
+      )
+
+      const { healthService } = await import('../index')
+      await healthService.checkContainerProxy()
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://custom-host:1234/_ping',
+        expect.anything(),
+      )
+      fetchSpy.mockRestore()
     })
   })
 })
