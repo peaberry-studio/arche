@@ -45,6 +45,11 @@ module.exports = {
       from: 'bin/node',
       to: 'bin/node',
     },
+    {
+      from: 'bin/opencode-config',
+      to: 'bin/opencode-config',
+      filter: ['**/*'],
+    },
   ],
   mac: {
     category: 'public.app-category.developer-tools',

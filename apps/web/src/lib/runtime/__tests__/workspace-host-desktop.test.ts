@@ -6,10 +6,9 @@ const mockSpawn = vi.fn()
 const mockExecFileSync = vi.fn()
 const mockExistsSync = vi.fn()
 const mockMkdirSync = vi.fn()
+const mockReadFileSync = vi.fn()
 const mockWriteFileSync = vi.fn()
 const mockRandomBytes = vi.fn()
-const mockReadCommonWorkspaceConfig = vi.fn()
-const mockBuildMcpConfigForSlug = vi.fn()
 
 vi.mock('crypto', () => ({
   randomBytes: (...args: unknown[]) => mockRandomBytes(...args),
@@ -23,19 +22,12 @@ vi.mock('child_process', () => ({
 vi.mock('fs', () => ({
   existsSync: (...args: unknown[]) => mockExistsSync(...args),
   mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
+  readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
   writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
 }))
 
 vi.mock('@/lib/runtime/paths', () => ({
   getKbContentRoot: vi.fn(() => '/tmp/arche/kb-content'),
-}))
-
-vi.mock('@/lib/common-workspace-config-store', () => ({
-  readCommonWorkspaceConfig: (...args: unknown[]) => mockReadCommonWorkspaceConfig(...args),
-}))
-
-vi.mock('@/lib/spawner/mcp-config', () => ({
-  buildMcpConfigForSlug: (...args: unknown[]) => mockBuildMcpConfigForSlug(...args),
 }))
 
 vi.mock('@/lib/services', () => ({
@@ -47,6 +39,32 @@ vi.mock('@/lib/services', () => ({
     findStatusBySlug: vi.fn().mockResolvedValue(null),
     findActiveInstances: vi.fn().mockResolvedValue([]),
   },
+  userService: {
+    findIdentityBySlug: vi.fn().mockResolvedValue({
+      id: 'local',
+      slug: 'local',
+      email: 'local@arche.local',
+    }),
+  },
+}))
+
+vi.mock('@/lib/common-workspace-config-store', () => ({
+  readCommonWorkspaceConfig: vi.fn().mockResolvedValue({
+    ok: true,
+    content: JSON.stringify({
+      $schema: 'https://opencode.ai/config.json',
+      default_agent: 'assistant',
+      agent: {
+        assistant: {
+          mode: 'primary',
+          tools: { task: true },
+        },
+      },
+    }),
+    hash: 'hash',
+    path: '/tmp/arche/kb-config/CommonWorkspaceConfig.json',
+  }),
+  readConfigRepoFile: vi.fn().mockResolvedValue({ ok: false }),
 }))
 
 vi.mock('@/lib/spawner/config', () => ({
@@ -60,6 +78,14 @@ vi.mock('@/lib/spawner/crypto', () => ({
 
 vi.mock('@/lib/opencode/providers', () => ({
   syncProviderAccessForInstance: vi.fn().mockResolvedValue({ ok: true }),
+}))
+
+vi.mock('@/lib/spawner/mcp-config', () => ({
+  buildMcpConfigForSlug: vi.fn().mockResolvedValue(null),
+}))
+
+vi.mock('@/lib/spawner/runtime-config-hash', () => ({
+  getRuntimeConfigHashForSlug: vi.fn().mockResolvedValue({ ok: true, hash: 'runtime-hash' }),
 }))
 
 const mockFetch = vi.fn()
@@ -146,18 +172,17 @@ describe('desktopWorkspaceHost', () => {
     vi.stubGlobal('fetch', mockFetch)
     process.env = { ...originalEnv }
     delete process.env.ARCHE_OPENCODE_BIN
+    delete process.env.ARCHE_OPENCODE_CONFIG_DIR
     process.env.ARCHE_WORKSPACE_AGENT_BIN = '/mock/bin/workspace-agent'
     delete process.env.ARCHE_DESKTOP_WEB_PORT
     delete process.env.ARCHE_DESKTOP_START_TIMEOUT_MS
     delete process.env.ARCHE_DESKTOP_START_INTERVAL_MS
-    delete process.env.ARCHE_OPENCODE_CONFIG_DIR
     delete process.env.OPENCODE_SERVER_PASSWORD
     // @ts-expect-error test isolation
     process.resourcesPath = undefined
     mockExistsSync.mockImplementation((target: string) => target === '/mock/bin/workspace-agent')
+    mockReadFileSync.mockReturnValue('')
     mockRandomBytes.mockReturnValue({ toString: () => 'generated-password' })
-    mockReadCommonWorkspaceConfig.mockResolvedValue({ ok: false, error: 'not_found' })
-    mockBuildMcpConfigForSlug.mockResolvedValue(null)
     mockHealthyFetch()
   })
 
@@ -177,6 +202,18 @@ describe('desktopWorkspaceHost', () => {
 
     expect(result).toEqual({ ok: true, status: 'started' })
     expect(mockSpawn).toHaveBeenCalledTimes(2)
+  })
+
+  it('stores the applied runtime config hash after successful startup', async () => {
+    const opencodeChild = makeChildProcess()
+    const workspaceAgentChild = makeChildProcess()
+    mockSpawn.mockReturnValueOnce(opencodeChild).mockReturnValueOnce(workspaceAgentChild)
+
+    const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
+    await desktopWorkspaceHost.start('local', 'user-1')
+
+    const { instanceService } = await import('@/lib/services')
+    expect(instanceService.setRunning).toHaveBeenCalledWith('local', 'runtime-hash')
   })
 
   it('spawns opencode with serve command and workspace-agent with loopback addr', async () => {
@@ -233,13 +270,13 @@ describe('desktopWorkspaceHost', () => {
     )
   })
 
-  it('passes OPENCODE_CONFIG_DIR to opencode when configured', async () => {
+  it('passes OPENCODE_CONFIG_DIR through to opencode when configured', async () => {
     const opencodeChild = makeChildProcess()
     const workspaceAgentChild = makeChildProcess()
     mockSpawn.mockReturnValueOnce(opencodeChild).mockReturnValueOnce(workspaceAgentChild)
-    process.env.ARCHE_OPENCODE_CONFIG_DIR = '/mock/opencode-config'
+    process.env.ARCHE_OPENCODE_CONFIG_DIR = '/tmp/opencode-config'
     mockExistsSync.mockImplementation(
-      (target: string) => target === '/mock/bin/workspace-agent' || target === '/mock/opencode-config',
+      (target: string) => target === '/mock/bin/workspace-agent' || target === '/tmp/opencode-config',
     )
 
     const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
@@ -250,8 +287,29 @@ describe('desktopWorkspaceHost', () => {
       'opencode',
       expect.any(Array),
       expect.objectContaining({
-        env: expect.objectContaining({ OPENCODE_CONFIG_DIR: '/mock/opencode-config' }),
+        env: expect.objectContaining({ OPENCODE_CONFIG_DIR: '/tmp/opencode-config' }),
       }),
+    )
+  })
+
+  it('writes AGENTS.md runtime instructions when available', async () => {
+    const opencodeChild = makeChildProcess()
+    const workspaceAgentChild = makeChildProcess()
+    mockSpawn.mockReturnValueOnce(opencodeChild).mockReturnValueOnce(workspaceAgentChild)
+
+    const { readConfigRepoFile } = await import('@/lib/common-workspace-config-store')
+    vi.mocked(readConfigRepoFile).mockResolvedValue({
+      ok: true,
+      content: '# AGENTS\n\nUse these guardrails.',
+    })
+
+    const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
+    await desktopWorkspaceHost.start('local', 'user-1')
+
+    expect(mockWriteFileSync).toHaveBeenCalledWith(
+      expect.stringContaining('AGENTS.md'),
+      expect.stringContaining('## Workspace User Identity'),
+      'utf-8',
     )
   })
 
@@ -286,43 +344,75 @@ describe('desktopWorkspaceHost', () => {
     )
   })
 
-  it('merges workspace config and always enables email_draft in desktop opencode config', async () => {
+  it('applies runtime config transforms and workspace permission guards', async () => {
     const opencodeChild = makeChildProcess()
     const workspaceAgentChild = makeChildProcess()
     mockSpawn.mockReturnValueOnce(opencodeChild).mockReturnValueOnce(workspaceAgentChild)
-    mockReadCommonWorkspaceConfig.mockResolvedValue({
+
+    const { readCommonWorkspaceConfig } = await import('@/lib/common-workspace-config-store')
+    vi.mocked(readCommonWorkspaceConfig).mockResolvedValue({
       ok: true,
       content: JSON.stringify({
-        defaultAgent: 'assistant',
+        $schema: 'https://opencode.ai/config.json',
+        default_agent: 'assistant',
         agent: {
           assistant: {
-            tools: {
-              web_search: true,
-            },
+            mode: 'primary',
+            tools: { task: true },
+          },
+          linear: {
+            mode: 'subagent',
+            prompt: 'Handle Linear.',
+            tools: { task: true, 'arche_*': false, 'arche_linear_admin111_*': true },
           },
         },
       }),
       hash: 'hash',
-      path: '/kb-config#CommonWorkspaceConfig.json',
+      path: '/tmp/arche/kb-config/CommonWorkspaceConfig.json',
+    })
+
+    const { buildMcpConfigForSlug } = await import('@/lib/spawner/mcp-config')
+    vi.mocked(buildMcpConfigForSlug).mockResolvedValue({
+      $schema: 'https://opencode.ai/config.json',
+      mcp: {
+        arche_linear_user999: {
+          type: 'remote',
+          url: 'https://mcp.linear.app/mcp',
+          enabled: true,
+          headers: { Authorization: 'Bearer tok' },
+          oauth: false,
+        },
+      },
     })
 
     const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
     await desktopWorkspaceHost.start('local', 'user-1')
 
-    const opencodeConfigCall = mockWriteFileSync.mock.calls.find((call) =>
-      String(call[0]).includes('opencode.json'),
+    const configCall = mockWriteFileSync.mock.calls.find(
+      (call: unknown[]) => typeof call[0] === 'string' && String(call[0]).endsWith('/opencode.json'),
     )
-    const configRaw = opencodeConfigCall?.[1]
-    expect(typeof configRaw).toBe('string')
-
-    const config = JSON.parse(String(configRaw)) as {
-      provider: { openai: { options: { baseURL: string } } }
-      agent: { assistant: { tools: Record<string, boolean> } }
+    const runtimeConfig = JSON.parse(String(configCall?.[1])) as {
+      agent?: Record<string, { prompt?: string; tools?: Record<string, boolean> }>
+      mcp?: Record<string, unknown>
+      permission?: {
+        edit?: Record<string, string>
+        bash?: Record<string, string>
+      }
+      provider?: {
+        openai?: { options?: { baseURL?: string } }
+      }
     }
 
-    expect(config.provider.openai.options.baseURL).toBe('http://127.0.0.1:3000/api/internal/providers/openai')
-    expect(config.agent.assistant.tools.email_draft).toBe(true)
-    expect(config.agent.assistant.tools.web_search).toBe(true)
+    expect(runtimeConfig.provider?.openai?.options?.baseURL).toBe(
+      'http://127.0.0.1:3000/api/internal/providers/openai',
+    )
+    expect(runtimeConfig.permission?.edit?.['opencode.json']).toBe('deny')
+    expect(runtimeConfig.permission?.bash?.['npm install*']).toBe('deny')
+    expect(runtimeConfig.mcp?.arche_linear_user999).toBeDefined()
+    expect(runtimeConfig.agent?.assistant?.tools?.email_draft).toBe(true)
+    expect(runtimeConfig.agent?.linear?.tools?.['arche_linear_user999_*']).toBe(true)
+    expect(runtimeConfig.agent?.linear?.tools?.['arche_linear_admin111_*']).toBeUndefined()
+    expect(runtimeConfig.agent?.linear?.prompt).toContain('## Delegation constraint')
   })
 
   it('returns already_running when workspace is already started', async () => {
@@ -507,7 +597,7 @@ describe('desktopWorkspaceHost', () => {
     expect(decoded).toBe('opencode:generated-password')
   })
 
-  it('syncs providers after both readiness checks pass', async () => {
+  it('syncs providers after both readiness checks pass for the workspace owner', async () => {
     const opencodeChild = makeChildProcess()
     const workspaceAgentChild = makeChildProcess()
     mockSpawn.mockReturnValueOnce(opencodeChild).mockReturnValueOnce(workspaceAgentChild)
@@ -522,7 +612,7 @@ describe('desktopWorkspaceHost', () => {
         authHeader: expect.stringMatching(/^Basic /),
       },
       slug: 'local',
-      userId: 'user-1',
+      userId: 'local',
     })
   })
 
@@ -583,12 +673,9 @@ describe('binary resolution', () => {
     process.env = { ...originalEnv }
     delete process.env.ARCHE_OPENCODE_BIN
     delete process.env.ARCHE_WORKSPACE_AGENT_BIN
-    delete process.env.ARCHE_OPENCODE_CONFIG_DIR
     // @ts-expect-error test isolation
     process.resourcesPath = undefined
     mockExistsSync.mockReturnValue(false)
-    mockReadCommonWorkspaceConfig.mockResolvedValue({ ok: false, error: 'not_found' })
-    mockBuildMcpConfigForSlug.mockResolvedValue(null)
   })
 
   afterEach(() => {
@@ -703,7 +790,6 @@ describe('desktop instance reconciliation', () => {
     delete process.env.ARCHE_DESKTOP_WEB_PORT
     delete process.env.ARCHE_DESKTOP_START_TIMEOUT_MS
     delete process.env.ARCHE_DESKTOP_START_INTERVAL_MS
-    delete process.env.ARCHE_OPENCODE_CONFIG_DIR
     delete process.env.OPENCODE_SERVER_PASSWORD
     // @ts-expect-error test isolation
     process.resourcesPath = undefined
@@ -711,8 +797,6 @@ describe('desktop instance reconciliation', () => {
     globalThis.archeDesktopCleanupRegistered = undefined
     mockExistsSync.mockImplementation((target: string) => target === '/mock/bin/workspace-agent')
     mockRandomBytes.mockReturnValue({ toString: () => 'generated-password' })
-    mockReadCommonWorkspaceConfig.mockResolvedValue({ ok: false, error: 'not_found' })
-    mockBuildMcpConfigForSlug.mockResolvedValue(null)
     mockHealthyFetch()
   })
 

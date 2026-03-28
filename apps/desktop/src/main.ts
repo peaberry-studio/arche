@@ -229,6 +229,7 @@ function createNextSupervisor(): RuntimeSupervisor {
       ARCHE_RUNTIME_MODE: 'desktop',
       ARCHE_DESKTOP_NEXT_DIST_DIR: '.next-desktop',
       ARCHE_DESKTOP_WEB_PORT: String(getPort()),
+      ARCHE_CONNECTOR_GATEWAY_BASE_URL: `http://${LOOPBACK_HOST}:${getPort()}/api/internal/mcp/connectors`,
       PORT: String(getPort()),
       HOSTNAME: LOOPBACK_HOST,
     },
@@ -309,7 +310,7 @@ app.whenReady().then(async () => {
   if (missingRuntimeBinaries.length > 0) {
     dialog.showErrorBox(
       'Arche',
-      `Missing packaged runtime binaries: ${missingRuntimeBinaries.join(', ')}.`,
+      `Missing packaged runtime resources: ${missingRuntimeBinaries.join(', ')}.`,
     )
     app.quit()
     return

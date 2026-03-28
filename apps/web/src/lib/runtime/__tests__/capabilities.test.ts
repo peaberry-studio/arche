@@ -44,7 +44,7 @@ describe('runtime capabilities', () => {
     expect(caps.csrf).toBe(true)
     expect(caps.twoFactor).toBe(false)
     expect(caps.teamManagement).toBe(false)
-    expect(caps.connectors).toBe(false)
+    expect(caps.connectors).toBe(true)
     expect(caps.kickstart).toBe(true)
   })
 

@@ -11,6 +11,7 @@ import {
   injectSelfDelegationGuards,
   remapAgentConnectorTools,
 } from './agent-config-transforms'
+import { withWorkspaceIdentity } from './runtime-config-utils'
 import { getRuntimeConfigHashForSlug } from './runtime-config-hash'
 
 export type StartResult =
@@ -30,17 +31,6 @@ function getErrorDetail(err: unknown): string | undefined {
   }
 
   return error.json?.message ?? error.message ?? error.reason
-}
-
-function withWorkspaceIdentity(agentsMd: string, identity: { slug: string; email?: string | null }): string {
-  const emailLine = identity.email ? `- Email: ${identity.email}\n` : ''
-  const block =
-    `\n\n## Workspace User Identity\n\n` +
-    `Use this identity as the primary user context for this workspace session.\n\n` +
-    `- Slug: ${identity.slug}\n` +
-    emailLine
-
-  return agentsMd + block
 }
 
 export async function startInstance(slug: string, userId: string): Promise<StartResult> {
