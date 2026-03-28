@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 
 import { auditEvent, createSession, getCookieDomain, SESSION_COOKIE_NAME, shouldUseSecureCookies, verifyPassword } from '@/lib/auth'
+import { getClientIp } from '@/lib/http'
+import { checkRateLimit } from '@/lib/rate-limit'
 import { hashSessionToken, newSessionToken } from '@/lib/security'
 import { userService } from '@/lib/services'
 
@@ -24,6 +26,15 @@ export async function POST(request: Request) {
 
   if (!email || !password) {
     return NextResponse.json({ ok: false, error: 'invalid_request' }, { status: 400 })
+  }
+
+  const ip = getClientIp(request.headers) ?? 'unknown'
+  const limit = checkRateLimit(`login:${ip}:${email}`, 5, 15 * 60 * 1000)
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { ok: false, error: 'rate_limited', retryAfter: Math.ceil((limit.resetAt - Date.now()) / 1000) },
+      { status: 429 }
+    )
   }
 
   const user = await userService.findLoginByEmail(email)
