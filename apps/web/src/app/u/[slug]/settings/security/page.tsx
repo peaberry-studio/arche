@@ -21,6 +21,10 @@ export default async function SecuritySettingsPage({
   if (caps.twoFactor && (!status || !status.ok)) redirect('/login')
 
   const { enabled, verifiedAt, recoveryCodesRemaining } = normalizeTwoFactorStatus(status)
+  const releaseVersion =
+    process.env.ARCHE_RELEASE_VERSION?.trim() ||
+    process.env.ARCHE_GIT_SHA?.trim() ||
+    'dev'
 
   return (
     <SettingsPageContent
@@ -28,6 +32,7 @@ export default async function SecuritySettingsPage({
       enabled={enabled}
       verifiedAt={verifiedAt}
       recoveryCodesRemaining={recoveryCodesRemaining}
+      releaseVersion={releaseVersion}
     />
   )
 }
