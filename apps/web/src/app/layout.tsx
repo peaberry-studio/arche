@@ -66,12 +66,11 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const nonce = (await headers()).get('x-nonce') ?? undefined;
+  await headers();
 
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        nonce={nonce}
         className={`${geistSans.variable} ${geistMono.variable} ${spaceGrotesk.variable} ${instrumentSerif.variable} ${libreBaskerville.variable} antialiased`}
       >
         {children}
