@@ -46,17 +46,21 @@ describe('ChatPanel', () => {
     expect(html).not.toContain('OLD CHAT')
   })
 
-  it('shows a busy indicator on session tabs with running work', () => {
+  it('shows only the active session title when session tabs are available', () => {
     const html = renderChatPanel({
+      sessions: [
+        { id: 's1', title: 'Main conversation', status: 'idle', updatedAt: 'now', agent: 'OpenCode' },
+        { id: 's2', title: 'Linear subagent', status: 'active', updatedAt: 'now', agent: 'OpenCode' },
+      ],
       sessionTabs: [
         { id: 's1', title: 'Main', depth: 0, status: 'idle' },
-        { id: 's2', title: 'Background', depth: 0, status: 'busy' },
+        { id: 's2', title: 'Linear', depth: 1, status: 'busy' },
       ],
-      activeSessionId: 's1',
+      activeSessionId: 's2',
     })
 
-    expect(html).toContain('Background')
-    expect(html).toContain('animate-spin text-primary')
+    expect(html).toContain('Linear subagent')
+    expect(html).not.toContain('Main conversation')
   })
 
   it('renders connector tool calls with friendly labels', () => {
@@ -231,5 +235,47 @@ describe('ChatPanel', () => {
     expect(html).toContain('Done with issues')
     expect(html).not.toContain('View')
     expect(html).not.toContain('agent=')
+  })
+
+  it('renders a dedicated email draft card for email_draft tool output', () => {
+    const html = renderChatPanel({
+      messages: [
+        {
+          id: 'm1',
+          sessionId: 's1',
+          role: 'assistant',
+          content: '',
+          timestamp: 'now',
+          parts: [
+            {
+              type: 'tool',
+              id: 'tool-email-1',
+              name: 'email_draft',
+              state: {
+                status: 'completed',
+                input: {},
+                output: JSON.stringify({
+                  ok: true,
+                  format: 'email-draft',
+                  subject: 'Follow-up on Q2 proposal',
+                  body: 'Hi Ana,\n\nThanks for your time today.',
+                  to: ['ana@example.com'],
+                }),
+                title: 'email draft',
+              },
+            },
+            {
+              type: 'text',
+              text: 'If you want, I can make it more formal.',
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(html).toContain('Email draft')
+    expect(html).toContain('Follow-up on Q2 proposal')
+    expect(html).toContain('ana@example.com')
+    expect(html).toContain('If you want, I can make it more formal.')
   })
 })

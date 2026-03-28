@@ -2,27 +2,43 @@ import { spawn, type ChildProcess } from 'child_process'
 import { writeFileSync } from 'fs'
 import { join } from 'path'
 
+import { readCommonWorkspaceConfig, readConfigRepoFile } from '@/lib/common-workspace-config-store'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
-import type { WorkspaceHost, WorkspaceHostConnection, WorkspaceHostStatus } from '@/lib/runtime/types'
 import { getKbContentRoot } from '@/lib/runtime/paths'
-import { instanceService } from '@/lib/services'
-import { getWorkspaceAgentPort } from '@/lib/spawner/config'
-import { decryptPassword, encryptPassword } from '@/lib/spawner/crypto'
-
+import {
+  checkOpenCodeHealthy,
+  waitForHttpReady,
+  waitForOpenCodeHealthy,
+} from '@/lib/runtime/desktop/health'
 import { findAvailablePort } from '@/lib/runtime/desktop/network'
-import { checkOpenCodeHealthy, waitForHttpReady, waitForOpenCodeHealthy } from '@/lib/runtime/desktop/health'
-import { getArcheOpencodeDataDir, getWorkspaceDir } from '@/lib/runtime/desktop/workspace-dirs'
 import {
   DEFAULT_USERNAME,
   LOOPBACK_HOST,
   canSpawnWorkspaceAgent,
   createSafeEnv,
   generateDesktopPassword,
+  getDesktopOpencodeConfigDir,
   getDesktopProviderGatewayConfig,
   getOpencodeBinary,
   getWorkspaceAgentBinary,
   makeAuthHeader,
 } from '@/lib/runtime/desktop/config'
+import { getArcheOpencodeDataDir, getWorkspaceDir } from '@/lib/runtime/desktop/workspace-dirs'
+import type { WorkspaceHost, WorkspaceHostConnection, WorkspaceHostStatus } from '@/lib/runtime/types'
+import { instanceService, userService } from '@/lib/services'
+import {
+  injectAlwaysOnAgentTools,
+  injectSelfDelegationGuards,
+  remapAgentConnectorTools,
+} from '@/lib/spawner/agent-config-transforms'
+import { getWorkspaceAgentPort } from '@/lib/spawner/config'
+import { decryptPassword, encryptPassword } from '@/lib/spawner/crypto'
+import { buildMcpConfigForSlug } from '@/lib/spawner/mcp-config'
+import {
+  withWorkspaceIdentity,
+  withWorkspacePermissionGuards,
+} from '@/lib/spawner/runtime-config-utils'
+import { getRuntimeConfigHashForSlug } from '@/lib/spawner/runtime-config-hash'
 
 // Re-export for consumers that import from this module
 export { getOpencodeBinary, getWorkspaceAgentBinary }
@@ -126,6 +142,61 @@ function getDesktopRuntimePortFromEnv(): number {
   const raw = process.env[DESKTOP_OPENCODE_PORT_ENV]
   const parsed = raw ? Number(raw) : Number.NaN
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_PORT
+}
+
+type DesktopRuntimeArtifacts = {
+  owner: { id: string; slug: string; email: string } | null
+  opencodeConfigContent?: string
+  agentsMd?: string
+}
+
+async function buildDesktopRuntimeArtifacts(slug: string): Promise<DesktopRuntimeArtifacts> {
+  const owner = await userService.findIdentityBySlug(slug).catch(() => null)
+
+  let baseConfig: Record<string, unknown> = {}
+  const commonConfigResult = await readCommonWorkspaceConfig().catch(() => null)
+  if (commonConfigResult?.ok) {
+    try {
+      baseConfig = JSON.parse(commonConfigResult.content)
+    } catch {
+      console.warn('[desktop-runtime] Failed to parse CommonWorkspaceConfig')
+    }
+  }
+
+  try {
+    const mcpConfig = await buildMcpConfigForSlug(slug)
+    if (mcpConfig?.mcp && Object.keys(mcpConfig.mcp).length > 0) {
+      const userMcpKeys = new Set(Object.keys(mcpConfig.mcp))
+      baseConfig = remapAgentConnectorTools(baseConfig, userMcpKeys)
+      baseConfig = { ...baseConfig, mcp: mcpConfig.mcp }
+    } else {
+      baseConfig = remapAgentConnectorTools(baseConfig, new Set())
+    }
+  } catch {
+    console.warn('[desktop-runtime] Failed to build MCP config')
+  }
+
+  baseConfig = injectAlwaysOnAgentTools(baseConfig)
+  const guardedConfig = injectSelfDelegationGuards(baseConfig)
+  const mergedConfig = withWorkspacePermissionGuards({
+    ...guardedConfig,
+    ...getDesktopProviderGatewayConfig(),
+  })
+
+  let agentsMd: string | undefined
+  const agentsResult = await readConfigRepoFile('AGENTS.md').catch(() => null)
+  if (agentsResult?.ok) {
+    agentsMd = withWorkspaceIdentity(agentsResult.content, {
+      slug: owner?.slug ?? slug,
+      email: owner?.email,
+    })
+  }
+
+  return {
+    owner,
+    opencodeConfigContent: JSON.stringify(mergedConfig),
+    ...(agentsMd ? { agentsMd } : {}),
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -297,6 +368,9 @@ export const desktopWorkspaceHost: WorkspaceHost = {
       return { ok: true, status: 'already_running' }
     }
 
+    const runtimeHashResult = await getRuntimeConfigHashForSlug(slug)
+    const appliedConfigSha = runtimeHashResult.ok ? runtimeHashResult.hash : null
+
     const password = process.env.OPENCODE_SERVER_PASSWORD || generateDesktopPassword()
     const encryptedPassword = encryptPassword(password)
     const archeDataDir = getArcheOpencodeDataDir()
@@ -305,15 +379,23 @@ export const desktopWorkspaceHost: WorkspaceHost = {
     const authHeader = makeAuthHeader(DEFAULT_USERNAME, password)
     const preferredAgentPort = getWorkspaceAgentPort()
     const safeEnv = createSafeEnv()
+    const opencodeConfigDir = getDesktopOpencodeConfigDir()
 
     const port = await findAvailablePort(DEFAULT_PORT)
     const agentPort = await findAvailablePort(preferredAgentPort, [port])
 
+    const artifacts = await buildDesktopRuntimeArtifacts(slug)
+    const opencodeConfigContent = artifacts.opencodeConfigContent ?? JSON.stringify(getDesktopProviderGatewayConfig())
+
     writeFileSync(
       join(workspaceDir, 'opencode.json'),
-      JSON.stringify(getDesktopProviderGatewayConfig()),
+      opencodeConfigContent,
       'utf-8',
     )
+
+    if (artifacts.agentsMd) {
+      writeFileSync(join(workspaceDir, 'AGENTS.md'), artifacts.agentsMd, 'utf-8')
+    }
 
     await instanceService.upsertStarting(slug, encryptedPassword)
 
@@ -325,6 +407,7 @@ export const desktopWorkspaceHost: WorkspaceHost = {
           ...safeEnv,
           OPENCODE_SERVER_PASSWORD: password,
           OPENCODE_SERVER_USERNAME: DEFAULT_USERNAME,
+          ...(opencodeConfigDir ? { OPENCODE_CONFIG_DIR: opencodeConfigDir } : {}),
           HOME: archeDataDir,
           XDG_DATA_HOME: join(archeDataDir, '.local', 'share'),
           XDG_STATE_HOME: join(archeDataDir, '.local', 'state'),
@@ -415,13 +498,14 @@ export const desktopWorkspaceHost: WorkspaceHost = {
         workspaceAgentProcess.ready = true
       }
 
+      const syncUserId = artifacts.owner?.id ?? userId
       const syncResult = await syncProviderAccessForInstance({
         instance: {
           baseUrl: `http://${LOOPBACK_HOST}:${port}`,
           authHeader,
         },
         slug,
-        userId,
+        userId: syncUserId,
       })
       if (!syncResult.ok) {
         console.error('[desktop] Failed to sync OpenCode providers', syncResult.error)
@@ -435,7 +519,7 @@ export const desktopWorkspaceHost: WorkspaceHost = {
       runtime.state = 'running'
       runtime.lastErrorDetail = null
       logDesktopRuntime(slug, 'runtime', 'state_changed', 'running')
-      await instanceService.setRunning(slug, null)
+      await instanceService.setRunning(slug, appliedConfigSha)
 
       return { ok: true, status: 'started' }
     } catch (error) {

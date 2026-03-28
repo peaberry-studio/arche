@@ -2,6 +2,14 @@ import { randomBytes } from 'crypto'
 import { existsSync } from 'fs'
 import { join } from 'path'
 
+import { readCommonWorkspaceConfig } from '@/lib/common-workspace-config-store'
+import {
+  injectAlwaysOnAgentTools,
+  injectSelfDelegationGuards,
+  remapAgentConnectorTools,
+} from '@/lib/spawner/agent-config-transforms'
+import { buildMcpConfigForSlug } from '@/lib/spawner/mcp-config'
+
 const DEFAULT_NEXT_PORT = 3000
 const DEFAULT_USERNAME = 'opencode'
 const LOOPBACK_HOST = '127.0.0.1'
@@ -24,6 +32,79 @@ export function getDesktopProviderGatewayConfig(): Record<string, unknown> {
       opencode: { options: { baseURL: `${gateway}/opencode` } },
     },
   }
+}
+
+function resolveFallbackDesktopOpencodeConfigDir(): string | null {
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath
+  if (resourcesPath) {
+    const bundledPath = join(resourcesPath, 'opencode-config')
+    if (existsSync(bundledPath)) {
+      return bundledPath
+    }
+  }
+
+  const candidates = [
+    join(process.cwd(), 'infra', 'workspace-image', 'opencode-config'),
+    join(process.cwd(), '..', '..', 'infra', 'workspace-image', 'opencode-config'),
+  ]
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate
+    }
+  }
+
+  return null
+}
+
+export function getDesktopOpencodeConfigDir(): string | null {
+  const explicitPath = process.env.ARCHE_OPENCODE_CONFIG_DIR
+  if (explicitPath && existsSync(explicitPath)) {
+    return explicitPath
+  }
+
+  return resolveFallbackDesktopOpencodeConfigDir()
+}
+
+function parseJsonConfig(content: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(content)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed
+    }
+  } catch {}
+
+  return {}
+}
+
+export async function buildDesktopOpencodeConfig(slug: string): Promise<Record<string, unknown>> {
+  const providerGatewayConfig = getDesktopProviderGatewayConfig()
+
+  let baseConfig: Record<string, unknown> = {}
+
+  const commonConfigResult = await readCommonWorkspaceConfig()
+  if (commonConfigResult.ok) {
+    baseConfig = parseJsonConfig(commonConfigResult.content)
+  }
+
+  try {
+    const mcpConfig = await buildMcpConfigForSlug(slug)
+    if (mcpConfig?.mcp && Object.keys(mcpConfig.mcp).length > 0) {
+      const userMcpKeys = new Set(Object.keys(mcpConfig.mcp))
+      baseConfig = remapAgentConnectorTools(baseConfig, userMcpKeys)
+      baseConfig = { ...baseConfig, mcp: mcpConfig.mcp }
+    } else {
+      baseConfig = remapAgentConnectorTools(baseConfig, new Set())
+    }
+  } catch {
+    console.warn('[desktop-runtime] Config build failed')
+    baseConfig = remapAgentConnectorTools(baseConfig, new Set())
+  }
+
+  baseConfig = injectAlwaysOnAgentTools(baseConfig)
+  const guardedConfig = injectSelfDelegationGuards(baseConfig)
+
+  return { ...guardedConfig, ...providerGatewayConfig }
 }
 
 export function makeAuthHeader(username: string, password: string): string {

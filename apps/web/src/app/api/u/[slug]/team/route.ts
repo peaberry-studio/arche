@@ -51,11 +51,17 @@ function toTeamUserListItem(user: {
 
 export const GET = withAuth<TeamListResponse | { error: string }>(
   { csrf: false },
-  async (request: NextRequest) => {
+  async (request: NextRequest, { user }) => {
     void request
 
     const denied = requireCapability('teamManagement')
-    if (denied) return denied
+    if (denied) {
+      const currentUser = await userService.findTeamMemberById(user.id)
+
+      return NextResponse.json({
+        users: currentUser ? [toTeamUserListItem(currentUser)] : [],
+      })
+    }
 
     const users = await userService.findTeamMembers()
 

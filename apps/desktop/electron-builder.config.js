@@ -29,6 +29,11 @@ module.exports = {
       filter: ['**/*'],
     },
     {
+      from: '../../infra/workspace-image/opencode-config',
+      to: 'opencode-config',
+      filter: ['**/*'],
+    },
+    {
       from: 'bin/opencode',
       to: 'bin/opencode',
     },
@@ -39,6 +44,11 @@ module.exports = {
     {
       from: 'bin/node',
       to: 'bin/node',
+    },
+    {
+      from: 'bin/opencode-config',
+      to: 'bin/opencode-config',
+      filter: ['**/*'],
     },
   ],
   mac: {

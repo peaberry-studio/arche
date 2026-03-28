@@ -362,8 +362,25 @@ export function WorkspaceShell({
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.isComposing) return;
-      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
+      if (!(event.metaKey || event.ctrlKey) || event.shiftKey) return;
+
       const key = event.key.toLowerCase();
+      const isMetaCombo = event.metaKey || event.ctrlKey;
+      const isPlainMetaCombo = isMetaCombo && !event.altKey;
+      const isKeyB = key === "b" || event.code === "KeyB";
+
+      if (isKeyB) {
+        event.preventDefault();
+        if (event.altKey) {
+          setRightCollapsed((prev) => !prev);
+          return;
+        }
+
+        setLeftCollapsed((prev) => !prev);
+        return;
+      }
+
+      if (!isPlainMetaCombo) return;
 
       if (key === ".") {
         event.preventDefault();
@@ -1179,47 +1196,47 @@ export function WorkspaceShell({
             className="flex min-w-0 flex-1 items-stretch justify-center"
             style={{ minWidth: minCenterWidth }}
           >
-            <div className="flex h-full w-full max-w-[800px] flex-col overflow-hidden">
-            <ChatPanel
-              key={workspace.activeSessionId ?? "no-session"}
-              slug={slug}
-              attachmentsEnabled={workspaceAgentEnabled}
-              sessions={uiSessions}
-              messages={uiMessages}
-              activeSessionId={workspace.activeSessionId}
-              isStartingNewSession={workspace.isStartingNewSession}
-              sessionTabs={activeSessionTabs}
-              openFilePaths={openFilePaths}
-              onCloseSession={handleCloseSession}
-              onRenameSession={handleRenameSession}
-              onSelectSessionTab={handleSelectSessionTab}
-              onOpenFile={handleOpenFile}
-              onShowContext={() => {
-                setRightCollapsed(false);
-                setRightTab("preview");
-              }}
-              onSendMessage={workspace.sendMessage}
-              onAbortMessage={workspace.abortSession}
-              isSending={workspace.isSending}
-              models={workspace.models}
-              agentDefaultModel={workspace.agentDefaultModel}
-              selectedModel={workspace.selectedModel}
-              hasManualModelSelection={workspace.hasManualModelSelection}
-              onSelectModel={workspace.setSelectedModel}
-              activeAgentName={workspace.activeAgentName}
-              isReadOnly={isInspectingSubagentSession}
-              onReturnToMainConversation={
-                activeRootSessionId
-                  ? () => workspace.selectSession(activeRootSessionId)
-                  : undefined
-              }
-              pendingInsert={
-                pendingInsert?.sessionId === workspace.activeSessionId
-                  ? pendingInsert.value
-                  : null
-              }
-              onPendingInsertConsumed={handlePendingInsertConsumed}
-            />
+            <div className="flex h-full w-full min-w-0 flex-col overflow-hidden">
+              <ChatPanel
+                key={workspace.activeSessionId ?? "no-session"}
+                slug={slug}
+                attachmentsEnabled={workspaceAgentEnabled}
+                sessions={uiSessions}
+                messages={uiMessages}
+                activeSessionId={workspace.activeSessionId}
+                isStartingNewSession={workspace.isStartingNewSession}
+                sessionTabs={activeSessionTabs}
+                openFilePaths={openFilePaths}
+                onCloseSession={handleCloseSession}
+                onRenameSession={handleRenameSession}
+                onSelectSessionTab={handleSelectSessionTab}
+                onOpenFile={handleOpenFile}
+                onShowContext={() => {
+                  setRightCollapsed(false);
+                  setRightTab("preview");
+                }}
+                onSendMessage={workspace.sendMessage}
+                onAbortMessage={workspace.abortSession}
+                isSending={workspace.isSending}
+                models={workspace.models}
+                agentDefaultModel={workspace.agentDefaultModel}
+                selectedModel={workspace.selectedModel}
+                hasManualModelSelection={workspace.hasManualModelSelection}
+                onSelectModel={workspace.setSelectedModel}
+                activeAgentName={workspace.activeAgentName}
+                isReadOnly={isInspectingSubagentSession}
+                onReturnToMainConversation={
+                  activeRootSessionId
+                    ? () => workspace.selectSession(activeRootSessionId)
+                    : undefined
+                }
+                pendingInsert={
+                  pendingInsert?.sessionId === workspace.activeSessionId
+                    ? pendingInsert.value
+                    : null
+                }
+                onPendingInsertConsumed={handlePendingInsertConsumed}
+              />
             </div>
           </div>
 
