@@ -13,6 +13,21 @@ import { getPublicBaseUrl } from '@/lib/http'
 import { getSession } from '@/lib/runtime/session'
 import { connectorService } from '@/lib/services'
 
+const KNOWN_OAUTH_ERRORS = new Set([
+  'access_denied',
+  'invalid_state',
+  'expired_state',
+  'missing_code',
+  'connector_not_found',
+  'unauthorized',
+  'forbidden',
+])
+
+function normalizeOAuthError(error: string): string {
+  if (KNOWN_OAUTH_ERRORS.has(error)) return error
+  return 'oauth_failed'
+}
+
 function buildRedirect(baseUrl: string, slug: string, status: 'success' | 'error', message?: string): URL {
   const url = new URL(`/u/${slug}/connectors`, baseUrl)
   url.searchParams.set('oauth', status)
@@ -59,7 +74,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         error: providerError,
       },
     })
-    return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'error', providerError))
+    return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'error', normalizeOAuthError(providerError)))
   }
 
   if (!code) {
@@ -132,7 +147,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         error: message,
       },
     })
-    return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'error', message))
+    console.error('[oauth/callback] exchange failed:', message)
+    return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'error', 'oauth_failed'))
   }
 
   return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'success'))
