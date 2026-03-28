@@ -162,6 +162,7 @@ type LeftPanelProps = {
   onDownloadFile?: (path: string) => void;
   onCreateKnowledgeFile: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   canCreateKnowledgeFile?: boolean;
+  hideCollapseButton?: boolean;
   initialPanelState?: NormalizedLeftPanelState | null;
   searchInputRef: RefObject<HTMLInputElement | null>;
 };
@@ -475,6 +476,7 @@ export function LeftPanel({
   onDownloadFile,
   onCreateKnowledgeFile,
   canCreateKnowledgeFile = true,
+  hideCollapseButton = false,
   initialPanelState,
   searchInputRef,
 }: LeftPanelProps) {
@@ -524,6 +526,7 @@ export function LeftPanel({
       onDownloadFile={onDownloadFile}
       onCreateKnowledgeFile={onCreateKnowledgeFile}
       canCreateKnowledgeFile={canCreateKnowledgeFile}
+      hideCollapseButton={hideCollapseButton}
       initialPanelState={initialPanelState}
       searchInputRef={searchInputRef}
       pendingSectionRef={pendingSectionRef}
@@ -552,6 +555,7 @@ function ExpandedLeftPanel({
   onDownloadFile,
   onCreateKnowledgeFile,
   canCreateKnowledgeFile = true,
+  hideCollapseButton = false,
   initialPanelState,
   searchInputRef,
   pendingSectionRef,
@@ -892,14 +896,16 @@ function ExpandedLeftPanel({
           weight="fill"
           className={cn(statusStyle.color, statusStyle.pulse && "animate-pulse")}
         />
-        <button
-          type="button"
-          onClick={onToggleLeft}
-          className="ml-auto flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
-          aria-label="Collapse panel"
-        >
-          <ArrowLineLeft size={14} weight="bold" />
-        </button>
+        {!hideCollapseButton && (
+          <button
+            type="button"
+            onClick={onToggleLeft}
+            className="ml-auto flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+            aria-label="Collapse panel"
+          >
+            <ArrowLineLeft size={14} weight="bold" />
+          </button>
+        )}
       </div>
 
       {/* Search bar (no container) */}

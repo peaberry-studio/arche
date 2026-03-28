@@ -91,8 +91,8 @@ export function ConnectorsWidget({ slug }: ConnectorsWidgetProps) {
                   : 'bg-rose-500'
             }`}
           />
-          <span className="flex-1 text-sm text-foreground">{connector.name}</span>
-          {statusBadge(connector.status)}
+          <span className="min-w-0 flex-1 truncate text-sm text-foreground">{connector.name}</span>
+          <span className="shrink-0">{statusBadge(connector.status)}</span>
         </div>
       ))}
     </div>
