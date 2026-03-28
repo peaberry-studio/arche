@@ -154,6 +154,50 @@ describe("WorkspaceShell", () => {
     });
   });
 
+  it("toggles the left panel with Command+B", async () => {
+    render(<WorkspaceShell slug="alice" />);
+
+    const leftPanelButton = await screen.findByRole("button", { name: "Left Panel" });
+    expect(leftPanelButton.dataset.collapsed).toBe("false");
+
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "b",
+        code: "KeyB",
+        metaKey: true,
+        bubbles: true,
+      })
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Left Panel" }).dataset.collapsed).toBe("true");
+    });
+  });
+
+  it("toggles the right panel with Alt+Command+B", async () => {
+    render(<WorkspaceShell slug="alice" />);
+
+    const leftPanelButton = await screen.findByRole("button", { name: "Left Panel" });
+    expect(leftPanelButton.dataset.collapsed).toBe("false");
+    expect(screen.getByRole("button", { name: "Inspector Panel" }).dataset.collapsed).toBe("false");
+
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "b",
+        code: "KeyB",
+        metaKey: true,
+        altKey: true,
+        bubbles: true,
+      })
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Inspector Panel" }).dataset.collapsed).toBe("true");
+    });
+
+    expect(screen.getByRole("button", { name: "Left Panel" }).dataset.collapsed).toBe("false");
+  });
+
   it("hydrates layout from the cookie when localStorage is empty", async () => {
     document.cookie = `arche-workspace-layout-alice=${encodeURIComponent(JSON.stringify({
       leftWidth: 264,

@@ -3,6 +3,7 @@ import { decryptProviderSecret } from '@/lib/providers/crypto'
 import { getActiveCredentialForUser } from '@/lib/providers/store'
 import { verifyGatewayToken } from '@/lib/providers/tokens'
 import { PROVIDERS, type ProviderId } from '@/lib/providers/types'
+import { checkRateLimit } from '@/lib/rate-limit'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 
 export const runtime = 'nodejs'
@@ -216,6 +217,15 @@ async function handleProxy(
   }
 
   if (payload) {
+    const rateLimitKey = `provider-gw:${payload.userId}:${provider}`
+    const limit = checkRateLimit(rateLimitKey, 100, 60 * 1000)
+    if (!limit.allowed) {
+      return NextResponse.json(
+        { error: 'rate_limited', retryAfter: Math.ceil((limit.resetAt - Date.now()) / 1000) },
+        { status: 429 }
+      )
+    }
+
     if (payload.providerId !== provider) {
       return NextResponse.json({ error: 'provider_mismatch' }, { status: 403 })
     }

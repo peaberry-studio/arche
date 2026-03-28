@@ -1,7 +1,52 @@
 import { describe, it, expect } from 'vitest'
 
 
-import { injectSelfDelegationGuards, remapAgentConnectorTools } from '../agent-config-transforms'
+import {
+  injectAlwaysOnAgentTools,
+  injectSelfDelegationGuards,
+  remapAgentConnectorTools,
+} from '../agent-config-transforms'
+
+describe('injectAlwaysOnAgentTools', () => {
+  it('enables email_draft for every configured agent', () => {
+    const config = {
+      agent: {
+        assistant: { mode: 'primary', tools: { task: true, email_draft: false } },
+        support: { mode: 'subagent', tools: { read: true } },
+      },
+    }
+
+    const result = injectAlwaysOnAgentTools(config)
+    const agents = result.agent as Record<string, Record<string, unknown>>
+    const assistantTools = agents.assistant.tools as Record<string, boolean>
+    const supportTools = agents.support.tools as Record<string, boolean>
+
+    expect(assistantTools.email_draft).toBe(true)
+    expect(supportTools.email_draft).toBe(true)
+  })
+
+  it('skips agents that do not define explicit tools', () => {
+    const config = {
+      agent: {
+        assistant: { mode: 'primary', prompt: 'You are helpful.' },
+      },
+    }
+
+    const result = injectAlwaysOnAgentTools(config)
+    expect(result).toBe(config)
+  })
+
+  it('returns the original object when all agents already have email_draft enabled', () => {
+    const config = {
+      agent: {
+        assistant: { mode: 'primary', tools: { email_draft: true } },
+      },
+    }
+
+    const result = injectAlwaysOnAgentTools(config)
+    expect(result).toBe(config)
+  })
+})
 
 describe('injectSelfDelegationGuards', () => {
   it('injects guard into sub-agent with task: true', () => {

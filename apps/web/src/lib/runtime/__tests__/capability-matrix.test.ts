@@ -58,7 +58,7 @@ describe('capability enforcement matrix', () => {
     { capability: 'csrf', web: true, desktop: true },
     { capability: 'twoFactor', web: true, desktop: false },
     { capability: 'teamManagement', web: true, desktop: false },
-    { capability: 'connectors', web: true, desktop: false },
+    { capability: 'connectors', web: true, desktop: true },
     { capability: 'kickstart', web: true, desktop: true },
   ]
 
