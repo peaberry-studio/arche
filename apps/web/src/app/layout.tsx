@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { Geist, Geist_Mono, Instrument_Serif, Libre_Baskerville, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 
@@ -60,13 +61,15 @@ export const metadata: Metadata = {
   manifest: "/site.webmanifest?v=2",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  await headers();
+
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${spaceGrotesk.variable} ${instrumentSerif.variable} ${libreBaskerville.variable} antialiased`}
       >

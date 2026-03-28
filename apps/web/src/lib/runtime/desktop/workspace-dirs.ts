@@ -12,12 +12,7 @@ function resolveWorkspaceExcludePath(workspaceDir: string): string | null {
       cwd: workspaceDir,
       encoding: 'utf-8',
     })
-    const relativePath =
-      typeof output === 'string'
-        ? output.trim()
-        : output instanceof Buffer
-          ? output.toString('utf-8').trim()
-          : ''
+    const relativePath = output.trim()
 
     if (!relativePath) {
       return null
