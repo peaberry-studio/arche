@@ -65,7 +65,14 @@ vi.mock("@/hooks/use-workspace", () => ({
 }));
 
 vi.mock("@/components/workspace/chat-panel", () => ({
-  ChatPanel: () => <div>Chat Panel</div>,
+  ChatPanel: ({ onShowContext }: { onShowContext?: () => void }) => (
+    <div>
+      <span>Chat Panel</span>
+      <button type="button" onClick={() => onShowContext?.()}>
+        Show Context
+      </button>
+    </div>
+  ),
 }));
 
 vi.mock("@/components/workspace/cosmic-loader", () => ({
@@ -109,8 +116,19 @@ function readCookieValue(cookieName: string): string | null {
   return null;
 }
 
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    writable: true,
+    value: width,
+  });
+
+  window.dispatchEvent(new Event("resize"));
+}
+
 describe("WorkspaceShell", () => {
   beforeEach(() => {
+    setViewportWidth(1440);
     createSessionMock.mockClear();
     ensureInstanceRunningActionMock.mockReset();
     ensureInstanceRunningActionMock.mockResolvedValue({ status: "running" });
@@ -256,5 +274,55 @@ describe("WorkspaceShell", () => {
     });
 
     expect(readCookieValue("arche-workspace-layout-alice")).toContain('"leftCollapsed":true');
+  });
+
+  it("shows chat as default view in compact layout", async () => {
+    setViewportWidth(720);
+    render(<WorkspaceShell slug="alice" />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Open navigate panel" })).toBeTruthy();
+    });
+
+    expect(screen.getByRole("button", { name: "Open context panel" })).toBeTruthy();
+    expect(screen.getByText("Chat Panel")).toBeTruthy();
+  });
+
+  it("switches to full-screen left panel and back in compact layout", async () => {
+    setViewportWidth(720);
+    render(<WorkspaceShell slug="alice" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open navigate panel" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Left Panel" })).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Show chat" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Show chat" }).getAttribute("aria-pressed")).toBe("true");
+    });
+
+    expect(screen.getByText("Chat Panel")).toBeTruthy();
+  });
+
+  it("opens and closes full-screen right panel from context action in compact layout", async () => {
+    setViewportWidth(720);
+    render(<WorkspaceShell slug="alice" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Show Context" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Close context panel" })).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Show chat" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Show chat" }).getAttribute("aria-pressed")).toBe("true");
+    });
+
+    expect(screen.getByText("Chat Panel")).toBeTruthy();
   });
 });

@@ -146,7 +146,7 @@ export default async function WorkspacePage({
   const recentUpdates = recentUpdatesResult.ok ? recentUpdatesResult.updates : []
 
   return (
-    <main className="relative mx-auto max-w-6xl px-6 py-6">
+    <main className="relative mx-auto max-w-6xl overflow-hidden px-6 py-6">
       {setupNotice && (
         <section
           className={
@@ -219,10 +219,10 @@ export default async function WorkspacePage({
                 agents.map((agent) => (
                   <div
                     key={agent.id}
-                    className="glass-panel flex items-center justify-between rounded-lg px-4 py-3"
+                    className="glass-panel flex min-w-0 items-center justify-between gap-3 rounded-lg px-4 py-3"
                   >
-                    <span className="text-sm text-foreground">{agent.displayName}</span>
-                    <Badge variant={agent.isPrimary ? "default" : "secondary"}>
+                    <span className="min-w-0 truncate text-sm text-foreground">{agent.displayName}</span>
+                    <Badge className="shrink-0" variant={agent.isPrimary ? "default" : "secondary"}>
                       {agent.isPrimary ? 'Primary' : 'Secondary'}
                     </Badge>
                   </div>

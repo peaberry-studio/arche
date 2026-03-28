@@ -64,6 +64,7 @@ type InspectorPanelProps = {
   onDiscardFileChanges?: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   onPublish?: () => void;
   onResolveConflict?: (path: string, content: string) => void;
+  hideCollapseButton?: boolean;
 };
 
 // --- Minified (collapsed) panel ---
@@ -161,7 +162,8 @@ export function InspectorPanel({
   onSaveFile,
   onDiscardFileChanges,
   onPublish,
-  onResolveConflict
+  onResolveConflict,
+  hideCollapseButton = false,
 }: InspectorPanelProps) {
   // Minified state
   if (rightCollapsed) {
@@ -197,6 +199,7 @@ export function InspectorPanel({
       onDiscardFileChanges={onDiscardFileChanges}
       onPublish={onPublish}
       onResolveConflict={onResolveConflict}
+      hideCollapseButton={hideCollapseButton}
     />
   );
 }
@@ -220,7 +223,8 @@ function ExpandedInspectorPanel({
   onSaveFile,
   onDiscardFileChanges,
   onPublish,
-  onResolveConflict
+  onResolveConflict,
+  hideCollapseButton = false,
 }: Omit<InspectorPanelProps, "rightCollapsed" | "onOpenReview">) {
   const pendingDiffs = diffs.length;
   const activeFile = openFiles.find((f) => f.path === activeFilePath) ?? null;
@@ -434,14 +438,16 @@ function ExpandedInspectorPanel({
           )}
 
           {/* Collapse panel */}
-          <button
-            type="button"
-            onClick={onToggleRight}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
-            aria-label="Collapse panel"
-          >
-            <ArrowLineRight size={14} weight="bold" />
-          </button>
+          {!hideCollapseButton && (
+            <button
+              type="button"
+              onClick={onToggleRight}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+              aria-label="Collapse panel"
+            >
+              <ArrowLineRight size={14} weight="bold" />
+            </button>
+          )}
         </div>
       </div>
 
