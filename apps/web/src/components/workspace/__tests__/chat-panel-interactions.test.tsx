@@ -168,4 +168,58 @@ describe("ChatPanel interactions", () => {
 
     expect(createObjectURL.mock.calls[0][0]).toBeTruthy();
   });
+
+  it("copies only the email draft payload from the dedicated email card", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    const messages: ChatMessage[] = [
+      {
+        id: "m1",
+        sessionId: "s1",
+        role: "assistant",
+        content: "",
+        timestamp: "now",
+        parts: [
+          {
+            type: "tool",
+            id: "tool-email-1",
+            name: "email_draft",
+            state: {
+              status: "completed",
+              input: {},
+              output: JSON.stringify({
+                ok: true,
+                format: "email-draft",
+                subject: "Follow-up on Q2 proposal",
+                body: "Hi Ana,\n\nThanks for your time today.",
+                to: ["ana@example.com"],
+              }),
+              title: "email draft",
+            },
+          },
+          {
+            type: "text",
+            text: "If you want, I can make it more formal.",
+          },
+        ],
+      },
+    ];
+
+    renderChatPanel({ messages });
+
+    fireEvent.click(screen.getByRole("button", { name: /copy email draft/i }));
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledTimes(1);
+    });
+
+    const copiedText = String(writeText.mock.calls[0]?.[0] ?? "");
+    expect(copiedText).toContain("Subject: Follow-up on Q2 proposal");
+    expect(copiedText).toContain("Hi Ana,");
+    expect(copiedText).not.toContain("If you want, I can make it more formal.");
+  });
 });

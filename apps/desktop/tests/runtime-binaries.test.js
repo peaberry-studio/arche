@@ -4,6 +4,7 @@ const fs = require('node:fs')
 
 const {
   resolveRuntimeBinaryPath,
+  resolveRuntimeConfigDirPath,
   getRuntimeBinaryEnv,
   getPackagedNodeBinaryPath,
   getMissingPackagedRuntimeBinaries,
@@ -37,6 +38,7 @@ test('prefers explicit env overrides in development mode', () => {
     devBaseDir: '/repo/apps/desktop/dist',
     env: {
       ARCHE_OPENCODE_BIN: '/custom/opencode',
+      ARCHE_OPENCODE_CONFIG_DIR: '/custom/opencode-config',
       ARCHE_WORKSPACE_AGENT_BIN: '/custom/workspace-agent',
       ARCHE_NODE_BIN: '/custom/node',
     },
@@ -44,6 +46,7 @@ test('prefers explicit env overrides in development mode', () => {
   }
 
   assert.equal(resolveRuntimeBinaryPath('opencode', options), '/custom/opencode')
+  assert.equal(resolveRuntimeConfigDirPath(options), '/custom/opencode-config')
   assert.equal(resolveRuntimeBinaryPath('workspace-agent', options), '/custom/workspace-agent')
   assert.equal(resolveRuntimeBinaryPath('node', options), '/custom/node')
 })
@@ -92,7 +95,29 @@ test('returns missing packaged runtime binaries when bundle is incomplete', () =
       platform: 'darwin',
     }
 
-    assert.deepEqual(getMissingPackagedRuntimeBinaries(options), ['node', 'workspace-agent'])
+    assert.deepEqual(getMissingPackagedRuntimeBinaries(options), ['node', 'workspace-agent', 'opencode-config'])
+  } finally {
+    fs.existsSync = originalExistsSync
+  }
+})
+
+test('resolves bundled OpenCode config directory in packaged builds', () => {
+  const originalExistsSync = fs.existsSync
+  fs.existsSync = (target) => target.endsWith('/bin/opencode-config')
+
+  try {
+    const options = {
+      isPackaged: true,
+      resourcesPath: '/Applications/Arche.app/Contents/Resources',
+      devBaseDir: '/repo/apps/desktop/dist',
+      env: {},
+      platform: 'darwin',
+    }
+
+    assert.equal(
+      resolveRuntimeConfigDirPath(options),
+      '/Applications/Arche.app/Contents/Resources/bin/opencode-config',
+    )
   } finally {
     fs.existsSync = originalExistsSync
   }
@@ -100,7 +125,8 @@ test('returns missing packaged runtime binaries when bundle is incomplete', () =
 
 test('injects runtime env vars only for binaries that exist', () => {
   const originalExistsSync = fs.existsSync
-  fs.existsSync = (target) => target.endsWith('/bin/opencode')
+  fs.existsSync =
+    (target) => target.endsWith('/bin/opencode') || target.endsWith('/bin/opencode-config')
 
   try {
     const env = getRuntimeBinaryEnv({
@@ -112,6 +138,7 @@ test('injects runtime env vars only for binaries that exist', () => {
 
     assert.deepEqual(env, {
       ARCHE_OPENCODE_BIN: '/repo/apps/desktop/bin/opencode',
+      ARCHE_OPENCODE_CONFIG_DIR: '/repo/apps/desktop/bin/opencode-config',
     })
   } finally {
     fs.existsSync = originalExistsSync

@@ -22,6 +22,7 @@ type EditUserDialogProps = {
   open: boolean
   slug: string
   user: TeamUser | null
+  canManageUsers: boolean
   onOpenChange: (open: boolean) => void
   onUserUpdated: (user: TeamUser) => void
   onUserDeleted: (userId: string) => void
@@ -58,6 +59,7 @@ export function EditUserDialog({
   open,
   slug,
   user,
+  canManageUsers,
   onOpenChange,
   onUserUpdated,
   onUserDeleted,
@@ -237,7 +239,11 @@ export function EditUserDialog({
             Edit user
           </DialogTitle>
           <DialogDescription>
-            {user ? `${user.email} (/${user.slug})` : 'Select a user to manage role and provider access.'}
+            {user
+              ? `${user.email} (/${user.slug})`
+              : canManageUsers
+                ? 'Select a user to manage role and provider access.'
+                : 'Select a user to manage provider access.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -249,29 +255,33 @@ export function EditUserDialog({
               </p>
             ) : null}
 
-            <form className="space-y-4" onSubmit={handleSaveRole}>
-              <h3 className="text-sm font-semibold text-foreground">Role</h3>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                <div className="w-full space-y-1.5 sm:max-w-xs">
-                  <Label htmlFor="edit-user-role" className="sr-only">Role</Label>
-                  <select
-                    id="edit-user-role"
-                    className="flex h-10 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-offset-2"
-                    value={role}
-                    onChange={(event) => setRole(event.target.value === 'ADMIN' ? 'ADMIN' : 'USER')}
-                  >
-                    <option value="USER">User</option>
-                    <option value="ADMIN">Admin</option>
-                  </select>
-                </div>
+            {canManageUsers ? (
+              <>
+                <form className="space-y-4" onSubmit={handleSaveRole}>
+                  <h3 className="text-sm font-semibold text-foreground">Role</h3>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                    <div className="w-full space-y-1.5 sm:max-w-xs">
+                      <Label htmlFor="edit-user-role" className="sr-only">Role</Label>
+                      <select
+                        id="edit-user-role"
+                        className="flex h-10 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-offset-2"
+                        value={role}
+                        onChange={(event) => setRole(event.target.value === 'ADMIN' ? 'ADMIN' : 'USER')}
+                      >
+                        <option value="USER">User</option>
+                        <option value="ADMIN">Admin</option>
+                      </select>
+                    </div>
 
-                <Button type="submit" size="sm" disabled={isSavingRole || role === user.role}>
-                  {isSavingRole ? 'Saving...' : 'Save role'}
-                </Button>
-              </div>
-            </form>
+                    <Button type="submit" size="sm" disabled={isSavingRole || role === user.role}>
+                      {isSavingRole ? 'Saving...' : 'Save role'}
+                    </Button>
+                  </div>
+                </form>
 
-            <div className="h-px bg-border" />
+                <div className="h-px bg-border" />
+              </>
+            ) : null}
 
             <div className="space-y-4">
               <div className="flex items-center justify-between">
@@ -342,51 +352,55 @@ export function EditUserDialog({
               </div>
             </div>
 
-            <div className="h-px bg-border" />
+            {canManageUsers ? (
+              <>
+                <div className="h-px bg-border" />
 
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold text-destructive">Delete user</h3>
-              <p className="text-sm text-muted-foreground">
-                This permanently removes the user account. The last admin cannot be deleted.
-              </p>
-
-              {showDeleteConfirm ? (
-                <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 space-y-3">
-                  <p className="text-sm text-foreground">
-                    Are you sure you want to delete <span className="font-semibold">{user.email}</span>? This action cannot be undone.
+                <div className="space-y-3">
+                  <h3 className="text-sm font-semibold text-destructive">Delete user</h3>
+                  <p className="text-sm text-muted-foreground">
+                    This permanently removes the user account. The last admin cannot be deleted.
                   </p>
-                  <div className="flex items-center gap-2">
+
+                  {showDeleteConfirm ? (
+                    <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 space-y-3">
+                      <p className="text-sm text-foreground">
+                        Are you sure you want to delete <span className="font-semibold">{user.email}</span>? This action cannot be undone.
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          disabled={isDeleting}
+                          onClick={handleDeleteUser}
+                        >
+                          {isDeleting ? 'Deleting...' : 'Confirm delete'}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={isDeleting}
+                          onClick={() => setShowDeleteConfirm(false)}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
                     <Button
                       type="button"
                       variant="destructive"
                       size="sm"
-                      disabled={isDeleting}
-                      onClick={handleDeleteUser}
+                      onClick={() => setShowDeleteConfirm(true)}
                     >
-                      {isDeleting ? 'Deleting...' : 'Confirm delete'}
+                      Delete user
                     </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      disabled={isDeleting}
-                      onClick={() => setShowDeleteConfirm(false)}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
+                  )}
                 </div>
-              ) : (
-                <Button
-                  type="button"
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => setShowDeleteConfirm(true)}
-                >
-                  Delete user
-                </Button>
-              )}
-            </div>
+              </>
+            ) : null}
           </div>
         )}
       </DialogContent>

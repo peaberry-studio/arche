@@ -1,5 +1,8 @@
 import { chmod, writeFile } from "fs/promises";
 import { join } from "path";
+
+import { withWorkspacePermissionGuards } from "@/lib/spawner/runtime-config-utils";
+import { getUserDataHostPath, ensureUserDirectory } from "@/lib/user-data";
 import {
   getContainerSocketPath,
   getContainerProxyUrl,
@@ -8,7 +11,6 @@ import {
   getKbContentHostPath,
   getWorkspaceAgentPort,
 } from "./config";
-import { getUserDataHostPath, ensureUserDirectory } from "@/lib/user-data";
 
 type DockerConstructor = typeof import("dockerode");
 type DockerClient = InstanceType<DockerConstructor>;
@@ -31,73 +33,6 @@ async function getDockerConstructor(): Promise<DockerConstructor> {
   const dockerModule = await importRuntimeModule<typeof import("dockerode")>("dockerode");
   const defaultExport = (dockerModule as { default?: DockerConstructor }).default;
   return defaultExport ?? dockerModule;
-}
-
-const WORKSPACE_EDIT_DENY_RULES: Record<string, "deny"> = {
-  ".gitignore": "deny",
-  ".gitkeep": "deny",
-  "**/.gitkeep": "deny",
-  "opencode.json": "deny",
-  "AGENTS.md": "deny",
-  "agents.md": "deny",
-  "node_modules": "deny",
-  "node_modules/*": "deny",
-  "*/node_modules": "deny",
-  "*/node_modules/*": "deny",
-};
-
-const WORKSPACE_BASH_DENY_RULES: Record<string, "deny"> = {
-  "*.gitignore*": "deny",
-  "*.gitkeep*": "deny",
-  "*opencode.json*": "deny",
-  "*AGENTS.md*": "deny",
-  "*agents.md*": "deny",
-  "npm install*": "deny",
-  "npm i*": "deny",
-  "npm ci*": "deny",
-  "npm init*": "deny",
-  "npm create*": "deny",
-  "pnpm install*": "deny",
-  "pnpm add*": "deny",
-  "pnpm init*": "deny",
-  "pnpm create*": "deny",
-  "yarn install*": "deny",
-  "yarn add*": "deny",
-  "yarn init*": "deny",
-  "yarn create*": "deny",
-  "bun install*": "deny",
-  "bun add*": "deny",
-  "bun init*": "deny",
-  "bun create*": "deny",
-};
-
-function mergePermissionRule(
-  current: unknown,
-  enforced: Record<string, "allow" | "ask" | "deny">
-): Record<string, unknown> {
-  if (typeof current === "string") {
-    return { "*": current, ...enforced };
-  }
-
-  if (current && typeof current === "object") {
-    return { ...(current as Record<string, unknown>), ...enforced };
-  }
-
-  return { ...enforced };
-}
-
-function withWorkspacePermissionGuards(config: Record<string, unknown>): Record<string, unknown> {
-  const next = { ...config };
-  const permission =
-    next.permission && typeof next.permission === "object"
-      ? { ...(next.permission as Record<string, unknown>) }
-      : {};
-
-  permission.edit = mergePermissionRule(permission.edit, WORKSPACE_EDIT_DENY_RULES);
-  permission.bash = mergePermissionRule(permission.bash, WORKSPACE_BASH_DENY_RULES);
-
-  next.permission = permission;
-  return next;
 }
 
 async function getContainerClient(): Promise<DockerClient> {

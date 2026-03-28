@@ -41,18 +41,17 @@ describe('requireCapability', () => {
     const { requireCapability } = await import('../require-capability')
 
     expect(requireCapability('workspaceAgent')).toBeNull()
+    expect(requireCapability('connectors')).toBeNull()
     expect(requireCapability('kickstart')).toBeNull()
   })
 
-  it('blocks connectors in desktop mode', async () => {
+  it('allows connectors in desktop mode', async () => {
     process.env.ARCHE_RUNTIME_MODE = 'desktop'
     process.env.ARCHE_DESKTOP_PLATFORM = 'linux'
     process.env.ARCHE_DESKTOP_WEB_HOST = '127.0.0.1'
     const { requireCapability } = await import('../require-capability')
 
-    const res = requireCapability('connectors')
-    expect(res).not.toBeNull()
-    expect(res!.status).toBe(403)
+    expect(requireCapability('connectors')).toBeNull()
   })
 
   it('blocks twoFactor in desktop mode', async () => {

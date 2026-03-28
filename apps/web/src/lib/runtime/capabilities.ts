@@ -35,7 +35,7 @@ const DESKTOP_CAPABILITIES: RuntimeCapabilities = {
   csrf: true,
   twoFactor: false,
   teamManagement: false,
-  connectors: false,
+  connectors: true,
   kickstart: true,
 }
 
