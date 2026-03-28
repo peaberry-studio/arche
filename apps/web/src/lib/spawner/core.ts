@@ -85,8 +85,8 @@ export async function startInstance(slug: string, userId: string): Promise<Start
       if (Object.keys(guardedConfig).length > 0) {
         opencodeConfigContent = JSON.stringify(guardedConfig)
       }
-    } catch {
-      console.warn('[spawner] Config build failed')
+    } catch (err) {
+      console.warn('[spawner] Config build failed:', err)
     }
 
     // Read AGENTS.md from config repo to inject into workspace
@@ -96,8 +96,8 @@ export async function startInstance(slug: string, userId: string): Promise<Start
       if (agentsResult.ok) {
         agentsMd = agentsResult.content
       }
-    } catch {
-      console.warn('[spawner] Failed to read AGENTS.md')
+    } catch (err) {
+      console.warn('[spawner] Failed to read AGENTS.md:', err)
     }
 
     const owner = await userService.findIdentityBySlug(slug)

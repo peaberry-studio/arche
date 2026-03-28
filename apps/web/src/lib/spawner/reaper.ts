@@ -15,8 +15,12 @@ export async function reapIdleInstances(): Promise<number> {
     try {
       if (instance.containerId) {
         const docker = await import('./docker')
-        await docker.stopContainer(instance.containerId).catch(() => {})
-        await docker.removeContainer(instance.containerId).catch(() => {})
+        await docker.stopContainer(instance.containerId).catch((err) => {
+          console.warn('[reaper] Failed to stop container:', { slug: instance.slug, containerId: instance.containerId, error: err })
+        })
+        await docker.removeContainer(instance.containerId).catch((err) => {
+          console.warn('[reaper] Failed to remove container:', { slug: instance.slug, containerId: instance.containerId, error: err })
+        })
       }
 
       await instanceService.setStoppedById(instance.id)
@@ -32,8 +36,8 @@ export async function reapIdleInstances(): Promise<number> {
       })
 
       reapedCount++
-    } catch {
-      // best-effort
+    } catch (err) {
+      console.error('[reaper] Failed to reap instance:', { slug: instance.slug, error: err })
     }
   }
 
@@ -55,7 +59,9 @@ export function startReaper(): void {
     }
   }, REAPER_INTERVAL_MS)
 
-  reapIdleInstances().catch(() => {})
+  reapIdleInstances().catch((err) => {
+    console.error('[reaper] Initial reap failed:', err)
+  })
 }
 
 export function stopReaper(): void {
