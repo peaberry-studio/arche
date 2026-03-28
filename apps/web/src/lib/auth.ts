@@ -88,7 +88,9 @@ export async function getSessionFromToken(token: string): Promise<{
   if (session.revokedAt) return null
   if (session.expiresAt.getTime() <= Date.now()) return null
 
-  await sessionService.touchLastSeen(session.id).catch(() => {})
+  await sessionService.touchLastSeen(session.id).catch((err) => {
+    console.warn('[auth] Failed to update session last seen:', err)
+  })
 
   return {
     user: {
