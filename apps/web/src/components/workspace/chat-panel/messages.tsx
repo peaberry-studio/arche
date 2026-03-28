@@ -579,6 +579,45 @@ function DelegationCard({
   );
 }
 
+function EmailDraftCopyButton({
+  text,
+  label,
+  size = 14,
+}: {
+  text: string;
+  label: string;
+  size?: number;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(
+    async (event: React.MouseEvent) => {
+      event.stopPropagation();
+      const ok = await copyTextToClipboard(text);
+      if (!ok) return;
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    },
+    [text],
+  );
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+      title={label}
+      aria-label={label}
+    >
+      {copied ? (
+        <CheckCircle size={size} weight="fill" className="text-primary" />
+      ) : (
+        <Copy size={size} />
+      )}
+    </button>
+  );
+}
+
 function EmailDraftCard({
   draft,
   isRunning,
@@ -586,68 +625,56 @@ function EmailDraftCard({
   draft: EmailDraftOutput;
   isRunning: boolean;
 }) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = useCallback(async () => {
-    const copiedToClipboard = await copyTextToClipboard(draft.copyText);
-    if (!copiedToClipboard) return;
-
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }, [draft.copyText]);
-
-  const recipientRows = [
-    { label: "To", values: draft.to },
-    { label: "Cc", values: draft.cc },
-    { label: "Bcc", values: draft.bcc },
-  ].filter((row) => row.values.length > 0);
+  const headerRows = [
+    { label: "To", value: draft.to.join(", ") },
+    { label: "Cc", value: draft.cc.join(", ") },
+    { label: "Bcc", value: draft.bcc.join(", ") },
+  ].filter((row) => row.value.length > 0);
 
   return (
-    <div className="my-2 rounded-xl border border-primary/25 bg-primary/5 px-3.5 py-3 text-sm">
-      <div className="flex items-start gap-2.5">
-        <EnvelopeSimple size={16} weight="fill" className="mt-0.5 shrink-0 text-primary" />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <p className="text-xs font-semibold tracking-wide text-primary uppercase">Email draft</p>
-            {isRunning ? (
-              <span className="chat-text-micro inline-flex items-center gap-1 text-muted-foreground">
-                <SpinnerGap size={12} className="animate-spin" />
-                Updating
-              </span>
-            ) : null}
-          </div>
-
-          {recipientRows.length > 0 ? (
-            <div className="mt-1.5 space-y-0.5">
-              {recipientRows.map((row) => (
-                <p key={row.label} className="chat-text-note text-muted-foreground">
-                  <span className="font-medium text-foreground">{row.label}:</span>{" "}
-                  {row.values.join(", ")}
-                </p>
-              ))}
-            </div>
-          ) : null}
-
-          <p className="mt-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Subject</p>
-          <p className="mt-0.5 text-sm font-medium text-foreground">{draft.subject}</p>
-
-          <p className="mt-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Body</p>
-          <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{draft.body}</p>
+    <div className="my-3 overflow-hidden rounded-xl border border-border/60 bg-card text-sm shadow-sm">
+      {/* ── Title bar ── */}
+      <div className="flex items-center gap-2 border-b border-border/40 bg-muted/40 px-4 py-2.5">
+        <EnvelopeSimple size={16} weight="fill" className="shrink-0 text-primary" />
+        <span className="text-xs font-semibold tracking-wide text-primary uppercase">
+          Email draft
+        </span>
+        {isRunning ? (
+          <span className="chat-text-micro inline-flex items-center gap-1 text-muted-foreground">
+            <SpinnerGap size={12} className="animate-spin" />
+            Updating
+          </span>
+        ) : null}
+        <div className="ml-auto">
+          <EmailDraftCopyButton text={draft.copyText} label="Copy email draft" />
         </div>
+      </div>
 
-        <button
-          type="button"
-          onClick={handleCopy}
-          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          title="Copy email draft"
-          aria-label="Copy email draft"
-        >
-          {copied ? (
-            <CheckCircle size={14} weight="fill" className="text-primary" />
-          ) : (
-            <Copy size={14} />
-          )}
-        </button>
+      {/* ── Header fields (To, Cc, Bcc, Subject) ── */}
+      <div className="divide-y divide-border/30 border-b border-border/40 bg-muted/15 px-4 text-[13px]">
+        {headerRows.map((row) => (
+          <div key={row.label} className="flex gap-3 py-1.5">
+            <span className="w-12 shrink-0 text-muted-foreground">{row.label}:</span>
+            <span className="min-w-0 flex-1 truncate text-foreground">{row.value}</span>
+          </div>
+        ))}
+        <div className="group/subject flex items-start gap-3 py-1.5">
+          <span className="w-12 shrink-0 pt-px text-muted-foreground">Subject:</span>
+          <span className="min-w-0 flex-1 font-medium text-foreground">{draft.subject}</span>
+          <span className="shrink-0 opacity-0 transition-opacity group-hover/subject:opacity-100">
+            <EmailDraftCopyButton text={draft.subject} label="Copy subject" size={12} />
+          </span>
+        </div>
+      </div>
+
+      {/* ── Body ── */}
+      <div className="group/body relative px-5 py-4">
+        <span className="absolute top-2 right-3 shrink-0 opacity-0 transition-opacity group-hover/body:opacity-100">
+          <EmailDraftCopyButton text={draft.body} label="Copy body" size={12} />
+        </span>
+        <p className="whitespace-pre-wrap leading-relaxed text-[13px] text-foreground">
+          {draft.body}
+        </p>
       </div>
     </div>
   );
