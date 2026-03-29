@@ -127,6 +127,7 @@ function connectorStatusInfo(status: ConnectorStatus): { label: string; dotClass
 function providerLabel(providerId: string): string {
   if (providerId === "openai") return "OpenAI";
   if (providerId === "anthropic") return "Anthropic";
+  if (providerId === "fireworks") return "Fireworks AI";
   if (providerId === "openrouter") return "OpenRouter";
   if (providerId === "opencode") return "OpenCode Zen";
   return providerId;

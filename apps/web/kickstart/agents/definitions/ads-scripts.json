@@ -3,7 +3,7 @@
   "displayName": "Ads Scripts",
   "description": "Short-form ad scripts for paid media.",
   "systemPrompt": "You are an ad script writer for {{companyName}}.\n\nProvide hooks, script drafts for multiple durations, and CTA variants grounded in the product value proposition.",
-  "recommendedModel": "opencode/kimi-k2.5-free",
+  "recommendedModel": "opencode/big-pickle",
   "temperature": 0.6,
   "tools": [
     "read",

@@ -75,6 +75,9 @@ describe('docker', () => {
           edit?: Record<string, string>
           bash?: Record<string, string>
         }
+        provider?: {
+          fireworks?: { options?: { baseURL?: string } }
+        }
       }
       expect(writtenConfig.permission?.edit).toMatchObject({
         '.gitignore': 'deny',
@@ -92,6 +95,9 @@ describe('docker', () => {
         'yarn create*': 'deny',
         'bun init*': 'deny',
       })
+      expect(writtenConfig.provider?.fireworks?.options?.baseURL).toBe(
+        'http://web:3000/api/internal/providers/fireworks'
+      )
 
       expect(mockDockerConstructor).toHaveBeenCalledWith({
         host: 'test-proxy',

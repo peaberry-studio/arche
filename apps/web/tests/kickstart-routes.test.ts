@@ -103,7 +103,7 @@ describe('kickstart routes', () => {
         displayName: 'Assistant',
         description: 'Primary assistant',
         systemPrompt: 'prompt',
-        recommendedModel: 'opencode/kimi-k2.5-free',
+        recommendedModel: 'opencode/big-pickle',
         temperature: 0.2,
         tools: ['read'],
       },
