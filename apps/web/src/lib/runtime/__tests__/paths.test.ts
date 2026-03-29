@@ -9,12 +9,23 @@ describe('runtime paths', () => {
   })
 
   afterEach(() => {
+    vi.doUnmock('path')
     process.env = originalEnv
   })
 
   describe('web mode', () => {
     beforeEach(() => {
       delete process.env.ARCHE_RUNTIME_MODE
+    })
+
+    it('does not require desktop path builtins in web mode', async () => {
+      vi.doMock('path', () => {
+        throw new Error('path builtin should not be loaded in web mode')
+      })
+
+      const { getKbConfigRoot } = await import('../paths')
+
+      expect(getKbConfigRoot()).toBe('/kb-config')
     })
 
     it('returns /kb-config for kbConfigRoot', async () => {
@@ -76,6 +87,36 @@ describe('runtime paths', () => {
       process.env.HOME = '/Users/testuser'
       const { getKbConfigRoot } = await import('../paths')
       expect(getKbConfigRoot()).toBe('/Users/testuser/.arche/kb-config')
+    })
+
+    it('uses windows separators when desktop platform is win32', async () => {
+      process.env.ARCHE_DESKTOP_PLATFORM = 'win32'
+      process.env.ARCHE_DATA_DIR = 'C:\\Arche'
+      const { getKbConfigRoot, getKbContentRoot, getUsersBasePath, getUserDataPath } =
+        await import('../paths')
+
+      expect(getKbConfigRoot()).toBe('C:\\Arche\\kb-config')
+      expect(getKbContentRoot()).toBe('C:\\Arche\\kb-content')
+      expect(getUsersBasePath()).toBe('C:\\Arche\\users')
+      expect(getUserDataPath('local')).toBe('C:\\Arche\\users\\local')
+    })
+
+    it('preserves UNC roots on win32', async () => {
+      process.env.ARCHE_DESKTOP_PLATFORM = 'win32'
+      process.env.ARCHE_DATA_DIR = '\\\\server\\share\\Arche'
+      const { getKbConfigRoot, getUserDataPath } = await import('../paths')
+
+      expect(getKbConfigRoot()).toBe('\\\\server\\share\\Arche\\kb-config')
+      expect(getUserDataPath('local')).toBe('\\\\server\\share\\Arche\\users\\local')
+    })
+
+    it('preserves extended-length windows roots on win32', async () => {
+      process.env.ARCHE_DESKTOP_PLATFORM = 'win32'
+      process.env.ARCHE_DATA_DIR = '\\\\?\\C:\\Arche'
+      const { getKbConfigRoot, getUserDataPath } = await import('../paths')
+
+      expect(getKbConfigRoot()).toBe('\\\\?\\C:\\Arche\\kb-config')
+      expect(getUserDataPath('local')).toBe('\\\\?\\C:\\Arche\\users\\local')
     })
 
     it('rejects directory traversal slugs', async () => {
