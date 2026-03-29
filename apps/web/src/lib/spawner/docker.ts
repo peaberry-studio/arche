@@ -73,6 +73,11 @@ export async function createContainer(
           baseURL: "http://web:3000/api/internal/providers/anthropic",
         },
       },
+      fireworks: {
+        options: {
+          baseURL: "http://web:3000/api/internal/providers/fireworks",
+        },
+      },
       openrouter: {
         options: {
           baseURL: "http://web:3000/api/internal/providers/openrouter",
