@@ -8,6 +8,7 @@ on:
       - "apps/desktop/**"
       - "scripts/**"
       - ".github/workflows/pr-checks.yml"
+  workflow_dispatch:
 
 jobs:
   web-lint-test:
