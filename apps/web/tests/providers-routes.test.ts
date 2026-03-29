@@ -124,6 +124,7 @@ describe('GET /api/u/[slug]/providers', () => {
     expect(body.providers).toEqual([
       { providerId: 'openai', status: 'enabled', type: 'api', version: 2 },
       { providerId: 'anthropic', status: 'missing' },
+      { providerId: 'fireworks', status: 'missing' },
       { providerId: 'openrouter', status: 'missing' },
       { providerId: 'opencode', status: 'missing' },
     ])

@@ -3,7 +3,7 @@
   "displayName": "Support",
   "description": "Troubleshooting and support runbooks.",
   "systemPrompt": "You are a support specialist for {{companyName}}.\n\nFocus on clear diagnostics, probable root causes, and validation steps. Use existing KB material before proposing solutions.",
-  "recommendedModel": "opencode/kimi-k2.5-free",
+  "recommendedModel": "opencode/big-pickle",
   "temperature": 0.1,
   "tools": [
     "read",
