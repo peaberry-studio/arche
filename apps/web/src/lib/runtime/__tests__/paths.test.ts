@@ -101,6 +101,24 @@ describe('runtime paths', () => {
       expect(getUserDataPath('local')).toBe('C:\\Arche\\users\\local')
     })
 
+    it('preserves UNC roots on win32', async () => {
+      process.env.ARCHE_DESKTOP_PLATFORM = 'win32'
+      process.env.ARCHE_DATA_DIR = '\\\\server\\share\\Arche'
+      const { getKbConfigRoot, getUserDataPath } = await import('../paths')
+
+      expect(getKbConfigRoot()).toBe('\\\\server\\share\\Arche\\kb-config')
+      expect(getUserDataPath('local')).toBe('\\\\server\\share\\Arche\\users\\local')
+    })
+
+    it('preserves extended-length windows roots on win32', async () => {
+      process.env.ARCHE_DESKTOP_PLATFORM = 'win32'
+      process.env.ARCHE_DATA_DIR = '\\\\?\\C:\\Arche'
+      const { getKbConfigRoot, getUserDataPath } = await import('../paths')
+
+      expect(getKbConfigRoot()).toBe('\\\\?\\C:\\Arche\\kb-config')
+      expect(getUserDataPath('local')).toBe('\\\\?\\C:\\Arche\\users\\local')
+    })
+
     it('rejects directory traversal slugs', async () => {
       process.env.ARCHE_DATA_DIR = '/tmp/arche-test'
       const { getUserDataPath } = await import('../paths')

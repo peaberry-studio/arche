@@ -10,7 +10,7 @@ function escapeForRegex(value: string): string {
 }
 
 function normalizeSeparators(value: string, separator: string): string {
-  return value.replace(/[\\/]+/g, separator)
+  return value.replace(/[\\/]/g, separator)
 }
 
 function trimLeadingSeparators(value: string, separator: string): string {
