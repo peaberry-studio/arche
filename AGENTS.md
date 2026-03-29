@@ -260,7 +260,6 @@ test(spawner): add health check retry tests
 - Do not commit files unrelated to your change.
 - Create new commits; do not amend existing commits unless requested.
 - Use `git add <specific-files>` instead of `git add .` or `git add -A`.
-- Open PRs/MRs as ready for review by default; use draft only when the user explicitly asks for it.
 
 ---
 
