@@ -1,6 +1,3 @@
-import { chmod, writeFile } from "fs/promises";
-import { join } from "path";
-
 import { withWorkspacePermissionGuards } from "@/lib/spawner/runtime-config-utils";
 import { getUserDataHostPath, ensureUserDirectory } from "@/lib/user-data";
 import {
@@ -126,6 +123,8 @@ export async function createContainer(
   // Persist runtime files in host user-data directory.
   // We mount files individually into /tmp inside the container so the workspace
   // can remain empty during init-workspace git bootstrap.
+  const { chmod, writeFile } = await importRuntimeModule<typeof import("fs/promises")>("fs/promises");
+  const { join } = await importRuntimeModule<typeof import("path")>("path");
   const userDataPath = getUserDataHostPath(slug);
   await ensureUserDirectory(slug);
 
