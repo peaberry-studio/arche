@@ -361,10 +361,17 @@
   changed_when: false
   ignore_errors: true
 
-- name: "AUTO-ROLLBACK: Display failed container logs"
+- name: "AUTO-ROLLBACK: Display failed container logs (stdout)"
   ansible.builtin.debug:
-    msg: "{{ failed_container_logs.stdout | default('no logs available') }}"
+    msg: "{{ failed_container_logs.stdout | default('no stdout') }}"
   when: health_check.rc != 0
+
+- name: "AUTO-ROLLBACK: Display failed container logs (stderr)"
+  ansible.builtin.debug:
+    msg: "{{ failed_container_logs.stderr | default('no stderr') }}"
+  when:
+    - health_check.rc != 0
+    - failed_container_logs.stderr | default('') | length > 0
 
 - name: "AUTO-ROLLBACK: Remove failed new container"
   ansible.builtin.shell:
