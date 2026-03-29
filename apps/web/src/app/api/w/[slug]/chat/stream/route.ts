@@ -218,11 +218,11 @@ export const POST = withAuth(
   async (request: NextRequest, { slug }) => {
   // Get instance credentials
   const instance = await instanceService.findCredentialsBySlug(slug)
-  
+
   if (!instance || !instance.serverPassword || instance.status !== 'running') {
     return jsonErrorResponse(503, 'instance_unavailable')
   }
-  
+
   // Parse request body
   let body: unknown
   try {
@@ -243,7 +243,7 @@ export const POST = withAuth(
 
   const attachments = normalizeMessageAttachments((body as { attachments?: unknown }).attachments)
   const contextPaths = normalizeContextPaths((body as { contextPaths?: unknown }).contextPaths)
-  
+
   if (!sessionId || (!resume && !text && attachments.length === 0)) {
     return jsonErrorResponse(400, 'missing_fields')
   }
@@ -251,15 +251,15 @@ export const POST = withAuth(
   if (attachments.length > MAX_ATTACHMENTS_PER_MESSAGE) {
     return jsonErrorResponse(400, 'too_many_attachments')
   }
-  
+
   const password = decryptPassword(instance.serverPassword)
   const authHeader = `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`
   const baseUrl = getInstanceUrl(slug)
   const workspaceAgentUrl = getWorkspaceAgentUrl(slug)
-  
+
   // Create SSE stream
   const encoder = new TextEncoder()
-  
+
    const stream = new ReadableStream({
     async start(controller) {
       // Track whether the downstream client (browser) has disconnected.
@@ -267,7 +267,7 @@ export const POST = withAuth(
       let aborted = false
       let promptSent = Boolean(resume)
       let promptAcknowledged = Boolean(resume)
-      
+
       // Shared reference so the abort path and finally block can always
       // clean up the active reader when it exists.
       let eventReader: ReadableStreamDefaultReader<Uint8Array> | null = null
@@ -324,7 +324,7 @@ export const POST = withAuth(
         const cancelReader = async () => {
           await reader.cancel().catch(() => undefined)
         }
-        
+
         if (!resume) {
           const promptParts: Array<
             { type: 'text'; text: string } |
@@ -464,9 +464,9 @@ export const POST = withAuth(
             parts: promptParts,
             ...(model && { model: { providerID: model.providerId, modelID: model.modelId } })
           }
-          
+
           const promptUrl = `${baseUrl}/session/${sessionId}/prompt_async`
-          
+
           const promptResponse = await fetch(promptUrl, {
             method: 'POST',
             headers: {
@@ -476,7 +476,7 @@ export const POST = withAuth(
             body: JSON.stringify(promptBody),
             signal: request.signal,
           })
-          
+
           if (!promptResponse.ok) {
             const errorText = await promptResponse.text()
             sendEvent('error', { error: `Failed to start message: ${errorText}` })
@@ -486,9 +486,9 @@ export const POST = withAuth(
 
           promptSent = true
         }
-        
+
         sendEvent('status', { status: 'thinking' })
-        
+
         // Track state for the assistant response
         let currentStatus: string | null = null
         let currentToolName: string | undefined
@@ -536,7 +536,7 @@ export const POST = withAuth(
           sendEvent('done', { refresh: true })
           aborted = true
         }
-        
+
         while (!aborted) {
           const readPromise = reader.read()
           let streamReadResult: ReadableStreamReadResult<Uint8Array> | null = null
@@ -572,7 +572,7 @@ export const POST = withAuth(
             }
             break
           }
-          
+
           const parsed = parseSseChunk(parseState, decoder.decode(value, { stream: true }))
           parseState = parsed.state
 
@@ -587,7 +587,7 @@ export const POST = withAuth(
             // End of event, process it
               try {
                 const event = JSON.parse(eventData)
-                
+
                 // Get sessionID from event
                 const eventSessionId =
                   event.properties?.sessionID ||
@@ -605,7 +605,7 @@ export const POST = withAuth(
                   eventType === 'session.status' ||
                   eventType === 'session.idle' ||
                   eventType === 'session.error'
-                
+
                 // Filter events for our session only
                 if (!isWorkspaceEvent) {
                   if (isSessionScopedEvent && eventSessionId !== sessionId) {
@@ -616,7 +616,7 @@ export const POST = withAuth(
                     continue
                   }
                 }
-                
+
                 switch (eventType) {
                   // Session status changes
                   case 'session.status': {
@@ -858,13 +858,13 @@ export const POST = withAuth(
               }
           }
         }
-        
+
         reader.releaseLock()
-        
+
       } catch (error) {
         if (!aborted && !request.signal.aborted && !isAbortError(error)) {
-          sendEvent('error', { 
-            error: error instanceof Error ? error.message : 'Unknown error' 
+          sendEvent('error', {
+            error: error instanceof Error ? error.message : 'Unknown error'
           })
         }
       } finally {
@@ -876,7 +876,7 @@ export const POST = withAuth(
       }
     }
   })
-  
+
   return new Response(stream, {
     headers: {
       'Content-Type': 'text/event-stream',
