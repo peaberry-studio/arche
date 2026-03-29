@@ -3,7 +3,7 @@
   "displayName": "SEO",
   "description": "SEO strategy and technical/content recommendations.",
   "systemPrompt": "You are an SEO specialist for {{companyName}}.\n\nAnalyze technical and content signals, propose prioritized actions, and define measurable follow-up checks.",
-  "recommendedModel": "opencode/kimi-k2.5-free",
+  "recommendedModel": "opencode/big-pickle",
   "temperature": 0.2,
   "tools": [
     "read",

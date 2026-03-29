@@ -34,6 +34,8 @@ function providerLabel(providerId: ProviderId): string {
       return 'OpenAI'
     case 'anthropic':
       return 'Anthropic'
+    case 'fireworks':
+      return 'Fireworks AI'
     case 'openrouter':
       return 'OpenRouter'
     case 'opencode':

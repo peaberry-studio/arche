@@ -71,6 +71,7 @@ describe('syncProviderAccessForInstance', () => {
     expect(urls).toContain('http://opencode-alice:4096/auth/openai')
     // DELETE auth for managed providers without credentials (best-effort)
     expect(urls).toContain('http://opencode-alice:4096/auth/anthropic')
+    expect(urls).toContain('http://opencode-alice:4096/auth/fireworks')
     expect(urls).toContain('http://opencode-alice:4096/auth/openrouter')
     expect(urls).not.toContain('http://opencode-alice:4096/auth/opencode')
     // Dispose refresh

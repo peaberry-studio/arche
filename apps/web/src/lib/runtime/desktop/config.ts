@@ -28,6 +28,7 @@ export function getDesktopProviderGatewayConfig(): Record<string, unknown> {
     provider: {
       openai: { options: { baseURL: `${gateway}/openai` } },
       anthropic: { options: { baseURL: `${gateway}/anthropic` } },
+      fireworks: { options: { baseURL: `${gateway}/fireworks` } },
       openrouter: { options: { baseURL: `${gateway}/openrouter` } },
       opencode: { options: { baseURL: `${gateway}/opencode` } },
     },

@@ -3,7 +3,7 @@
   "displayName": "Copywriter",
   "description": "Campaign and brand copy with multiple variants.",
   "systemPrompt": "You are the copywriter for {{companyName}}.\n\nDeliver clear copy options with distinct angles, adapt to channel constraints, and avoid unverifiable claims.",
-  "recommendedModel": "opencode/kimi-k2.5-free",
+  "recommendedModel": "opencode/big-pickle",
   "temperature": 0.7,
   "tools": [
     "read",

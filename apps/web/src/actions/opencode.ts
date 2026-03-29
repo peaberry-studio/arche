@@ -25,6 +25,7 @@ import {
 const CREDENTIAL_REQUIRED_PROVIDER_IDS = new Set<ProviderId>([
   "openai",
   "anthropic",
+  "fireworks",
   "openrouter",
 ]);
 
