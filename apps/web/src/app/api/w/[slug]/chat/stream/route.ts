@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 
 import { extractPdfText, isPdfMime } from '@/lib/attachments/pdf-text-extractor'
 import { getInstanceUrl } from '@/lib/opencode/client'
@@ -43,6 +43,14 @@ const MAX_CONTEXT_REFERENCES_PER_MESSAGE = 20
 const STREAM_RELEVANT_EVENT_TICK_MS = 1000
 const SEND_STREAM_RELEVANT_EVENT_TIMEOUT_MS = 20_000
 const RESUME_STREAM_RELEVANT_EVENT_TIMEOUT_MS = 12_000
+
+function jsonErrorResponse(status: number, error: string) {
+  return NextResponse.json({ error }, { status })
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError'
+}
 
 function normalizeContextPaths(value: unknown): string[] {
   if (!Array.isArray(value)) return []
@@ -210,16 +218,19 @@ export const POST = withAuth(
   async (request: NextRequest, { slug }) => {
   // Get instance credentials
   const instance = await instanceService.findCredentialsBySlug(slug)
-  
+
   if (!instance || !instance.serverPassword || instance.status !== 'running') {
-    return new Response(JSON.stringify({ error: 'instance_unavailable' }), { 
-      status: 503,
-      headers: { 'Content-Type': 'application/json' }
-    })
+    return jsonErrorResponse(503, 'instance_unavailable')
   }
-  
+
   // Parse request body
-  const body = await request.json()
+  let body: unknown
+  try {
+    body = await request.json()
+  } catch {
+    return jsonErrorResponse(400, 'invalid_json')
+  }
+
   const { sessionId, text, model, resume, messageId } = body as {
     sessionId: string
     text?: string
@@ -232,39 +243,48 @@ export const POST = withAuth(
 
   const attachments = normalizeMessageAttachments((body as { attachments?: unknown }).attachments)
   const contextPaths = normalizeContextPaths((body as { contextPaths?: unknown }).contextPaths)
-  
+
   if (!sessionId || (!resume && !text && attachments.length === 0)) {
-    return new Response(JSON.stringify({ error: 'missing_fields' }), { 
-      status: 400,
-      headers: { 'Content-Type': 'application/json' }
-    })
+    return jsonErrorResponse(400, 'missing_fields')
   }
 
   if (attachments.length > MAX_ATTACHMENTS_PER_MESSAGE) {
-    return new Response(JSON.stringify({ error: 'too_many_attachments' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' }
-    })
+    return jsonErrorResponse(400, 'too_many_attachments')
   }
-  
+
   const password = decryptPassword(instance.serverPassword)
   const authHeader = `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`
   const baseUrl = getInstanceUrl(slug)
   const workspaceAgentUrl = getWorkspaceAgentUrl(slug)
-  
+
   // Create SSE stream
   const encoder = new TextEncoder()
-  
+
    const stream = new ReadableStream({
     async start(controller) {
       // Track whether the downstream client (browser) has disconnected.
-      // When true we keep reading from OpenCode's event stream so the
-      // session is not aborted, but we stop trying to enqueue data.
       let clientGone = false
+      let aborted = false
+      let promptSent = Boolean(resume)
+      let promptAcknowledged = Boolean(resume)
 
-      if (request.signal) {
-        request.signal.addEventListener('abort', () => { clientGone = true }, { once: true })
+      // Shared reference so the abort path and finally block can always
+      // clean up the active reader when it exists.
+      let eventReader: ReadableStreamDefaultReader<Uint8Array> | null = null
+
+      const handleAbort = () => {
+        clientGone = true
+        aborted = true
+        void eventReader?.cancel().catch(() => undefined)
+        try { controller.close() } catch { /* already closed/errored */ }
       }
+
+      if (request.signal.aborted) {
+        handleAbort()
+        return
+      }
+
+      request.signal.addEventListener('abort', handleAbort, { once: true })
 
       const sendEvent = (event: string, data: unknown) => {
         if (clientGone) return
@@ -274,21 +294,12 @@ export const POST = withAuth(
           clientGone = true
         }
       }
-      
-      let aborted = false
-      let promptSent = Boolean(resume)
-      let promptAcknowledged = Boolean(resume)
-      
-      // Shared reference so the finally block can always clean up the reader,
-      // even if the error occurred before the reader was assigned.
-      let eventReader: ReadableStreamDefaultReader<Uint8Array> | null = null
 
       try {
         sendEvent('status', { status: 'connecting' })
 
         // Subscribe first so we don't miss fast session events.
         const eventsUrl = `${baseUrl}/event`
-        console.log('[stream] Connecting to events:', eventsUrl)
 
         const eventsResponse = await fetch(eventsUrl, {
           method: 'GET',
@@ -296,13 +307,11 @@ export const POST = withAuth(
             'Authorization': authHeader,
             'Accept': 'text/event-stream',
             'Cache-Control': 'no-cache'
-          }
+          },
+          signal: request.signal,
         })
 
-        console.log('[stream] Events connection:', eventsResponse.status)
-
         if (!eventsResponse.ok || !eventsResponse.body) {
-          console.log('[stream] Events connection failed')
           sendEvent('error', { error: 'Failed to connect to event stream' })
           return
         }
@@ -315,7 +324,7 @@ export const POST = withAuth(
         const cancelReader = async () => {
           await reader.cancel().catch(() => undefined)
         }
-        
+
         if (!resume) {
           const promptParts: Array<
             { type: 'text'; text: string } |
@@ -455,24 +464,21 @@ export const POST = withAuth(
             parts: promptParts,
             ...(model && { model: { providerID: model.providerId, modelID: model.modelId } })
           }
-          
+
           const promptUrl = `${baseUrl}/session/${sessionId}/prompt_async`
-          console.log('[stream] POST to:', promptUrl)
-          
+
           const promptResponse = await fetch(promptUrl, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'Authorization': authHeader
             },
-            body: JSON.stringify(promptBody)
+            body: JSON.stringify(promptBody),
+            signal: request.signal,
           })
-          
-          console.log('[stream] prompt_async response:', promptResponse.status)
-          
+
           if (!promptResponse.ok) {
             const errorText = await promptResponse.text()
-            console.log('[stream] prompt_async error:', errorText)
             sendEvent('error', { error: `Failed to start message: ${errorText}` })
             await cancelReader()
             return
@@ -480,9 +486,9 @@ export const POST = withAuth(
 
           promptSent = true
         }
-        
+
         sendEvent('status', { status: 'thinking' })
-        
+
         // Track state for the assistant response
         let currentStatus: string | null = null
         let currentToolName: string | undefined
@@ -526,14 +532,11 @@ export const POST = withAuth(
             return
           }
 
-          console.log('[stream] Session idle, completing')
           emitStatus('complete')
           sendEvent('done', { refresh: true })
           aborted = true
         }
-        
-        console.log('[stream] Starting to read events...')
-        
+
         while (!aborted) {
           const readPromise = reader.read()
           let streamReadResult: ReadableStreamReadResult<Uint8Array> | null = null
@@ -564,13 +567,12 @@ export const POST = withAuth(
 
           const { done, value } = streamReadResult
           if (done || !value) {
-            console.log('[stream] Event stream ended')
             if (!resume && !aborted) {
               finalizeFromIdle()
             }
             break
           }
-          
+
           const parsed = parseSseChunk(parseState, decoder.decode(value, { stream: true }))
           parseState = parsed.state
 
@@ -585,7 +587,7 @@ export const POST = withAuth(
             // End of event, process it
               try {
                 const event = JSON.parse(eventData)
-                
+
                 // Get sessionID from event
                 const eventSessionId =
                   event.properties?.sessionID ||
@@ -603,7 +605,7 @@ export const POST = withAuth(
                   eventType === 'session.status' ||
                   eventType === 'session.idle' ||
                   eventType === 'session.error'
-                
+
                 // Filter events for our session only
                 if (!isWorkspaceEvent) {
                   if (isSessionScopedEvent && eventSessionId !== sessionId) {
@@ -614,15 +616,12 @@ export const POST = withAuth(
                     continue
                   }
                 }
-                
-                console.log('[stream] Event:', eventType)
-                
+
                 switch (eventType) {
                   // Session status changes
                   case 'session.status': {
                     markRelevantEvent()
                     const status = event.properties?.status
-                    console.log('[stream] Session status:', status?.type)
 
                     if (status?.type === 'busy') {
                       promptSent = true
@@ -633,7 +632,6 @@ export const POST = withAuth(
                       emitStatus('thinking', undefined, status?.message)
                     } else if (status?.type === 'idle') {
                       if (!promptSent || !promptAcknowledged) {
-                        console.log('[stream] Ignoring pre-prompt idle session.status event')
                         break
                       }
                       finalizeFromIdle()
@@ -643,9 +641,7 @@ export const POST = withAuth(
 
                   case 'session.idle': {
                     markRelevantEvent()
-                    console.log('[stream] Session idle event')
                     if (!promptSent || !promptAcknowledged) {
-                      console.log('[stream] Ignoring pre-prompt session.idle event')
                       break
                     }
                     finalizeFromIdle()
@@ -657,7 +653,6 @@ export const POST = withAuth(
                     const error = event.properties?.error
                     const errorMessage = error?.data?.message || 'Unknown error'
 
-                    console.log('[stream] Session error:', error)
                     emitStatus('error', undefined, errorMessage)
                     sendEvent('error', { error: errorMessage })
                     aborted = true
@@ -856,33 +851,32 @@ export const POST = withAuth(
                     break
 
                   default:
-                    console.log('[stream] Unhandled event type:', eventType)
+                    break
                 }
               } catch {
-                console.log('[stream] Failed to parse event:', eventData.substring(0, 100))
+                // Ignore malformed upstream event payloads.
               }
           }
         }
-        
+
         reader.releaseLock()
-        
+
       } catch (error) {
-        console.log('[stream] Error:', error)
-        sendEvent('error', { 
-          error: error instanceof Error ? error.message : 'Unknown error' 
-        })
+        if (!aborted && !request.signal.aborted && !isAbortError(error)) {
+          sendEvent('error', {
+            error: error instanceof Error ? error.message : 'Unknown error'
+          })
+        }
       } finally {
-        // Always clean up the OpenCode event reader to release the HTTP
-        // connection, even when an enqueue error skipped releaseLock above.
+        request.signal.removeEventListener('abort', handleAbort)
         if (eventReader) {
           await eventReader.cancel().catch(() => undefined)
         }
-        console.log('[stream] Closing stream')
         try { controller.close() } catch { /* already closed/errored */ }
       }
     }
   })
-  
+
   return new Response(stream, {
     headers: {
       'Content-Type': 'text/event-stream',
