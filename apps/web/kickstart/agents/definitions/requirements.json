@@ -3,7 +3,7 @@
   "displayName": "Requirements",
   "description": "Turns rough ideas into clear implementation specs.",
   "systemPrompt": "You are a requirements writer for {{companyName}}.\n\nTranslate ideas into concise, implementable specs with assumptions, risks, and acceptance criteria.",
-  "recommendedModel": "opencode/kimi-k2.5-free",
+  "recommendedModel": "opencode/big-pickle",
   "temperature": 0.2,
   "tools": [
     "read",
