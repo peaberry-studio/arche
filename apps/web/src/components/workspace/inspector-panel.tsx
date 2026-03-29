@@ -316,20 +316,20 @@ function ExpandedInspectorPanel({
       <div className="flex shrink-0 items-center gap-2 px-3 pb-1 pt-1">
         {workspaceAgentEnabled ? (
           <div className="flex flex-1 justify-center">
-            <div className="inline-flex h-10 items-center rounded-xl bg-foreground/[0.06] p-1">
+            <div className="inline-flex h-8 items-center rounded-lg bg-foreground/[0.06] p-0.5">
               {/* Files segment */}
               <button
                 type="button"
                 onClick={() => onTabChange("preview")}
                 className={cn(
-                  "relative flex h-8 items-center gap-1.5 rounded-lg px-4 text-sm font-medium transition-all",
+                  "relative flex h-7 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-all",
                   !isReviewActive
                     ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 )}
                 aria-pressed={!isReviewActive}
               >
-                <File size={14} weight={!isReviewActive ? "fill" : "bold"} />
+                <File size={13} weight={!isReviewActive ? "fill" : "bold"} />
                 Files
               </button>
 
@@ -338,14 +338,14 @@ function ExpandedInspectorPanel({
                 type="button"
                 onClick={() => onTabChange("review")}
                 className={cn(
-                  "relative flex h-8 items-center gap-1.5 rounded-lg px-4 text-sm font-medium transition-all",
+                  "relative flex h-7 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-all",
                   isReviewActive
                     ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"
                 )}
                 aria-pressed={isReviewActive}
               >
-                <GitDiff size={14} weight={isReviewActive ? "fill" : "bold"} />
+                <GitDiff size={13} weight={isReviewActive ? "fill" : "bold"} />
                 Review
                 {pendingDiffs > 0 && !isReviewActive ? (
                   <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">

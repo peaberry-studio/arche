@@ -1108,7 +1108,7 @@ export function WorkspaceShell({
       <div
         className={cn(
           'flex h-screen flex-col overflow-hidden bg-background text-foreground',
-          macDesktopWindowInset && 'pt-10',
+          macDesktopWindowInset && 'pt-8',
           darkModeClasses,
           themeClassName,
         )}
@@ -1177,7 +1177,7 @@ export function WorkspaceShell({
       <div
         className={cn(
           'flex h-screen flex-col overflow-hidden bg-background text-foreground',
-          macDesktopWindowInset && 'pt-10',
+          macDesktopWindowInset && 'pt-8',
           darkModeClasses,
           themeClassName,
         )}
@@ -1317,14 +1317,14 @@ export function WorkspaceShell({
     <div
       className={cn(
         'flex h-screen flex-col overflow-hidden bg-background text-foreground',
-        macDesktopWindowInset && 'pt-10',
+        macDesktopWindowInset && 'pt-8',
         macDesktopWindowInset && 'desktop-no-select',
         darkModeClasses,
         themeClassName,
       )}
     >
       {macDesktopWindowInset && (
-        <div className="desktop-titlebar-drag absolute inset-x-0 top-0 z-50 h-10" />
+        <div className="desktop-titlebar-drag absolute inset-x-0 top-0 z-50 h-8" />
       )}
       <ConfigChangeBanner
         pending={configStatus.pending}

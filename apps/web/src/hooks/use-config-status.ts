@@ -35,14 +35,15 @@ export function useConfigStatus(slug: string, enabled: boolean): ConfigStatus {
   useEffect(() => {
     if (!enabled) return;
 
-    // Check immediately on mount
-    void checkStatus();
+    // Check shortly after mount, then poll at interval
+    const initial = setTimeout(() => void checkStatus(), 0);
 
     intervalRef.current = setInterval(() => {
       void checkStatus();
     }, POLL_INTERVAL);
 
     return () => {
+      clearTimeout(initial);
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [checkStatus, enabled]);
