@@ -1115,6 +1115,8 @@ export function ChatPanelMessages({
   scrollContainerRef,
   sessionTabs,
 }: ChatPanelMessagesProps) {
+  const showsCenteredState = isStartingNewSession || messages.length === 0;
+
   return (
     <div className="relative min-h-0 flex-1">
       <div
@@ -1123,16 +1125,21 @@ export function ChatPanelMessages({
         className="workspace-chat-content h-full overflow-y-auto scrollbar-custom"
         style={chatContentStyle}
       >
-        <div className="mx-auto flex min-h-full w-full max-w-[800px] flex-col px-5 py-6">
+        <div
+          className={cn(
+            "mx-auto flex w-full max-w-[800px] flex-col px-5",
+            showsCenteredState ? "h-full py-0" : "min-h-full py-6"
+          )}
+        >
           {isStartingNewSession ? (
-            <div className="grid min-h-full place-items-center text-center">
+            <div className="grid h-full place-items-center text-center">
               <div className="flex flex-col items-center gap-3">
                 <div className="h-16 w-16 animate-spin rounded-full border-4 border-muted border-t-primary" />
                 <p className="max-w-[260px] text-sm text-muted-foreground">Starting a new conversation...</p>
               </div>
             </div>
           ) : messages.length === 0 ? (
-            <div className="grid min-h-full place-items-center text-center">
+            <div className="grid h-full place-items-center text-center">
               <div className="flex flex-col items-center gap-3">
                 <ChatCircle size={32} className="text-muted-foreground/30" />
                 <p className="max-w-[240px] text-sm text-muted-foreground">
