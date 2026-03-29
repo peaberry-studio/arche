@@ -26,7 +26,10 @@ import {
 import { takeWorkspaceStartPrompt } from "@/lib/workspace-start-prompt";
 import { cn } from "@/lib/utils";
 
+import { useConfigStatus } from "@/hooks/use-config-status";
+
 import { ChatPanel } from "./chat-panel";
+import { ConfigChangeBanner } from "./config-change-banner";
 import { CosmicLoader } from "./cosmic-loader";
 import { InspectorPanel } from "./inspector-panel";
 import { LeftPanel } from "./left-panel";
@@ -187,6 +190,9 @@ export function WorkspaceShell({
   const [instanceError, setInstanceError] = useState<string | null>(null);
   const [rightTab, setRightTab] = useState<"preview" | "review">("preview");
   const effectiveRightTab = workspaceAgentEnabled ? rightTab : "preview";
+
+  // Config change detection
+  const configStatus = useConfigStatus(slug, instanceStatus === "running");
 
   // Auto-start instance on mount
   useEffect(() => {
@@ -1320,6 +1326,12 @@ export function WorkspaceShell({
       {macDesktopWindowInset && (
         <div className="desktop-titlebar-drag absolute inset-x-0 top-0 z-50 h-10" />
       )}
+      <ConfigChangeBanner
+        pending={configStatus.pending}
+        restarting={configStatus.restarting}
+        restartError={configStatus.restartError}
+        onRestart={configStatus.restart}
+      />
       <div className={cn("flex h-full flex-col", !isCompactLayout && "pl-3")}>
         {isCompactLayout ? (
           <>
