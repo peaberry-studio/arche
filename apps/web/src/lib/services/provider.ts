@@ -1,8 +1,9 @@
-import { Prisma } from '@prisma/client'
+import type { Prisma } from '@prisma/client'
 
 import { prisma } from '@/lib/prisma'
 
 const MAX_PROVIDER_CREDENTIAL_RETRIES = 3
+const SERIALIZABLE_ISOLATION_LEVEL = 'Serializable' as Prisma.TransactionIsolationLevel
 
 // ---------------------------------------------------------------------------
 // Query return shapes
@@ -94,7 +95,7 @@ async function replaceCredentialWithRetry(data: {
           select: { id: true, type: true, secret: true, version: true },
         })
       }, {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        isolationLevel: SERIALIZABLE_ISOLATION_LEVEL,
       })
     } catch (error) {
       if (isTransactionConflict(error) && attempt < MAX_PROVIDER_CREDENTIAL_RETRIES - 1) {

@@ -1,4 +1,3 @@
-import { Prisma } from '@prisma/client'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockGetContainerProxyUrl = vi.fn(() => 'http://docker-socket-proxy:2375')
@@ -285,7 +284,7 @@ describe('service layer', () => {
       expect(mockPrisma.$transaction).toHaveBeenCalledWith(
         expect.any(Function),
         expect.objectContaining({
-          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          isolationLevel: 'Serializable',
         }),
       )
       expect(transactionClient.providerCredential.findFirst).toHaveBeenCalledWith({
