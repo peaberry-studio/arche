@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockGetContainerProxyUrl = vi.fn(() => 'http://docker-socket-proxy:2375')
@@ -56,6 +57,7 @@ const mockPrisma = {
     count: vi.fn(),
     update: vi.fn(),
   },
+  $transaction: vi.fn(),
   $queryRaw: vi.fn(),
 }
 
@@ -259,28 +261,81 @@ describe('service layer', () => {
       )
     })
 
-    it('createCredential inserts a new credential record', async () => {
-      const cred = { id: 'p1', type: 'api_key', secret: 'enc', version: 1 }
-      mockPrisma.providerCredential.create.mockResolvedValue(cred)
+    it('replaceCredential disables previous versions and creates the next version in one transaction', async () => {
+      const transactionClient = {
+        providerCredential: {
+          findFirst: vi.fn().mockResolvedValue({ version: 2 }),
+          updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+          create: vi.fn().mockResolvedValue({ id: 'p2', type: 'api', secret: 'enc', version: 3 }),
+        },
+      }
+      mockPrisma.$transaction.mockImplementation(async (callback: (tx: typeof transactionClient) => unknown) =>
+        callback(transactionClient),
+      )
 
       const { providerService } = await import('../index')
-      const result = await providerService.createCredential({
-        userId: 'u1', providerId: 'openai', type: 'api_key', status: 'enabled', version: 1, secret: 'enc',
+      const result = await providerService.replaceCredential({
+        userId: 'u1',
+        providerId: 'openai',
+        type: 'api',
+        secret: 'enc',
       })
 
-      expect(result).toEqual(cred)
-    })
-
-    it('disableAllForProvider updates all credentials for a provider to disabled', async () => {
-      mockPrisma.providerCredential.updateMany.mockResolvedValue({ count: 2 })
-
-      const { providerService } = await import('../index')
-      await providerService.disableAllForProvider('u1', 'openai')
-
-      expect(mockPrisma.providerCredential.updateMany).toHaveBeenCalledWith({
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1)
+      expect(mockPrisma.$transaction).toHaveBeenCalledWith(
+        expect.any(Function),
+        expect.objectContaining({
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        }),
+      )
+      expect(transactionClient.providerCredential.findFirst).toHaveBeenCalledWith({
+        where: { userId: 'u1', providerId: 'openai' },
+        orderBy: { version: 'desc' },
+        select: { version: true },
+      })
+      expect(transactionClient.providerCredential.updateMany).toHaveBeenCalledWith({
         where: { userId: 'u1', providerId: 'openai' },
         data: { status: 'disabled' },
       })
+      expect(transactionClient.providerCredential.create).toHaveBeenCalledWith({
+        data: {
+          userId: 'u1',
+          providerId: 'openai',
+          type: 'api',
+          status: 'enabled',
+          version: 3,
+          secret: 'enc',
+        },
+        select: { id: true, type: true, secret: true, version: true },
+      })
+      expect(result).toEqual({ id: 'p2', type: 'api', secret: 'enc', version: 3 })
+    })
+
+    it('replaceCredential retries on Prisma write conflicts', async () => {
+      const transactionClient = {
+        providerCredential: {
+          findFirst: vi.fn().mockResolvedValue({ version: 4 }),
+          updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+          create: vi.fn().mockResolvedValue({ id: 'p5', type: 'api', secret: 'enc', version: 5 }),
+        },
+      }
+
+      mockPrisma.$transaction
+        .mockRejectedValueOnce({ code: 'P2034' })
+        .mockImplementationOnce(async (callback: (tx: typeof transactionClient) => unknown) =>
+          callback(transactionClient),
+        )
+
+      const { providerService } = await import('../index')
+      const result = await providerService.replaceCredential({
+        userId: 'u1',
+        providerId: 'openai',
+        type: 'api',
+        secret: 'enc',
+      })
+
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(2)
+      expect(result).toEqual({ id: 'p5', type: 'api', secret: 'enc', version: 5 })
     })
   })
 

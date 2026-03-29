@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auditEvent } from '@/lib/auth'
 import { getInstanceUrl } from '@/lib/opencode/client'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
-import { createApiCredential } from '@/lib/providers/store'
+import { replaceApiCredential } from '@/lib/providers/store'
 import { PROVIDERS, type ProviderId } from '@/lib/providers/types'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { instanceService, providerService, userService } from '@/lib/services'
@@ -12,12 +12,16 @@ export interface CreateProviderCredentialRequest {
   apiKey: string
 }
 
-export interface ProviderCredentialResponse {
+export interface ProviderCredentialSummary {
   id: string
   providerId: ProviderId
   type: string
   status: 'enabled' | 'disabled'
   version: number
+}
+
+export interface CreateProviderCredentialResponse {
+  credential: ProviderCredentialSummary
 }
 
 export interface DisableProviderCredentialResponse {
@@ -95,7 +99,7 @@ async function getProviderMutationContext(
 }
 
 export const POST = withAuth<
-  ProviderCredentialResponse | { error: string; message?: string },
+  CreateProviderCredentialResponse | { error: string; message?: string },
   { slug: string; provider: string }
 >({ csrf: true }, async (request: NextRequest, { user, params }) => {
   const context = await getProviderMutationContext(user, params)
@@ -131,18 +135,10 @@ export const POST = withAuth<
     )
   }
 
-  const latest = await providerService.findLatestVersion(context.targetUserId, context.provider)
-
-  const lastVersion = latest[0]?.version ?? 0
-  const nextVersion = lastVersion + 1
-
-  await providerService.disableAllForProvider(context.targetUserId, context.provider)
-
-  const credential = await createApiCredential({
+  const credential = await replaceApiCredential({
     userId: context.targetUserId,
     providerId: context.provider,
     apiKey,
-    version: nextVersion,
   })
 
   await syncProviderAccessBestEffort(context.targetSlug, context.targetUserId)
@@ -155,11 +151,13 @@ export const POST = withAuth<
 
   return NextResponse.json(
     {
-      id: credential.id,
-      providerId: context.provider,
-      type: credential.type,
-      status: 'enabled',
-      version: credential.version,
+      credential: {
+        id: credential.id,
+        providerId: context.provider,
+        type: credential.type,
+        status: 'enabled',
+        version: credential.version,
+      },
     },
     { status: 201 }
   )
