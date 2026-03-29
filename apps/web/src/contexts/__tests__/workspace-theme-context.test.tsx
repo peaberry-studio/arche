@@ -3,8 +3,9 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { hydrateRoot } from 'react-dom/client'
 import { renderToString } from 'react-dom/server'
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { stubBrowserStorage } from '@/__tests__/storage'
 import {
   DEFAULT_CHAT_FONT_FAMILY,
   DEFAULT_CHAT_FONT_SIZE,
@@ -93,6 +94,10 @@ function ChatFontFamilySetter({ family }: { family: string }) {
   );
 }
 
+beforeEach(() => {
+  stubBrowserStorage()
+})
+
 afterEach(() => {
   cleanup();
   localStorage.clear();
@@ -104,6 +109,7 @@ afterEach(() => {
   const root = document.documentElement;
   root.className = "";
   root.removeAttribute("data-arche-theme-owner");
+  vi.unstubAllGlobals();
 });
 
 describe("WorkspaceThemeProvider", () => {

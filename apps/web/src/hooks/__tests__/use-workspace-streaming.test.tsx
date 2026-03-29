@@ -3,6 +3,7 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { stubBrowserStorage } from "@/__tests__/storage";
 import { useWorkspace } from "@/hooks/use-workspace";
 
 // ---------------------------------------------------------------------------
@@ -159,6 +160,7 @@ async function renderConnectedHook(options?: { pollInterval?: number }) {
 
 describe("useWorkspace streaming", () => {
   beforeEach(() => {
+    stubBrowserStorage();
     localStorage.clear();
     setupDefaultMocks();
   });

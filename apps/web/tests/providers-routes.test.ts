@@ -18,11 +18,14 @@ vi.mock('@/lib/opencode/client', () => ({
 }))
 
 const mockFindUnique = vi.fn()
+const mockFindFirst = vi.fn()
 const mockFindMany = vi.fn()
 const mockUpdateMany = vi.fn()
 const mockCreate = vi.fn()
+const mockTransaction = vi.fn()
 vi.mock('@/lib/prisma', () => ({
   prisma: {
+    $transaction: (...args: unknown[]) => mockTransaction(...args),
     user: {
       findUnique: (...args: unknown[]) => mockFindUnique(...args),
     },
@@ -30,12 +33,23 @@ vi.mock('@/lib/prisma', () => ({
       findUnique: (...args: unknown[]) => mockFindUnique(...args),
     },
     providerCredential: {
+      findFirst: (...args: unknown[]) => mockFindFirst(...args),
       findMany: (...args: unknown[]) => mockFindMany(...args),
       updateMany: (...args: unknown[]) => mockUpdateMany(...args),
       create: (...args: unknown[]) => mockCreate(...args),
     },
   },
 }))
+
+function createProviderTransactionClient() {
+  return {
+    providerCredential: {
+      findFirst: (...args: unknown[]) => mockFindFirst(...args),
+      updateMany: (...args: unknown[]) => mockUpdateMany(...args),
+      create: (...args: unknown[]) => mockCreate(...args),
+    },
+  }
+}
 
 function session(slug: string, role = 'USER') {
   return { user: { id: 'user-1', email: 'a@b.com', slug, role }, sessionId: 's1' }
@@ -87,6 +101,9 @@ describe('GET /api/u/[slug]/providers', () => {
     vi.clearAllMocks()
     vi.resetModules()
     mockSyncProviderAccessForInstance.mockResolvedValue({ ok: true })
+    mockTransaction.mockImplementation(async (callback: (tx: ReturnType<typeof createProviderTransactionClient>) => unknown) =>
+      callback(createProviderTransactionClient())
+    )
   })
 
   it('returns 401 when unauthenticated', async () => {
@@ -136,6 +153,9 @@ describe('POST /api/u/[slug]/providers/[provider]', () => {
     vi.clearAllMocks()
     vi.resetModules()
     mockSyncProviderAccessForInstance.mockResolvedValue({ ok: true })
+    mockTransaction.mockImplementation(async (callback: (tx: ReturnType<typeof createProviderTransactionClient>) => unknown) =>
+      callback(createProviderTransactionClient())
+    )
   })
 
   it('returns 401 when unauthenticated', async () => {
@@ -193,7 +213,7 @@ describe('POST /api/u/[slug]/providers/[provider]', () => {
     mockGetAuthenticatedUser.mockResolvedValue(session('admin', 'ADMIN'))
     mockFindUnique.mockResolvedValueOnce({ id: 'user-1' })
     mockFindUnique.mockResolvedValueOnce({ serverPassword: 'secret' })
-    mockFindMany.mockResolvedValue([{ version: 2 }])
+    mockFindFirst.mockResolvedValue({ version: 2 })
     mockUpdateMany.mockResolvedValue({ count: 1 })
     mockCreate.mockResolvedValue({
       id: 'cred-1',
@@ -206,12 +226,15 @@ describe('POST /api/u/[slug]/providers/[provider]', () => {
     const { status, body } = await callPostProvider('alice', 'openai', { apiKey: 'sk-123' })
     expect(status).toBe(201)
     expect(body).toEqual({
-      id: 'cred-1',
-      providerId: 'openai',
-      type: 'api',
-      status: 'enabled',
-      version: 3,
+      credential: {
+        id: 'cred-1',
+        providerId: 'openai',
+        type: 'api',
+        status: 'enabled',
+        version: 3,
+      },
     })
+    expect(mockTransaction).toHaveBeenCalledTimes(1)
     expect(mockUpdateMany).toHaveBeenCalledWith({
       where: { userId: 'user-1', providerId: 'openai' },
       data: { status: 'disabled' },
@@ -235,6 +258,9 @@ describe('DELETE /api/u/[slug]/providers/[provider]', () => {
     vi.clearAllMocks()
     vi.resetModules()
     mockSyncProviderAccessForInstance.mockResolvedValue({ ok: true })
+    mockTransaction.mockImplementation(async (callback: (tx: ReturnType<typeof createProviderTransactionClient>) => unknown) =>
+      callback(createProviderTransactionClient())
+    )
   })
 
   it('returns 403 for non-admin user', async () => {
