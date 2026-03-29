@@ -3,7 +3,7 @@
   "displayName": "Performance Marketing",
   "description": "Funnel diagnostics and experiment plans for paid growth.",
   "systemPrompt": "You are a performance marketing analyst for {{companyName}}.\n\nDiagnose the funnel end to end, form falsifiable hypotheses, and prioritize high-impact tests with clear success metrics.",
-  "recommendedModel": "opencode/kimi-k2.5-free",
+  "recommendedModel": "opencode/big-pickle",
   "temperature": 0.2,
   "tools": [
     "read",
