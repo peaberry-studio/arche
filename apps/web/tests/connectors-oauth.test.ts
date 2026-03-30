@@ -157,6 +157,36 @@ describe('connectors oauth state', () => {
     expect(state.registrationEndpoint).toBe('https://mcp.custom.example.com/register')
   })
 
+  it('falls back to static custom OAuth client when dynamic registration fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response('registration error', { status: 500 }))
+    )
+
+    const prepared = await prepareConnectorOAuthAuthorization({
+      connectorId: 'conn-custom',
+      slug: 'alice',
+      userId: 'user1',
+      connectorType: 'custom',
+      redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
+      connectorConfig: {
+        endpoint: 'https://mcp.custom.example.com/mcp',
+        oauthClientId: 'static-client-id',
+        oauthClientSecret: 'static-client-secret',
+        oauthAuthorizationEndpoint: 'https://oauth.custom.example.com/authorize',
+        oauthTokenEndpoint: 'https://oauth.custom.example.com/token',
+        oauthRegistrationEndpoint: 'https://oauth.custom.example.com/register',
+      },
+    })
+
+    const authorizeUrl = new URL(prepared.authorizeUrl)
+    expect(authorizeUrl.searchParams.get('client_id')).toBe('static-client-id')
+
+    const state = verifyConnectorOAuthState(prepared.state)
+    expect(state.clientId).toBe('static-client-id')
+    expect(state.clientSecret).toBe('static-client-secret')
+  })
+
   it('refreshes custom OAuth token using explicit token endpoint', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({
