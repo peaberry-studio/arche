@@ -3,6 +3,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { stubBrowserStorage } from "@/__tests__/storage";
 import { WorkspaceShell } from "@/components/workspace/workspace-shell";
 
 const { ensureInstanceRunningActionMock } = vi.hoisted(() => ({
@@ -128,6 +129,7 @@ function setViewportWidth(width: number) {
 
 describe("WorkspaceShell", () => {
   beforeEach(() => {
+    stubBrowserStorage();
     setViewportWidth(1440);
     createSessionMock.mockClear();
     ensureInstanceRunningActionMock.mockReset();
@@ -150,6 +152,7 @@ describe("WorkspaceShell", () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("creates a new session with Command+Period", async () => {
