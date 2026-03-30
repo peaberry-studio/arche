@@ -2,19 +2,36 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { decryptConfig } from '@/lib/connectors/crypto'
 import { verifyConnectorGatewayToken } from '@/lib/connectors/gateway-tokens'
+import { isOAuthConnectorType } from '@/lib/connectors/oauth'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
 import { refreshConnectorOAuthConfigIfNeeded } from '@/lib/connectors/oauth-refresh'
+import type { ConnectorType } from '@/lib/connectors/types'
 import { validateConnectorType } from '@/lib/connectors/validators'
+import { validateConnectorTestEndpoint } from '@/lib/security/ssrf'
 import { connectorService } from '@/lib/services'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-function getUpstreamMcpUrl(type: 'linear' | 'notion'): string {
+function getUpstreamMcpUrl(
+  type: ConnectorType,
+  config: Record<string, unknown>,
+  oauthMcpServerUrl?: string,
+): string | null {
+  if (oauthMcpServerUrl) {
+    return oauthMcpServerUrl
+  }
+
   if (type === 'linear') {
     return process.env.ARCHE_CONNECTOR_LINEAR_MCP_URL || 'https://mcp.linear.app/mcp'
   }
-  return process.env.ARCHE_CONNECTOR_NOTION_MCP_URL || 'https://mcp.notion.com/mcp'
+
+  if (type === 'notion') {
+    return process.env.ARCHE_CONNECTOR_NOTION_MCP_URL || 'https://mcp.notion.com/mcp'
+  }
+
+  const endpoint = config.endpoint
+  return typeof endpoint === 'string' ? endpoint : null
 }
 
 function extractGatewayToken(headers: Headers): string | null {
@@ -56,7 +73,7 @@ async function handleProxy(
     return NextResponse.json({ error: 'stale_token' }, { status: 401 })
   }
 
-  if (!validateConnectorType(connector.type) || (connector.type !== 'linear' && connector.type !== 'notion')) {
+  if (!validateConnectorType(connector.type) || !isOAuthConnectorType(connector.type)) {
     return NextResponse.json({ error: 'unsupported_connector' }, { status: 400 })
   }
 
@@ -79,7 +96,26 @@ async function handleProxy(
     return NextResponse.json({ error: 'not_authenticated' }, { status: 401 })
   }
 
-  const upstream = new URL(getUpstreamMcpUrl(connector.type))
+  const upstreamUrl = getUpstreamMcpUrl(connector.type, decryptedConfig, oauth.mcpServerUrl)
+  if (!upstreamUrl) {
+    return NextResponse.json({ error: 'invalid_connector_endpoint' }, { status: 400 })
+  }
+
+  let upstream: URL
+  if (connector.type === 'custom') {
+    const endpointValidation = await validateConnectorTestEndpoint(upstreamUrl)
+    if (!endpointValidation.ok) {
+      return NextResponse.json({ error: 'invalid_connector_endpoint' }, { status: 400 })
+    }
+    upstream = endpointValidation.url
+  } else {
+    try {
+      upstream = new URL(upstreamUrl)
+    } catch {
+      return NextResponse.json({ error: 'invalid_connector_endpoint' }, { status: 400 })
+    }
+  }
+
   upstream.search = new URL(request.url).search
 
   const headers = new Headers(request.headers)

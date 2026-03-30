@@ -95,6 +95,17 @@ describe('connectors/validators', () => {
       expect(invalid.missing).toContain('endpoint')
     })
 
+    it('validates oauth mode for custom connectors', () => {
+      expect(validateConnectorConfig('custom', { authType: 'oauth', endpoint: 'https://api.example.com/mcp' })).toEqual({
+        valid: true,
+      })
+
+      expect(validateConnectorConfig('custom', { authType: 'oauth' })).toEqual({
+        valid: false,
+        missing: ['endpoint'],
+      })
+    })
+
     it('reports multiple missing fields', () => {
       // custom requires endpoint, but we also check behavior with empty object
       const result = validateConnectorConfig('custom', {})

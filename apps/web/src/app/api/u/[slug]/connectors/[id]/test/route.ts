@@ -50,18 +50,23 @@ function getAccessToken(type: ConnectorType, config: Record<string, unknown>): s
 
 function isOAuthPending(type: ConnectorType, config: Record<string, unknown>): boolean {
   if (getConnectorAuthType(config) !== 'oauth') return false
-  if (type !== 'linear' && type !== 'notion') return false
   return !getConnectorOAuthConfig(type, config)?.accessToken
 }
 
-function getMcpServerUrl(type: 'linear' | 'notion', config: Record<string, unknown>): string {
+function getMcpServerUrl(type: 'linear' | 'notion', config: Record<string, unknown>): string
+function getMcpServerUrl(type: ConnectorType, config: Record<string, unknown>): string | null {
   const oauth = getConnectorOAuthConfig(type, config)
   if (oauth?.mcpServerUrl) return oauth.mcpServerUrl
 
   if (type === 'linear') {
     return process.env.ARCHE_CONNECTOR_LINEAR_MCP_URL || MCP_SERVER_URLS.linear
   }
-  return process.env.ARCHE_CONNECTOR_NOTION_MCP_URL || MCP_SERVER_URLS.notion
+
+  if (type === 'notion') {
+    return process.env.ARCHE_CONNECTOR_NOTION_MCP_URL || MCP_SERVER_URLS.notion
+  }
+
+  return typeof config.endpoint === 'string' ? config.endpoint : null
 }
 
 function buildMcpInitializeBody() {
@@ -81,7 +86,7 @@ function buildMcpInitializeBody() {
 }
 
 async function testRemoteMcpConnection(input: {
-  label: 'Linear' | 'Notion'
+  label: 'Linear' | 'Notion' | 'Custom'
   url: string
   token: string
 }): Promise<TestConnectionResult> {
@@ -181,6 +186,30 @@ async function testConnection(
       }
 
       case 'custom': {
+        if (isOAuthPending(type, config)) {
+          return {
+            ok: false,
+            tested: false,
+            message: 'Complete OAuth from the dashboard before testing this connector.',
+          }
+        }
+
+        if (getConnectorAuthType(config) === 'oauth') {
+          const token = getAccessToken(type, config)
+          if (!token) return { ok: false, tested: false, message: 'Missing OAuth access token' }
+
+          const mcpUrl = options.customEndpointUrl?.toString() ?? getMcpServerUrl(type, config)
+          if (!mcpUrl) {
+            return { ok: false, tested: false, message: 'Missing endpoint' }
+          }
+
+          return testRemoteMcpConnection({
+            label: 'Custom',
+            url: mcpUrl,
+            token,
+          })
+        }
+
         const endpoint = typeof config.endpoint === 'string' ? config.endpoint : ''
         if (!endpoint) {
           return { ok: false, tested: false, message: 'Missing endpoint' }
@@ -272,7 +301,10 @@ export const POST = withAuth<TestConnectionResult | { error: string }, { slug: s
 
     let customEndpointUrl: URL | undefined
     if (connector.type === 'custom') {
-      const endpoint = typeof config.endpoint === 'string' ? config.endpoint : ''
+      const endpoint = getConnectorAuthType(config) === 'oauth'
+        ? getMcpServerUrl(connector.type, config) ?? ''
+        : (typeof config.endpoint === 'string' ? config.endpoint : '')
+
       if (endpoint) {
         const endpointValidation = await validateConnectorTestEndpoint(endpoint)
         if (!endpointValidation.ok) {

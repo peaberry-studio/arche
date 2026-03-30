@@ -38,6 +38,7 @@ export async function refreshConnectorOAuthConfigIfNeeded(
       clientId: oauth.clientId,
       clientSecret: oauth.clientSecret,
       tokenEndpoint: oauth.tokenEndpoint,
+      mcpServerUrl: oauth.mcpServerUrl,
     })
 
     const nextConfig = buildConfigWithOAuth({
