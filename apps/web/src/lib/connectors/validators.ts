@@ -1,9 +1,10 @@
-import {
-  CONNECTOR_TYPES,
-  OAUTH_CONNECTOR_TYPES,
-  type ConnectorAuthType,
-  type ConnectorType,
-} from './types'
+import { getConnectorAuthType } from '@/lib/connectors/oauth-config'
+import { isOAuthConnectorType } from '@/lib/connectors/oauth'
+
+import { CONNECTOR_TYPES, type ConnectorType } from './types'
+
+export { getConnectorAuthType } from '@/lib/connectors/oauth-config'
+export { isOAuthConnectorType } from '@/lib/connectors/oauth'
 
 export const MAX_CONNECTOR_NAME_LENGTH = 100
 
@@ -32,15 +33,6 @@ export const CONNECTOR_SCHEMAS: Record<ConnectorType, ConnectorConfigSchema> = {
 
 export function validateConnectorType(type: string): type is ConnectorType {
   return CONNECTOR_TYPES.includes(type as ConnectorType)
-}
-
-export function isOAuthConnectorType(type: ConnectorType): type is (typeof OAUTH_CONNECTOR_TYPES)[number] {
-  return OAUTH_CONNECTOR_TYPES.includes(type as (typeof OAUTH_CONNECTOR_TYPES)[number])
-}
-
-export function getConnectorAuthType(config: Record<string, unknown>): ConnectorAuthType {
-  const value = config.authType
-  return value === 'oauth' ? 'oauth' : 'manual'
 }
 
 export function validateConnectorName(name: unknown): { valid: boolean; error?: string } {

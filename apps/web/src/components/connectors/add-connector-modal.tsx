@@ -14,7 +14,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useWorkspaceTheme } from '@/contexts/workspace-theme-context'
-import { CONNECTOR_TYPES, type ConnectorAuthType, type ConnectorType } from '@/lib/connectors/types'
+import { CONNECTOR_TYPES, OAUTH_CONNECTOR_TYPES, type ConnectorAuthType, type ConnectorType } from '@/lib/connectors/types'
 import { cn } from '@/lib/utils'
 
 type AddConnectorModalProps = {
@@ -63,7 +63,7 @@ function hasValidHeaders(headersText: string): boolean {
 }
 
 function supportsOAuth(type: ConnectorType): boolean {
-  return type === 'linear' || type === 'notion' || type === 'custom'
+  return OAUTH_CONNECTOR_TYPES.includes(type)
 }
 
 function getDefaultAuthType(type: ConnectorType): ConnectorAuthType {

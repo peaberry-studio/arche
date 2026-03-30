@@ -168,4 +168,41 @@ describe('mcp-config', () => {
 
     expect(keys).toEqual(['arche_linear_abcdef12-1111', 'arche_linear_abcdef12-2222'])
   })
+
+  it('routes custom OAuth connectors through gateway targets when provided', () => {
+    const connectors = [
+      {
+        id: 'custom-oauth-1',
+        type: 'custom',
+        name: 'Custom OAuth',
+        enabled: true,
+        config: encryptConfig({
+          authType: 'oauth',
+          endpoint: 'https://oauth.example.com/mcp',
+          headers: { 'X-Tenant': 'acme' },
+          oauth: { provider: 'custom', clientId: 'custom-client', accessToken: 'oauth_token' },
+        }),
+      },
+    ]
+
+    const result = buildMcpConfigFromConnectors(connectors, {
+      oauthGatewayTargets: {
+        'custom-oauth-1': {
+          url: 'http://web:3000/api/internal/mcp/connectors/custom-oauth-1/mcp',
+          token: 'gateway-token',
+        },
+      },
+    })
+
+    expect(result.mcp['arche_custom_custom-oauth-1']).toEqual({
+      type: 'remote',
+      url: 'http://web:3000/api/internal/mcp/connectors/custom-oauth-1/mcp',
+      enabled: true,
+      oauth: false,
+      headers: {
+        'X-Tenant': 'acme',
+        Authorization: 'Bearer gateway-token',
+      },
+    })
+  })
 })

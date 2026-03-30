@@ -80,6 +80,12 @@ function getOAuthStateTtlSeconds(): number {
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 900
 }
 
+function getOAuthAuthorizeUrlMaxLength(): number {
+  const raw = process.env.ARCHE_CONNECTOR_OAUTH_MAX_AUTHORIZE_URL_LENGTH
+  const parsed = raw ? Number(raw) : NaN
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 1800
+}
+
 async function validateConnectorUrl(rawUrl: string): Promise<string> {
   const validation = await validateConnectorTestEndpoint(rawUrl)
   if (!validation.ok) {
@@ -527,7 +533,12 @@ export async function prepareConnectorOAuthAuthorization(input: {
     authorizeUrl.searchParams.set('scope', scope)
   }
 
-  return { authorizeUrl: authorizeUrl.toString(), state }
+  const authorizeUrlString = authorizeUrl.toString()
+  if (authorizeUrlString.length > getOAuthAuthorizeUrlMaxLength()) {
+    throw new Error('oauth_state_too_large')
+  }
+
+  return { authorizeUrl: authorizeUrlString, state }
 }
 
 export async function exchangeConnectorOAuthCode(input: {

@@ -36,7 +36,7 @@ type GatewayTarget = {
 }
 
 function getString(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
 
 function toStringRecord(value: unknown): Record<string, string> | undefined {

@@ -67,7 +67,12 @@ export const POST = withAuth<
     authorizeUrl = prepared.authorizeUrl
   } catch (error) {
     const message = error instanceof Error ? error.message : 'oauth_start_failed'
-    if (message === 'missing_endpoint' || message === 'invalid_endpoint' || message === 'blocked_endpoint') {
+    if (
+      message === 'missing_endpoint'
+      || message === 'invalid_endpoint'
+      || message === 'blocked_endpoint'
+      || message === 'oauth_state_too_large'
+    ) {
       return NextResponse.json({ error: message }, { status: 400 })
     }
 
