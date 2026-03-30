@@ -83,9 +83,6 @@ jobs:
       - name: Package DMG
         working-directory: apps/desktop
         env:
-          # Prevent electron-builder from searching the runner keychain
-          # when no certificate is provided.
-          CSC_IDENTITY_AUTO_DISCOVERY: false
           # Secrets are passed via INPUT_* vars and conditionally exported
           # below. Setting CSC_LINK to an empty string causes electron-builder
           # to treat it as a file path and fail with "not a file".
@@ -95,10 +92,14 @@ jobs:
           INPUT_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           INPUT_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          # Only export signing/notarization vars when secrets are configured.
+          # When a real signing certificate is provided, use it and prevent
+          # electron-builder from picking up unrelated keychain identities.
+          # Otherwise, let electron-builder fall back to proper ad-hoc signing
+          # so the app can be opened via "Allow Anyway" on macOS.
           if [ -n "$INPUT_CSC_LINK" ]; then
             export CSC_LINK="$INPUT_CSC_LINK"
             export CSC_KEY_PASSWORD="$INPUT_CSC_KEY_PASSWORD"
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
           fi
           if [ -n "$INPUT_APPLE_ID" ]; then
             export APPLE_ID="$INPUT_APPLE_ID"

@@ -9,21 +9,18 @@ export type ProviderCredentialRecord = {
   version: number
 }
 
-export type CreateApiCredentialInput = {
+export type ReplaceApiCredentialInput = {
   userId: string
   providerId: ProviderId
   apiKey: string
-  version: number
 }
 
-export async function createApiCredential(input: CreateApiCredentialInput): Promise<ProviderCredentialRecord> {
+export async function replaceApiCredential(input: ReplaceApiCredentialInput): Promise<ProviderCredentialRecord> {
   const secret = encryptProviderSecret({ apiKey: input.apiKey })
-  return providerService.createCredential({
+  return providerService.replaceCredential({
     userId: input.userId,
     providerId: input.providerId,
     type: 'api',
-    status: 'enabled',
-    version: input.version,
     secret,
   })
 }

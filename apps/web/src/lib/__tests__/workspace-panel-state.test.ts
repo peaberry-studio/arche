@@ -1,7 +1,8 @@
 /** @vitest-environment jsdom */
 
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { stubBrowserStorage } from '@/__tests__/storage'
 import {
   getWorkspaceLayoutCookieName,
   getWorkspaceLayoutStorageKey,
@@ -40,8 +41,13 @@ function parseJsonValue<T>(value: string): T | null {
 
 describe('workspace panel state persistence', () => {
   beforeEach(() => {
+    stubBrowserStorage()
     window.localStorage.clear()
     clearCookies()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
   })
 
   it('reads the localStorage value when present', () => {

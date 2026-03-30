@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-vi.mock('@/lib/prisma', () => ({
-  prisma: {
-    providerCredential: {
-      create: vi.fn(),
-      findFirst: vi.fn(),
-    },
+const replaceCredentialMock = vi.fn()
+const findActiveCredentialMock = vi.fn()
+vi.mock('@/lib/services', () => ({
+  providerService: {
+    replaceCredential: (...args: unknown[]) => replaceCredentialMock(...args),
+    findActiveCredential: (...args: unknown[]) => findActiveCredentialMock(...args),
   },
 }))
 
@@ -13,11 +13,9 @@ vi.mock('@/lib/providers/crypto', () => ({
   encryptProviderSecret: vi.fn(() => 'encrypted-secret'),
 }))
 
-import { prisma } from '@/lib/prisma'
 import { encryptProviderSecret } from '@/lib/providers/crypto'
-import { createApiCredential, getActiveCredentialForUser } from '@/lib/providers/store'
+import { getActiveCredentialForUser, replaceApiCredential } from '@/lib/providers/store'
 
-const mockPrisma = vi.mocked(prisma)
 const mockEncrypt = vi.mocked(encryptProviderSecret)
 
 beforeEach(() => {
@@ -25,37 +23,26 @@ beforeEach(() => {
 })
 
 describe('providers/store', () => {
-  it('creates api credential with encrypted secret', async () => {
-    mockPrisma.providerCredential.create.mockResolvedValue({
+  it('replaces api credential with encrypted secret', async () => {
+    replaceCredentialMock.mockResolvedValue({
       id: 'cred-1',
       type: 'api',
       secret: 'encrypted-secret',
       version: 2,
-    } as never)
+    })
 
-    const result = await createApiCredential({
+    const result = await replaceApiCredential({
       userId: 'user-1',
       providerId: 'openai',
       apiKey: 'sk-123',
-      version: 2,
     })
 
     expect(mockEncrypt).toHaveBeenCalledWith({ apiKey: 'sk-123' })
-    expect(mockPrisma.providerCredential.create).toHaveBeenCalledWith({
-      data: {
+    expect(replaceCredentialMock).toHaveBeenCalledWith({
         userId: 'user-1',
         providerId: 'openai',
         type: 'api',
-        status: 'enabled',
-        version: 2,
         secret: 'encrypted-secret',
-      },
-      select: {
-        id: true,
-        type: true,
-        secret: true,
-        version: true,
-      },
     })
     expect(result).toEqual({
       id: 'cred-1',
@@ -66,34 +53,19 @@ describe('providers/store', () => {
   })
 
   it('returns active credential for user and provider', async () => {
-    mockPrisma.providerCredential.findFirst.mockResolvedValue({
+    findActiveCredentialMock.mockResolvedValue({
       id: 'cred-2',
       type: 'api',
       secret: 'encrypted-secret',
       version: 3,
-    } as never)
+    })
 
     const result = await getActiveCredentialForUser({
       userId: 'user-1',
       providerId: 'openai',
     })
 
-    expect(mockPrisma.providerCredential.findFirst).toHaveBeenCalledWith({
-      where: {
-        userId: 'user-1',
-        providerId: 'openai',
-        status: 'enabled',
-      },
-      orderBy: {
-        version: 'desc',
-      },
-      select: {
-        id: true,
-        type: true,
-        secret: true,
-        version: true,
-      },
-    })
+    expect(findActiveCredentialMock).toHaveBeenCalledWith('user-1', 'openai')
     expect(result).toEqual({
       id: 'cred-2',
       type: 'api',
