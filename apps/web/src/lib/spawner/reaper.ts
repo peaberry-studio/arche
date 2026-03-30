@@ -3,6 +3,24 @@ import { getIdleTimeoutMinutes } from './config'
 
 let reaperInterval: NodeJS.Timeout | null = null
 
+type DockerModule = {
+  stopContainer: (containerId: string) => Promise<void>
+  removeContainer: (containerId: string) => Promise<void>
+}
+
+function importRuntimeModule<T>(specifier: string): Promise<T> {
+  if (process.env.VITEST) {
+    return import(specifier) as Promise<T>
+  }
+
+  // Keep docker.ts out of webpack's static module graph in web local-dev mode.
+  return Function('runtimeSpecifier', 'return import(runtimeSpecifier)')(specifier) as Promise<T>
+}
+
+function importDockerModule(): Promise<DockerModule> {
+  return importRuntimeModule<DockerModule>(`./${'docker'}`)
+}
+
 export async function reapIdleInstances(): Promise<number> {
   const timeoutMinutes = getIdleTimeoutMinutes()
   const threshold = new Date(Date.now() - timeoutMinutes * 60 * 1000)
@@ -14,7 +32,7 @@ export async function reapIdleInstances(): Promise<number> {
   for (const instance of idleInstances) {
     try {
       if (instance.containerId) {
-        const docker = await import('./docker')
+        const docker = await importDockerModule()
         await docker.stopContainer(instance.containerId).catch((err) => {
           console.warn('[reaper] Failed to stop container:', { slug: instance.slug, containerId: instance.containerId, error: err })
         })
