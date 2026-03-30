@@ -54,6 +54,7 @@ function isOAuthPending(type: ConnectorType, config: Record<string, unknown>): b
 }
 
 function getMcpServerUrl(type: 'linear' | 'notion', config: Record<string, unknown>): string
+function getMcpServerUrl(type: 'custom', config: Record<string, unknown>): string | null
 function getMcpServerUrl(type: ConnectorType, config: Record<string, unknown>): string | null {
   const oauth = getConnectorOAuthConfig(type, config)
   if (oauth?.mcpServerUrl) return oauth.mcpServerUrl
