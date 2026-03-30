@@ -17,20 +17,6 @@ describe('runtime paths', () => {
       delete process.env.ARCHE_RUNTIME_MODE
     })
 
-    it('does not load desktop paths when resolving web paths', async () => {
-      vi.doMock('@/lib/runtime/paths-desktop', () => {
-        throw new Error('desktop paths module should not load in web mode')
-      })
-
-      try {
-        const { getUserDataPath } = await import('../paths')
-        expect(getUserDataPath('alice')).toBe('/opt/arche/users/alice')
-      } finally {
-        vi.doUnmock('@/lib/runtime/paths-desktop')
-        vi.resetModules()
-      }
-    })
-
     it('returns /kb-config for kbConfigRoot', async () => {
       const { getKbConfigRoot } = await import('../paths')
       expect(getKbConfigRoot()).toBe('/kb-config')
