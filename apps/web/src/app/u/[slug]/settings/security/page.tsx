@@ -28,6 +28,7 @@ export default async function SecuritySettingsPage({
 
   return (
     <SettingsPageContent
+      passwordChangeEnabled={caps.auth}
       twoFactorEnabled={caps.twoFactor}
       enabled={enabled}
       verifiedAt={verifiedAt}

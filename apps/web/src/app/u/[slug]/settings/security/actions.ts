@@ -20,6 +20,102 @@ import {
 
 const ISSUER = 'Arche'
 
+type ChangePasswordResult =
+  | { ok: true }
+  | {
+      ok: false
+      error:
+        | 'password_change_unavailable'
+        | 'not_authenticated'
+        | 'user_not_found'
+        | 'invalid_current_password'
+        | 'invalid_new_password'
+      message: string
+    }
+
+function invalidNewPassword(message: string): ChangePasswordResult {
+  return {
+    ok: false,
+    error: 'invalid_new_password',
+    message,
+  }
+}
+
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+  newPasswordConfirmation: string,
+): Promise<ChangePasswordResult> {
+  if (!getRuntimeCapabilities().auth) {
+    return {
+      ok: false,
+      error: 'password_change_unavailable',
+      message: 'Password change is not available in this runtime mode',
+    }
+  }
+
+  if (!currentPassword) {
+    return {
+      ok: false,
+      error: 'invalid_current_password',
+      message: 'Current password is required',
+    }
+  }
+
+  if (!newPassword) {
+    return invalidNewPassword('New password is required')
+  }
+
+  if (!newPasswordConfirmation) {
+    return invalidNewPassword('New password confirmation is required')
+  }
+
+  if (newPassword !== newPasswordConfirmation) {
+    return invalidNewPassword('New password confirmation does not match')
+  }
+
+  if (newPassword === currentPassword) {
+    return invalidNewPassword('New password must be different from the current password')
+  }
+
+  const session = await getSession()
+  if (!session) {
+    return {
+      ok: false,
+      error: 'not_authenticated',
+      message: 'Not authenticated',
+    }
+  }
+
+  const user = await userService.findById(session.user.id)
+  if (!user) {
+    return {
+      ok: false,
+      error: 'user_not_found',
+      message: 'User not found',
+    }
+  }
+
+  const valid = await verifyPassword(currentPassword, user.passwordHash)
+  if (!valid) {
+    return {
+      ok: false,
+      error: 'invalid_current_password',
+      message: 'Current password is incorrect',
+    }
+  }
+
+  const passwordHash = await argon2.hash(newPassword)
+  await userService.updatePasswordHash(user.id, passwordHash)
+
+  await auditEvent({
+    actorUserId: user.id,
+    action: 'auth.password.changed',
+  })
+
+  return { ok: true }
+}
+
 export async function initiate2FASetup(): Promise<
   { ok: true; qrUri: string; secret: string } | { ok: false; error: string }
 > {

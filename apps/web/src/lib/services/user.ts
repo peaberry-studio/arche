@@ -153,6 +153,13 @@ export function updateRole(id: string, role: UserRole): Promise<UserTeamRecord> 
   })
 }
 
+export function updatePasswordHash(id: string, passwordHash: string) {
+  return prisma.user.update({
+    where: { id },
+    data: { passwordHash },
+  })
+}
+
 export function updateTotpLastUsedAt(id: string, totpLastUsedAt: Date) {
   return prisma.user.update({
     where: { id },

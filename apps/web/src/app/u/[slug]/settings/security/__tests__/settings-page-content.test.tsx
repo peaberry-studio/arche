@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { cleanup, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { SettingsPageContent } from '../settings-page-content'
 
@@ -14,9 +14,14 @@ vi.mock('@/components/totp-setup-wizard', () => ({
 }))
 
 describe('SettingsPageContent', () => {
+  afterEach(() => {
+    cleanup()
+  })
+
   it('omits the two-factor section in desktop mode', () => {
     render(
       <SettingsPageContent
+        passwordChangeEnabled={false}
         twoFactorEnabled={false}
         enabled={false}
         verifiedAt={null}
@@ -26,6 +31,7 @@ describe('SettingsPageContent', () => {
     )
 
     expect(screen.getByText('Appearance')).toBeTruthy()
+    expect(screen.queryByText('Change password')).toBeNull()
     expect(screen.queryByText('Two-factor authentication')).toBeNull()
     expect(screen.queryByText('Set up 2FA')).toBeNull()
     expect(screen.getByText(/Peaberry Studio/)).toBeTruthy()
@@ -35,6 +41,7 @@ describe('SettingsPageContent', () => {
   it('renders the two-factor section in web mode', () => {
     render(
       <SettingsPageContent
+        passwordChangeEnabled={true}
         twoFactorEnabled
         enabled={false}
         verifiedAt={null}
@@ -43,6 +50,7 @@ describe('SettingsPageContent', () => {
       />,
     )
 
+    expect(screen.getByRole('heading', { name: 'Change password' })).toBeTruthy()
     expect(screen.getByText('Two-factor authentication')).toBeTruthy()
     expect(screen.getByText('Set up 2FA')).toBeTruthy()
   })

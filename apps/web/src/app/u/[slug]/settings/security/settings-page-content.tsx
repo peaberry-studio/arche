@@ -1,9 +1,11 @@
+import { ChangePasswordForm } from './change-password-form'
 import { ThemePicker } from '@/components/dashboard/theme-picker'
 import { TotpSetupWizard } from '@/components/totp-setup-wizard'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 
 type SettingsPageContentProps = {
+  passwordChangeEnabled: boolean
   twoFactorEnabled: boolean
   enabled: boolean
   verifiedAt: Date | null
@@ -12,6 +14,7 @@ type SettingsPageContentProps = {
 }
 
 export function SettingsPageContent({
+  passwordChangeEnabled,
   twoFactorEnabled,
   enabled,
   verifiedAt,
@@ -34,6 +37,19 @@ export function SettingsPageContent({
           </p>
           <ThemePicker />
         </section>
+
+        {passwordChangeEnabled ? (
+          <section className="space-y-4 rounded-lg border border-border/60 bg-card/50 p-6">
+            <div className="space-y-1">
+              <h2 className="text-lg font-medium">Change password</h2>
+              <p className="text-sm text-muted-foreground">
+                Update your account password and keep your credentials current.
+              </p>
+            </div>
+
+            <ChangePasswordForm />
+          </section>
+        ) : null}
 
         {twoFactorEnabled ? (
           <section className="space-y-4 rounded-lg border border-border/60 bg-card/50 p-6">
