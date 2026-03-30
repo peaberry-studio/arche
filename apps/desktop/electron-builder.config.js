@@ -53,10 +53,7 @@ module.exports = {
   ],
   mac: {
     category: 'public.app-category.developer-tools',
-    target: [
-      { target: 'dmg', arch: ['x64', 'arm64'] },
-      { target: 'zip', arch: ['x64', 'arm64'] },
-    ],
+    target: ['dmg', 'zip'],
     hardenedRuntime: true,
     gatekeeperAssess: false,
     notarize: process.env.APPLE_TEAM_ID

@@ -80,6 +80,19 @@ jobs:
           "
           echo "Desktop version set to $VERSION"
 
+      - name: Ad-hoc sign runtime binaries
+        working-directory: apps/desktop
+        run: |
+          # All Mach-O binaries bundled as extraResources must be signed
+          # before electron-builder packages them, otherwise macOS rejects
+          # the entire app bundle (error 3840).
+          for bin in bin/node bin/opencode bin/workspace-agent; do
+            if [ -f "$bin" ]; then
+              codesign --force --sign - "$bin"
+              echo "Signed $bin"
+            fi
+          done
+
       - name: Package DMG
         working-directory: apps/desktop
         env:
