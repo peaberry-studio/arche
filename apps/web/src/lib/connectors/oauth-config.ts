@@ -1,5 +1,5 @@
-import type { ConnectorType, OAuthConnectorType } from '@/lib/connectors/types'
 import { isOAuthConnectorType } from '@/lib/connectors/oauth'
+import type { ConnectorType, OAuthConnectorType } from '@/lib/connectors/types'
 
 export type ConnectorOAuthConfig = {
   provider: OAuthConnectorType
@@ -43,10 +43,10 @@ export function getConnectorOAuthConfig(
   const provider = getString(entry.provider)
   const accessToken = getString(entry.accessToken)
   const clientId = getString(entry.clientId)
-  if (!provider || !accessToken || !clientId || (provider !== 'linear' && provider !== 'notion')) return null
+  if (!provider || !accessToken || !clientId || provider !== type) return null
 
   return {
-    provider,
+    provider: type,
     accessToken,
     clientId,
     refreshToken: getString(entry.refreshToken),

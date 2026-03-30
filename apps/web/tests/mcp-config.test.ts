@@ -36,6 +36,18 @@ describe('mcp-config', () => {
           auth: 'secret',
         }),
       },
+      {
+        id: 'c4',
+        type: 'custom',
+        name: 'Custom OAuth',
+        enabled: true,
+        config: encryptConfig({
+          authType: 'oauth',
+          endpoint: 'https://oauth.example.com/mcp',
+          headers: { 'X-Workspace': 'acme' },
+          oauth: { provider: 'custom', clientId: 'client-custom', accessToken: 'custom_oauth_token' },
+        }),
+      },
     ]
 
     const result = buildMcpConfigFromConnectors(connectors)
@@ -68,6 +80,17 @@ describe('mcp-config', () => {
       headers: {
         'X-Token': 'abc',
         Authorization: 'Bearer secret',
+      },
+    })
+
+    expect(result.mcp.arche_custom_c4).toEqual({
+      type: 'remote',
+      url: 'https://oauth.example.com/mcp',
+      enabled: true,
+      oauth: false,
+      headers: {
+        'X-Workspace': 'acme',
+        Authorization: 'Bearer custom_oauth_token',
       },
     })
   })

@@ -37,6 +37,13 @@ describe('connectors oauth config', () => {
   it('validates oauth mode without manual required fields', () => {
     expect(validateConnectorConfig('notion', { authType: 'oauth' })).toEqual({ valid: true })
     expect(validateConnectorConfig('linear', { authType: 'oauth' })).toEqual({ valid: true })
+    expect(validateConnectorConfig('custom', { authType: 'oauth', endpoint: 'https://api.example.com/mcp' })).toEqual({
+      valid: true,
+    })
+    expect(validateConnectorConfig('custom', { authType: 'oauth' })).toEqual({
+      valid: false,
+      missing: ['endpoint'],
+    })
   })
 
   it('builds and parses oauth config', () => {
@@ -56,6 +63,18 @@ describe('connectors oauth config', () => {
     expect(oauth?.clientId).toBe('client-123')
     expect(oauth?.accessToken).toBe('token123')
     expect(oauth?.refreshToken).toBe('refresh123')
+
+    const customConfig = buildConfigWithOAuth({
+      connectorType: 'custom',
+      currentConfig: { endpoint: 'https://api.example.com/mcp' },
+      oauth: {
+        clientId: 'custom-client',
+        accessToken: 'custom-token',
+      },
+    })
+    const customOauth = getConnectorOAuthConfig('custom', customConfig)
+    expect(customOauth?.provider).toBe('custom')
+    expect(customOauth?.accessToken).toBe('custom-token')
   })
 
   it('detects token expiring soon', () => {

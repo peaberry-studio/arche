@@ -15,14 +15,26 @@ export interface ConnectorConfigSchema {
 export const CONNECTOR_SCHEMAS: Record<ConnectorType, ConnectorConfigSchema> = {
   linear: { required: ['apiKey'] },
   notion: { required: ['apiKey'] },
-  custom: { required: ['endpoint'], optional: ['headers', 'auth'] },
+  custom: {
+    required: ['endpoint'],
+    optional: [
+      'headers',
+      'auth',
+      'oauthScope',
+      'oauthClientId',
+      'oauthClientSecret',
+      'oauthAuthorizationEndpoint',
+      'oauthTokenEndpoint',
+      'oauthRegistrationEndpoint',
+    ],
+  },
 }
 
 export function validateConnectorType(type: string): type is ConnectorType {
   return CONNECTOR_TYPES.includes(type as ConnectorType)
 }
 
-export function isOAuthConnectorType(type: ConnectorType): boolean {
+export function isOAuthConnectorType(type: ConnectorType): type is (typeof OAUTH_CONNECTOR_TYPES)[number] {
   return OAUTH_CONNECTOR_TYPES.includes(type as (typeof OAUTH_CONNECTOR_TYPES)[number])
 }
 
@@ -59,6 +71,12 @@ export function validateConnectorConfig(
   config: Record<string, unknown>
 ): { valid: boolean; missing?: string[] } {
   if (getConnectorAuthType(config) === 'oauth' && isOAuthConnectorType(type)) {
+    if (type === 'custom') {
+      return isValidConfigValue(config.endpoint)
+        ? { valid: true }
+        : { valid: false, missing: ['endpoint'] }
+    }
+
     return { valid: true }
   }
 

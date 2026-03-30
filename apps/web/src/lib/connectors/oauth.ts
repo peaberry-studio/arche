@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 
 import { OAUTH_CONNECTOR_TYPES, type ConnectorType, type OAuthConnectorType } from '@/lib/connectors/types'
+import { validateConnectorTestEndpoint } from '@/lib/security/ssrf'
 
 type OAuthStatePayload = {
   connectorId: string
@@ -40,10 +41,24 @@ type OAuthTokenResult = {
   expiresAt?: string
 }
 
-const MCP_SERVER_URLS: Record<OAuthConnectorType, string> = {
+type OAuthMetadataOverrides = {
+  authorizationEndpoint?: string
+  tokenEndpoint?: string
+  registrationEndpoint?: string
+}
+
+type OAuthPreparationContext = {
+  mcpServerUrl: string
+  scope?: string
+  staticClientRegistration: OAuthClientRegistration | null
+  metadataOverrides: OAuthMetadataOverrides
+  validateMetadataEndpoints: boolean
+}
+
+const MCP_SERVER_URLS = {
   linear: 'https://mcp.linear.app/mcp',
   notion: 'https://mcp.notion.com/mcp',
-}
+} as const
 
 function getOAuthStateSecret(): string {
   const secret = process.env.ARCHE_CONNECTOR_OAUTH_STATE_SECRET
@@ -65,27 +80,57 @@ function getOAuthStateTtlSeconds(): number {
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 900
 }
 
-function getOptionalScope(type: OAuthConnectorType): string | undefined {
+async function validateConnectorUrl(rawUrl: string): Promise<string> {
+  const validation = await validateConnectorTestEndpoint(rawUrl)
+  if (!validation.ok) {
+    throw new Error(validation.error)
+  }
+  return validation.url.toString()
+}
+
+function getOptionalScope(type: Exclude<OAuthConnectorType, 'custom'>): string | undefined {
   if (type === 'linear') {
     const value = process.env.ARCHE_CONNECTOR_LINEAR_SCOPE
     return value && value.trim() ? value.trim() : undefined
   }
-  if (type === 'notion') {
-    const value = process.env.ARCHE_CONNECTOR_NOTION_SCOPE
-    return value && value.trim() ? value.trim() : undefined
-  }
-  return undefined
+
+  const value = process.env.ARCHE_CONNECTOR_NOTION_SCOPE
+  return value && value.trim() ? value.trim() : undefined
 }
 
-function getMcpServerUrl(type: OAuthConnectorType): string {
+function getOfficialMcpServerUrl(type: Exclude<OAuthConnectorType, 'custom'>): string {
   if (type === 'linear') {
     return process.env.ARCHE_CONNECTOR_LINEAR_MCP_URL || MCP_SERVER_URLS.linear
   }
+
   return process.env.ARCHE_CONNECTOR_NOTION_MCP_URL || MCP_SERVER_URLS.notion
 }
 
 function getString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+async function sanitizeOAuthMetadata(metadata: OAuthServerMetadata): Promise<OAuthServerMetadata> {
+  return {
+    issuer: metadata.issuer,
+    authorizationEndpoint: await validateConnectorUrl(metadata.authorizationEndpoint),
+    tokenEndpoint: await validateConnectorUrl(metadata.tokenEndpoint),
+    registrationEndpoint: metadata.registrationEndpoint
+      ? await validateConnectorUrl(metadata.registrationEndpoint)
+      : undefined,
+  }
+}
+
+function resolveOAuthMetadata(
+  discovered: OAuthServerMetadata,
+  overrides: OAuthMetadataOverrides
+): OAuthServerMetadata {
+  return {
+    issuer: discovered.issuer,
+    authorizationEndpoint: overrides.authorizationEndpoint ?? discovered.authorizationEndpoint,
+    tokenEndpoint: overrides.tokenEndpoint ?? discovered.tokenEndpoint,
+    registrationEndpoint: overrides.registrationEndpoint ?? discovered.registrationEndpoint,
+  }
 }
 
 function parseExpiresAt(expiresIn: unknown): string | undefined {
@@ -235,7 +280,19 @@ async function discoverOAuthMetadata(mcpServerUrl: string): Promise<OAuthServerM
   }
 }
 
-function getStaticOAuthClientRegistration(type: OAuthConnectorType): OAuthClientRegistration | null {
+function getStaticOAuthClientRegistration(
+  type: OAuthConnectorType,
+  connectorConfig?: Record<string, unknown>,
+): OAuthClientRegistration | null {
+  if (type === 'custom') {
+    const clientId = getString(connectorConfig?.oauthClientId)
+    if (!clientId) return null
+    return {
+      clientId,
+      clientSecret: getString(connectorConfig?.oauthClientSecret),
+    }
+  }
+
   if (type === 'linear') {
     const clientId = process.env.ARCHE_CONNECTOR_LINEAR_CLIENT_ID
     if (!clientId || !clientId.trim()) return null
@@ -255,12 +312,78 @@ function getStaticOAuthClientRegistration(type: OAuthConnectorType): OAuthClient
   }
 }
 
+async function resolveOAuthPreparationContext(input: {
+  connectorType: OAuthConnectorType
+  connectorConfig?: Record<string, unknown>
+}): Promise<OAuthPreparationContext> {
+  if (input.connectorType !== 'custom') {
+    return {
+      mcpServerUrl: getOfficialMcpServerUrl(input.connectorType),
+      scope: getOptionalScope(input.connectorType),
+      staticClientRegistration: getStaticOAuthClientRegistration(input.connectorType),
+      metadataOverrides: {},
+      validateMetadataEndpoints: false,
+    }
+  }
+
+  const connectorConfig = input.connectorConfig
+  const endpoint = getString(connectorConfig?.endpoint)
+  if (!endpoint) {
+    throw new Error('missing_endpoint')
+  }
+
+  const authorizationEndpoint = getString(connectorConfig?.oauthAuthorizationEndpoint)
+  const tokenEndpoint = getString(connectorConfig?.oauthTokenEndpoint)
+  const registrationEndpoint = getString(connectorConfig?.oauthRegistrationEndpoint)
+
+  return {
+    mcpServerUrl: await validateConnectorUrl(endpoint),
+    scope: getString(connectorConfig?.oauthScope),
+    staticClientRegistration: getStaticOAuthClientRegistration(input.connectorType, connectorConfig),
+    metadataOverrides: {
+      authorizationEndpoint: authorizationEndpoint
+        ? await validateConnectorUrl(authorizationEndpoint)
+        : undefined,
+      tokenEndpoint: tokenEndpoint ? await validateConnectorUrl(tokenEndpoint) : undefined,
+      registrationEndpoint: registrationEndpoint
+        ? await validateConnectorUrl(registrationEndpoint)
+        : undefined,
+    },
+    validateMetadataEndpoints: true,
+  }
+}
+
+async function resolveAuthorizationMetadata(
+  context: OAuthPreparationContext,
+): Promise<OAuthServerMetadata> {
+  const manualAuthorizationEndpoint = context.metadataOverrides.authorizationEndpoint
+  const manualTokenEndpoint = context.metadataOverrides.tokenEndpoint
+
+  if (manualAuthorizationEndpoint && manualTokenEndpoint) {
+    const metadata: OAuthServerMetadata = {
+      authorizationEndpoint: manualAuthorizationEndpoint,
+      tokenEndpoint: manualTokenEndpoint,
+      registrationEndpoint: context.metadataOverrides.registrationEndpoint,
+    }
+
+    return context.validateMetadataEndpoints
+      ? sanitizeOAuthMetadata(metadata)
+      : metadata
+  }
+
+  const discovered = await discoverOAuthMetadata(context.mcpServerUrl)
+  const metadata = resolveOAuthMetadata(discovered, context.metadataOverrides)
+  return context.validateMetadataEndpoints
+    ? sanitizeOAuthMetadata(metadata)
+    : metadata
+}
+
 async function registerOAuthClient(
   metadata: OAuthServerMetadata,
   redirectUri: string,
   connectorType: OAuthConnectorType,
+  staticRegistration: OAuthClientRegistration | null,
 ): Promise<OAuthClientRegistration> {
-  const staticRegistration = getStaticOAuthClientRegistration(connectorType)
   if (!metadata.registrationEndpoint) {
     if (staticRegistration) return staticRegistration
     throw new Error('oauth_registration_failed:missing_registration_endpoint')
@@ -357,10 +480,20 @@ export async function prepareConnectorOAuthAuthorization(input: {
   userId: string
   connectorType: OAuthConnectorType
   redirectUri: string
+  connectorConfig?: Record<string, unknown>
 }): Promise<{ authorizeUrl: string; state: string }> {
-  const mcpServerUrl = getMcpServerUrl(input.connectorType)
-  const metadata = await discoverOAuthMetadata(mcpServerUrl)
-  const client = await registerOAuthClient(metadata, input.redirectUri, input.connectorType)
+  const context = await resolveOAuthPreparationContext({
+    connectorType: input.connectorType,
+    connectorConfig: input.connectorConfig,
+  })
+
+  const metadata = await resolveAuthorizationMetadata(context)
+  const client = await registerOAuthClient(
+    metadata,
+    input.redirectUri,
+    input.connectorType,
+    context.staticClientRegistration,
+  )
 
   const codeVerifier = createPkceCodeVerifier()
   const codeChallenge = createPkceCodeChallenge(codeVerifier)
@@ -378,7 +511,7 @@ export async function prepareConnectorOAuthAuthorization(input: {
     authorizationEndpoint: metadata.authorizationEndpoint,
     registrationEndpoint: metadata.registrationEndpoint,
     issuer: metadata.issuer,
-    mcpServerUrl,
+    mcpServerUrl: context.mcpServerUrl,
   })
 
   const authorizeUrl = new URL(metadata.authorizationEndpoint)
@@ -389,7 +522,7 @@ export async function prepareConnectorOAuthAuthorization(input: {
   authorizeUrl.searchParams.set('code_challenge', codeChallenge)
   authorizeUrl.searchParams.set('code_challenge_method', 'S256')
 
-  const scope = getOptionalScope(input.connectorType)
+  const scope = context.scope
   if (scope) {
     authorizeUrl.searchParams.set('scope', scope)
   }
@@ -418,7 +551,10 @@ export async function exchangeConnectorOAuthCode(input: {
     form.client_secret = input.state.clientSecret
   }
 
-  const data = await postForm(input.state.tokenEndpoint, form, 'oauth_exchange_failed')
+  const tokenEndpoint = input.state.connectorType === 'custom'
+    ? await validateConnectorUrl(input.state.tokenEndpoint)
+    : input.state.tokenEndpoint
+  const data = await postForm(tokenEndpoint, form, 'oauth_exchange_failed')
   return mapTokenResponse(data)
 }
 
@@ -428,10 +564,27 @@ export async function refreshConnectorOAuthToken(input: {
   clientId: string
   clientSecret?: string
   tokenEndpoint?: string
+  mcpServerUrl?: string
 }): Promise<OAuthTokenResult> {
-  const tokenEndpoint = input.tokenEndpoint
-    ? input.tokenEndpoint
-    : (await discoverOAuthMetadata(getMcpServerUrl(input.connectorType))).tokenEndpoint
+  let tokenEndpoint: string
+
+  if (input.tokenEndpoint) {
+    tokenEndpoint = input.connectorType === 'custom'
+      ? await validateConnectorUrl(input.tokenEndpoint)
+      : input.tokenEndpoint
+  } else {
+    if (input.connectorType === 'custom') {
+      if (!input.mcpServerUrl) {
+        throw new Error('oauth_refresh_failed:missing_mcp_server_url')
+      }
+
+      const safeMcpServerUrl = await validateConnectorUrl(input.mcpServerUrl)
+      const metadata = await sanitizeOAuthMetadata(await discoverOAuthMetadata(safeMcpServerUrl))
+      tokenEndpoint = metadata.tokenEndpoint
+    } else {
+      tokenEndpoint = (await discoverOAuthMetadata(getOfficialMcpServerUrl(input.connectorType))).tokenEndpoint
+    }
+  }
 
   const form: Record<string, string> = {
     grant_type: 'refresh_token',
