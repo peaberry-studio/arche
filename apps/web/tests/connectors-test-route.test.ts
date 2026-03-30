@@ -204,4 +204,54 @@ describe('POST /api/u/[slug]/connectors/[id]/test OAuth MCP checks', () => {
       message: 'Linear MCP authentication failed (401). Reconnect OAuth and retry.',
     })
   })
+
+  it('tests custom OAuth using the configured MCP endpoint initialize call', async () => {
+    mockConnectorFindFirst.mockResolvedValueOnce({
+      id: 'conn-1',
+      userId: 'user-1',
+      type: 'custom',
+      enabled: true,
+      config: 'encrypted-config',
+    })
+    mockDecryptConfig.mockReturnValueOnce({
+      authType: 'oauth',
+      endpoint: 'https://custom.example.com/mcp',
+      oauth: {
+        provider: 'custom',
+        accessToken: 'oauth-token',
+        clientId: 'client-1',
+      },
+    })
+    mockValidateConnectorTestEndpoint.mockResolvedValueOnce({
+      ok: true,
+      url: new URL('https://custom.example.com/mcp'),
+    })
+
+    vi.stubGlobal('fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ jsonrpc: '2.0', id: 'arche-connector-test', result: {} }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+    )
+
+    const { status, body } = await callTestRoute('alice', 'conn-1')
+
+    expect(status).toBe(200)
+    expect(body).toEqual({
+      ok: true,
+      tested: true,
+      message:
+        'Custom MCP connection verified. Restart the workspace to apply the updated connector credentials. If it is still unavailable in chat, enable this connector in Agent capabilities.',
+    })
+
+    expect(mockValidateConnectorTestEndpoint).toHaveBeenCalledWith('https://custom.example.com/mcp')
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      'https://custom.example.com/mcp',
+      expect.objectContaining({
+        method: 'POST',
+      })
+    )
+  })
 })

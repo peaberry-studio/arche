@@ -14,8 +14,8 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useWorkspaceTheme } from '@/contexts/workspace-theme-context'
+import { CONNECTOR_TYPES, OAUTH_CONNECTOR_TYPES, type ConnectorAuthType, type ConnectorType } from '@/lib/connectors/types'
 import { cn } from '@/lib/utils'
-import { CONNECTOR_TYPES, type ConnectorAuthType, type ConnectorType } from '@/lib/connectors/types'
 
 type AddConnectorModalProps = {
   slug: string
@@ -63,7 +63,11 @@ function hasValidHeaders(headersText: string): boolean {
 }
 
 function supportsOAuth(type: ConnectorType): boolean {
-  return type === 'linear' || type === 'notion'
+  return OAUTH_CONNECTOR_TYPES.includes(type)
+}
+
+function getDefaultAuthType(type: ConnectorType): ConnectorAuthType {
+  return type === 'custom' ? 'manual' : 'oauth'
 }
 
 export function AddConnectorModal({
@@ -78,13 +82,19 @@ export function AddConnectorModal({
   const darkModeClasses = isDark ? 'dark' : ''
 
   const [selectedType, setSelectedType] = useState<ConnectorType>(DEFAULT_TYPE)
-  const [authType, setAuthType] = useState<ConnectorAuthType>('oauth')
+  const [authType, setAuthType] = useState<ConnectorAuthType>(getDefaultAuthType(DEFAULT_TYPE))
   const [name, setName] = useState('')
 
   const [apiKey, setApiKey] = useState('')
   const [endpoint, setEndpoint] = useState('')
   const [auth, setAuth] = useState('')
   const [headersText, setHeadersText] = useState('')
+  const [oauthScope, setOauthScope] = useState('')
+  const [oauthClientId, setOauthClientId] = useState('')
+  const [oauthClientSecret, setOauthClientSecret] = useState('')
+  const [oauthAuthorizationEndpoint, setOauthAuthorizationEndpoint] = useState('')
+  const [oauthTokenEndpoint, setOauthTokenEndpoint] = useState('')
+  const [oauthRegistrationEndpoint, setOauthRegistrationEndpoint] = useState('')
 
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -102,12 +112,18 @@ export function AddConnectorModal({
 
   function resetState(): void {
     setSelectedType(DEFAULT_TYPE)
-    setAuthType('oauth')
+    setAuthType(getDefaultAuthType(DEFAULT_TYPE))
     setName('')
     setApiKey('')
     setEndpoint('')
     setAuth('')
     setHeadersText('')
+    setOauthScope('')
+    setOauthClientId('')
+    setOauthClientSecret('')
+    setOauthAuthorizationEndpoint('')
+    setOauthTokenEndpoint('')
+    setOauthRegistrationEndpoint('')
     setIsSaving(false)
     setError(null)
   }
@@ -120,6 +136,7 @@ export function AddConnectorModal({
 
     const defaultType = availableTypeOptions[0]?.type ?? 'custom'
     setSelectedType(defaultType)
+    setAuthType(getDefaultAuthType(defaultType))
     setName(buildDefaultName(defaultType))
   }, [availableTypeOptions, open])
 
@@ -134,15 +151,10 @@ export function AddConnectorModal({
     if (!selectedStillAvailable) {
       const fallbackType = availableTypeOptions[0]?.type ?? 'custom'
       setSelectedType(fallbackType)
+      setAuthType(getDefaultAuthType(fallbackType))
       setName(buildDefaultName(fallbackType))
     }
   }, [availableTypeOptions, open, selectedType])
-
-  useEffect(() => {
-    if (!supportsOAuth(selectedType) && authType !== 'manual') {
-      setAuthType('manual')
-    }
-  }, [authType, selectedType])
 
   function buildConfig(): { ok: true; value: Record<string, unknown> } | { ok: false; message: string } {
     if (selectedType === 'linear' || selectedType === 'notion') {
@@ -158,6 +170,22 @@ export function AddConnectorModal({
     if (selectedType === 'custom') {
       if (!endpoint.trim()) {
         return { ok: false, message: 'Endpoint is required.' }
+      }
+
+      if (authType === 'oauth') {
+        return {
+          ok: true,
+          value: {
+            authType: 'oauth',
+            endpoint: endpoint.trim(),
+            oauthScope: oauthScope.trim() || undefined,
+            oauthClientId: oauthClientId.trim() || undefined,
+            oauthClientSecret: oauthClientSecret.trim() || undefined,
+            oauthAuthorizationEndpoint: oauthAuthorizationEndpoint.trim() || undefined,
+            oauthTokenEndpoint: oauthTokenEndpoint.trim() || undefined,
+            oauthRegistrationEndpoint: oauthRegistrationEndpoint.trim() || undefined,
+          },
+        }
       }
 
       if (!headersText.trim()) {
@@ -196,10 +224,19 @@ export function AddConnectorModal({
 
   function isConfigurationComplete(): boolean {
     if (selectedType === 'custom' && !name.trim()) return false
+    if (selectedType === 'custom') {
+      if (authType === 'oauth') {
+        return Boolean(endpoint.trim())
+      }
+
+      return Boolean(endpoint.trim() && hasValidHeaders(headersText))
+    }
+
     if (selectedType === 'linear' || selectedType === 'notion') {
       return authType === 'oauth' || Boolean(apiKey.trim())
     }
-    return Boolean(endpoint.trim() && hasValidHeaders(headersText))
+
+    return false
   }
 
   async function handleSave() {
@@ -278,6 +315,7 @@ export function AddConnectorModal({
                   type="button"
                   onClick={() => {
                     setSelectedType(option.type)
+                    setAuthType(getDefaultAuthType(option.type))
                     setError(null)
                   }}
                   className={cn(
@@ -329,7 +367,7 @@ export function AddConnectorModal({
             </div>
           )}
 
-          {/* Auth mode (official types only) */}
+          {/* Auth mode */}
           {supportsOAuth(selectedType) ? (
             <div className="space-y-2">
               <Label htmlFor="connector-auth-mode" className="text-foreground">
@@ -343,14 +381,14 @@ export function AddConnectorModal({
                   setAuthType(event.target.value === 'oauth' ? 'oauth' : 'manual')
                 }
               >
-                <option value="oauth">OAuth (official)</option>
+                <option value="oauth">OAuth</option>
                 <option value="manual">Manual token / API key</option>
               </select>
             </div>
           ) : null}
 
           {/* OAuth hint */}
-          {(selectedType === 'linear' || selectedType === 'notion') && authType === 'oauth' ? (
+          {supportsOAuth(selectedType) && authType === 'oauth' ? (
             <p className="rounded-lg bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
               Save first, then click <strong className="text-foreground/80">Connect OAuth</strong> from the connector card.
             </p>
@@ -371,7 +409,7 @@ export function AddConnectorModal({
           ) : null}
 
           {/* Custom connector fields */}
-          {selectedType === 'custom' ? (
+          {selectedType === 'custom' && authType === 'manual' ? (
             <>
               <div className="space-y-2">
                 <Label htmlFor="connector-endpoint" className="text-foreground">Endpoint</Label>
@@ -404,6 +442,93 @@ export function AddConnectorModal({
                   value={headersText}
                   onChange={(event) => setHeadersText(event.target.value)}
                   placeholder={'{\n  "x-api-key": "value"\n}'}
+                />
+              </div>
+            </>
+          ) : null}
+
+          {selectedType === 'custom' && authType === 'oauth' ? (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="connector-endpoint-oauth" className="text-foreground">MCP endpoint</Label>
+                <Input
+                  id="connector-endpoint-oauth"
+                  value={endpoint}
+                  onChange={(event) => setEndpoint(event.target.value)}
+                  placeholder="https://example.com/mcp"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="connector-oauth-scope" className="text-foreground">
+                  OAuth scope <span className="font-normal text-muted-foreground">(optional)</span>
+                </Label>
+                <Input
+                  id="connector-oauth-scope"
+                  value={oauthScope}
+                  onChange={(event) => setOauthScope(event.target.value)}
+                  placeholder="read write"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="connector-oauth-client-id" className="text-foreground">
+                  Client ID <span className="font-normal text-muted-foreground">(optional override)</span>
+                </Label>
+                <Input
+                  id="connector-oauth-client-id"
+                  value={oauthClientId}
+                  onChange={(event) => setOauthClientId(event.target.value)}
+                  placeholder="oauth client id"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="connector-oauth-client-secret" className="text-foreground">
+                  Client secret <span className="font-normal text-muted-foreground">(optional override)</span>
+                </Label>
+                <Input
+                  id="connector-oauth-client-secret"
+                  type="password"
+                  value={oauthClientSecret}
+                  onChange={(event) => setOauthClientSecret(event.target.value)}
+                  placeholder="oauth client secret"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="connector-oauth-auth-endpoint" className="text-foreground">
+                  Authorization endpoint <span className="font-normal text-muted-foreground">(optional override)</span>
+                </Label>
+                <Input
+                  id="connector-oauth-auth-endpoint"
+                  value={oauthAuthorizationEndpoint}
+                  onChange={(event) => setOauthAuthorizationEndpoint(event.target.value)}
+                  placeholder="https://example.com/authorize"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="connector-oauth-token-endpoint" className="text-foreground">
+                  Token endpoint <span className="font-normal text-muted-foreground">(optional override)</span>
+                </Label>
+                <Input
+                  id="connector-oauth-token-endpoint"
+                  value={oauthTokenEndpoint}
+                  onChange={(event) => setOauthTokenEndpoint(event.target.value)}
+                  placeholder="https://example.com/token"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="connector-oauth-registration-endpoint" className="text-foreground">
+                  Registration endpoint <span className="font-normal text-muted-foreground">(optional override)</span>
+                </Label>
+                <Input
+                  id="connector-oauth-registration-endpoint"
+                  value={oauthRegistrationEndpoint}
+                  onChange={(event) => setOauthRegistrationEndpoint(event.target.value)}
+                  placeholder="https://example.com/register"
                 />
               </div>
             </>

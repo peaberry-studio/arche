@@ -36,6 +36,18 @@ describe('mcp-config', () => {
           auth: 'secret',
         }),
       },
+      {
+        id: 'c4',
+        type: 'custom',
+        name: 'Custom OAuth',
+        enabled: true,
+        config: encryptConfig({
+          authType: 'oauth',
+          endpoint: 'https://oauth.example.com/mcp',
+          headers: { 'X-Workspace': 'acme' },
+          oauth: { provider: 'custom', clientId: 'client-custom', accessToken: 'custom_oauth_token' },
+        }),
+      },
     ]
 
     const result = buildMcpConfigFromConnectors(connectors)
@@ -68,6 +80,17 @@ describe('mcp-config', () => {
       headers: {
         'X-Token': 'abc',
         Authorization: 'Bearer secret',
+      },
+    })
+
+    expect(result.mcp.arche_custom_c4).toEqual({
+      type: 'remote',
+      url: 'https://oauth.example.com/mcp',
+      enabled: true,
+      oauth: false,
+      headers: {
+        'X-Workspace': 'acme',
+        Authorization: 'Bearer custom_oauth_token',
       },
     })
   })
@@ -144,5 +167,42 @@ describe('mcp-config', () => {
     const keys = Object.keys(result.mcp).sort()
 
     expect(keys).toEqual(['arche_linear_abcdef12-1111', 'arche_linear_abcdef12-2222'])
+  })
+
+  it('routes custom OAuth connectors through gateway targets when provided', () => {
+    const connectors = [
+      {
+        id: 'custom-oauth-1',
+        type: 'custom',
+        name: 'Custom OAuth',
+        enabled: true,
+        config: encryptConfig({
+          authType: 'oauth',
+          endpoint: 'https://oauth.example.com/mcp',
+          headers: { 'X-Tenant': 'acme' },
+          oauth: { provider: 'custom', clientId: 'custom-client', accessToken: 'oauth_token' },
+        }),
+      },
+    ]
+
+    const result = buildMcpConfigFromConnectors(connectors, {
+      oauthGatewayTargets: {
+        'custom-oauth-1': {
+          url: 'http://web:3000/api/internal/mcp/connectors/custom-oauth-1/mcp',
+          token: 'gateway-token',
+        },
+      },
+    })
+
+    expect(result.mcp['arche_custom_custom-oauth-1']).toEqual({
+      type: 'remote',
+      url: 'http://web:3000/api/internal/mcp/connectors/custom-oauth-1/mcp',
+      enabled: true,
+      oauth: false,
+      headers: {
+        'X-Tenant': 'acme',
+        Authorization: 'Bearer gateway-token',
+      },
+    })
   })
 })
