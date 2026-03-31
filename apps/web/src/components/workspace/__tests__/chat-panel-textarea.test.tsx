@@ -455,6 +455,29 @@ describe("ChatPanel textarea", () => {
     );
   });
 
+  it("focuses model search input when opening the model selector", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ attachments: [], connectors: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderChatPanel(undefined, {
+      models: [defaultModel],
+      selectedModel: defaultModel,
+      hasManualModelSelection: false,
+      agentDefaultModel: defaultModel,
+    });
+
+    const modelTrigger = screen.getByRole("button", { name: /gpt 5\.4/i });
+    fireEvent.pointerDown(modelTrigger, { button: 0 });
+
+    const searchInput = await screen.findByPlaceholderText("Search models...");
+    await waitFor(() => {
+      expect(document.activeElement).toBe(searchInput);
+    });
+  });
+
   it("does not auto-scroll when the user has scrolled away from the bottom", async () => {
     // Globally stub scrollIntoView which doesn't exist in jsdom
     const scrollIntoViewMock = vi.fn();

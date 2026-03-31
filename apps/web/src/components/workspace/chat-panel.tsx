@@ -164,6 +164,7 @@ export function ChatPanel({
     [chatFontFamily, chatFontSize]
   );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const modelSearchInputRef = useRef<HTMLInputElement>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const preventSessionMenuAutoFocusRef = useRef(false);
@@ -899,10 +900,18 @@ export function ChatPanel({
                     <CaretDown size={10} weight="bold" />
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-72 p-0">
+                <DropdownMenuContent
+                  align="start"
+                  className="w-72 p-0"
+                  onOpenAutoFocus={(event) => {
+                    event.preventDefault();
+                    modelSearchInputRef.current?.focus();
+                  }}
+                >
                   <div className="flex items-center gap-2 border-b border-border px-3 py-2">
                     <MagnifyingGlass size={14} className="shrink-0 text-muted-foreground" />
                     <input
+                      ref={modelSearchInputRef}
                       type="text"
                       placeholder="Search models..."
                       value={modelSearch}
