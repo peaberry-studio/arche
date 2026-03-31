@@ -1104,6 +1104,7 @@ export function WorkspaceShell({
   if (instanceStatus !== 'running') {
     const loadingStatus = instanceStatus === 'starting' ? 'provisioning' : 'offline';
     const loadingStyle = statusConfig[loadingStatus as keyof typeof statusConfig];
+    const showInstanceHeader = instanceStatus === 'error';
     return (
       <div
         className={cn(
@@ -1114,12 +1115,14 @@ export function WorkspaceShell({
         )}
       >
         <div className="flex h-full flex-col p-3">
-          <div className="flex items-center gap-2 p-4">
-            <span className="type-display text-base font-semibold tracking-tight">Archē</span>
-            <span className="text-sm text-muted-foreground">/</span>
-            <span className="text-sm text-muted-foreground">{slug}</span>
-            <Circle size={8} weight="fill" className={cn(loadingStyle.color, loadingStyle.pulse && "animate-pulse")} />
-          </div>
+          {showInstanceHeader && (
+            <div className="flex items-center gap-2 p-4">
+              <span className="type-display text-base font-semibold tracking-tight">Archē</span>
+              <span className="text-sm text-muted-foreground">/</span>
+              <span className="text-sm text-muted-foreground">{slug}</span>
+              <Circle size={8} weight="fill" className={cn(loadingStyle.color, loadingStyle.pulse && "animate-pulse")} />
+            </div>
+          )}
 
           <div className="relative z-10 flex flex-1 items-center justify-center">
             <div className="flex flex-col items-center gap-6 text-center">
@@ -1173,6 +1176,7 @@ export function WorkspaceShell({
   // Connecting to OpenCode screen
   if (!workspace.isConnected) {
     const connectingStyle = statusConfig.provisioning;
+    const showConnectingHeader = workspace.connection.status === 'error';
     return (
       <div
         className={cn(
@@ -1183,12 +1187,14 @@ export function WorkspaceShell({
         )}
       >
         <div className="flex h-full flex-col p-3">
-          <div className="flex items-center gap-2 p-4">
-            <span className="type-display text-base font-semibold tracking-tight">Archē</span>
-            <span className="text-sm text-muted-foreground">/</span>
-            <span className="text-sm text-muted-foreground">{slug}</span>
-            <Circle size={8} weight="fill" className={cn(connectingStyle.color, connectingStyle.pulse && "animate-pulse")} />
-          </div>
+          {showConnectingHeader && (
+            <div className="flex items-center gap-2 p-4">
+              <span className="type-display text-base font-semibold tracking-tight">Archē</span>
+              <span className="text-sm text-muted-foreground">/</span>
+              <span className="text-sm text-muted-foreground">{slug}</span>
+              <Circle size={8} weight="fill" className={cn(connectingStyle.color, connectingStyle.pulse && "animate-pulse")} />
+            </div>
+          )}
 
           <div className="relative z-10 flex flex-1 items-center justify-center">
             <div className="flex flex-col items-center gap-6 text-center">
@@ -1299,7 +1305,6 @@ export function WorkspaceShell({
       isLoadingDiffs={workspace.isLoadingDiffs}
       diffsError={workspace.diffsError}
       onOpenFile={handleOpenFile}
-      onDownloadFile={handleDownloadFile}
       onReloadFile={handleReloadFile}
       onSaveFile={workspaceAgentEnabled ? handleSaveFile : undefined}
       onDiscardFileChanges={workspaceAgentEnabled ? handleDiscardFileChanges : undefined}
@@ -1332,7 +1337,12 @@ export function WorkspaceShell({
         restartError={configStatus.restartError}
         onRestart={configStatus.restart}
       />
-      <div className={cn("flex h-full flex-col", !isCompactLayout && "pl-3")}>
+      <div
+        className={cn(
+          "flex h-full flex-col",
+          !isCompactLayout && (leftCollapsed ? "pl-1" : "pl-3")
+        )}
+      >
         {isCompactLayout ? (
           <>
             <div className="grid h-12 shrink-0 grid-cols-3 gap-2 border-b border-border/40 px-3">
@@ -1419,7 +1429,10 @@ export function WorkspaceShell({
         ) : (
           <div ref={containerRef} className="relative z-10 flex min-h-0 flex-1 gap-3">
             <div
-              className="shrink-0 overflow-hidden py-3"
+              className={cn(
+                "shrink-0 overflow-hidden",
+                leftCollapsed ? "pt-3 pb-1" : "py-3"
+              )}
               style={{
                 width: leftCollapsed ? COLLAPSED_PANEL_PX : leftWidth,
                 minWidth: leftCollapsed ? COLLAPSED_PANEL_PX : MIN_LEFT_PX,
@@ -1462,7 +1475,10 @@ export function WorkspaceShell({
             )}
 
             <div
-              className={cn("shrink-0 overflow-hidden", rightCollapsed && "py-3 pr-3")}
+              className={cn(
+                "shrink-0 overflow-hidden",
+                rightCollapsed ? "py-3 pr-3" : "box-border p-1"
+              )}
               style={{
                 width: rightCollapsed ? COLLAPSED_PANEL_PX : rightWidth,
                 minWidth: rightCollapsed ? COLLAPSED_PANEL_PX : MIN_RIGHT_PX,
