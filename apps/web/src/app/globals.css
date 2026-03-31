@@ -157,15 +157,27 @@
 
 /* Theme-specific palettes */
 .theme-warm-sand {
+  --background: 34 22% 96%;
+  --surface: 34 18% 93%;
+  --card: 36 18% 97%;
+  --popover: 36 16% 97%;
   --primary: 24 90% 55%;
   --primary-foreground: 0 0% 100%;
-  --accent: 26 50% 78%;
+  --secondary: 32 12% 92%;
+  --muted: 30 10% 91%;
+  --accent: 30 34% 87%;
   --accent-foreground: 20 18% 16%;
+  --border: 30 10% 84%;
+  --input: 30 10% 84%;
   --ring: 24 90% 55%;
   --chart-1: 24 90% 55%;
+  --sidebar: 34 22% 96%;
   --sidebar-primary: 24 90% 55%;
   --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 32 22% 88%;
+  --sidebar-border: 30 10% 84%;
   --sidebar-ring: 24 90% 55%;
+  --grid-line: hsl(20 15% 12% / 0.18);
 }
 
 .theme-ocean-mist {

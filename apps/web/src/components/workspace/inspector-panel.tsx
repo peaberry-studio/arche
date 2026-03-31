@@ -308,7 +308,7 @@ function ExpandedInspectorPanel({
     <TooltipProvider delayDuration={200}>
       <div className="flex h-full flex-col overflow-hidden rounded-xl border border-border/40 bg-foreground/[0.03] py-2 pr-2 text-card-foreground">
       {/* Segmented control + collapse button */}
-      <div className="flex shrink-0 items-center gap-2 px-3 pb-1 pt-1">
+      <div className="flex shrink-0 items-center gap-2 px-3 pb-2 pt-1">
         {workspaceAgentEnabled ? (
           <div className="flex flex-1 justify-start">
             <div className="inline-flex h-8 items-center rounded-lg bg-foreground/[0.06] p-0.5">
@@ -370,7 +370,7 @@ function ExpandedInspectorPanel({
       </div>
 
       {activeTab === "preview" && openFiles.length > 0 ? (
-        <div className="px-3 pb-1 pt-0.5">
+        <div className="px-3 pb-1 pt-1">
           <div className="h-px bg-border/40" />
         </div>
       ) : null}
