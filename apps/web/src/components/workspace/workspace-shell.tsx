@@ -1437,7 +1437,7 @@ export function WorkspaceShell({
             <div
               className={cn(
                 "shrink-0 overflow-hidden",
-                leftCollapsed ? "pt-3 pb-1" : "py-3"
+                leftCollapsed ? "pt-1.5 pb-1" : "pb-3 pt-2"
               )}
               style={{
                 width: leftCollapsed ? COLLAPSED_PANEL_PX : leftWidth,
@@ -1483,7 +1483,7 @@ export function WorkspaceShell({
             <div
               className={cn(
                 "shrink-0 overflow-hidden",
-                rightCollapsed ? "py-3 pr-3" : "box-border pb-4 pl-1 pr-4 pt-1"
+                rightCollapsed ? "pb-3 pr-3 pt-1.5" : "box-border pb-4 pl-1 pr-4 pt-2"
               )}
               style={{
                 width: rightCollapsed ? COLLAPSED_PANEL_PX : rightWidth,
