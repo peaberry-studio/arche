@@ -102,6 +102,48 @@ describe("ChatPanel textarea", () => {
     expect(screen.queryByRole("button", { name: "Manage attachments" })).toBeNull();
   });
 
+  it("focuses the composer when switching to a new active session", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ attachments: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const onSendMessage = vi.fn().mockResolvedValue(true);
+    const onCloseSession = vi.fn();
+    const onOpenFile = vi.fn();
+
+    const renderPanel = (activeSessionId: "s1" | "s2") => (
+      <WorkspaceThemeProvider storageScope="alice">
+        <ChatPanel
+          key={activeSessionId}
+          slug="alice"
+          sessions={[
+            { id: "s1", title: "Chat 1", status: "idle", updatedAt: "now", agent: "OpenCode" },
+            { id: "s2", title: "Chat 2", status: "idle", updatedAt: "now", agent: "OpenCode" },
+          ]}
+          messages={[]}
+          activeSessionId={activeSessionId}
+          openFilePaths={[]}
+          onCloseSession={onCloseSession}
+          onOpenFile={onOpenFile}
+          onSendMessage={onSendMessage}
+        />
+      </WorkspaceThemeProvider>
+    );
+
+    const { rerender } = render(renderPanel("s1"));
+
+    const firstTextarea = getTextarea();
+    firstTextarea.blur();
+
+    rerender(renderPanel("s2"));
+
+    await waitFor(() => {
+      expect(document.activeElement).toBe(getTextarea());
+    });
+  });
+
   it("resets textarea height after sending a multiline message", async () => {
     const onSendMessage = vi.fn().mockResolvedValue(true);
 

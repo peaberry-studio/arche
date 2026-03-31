@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { InspectorPanel } from "@/components/workspace/inspector-panel";
@@ -58,19 +58,10 @@ describe("InspectorPanel", () => {
     onToggleRight: vi.fn(),
   };
 
-  it("downloads the active file from the preview toolbar", () => {
-    const onDownloadFile = vi.fn();
+  it("does not render a download action in the preview toolbar", () => {
+    render(<InspectorPanel {...defaultProps} />);
 
-    render(
-      <InspectorPanel
-        {...defaultProps}
-        onDownloadFile={onDownloadFile}
-      />
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: /download notes.md/i }));
-
-    expect(onDownloadFile).toHaveBeenCalledWith("docs/notes.md");
+    expect(screen.queryByRole("button", { name: /download/i })).toBeNull();
   });
 
   it("hides review features when workspace agent support is disabled", () => {
