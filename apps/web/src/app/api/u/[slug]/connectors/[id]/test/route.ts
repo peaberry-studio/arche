@@ -53,8 +53,6 @@ function isOAuthPending(type: ConnectorType, config: Record<string, unknown>): b
   return !getConnectorOAuthConfig(type, config)?.accessToken
 }
 
-function getMcpServerUrl(type: 'linear' | 'notion', config: Record<string, unknown>): string
-function getMcpServerUrl(type: 'custom', config: Record<string, unknown>): string | null
 function getMcpServerUrl(type: ConnectorType, config: Record<string, unknown>): string | null {
   const oauth = getConnectorOAuthConfig(type, config)
   if (oauth?.mcpServerUrl) return oauth.mcpServerUrl
@@ -144,9 +142,12 @@ async function testConnection(
           const token = getAccessToken(type, config)
           if (!token) return { ok: false, tested: false, message: 'Missing OAuth access token' }
 
+          const mcpUrl = getMcpServerUrl(type, config)
+          if (!mcpUrl) return { ok: false, tested: false, message: 'Missing endpoint' }
+
           return testRemoteMcpConnection({
             label: 'Notion',
-            url: getMcpServerUrl(type, config),
+            url: mcpUrl,
             token,
           })
         }
@@ -179,9 +180,12 @@ async function testConnection(
         const token = getAccessToken(type, config)
         if (!token) return { ok: false, tested: false, message: 'Missing API key' }
 
+        const mcpUrl = getMcpServerUrl(type, config)
+        if (!mcpUrl) return { ok: false, tested: false, message: 'Missing endpoint' }
+
         return testRemoteMcpConnection({
           label: 'Linear',
-          url: getMcpServerUrl(type, config),
+          url: mcpUrl,
           token,
         })
       }
