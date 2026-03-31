@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
+import { decryptConfig } from '@/lib/connectors/crypto'
 import { isOAuthConnectorType, prepareConnectorOAuthAuthorization } from '@/lib/connectors/oauth'
 import { validateConnectorType } from '@/lib/connectors/validators'
 import { getPublicBaseUrl } from '@/lib/http'
@@ -25,7 +26,11 @@ export const POST = withAuth<
     return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
   }
 
-  const connector = await connectorService.findByIdAndUserIdSelect(id, targetUser.id, { id: true, type: true })
+  const connector = await connectorService.findByIdAndUserIdSelect(id, targetUser.id, {
+    id: true,
+    type: true,
+    config: true,
+  })
   if (!connector) {
     return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })
   }
@@ -36,6 +41,19 @@ export const POST = withAuth<
 
   const baseUrl = getPublicBaseUrl(request.headers, request.nextUrl.origin)
   const redirectUri = `${baseUrl}/api/connectors/oauth/callback`
+
+  let connectorConfig: Record<string, unknown> | undefined
+  if (connector.type === 'custom') {
+    try {
+      connectorConfig = decryptConfig(connector.config)
+    } catch {
+      return NextResponse.json(
+        { error: 'config_corrupted', message: 'Failed to decrypt connector configuration' },
+        { status: 500 }
+      )
+    }
+  }
+
   let authorizeUrl: string
   try {
     const prepared = await prepareConnectorOAuthAuthorization({
@@ -44,10 +62,20 @@ export const POST = withAuth<
       userId: targetUser.id,
       connectorType: connector.type,
       redirectUri,
+      connectorConfig,
     })
     authorizeUrl = prepared.authorizeUrl
   } catch (error) {
     const message = error instanceof Error ? error.message : 'oauth_start_failed'
+    if (
+      message === 'missing_endpoint'
+      || message === 'invalid_endpoint'
+      || message === 'blocked_endpoint'
+      || message === 'oauth_state_too_large'
+    ) {
+      return NextResponse.json({ error: message }, { status: 400 })
+    }
+
     if (message.startsWith('oauth_discovery_failed')) {
       return NextResponse.json(
         {

@@ -2,8 +2,8 @@ import { decryptConfig } from '@/lib/connectors/crypto'
 import { getConnectorGatewayBaseUrl } from '@/lib/connectors/gateway-config'
 import { issueConnectorGatewayToken } from '@/lib/connectors/gateway-tokens'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
-import { validateConnectorConfig, validateConnectorType } from '@/lib/connectors/validators'
 import type { ConnectorType } from '@/lib/connectors/types'
+import { validateConnectorConfig, validateConnectorType } from '@/lib/connectors/validators'
 
 const OPENCODE_CONFIG_SCHEMA = 'https://opencode.ai/config.json'
 
@@ -36,7 +36,7 @@ type GatewayTarget = {
 }
 
 function getString(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
 
 function toStringRecord(value: unknown): Record<string, string> | undefined {
@@ -161,6 +161,40 @@ export function buildMcpConfigFromConnectors(
         break
 
       case 'custom': {
+        if (getConnectorAuthType(config) === 'oauth') {
+          const oauth = getConnectorOAuthConfig('custom', config)
+          if (!oauth?.accessToken) break
+
+          const endpoint = oauth.mcpServerUrl ?? getString(config.endpoint)
+          if (!endpoint) break
+
+          const headers = toStringRecord(config.headers)
+          const mergedHeaders = { ...(headers ?? {}) }
+
+          const gatewayTarget = options?.oauthGatewayTargets?.[connector.id]
+          if (gatewayTarget) {
+            mergedHeaders.Authorization = `Bearer ${gatewayTarget.token}`
+            mcp[key] = {
+              type: 'remote',
+              url: gatewayTarget.url,
+              enabled: true,
+              headers: mergedHeaders,
+              oauth: false,
+            }
+            break
+          }
+
+          mergedHeaders.Authorization = `Bearer ${oauth.accessToken}`
+          mcp[key] = {
+            type: 'remote',
+            url: endpoint,
+            enabled: true,
+            headers: mergedHeaders,
+            oauth: false,
+          }
+          break
+        }
+
         const endpoint = getString(config.endpoint)
         if (!endpoint) break
         const headers = toStringRecord(config.headers)
@@ -201,7 +235,6 @@ export async function buildMcpConfigForSlug(slug: string): Promise<McpConfig | n
 
   for (const connector of connectors) {
     if (!validateConnectorType(connector.type)) continue
-    if (connector.type !== 'linear' && connector.type !== 'notion') continue
 
     let config: Record<string, unknown>
     try {
@@ -211,7 +244,12 @@ export async function buildMcpConfigForSlug(slug: string): Promise<McpConfig | n
     }
 
     if (getConnectorAuthType(config) !== 'oauth') continue
-    if (!getConnectorOAuthConfig(connector.type, config)?.accessToken) continue
+    const oauth = getConnectorOAuthConfig(connector.type, config)
+    if (!oauth?.accessToken) continue
+
+    if (connector.type === 'custom' && !oauth.mcpServerUrl && !getString(config.endpoint)) {
+      continue
+    }
 
     oauthGatewayTargets[connector.id] = {
       url: `${gatewayBase}/${connector.id}/mcp`,

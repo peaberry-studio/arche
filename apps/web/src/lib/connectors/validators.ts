@@ -1,9 +1,10 @@
-import {
-  CONNECTOR_TYPES,
-  OAUTH_CONNECTOR_TYPES,
-  type ConnectorAuthType,
-  type ConnectorType,
-} from './types'
+import { getConnectorAuthType } from '@/lib/connectors/oauth-config'
+import { isOAuthConnectorType } from '@/lib/connectors/oauth'
+
+import { CONNECTOR_TYPES, type ConnectorType } from './types'
+
+export { getConnectorAuthType } from '@/lib/connectors/oauth-config'
+export { isOAuthConnectorType } from '@/lib/connectors/oauth'
 
 export const MAX_CONNECTOR_NAME_LENGTH = 100
 
@@ -15,20 +16,23 @@ export interface ConnectorConfigSchema {
 export const CONNECTOR_SCHEMAS: Record<ConnectorType, ConnectorConfigSchema> = {
   linear: { required: ['apiKey'] },
   notion: { required: ['apiKey'] },
-  custom: { required: ['endpoint'], optional: ['headers', 'auth'] },
+  custom: {
+    required: ['endpoint'],
+    optional: [
+      'headers',
+      'auth',
+      'oauthScope',
+      'oauthClientId',
+      'oauthClientSecret',
+      'oauthAuthorizationEndpoint',
+      'oauthTokenEndpoint',
+      'oauthRegistrationEndpoint',
+    ],
+  },
 }
 
 export function validateConnectorType(type: string): type is ConnectorType {
   return CONNECTOR_TYPES.includes(type as ConnectorType)
-}
-
-export function isOAuthConnectorType(type: ConnectorType): boolean {
-  return OAUTH_CONNECTOR_TYPES.includes(type as (typeof OAUTH_CONNECTOR_TYPES)[number])
-}
-
-export function getConnectorAuthType(config: Record<string, unknown>): ConnectorAuthType {
-  const value = config.authType
-  return value === 'oauth' ? 'oauth' : 'manual'
 }
 
 export function validateConnectorName(name: unknown): { valid: boolean; error?: string } {
@@ -59,6 +63,12 @@ export function validateConnectorConfig(
   config: Record<string, unknown>
 ): { valid: boolean; missing?: string[] } {
   if (getConnectorAuthType(config) === 'oauth' && isOAuthConnectorType(type)) {
+    if (type === 'custom') {
+      return isValidConfigValue(config.endpoint)
+        ? { valid: true }
+        : { valid: false, missing: ['endpoint'] }
+    }
+
     return { valid: true }
   }
 

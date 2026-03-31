@@ -26,10 +26,28 @@ export interface ConnectorDetail {
   updatedAt: string
 }
 
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
 function sanitizeConfigForResponse(type: ConnectorType, config: Record<string, unknown>): Record<string, unknown> {
   if (getConnectorAuthType(config) !== 'oauth') return config
+
+  const sanitizedConfig = { ...config }
+  if (type === 'custom') {
+    delete sanitizedConfig.oauthClientSecret
+  }
+
+  if (isObjectRecord(sanitizedConfig.oauth)) {
+    const oauthSanitized = { ...sanitizedConfig.oauth }
+    delete oauthSanitized.accessToken
+    delete oauthSanitized.refreshToken
+    delete oauthSanitized.clientSecret
+    sanitizedConfig.oauth = oauthSanitized
+  }
+
   const oauth = getConnectorOAuthConfig(type, config)
-  if (!oauth) return config
+  if (!oauth) return sanitizedConfig
 
   const oauthResponse = {
     provider: oauth.provider,
@@ -40,7 +58,7 @@ function sanitizeConfigForResponse(type: ConnectorType, config: Record<string, u
   }
 
   return {
-    ...config,
+    ...sanitizedConfig,
     oauth: oauthResponse,
   }
 }
