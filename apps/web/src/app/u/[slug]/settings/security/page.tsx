@@ -22,8 +22,8 @@ export default async function SecuritySettingsPage({
 
   const { enabled, verifiedAt, recoveryCodesRemaining } = normalizeTwoFactorStatus(status)
   const releaseVersion =
-    process.env.ARCHE_RELEASE_VERSION?.trim() ||
     process.env.ARCHE_GIT_SHA?.trim() ||
+    process.env.ARCHE_RELEASE_VERSION?.trim() ||
     'dev'
 
   return (
