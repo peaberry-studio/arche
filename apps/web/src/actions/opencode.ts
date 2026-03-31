@@ -37,6 +37,22 @@ function normalizeProviderId(providerId: string): string {
   return PROVIDER_ID_ALIASES[providerId] ?? providerId;
 }
 
+function isFreeOpencodeModel(model: unknown): boolean {
+  if (!model || typeof model !== "object" || Array.isArray(model)) {
+    return false;
+  }
+
+  const cost = (model as { cost?: unknown }).cost;
+  if (!cost || typeof cost !== "object" || Array.isArray(cost)) {
+    return false;
+  }
+
+  const input = (cost as { input?: unknown }).input;
+  const output = (cost as { output?: unknown }).output;
+
+  return input === 0 && output === 0;
+}
+
 function normalizeMessageRole(
   role: unknown
 ): "user" | "assistant" | "system" | null {
@@ -868,6 +884,8 @@ export async function listModelsAction(slug: string): Promise<{
     const { providers, default: defaults } = data;
     const models: AvailableModel[] = [];
 
+    const hasOpencodeCredential = enabledProviderIds.has("opencode");
+
     for (const provider of providers ?? []) {
       const providerId = String(provider.id);
       const normalizedProviderId = normalizeProviderId(providerId);
@@ -884,6 +902,14 @@ export async function listModelsAction(slug: string): Promise<{
       // Models is an object with modelId as key
       const providerModels = provider.models ?? {};
       for (const [modelId, model] of Object.entries(providerModels)) {
+        if (
+          normalizedProviderId === "opencode" &&
+          !hasOpencodeCredential &&
+          !isFreeOpencodeModel(model)
+        ) {
+          continue;
+        }
+
         const isDefault = defaults?.[providerId] === modelId;
         models.push({
           providerId,

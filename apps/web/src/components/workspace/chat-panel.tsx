@@ -171,6 +171,7 @@ export function ChatPanel({
   const ignoreNextTitleBlurRef = useRef(false);
   const [inputValue, setInputValue] = useState("");
   const [modelSearch, setModelSearch] = useState("");
+  const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
   const [attachments, setAttachments] = useState<WorkspaceAttachment[]>([]);
   const [isLoadingAttachments, setIsLoadingAttachments] = useState(false);
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
@@ -334,6 +335,18 @@ export function ChatPanel({
       cancelAnimationFrame(frameId);
     };
   }, [activeSessionId, canFocusComposer]);
+
+  useEffect(() => {
+    if (!isModelMenuOpen) return;
+
+    const frameId = requestAnimationFrame(() => {
+      modelSearchInputRef.current?.focus();
+    });
+
+    return () => {
+      cancelAnimationFrame(frameId);
+    };
+  }, [isModelMenuOpen]);
 
   const effectiveContextPaths = useMemo(() => {
     if (contextMode === "off") return [];
@@ -888,7 +901,12 @@ export function ChatPanel({
             {currentStatus ? (
               <StatusIndicator currentStatus={currentStatus} connectorNamesById={connectorNamesById} />
             ) : models.length > 0 ? (
-              <DropdownMenu onOpenChange={(open) => { if (!open) setModelSearch(""); }}>
+              <DropdownMenu
+                onOpenChange={(open) => {
+                  setIsModelMenuOpen(open);
+                  if (!open) setModelSearch("");
+                }}
+              >
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
@@ -903,10 +921,6 @@ export function ChatPanel({
                 <DropdownMenuContent
                   align="start"
                   className="w-72 p-0"
-                  onOpenAutoFocus={(event) => {
-                    event.preventDefault();
-                    modelSearchInputRef.current?.focus();
-                  }}
                 >
                   <div className="flex items-center gap-2 border-b border-border px-3 py-2">
                     <MagnifyingGlass size={14} className="shrink-0 text-muted-foreground" />

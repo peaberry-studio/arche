@@ -201,19 +201,24 @@ async function handleProxy(
 
   let payload: ReturnType<typeof verifyGatewayToken> | null = null
   let apiKey: string | null = null
+  let allowExpiredGatewayTokenOpencodeFallback = false
 
   if (token) {
     try {
       payload = verifyGatewayToken(token)
-    } catch {
+    } catch (error) {
       if (provider !== 'opencode') {
         return NextResponse.json({ error: 'invalid_token' }, { status: 401 })
       }
 
-      // When no Arche-managed credential is configured, OpenCode Zen may be
-      // authenticated natively in the workspace. In that case, forward the
-      // workspace token as-is.
-      apiKey = token
+      if (error instanceof Error && error.message === 'token_expired') {
+        allowExpiredGatewayTokenOpencodeFallback = true
+      } else {
+        // When no Arche-managed credential is configured, OpenCode Zen may be
+        // authenticated natively in the workspace. In that case, forward the
+        // workspace token as-is.
+        apiKey = token
+      }
     }
   }
 
@@ -260,7 +265,8 @@ async function handleProxy(
     }
   }
 
-  const allowTokenAuthenticatedOpencodeWithoutCredential = provider === 'opencode' && Boolean(payload)
+  const allowTokenAuthenticatedOpencodeWithoutCredential =
+    provider === 'opencode' && (Boolean(payload) || allowExpiredGatewayTokenOpencodeFallback)
 
   if (!apiKey && !allowAnonymousOpencode && !allowTokenAuthenticatedOpencodeWithoutCredential) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })

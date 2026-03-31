@@ -520,7 +520,9 @@ export function useWorkspace({
   const selectedModel =
     currentSessionSelection.manualModel ??
     currentSessionSelection.runtimeModel ??
-    agentDefaultModel;
+    agentDefaultModel ??
+    models[0] ??
+    null;
   const hasManualModelSelection = currentSessionSelection.manualModel !== null;
 
   // --- Session selection state helpers ---
@@ -1710,10 +1712,16 @@ export function useWorkspace({
           sessionSelectionState[sessionId] ??
           createDefaultSessionSelectionState(primaryAgentId);
 
-        if (selection.manualModel) {
+        const fallbackModel =
+          selection.manualModel ??
+          selection.runtimeModel ??
+          models[0] ??
+          null;
+
+        if (fallbackModel) {
           resolvedModel = {
-            providerId: selection.manualModel.providerId,
-            modelId: selection.manualModel.modelId,
+            providerId: fallbackModel.providerId,
+            modelId: fallbackModel.modelId,
           };
         }
       }
@@ -1767,6 +1775,7 @@ export function useWorkspace({
     },
     [
       createSession,
+      models,
       primaryAgentId,
       sessionSelectionState,
       streamChat,
