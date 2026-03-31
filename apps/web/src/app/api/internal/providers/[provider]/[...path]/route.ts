@@ -46,11 +46,25 @@ function isProviderId(value: string): value is ProviderId {
 }
 
 function extractGatewayToken(providerId: ProviderId, headers: Headers): string | null {
-  if (providerId === 'openai' || providerId === 'fireworks' || providerId === 'openrouter' || providerId === 'opencode') {
+  if (providerId === 'openai' || providerId === 'fireworks' || providerId === 'openrouter') {
     const header = headers.get('authorization')
     if (!header) return null
     const match = header.match(/^Bearer\s+(.+)$/i)
     return match?.[1]?.trim() || null
+  }
+
+  if (providerId === 'opencode') {
+    const authHeader = headers.get('authorization')
+    if (authHeader) {
+      const match = authHeader.match(/^Bearer\s+(.+)$/i)
+      const bearerToken = match?.[1]?.trim() || null
+      if (bearerToken) return bearerToken
+    }
+
+    // OpenCode may send gateway credentials via x-api-key for some provider
+    // formats (e.g. messages). Accept both to keep web/desktop behavior aligned.
+    const apiKey = headers.get('x-api-key')
+    return apiKey?.trim() || null
   }
 
   const apiKey = headers.get('x-api-key')

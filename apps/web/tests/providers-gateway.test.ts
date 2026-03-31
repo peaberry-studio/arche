@@ -527,6 +527,38 @@ describe('providers gateway', () => {
     expect(headers.get('authorization')).toBe(null)
   })
 
+  it('accepts OpenCode Zen gateway tokens from x-api-key headers', async () => {
+    mockVerifyGatewayToken.mockReturnValue({
+      userId: 'user-1',
+      workspaceSlug: 'ws',
+      providerId: 'opencode',
+      version: 0,
+      exp: Math.floor(Date.now() / 1000) + 1000,
+    })
+    mockGetActiveCredentialForUser.mockResolvedValue(null)
+
+    ;(global.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+      new Response('ok', { status: 200 })
+    )
+
+    await callProxy({
+      provider: 'opencode',
+      path: ['messages'],
+      method: 'POST',
+      headers: {
+        'x-api-key': 'internal-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ input: 'hello' }),
+    })
+
+    const [url, options] = (global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(url).toBe('https://opencode.ai/zen/v1/messages?foo=bar')
+    const headers = options.headers as Headers
+    expect(headers.get('authorization')).toBe(null)
+    expect(mockVerifyGatewayToken).toHaveBeenCalledWith('internal-token')
+  })
+
   it('falls back to anonymous OpenCode Zen when a gateway token has expired', async () => {
     mockVerifyGatewayToken.mockImplementation(() => {
       throw new Error('token_expired')
