@@ -1345,7 +1345,13 @@ export function WorkspaceShell({
       >
         {isCompactLayout ? (
           <>
-            <div className="grid h-12 shrink-0 grid-cols-3 gap-2 border-b border-border/40 px-3">
+            <div
+              className="grid shrink-0 grid-cols-3 gap-2 border-b border-border/40 px-3"
+              style={{
+                minHeight: "calc(3rem + env(safe-area-inset-top, 0px))",
+                paddingTop: "env(safe-area-inset-top, 0px)",
+              }}
+            >
               <button
                 type="button"
                 onClick={handleToggleLeft}
@@ -1418,7 +1424,7 @@ export function WorkspaceShell({
               </div>
 
               <div
-                className="absolute inset-0 min-h-0 overflow-hidden"
+                className="absolute inset-0 min-h-0 overflow-hidden px-5 pb-4 pt-2"
                 hidden={!isRightPanelActive}
                 aria-hidden={!isRightPanelActive}
               >
@@ -1477,7 +1483,7 @@ export function WorkspaceShell({
             <div
               className={cn(
                 "shrink-0 overflow-hidden",
-                rightCollapsed ? "py-3 pr-3" : "box-border p-1"
+                rightCollapsed ? "py-3 pr-3" : "box-border pb-4 pl-1 pr-4 pt-1"
               )}
               style={{
                 width: rightCollapsed ? COLLAPSED_PANEL_PX : rightWidth,
