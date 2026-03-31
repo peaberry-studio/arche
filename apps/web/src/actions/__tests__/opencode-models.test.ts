@@ -117,4 +117,53 @@ describe('listModelsAction', () => {
       ]),
     )
   })
+
+  it('treats fireworks-ai runtime provider ids as fireworks credentials', async () => {
+    mockCreateInstanceClient.mockResolvedValue({
+      config: {
+        providers: vi.fn().mockResolvedValue({
+          data: {
+            providers: [
+              {
+                id: 'fireworks-ai',
+                name: 'Fireworks AI',
+                models: {
+                  'accounts/fireworks/models/glm-5': { name: 'GLM-5' },
+                },
+              },
+            ],
+            default: {
+              'fireworks-ai': 'accounts/fireworks/models/glm-5',
+            },
+          },
+        }),
+      },
+    } as never)
+
+    mockGetActiveCredentialForUser.mockImplementation(async ({ providerId }) => {
+      if (providerId === 'fireworks') {
+        return {
+          id: 'cred-fireworks',
+          type: 'api',
+          secret: 'encrypted',
+          version: 1,
+        }
+      }
+
+      return null
+    })
+
+    const result = await listModelsAction('alice')
+
+    expect(result.ok).toBe(true)
+    expect(result.models).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          providerId: 'fireworks-ai',
+          modelId: 'accounts/fireworks/models/glm-5',
+          isDefault: true,
+        }),
+      ]),
+    )
+  })
 })

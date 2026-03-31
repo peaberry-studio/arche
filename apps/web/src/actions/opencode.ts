@@ -29,6 +29,14 @@ const CREDENTIAL_REQUIRED_PROVIDER_IDS = new Set<ProviderId>([
   "openrouter",
 ]);
 
+const PROVIDER_ID_ALIASES: Record<string, ProviderId> = {
+  "fireworks-ai": "fireworks",
+};
+
+function normalizeProviderId(providerId: string): string {
+  return PROVIDER_ID_ALIASES[providerId] ?? providerId;
+}
+
 function normalizeMessageRole(
   role: unknown
 ): "user" | "assistant" | "system" | null {
@@ -861,13 +869,14 @@ export async function listModelsAction(slug: string): Promise<{
     const models: AvailableModel[] = [];
 
     for (const provider of providers ?? []) {
-      const providerId = provider.id as ProviderId;
+      const providerId = String(provider.id);
+      const normalizedProviderId = normalizeProviderId(providerId);
 
       // OpenCode Zen can be available via native workspace auth even without
       // an Arche-managed API credential.
       if (
-        CREDENTIAL_REQUIRED_PROVIDER_IDS.has(providerId) &&
-        !enabledProviderIds.has(providerId)
+        CREDENTIAL_REQUIRED_PROVIDER_IDS.has(normalizedProviderId as ProviderId) &&
+        !enabledProviderIds.has(normalizedProviderId as ProviderId)
       ) {
         continue;
       }
@@ -875,9 +884,9 @@ export async function listModelsAction(slug: string): Promise<{
       // Models is an object with modelId as key
       const providerModels = provider.models ?? {};
       for (const [modelId, model] of Object.entries(providerModels)) {
-        const isDefault = defaults?.[provider.id] === modelId;
+        const isDefault = defaults?.[providerId] === modelId;
         models.push({
-          providerId: provider.id,
+          providerId,
           providerName: provider.name,
           modelId,
           modelName: model.name ?? modelId,
