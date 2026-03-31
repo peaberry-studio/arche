@@ -154,5 +154,13 @@ export async function ensureInstanceRunningAction(slug: string): Promise<{
     return { status: 'error', error: result.detail ?? result.error }
   }
 
+  if (
+    result.status === 'running' ||
+    result.status === 'started' ||
+    result.status === 'already_running'
+  ) {
+    return { status: 'running' }
+  }
+
   return { status: 'starting' }
 }
