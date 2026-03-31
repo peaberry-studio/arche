@@ -8,7 +8,7 @@
     "prepare:runtime": "bash ../../scripts/prepare-desktop-runtime.sh",
     "dev": "pnpm prepare:runtime && tsc && electron dist/main.js",
     "build": "tsc",
-    "test": "pnpm build && node --test tests/runtime-supervisor.test.js tests/runtime-binaries.test.js tests/runtime-network.test.js",
+    "test": "pnpm build && node --test tests/desktop-encryption-key.test.js tests/runtime-supervisor.test.js tests/runtime-binaries.test.js tests/runtime-network.test.js",
     "start": "electron dist/main.js",
     "pack": "pnpm prepare:runtime && electron-builder --dir --config electron-builder.config.js",
     "dist": "pnpm prepare:runtime && electron-builder --config electron-builder.config.js",
