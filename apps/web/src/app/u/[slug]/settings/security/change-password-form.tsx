@@ -33,21 +33,28 @@ export function ChangePasswordForm() {
     setLoading(true)
     setFeedback(IDLE_FEEDBACK)
 
-    const result = await changePassword(
-      currentPassword,
-      newPassword,
-      newPasswordConfirmation,
-    )
+    try {
+      const result = await changePassword(
+        currentPassword,
+        newPassword,
+        newPasswordConfirmation,
+      )
 
-    setLoading(false)
+      if (!result.ok) {
+        setFeedback({ kind: 'error', message: result.message })
+        return
+      }
 
-    if (!result.ok) {
-      setFeedback({ kind: 'error', message: result.message })
-      return
+      resetForm()
+      setFeedback({ kind: 'success', message: 'Password changed successfully.' })
+    } catch {
+      setFeedback({
+        kind: 'error',
+        message: 'Something went wrong while changing your password. Please try again.',
+      })
+    } finally {
+      setLoading(false)
     }
-
-    resetForm()
-    setFeedback({ kind: 'success', message: 'Password changed successfully.' })
   }
 
   return (

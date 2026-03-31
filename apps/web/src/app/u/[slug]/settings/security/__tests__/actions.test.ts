@@ -37,7 +37,12 @@ vi.mock('@/lib/runtime/session', () => ({
 
 const mockFindById = vi.fn()
 const mockUpdatePasswordHash = vi.fn()
+const mockRevokeByUserIdExceptSession = vi.fn()
 vi.mock('@/lib/services', () => ({
+  sessionService: {
+    revokeByUserIdExceptSession: (userId: string, sessionId: string) =>
+      mockRevokeByUserIdExceptSession(userId, sessionId),
+  },
   userService: {
     findById: (id: string) => mockFindById(id),
     updatePasswordHash: (id: string, passwordHash: string) => mockUpdatePasswordHash(id, passwordHash),
@@ -82,6 +87,7 @@ describe('changePassword', () => {
       message: 'Current password is incorrect',
     })
     expect(mockUpdatePasswordHash).not.toHaveBeenCalled()
+    expect(mockRevokeByUserIdExceptSession).not.toHaveBeenCalled()
     expect(mockAuditEvent).not.toHaveBeenCalled()
   })
 
@@ -95,6 +101,7 @@ describe('changePassword', () => {
     })
     expect(mockGetSession).not.toHaveBeenCalled()
     expect(mockUpdatePasswordHash).not.toHaveBeenCalled()
+    expect(mockRevokeByUserIdExceptSession).not.toHaveBeenCalled()
   })
 
   it('hashes, persists, and audits the new password on success', async () => {
@@ -109,12 +116,14 @@ describe('changePassword', () => {
     mockVerifyPassword.mockResolvedValue(true)
     mockHash.mockResolvedValue('new-hash')
     mockUpdatePasswordHash.mockResolvedValue(undefined)
+    mockRevokeByUserIdExceptSession.mockResolvedValue(undefined)
 
     const result = await changePassword('current-password', 'new-password-123', 'new-password-123')
 
     expect(result).toEqual({ ok: true })
     expect(mockHash).toHaveBeenCalledWith('new-password-123')
     expect(mockUpdatePasswordHash).toHaveBeenCalledWith('user-1', 'new-hash')
+    expect(mockRevokeByUserIdExceptSession).toHaveBeenCalledWith('user-1', 'session-1')
     expect(mockAuditEvent).toHaveBeenCalledWith({
       actorUserId: 'user-1',
       action: 'auth.password.changed',

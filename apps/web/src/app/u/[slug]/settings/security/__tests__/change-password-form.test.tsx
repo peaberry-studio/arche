@@ -76,4 +76,30 @@ describe('ChangePasswordForm', () => {
     expect(newPasswordInput.value).toBe('')
     expect(confirmationInput.value).toBe('')
   })
+
+  it('shows a generic error and re-enables submit if the action throws', async () => {
+    mockChangePassword.mockRejectedValue(new Error('db down'))
+
+    render(<ChangePasswordForm />)
+
+    fireEvent.change(screen.getByLabelText('Current password'), {
+      target: { value: 'current-password' },
+    })
+    fireEvent.change(screen.getByLabelText('New password'), {
+      target: { value: 'new-password-123' },
+    })
+    fireEvent.change(screen.getByLabelText('Confirm new password'), {
+      target: { value: 'new-password-123' },
+    })
+
+    const submitButton = screen.getByRole('button', { name: 'Change password' })
+    fireEvent.click(submitButton)
+
+    expect(
+      await screen.findByText('Something went wrong while changing your password. Please try again.'),
+    ).toBeTruthy()
+    await waitFor(() => {
+      expect(submitButton.getAttribute('disabled')).toBeNull()
+    })
+  })
 })

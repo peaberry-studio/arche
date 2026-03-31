@@ -8,7 +8,7 @@ import {
 } from '@/lib/auth'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { getSession } from '@/lib/runtime/session'
-import { userService } from '@/lib/services'
+import { sessionService, userService } from '@/lib/services'
 import {
   generateSecret,
   encryptSecret,
@@ -107,6 +107,7 @@ export async function changePassword(
 
   const passwordHash = await argon2.hash(newPassword)
   await userService.updatePasswordHash(user.id, passwordHash)
+  await sessionService.revokeByUserIdExceptSession(user.id, session.sessionId)
 
   await auditEvent({
     actorUserId: user.id,
