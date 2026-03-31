@@ -287,6 +287,72 @@ describe("useWorkspace", () => {
     });
   });
 
+  it("resolves aliased fireworks agent defaults to runtime provider ids", async () => {
+    opencodeMocks.listModelsAction.mockResolvedValue({
+      ok: true,
+      models: [
+        {
+          providerId: "fireworks-ai",
+          providerName: "Fireworks AI",
+          modelId: "accounts/fireworks/models/glm-5",
+          modelName: "GLM-5",
+          isDefault: true,
+        },
+      ],
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === "/api/u/alice/agents") {
+          return {
+            ok: true,
+            json: async () => ({
+              agents: [
+                {
+                  id: "assistant",
+                  displayName: "Assistant",
+                  model: "fireworks/accounts/fireworks/models/glm-5",
+                  isPrimary: true,
+                },
+              ],
+            }),
+          };
+        }
+
+        if (String(input) === "/api/u/alice/providers") {
+          return {
+            ok: true,
+            json: async () => ({
+              providers: [{ providerId: "fireworks", status: "enabled" }],
+            }),
+          };
+        }
+
+        throw new Error(`Unexpected fetch: ${String(input)}`);
+      })
+    );
+
+    const { result } = renderHook(() =>
+      useWorkspace({ slug: "alice", pollInterval: 0 })
+    );
+
+    await waitFor(() => {
+      expect(result.current.agentDefaultModel?.providerId).toBe("fireworks-ai");
+    });
+
+    await act(async () => {
+      await result.current.createSession("Fresh");
+    });
+
+    await waitFor(() => {
+      expect(result.current.selectedModel?.providerId).toBe("fireworks-ai");
+      expect(result.current.selectedModel?.modelId).toBe(
+        "accounts/fireworks/models/glm-5"
+      );
+    });
+  });
+
   it("keeps the requested manual title when the OpenCode update response is stale", async () => {
     opencodeMocks.listSessionsAction.mockReset();
     opencodeMocks.listSessionsAction

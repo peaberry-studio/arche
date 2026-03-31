@@ -19,6 +19,14 @@ const OPENAI_MODEL: AvailableModel = {
   isDefault: false,
 };
 
+const FIREWORKS_ALIAS_MODEL: AvailableModel = {
+  providerId: "fireworks-ai",
+  providerName: "Fireworks AI",
+  modelId: "accounts/fireworks/models/glm-5",
+  modelName: "GLM-5",
+  isDefault: false,
+};
+
 describe("filterModelsByProviderStatus", () => {
   it("keeps opencode models even when no provider credentials are enabled", () => {
     const models = filterModelsByProviderStatus([OPENCODE_MODEL], [
@@ -44,5 +52,13 @@ describe("filterModelsByProviderStatus", () => {
     ]);
 
     expect(models).toEqual([OPENAI_MODEL, OPENCODE_MODEL]);
+  });
+
+  it("treats aliased fireworks provider ids as credential-backed", () => {
+    const models = filterModelsByProviderStatus([FIREWORKS_ALIAS_MODEL], [
+      { providerId: "fireworks", status: "enabled" },
+    ]);
+
+    expect(models).toEqual([FIREWORKS_ALIAS_MODEL]);
   });
 });

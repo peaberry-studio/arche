@@ -37,7 +37,7 @@ describe('syncProviderAccessForInstance', () => {
     expect(result).toEqual({ ok: false, error: 'sync_failed' })
   })
 
-  it('sets auth for active credentials and deletes missing providers', async () => {
+  it('sets auth for active credentials and keeps OpenCode gateway auth', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('true', { status: 200 })))
 
     mockGetActiveCredentialForUser.mockImplementation(async ({ providerId }) => {
@@ -63,6 +63,12 @@ describe('syncProviderAccessForInstance', () => {
       providerId: 'openai',
       version: 2,
     })
+    expect(mockIssueGatewayToken).toHaveBeenCalledWith({
+      userId: 'user-1',
+      workspaceSlug: 'alice',
+      providerId: 'opencode',
+      version: 0,
+    })
 
     const calls = (global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
     const urls = calls.map((c) => c[0])
@@ -73,7 +79,7 @@ describe('syncProviderAccessForInstance', () => {
     expect(urls).toContain('http://opencode-alice:4096/auth/anthropic')
     expect(urls).toContain('http://opencode-alice:4096/auth/fireworks')
     expect(urls).toContain('http://opencode-alice:4096/auth/openrouter')
-    expect(urls).not.toContain('http://opencode-alice:4096/auth/opencode')
+    expect(urls).toContain('http://opencode-alice:4096/auth/opencode')
     // Dispose refresh
     expect(urls).toContain('http://opencode-alice:4096/instance/dispose')
 

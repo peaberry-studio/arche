@@ -46,11 +46,25 @@ function isProviderId(value: string): value is ProviderId {
 }
 
 function extractGatewayToken(providerId: ProviderId, headers: Headers): string | null {
-  if (providerId === 'openai' || providerId === 'fireworks' || providerId === 'openrouter' || providerId === 'opencode') {
+  if (providerId === 'openai' || providerId === 'fireworks' || providerId === 'openrouter') {
     const header = headers.get('authorization')
     if (!header) return null
     const match = header.match(/^Bearer\s+(.+)$/i)
     return match?.[1]?.trim() || null
+  }
+
+  if (providerId === 'opencode') {
+    const authHeader = headers.get('authorization')
+    if (authHeader) {
+      const match = authHeader.match(/^Bearer\s+(.+)$/i)
+      const bearerToken = match?.[1]?.trim() || null
+      if (bearerToken) return bearerToken
+    }
+
+    // OpenCode may send gateway credentials via x-api-key for some provider
+    // formats (e.g. messages). Accept both to keep web/desktop behavior aligned.
+    const apiKey = headers.get('x-api-key')
+    return apiKey?.trim() || null
   }
 
   const apiKey = headers.get('x-api-key')
@@ -201,19 +215,24 @@ async function handleProxy(
 
   let payload: ReturnType<typeof verifyGatewayToken> | null = null
   let apiKey: string | null = null
+  let allowExpiredGatewayTokenOpencodeFallback = false
 
   if (token) {
     try {
       payload = verifyGatewayToken(token)
-    } catch {
+    } catch (error) {
       if (provider !== 'opencode') {
         return NextResponse.json({ error: 'invalid_token' }, { status: 401 })
       }
 
-      // When no Arche-managed credential is configured, OpenCode Zen may be
-      // authenticated natively in the workspace. In that case, forward the
-      // workspace token as-is.
-      apiKey = token
+      if (error instanceof Error && error.message === 'token_expired') {
+        allowExpiredGatewayTokenOpencodeFallback = true
+      } else {
+        // When no Arche-managed credential is configured, OpenCode Zen may be
+        // authenticated natively in the workspace. In that case, forward the
+        // workspace token as-is.
+        apiKey = token
+      }
     }
   }
 
@@ -237,28 +256,33 @@ async function handleProxy(
     })
 
     if (!credential) {
-      return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-    }
+      if (provider !== 'opencode') {
+        return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+      }
+    } else {
+      if (credential.type !== 'api') {
+        return NextResponse.json({ error: 'unsupported_credential' }, { status: 501 })
+      }
 
-    if (credential.type !== 'api') {
-      return NextResponse.json({ error: 'unsupported_credential' }, { status: 501 })
-    }
+      let secret: ReturnType<typeof decryptProviderSecret>
+      try {
+        secret = decryptProviderSecret(credential.secret)
+      } catch {
+        return NextResponse.json({ error: 'invalid_credentials' }, { status: 500 })
+      }
 
-    let secret: ReturnType<typeof decryptProviderSecret>
-    try {
-      secret = decryptProviderSecret(credential.secret)
-    } catch {
-      return NextResponse.json({ error: 'invalid_credentials' }, { status: 500 })
-    }
+      if (!('apiKey' in secret) || typeof secret.apiKey !== 'string' || !secret.apiKey.trim()) {
+        return NextResponse.json({ error: 'unsupported_credential' }, { status: 501 })
+      }
 
-    if (!('apiKey' in secret) || typeof secret.apiKey !== 'string' || !secret.apiKey.trim()) {
-      return NextResponse.json({ error: 'unsupported_credential' }, { status: 501 })
+      apiKey = secret.apiKey.trim()
     }
-
-    apiKey = secret.apiKey.trim()
   }
 
-  if (!apiKey && !allowAnonymousOpencode) {
+  const allowTokenAuthenticatedOpencodeWithoutCredential =
+    provider === 'opencode' && (Boolean(payload) || allowExpiredGatewayTokenOpencodeFallback)
+
+  if (!apiKey && !allowAnonymousOpencode && !allowTokenAuthenticatedOpencodeWithoutCredential) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 

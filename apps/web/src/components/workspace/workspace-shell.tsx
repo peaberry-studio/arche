@@ -168,6 +168,18 @@ const statusConfig = {
 
 const PANEL_ANIM = "200ms ease-out";
 const PANEL_TRANSITION = `width ${PANEL_ANIM}, min-width ${PANEL_ANIM}, opacity ${PANEL_ANIM}, margin ${PANEL_ANIM}, border-width ${PANEL_ANIM}`;
+const INSTANCE_START_POLL_INTERVAL_MS = 2_000;
+const INSTANCE_START_TIMEOUT_MS = 120_000;
+
+function formatInstanceStartupError(error: string): string {
+  if (error === "start_timeout") {
+    return "Workspace startup timed out. Try restarting again.";
+  }
+  if (error === "status_check_failed") {
+    return "Unable to verify workspace startup status.";
+  }
+  return error;
+}
 
 export function WorkspaceShell({
   slug,
@@ -179,6 +191,8 @@ export function WorkspaceShell({
   reaperEnabled = true,
 }: WorkspaceShellProps) {
   const router = useRouter();
+  const routerRef = useRef(router);
+  routerRef.current = router;
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -197,50 +211,79 @@ export function WorkspaceShell({
   // Auto-start instance on mount
   useEffect(() => {
     let cancelled = false;
-    
-    async function ensureRunning() {
-      const result = await ensureInstanceRunningAction(slug);
-      if (cancelled) return;
-      
-      if (result.status === 'error') {
-        if (result.error === 'setup_required') {
-          router.replace(`/u/${slug}?setup=required`);
-          return;
-        }
-        setInstanceStatus('error');
-        setInstanceError(result.error ?? 'Unknown error');
-        return;
+    let pollingTimer: ReturnType<typeof setInterval> | null = null;
+    let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+    let checking = false;
+
+    const clearTimers = () => {
+      if (pollingTimer) {
+        clearInterval(pollingTimer);
+        pollingTimer = null;
       }
-      
-      setInstanceStatus(result.status);
-      
-      if (result.status === 'starting') {
-        const poll = setInterval(async () => {
-          const check = await ensureInstanceRunningAction(slug);
-          if (cancelled) {
-            clearInterval(poll);
+      if (timeoutTimer) {
+        clearTimeout(timeoutTimer);
+        timeoutTimer = null;
+      }
+    };
+
+    const failStartup = (error: string) => {
+      clearTimers();
+      setInstanceStatus("error");
+      setInstanceError(formatInstanceStartupError(error));
+    };
+
+    const checkInstanceStatus = async () => {
+      if (checking) return;
+      checking = true;
+
+      try {
+        const result = await ensureInstanceRunningAction(slug);
+        if (cancelled) return;
+
+        if (result.status === "error") {
+          clearTimers();
+          if (result.error === "setup_required") {
+            routerRef.current.replace(`/u/${slug}?setup=required`);
             return;
           }
-          if (check.status === 'running') {
-            setInstanceStatus('running');
-            clearInterval(poll);
-          } else if (check.status === 'error') {
-            if (check.error === 'setup_required') {
-              clearInterval(poll);
-              router.replace(`/u/${slug}?setup=required`);
-              return;
-            }
-            setInstanceStatus('error');
-            setInstanceError(check.error ?? 'Unknown error');
-            clearInterval(poll);
-          }
-        }, 2000);
+          failStartup(result.error ?? "Unknown error");
+          return;
+        }
+
+        if (result.status === "running") {
+          clearTimers();
+          setInstanceStatus("running");
+          setInstanceError(null);
+          return;
+        }
+
+        setInstanceStatus("starting");
+
+        if (!pollingTimer) {
+          timeoutTimer = setTimeout(() => {
+            if (cancelled) return;
+            failStartup("start_timeout");
+          }, INSTANCE_START_TIMEOUT_MS);
+
+          pollingTimer = setInterval(() => {
+            void checkInstanceStatus();
+          }, INSTANCE_START_POLL_INTERVAL_MS);
+        }
+      } catch {
+        if (cancelled) return;
+        failStartup("status_check_failed");
+      } finally {
+        checking = false;
       }
-    }
-    
-    ensureRunning();
-    return () => { cancelled = true; };
-  }, [router, slug]);
+    };
+
+    void checkInstanceStatus();
+
+    return () => {
+      cancelled = true;
+      clearTimers();
+    };
+  }, [slug]);
 
   // Use workspace hook only when instance is running
   const workspace = useWorkspace({
@@ -1104,6 +1147,7 @@ export function WorkspaceShell({
   if (instanceStatus !== 'running') {
     const loadingStatus = instanceStatus === 'starting' ? 'provisioning' : 'offline';
     const loadingStyle = statusConfig[loadingStatus as keyof typeof statusConfig];
+    const showInstanceHeader = instanceStatus === 'error';
     return (
       <div
         className={cn(
@@ -1114,12 +1158,14 @@ export function WorkspaceShell({
         )}
       >
         <div className="flex h-full flex-col p-3">
-          <div className="flex items-center gap-2 p-4">
-            <span className="type-display text-base font-semibold tracking-tight">Archē</span>
-            <span className="text-sm text-muted-foreground">/</span>
-            <span className="text-sm text-muted-foreground">{slug}</span>
-            <Circle size={8} weight="fill" className={cn(loadingStyle.color, loadingStyle.pulse && "animate-pulse")} />
-          </div>
+          {showInstanceHeader && (
+            <div className="flex items-center gap-2 p-4">
+              <span className="type-display text-base font-semibold tracking-tight">Archē</span>
+              <span className="text-sm text-muted-foreground">/</span>
+              <span className="text-sm text-muted-foreground">{slug}</span>
+              <Circle size={8} weight="fill" className={cn(loadingStyle.color, loadingStyle.pulse && "animate-pulse")} />
+            </div>
+          )}
 
           <div className="relative z-10 flex flex-1 items-center justify-center">
             <div className="flex flex-col items-center gap-6 text-center">
@@ -1173,6 +1219,7 @@ export function WorkspaceShell({
   // Connecting to OpenCode screen
   if (!workspace.isConnected) {
     const connectingStyle = statusConfig.provisioning;
+    const showConnectingHeader = workspace.connection.status === 'error';
     return (
       <div
         className={cn(
@@ -1183,12 +1230,14 @@ export function WorkspaceShell({
         )}
       >
         <div className="flex h-full flex-col p-3">
-          <div className="flex items-center gap-2 p-4">
-            <span className="type-display text-base font-semibold tracking-tight">Archē</span>
-            <span className="text-sm text-muted-foreground">/</span>
-            <span className="text-sm text-muted-foreground">{slug}</span>
-            <Circle size={8} weight="fill" className={cn(connectingStyle.color, connectingStyle.pulse && "animate-pulse")} />
-          </div>
+          {showConnectingHeader && (
+            <div className="flex items-center gap-2 p-4">
+              <span className="type-display text-base font-semibold tracking-tight">Archē</span>
+              <span className="text-sm text-muted-foreground">/</span>
+              <span className="text-sm text-muted-foreground">{slug}</span>
+              <Circle size={8} weight="fill" className={cn(connectingStyle.color, connectingStyle.pulse && "animate-pulse")} />
+            </div>
+          )}
 
           <div className="relative z-10 flex flex-1 items-center justify-center">
             <div className="flex flex-col items-center gap-6 text-center">
@@ -1299,7 +1348,6 @@ export function WorkspaceShell({
       isLoadingDiffs={workspace.isLoadingDiffs}
       diffsError={workspace.diffsError}
       onOpenFile={handleOpenFile}
-      onDownloadFile={handleDownloadFile}
       onReloadFile={handleReloadFile}
       onSaveFile={workspaceAgentEnabled ? handleSaveFile : undefined}
       onDiscardFileChanges={workspaceAgentEnabled ? handleDiscardFileChanges : undefined}
@@ -1332,10 +1380,21 @@ export function WorkspaceShell({
         restartError={configStatus.restartError}
         onRestart={configStatus.restart}
       />
-      <div className={cn("flex h-full flex-col", !isCompactLayout && "pl-3")}>
+      <div
+        className={cn(
+          "flex h-full flex-col",
+          !isCompactLayout && (leftCollapsed ? "pl-1" : "pl-3")
+        )}
+      >
         {isCompactLayout ? (
           <>
-            <div className="grid h-12 shrink-0 grid-cols-3 gap-2 border-b border-border/40 px-3">
+            <div
+              className="grid shrink-0 grid-cols-3 gap-2 border-b border-border/40 px-3"
+              style={{
+                minHeight: "calc(3rem + env(safe-area-inset-top, 0px))",
+                paddingTop: "env(safe-area-inset-top, 0px)",
+              }}
+            >
               <button
                 type="button"
                 onClick={handleToggleLeft}
@@ -1408,7 +1467,7 @@ export function WorkspaceShell({
               </div>
 
               <div
-                className="absolute inset-0 min-h-0 overflow-hidden"
+                className="absolute inset-0 min-h-0 overflow-hidden px-5 pb-4 pt-2"
                 hidden={!isRightPanelActive}
                 aria-hidden={!isRightPanelActive}
               >
@@ -1419,7 +1478,10 @@ export function WorkspaceShell({
         ) : (
           <div ref={containerRef} className="relative z-10 flex min-h-0 flex-1 gap-3">
             <div
-              className="shrink-0 overflow-hidden py-3"
+              className={cn(
+                "shrink-0 overflow-hidden",
+                leftCollapsed ? "pb-1 pt-1" : "pb-3 pt-2"
+              )}
               style={{
                 width: leftCollapsed ? COLLAPSED_PANEL_PX : leftWidth,
                 minWidth: leftCollapsed ? COLLAPSED_PANEL_PX : MIN_LEFT_PX,
@@ -1462,7 +1524,10 @@ export function WorkspaceShell({
             )}
 
             <div
-              className={cn("shrink-0 overflow-hidden", rightCollapsed && "py-3 pr-3")}
+              className={cn(
+                "shrink-0 overflow-hidden",
+                rightCollapsed ? "pb-3 pr-3 pt-1" : "box-border pb-4 pl-1 pr-4 pt-4"
+              )}
               style={{
                 width: rightCollapsed ? COLLAPSED_PANEL_PX : rightWidth,
                 minWidth: rightCollapsed ? COLLAPSED_PANEL_PX : MIN_RIGHT_PX,

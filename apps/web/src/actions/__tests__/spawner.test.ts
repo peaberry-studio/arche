@@ -216,4 +216,25 @@ describe('ensureInstanceRunningAction', () => {
     expect(result).toEqual({ status: 'error', error: 'setup_required' })
     expect(mockStatus).not.toHaveBeenCalled()
   })
+
+  it('returns running when a start call reports a ready runtime', async () => {
+    mockGetSession.mockResolvedValue(fakeSession)
+    mockStatus.mockResolvedValue({ status: 'stopped' } as never)
+    mockStart.mockResolvedValue({ ok: true, status: 'started' } as never)
+
+    const result = await ensureInstanceRunningAction('alice')
+
+    expect(result).toEqual({ status: 'running' })
+    expect(mockStart).toHaveBeenCalledWith('alice', 'user-1')
+  })
+
+  it('keeps starting when start reports a non-ready status', async () => {
+    mockGetSession.mockResolvedValue(fakeSession)
+    mockStatus.mockResolvedValue({ status: 'stopped' } as never)
+    mockStart.mockResolvedValue({ ok: true, status: 'starting' } as never)
+
+    const result = await ensureInstanceRunningAction('alice')
+
+    expect(result).toEqual({ status: 'starting' })
+  })
 })

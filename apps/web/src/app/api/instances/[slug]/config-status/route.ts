@@ -24,6 +24,9 @@ export const GET = withAuth<ConfigStatusResponse | { error: string }>(
     const instance = await instanceService.findAppliedConfigShaBySlug(slug)
 
     const pending = instance?.appliedConfigSha !== runtime.hash
-    return NextResponse.json({ pending })
+    return NextResponse.json(
+      { pending },
+      { headers: { 'Cache-Control': 'no-store' } }
+    )
   }
 )

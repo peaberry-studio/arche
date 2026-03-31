@@ -157,15 +157,27 @@
 
 /* Theme-specific palettes */
 .theme-warm-sand {
+  --background: 34 22% 96%;
+  --surface: 34 18% 93%;
+  --card: 36 18% 97%;
+  --popover: 36 16% 97%;
   --primary: 24 90% 55%;
   --primary-foreground: 0 0% 100%;
-  --accent: 26 50% 78%;
+  --secondary: 32 12% 92%;
+  --muted: 30 10% 91%;
+  --accent: 30 34% 87%;
   --accent-foreground: 20 18% 16%;
+  --border: 30 10% 84%;
+  --input: 30 10% 84%;
   --ring: 24 90% 55%;
   --chart-1: 24 90% 55%;
+  --sidebar: 34 22% 96%;
   --sidebar-primary: 24 90% 55%;
   --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 32 22% 88%;
+  --sidebar-border: 30 10% 84%;
   --sidebar-ring: 24 90% 55%;
+  --grid-line: hsl(20 15% 12% / 0.18);
 }
 
 .theme-ocean-mist {
@@ -323,8 +335,27 @@
 /* Dark mode: per-color full overrides with hue-tinted backgrounds */
 
 .dark.theme-warm-sand {
+  --background: 0 0% 8%;
+  --surface: 0 0% 11%;
+  --card: 0 0% 14%;
+  --popover: 0 0% 10%;
+  --primary: 24 90% 55%;
   --primary-foreground: 0 0% 8%;
+  --secondary: 0 0% 15%;
+  --muted: 0 0% 15%;
+  --accent: 30 34% 24%;
+  --accent-foreground: 0 0% 92%;
+  --border: 0 0% 20%;
+  --input: 0 0% 20%;
+  --ring: 24 90% 55%;
+  --chart-1: 24 90% 55%;
+  --sidebar: 0 0% 9%;
+  --sidebar-primary: 24 90% 55%;
   --sidebar-primary-foreground: 0 0% 8%;
+  --sidebar-accent: 30 26% 20%;
+  --sidebar-border: 0 0% 20%;
+  --sidebar-ring: 24 90% 55%;
+  --grid-line: hsl(0 0% 92% / 0.18);
 }
 
 .dark.theme-ocean-mist {

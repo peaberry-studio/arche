@@ -48,9 +48,17 @@ type ProviderStatusEntry = {
   status: string;
 };
 
+const PROVIDER_ID_ALIASES: Record<string, ProviderId> = {
+  "fireworks-ai": "fireworks",
+};
+
 const STALE_PENDING_ASSISTANT_MS = 5_000;
 const RESUME_POLL_INTERVAL_MS = 4_000;
 const EMPTY_WORKSPACE_MESSAGES: WorkspaceMessage[] = [];
+
+function normalizeProviderId(providerId: string): string {
+  return PROVIDER_ID_ALIASES[providerId] ?? providerId;
+}
 
 function areStatusInfoEqual(
   left: WorkspaceMessage["statusInfo"],
@@ -169,13 +177,14 @@ export function filterModelsByProviderStatus(
   const enabledProviders = new Set(
     providerStatuses
       .filter((provider) => provider.status === "enabled")
-      .map((provider) => provider.providerId)
+      .map((provider) => normalizeProviderId(provider.providerId))
   );
 
   return models.filter((model) => {
-    if (!PROVIDERS.includes(model.providerId as ProviderId)) return true;
-    if (model.providerId === "opencode") return true;
-    return enabledProviders.has(model.providerId as ProviderId);
+    const normalizedProviderId = normalizeProviderId(model.providerId);
+    if (!PROVIDERS.includes(normalizedProviderId as ProviderId)) return true;
+    if (normalizedProviderId === "opencode") return true;
+    return enabledProviders.has(normalizedProviderId);
   });
 }
 
@@ -251,8 +260,11 @@ function resolveModelEntry(
   modelId: string,
   models: AvailableModel[]
 ): AvailableModel {
+  const normalizedProviderId = normalizeProviderId(providerId);
   const match = models.find(
-    (entry) => entry.providerId === providerId && entry.modelId === modelId
+    (entry) =>
+      normalizeProviderId(entry.providerId) === normalizedProviderId &&
+      entry.modelId === modelId
   );
   if (match) return match;
 
@@ -270,8 +282,11 @@ function hasModelEntry(
   modelId: string,
   models: AvailableModel[]
 ): boolean {
+  const normalizedProviderId = normalizeProviderId(providerId);
   return models.some(
-    (entry) => entry.providerId === providerId && entry.modelId === modelId
+    (entry) =>
+      normalizeProviderId(entry.providerId) === normalizedProviderId &&
+      entry.modelId === modelId
   );
 }
 
@@ -505,7 +520,9 @@ export function useWorkspace({
   const selectedModel =
     currentSessionSelection.manualModel ??
     currentSessionSelection.runtimeModel ??
-    agentDefaultModel;
+    agentDefaultModel ??
+    models[0] ??
+    null;
   const hasManualModelSelection = currentSessionSelection.manualModel !== null;
 
   // --- Session selection state helpers ---
@@ -1695,10 +1712,16 @@ export function useWorkspace({
           sessionSelectionState[sessionId] ??
           createDefaultSessionSelectionState(primaryAgentId);
 
-        if (selection.manualModel) {
+        const fallbackModel =
+          selection.manualModel ??
+          selection.runtimeModel ??
+          models[0] ??
+          null;
+
+        if (fallbackModel) {
           resolvedModel = {
-            providerId: selection.manualModel.providerId,
-            modelId: selection.manualModel.modelId,
+            providerId: fallbackModel.providerId,
+            modelId: fallbackModel.modelId,
           };
         }
       }
@@ -1752,6 +1775,7 @@ export function useWorkspace({
     },
     [
       createSession,
+      models,
       primaryAgentId,
       sessionSelectionState,
       streamChat,

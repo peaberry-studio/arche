@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { stubBrowserStorage } from "@/__tests__/storage";
@@ -150,9 +150,26 @@ describe("WorkspaceShell", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     cleanup();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("shows an error when startup never leaves starting", async () => {
+    vi.useFakeTimers();
+    ensureInstanceRunningActionMock.mockResolvedValue({ status: "starting" });
+
+    render(<WorkspaceShell slug="alice" />);
+
+    await act(async () => {
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(125_000);
+    });
+
+    expect(
+      screen.getByText("Workspace startup timed out. Try restarting again.")
+    ).toBeTruthy();
   });
 
   it("creates a new session with Command+Period", async () => {

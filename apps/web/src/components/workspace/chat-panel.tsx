@@ -164,12 +164,14 @@ export function ChatPanel({
     [chatFontFamily, chatFontSize]
   );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const modelSearchInputRef = useRef<HTMLInputElement>(null);
   const attachmentInputRef = useRef<HTMLInputElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const preventSessionMenuAutoFocusRef = useRef(false);
   const ignoreNextTitleBlurRef = useRef(false);
   const [inputValue, setInputValue] = useState("");
   const [modelSearch, setModelSearch] = useState("");
+  const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
   const [attachments, setAttachments] = useState<WorkspaceAttachment[]>([]);
   const [isLoadingAttachments, setIsLoadingAttachments] = useState(false);
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
@@ -223,6 +225,7 @@ export function ChatPanel({
   const isEditingActiveSessionTitle = Boolean(
     activeSession && editingSessionId === activeSession.id
   );
+  const canFocusComposer = !isReadOnly && !isStartingNewSession && Boolean(onSendMessage);
 
   const cancelSessionRename = useCallback(() => {
     if (isSavingTitle) return;
@@ -320,6 +323,30 @@ export function ChatPanel({
 
     return () => cancelAnimationFrame(frameId);
   }, [isEditingActiveSessionTitle]);
+
+  useEffect(() => {
+    if (!canFocusComposer) return;
+
+    const frameId = requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+    });
+
+    return () => {
+      cancelAnimationFrame(frameId);
+    };
+  }, [activeSessionId, canFocusComposer]);
+
+  useEffect(() => {
+    if (!isModelMenuOpen) return;
+
+    const frameId = requestAnimationFrame(() => {
+      modelSearchInputRef.current?.focus();
+    });
+
+    return () => {
+      cancelAnimationFrame(frameId);
+    };
+  }, [isModelMenuOpen]);
 
   const effectiveContextPaths = useMemo(() => {
     if (contextMode === "off") return [];
@@ -874,7 +901,12 @@ export function ChatPanel({
             {currentStatus ? (
               <StatusIndicator currentStatus={currentStatus} connectorNamesById={connectorNamesById} />
             ) : models.length > 0 ? (
-              <DropdownMenu onOpenChange={(open) => { if (!open) setModelSearch(""); }}>
+              <DropdownMenu
+                onOpenChange={(open) => {
+                  setIsModelMenuOpen(open);
+                  if (!open) setModelSearch("");
+                }}
+              >
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
@@ -886,10 +918,14 @@ export function ChatPanel({
                     <CaretDown size={10} weight="bold" />
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-72 p-0">
+                <DropdownMenuContent
+                  align="start"
+                  className="w-72 p-0"
+                >
                   <div className="flex items-center gap-2 border-b border-border px-3 py-2">
                     <MagnifyingGlass size={14} className="shrink-0 text-muted-foreground" />
                     <input
+                      ref={modelSearchInputRef}
                       type="text"
                       placeholder="Search models..."
                       value={modelSearch}
