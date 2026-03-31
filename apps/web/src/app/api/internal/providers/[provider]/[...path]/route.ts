@@ -237,28 +237,32 @@ async function handleProxy(
     })
 
     if (!credential) {
-      return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-    }
+      if (provider !== 'opencode') {
+        return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+      }
+    } else {
+      if (credential.type !== 'api') {
+        return NextResponse.json({ error: 'unsupported_credential' }, { status: 501 })
+      }
 
-    if (credential.type !== 'api') {
-      return NextResponse.json({ error: 'unsupported_credential' }, { status: 501 })
-    }
+      let secret: ReturnType<typeof decryptProviderSecret>
+      try {
+        secret = decryptProviderSecret(credential.secret)
+      } catch {
+        return NextResponse.json({ error: 'invalid_credentials' }, { status: 500 })
+      }
 
-    let secret: ReturnType<typeof decryptProviderSecret>
-    try {
-      secret = decryptProviderSecret(credential.secret)
-    } catch {
-      return NextResponse.json({ error: 'invalid_credentials' }, { status: 500 })
-    }
+      if (!('apiKey' in secret) || typeof secret.apiKey !== 'string' || !secret.apiKey.trim()) {
+        return NextResponse.json({ error: 'unsupported_credential' }, { status: 501 })
+      }
 
-    if (!('apiKey' in secret) || typeof secret.apiKey !== 'string' || !secret.apiKey.trim()) {
-      return NextResponse.json({ error: 'unsupported_credential' }, { status: 501 })
+      apiKey = secret.apiKey.trim()
     }
-
-    apiKey = secret.apiKey.trim()
   }
 
-  if (!apiKey && !allowAnonymousOpencode) {
+  const allowTokenAuthenticatedOpencodeWithoutCredential = provider === 'opencode' && Boolean(payload)
+
+  if (!apiKey && !allowAnonymousOpencode && !allowTokenAuthenticatedOpencodeWithoutCredential) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
