@@ -168,6 +168,18 @@ const statusConfig = {
 
 const PANEL_ANIM = "200ms ease-out";
 const PANEL_TRANSITION = `width ${PANEL_ANIM}, min-width ${PANEL_ANIM}, opacity ${PANEL_ANIM}, margin ${PANEL_ANIM}, border-width ${PANEL_ANIM}`;
+const INSTANCE_START_POLL_INTERVAL_MS = 2_000;
+const INSTANCE_START_TIMEOUT_MS = 120_000;
+
+function formatInstanceStartupError(error: string): string {
+  if (error === "start_timeout") {
+    return "Workspace startup timed out. Try restarting again.";
+  }
+  if (error === "status_check_failed") {
+    return "Unable to verify workspace startup status.";
+  }
+  return error;
+}
 
 export function WorkspaceShell({
   slug,
@@ -179,6 +191,8 @@ export function WorkspaceShell({
   reaperEnabled = true,
 }: WorkspaceShellProps) {
   const router = useRouter();
+  const routerRef = useRef(router);
+  routerRef.current = router;
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -197,50 +211,79 @@ export function WorkspaceShell({
   // Auto-start instance on mount
   useEffect(() => {
     let cancelled = false;
-    
-    async function ensureRunning() {
-      const result = await ensureInstanceRunningAction(slug);
-      if (cancelled) return;
-      
-      if (result.status === 'error') {
-        if (result.error === 'setup_required') {
-          router.replace(`/u/${slug}?setup=required`);
-          return;
-        }
-        setInstanceStatus('error');
-        setInstanceError(result.error ?? 'Unknown error');
-        return;
+    let pollingTimer: ReturnType<typeof setInterval> | null = null;
+    let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+    let checking = false;
+
+    const clearTimers = () => {
+      if (pollingTimer) {
+        clearInterval(pollingTimer);
+        pollingTimer = null;
       }
-      
-      setInstanceStatus(result.status);
-      
-      if (result.status === 'starting') {
-        const poll = setInterval(async () => {
-          const check = await ensureInstanceRunningAction(slug);
-          if (cancelled) {
-            clearInterval(poll);
+      if (timeoutTimer) {
+        clearTimeout(timeoutTimer);
+        timeoutTimer = null;
+      }
+    };
+
+    const failStartup = (error: string) => {
+      clearTimers();
+      setInstanceStatus("error");
+      setInstanceError(formatInstanceStartupError(error));
+    };
+
+    const checkInstanceStatus = async () => {
+      if (checking) return;
+      checking = true;
+
+      try {
+        const result = await ensureInstanceRunningAction(slug);
+        if (cancelled) return;
+
+        if (result.status === "error") {
+          clearTimers();
+          if (result.error === "setup_required") {
+            routerRef.current.replace(`/u/${slug}?setup=required`);
             return;
           }
-          if (check.status === 'running') {
-            setInstanceStatus('running');
-            clearInterval(poll);
-          } else if (check.status === 'error') {
-            if (check.error === 'setup_required') {
-              clearInterval(poll);
-              router.replace(`/u/${slug}?setup=required`);
-              return;
-            }
-            setInstanceStatus('error');
-            setInstanceError(check.error ?? 'Unknown error');
-            clearInterval(poll);
-          }
-        }, 2000);
+          failStartup(result.error ?? "Unknown error");
+          return;
+        }
+
+        if (result.status === "running") {
+          clearTimers();
+          setInstanceStatus("running");
+          setInstanceError(null);
+          return;
+        }
+
+        setInstanceStatus("starting");
+
+        if (!pollingTimer) {
+          timeoutTimer = setTimeout(() => {
+            if (cancelled) return;
+            failStartup("start_timeout");
+          }, INSTANCE_START_TIMEOUT_MS);
+
+          pollingTimer = setInterval(() => {
+            void checkInstanceStatus();
+          }, INSTANCE_START_POLL_INTERVAL_MS);
+        }
+      } catch {
+        if (cancelled) return;
+        failStartup("status_check_failed");
+      } finally {
+        checking = false;
       }
-    }
-    
-    ensureRunning();
-    return () => { cancelled = true; };
-  }, [router, slug]);
+    };
+
+    void checkInstanceStatus();
+
+    return () => {
+      cancelled = true;
+      clearTimers();
+    };
+  }, [slug]);
 
   // Use workspace hook only when instance is running
   const workspace = useWorkspace({
@@ -1437,7 +1480,7 @@ export function WorkspaceShell({
             <div
               className={cn(
                 "shrink-0 overflow-hidden",
-                leftCollapsed ? "pt-0.5 pb-1" : "pb-3 pt-2"
+                leftCollapsed ? "pb-1 pt-1" : "pb-3 pt-2"
               )}
               style={{
                 width: leftCollapsed ? COLLAPSED_PANEL_PX : leftWidth,
@@ -1483,7 +1526,7 @@ export function WorkspaceShell({
             <div
               className={cn(
                 "shrink-0 overflow-hidden",
-                rightCollapsed ? "pb-3 pr-3 pt-0.5" : "box-border pb-4 pl-1 pr-4 pt-2"
+                rightCollapsed ? "pb-3 pr-3 pt-1" : "box-border pb-4 pl-1 pr-4 pt-4"
               )}
               style={{
                 width: rightCollapsed ? COLLAPSED_PANEL_PX : rightWidth,
