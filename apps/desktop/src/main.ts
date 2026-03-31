@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { dirname, join } from 'path'
 
+import { ensureDesktopEncryptionKey } from './desktop-encryption-key'
 import {
   getMissingPackagedRuntimeBinaries,
   getPackagedNodeBinaryPath,
@@ -97,6 +98,8 @@ function ensureIsolatedDesktopGitEnvironment(): void {
 }
 
 function setDesktopEnv(): void {
+  const dataDir = getDataDir()
+
   process.env.ARCHE_RUNTIME_MODE = 'desktop'
   process.env.ARCHE_DESKTOP_PLATFORM = process.platform
   if (app.isPackaged) {
@@ -105,7 +108,7 @@ function setDesktopEnv(): void {
   if (!process.env.ARCHE_RELEASE_VERSION) {
     process.env.ARCHE_RELEASE_VERSION = app.getVersion()
   }
-  process.env.ARCHE_DATA_DIR = getDataDir()
+  process.env.ARCHE_DATA_DIR = dataDir
   process.env.ARCHE_DESKTOP_WEB_HOST = LOOPBACK_HOST
 
   const opencodeConfigDir = resolveDesktopOpencodeConfigDir()
@@ -115,6 +118,7 @@ function setDesktopEnv(): void {
     delete process.env.ARCHE_OPENCODE_CONFIG_DIR
   }
 
+  ensureDesktopEncryptionKey({ dataDir })
   ensureIsolatedDesktopGitEnvironment()
 
   desktopApiToken = generateDesktopApiToken()
@@ -303,7 +307,15 @@ async function shutdownDesktopRuntime(): Promise<void> {
 }
 
 app.whenReady().then(async () => {
-  setDesktopEnv()
+  try {
+    setDesktopEnv()
+  } catch (error) {
+    console.error('Failed to initialize desktop environment:', error)
+    dialog.showErrorBox('Arche', 'Failed to initialize desktop security configuration.')
+    app.quit()
+    return
+  }
+
   injectBundledGitIntoPath()
   await ensureDataDirectories()
   resetDesktopDevNextArtifacts()
