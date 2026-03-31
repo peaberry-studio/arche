@@ -1715,6 +1715,7 @@ export function useWorkspace({
         const fallbackModel =
           selection.manualModel ??
           selection.runtimeModel ??
+          agentDefaultModel ??
           models[0] ??
           null;
 
@@ -1775,6 +1776,7 @@ export function useWorkspace({
     },
     [
       createSession,
+      agentDefaultModel,
       models,
       primaryAgentId,
       sessionSelectionState,

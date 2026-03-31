@@ -230,6 +230,97 @@ describe("useWorkspace", () => {
     expect(result.current.agentDefaultModel?.modelId).toBe("gpt-5.4");
   });
 
+  it("sends the primary agent model when there is no manual selection", async () => {
+    let requestBody:
+      | {
+          model?: { providerId: string; modelId: string };
+        }
+      | null = null;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === "/api/u/alice/agents") {
+          return {
+            ok: true,
+            json: async () => ({
+              agents: [
+                {
+                  id: "assistant",
+                  displayName: "Assistant",
+                  model: "openai/gpt-5.4",
+                  isPrimary: true,
+                },
+              ],
+            }),
+          };
+        }
+
+        if (String(input) === "/api/u/alice/providers") {
+          return {
+            ok: true,
+            json: async () => ({
+              providers: [{ providerId: "openai", status: "enabled" }],
+            }),
+          };
+        }
+
+        if (String(input) === "/api/w/alice/chat/stream") {
+          requestBody = JSON.parse(String(init?.body ?? "{}")) as {
+            model?: { providerId: string; modelId: string };
+          };
+
+          return {
+            ok: true,
+            body: {
+              getReader() {
+                return {
+                  read: async () => ({ done: true, value: undefined }),
+                };
+              },
+            },
+          };
+        }
+
+        throw new Error(`Unexpected fetch: ${String(input)}`);
+      })
+    );
+
+    const { result } = renderHook(() =>
+      useWorkspace({ slug: "alice", pollInterval: 0 })
+    );
+
+    await waitFor(() => {
+      expect(result.current.activeSessionId).toBe("s1");
+      expect(result.current.agentDefaultModel?.modelId).toBe("gpt-5.4");
+    });
+
+    await act(async () => {
+      await result.current.createSession("Fresh");
+    });
+
+    await waitFor(() => {
+      expect(result.current.activeSessionId).toBe("s2");
+      expect(result.current.hasManualModelSelection).toBe(false);
+    });
+
+    let accepted = false;
+    await act(async () => {
+      accepted = await result.current.sendMessage("Use default model");
+    });
+
+    expect(accepted).toBe(true);
+
+    await waitFor(() => {
+      expect(requestBody).not.toBeNull();
+    });
+
+    expect(requestBody?.model).toEqual({
+      providerId: "openai",
+      modelId: "gpt-5.4",
+    });
+  });
+
   it("keeps opencode models available when provider credentials are missing", async () => {
     opencodeMocks.listModelsAction.mockResolvedValue({
       ok: true,
