@@ -223,6 +223,7 @@ export function ChatPanel({
   const isEditingActiveSessionTitle = Boolean(
     activeSession && editingSessionId === activeSession.id
   );
+  const canFocusComposer = !isReadOnly && !isStartingNewSession && Boolean(onSendMessage);
 
   const cancelSessionRename = useCallback(() => {
     if (isSavingTitle) return;
@@ -320,6 +321,18 @@ export function ChatPanel({
 
     return () => cancelAnimationFrame(frameId);
   }, [isEditingActiveSessionTitle]);
+
+  useEffect(() => {
+    if (!canFocusComposer) return;
+
+    const frameId = requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+    });
+
+    return () => {
+      cancelAnimationFrame(frameId);
+    };
+  }, [activeSessionId, canFocusComposer]);
 
   const effectiveContextPaths = useMemo(() => {
     if (contextMode === "off") return [];
