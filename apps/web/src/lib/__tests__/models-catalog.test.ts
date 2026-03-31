@@ -22,6 +22,14 @@ describe('models-catalog', () => {
             'claude-sonnet-4': { name: 'Claude Sonnet 4' },
           },
         },
+        'fireworks-ai': {
+          name: 'Fireworks AI',
+          models: {
+            'accounts/fireworks/models/deepseek-v3p1': {
+              name: 'DeepSeek V3.1',
+            },
+          },
+        },
       }),
     })
 
@@ -35,6 +43,10 @@ describe('models-catalog', () => {
 
     expect(result.models).toEqual([
       { id: 'anthropic/claude-sonnet-4', label: 'Anthropic - Claude Sonnet 4' },
+      {
+        id: 'fireworks/accounts/fireworks/models/deepseek-v3p1',
+        label: 'Fireworks AI - DeepSeek V3.1',
+      },
       { id: 'openai/gpt-5', label: 'OpenAI - GPT-5' },
     ])
   })
