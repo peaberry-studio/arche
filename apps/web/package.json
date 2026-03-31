@@ -4,6 +4,7 @@
   "private": true,
   "packageManager": "pnpm@10.14.0",
   "scripts": {
+    "predev": "pnpm prisma:generate && pnpm prisma:generate:desktop",
     "dev": "next dev -H 0.0.0.0 -p 3000",
     "prebuild": "pnpm prisma:generate && pnpm prisma:generate:desktop",
     "build": "next build",
