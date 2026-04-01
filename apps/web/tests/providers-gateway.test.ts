@@ -462,6 +462,75 @@ describe('providers gateway', () => {
     expect(headers.get('x-api-key')).toBe(null)
   })
 
+  it('strips unsupported Fireworks display_name metadata from JSON payloads', async () => {
+    mockVerifyGatewayToken.mockReturnValue({
+      userId: 'user-1',
+      workspaceSlug: 'ws',
+      providerId: 'fireworks',
+      version: 1,
+      exp: Math.floor(Date.now() / 1000) + 1000,
+    })
+    mockGetActiveCredentialForUser.mockResolvedValue({
+      id: 'cred-fw',
+      type: 'api',
+      secret: 'encrypted',
+      version: 1,
+    })
+    mockDecryptProviderSecret.mockReturnValue({ apiKey: 'fw-key' })
+
+    ;(global.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+      new Response('ok', { status: 200 })
+    )
+
+    await callProxy({
+      provider: 'fireworks',
+      headers: {
+        Authorization: 'Bearer internal-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'accounts/fireworks/routers/kimi-k2p5-turbo',
+        messages: [
+          {
+            role: 'assistant',
+            display_name: 'Assistant',
+            content: 'hello',
+          },
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                display_name: 'Assistant',
+                text: 'hi',
+              },
+            ],
+          },
+        ],
+        metadata: {
+          display_name: 'Assistant',
+        },
+      }),
+    })
+
+    const [, options] = (global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]
+    const upstreamBody = JSON.parse(options.body as string) as {
+      messages: Array<{
+        display_name?: string
+        content?: string | Array<{ display_name?: string; text?: string }>
+      }>
+      metadata?: { display_name?: string }
+    }
+
+    expect(upstreamBody.messages[0]?.display_name).toBeUndefined()
+    expect(
+      Array.isArray(upstreamBody.messages[1]?.content)
+        ? upstreamBody.messages[1].content[0]?.display_name
+        : undefined
+    ).toBeUndefined()
+    expect(upstreamBody.metadata?.display_name).toBeUndefined()
+  })
+
   it('proxies to OpenCode Zen with real api key', async () => {
     mockVerifyGatewayToken.mockReturnValue({
       userId: 'user-1',

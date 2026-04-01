@@ -61,7 +61,7 @@ describe('syncProviderAccessForInstance', () => {
       (call) => (call[1] as RequestInit)?.method === 'DELETE',
     )
     expect(deleteCalls).toHaveLength(2)
-    expect(deleteCalls[0]![0]).toBe(`${fakeInstance.baseUrl}/auth/fireworks`)
+    expect(deleteCalls[0]![0]).toBe(`${fakeInstance.baseUrl}/auth/fireworks-ai`)
     expect(deleteCalls[1]![0]).toBe(`${fakeInstance.baseUrl}/auth/openrouter`)
 
     // Verify gateway tokens were issued for enabled providers

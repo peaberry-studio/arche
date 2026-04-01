@@ -3,6 +3,7 @@ import { existsSync } from 'fs'
 import { join } from 'path'
 
 import { readCommonWorkspaceConfig } from '@/lib/common-workspace-config-store'
+import { toRuntimeProviderId } from '@/lib/providers/types'
 import {
   injectAlwaysOnAgentTools,
   injectSelfDelegationGuards,
@@ -28,7 +29,7 @@ export function getDesktopProviderGatewayConfig(): Record<string, unknown> {
     provider: {
       openai: { options: { baseURL: `${gateway}/openai` } },
       anthropic: { options: { baseURL: `${gateway}/anthropic` } },
-      fireworks: { options: { baseURL: `${gateway}/fireworks` } },
+      [toRuntimeProviderId('fireworks')]: { options: { baseURL: `${gateway}/fireworks` } },
       openrouter: { options: { baseURL: `${gateway}/openrouter` } },
       opencode: { options: { baseURL: `${gateway}/opencode` } },
     },

@@ -1,5 +1,6 @@
 import { withWorkspacePermissionGuards } from "@/lib/spawner/runtime-config-utils";
 import { getUserDataHostPath, ensureUserDirectory } from "@/lib/user-data";
+import { toRuntimeProviderId } from "@/lib/providers/types";
 import {
   getContainerSocketPath,
   getContainerProxyUrl,
@@ -70,7 +71,7 @@ export async function createContainer(
           baseURL: "http://web:3000/api/internal/providers/anthropic",
         },
       },
-      fireworks: {
+      [toRuntimeProviderId("fireworks")]: {
         options: {
           baseURL: "http://web:3000/api/internal/providers/fireworks",
         },

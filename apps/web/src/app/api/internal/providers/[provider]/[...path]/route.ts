@@ -132,6 +132,50 @@ function normalizeOpenAiResponsesPayload(payload: unknown): unknown {
   return normalizedBody ?? payload
 }
 
+function stripObjectKeys(payload: unknown, keysToStrip: ReadonlySet<string>): unknown {
+  if (Array.isArray(payload)) {
+    let changed = false
+    const next = payload.map((value) => {
+      const normalized = stripObjectKeys(value, keysToStrip)
+      if (normalized !== value) {
+        changed = true
+      }
+      return normalized
+    })
+
+    return changed ? next : payload
+  }
+
+  if (!payload || typeof payload !== 'object') {
+    return payload
+  }
+
+  const record = payload as Record<string, unknown>
+  let changed = false
+  const nextEntries: Array<[string, unknown]> = []
+
+  for (const [key, value] of Object.entries(record)) {
+    if (keysToStrip.has(key)) {
+      changed = true
+      continue
+    }
+
+    const normalized = stripObjectKeys(value, keysToStrip)
+    if (normalized !== value) {
+      changed = true
+    }
+    nextEntries.push([key, normalized])
+  }
+
+  return changed ? Object.fromEntries(nextEntries) : payload
+}
+
+function normalizeFireworksPayload(payload: unknown): unknown {
+  // Fireworks rejects OpenCode metadata fields like `display_name` that are
+  // not part of the OpenAI-compatible request schema.
+  return stripObjectKeys(payload, new Set(['display_name']))
+}
+
 function isRetryableFetchError(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false
@@ -327,12 +371,15 @@ async function handleProxy(
     request.method === 'POST' &&
     pathSegments[0] === 'responses' &&
     contentType.includes('application/json')
+  const isFireworksJsonRequest = provider === 'fireworks' && contentType.includes('application/json')
 
   if (hasBody) {
-    if (isOpenAiResponsesRequest) {
+    if (isOpenAiResponsesRequest || isFireworksJsonRequest) {
       try {
         const parsedBody = await request.clone().json()
-        const normalizedBody = normalizeOpenAiResponsesPayload(parsedBody)
+        const normalizedBody = isOpenAiResponsesRequest
+          ? normalizeOpenAiResponsesPayload(parsedBody)
+          : normalizeFireworksPayload(parsedBody)
         init.body = JSON.stringify(normalizedBody)
       } catch {
         init.body = await request.arrayBuffer()

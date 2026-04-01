@@ -1,6 +1,6 @@
 import { getActiveCredentialForUser } from '@/lib/providers/store'
 import { issueGatewayToken } from '@/lib/providers/tokens'
-import { PROVIDERS, type ProviderId } from '@/lib/providers/types'
+import { PROVIDERS, toRuntimeProviderId, type ProviderId } from '@/lib/providers/types'
 
 export type SyncProviderAccessResult =
   | { ok: true }
@@ -32,8 +32,8 @@ export async function syncProviderAccessForInstance(
     }
 
     for (const providerId of PROVIDERS) {
-      const enabled = enabledByProvider.get(providerId as ProviderId)
-      const url = `${instance.baseUrl}/auth/${providerId}`
+      const enabled = enabledByProvider.get(providerId)
+      const url = `${instance.baseUrl}/auth/${toRuntimeProviderId(providerId)}`
 
       if (!enabled) {
         if (providerId === 'opencode') {
@@ -71,7 +71,7 @@ export async function syncProviderAccessForInstance(
       const token = issueGatewayToken({
         userId: input.userId,
         workspaceSlug: input.slug,
-        providerId: providerId as ProviderId,
+        providerId,
         version: enabled.version,
       })
 

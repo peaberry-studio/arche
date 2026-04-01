@@ -400,14 +400,14 @@ describe('desktopWorkspaceHost', () => {
       }
       provider?: {
         openai?: { options?: { baseURL?: string } }
-        fireworks?: { options?: { baseURL?: string } }
+        'fireworks-ai'?: { options?: { baseURL?: string } }
       }
     }
 
     expect(runtimeConfig.provider?.openai?.options?.baseURL).toBe(
       'http://127.0.0.1:3000/api/internal/providers/openai',
     )
-    expect(runtimeConfig.provider?.fireworks?.options?.baseURL).toBe(
+    expect(runtimeConfig.provider?.['fireworks-ai']?.options?.baseURL).toBe(
       'http://127.0.0.1:3000/api/internal/providers/fireworks',
     )
     expect(runtimeConfig.permission?.edit?.['opencode.json']).toBe('deny')

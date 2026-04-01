@@ -76,7 +76,7 @@ describe('docker', () => {
           bash?: Record<string, string>
         }
         provider?: {
-          fireworks?: { options?: { baseURL?: string } }
+          'fireworks-ai'?: { options?: { baseURL?: string } }
         }
       }
       expect(writtenConfig.permission?.edit).toMatchObject({
@@ -95,7 +95,7 @@ describe('docker', () => {
         'yarn create*': 'deny',
         'bun init*': 'deny',
       })
-      expect(writtenConfig.provider?.fireworks?.options?.baseURL).toBe(
+      expect(writtenConfig.provider?.['fireworks-ai']?.options?.baseURL).toBe(
         'http://web:3000/api/internal/providers/fireworks'
       )
 
