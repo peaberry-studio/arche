@@ -43,19 +43,6 @@ function providerLabel(providerId: ProviderId): string {
   }
 }
 
-function providerStatusBadge(status: TeamProviderStatus['status']): {
-  label: string
-  variant: 'default' | 'secondary' | 'outline'
-} {
-  switch (status) {
-    case 'enabled':
-      return { label: 'Enabled', variant: 'default' }
-    case 'disabled':
-      return { label: 'Disabled', variant: 'secondary' }
-    case 'missing':
-      return { label: 'Missing', variant: 'outline' }
-  }
-}
 
 export function EditUserDialog({
   open,
@@ -75,6 +62,7 @@ export function EditUserDialog({
   const [providers, setProviders] = useState<TeamProviderStatus[]>([])
   const [providerApiKeys, setProviderApiKeys] = useState<Record<string, string>>({})
   const [providerBusy, setProviderBusy] = useState<Record<string, boolean>>({})
+  const [expandedProviders, setExpandedProviders] = useState<Record<string, boolean>>({})
   const [isLoadingProviders, setIsLoadingProviders] = useState(false)
   const [providerError, setProviderError] = useState<string | null>(null)
 
@@ -85,6 +73,7 @@ export function EditUserDialog({
     setActionError(null)
     setProviderError(null)
     setProviderApiKeys({})
+    setExpandedProviders({})
     setShowDeleteConfirm(false)
   }, [open, user])
 
@@ -200,6 +189,7 @@ export function EditUserDialog({
       }
 
       setProviderApiKeys((current) => ({ ...current, [providerId]: '' }))
+      setExpandedProviders((current) => ({ ...current, [providerId]: false }))
       await loadProviders()
     } catch {
       setProviderError(getTeamErrorMessage('network_error'))
@@ -225,6 +215,7 @@ export function EditUserDialog({
         return
       }
 
+      setExpandedProviders((current) => ({ ...current, [providerId]: false }))
       await loadProviders()
     } catch {
       setProviderError(getTeamErrorMessage('network_error'))
@@ -301,24 +292,142 @@ export function EditUserDialog({
 
               <div className="space-y-3">
                 {providers.map((provider) => {
-                  const badge = providerStatusBadge(provider.status)
                   const isBusy = Boolean(providerBusy[provider.providerId])
-                  const canDisable = provider.status === 'enabled'
+                  const isExpanded = Boolean(expandedProviders[provider.providerId])
                   const canSave = Boolean(providerApiKeys[provider.providerId]?.trim())
+                  const isInactive = provider.status === 'missing' || provider.status === 'disabled'
 
-                  return (
-                    <div key={provider.providerId} className="rounded-xl border border-border/60 p-4">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
+                  if (isInactive && !isExpanded) {
+                    // Variante A: inactivo colapsado — solo nombre + botón Enable
+                    return (
+                      <div key={provider.providerId} className="flex items-center justify-between rounded-xl border border-border/60 px-4 py-3">
                         <div>
                           <p className="text-sm font-medium text-foreground">{providerLabel(provider.providerId)}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {provider.version ? `Version ${provider.version}` : 'No credential set'}
-                          </p>
+                          <p className="text-xs text-muted-foreground">No credential set</p>
                         </div>
-                        <Badge variant={badge.variant}>{badge.label}</Badge>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            setExpandedProviders((current) => ({ ...current, [provider.providerId]: true }))
+                          }
+                        >
+                          Enable
+                        </Button>
                       </div>
+                    )
+                  }
 
-                      <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                  if (isInactive && isExpanded) {
+                    // Variante B: inactivo expandido — input + Set key + Cancel
+                    return (
+                      <div key={provider.providerId} className="rounded-xl border border-border/60 px-4 py-3 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-foreground">{providerLabel(provider.providerId)}</p>
+                            <p className="text-xs text-muted-foreground">No credential set</p>
+                          </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            disabled={isBusy}
+                            onClick={() => {
+                              setExpandedProviders((current) => ({ ...current, [provider.providerId]: false }))
+                              setProviderApiKeys((current) => ({ ...current, [provider.providerId]: '' }))
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                        <div className="flex flex-col gap-2 sm:flex-row">
+                          <Input
+                            type="password"
+                            value={providerApiKeys[provider.providerId] ?? ''}
+                            onChange={(event) =>
+                              setProviderApiKeys((current) => ({
+                                ...current,
+                                [provider.providerId]: event.target.value,
+                              }))
+                            }
+                            placeholder="Paste API key"
+                          />
+                          <Button
+                            type="button"
+                            size="sm"
+                            disabled={isBusy || !canSave}
+                            onClick={() => handleSaveProvider(provider.providerId)}
+                          >
+                            {isBusy ? 'Saving...' : 'Set key'}
+                          </Button>
+                        </div>
+                      </div>
+                    )
+                  }
+
+                  if (!isExpanded) {
+                    // Variante C: enabled colapsado — nombre + versión + badge + Rotate + Disable
+                    return (
+                      <div key={provider.providerId} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/60 px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-foreground">{providerLabel(provider.providerId)}</p>
+                          {provider.version ? (
+                            <span className="text-xs text-muted-foreground">v{provider.version}</span>
+                          ) : null}
+                          <Badge variant="default">Enabled</Badge>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={isBusy}
+                            onClick={() =>
+                              setExpandedProviders((current) => ({ ...current, [provider.providerId]: true }))
+                            }
+                          >
+                            Rotate key
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={isBusy}
+                            onClick={() => handleDisableProvider(provider.providerId)}
+                          >
+                            {isBusy ? 'Disabling...' : 'Disable'}
+                          </Button>
+                        </div>
+                      </div>
+                    )
+                  }
+
+                  // Variante D: enabled expandido — nombre + versión + badge + input + Rotate key + Cancel
+                  return (
+                    <div key={provider.providerId} className="rounded-xl border border-border/60 px-4 py-3 space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-foreground">{providerLabel(provider.providerId)}</p>
+                          {provider.version ? (
+                            <span className="text-xs text-muted-foreground">v{provider.version}</span>
+                          ) : null}
+                          <Badge variant="default">Enabled</Badge>
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          disabled={isBusy}
+                          onClick={() => {
+                            setExpandedProviders((current) => ({ ...current, [provider.providerId]: false }))
+                            setProviderApiKeys((current) => ({ ...current, [provider.providerId]: '' }))
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                      <div className="flex flex-col gap-2 sm:flex-row">
                         <Input
                           type="password"
                           value={providerApiKeys[provider.providerId] ?? ''}
@@ -336,16 +445,7 @@ export function EditUserDialog({
                           disabled={isBusy || !canSave}
                           onClick={() => handleSaveProvider(provider.providerId)}
                         >
-                          {isBusy ? 'Saving...' : provider.status === 'enabled' ? 'Rotate key' : 'Set key'}
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={isBusy || !canDisable}
-                          onClick={() => handleDisableProvider(provider.providerId)}
-                        >
-                          Disable
+                          {isBusy ? 'Saving...' : 'Rotate key'}
                         </Button>
                       </div>
                     </div>
