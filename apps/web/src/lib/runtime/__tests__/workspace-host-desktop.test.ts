@@ -10,9 +10,13 @@ const mockReadFileSync = vi.fn()
 const mockWriteFileSync = vi.fn()
 const mockRandomBytes = vi.fn()
 
-vi.mock('crypto', () => ({
-  randomBytes: (...args: unknown[]) => mockRandomBytes(...args),
-}))
+vi.mock('crypto', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('crypto')>()
+  return {
+    ...actual,
+    randomBytes: (...args: unknown[]) => mockRandomBytes(...args),
+  }
+})
 
 vi.mock('child_process', () => ({
   spawn: (...args: unknown[]) => mockSpawn(...args),
@@ -213,7 +217,10 @@ describe('desktopWorkspaceHost', () => {
     await desktopWorkspaceHost.start('local', 'user-1')
 
     const { instanceService } = await import('@/lib/services')
-    expect(instanceService.setRunning).toHaveBeenCalledWith('local', 'runtime-hash')
+    expect(instanceService.setRunning).toHaveBeenCalledWith(
+      'local',
+      expect.stringMatching(/^[a-f0-9]{64}$/)
+    )
   })
 
   it('spawns opencode with serve command and workspace-agent with loopback addr', async () => {

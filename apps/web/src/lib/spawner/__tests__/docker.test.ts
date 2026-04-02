@@ -60,10 +60,8 @@ describe('docker', () => {
   })
 
   describe('createContainer', () => {
-    it('creates container with correct configuration', async () => {
-      const configContent = '{"$schema":"https://opencode.ai/config.json","mcp":{}}'
-
-      await createContainer('user-slug', 'secret-password', configContent)
+    it('creates container with default runtime configuration', async () => {
+      await createContainer('user-slug', 'secret-password')
 
       const configCall = mockWriteFile.mock.calls.find(
         (call: unknown[]) =>
@@ -153,8 +151,9 @@ describe('docker', () => {
       })
     })
 
-    it('merges existing permission rules with workspace protection', async () => {
+    it('writes the provided runtime config content without mutating it', async () => {
       const configContent = JSON.stringify({
+        $schema: 'https://opencode.ai/config.json',
         permission: {
           bash: {
             '*': 'ask',
@@ -184,13 +183,10 @@ describe('docker', () => {
       expect(writtenConfig.permission?.bash).toMatchObject({
         '*': 'ask',
         'git *': 'allow',
-        'npm install*': 'deny',
       })
       expect(writtenConfig.permission?.edit).toMatchObject({
         '*': 'allow',
         'Company/*': 'allow',
-        '.gitignore': 'deny',
-        '.gitkeep': 'deny',
       })
     })
 

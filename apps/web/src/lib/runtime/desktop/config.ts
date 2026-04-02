@@ -2,14 +2,8 @@ import { randomBytes } from 'crypto'
 import { existsSync } from 'fs'
 import { join } from 'path'
 
-import { readCommonWorkspaceConfig } from '@/lib/common-workspace-config-store'
 import { buildProviderGatewayConfig } from '@/lib/providers/catalog'
-import {
-  injectAlwaysOnAgentTools,
-  injectSelfDelegationGuards,
-  remapAgentConnectorTools,
-} from '@/lib/spawner/agent-config-transforms'
-import { buildMcpConfigForSlug } from '@/lib/spawner/mcp-config'
+import { buildWorkspaceRuntimeConfig } from '@/lib/spawner/runtime-artifacts'
 
 const DEFAULT_NEXT_PORT = 3000
 const DEFAULT_USERNAME = 'opencode'
@@ -61,45 +55,8 @@ export function getDesktopOpencodeConfigDir(): string | null {
   return resolveFallbackDesktopOpencodeConfigDir()
 }
 
-function parseJsonConfig(content: string): Record<string, unknown> {
-  try {
-    const parsed = JSON.parse(content)
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return parsed
-    }
-  } catch {}
-
-  return {}
-}
-
 export async function buildDesktopOpencodeConfig(slug: string): Promise<Record<string, unknown>> {
-  const providerGatewayConfig = getDesktopProviderGatewayConfig()
-
-  let baseConfig: Record<string, unknown> = {}
-
-  const commonConfigResult = await readCommonWorkspaceConfig()
-  if (commonConfigResult.ok) {
-    baseConfig = parseJsonConfig(commonConfigResult.content)
-  }
-
-  try {
-    const mcpConfig = await buildMcpConfigForSlug(slug)
-    if (mcpConfig?.mcp && Object.keys(mcpConfig.mcp).length > 0) {
-      const userMcpKeys = new Set(Object.keys(mcpConfig.mcp))
-      baseConfig = remapAgentConnectorTools(baseConfig, userMcpKeys)
-      baseConfig = { ...baseConfig, mcp: mcpConfig.mcp }
-    } else {
-      baseConfig = remapAgentConnectorTools(baseConfig, new Set())
-    }
-  } catch {
-    console.warn('[desktop-runtime] Config build failed')
-    baseConfig = remapAgentConnectorTools(baseConfig, new Set())
-  }
-
-  baseConfig = injectAlwaysOnAgentTools(baseConfig)
-  const guardedConfig = injectSelfDelegationGuards(baseConfig)
-
-  return { ...guardedConfig, ...providerGatewayConfig }
+  return buildWorkspaceRuntimeConfig(slug, getDesktopProviderGatewayConfig())
 }
 
 export function makeAuthHeader(username: string, password: string): string {
