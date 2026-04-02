@@ -24,7 +24,7 @@ import {
 } from '@/lib/runtime/desktop/config'
 import { getArcheOpencodeDataDir, getWorkspaceDir } from '@/lib/runtime/desktop/workspace-dirs'
 import type { WorkspaceHost, WorkspaceHostConnection, WorkspaceHostStatus } from '@/lib/runtime/types'
-import { instanceService } from '@/lib/services'
+import { instanceService, providerService } from '@/lib/services'
 import { getWorkspaceAgentPort } from '@/lib/spawner/config'
 import { decryptPassword, encryptPassword } from '@/lib/spawner/crypto'
 import {
@@ -453,7 +453,10 @@ export const desktopWorkspaceHost: WorkspaceHost = {
         userId: syncUserId,
       })
       if (!syncResult.ok) {
+        await providerService.markWorkspaceRestartRequired(syncUserId)
         console.error('[desktop] Failed to sync OpenCode providers', syncResult.error)
+      } else {
+        await providerService.clearWorkspaceRestartRequired(syncUserId)
       }
 
       const runtime = runtimes.get(slug)

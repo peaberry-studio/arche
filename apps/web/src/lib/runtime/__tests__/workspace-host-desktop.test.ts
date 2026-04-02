@@ -43,6 +43,10 @@ vi.mock('@/lib/services', () => ({
     findStatusBySlug: vi.fn().mockResolvedValue(null),
     findActiveInstances: vi.fn().mockResolvedValue([]),
   },
+  providerService: {
+    markWorkspaceRestartRequired: vi.fn().mockResolvedValue({ count: 0 }),
+    clearWorkspaceRestartRequired: vi.fn().mockResolvedValue({ count: 0 }),
+  },
   userService: {
     findIdentityBySlug: vi.fn().mockResolvedValue({
       id: 'local',

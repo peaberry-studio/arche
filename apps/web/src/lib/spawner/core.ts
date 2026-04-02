@@ -1,4 +1,4 @@
-import { auditService, instanceService } from '@/lib/services'
+import { auditService, instanceService, providerService } from '@/lib/services'
 import { getInstanceUrl, isInstanceHealthyWithPassword } from '@/lib/opencode/client'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
 import * as docker from './docker'
@@ -80,7 +80,10 @@ export async function startInstance(slug: string, userId: string): Promise<Start
       userId: syncUserId,
     })
     if (!syncResult.ok) {
+      await providerService.markWorkspaceRestartRequired(syncUserId)
       console.error('[spawner] Failed to sync OpenCode providers', syncResult.error)
+    } else {
+      await providerService.clearWorkspaceRestartRequired(syncUserId)
     }
 
     await instanceService.setRunning(slug, appliedConfigSha)

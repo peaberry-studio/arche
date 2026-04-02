@@ -14,6 +14,19 @@ type SyncProviderAccessInput = {
   disposeInstance?: boolean
 }
 
+async function fetchRequired(
+  url: string,
+  init: RequestInit,
+  allowedStatuses: number[] = [],
+): Promise<void> {
+  const response = await fetch(url, init)
+  if (response.ok || allowedStatuses.includes(response.status)) {
+    return
+  }
+
+  throw new Error(`provider_sync_failed:${init.method ?? 'GET'}:${url}:${response.status}`)
+}
+
 export async function syncProviderAccessForInstance(
   input: SyncProviderAccessInput,
 ): Promise<SyncProviderAccessResult> {
@@ -36,16 +49,16 @@ export async function syncProviderAccessForInstance(
       const enabled = enabledByProvider.get(providerId)
       const url = `${instance.baseUrl}/auth/${toRuntimeProviderId(providerId)}`
 
-      if (!enabled) {
-        if (providerId === 'opencode') {
-          const token = issueGatewayToken({
+        if (!enabled) {
+          if (providerId === 'opencode') {
+            const token = issueGatewayToken({
             userId: input.userId,
             workspaceSlug: input.slug,
             providerId: 'opencode',
             version: 0,
           })
 
-          await fetch(url, {
+          await fetchRequired(url, {
             method: 'PUT',
             headers: {
               Authorization: instance.authHeader,
@@ -58,14 +71,18 @@ export async function syncProviderAccessForInstance(
           continue
         }
 
-        await fetch(url, {
+        await fetchRequired(
+          url,
+          {
           method: 'DELETE',
           headers: {
             Authorization: instance.authHeader,
             Accept: 'application/json',
           },
           cache: 'no-store',
-        }).catch(() => {})
+          },
+          [404],
+        )
         continue
       }
 
@@ -76,7 +93,7 @@ export async function syncProviderAccessForInstance(
         version: enabled.version,
       })
 
-      await fetch(url, {
+      await fetchRequired(url, {
         method: 'PUT',
         headers: {
           Authorization: instance.authHeader,
@@ -90,14 +107,14 @@ export async function syncProviderAccessForInstance(
 
     if (input.disposeInstance !== false) {
       // OpenCode caches provider discovery; dispose to reload with updated auth.
-      await fetch(`${instance.baseUrl}/instance/dispose`, {
+      await fetchRequired(`${instance.baseUrl}/instance/dispose`, {
         method: 'POST',
         headers: {
           Authorization: instance.authHeader,
           Accept: 'application/json',
         },
         cache: 'no-store',
-      }).catch(() => {})
+      })
     }
 
     return { ok: true }
