@@ -16,6 +16,7 @@ export type RuntimeCapabilities = {
   googleWorkspaceIntegration: boolean
   kbGithubRemoteIntegration: boolean
   metaAdsConnector: boolean
+  mcp: boolean
 }
 
 const WEB_CAPABILITIES: RuntimeCapabilities = {
@@ -34,6 +35,7 @@ const WEB_CAPABILITIES: RuntimeCapabilities = {
   googleWorkspaceIntegration: true,
   kbGithubRemoteIntegration: true,
   metaAdsConnector: true,
+  mcp: true,
 }
 
 const DESKTOP_CAPABILITIES: RuntimeCapabilities = {
@@ -52,6 +54,7 @@ const DESKTOP_CAPABILITIES: RuntimeCapabilities = {
   googleWorkspaceIntegration: false,
   kbGithubRemoteIntegration: false,
   metaAdsConnector: true,
+  mcp: false,
 }
 
 const CAPABILITIES_BY_MODE: Record<RuntimeMode, RuntimeCapabilities> = {

@@ -48,6 +48,7 @@ function getWebCapabilities() {
     kickstart: true,
     flows: true,
     slackIntegration: true,
+    mcp: true,
   }
 }
 
@@ -65,6 +66,7 @@ function getDesktopCapabilities() {
     kickstart: true,
     flows: false,
     slackIntegration: false,
+    mcp: false,
   }
 }
 

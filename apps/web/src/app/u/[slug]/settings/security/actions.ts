@@ -5,9 +5,16 @@ import {
   auditEvent,
   verifyPassword,
 } from '@/lib/auth'
+import {
+  generatePat,
+  generatePatSalt,
+  hashPat,
+  hashPatLookup,
+} from '@/lib/mcp/pat'
+import { readMcpSettings, writeMcpSettings } from '@/lib/mcp/settings'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { getSession } from '@/lib/runtime/session'
-import { sessionService, userService } from '@/lib/services'
+import { patService, sessionService, userService } from '@/lib/services'
 import {
   generateSecret,
   encryptSecret,
@@ -18,6 +25,9 @@ import {
 } from '@/lib/totp'
 
 const ISSUER = 'Arche'
+const MAX_PAT_TTL_DAYS = 90
+const PAT_SCOPES = ['kb:read']
+const DAY_MS = 24 * 60 * 60 * 1000
 
 type ChangePasswordResult =
   | { ok: true }
@@ -263,5 +273,158 @@ export async function get2FAStatus(): Promise<
     enabled: user.totpEnabled,
     verifiedAt: user.totpVerifiedAt,
     recoveryCodesRemaining,
+  }
+}
+
+export async function setMcpEnabled(
+  enabled: boolean
+): Promise<{ ok: true; enabled: boolean } | { ok: false; error: string }> {
+  if (!getRuntimeCapabilities().mcp) {
+    return { ok: false, error: 'MCP is not available in this runtime mode' }
+  }
+
+  const session = await getSession()
+  if (!session) {
+    return { ok: false, error: 'Not authenticated' }
+  }
+
+  if (session.user.role !== 'ADMIN') {
+    return { ok: false, error: 'Only administrators can change MCP settings' }
+  }
+
+  const currentSettings = await readMcpSettings()
+  const writeResult = await writeMcpSettings(
+    enabled,
+    currentSettings.ok ? currentSettings.hash : undefined
+  )
+
+  if (!writeResult.ok) {
+    return { ok: false, error: formatMcpConfigError(writeResult.error) }
+  }
+
+  await auditEvent({
+    actorUserId: session.user.id,
+    action: 'mcp.settings_updated',
+    metadata: { enabled },
+  })
+
+  return { ok: true, enabled: writeResult.enabled }
+}
+
+export async function createPersonalAccessToken(input: {
+  name: string
+  expiresInDays: number
+}): Promise<
+  | {
+      ok: true
+      token: string
+      tokenRecord: {
+        id: string
+        name: string
+        scopes: string[]
+        createdAt: string
+        expiresAt: string
+        lastUsedAt: string | null
+        revokedAt: string | null
+      }
+    }
+  | { ok: false; error: string }
+> {
+  if (!getRuntimeCapabilities().mcp) {
+    return { ok: false, error: 'MCP is not available in this runtime mode' }
+  }
+
+  const session = await getSession()
+  if (!session) {
+    return { ok: false, error: 'Not authenticated' }
+  }
+
+  const name = input.name.trim()
+  if (!name) {
+    return { ok: false, error: 'Token name is required' }
+  }
+
+  const expiresInDays = Math.floor(input.expiresInDays)
+  if (!Number.isFinite(expiresInDays) || expiresInDays < 1 || expiresInDays > MAX_PAT_TTL_DAYS) {
+    return { ok: false, error: `Expiration must be between 1 and ${MAX_PAT_TTL_DAYS} days` }
+  }
+
+  const token = generatePat()
+  const salt = generatePatSalt()
+  const expiresAt = new Date(Date.now() + expiresInDays * DAY_MS)
+
+  const record = await patService.create({
+    userId: session.user.id,
+    name,
+    lookupHash: hashPatLookup(token),
+    tokenHash: hashPat(token, salt),
+    salt,
+    scopes: PAT_SCOPES,
+    expiresAt,
+  })
+
+  await auditEvent({
+    actorUserId: session.user.id,
+    action: 'mcp.pat_created',
+    metadata: {
+      tokenId: record.id,
+      name,
+      expiresAt: record.expiresAt.toISOString(),
+    },
+  })
+
+  return {
+    ok: true,
+    token,
+    tokenRecord: {
+      id: record.id,
+      name: record.name,
+      scopes: record.scopes,
+      createdAt: record.createdAt.toISOString(),
+      expiresAt: record.expiresAt.toISOString(),
+      lastUsedAt: record.lastUsedAt?.toISOString() ?? null,
+      revokedAt: record.revokedAt?.toISOString() ?? null,
+    },
+  }
+}
+
+export async function revokePersonalAccessToken(
+  tokenId: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!getRuntimeCapabilities().mcp) {
+    return { ok: false, error: 'MCP is not available in this runtime mode' }
+  }
+
+  const session = await getSession()
+  if (!session) {
+    return { ok: false, error: 'Not authenticated' }
+  }
+
+  const result = await patService.revokeByIdAndUserId(tokenId, session.user.id)
+  if (result.count === 0) {
+    return { ok: false, error: 'Token not found' }
+  }
+
+  await auditEvent({
+    actorUserId: session.user.id,
+    action: 'mcp.pat_revoked',
+    metadata: { tokenId },
+  })
+
+  return { ok: true }
+}
+
+function formatMcpConfigError(error: string): string {
+  switch (error) {
+    case 'conflict':
+      return 'MCP settings changed elsewhere. Please retry.'
+    case 'not_found':
+      return 'Knowledge base configuration is not initialized yet.'
+    case 'kb_unavailable':
+      return 'Knowledge base configuration is unavailable.'
+    case 'invalid_config':
+      return 'Knowledge base configuration is invalid.'
+    default:
+      return 'Failed to update MCP settings'
   }
 }

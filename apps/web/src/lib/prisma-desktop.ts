@@ -57,6 +57,20 @@ const SCHEMA_DDL = [
     "user_agent" TEXT,
     CONSTRAINT "sessions_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE
   )`,
+  `CREATE TABLE IF NOT EXISTS "personal_access_tokens" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "user_id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "lookup_hash" TEXT NOT NULL,
+    "token_hash" TEXT NOT NULL,
+    "salt" TEXT NOT NULL,
+    "scopes" TEXT NOT NULL,
+    "expires_at" DATETIME NOT NULL,
+    "revoked_at" DATETIME,
+    "last_used_at" DATETIME,
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "personal_access_tokens_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
   `CREATE TABLE IF NOT EXISTS "audit_events" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "actor_user_id" TEXT,
@@ -201,6 +215,10 @@ const SCHEMA_DDL = [
   `CREATE UNIQUE INDEX IF NOT EXISTS "sessions_token_hash_key" ON "sessions"("token_hash")`,
   `CREATE INDEX IF NOT EXISTS "sessions_user_id_idx" ON "sessions"("user_id")`,
   `CREATE INDEX IF NOT EXISTS "sessions_expires_at_idx" ON "sessions"("expires_at")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "personal_access_tokens_lookup_hash_key" ON "personal_access_tokens"("lookup_hash")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "personal_access_tokens_token_hash_key" ON "personal_access_tokens"("token_hash")`,
+  `CREATE INDEX IF NOT EXISTS "personal_access_tokens_user_id_idx" ON "personal_access_tokens"("user_id")`,
+  `CREATE INDEX IF NOT EXISTS "personal_access_tokens_expires_at_idx" ON "personal_access_tokens"("expires_at")`,
   `CREATE INDEX IF NOT EXISTS "audit_events_actor_user_id_idx" ON "audit_events"("actor_user_id")`,
   `CREATE INDEX IF NOT EXISTS "audit_events_created_at_idx" ON "audit_events"("created_at")`,
   `CREATE INDEX IF NOT EXISTS "message_runs_slug_opencode_session_id_status_idx" ON "message_runs"("slug", "opencode_session_id", "status")`,
