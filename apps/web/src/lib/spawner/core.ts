@@ -50,7 +50,7 @@ export async function startInstance(slug: string, userId: string): Promise<Start
 
     const container = await docker.createContainer(slug, password, opencodeConfigContent, agentsMd, {
       name: owner?.slug ?? slug,
-      email: owner?.email,
+      email: owner?.email ?? undefined,
     })
     containerId = container.id
     await docker.startContainer(container.id)

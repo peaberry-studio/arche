@@ -17,6 +17,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { getProviderLabel } from '@/lib/providers/catalog'
+import type { ProviderId } from '@/lib/providers/types'
 
 type EditUserDialogProps = {
   open: boolean
