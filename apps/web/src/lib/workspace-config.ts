@@ -20,6 +20,10 @@ export type CommonWorkspaceConfig = {
   $schema?: string
   default_agent?: string
   agent?: Record<string, CommonAgentConfig>
+  mcp?: {
+    enabled?: boolean
+    [key: string]: unknown
+  }
   [key: string]: unknown
 }
 
