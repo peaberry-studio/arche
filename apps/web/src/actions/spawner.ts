@@ -3,7 +3,7 @@
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
 import { getSession } from '@/lib/runtime/session'
 import { getWorkspaceConnection, getWorkspaceStatus, startWorkspace, stopWorkspace } from '@/lib/runtime/workspace-host'
-import { userService } from '@/lib/services'
+import { providerService, userService } from '@/lib/services'
 import { isSlowStart, listActiveInstances } from '@/lib/spawner/core'
 import { getKickstartStatus } from '@/kickstart/status'
 
@@ -110,33 +110,35 @@ export async function ensureInstanceRunningAction(slug: string): Promise<{
   
   // Already running or starting
   if (instance?.status === 'running') {
-    const startedRecently =
-      instance.startedAt instanceof Date &&
-      Date.now() - instance.startedAt.getTime() < 30_000
-
     // Best-effort: keep provider access in sync even when instance was already running.
     // This is important when provider keys are created/rotated after the workspace was started.
-    if (!startedRecently) {
-      try {
-        const syncUserId =
-          session.user.slug === slug
-            ? session.user.id
-            : (await userService.findIdBySlug(slug))?.id
+    const syncUserId =
+      session.user.slug === slug
+        ? session.user.id
+        : (await userService.findIdBySlug(slug))?.id
 
-        const instanceConn = await getWorkspaceConnection(slug)
-        if (instanceConn && syncUserId) {
-          const syncResult = await syncProviderAccessForInstance({
-            instance: instanceConn,
-            slug,
-            userId: syncUserId,
-          })
-          if (!syncResult.ok) {
-            console.error('[ensureInstanceRunning] Failed to sync OpenCode providers', syncResult.error)
-          }
+    try {
+      const instanceConn = await getWorkspaceConnection(slug)
+      if (instanceConn && syncUserId) {
+        const syncResult = await syncProviderAccessForInstance({
+          instance: instanceConn,
+          slug,
+          userId: syncUserId,
+        })
+        if (!syncResult.ok) {
+          await providerService.markWorkspaceRestartRequired(syncUserId)
+          console.error('[ensureInstanceRunning] Failed to sync OpenCode providers', syncResult.error)
+        } else {
+          await providerService.clearWorkspaceRestartRequired(syncUserId)
         }
-      } catch (err) {
-        console.error('[ensureInstanceRunning] Failed to sync OpenCode providers', err)
+      } else if (syncUserId) {
+        await providerService.markWorkspaceRestartRequired(syncUserId)
       }
+    } catch (err) {
+      if (syncUserId) {
+        await providerService.markWorkspaceRestartRequired(syncUserId)
+      }
+      console.error('[ensureInstanceRunning] Failed to sync OpenCode providers', err)
     }
 
     return { status: 'running' }

@@ -11,7 +11,7 @@ export default async function SecuritySettingsPage({
 }: {
   params: Promise<{ slug: string }>
 }) {
-  await params
+  const { slug } = await params
 
   const session = await getSession()
   if (!session) redirect('/login')
@@ -28,6 +28,7 @@ export default async function SecuritySettingsPage({
 
   return (
     <SettingsPageContent
+      slug={slug}
       passwordChangeEnabled={caps.auth}
       twoFactorEnabled={caps.twoFactor}
       enabled={enabled}

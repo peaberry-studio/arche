@@ -10,6 +10,12 @@ import type {
   WorkspaceMessage,
   WorkspaceSession,
 } from "@/lib/opencode/types";
+import {
+  getCanonicalProviderId,
+  getProviderLabel,
+  normalizeProviderId,
+  resolveRuntimeProviderId,
+} from "@/lib/providers/catalog";
 import { getActiveCredentialForUser } from "@/lib/providers/store";
 import { PROVIDERS, type ProviderId } from "@/lib/providers/types";
 import { getSession } from "@/lib/runtime/session";
@@ -28,14 +34,6 @@ const CREDENTIAL_REQUIRED_PROVIDER_IDS = new Set<ProviderId>([
   "fireworks",
   "openrouter",
 ]);
-
-const PROVIDER_ID_ALIASES: Record<string, ProviderId> = {
-  "fireworks-ai": "fireworks",
-};
-
-function normalizeProviderId(providerId: string): string {
-  return PROVIDER_ID_ALIASES[providerId] ?? providerId;
-}
 
 function isFreeOpencodeModel(model: unknown): boolean {
   if (!model || typeof model !== "object" || Array.isArray(model)) {
@@ -491,12 +489,15 @@ export async function listMessagesAction(
       });
       const info = m.info as Record<string, unknown>;
       const infoModel = info.model as Record<string, unknown> | undefined;
-      const providerId =
+      const rawProviderId =
         typeof info.providerID === "string"
           ? info.providerID
           : typeof infoModel?.providerID === "string"
-          ? infoModel.providerID
-          : undefined;
+            ? infoModel.providerID
+            : undefined;
+      const providerId = rawProviderId
+        ? normalizeProviderId(rawProviderId)
+        : undefined;
       const modelId =
         typeof info.modelID === "string"
           ? info.modelID
@@ -585,7 +586,10 @@ export async function sendMessageAction(
     const body = {
       parts: [{ type: "text", text }],
       model: model
-        ? { providerID: model.providerId, modelID: model.modelId }
+        ? {
+            providerID: resolveRuntimeProviderId(model.providerId),
+            modelID: model.modelId,
+          }
         : undefined,
     };
 
@@ -887,14 +891,16 @@ export async function listModelsAction(slug: string): Promise<{
     const hasOpencodeCredential = enabledProviderIds.has("opencode");
 
     for (const provider of providers ?? []) {
-      const providerId = String(provider.id);
-      const normalizedProviderId = normalizeProviderId(providerId);
+      const runtimeProviderId = String(provider.id);
+      const canonicalProviderId = getCanonicalProviderId(runtimeProviderId);
+      const providerId = canonicalProviderId ?? runtimeProviderId;
 
       // OpenCode Zen can be available via native workspace auth even without
       // an Arche-managed API credential.
       if (
-        CREDENTIAL_REQUIRED_PROVIDER_IDS.has(normalizedProviderId as ProviderId) &&
-        !enabledProviderIds.has(normalizedProviderId as ProviderId)
+        canonicalProviderId &&
+        CREDENTIAL_REQUIRED_PROVIDER_IDS.has(canonicalProviderId) &&
+        !enabledProviderIds.has(canonicalProviderId)
       ) {
         continue;
       }
@@ -903,17 +909,18 @@ export async function listModelsAction(slug: string): Promise<{
       const providerModels = provider.models ?? {};
       for (const [modelId, model] of Object.entries(providerModels)) {
         if (
-          normalizedProviderId === "opencode" &&
+          canonicalProviderId === "opencode" &&
           !hasOpencodeCredential &&
           !isFreeOpencodeModel(model)
         ) {
           continue;
         }
 
-        const isDefault = defaults?.[providerId] === modelId;
+        const isDefault =
+          defaults?.[runtimeProviderId] === modelId || defaults?.[providerId] === modelId;
         models.push({
           providerId,
-          providerName: provider.name,
+          providerName: provider.name ?? getProviderLabel(providerId),
           modelId,
           modelName: model.name ?? modelId,
           isDefault,

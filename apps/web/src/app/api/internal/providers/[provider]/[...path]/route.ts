@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { decryptProviderSecret } from '@/lib/providers/crypto'
+import { getCanonicalProviderId } from '@/lib/providers/catalog'
 import { getActiveCredentialForUser } from '@/lib/providers/store'
 import { verifyGatewayToken } from '@/lib/providers/tokens'
-import { PROVIDERS, type ProviderId } from '@/lib/providers/types'
+import type { ProviderId } from '@/lib/providers/types'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 
@@ -40,10 +41,6 @@ const HOP_BY_HOP_HEADERS = [
   'transfer-encoding',
   'upgrade',
 ]
-
-function isProviderId(value: string): value is ProviderId {
-  return PROVIDERS.includes(value as ProviderId)
-}
 
 function extractGatewayToken(providerId: ProviderId, headers: Headers): string | null {
   if (providerId === 'openai' || providerId === 'fireworks' || providerId === 'openrouter') {
@@ -244,14 +241,15 @@ async function handleProxy(
 ) {
   const { provider, path } = await params
   const pathSegments = Array.isArray(path) ? [...path] : path ? [path] : []
+  const providerId = getCanonicalProviderId(provider)
 
-  if (!isProviderId(provider)) {
+  if (!providerId) {
     return NextResponse.json({ error: 'invalid_provider' }, { status: 400 })
   }
 
   const caps = getRuntimeCapabilities()
-  const token = extractGatewayToken(provider, request.headers)
-  const allowAnonymousOpencode = provider === 'opencode' && !caps.auth
+  const token = extractGatewayToken(providerId, request.headers)
+  const allowAnonymousOpencode = providerId === 'opencode' && !caps.auth
 
   if (!token && !allowAnonymousOpencode) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
@@ -265,7 +263,7 @@ async function handleProxy(
     try {
       payload = verifyGatewayToken(token)
     } catch (error) {
-      if (provider !== 'opencode') {
+      if (providerId !== 'opencode') {
         return NextResponse.json({ error: 'invalid_token' }, { status: 401 })
       }
 
@@ -281,7 +279,7 @@ async function handleProxy(
   }
 
   if (payload) {
-    const rateLimitKey = `provider-gw:${payload.userId}:${provider}`
+    const rateLimitKey = `provider-gw:${payload.userId}:${providerId}`
     const limit = checkRateLimit(rateLimitKey, 100, 60 * 1000)
     if (!limit.allowed) {
       return NextResponse.json(
@@ -290,17 +288,17 @@ async function handleProxy(
       )
     }
 
-    if (payload.providerId !== provider) {
+    if (payload.providerId !== providerId) {
       return NextResponse.json({ error: 'provider_mismatch' }, { status: 403 })
     }
 
     const credential = await getActiveCredentialForUser({
       userId: payload.userId,
-      providerId: provider,
+      providerId,
     })
 
     if (!credential) {
-      if (provider !== 'opencode') {
+      if (providerId !== 'opencode') {
         return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
       }
     } else {
@@ -324,13 +322,13 @@ async function handleProxy(
   }
 
   const allowTokenAuthenticatedOpencodeWithoutCredential =
-    provider === 'opencode' && (Boolean(payload) || allowExpiredGatewayTokenOpencodeFallback)
+    providerId === 'opencode' && (Boolean(payload) || allowExpiredGatewayTokenOpencodeFallback)
 
   if (!apiKey && !allowAnonymousOpencode && !allowTokenAuthenticatedOpencodeWithoutCredential) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
-  const upstreamUrl = buildUpstreamUrl(PROVIDER_BASE_URL[provider], pathSegments, new URL(request.url))
+  const upstreamUrl = buildUpstreamUrl(PROVIDER_BASE_URL[providerId], pathSegments, new URL(request.url))
 
   const headers = new Headers(request.headers)
   stripHopByHopHeaders(headers)
@@ -343,7 +341,12 @@ async function handleProxy(
   // downstream clients to attempt decoding a second time.
   headers.set('accept-encoding', 'identity')
 
-  if (provider === 'openai' || provider === 'fireworks' || provider === 'openrouter' || provider === 'opencode') {
+  if (
+    providerId === 'openai' ||
+    providerId === 'fireworks' ||
+    providerId === 'openrouter' ||
+    providerId === 'opencode'
+  ) {
     if (!apiKey) {
       headers.delete('authorization')
     } else {
@@ -367,11 +370,11 @@ async function handleProxy(
 
   const contentType = headers.get('content-type') ?? ''
   const isOpenAiResponsesRequest =
-    provider === 'openai' &&
+    providerId === 'openai' &&
     request.method === 'POST' &&
     pathSegments[0] === 'responses' &&
     contentType.includes('application/json')
-  const isFireworksJsonRequest = provider === 'fireworks' && contentType.includes('application/json')
+  const isFireworksJsonRequest = providerId === 'fireworks' && contentType.includes('application/json')
 
   if (hasBody) {
     if (isOpenAiResponsesRequest || isFireworksJsonRequest) {
@@ -397,7 +400,7 @@ async function handleProxy(
     upstreamResponse = await fetchWithRetry(upstreamUrl, init, maxAttempts)
   } catch (error) {
     console.error('[providers/gateway] upstream fetch failed', {
-      provider,
+      provider: providerId,
       path: pathSegments.join('/'),
       code: getFetchErrorCode(error),
       message: error instanceof Error ? error.message : 'unknown_error',

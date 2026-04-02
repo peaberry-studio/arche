@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server'
 
 import { withAuth } from '@/lib/runtime/with-auth'
-import { instanceService } from '@/lib/services'
+import { instanceService, providerService, userService } from '@/lib/services'
 import { getRuntimeConfigHashForSlug } from '@/lib/spawner/runtime-config-hash'
 
 type ConfigStatusResponse = {
   pending: boolean
+  reason: 'config' | 'provider_sync' | null
 }
 
 export const GET = withAuth<ConfigStatusResponse | { error: string }>(
@@ -22,10 +23,16 @@ export const GET = withAuth<ConfigStatusResponse | { error: string }>(
     }
 
     const instance = await instanceService.findAppliedConfigShaBySlug(slug)
+    const user = await userService.findIdBySlug(slug)
+    const providerPending = user
+      ? await providerService.hasPendingRestartByUserId(user.id)
+      : false
 
-    const pending = instance?.appliedConfigSha !== runtime.hash
+    const configPending = instance?.appliedConfigSha !== runtime.hash
+    const reason = configPending ? 'config' : providerPending ? 'provider_sync' : null
+    const pending = Boolean(reason)
     return NextResponse.json(
-      { pending },
+      { pending, reason },
       { headers: { 'Cache-Control': 'no-store' } }
     )
   }

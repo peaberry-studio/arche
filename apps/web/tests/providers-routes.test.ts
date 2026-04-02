@@ -212,7 +212,7 @@ describe('POST /api/u/[slug]/providers/[provider]', () => {
   it('creates new credential and audits creation', async () => {
     mockGetAuthenticatedUser.mockResolvedValue(session('admin', 'ADMIN'))
     mockFindUnique.mockResolvedValueOnce({ id: 'user-1' })
-    mockFindUnique.mockResolvedValueOnce({ serverPassword: 'secret' })
+    mockFindUnique.mockResolvedValueOnce({ serverPassword: 'secret', status: 'running' })
     mockFindFirst.mockResolvedValue({ version: 2 })
     mockUpdateMany.mockResolvedValue({ count: 1 })
     mockCreate.mockResolvedValue({
@@ -233,6 +233,7 @@ describe('POST /api/u/[slug]/providers/[provider]', () => {
         status: 'enabled',
         version: 3,
       },
+      restartRequired: false,
     })
     expect(mockTransaction).toHaveBeenCalledTimes(1)
     expect(mockUpdateMany).toHaveBeenCalledWith({
@@ -249,6 +250,31 @@ describe('POST /api/u/[slug]/providers/[provider]', () => {
       instance: { baseUrl: 'http://alice.test', authHeader: 'Basic b3BlbmNvZGU6c2VjcmV0' },
       slug: 'alice',
       userId: 'user-1',
+    })
+  })
+
+  it('returns restartRequired when live provider sync fails', async () => {
+    mockGetAuthenticatedUser.mockResolvedValue(session('admin', 'ADMIN'))
+    mockFindUnique.mockResolvedValueOnce({ id: 'user-1' })
+    mockFindUnique.mockResolvedValueOnce({ serverPassword: 'secret', status: 'running' })
+    mockFindFirst.mockResolvedValue({ version: 0 })
+    mockUpdateMany.mockResolvedValue({ count: 1 })
+    mockCreate.mockResolvedValue({
+      id: 'cred-1',
+      providerId: 'openai',
+      type: 'api',
+      status: 'enabled',
+      version: 1,
+    })
+    mockSyncProviderAccessForInstance.mockResolvedValueOnce({ ok: false, error: 'sync_failed' })
+
+    const { status, body } = await callPostProvider('alice', 'openai', { apiKey: 'sk-123' })
+
+    expect(status).toBe(201)
+    expect(body.restartRequired).toBe(true)
+    expect(mockUpdateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1' },
+      data: { lastError: 'workspace_restart_required' },
     })
   })
 })
@@ -273,12 +299,12 @@ describe('DELETE /api/u/[slug]/providers/[provider]', () => {
   it('disables provider credential and syncs running instance', async () => {
     mockGetAuthenticatedUser.mockResolvedValue(session('admin', 'ADMIN'))
     mockFindUnique.mockResolvedValueOnce({ id: 'user-1' })
-    mockFindUnique.mockResolvedValueOnce({ serverPassword: 'secret' })
+    mockFindUnique.mockResolvedValueOnce({ serverPassword: 'secret', status: 'running' })
     mockUpdateMany.mockResolvedValue({ count: 1 })
 
     const { status, body } = await callDeleteProvider('alice', 'openai')
     expect(status).toBe(200)
-    expect(body).toEqual({ ok: true, status: 'disabled' })
+    expect(body).toEqual({ ok: true, status: 'disabled', restartRequired: false })
     expect(mockUpdateMany).toHaveBeenCalledWith({
       where: { userId: 'user-1', providerId: 'openai', status: 'enabled' },
       data: { status: 'disabled' },

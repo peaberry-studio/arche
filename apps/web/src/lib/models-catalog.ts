@@ -1,3 +1,5 @@
+import { getProviderLabel, normalizeProviderId } from '@/lib/providers/catalog'
+
 export type ModelCatalogEntry = {
   id: string
   label: string
@@ -15,19 +17,11 @@ type ModelsCatalogCache = {
 
 const MODELS_DEV_URL = 'https://models.dev/api.json'
 const MODELS_CACHE_TTL_MS = 60 * 60 * 1000
-const PROVIDER_ID_ALIASES: Record<string, string> = {
-  'fireworks-ai': 'fireworks',
-}
-
 let modelsCatalogCache: ModelsCatalogCache | null = null
 
 function toProviderLabel(providerId: string, providerName?: string): string {
   if (providerName && providerName.trim()) return providerName.trim()
-  return providerId
-}
-
-function normalizeProviderId(providerId: string): string {
-  return PROVIDER_ID_ALIASES[providerId] ?? providerId
+  return getProviderLabel(providerId)
 }
 
 export async function fetchModelsCatalog(): Promise<

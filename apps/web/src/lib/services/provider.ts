@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client'
 
+import { PROVIDER_SYNC_RESTART_REQUIRED } from '@/lib/providers/sync-status'
 import { prisma } from '@/lib/prisma'
 
 const MAX_PROVIDER_CREDENTIAL_RETRIES = 3
@@ -47,6 +48,15 @@ export function findCredentialsByUserAndProviders(
     select: { providerId: true, status: true, type: true, version: true },
     orderBy: { version: 'desc' },
   })
+}
+
+export async function hasPendingRestartByUserId(userId: string): Promise<boolean> {
+  const marker = await prisma.providerCredential.findFirst({
+    where: { userId, lastError: PROVIDER_SYNC_RESTART_REQUIRED },
+    select: { id: true },
+  })
+
+  return Boolean(marker)
 }
 
 // ---------------------------------------------------------------------------
@@ -122,5 +132,19 @@ export function disableEnabledForProvider(userId: string, providerId: string) {
   return prisma.providerCredential.updateMany({
     where: { userId, providerId, status: 'enabled' },
     data: { status: 'disabled' },
+  })
+}
+
+export function markWorkspaceRestartRequired(userId: string) {
+  return prisma.providerCredential.updateMany({
+    where: { userId },
+    data: { lastError: PROVIDER_SYNC_RESTART_REQUIRED },
+  })
+}
+
+export function clearWorkspaceRestartRequired(userId: string) {
+  return prisma.providerCredential.updateMany({
+    where: { userId, lastError: PROVIDER_SYNC_RESTART_REQUIRED },
+    data: { lastError: null },
   })
 }

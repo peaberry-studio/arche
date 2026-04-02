@@ -1376,6 +1376,7 @@ export function WorkspaceShell({
       )}
       <ConfigChangeBanner
         pending={configStatus.pending}
+        reason={configStatus.reason}
         restarting={configStatus.restarting}
         restartError={configStatus.restartError}
         onRestart={configStatus.restart}

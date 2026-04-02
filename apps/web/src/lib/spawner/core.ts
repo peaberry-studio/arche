@@ -1,18 +1,14 @@
-import { auditService, instanceService, userService } from '@/lib/services'
-import { readCommonWorkspaceConfig, readConfigRepoFile } from '@/lib/common-workspace-config-store'
+import { auditService, instanceService, providerService } from '@/lib/services'
 import { getInstanceUrl, isInstanceHealthyWithPassword } from '@/lib/opencode/client'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
 import * as docker from './docker'
 import { decryptPassword, generatePassword, encryptPassword } from './crypto'
 import { getStartExpectedMs, getStartTimeoutMs } from './config'
-import { buildMcpConfigForSlug } from './mcp-config'
 import {
-  injectAlwaysOnAgentTools,
-  injectSelfDelegationGuards,
-  remapAgentConnectorTools,
-} from './agent-config-transforms'
-import { withWorkspaceIdentity } from './runtime-config-utils'
-import { getRuntimeConfigHashForSlug } from './runtime-config-hash'
+  buildWorkspaceRuntimeArtifacts,
+  getWebProviderGatewayConfig,
+  hashWorkspaceRuntimeArtifacts,
+} from './runtime-artifacts'
 
 export type StartResult =
   | { ok: true; status: 'running' }
@@ -35,8 +31,6 @@ function getErrorDetail(err: unknown): string | undefined {
 
 export async function startInstance(slug: string, userId: string): Promise<StartResult> {
   const existing = await instanceService.findBySlug(slug)
-  const runtimeHashResult = await getRuntimeConfigHashForSlug(slug)
-  const appliedConfigSha = runtimeHashResult.ok ? runtimeHashResult.hash : null
 
   if (existing?.status === 'running') {
     return { ok: false, error: 'already_running' }
@@ -50,68 +44,13 @@ export async function startInstance(slug: string, userId: string): Promise<Start
   let containerId: string | null = null
 
   try {
-    let opencodeConfigContent: string | undefined
-    try {
-      // Read workspace config (agents, default_agent, prompts, etc.)
-      let baseConfig: Record<string, unknown> = {}
-      const commonConfigResult = await readCommonWorkspaceConfig()
-      if (commonConfigResult.ok) {
-        try {
-          const parsed: unknown = JSON.parse(commonConfigResult.content)
-          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-            baseConfig = parsed as Record<string, unknown>
-          } else {
-            console.warn('[spawner] CommonWorkspaceConfig is not a JSON object')
-          }
-        } catch {
-          console.warn('[spawner] Failed to parse CommonWorkspaceConfig')
-        }
-      }
-
-      // Merge MCP connectors config and remap connector IDs for the current user
-      const mcpConfig = await buildMcpConfigForSlug(slug)
-      if (mcpConfig?.mcp && Object.keys(mcpConfig.mcp).length > 0) {
-        const userMcpKeys = new Set(Object.keys(mcpConfig.mcp))
-        baseConfig = remapAgentConnectorTools(baseConfig, userMcpKeys)
-        baseConfig = { ...baseConfig, mcp: mcpConfig.mcp }
-      } else {
-        baseConfig = remapAgentConnectorTools(baseConfig, new Set())
-      }
-
-
-      baseConfig = injectAlwaysOnAgentTools(baseConfig)
-      const guardedConfig = injectSelfDelegationGuards(baseConfig)
-
-      if (Object.keys(guardedConfig).length > 0) {
-        opencodeConfigContent = JSON.stringify(guardedConfig)
-      }
-    } catch (err) {
-      console.warn('[spawner] Config build failed:', err)
-    }
-
-    // Read AGENTS.md from config repo to inject into workspace
-    let agentsMd: string | undefined
-    try {
-      const agentsResult = await readConfigRepoFile('AGENTS.md')
-      if (agentsResult.ok) {
-        agentsMd = agentsResult.content
-      }
-    } catch (err) {
-      console.warn('[spawner] Failed to read AGENTS.md:', err)
-    }
-
-    const owner = await userService.findIdentityBySlug(slug)
-
-    if (agentsMd) {
-      agentsMd = withWorkspaceIdentity(agentsMd, {
-        slug: owner?.slug ?? slug,
-        email: owner?.email,
-      })
-    }
+    const artifacts = await buildWorkspaceRuntimeArtifacts(slug, getWebProviderGatewayConfig())
+    const appliedConfigSha = hashWorkspaceRuntimeArtifacts(artifacts)
+    const { owner, opencodeConfigContent, agentsMd } = artifacts
 
     const container = await docker.createContainer(slug, password, opencodeConfigContent, agentsMd, {
       name: owner?.slug ?? slug,
-      email: owner?.email,
+      email: owner?.email ?? undefined,
     })
     containerId = container.id
     await docker.startContainer(container.id)
@@ -141,7 +80,10 @@ export async function startInstance(slug: string, userId: string): Promise<Start
       userId: syncUserId,
     })
     if (!syncResult.ok) {
+      await providerService.markWorkspaceRestartRequired(syncUserId)
       console.error('[spawner] Failed to sync OpenCode providers', syncResult.error)
+    } else {
+      await providerService.clearWorkspaceRestartRequired(syncUserId)
     }
 
     await instanceService.setRunning(slug, appliedConfigSha)

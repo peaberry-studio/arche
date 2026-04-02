@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { getProviderLabel } from '@/lib/providers/catalog'
 import type { ProviderId } from '@/lib/providers/types'
 
 type EditUserDialogProps = {
@@ -27,22 +28,6 @@ type EditUserDialogProps = {
   onUserUpdated: (user: TeamUser) => void
   onUserDeleted: (userId: string) => void
 }
-
-function providerLabel(providerId: ProviderId): string {
-  switch (providerId) {
-    case 'openai':
-      return 'OpenAI'
-    case 'anthropic':
-      return 'Anthropic'
-    case 'fireworks':
-      return 'Fireworks AI'
-    case 'openrouter':
-      return 'OpenRouter'
-    case 'opencode':
-      return 'OpenCode Zen'
-  }
-}
-
 
 export function EditUserDialog({
   open,
@@ -302,7 +287,7 @@ export function EditUserDialog({
                     return (
                       <div key={provider.providerId} className="flex items-center justify-between rounded-xl border border-border/60 px-4 py-3">
                         <div>
-                          <p className="text-sm font-medium text-foreground">{providerLabel(provider.providerId)}</p>
+                          <p className="text-sm font-medium text-foreground">{getProviderLabel(provider.providerId)}</p>
                           <p className="text-xs text-muted-foreground">No credential set</p>
                         </div>
                         <Button
@@ -325,7 +310,7 @@ export function EditUserDialog({
                       <div key={provider.providerId} className="rounded-xl border border-border/60 px-4 py-3 space-y-3">
                         <div className="flex items-center justify-between">
                           <div>
-                            <p className="text-sm font-medium text-foreground">{providerLabel(provider.providerId)}</p>
+                            <p className="text-sm font-medium text-foreground">{getProviderLabel(provider.providerId)}</p>
                             <p className="text-xs text-muted-foreground">No credential set</p>
                           </div>
                           <Button
@@ -371,7 +356,7 @@ export function EditUserDialog({
                     return (
                       <div key={provider.providerId} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/60 px-4 py-3">
                         <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium text-foreground">{providerLabel(provider.providerId)}</p>
+                          <p className="text-sm font-medium text-foreground">{getProviderLabel(provider.providerId)}</p>
                           {provider.version ? (
                             <span className="text-xs text-muted-foreground">v{provider.version}</span>
                           ) : null}
@@ -408,7 +393,7 @@ export function EditUserDialog({
                     <div key={provider.providerId} className="rounded-xl border border-border/60 px-4 py-3 space-y-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium text-foreground">{providerLabel(provider.providerId)}</p>
+                          <p className="text-sm font-medium text-foreground">{getProviderLabel(provider.providerId)}</p>
                           {provider.version ? (
                             <span className="text-xs text-muted-foreground">v{provider.version}</span>
                           ) : null}

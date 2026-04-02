@@ -22,6 +22,10 @@ vi.mock('@/lib/services', () => ({
     findHashEntriesByUserId: vi.fn().mockResolvedValue([]),
     findEnabledMcpByUserId: vi.fn().mockResolvedValue([]),
   },
+  providerService: {
+    markWorkspaceRestartRequired: vi.fn().mockResolvedValue({ count: 0 }),
+    clearWorkspaceRestartRequired: vi.fn().mockResolvedValue({ count: 0 }),
+  },
   auditService: {
     createEvent: vi.fn(),
   },
