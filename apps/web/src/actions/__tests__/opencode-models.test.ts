@@ -151,7 +151,7 @@ describe('listModelsAction', () => {
     )
   })
 
-  it('treats fireworks-ai runtime provider ids as fireworks credentials', async () => {
+  it('normalizes fireworks runtime provider ids to the canonical provider id', async () => {
     mockCreateInstanceClient.mockResolvedValue({
       config: {
         providers: vi.fn().mockResolvedValue({
@@ -192,7 +192,7 @@ describe('listModelsAction', () => {
     expect(result.models).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          providerId: 'fireworks-ai',
+          providerId: 'fireworks',
           modelId: 'accounts/fireworks/models/glm-5',
           isDefault: true,
         }),

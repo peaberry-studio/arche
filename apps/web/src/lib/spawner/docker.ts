@@ -1,6 +1,6 @@
 import { withWorkspacePermissionGuards } from "@/lib/spawner/runtime-config-utils";
 import { getUserDataHostPath, ensureUserDirectory } from "@/lib/user-data";
-import { toRuntimeProviderId } from "@/lib/providers/types";
+import { buildProviderGatewayConfig } from "@/lib/providers/catalog";
 import {
   getContainerSocketPath,
   getContainerProxyUrl,
@@ -61,40 +61,7 @@ export async function createContainer(
 
   // Configure provider base URLs to route through Arche's internal gateway.
   // Auth is still managed at runtime via the OpenCode /auth endpoints.
-  const providerGatewayConfig = {
-    provider: {
-      openai: {
-        options: { baseURL: "http://web:3000/api/internal/providers/openai" },
-      },
-      anthropic: {
-        options: {
-          baseURL: "http://web:3000/api/internal/providers/anthropic",
-        },
-      },
-      // Keep both ids so persisted workspaces created before the runtime alias
-      // switch still route Fireworks through Arche's provider gateway.
-      fireworks: {
-        options: {
-          baseURL: "http://web:3000/api/internal/providers/fireworks",
-        },
-      },
-      [toRuntimeProviderId("fireworks")]: {
-        options: {
-          baseURL: "http://web:3000/api/internal/providers/fireworks",
-        },
-      },
-      openrouter: {
-        options: {
-          baseURL: "http://web:3000/api/internal/providers/openrouter",
-        },
-      },
-      opencode: {
-        options: {
-          baseURL: "http://web:3000/api/internal/providers/opencode",
-        },
-      },
-    },
-  };
+  const providerGatewayConfig = buildProviderGatewayConfig("http://web:3000/api/internal/providers");
 
   // Merge passed-in config (agents, MCP connectors, etc.) with provider gateway
   const baseConfig: Record<string, unknown> = (() => {

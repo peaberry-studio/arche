@@ -3,7 +3,7 @@ import { existsSync } from 'fs'
 import { join } from 'path'
 
 import { readCommonWorkspaceConfig } from '@/lib/common-workspace-config-store'
-import { toRuntimeProviderId } from '@/lib/providers/types'
+import { buildProviderGatewayConfig } from '@/lib/providers/catalog'
 import {
   injectAlwaysOnAgentTools,
   injectSelfDelegationGuards,
@@ -24,19 +24,9 @@ export function getDesktopWebPort(): number {
 }
 
 export function getDesktopProviderGatewayConfig(): Record<string, unknown> {
-  const gateway = `http://${LOOPBACK_HOST}:${getDesktopWebPort()}/api/internal/providers`
-  return {
-    provider: {
-      openai: { options: { baseURL: `${gateway}/openai` } },
-      anthropic: { options: { baseURL: `${gateway}/anthropic` } },
-      // Keep both ids so persisted workspaces created before the runtime alias
-      // switch still route Fireworks through Arche's provider gateway.
-      fireworks: { options: { baseURL: `${gateway}/fireworks` } },
-      [toRuntimeProviderId('fireworks')]: { options: { baseURL: `${gateway}/fireworks` } },
-      openrouter: { options: { baseURL: `${gateway}/openrouter` } },
-      opencode: { options: { baseURL: `${gateway}/opencode` } },
-    },
-  }
+  return buildProviderGatewayConfig(
+    `http://${LOOPBACK_HOST}:${getDesktopWebPort()}/api/internal/providers`,
+  )
 }
 
 function resolveFallbackDesktopOpencodeConfigDir(): string | null {

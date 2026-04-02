@@ -1,6 +1,7 @@
+import { toRuntimeProviderId } from '@/lib/providers/catalog'
 import { getActiveCredentialForUser } from '@/lib/providers/store'
 import { issueGatewayToken } from '@/lib/providers/tokens'
-import { PROVIDERS, toRuntimeProviderId, type ProviderId } from '@/lib/providers/types'
+import { PROVIDERS, type ProviderId } from '@/lib/providers/types'
 
 export type SyncProviderAccessResult =
   | { ok: true }
