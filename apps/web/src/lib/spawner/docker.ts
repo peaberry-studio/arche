@@ -71,6 +71,13 @@ export async function createContainer(
           baseURL: "http://web:3000/api/internal/providers/anthropic",
         },
       },
+      // Keep both ids so persisted workspaces created before the runtime alias
+      // switch still route Fireworks through Arche's provider gateway.
+      fireworks: {
+        options: {
+          baseURL: "http://web:3000/api/internal/providers/fireworks",
+        },
+      },
       [toRuntimeProviderId("fireworks")]: {
         options: {
           baseURL: "http://web:3000/api/internal/providers/fireworks",

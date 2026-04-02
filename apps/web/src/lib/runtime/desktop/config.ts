@@ -29,6 +29,9 @@ export function getDesktopProviderGatewayConfig(): Record<string, unknown> {
     provider: {
       openai: { options: { baseURL: `${gateway}/openai` } },
       anthropic: { options: { baseURL: `${gateway}/anthropic` } },
+      // Keep both ids so persisted workspaces created before the runtime alias
+      // switch still route Fireworks through Arche's provider gateway.
+      fireworks: { options: { baseURL: `${gateway}/fireworks` } },
       [toRuntimeProviderId('fireworks')]: { options: { baseURL: `${gateway}/fireworks` } },
       openrouter: { options: { baseURL: `${gateway}/openrouter` } },
       opencode: { options: { baseURL: `${gateway}/opencode` } },
