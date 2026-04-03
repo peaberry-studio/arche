@@ -53,6 +53,7 @@ type InspectorPanelProps = {
   isLoadingDiffs?: boolean;
   diffsError?: string | null;
   onOpenFile: (path: string) => void;
+  internalLinkPaths?: string[];
   onReloadFile?: (path: string) => Promise<void>;
   onSaveFile?: (
     path: string,
@@ -155,6 +156,7 @@ export function InspectorPanel({
   isLoadingDiffs,
   diffsError,
   onOpenFile,
+  internalLinkPaths,
   onReloadFile,
   onSaveFile,
   onDiscardFileChanges,
@@ -190,6 +192,7 @@ export function InspectorPanel({
       isLoadingDiffs={isLoadingDiffs}
       diffsError={diffsError}
       onOpenFile={onOpenFile}
+      internalLinkPaths={internalLinkPaths}
       onReloadFile={onReloadFile}
       onSaveFile={onSaveFile}
       onDiscardFileChanges={onDiscardFileChanges}
@@ -214,6 +217,7 @@ function ExpandedInspectorPanel({
   isLoadingDiffs,
   diffsError,
   onOpenFile,
+  internalLinkPaths = [],
   onReloadFile,
   onSaveFile,
   onDiscardFileChanges,
@@ -469,6 +473,8 @@ function ExpandedInspectorPanel({
                       saveState={activeSaveState}
                       saveError={activeSaveError}
                       modifiedAt={activeFile.updatedAt}
+                      internalLinkPaths={internalLinkPaths}
+                      onOpenInternalLink={onOpenFile}
                       onReload={onReloadFile ? () => void handleReload(activeFile.path) : undefined}
                     />
                   ) : (

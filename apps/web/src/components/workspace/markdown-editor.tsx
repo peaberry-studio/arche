@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import {
   ArrowClockwise,
@@ -8,6 +8,7 @@ import {
   Columns,
   ColumnsPlusRight,
   Minus,
+  PencilSimple,
   Rows,
   RowsPlusBottom,
   Table as TableIcon,
@@ -20,10 +21,13 @@ import { TableRow } from "@tiptap/extension-table-row";
 import { TaskItem } from "@tiptap/extension-task-item";
 import { TaskList } from "@tiptap/extension-task-list";
 import { Markdown } from "@tiptap/markdown";
-import { EditorContent, useEditor } from "@tiptap/react";
+import { EditorContent, type Editor as TiptapEditor, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 
 import { Button } from "@/components/ui/button";
+import { InternalLinkAutocomplete } from "@/components/workspace/internal-link-autocomplete";
+import { getInternalLinkHoverPosition } from "@/components/workspace/internal-link-hover-position";
+import { ObsidianLinkDecorations } from "@/components/workspace/obsidian-link-decorations";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,7 +36,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { SaveState } from "@/hooks/use-editor-drafts";
+import {
+  buildInternalLinkSuggestions,
+  findObsidianAutocompleteMatch,
+  resolveObsidianLinkTarget,
+} from "@/lib/kb-internal-links";
 import { cn } from "@/lib/utils";
+
+const HOVERED_LINK_HIDE_DELAY_MS = 300;
 
 function normalizeMarkdownForKb(value: string): string {
   return value.replaceAll("\u00A0", " ").replaceAll("&nbsp;", " ");
@@ -62,7 +73,67 @@ type MarkdownEditorProps = {
   saveError?: string | null;
   onReload?: () => void;
   modifiedAt?: string;
+  internalLinkPaths?: string[];
+  onOpenInternalLink?: (path: string) => void;
 };
+
+type LinkAutocompleteState = {
+  from: number;
+  to: number;
+  left: number;
+  top: number;
+  selectedIndex: number;
+  suggestions: ReturnType<typeof buildInternalLinkSuggestions>;
+};
+
+type HoveredLinkState = {
+  from: number;
+  path: string;
+  to: number;
+  target: string;
+  left: number;
+  top: number;
+};
+
+function getInternalLinkElement(target: EventTarget | null): HTMLElement | null {
+  return target instanceof HTMLElement ? target.closest(".kb-internal-link") : null;
+}
+
+function readHoveredLinkStateFromElement(
+  element: HTMLElement,
+  scroller: HTMLElement
+): HoveredLinkState | null {
+  const from = Number.parseInt(element.dataset.linkFrom ?? "", 10);
+  const to = Number.parseInt(element.dataset.linkTo ?? "", 10);
+  const target = element.dataset.linkTarget;
+  const path = element.dataset.linkPath;
+  if (!Number.isFinite(from) || !Number.isFinite(to) || !target || !path) {
+    return null;
+  }
+
+  const linkRect = element.getBoundingClientRect();
+  const scrollerRect = scroller.getBoundingClientRect();
+  const position = getInternalLinkHoverPosition({
+    anchorBottom: linkRect.bottom,
+    anchorLeft: linkRect.left,
+    anchorTop: linkRect.top,
+    scrollerClientHeight: scroller.clientHeight,
+    scrollerClientWidth: scroller.clientWidth,
+    scrollerLeft: scrollerRect.left,
+    scrollerScrollLeft: scroller.scrollLeft,
+    scrollerScrollTop: scroller.scrollTop,
+    scrollerTop: scrollerRect.top,
+  });
+
+  return {
+    from,
+    path,
+    to,
+    target,
+    left: position.left,
+    top: position.top,
+  };
+}
 
 export function MarkdownEditor({
   value,
@@ -71,9 +142,150 @@ export function MarkdownEditor({
   saveError,
   onReload,
   modifiedAt,
+  internalLinkPaths = [],
+  onOpenInternalLink,
 }: MarkdownEditorProps) {
   const ignoreNextUpdateRef = useRef(false);
   const lastEmittedMarkdownRef = useRef<string | null>(null);
+  const hoveredLinkHideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [linkAutocomplete, setLinkAutocomplete] = useState<LinkAutocompleteState | null>(null);
+  const [hoveredLink, setHoveredLink] = useState<HoveredLinkState | null>(null);
+
+  const clearHoveredLinkHideTimeout = useCallback(() => {
+    if (!hoveredLinkHideTimeoutRef.current) return;
+    clearTimeout(hoveredLinkHideTimeoutRef.current);
+    hoveredLinkHideTimeoutRef.current = null;
+  }, []);
+
+  const hideHoveredLink = useCallback(() => {
+    clearHoveredLinkHideTimeout();
+    setHoveredLink(null);
+  }, [clearHoveredLinkHideTimeout]);
+
+  const scheduleHoveredLinkHide = useCallback(() => {
+    clearHoveredLinkHideTimeout();
+    hoveredLinkHideTimeoutRef.current = setTimeout(() => {
+      hoveredLinkHideTimeoutRef.current = null;
+      setHoveredLink(null);
+    }, HOVERED_LINK_HIDE_DELAY_MS);
+  }, [clearHoveredLinkHideTimeout]);
+
+  const showHoveredLink = useCallback(
+    (nextLink: HoveredLinkState) => {
+      clearHoveredLinkHideTimeout();
+      setHoveredLink((previous) => {
+        if (
+          previous &&
+          previous.from === nextLink.from &&
+          previous.to === nextLink.to &&
+          previous.target === nextLink.target &&
+          previous.path === nextLink.path &&
+          previous.left === nextLink.left &&
+          previous.top === nextLink.top
+        ) {
+          return previous;
+        }
+
+        return nextLink;
+      });
+    },
+    [clearHoveredLinkHideTimeout]
+  );
+
+  const handleWorkspaceMouseMove = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      const hoverCard =
+        event.target instanceof HTMLElement
+          ? event.target.closest("[data-kb-internal-link-hover-card]")
+          : null;
+      if (hoverCard) {
+        clearHoveredLinkHideTimeout();
+        return;
+      }
+
+      const linkElement = getInternalLinkElement(event.target);
+      if (!linkElement) {
+        scheduleHoveredLinkHide();
+        return;
+      }
+
+      const nextHoveredLink = readHoveredLinkStateFromElement(linkElement, event.currentTarget);
+      if (!nextHoveredLink) {
+        scheduleHoveredLinkHide();
+        return;
+      }
+
+      showHoveredLink(nextHoveredLink);
+    },
+    [clearHoveredLinkHideTimeout, scheduleHoveredLinkHide, showHoveredLink]
+  );
+
+  const updateLinkAutocomplete = useCallback(
+    (editor: TiptapEditor) => {
+      const selection = editor.state.selection;
+      if (!selection.empty) {
+        setLinkAutocomplete(null);
+        return;
+      }
+
+      const parentText = selection.$from.parent.textContent.slice(0, selection.$from.parentOffset);
+      const match = findObsidianAutocompleteMatch(parentText);
+      if (!match) {
+        setLinkAutocomplete(null);
+        return;
+      }
+
+      const suggestions = buildInternalLinkSuggestions(internalLinkPaths, match.query);
+      if (suggestions.length === 0) {
+        setLinkAutocomplete(null);
+        return;
+      }
+
+      const from = selection.$from.start() + match.from;
+      const to = selection.$from.start() + match.to;
+      const coords = editor.view.coordsAtPos(selection.from);
+      const scroller = editor.view.dom.closest(".workspace-tiptap") as HTMLElement | null;
+
+      if (!scroller) {
+        setLinkAutocomplete(null);
+        return;
+      }
+
+      const scrollerRect = scroller.getBoundingClientRect();
+
+      setLinkAutocomplete((previous) => ({
+        from,
+        to,
+        suggestions,
+        left: coords.left - scrollerRect.left + scroller.scrollLeft,
+        top: coords.bottom - scrollerRect.top + scroller.scrollTop + 8,
+        selectedIndex:
+          previous &&
+          previous.from === from &&
+          previous.to === to &&
+          previous.selectedIndex < suggestions.length
+            ? previous.selectedIndex
+            : 0,
+      }));
+    },
+    [internalLinkPaths]
+  );
+
+  const openResolvedInternalLink = useCallback(
+    (rawTarget: string) => {
+      if (!onOpenInternalLink) return;
+      const resolved = resolveObsidianLinkTarget(rawTarget, internalLinkPaths);
+      if (!resolved) return;
+      onOpenInternalLink(resolved);
+    },
+    [internalLinkPaths, onOpenInternalLink]
+  );
+
+  useEffect(() => {
+    return () => {
+      clearHoveredLinkHideTimeout();
+    };
+  }, [clearHoveredLinkHideTimeout]);
 
   const editor = useEditor({
     extensions: [
@@ -89,6 +301,7 @@ export function MarkdownEditor({
       TableRow,
       TableHeader,
       TableCell,
+      ObsidianLinkDecorations,
       Markdown.configure({
         markedOptions: {
           gfm: true,
@@ -104,13 +317,126 @@ export function MarkdownEditor({
       const next = normalizeMarkdownForKb(editor.getMarkdown());
       lastEmittedMarkdownRef.current = next;
       onChange(next);
+      updateLinkAutocomplete(editor);
+    },
+    onSelectionUpdate: ({ editor }) => {
+      updateLinkAutocomplete(editor);
+    },
+    onBlur: () => {
+      setLinkAutocomplete(null);
+      hideHoveredLink();
     },
     editorProps: {
       attributes: {
         class: "tiptap-editor",
       },
+      handleClick: (view, _pos, event) => {
+        const anchor = (event.target as HTMLElement | null)?.closest("a[href]");
+        const href = anchor?.getAttribute("href");
+        if (href) {
+          hideHoveredLink();
+          openResolvedInternalLink(href);
+          return true;
+        }
+
+        const linkElement = getInternalLinkElement(event.target);
+        if (!linkElement) return false;
+
+        const scroller = view.dom.closest(".workspace-tiptap") as HTMLElement | null;
+        if (!scroller) return false;
+
+        const hoveredLinkState = readHoveredLinkStateFromElement(linkElement, scroller);
+        if (!hoveredLinkState) return false;
+
+        if (resolveObsidianLinkTarget(hoveredLinkState.target, internalLinkPaths)) {
+          hideHoveredLink();
+          openResolvedInternalLink(hoveredLinkState.target);
+          return true;
+        }
+
+        editor?.chain().focus().setTextSelection({ from: hoveredLinkState.from, to: hoveredLinkState.to }).run();
+        return true;
+      },
+      handleDOMEvents: {
+        mousedown: () => {
+          hideHoveredLink();
+          return false;
+        },
+      },
+      handleKeyDown: (view, event) => {
+        if (!linkAutocomplete || linkAutocomplete.suggestions.length === 0) return false;
+
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          setLinkAutocomplete((previous) => {
+            if (!previous) return null;
+            return {
+              ...previous,
+              selectedIndex: (previous.selectedIndex + 1) % previous.suggestions.length,
+            };
+          });
+          return true;
+        }
+
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          setLinkAutocomplete((previous) => {
+            if (!previous) return null;
+            return {
+              ...previous,
+              selectedIndex:
+                (previous.selectedIndex - 1 + previous.suggestions.length) % previous.suggestions.length,
+            };
+          });
+          return true;
+        }
+
+        if (event.key === "Enter") {
+          event.preventDefault();
+          const selected = linkAutocomplete.suggestions[linkAutocomplete.selectedIndex];
+          if (selected) {
+            view.dispatch(
+              view.state.tr.insertText(
+                `[[${selected.path}]]`,
+                linkAutocomplete.from,
+                linkAutocomplete.to
+              )
+            );
+            view.focus();
+            setLinkAutocomplete(null);
+          }
+          return true;
+        }
+
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setLinkAutocomplete(null);
+          return true;
+        }
+
+        return false;
+      },
     },
   });
+
+  const applyInternalLinkSuggestion = useCallback(
+    (path: string) => {
+      if (!editor || !linkAutocomplete) return;
+      editor
+        .chain()
+        .focus()
+        .insertContentAt({ from: linkAutocomplete.from, to: linkAutocomplete.to }, `[[${path}]]`)
+        .run();
+      setLinkAutocomplete(null);
+    },
+    [editor, linkAutocomplete]
+  );
+
+  const focusLinkForEditing = useCallback(() => {
+    if (!editor || !hoveredLink) return;
+    editor.chain().focus().setTextSelection({ from: hoveredLink.from, to: hoveredLink.to }).run();
+    hideHoveredLink();
+  }, [editor, hideHoveredLink, hoveredLink]);
 
   useEffect(() => {
     if (!editor) return;
@@ -399,8 +725,44 @@ export function MarkdownEditor({
         </div>
       </div>
 
-      <div className="workspace-tiptap flex-1 overflow-y-auto px-6 py-5 scrollbar-none">
+      <div
+        className="workspace-tiptap relative flex-1 overflow-y-auto px-6 py-5 scrollbar-none"
+        onMouseLeave={scheduleHoveredLinkHide}
+        onMouseMove={handleWorkspaceMouseMove}
+      >
         <EditorContent editor={editor} />
+        {hoveredLink ? (
+          <div
+            className="absolute z-20 flex max-w-72 flex-col gap-2 rounded-md border border-white/15 bg-background/95 p-2 shadow-lg backdrop-blur-sm"
+            data-kb-internal-link-hover-card="true"
+            style={{ left: hoveredLink.left, top: hoveredLink.top }}
+            onMouseEnter={clearHoveredLinkHideTimeout}
+            onMouseLeave={scheduleHoveredLinkHide}
+            onMouseDown={(event) => {
+              event.preventDefault();
+            }}
+          >
+            <div className="truncate text-[10px] text-muted-foreground" title={hoveredLink.path}>
+              {hoveredLink.path}
+            </div>
+            <button
+              type="button"
+              className="inline-flex h-7 items-center justify-center gap-1 rounded-md border border-white/15 px-2 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+              onClick={focusLinkForEditing}
+            >
+              <PencilSimple size={11} weight="bold" />
+              Edit link
+            </button>
+          </div>
+        ) : null}
+        <InternalLinkAutocomplete
+          open={Boolean(linkAutocomplete)}
+          left={linkAutocomplete?.left ?? 0}
+          top={linkAutocomplete?.top ?? 0}
+          suggestions={linkAutocomplete?.suggestions ?? []}
+          selectedIndex={linkAutocomplete?.selectedIndex ?? 0}
+          onSelect={applyInternalLinkSuggestion}
+        />
       </div>
     </div>
   );

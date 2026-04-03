@@ -236,6 +236,33 @@ describe("WorkspaceShell", () => {
     expect(screen.getByRole("button", { name: "Left Panel" }).dataset.collapsed).toBe("false");
   });
 
+  it("restores right panel at 50% of available center area when re-opened", async () => {
+    render(<WorkspaceShell slug="alice" />);
+
+    const leftPanelButton = await screen.findByRole("button", { name: "Left Panel" });
+    const inspectorButton = screen.getByRole("button", { name: "Inspector Panel" });
+
+    fireEvent.click(inspectorButton);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Inspector Panel" }).dataset.collapsed).toBe("true");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Inspector Panel" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Inspector Panel" }).dataset.collapsed).toBe("false");
+    });
+
+    const leftPanelWidth = Number.parseFloat(leftPanelButton.parentElement?.style.width ?? "0");
+    const rightPanelWidth = Number.parseFloat(
+      screen.getByRole("button", { name: "Inspector Panel" }).parentElement?.style.width ?? "0"
+    );
+
+    const expectedRightWidth = (1440 - leftPanelWidth - 24) / 2;
+    expect(rightPanelWidth).toBeCloseTo(expectedRightWidth, 0);
+  });
+
   it("hydrates layout from the cookie when localStorage is empty", async () => {
     document.cookie = `arche-workspace-layout-alice=${encodeURIComponent(JSON.stringify({
       leftWidth: 264,
