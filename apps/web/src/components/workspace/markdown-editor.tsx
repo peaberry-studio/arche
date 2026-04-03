@@ -31,29 +31,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  isEquivalentMarkdown,
+  normalizeMarkdownForKb,
+} from "@/components/workspace/markdown-editor-content";
 import type { SaveState } from "@/hooks/use-editor-drafts";
 import { cn } from "@/lib/utils";
-
-function normalizeMarkdownForKb(value: string): string {
-  return value.replaceAll("\u00A0", " ").replaceAll("&nbsp;", " ");
-}
-
-function isEquivalentMarkdown(left: string, right: string): boolean {
-  if (left === right) return true;
-
-  const normalizedLeft = normalizeMarkdownForKb(left).replaceAll("\r\n", "\n");
-  const normalizedRight = normalizeMarkdownForKb(right).replaceAll("\r\n", "\n");
-  if (normalizedLeft === normalizedRight) return true;
-
-  const trimmedLeft = normalizedLeft.endsWith("\n")
-    ? normalizedLeft.slice(0, -1)
-    : normalizedLeft;
-  const trimmedRight = normalizedRight.endsWith("\n")
-    ? normalizedRight.slice(0, -1)
-    : normalizedRight;
-
-  return trimmedLeft === trimmedRight;
-}
 
 type MarkdownEditorProps = {
   value: string;
