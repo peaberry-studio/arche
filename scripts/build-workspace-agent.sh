@@ -28,9 +28,14 @@ detect_platform() {
   echo "$os $arch"
 }
 
-read -r GOOS GOARCH <<EOF
+GOOS="${WORKSPACE_AGENT_GOOS:-}"
+GOARCH="${WORKSPACE_AGENT_GOARCH:-}"
+
+if [[ -z "$GOOS" || -z "$GOARCH" ]]; then
+  read -r GOOS GOARCH <<EOF
 $(detect_platform)
 EOF
+fi
 
 mkdir -p "$OUTPUT_DIR"
 
