@@ -1244,11 +1244,16 @@ describe('chat stream attachments forwarding', () => {
     expect(sseOutput).not.toContain('stream_incomplete')
   })
 
-  it('does not ignore post-response fetch failed session errors in desktop mode', async () => {
+  it('suppresses nested task delegation permission errors and keeps the stream alive', async () => {
     process.env.ARCHE_RUNTIME_MODE = 'desktop'
     process.env.ARCHE_DESKTOP_PLATFORM = 'darwin'
     process.env.ARCHE_DESKTOP_WEB_HOST = '127.0.0.1'
     const encoder = new TextEncoder()
+    const nestedDelegationError =
+      'The user has specified a rule which prevents you from using this specific tool call. ' +
+      'Here are some of the relevant rules ' +
+      '[{"permission":"*","pattern":"*","action":"allow"},{"permission":"task","pattern":"*","action":"allow"},{"permission":"task","pattern":"*","action":"deny"}]'
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input)
@@ -1267,10 +1272,20 @@ describe('chat stream attachments forwarding', () => {
                   'data: {"type":"message.updated","properties":{"info":{"id":"msg-1","role":"assistant","sessionID":"session-1"}}}',
                   '',
                   'event: message',
-                  'data: {"type":"message.part.updated","properties":{"part":{"id":"part-1","type":"text","text":"Hola","messageID":"msg-1","sessionID":"session-1"},"delta":"Hola"}}',
+                  'data: {"type":"message.part.updated","properties":{"part":{"id":"tool-1","type":"tool","tool":"task","callID":"tool-1","messageID":"msg-1","sessionID":"session-1","state":{"status":"error","input":{"subagent_type":"seo","description":"Draft SEO strategy"},"error":"' +
+                    nestedDelegationError.replaceAll('"', '\\"') +
+                    '"}}}}',
                   '',
                   'event: message',
-                  'data: {"type":"session.error","properties":{"error":{"name":"UnknownError","data":{"message":"fetch failed"}},"sessionID":"session-1"}}',
+                  'data: {"type":"session.error","properties":{"error":{"name":"UnknownError","data":{"message":"' +
+                    nestedDelegationError.replaceAll('"', '\\"') +
+                    '"}},"sessionID":"session-1"}}',
+                  '',
+                  'event: message',
+                  'data: {"type":"message.part.updated","properties":{"part":{"id":"part-2","type":"text","text":"I will handle the SEO strategy directly.","messageID":"msg-1","sessionID":"session-1"},"delta":"I will handle the SEO strategy directly."}}',
+                  '',
+                  'event: message',
+                  'data: {"type":"session.status","properties":{"status":{"type":"idle"},"sessionID":"session-1"}}',
                   '',
                   '',
                 ].join('\n'),
@@ -1313,7 +1328,104 @@ describe('chat stream attachments forwarding', () => {
     const sseOutput = await res.text()
 
     expect(sseOutput).toContain('event: part')
+    expect(sseOutput).toContain('event: done')
+    expect(sseOutput).not.toContain('event: error')
+    expect(sseOutput).not.toContain('"status":"error"')
+    expect(sseOutput).not.toContain('The user has specified a rule')
+    expect(sseOutput).toContain('Delegation returned to the main assistant')
+    expect(sseOutput).toContain('I will handle the SEO strategy directly.')
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[chat-stream] Suppressed nested task delegation permission error',
+      expect.objectContaining({
+        errorMessage: nestedDelegationError,
+        sessionId: 'session-1',
+        slug: 'alice',
+      }),
+    )
+  })
+
+  it('falls back to stream_incomplete when a suppressed nested task error does not recover', async () => {
+    process.env.ARCHE_RUNTIME_MODE = 'desktop'
+    process.env.ARCHE_DESKTOP_PLATFORM = 'darwin'
+    process.env.ARCHE_DESKTOP_WEB_HOST = '127.0.0.1'
+    const encoder = new TextEncoder()
+    const nestedDelegationError =
+      'The user has specified a rule which prevents you from using this specific tool call. ' +
+      'Here are some of the relevant rules ' +
+      '[{"permission":"*","pattern":"*","action":"allow"},{"permission":"task","pattern":"*","action":"allow"},{"permission":"task","pattern":"*","action":"deny"}]'
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+
+      if (url.includes('/prompt_async')) {
+        return new Response(null, { status: 204 })
+      }
+
+      if (url.endsWith('/event')) {
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                [
+                  'event: message',
+                  'data: {"type":"message.updated","properties":{"info":{"id":"msg-1","role":"assistant","sessionID":"session-1"}}}',
+                  '',
+                  'event: message',
+                  'data: {"type":"message.part.updated","properties":{"part":{"id":"tool-1","type":"tool","tool":"task","callID":"tool-1","messageID":"msg-1","sessionID":"session-1","state":{"status":"error","input":{"subagent_type":"seo","description":"Draft SEO strategy"},"error":"' +
+                    nestedDelegationError.replaceAll('"', '\\"') +
+                    '"}}}}',
+                  '',
+                  'event: message',
+                  'data: {"type":"session.error","properties":{"error":{"name":"UnknownError","data":{"message":"' +
+                    nestedDelegationError.replaceAll('"', '\\"') +
+                    '"}},"sessionID":"session-1"}}',
+                  '',
+                  'event: message',
+                  'data: {"type":"session.status","properties":{"status":{"type":"idle"},"sessionID":"session-1"}}',
+                  '',
+                  '',
+                ].join('\n'),
+              ),
+            )
+            controller.close()
+          },
+        })
+
+        return new Response(body, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        })
+      }
+
+      throw new Error(`Unexpected fetch url: ${url}`)
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('@/app/api/w/[slug]/chat/stream/route')
+    const req = new Request('http://localhost/api/w/alice/chat/stream', {
+      method: 'POST',
+      headers: {
+        host: 'localhost',
+        origin: 'http://localhost',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        sessionId: 'session-1',
+        text: 'hola',
+      }),
+    })
+
+    const res = await POST(req as never, {
+      params: Promise.resolve({ slug: 'alice' }),
+    })
+
+    expect(res.status).toBe(200)
+    const sseOutput = await res.text()
+
     expect(sseOutput).toContain('event: error')
-    expect(sseOutput).toContain('fetch failed')
+    expect(sseOutput).toContain('stream_incomplete')
+    expect(sseOutput).not.toContain('The user has specified a rule')
+    expect(sseOutput).not.toContain('event: done')
   })
 })

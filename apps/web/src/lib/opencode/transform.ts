@@ -1,4 +1,5 @@
 import type { MessagePart, ToolState } from "@/lib/opencode/types";
+import { shouldSilenceNestedTaskDelegationToolFailure } from "@/lib/workspace-runtime-errors";
 
 /**
  * Internal-only parts that should be completely hidden.
@@ -54,10 +55,22 @@ export function transformParts(parts: unknown[]): MessagePart[] {
               title: String(state?.title ?? toolName),
             };
           } else if (status === "error") {
+            const error = String(state?.error ?? "Unknown error");
+
+            if (
+              shouldSilenceNestedTaskDelegationToolFailure({
+                toolName,
+                input,
+                error,
+              })
+            ) {
+              return null;
+            }
+
             toolState = {
               status: "error",
               input,
-              error: String(state?.error ?? "Unknown error"),
+              error,
             };
           } else if (status === "running") {
             toolState = {

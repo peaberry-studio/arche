@@ -7,6 +7,11 @@ import { instanceService } from '@/lib/services'
 import { INITIAL_SSE_PARSE_STATE, parseSseChunk } from '@/lib/sse-parser'
 import { decryptPassword } from '@/lib/spawner/crypto'
 import {
+  createSilentNestedTaskDelegationState,
+  isNestedTaskDelegationPermissionError,
+  shouldSilenceNestedTaskDelegationToolFailure,
+} from '@/lib/workspace-runtime-errors'
+import {
   isValidContextReferencePath,
   normalizeAttachmentPath,
   normalizeWorkspacePath,
@@ -43,6 +48,11 @@ const MAX_CONTEXT_REFERENCES_PER_MESSAGE = 20
 const STREAM_RELEVANT_EVENT_TICK_MS = 1000
 const SEND_STREAM_RELEVANT_EVENT_TIMEOUT_MS = 20_000
 const RESUME_STREAM_RELEVANT_EVENT_TIMEOUT_MS = 12_000
+
+type StreamedPartSanitizationResult = {
+  isSilentNestedTaskFailure: boolean
+  part: Record<string, unknown>
+}
 
 function jsonErrorResponse(status: number, error: string) {
   return NextResponse.json({ error }, { status })
@@ -185,6 +195,40 @@ function decodeWorkspaceAgentFileContent(data: WorkspaceAgentReadResponse): Buff
   }
 
   return null
+}
+
+function sanitizeStreamedPart(part: Record<string, unknown>): StreamedPartSanitizationResult {
+  if (part.type !== 'tool') {
+    return { isSilentNestedTaskFailure: false, part }
+  }
+
+  const toolName = typeof part.tool === 'string' ? part.tool : 'unknown'
+  const state =
+    part.state && typeof part.state === 'object'
+      ? (part.state as Record<string, unknown>)
+      : null
+
+  if (!state || state.status !== 'error') {
+    return { isSilentNestedTaskFailure: false, part }
+  }
+
+  const input =
+    state.input && typeof state.input === 'object'
+      ? (state.input as Record<string, unknown>)
+      : {}
+  const error = typeof state.error === 'string' ? state.error : undefined
+
+  if (!shouldSilenceNestedTaskDelegationToolFailure({ toolName, input, error })) {
+    return { isSilentNestedTaskFailure: false, part }
+  }
+
+  return {
+    isSilentNestedTaskFailure: true,
+    part: {
+      ...part,
+      state: createSilentNestedTaskDelegationState(input),
+    },
+  }
 }
 
 async function readWorkspaceAttachment(
@@ -496,6 +540,7 @@ export const POST = withAuth(
         let assistantMessageId: string | null = messageId ?? null
         const messageRoles = new Map<string, string>()
         const seenPartMessageIds = new Set<string>()
+        const visibleAssistantPartMessageIds = new Set<string>()
         let assistantMessageSeen = typeof assistantMessageId === 'string'
         let assistantPartSeen = false
         let lastRelevantEventAt = Date.now()
@@ -653,6 +698,15 @@ export const POST = withAuth(
                     const error = event.properties?.error
                     const errorMessage = error?.data?.message || 'Unknown error'
 
+                    if (isNestedTaskDelegationPermissionError(errorMessage)) {
+                      console.warn('[chat-stream] Suppressed nested task delegation permission error', {
+                        errorMessage,
+                        sessionId,
+                        slug,
+                      })
+                      break
+                    }
+
                     emitStatus('error', undefined, errorMessage)
                     sendEvent('error', { error: errorMessage })
                     aborted = true
@@ -671,7 +725,7 @@ export const POST = withAuth(
                     if (info.role === 'assistant') {
                       promptAcknowledged = true
                       assistantMessageSeen = true
-                      if (seenPartMessageIds.has(info.id)) {
+                      if (visibleAssistantPartMessageIds.has(info.id)) {
                         assistantPartSeen = true
                       }
                       sendEvent('assistant-meta', {
@@ -686,9 +740,13 @@ export const POST = withAuth(
                   // Message part updates
                   case 'message.part.updated': {
                     markRelevantEvent()
-                    const part = event.properties?.part
+                    const rawPart = event.properties?.part
                     const delta = event.properties?.delta
-                    if (!part) break
+                    if (!rawPart) break
+
+                    const { part, isSilentNestedTaskFailure } = sanitizeStreamedPart(
+                      rawPart as Record<string, unknown>,
+                    )
 
                     const partMessageId = part.messageID
                     if (typeof partMessageId !== 'string') break
@@ -703,12 +761,18 @@ export const POST = withAuth(
                       ? partMessageId === assistantMessageId
                       : knownRole === 'assistant'
 
+                    if (!isSilentNestedTaskFailure) {
+                      visibleAssistantPartMessageIds.add(partMessageId)
+                    }
+
                     sendEvent('part', { messageId: partMessageId, part, delta })
 
                     if (!isAssistantPart) break
 
                     promptAcknowledged = true
-                    assistantPartSeen = true
+                    if (!isSilentNestedTaskFailure) {
+                      assistantPartSeen = true
+                    }
 
                     switch (part.type) {
                       case 'text': {
@@ -722,13 +786,19 @@ export const POST = withAuth(
                       }
 
                       case 'tool': {
-                        const state = part.state
-                        const toolName = part.tool || 'unknown'
+                        const state =
+                          part.state && typeof part.state === 'object'
+                            ? (part.state as Record<string, unknown>)
+                            : null
+                        const toolName = typeof part.tool === 'string' ? part.tool : 'unknown'
+                        const stateStatus = typeof state?.status === 'string' ? state.status : undefined
+                        const stateTitle = typeof state?.title === 'string' ? state.title : undefined
+                        const stateError = typeof state?.error === 'string' ? state.error : undefined
 
-                        if (state?.status === 'pending' || state?.status === 'running') {
-                          emitStatus('tool-calling', toolName, state.title)
-                        } else if (state?.status === 'error') {
-                          emitStatus('error', toolName, state.error)
+                        if (stateStatus === 'pending' || stateStatus === 'running') {
+                          emitStatus('tool-calling', toolName, stateTitle)
+                        } else if (stateStatus === 'error') {
+                          emitStatus('error', toolName, stateError)
                         } else {
                           emitStatus('thinking')
                         }

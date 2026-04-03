@@ -39,6 +39,7 @@ import type { SessionTabInfo } from "@/components/workspace/chat-panel/types";
 import { workspaceMarkdownComponents } from "@/components/workspace/markdown-components";
 import type { MessagePart } from "@/lib/opencode/types";
 import { cn } from "@/lib/utils";
+import { isNestedTaskDelegationPermissionError } from "@/lib/workspace-runtime-errors";
 import { getWorkspaceToolDisplay } from "@/lib/workspace-tool-display";
 import type { ChatMessage } from "@/types/workspace";
 
@@ -180,8 +181,13 @@ function humanizeChatErrorCode(code: string): string {
   return phrase.charAt(0).toUpperCase() + phrase.slice(1);
 }
 
+function getVisibleErrorDetail(detail?: string): string | undefined {
+  if (!detail) return undefined;
+  return isNestedTaskDelegationPermissionError(detail) ? undefined : detail;
+}
+
 function getChatErrorCopy(detail?: string): { title: string; description?: string } {
-  const source = detail?.trim();
+  const source = getVisibleErrorDetail(detail)?.trim();
   if (!source) {
     return {
       title: "Message failed",
@@ -517,7 +523,9 @@ function DelegationCard({
   onSelectSessionTab?: (id: string) => void;
 }) {
   const getStateError = (state: ToolPart["state"]): string | undefined => {
-    return "error" in state && typeof state.error === "string" ? state.error : undefined;
+    return "error" in state && typeof state.error === "string"
+      ? getVisibleErrorDetail(state.error)
+      : undefined;
   };
 
   return (
@@ -745,7 +753,9 @@ function ToolGroup({
   };
 
   const getStateError = (state: ToolPart["state"]): string | undefined => {
-    return "error" in state && typeof state.error === "string" ? state.error : undefined;
+    return "error" in state && typeof state.error === "string"
+      ? getVisibleErrorDetail(state.error)
+      : undefined;
   };
 
   const toolLabel = getToolLabel(tool, connectorNamesById);
