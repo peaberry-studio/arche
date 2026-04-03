@@ -32,6 +32,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  encodeMarkdownForEditor,
   isEquivalentMarkdown,
   normalizeMarkdownForKb,
 } from "@/components/workspace/markdown-editor-content";
@@ -78,7 +79,7 @@ export function MarkdownEditor({
         },
       }),
     ],
-    content: value,
+    content: encodeMarkdownForEditor(value),
     contentType: "markdown",
     immediatelyRender: false,
     onUpdate: ({ editor }) => {
@@ -101,7 +102,6 @@ export function MarkdownEditor({
     const current = normalizeMarkdownForKb(editor.getMarkdown());
     if (isEquivalentMarkdown(current, value)) return;
 
-    // If the parent is just echoing what we emitted, don't reset editor state.
     if (
       lastEmittedMarkdownRef.current !== null &&
       isEquivalentMarkdown(lastEmittedMarkdownRef.current, value)
@@ -116,7 +116,7 @@ export function MarkdownEditor({
 
     ignoreNextUpdateRef.current = true;
     lastEmittedMarkdownRef.current = value;
-    editor.commands.setContent(value, { contentType: "markdown" });
+    editor.commands.setContent(encodeMarkdownForEditor(value), { contentType: "markdown" });
 
     if (wasAtEnd) {
       editor.commands.focus("end");
