@@ -1,12 +1,23 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { InspectorPanel } from "@/components/workspace/inspector-panel";
 
+const markdownEditorMock = vi.fn(
+  ({ onOpenInternalLink }: { onOpenInternalLink?: (path: string) => void }) => (
+    <div>
+      <button type="button" onClick={() => onOpenInternalLink?.("docs/target.md")}>
+        Open link
+      </button>
+      Markdown editor
+    </div>
+  )
+);
+
 vi.mock("@/components/workspace/markdown-editor", () => ({
-  MarkdownEditor: () => <div>Markdown editor</div>,
+  MarkdownEditor: (props: unknown) => markdownEditorMock(props as { onOpenInternalLink?: (path: string) => void }),
 }));
 
 vi.mock("@/components/workspace/markdown-preview", () => ({
@@ -19,6 +30,7 @@ vi.mock("@/components/workspace/review-panel", () => ({
 
 describe("InspectorPanel", () => {
   beforeEach(() => {
+    markdownEditorMock.mockClear();
     vi.stubGlobal(
       "ResizeObserver",
       class {
@@ -97,5 +109,38 @@ describe("InspectorPanel", () => {
 
     expect(screen.queryByText("Markdown editor")).toBeNull();
     expect(screen.getByText("# Hello")).toBeTruthy();
+  });
+
+  it("passes internal markdown paths and link opener to markdown editor", () => {
+    const onOpenFile = vi.fn();
+
+    render(
+      <InspectorPanel
+        {...defaultProps}
+        openFiles={[
+          {
+            path: "notes.md",
+            title: "notes.md",
+            content: "[[docs/target.md]]",
+            updatedAt: "now",
+            size: "1 KB",
+            kind: "markdown" as const,
+          },
+        ]}
+        activeFilePath="notes.md"
+        internalLinkPaths={["docs/target.md", "docs/other.md"]}
+        onOpenFile={onOpenFile}
+        onSaveFile={vi.fn().mockResolvedValue({ ok: true })}
+      />
+    );
+
+    expect(markdownEditorMock).toHaveBeenCalled();
+    const latestCallProps = markdownEditorMock.mock.calls.at(-1)?.[0] as {
+      internalLinkPaths?: string[];
+    };
+    expect(latestCallProps.internalLinkPaths).toEqual(["docs/target.md", "docs/other.md"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open link" }));
+    expect(onOpenFile).toHaveBeenCalledWith("docs/target.md");
   });
 });

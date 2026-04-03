@@ -863,6 +863,28 @@
     text-decoration-color: hsl(var(--primary) / 0.4);
   }
 
+  .workspace-tiptap .tiptap-editor .kb-internal-link {
+    display: inline-block;
+    cursor: pointer;
+    font-size: 0;
+    line-height: inherit;
+    vertical-align: baseline;
+  }
+
+  .workspace-tiptap .tiptap-editor .kb-internal-link::after {
+    color: hsl(var(--primary));
+    content: attr(data-link-label);
+    font-size: 0.95rem;
+    line-height: inherit;
+    text-decoration-line: underline;
+    text-decoration-color: hsl(var(--primary) / 0.45);
+    text-underline-offset: 2px;
+  }
+
+  .workspace-tiptap .tiptap-editor .kb-internal-link:hover::after {
+    text-decoration-color: hsl(var(--primary) / 0.8);
+  }
+
   .workspace-tiptap .tiptap-editor p.is-editor-empty:first-child::before {
     content: attr(data-placeholder);
     float: left;
