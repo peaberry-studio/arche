@@ -82,4 +82,82 @@ describe('runtime artifacts', () => {
       })
     ).not.toBe(baseHash)
   })
+
+  it('ignores connector gateway token rotation when hashing runtime artifacts', () => {
+    const baseConfig = {
+      $schema: 'https://opencode.ai/config.json',
+      mcp: {
+        arche_linear_1: {
+          type: 'remote',
+          url: 'http://web:3000/api/internal/mcp/connectors/connector-1/mcp',
+          enabled: true,
+          headers: {
+            Authorization: 'Bearer token-one',
+          },
+          oauth: false,
+        },
+      },
+    }
+
+    const rotatedTokenConfig = {
+      ...baseConfig,
+      mcp: {
+        arche_linear_1: {
+          ...baseConfig.mcp.arche_linear_1,
+          headers: {
+            Authorization: 'Bearer token-two',
+          },
+        },
+      },
+    }
+
+    expect(
+      hashWorkspaceRuntimeArtifacts({
+        opencodeConfigContent: JSON.stringify(baseConfig),
+      })
+    ).toBe(
+      hashWorkspaceRuntimeArtifacts({
+        opencodeConfigContent: JSON.stringify(rotatedTokenConfig),
+      })
+    )
+  })
+
+  it('keeps external MCP authorization changes in the runtime hash', () => {
+    const baseConfig = {
+      $schema: 'https://opencode.ai/config.json',
+      mcp: {
+        arche_linear_1: {
+          type: 'remote',
+          url: 'https://mcp.linear.app/mcp',
+          enabled: true,
+          headers: {
+            Authorization: 'Bearer token-one',
+          },
+          oauth: false,
+        },
+      },
+    }
+
+    const updatedAuthConfig = {
+      ...baseConfig,
+      mcp: {
+        arche_linear_1: {
+          ...baseConfig.mcp.arche_linear_1,
+          headers: {
+            Authorization: 'Bearer token-two',
+          },
+        },
+      },
+    }
+
+    expect(
+      hashWorkspaceRuntimeArtifacts({
+        opencodeConfigContent: JSON.stringify(baseConfig),
+      })
+    ).not.toBe(
+      hashWorkspaceRuntimeArtifacts({
+        opencodeConfigContent: JSON.stringify(updatedAuthConfig),
+      })
+    )
+  })
 })

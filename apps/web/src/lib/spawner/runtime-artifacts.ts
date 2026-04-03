@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 
 import { readCommonWorkspaceConfig, readConfigRepoFile } from '@/lib/common-workspace-config-store'
+import { getConnectorGatewayBaseUrl } from '@/lib/connectors/gateway-config'
 import { userService } from '@/lib/services'
 import {
   injectAlwaysOnAgentTools,
@@ -34,6 +35,61 @@ export type WorkspaceRuntimeArtifacts = {
   owner: WorkspaceOwner
   opencodeConfigContent: string
   agentsMd?: string
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function normalizeRuntimeConfigForHash(configContent: string): string {
+  try {
+    const parsed = parseRuntimeConfigContent(configContent)
+    const mcp = parsed.mcp
+    if (!isRecord(mcp)) {
+      return configContent
+    }
+
+    const connectorGatewayBaseUrl = getConnectorGatewayBaseUrl()
+    let changed = false
+    const normalizedMcp = Object.fromEntries(
+      Object.entries(mcp).map(([key, value]) => {
+        if (!isRecord(value)) {
+          return [key, value]
+        }
+
+        const url = value.url
+        const headers = value.headers
+        const normalizedHeaders = isRecord(headers) ? headers : null
+        const authorization = normalizedHeaders?.Authorization
+        if (
+          typeof url !== 'string' ||
+          !url.startsWith(`${connectorGatewayBaseUrl}/`) ||
+          typeof authorization !== 'string' ||
+          !authorization.startsWith('Bearer ')
+        ) {
+          return [key, value]
+        }
+
+        changed = true
+        return [
+          key,
+          {
+            ...value,
+            headers: {
+              ...normalizedHeaders,
+              Authorization: 'Bearer <connector-gateway-token>',
+            },
+          },
+        ]
+      })
+    )
+
+    return changed
+      ? serializeRuntimeConfig({ ...parsed, mcp: normalizedMcp })
+      : configContent
+  } catch {
+    return configContent
+  }
 }
 
 async function getWorkspaceOwner(slug: string): Promise<WorkspaceOwner> {
@@ -119,7 +175,7 @@ export function hashWorkspaceRuntimeArtifacts(input: {
   return createHash('sha256')
     .update(
       JSON.stringify({
-        opencodeConfigContent: input.opencodeConfigContent,
+        opencodeConfigContent: normalizeRuntimeConfigForHash(input.opencodeConfigContent),
         agentsMd: input.agentsMd ?? null,
       })
     )
