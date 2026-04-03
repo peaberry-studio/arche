@@ -1,9 +1,7 @@
 name: Release Desktop
 
 on:
-  push:
-    tags:
-      - "v*.*.*"
+  # Temporarily disabled: releases are published locally only.
   workflow_dispatch:
 
 jobs:
