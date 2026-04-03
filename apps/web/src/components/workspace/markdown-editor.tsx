@@ -35,6 +35,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  encodeMarkdownForEditor,
+  isEquivalentMarkdown,
+  normalizeMarkdownForKb,
+} from "@/components/workspace/markdown-editor-content";
 import type { SaveState } from "@/hooks/use-editor-drafts";
 import {
   buildInternalLinkSuggestions,
@@ -44,28 +49,6 @@ import {
 import { cn } from "@/lib/utils";
 
 const HOVERED_LINK_HIDE_DELAY_MS = 300;
-
-function normalizeMarkdownForKb(value: string): string {
-  return value.replaceAll("\u00A0", " ").replaceAll("&nbsp;", " ");
-}
-
-function isEquivalentMarkdown(left: string, right: string): boolean {
-  if (left === right) return true;
-
-  const normalizedLeft = normalizeMarkdownForKb(left).replaceAll("\r\n", "\n");
-  const normalizedRight = normalizeMarkdownForKb(right).replaceAll("\r\n", "\n");
-  if (normalizedLeft === normalizedRight) return true;
-
-  const trimmedLeft = normalizedLeft.endsWith("\n")
-    ? normalizedLeft.slice(0, -1)
-    : normalizedLeft;
-  const trimmedRight = normalizedRight.endsWith("\n")
-    ? normalizedRight.slice(0, -1)
-    : normalizedRight;
-
-  return trimmedLeft === trimmedRight;
-}
-
 type MarkdownEditorProps = {
   value: string;
   onChange: (next: string) => void;
@@ -308,7 +291,7 @@ export function MarkdownEditor({
         },
       }),
     ],
-    content: value,
+    content: encodeMarkdownForEditor(value),
     contentType: "markdown",
     immediatelyRender: false,
     onUpdate: ({ editor }) => {
@@ -444,7 +427,6 @@ export function MarkdownEditor({
     const current = normalizeMarkdownForKb(editor.getMarkdown());
     if (isEquivalentMarkdown(current, value)) return;
 
-    // If the parent is just echoing what we emitted, don't reset editor state.
     if (
       lastEmittedMarkdownRef.current !== null &&
       isEquivalentMarkdown(lastEmittedMarkdownRef.current, value)
@@ -459,7 +441,7 @@ export function MarkdownEditor({
 
     ignoreNextUpdateRef.current = true;
     lastEmittedMarkdownRef.current = value;
-    editor.commands.setContent(value, { contentType: "markdown" });
+    editor.commands.setContent(encodeMarkdownForEditor(value), { contentType: "markdown" });
 
     if (wasAtEnd) {
       editor.commands.focus("end");
