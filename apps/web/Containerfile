@@ -7,9 +7,6 @@ RUN apt-get update -y \
 RUN corepack enable
 
 FROM base AS deps
-RUN apt-get update -y \
-  && apt-get install -y --no-install-recommends python3 build-essential \
-  && rm -rf /var/lib/apt/lists/*
 COPY package.json pnpm-lock.yaml ./
 RUN NODE_ENV=development pnpm install --frozen-lockfile
 
