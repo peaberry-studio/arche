@@ -33,7 +33,12 @@ export const ObsidianLinkDecorations = Extension.create({
             const { from: selectionFrom, to: selectionTo } = state.selection;
 
             state.doc.descendants((node, pos) => {
+              if (node.type.name === "codeBlock") {
+                return false;
+              }
+
               if (!node.isText || !node.text) return;
+              if (node.marks.some((mark) => mark.type.name === "code")) return;
 
               const links = findObsidianLinks(node.text);
               for (const link of links) {

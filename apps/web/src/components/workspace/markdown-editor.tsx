@@ -256,10 +256,11 @@ export function MarkdownEditor({
 
   const openResolvedInternalLink = useCallback(
     (rawTarget: string) => {
-      if (!onOpenInternalLink) return;
+      if (!onOpenInternalLink) return false;
       const resolved = resolveObsidianLinkTarget(rawTarget, internalLinkPaths);
-      if (!resolved) return;
+      if (!resolved) return false;
       onOpenInternalLink(resolved);
+      return true;
     },
     [internalLinkPaths, onOpenInternalLink]
   );
@@ -314,14 +315,6 @@ export function MarkdownEditor({
         class: "tiptap-editor",
       },
       handleClick: (view, _pos, event) => {
-        const anchor = (event.target as HTMLElement | null)?.closest("a[href]");
-        const href = anchor?.getAttribute("href");
-        if (href) {
-          hideHoveredLink();
-          openResolvedInternalLink(href);
-          return true;
-        }
-
         const linkElement = getInternalLinkElement(event.target);
         if (!linkElement) return false;
 
@@ -331,9 +324,8 @@ export function MarkdownEditor({
         const hoveredLinkState = readHoveredLinkStateFromElement(linkElement, scroller);
         if (!hoveredLinkState) return false;
 
-        if (resolveObsidianLinkTarget(hoveredLinkState.target, internalLinkPaths)) {
+        if (openResolvedInternalLink(hoveredLinkState.target)) {
           hideHoveredLink();
-          openResolvedInternalLink(hoveredLinkState.target);
           return true;
         }
 

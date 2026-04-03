@@ -461,6 +461,20 @@ export function WorkspaceShell({
 
       const containerWidth = getContainerWidth(containerRef.current);
       const nextRightWidth = getDefaultExpandedRightWidth(containerWidth, leftWidth, leftCollapsed);
+
+      if (leftCollapsed) {
+        const minCenter = getMinCenter(containerWidth);
+        const maxRight = Math.max(
+          MIN_RIGHT_PX,
+          containerWidth - COLLAPSED_PANEL_PX - minCenter - 2 * PANEL_GAP
+        );
+
+        setRightWidth(clamp(nextRightWidth, MIN_RIGHT_PX, maxRight));
+        setMinCenterWidth(minCenter);
+
+        return false;
+      }
+
       const fitted = fitWidths(containerWidth, leftWidth, nextRightWidth);
       setLeftWidth(fitted.left);
       setRightWidth(fitted.right);
