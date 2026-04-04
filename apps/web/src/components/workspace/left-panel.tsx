@@ -49,6 +49,7 @@ import type { SyncKbResult } from "@/app/api/instances/[slug]/sync-kb/route";
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import type { AgentCatalogItem } from "@/hooks/use-workspace";
 import type { WorkspaceFileNode, WorkspaceSession } from "@/lib/opencode/types";
+import { getProviderLabel } from "@/lib/providers/catalog";
 import {
   DEFAULT_LEFT_PANEL_STATE,
   getWorkspaceLeftPanelCookieName,
@@ -122,15 +123,6 @@ function connectorStatusInfo(status: ConnectorStatus): { label: string; dotClass
   if (status === "ready") return { label: "Working", dotClassName: "bg-emerald-500" };
   if (status === "pending") return { label: "Pending", dotClassName: "bg-amber-500" };
   return { label: "Not working", dotClassName: "bg-rose-500" };
-}
-
-function providerLabel(providerId: string): string {
-  if (providerId === "openai") return "OpenAI";
-  if (providerId === "anthropic") return "Anthropic";
-  if (providerId === "fireworks") return "Fireworks AI";
-  if (providerId === "openrouter") return "OpenRouter";
-  if (providerId === "opencode") return "OpenCode Zen";
-  return providerId;
 }
 
 // --- Props ---
@@ -1116,7 +1108,7 @@ function ExpandedLeftPanel({
                   {activeProviders.map((provider) => (
                     <div key={provider.providerId} className="flex items-center justify-between rounded-md px-2 py-1.5 text-xs">
                       <div className="min-w-0">
-                        <p className="truncate text-sm text-foreground">{providerLabel(provider.providerId)}</p>
+                        <p className="truncate text-sm text-foreground">{getProviderLabel(provider.providerId)}</p>
                         <p className="text-[11px] text-muted-foreground">
                           {provider.type ?? "api"}
                           {provider.version ? ` · v${provider.version}` : ""}

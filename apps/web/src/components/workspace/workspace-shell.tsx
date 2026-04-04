@@ -87,6 +87,16 @@ const fitWidths = (containerWidth: number, leftWidth: number, rightWidth: number
   return { left: nextLeft, right: nextRight, minCenter };
 };
 
+const getDefaultExpandedRightWidth = (
+  containerWidth: number,
+  leftWidth: number,
+  leftCollapsed: boolean
+) => {
+  const effectiveLeft = leftCollapsed ? COLLAPSED_PANEL_PX : leftWidth;
+  const availableForCenterAndRight = containerWidth - effectiveLeft - 2 * PANEL_GAP;
+  return Math.max(availableForCenterAndRight / 2, MIN_RIGHT_PX);
+};
+
 const getContainerWidth = (container: HTMLDivElement | null) => {
   if (container) {
     return container.getBoundingClientRect().width;
@@ -438,14 +448,45 @@ export function WorkspaceShell({
     setLeftCollapsed((prev) => !prev);
   }, [isCompactLayout]);
 
-  const handleToggleRight = useCallback(() => {
+  const toggleRightPanel = useCallback(() => {
     if (isCompactLayout) {
       setMobileView((prev) => (prev === "right" ? "chat" : "right"));
       return;
     }
 
-    setRightCollapsed((prev) => !prev);
-  }, [isCompactLayout]);
+    setRightCollapsed((previous) => {
+      if (!previous) {
+        return true;
+      }
+
+      const containerWidth = getContainerWidth(containerRef.current);
+      const nextRightWidth = getDefaultExpandedRightWidth(containerWidth, leftWidth, leftCollapsed);
+
+      if (leftCollapsed) {
+        const minCenter = getMinCenter(containerWidth);
+        const maxRight = Math.max(
+          MIN_RIGHT_PX,
+          containerWidth - COLLAPSED_PANEL_PX - minCenter - 2 * PANEL_GAP
+        );
+
+        setRightWidth(clamp(nextRightWidth, MIN_RIGHT_PX, maxRight));
+        setMinCenterWidth(minCenter);
+
+        return false;
+      }
+
+      const fitted = fitWidths(containerWidth, leftWidth, nextRightWidth);
+      setLeftWidth(fitted.left);
+      setRightWidth(fitted.right);
+      setMinCenterWidth(fitted.minCenter);
+
+      return false;
+    });
+  }, [isCompactLayout, leftCollapsed, leftWidth]);
+
+  const handleToggleRight = useCallback(() => {
+    toggleRightPanel();
+  }, [toggleRightPanel]);
 
   const handleShowChat = useCallback(() => {
     setMobileView("chat");
@@ -481,11 +522,7 @@ export function WorkspaceShell({
       if (isKeyB) {
         event.preventDefault();
         if (event.altKey) {
-          if (isCompactLayout) {
-            setMobileView((prev) => (prev === "right" ? "chat" : "right"));
-          } else {
-            setRightCollapsed((prev) => !prev);
-          }
+          toggleRightPanel();
           return;
         }
 
@@ -515,7 +552,7 @@ export function WorkspaceShell({
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [focusSearchInput, handleCreateSession, isCompactLayout]);
+  }, [focusSearchInput, handleCreateSession, isCompactLayout, toggleRightPanel]);
 
   // File viewing state
   const safeInitialFilePath = useMemo(() => {
@@ -723,6 +760,10 @@ export function WorkspaceShell({
   }, [workspace.fileTree]);
 
   const filePathSet = useMemo(() => new Set(flattenedFilePaths), [flattenedFilePaths]);
+  const markdownFilePaths = useMemo(
+    () => flattenedFilePaths.filter((path) => path.toLowerCase().endsWith(".md")),
+    [flattenedFilePaths]
+  );
 
   const normalizePath = useCallback((path: string) => {
     return path.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+/g, "/");
@@ -1348,6 +1389,7 @@ export function WorkspaceShell({
       isLoadingDiffs={workspace.isLoadingDiffs}
       diffsError={workspace.diffsError}
       onOpenFile={handleOpenFile}
+      internalLinkPaths={markdownFilePaths}
       onReloadFile={handleReloadFile}
       onSaveFile={workspaceAgentEnabled ? handleSaveFile : undefined}
       onDiscardFileChanges={workspaceAgentEnabled ? handleDiscardFileChanges : undefined}
@@ -1376,6 +1418,7 @@ export function WorkspaceShell({
       )}
       <ConfigChangeBanner
         pending={configStatus.pending}
+        reason={configStatus.reason}
         restarting={configStatus.restarting}
         restartError={configStatus.restartError}
         onRestart={configStatus.restart}

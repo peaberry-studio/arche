@@ -378,12 +378,12 @@ describe("useWorkspace", () => {
     });
   });
 
-  it("resolves aliased fireworks agent defaults to runtime provider ids", async () => {
+  it("resolves fireworks agent defaults to the canonical provider id", async () => {
     opencodeMocks.listModelsAction.mockResolvedValue({
       ok: true,
       models: [
         {
-          providerId: "fireworks-ai",
+          providerId: "fireworks",
           providerName: "Fireworks AI",
           modelId: "accounts/fireworks/models/glm-5",
           modelName: "GLM-5",
@@ -429,7 +429,7 @@ describe("useWorkspace", () => {
     );
 
     await waitFor(() => {
-      expect(result.current.agentDefaultModel?.providerId).toBe("fireworks-ai");
+      expect(result.current.agentDefaultModel?.providerId).toBe("fireworks");
     });
 
     await act(async () => {
@@ -437,7 +437,7 @@ describe("useWorkspace", () => {
     });
 
     await waitFor(() => {
-      expect(result.current.selectedModel?.providerId).toBe("fireworks-ai");
+      expect(result.current.selectedModel?.providerId).toBe("fireworks");
       expect(result.current.selectedModel?.modelId).toBe(
         "accounts/fireworks/models/glm-5"
       );

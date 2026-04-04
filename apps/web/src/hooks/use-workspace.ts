@@ -20,7 +20,8 @@ import type {
   MessagePart,
 } from "@/lib/opencode/types";
 import { extractTextContent, transformParts } from "@/lib/opencode/transform";
-import { PROVIDERS, type ProviderId } from "@/lib/providers/types";
+import { isProviderId, normalizeProviderId } from "@/lib/providers/catalog";
+import type { ProviderId } from "@/lib/providers/types";
 import { INITIAL_SSE_PARSE_STATE, parseSseChunk } from "@/lib/sse-parser";
 import {
   canAutoResume,
@@ -48,17 +49,9 @@ type ProviderStatusEntry = {
   status: string;
 };
 
-const PROVIDER_ID_ALIASES: Record<string, ProviderId> = {
-  "fireworks-ai": "fireworks",
-};
-
 const STALE_PENDING_ASSISTANT_MS = 5_000;
 const RESUME_POLL_INTERVAL_MS = 4_000;
 const EMPTY_WORKSPACE_MESSAGES: WorkspaceMessage[] = [];
-
-function normalizeProviderId(providerId: string): string {
-  return PROVIDER_ID_ALIASES[providerId] ?? providerId;
-}
 
 function areStatusInfoEqual(
   left: WorkspaceMessage["statusInfo"],
@@ -182,7 +175,7 @@ export function filterModelsByProviderStatus(
 
   return models.filter((model) => {
     const normalizedProviderId = normalizeProviderId(model.providerId);
-    if (!PROVIDERS.includes(normalizedProviderId as ProviderId)) return true;
+    if (!isProviderId(normalizedProviderId)) return true;
     if (normalizedProviderId === "opencode") return true;
     return enabledProviders.has(normalizedProviderId);
   });
@@ -591,9 +584,11 @@ export function useWorkspace({
     (sessionId: string, providerId?: string, modelId?: string) => {
       if (!providerId || !modelId) return;
 
+      const normalizedProviderId = normalizeProviderId(providerId);
+
       updateSessionSelection(sessionId, (current) => {
         if (
-          current.runtimeModel?.providerId === providerId &&
+          current.runtimeModel?.providerId === normalizedProviderId &&
           current.runtimeModel?.modelId === modelId
         ) {
           return current;
@@ -601,7 +596,7 @@ export function useWorkspace({
 
         return {
           ...current,
-          runtimeModel: resolveModelEntry(providerId, modelId, models),
+          runtimeModel: resolveModelEntry(normalizedProviderId, modelId, models),
         };
       });
     },

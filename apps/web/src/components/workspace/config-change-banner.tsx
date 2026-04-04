@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 
 type ConfigChangeBannerProps = {
   pending: boolean;
+  reason: 'config' | 'provider_sync' | null;
   restarting: boolean;
   restartError: string | null;
   onRestart: () => void;
@@ -13,6 +14,7 @@ type ConfigChangeBannerProps = {
 
 export function ConfigChangeBanner({
   pending,
+  reason,
   restarting,
   restartError,
   onRestart,
@@ -28,12 +30,14 @@ export function ConfigChangeBanner({
           : "bg-amber-500 text-white dark:bg-amber-600"
       )}
     >
-      <Warning size={16} weight="bold" className="shrink-0" />
-      <span>
-        {restartError
-          ? `Restart failed: ${restartError}`
-          : "Configuration changes detected — restart to apply"}
-      </span>
+        <Warning size={16} weight="bold" className="shrink-0" />
+        <span>
+          {restartError
+            ? `Restart failed: ${restartError}`
+            : reason === 'provider_sync'
+              ? 'Provider changes need a workspace restart to apply'
+              : 'Configuration changes detected — restart to apply'}
+        </span>
       <button
         type="button"
         onClick={onRestart}

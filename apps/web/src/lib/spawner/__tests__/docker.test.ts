@@ -60,10 +60,8 @@ describe('docker', () => {
   })
 
   describe('createContainer', () => {
-    it('creates container with correct configuration', async () => {
-      const configContent = '{"$schema":"https://opencode.ai/config.json","mcp":{}}'
-
-      await createContainer('user-slug', 'secret-password', configContent)
+    it('creates container with default runtime configuration', async () => {
+      await createContainer('user-slug', 'secret-password')
 
       const configCall = mockWriteFile.mock.calls.find(
         (call: unknown[]) =>
@@ -76,6 +74,7 @@ describe('docker', () => {
           bash?: Record<string, string>
         }
         provider?: {
+          fireworks?: { options?: { baseURL?: string } }
           'fireworks-ai'?: { options?: { baseURL?: string } }
         }
       }
@@ -95,6 +94,9 @@ describe('docker', () => {
         'yarn create*': 'deny',
         'bun init*': 'deny',
       })
+      expect(writtenConfig.provider?.fireworks?.options?.baseURL).toBe(
+        'http://web:3000/api/internal/providers/fireworks'
+      )
       expect(writtenConfig.provider?.['fireworks-ai']?.options?.baseURL).toBe(
         'http://web:3000/api/internal/providers/fireworks'
       )
@@ -149,8 +151,9 @@ describe('docker', () => {
       })
     })
 
-    it('merges existing permission rules with workspace protection', async () => {
+    it('writes the provided runtime config content without mutating it', async () => {
       const configContent = JSON.stringify({
+        $schema: 'https://opencode.ai/config.json',
         permission: {
           bash: {
             '*': 'ask',
@@ -180,13 +183,10 @@ describe('docker', () => {
       expect(writtenConfig.permission?.bash).toMatchObject({
         '*': 'ask',
         'git *': 'allow',
-        'npm install*': 'deny',
       })
       expect(writtenConfig.permission?.edit).toMatchObject({
         '*': 'allow',
         'Company/*': 'allow',
-        '.gitignore': 'deny',
-        '.gitkeep': 'deny',
       })
     })
 

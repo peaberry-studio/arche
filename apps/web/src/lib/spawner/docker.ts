@@ -1,6 +1,4 @@
-import { withWorkspacePermissionGuards } from "@/lib/spawner/runtime-config-utils";
 import { getUserDataHostPath, ensureUserDirectory } from "@/lib/user-data";
-import { toRuntimeProviderId } from "@/lib/providers/types";
 import {
   getContainerSocketPath,
   getContainerProxyUrl,
@@ -9,6 +7,11 @@ import {
   getKbContentHostPath,
   getWorkspaceAgentPort,
 } from "./config";
+import {
+  getDefaultWebRuntimeConfigContent,
+  parseRuntimeConfigContent,
+  serializeRuntimeConfig,
+} from "./runtime-config";
 
 type DockerConstructor = typeof import("dockerode");
 type DockerClient = InstanceType<DockerConstructor>;
@@ -59,49 +62,13 @@ export async function createContainer(
   const opencodeShareVolumeName = `arche-opencode-share-${slug}`;
   const opencodeStateVolumeName = `arche-opencode-state-${slug}`;
 
-  // Configure provider base URLs to route through Arche's internal gateway.
-  // Auth is still managed at runtime via the OpenCode /auth endpoints.
-  const providerGatewayConfig = {
-    provider: {
-      openai: {
-        options: { baseURL: "http://web:3000/api/internal/providers/openai" },
-      },
-      anthropic: {
-        options: {
-          baseURL: "http://web:3000/api/internal/providers/anthropic",
-        },
-      },
-      [toRuntimeProviderId("fireworks")]: {
-        options: {
-          baseURL: "http://web:3000/api/internal/providers/fireworks",
-        },
-      },
-      openrouter: {
-        options: {
-          baseURL: "http://web:3000/api/internal/providers/openrouter",
-        },
-      },
-      opencode: {
-        options: {
-          baseURL: "http://web:3000/api/internal/providers/opencode",
-        },
-      },
-    },
-  };
-
-  // Merge passed-in config (agents, MCP connectors, etc.) with provider gateway
-  const baseConfig: Record<string, unknown> = (() => {
-    if (!opencodeConfigContent) return {};
-    const parsed: unknown = JSON.parse(opencodeConfigContent);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      throw new Error("Invalid opencode config: expected a JSON object");
+  const runtimeConfigContent = (() => {
+    if (!opencodeConfigContent) {
+      return getDefaultWebRuntimeConfigContent();
     }
-    return parsed as Record<string, unknown>;
+
+    return serializeRuntimeConfig(parseRuntimeConfigContent(opencodeConfigContent));
   })();
-  const mergedConfig = withWorkspacePermissionGuards({
-    ...baseConfig,
-    ...providerGatewayConfig,
-  });
 
   // Ensure volumes exist for persistent workspace and OpenCode state
   for (const name of [
@@ -139,7 +106,7 @@ export async function createContainer(
   const opencodeConfigPath = join(userDataPath, "opencode-config.json");
   await writeFile(
     opencodeConfigPath,
-    JSON.stringify(mergedConfig),
+    runtimeConfigContent,
     "utf-8"
   );
   await chmod(opencodeConfigPath, 0o644);

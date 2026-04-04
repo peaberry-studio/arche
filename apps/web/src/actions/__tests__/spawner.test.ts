@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+const mockProviderUpdateMany = vi.fn()
+
 // Mock runtime session
 vi.mock('@/lib/runtime/session', () => ({
   getSession: vi.fn(),
@@ -21,6 +23,9 @@ vi.mock('@/lib/prisma', () => ({
   prisma: {
     user: {
       findUnique: vi.fn(),
+    },
+    providerCredential: {
+      updateMany: (...args: unknown[]) => mockProviderUpdateMany(...args),
     },
   },
 }))
@@ -68,6 +73,7 @@ const adminSession = {
 beforeEach(() => {
   vi.clearAllMocks()
   mockGetKickstartStatus.mockResolvedValue('ready')
+  mockProviderUpdateMany.mockResolvedValue({ count: 0 })
 })
 
 describe('startInstanceAction', () => {
@@ -179,7 +185,7 @@ describe('ensureInstanceRunningAction', () => {
     expect(mockPrisma.user.findUnique).not.toHaveBeenCalled()
   })
 
-  it('skips provider sync when instance just started', async () => {
+  it('syncs providers even when instance just started', async () => {
     mockGetSession.mockResolvedValue(fakeSession)
     mockStatus.mockResolvedValue({
       status: 'running',
@@ -189,7 +195,11 @@ describe('ensureInstanceRunningAction', () => {
     const result = await ensureInstanceRunningAction('alice')
 
     expect(result).toEqual({ status: 'running' })
-    expect(mockSync).not.toHaveBeenCalled()
+    expect(mockSync).toHaveBeenCalledWith({
+      instance: expect.objectContaining({ baseUrl: expect.any(String), authHeader: expect.any(String) }),
+      slug: 'alice',
+      userId: 'user-1',
+    })
   })
 
   it('syncs providers against the workspace owner when admin opens another slug', async () => {
@@ -205,6 +215,20 @@ describe('ensureInstanceRunningAction', () => {
       instance: expect.objectContaining({ baseUrl: expect.any(String), authHeader: expect.any(String) }),
       slug: 'alice',
       userId: 'user-alice',
+    })
+  })
+
+  it('marks a restart as required when provider sync fails', async () => {
+    mockGetSession.mockResolvedValue(fakeSession)
+    mockStatus.mockResolvedValue({ status: 'running' } as never)
+    mockSync.mockResolvedValue({ ok: false, error: 'sync_failed' } as never)
+
+    const result = await ensureInstanceRunningAction('alice')
+
+    expect(result).toEqual({ status: 'running' })
+    expect(mockProviderUpdateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1' },
+      data: { lastError: 'workspace_restart_required' },
     })
   })
 

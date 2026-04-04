@@ -5,6 +5,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 type ConfigStatus = {
   /** Whether there are pending config changes that require a restart */
   pending: boolean;
+  /** Why a restart is pending */
+  reason: 'config' | 'provider_sync' | null;
   /** Whether a restart is currently in progress */
   restarting: boolean;
   /** Error from the last restart attempt, if any */
@@ -17,6 +19,7 @@ const POLL_INTERVAL = 30_000; // 30 seconds
 
 export function useConfigStatus(slug: string, enabled: boolean): ConfigStatus {
   const [pending, setPending] = useState(false);
+  const [reason, setReason] = useState<'config' | 'provider_sync' | null>(null);
   const [restarting, setRestarting] = useState(false);
   const [restartError, setRestartError] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -28,11 +31,16 @@ export function useConfigStatus(slug: string, enabled: boolean): ConfigStatus {
         cache: "no-store",
       });
       if (!res.ok) return;
-      const data = (await res.json()) as { pending?: boolean };
-      if (data.pending) {
+      const data = (await res.json()) as {
+        pending?: boolean;
+        reason?: 'config' | 'provider_sync' | null;
+      };
+      if (data.reason === 'config') {
         stickyPendingRef.current = true;
       }
-      setPending(stickyPendingRef.current || Boolean(data.pending));
+      const nextReason = stickyPendingRef.current ? 'config' : data.reason ?? null;
+      setReason(nextReason);
+      setPending(nextReason !== null || Boolean(data.pending));
     } catch {
       // silent — polling is best-effort
     }
@@ -91,5 +99,11 @@ export function useConfigStatus(slug: string, enabled: boolean): ConfigStatus {
     }
   }, [slug]);
 
-  return { pending: enabled ? pending : false, restarting, restartError, restart };
+  return {
+    pending: enabled ? pending : false,
+    reason: enabled ? reason : null,
+    restarting,
+    restartError,
+    restart,
+  };
 }

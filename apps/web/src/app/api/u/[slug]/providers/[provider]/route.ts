@@ -22,23 +22,26 @@ export interface ProviderCredentialSummary {
 
 export interface CreateProviderCredentialResponse {
   credential: ProviderCredentialSummary
+  restartRequired: boolean
 }
 
 export interface DisableProviderCredentialResponse {
   ok: true
   status: 'disabled' | 'missing'
+  restartRequired: boolean
 }
 
 function isProviderId(value: string): value is ProviderId {
   return PROVIDERS.includes(value as ProviderId)
 }
 
-async function syncProviderAccessBestEffort(slug: string, userId: string): Promise<void> {
+async function syncProviderAccessBestEffort(slug: string, userId: string): Promise<boolean> {
   try {
-    const instance = await instanceService.findServerPasswordBySlug(slug)
+    const instance = await instanceService.findCredentialsBySlug(slug)
 
-    if (!instance) {
-      return
+    if (!instance || instance.status !== 'running') {
+      await providerService.clearWorkspaceRestartRequired(userId)
+      return false
     }
 
     const result = await syncProviderAccessForInstance({
@@ -51,10 +54,18 @@ async function syncProviderAccessBestEffort(slug: string, userId: string): Promi
     })
     if (!result.ok && result.error !== 'instance_unavailable') {
       console.error('[providers] Failed to sync provider access', result.error)
+      await providerService.markWorkspaceRestartRequired(userId)
+      return true
     }
+
+    await providerService.clearWorkspaceRestartRequired(userId)
   } catch (error) {
     console.error('[providers] Failed to sync provider access', error)
+    await providerService.markWorkspaceRestartRequired(userId)
+    return true
   }
+
+  return false
 }
 
 async function getProviderMutationContext(
@@ -141,7 +152,7 @@ export const POST = withAuth<
     apiKey,
   })
 
-  await syncProviderAccessBestEffort(context.targetSlug, context.targetUserId)
+  const restartRequired = await syncProviderAccessBestEffort(context.targetSlug, context.targetUserId)
 
   await auditEvent({
     actorUserId: context.sessionUserId,
@@ -158,6 +169,7 @@ export const POST = withAuth<
         status: 'enabled',
         version: credential.version,
       },
+      restartRequired,
     },
     { status: 201 }
   )
@@ -174,7 +186,7 @@ export const DELETE = withAuth<
 
   const result = await providerService.disableEnabledForProvider(context.targetUserId, context.provider)
 
-  await syncProviderAccessBestEffort(context.targetSlug, context.targetUserId)
+  const restartRequired = await syncProviderAccessBestEffort(context.targetSlug, context.targetUserId)
 
   await auditEvent({
     actorUserId: context.sessionUserId,
@@ -188,6 +200,7 @@ export const DELETE = withAuth<
 
   return NextResponse.json({
     ok: true,
+    restartRequired,
     status: result.count > 0 ? 'disabled' : 'missing',
   })
 })

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { extractPdfText, isPdfMime } from '@/lib/attachments/pdf-text-extractor'
 import { getInstanceUrl } from '@/lib/opencode/client'
+import { normalizeProviderId, resolveRuntimeProviderId } from '@/lib/providers/catalog'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { instanceService } from '@/lib/services'
 import { INITIAL_SSE_PARSE_STATE, parseSseChunk } from '@/lib/sse-parser'
@@ -506,7 +507,12 @@ export const POST = withAuth(
 
           const promptBody = {
             parts: promptParts,
-            ...(model && { model: { providerID: model.providerId, modelID: model.modelId } })
+            ...(model && {
+              model: {
+                providerID: resolveRuntimeProviderId(model.providerId),
+                modelID: model.modelId,
+              },
+            })
           }
 
           const promptUrl = `${baseUrl}/session/${sessionId}/prompt_async`
@@ -729,7 +735,10 @@ export const POST = withAuth(
                         assistantPartSeen = true
                       }
                       sendEvent('assistant-meta', {
-                        providerID: info.providerID,
+                        providerID:
+                          typeof info.providerID === 'string'
+                            ? normalizeProviderId(info.providerID)
+                            : info.providerID,
                         modelID: info.modelID,
                         agent: info.agent
                       })

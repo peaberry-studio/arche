@@ -10,9 +10,13 @@ const mockReadFileSync = vi.fn()
 const mockWriteFileSync = vi.fn()
 const mockRandomBytes = vi.fn()
 
-vi.mock('crypto', () => ({
-  randomBytes: (...args: unknown[]) => mockRandomBytes(...args),
-}))
+vi.mock('crypto', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('crypto')>()
+  return {
+    ...actual,
+    randomBytes: (...args: unknown[]) => mockRandomBytes(...args),
+  }
+})
 
 vi.mock('child_process', () => ({
   spawn: (...args: unknown[]) => mockSpawn(...args),
@@ -38,6 +42,10 @@ vi.mock('@/lib/services', () => ({
     setStopped: vi.fn().mockResolvedValue(undefined),
     findStatusBySlug: vi.fn().mockResolvedValue(null),
     findActiveInstances: vi.fn().mockResolvedValue([]),
+  },
+  providerService: {
+    markWorkspaceRestartRequired: vi.fn().mockResolvedValue({ count: 0 }),
+    clearWorkspaceRestartRequired: vi.fn().mockResolvedValue({ count: 0 }),
   },
   userService: {
     findIdentityBySlug: vi.fn().mockResolvedValue({
@@ -213,7 +221,10 @@ describe('desktopWorkspaceHost', () => {
     await desktopWorkspaceHost.start('local', 'user-1')
 
     const { instanceService } = await import('@/lib/services')
-    expect(instanceService.setRunning).toHaveBeenCalledWith('local', 'runtime-hash')
+    expect(instanceService.setRunning).toHaveBeenCalledWith(
+      'local',
+      expect.stringMatching(/^[a-f0-9]{64}$/)
+    )
   })
 
   it('spawns opencode with serve command and workspace-agent with loopback addr', async () => {
@@ -400,12 +411,16 @@ describe('desktopWorkspaceHost', () => {
       }
       provider?: {
         openai?: { options?: { baseURL?: string } }
+        fireworks?: { options?: { baseURL?: string } }
         'fireworks-ai'?: { options?: { baseURL?: string } }
       }
     }
 
     expect(runtimeConfig.provider?.openai?.options?.baseURL).toBe(
       'http://127.0.0.1:3000/api/internal/providers/openai',
+    )
+    expect(runtimeConfig.provider?.fireworks?.options?.baseURL).toBe(
+      'http://127.0.0.1:3000/api/internal/providers/fireworks',
     )
     expect(runtimeConfig.provider?.['fireworks-ai']?.options?.baseURL).toBe(
       'http://127.0.0.1:3000/api/internal/providers/fireworks',

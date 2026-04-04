@@ -13,6 +13,10 @@ vi.mock('@/components/totp-setup-wizard', () => ({
   TotpSetupWizard: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }))
 
+vi.mock('../workspace-restart-section', () => ({
+  WorkspaceRestartSection: ({ slug }: { slug: string }) => <div>Restart section {slug}</div>,
+}))
+
 describe('SettingsPageContent', () => {
   afterEach(() => {
     cleanup()
@@ -21,6 +25,7 @@ describe('SettingsPageContent', () => {
   it('omits the two-factor section in desktop mode', () => {
     render(
       <SettingsPageContent
+        slug="alice"
         passwordChangeEnabled={false}
         twoFactorEnabled={false}
         enabled={false}
@@ -31,6 +36,7 @@ describe('SettingsPageContent', () => {
     )
 
     expect(screen.getByText('Appearance')).toBeTruthy()
+    expect(screen.getByText('Restart section alice')).toBeTruthy()
     expect(screen.queryByText('Change password')).toBeNull()
     expect(screen.queryByText('Two-factor authentication')).toBeNull()
     expect(screen.queryByText('Set up 2FA')).toBeNull()
@@ -41,6 +47,7 @@ describe('SettingsPageContent', () => {
   it('renders the two-factor section in web mode', () => {
     render(
       <SettingsPageContent
+        slug="alice"
         passwordChangeEnabled={true}
         twoFactorEnabled
         enabled={false}
@@ -51,6 +58,7 @@ describe('SettingsPageContent', () => {
     )
 
     expect(screen.getByRole('heading', { name: 'Change password' })).toBeTruthy()
+    expect(screen.getByText('Restart section alice')).toBeTruthy()
     expect(screen.getByText('Two-factor authentication')).toBeTruthy()
     expect(screen.getByText('Set up 2FA')).toBeTruthy()
   })

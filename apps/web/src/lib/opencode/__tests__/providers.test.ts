@@ -24,7 +24,7 @@ const fakeInstance = {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }))
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('ok', { status: 200 })))
 })
 
 describe('syncProviderAccessForInstance', () => {
@@ -112,6 +112,23 @@ describe('syncProviderAccessForInstance', () => {
 
   it('returns sync_failed on network error', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNREFUSED')))
+
+    mockGetCredential.mockResolvedValue({ id: '1', version: 1 } as never)
+
+    const result = await syncProviderAccessForInstance({
+      instance: fakeInstance,
+      slug: 'alice',
+      userId: 'user-1',
+    })
+
+    expect(result).toEqual({ ok: false, error: 'sync_failed' })
+  })
+
+  it('returns sync_failed when an auth endpoint responds with an error', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(new Response('boom', { status: 500 }))
+    )
 
     mockGetCredential.mockResolvedValue({ id: '1', version: 1 } as never)
 

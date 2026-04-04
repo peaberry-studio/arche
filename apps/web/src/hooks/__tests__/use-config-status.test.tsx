@@ -22,8 +22,8 @@ describe("useConfigStatus", () => {
 
   it("keeps pending as true once changes are detected", async () => {
     fetchMock
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ pending: true }) })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ pending: false }) });
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ pending: true, reason: 'config' }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ pending: false, reason: null }) });
 
     const { result } = renderHook(() => useConfigStatus("alice", true));
 
@@ -45,7 +45,7 @@ describe("useConfigStatus", () => {
   });
 
   it("clears pending when polling is disabled", async () => {
-    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ pending: true }) });
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ pending: true, reason: 'config' }) });
 
     const { result, rerender } = renderHook(
       ({ enabled }) => useConfigStatus("alice", enabled),
@@ -59,5 +59,25 @@ describe("useConfigStatus", () => {
 
     rerender({ enabled: false });
     expect(result.current.pending).toBe(false);
+  });
+
+  it("clears provider sync pending when a later poll succeeds", async () => {
+    fetchMock
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ pending: true, reason: 'provider_sync' }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ pending: false, reason: null }) });
+
+    const { result } = renderHook(() => useConfigStatus("alice", true));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.pending).toBe(true);
+    expect(result.current.reason).toBe('provider_sync');
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(result.current.pending).toBe(false);
+    expect(result.current.reason).toBeNull();
   });
 });

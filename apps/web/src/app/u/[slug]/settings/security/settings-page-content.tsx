@@ -1,10 +1,12 @@
 import { ChangePasswordForm } from './change-password-form'
+import { WorkspaceRestartSection } from './workspace-restart-section'
 import { ThemePicker } from '@/components/dashboard/theme-picker'
 import { TotpSetupWizard } from '@/components/totp-setup-wizard'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 
 type SettingsPageContentProps = {
+  slug: string
   passwordChangeEnabled: boolean
   twoFactorEnabled: boolean
   enabled: boolean
@@ -14,6 +16,7 @@ type SettingsPageContentProps = {
 }
 
 export function SettingsPageContent({
+  slug,
   passwordChangeEnabled,
   twoFactorEnabled,
   enabled,
@@ -36,6 +39,10 @@ export function SettingsPageContent({
             Choose a theme for the dashboard.
           </p>
           <ThemePicker />
+        </section>
+
+        <section className="space-y-4 rounded-lg border border-border/60 bg-card/50 p-6">
+          <WorkspaceRestartSection slug={slug} />
         </section>
 
         {passwordChangeEnabled ? (
