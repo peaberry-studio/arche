@@ -101,6 +101,9 @@ bash scripts/create-local-release.sh --major
 
 # explicit version
 bash scripts/create-local-release.sh --version 0.7.0
+
+# if local DMG validation is flaky on your machine
+bash scripts/create-local-release.sh --skip-validation
 ```
 
 Signing and notarization resolution:
@@ -108,6 +111,7 @@ Signing and notarization resolution:
 - signing uses a local `Developer ID Application` identity from the macOS keychain when present
 - notarization prefers a local `notarytool` keychain profile named `arche-notary`
 - if that profile is not present, the script falls back to the standard local environment variables supported by `electron-builder`
+- before packaging each architecture, the script refreshes arch-specific desktop dependencies so bundled binaries match the release target
 
 One-time setup for the default local notary profile:
 

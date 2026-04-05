@@ -8,14 +8,18 @@ DESKTOP_DIR="$ROOT_DIR/apps/desktop"
 RELEASE_DIR="$DESKTOP_DIR/release"
 DEFAULT_KEYCHAIN_PROFILE="arche-notary"
 VERSION_MODE="patch"
+VERSION_MODE_EXPLICIT=0
 MANUAL_VERSION=""
 RELEASE_VERSION=""
 RELEASE_TAG=""
 ASSET_DIR=""
+SKIP_VALIDATION=0
+TAG_CREATED=0
+TAG_PUSHED=0
 
 usage() {
   cat <<'EOF'
-Usage: bash scripts/create-local-release.sh [--major | --minor | --patch | --version X.Y.Z]
+Usage: bash scripts/create-local-release.sh [--major | --minor | --patch | --version X.Y.Z] [--skip-validation]
 
 Builds the macOS desktop release locally, creates a Git tag, and publishes the
 DMG and ZIP assets to a GitHub Release.
@@ -25,6 +29,7 @@ Options:
   --minor            Bump the latest GitHub release version by minor.
   --patch            Bump the latest GitHub release version by patch (default).
   --version X.Y.Z    Publish an explicit version.
+  --skip-validation  Skip final stapler/spctl validation of the generated DMGs.
   --help             Show this help message.
 EOF
 }
@@ -167,6 +172,16 @@ validate_dmg() {
   spctl -a -vv -t open --context context:primary-signature "$dmg_path" >/dev/null
 }
 
+sync_desktop_dependencies_for_arch() {
+  local arch="$1"
+
+  printf '==> Refreshing desktop dependencies for %s\n' "$arch"
+  (
+    cd "$DESKTOP_DIR"
+    npm_config_arch="$arch" pnpm rebuild electron dugite
+  )
+}
+
 build_arch() {
   local arch="$1"
   local runtime_platform=""
@@ -185,6 +200,8 @@ build_arch() {
       fail "Unsupported architecture: $arch"
       ;;
   esac
+
+  sync_desktop_dependencies_for_arch "$arch"
 
   printf '==> Preparing runtime binaries for %s\n' "$arch"
   NODE_RUNTIME_PLATFORM="$runtime_platform" \
@@ -211,14 +228,20 @@ parse_args() {
     case "$1" in
       --major|--minor|--patch)
         [[ -z "$MANUAL_VERSION" ]] || fail 'Cannot combine --version with an automatic bump mode.'
+        [[ "$VERSION_MODE_EXPLICIT" == '0' ]] || fail 'Specify only one of --major, --minor, or --patch.'
         VERSION_MODE="${1#--}"
+        VERSION_MODE_EXPLICIT=1
         shift
         ;;
       --version)
         [[ $# -ge 2 ]] || fail 'Missing value for --version'
-        [[ "$VERSION_MODE" == 'patch' ]] || fail 'Cannot combine --version with --major, --minor, or --patch.'
+        [[ "$VERSION_MODE_EXPLICIT" == '0' ]] || fail 'Cannot combine --version with --major, --minor, or --patch.'
         MANUAL_VERSION="$2"
         shift 2
+        ;;
+      --skip-validation)
+        SKIP_VALIDATION=1
+        shift
         ;;
       --help)
         usage
@@ -231,9 +254,40 @@ parse_args() {
   done
 }
 
+cleanup() {
+  local exit_code="$1"
+
+  if [[ -n "$ASSET_DIR" && -d "$ASSET_DIR" ]]; then
+    rm -rf "$ASSET_DIR"
+  fi
+
+  if [[ "$exit_code" -eq 0 || "$TAG_CREATED" != '1' ]]; then
+    return
+  fi
+
+  if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+    printf '==> GitHub release %s exists after failure; leaving Git tag in place\n' "$RELEASE_TAG" >&2
+    return
+  fi
+
+  printf '==> Cleaning up failed release tag %s\n' "$RELEASE_TAG" >&2
+
+  if [[ "$TAG_PUSHED" == '1' ]]; then
+    if ! git push origin ":refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+      printf 'Warning: failed to delete remote tag %s\n' "$RELEASE_TAG" >&2
+    fi
+  fi
+
+  if ! git tag -d "$RELEASE_TAG" >/dev/null 2>&1; then
+    printf 'Warning: failed to delete local tag %s\n' "$RELEASE_TAG" >&2
+  fi
+}
+
 create_git_tag() {
   git tag -a "$RELEASE_TAG" -m "Release $RELEASE_TAG"
+  TAG_CREATED=1
   git push origin "$RELEASE_TAG"
+  TAG_PUSHED=1
 }
 
 create_github_release() {
@@ -282,7 +336,7 @@ main() {
 
   RELEASE_TAG="v$RELEASE_VERSION"
   ASSET_DIR="$(mktemp -d)"
-  trap 'rm -rf "$ASSET_DIR"' EXIT
+  trap 'status=$?; cleanup "$status"; trap - EXIT; exit "$status"' EXIT
 
   printf '==> Latest published release: %s\n' "$latest_tag"
   printf '==> Releasing version: %s\n' "$RELEASE_TAG"
@@ -294,7 +348,9 @@ main() {
     fail "Git tag already exists on origin: $RELEASE_TAG"
   gh release view "$RELEASE_TAG" >/dev/null 2>&1 && fail "GitHub release already exists: $RELEASE_TAG"
 
-  corepack enable >/dev/null 2>&1 || true
+  if command -v corepack >/dev/null 2>&1; then
+    corepack enable >/dev/null
+  fi
 
   printf '==> Installing dependencies\n'
   (
@@ -331,8 +387,12 @@ main() {
   build_arch 'arm64'
   build_arch 'x64'
 
-  validate_dmg "$ASSET_DIR/Arche-$RELEASE_VERSION-arm64.dmg"
-  validate_dmg "$ASSET_DIR/Arche-$RELEASE_VERSION.dmg"
+  if [[ "$SKIP_VALIDATION" == '1' ]]; then
+    printf '==> Skipping DMG validation\n'
+  else
+    validate_dmg "$ASSET_DIR/Arche-$RELEASE_VERSION-arm64.dmg"
+    validate_dmg "$ASSET_DIR/Arche-$RELEASE_VERSION.dmg"
+  fi
 
   printf '==> Creating and pushing Git tag %s\n' "$RELEASE_TAG"
   create_git_tag
