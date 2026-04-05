@@ -29,7 +29,7 @@ Options:
   --minor            Bump the latest GitHub release version by minor.
   --patch            Bump the latest GitHub release version by patch (default).
   --version X.Y.Z    Publish an explicit version.
-  --skip-validation  Skip final stapler/spctl validation of the generated DMGs.
+  --skip-validation  Skip final stapler/spctl validation of the generated app bundles.
   --help             Show this help message.
 EOF
 }
@@ -138,38 +138,38 @@ sign_runtime_binaries() {
 
 copy_release_assets() {
   local arch="$1"
-  local files=()
-  local file_path
+  local dmg_path=""
+  local zip_path=""
+  local published_dmg_name=""
 
   case "$arch" in
     arm64)
-      files=(
-        "$RELEASE_DIR/Arche-$RELEASE_VERSION-arm64.dmg"
-        "$RELEASE_DIR/Arche-$RELEASE_VERSION-arm64-mac.zip"
-      )
+      dmg_path="$RELEASE_DIR/Arche-$RELEASE_VERSION-arm64.dmg"
+      zip_path="$RELEASE_DIR/Arche-$RELEASE_VERSION-arm64-mac.zip"
+      published_dmg_name='Arche-arm64.dmg'
       ;;
     x64)
-      files=(
-        "$RELEASE_DIR/Arche-$RELEASE_VERSION.dmg"
-        "$RELEASE_DIR/Arche-$RELEASE_VERSION-mac.zip"
-      )
+      dmg_path="$RELEASE_DIR/Arche-$RELEASE_VERSION.dmg"
+      zip_path="$RELEASE_DIR/Arche-$RELEASE_VERSION-mac.zip"
+      published_dmg_name='Arche-x64.dmg'
       ;;
     *)
       fail "Unsupported architecture: $arch"
       ;;
   esac
 
-  for file_path in "${files[@]}"; do
-    [[ -f "$file_path" ]] || fail "Expected release asset not found: $file_path"
-    cp "$file_path" "$ASSET_DIR/"
-  done
+  [[ -f "$dmg_path" ]] || fail "Expected release asset not found: $dmg_path"
+  [[ -f "$zip_path" ]] || fail "Expected release asset not found: $zip_path"
+
+  cp "$dmg_path" "$ASSET_DIR/$published_dmg_name"
+  cp "$zip_path" "$ASSET_DIR/"
 }
 
-validate_dmg() {
-  local dmg_path="$1"
+validate_app_bundle() {
+  local app_path="$1"
 
-  xcrun stapler validate "$dmg_path" >/dev/null
-  spctl -a -vv -t open --context context:primary-signature "$dmg_path" >/dev/null
+  xcrun stapler validate "$app_path" >/dev/null
+  spctl -a -vv "$app_path" >/dev/null
 }
 
 sync_desktop_dependencies_for_arch() {
@@ -388,10 +388,10 @@ main() {
   build_arch 'x64'
 
   if [[ "$SKIP_VALIDATION" == '1' ]]; then
-    printf '==> Skipping DMG validation\n'
+    printf '==> Skipping app bundle validation\n'
   else
-    validate_dmg "$ASSET_DIR/Arche-$RELEASE_VERSION-arm64.dmg"
-    validate_dmg "$ASSET_DIR/Arche-$RELEASE_VERSION.dmg"
+    validate_app_bundle "$RELEASE_DIR/mac-arm64/Arche.app"
+    validate_app_bundle "$RELEASE_DIR/mac/Arche.app"
   fi
 
   printf '==> Creating and pushing Git tag %s\n' "$RELEASE_TAG"
