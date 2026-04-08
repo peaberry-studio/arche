@@ -1,12 +1,14 @@
-import type { ConnectorType } from '@/lib/connectors/types'
+import { CONNECTOR_TYPES, type ConnectorType } from '@/lib/connectors/types'
 
 const CONNECTOR_TYPE_LABELS: Record<ConnectorType, string> = {
   linear: 'Linear',
   notion: 'Notion',
+  zendesk: 'Zendesk',
   custom: 'Custom Connector',
 }
 
-const CONNECTOR_TOOL_NAME_PATTERN = /^arche_(linear|notion|custom)_([^_]+)_(.+)$/
+const CONNECTOR_TYPE_PATTERN = CONNECTOR_TYPES.join('|')
+const CONNECTOR_TOOL_NAME_PATTERN = new RegExp(`^arche_(${CONNECTOR_TYPE_PATTERN})_([^_]+)_(.+)$`)
 
 export type WorkspaceToolDisplay = {
   isConnectorTool: boolean

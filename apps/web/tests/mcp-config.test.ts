@@ -48,9 +48,27 @@ describe('mcp-config', () => {
           oauth: { provider: 'custom', clientId: 'client-custom', accessToken: 'custom_oauth_token' },
         }),
       },
+      {
+        id: 'z1',
+        type: 'zendesk',
+        name: 'Zendesk',
+        enabled: true,
+        config: encryptConfig({
+          subdomain: 'acme',
+          email: 'agent@example.com',
+          apiToken: 'zendesk-token',
+        }),
+      },
     ]
 
-    const result = buildMcpConfigFromConnectors(connectors)
+    const result = buildMcpConfigFromConnectors(connectors, {
+      gatewayTargets: {
+        z1: {
+          url: 'http://web:3000/api/internal/mcp/connectors/z1/mcp',
+          token: 'gateway-token-z1',
+        },
+      },
+    })
 
     expect(result.mcp.arche_linear_c1).toEqual({
       type: 'remote',
@@ -92,6 +110,16 @@ describe('mcp-config', () => {
         'X-Workspace': 'acme',
         Authorization: 'Bearer custom_oauth_token',
       },
+    })
+
+    expect(result.mcp.arche_zendesk_z1).toEqual({
+      type: 'remote',
+      url: 'http://web:3000/api/internal/mcp/connectors/z1/mcp',
+      enabled: true,
+      headers: {
+        Authorization: 'Bearer gateway-token-z1',
+      },
+      oauth: false,
     })
   })
 
@@ -186,7 +214,7 @@ describe('mcp-config', () => {
     ]
 
     const result = buildMcpConfigFromConnectors(connectors, {
-      oauthGatewayTargets: {
+      gatewayTargets: {
         'custom-oauth-1': {
           url: 'http://web:3000/api/internal/mcp/connectors/custom-oauth-1/mcp',
           token: 'gateway-token',

@@ -231,7 +231,7 @@ export const PATCH = withAuth<
       return NextResponse.json(
         {
           error: 'invalid_config',
-          message: `Missing required fields: ${configValidation.missing?.join(', ')}`,
+          message: configValidation.message ?? `Missing required fields: ${configValidation.missing?.join(', ')}`,
         },
         { status: 400 }
       )

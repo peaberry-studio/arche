@@ -1,4 +1,4 @@
-import type { ConnectorType } from '@/lib/connectors/types'
+import { CONNECTOR_TYPES, type ConnectorType } from '@/lib/connectors/types'
 
 export const OPENCODE_AGENT_TOOLS = [
   'write',
@@ -59,7 +59,8 @@ export type ConnectorCapabilityRecord = {
 }
 
 const TOOL_SET = new Set<string>(OPENCODE_AGENT_TOOLS)
-export const MCP_TOOL_PATTERN = /^arche_(linear|notion|custom)_([a-z0-9]+)_\*$/
+const CONNECTOR_TYPE_PATTERN = CONNECTOR_TYPES.join('|')
+export const MCP_TOOL_PATTERN = new RegExp(`^arche_(${CONNECTOR_TYPE_PATTERN})_([a-z0-9]+)_\\*$`)
 
 function buildMcpServerKey(type: ConnectorType, id: string): string {
   return `arche_${type}_${id}`

@@ -35,11 +35,12 @@ describe('agent-capabilities', () => {
     const config = buildAgentToolsConfigFromCapabilities(
       {
         tools: ['read', 'grep'],
-        mcpConnectorIds: ['cntr1'],
+        mcpConnectorIds: ['cntr1', 'cntr3'],
       },
       [
         { id: 'cntr1', type: 'linear', enabled: true },
         { id: 'cntr2', type: 'notion', enabled: true },
+        { id: 'cntr3', type: 'zendesk', enabled: true },
       ]
     )
 
@@ -48,6 +49,7 @@ describe('agent-capabilities', () => {
     expect(config.write).toBe(false)
     expect(config['arche_*']).toBe(false)
     expect(config['arche_linear_cntr1_*']).toBe(true)
+    expect(config['arche_zendesk_cntr3_*']).toBe(true)
     expect(config['arche_notion_cntr2_*']).toBeUndefined()
   })
 
@@ -57,12 +59,13 @@ describe('agent-capabilities', () => {
       grep: true,
       write: false,
       'arche_*': false,
+      'arche_zendesk_conn456_*': true,
       'arche_custom_conn123_*': true,
     })
 
     expect(capabilities).toEqual({
       tools: ['grep', 'read'],
-      mcpConnectorIds: ['conn123'],
+      mcpConnectorIds: ['conn123', 'conn456'],
     })
   })
 })

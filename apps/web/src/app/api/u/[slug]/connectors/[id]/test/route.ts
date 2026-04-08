@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { decryptConfig } from '@/lib/connectors/crypto'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
+import { parseZendeskConnectorConfig, testZendeskConnection } from '@/lib/connectors/zendesk'
 import { refreshConnectorOAuthConfigIfNeeded } from '@/lib/connectors/oauth-refresh'
 import type { ConnectorType } from '@/lib/connectors/types'
 import { validateConnectorType } from '@/lib/connectors/validators'
@@ -43,6 +44,7 @@ function getAccessToken(type: ConnectorType, config: Record<string, unknown>): s
     case 'linear':
     case 'notion':
       return typeof config.apiKey === 'string' ? config.apiKey : null
+    case 'zendesk':
     case 'custom':
       return null
   }
@@ -65,6 +67,10 @@ function getMcpServerUrl(type: ConnectorType, config: Record<string, unknown>): 
 
   if (type === 'notion') {
     return process.env.ARCHE_CONNECTOR_NOTION_MCP_URL || MCP_SERVER_URLS.notion
+  }
+
+  if (type === 'zendesk') {
+    return null
   }
 
   return typeof config.endpoint === 'string' ? config.endpoint : null
@@ -131,6 +137,28 @@ async function testConnection(
 ): Promise<TestConnectionResult> {
   try {
     switch (type) {
+      case 'zendesk': {
+        const parsed = parseZendeskConnectorConfig(config)
+        if (!parsed.ok) {
+          return {
+            ok: false,
+            tested: false,
+            message: parsed.message ?? `Missing required fields: ${parsed.missing?.join(', ')}`,
+          }
+        }
+
+        const response = await testZendeskConnection(parsed.value)
+        if (!response.ok) {
+          return {
+            ok: false,
+            tested: true,
+            message: response.message,
+          }
+        }
+
+        return { ok: true, tested: true, message: 'Zendesk connection verified.' }
+      }
+
       case 'notion': {
         if (isOAuthPending(type, config)) {
           return {

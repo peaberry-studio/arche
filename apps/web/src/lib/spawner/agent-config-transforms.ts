@@ -1,6 +1,8 @@
 import { MCP_TOOL_PATTERN } from '@/lib/agent-capabilities'
+import { CONNECTOR_TYPES } from '@/lib/connectors/types'
 
-const MCP_SERVER_KEY_PATTERN = /^arche_(linear|notion|custom)_([a-z0-9]+)$/
+const CONNECTOR_TYPE_PATTERN = CONNECTOR_TYPES.join('|')
+const MCP_SERVER_KEY_PATTERN = new RegExp(`^arche_(${CONNECTOR_TYPE_PATTERN})_([a-z0-9]+)$`)
 const ALWAYS_ENABLED_TOOLS = ['email_draft'] as const
 
 function isToolMap(value: unknown): value is Record<string, boolean> {

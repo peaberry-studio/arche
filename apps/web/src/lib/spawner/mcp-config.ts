@@ -2,6 +2,7 @@ import { decryptConfig } from '@/lib/connectors/crypto'
 import { getConnectorGatewayBaseUrl } from '@/lib/connectors/gateway-config'
 import { issueConnectorGatewayToken } from '@/lib/connectors/gateway-tokens'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
+import { parseZendeskConnectorConfig } from '@/lib/connectors/zendesk'
 import type { ConnectorType } from '@/lib/connectors/types'
 import { validateConnectorConfig, validateConnectorType } from '@/lib/connectors/validators'
 
@@ -54,7 +55,7 @@ export function buildMcpServerKey(type: ConnectorType, id: string): string {
 
 export function buildMcpConfigFromConnectors(
   connectors: ConnectorRecord[],
-  options?: { oauthGatewayTargets?: Record<string, GatewayTarget> },
+  options?: { gatewayTargets?: Record<string, GatewayTarget> },
 ): McpConfig {
   const mcp: Record<string, McpServerConfig> = {}
 
@@ -77,7 +78,7 @@ export function buildMcpConfigFromConnectors(
     switch (connector.type) {
       case 'notion':
         if (getConnectorAuthType(config) === 'oauth') {
-          const gatewayTarget = options?.oauthGatewayTargets?.[connector.id]
+          const gatewayTarget = options?.gatewayTargets?.[connector.id]
           if (gatewayTarget) {
             mcp[key] = {
               type: 'remote',
@@ -119,7 +120,7 @@ export function buildMcpConfigFromConnectors(
 
       case 'linear':
         if (getConnectorAuthType(config) === 'oauth') {
-          const gatewayTarget = options?.oauthGatewayTargets?.[connector.id]
+          const gatewayTarget = options?.gatewayTargets?.[connector.id]
           if (gatewayTarget) {
             mcp[key] = {
               type: 'remote',
@@ -171,7 +172,7 @@ export function buildMcpConfigFromConnectors(
           const headers = toStringRecord(config.headers)
           const mergedHeaders = { ...(headers ?? {}) }
 
-          const gatewayTarget = options?.oauthGatewayTargets?.[connector.id]
+          const gatewayTarget = options?.gatewayTargets?.[connector.id]
           if (gatewayTarget) {
             mergedHeaders.Authorization = `Bearer ${gatewayTarget.token}`
             mcp[key] = {
@@ -214,6 +215,23 @@ export function buildMcpConfigFromConnectors(
         break
       }
 
+      case 'zendesk': {
+        const parsed = parseZendeskConnectorConfig(config)
+        const gatewayTarget = options?.gatewayTargets?.[connector.id]
+        if (!parsed.ok || !gatewayTarget) break
+
+        mcp[key] = {
+          type: 'remote',
+          url: gatewayTarget.url,
+          enabled: true,
+          headers: {
+            Authorization: `Bearer ${gatewayTarget.token}`,
+          },
+          oauth: false,
+        }
+        break
+      }
+
       default:
         break
     }
@@ -230,7 +248,7 @@ export async function buildMcpConfigForSlug(slug: string): Promise<McpConfig | n
 
   const connectors = await connectorService.findEnabledMcpByUserId(user.id)
 
-  const oauthGatewayTargets: Record<string, GatewayTarget> = {}
+  const gatewayTargets: Record<string, GatewayTarget> = {}
   const gatewayBase = getConnectorGatewayBaseUrl()
 
   for (const connector of connectors) {
@@ -243,6 +261,21 @@ export async function buildMcpConfigForSlug(slug: string): Promise<McpConfig | n
       continue
     }
 
+    if (connector.type === 'zendesk') {
+      const parsed = parseZendeskConnectorConfig(config)
+      if (!parsed.ok) continue
+
+      gatewayTargets[connector.id] = {
+        url: `${gatewayBase}/${connector.id}/mcp`,
+        token: issueConnectorGatewayToken({
+          userId: user.id,
+          workspaceSlug: slug,
+          connectorId: connector.id,
+        }),
+      }
+      continue
+    }
+
     if (getConnectorAuthType(config) !== 'oauth') continue
     const oauth = getConnectorOAuthConfig(connector.type, config)
     if (!oauth?.accessToken) continue
@@ -251,7 +284,7 @@ export async function buildMcpConfigForSlug(slug: string): Promise<McpConfig | n
       continue
     }
 
-    oauthGatewayTargets[connector.id] = {
+    gatewayTargets[connector.id] = {
       url: `${gatewayBase}/${connector.id}/mcp`,
       token: issueConnectorGatewayToken({
         userId: user.id,
@@ -262,7 +295,7 @@ export async function buildMcpConfigForSlug(slug: string): Promise<McpConfig | n
   }
 
   const config = buildMcpConfigFromConnectors(connectors, {
-    oauthGatewayTargets,
+    gatewayTargets,
   })
   return Object.keys(config.mcp).length ? config : null
 }
