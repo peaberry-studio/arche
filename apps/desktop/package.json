@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Arche Desktop — local AI workspace",
+  "author": "Peaberry Studio",
   "main": "dist/main.js",
   "scripts": {
     "prepare:runtime": "bash ../../scripts/prepare-desktop-runtime.sh",

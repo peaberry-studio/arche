@@ -1,3 +1,14 @@
+const hasKeychainNotarization = Boolean(process.env.APPLE_KEYCHAIN_PROFILE)
+const hasAppleIdNotarization = Boolean(
+  process.env.APPLE_ID && process.env.APPLE_APP_SPECIFIC_PASSWORD && process.env.APPLE_TEAM_ID,
+)
+const hasApiKeyNotarization = Boolean(
+  process.env.APPLE_API_KEY && process.env.APPLE_API_KEY_ID && process.env.APPLE_API_ISSUER,
+)
+
+const macNotarize =
+  hasKeychainNotarization || hasAppleIdNotarization || hasApiKeyNotarization
+
 /** @type {import('electron-builder').Configuration} */
 module.exports = {
   appId: 'com.arche.desktop',
@@ -56,9 +67,7 @@ module.exports = {
     target: ['dmg', 'zip'],
     hardenedRuntime: true,
     gatekeeperAssess: false,
-    notarize: process.env.APPLE_TEAM_ID
-      ? { teamId: process.env.APPLE_TEAM_ID }
-      : false,
+    notarize: macNotarize,
   },
   linux: {
     category: 'Development',

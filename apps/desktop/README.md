@@ -72,3 +72,54 @@ From repository root:
 ```bash
 bash scripts/build-desktop.sh
 ```
+
+## Local GitHub Release
+
+To build the signed/notarized macOS release locally and publish the assets to GitHub:
+
+```bash
+bash scripts/create-local-release.sh
+```
+
+Default behavior:
+
+1. reads the latest published GitHub release tag
+2. bumps the next version as a patch release
+3. builds both `arm64` and `x64` macOS artifacts locally
+4. creates and pushes the Git tag
+5. creates the GitHub Release and uploads the DMG and ZIP assets
+
+Supported version options:
+
+```bash
+# default: patch bump
+bash scripts/create-local-release.sh
+
+# explicit bump type
+bash scripts/create-local-release.sh --minor
+bash scripts/create-local-release.sh --major
+
+# explicit version
+bash scripts/create-local-release.sh --version 0.7.0
+
+# if local DMG validation is flaky on your machine
+bash scripts/create-local-release.sh --skip-validation
+```
+
+Signing and notarization resolution:
+
+- signing uses a local `Developer ID Application` identity from the macOS keychain when present
+- notarization prefers a local `notarytool` keychain profile named `arche-notary`
+- if that profile is not present, the script falls back to the standard local environment variables supported by `electron-builder`
+- before packaging each architecture, the script refreshes arch-specific desktop dependencies so bundled binaries match the release target
+
+One-time setup for the default local notary profile:
+
+```bash
+xcrun notarytool store-credentials "arche-notary" \
+  --apple-id "<your-apple-id>" \
+  --team-id "<your-team-id>" \
+  --password "<your-app-specific-password>"
+```
+
+If you prefer a different profile name, set `APPLE_KEYCHAIN_PROFILE` before running the script.

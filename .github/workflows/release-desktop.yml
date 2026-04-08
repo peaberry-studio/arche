@@ -1,9 +1,7 @@
 name: Release Desktop
 
 on:
-  push:
-    tags:
-      - "v*.*.*"
+  # Temporarily disabled: releases are published locally only.
   workflow_dispatch:
 
 jobs:
@@ -15,10 +13,11 @@ jobs:
         include:
           - runner: macos-14
             arch: arm64
-          - runner: macos-14
+          - runner: macos-13
             arch: x64
 
     runs-on: ${{ matrix.runner }}
+    environment: desktop-release-signing
     permissions:
       contents: read
 
@@ -45,9 +44,16 @@ jobs:
 
       - name: Install desktop dependencies
         working-directory: apps/desktop
+        env:
+          npm_config_arch: ${{ matrix.arch }}
         run: pnpm install --frozen-lockfile
 
       - name: Prepare runtime binaries
+        env:
+          NODE_RUNTIME_PLATFORM: ${{ matrix.arch == 'x64' && 'darwin-x64' || 'darwin-arm64' }}
+          OPENCODE_PLATFORM: ${{ matrix.arch == 'x64' && 'darwin-x64' || 'darwin-arm64' }}
+          WORKSPACE_AGENT_GOOS: darwin
+          WORKSPACE_AGENT_GOARCH: ${{ matrix.arch == 'x64' && 'amd64' || 'arm64' }}
         run: bash scripts/prepare-desktop-runtime.sh
 
       - name: Generate Prisma clients
@@ -101,10 +107,23 @@ jobs:
           # to treat it as a file path and fail with "not a file".
           INPUT_CSC_LINK: ${{ secrets.CSC_LINK }}
           INPUT_CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          INPUT_APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          INPUT_APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          INPUT_APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           INPUT_APPLE_ID: ${{ secrets.APPLE_ID }}
           INPUT_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           INPUT_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          APPLE_API_KEY_FILE=""
+
+          cleanup() {
+            if [ -n "$APPLE_API_KEY_FILE" ] && [ -f "$APPLE_API_KEY_FILE" ]; then
+              rm -f "$APPLE_API_KEY_FILE"
+            fi
+          }
+
+          trap cleanup EXIT
+
           # When a real signing certificate is provided, use it and prevent
           # electron-builder from picking up unrelated keychain identities.
           # Otherwise, let electron-builder fall back to proper ad-hoc signing
@@ -114,11 +133,27 @@ jobs:
             export CSC_KEY_PASSWORD="$INPUT_CSC_KEY_PASSWORD"
             export CSC_IDENTITY_AUTO_DISCOVERY=false
           fi
-          if [ -n "$INPUT_APPLE_ID" ]; then
+
+          # Prefer App Store Connect API keys over Apple ID credentials.
+          if [ -n "$INPUT_APPLE_API_KEY" ]; then
+            if [ -z "$INPUT_APPLE_API_KEY_ID" ] || [ -z "$INPUT_APPLE_API_ISSUER" ]; then
+              echo "::error::APPLE_API_KEY requires APPLE_API_KEY_ID and APPLE_API_ISSUER"
+              exit 1
+            fi
+
+            APPLE_API_KEY_FILE="$(mktemp)"
+            chmod 600 "$APPLE_API_KEY_FILE"
+            printf '%s' "$INPUT_APPLE_API_KEY" > "$APPLE_API_KEY_FILE"
+
+            export APPLE_API_KEY="$APPLE_API_KEY_FILE"
+            export APPLE_API_KEY_ID="$INPUT_APPLE_API_KEY_ID"
+            export APPLE_API_ISSUER="$INPUT_APPLE_API_ISSUER"
+          elif [ -n "$INPUT_APPLE_ID" ]; then
             export APPLE_ID="$INPUT_APPLE_ID"
             export APPLE_APP_SPECIFIC_PASSWORD="$INPUT_APPLE_APP_SPECIFIC_PASSWORD"
             export APPLE_TEAM_ID="$INPUT_APPLE_TEAM_ID"
           fi
+
           pnpm exec electron-builder --mac --${{ matrix.arch }} --publish never --config electron-builder.config.js
 
       - name: Upload artifacts
@@ -132,7 +167,7 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    if: always() && startsWith(github.ref, 'refs/tags/v') && !cancelled()
+    if: startsWith(github.ref, 'refs/tags/v') && !cancelled()
     needs: build-macos
     runs-on: ubuntu-latest
     permissions:
@@ -149,12 +184,17 @@ jobs:
       - name: Verify release assets exist
         run: |
           shopt -s nullglob
-          files=(artifacts/*.{dmg,zip})
-          if [[ ${#files[@]} -eq 0 ]]; then
-            echo "::error::No DMG or ZIP artifacts found — all builds must have failed"
+          dmgs=(artifacts/*.dmg)
+          zips=(artifacts/*.zip)
+          arm64_dmgs=(artifacts/*-arm64.dmg)
+          arm64_zips=(artifacts/*-arm64-mac.zip)
+
+          if [[ ${#dmgs[@]} -ne 2 || ${#zips[@]} -ne 2 || ${#arm64_dmgs[@]} -ne 1 || ${#arm64_zips[@]} -ne 1 ]]; then
+            echo "::error::Expected both arm64 and x64 DMG/ZIP assets before publishing"
             exit 1
           fi
-          echo "Found ${#files[@]} release asset(s):"
+
+          echo "Found complete macOS release asset set:"
           ls -lh artifacts/
 
       - name: Create GitHub Release
