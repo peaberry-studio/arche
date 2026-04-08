@@ -456,6 +456,18 @@ function openVaultLauncherProcess(): DesktopApiResult {
   return launchElectronProcess({ mode: 'launcher', vaultPath: null })
 }
 
+function quitLauncherProcess(): DesktopApiResult {
+  if (currentVault) {
+    return { ok: false, error: 'launcher_not_active' }
+  }
+
+  setTimeout(() => {
+    app.quit()
+  }, 0)
+
+  return { ok: true }
+}
+
 async function pickDirectory(options: {
   title: string
   defaultPath?: string | null
@@ -539,6 +551,7 @@ function registerDesktopIpcHandlers(): void {
   ipcMain.handle('desktop:open-existing-vault', async () => openExistingVaultFromDialog())
   ipcMain.handle('desktop:open-vault', async (_event, vaultPath: string) => launchVaultProcess(vaultPath))
   ipcMain.handle('desktop:open-vault-launcher', async () => openVaultLauncherProcess())
+  ipcMain.handle('desktop:quit-launcher-process', async () => quitLauncherProcess())
 }
 
 function resolveStartupVault(): DesktopVault | null {

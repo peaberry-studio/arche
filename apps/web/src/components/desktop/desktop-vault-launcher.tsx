@@ -13,6 +13,12 @@ import {
 } from '@/lib/runtime/desktop/client'
 
 const DEFAULT_VAULT_NAME = 'Arche'
+const LAUNCHER_CLOSE_DELAY_MS = 900
+
+type LauncherStatus = {
+  title: string
+  description: string
+}
 
 function getPathSeparator(): string {
   return getDesktopPlatform() === 'win32' ? '\\' : '/'
@@ -47,6 +53,8 @@ function getDesktopActionError(error: string): string {
       return 'Arche could not create the vault.'
     case 'vault_launch_failed':
       return 'Arche could not launch the selected vault.'
+    case 'launcher_not_active':
+      return 'The launcher is no longer active in this window.'
     default:
       return error
   }
@@ -62,12 +70,20 @@ async function handleDesktopAction(action: () => Promise<DesktopApiResult>): Pro
   return message || null
 }
 
+async function closeLauncherAfterSuccess(): Promise<void> {
+  const result = await getDesktopBridge().quitLauncherProcess()
+  if (!result.ok) {
+    throw new Error(getDesktopActionError(result.error) || result.error)
+  }
+}
+
 export function DesktopVaultLauncher() {
   const [vaultName, setVaultName] = useState(DEFAULT_VAULT_NAME)
   const [parentPath, setParentPath] = useState('')
   const [recentVaults, setRecentVaults] = useState<DesktopVaultSummary[]>([])
   const [isBusy, setIsBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [status, setStatus] = useState<LauncherStatus | null>(null)
 
   const previewPath = useMemo(() => joinPreviewPath(parentPath, vaultName), [parentPath, vaultName])
 
@@ -100,9 +116,19 @@ export function DesktopVaultLauncher() {
     }
   }
 
+  async function finishSuccessfulLaunch(nextStatus: LauncherStatus) {
+    setStatus(nextStatus)
+    await new Promise((resolve) => window.setTimeout(resolve, LAUNCHER_CLOSE_DELAY_MS))
+    await closeLauncherAfterSuccess()
+  }
+
   async function handleCreateVault() {
     setIsBusy(true)
     setError(null)
+    setStatus({
+      title: 'Creating vault...',
+      description: 'Arche is preparing the folder, database, repos, and runtime for the new vault.',
+    })
 
     try {
       const nextError = await handleDesktopAction(() =>
@@ -111,7 +137,20 @@ export function DesktopVaultLauncher() {
           name: vaultName,
         }),
       )
-      setError(nextError)
+
+      if (nextError) {
+        setStatus(null)
+        setError(nextError)
+        return
+      }
+
+      await finishSuccessfulLaunch({
+        title: 'Vault created',
+        description: 'Opening the new vault in its own Arche window...',
+      })
+    } catch (launchError) {
+      setStatus(null)
+      setError(launchError instanceof Error ? launchError.message : 'Arche could not close the launcher.')
     } finally {
       setIsBusy(false)
     }
@@ -120,10 +159,27 @@ export function DesktopVaultLauncher() {
   async function handleOpenExistingVault() {
     setIsBusy(true)
     setError(null)
+    setStatus({
+      title: 'Opening vault...',
+      description: 'Arche will validate the selected folder and open it in a dedicated window.',
+    })
 
     try {
       const nextError = await handleDesktopAction(() => getDesktopBridge().openExistingVault())
-      setError(nextError)
+
+      if (nextError) {
+        setStatus(null)
+        setError(nextError)
+        return
+      }
+
+      await finishSuccessfulLaunch({
+        title: 'Opening vault...',
+        description: 'The selected vault is being opened in a new Arche window...',
+      })
+    } catch (launchError) {
+      setStatus(null)
+      setError(launchError instanceof Error ? launchError.message : 'Arche could not close the launcher.')
     } finally {
       setIsBusy(false)
     }
@@ -133,12 +189,56 @@ export function DesktopVaultLauncher() {
     setIsBusy(true)
     setError(null)
 
+    const vault = recentVaults.find((entry) => entry.path === vaultPath)
+    setStatus({
+      title: 'Opening vault...',
+      description: vault
+        ? `Opening ${vault.name} in a dedicated Arche window...`
+        : 'Opening the selected vault in a dedicated Arche window...',
+    })
+
     try {
       const nextError = await handleDesktopAction(() => getDesktopBridge().openVault(vaultPath))
-      setError(nextError)
+
+      if (nextError) {
+        setStatus(null)
+        setError(nextError)
+        return
+      }
+
+      await finishSuccessfulLaunch({
+        title: 'Opening vault...',
+        description: vault
+          ? `${vault.name} is being opened in a new Arche window...`
+          : 'The selected vault is being opened in a new Arche window...',
+      })
+    } catch (launchError) {
+      setStatus(null)
+      setError(launchError instanceof Error ? launchError.message : 'Arche could not close the launcher.')
     } finally {
       setIsBusy(false)
     }
+  }
+
+  if (status) {
+    return (
+      <main className="mx-auto flex min-h-screen max-w-4xl items-center justify-center px-6 py-10">
+        <section className="w-full max-w-2xl rounded-3xl border border-border/60 bg-card/70 p-10 text-center shadow-sm backdrop-blur">
+          <div className="space-y-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-primary/80">Desktop Vaults</p>
+            <h1 className="type-display text-4xl leading-tight text-foreground sm:text-5xl">
+              {status.title}
+            </h1>
+            <p className="mx-auto max-w-xl text-sm text-muted-foreground sm:text-base">
+              {status.description}
+            </p>
+            <div className="mx-auto mt-6 h-1.5 w-40 overflow-hidden rounded-full bg-muted/60">
+              <div className="h-full w-2/5 animate-pulse rounded-full bg-primary" />
+            </div>
+          </div>
+        </section>
+      </main>
+    )
   }
 
   return (
