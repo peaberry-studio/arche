@@ -1,7 +1,8 @@
-import { app, BrowserWindow, dialog, session, shell } from 'electron'
+import { spawn as spawnChildProcess } from 'child_process'
 import { randomBytes } from 'crypto'
+import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron'
 import { exec as dugiteExecRaw, resolveGitBinary } from 'dugite'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { dirname, join } from 'path'
 
@@ -13,18 +14,50 @@ import {
 } from './runtime-binaries'
 import { findAvailablePort } from './runtime-network'
 import { probeHttpServerReady, RuntimeSupervisor } from './runtime-supervisor'
+import { acquireVaultLock, getVaultLockState, type VaultLockHandle } from './vault-lock'
+import { buildLaunchArgs, resolveLaunchContext, type DesktopLaunchContext } from './vault-launch'
+import {
+  clearLastOpenedVault,
+  getRecentVaults,
+  readVaultRegistry,
+  rememberVault,
+  type RecentVaultEntry,
+} from './vault-registry'
+import { createVaultManifest, tryReadVault, type DesktopVault } from './vault-manifest'
 
 const DEFAULT_DESKTOP_WEB_PORT = 3000
 const LOOPBACK_HOST = '127.0.0.1'
 const DESKTOP_TOKEN_HEADER = 'x-arche-desktop-token'
 const DESKTOP_GIT_AUTHOR_NAME = 'Arche Workspace'
 const DESKTOP_GIT_AUTHOR_EMAIL = 'workspace@arche.local'
+const DEFAULT_NEW_VAULT_NAME = 'Arche'
+const DESKTOP_RUNTIME_DATA_DIR = 'runtime/opencode'
+const LOCAL_USER_SLUG = 'local'
+
+type DesktopApiResult =
+  | { ok: true }
+  | { ok: false; error: string }
+
+type CreateVaultArgs = {
+  parentPath: string
+  name: string
+}
+
+type DesktopVaultSummary = {
+  id: string
+  name: string
+  path: string
+  lastOpenedAt?: string
+}
 
 let mainWindow: BrowserWindow | null = null
 let nextSupervisor: RuntimeSupervisor | null = null
 let nextPort = DEFAULT_DESKTOP_WEB_PORT
 let runtimeShutdownRequested = false
 let desktopApiToken = ''
+let launchContext: DesktopLaunchContext = { mode: 'launcher', vaultPath: null }
+let currentVault: DesktopVault | null = null
+let vaultLock: VaultLockHandle | null = null
 
 function generateDesktopApiToken(): string {
   return randomBytes(32).toString('base64url')
@@ -40,15 +73,25 @@ function getNextUrl(): string {
 
 function getWebAppDir(): string {
   if (app.isPackaged) {
-    // Next.js standalone output in a monorepo preserves the full directory
-    // structure, so server.js lives under apps/web/ within the standalone tree.
     return join(process.resourcesPath, 'web', 'apps', 'web')
   }
   return join(__dirname, '..', '..', 'web')
 }
 
-function getDataDir(): string {
-  return process.env.ARCHE_DATA_DIR || join(app.getPath('home'), '.arche')
+function getDesktopMetadataDir(): string {
+  return app.getPath('userData')
+}
+
+function getCurrentVaultPath(): string | null {
+  return currentVault?.path ?? null
+}
+
+function getCurrentVaultTitle(): string {
+  return currentVault ? `Arche - ${currentVault.name}` : 'Arche'
+}
+
+function getRuntimeDataDir(vaultPath: string): string {
+  return join(vaultPath, DESKTOP_RUNTIME_DATA_DIR)
 }
 
 function resolveDesktopOpencodeConfigDir(): string | null {
@@ -73,7 +116,7 @@ function resolveDesktopOpencodeConfigDir(): string | null {
 }
 
 function ensureIsolatedDesktopGitEnvironment(): void {
-  const gitConfigDir = join(getDataDir(), 'git')
+  const gitConfigDir = join(getDesktopMetadataDir(), 'git')
   if (!existsSync(gitConfigDir)) {
     mkdirSync(gitConfigDir, { recursive: true })
   }
@@ -98,18 +141,15 @@ function ensureIsolatedDesktopGitEnvironment(): void {
 }
 
 function setDesktopEnv(): void {
-  const dataDir = getDataDir()
-
   process.env.ARCHE_RUNTIME_MODE = 'desktop'
   process.env.ARCHE_DESKTOP_PLATFORM = process.platform
+  process.env.ARCHE_DESKTOP_WEB_HOST = LOOPBACK_HOST
   if (app.isPackaged) {
     process.env.NODE_ENV = 'production'
   }
   if (!process.env.ARCHE_RELEASE_VERSION) {
     process.env.ARCHE_RELEASE_VERSION = app.getVersion()
   }
-  process.env.ARCHE_DATA_DIR = dataDir
-  process.env.ARCHE_DESKTOP_WEB_HOST = LOOPBACK_HOST
 
   const opencodeConfigDir = resolveDesktopOpencodeConfigDir()
   if (opencodeConfigDir) {
@@ -118,7 +158,22 @@ function setDesktopEnv(): void {
     delete process.env.ARCHE_OPENCODE_CONFIG_DIR
   }
 
-  ensureDesktopEncryptionKey({ dataDir })
+  if (currentVault) {
+    process.env.ARCHE_DATA_DIR = currentVault.path
+    process.env.ARCHE_OPENCODE_DATA_DIR = getRuntimeDataDir(currentVault.path)
+    process.env.ARCHE_DESKTOP_VAULT_ID = currentVault.id
+    process.env.ARCHE_DESKTOP_VAULT_NAME = currentVault.name
+    process.env.ARCHE_DESKTOP_VAULT_PATH = currentVault.path
+    ensureDesktopEncryptionKey({ dataDir: currentVault.path })
+  } else {
+    delete process.env.ARCHE_DATA_DIR
+    delete process.env.ARCHE_OPENCODE_DATA_DIR
+    delete process.env.ARCHE_DESKTOP_VAULT_ID
+    delete process.env.ARCHE_DESKTOP_VAULT_NAME
+    delete process.env.ARCHE_DESKTOP_VAULT_PATH
+    delete process.env.ARCHE_ENCRYPTION_KEY
+  }
+
   ensureIsolatedDesktopGitEnvironment()
 
   desktopApiToken = generateDesktopApiToken()
@@ -128,9 +183,7 @@ function setDesktopEnv(): void {
 async function dugiteExec(args: string[], cwd: string): Promise<string> {
   const result = await dugiteExecRaw(args, cwd)
   if (result.exitCode !== 0) {
-    throw new Error(
-      `git ${args[0]} failed (exit ${result.exitCode}): ${result.stderr}`,
-    )
+    throw new Error(`git ${args[0]} failed (exit ${result.exitCode}): ${result.stderr}`)
   }
   return result.stdout
 }
@@ -141,25 +194,6 @@ function injectBundledGitIntoPath(): void {
   process.env.PATH = `${gitBinDir}${sep}${process.env.PATH || ''}`
 }
 
-async function ensureDataDirectories(): Promise<void> {
-  const dataDir = getDataDir()
-  const dirs = [
-    dataDir,
-    join(dataDir, 'kb-config'),
-    join(dataDir, 'kb-content'),
-    join(dataDir, 'users'),
-  ]
-
-  for (const dir of dirs) {
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true })
-    }
-  }
-
-  await ensureBareRepo(join(dataDir, 'kb-config'))
-  await ensureBareRepo(join(dataDir, 'kb-content'))
-}
-
 async function ensureBareRepo(dir: string): Promise<void> {
   if (existsSync(join(dir, 'HEAD'))) {
     return
@@ -167,7 +201,6 @@ async function ensureBareRepo(dir: string): Promise<void> {
 
   await dugiteExec(['init', '--bare', dir], '.')
 
-  // Create an initial empty commit so the repo has a valid HEAD
   const tmpClone = join(mkdtempSync(join(tmpdir(), 'arche-init-')), 'repo')
   try {
     await dugiteExec(['clone', dir, tmpClone], '.')
@@ -177,6 +210,51 @@ async function ensureBareRepo(dir: string): Promise<void> {
   } finally {
     rmSync(join(tmpClone, '..'), { recursive: true, force: true })
   }
+}
+
+async function ensureWorkspaceRepo(vaultPath: string): Promise<void> {
+  const workspaceDir = join(vaultPath, 'workspace')
+  const kbContentDir = join(vaultPath, 'kb-content')
+
+  if (!existsSync(workspaceDir)) {
+    mkdirSync(workspaceDir, { recursive: true })
+  }
+
+  if (!existsSync(join(workspaceDir, '.git'))) {
+    await dugiteExec(['init', '-b', 'main', workspaceDir], vaultPath)
+    await dugiteExec(['commit', '--allow-empty', '-m', 'Initial commit'], workspaceDir)
+  }
+
+  try {
+    const currentUrl = (await dugiteExec(['remote', 'get-url', 'kb'], workspaceDir)).trim()
+    if (currentUrl !== kbContentDir) {
+      await dugiteExec(['remote', 'set-url', 'kb', kbContentDir], workspaceDir)
+    }
+  } catch {
+    await dugiteExec(['remote', 'add', 'kb', kbContentDir], workspaceDir)
+  }
+}
+
+async function ensureVaultDataDirectories(vault: DesktopVault): Promise<void> {
+  const dirs = [
+    vault.path,
+    join(vault.path, 'kb-config'),
+    join(vault.path, 'kb-content'),
+    join(vault.path, 'workspace'),
+    join(vault.path, 'users', LOCAL_USER_SLUG),
+    getRuntimeDataDir(vault.path),
+    join(vault.path, 'secrets'),
+  ]
+
+  for (const dir of dirs) {
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true })
+    }
+  }
+
+  await ensureBareRepo(join(vault.path, 'kb-config'))
+  await ensureBareRepo(join(vault.path, 'kb-content'))
+  await ensureWorkspaceRepo(vault.path)
 }
 
 function resetDesktopDevNextArtifacts(): void {
@@ -271,7 +349,7 @@ function createWindow(): void {
     height: 800,
     minWidth: 800,
     minHeight: 600,
-    title: 'Arche',
+    title: getCurrentVaultTitle(),
     backgroundColor: '#f7f4ef',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : undefined,
     trafficLightPosition: process.platform === 'darwin' ? { x: 12, y: 12 } : undefined,
@@ -283,12 +361,11 @@ function createWindow(): void {
     },
   })
 
-  mainWindow.loadURL(getNextUrl())
+  void mainWindow.loadURL(getNextUrl())
 
-  // Open external links in the default browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http://') || url.startsWith('https://')) {
-      shell.openExternal(url)
+      void shell.openExternal(url)
     }
     return { action: 'deny' }
   })
@@ -306,7 +383,201 @@ async function shutdownDesktopRuntime(): Promise<void> {
   await nextSupervisor.stop()
 }
 
+function toDesktopVaultSummary(vault: DesktopVault): DesktopVaultSummary {
+  return {
+    id: vault.id,
+    name: vault.name,
+    path: vault.path,
+  }
+}
+
+function toRecentVaultSummary(entry: RecentVaultEntry): DesktopVaultSummary {
+  return {
+    id: entry.id,
+    name: entry.name,
+    path: entry.path,
+    lastOpenedAt: entry.lastOpenedAt,
+  }
+}
+
+function getRecentVaultSummaries(): DesktopVaultSummary[] {
+  return getRecentVaults(getDesktopMetadataDir()).map(toRecentVaultSummary)
+}
+
+function validateVaultName(rawName: string): string {
+  const name = rawName.trim() || DEFAULT_NEW_VAULT_NAME
+  if (name === '.' || name === '..') {
+    throw new Error('Vault name is invalid')
+  }
+  if (/[\\/]/.test(name)) {
+    throw new Error('Vault name cannot contain path separators')
+  }
+  return name
+}
+
+function getVaultAlreadyOpenError(vaultPath: string): string {
+  const state = getVaultLockState(vaultPath)
+  return state.locked ? 'vault_already_open' : 'vault_launch_failed'
+}
+
+function launchElectronProcess(nextContext: DesktopLaunchContext): DesktopApiResult {
+  try {
+    const args = buildLaunchArgs(process.argv.slice(1), nextContext)
+    const child = spawnChildProcess(process.execPath, args, {
+      detached: true,
+      stdio: 'ignore',
+    })
+    child.unref()
+    return { ok: true }
+  } catch {
+    return { ok: false, error: 'vault_launch_failed' }
+  }
+}
+
+function launchVaultProcess(vaultPath: string): DesktopApiResult {
+  const vault = tryReadVault(vaultPath)
+  if (!vault) {
+    return { ok: false, error: 'invalid_vault' }
+  }
+
+  if (vault.path === getCurrentVaultPath()) {
+    return { ok: false, error: 'vault_already_open' }
+  }
+
+  if (getVaultLockState(vault.path).locked) {
+    return { ok: false, error: getVaultAlreadyOpenError(vault.path) }
+  }
+
+  rememberVault(getDesktopMetadataDir(), vault)
+  return launchElectronProcess({ mode: 'vault', vaultPath: vault.path })
+}
+
+function openVaultLauncherProcess(): DesktopApiResult {
+  return launchElectronProcess({ mode: 'launcher', vaultPath: null })
+}
+
+async function pickDirectory(options: {
+  title: string
+  defaultPath?: string | null
+  createDirectory?: boolean
+}): Promise<string | null> {
+  const dialogOptions = {
+    title: options.title,
+    defaultPath: options.defaultPath ?? undefined,
+    properties: options.createDirectory ? ['openDirectory', 'createDirectory'] : ['openDirectory'],
+  } satisfies Electron.OpenDialogOptions
+
+  const result = mainWindow
+    ? await dialog.showOpenDialog(mainWindow, dialogOptions)
+    : await dialog.showOpenDialog(dialogOptions)
+
+  if (result.canceled) {
+    return null
+  }
+
+  return result.filePaths[0] ?? null
+}
+
+async function createVault(args: CreateVaultArgs): Promise<DesktopApiResult> {
+  const parentPath = args.parentPath.trim()
+  if (!parentPath || !existsSync(parentPath)) {
+    return { ok: false, error: 'parent_directory_not_found' }
+  }
+
+  let name: string
+  try {
+    name = validateVaultName(args.name)
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'invalid_vault_name' }
+  }
+
+  const vaultPath = join(parentPath, name)
+  let createdVaultDir = false
+  if (existsSync(vaultPath)) {
+    const entries = readdirSync(vaultPath)
+    if (entries.length > 0) {
+      return { ok: false, error: 'vault_directory_exists' }
+    }
+  } else {
+    mkdirSync(vaultPath)
+    createdVaultDir = true
+  }
+
+  try {
+    const vault = createVaultManifest(vaultPath, name)
+    await ensureVaultDataDirectories(vault)
+    rememberVault(getDesktopMetadataDir(), vault)
+    return launchElectronProcess({ mode: 'vault', vaultPath: vault.path })
+  } catch {
+    if (createdVaultDir) {
+      rmSync(vaultPath, { recursive: true, force: true })
+    }
+    return { ok: false, error: 'vault_create_failed' }
+  }
+}
+
+async function openExistingVaultFromDialog(): Promise<DesktopApiResult> {
+  const selectedPath = await pickDirectory({ title: 'Open Arche vault' })
+  if (!selectedPath) {
+    return { ok: false, error: 'cancelled' }
+  }
+
+  return launchVaultProcess(selectedPath)
+}
+
+function registerDesktopIpcHandlers(): void {
+  ipcMain.handle('desktop:list-recent-vaults', () => getRecentVaultSummaries())
+  ipcMain.handle('desktop:get-current-vault', () => (currentVault ? toDesktopVaultSummary(currentVault) : null))
+  ipcMain.handle('desktop:pick-vault-parent-directory', async () => {
+    return pickDirectory({
+      title: 'Choose a location for the new vault',
+      defaultPath: app.getPath('documents'),
+      createDirectory: true,
+    })
+  })
+  ipcMain.handle('desktop:create-vault', async (_event, args: CreateVaultArgs) => createVault(args))
+  ipcMain.handle('desktop:open-existing-vault', async () => openExistingVaultFromDialog())
+  ipcMain.handle('desktop:open-vault', async (_event, vaultPath: string) => launchVaultProcess(vaultPath))
+  ipcMain.handle('desktop:open-vault-launcher', async () => openVaultLauncherProcess())
+}
+
+function resolveStartupVault(): DesktopVault | null {
+  const metadataDir = getDesktopMetadataDir()
+  const registry = readVaultRegistry(metadataDir)
+  launchContext = resolveLaunchContext(process.argv.slice(1), registry.lastOpenedVaultPath)
+
+  if (launchContext.mode === 'launcher') {
+    return null
+  }
+
+  const vault = tryReadVault(launchContext.vaultPath)
+  if (!vault) {
+    if (registry.lastOpenedVaultPath === launchContext.vaultPath) {
+      clearLastOpenedVault(metadataDir, launchContext.vaultPath)
+    }
+    launchContext = { mode: 'launcher', vaultPath: null }
+    return null
+  }
+
+  rememberVault(metadataDir, vault)
+  return vault
+}
+
 app.whenReady().then(async () => {
+  currentVault = resolveStartupVault()
+
+  if (currentVault) {
+    vaultLock = acquireVaultLock(currentVault.path)
+    if (!vaultLock) {
+      dialog.showErrorBox(
+        'Arche',
+        `The vault "${currentVault.name}" is already open in another Arche process.`,
+      )
+      currentVault = null
+      launchContext = { mode: 'launcher', vaultPath: null }
+    }
+  }
+
   try {
     setDesktopEnv()
   } catch (error) {
@@ -317,7 +588,18 @@ app.whenReady().then(async () => {
   }
 
   injectBundledGitIntoPath()
-  await ensureDataDirectories()
+
+  if (currentVault) {
+    try {
+      await ensureVaultDataDirectories(currentVault)
+    } catch (error) {
+      console.error('Failed to initialize vault data directories:', error)
+      dialog.showErrorBox('Arche', 'Failed to initialize the selected vault.')
+      app.quit()
+      return
+    }
+  }
+
   resetDesktopDevNextArtifacts()
   await initializeDesktopWebPort()
 
@@ -341,6 +623,7 @@ app.whenReady().then(async () => {
   }
 
   installTokenHeaderInjection()
+  registerDesktopIpcHandlers()
   createWindow()
 
   app.on('activate', () => {
@@ -361,6 +644,8 @@ app.on('before-quit', (event) => {
     runtimeShutdownRequested = true
     event.preventDefault()
     void shutdownDesktopRuntime().finally(() => {
+      vaultLock?.release()
+      vaultLock = null
       app.quit()
     })
   }

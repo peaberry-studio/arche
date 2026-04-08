@@ -9,6 +9,7 @@ import type { SyncKbResult } from "@/app/api/instances/[slug]/sync-kb/route";
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { useWorkspace } from "@/hooks/use-workspace";
 import type { WorkspaceFileNode, WorkspaceSession } from "@/lib/opencode/types";
+import { getDesktopWorkspaceHref } from '@/lib/runtime/desktop/current-vault'
 import {
   isProtectedWorkspacePath,
   normalizeWorkspacePath,
@@ -36,6 +37,12 @@ import { LeftPanel } from "./left-panel";
 
 type WorkspaceShellProps = {
   slug: string;
+  persistenceScope?: string;
+  currentVault?: {
+    id: string;
+    name: string;
+    path: string;
+  } | null;
   initialFilePath?: string | null;
   initialLayoutState?: StoredLayoutState | null;
   initialLeftPanelState?: NormalizedLeftPanelState | null;
@@ -193,6 +200,8 @@ function formatInstanceStartupError(error: string): string {
 
 export function WorkspaceShell({
   slug,
+  persistenceScope,
+  currentVault = null,
   initialFilePath,
   initialLayoutState = null,
   initialLeftPanelState = null,
@@ -206,8 +215,9 @@ export function WorkspaceShell({
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const layoutCookieName = getWorkspaceLayoutCookieName(slug);
-  const layoutStorageKey = getWorkspaceLayoutStorageKey(slug);
+  const resolvedPersistenceScope = persistenceScope ?? slug;
+  const layoutCookieName = getWorkspaceLayoutCookieName(resolvedPersistenceScope);
+  const layoutStorageKey = getWorkspaceLayoutStorageKey(resolvedPersistenceScope);
   
   // Instance startup state
   const [instanceStatus, setInstanceStatus] = useState<'starting' | 'running' | 'error' | null>(null);
@@ -298,6 +308,7 @@ export function WorkspaceShell({
   // Use workspace hook only when instance is running
   const workspace = useWorkspace({
     slug,
+    storageScope: resolvedPersistenceScope,
     pollInterval: 5000,
     enabled: instanceStatus === 'running',
     workspaceAgentEnabled,
@@ -390,17 +401,17 @@ export function WorkspaceShell({
     if (!workspace.isConnected || hasAutoStartedPrompt.current) return;
 
     let prompt: string | null = null;
-    try {
-      prompt = takeWorkspaceStartPrompt(window.sessionStorage, slug);
-    } catch {
-      prompt = null;
-    }
+      try {
+        prompt = takeWorkspaceStartPrompt(window.sessionStorage, resolvedPersistenceScope);
+      } catch {
+        prompt = null;
+      }
 
     hasAutoStartedPrompt.current = true;
     if (!prompt) return;
 
     void workspace.sendMessage(prompt, undefined, { forceNewSession: true });
-  }, [workspace, workspace.isConnected, slug]);
+  }, [resolvedPersistenceScope, workspace, workspace.isConnected]);
 
   // Layout state
   const [leftWidth, setLeftWidth] = useState(initialLayoutState?.leftWidth ?? MIN_LEFT_PX);
@@ -1304,13 +1315,19 @@ export function WorkspaceShell({
     <LeftPanel
       key={slug}
       slug={slug}
+      persistenceScope={resolvedPersistenceScope}
+      currentVault={currentVault}
       status="active"
       leftCollapsed={isCompactLayout ? false : leftCollapsed}
       onToggleLeft={isCompactLayout ? handleShowChat : handleToggleLeft}
       hideCollapseButton={isCompactLayout}
       onSyncComplete={handleSyncComplete}
       onNavigateDashboard={() => router.push(`/u/${slug}`)}
-      onNavigateSettings={() => router.push(`/u/${slug}/settings/security`)}
+      onNavigateSettings={() =>
+        router.push(
+          currentVault ? getDesktopWorkspaceHref(slug, 'providers') : `/u/${slug}/settings/security`,
+        )
+      }
       sessions={rootSessions}
       activeSessionId={activeRootSessionId}
       unseenCompletedSessions={workspace.unseenCompletedSessions}

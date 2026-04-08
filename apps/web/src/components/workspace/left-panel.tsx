@@ -21,6 +21,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 
+import { DesktopVaultSwitcher } from '@/components/desktop/desktop-vault-switcher'
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -129,6 +130,12 @@ function connectorStatusInfo(status: ConnectorStatus): { label: string; dotClass
 
 type LeftPanelProps = {
   slug: string;
+  persistenceScope?: string;
+  currentVault?: {
+    id: string;
+    name: string;
+    path: string;
+  } | null;
   status: "active" | "provisioning" | "offline";
   leftCollapsed: boolean;
   onToggleLeft: () => void;
@@ -449,6 +456,8 @@ function MinifiedLeftPanel({
 
 export function LeftPanel({
   slug,
+  persistenceScope,
+  currentVault,
   status,
   leftCollapsed,
   onToggleLeft,
@@ -483,8 +492,8 @@ export function LeftPanel({
   // --- Minified state ---
   if (leftCollapsed) {
     return (
-      <MinifiedLeftPanel
-        slug={slug}
+        <MinifiedLeftPanel
+          slug={slug}
         status={status}
         onCreateSession={onCreateSession}
         onToggleLeft={onToggleLeft}
@@ -499,6 +508,8 @@ export function LeftPanel({
   return (
     <ExpandedLeftPanel
       slug={slug}
+      persistenceScope={persistenceScope}
+      currentVault={currentVault}
       status={status}
       leftCollapsed={leftCollapsed}
       onToggleLeft={onToggleLeft}
@@ -529,6 +540,8 @@ export function LeftPanel({
 
 function ExpandedLeftPanel({
   slug,
+  persistenceScope,
+  currentVault,
   status,
   onToggleLeft,
   onSyncComplete,
@@ -563,8 +576,9 @@ function ExpandedLeftPanel({
   const [createFileError, setCreateFileError] = useState<string | null>(null);
   const [isCreatingFile, setIsCreatingFile] = useState(false);
 
-  const leftPanelCookieName = useMemo(() => getWorkspaceLeftPanelCookieName(slug), [slug]);
-  const leftPanelStorageKey = useMemo(() => getWorkspaceLeftPanelStorageKey(slug), [slug]);
+  const resolvedPersistenceScope = persistenceScope ?? slug;
+  const leftPanelCookieName = useMemo(() => getWorkspaceLeftPanelCookieName(resolvedPersistenceScope), [resolvedPersistenceScope]);
+  const leftPanelStorageKey = useMemo(() => getWorkspaceLeftPanelStorageKey(resolvedPersistenceScope), [resolvedPersistenceScope]);
   const resolvedInitialPanelState = useMemo(
     () => getInitialLeftPanelState(leftPanelStorageKey, leftPanelCookieName, initialPanelState),
     [initialPanelState, leftPanelCookieName, leftPanelStorageKey]
@@ -873,17 +887,25 @@ function ExpandedLeftPanel({
     >
       {/* Panel header — logo, slug, status, toggle (no container) */}
       <div className="flex h-10 shrink-0 items-center gap-2 pl-1 pr-3">
-        <button
-          type="button"
-          onClick={onNavigateDashboard}
-          className="flex items-center gap-1.5 truncate transition-colors hover:opacity-80"
-        >
-          <span className="type-display text-base font-semibold tracking-tight">
-            Archē
-          </span>
-          <span className="text-sm text-muted-foreground">/</span>
-          <span className="truncate text-sm text-muted-foreground">{slug}</span>
-        </button>
+        {currentVault ? (
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="type-display shrink-0 text-base font-semibold tracking-tight">Archē</span>
+            <span className="text-sm text-muted-foreground">/</span>
+            <DesktopVaultSwitcher currentVault={currentVault} />
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={onNavigateDashboard}
+            className="flex items-center gap-1.5 truncate transition-colors hover:opacity-80"
+          >
+            <span className="type-display text-base font-semibold tracking-tight">
+              Archē
+            </span>
+            <span className="text-sm text-muted-foreground">/</span>
+            <span className="truncate text-sm text-muted-foreground">{slug}</span>
+          </button>
+        )}
         <Circle
           size={8}
           weight="fill"

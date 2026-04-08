@@ -1,8 +1,6 @@
 import { existsSync, mkdirSync } from 'fs'
 import { dirname, join } from 'path'
 
-import { getKbConfigRoot } from '@/lib/runtime/paths'
-
 /**
  * DDL statements to initialize the SQLite database schema.
  * Generated from prisma/schema.sqlite.prisma via:
@@ -115,8 +113,13 @@ function getDesktopDatabasePath(): string {
   if (process.env.DATABASE_URL) {
     return process.env.DATABASE_URL.replace(/^file:/, '')
   }
-  const root = getKbConfigRoot()
-  return join(root, '..', 'arche.db')
+
+  const vaultRoot = process.env.ARCHE_DATA_DIR?.trim()
+  if (!vaultRoot) {
+    throw new Error('Desktop database access requires ARCHE_DATA_DIR to point at the active vault')
+  }
+
+  return join(vaultRoot, 'arche.db')
 }
 
 function ensureDirectoryExists(filePath: string): void {

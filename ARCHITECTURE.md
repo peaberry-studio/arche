@@ -96,6 +96,47 @@ Runtime behavior:
 - `kb-config` (bare repo): runtime `CommonWorkspaceConfig.json` + generated `AGENTS.md`
 - both repos start empty and are populated by kickstart on first setup
 
+## Desktop Vault Model
+
+Desktop keeps the existing single-user, single-workspace runtime model per process.
+Multi-vault support is implemented by launching one Electron process per vault.
+
+At launch:
+
+- if a last opened valid vault exists, Desktop opens `/w/local` directly
+- if no vault is selected, Desktop opens a launcher UI
+- switching vaults opens another Electron process instead of hot-swapping the current one
+
+Each desktop vault is a visible folder:
+
+```text
+<VaultName>/
+  arche-vault.json
+  arche.db
+  workspace/
+  kb-config/
+  kb-content/
+  users/
+    local/
+  runtime/
+    opencode/
+  secrets/
+    encryption.key
+```
+
+Notes:
+
+- `arche-vault.json` is the explicit vault manifest used for validation and stable `vaultId`
+- `arche.db` is the per-vault desktop SQLite database
+- `workspace/` is the local git workspace used by runtime tools
+- `runtime/opencode/` stores OpenCode runtime state for that vault
+- `kb-config/` and `kb-content/` are local bare Git repos
+
+Breaking desktop storage change:
+
+- Desktop no longer reads or auto-detects legacy hidden folders such as `~/.arche` and `~/.arche-opencode`
+- no automatic migration is performed for the previous hidden-folder layout
+
 ## Key Environment Variables
 
 | Variable | Description |

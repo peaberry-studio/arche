@@ -6,6 +6,24 @@ import { getKbContentRoot } from '@/lib/runtime/paths'
 
 const WORKSPACE_GIT_EXCLUDE_ENTRIES = ['opencode.json', 'AGENTS.md', 'node_modules/'] as const
 
+function getRequiredVaultRoot(): string {
+  const vaultRoot = process.env.ARCHE_DATA_DIR?.trim()
+  if (!vaultRoot) {
+    throw new Error('Desktop workspace access requires ARCHE_DATA_DIR to be set')
+  }
+
+  return vaultRoot
+}
+
+function getRequiredOpencodeRuntimeDir(): string {
+  const runtimeDir = process.env.ARCHE_OPENCODE_DATA_DIR?.trim() || join(getRequiredVaultRoot(), 'runtime', 'opencode')
+  if (!runtimeDir) {
+    throw new Error('Desktop workspace access requires ARCHE_OPENCODE_DATA_DIR to be set')
+  }
+
+  return runtimeDir
+}
+
 function resolveWorkspaceExcludePath(workspaceDir: string): string | null {
   try {
     const output = execFileSync('git', ['rev-parse', '--git-path', 'info/exclude'], {
@@ -54,22 +72,21 @@ function ensureWorkspaceExcludes(workspaceDir: string): void {
     return
   }
 
-  const next = `${Array.from(currentEntries).join('\n')}\n`
-  writeFileSync(excludePath, next, 'utf-8')
+  writeFileSync(excludePath, `${Array.from(currentEntries).join('\n')}\n`, 'utf-8')
 }
 
 export function getArcheOpencodeDataDir(): string {
-  const baseDir = process.env.ARCHE_OPENCODE_DATA_DIR || join(process.env.HOME || '', '.arche-opencode')
-  const workspaceDir = join(baseDir, 'data')
-  if (!existsSync(workspaceDir)) {
-    mkdirSync(workspaceDir, { recursive: true })
+  const runtimeDir = getRequiredOpencodeRuntimeDir()
+  if (!existsSync(runtimeDir)) {
+    mkdirSync(runtimeDir, { recursive: true })
   }
-  return workspaceDir
+  return runtimeDir
 }
 
 export function getWorkspaceDir(slug: string): string {
-  const baseDir = process.env.ARCHE_OPENCODE_DATA_DIR || join(process.env.HOME || '', '.arche-opencode')
-  const workspaceDir = join(baseDir, 'workspaces', slug)
+  void slug
+
+  const workspaceDir = join(getRequiredVaultRoot(), 'workspace')
   if (!existsSync(workspaceDir)) {
     mkdirSync(workspaceDir, { recursive: true })
   }
@@ -78,10 +95,13 @@ export function getWorkspaceDir(slug: string): string {
     execFileSync('git', ['commit', '--allow-empty', '-m', 'Initial commit'], { cwd: workspaceDir })
   }
   ensureWorkspaceExcludes(workspaceDir)
-  // Ensure the kb remote points to the bare KB content repo
+
   const kbContentDir = getKbContentRoot()
   try {
-    const currentUrl = execFileSync('git', ['remote', 'get-url', 'kb'], { cwd: workspaceDir, encoding: 'utf-8' }).trim()
+    const currentUrl = execFileSync('git', ['remote', 'get-url', 'kb'], {
+      cwd: workspaceDir,
+      encoding: 'utf-8',
+    }).trim()
     if (currentUrl !== kbContentDir) {
       execFileSync('git', ['remote', 'set-url', 'kb', kbContentDir], { cwd: workspaceDir })
     }

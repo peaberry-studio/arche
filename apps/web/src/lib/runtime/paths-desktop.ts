@@ -53,16 +53,21 @@ function joinDesktopPath(...parts: string[]): string {
   return result
 }
 
-function getAppDataRoot(): string {
-  return process.env.ARCHE_DATA_DIR || joinDesktopPath(process.env.HOME || '', '.arche')
+function getRequiredVaultRoot(): string {
+  const vaultRoot = process.env.ARCHE_DATA_DIR?.trim()
+  if (!vaultRoot) {
+    throw new Error('Desktop mode requires ARCHE_DATA_DIR to point at the selected vault root')
+  }
+
+  return vaultRoot
 }
 
 export const desktopPaths: RuntimePaths = {
-  kbConfigRoot: () => joinDesktopPath(getAppDataRoot(), 'kb-config'),
-  kbContentRoot: () => joinDesktopPath(getAppDataRoot(), 'kb-content'),
-  usersBasePath: () => joinDesktopPath(getAppDataRoot(), 'users'),
+  kbConfigRoot: () => joinDesktopPath(getRequiredVaultRoot(), 'kb-config'),
+  kbContentRoot: () => joinDesktopPath(getRequiredVaultRoot(), 'kb-content'),
+  usersBasePath: () => joinDesktopPath(getRequiredVaultRoot(), 'users'),
   userDataPath: (slug: string) => {
     assertValidSlug(slug)
-    return joinDesktopPath(getAppDataRoot(), 'users', slug)
+    return joinDesktopPath(getRequiredVaultRoot(), 'users', slug)
   },
 }

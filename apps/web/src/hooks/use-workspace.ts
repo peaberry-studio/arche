@@ -181,8 +181,8 @@ export function filterModelsByProviderStatus(
   });
 }
 
-function getActiveSessionStorageKey(slug: string): string {
-  return `arche.workspace.${slug}.active-session`;
+function getActiveSessionStorageKey(scope: string): string {
+  return `arche.workspace.${scope}.active-session`;
 }
 
 function readStoredValue(storage: Storage, key: string): string | null {
@@ -305,6 +305,7 @@ function createDefaultSessionSelectionState(
 
 export type UseWorkspaceOptions = {
   slug: string;
+  storageScope?: string;
   /** Poll interval in ms for session status updates */
   pollInterval?: number;
   /** Skip connection attempts when false */
@@ -383,12 +384,13 @@ export type UseWorkspaceReturn = {
 
 export function useWorkspace({
   slug,
+  storageScope,
   pollInterval = 5000,
   enabled = true,
   workspaceAgentEnabled = true,
   reaperEnabled = true,
 }: UseWorkspaceOptions): UseWorkspaceReturn {
-  const activeSessionStorageKey = getActiveSessionStorageKey(slug);
+  const activeSessionStorageKey = getActiveSessionStorageKey(storageScope ?? slug);
 
   // --- Sub-hooks ---
   // onConnectedRef holds the real init callback. We declare it as a ref so

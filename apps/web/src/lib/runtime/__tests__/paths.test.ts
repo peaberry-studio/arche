@@ -82,11 +82,12 @@ describe('runtime paths', () => {
       expect(getUserDataPath('local')).toBe('/tmp/arche-test/users/local')
     })
 
-    it('falls back to HOME/.arche when ARCHE_DATA_DIR is unset', async () => {
+    it('throws when ARCHE_DATA_DIR is unset', async () => {
       delete process.env.ARCHE_DATA_DIR
-      process.env.HOME = '/Users/testuser'
       const { getKbConfigRoot } = await import('../paths')
-      expect(getKbConfigRoot()).toBe('/Users/testuser/.arche/kb-config')
+      expect(() => getKbConfigRoot()).toThrow(
+        'Desktop mode requires ARCHE_DATA_DIR to point at the selected vault root',
+      )
     })
 
     it('uses windows separators when desktop platform is win32', async () => {
