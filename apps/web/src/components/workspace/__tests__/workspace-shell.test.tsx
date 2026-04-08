@@ -32,10 +32,18 @@ vi.mock("@/contexts/workspace-theme-context", () => ({
 
 vi.mock("@/hooks/use-workspace", () => ({
   useWorkspace: () => ({
-    sessions: [],
+    sessions: [
+      {
+        id: "root-session",
+        title: "Root session",
+        status: "idle",
+        updatedAt: "now",
+        updatedAtRaw: Date.now(),
+      },
+    ],
     messages: [],
     diffs: [],
-    activeSessionId: null,
+    activeSessionId: "root-session",
     unseenCompletedSessions: new Set<string>(),
     isConnected: true,
     connection: { status: "connected", error: null },
@@ -48,7 +56,10 @@ vi.mock("@/hooks/use-workspace", () => ({
     deleteSession: vi.fn(),
     renameSession: vi.fn(),
     selectSession: vi.fn(),
-    agentCatalog: [],
+    agentCatalog: [
+      { id: "assistant", displayName: "Assistant", isPrimary: true },
+      { id: "ads-scripts", displayName: "Ads Scripts", isPrimary: false },
+    ],
     fileTree: [],
     isStartingNewSession: false,
     sendMessage: vi.fn(),
@@ -66,9 +77,10 @@ vi.mock("@/hooks/use-workspace", () => ({
 }));
 
 vi.mock("@/components/workspace/chat-panel", () => ({
-  ChatPanel: ({ onShowContext }: { onShowContext?: () => void }) => (
+  ChatPanel: ({ onShowContext, pendingInsert }: { onShowContext?: () => void; pendingInsert?: string | null }) => (
     <div>
       <span>Chat Panel</span>
+      <span>{pendingInsert ?? "No pending insert"}</span>
       <button type="button" onClick={() => onShowContext?.()}>
         Show Context
       </button>
@@ -89,10 +101,18 @@ vi.mock("@/components/workspace/inspector-panel", () => ({
 }));
 
 vi.mock("@/components/workspace/left-panel", () => ({
-  LeftPanel: ({ leftCollapsed, onToggleLeft }: { leftCollapsed: boolean; onToggleLeft: () => void }) => (
-    <button type="button" data-collapsed={String(leftCollapsed)} onClick={onToggleLeft}>
-      Left Panel
-    </button>
+  LeftPanel: ({ leftCollapsed, onToggleLeft, onSelectAgent }: { leftCollapsed: boolean; onToggleLeft: () => void; onSelectAgent: (agent: { id: string; displayName: string; isPrimary: boolean }) => void }) => (
+    <div>
+      <button type="button" data-collapsed={String(leftCollapsed)} onClick={onToggleLeft}>
+        Left Panel
+      </button>
+      <button
+        type="button"
+        onClick={() => onSelectAgent({ id: "ads-scripts", displayName: "Ads Scripts", isPrimary: false })}
+      >
+        Insert Ads Scripts
+      </button>
+    </div>
   ),
 }));
 
@@ -189,6 +209,20 @@ describe("WorkspaceShell", () => {
 
     await waitFor(() => {
       expect(createSessionMock).toHaveBeenCalledWith();
+    });
+  });
+
+  it("inserts the expert id when selecting an expert from the left panel", async () => {
+    render(<WorkspaceShell slug="alice" />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Insert Ads Scripts" })).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Insert Ads Scripts" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("@ads-scripts ")).toBeTruthy();
     });
   });
 

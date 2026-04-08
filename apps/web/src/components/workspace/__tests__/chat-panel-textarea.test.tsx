@@ -330,6 +330,94 @@ describe("ChatPanel textarea", () => {
     });
   });
 
+  it("accepts an expert mention suggestion with Enter and inserts the agent id", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ attachments: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const onSendMessage = vi.fn().mockResolvedValue(true);
+    renderChatPanel(onSendMessage, {
+      agents: [
+        { id: "assistant", displayName: "Assistant", isPrimary: true },
+        { id: "ads-scripts", displayName: "Ads Scripts", isPrimary: false },
+        { id: "seo", displayName: "SEO", isPrimary: false },
+      ],
+    });
+
+    const textarea = getTextarea();
+    fireEvent.change(textarea, { target: { value: "Ask @ads" } });
+    textarea.setSelectionRange("Ask @ads".length, "Ask @ads".length);
+    fireEvent.select(textarea);
+
+    expect(await screen.findByRole("button", { name: /ads scripts/i })).toBeTruthy();
+
+    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
+
+    await waitFor(() => {
+      expect(textarea.value).toBe("Ask @ads-scripts ");
+    });
+
+    expect(onSendMessage).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /ads scripts/i })).toBeNull();
+  });
+
+  it("inserts a pending expert mention at the current cursor position", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ attachments: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const onPendingInsertConsumed = vi.fn();
+    const onSendMessage = vi.fn().mockResolvedValue(true);
+
+    const { rerender } = render(
+      <WorkspaceThemeProvider storageScope="alice">
+        <ChatPanel
+          slug="alice"
+          sessions={[{ id: "s1", title: "Chat", status: "idle", updatedAt: "now", agent: "OpenCode" }]}
+          messages={[]}
+          activeSessionId="s1"
+          openFilePaths={[]}
+          onCloseSession={vi.fn()}
+          onOpenFile={vi.fn()}
+          onSendMessage={onSendMessage}
+          onPendingInsertConsumed={onPendingInsertConsumed}
+        />
+      </WorkspaceThemeProvider>
+    );
+
+    const textarea = getTextarea();
+    fireEvent.change(textarea, { target: { value: "Plan: campaign" } });
+    textarea.setSelectionRange("Plan: ".length, "Plan: ".length);
+    fireEvent.select(textarea);
+
+    rerender(
+      <WorkspaceThemeProvider storageScope="alice">
+        <ChatPanel
+          slug="alice"
+          sessions={[{ id: "s1", title: "Chat", status: "idle", updatedAt: "now", agent: "OpenCode" }]}
+          messages={[]}
+          activeSessionId="s1"
+          openFilePaths={[]}
+          onCloseSession={vi.fn()}
+          onOpenFile={vi.fn()}
+          onSendMessage={onSendMessage}
+          pendingInsert="@ads-scripts "
+          onPendingInsertConsumed={onPendingInsertConsumed}
+        />
+      </WorkspaceThemeProvider>
+    );
+
+    await waitFor(() => {
+      expect(textarea.value).toBe("Plan: @ads-scripts campaign");
+    });
+
+    expect(onPendingInsertConsumed).toHaveBeenCalledTimes(1);
+  });
+
   it("disables send while a pasted image upload is in progress", async () => {
     const attachmentStore: MockAttachment[] = [];
     const uploadedAttachment: MockAttachment = {

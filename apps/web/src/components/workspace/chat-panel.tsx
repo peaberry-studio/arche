@@ -8,6 +8,7 @@ import {
   useCallback,
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
+  type SyntheticEvent,
 } from "react";
 import {
   CaretDown,
@@ -46,6 +47,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
+import type { AgentCatalogItem } from "@/hooks/use-workspace";
 import type { AvailableModel } from "@/lib/opencode/types";
 import {
   buildWorkspaceSessionMarkdown,
@@ -62,6 +64,7 @@ import type {
 
 type ChatPanelProps = {
   slug: string;
+  agents?: AgentCatalogItem[];
   attachmentsEnabled?: boolean;
   sessions: ChatSession[];
   messages: ChatMessage[];
@@ -99,7 +102,184 @@ type ConnectorSummary = {
   name: string;
 };
 
+type TextSelectionRange = {
+  start: number;
+  end: number;
+};
+
+type AgentMentionAutocompleteState = {
+  from: number;
+  to: number;
+  left: number;
+  top: number;
+  selectedIndex: number;
+  suggestions: AgentCatalogItem[];
+};
+
 const MAX_CONTEXT_PATHS_PER_MESSAGE = 20;
+const MAX_AGENT_MENTION_SUGGESTIONS = 8;
+const AGENT_MENTION_AUTOCOMPLETE_WIDTH_PX = 320;
+
+const TEXTAREA_CARET_STYLE_PROPERTIES = [
+  "box-sizing",
+  "width",
+  "height",
+  "overflow-x",
+  "overflow-y",
+  "border-top-width",
+  "border-right-width",
+  "border-bottom-width",
+  "border-left-width",
+  "padding-top",
+  "padding-right",
+  "padding-bottom",
+  "padding-left",
+  "font-style",
+  "font-variant",
+  "font-weight",
+  "font-stretch",
+  "font-size",
+  "font-size-adjust",
+  "line-height",
+  "font-family",
+  "letter-spacing",
+  "text-align",
+  "text-indent",
+  "text-transform",
+  "text-decoration",
+  "text-rendering",
+  "text-overflow",
+  "text-wrap-mode",
+  "text-wrap-style",
+  "tab-size",
+  "white-space",
+  "word-break",
+  "word-spacing",
+  "scrollbar-gutter",
+] as const;
+
+function normalizeAgentSearchValue(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function buildAgentMentionSuggestions(
+  agents: AgentCatalogItem[],
+  query: string
+): AgentCatalogItem[] {
+  const rawQuery = query.trim().toLowerCase();
+  const normalizedQuery = normalizeAgentSearchValue(query);
+
+  const scored = agents
+    .map((agent) => {
+      const id = agent.id.toLowerCase();
+      const displayName = agent.displayName.toLowerCase();
+      const normalizedId = normalizeAgentSearchValue(agent.id);
+      const normalizedDisplayName = normalizeAgentSearchValue(agent.displayName);
+
+      let score = 0;
+      if (rawQuery.length > 0) {
+        if (id.startsWith(rawQuery)) score = 0;
+        else if (displayName.startsWith(rawQuery)) score = 1;
+        else if (normalizedId.startsWith(normalizedQuery)) score = 2;
+        else if (normalizedDisplayName.startsWith(normalizedQuery)) score = 3;
+        else if (id.includes(rawQuery)) score = 4;
+        else if (displayName.includes(rawQuery)) score = 5;
+        else if (normalizedId.includes(normalizedQuery)) score = 6;
+        else if (normalizedDisplayName.includes(normalizedQuery)) score = 7;
+        else return null;
+      }
+
+      return { agent, score };
+    })
+    .filter((entry): entry is { agent: AgentCatalogItem; score: number } => entry !== null)
+    .sort((left, right) => {
+      if (left.score !== right.score) {
+        return left.score - right.score;
+      }
+      return left.agent.displayName.localeCompare(right.agent.displayName);
+    });
+
+  return scored.slice(0, MAX_AGENT_MENTION_SUGGESTIONS).map((entry) => entry.agent);
+}
+
+function findAgentMentionMatch(
+  value: string,
+  caretPosition: number
+): { from: number; to: number; query: string } | null {
+  const clampedCaret = Math.max(0, Math.min(caretPosition, value.length));
+  const beforeCaret = value.slice(0, clampedCaret);
+  const atIndex = beforeCaret.lastIndexOf("@");
+
+  if (atIndex === -1) return null;
+  if (atIndex > 0 && !/\s/.test(beforeCaret[atIndex - 1] ?? "")) {
+    return null;
+  }
+
+  const beforeQuery = beforeCaret.slice(atIndex + 1);
+  if (/\s|@/.test(beforeQuery)) {
+    return null;
+  }
+
+  const afterCaret = value.slice(clampedCaret).match(/^[^\s@]*/)?.[0] ?? "";
+  const query = `${beforeQuery}${afterCaret}`;
+
+  return {
+    from: atIndex,
+    to: clampedCaret + afterCaret.length,
+    query,
+  };
+}
+
+function getTextareaLineHeight(style: CSSStyleDeclaration): number {
+  const parsed = Number.parseFloat(style.lineHeight);
+  if (Number.isFinite(parsed)) return parsed;
+
+  const fontSize = Number.parseFloat(style.fontSize);
+  if (Number.isFinite(fontSize)) return fontSize * 1.4;
+
+  return 20;
+}
+
+function getTextareaCaretPosition(
+  textarea: HTMLTextAreaElement,
+  position: number
+): { left: number; top: number } {
+  const div = document.createElement("div");
+  const style = window.getComputedStyle(textarea);
+
+  div.setAttribute("data-agent-mention-caret", "true");
+  div.style.position = "absolute";
+  div.style.visibility = "hidden";
+  div.style.pointerEvents = "none";
+  div.style.whiteSpace = "pre-wrap";
+  div.style.wordBreak = "break-word";
+  div.style.overflow = "hidden";
+  div.style.top = "0";
+  div.style.left = "-9999px";
+  div.style.width = `${textarea.clientWidth}px`;
+
+  for (const property of TEXTAREA_CARET_STYLE_PROPERTIES) {
+    div.style.setProperty(property, style.getPropertyValue(property));
+  }
+
+  div.textContent = textarea.value.slice(0, position);
+  if (div.textContent.endsWith("\n")) {
+    div.textContent += "\u200b";
+  }
+
+  const span = document.createElement("span");
+  span.textContent = textarea.value.slice(position) || "\u200b";
+  div.appendChild(span);
+  document.body.appendChild(div);
+
+  const coordinates = {
+    left: span.offsetLeft - textarea.scrollLeft,
+    top: span.offsetTop - textarea.scrollTop + getTextareaLineHeight(style),
+  };
+
+  document.body.removeChild(div);
+  return coordinates;
+}
 
 function downloadMarkdownFile(filename: string, content: string) {
   const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
@@ -116,6 +296,7 @@ function downloadMarkdownFile(filename: string, content: string) {
 
 export function ChatPanel({
   slug,
+  agents = [],
   attachmentsEnabled = true,
   sessions,
   messages,
@@ -150,6 +331,7 @@ export function ChatPanel({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const isStuckToBottomRef = useRef(true);
+  const composerRef = useRef<HTMLDivElement>(null);
   const chatContentStyle = useMemo(
     () => ({
       '--workspace-chat-font-family': chatFontFamily === 'serif'
@@ -169,7 +351,11 @@ export function ChatPanel({
   const titleInputRef = useRef<HTMLInputElement>(null);
   const preventSessionMenuAutoFocusRef = useRef(false);
   const ignoreNextTitleBlurRef = useRef(false);
+  const selectionRangeRef = useRef<TextSelectionRange>({ start: 0, end: 0 });
+  const pendingSelectionRangeRef = useRef<TextSelectionRange | null>(null);
   const [inputValue, setInputValue] = useState("");
+  const [agentMentionAutocomplete, setAgentMentionAutocomplete] =
+    useState<AgentMentionAutocompleteState | null>(null);
   const [modelSearch, setModelSearch] = useState("");
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
   const [attachments, setAttachments] = useState<WorkspaceAttachment[]>([]);
@@ -226,6 +412,115 @@ export function ChatPanel({
     activeSession && editingSessionId === activeSession.id
   );
   const canFocusComposer = !isReadOnly && !isStartingNewSession && Boolean(onSendMessage);
+  const mentionableAgents = useMemo(
+    () => agents.filter((agent) => !agent.isPrimary),
+    [agents]
+  );
+
+  const syncTextareaSelection = useCallback((textarea?: HTMLTextAreaElement | null) => {
+    const target = textarea ?? textareaRef.current;
+    if (!target) return;
+
+    selectionRangeRef.current = {
+      start: target.selectionStart ?? target.value.length,
+      end: target.selectionEnd ?? target.value.length,
+    };
+  }, []);
+
+  const updateAgentMentionAutocomplete = useCallback(
+    (value: string, selection: TextSelectionRange) => {
+      if (isReadOnly || mentionableAgents.length === 0 || selection.start !== selection.end) {
+        setAgentMentionAutocomplete(null);
+        return;
+      }
+
+      const match = findAgentMentionMatch(value, selection.end);
+      if (!match) {
+        setAgentMentionAutocomplete(null);
+        return;
+      }
+
+      const suggestions = buildAgentMentionSuggestions(mentionableAgents, match.query);
+      if (suggestions.length === 0) {
+        setAgentMentionAutocomplete(null);
+        return;
+      }
+
+      const textarea = textareaRef.current;
+      const composer = composerRef.current;
+      if (!textarea || !composer) {
+        setAgentMentionAutocomplete(null);
+        return;
+      }
+
+      const textareaRect = textarea.getBoundingClientRect();
+      const composerRect = composer.getBoundingClientRect();
+      const caret = getTextareaCaretPosition(textarea, match.to);
+      const maxLeft = Math.max(
+        composer.clientWidth - AGENT_MENTION_AUTOCOMPLETE_WIDTH_PX,
+        0
+      );
+
+      setAgentMentionAutocomplete((previous) => ({
+        from: match.from,
+        to: match.to,
+        suggestions,
+        left: Math.min(
+          Math.max(textareaRect.left - composerRect.left + caret.left, 0),
+          maxLeft
+        ),
+        top: textareaRect.top - composerRect.top + caret.top + 8,
+        selectedIndex:
+          previous &&
+          previous.from === match.from &&
+          previous.to === match.to &&
+          previous.selectedIndex < suggestions.length
+            ? previous.selectedIndex
+            : 0,
+      }));
+    },
+    [isReadOnly, mentionableAgents]
+  );
+
+  const restoreComposerSelection = useCallback((selection: TextSelectionRange) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    textarea.focus();
+    textarea.setSelectionRange(selection.start, selection.end);
+    selectionRangeRef.current = selection;
+    updateAgentMentionAutocomplete(textarea.value, selection);
+  }, [updateAgentMentionAutocomplete]);
+
+  const insertComposerText = useCallback(
+    (text: string, range?: { from: number; to: number }) => {
+      setInputValue((previous) => {
+        const fallbackSelection = selectionRangeRef.current;
+        const rawStart = range?.from ?? fallbackSelection.start;
+        const rawEnd = range?.to ?? fallbackSelection.end;
+        const start = Math.max(0, Math.min(rawStart, previous.length));
+        const end = Math.max(start, Math.min(rawEnd, previous.length));
+        const nextValue = `${previous.slice(0, start)}${text}${previous.slice(end)}`;
+        const nextSelection = {
+          start: start + text.length,
+          end: start + text.length,
+        };
+
+        pendingSelectionRangeRef.current = nextSelection;
+        selectionRangeRef.current = nextSelection;
+        return nextValue;
+      });
+    },
+    []
+  );
+
+  const applyAgentMentionSuggestion = useCallback(
+    (agent: AgentCatalogItem, range?: { from: number; to: number }) => {
+      insertComposerText(`@${agent.id} `, range);
+      setAgentMentionAutocomplete(null);
+    },
+    [insertComposerText]
+  );
 
   const cancelSessionRename = useCallback(() => {
     if (isSavingTitle) return;
@@ -347,6 +642,24 @@ export function ChatPanel({
       cancelAnimationFrame(frameId);
     };
   }, [isModelMenuOpen]);
+
+  useEffect(() => {
+    const pendingSelection = pendingSelectionRangeRef.current;
+    if (!pendingSelection) return;
+
+    const frameId = requestAnimationFrame(() => {
+      restoreComposerSelection(pendingSelection);
+      pendingSelectionRangeRef.current = null;
+    });
+
+    return () => {
+      cancelAnimationFrame(frameId);
+    };
+  }, [inputValue, restoreComposerSelection]);
+
+  useEffect(() => {
+    updateAgentMentionAutocomplete(inputValue, selectionRangeRef.current);
+  }, [inputValue, updateAgentMentionAutocomplete]);
 
   const effectiveContextPaths = useMemo(() => {
     if (contextMode === "off") return [];
@@ -710,14 +1023,13 @@ export function ChatPanel({
   useEffect(() => {
     if (!pendingInsert) return;
     const frameId = requestAnimationFrame(() => {
-      setInputValue((prev) => prev + pendingInsert);
-      textareaRef.current?.focus();
+      insertComposerText(pendingInsert);
       onPendingInsertConsumed?.();
     });
     return () => {
       cancelAnimationFrame(frameId);
     };
-  }, [pendingInsert, onPendingInsertConsumed]);
+  }, [insertComposerText, onPendingInsertConsumed, pendingInsert]);
 
   // --- Smart auto-scroll: only scroll when the user is "stuck" to the bottom ---
   const SCROLL_BOTTOM_THRESHOLD = 60;
@@ -810,12 +1122,59 @@ export function ChatPanel({
     isUploadingAttachment,
   ]);
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
+  const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (agentMentionAutocomplete && agentMentionAutocomplete.suggestions.length > 0) {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setAgentMentionAutocomplete((previous) => {
+          if (!previous) return null;
+          return {
+            ...previous,
+            selectedIndex: (previous.selectedIndex + 1) % previous.suggestions.length,
+          };
+        });
+        return;
+      }
+
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setAgentMentionAutocomplete((previous) => {
+          if (!previous) return null;
+          return {
+            ...previous,
+            selectedIndex:
+              (previous.selectedIndex - 1 + previous.suggestions.length) %
+              previous.suggestions.length,
+          };
+        });
+        return;
+      }
+
+      if (event.key === "Enter" || event.key === "Tab") {
+        event.preventDefault();
+        const selected =
+          agentMentionAutocomplete.suggestions[agentMentionAutocomplete.selectedIndex];
+        if (selected) {
+          applyAgentMentionSuggestion(selected, {
+            from: agentMentionAutocomplete.from,
+            to: agentMentionAutocomplete.to,
+          });
+        }
+        return;
+      }
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setAgentMentionAutocomplete(null);
+        return;
+      }
+    }
+
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
       handleSend();
     }
-  }, [handleSend]);
+  }, [agentMentionAutocomplete, applyAgentMentionSuggestion, handleSend]);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -830,9 +1189,38 @@ export function ChatPanel({
     textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
   }, [inputValue]);
 
-  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInputValue(e.target.value);
-  }, []);
+  const handleInputChange = useCallback((event: React.ChangeEvent<HTMLTextAreaElement>) => {
+    syncTextareaSelection(event.currentTarget);
+    setInputValue(event.target.value);
+  }, [syncTextareaSelection]);
+
+  const handleTextareaSelectionChange = useCallback(
+    (event: SyntheticEvent<HTMLTextAreaElement>) => {
+      syncTextareaSelection(event.currentTarget);
+      updateAgentMentionAutocomplete(
+        event.currentTarget.value,
+        selectionRangeRef.current
+      );
+    },
+    [syncTextareaSelection, updateAgentMentionAutocomplete]
+  );
+
+  const handleTextareaKeyUp = useCallback(
+    (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+      if (
+        event.key === "ArrowDown" ||
+        event.key === "ArrowUp" ||
+        event.key === "Enter" ||
+        event.key === "Escape" ||
+        event.key === "Tab"
+      ) {
+        return;
+      }
+
+      handleTextareaSelectionChange(event);
+    },
+    [handleTextareaSelectionChange]
+  );
 
   // Get the current status from the last pending message (if any).
   // Only show transient statuses (thinking, tool calls) while actively streaming.
@@ -1152,7 +1540,7 @@ export function ChatPanel({
           </p>
         )}
         
-        <div className="flex items-end gap-1.5 rounded-xl border border-white/10 bg-foreground/5 px-2 py-2">
+        <div ref={composerRef} className="relative flex items-end gap-1.5 rounded-xl border border-white/10 bg-foreground/5 px-2 py-2">
           {attachmentsEnabled && (
             <>
               <input
@@ -1273,12 +1661,54 @@ export function ChatPanel({
             value={inputValue}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
+            onClick={handleTextareaSelectionChange}
             onPaste={handleTextareaPaste}
+            onSelect={handleTextareaSelectionChange}
+            onKeyUp={handleTextareaKeyUp}
             className="max-h-[200px] flex-1 resize-none bg-transparent px-1.5 py-1.5 text-sm leading-5 text-foreground outline-none placeholder:text-muted-foreground/60"
             placeholder="Type a message..."
             disabled={isStartingNewSession || !onSendMessage}
             rows={1}
           />
+          {agentMentionAutocomplete ? (
+            <div
+              className="pointer-events-none absolute z-20"
+              role="presentation"
+              style={{
+                left: agentMentionAutocomplete.left,
+                top: agentMentionAutocomplete.top,
+              }}
+            >
+              <div className="pointer-events-auto min-w-[240px] max-w-[320px] rounded-md border border-white/10 bg-background/95 p-1 shadow-lg backdrop-blur-sm">
+                {agentMentionAutocomplete.suggestions.map((agent, index) => (
+                  <button
+                    key={agent.id}
+                    type="button"
+                    className={cn(
+                      "flex w-full items-center justify-between gap-3 rounded-sm px-2 py-1.5 text-left text-xs",
+                      index === agentMentionAutocomplete.selectedIndex
+                        ? "bg-primary/15 text-primary"
+                        : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+                    )}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      applyAgentMentionSuggestion(agent, {
+                        from: agentMentionAutocomplete.from,
+                        to: agentMentionAutocomplete.to,
+                      });
+                    }}
+                  >
+                    <span className="min-w-0 flex-1 truncate font-medium">
+                      {agent.displayName}
+                    </span>
+                    <span className="shrink-0 text-[10px] text-muted-foreground">
+                      @{agent.id}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
           <Button
             size="icon"
             className={cn(
