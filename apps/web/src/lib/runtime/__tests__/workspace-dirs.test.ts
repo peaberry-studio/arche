@@ -88,7 +88,7 @@ describe('desktop workspace dirs', () => {
     const { getWorkspaceDir } = await import('../desktop/workspace-dirs')
 
     expect(getWorkspaceDir('local')).toBe(workspaceDir)
-    expect(getWorkspaceDir('local')).toBe(workspaceDir)
+    expect(getWorkspaceDir('local2')).toBe(workspaceDir)
 
     expect(mockExecFileSync).toHaveBeenCalledWith('git', ['init', '-b', 'main', workspaceDir])
     expect(mockExecFileSync).toHaveBeenCalledWith('git', ['commit', '--allow-empty', '-m', 'Initial commit'], { cwd: workspaceDir })
@@ -105,5 +105,11 @@ describe('desktop workspace dirs', () => {
     expect(remoteSetUrlCalls).toHaveLength(0)
     expect(mockWriteFileSync).toHaveBeenCalledTimes(1)
     expect(fileContents.get(excludePath)).toBe('opencode.json\nAGENTS.md\nnode_modules/\n')
+  })
+
+  it('rejects invalid slugs before resolving the shared workspace path', async () => {
+    const { getWorkspaceDir } = await import('../desktop/workspace-dirs')
+
+    expect(() => getWorkspaceDir('../etc')).toThrow()
   })
 })

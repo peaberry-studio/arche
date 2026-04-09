@@ -6,9 +6,10 @@ import {
   DESKTOP_OPENCODE_RUNTIME_DIR_NAME,
   DESKTOP_RUNTIME_DIR_NAME,
   DESKTOP_WORKSPACE_DIR_NAME,
-} from '@desktop/vault-layout-constants'
+} from '@/lib/runtime/desktop/vault-layout-constants'
 
 import { getKbContentRoot } from '@/lib/runtime/paths'
+import { assertValidSlug } from '@/lib/validation/slug'
 
 const WORKSPACE_GIT_EXCLUDE_ENTRIES = ['opencode.json', 'AGENTS.md', 'node_modules/'] as const
 
@@ -22,16 +23,11 @@ function getRequiredVaultRoot(): string {
 }
 
 function getRequiredOpencodeRuntimeDir(): string {
-  const runtimeDir = process.env.ARCHE_OPENCODE_DATA_DIR?.trim() || join(
+  return process.env.ARCHE_OPENCODE_DATA_DIR?.trim() || join(
     getRequiredVaultRoot(),
     DESKTOP_RUNTIME_DIR_NAME,
     DESKTOP_OPENCODE_RUNTIME_DIR_NAME,
   )
-  if (!runtimeDir) {
-    throw new Error('Desktop workspace access requires ARCHE_OPENCODE_DATA_DIR to be set')
-  }
-
-  return runtimeDir
 }
 
 function resolveWorkspaceExcludePath(workspaceDir: string): string | null {
@@ -94,7 +90,10 @@ export function getArcheOpencodeDataDir(): string {
 }
 
 export function getWorkspaceDir(slug: string): string {
-  void slug
+  assertValidSlug(slug)
+
+  // Desktop keeps one shared git workspace per vault; the slug stays in the
+  // signature to match the runtime interface used by web mode.
 
   const workspaceDir = join(getRequiredVaultRoot(), DESKTOP_WORKSPACE_DIR_NAME)
   if (!existsSync(workspaceDir)) {
