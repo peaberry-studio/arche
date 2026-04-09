@@ -23,6 +23,9 @@
       }
     ],
     "paths": {
+      "@desktop/*": [
+        "../desktop/src/*"
+      ],
       "@/kickstart/*": [
         "./kickstart/*"
       ],

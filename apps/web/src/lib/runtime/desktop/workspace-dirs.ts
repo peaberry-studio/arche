@@ -2,6 +2,12 @@ import { execFileSync } from 'child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
 
+import {
+  DESKTOP_OPENCODE_RUNTIME_DIR_NAME,
+  DESKTOP_RUNTIME_DIR_NAME,
+  DESKTOP_WORKSPACE_DIR_NAME,
+} from '@desktop/vault-layout-constants'
+
 import { getKbContentRoot } from '@/lib/runtime/paths'
 
 const WORKSPACE_GIT_EXCLUDE_ENTRIES = ['opencode.json', 'AGENTS.md', 'node_modules/'] as const
@@ -16,7 +22,11 @@ function getRequiredVaultRoot(): string {
 }
 
 function getRequiredOpencodeRuntimeDir(): string {
-  const runtimeDir = process.env.ARCHE_OPENCODE_DATA_DIR?.trim() || join(getRequiredVaultRoot(), '.runtime', 'opencode')
+  const runtimeDir = process.env.ARCHE_OPENCODE_DATA_DIR?.trim() || join(
+    getRequiredVaultRoot(),
+    DESKTOP_RUNTIME_DIR_NAME,
+    DESKTOP_OPENCODE_RUNTIME_DIR_NAME,
+  )
   if (!runtimeDir) {
     throw new Error('Desktop workspace access requires ARCHE_OPENCODE_DATA_DIR to be set')
   }
@@ -86,7 +96,7 @@ export function getArcheOpencodeDataDir(): string {
 export function getWorkspaceDir(slug: string): string {
   void slug
 
-  const workspaceDir = join(getRequiredVaultRoot(), 'workspace')
+  const workspaceDir = join(getRequiredVaultRoot(), DESKTOP_WORKSPACE_DIR_NAME)
   if (!existsSync(workspaceDir)) {
     mkdirSync(workspaceDir, { recursive: true })
   }

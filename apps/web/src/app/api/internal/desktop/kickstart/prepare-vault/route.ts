@@ -3,9 +3,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { applyKickstart } from '@/kickstart/apply'
 import { getDesktopSession } from '@/lib/runtime/session-desktop'
 import {
-  getDesktopVaultRuntimeContext,
   runWithDesktopVaultContext,
 } from '@/lib/runtime/desktop/context'
+import { getDesktopVaultRuntimeContext } from '@/lib/runtime/desktop/context-store'
 import { DESKTOP_TOKEN_HEADER, validateDesktopToken } from '@/lib/runtime/desktop/token'
 
 export const runtime = 'nodejs'
@@ -46,7 +46,14 @@ export async function POST(request: NextRequest) {
       const session = await getDesktopSession()
       return applyKickstart(body?.kickstartPayload, session.user.id)
     } finally {
-      await getDesktopVaultRuntimeContext()?.prismaClient?.$disconnect?.().catch(() => undefined)
+      const context = getDesktopVaultRuntimeContext()
+      await context?.prismaClient?.$disconnect?.().catch(() => undefined)
+      if (context) {
+        delete context.initPromise
+        delete context.prismaClient
+        delete context.prismaClientPromise
+        delete context.session
+      }
     }
   })
 

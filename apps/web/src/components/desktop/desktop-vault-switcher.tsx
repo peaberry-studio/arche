@@ -11,7 +11,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { getDesktopBridge, type DesktopVaultSummary } from '@/lib/runtime/desktop/client'
+import {
+  getOptionalDesktopBridge,
+  type DesktopVaultSummary,
+} from '@/lib/runtime/desktop/client'
 
 function getVaultActionErrorMessage(error: string): string {
   switch (error) {
@@ -38,8 +41,14 @@ export function DesktopVaultSwitcher({ currentVault }: DesktopVaultSwitcherProps
 
   useEffect(() => {
     let cancelled = false
+    const bridge = getOptionalDesktopBridge()
+    if (!bridge) {
+      return () => {
+        cancelled = true
+      }
+    }
 
-    void getDesktopBridge()
+    void bridge
       .listRecentVaults()
       .then((vaults) => {
         if (!cancelled) {
@@ -58,17 +67,32 @@ export function DesktopVaultSwitcher({ currentVault }: DesktopVaultSwitcherProps
   }, [currentVault.path])
 
   async function handleOpenVault(vaultPath: string) {
-    const result = await getDesktopBridge().openVault(vaultPath)
+    const bridge = getOptionalDesktopBridge()
+    if (!bridge) {
+      return
+    }
+
+    const result = await bridge.openVault(vaultPath)
     setActionError(result.ok ? null : getVaultActionErrorMessage(result.error) || null)
   }
 
   async function handleOpenExistingVault() {
-    const result = await getDesktopBridge().openExistingVault()
+    const bridge = getOptionalDesktopBridge()
+    if (!bridge) {
+      return
+    }
+
+    const result = await bridge.openExistingVault()
     setActionError(result.ok ? null : getVaultActionErrorMessage(result.error) || null)
   }
 
   async function handleCreateNewVault() {
-    const result = await getDesktopBridge().openVaultLauncher()
+    const bridge = getOptionalDesktopBridge()
+    if (!bridge) {
+      return
+    }
+
+    const result = await bridge.openVaultLauncher()
     setActionError(result.ok ? null : getVaultActionErrorMessage(result.error) || null)
   }
 

@@ -1,5 +1,11 @@
 import type { RuntimePaths } from '@/lib/runtime/types'
-import { getDesktopVaultRuntimeContext } from '@/lib/runtime/desktop/context'
+import {
+  DESKTOP_KB_CONFIG_DIR_NAME,
+  DESKTOP_KB_CONTENT_DIR_NAME,
+  DESKTOP_USERS_DIR_NAME,
+} from '@desktop/vault-layout-constants'
+
+import { getDesktopVaultRuntimeContext } from '@/lib/runtime/desktop/context-store'
 import { assertValidSlug } from '@/lib/validation/slug'
 
 function getDesktopSeparator(): '/' | '\\' {
@@ -69,11 +75,11 @@ function getRequiredVaultRoot(): string {
 }
 
 export const desktopPaths: RuntimePaths = {
-  kbConfigRoot: () => joinDesktopPath(getRequiredVaultRoot(), '.kb-config'),
-  kbContentRoot: () => joinDesktopPath(getRequiredVaultRoot(), '.kb-content'),
-  usersBasePath: () => joinDesktopPath(getRequiredVaultRoot(), '.users'),
+  kbConfigRoot: () => joinDesktopPath(getRequiredVaultRoot(), DESKTOP_KB_CONFIG_DIR_NAME),
+  kbContentRoot: () => joinDesktopPath(getRequiredVaultRoot(), DESKTOP_KB_CONTENT_DIR_NAME),
+  usersBasePath: () => joinDesktopPath(getRequiredVaultRoot(), DESKTOP_USERS_DIR_NAME),
   userDataPath: (slug: string) => {
     assertValidSlug(slug)
-    return joinDesktopPath(getRequiredVaultRoot(), '.users', slug)
+    return joinDesktopPath(getRequiredVaultRoot(), DESKTOP_USERS_DIR_NAME, slug)
   },
 }

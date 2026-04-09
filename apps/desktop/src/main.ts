@@ -2,11 +2,12 @@ import { spawn as spawnChildProcess } from 'child_process'
 import { randomBytes } from 'crypto'
 import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron'
 import { exec as dugiteExecRaw, resolveGitBinary } from 'dugite'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { dirname, join } from 'path'
 
 import { ensureDesktopEncryptionKey } from './desktop-encryption-key'
+import { createDesktopVault, type CreateVaultArgs, type DesktopApiResult } from './create-vault'
 import {
   getMissingPackagedRuntimeBinaries,
   getPackagedNodeBinaryPath,
@@ -16,13 +17,14 @@ import { findAvailablePort } from './runtime-network'
 import { probeHttpServerReady, RuntimeSupervisor } from './runtime-supervisor'
 import { buildLaunchArgs, resolveLaunchContext, type DesktopLaunchContext } from './vault-launch'
 import {
-  DEFAULT_NEW_VAULT_NAME,
   getDesktopKbConfigDir,
   getDesktopKbContentDir,
   getDesktopRuntimeDataDir,
   getDesktopSecretsDir,
   getDesktopUserDataDir,
+  getDesktopWorkspaceDir,
 } from './vault-layout'
+import { LOCAL_DESKTOP_USER_SLUG } from './vault-layout-constants'
 import { acquireVaultLock, getVaultLockState, type VaultLockHandle } from './vault-lock'
 import {
   clearLastOpenedVault,
@@ -38,17 +40,6 @@ const LOOPBACK_HOST = '127.0.0.1'
 const DESKTOP_TOKEN_HEADER = 'x-arche-desktop-token'
 const DESKTOP_GIT_AUTHOR_NAME = 'Arche Workspace'
 const DESKTOP_GIT_AUTHOR_EMAIL = 'workspace@arche.local'
-const LOCAL_USER_SLUG = 'local'
-
-type DesktopApiResult =
-  | { ok: true }
-  | { ok: false; error: string }
-
-type CreateVaultArgs = {
-  kickstartPayload: unknown
-  parentPath: string
-  name: string
-}
 
 type DesktopVaultSummary = {
   id: string
@@ -215,36 +206,13 @@ async function ensureBareRepo(dir: string): Promise<void> {
   }
 }
 
-async function ensureWorkspaceRepo(vaultPath: string): Promise<void> {
-  const workspaceDir = join(vaultPath, 'workspace')
-  const kbContentDir = getDesktopKbContentDir(vaultPath)
-
-  if (!existsSync(workspaceDir)) {
-    mkdirSync(workspaceDir, { recursive: true })
-  }
-
-  if (!existsSync(join(workspaceDir, '.git'))) {
-    await dugiteExec(['init', '-b', 'main', workspaceDir], vaultPath)
-    await dugiteExec(['commit', '--allow-empty', '-m', 'Initial commit'], workspaceDir)
-  }
-
-  try {
-    const currentUrl = (await dugiteExec(['remote', 'get-url', 'kb'], workspaceDir)).trim()
-    if (currentUrl !== kbContentDir) {
-      await dugiteExec(['remote', 'set-url', 'kb', kbContentDir], workspaceDir)
-    }
-  } catch {
-    await dugiteExec(['remote', 'add', 'kb', kbContentDir], workspaceDir)
-  }
-}
-
 async function ensureVaultDataDirectories(vault: DesktopVault): Promise<void> {
   const dirs = [
     vault.path,
     getDesktopKbConfigDir(vault.path),
     getDesktopKbContentDir(vault.path),
-    join(vault.path, 'workspace'),
-    getDesktopUserDataDir(vault.path, LOCAL_USER_SLUG),
+    getDesktopWorkspaceDir(vault.path),
+    getDesktopUserDataDir(vault.path, LOCAL_DESKTOP_USER_SLUG),
     getDesktopRuntimeDataDir(vault.path),
     getDesktopSecretsDir(vault.path),
   ]
@@ -257,7 +225,6 @@ async function ensureVaultDataDirectories(vault: DesktopVault): Promise<void> {
 
   await ensureBareRepo(getDesktopKbConfigDir(vault.path))
   await ensureBareRepo(getDesktopKbContentDir(vault.path))
-  await ensureWorkspaceRepo(vault.path)
 }
 
 function resetDesktopDevNextArtifacts(): void {
@@ -407,17 +374,6 @@ function getRecentVaultSummaries(): DesktopVaultSummary[] {
   return getRecentVaults(getDesktopMetadataDir()).map(toRecentVaultSummary)
 }
 
-function validateVaultName(rawName: string): string {
-  const name = rawName.trim() || DEFAULT_NEW_VAULT_NAME
-  if (name === '.' || name === '..') {
-    throw new Error('Vault name is invalid')
-  }
-  if (/[\\/]/.test(name)) {
-    throw new Error('Vault name cannot contain path separators')
-  }
-  return name
-}
-
 function getVaultAlreadyOpenError(vaultPath: string): string {
   const state = getVaultLockState(vaultPath)
   return state.locked ? 'vault_already_open' : 'vault_launch_failed'
@@ -515,50 +471,14 @@ async function pickDirectory(options: {
 }
 
 async function createVault(args: CreateVaultArgs): Promise<DesktopApiResult> {
-  const parentPath = args.parentPath.trim()
-  if (!parentPath || !existsSync(parentPath)) {
-    return { ok: false, error: 'parent_directory_not_found' }
-  }
-
-  let name: string
-  try {
-    name = validateVaultName(args.name)
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : 'invalid_vault_name' }
-  }
-
-  const vaultPath = join(parentPath, name)
-  let createdVaultDir = false
-  if (existsSync(vaultPath)) {
-    const entries = readdirSync(vaultPath)
-    if (entries.length > 0) {
-      return { ok: false, error: 'vault_directory_exists' }
-    }
-  } else {
-    mkdirSync(vaultPath)
-    createdVaultDir = true
-  }
-
-  try {
-    const vault = createVaultManifest(vaultPath, name)
-    await ensureVaultDataDirectories(vault)
-
-    const kickstartResult = await applyKickstartToPreparedVault(vault.path, args.kickstartPayload)
-    if (!kickstartResult.ok) {
-      if (createdVaultDir) {
-        rmSync(vaultPath, { recursive: true, force: true })
-      }
-      return kickstartResult
-    }
-
-    rememberVault(getDesktopMetadataDir(), vault)
-    return launchElectronProcess({ mode: 'vault', vaultPath: vault.path })
-  } catch {
-    if (createdVaultDir) {
-      rmSync(vaultPath, { recursive: true, force: true })
-    }
-    return { ok: false, error: 'vault_create_failed' }
-  }
+  return createDesktopVault(args, {
+    applyKickstartToPreparedVault,
+    createVaultManifest,
+    ensureVaultDataDirectories,
+    getDesktopMetadataDir,
+    launchVaultProcess: (vaultPath) => launchElectronProcess({ mode: 'vault', vaultPath }),
+    rememberVault,
+  })
 }
 
 async function openExistingVaultFromDialog(): Promise<DesktopApiResult> {

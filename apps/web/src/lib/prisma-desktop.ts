@@ -1,7 +1,9 @@
 import { existsSync, mkdirSync } from 'fs'
 import { dirname, join } from 'path'
 
-import { getDesktopVaultRuntimeContext } from '@/lib/runtime/desktop/context'
+import { DESKTOP_DATABASE_FILE_NAME } from '@desktop/vault-layout-constants'
+
+import { getDesktopVaultRuntimeContext } from '@/lib/runtime/desktop/context-store'
 
 /**
  * DDL statements to initialize the SQLite database schema.
@@ -126,7 +128,7 @@ function getDesktopDatabasePath(): string {
     throw new Error('Desktop database access requires ARCHE_DATA_DIR to point at the active vault')
   }
 
-  return join(vaultRoot, '.arche.db')
+  return join(vaultRoot, DESKTOP_DATABASE_FILE_NAME)
 }
 
 function ensureDirectoryExists(filePath: string): void {
@@ -186,7 +188,10 @@ export async function getDesktopPrismaClient(): Promise<DesktopPrismaClient> {
   if (clientInstance) return clientInstance
 
   if (!clientPromise) {
-    clientPromise = createClient()
+    clientPromise = createClient().then((client) => {
+      clientInstance = client
+      return client
+    })
   }
 
   return clientPromise
@@ -203,7 +208,5 @@ async function createClient(): Promise<DesktopPrismaClient> {
     PrismaClient: new (opts: { adapter: unknown }) => DesktopPrismaClient
   }
 
-  clientInstance = new PrismaClient({ adapter })
-
-  return clientInstance
+  return new PrismaClient({ adapter })
 }

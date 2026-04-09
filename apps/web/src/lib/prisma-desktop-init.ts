@@ -1,6 +1,6 @@
 import type { PrismaClient } from '@prisma/client'
 
-import { getDesktopVaultRuntimeContext } from '@/lib/runtime/desktop/context'
+import { getDesktopVaultRuntimeContext } from '@/lib/runtime/desktop/context-store'
 
 declare global {
   var prismaDesktopClient: PrismaClient | undefined

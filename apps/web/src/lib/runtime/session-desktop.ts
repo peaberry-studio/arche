@@ -1,7 +1,7 @@
 import type { RuntimeSessionResult } from '@/lib/runtime/types'
 
 import { prisma } from '@/lib/prisma'
-import { getDesktopVaultRuntimeContext } from '@/lib/runtime/desktop/context'
+import { getDesktopVaultRuntimeContext } from '@/lib/runtime/desktop/context-store'
 import { initDesktopPrisma } from '@/lib/prisma-desktop-init'
 
 const DESKTOP_USER_ID = 'local'

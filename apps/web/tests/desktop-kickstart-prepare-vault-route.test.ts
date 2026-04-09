@@ -7,10 +7,13 @@ vi.mock('@/lib/runtime/desktop/token', () => ({
 }))
 
 const mockRunWithDesktopVaultContext = vi.fn()
-const mockGetDesktopVaultRuntimeContext = vi.fn()
 vi.mock('@/lib/runtime/desktop/context', () => ({
-  getDesktopVaultRuntimeContext: (...args: unknown[]) => mockGetDesktopVaultRuntimeContext(...args),
   runWithDesktopVaultContext: (...args: unknown[]) => mockRunWithDesktopVaultContext(...args),
+}))
+
+const mockGetDesktopVaultRuntimeContext = vi.fn()
+vi.mock('@/lib/runtime/desktop/context-store', () => ({
+  getDesktopVaultRuntimeContext: (...args: unknown[]) => mockGetDesktopVaultRuntimeContext(...args),
 }))
 
 const mockGetDesktopSession = vi.fn()

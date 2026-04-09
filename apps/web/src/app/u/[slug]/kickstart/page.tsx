@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 
-import { KickstartWizard } from '@/components/kickstart/kickstart-wizard'
+import { WebKickstartWizard } from '@/components/kickstart/web-kickstart-wizard'
 import { getCurrentDesktopVault } from '@/lib/runtime/desktop/current-vault'
 import { isDesktop } from '@/lib/runtime/mode'
 import { getSession } from '@/lib/runtime/session'
@@ -48,7 +48,7 @@ export default async function KickstartPage({
         </p>
       </section>
 
-      <KickstartWizard
+      <WebKickstartWizard
         slug={slug}
         initialStatus={status}
         initialCompanyName={desktopVault?.vaultName ?? ''}

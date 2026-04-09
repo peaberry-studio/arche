@@ -37,7 +37,6 @@ function createDeferredResult() {
 
 describe('DesktopVaultLauncher', () => {
   beforeEach(() => {
-    vi.useFakeTimers()
     vi.clearAllMocks()
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
@@ -143,6 +142,8 @@ describe('DesktopVaultLauncher', () => {
     })
 
     expect(screen.getByRole('heading', { name: 'Creating vault...' })).toBeTruthy()
+
+    vi.useFakeTimers()
 
     await act(async () => {
       deferred.resolve({ ok: true })

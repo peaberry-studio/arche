@@ -42,13 +42,22 @@ export function isDesktopBridgeAvailable(): boolean {
   return Boolean(bridge?.isDesktop && bridge.desktop)
 }
 
-export function getDesktopBridge(): ArcheDesktopBridge {
+export function getOptionalDesktopBridge(): ArcheDesktopBridge | null {
   const bridge = getArcheBridge()
   if (!bridge?.isDesktop || !bridge.desktop) {
-    throw new Error('Desktop bridge is unavailable')
+    return null
   }
 
   return bridge.desktop
+}
+
+export function getDesktopBridge(): ArcheDesktopBridge {
+  const bridge = getOptionalDesktopBridge()
+  if (!bridge) {
+    throw new Error('Desktop bridge is unavailable')
+  }
+
+  return bridge
 }
 
 export function getDesktopPlatform(): string | null {

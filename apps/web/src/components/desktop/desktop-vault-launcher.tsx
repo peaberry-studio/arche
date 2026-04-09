@@ -10,6 +10,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { DEFAULT_NEW_VAULT_NAME } from '@desktop/vault-layout-constants'
 import type { KickstartAgentSummary, KickstartTemplateSummary } from '@/kickstart/types'
 import {
   getDesktopBridge,
@@ -18,7 +19,6 @@ import {
   type DesktopVaultSummary,
 } from '@/lib/runtime/desktop/client'
 
-const DEFAULT_VAULT_NAME = 'my-vault'
 const LAUNCHER_CLOSE_DELAY_MS = 900
 
 type LauncherStatus = {
@@ -86,7 +86,7 @@ async function closeLauncherAfterSuccess(): Promise<void> {
 }
 
 export function DesktopVaultLauncher() {
-  const [vaultName, setVaultName] = useState(DEFAULT_VAULT_NAME)
+  const [vaultName, setVaultName] = useState(DEFAULT_NEW_VAULT_NAME)
   const [parentPath, setParentPath] = useState('')
   const [recentVaults, setRecentVaults] = useState<DesktopVaultSummary[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -302,7 +302,6 @@ export function DesktopVaultLauncher() {
             </div>
 
             <KickstartWizard
-              slug="local"
               loadCatalog={loadDesktopKickstartCatalog}
               onSubmit={handleCreateVault}
               renderStepOneExtras={(
@@ -313,7 +312,7 @@ export function DesktopVaultLauncher() {
                       id="desktop-vault-name"
                       value={vaultName}
                       onChange={(event) => setVaultName(event.target.value)}
-                      placeholder={DEFAULT_VAULT_NAME}
+                       placeholder={DEFAULT_NEW_VAULT_NAME}
                     />
                   </div>
 
@@ -337,7 +336,7 @@ export function DesktopVaultLauncher() {
                       Final folder
                     </p>
                     <p className="mt-1 break-all font-mono text-sm text-foreground">
-                      {previewPath || DEFAULT_VAULT_NAME}
+                       {previewPath || DEFAULT_NEW_VAULT_NAME}
                     </p>
                   </div>
                 </>
