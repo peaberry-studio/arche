@@ -296,7 +296,10 @@ export function DesktopVaultLauncher() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-6xl items-center px-6 py-10">
-      <div className="grid w-full gap-8 lg:grid-cols-[minmax(0,1.3fr)_minmax(320px,420px)]">
+      <div className={mode === 'create'
+        ? 'w-full'
+        : 'grid w-full gap-8 lg:grid-cols-[minmax(0,1.3fr)_minmax(320px,420px)]'
+      }>
         <section className="rounded-3xl border border-border/60 bg-card/60 p-8 shadow-sm backdrop-blur">
           <div className="max-w-2xl space-y-6">
             <div className="space-y-3">
@@ -405,7 +408,7 @@ export function DesktopVaultLauncher() {
           </div>
         </section>
 
-        <aside className="rounded-3xl border border-border/60 bg-card/60 p-6 shadow-sm backdrop-blur">
+        {!mode && <aside className="rounded-3xl border border-border/60 bg-card/60 p-6 shadow-sm backdrop-blur">
           <div className="space-y-4">
             <div>
               <h2 className="text-lg font-semibold text-foreground">Recent vaults</h2>
@@ -443,7 +446,7 @@ export function DesktopVaultLauncher() {
               </div>
             )}
           </div>
-        </aside>
+        </aside>}
       </div>
     </main>
   )

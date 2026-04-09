@@ -2,7 +2,6 @@
 
 import { type ChangeEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ArrowLeft,
   CaretRight,
   CheckCircle,
   SpinnerGap,
@@ -604,17 +603,6 @@ export function KickstartWizard({
       )}
 
       <section className={cn('rounded-3xl p-6 sm:p-8', !embedded && 'glass-panel')}>
-        {onBack && step === 1 && (
-          <button
-            type="button"
-            onClick={onBack}
-            className="mb-4 flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <ArrowLeft size={14} />
-            Back
-          </button>
-        )}
-
         <div className="mb-8 flex items-start">
           {STEPS.map((label, index) => {
             const itemStep = index + 1
@@ -814,20 +802,18 @@ export function KickstartWizard({
                       required && 'cursor-default'
                     )}
                   >
-                    <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
                       <p className="font-medium text-foreground">{agent.displayName}</p>
-                      <div className="flex items-center gap-2 text-xs">
-                        {required && (
-                          <span className="rounded-full bg-foreground/10 px-2 py-0.5 text-foreground">
-                            Required
-                          </span>
-                        )}
-                        {recommended && (
-                          <span className="rounded-full bg-primary/20 px-2 py-0.5 text-primary">
-                            Recommended
-                          </span>
-                        )}
-                      </div>
+                      {required && (
+                        <span className="rounded-full bg-foreground/10 px-2 py-0.5 text-xs text-foreground">
+                          Required
+                        </span>
+                      )}
+                      {recommended && (
+                        <span className="rounded-full bg-primary/20 px-2 py-0.5 text-xs text-primary">
+                          Recommended
+                        </span>
+                      )}
                     </div>
                     <p className="text-sm text-muted-foreground">{agent.description}</p>
                   </button>
@@ -984,8 +970,14 @@ export function KickstartWizard({
           <Button
             type="button"
             variant="outline"
-            onClick={() => setStep((current) => Math.max(1, current - 1))}
-            disabled={step === 1 || isApplying}
+            onClick={() => {
+              if (step === 1 && onBack) {
+                onBack()
+              } else {
+                setStep((current) => Math.max(1, current - 1))
+              }
+            }}
+            disabled={(step === 1 && !onBack) || isApplying}
           >
             Back
           </Button>
