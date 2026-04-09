@@ -7,6 +7,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { ConnectorsManager } from '@/components/connectors/connectors-manager'
 import { ProviderCredentialsPanel } from '@/components/providers/provider-credentials-panel'
 import { AdvancedSettingsPanel } from '@/components/settings/advanced-settings-panel'
+import { AgentsSettingsPanel } from '@/components/settings/agents-settings-panel'
 import { AppearanceSettingsPanel } from '@/components/settings/appearance-settings-panel'
 import { Button } from '@/components/ui/button'
 import {
@@ -29,6 +30,7 @@ type DesktopSettingsDialogProps = {
 const SECTION_LABELS: Record<DesktopSettingsSection, string> = {
   providers: 'Providers',
   connectors: 'Connectors',
+  agents: 'Agents',
   appearance: 'Appearance',
   advanced: 'Advanced',
 }
@@ -61,9 +63,18 @@ export function DesktopSettingsDialog({ slug, currentSection }: DesktopSettingsD
       case 'providers':
         return <ProviderCredentialsPanel slug={slug} />
       case 'connectors':
-        return <ConnectorsManager slug={slug} embedded title="Connectors" description="Manage desktop workspace integrations without leaving the workspace." />
+        return (
+          <ConnectorsManager
+            slug={slug}
+            embedded
+            title="Connectors"
+            description="Manage desktop workspace integrations without leaving the workspace."
+          />
+        )
       case 'appearance':
         return <AppearanceSettingsPanel />
+      case 'agents':
+        return <AgentsSettingsPanel slug={slug} />
       case 'advanced':
         return <AdvancedSettingsPanel slug={slug} />
       default:
@@ -73,50 +84,58 @@ export function DesktopSettingsDialog({ slug, currentSection }: DesktopSettingsD
 
   return (
     <Dialog open={Boolean(currentSection)} onOpenChange={(open) => !open && updateSection(null)}>
-      <DialogContent className="max-h-[90vh] overflow-hidden p-0 sm:max-w-6xl">
+      <DialogContent showCloseButton={false} className="max-h-[90vh] overflow-hidden p-0 sm:max-w-6xl">
         <DialogTitle className="sr-only">Desktop settings</DialogTitle>
         <DialogDescription className="sr-only">
-          Configure providers, connectors, appearance, and advanced desktop workspace settings.
+          Configure providers, connectors, agents, appearance, and advanced desktop workspace settings.
         </DialogDescription>
 
-        <div className="grid h-[80vh] min-h-[640px] grid-cols-[220px_minmax(0,1fr)]">
-          <aside className="border-r border-border/60 bg-muted/20 p-4">
-            <div className="flex items-center justify-between gap-3 pb-4">
-              <div>
-                <p className="text-sm font-medium text-foreground">Settings</p>
-                <p className="text-xs text-muted-foreground">Desktop workspace</p>
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => updateSection(null)}
-                aria-label="Close settings"
-              >
-                <X size={16} weight="bold" />
-              </Button>
+        <div className="flex h-[80vh] min-h-[640px] flex-col">
+          <div className="flex items-center justify-between gap-3 border-b border-border/60 px-6 py-4">
+            <div>
+              <p className="text-sm font-medium text-foreground">Settings</p>
+              <p className="text-xs text-muted-foreground">Desktop workspace</p>
             </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => updateSection(null)}
+              aria-label="Close settings"
+            >
+              <X size={16} weight="bold" />
+            </Button>
+          </div>
 
-            <nav className="space-y-1">
-              {DESKTOP_SETTINGS_SECTIONS.map((section) => (
-                <button
-                  key={section}
-                  type="button"
-                  onClick={() => updateSection(section)}
-                  className={cn(
-                    'flex w-full items-center rounded-xl px-3 py-2 text-left text-sm transition-colors',
-                    currentSection === section
-                      ? 'bg-primary/10 font-medium text-primary'
-                      : 'text-muted-foreground hover:bg-background hover:text-foreground',
-                  )}
-                >
-                  {SECTION_LABELS[section]}
-                </button>
-              ))}
-            </nav>
-          </aside>
+          <div className="grid min-h-0 flex-1 grid-cols-[220px_minmax(0,1fr)]">
+            <aside className="border-r border-border/60 bg-muted/20 p-4">
+              <div>
+                <p className="pb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Sections
+                </p>
+              </div>
 
-          <div className="overflow-y-auto p-6">{renderSection(currentSection)}</div>
+              <nav className="space-y-1">
+                {DESKTOP_SETTINGS_SECTIONS.map((section) => (
+                  <button
+                    key={section}
+                    type="button"
+                    onClick={() => updateSection(section)}
+                    className={cn(
+                      'flex w-full items-center rounded-xl px-3 py-2 text-left text-sm transition-colors',
+                      currentSection === section
+                        ? 'bg-primary/10 font-medium text-primary'
+                        : 'text-muted-foreground hover:bg-background hover:text-foreground',
+                    )}
+                  >
+                    {SECTION_LABELS[section]}
+                  </button>
+                ))}
+              </nav>
+            </aside>
+
+            <div className="min-h-0 overflow-y-auto p-6">{renderSection(currentSection)}</div>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

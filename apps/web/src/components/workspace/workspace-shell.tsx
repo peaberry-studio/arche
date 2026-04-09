@@ -932,8 +932,8 @@ export function WorkspaceShell({
   }, [openFilePaths, fileCache]);
 
   const handleOpenExpertsSettings = useCallback(() => {
-    router.push(`/u/${slug}/agents`);
-  }, [router, slug]);
+    router.push(currentVault ? getDesktopWorkspaceHref(slug, 'agents') : `/u/${slug}/agents`);
+  }, [currentVault, router, slug]);
 
   const handleCreateKnowledgeFile = useCallback(
     async (path: string) => {

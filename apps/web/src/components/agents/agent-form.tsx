@@ -2,7 +2,6 @@
 
 import type { FormEvent } from 'react'
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { SpinnerGap } from '@phosphor-icons/react'
 
 import { Button } from '@/components/ui/button'
@@ -16,9 +15,14 @@ import {
 } from '@/lib/agent-capabilities'
 
 type AgentFormProps = {
-  slug: string
-  mode: 'create' | 'edit'
   agentId?: string
+  allowPrimarySelection?: boolean
+  cancelLabel?: string
+  mode: 'create' | 'edit'
+  onCancel?: () => void
+  onDeleted?: (result: { agentId: string }) => void | Promise<void>
+  onSaved?: (result: { agentId: string; mode: 'create' | 'edit' }) => void | Promise<void>
+  slug: string
 }
 
 type ModelOption = {
@@ -33,8 +37,16 @@ type ConnectorListItem = {
   enabled: boolean
 }
 
-export function AgentForm({ slug, mode, agentId }: AgentFormProps) {
-  const router = useRouter()
+export function AgentForm({
+  slug,
+  mode,
+  agentId,
+  allowPrimarySelection = true,
+  cancelLabel = 'Cancel',
+  onCancel,
+  onDeleted,
+  onSaved,
+}: AgentFormProps) {
   const [id, setId] = useState(agentId ?? '')
   const [displayName, setDisplayName] = useState('')
   const [description, setDescription] = useState('')
@@ -190,14 +202,15 @@ export function AgentForm({ slug, mode, agentId }: AgentFormProps) {
         body: JSON.stringify({ expectedHash: hash }),
       })
       const data = (await response.json().catch(() => null)) as { error?: string } | null
-      if (!response.ok) {
-        setSaveError(data?.error ?? 'delete_failed')
-        return
-      }
-      router.push(`/u/${slug}/agents`)
-    } catch {
-      setSaveError('network_error')
-    } finally {
+        if (!response.ok) {
+          setSaveError(data?.error ?? 'delete_failed')
+          return
+        }
+
+        await onDeleted?.({ agentId })
+      } catch {
+        setSaveError('network_error')
+      } finally {
       setIsSaving(false)
     }
   }
@@ -251,12 +264,20 @@ export function AgentForm({ slug, mode, agentId }: AgentFormProps) {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(payload),
         })
-        const data = (await response.json().catch(() => null)) as { error?: string } | null
+        const data = (await response.json().catch(() => null)) as {
+          agent?: { id: string }
+          error?: string
+          hash?: string
+        } | null
         if (!response.ok) {
           setSaveError(data?.error ?? 'create_failed')
           return
         }
-        router.push(`/u/${slug}/agents`)
+
+        setHash(data?.hash)
+        setSaveSuccess(true)
+        setTimeout(() => setSaveSuccess(false), 2000)
+        await onSaved?.({ agentId: data?.agent?.id ?? id, mode })
         return
       }
 
@@ -281,6 +302,7 @@ export function AgentForm({ slug, mode, agentId }: AgentFormProps) {
       }
       setHash(data?.hash)
       setSaveSuccess(true)
+      await onSaved?.({ agentId: agentId ?? id, mode })
       setTimeout(() => setSaveSuccess(false), 2000)
     } catch {
       setSaveError('network_error')
@@ -495,7 +517,7 @@ export function AgentForm({ slug, mode, agentId }: AgentFormProps) {
         </div>
       )}
 
-      {mode === 'create' && (
+      {mode === 'create' && allowPrimarySelection && (
         <label className="flex items-center gap-2 text-sm text-muted-foreground">
           <input
             type="checkbox"
@@ -518,12 +540,14 @@ export function AgentForm({ slug, mode, agentId }: AgentFormProps) {
           <Button type="submit" disabled={isSaving} variant={saveSuccess ? 'secondary' : 'default'}>
             {saveLabel}
           </Button>
-          <Button type="button" variant="ghost" onClick={() => router.push(`/u/${slug}/agents`)}>
-            Cancel
-          </Button>
+          {onCancel ? (
+            <Button type="button" variant="ghost" onClick={onCancel}>
+              {cancelLabel}
+            </Button>
+          ) : null}
         </div>
 
-        {mode === 'edit' && (
+        {mode === 'edit' && !isPrimary && (
           <button
             type="button"
             onClick={handleDelete}

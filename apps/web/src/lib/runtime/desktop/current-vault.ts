@@ -3,6 +3,7 @@ import { isDesktop } from '@/lib/runtime/mode'
 export const DESKTOP_SETTINGS_SECTIONS = [
   'providers',
   'connectors',
+  'agents',
   'appearance',
   'advanced',
 ] as const

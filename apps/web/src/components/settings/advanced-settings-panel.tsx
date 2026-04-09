@@ -10,11 +10,11 @@ export function AdvancedSettingsPanel({ slug }: AdvancedSettingsPanelProps) {
       <div>
         <h2 className="text-lg font-medium text-foreground">Advanced</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Restart the local workspace runtime after connector or provider changes when a full rebuild is required.
+          Force a full restart of the local workspace runtime when connector or provider changes require a rebuild.
         </p>
       </div>
 
-      <WorkspaceRestartSection slug={slug} />
+      <WorkspaceRestartSection slug={slug} showHeader={false} />
     </section>
   )
 }

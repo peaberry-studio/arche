@@ -25,6 +25,10 @@ vi.mock('@/components/settings/appearance-settings-panel', () => ({
   AppearanceSettingsPanel: () => <div>Appearance Panel</div>,
 }))
 
+vi.mock('@/components/settings/agents-settings-panel', () => ({
+  AgentsSettingsPanel: () => <div>Agents Panel</div>,
+}))
+
 vi.mock('@/components/settings/advanced-settings-panel', () => ({
   AdvancedSettingsPanel: () => <div>Advanced Panel</div>,
 }))
@@ -41,11 +45,15 @@ describe('DesktopSettingsDialog', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Connectors' }))
     expect(replaceMock).toHaveBeenCalledWith('/w/local?settings=connectors')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Agents' }))
+    expect(replaceMock).toHaveBeenCalledWith('/w/local?settings=agents')
   })
 
   it('removes the settings query string when closed', () => {
     render(<DesktopSettingsDialog slug="local" currentSection="providers" />)
 
+    expect(screen.queryByRole('button', { name: 'Close' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Close settings' }))
     expect(replaceMock).toHaveBeenCalledWith('/w/local')
   })

@@ -43,6 +43,7 @@ describe('current desktop vault helpers', () => {
 
     expect(isDesktopSettingsSection('providers')).toBe(true)
     expect(isDesktopSettingsSection('connectors')).toBe(true)
+    expect(isDesktopSettingsSection('agents')).toBe(true)
     expect(isDesktopSettingsSection('appearance')).toBe(true)
     expect(isDesktopSettingsSection('advanced')).toBe(true)
     expect(isDesktopSettingsSection('security')).toBe(false)
