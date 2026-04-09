@@ -7,7 +7,7 @@ import { ChatCircle, Circle, Compass, File } from "@phosphor-icons/react";
 import { ensureInstanceRunningAction } from "@/actions/spawner";
 import type { SyncKbResult } from "@/app/api/instances/[slug]/sync-kb/route";
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
-import { useWorkspace } from "@/hooks/use-workspace";
+import { useWorkspace, type AgentCatalogItem } from "@/hooks/use-workspace";
 import type { WorkspaceFileNode, WorkspaceSession } from "@/lib/opencode/types";
 import { getDesktopWorkspaceHref } from '@/lib/runtime/desktop/current-vault'
 import {
@@ -1089,12 +1089,12 @@ export function WorkspaceShell({
     value: string;
   } | null>(null);
 
-  const handleSelectAgent = useCallback((agent: { displayName: string }) => {
+  const handleSelectAgent = useCallback((agent: AgentCatalogItem) => {
     if (!workspace.activeSessionId) return;
 
     setPendingInsert({
       sessionId: workspace.activeSessionId,
-      value: "@" + agent.displayName + " ",
+      value: `@${agent.id} `,
     });
   }, [workspace.activeSessionId]);
 
@@ -1356,6 +1356,7 @@ export function WorkspaceShell({
     <ChatPanel
       key={workspace.activeSessionId ?? "no-session"}
       slug={slug}
+      agents={workspace.agentCatalog}
       attachmentsEnabled={workspaceAgentEnabled}
       sessions={uiSessions}
       messages={uiMessages}
