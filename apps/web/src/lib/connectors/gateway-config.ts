@@ -15,12 +15,6 @@ export function getConnectorGatewayTokenSecret(): string {
   return 'dev-insecure-connector-gateway-secret'
 }
 
-export function getConnectorGatewayTokenTtlSeconds(): number {
-  const raw = process.env.ARCHE_CONNECTOR_GATEWAY_TOKEN_TTL_SECONDS
-  const parsed = raw ? Number(raw) : NaN
-  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 86400
-}
-
 export function getConnectorGatewayBaseUrl(): string {
   const configured = process.env.ARCHE_CONNECTOR_GATEWAY_BASE_URL || DEFAULT_CONNECTOR_GATEWAY_BASE_URL
   return configured.endsWith('/') ? configured.slice(0, -1) : configured

@@ -1,4 +1,11 @@
 import type { RuntimePaths } from '@/lib/runtime/types'
+import {
+  DESKTOP_KB_CONFIG_DIR_NAME,
+  DESKTOP_KB_CONTENT_DIR_NAME,
+  DESKTOP_USERS_DIR_NAME,
+} from '@/lib/runtime/desktop/vault-layout-constants'
+
+import { getDesktopVaultRuntimeContext } from '@/lib/runtime/desktop/context-store'
 import { assertValidSlug } from '@/lib/validation/slug'
 
 function getDesktopSeparator(): '/' | '\\' {
@@ -53,16 +60,26 @@ function joinDesktopPath(...parts: string[]): string {
   return result
 }
 
-function getAppDataRoot(): string {
-  return process.env.ARCHE_DATA_DIR || joinDesktopPath(process.env.HOME || '', '.arche')
+function getRequiredVaultRoot(): string {
+  const contextVaultRoot = getDesktopVaultRuntimeContext()?.vaultRoot?.trim()
+  if (contextVaultRoot) {
+    return contextVaultRoot
+  }
+
+  const vaultRoot = process.env.ARCHE_DATA_DIR?.trim()
+  if (!vaultRoot) {
+    throw new Error('Desktop mode requires ARCHE_DATA_DIR to point at the selected vault root')
+  }
+
+  return vaultRoot
 }
 
 export const desktopPaths: RuntimePaths = {
-  kbConfigRoot: () => joinDesktopPath(getAppDataRoot(), 'kb-config'),
-  kbContentRoot: () => joinDesktopPath(getAppDataRoot(), 'kb-content'),
-  usersBasePath: () => joinDesktopPath(getAppDataRoot(), 'users'),
+  kbConfigRoot: () => joinDesktopPath(getRequiredVaultRoot(), DESKTOP_KB_CONFIG_DIR_NAME),
+  kbContentRoot: () => joinDesktopPath(getRequiredVaultRoot(), DESKTOP_KB_CONTENT_DIR_NAME),
+  usersBasePath: () => joinDesktopPath(getRequiredVaultRoot(), DESKTOP_USERS_DIR_NAME),
   userDataPath: (slug: string) => {
     assertValidSlug(slug)
-    return joinDesktopPath(getAppDataRoot(), 'users', slug)
+    return joinDesktopPath(getRequiredVaultRoot(), DESKTOP_USERS_DIR_NAME, slug)
   },
 }

@@ -2,6 +2,37 @@
 
 Desktop runs Arche locally by embedding the web app inside Electron and supervising local runtime binaries (`node`, `opencode`, `workspace-agent`).
 
+## Vaults
+
+Desktop now runs against explicit visible vault folders instead of hidden global directories.
+
+- On startup, Arche opens the last valid vault directly into the workspace.
+- If no vault is selected, Arche opens a launcher where you can create or open one.
+- Each vault opens in its own Electron process and window.
+- The vault name is the folder name.
+
+Vault layout. Internal runtime files are dot-prefixed, so they are hidden on
+macOS and Linux by default:
+
+```text
+<VaultName>/
+  .arche-vault.json
+  .arche.db
+  workspace/
+  .kb-config/
+  .kb-content/
+  .users/local/
+  .runtime/opencode/
+  .secrets/encryption.key
+```
+
+`.arche-vault.json` is required when opening an existing vault.
+
+Breaking change:
+
+- Desktop no longer reads or migrates legacy `~/.arche` and `~/.arche-opencode` folders.
+- Existing desktop data must be opened from a visible Arche vault folder created with the new launcher flow.
+
 ## Prerequisites
 
 - Node.js 24+

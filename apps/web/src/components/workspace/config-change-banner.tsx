@@ -2,11 +2,15 @@
 
 import { ArrowClockwise, Warning } from "@phosphor-icons/react";
 
+import {
+  getConfigChangeMessage,
+  type ConfigChangeReason,
+} from '@/lib/runtime/config-status-events'
 import { cn } from "@/lib/utils";
 
 type ConfigChangeBannerProps = {
   pending: boolean;
-  reason: 'config' | 'provider_sync' | null;
+  reason: ConfigChangeReason | null;
   restarting: boolean;
   restartError: string | null;
   onRestart: () => void;
@@ -34,9 +38,7 @@ export function ConfigChangeBanner({
         <span>
           {restartError
             ? `Restart failed: ${restartError}`
-            : reason === 'provider_sync'
-              ? 'Provider changes need a workspace restart to apply'
-              : 'Configuration changes detected — restart to apply'}
+            : getConfigChangeMessage(reason)}
         </span>
       <button
         type="button"

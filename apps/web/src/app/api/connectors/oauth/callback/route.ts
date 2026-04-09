@@ -10,6 +10,7 @@ import {
 import { buildConfigWithOAuth } from '@/lib/connectors/oauth-config'
 import { validateConnectorType } from '@/lib/connectors/validators'
 import { getPublicBaseUrl } from '@/lib/http'
+import { getCurrentDesktopVault, getDesktopWorkspaceHref } from '@/lib/runtime/desktop/current-vault'
 import { getSession } from '@/lib/runtime/session'
 import { connectorService } from '@/lib/services'
 
@@ -29,7 +30,9 @@ function normalizeOAuthError(error: string): string {
 }
 
 function buildRedirect(baseUrl: string, slug: string, status: 'success' | 'error', message?: string): URL {
-  const url = new URL(`/u/${slug}/connectors`, baseUrl)
+  const desktopVault = getCurrentDesktopVault()
+  const targetPath = desktopVault ? getDesktopWorkspaceHref('local', 'connectors') : `/u/${slug}/connectors`
+  const url = new URL(targetPath, baseUrl)
   url.searchParams.set('oauth', status)
   if (message) {
     url.searchParams.set('message', message)

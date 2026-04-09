@@ -2,8 +2,9 @@ import { randomBytes } from 'crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 
+import { getDesktopSecretsDir } from './vault-layout'
+
 const ENCRYPTION_KEY_ENV_NAME = 'ARCHE_ENCRYPTION_KEY'
-const ENCRYPTION_KEY_DIR_NAME = 'secrets'
 const ENCRYPTION_KEY_FILE_NAME = 'encryption.key'
 const ENCRYPTION_KEY_BYTES = 32
 
@@ -53,7 +54,7 @@ export function ensureDesktopEncryptionKey(options: EnsureDesktopEncryptionKeyOp
   }
 
   const generateKey = options.generateKey ?? createEncryptionKey
-  const keyDir = join(options.dataDir, ENCRYPTION_KEY_DIR_NAME)
+  const keyDir = getDesktopSecretsDir(options.dataDir)
   const keyPath = join(keyDir, ENCRYPTION_KEY_FILE_NAME)
   const persistedKey = getPersistedEncryptionKey(keyPath)
 

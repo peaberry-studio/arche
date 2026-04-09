@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync } from 'fs'
 import { dirname, join } from 'path'
 
-import { getKbConfigRoot } from '@/lib/runtime/paths'
+import { getDesktopVaultRuntimeContext } from '@/lib/runtime/desktop/context-store'
+import { DESKTOP_DATABASE_FILE_NAME } from '@/lib/runtime/desktop/vault-layout-constants'
 
 /**
  * DDL statements to initialize the SQLite database schema.
@@ -112,11 +113,21 @@ const SCHEMA_DDL = [
 const SCHEMA_VERSION = '1'
 
 function getDesktopDatabasePath(): string {
+  const contextDatabaseUrl = getDesktopVaultRuntimeContext()?.databaseUrl?.trim()
+  if (contextDatabaseUrl) {
+    return contextDatabaseUrl.replace(/^file:/, '')
+  }
+
   if (process.env.DATABASE_URL) {
     return process.env.DATABASE_URL.replace(/^file:/, '')
   }
-  const root = getKbConfigRoot()
-  return join(root, '..', 'arche.db')
+
+  const vaultRoot = process.env.ARCHE_DATA_DIR?.trim()
+  if (!vaultRoot) {
+    throw new Error('Desktop database access requires ARCHE_DATA_DIR to point at the active vault')
+  }
+
+  return join(vaultRoot, DESKTOP_DATABASE_FILE_NAME)
 }
 
 function ensureDirectoryExists(filePath: string): void {
@@ -155,10 +166,31 @@ export async function initDesktopDatabase(): Promise<void> {
 }
 
 export async function getDesktopPrismaClient(): Promise<DesktopPrismaClient> {
+  const context = getDesktopVaultRuntimeContext()
+  if (context?.prismaClient) {
+    return context.prismaClient as DesktopPrismaClient
+  }
+
+  if (context?.prismaClientPromise) {
+    return context.prismaClientPromise as Promise<DesktopPrismaClient>
+  }
+
+  if (context) {
+    context.prismaClientPromise = createClient().then((client) => {
+      context.prismaClient = client as DesktopPrismaClient
+      return client
+    }) as Promise<DesktopPrismaClient>
+
+    return context.prismaClientPromise as Promise<DesktopPrismaClient>
+  }
+
   if (clientInstance) return clientInstance
 
   if (!clientPromise) {
-    clientPromise = createClient()
+    clientPromise = createClient().then((client) => {
+      clientInstance = client
+      return client
+    })
   }
 
   return clientPromise
@@ -175,7 +207,5 @@ async function createClient(): Promise<DesktopPrismaClient> {
     PrismaClient: new (opts: { adapter: unknown }) => DesktopPrismaClient
   }
 
-  clientInstance = new PrismaClient({ adapter })
-
-  return clientInstance
+  return new PrismaClient({ adapter })
 }
