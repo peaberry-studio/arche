@@ -1,18 +1,12 @@
 import { existsSync, mkdirSync, readdirSync, rmSync } from 'fs'
 import { join } from 'path'
 
+import type { CreateVaultArgs, DesktopApiResult } from './desktop-bridge-types'
 import { DEFAULT_NEW_VAULT_NAME } from './vault-layout'
 import type { DesktopVault } from './vault-manifest'
 
-export type DesktopApiResult =
-  | { ok: true }
-  | { ok: false; error: string }
-
-export type CreateVaultArgs = {
-  kickstartPayload: unknown
-  parentPath: string
-  name: string
-}
+const MAX_VAULT_NAME_LENGTH = 255
+const WINDOWS_RESERVED_VAULT_NAME_PATTERN = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i
 
 type CreateDesktopVaultDeps = {
   applyKickstartToPreparedVault: (vaultPath: string, kickstartPayload: unknown) => Promise<DesktopApiResult>
@@ -30,6 +24,18 @@ export function validateVaultName(rawName: string): string {
   }
   if (/[\\/]/.test(name)) {
     throw new Error('Vault name cannot contain path separators')
+  }
+  if (/[<>:"|?*\u0000-\u001f]/.test(name)) {
+    throw new Error('Vault name contains characters unsupported on Windows')
+  }
+  if (/[. ]$/.test(name)) {
+    throw new Error('Vault name cannot end with a dot or space')
+  }
+  if (WINDOWS_RESERVED_VAULT_NAME_PATTERN.test(name)) {
+    throw new Error('Vault name is reserved on Windows')
+  }
+  if (name.length > MAX_VAULT_NAME_LENGTH) {
+    throw new Error('Vault name is too long')
   }
   return name
 }

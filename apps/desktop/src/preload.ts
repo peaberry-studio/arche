@@ -1,21 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-type DesktopVaultSummary = {
-  id: string
-  name: string
-  path: string
-  lastOpenedAt?: string
-}
-
-type DesktopApiResult =
-  | { ok: true }
-  | { ok: false; error: string }
-
-type CreateVaultArgs = {
-  kickstartPayload: unknown
-  parentPath: string
-  name: string
-}
+import type { CreateVaultArgs, DesktopApiResult, DesktopVaultSummary } from './desktop-bridge-types'
 
 contextBridge.exposeInMainWorld('arche', {
   platform: process.platform,

@@ -31,6 +31,7 @@ function parseManifestJson(content: string, vaultPath: string): DesktopVaultMani
   const manifest = parsed as Record<string, unknown>
   const expectedName = basename(vaultPath)
 
+  // Bumping the schema version requires an explicit migration path for existing vaults.
   if (manifest.schemaVersion !== VAULT_SCHEMA_VERSION) {
     throw new Error(`Unsupported vault schema version: ${String(manifest.schemaVersion)}`)
   }

@@ -4,7 +4,7 @@ const { existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync }
 const { tmpdir } = require('os')
 const { join } = require('path')
 
-const { createDesktopVault } = require('../dist/create-vault.js')
+const { createDesktopVault, validateVaultName } = require('../dist/create-vault.js')
 const {
   DESKTOP_DATABASE_FILE_NAME,
   LOCAL_DESKTOP_USER_SLUG,
@@ -37,6 +37,17 @@ function createPartialVaultArtifacts(vault) {
   mkdirSync(getDesktopSecretsDir(vault.path), { recursive: true })
   writeFileSync(join(vault.path, DESKTOP_DATABASE_FILE_NAME), '')
 }
+
+test('validateVaultName applies cheap cross-platform safeguards', () => {
+  assert.equal(validateVaultName('  '), 'my-vault')
+  assert.equal(validateVaultName('product-specs'), 'product-specs')
+
+  assert.throws(() => validateVaultName('my/vault'), /path separators/)
+  assert.throws(() => validateVaultName('sales:*'), /unsupported on Windows/)
+  assert.throws(() => validateVaultName('vault. '), /dot or space/)
+  assert.throws(() => validateVaultName('CON'), /reserved on Windows/)
+  assert.throws(() => validateVaultName('a'.repeat(256)), /too long/)
+})
 
 test('removes a newly created vault directory when kickstart setup fails', async () => {
   await withTempDir(async (rootDir) => {

@@ -6,8 +6,9 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { dirname, join } from 'path'
 
+import type { CreateVaultArgs, DesktopApiResult, DesktopVaultSummary } from './desktop-bridge-types'
 import { ensureDesktopEncryptionKey } from './desktop-encryption-key'
-import { createDesktopVault, type CreateVaultArgs, type DesktopApiResult } from './create-vault'
+import { createDesktopVault } from './create-vault'
 import { getDesktopNextDistDirName } from './desktop-next-dist'
 import {
   getMissingPackagedRuntimeBinaries,
@@ -41,13 +42,6 @@ const LOOPBACK_HOST = '127.0.0.1'
 const DESKTOP_TOKEN_HEADER = 'x-arche-desktop-token'
 const DESKTOP_GIT_AUTHOR_NAME = 'Arche Workspace'
 const DESKTOP_GIT_AUTHOR_EMAIL = 'workspace@arche.local'
-
-type DesktopVaultSummary = {
-  id: string
-  name: string
-  path: string
-  lastOpenedAt?: string
-}
 
 let mainWindow: BrowserWindow | null = null
 let nextSupervisor: RuntimeSupervisor | null = null
