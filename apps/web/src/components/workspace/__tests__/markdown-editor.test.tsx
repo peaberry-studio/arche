@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { MarkdownEditor } from "@/components/workspace/markdown-editor";
@@ -36,7 +36,7 @@ const fakeEditor = {
     setContent: vi.fn(),
     setTextSelection: vi.fn(),
   },
-  getMarkdown: () => "",
+  getMarkdown: () => fakeMarkdown,
   isActive: () => false,
   state: {
     doc: {
@@ -45,6 +45,13 @@ const fakeEditor = {
       },
     },
     selection: {
+      $from: {
+        parent: {
+          textContent: "",
+        },
+        parentOffset: 0,
+        start: () => 1,
+      },
       empty: true,
       from: 1,
       to: 1,
@@ -52,10 +59,14 @@ const fakeEditor = {
   },
 };
 
+let fakeMarkdown = "";
+
 let capturedEditorOptions: {
+  content?: string;
   editorProps?: {
     handleClick?: (view: { dom: HTMLElement }, pos: number, event: MouseEvent) => boolean;
   };
+  onUpdate?: (args: { editor: typeof fakeEditor }) => void;
 } | null = null;
 
 vi.mock("@tiptap/react", () => ({
@@ -70,6 +81,7 @@ describe("MarkdownEditor", () => {
   afterEach(() => {
     cleanup();
     capturedEditorOptions = null;
+    fakeMarkdown = "";
   });
 
   it("does not intercept standard markdown links as internal KB links", () => {
@@ -96,5 +108,69 @@ describe("MarkdownEditor", () => {
 
     expect(didHandleClick).toBe(false);
     expect(onOpenInternalLink).not.toHaveBeenCalled();
+  });
+
+  it("passes only the markdown body into tiptap when YAML frontmatter exists", () => {
+    render(
+      <MarkdownEditor
+        value={["---", "title: Alpha", "---", "# Body"].join("\n")}
+        onChange={vi.fn()}
+        saveState="saved"
+      />
+    );
+
+    expect(capturedEditorOptions?.content).toBe("# Body");
+    expect(screen.getByDisplayValue("title")).toBeTruthy();
+    expect(screen.getByDisplayValue("Alpha")).toBeTruthy();
+  });
+
+  it("reassembles YAML frontmatter before emitting editor changes", async () => {
+    const onChange = vi.fn();
+    fakeMarkdown = "## Updated";
+
+    render(
+      <MarkdownEditor
+        value={["---", "title: Alpha", "---", "# Body"].join("\n")}
+        onChange={onChange}
+        saveState="saved"
+      />
+    );
+
+    await Promise.resolve();
+
+    capturedEditorOptions?.onUpdate?.({ editor: fakeEditor });
+
+    expect(onChange).toHaveBeenCalledWith(["---", "title: Alpha", "---", "## Updated"].join("\n"));
+  });
+
+  it("updates structured properties above the editor", () => {
+    const onChange = vi.fn();
+
+    render(
+      <MarkdownEditor
+        value={["---", "title: Alpha", "---", "# Body"].join("\n")}
+        onChange={onChange}
+        saveState="saved"
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText("Property 1 value"), {
+      target: { value: "Beta" },
+    });
+
+    expect(onChange).toHaveBeenCalledWith(["---", "title: Beta", "---", "# Body"].join("\n"));
+  });
+
+  it("uses raw YAML mode for unsupported frontmatter", () => {
+    render(
+      <MarkdownEditor
+        value={["---", "seo:", "  title: Alpha", "---", "# Body"].join("\n")}
+        onChange={vi.fn()}
+        saveState="saved"
+      />
+    );
+
+    expect(screen.getByLabelText("YAML frontmatter")).toBeTruthy();
+    expect(screen.getByText(/raw mode/i)).toBeTruthy();
   });
 });

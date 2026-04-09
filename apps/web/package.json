@@ -58,7 +58,8 @@
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "^2.6.1",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss-animate": "^1.0.7",
+    "yaml": "^2.8.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.18",

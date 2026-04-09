@@ -1,6 +1,6 @@
 "use client";
 
-import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useRef, useState } from "react";
+import { type MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   ArrowClockwise,
@@ -26,6 +26,13 @@ import StarterKit from "@tiptap/starter-kit";
 
 import { Button } from "@/components/ui/button";
 import { InternalLinkAutocomplete } from "@/components/workspace/internal-link-autocomplete";
+import {
+  createEmptyFrontmatterProperty,
+  parseMarkdownFrontmatter,
+  serializeMarkdownFrontmatter,
+  type MarkdownFrontmatterProperty,
+} from "@/components/workspace/markdown-frontmatter";
+import { MarkdownFrontmatterPanel } from "@/components/workspace/markdown-frontmatter-panel";
 import { getInternalLinkHoverPosition } from "@/components/workspace/internal-link-hover-position";
 import { ObsidianLinkDecorations } from "@/components/workspace/obsidian-link-decorations";
 import {
@@ -133,6 +140,62 @@ export function MarkdownEditor({
   const hoveredLinkHideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [linkAutocomplete, setLinkAutocomplete] = useState<LinkAutocompleteState | null>(null);
   const [hoveredLink, setHoveredLink] = useState<HoveredLinkState | null>(null);
+  const frontmatter = useMemo(() => parseMarkdownFrontmatter(value), [value]);
+  const frontmatterRef = useRef(frontmatter);
+
+  useEffect(() => {
+    frontmatterRef.current = frontmatter;
+  }, [frontmatter]);
+
+  const handlePropertiesChange = useCallback(
+    (properties: MarkdownFrontmatterProperty[]) => {
+      onChange(
+        serializeMarkdownFrontmatter(
+          {
+            mode: properties.length > 0 ? "structured" : "none",
+            properties,
+            raw: "",
+          },
+          frontmatter.body
+        )
+      );
+    },
+    [frontmatter.body, onChange]
+  );
+
+  const handleAddProperty = useCallback(() => {
+    const properties =
+      frontmatter.mode === "structured"
+        ? [...frontmatter.properties, createEmptyFrontmatterProperty()]
+        : [createEmptyFrontmatterProperty()];
+
+    onChange(
+      serializeMarkdownFrontmatter(
+        {
+          mode: "structured",
+          properties,
+          raw: "",
+        },
+        frontmatter.body
+      )
+    );
+  }, [frontmatter, onChange]);
+
+  const handleRawFrontmatterChange = useCallback(
+    (raw: string) => {
+      onChange(
+        serializeMarkdownFrontmatter(
+          {
+            mode: "raw",
+            properties: [],
+            raw,
+          },
+          frontmatter.body
+        )
+      );
+    },
+    [frontmatter.body, onChange]
+  );
 
   const clearHoveredLinkHideTimeout = useCallback(() => {
     if (!hoveredLinkHideTimeoutRef.current) return;
@@ -292,15 +355,15 @@ export function MarkdownEditor({
         },
       }),
     ],
-    content: encodeMarkdownForEditor(value),
+    content: encodeMarkdownForEditor(frontmatter.body),
     contentType: "markdown",
     immediatelyRender: false,
     onUpdate: ({ editor }) => {
       if (ignoreNextUpdateRef.current) return;
 
-      const next = normalizeMarkdownForKb(editor.getMarkdown());
-      lastEmittedMarkdownRef.current = next;
-      onChange(next);
+      const nextBody = normalizeMarkdownForKb(editor.getMarkdown());
+      lastEmittedMarkdownRef.current = nextBody;
+      onChange(serializeMarkdownFrontmatter(frontmatterRef.current, nextBody));
       updateLinkAutocomplete(editor);
     },
     onSelectionUpdate: ({ editor }) => {
@@ -417,11 +480,11 @@ export function MarkdownEditor({
     if (!editor) return;
 
     const current = normalizeMarkdownForKb(editor.getMarkdown());
-    if (isEquivalentMarkdown(current, value)) return;
+    if (isEquivalentMarkdown(current, frontmatter.body)) return;
 
     if (
       lastEmittedMarkdownRef.current !== null &&
-      isEquivalentMarkdown(lastEmittedMarkdownRef.current, value)
+      isEquivalentMarkdown(lastEmittedMarkdownRef.current, frontmatter.body)
     ) {
       return;
     }
@@ -432,8 +495,8 @@ export function MarkdownEditor({
     const wasAtEnd = previousSelection.empty && previousTo >= editor.state.doc.content.size;
 
     ignoreNextUpdateRef.current = true;
-    lastEmittedMarkdownRef.current = value;
-    editor.commands.setContent(encodeMarkdownForEditor(value), { contentType: "markdown" });
+    lastEmittedMarkdownRef.current = frontmatter.body;
+    editor.commands.setContent(encodeMarkdownForEditor(frontmatter.body), { contentType: "markdown" });
 
     if (wasAtEnd) {
       editor.commands.focus("end");
@@ -448,7 +511,7 @@ export function MarkdownEditor({
     queueMicrotask(() => {
       ignoreNextUpdateRef.current = false;
     });
-  }, [editor, value]);
+  }, [editor, frontmatter.body]);
 
   const reloadRecommended = Boolean(saveState === "error" && saveError && saveError.includes("conflict"));
   const isEditing = saveState === "dirty" || saveState === "saving";
@@ -698,6 +761,14 @@ export function MarkdownEditor({
           ) : null}
         </div>
       </div>
+
+      <MarkdownFrontmatterPanel
+        editable
+        frontmatter={frontmatter}
+        onAddProperty={handleAddProperty}
+        onPropertiesChange={handlePropertiesChange}
+        onRawChange={handleRawFrontmatterChange}
+      />
 
       <div
         className="workspace-tiptap relative flex-1 overflow-y-auto px-6 py-5 scrollbar-none"
