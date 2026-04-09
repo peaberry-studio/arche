@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation'
 
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
+import { getCurrentDesktopVault, getDesktopWorkspaceHref } from '@/lib/runtime/desktop/current-vault'
+import { isDesktop } from '@/lib/runtime/mode'
 import { getSession } from '@/lib/runtime/session'
 import { get2FAStatus } from './actions'
 import { normalizeTwoFactorStatus } from './status'
@@ -12,6 +14,12 @@ export default async function SecuritySettingsPage({
   params: Promise<{ slug: string }>
 }) {
   const { slug } = await params
+
+  if (isDesktop()) {
+    const vault = getCurrentDesktopVault()
+    if (!vault) redirect('/')
+    redirect(getDesktopWorkspaceHref('local', 'providers'))
+  }
 
   const session = await getSession()
   if (!session) redirect('/login')

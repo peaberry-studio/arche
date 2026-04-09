@@ -76,17 +76,18 @@ describe('runtime paths', () => {
       const { getKbConfigRoot, getKbContentRoot, getUsersBasePath, getUserDataPath } =
         await import('../paths')
 
-      expect(getKbConfigRoot()).toBe('/tmp/arche-test/kb-config')
-      expect(getKbContentRoot()).toBe('/tmp/arche-test/kb-content')
-      expect(getUsersBasePath()).toBe('/tmp/arche-test/users')
-      expect(getUserDataPath('local')).toBe('/tmp/arche-test/users/local')
+      expect(getKbConfigRoot()).toBe('/tmp/arche-test/.kb-config')
+      expect(getKbContentRoot()).toBe('/tmp/arche-test/.kb-content')
+      expect(getUsersBasePath()).toBe('/tmp/arche-test/.users')
+      expect(getUserDataPath('local')).toBe('/tmp/arche-test/.users/local')
     })
 
-    it('falls back to HOME/.arche when ARCHE_DATA_DIR is unset', async () => {
+    it('throws when ARCHE_DATA_DIR is unset', async () => {
       delete process.env.ARCHE_DATA_DIR
-      process.env.HOME = '/Users/testuser'
       const { getKbConfigRoot } = await import('../paths')
-      expect(getKbConfigRoot()).toBe('/Users/testuser/.arche/kb-config')
+      expect(() => getKbConfigRoot()).toThrow(
+        'Desktop mode requires ARCHE_DATA_DIR to point at the selected vault root',
+      )
     })
 
     it('uses windows separators when desktop platform is win32', async () => {
@@ -95,10 +96,10 @@ describe('runtime paths', () => {
       const { getKbConfigRoot, getKbContentRoot, getUsersBasePath, getUserDataPath } =
         await import('../paths')
 
-      expect(getKbConfigRoot()).toBe('C:\\Arche\\kb-config')
-      expect(getKbContentRoot()).toBe('C:\\Arche\\kb-content')
-      expect(getUsersBasePath()).toBe('C:\\Arche\\users')
-      expect(getUserDataPath('local')).toBe('C:\\Arche\\users\\local')
+      expect(getKbConfigRoot()).toBe('C:\\Arche\\.kb-config')
+      expect(getKbContentRoot()).toBe('C:\\Arche\\.kb-content')
+      expect(getUsersBasePath()).toBe('C:\\Arche\\.users')
+      expect(getUserDataPath('local')).toBe('C:\\Arche\\.users\\local')
     })
 
     it('preserves UNC roots on win32', async () => {
@@ -106,8 +107,8 @@ describe('runtime paths', () => {
       process.env.ARCHE_DATA_DIR = '\\\\server\\share\\Arche'
       const { getKbConfigRoot, getUserDataPath } = await import('../paths')
 
-      expect(getKbConfigRoot()).toBe('\\\\server\\share\\Arche\\kb-config')
-      expect(getUserDataPath('local')).toBe('\\\\server\\share\\Arche\\users\\local')
+      expect(getKbConfigRoot()).toBe('\\\\server\\share\\Arche\\.kb-config')
+      expect(getUserDataPath('local')).toBe('\\\\server\\share\\Arche\\.users\\local')
     })
 
     it('preserves extended-length windows roots on win32', async () => {
@@ -115,8 +116,8 @@ describe('runtime paths', () => {
       process.env.ARCHE_DATA_DIR = '\\\\?\\C:\\Arche'
       const { getKbConfigRoot, getUserDataPath } = await import('../paths')
 
-      expect(getKbConfigRoot()).toBe('\\\\?\\C:\\Arche\\kb-config')
-      expect(getUserDataPath('local')).toBe('\\\\?\\C:\\Arche\\users\\local')
+      expect(getKbConfigRoot()).toBe('\\\\?\\C:\\Arche\\.kb-config')
+      expect(getUserDataPath('local')).toBe('\\\\?\\C:\\Arche\\.users\\local')
     })
 
     it('rejects directory traversal slugs', async () => {

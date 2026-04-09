@@ -1,11 +1,11 @@
 "use client";
 
 import {
-  useRef,
-  useState,
+  useCallback,
   useEffect,
   useMemo,
-  useCallback,
+  useRef,
+  useState,
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
@@ -25,6 +25,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 
+import { AgentMentionAutocomplete } from "@/components/workspace/chat-panel/agent-mention-autocomplete";
 import { ChatPanelMessages } from "@/components/workspace/chat-panel/messages";
 import { ChatPanelSessionHeader } from "@/components/workspace/chat-panel/session-header";
 import type { ContextMode, SessionTabInfo } from "@/components/workspace/chat-panel/types";
@@ -46,6 +47,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
+import { useAgentMentionAutocomplete } from "@/hooks/use-agent-mention-autocomplete";
+import type { AgentCatalogItem } from "@/hooks/use-workspace";
 import type { AvailableModel } from "@/lib/opencode/types";
 import {
   buildWorkspaceSessionMarkdown,
@@ -62,6 +65,7 @@ import type {
 
 type ChatPanelProps = {
   slug: string;
+  agents?: AgentCatalogItem[];
   attachmentsEnabled?: boolean;
   sessions: ChatSession[];
   messages: ChatMessage[];
@@ -116,6 +120,7 @@ function downloadMarkdownFile(filename: string, content: string) {
 
 export function ChatPanel({
   slug,
+  agents = [],
   attachmentsEnabled = true,
   sessions,
   messages,
@@ -226,6 +231,23 @@ export function ChatPanel({
     activeSession && editingSessionId === activeSession.id
   );
   const canFocusComposer = !isReadOnly && !isStartingNewSession && Boolean(onSendMessage);
+  const {
+    agentMentionAutocomplete,
+    clearAgentMentionAutocomplete,
+    handleInputChange,
+    handleMentionKeyDown,
+    handleTextareaBlur,
+    handleTextareaKeyUp,
+    handleTextareaSelectionChange,
+    insertComposerText,
+    onAgentMentionSelect,
+  } = useAgentMentionAutocomplete({
+    agents,
+    inputValue,
+    isReadOnly,
+    setInputValue,
+    textareaRef,
+  });
 
   const cancelSessionRename = useCallback(() => {
     if (isSavingTitle) return;
@@ -710,14 +732,13 @@ export function ChatPanel({
   useEffect(() => {
     if (!pendingInsert) return;
     const frameId = requestAnimationFrame(() => {
-      setInputValue((prev) => prev + pendingInsert);
-      textareaRef.current?.focus();
+      insertComposerText(pendingInsert);
       onPendingInsertConsumed?.();
     });
     return () => {
       cancelAnimationFrame(frameId);
     };
-  }, [pendingInsert, onPendingInsertConsumed]);
+  }, [insertComposerText, onPendingInsertConsumed, pendingInsert]);
 
   // --- Smart auto-scroll: only scroll when the user is "stuck" to the bottom ---
   const SCROLL_BOTTOM_THRESHOLD = 60;
@@ -794,10 +815,12 @@ export function ChatPanel({
       return;
     }
 
+    clearAgentMentionAutocomplete();
     setInputValue("");
     textareaRef.current?.focus();
     setSelectedAttachmentPaths([]);
   }, [
+    clearAgentMentionAutocomplete,
     contextPathsToSend,
     inputValue,
     isReadOnly,
@@ -810,12 +833,14 @@ export function ChatPanel({
     isUploadingAttachment,
   ]);
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
+  const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (handleMentionKeyDown(event)) return;
+
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
       handleSend();
     }
-  }, [handleSend]);
+  }, [handleMentionKeyDown, handleSend]);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -829,10 +854,6 @@ export function ChatPanel({
     textarea.style.height = "auto";
     textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
   }, [inputValue]);
-
-  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInputValue(e.target.value);
-  }, []);
 
   // Get the current status from the last pending message (if any).
   // Only show transient statuses (thinking, tool calls) while actively streaming.
@@ -1152,7 +1173,7 @@ export function ChatPanel({
           </p>
         )}
         
-        <div className="flex items-end gap-1.5 rounded-xl border border-white/10 bg-foreground/5 px-2 py-2">
+        <div className="relative flex items-end gap-1.5 rounded-xl border border-white/10 bg-foreground/5 px-2 py-2">
           {attachmentsEnabled && (
             <>
               <input
@@ -1271,13 +1292,21 @@ export function ChatPanel({
           <textarea
             ref={textareaRef}
             value={inputValue}
+            onBlur={handleTextareaBlur}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
+            onClick={handleTextareaSelectionChange}
             onPaste={handleTextareaPaste}
+            onSelect={handleTextareaSelectionChange}
+            onKeyUp={handleTextareaKeyUp}
             className="max-h-[200px] flex-1 resize-none bg-transparent px-1.5 py-1.5 text-sm leading-5 text-foreground outline-none placeholder:text-muted-foreground/60"
             placeholder="Type a message..."
             disabled={isStartingNewSession || !onSendMessage}
             rows={1}
+          />
+          <AgentMentionAutocomplete
+            autocomplete={agentMentionAutocomplete}
+            onSelect={onAgentMentionSelect}
           />
           <Button
             size="icon"

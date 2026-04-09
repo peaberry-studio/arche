@@ -1,6 +1,7 @@
 import type { RuntimeSessionResult } from '@/lib/runtime/types'
 
 import { prisma } from '@/lib/prisma'
+import { getDesktopVaultRuntimeContext } from '@/lib/runtime/desktop/context-store'
 import { initDesktopPrisma } from '@/lib/prisma-desktop-init'
 
 const DESKTOP_USER_ID = 'local'
@@ -8,9 +9,13 @@ const DESKTOP_USER_EMAIL = 'local@arche.local'
 const DESKTOP_USER_SLUG = 'local'
 const DESKTOP_PASSWORD_HASH = 'desktop-local'
 
-let cachedSession: RuntimeSessionResult | null = null
+type DesktopSession = NonNullable<RuntimeSessionResult>
 
-export async function getDesktopSession(): Promise<RuntimeSessionResult> {
+let cachedSession: DesktopSession | null = null
+
+export async function getDesktopSession(): Promise<DesktopSession> {
+  const context = getDesktopVaultRuntimeContext()
+  if (context?.session) return context.session
   if (cachedSession) return cachedSession
 
   await initDesktopPrisma()
@@ -37,10 +42,16 @@ export async function getDesktopSession(): Promise<RuntimeSessionResult> {
     },
   })
 
-  cachedSession = {
+  const nextSession: DesktopSession = {
     user,
     sessionId: user.id,
   }
 
-  return cachedSession
+  if (context) {
+    context.session = nextSession
+    return nextSession
+  }
+
+  cachedSession = nextSession
+  return nextSession
 }

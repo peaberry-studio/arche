@@ -1,0 +1,10 @@
+**/node_modules
+web/.next
+web/.next-desktop*
+web/coverage
+web/.env
+web/.env.local
+web/.env.*.local
+desktop/dist
+desktop/release
+desktop/coverage

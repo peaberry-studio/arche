@@ -1,9 +1,10 @@
 /** @vitest-environment jsdom */
 
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useConfigStatus } from "@/hooks/use-config-status";
+import { WORKSPACE_CONFIG_STATUS_CHANGED_EVENT } from '@/lib/runtime/config-status-events'
 
 describe("useConfigStatus", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
@@ -79,5 +80,42 @@ describe("useConfigStatus", () => {
     });
     expect(result.current.pending).toBe(false);
     expect(result.current.reason).toBeNull();
+  });
+
+  it("refreshes immediately when config changes are announced", async () => {
+    vi.useRealTimers();
+
+    const originalAddEventListener = window.addEventListener.bind(window);
+    let configStatusListener: EventListener | null = null;
+
+    vi.spyOn(window, 'addEventListener').mockImplementation((type, listener, options) => {
+      if (type === WORKSPACE_CONFIG_STATUS_CHANGED_EVENT) {
+        configStatusListener = listener as EventListener;
+      }
+
+      originalAddEventListener(type, listener, options);
+    });
+
+    fetchMock
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ pending: false, reason: null }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ pending: true, reason: 'config' }) });
+
+    const { result } = renderHook(() => useConfigStatus("alice", true));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+    expect(result.current.pending).toBe(false);
+    expect(configStatusListener).not.toBeNull();
+
+    act(() => {
+      configStatusListener?.(new Event(WORKSPACE_CONFIG_STATUS_CHANGED_EVENT));
+    });
+
+    await waitFor(() => {
+      expect(result.current.pending).toBe(true);
+      expect(result.current.reason).toBe('config');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
   });
 });

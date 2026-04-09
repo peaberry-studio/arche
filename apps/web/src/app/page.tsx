@@ -1,13 +1,25 @@
-import { redirect } from "next/navigation";
+import { redirect } from 'next/navigation'
 
-import { getSession } from "@/lib/runtime/session";
+import { DesktopVaultLauncher } from '@/components/desktop/desktop-vault-launcher'
+import { getCurrentDesktopVault } from '@/lib/runtime/desktop/current-vault'
+import { isDesktop } from '@/lib/runtime/mode'
+import { getSession } from '@/lib/runtime/session'
 
 export default async function Home() {
-  const session = await getSession();
+  if (isDesktop()) {
+    const vault = getCurrentDesktopVault()
+    if (!vault) {
+      return <DesktopVaultLauncher />
+    }
 
-  if (!session) {
-    redirect("/login");
+    redirect('/w/local')
   }
 
-  redirect(`/u/${session.user.slug}`);
+  const session = await getSession()
+
+  if (!session) {
+    redirect('/login')
+  }
+
+  redirect(`/u/${session.user.slug}`)
 }
