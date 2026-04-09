@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import {
   ArrowLineRight,
   ChatCircle,
-  Circle,
   Cpu,
   Database,
   GearSix,
@@ -112,12 +111,6 @@ type ProviderSummary = {
   status: ProviderStatus;
   type?: string;
   version?: number;
-};
-
-const statusConfig = {
-  active: { color: "text-emerald-500", pulse: true },
-  provisioning: { color: "text-amber-500", pulse: true },
-  offline: { color: "text-muted-foreground", pulse: false },
 };
 
 function connectorStatusInfo(status: ConnectorStatus): { label: string; dotClassName: string } {
@@ -877,8 +870,6 @@ function ExpandedLeftPanel({
     minHeight: 0,
   });
 
-  const statusStyle = statusConfig[status];
-
   return (
     <div
       ref={containerRef}
@@ -906,11 +897,6 @@ function ExpandedLeftPanel({
             <span className="truncate text-sm text-muted-foreground">{slug}</span>
           </button>
         )}
-        <Circle
-          size={8}
-          weight="fill"
-          className={cn(statusStyle.color, statusStyle.pulse && "animate-pulse")}
-        />
         {!hideCollapseButton && (
           <button
             type="button"

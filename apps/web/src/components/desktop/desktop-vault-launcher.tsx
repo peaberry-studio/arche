@@ -1,10 +1,16 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import {
+  KickstartWizard,
+  type KickstartWizardLoadCatalogResult,
+  type KickstartWizardSubmitResult,
+} from '@/components/kickstart/kickstart-wizard'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import type { KickstartAgentSummary, KickstartTemplateSummary } from '@/kickstart/types'
 import {
   getDesktopBridge,
   getDesktopPlatform,
@@ -12,7 +18,7 @@ import {
   type DesktopVaultSummary,
 } from '@/lib/runtime/desktop/client'
 
-const DEFAULT_VAULT_NAME = 'Arche'
+const DEFAULT_VAULT_NAME = 'my-vault'
 const LAUNCHER_CLOSE_DELAY_MS = 900
 
 type LauncherStatus = {
@@ -51,6 +57,8 @@ function getDesktopActionError(error: string): string {
       return 'The target vault folder already exists and is not empty.'
     case 'vault_create_failed':
       return 'Arche could not create the vault.'
+    case 'vault_setup_failed':
+      return 'Arche could not finish the selected onboarding template for the new vault.'
     case 'vault_launch_failed':
       return 'Arche could not launch the selected vault.'
     case 'launcher_not_active':
@@ -81,11 +89,11 @@ export function DesktopVaultLauncher() {
   const [vaultName, setVaultName] = useState(DEFAULT_VAULT_NAME)
   const [parentPath, setParentPath] = useState('')
   const [recentVaults, setRecentVaults] = useState<DesktopVaultSummary[]>([])
-  const [isBusy, setIsBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [status, setStatus] = useState<LauncherStatus | null>(null)
 
   const previewPath = useMemo(() => joinPreviewPath(parentPath, vaultName), [parentPath, vaultName])
+  const stepOneReady = parentPath.trim().length > 0 && vaultName.trim().length > 0
 
   useEffect(() => {
     let cancelled = false
@@ -122,17 +130,58 @@ export function DesktopVaultLauncher() {
     await closeLauncherAfterSuccess()
   }
 
-  async function handleCreateVault() {
-    setIsBusy(true)
+  const loadDesktopKickstartCatalog = useCallback(async (): Promise<KickstartWizardLoadCatalogResult> => {
+    try {
+      const response = await fetch('/api/internal/desktop/kickstart/catalog', {
+        cache: 'no-store',
+      })
+      const data = (await response.json().catch(() => null)) as {
+        agents?: KickstartAgentSummary[]
+        error?: string
+        models?: Array<{ id: string; label: string }>
+        templates?: KickstartTemplateSummary[]
+      } | null
+
+      if (
+        !response.ok ||
+        !data ||
+        !Array.isArray(data.templates) ||
+        !Array.isArray(data.agents) ||
+        !Array.isArray(data.models)
+      ) {
+        return {
+          ok: false,
+          error: data?.error ?? 'Failed to load onboarding catalog for the new vault.',
+        }
+      }
+
+      return {
+        ok: true,
+        catalog: {
+          agents: data.agents,
+          templates: data.templates,
+        },
+        models: data.models,
+      }
+    } catch {
+      return {
+        ok: false,
+        error: 'Failed to load onboarding catalog for the new vault.',
+      }
+    }
+  }, [])
+
+  async function handleCreateVault(kickstartPayload: unknown): Promise<KickstartWizardSubmitResult> {
     setError(null)
     setStatus({
       title: 'Creating vault...',
-      description: 'Arche is preparing the folder, database, repos, and runtime for the new vault.',
+      description: 'Arche is preparing the folder, hidden data, repositories, and workspace from your setup.',
     })
 
     try {
       const nextError = await handleDesktopAction(() =>
         getDesktopBridge().createVault({
+          kickstartPayload,
           parentPath,
           name: vaultName,
         }),
@@ -140,24 +189,25 @@ export function DesktopVaultLauncher() {
 
       if (nextError) {
         setStatus(null)
-        setError(nextError)
-        return
+        return { ok: false, error: nextError }
       }
 
       await finishSuccessfulLaunch({
         title: 'Vault created',
-        description: 'Opening the new vault in its own Arche window...',
+        description: 'Opening the new vault directly in the configured workspace...',
       })
+
+      return { ok: true }
     } catch (launchError) {
       setStatus(null)
-      setError(launchError instanceof Error ? launchError.message : 'Arche could not close the launcher.')
-    } finally {
-      setIsBusy(false)
+      return {
+        ok: false,
+        error: launchError instanceof Error ? launchError.message : 'Arche could not close the launcher.',
+      }
     }
   }
 
   async function handleOpenExistingVault() {
-    setIsBusy(true)
     setError(null)
     setStatus({
       title: 'Opening vault...',
@@ -180,15 +230,11 @@ export function DesktopVaultLauncher() {
     } catch (launchError) {
       setStatus(null)
       setError(launchError instanceof Error ? launchError.message : 'Arche could not close the launcher.')
-    } finally {
-      setIsBusy(false)
     }
   }
 
   async function handleOpenRecentVault(vaultPath: string) {
-    setIsBusy(true)
     setError(null)
-
     const vault = recentVaults.find((entry) => entry.path === vaultPath)
     setStatus({
       title: 'Opening vault...',
@@ -215,8 +261,6 @@ export function DesktopVaultLauncher() {
     } catch (launchError) {
       setStatus(null)
       setError(launchError instanceof Error ? launchError.message : 'Arche could not close the launcher.')
-    } finally {
-      setIsBusy(false)
     }
   }
 
@@ -249,65 +293,71 @@ export function DesktopVaultLauncher() {
             <div className="space-y-3">
               <p className="text-xs uppercase tracking-[0.18em] text-primary/80">Desktop Vaults</p>
               <h1 className="type-display text-4xl leading-tight text-foreground sm:text-5xl">
-                Open a vault and land straight in the workspace.
+                Create a vault and finish setup before it opens.
               </h1>
               <p className="max-w-xl text-sm text-muted-foreground sm:text-base">
-                Each vault is a visible folder with its own database, knowledge repos,
-                runtime state, and secrets.
+                Each vault keeps the workspace visible while Arche stores repos, runtime state,
+                and secrets in hidden folders.
               </p>
             </div>
 
-            <div className="space-y-5 rounded-2xl border border-border/60 bg-background/70 p-5">
-              <div className="space-y-2">
-                <Label htmlFor="desktop-vault-name">Vault name</Label>
-                <Input
-                  id="desktop-vault-name"
-                  value={vaultName}
-                  onChange={(event) => setVaultName(event.target.value)}
-                  placeholder={DEFAULT_VAULT_NAME}
-                  disabled={isBusy}
-                />
-              </div>
+            <KickstartWizard
+              slug="local"
+              loadCatalog={loadDesktopKickstartCatalog}
+              onSubmit={handleCreateVault}
+              renderStepOneExtras={(
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="desktop-vault-name">Vault name</Label>
+                    <Input
+                      id="desktop-vault-name"
+                      value={vaultName}
+                      onChange={(event) => setVaultName(event.target.value)}
+                      placeholder={DEFAULT_VAULT_NAME}
+                    />
+                  </div>
 
-              <div className="space-y-2">
-                <Label>Location</Label>
-                <div className="flex flex-col gap-3 sm:flex-row">
-                  <Input
-                    value={parentPath}
-                    readOnly
-                    placeholder="Choose a parent folder"
-                    className="flex-1"
-                  />
-                  <Button type="button" variant="outline" onClick={handleChooseLocation} disabled={isBusy}>
-                    Choose location
-                  </Button>
-                </div>
-              </div>
+                  <div className="space-y-2">
+                    <Label>Location</Label>
+                    <div className="flex flex-col gap-3 sm:flex-row">
+                      <Input
+                        value={parentPath}
+                        readOnly
+                        placeholder="Choose a parent folder"
+                        className="flex-1"
+                      />
+                      <Button type="button" variant="outline" onClick={handleChooseLocation}>
+                        Choose location
+                      </Button>
+                    </div>
+                  </div>
 
-              <div className="rounded-xl border border-dashed border-border/60 bg-muted/20 px-4 py-3">
-                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                  Final folder
-                </p>
-                <p className="mt-1 break-all font-mono text-sm text-foreground">
-                  {previewPath || DEFAULT_VAULT_NAME}
-                </p>
-              </div>
+                  <div className="rounded-xl border border-dashed border-border/60 bg-muted/20 px-4 py-3">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Final folder
+                    </p>
+                    <p className="mt-1 break-all font-mono text-sm text-foreground">
+                      {previewPath || DEFAULT_VAULT_NAME}
+                    </p>
+                  </div>
+                </>
+              )}
+              stepOneReadyOverride={stepOneReady}
+              submitLabel="Create vault"
+              submittingLabel="Creating vault"
+            />
 
-              {error ? (
-                <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                  {error}
-                </div>
-              ) : null}
-
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <Button type="button" onClick={handleCreateVault} disabled={isBusy || !parentPath.trim()}>
-                  Create Vault
-                </Button>
-                <Button type="button" variant="outline" onClick={handleOpenExistingVault} disabled={isBusy}>
-                  Open Existing Vault
-                </Button>
-              </div>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Button type="button" variant="outline" onClick={handleOpenExistingVault}>
+                Open Existing Vault
+              </Button>
             </div>
+
+            {error ? (
+              <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                {error}
+              </div>
+            ) : null}
           </div>
         </section>
 
@@ -331,7 +381,6 @@ export function DesktopVaultLauncher() {
                     key={vault.path}
                     type="button"
                     onClick={() => handleOpenRecentVault(vault.path)}
-                    disabled={isBusy}
                     className="flex w-full flex-col rounded-2xl border border-border/60 bg-background/60 px-4 py-3 text-left transition-colors hover:border-primary/30 hover:bg-background"
                   >
                     <span className="truncate text-sm font-medium text-foreground">{vault.name}</span>

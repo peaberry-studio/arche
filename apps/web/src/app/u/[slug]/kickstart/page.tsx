@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation'
 
 import { KickstartWizard } from '@/components/kickstart/kickstart-wizard'
+import { getCurrentDesktopVault } from '@/lib/runtime/desktop/current-vault'
+import { isDesktop } from '@/lib/runtime/mode'
 import { getSession } from '@/lib/runtime/session'
 import { getKickstartStatus } from '@/kickstart/status'
 
@@ -23,6 +25,11 @@ export default async function KickstartPage({
     redirect(`/u/${slug}?setup=admin-required`)
   }
 
+  const desktopVault = isDesktop() ? getCurrentDesktopVault() : null
+  if (isDesktop() && !desktopVault) {
+    redirect('/')
+  }
+
   const status = await getKickstartStatus()
   if (status === 'ready') {
     redirect(`/u/${slug}`)
@@ -41,7 +48,11 @@ export default async function KickstartPage({
         </p>
       </section>
 
-      <KickstartWizard slug={slug} initialStatus={status} />
+      <KickstartWizard
+        slug={slug}
+        initialStatus={status}
+        initialCompanyName={desktopVault?.vaultName ?? ''}
+      />
     </main>
   )
 }

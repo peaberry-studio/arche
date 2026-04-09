@@ -1,6 +1,6 @@
 'use client'
 
-import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { type ChangeEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   CheckCircle,
@@ -22,8 +22,17 @@ import type {
 import { cn } from '@/lib/utils'
 
 type KickstartWizardProps = {
+  initialCompanyDescription?: string
+  initialCompanyName?: string
+  initialTemplateId?: string | null
+  initialStatus?: KickstartStatus
+  loadCatalog?: () => Promise<KickstartWizardLoadCatalogResult>
+  onSubmit?: (payload: KickstartApplyRequestPayload) => Promise<KickstartWizardSubmitResult>
+  renderStepOneExtras?: ReactNode
   slug: string
-  initialStatus: KickstartStatus
+  stepOneReadyOverride?: boolean
+  submitLabel?: string
+  submittingLabel?: string
 }
 
 type AgentOverride = {
@@ -36,6 +45,21 @@ type ModelOption = {
   id: string
   label: string
 }
+
+export type KickstartWizardLoadCatalogResult =
+  | {
+      ok: true
+      catalog: KickstartTemplatesResponse
+      models: ModelOption[]
+    }
+  | {
+      ok: false
+      error: string
+    }
+
+export type KickstartWizardSubmitResult =
+  | { ok: true }
+  | { ok: false; error: string }
 
 type ImportTemplateResult =
   | { ok: true; template: KickstartTemplateDefinition }
@@ -240,7 +264,19 @@ function parseImportedTemplate(
   return { ok: true, template }
 }
 
-export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
+export function KickstartWizard({
+  slug,
+  initialStatus = 'needs_setup',
+  initialCompanyDescription = '',
+  initialCompanyName = '',
+  initialTemplateId = null,
+  loadCatalog,
+  onSubmit,
+  renderStepOneExtras,
+  stepOneReadyOverride,
+  submitLabel = 'Apply kickstart',
+  submittingLabel = 'Applying',
+}: KickstartWizardProps) {
   const router = useRouter()
 
   const [step, setStep] = useState(1)
@@ -251,8 +287,8 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
 
   const [catalog, setCatalog] = useState<KickstartTemplatesResponse | null>(null)
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([])
-  const [companyName, setCompanyName] = useState('')
-  const [companyDescription, setCompanyDescription] = useState('')
+  const [companyName, setCompanyName] = useState(initialCompanyName)
+  const [companyDescription, setCompanyDescription] = useState(initialCompanyDescription)
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
   const [importedTemplate, setImportedTemplate] = useState<KickstartTemplateDefinition | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
@@ -260,59 +296,105 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
   const [agentOverrides, setAgentOverrides] = useState<Record<string, AgentOverride>>({})
   const importInputRef = useRef<HTMLInputElement | null>(null)
 
+  const loadCatalogFromRoutes = useCallback(async (): Promise<KickstartWizardLoadCatalogResult> => {
+    const [templatesResponse, modelsResponse] = await Promise.all([
+      fetch(`/api/u/${slug}/kickstart/templates`, {
+        cache: 'no-store',
+      }).catch(() => null),
+      fetch(`/api/u/${slug}/agents/models`, {
+        cache: 'no-store',
+      }).catch(() => null),
+    ])
+
+    const response = templatesResponse
+    if (!response) {
+      return { ok: false, error: 'Failed to load kickstart templates' }
+    }
+
+    const data = (await response.json().catch(() => null)) as KickstartTemplatesResponse | { error?: string } | null
+    if (!response.ok || !data || !('templates' in data)) {
+      return {
+        ok: false,
+        error: (data && 'error' in data && data.error) || 'Failed to load kickstart templates',
+      }
+    }
+
+    let models: ModelOption[] = []
+    if (modelsResponse?.ok) {
+      const modelData = (await modelsResponse.json().catch(() => null)) as { models?: ModelOption[] } | null
+      models = modelData?.models ?? []
+    }
+
+    return {
+      ok: true,
+      catalog: data,
+      models,
+    }
+  }, [slug])
+
+  async function submitToRoutes(payload: KickstartApplyRequestPayload): Promise<KickstartWizardSubmitResult> {
+    try {
+      const response = await fetch(`/api/u/${slug}/kickstart/apply`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      })
+
+      const data = (await response.json().catch(() => null)) as {
+        error?: string
+        message?: string
+      } | null
+
+      if (!response.ok) {
+        return {
+          ok: false,
+          error: data?.message ?? data?.error ?? 'Kickstart apply failed',
+        }
+      }
+
+      router.push(`/u/${slug}?setup=completed`)
+      return { ok: true }
+    } catch {
+      return { ok: false, error: 'Kickstart apply failed' }
+    }
+  }
+
   useEffect(() => {
     let cancelled = false
 
-    async function loadCatalog() {
+    async function loadInitialCatalog() {
       setIsLoading(true)
       setLoadError(null)
 
       try {
-        const [templatesResponse, modelsResponse] = await Promise.all([
-          fetch(`/api/u/${slug}/kickstart/templates`, {
-            cache: 'no-store',
-          }).catch(() => null),
-          fetch(`/api/u/${slug}/agents/models`, {
-            cache: 'no-store',
-          }).catch(() => null),
-        ])
-
-        const response = templatesResponse
-        if (!response) {
-          setLoadError('Failed to load kickstart templates')
-          return
-        }
-
-        const data = (await response.json().catch(() => null)) as KickstartTemplatesResponse | { error?: string } | null
+        const catalogResult = await (loadCatalog ? loadCatalog() : loadCatalogFromRoutes())
         if (cancelled) return
 
-        if (!response.ok || !data || !('templates' in data)) {
-          setLoadError((data && 'error' in data && data.error) || 'Failed to load kickstart templates')
+        if (!catalogResult.ok) {
+          setLoadError(catalogResult.error)
           return
         }
 
-        setCatalog(data)
+        setCatalog(catalogResult.catalog)
+        setModelOptions(catalogResult.models)
 
-        if (modelsResponse?.ok) {
-          const modelData = (await modelsResponse.json().catch(() => null)) as
-            | { models?: ModelOption[] }
-            | null
-          setModelOptions(modelData?.models ?? [])
-        } else {
-          setModelOptions([])
-        }
-
-        const firstTemplate = data.templates[0]
-        if (!firstTemplate) {
+        const fallbackTemplate = catalogResult.catalog.templates[0]
+        if (!fallbackTemplate) {
           setLoadError('No kickstart templates available')
           return
         }
 
-        setSelectedTemplateId(firstTemplate.id)
+        const initialTemplate = initialTemplateId
+          ? catalogResult.catalog.templates.find((template) => template.id === initialTemplateId) ?? fallbackTemplate
+          : fallbackTemplate
+
+        setSelectedTemplateId(initialTemplate.id)
         setSelectedAgentIds(
           unique([
-            ...getRequiredAgentIdsForTemplate(firstTemplate.id),
-            ...firstTemplate.recommendedAgentIds,
+            ...getRequiredAgentIdsForTemplate(initialTemplate.id),
+            ...initialTemplate.recommendedAgentIds,
           ])
         )
       } finally {
@@ -322,7 +404,7 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
       }
     }
 
-    loadCatalog().catch(() => {
+    loadInitialCatalog().catch(() => {
       if (!cancelled) {
         setIsLoading(false)
         setLoadError('Failed to load kickstart templates')
@@ -332,7 +414,7 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
     return () => {
       cancelled = true
     }
-  }, [slug])
+  }, [initialTemplateId, loadCatalog, loadCatalogFromRoutes])
 
   const selectedTemplate = useMemo(() => {
     if (selectedTemplateId === IMPORT_TEMPLATE_ID) {
@@ -379,7 +461,10 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
     [selectedTemplate]
   )
 
-  const stepOneReady = companyName.trim().length > 0 && companyDescription.trim().length > 0
+  const stepOneReady =
+    companyName.trim().length > 0 &&
+    companyDescription.trim().length > 0 &&
+    (stepOneReadyOverride ?? true)
   const stepTwoReady = Boolean(selectedTemplate)
   const stepThreeReady =
     selectedAgentIds.length > 0 &&
@@ -539,25 +624,11 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
           : { templateId: selectedTemplate.id }),
       }
 
-      const response = await fetch(`/api/u/${slug}/kickstart/apply`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      })
-
-      const data = (await response.json().catch(() => null)) as {
-        error?: string
-        message?: string
-      } | null
-
-      if (!response.ok) {
-        setApplyError(data?.message ?? data?.error ?? 'Kickstart apply failed')
+      const submitResult = await (onSubmit ? onSubmit(payload) : submitToRoutes(payload))
+      if (!submitResult.ok) {
+        setApplyError(submitResult.error)
         return
       }
-
-      router.push(`/u/${slug}?setup=completed`)
     } catch {
       setApplyError('Kickstart apply failed')
     } finally {
@@ -634,6 +705,8 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
                 This context is used to render the initial KB and baseline prompts.
               </p>
             </div>
+
+            {renderStepOneExtras ? <div className="space-y-5">{renderStepOneExtras}</div> : null}
 
             <div className="space-y-2">
               <Label htmlFor="company-name">Company name</Label>
@@ -941,16 +1014,16 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
               onClick={handleApply}
               disabled={!isStepReady(3) || isApplying}
             >
-              {isApplying ? (
-                <>
-                  <SpinnerGap size={16} className="animate-spin" />
-                  Applying
-                </>
-              ) : (
-                'Apply kickstart'
-              )}
-            </Button>
-          )}
+                {isApplying ? (
+                  <>
+                    <SpinnerGap size={16} className="animate-spin" />
+                    {submittingLabel}
+                  </>
+                ) : (
+                  submitLabel
+                )}
+              </Button>
+            )}
         </div>
       </section>
     </div>

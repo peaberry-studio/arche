@@ -284,4 +284,18 @@ describe("LeftPanel", () => {
 
     expect(onCreateSession).toHaveBeenCalledTimes(1);
   });
+
+  it("does not show the desktop status indicator next to the vault switcher", () => {
+    const { container } = renderLeftPanel({
+      currentVault: {
+        id: "vault-1",
+        name: "my-vault",
+        path: "/tmp/my-vault",
+      },
+    });
+
+    expect(screen.getByText("my-vault")).toBeTruthy();
+    expect(container.querySelector(".text-emerald-500")).toBeNull();
+    expect(container.querySelector(".text-amber-500")).toBeNull();
+  });
 });

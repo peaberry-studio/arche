@@ -14,8 +14,16 @@ import {
 } from './runtime-binaries'
 import { findAvailablePort } from './runtime-network'
 import { probeHttpServerReady, RuntimeSupervisor } from './runtime-supervisor'
-import { acquireVaultLock, getVaultLockState, type VaultLockHandle } from './vault-lock'
 import { buildLaunchArgs, resolveLaunchContext, type DesktopLaunchContext } from './vault-launch'
+import {
+  DEFAULT_NEW_VAULT_NAME,
+  getDesktopKbConfigDir,
+  getDesktopKbContentDir,
+  getDesktopRuntimeDataDir,
+  getDesktopSecretsDir,
+  getDesktopUserDataDir,
+} from './vault-layout'
+import { acquireVaultLock, getVaultLockState, type VaultLockHandle } from './vault-lock'
 import {
   clearLastOpenedVault,
   getRecentVaults,
@@ -30,8 +38,6 @@ const LOOPBACK_HOST = '127.0.0.1'
 const DESKTOP_TOKEN_HEADER = 'x-arche-desktop-token'
 const DESKTOP_GIT_AUTHOR_NAME = 'Arche Workspace'
 const DESKTOP_GIT_AUTHOR_EMAIL = 'workspace@arche.local'
-const DEFAULT_NEW_VAULT_NAME = 'Arche'
-const DESKTOP_RUNTIME_DATA_DIR = 'runtime/opencode'
 const LOCAL_USER_SLUG = 'local'
 
 type DesktopApiResult =
@@ -39,6 +45,7 @@ type DesktopApiResult =
   | { ok: false; error: string }
 
 type CreateVaultArgs = {
+  kickstartPayload: unknown
   parentPath: string
   name: string
 }
@@ -88,10 +95,6 @@ function getCurrentVaultPath(): string | null {
 
 function getCurrentVaultTitle(): string {
   return currentVault ? `Arche - ${currentVault.name}` : 'Arche'
-}
-
-function getRuntimeDataDir(vaultPath: string): string {
-  return join(vaultPath, DESKTOP_RUNTIME_DATA_DIR)
 }
 
 function resolveDesktopOpencodeConfigDir(): string | null {
@@ -160,7 +163,7 @@ function setDesktopEnv(): void {
 
   if (currentVault) {
     process.env.ARCHE_DATA_DIR = currentVault.path
-    process.env.ARCHE_OPENCODE_DATA_DIR = getRuntimeDataDir(currentVault.path)
+    process.env.ARCHE_OPENCODE_DATA_DIR = getDesktopRuntimeDataDir(currentVault.path)
     process.env.ARCHE_DESKTOP_VAULT_ID = currentVault.id
     process.env.ARCHE_DESKTOP_VAULT_NAME = currentVault.name
     process.env.ARCHE_DESKTOP_VAULT_PATH = currentVault.path
@@ -214,7 +217,7 @@ async function ensureBareRepo(dir: string): Promise<void> {
 
 async function ensureWorkspaceRepo(vaultPath: string): Promise<void> {
   const workspaceDir = join(vaultPath, 'workspace')
-  const kbContentDir = join(vaultPath, 'kb-content')
+  const kbContentDir = getDesktopKbContentDir(vaultPath)
 
   if (!existsSync(workspaceDir)) {
     mkdirSync(workspaceDir, { recursive: true })
@@ -238,12 +241,12 @@ async function ensureWorkspaceRepo(vaultPath: string): Promise<void> {
 async function ensureVaultDataDirectories(vault: DesktopVault): Promise<void> {
   const dirs = [
     vault.path,
-    join(vault.path, 'kb-config'),
-    join(vault.path, 'kb-content'),
+    getDesktopKbConfigDir(vault.path),
+    getDesktopKbContentDir(vault.path),
     join(vault.path, 'workspace'),
-    join(vault.path, 'users', LOCAL_USER_SLUG),
-    getRuntimeDataDir(vault.path),
-    join(vault.path, 'secrets'),
+    getDesktopUserDataDir(vault.path, LOCAL_USER_SLUG),
+    getDesktopRuntimeDataDir(vault.path),
+    getDesktopSecretsDir(vault.path),
   ]
 
   for (const dir of dirs) {
@@ -252,8 +255,8 @@ async function ensureVaultDataDirectories(vault: DesktopVault): Promise<void> {
     }
   }
 
-  await ensureBareRepo(join(vault.path, 'kb-config'))
-  await ensureBareRepo(join(vault.path, 'kb-content'))
+  await ensureBareRepo(getDesktopKbConfigDir(vault.path))
+  await ensureBareRepo(getDesktopKbContentDir(vault.path))
   await ensureWorkspaceRepo(vault.path)
 }
 
@@ -452,6 +455,27 @@ function launchVaultProcess(vaultPath: string): DesktopApiResult {
   return launchElectronProcess({ mode: 'vault', vaultPath: vault.path })
 }
 
+async function applyKickstartToPreparedVault(vaultPath: string, kickstartPayload: unknown): Promise<DesktopApiResult> {
+  try {
+    const response = await fetch(`${getNextUrl()}/api/internal/desktop/kickstart/prepare-vault`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        [DESKTOP_TOKEN_HEADER]: desktopApiToken,
+      },
+      body: JSON.stringify({ kickstartPayload, vaultPath }),
+    })
+
+    if (response.ok) {
+      return { ok: true }
+    }
+
+    return { ok: false, error: 'vault_setup_failed' }
+  } catch {
+    return { ok: false, error: 'vault_setup_failed' }
+  }
+}
+
 function openVaultLauncherProcess(): DesktopApiResult {
   return launchElectronProcess({ mode: 'launcher', vaultPath: null })
 }
@@ -518,6 +542,15 @@ async function createVault(args: CreateVaultArgs): Promise<DesktopApiResult> {
   try {
     const vault = createVaultManifest(vaultPath, name)
     await ensureVaultDataDirectories(vault)
+
+    const kickstartResult = await applyKickstartToPreparedVault(vault.path, args.kickstartPayload)
+    if (!kickstartResult.ok) {
+      if (createdVaultDir) {
+        rmSync(vaultPath, { recursive: true, force: true })
+      }
+      return kickstartResult
+    }
+
     rememberVault(getDesktopMetadataDir(), vault)
     return launchElectronProcess({ mode: 'vault', vaultPath: vault.path })
   } catch {

@@ -12,6 +12,7 @@ type DesktopApiResult =
   | { ok: false; error: string }
 
 type CreateVaultArgs = {
+  kickstartPayload: unknown
   parentPath: string
   name: string
 }

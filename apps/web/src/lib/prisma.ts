@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client'
 
+import { getDesktopVaultRuntimeContext } from '@/lib/runtime/desktop/context'
 import { isDesktop } from '@/lib/runtime/mode'
 
 function importRuntimeModule<T>(specifier: string): Promise<T> {
@@ -52,7 +53,7 @@ export async function initWebPrisma(): Promise<void> {
 function createDesktopProxy(): PrismaClient {
   return new Proxy({} as PrismaClient, {
     get(_target, prop) {
-      const client = globalThis.prismaDesktopClient
+      const client = getDesktopVaultRuntimeContext()?.prismaClient ?? globalThis.prismaDesktopClient
       if (!client) {
         throw new Error(
           'Desktop Prisma client not initialized. Call initDesktopPrisma() at startup.'

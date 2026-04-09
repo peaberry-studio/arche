@@ -4,7 +4,6 @@ import { redirect } from 'next/navigation'
 import { DesktopSettingsDialog } from '@/components/desktop/desktop-settings-dialog'
 import { WorkspaceShell } from '@/components/workspace/workspace-shell'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
-import { ensureDesktopWorkspaceBootstrapped } from '@/lib/runtime/desktop/bootstrap'
 import {
   getCurrentDesktopVault,
   getWorkspacePersistenceScope,
@@ -46,20 +45,10 @@ export default async function WorkspaceHostPage({
     redirect(`/w/${session.user.slug}`)
   }
 
-  if (desktopVault) {
-    await ensureDesktopWorkspaceBootstrapped(session.user.id)
-  }
-
   const kickstartStatus = await getKickstartStatus()
   if (kickstartStatus !== 'ready') {
     if (desktopVault) {
-      return (
-        <main className="mx-auto max-w-3xl px-6 py-12">
-          <div className="rounded-2xl border border-border/60 bg-card/60 p-6 text-sm text-muted-foreground">
-            Desktop workspace setup is still being prepared. Close and reopen the vault if this state persists.
-          </div>
-        </main>
-      )
+      redirect(`/u/${slug}/kickstart`)
     }
 
     const setupParam = kickstartStatus === 'setup_in_progress' ? 'in-progress' : 'required'

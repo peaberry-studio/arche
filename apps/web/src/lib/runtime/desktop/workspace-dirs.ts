@@ -16,7 +16,7 @@ function getRequiredVaultRoot(): string {
 }
 
 function getRequiredOpencodeRuntimeDir(): string {
-  const runtimeDir = process.env.ARCHE_OPENCODE_DATA_DIR?.trim() || join(getRequiredVaultRoot(), 'runtime', 'opencode')
+  const runtimeDir = process.env.ARCHE_OPENCODE_DATA_DIR?.trim() || join(getRequiredVaultRoot(), '.runtime', 'opencode')
   if (!runtimeDir) {
     throw new Error('Desktop workspace access requires ARCHE_OPENCODE_DATA_DIR to be set')
   }

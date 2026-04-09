@@ -1,6 +1,8 @@
 import { existsSync, mkdirSync } from 'fs'
 import { dirname, join } from 'path'
 
+import { getDesktopVaultRuntimeContext } from '@/lib/runtime/desktop/context'
+
 /**
  * DDL statements to initialize the SQLite database schema.
  * Generated from prisma/schema.sqlite.prisma via:
@@ -110,6 +112,11 @@ const SCHEMA_DDL = [
 const SCHEMA_VERSION = '1'
 
 function getDesktopDatabasePath(): string {
+  const contextDatabaseUrl = getDesktopVaultRuntimeContext()?.databaseUrl?.trim()
+  if (contextDatabaseUrl) {
+    return contextDatabaseUrl.replace(/^file:/, '')
+  }
+
   if (process.env.DATABASE_URL) {
     return process.env.DATABASE_URL.replace(/^file:/, '')
   }
@@ -119,7 +126,7 @@ function getDesktopDatabasePath(): string {
     throw new Error('Desktop database access requires ARCHE_DATA_DIR to point at the active vault')
   }
 
-  return join(vaultRoot, 'arche.db')
+  return join(vaultRoot, '.arche.db')
 }
 
 function ensureDirectoryExists(filePath: string): void {
@@ -158,6 +165,24 @@ export async function initDesktopDatabase(): Promise<void> {
 }
 
 export async function getDesktopPrismaClient(): Promise<DesktopPrismaClient> {
+  const context = getDesktopVaultRuntimeContext()
+  if (context?.prismaClient) {
+    return context.prismaClient as DesktopPrismaClient
+  }
+
+  if (context?.prismaClientPromise) {
+    return context.prismaClientPromise as Promise<DesktopPrismaClient>
+  }
+
+  if (context) {
+    context.prismaClientPromise = createClient().then((client) => {
+      context.prismaClient = client as DesktopPrismaClient
+      return client
+    }) as Promise<DesktopPrismaClient>
+
+    return context.prismaClientPromise as Promise<DesktopPrismaClient>
+  }
+
   if (clientInstance) return clientInstance
 
   if (!clientPromise) {

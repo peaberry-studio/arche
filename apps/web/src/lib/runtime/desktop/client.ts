@@ -12,7 +12,7 @@ export type DesktopApiResult =
   | { ok: false; error: string }
 
 type ArcheDesktopBridge = {
-  createVault: (args: { parentPath: string; name: string }) => Promise<DesktopApiResult>
+  createVault: (args: { kickstartPayload: unknown; parentPath: string; name: string }) => Promise<DesktopApiResult>
   getCurrentVault: () => Promise<DesktopVaultSummary | null>
   listRecentVaults: () => Promise<DesktopVaultSummary[]>
   openExistingVault: () => Promise<DesktopApiResult>

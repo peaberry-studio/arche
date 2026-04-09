@@ -39,6 +39,41 @@ describe('DesktopVaultLauncher', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.clearAllMocks()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        agents: [
+          {
+            id: 'assistant',
+            displayName: 'Assistant',
+            description: 'Primary assistant',
+            systemPrompt: 'help the user',
+            recommendedModel: 'openai/gpt-5',
+            temperature: 0.2,
+            tools: ['read'],
+          },
+          {
+            id: 'knowledge-curator',
+            displayName: 'Knowledge Curator',
+            description: 'Maintains the KB',
+            systemPrompt: 'curate knowledge carefully',
+            recommendedModel: 'openai/gpt-5',
+            temperature: 0.2,
+            tools: ['read'],
+          },
+        ],
+        models: [],
+        templates: [
+          {
+            id: 'blank',
+            label: 'Blank',
+            description: 'Minimal template',
+            recommendedAgentIds: ['assistant', 'knowledge-curator'],
+            agentOverrides: {},
+          },
+        ],
+      }),
+    }))
     listRecentVaultsMock.mockResolvedValue([])
     pickVaultParentDirectoryMock.mockResolvedValue('/Users/inaki/Documents')
     quitLauncherProcessMock.mockResolvedValue({ ok: true })
@@ -46,6 +81,7 @@ describe('DesktopVaultLauncher', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+    vi.unstubAllGlobals()
   })
 
   it('shows creation progress immediately and closes the launcher after success', async () => {
@@ -54,6 +90,9 @@ describe('DesktopVaultLauncher', () => {
 
     render(<DesktopVaultLauncher />)
 
+    expect(await screen.findByDisplayValue('my-vault')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Create a vault and finish setup before it opens.' })).toBeTruthy()
+
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Choose location' }))
       await Promise.resolve()
@@ -61,7 +100,47 @@ describe('DesktopVaultLauncher', () => {
 
     expect(screen.getByDisplayValue('/Users/inaki/Documents')).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Create Vault' }))
+    fireEvent.change(screen.getByLabelText('Company name'), {
+      target: { value: 'Acme' },
+    })
+    fireEvent.change(screen.getByLabelText('Short description'), {
+      target: { value: 'Internal AI workspace' },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(await screen.findByRole('heading', { name: 'Template selection' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(await screen.findByRole('heading', { name: 'Agent selection' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(await screen.findByRole('heading', { name: 'Review and apply' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create vault' }))
+
+    expect(createVaultMock).toHaveBeenCalledWith({
+      kickstartPayload: {
+        agents: [
+          {
+            id: 'assistant',
+            model: 'openai/gpt-5',
+            prompt: 'help the user',
+            temperature: 0.2,
+          },
+          {
+            id: 'knowledge-curator',
+            model: 'openai/gpt-5',
+            prompt: 'curate knowledge carefully',
+            temperature: 0.2,
+          },
+        ],
+        companyDescription: 'Internal AI workspace',
+        companyName: 'Acme',
+        templateId: 'blank',
+      },
+      parentPath: '/Users/inaki/Documents',
+      name: 'my-vault',
+    })
 
     expect(screen.getByRole('heading', { name: 'Creating vault...' })).toBeTruthy()
 
@@ -84,6 +163,8 @@ describe('DesktopVaultLauncher', () => {
     openExistingVaultMock.mockReturnValue(deferred.promise)
 
     render(<DesktopVaultLauncher />)
+
+    expect(await screen.findByLabelText('Company name')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: 'Open Existing Vault' }))
 

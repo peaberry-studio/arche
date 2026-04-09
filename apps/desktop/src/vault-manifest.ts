@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { basename, join } from 'path'
 
-export const VAULT_MANIFEST_FILE_NAME = 'arche-vault.json'
+export const VAULT_MANIFEST_FILE_NAME = '.arche-vault.json'
 export const VAULT_SCHEMA_VERSION = 1
 
 export type DesktopVaultManifest = {

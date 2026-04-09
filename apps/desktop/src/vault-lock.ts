@@ -1,6 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
 import { join } from 'path'
 
+import { getDesktopRuntimeDir } from './vault-layout'
+
 const VAULT_LOCK_FILE_NAME = 'vault.lock'
 
 type VaultLockFile = {
@@ -18,7 +20,7 @@ export type VaultLockCheck = {
 }
 
 function getVaultLockPath(vaultPath: string): string {
-  return join(vaultPath, 'runtime', VAULT_LOCK_FILE_NAME)
+  return join(getDesktopRuntimeDir(vaultPath), VAULT_LOCK_FILE_NAME)
 }
 
 function isProcessAlive(pid: number): boolean {
@@ -71,8 +73,8 @@ function removeLockFileIfStale(lockPath: string): VaultLockFile | null {
 }
 
 export function getVaultLockState(vaultPath: string): VaultLockCheck {
-  const lockPath = getVaultLockPath(vaultPath)
-  const current = removeLockFileIfStale(lockPath)
+  const current = removeLockFileIfStale(getVaultLockPath(vaultPath))
+
   return {
     locked: Boolean(current),
     pid: current?.pid ?? null,
@@ -81,7 +83,7 @@ export function getVaultLockState(vaultPath: string): VaultLockCheck {
 
 export function acquireVaultLock(vaultPath: string): VaultLockHandle | null {
   const lockPath = getVaultLockPath(vaultPath)
-  mkdirSync(join(vaultPath, 'runtime'), { recursive: true })
+  mkdirSync(getDesktopRuntimeDir(vaultPath), { recursive: true })
 
   const content = `${JSON.stringify({ pid: process.pid, acquiredAt: new Date().toISOString() }, null, 2)}\n`
 

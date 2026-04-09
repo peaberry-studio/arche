@@ -1,4 +1,5 @@
 import type { RuntimePaths } from '@/lib/runtime/types'
+import { getDesktopVaultRuntimeContext } from '@/lib/runtime/desktop/context'
 import { assertValidSlug } from '@/lib/validation/slug'
 
 function getDesktopSeparator(): '/' | '\\' {
@@ -54,6 +55,11 @@ function joinDesktopPath(...parts: string[]): string {
 }
 
 function getRequiredVaultRoot(): string {
+  const contextVaultRoot = getDesktopVaultRuntimeContext()?.vaultRoot?.trim()
+  if (contextVaultRoot) {
+    return contextVaultRoot
+  }
+
   const vaultRoot = process.env.ARCHE_DATA_DIR?.trim()
   if (!vaultRoot) {
     throw new Error('Desktop mode requires ARCHE_DATA_DIR to point at the selected vault root')
@@ -63,11 +69,11 @@ function getRequiredVaultRoot(): string {
 }
 
 export const desktopPaths: RuntimePaths = {
-  kbConfigRoot: () => joinDesktopPath(getRequiredVaultRoot(), 'kb-config'),
-  kbContentRoot: () => joinDesktopPath(getRequiredVaultRoot(), 'kb-content'),
-  usersBasePath: () => joinDesktopPath(getRequiredVaultRoot(), 'users'),
+  kbConfigRoot: () => joinDesktopPath(getRequiredVaultRoot(), '.kb-config'),
+  kbContentRoot: () => joinDesktopPath(getRequiredVaultRoot(), '.kb-content'),
+  usersBasePath: () => joinDesktopPath(getRequiredVaultRoot(), '.users'),
   userDataPath: (slug: string) => {
     assertValidSlug(slug)
-    return joinDesktopPath(getRequiredVaultRoot(), 'users', slug)
+    return joinDesktopPath(getRequiredVaultRoot(), '.users', slug)
   },
 }

@@ -33,9 +33,9 @@ test('acquires and releases a vault lock', () => {
 test('clears stale vault lock files', () => {
   withTempDir((root) => {
     const vaultPath = join(root, 'Arche')
-    mkdirSync(join(vaultPath, 'runtime'), { recursive: true })
+    mkdirSync(join(vaultPath, '.runtime'), { recursive: true })
     writeFileSync(
-      join(vaultPath, 'runtime', 'vault.lock'),
+      join(vaultPath, '.runtime', 'vault.lock'),
       JSON.stringify({ pid: 999999, acquiredAt: new Date().toISOString() }),
       'utf-8',
     )

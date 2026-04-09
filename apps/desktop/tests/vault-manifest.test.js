@@ -44,7 +44,7 @@ test('rejects manifests whose name does not match the folder name', () => {
     const wrongPath = join(root, 'Other')
     mkdirSync(wrongPath)
     const fs = require('node:fs')
-    fs.copyFileSync(join(vaultPath, 'arche-vault.json'), join(wrongPath, 'arche-vault.json'))
+    fs.copyFileSync(join(vaultPath, '.arche-vault.json'), join(wrongPath, '.arche-vault.json'))
 
     assert.equal(tryReadVault(wrongPath), null)
   })
