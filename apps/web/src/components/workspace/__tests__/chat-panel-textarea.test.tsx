@@ -363,7 +363,36 @@ describe("ChatPanel textarea", () => {
     expect(screen.queryByRole("button", { name: /ads scripts/i })).toBeNull();
   });
 
-  it("renders expert mention suggestions in a fixed popover above the caret", async () => {
+  it("closes expert mention suggestions when the composer loses focus", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ attachments: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderChatPanel(undefined, {
+      agents: [
+        { id: "assistant", displayName: "Assistant", isPrimary: true },
+        { id: "ads-scripts", displayName: "Ads Scripts", isPrimary: false },
+      ],
+    });
+
+    const textarea = getTextarea();
+    fireEvent.change(textarea, { target: { value: "Ask @ads" } });
+    textarea.setSelectionRange("Ask @ads".length, "Ask @ads".length);
+    fireEvent.select(textarea);
+
+    expect(await screen.findByRole("button", { name: /ads scripts/i })).toBeTruthy();
+
+    textarea.focus();
+    fireEvent.blur(textarea);
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: /ads scripts/i })).toBeNull();
+    });
+  });
+
+  it("renders expert mention suggestions in a fixed popover anchored to the caret", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ attachments: [] }),
@@ -391,8 +420,11 @@ describe("ChatPanel textarea", () => {
       throw new Error("Expected popover container");
     }
 
+    await waitFor(() => {
+      expect(popover.style.visibility).toBe("visible");
+    });
+
     expect(popover.style.position).toBe("fixed");
-    expect(popover.style.transform).toBe("translateY(calc(-100% - 8px))");
   });
 
   it("inserts a pending expert mention at the current cursor position", async () => {
