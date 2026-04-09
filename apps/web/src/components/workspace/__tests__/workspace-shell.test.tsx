@@ -147,6 +147,20 @@ function setViewportWidth(width: number) {
   window.dispatchEvent(new Event("resize"));
 }
 
+function findSizedPanelContainer(element: HTMLElement | null): HTMLElement | null {
+  let current = element;
+
+  while (current) {
+    if (current.style.width) {
+      return current;
+    }
+
+    current = current.parentElement;
+  }
+
+  return null;
+}
+
 describe("WorkspaceShell", () => {
   beforeEach(() => {
     stubBrowserStorage();
@@ -222,7 +236,9 @@ describe("WorkspaceShell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Insert Ads Scripts" }));
 
     await waitFor(() => {
-      expect(screen.getByText("@ads-scripts ")).toBeTruthy();
+      expect(
+        screen.getByText((_, element) => element?.textContent === "@ads-scripts ")
+      ).toBeTruthy();
     });
   });
 
@@ -288,9 +304,9 @@ describe("WorkspaceShell", () => {
       expect(screen.getByRole("button", { name: "Inspector Panel" }).dataset.collapsed).toBe("false");
     });
 
-    const leftPanelWidth = Number.parseFloat(leftPanelButton.parentElement?.style.width ?? "0");
+    const leftPanelWidth = Number.parseFloat(findSizedPanelContainer(leftPanelButton)?.style.width ?? "0");
     const rightPanelWidth = Number.parseFloat(
-      screen.getByRole("button", { name: "Inspector Panel" }).parentElement?.style.width ?? "0"
+      findSizedPanelContainer(screen.getByRole("button", { name: "Inspector Panel" }))?.style.width ?? "0"
     );
 
     const expectedRightWidth = (1440 - leftPanelWidth - 24) / 2;
@@ -347,7 +363,7 @@ describe("WorkspaceShell", () => {
     expect(screen.getByRole("button", { name: "Inspector Panel" }).dataset.collapsed).toBe("true");
 
     const leftPanelButton = screen.getByRole("button", { name: "Left Panel" });
-    const leftPanelWrapper = leftPanelButton.parentElement;
+    const leftPanelWrapper = findSizedPanelContainer(leftPanelButton);
 
     expect(leftPanelWrapper?.style.width).toBe("264px");
   });
