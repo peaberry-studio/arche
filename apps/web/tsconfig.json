@@ -43,9 +43,13 @@
     "**/*.mts",
     ".next/dev/dev/types/**/*.ts",
     ".next-desktop/types/**/*.ts",
-    ".next-desktop/dev/types/**/*.ts"
+    ".next-desktop/dev/types/**/*.ts",
+    ".next-desktop-launcher/types/**/*.ts",
+    ".next-desktop-vault-*/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    ".next-desktop-launcher/dev/**",
+    ".next-desktop-vault-*/dev/**"
   ]
 }

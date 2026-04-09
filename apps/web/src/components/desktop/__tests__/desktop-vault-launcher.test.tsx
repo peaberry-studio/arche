@@ -89,8 +89,10 @@ describe('DesktopVaultLauncher', () => {
 
     render(<DesktopVaultLauncher />)
 
+    fireEvent.click(await screen.findByRole('button', { name: /Create new vault/i }))
+
     expect(await screen.findByDisplayValue('my-vault')).toBeTruthy()
-    expect(screen.getByRole('heading', { name: 'Create a vault and finish setup before it opens.' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Vault details' })).toBeTruthy()
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Choose location' }))
@@ -165,9 +167,9 @@ describe('DesktopVaultLauncher', () => {
 
     render(<DesktopVaultLauncher />)
 
-    expect(await screen.findByLabelText('Company name')).toBeTruthy()
+    expect(await screen.findByRole('button', { name: /Open existing vault/i })).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open Existing Vault' }))
+    fireEvent.click(screen.getByRole('button', { name: /Open existing vault/i }))
 
     expect(screen.getByRole('heading', { name: 'Opening vault...' })).toBeTruthy()
 

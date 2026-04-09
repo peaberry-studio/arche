@@ -16,6 +16,7 @@
 # next.js
 /.next/
 /.next-desktop/
+/.next-desktop*/
 /out/
 
 # production

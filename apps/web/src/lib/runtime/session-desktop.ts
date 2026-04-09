@@ -9,9 +9,11 @@ const DESKTOP_USER_EMAIL = 'local@arche.local'
 const DESKTOP_USER_SLUG = 'local'
 const DESKTOP_PASSWORD_HASH = 'desktop-local'
 
-let cachedSession: RuntimeSessionResult | null = null
+type DesktopSession = NonNullable<RuntimeSessionResult>
 
-export async function getDesktopSession(): Promise<RuntimeSessionResult> {
+let cachedSession: DesktopSession | null = null
+
+export async function getDesktopSession(): Promise<DesktopSession> {
   const context = getDesktopVaultRuntimeContext()
   if (context?.session) return context.session
   if (cachedSession) return cachedSession
@@ -40,7 +42,7 @@ export async function getDesktopSession(): Promise<RuntimeSessionResult> {
     },
   })
 
-  const nextSession = {
+  const nextSession: DesktopSession = {
     user,
     sessionId: user.id,
   }
