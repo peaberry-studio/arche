@@ -8,6 +8,18 @@ Define your company's identity, tone, products, and processes once. Arche's agen
 
 The easiest way to try Arche is the desktop app. It runs locally on your machine — no server or Docker setup required.
 
+Desktop vault behavior:
+
+- Arche Desktop opens directly into the workspace for the last valid vault.
+- If no vault is selected yet, it opens a launcher where you can create or open a vault.
+- Each vault is a visible folder that contains its own database, KB repos, runtime state, and secrets.
+- Opening another vault launches a separate Electron process and window, similar to Obsidian.
+
+Breaking change:
+
+- Desktop no longer reads or migrates legacy hidden data from `~/.arche` or `~/.arche-opencode`.
+- You must create or open a visible Arche vault folder.
+
 ### Download
 
 Head to the [latest release](https://github.com/peaberry-studio/arche/releases/latest) and download the installer for your platform:

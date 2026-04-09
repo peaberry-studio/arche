@@ -36,7 +36,7 @@ test('uses ARCHE_ENCRYPTION_KEY from env when valid', () => {
 test('loads persisted key when env key is missing', () => {
   withTempDir((dataDir) => {
     const persisted = Buffer.alloc(32, 11).toString('base64')
-    const keyDir = join(dataDir, 'secrets')
+    const keyDir = join(dataDir, '.secrets')
     const keyPath = join(keyDir, 'encryption.key')
     mkdirSync(keyDir, { recursive: true })
     writeFileSync(keyPath, `${persisted}\n`, 'utf-8')
@@ -66,7 +66,7 @@ test('creates and persists a key when no env or key file exists', () => {
       generateKey: () => generated,
     })
 
-    const keyPath = join(dataDir, 'secrets', 'encryption.key')
+    const keyPath = join(dataDir, '.secrets', 'encryption.key')
     assert.equal(resolved, generated)
     assert.equal(env.ARCHE_ENCRYPTION_KEY, generated)
     assert.equal(readFileSync(keyPath, 'utf-8').trim(), generated)
@@ -75,7 +75,7 @@ test('creates and persists a key when no env or key file exists', () => {
 
 test('replaces an invalid persisted key', () => {
   withTempDir((dataDir) => {
-    const keyDir = join(dataDir, 'secrets')
+    const keyDir = join(dataDir, '.secrets')
     const keyPath = join(keyDir, 'encryption.key')
     mkdirSync(keyDir, { recursive: true })
     writeFileSync(keyPath, 'invalid-key\n', 'utf-8')

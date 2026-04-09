@@ -1,13 +1,13 @@
 'use client'
 
-import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { type ChangeEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  CaretRight,
   CheckCircle,
-  Circle,
   SpinnerGap,
 } from '@phosphor-icons/react'
 
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -22,8 +22,18 @@ import type {
 import { cn } from '@/lib/utils'
 
 type KickstartWizardProps = {
-  slug: string
-  initialStatus: KickstartStatus
+  embedded?: boolean
+  initialCompanyDescription?: string
+  initialCompanyName?: string
+  initialTemplateId?: string | null
+  initialStatus?: KickstartStatus
+  loadCatalog: () => Promise<KickstartWizardLoadCatalogResult>
+  onBack?: () => void
+  onSubmit: (payload: KickstartApplyRequestPayload) => Promise<KickstartWizardSubmitResult>
+  renderStepOneExtras?: ReactNode
+  stepOneReadyOverride?: boolean
+  submitLabel?: string
+  submittingLabel?: string
 }
 
 type AgentOverride = {
@@ -36,6 +46,21 @@ type ModelOption = {
   id: string
   label: string
 }
+
+export type KickstartWizardLoadCatalogResult =
+  | {
+      ok: true
+      catalog: KickstartTemplatesResponse
+      models: ModelOption[]
+    }
+  | {
+      ok: false
+      error: string
+    }
+
+export type KickstartWizardSubmitResult =
+  | { ok: true }
+  | { ok: false; error: string }
 
 type ImportTemplateResult =
   | { ok: true; template: KickstartTemplateDefinition }
@@ -50,6 +75,9 @@ const STEPS = [
 
 const IMPORT_TEMPLATE_ID = '__imported-template__'
 const CORE_AGENT_PROMPT_OVERRIDE_BLOCKLIST = new Set(['assistant', 'knowledge-curator'])
+
+const TEXTAREA_CLASSES =
+  'min-h-[120px] w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring/30'
 
 function unique(values: string[]): string[] {
   return Array.from(new Set(values))
@@ -240,9 +268,20 @@ function parseImportedTemplate(
   return { ok: true, template }
 }
 
-export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
-  const router = useRouter()
-
+export function KickstartWizard({
+  embedded = false,
+  initialStatus = 'needs_setup',
+  initialCompanyDescription = '',
+  initialCompanyName = '',
+  initialTemplateId = null,
+  loadCatalog,
+  onBack,
+  onSubmit,
+  renderStepOneExtras,
+  stepOneReadyOverride,
+  submitLabel = 'Apply kickstart',
+  submittingLabel = 'Applying',
+}: KickstartWizardProps) {
   const [step, setStep] = useState(1)
   const [isLoading, setIsLoading] = useState(true)
   const [isApplying, setIsApplying] = useState(false)
@@ -251,8 +290,8 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
 
   const [catalog, setCatalog] = useState<KickstartTemplatesResponse | null>(null)
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([])
-  const [companyName, setCompanyName] = useState('')
-  const [companyDescription, setCompanyDescription] = useState('')
+  const [companyName, setCompanyName] = useState(initialCompanyName)
+  const [companyDescription, setCompanyDescription] = useState(initialCompanyDescription)
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
   const [importedTemplate, setImportedTemplate] = useState<KickstartTemplateDefinition | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
@@ -263,56 +302,37 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
   useEffect(() => {
     let cancelled = false
 
-    async function loadCatalog() {
+    async function loadInitialCatalog() {
       setIsLoading(true)
       setLoadError(null)
 
       try {
-        const [templatesResponse, modelsResponse] = await Promise.all([
-          fetch(`/api/u/${slug}/kickstart/templates`, {
-            cache: 'no-store',
-          }).catch(() => null),
-          fetch(`/api/u/${slug}/agents/models`, {
-            cache: 'no-store',
-          }).catch(() => null),
-        ])
-
-        const response = templatesResponse
-        if (!response) {
-          setLoadError('Failed to load kickstart templates')
-          return
-        }
-
-        const data = (await response.json().catch(() => null)) as KickstartTemplatesResponse | { error?: string } | null
+        const catalogResult = await loadCatalog()
         if (cancelled) return
 
-        if (!response.ok || !data || !('templates' in data)) {
-          setLoadError((data && 'error' in data && data.error) || 'Failed to load kickstart templates')
+        if (!catalogResult.ok) {
+          setLoadError(catalogResult.error)
           return
         }
 
-        setCatalog(data)
+        setCatalog(catalogResult.catalog)
+        setModelOptions(catalogResult.models)
 
-        if (modelsResponse?.ok) {
-          const modelData = (await modelsResponse.json().catch(() => null)) as
-            | { models?: ModelOption[] }
-            | null
-          setModelOptions(modelData?.models ?? [])
-        } else {
-          setModelOptions([])
-        }
-
-        const firstTemplate = data.templates[0]
-        if (!firstTemplate) {
+        const fallbackTemplate = catalogResult.catalog.templates[0]
+        if (!fallbackTemplate) {
           setLoadError('No kickstart templates available')
           return
         }
 
-        setSelectedTemplateId(firstTemplate.id)
+        const initialTemplate = initialTemplateId
+          ? catalogResult.catalog.templates.find((template) => template.id === initialTemplateId) ?? fallbackTemplate
+          : fallbackTemplate
+
+        setSelectedTemplateId(initialTemplate.id)
         setSelectedAgentIds(
           unique([
-            ...getRequiredAgentIdsForTemplate(firstTemplate.id),
-            ...firstTemplate.recommendedAgentIds,
+            ...getRequiredAgentIdsForTemplate(initialTemplate.id),
+            ...initialTemplate.recommendedAgentIds,
           ])
         )
       } finally {
@@ -322,7 +342,7 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
       }
     }
 
-    loadCatalog().catch(() => {
+    loadInitialCatalog().catch(() => {
       if (!cancelled) {
         setIsLoading(false)
         setLoadError('Failed to load kickstart templates')
@@ -332,7 +352,7 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
     return () => {
       cancelled = true
     }
-  }, [slug])
+  }, [initialTemplateId, loadCatalog])
 
   const selectedTemplate = useMemo(() => {
     if (selectedTemplateId === IMPORT_TEMPLATE_ID) {
@@ -379,7 +399,10 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
     [selectedTemplate]
   )
 
-  const stepOneReady = companyName.trim().length > 0 && companyDescription.trim().length > 0
+  const stepOneReady =
+    companyName.trim().length > 0 &&
+    companyDescription.trim().length > 0 &&
+    (stepOneReadyOverride ?? true)
   const stepTwoReady = Boolean(selectedTemplate)
   const stepThreeReady =
     selectedAgentIds.length > 0 &&
@@ -539,25 +562,11 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
           : { templateId: selectedTemplate.id }),
       }
 
-      const response = await fetch(`/api/u/${slug}/kickstart/apply`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      })
-
-      const data = (await response.json().catch(() => null)) as {
-        error?: string
-        message?: string
-      } | null
-
-      if (!response.ok) {
-        setApplyError(data?.message ?? data?.error ?? 'Kickstart apply failed')
+      const submitResult = await onSubmit(payload)
+      if (!submitResult.ok) {
+        setApplyError(submitResult.error)
         return
       }
-
-      router.push(`/u/${slug}?setup=completed`)
     } catch {
       setApplyError('Kickstart apply failed')
     } finally {
@@ -567,7 +576,7 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
 
   if (isLoading) {
     return (
-      <div className="glass-panel rounded-3xl px-8 py-16 text-center">
+      <div className={cn('rounded-3xl px-8 py-16 text-center', !embedded && 'glass-panel')}>
         <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-2 border-muted border-t-primary" />
         <p className="text-sm text-muted-foreground">Loading kickstart templates...</p>
       </div>
@@ -576,7 +585,7 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
 
   if (loadError) {
     return (
-      <div className="glass-panel rounded-3xl border-destructive/25 px-8 py-12">
+      <div className={cn('rounded-3xl border-destructive/25 px-8 py-12', !embedded && 'glass-panel')}>
         <h2 className="type-display text-xl text-destructive">
           Kickstart unavailable
         </h2>
@@ -593,34 +602,49 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
         </div>
       )}
 
-      <section className="glass-panel rounded-3xl p-6 sm:p-8">
-        <div className="mb-8 grid gap-3 sm:grid-cols-4">
+      <section className={cn('rounded-3xl p-6 sm:p-8', !embedded && 'glass-panel')}>
+        <div className="mb-8 flex items-start">
           {STEPS.map((label, index) => {
             const itemStep = index + 1
             const completed = step > itemStep
             const active = step === itemStep
 
             return (
-              <div
-                key={label}
-                className={cn(
-                  'rounded-xl border px-3 py-2 text-sm transition-colors',
-                  active
-                    ? 'border-primary/50 bg-primary/10 text-primary'
-                    : completed
-                      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700'
-                      : 'border-border/60 bg-background/40 text-muted-foreground'
-                )}
-              >
-                <div className="mb-1 flex items-center gap-2">
-                  {completed ? (
-                    <CheckCircle size={16} weight="fill" />
-                  ) : (
-                    <Circle size={16} weight={active ? 'fill' : 'regular'} />
-                  )}
-                  <span className="text-xs uppercase tracking-wide">Step {itemStep}</span>
+              <div key={label} className="flex flex-1 items-start">
+                <div className="flex flex-col items-center">
+                  <div
+                    className={cn(
+                      'flex h-8 w-8 items-center justify-center rounded-full text-xs font-medium transition-colors',
+                      completed
+                        ? 'bg-emerald-500/15 text-emerald-600'
+                        : active
+                          ? 'bg-primary/15 text-primary ring-2 ring-primary/20'
+                          : 'bg-muted/50 text-muted-foreground'
+                    )}
+                  >
+                    {completed ? (
+                      <CheckCircle size={18} weight="fill" />
+                    ) : (
+                      <span>{itemStep}</span>
+                    )}
+                  </div>
+                  <p className={cn(
+                    'mt-2 text-center text-xs',
+                    active ? 'font-medium text-foreground' : 'text-muted-foreground'
+                  )}>
+                    {label}
+                  </p>
                 </div>
-                <p className="text-sm font-medium">{label}</p>
+                {index < STEPS.length - 1 && (
+                  <div className={cn(
+                    'mt-4 mx-2 h-px flex-1',
+                    step > itemStep + 1
+                      ? 'bg-emerald-500/30'
+                      : step > itemStep
+                        ? 'bg-primary/30'
+                        : 'bg-border/60'
+                  )} />
+                )}
               </div>
             )
           })}
@@ -628,8 +652,23 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
 
         {step === 1 && (
           <div className="space-y-5">
+            {renderStepOneExtras ? (
+              <>
+                <div>
+                  <h2 className="type-display text-2xl">Vault details</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Name your vault and choose where to store it.
+                  </p>
+                </div>
+                <div className="space-y-5">{renderStepOneExtras}</div>
+                <div className="border-t border-border/40" />
+              </>
+            ) : null}
+
             <div>
-              <h2 className="type-display text-2xl">Company details</h2>
+              <h2 className="type-display text-2xl">
+                {renderStepOneExtras ? 'Company context' : 'Company details'}
+              </h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 This context is used to render the initial KB and baseline prompts.
               </p>
@@ -649,7 +688,7 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
               <Label htmlFor="company-description">Short description</Label>
               <textarea
                 id="company-description"
-                className="min-h-[120px] w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring/30"
+                className={TEXTAREA_CLASSES}
                 value={companyDescription}
                 onChange={(event) => setCompanyDescription(event.target.value)}
                 placeholder="What your company does, who it serves, and what matters most."
@@ -676,10 +715,10 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
                     type="button"
                     onClick={() => handleTemplateChange(template.id)}
                     className={cn(
-                      'rounded-2xl border p-4 text-left transition-colors',
+                      'rounded-2xl border p-4 text-left transition-all',
                       selected
                         ? 'border-primary/55 bg-primary/10'
-                        : 'border-border/60 bg-background/40 hover:border-border'
+                        : 'border-border/60 bg-background/40 hover:border-border hover:shadow-subtle'
                     )}
                   >
                     <p className="font-medium text-foreground">{template.label}</p>
@@ -695,10 +734,10 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
                 type="button"
                 onClick={handleImportButtonClick}
                 className={cn(
-                  'rounded-2xl border p-4 text-left transition-colors',
+                  'rounded-2xl border p-4 text-left transition-all',
                   selectedTemplateId === IMPORT_TEMPLATE_ID
                     ? 'border-primary/55 bg-primary/10'
-                    : 'border-border/60 bg-background/40 hover:border-border'
+                    : 'border-border/60 bg-background/40 hover:border-border hover:shadow-subtle'
                 )}
               >
                 <p className="font-medium text-foreground">Import</p>
@@ -756,27 +795,25 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
                     type="button"
                     onClick={() => toggleAgent(agent.id)}
                     className={cn(
-                      'rounded-2xl border p-4 text-left transition-colors',
+                      'rounded-2xl border p-4 text-left transition-all',
                       selected
                         ? 'border-primary/55 bg-primary/10'
-                        : 'border-border/60 bg-background/40 hover:border-border',
+                        : 'border-border/60 bg-background/40 hover:border-border hover:shadow-subtle',
                       required && 'cursor-default'
                     )}
                   >
-                    <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
                       <p className="font-medium text-foreground">{agent.displayName}</p>
-                      <div className="flex items-center gap-2 text-xs">
-                        {required && (
-                          <span className="rounded-full bg-foreground/10 px-2 py-0.5 text-foreground">
-                            Required
-                          </span>
-                        )}
-                        {recommended && (
-                          <span className="rounded-full bg-primary/20 px-2 py-0.5 text-primary">
-                            Recommended
-                          </span>
-                        )}
-                      </div>
+                      {required && (
+                        <span className="rounded-full bg-foreground/10 px-2 py-0.5 text-xs text-foreground">
+                          Required
+                        </span>
+                      )}
+                      {recommended && (
+                        <span className="rounded-full bg-primary/20 px-2 py-0.5 text-xs text-primary">
+                          Recommended
+                        </span>
+                      )}
                     </div>
                     <p className="text-sm text-muted-foreground">{agent.description}</p>
                   </button>
@@ -810,93 +847,105 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
               </p>
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-3">
               {selectedAgents.map((agent) => {
                 const resolved = resolveAgentValue(agent.id)
-                return (
-                  <div
-                    key={agent.id}
-                    className="rounded-2xl border border-border/60 bg-background/40 p-4"
-                  >
-                    <div className="mb-3 flex items-center justify-between gap-3">
-                      <div>
-                        <p className="font-medium text-foreground">{agent.displayName}</p>
-                        <p className="text-xs text-muted-foreground">{agent.id}</p>
-                      </div>
-                    </div>
+                const modelLabel = modelOptionById.get(resolved.model.trim())?.label ?? resolved.model
 
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label>Model</Label>
-                        <Input
-                          list="kickstart-model-options"
-                          value={resolved.model}
-                          onChange={(event) => {
-                            setAgentOverride(agent.id, {
-                              model: event.target.value,
-                            })
-                          }}
-                          placeholder="provider/model"
+                return (
+                  <details
+                    key={agent.id}
+                    className="group rounded-2xl border border-border/60 bg-background/40"
+                  >
+                    <summary className="flex cursor-pointer items-center justify-between gap-3 px-4 py-3 text-sm [&::-webkit-details-marker]:hidden">
+                      <div className="flex items-center gap-3">
+                        <CaretRight
+                          size={14}
+                          weight="bold"
+                          className="shrink-0 text-muted-foreground transition-transform group-open:rotate-90"
                         />
-                        {resolved.model.trim() ? (
-                          modelOptions.length > 0 ? (
-                            modelOptionById.has(resolved.model.trim()) ? (
-                              <p className="text-xs text-muted-foreground">
-                                {modelOptionById.get(resolved.model.trim())?.label}
-                              </p>
+                        <div>
+                          <p className="font-medium text-foreground">{agent.displayName}</p>
+                          <p className="text-xs text-muted-foreground">{modelLabel}</p>
+                        </div>
+                      </div>
+                      <Badge variant="secondary">{agent.id}</Badge>
+                    </summary>
+
+                    <div className="border-t border-border/40 px-4 py-4">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label>Model</Label>
+                          <Input
+                            list="kickstart-model-options"
+                            value={resolved.model}
+                            onChange={(event) => {
+                              setAgentOverride(agent.id, {
+                                model: event.target.value,
+                              })
+                            }}
+                            placeholder="provider/model"
+                          />
+                          {resolved.model.trim() ? (
+                            modelOptions.length > 0 ? (
+                              modelOptionById.has(resolved.model.trim()) ? (
+                                <p className="text-xs text-muted-foreground">
+                                  {modelOptionById.get(resolved.model.trim())?.label}
+                                </p>
+                              ) : (
+                                <p className="text-xs text-amber-700">
+                                  No exact match found in models.dev catalog.
+                                </p>
+                              )
                             ) : (
-                              <p className="text-xs text-amber-700">
-                                No exact match found in models.dev catalog.
+                              <p className="text-xs text-muted-foreground">
+                                models.dev catalog unavailable; validate manually.
                               </p>
                             )
                           ) : (
                             <p className="text-xs text-muted-foreground">
-                              models.dev catalog unavailable; validate manually.
+                              Search {modelOptions.length} models from models.dev.
                             </p>
-                          )
-                        ) : (
-                          <p className="text-xs text-muted-foreground">
-                            Search {modelOptions.length} models from models.dev.
-                          </p>
-                        )}
+                          )}
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Temperature</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            max={2}
+                            step={0.1}
+                            value={String(resolved.temperature)}
+                            onChange={(event) => {
+                              if (!event.target.value) {
+                                setAgentOverride(agent.id, { temperature: undefined })
+                                return
+                              }
+
+                              const parsed = Number(event.target.value)
+                              if (Number.isFinite(parsed)) {
+                                setAgentOverride(agent.id, { temperature: parsed })
+                              }
+                            }}
+                          />
+                        </div>
                       </div>
 
-                      <div className="space-y-2">
-                        <Label>Temperature</Label>
-                        <Input
-                          type="number"
-                          min={0}
-                          max={2}
-                          step={0.1}
-                          value={String(resolved.temperature)}
+                      <div className="mt-3 space-y-2">
+                        <Label>System prompt</Label>
+                        <textarea
+                          className={cn(TEXTAREA_CLASSES, 'min-h-[150px]')}
+                          value={resolved.prompt}
                           onChange={(event) => {
-                            if (!event.target.value) {
-                              setAgentOverride(agent.id, { temperature: undefined })
-                              return
-                            }
-
-                            const parsed = Number(event.target.value)
-                            if (Number.isFinite(parsed)) {
-                              setAgentOverride(agent.id, { temperature: parsed })
-                            }
+                            setAgentOverride(agent.id, {
+                              prompt: event.target.value,
+                            })
                           }}
                         />
                       </div>
                     </div>
-
-                    <div className="mt-3 space-y-2">
-                      <Label>System prompt</Label>
-                      <textarea
-                        className="min-h-[150px] w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring/30"
-                        value={resolved.prompt}
-                        onChange={(event) => {
-                          setAgentOverride(agent.id, {
-                            prompt: event.target.value,
-                          })
-                        }}
-                      />
-                    </div>
-                  </div>
+                  </details>
                 )
               })}
             </div>
@@ -921,8 +970,14 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
           <Button
             type="button"
             variant="outline"
-            onClick={() => setStep((current) => Math.max(1, current - 1))}
-            disabled={step === 1 || isApplying}
+            onClick={() => {
+              if (step === 1 && onBack) {
+                onBack()
+              } else {
+                setStep((current) => Math.max(1, current - 1))
+              }
+            }}
+            disabled={(step === 1 && !onBack) || isApplying}
           >
             Back
           </Button>
@@ -941,16 +996,16 @@ export function KickstartWizard({ slug, initialStatus }: KickstartWizardProps) {
               onClick={handleApply}
               disabled={!isStepReady(3) || isApplying}
             >
-              {isApplying ? (
-                <>
-                  <SpinnerGap size={16} className="animate-spin" />
-                  Applying
-                </>
-              ) : (
-                'Apply kickstart'
-              )}
-            </Button>
-          )}
+                {isApplying ? (
+                  <>
+                    <SpinnerGap size={16} className="animate-spin" />
+                    {submittingLabel}
+                  </>
+                ) : (
+                  submitLabel
+                )}
+              </Button>
+            )}
         </div>
       </section>
     </div>

@@ -61,16 +61,16 @@ jobs:
           if [[ "${{ steps.tags.outputs.MODE }}" == "pr" ]]; then
             podman build --build-arg GIT_SHA="${{ steps.tags.outputs.SHA_TAG }}" \
               -t $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.PR_TAG }} \
-              -f apps/web/Containerfile apps/web
+              -f apps/web/Containerfile apps
           elif [[ "${{ steps.tags.outputs.MODE }}" == "release" ]]; then
             podman build --build-arg GIT_SHA="${{ steps.tags.outputs.SHA_TAG }}" \
               -t $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.RELEASE_TAG }} \
-              -f apps/web/Containerfile apps/web
+              -f apps/web/Containerfile apps
           else
             podman build --build-arg GIT_SHA="${{ steps.tags.outputs.SHA_TAG }}" \
               -t $REGISTRY/$IMAGE_NAME:latest \
               -t $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.SHA_TAG }} \
-              -f apps/web/Containerfile apps/web
+              -f apps/web/Containerfile apps
           fi
 
       - name: Push image

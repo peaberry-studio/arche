@@ -179,8 +179,13 @@ describe('desktopWorkspaceHost', () => {
     vi.clearAllMocks()
     vi.stubGlobal('fetch', mockFetch)
     process.env = { ...originalEnv }
+    process.env.ARCHE_RUNTIME_MODE = 'desktop'
+    process.env.ARCHE_DESKTOP_PLATFORM = 'darwin'
+    process.env.ARCHE_DESKTOP_WEB_HOST = '127.0.0.1'
+    process.env.ARCHE_DATA_DIR = '/tmp/arche'
     delete process.env.ARCHE_OPENCODE_BIN
     delete process.env.ARCHE_OPENCODE_CONFIG_DIR
+    delete process.env.ARCHE_OPENCODE_DATA_DIR
     process.env.ARCHE_WORKSPACE_AGENT_BIN = '/mock/bin/workspace-agent'
     delete process.env.ARCHE_DESKTOP_WEB_PORT
     delete process.env.ARCHE_DESKTOP_START_TIMEOUT_MS
@@ -734,6 +739,7 @@ describe('binary resolution', () => {
   })
 
   it('returns start_failed when health check times out', async () => {
+    process.env.ARCHE_DATA_DIR = '/tmp/arche'
     // Make health check always fail so it times out
     mockFetch.mockRejectedValue(new Error('connection refused'))
 
@@ -755,6 +761,7 @@ describe('binary resolution', () => {
   }, 10000)
 
   it('propagates git init errors on start', async () => {
+    process.env.ARCHE_DATA_DIR = '/tmp/arche'
     // Make existsSync return false for .git so git init runs, then throw
     mockExistsSync.mockImplementation((target: string) => {
       if (target.endsWith('.git')) return false
@@ -770,6 +777,7 @@ describe('binary resolution', () => {
   })
 
   it('concurrent stop calls on the same slug do not error', async () => {
+    process.env.ARCHE_DATA_DIR = '/tmp/arche'
     // Restore mocks for this test
     mockExecFileSync.mockReturnValue('')
     mockExistsSync.mockImplementation((target: string) => target === '/mock/bin/workspace-agent')
@@ -804,6 +812,10 @@ describe('desktop instance reconciliation', () => {
     vi.clearAllMocks()
     vi.stubGlobal('fetch', mockFetch)
     process.env = { ...originalEnv }
+    process.env.ARCHE_RUNTIME_MODE = 'desktop'
+    process.env.ARCHE_DESKTOP_PLATFORM = 'darwin'
+    process.env.ARCHE_DESKTOP_WEB_HOST = '127.0.0.1'
+    process.env.ARCHE_DATA_DIR = '/tmp/arche'
     delete process.env.ARCHE_OPENCODE_BIN
     process.env.ARCHE_WORKSPACE_AGENT_BIN = '/mock/bin/workspace-agent'
     delete process.env.ARCHE_DESKTOP_WEB_PORT

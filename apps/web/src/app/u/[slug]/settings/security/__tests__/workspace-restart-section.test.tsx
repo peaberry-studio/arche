@@ -1,12 +1,13 @@
 /** @vitest-environment jsdom */
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { WorkspaceRestartSection } from '../workspace-restart-section'
 
 describe('WorkspaceRestartSection', () => {
   afterEach(() => {
+    cleanup()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
@@ -30,5 +31,12 @@ describe('WorkspaceRestartSection', () => {
     })
 
     expect(await screen.findByText('Restart failed: Unable to restart the workspace.')).toBeTruthy()
+  })
+
+  it('can render without the duplicated header block', () => {
+    render(<WorkspaceRestartSection slug="alice" showHeader={false} />)
+
+    expect(screen.queryByText('Workspace')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Restart workspace' })).toBeTruthy()
   })
 })

@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { ArrowUpRight, List, X } from '@phosphor-icons/react'
 
-const navItems = [
+const webNavItems = [
   { label: 'Overview', href: '' },
   { label: 'Agents', href: '/agents' },
   { label: 'Connectors', href: '/connectors' },
@@ -13,10 +13,27 @@ const navItems = [
   { label: 'Settings', href: '/settings/security' },
 ]
 
-export function DashboardNav({ slug }: { slug: string }) {
+const desktopNavItems = [
+  { label: 'Workspace', href: '/w/local' },
+  { label: 'Agents', href: '/u/local/agents' },
+  { label: 'Connectors', href: '/w/local?settings=connectors' },
+  { label: 'Providers', href: '/w/local?settings=providers' },
+  { label: 'Settings', href: '/w/local?settings=appearance' },
+]
+
+export function DashboardNav({
+  slug,
+  desktopMode = false,
+  displayLabel,
+}: {
+  slug: string
+  desktopMode?: boolean
+  displayLabel?: string
+}) {
   const pathname = usePathname()
   const base = `/u/${slug}`
   const workspaceHref = `/w/${slug}`
+  const navItems = desktopMode ? desktopNavItems : webNavItems
   const [menuState, setMenuState] = useState<{ open: boolean; pathname: string }>({
     open: false,
     pathname,
@@ -52,15 +69,15 @@ export function DashboardNav({ slug }: { slug: string }) {
           >
             Archē
           </Link>
-          <span className="text-sm text-muted-foreground">/&nbsp;{slug}</span>
+          <span className="text-sm text-muted-foreground">/&nbsp;{displayLabel ?? slug}</span>
         </div>
 
         {/* Center - nav items (hidden on small screens) */}
         <div className="hidden flex-1 items-center justify-center gap-1 md:flex">
           {navItems.map((item) => {
-            const href = `${base}${item.href}`
+            const href = item.href.startsWith('/w/') ? item.href : `${base}${item.href}`
             const isActive =
-              item.href === ''
+              !item.href.startsWith('/w/') && item.href === ''
                 ? pathname === base
                 : pathname.startsWith(href)
 
@@ -109,9 +126,9 @@ export function DashboardNav({ slug }: { slug: string }) {
       {mobileMenuOpen && (
         <div className="absolute inset-x-0 top-full z-40 mt-2 rounded-xl border border-border/40 bg-card/95 p-2 shadow-lg backdrop-blur-lg md:hidden">
           {navItems.map((item) => {
-            const href = `${base}${item.href}`
+            const href = item.href.startsWith('/w/') ? item.href : `${base}${item.href}`
             const isActive =
-              item.href === ''
+              !item.href.startsWith('/w/') && item.href === ''
                 ? pathname === base
                 : pathname.startsWith(href)
 
