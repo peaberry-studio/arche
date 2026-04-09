@@ -8,6 +8,7 @@ import { dirname, join } from 'path'
 
 import { ensureDesktopEncryptionKey } from './desktop-encryption-key'
 import { createDesktopVault, type CreateVaultArgs, type DesktopApiResult } from './create-vault'
+import { getDesktopNextDistDirName } from './desktop-next-dist'
 import {
   getMissingPackagedRuntimeBinaries,
   getPackagedNodeBinaryPath,
@@ -74,6 +75,14 @@ function getWebAppDir(): string {
     return join(process.resourcesPath, 'web', 'apps', 'web')
   }
   return join(__dirname, '..', '..', 'web')
+}
+
+function getDesktopNextDistDirNameForCurrentProcess(): string {
+  return getDesktopNextDistDirName({
+    currentVaultId: currentVault?.id ?? null,
+    isPackaged: app.isPackaged,
+    launchContext,
+  })
 }
 
 function getDesktopMetadataDir(): string {
@@ -232,7 +241,7 @@ function resetDesktopDevNextArtifacts(): void {
     return
   }
 
-  const desktopDistDir = join(getWebAppDir(), '.next-desktop')
+  const desktopDistDir = join(getWebAppDir(), getDesktopNextDistDirNameForCurrentProcess())
   if (existsSync(desktopDistDir)) {
     rmSync(desktopDistDir, { recursive: true, force: true })
   }
@@ -282,7 +291,7 @@ function createNextSupervisor(): RuntimeSupervisor {
     env: {
       ...getDesktopRuntimeEnv(),
       ARCHE_RUNTIME_MODE: 'desktop',
-      ARCHE_DESKTOP_NEXT_DIST_DIR: '.next-desktop',
+      ARCHE_DESKTOP_NEXT_DIST_DIR: getDesktopNextDistDirNameForCurrentProcess(),
       ARCHE_DESKTOP_WEB_PORT: String(getPort()),
       ARCHE_CONNECTOR_GATEWAY_BASE_URL: `http://${LOOPBACK_HOST}:${getPort()}/api/internal/mcp/connectors`,
       PORT: String(getPort()),
