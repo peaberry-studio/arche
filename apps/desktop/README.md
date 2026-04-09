@@ -11,21 +11,22 @@ Desktop now runs against explicit visible vault folders instead of hidden global
 - Each vault opens in its own Electron process and window.
 - The vault name is the folder name.
 
-Vault layout:
+Vault layout. Internal runtime files are dot-prefixed, so they are hidden on
+macOS and Linux by default:
 
 ```text
 <VaultName>/
-  arche-vault.json
-  arche.db
+  .arche-vault.json
+  .arche.db
   workspace/
-  kb-config/
-  kb-content/
-  users/local/
-  runtime/opencode/
-  secrets/encryption.key
+  .kb-config/
+  .kb-content/
+  .users/local/
+  .runtime/opencode/
+  .secrets/encryption.key
 ```
 
-`arche-vault.json` is required when opening an existing vault.
+`.arche-vault.json` is required when opening an existing vault.
 
 Breaking change:
 

@@ -107,30 +107,31 @@ At launch:
 - if no vault is selected, Desktop opens a launcher UI
 - switching vaults opens another Electron process instead of hot-swapping the current one
 
-Each desktop vault is a visible folder:
+Each desktop vault is a visible folder. Its internal runtime files are dot-prefixed,
+so they are hidden on macOS and Linux by default:
 
 ```text
 <VaultName>/
-  arche-vault.json
-  arche.db
+  .arche-vault.json
+  .arche.db
   workspace/
-  kb-config/
-  kb-content/
-  users/
+  .kb-config/
+  .kb-content/
+  .users/
     local/
-  runtime/
+  .runtime/
     opencode/
-  secrets/
+  .secrets/
     encryption.key
 ```
 
 Notes:
 
-- `arche-vault.json` is the explicit vault manifest used for validation and stable `vaultId`
-- `arche.db` is the per-vault desktop SQLite database
+- `.arche-vault.json` is the explicit vault manifest used for validation and stable `vaultId`
+- `.arche.db` is the per-vault desktop SQLite database
 - `workspace/` is the local git workspace used by runtime tools
-- `runtime/opencode/` stores OpenCode runtime state for that vault
-- `kb-config/` and `kb-content/` are local bare Git repos
+- `.runtime/opencode/` stores OpenCode runtime state for that vault
+- `.kb-config/` and `.kb-content/` are local bare Git repos
 
 Breaking desktop storage change:
 
