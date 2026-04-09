@@ -13,7 +13,6 @@ RUN NODE_ENV=development pnpm install --frozen-lockfile
 FROM base AS build
 ARG GIT_SHA=dev
 COPY --from=deps /app/node_modules ./node_modules
-COPY desktop/src/vault-layout-constants.ts /desktop/src/vault-layout-constants.ts
 COPY web ./
 RUN pnpm prisma generate
 RUN DATABASE_URL="postgresql://build:build@localhost:5432/build" ARCHE_GIT_SHA="$GIT_SHA" pnpm run build

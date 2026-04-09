@@ -16,8 +16,8 @@ import {
 } from '@/components/kickstart/kickstart-wizard'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { DEFAULT_NEW_VAULT_NAME } from '@desktop/vault-layout-constants'
 import type { KickstartAgentSummary, KickstartTemplateSummary } from '@/kickstart/types'
+import { DEFAULT_NEW_VAULT_NAME } from '@/lib/runtime/desktop/vault-layout-constants'
 import {
   getDesktopBridge,
   getDesktopPlatform,

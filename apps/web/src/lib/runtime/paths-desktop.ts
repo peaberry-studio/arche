@@ -3,7 +3,7 @@ import {
   DESKTOP_KB_CONFIG_DIR_NAME,
   DESKTOP_KB_CONTENT_DIR_NAME,
   DESKTOP_USERS_DIR_NAME,
-} from '@desktop/vault-layout-constants'
+} from '@/lib/runtime/desktop/vault-layout-constants'
 
 import { getDesktopVaultRuntimeContext } from '@/lib/runtime/desktop/context-store'
 import { assertValidSlug } from '@/lib/validation/slug'

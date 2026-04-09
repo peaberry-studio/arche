@@ -23,9 +23,6 @@
       }
     ],
     "paths": {
-      "@desktop/*": [
-        "../desktop/src/*"
-      ],
       "@/kickstart/*": [
         "./kickstart/*"
       ],
@@ -45,11 +42,11 @@
     ".next-desktop/types/**/*.ts",
     ".next-desktop/dev/types/**/*.ts",
     ".next-desktop-launcher/types/**/*.ts",
-    ".next-desktop-vault-*/types/**/*.ts"
+    ".next-desktop-launcher/dev/types/**/*.ts",
+    ".next-desktop-vault-*/types/**/*.ts",
+    ".next-desktop-vault-*/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules",
-    ".next-desktop-launcher/dev/**",
-    ".next-desktop-vault-*/dev/**"
+    "node_modules"
   ]
 }

@@ -1,12 +1,11 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { join } from 'path'
 
-import { DESKTOP_DATABASE_FILE_NAME } from '@desktop/vault-layout-constants'
-
 import {
   setDesktopVaultRuntimeContextGetter,
   type DesktopVaultRuntimeContext,
 } from '@/lib/runtime/desktop/context-store'
+import { DESKTOP_DATABASE_FILE_NAME } from '@/lib/runtime/desktop/vault-layout-constants'
 
 const desktopVaultRuntimeContext = new AsyncLocalStorage<DesktopVaultRuntimeContext>()
 

@@ -1,9 +1,8 @@
 import { existsSync, mkdirSync } from 'fs'
 import { dirname, join } from 'path'
 
-import { DESKTOP_DATABASE_FILE_NAME } from '@desktop/vault-layout-constants'
-
 import { getDesktopVaultRuntimeContext } from '@/lib/runtime/desktop/context-store'
+import { DESKTOP_DATABASE_FILE_NAME } from '@/lib/runtime/desktop/vault-layout-constants'
 
 /**
  * DDL statements to initialize the SQLite database schema.
