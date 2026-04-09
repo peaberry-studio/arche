@@ -10,6 +10,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type SyntheticEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   CaretDown,
   CheckCircle,
@@ -119,6 +120,8 @@ type AgentMentionAutocompleteState = {
 const MAX_CONTEXT_PATHS_PER_MESSAGE = 20;
 const MAX_AGENT_MENTION_SUGGESTIONS = 8;
 const AGENT_MENTION_AUTOCOMPLETE_WIDTH_PX = 320;
+const AGENT_MENTION_AUTOCOMPLETE_VIEWPORT_GAP_PX = 8;
+const AGENT_MENTION_AUTOCOMPLETE_VIEWPORT_PADDING_PX = 12;
 
 const TEXTAREA_CARET_STYLE_PROPERTIES = [
   "box-sizing",
@@ -331,7 +334,6 @@ export function ChatPanel({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const isStuckToBottomRef = useRef(true);
-  const composerRef = useRef<HTMLDivElement>(null);
   const chatContentStyle = useMemo(
     () => ({
       '--workspace-chat-font-family': chatFontFamily === 'serif'
@@ -447,18 +449,18 @@ export function ChatPanel({
       }
 
       const textarea = textareaRef.current;
-      const composer = composerRef.current;
-      if (!textarea || !composer) {
+      if (!textarea) {
         setAgentMentionAutocomplete(null);
         return;
       }
 
       const textareaRect = textarea.getBoundingClientRect();
-      const composerRect = composer.getBoundingClientRect();
       const caret = getTextareaCaretPosition(textarea, match.to);
       const maxLeft = Math.max(
-        composer.clientWidth - AGENT_MENTION_AUTOCOMPLETE_WIDTH_PX,
-        0
+        window.innerWidth -
+          AGENT_MENTION_AUTOCOMPLETE_WIDTH_PX -
+          AGENT_MENTION_AUTOCOMPLETE_VIEWPORT_PADDING_PX,
+        AGENT_MENTION_AUTOCOMPLETE_VIEWPORT_PADDING_PX
       );
 
       setAgentMentionAutocomplete((previous) => ({
@@ -466,10 +468,13 @@ export function ChatPanel({
         to: match.to,
         suggestions,
         left: Math.min(
-          Math.max(textareaRect.left - composerRect.left + caret.left, 0),
+          Math.max(
+            textareaRect.left + caret.left,
+            AGENT_MENTION_AUTOCOMPLETE_VIEWPORT_PADDING_PX
+          ),
           maxLeft
         ),
-        top: textareaRect.top - composerRect.top + caret.top + 8,
+        top: textareaRect.top + caret.top,
         selectedIndex:
           previous &&
           previous.from === match.from &&
@@ -1540,7 +1545,7 @@ export function ChatPanel({
           </p>
         )}
         
-        <div ref={composerRef} className="relative flex items-end gap-1.5 rounded-xl border border-white/10 bg-foreground/5 px-2 py-2">
+        <div className="relative flex items-end gap-1.5 rounded-xl border border-white/10 bg-foreground/5 px-2 py-2">
           {attachmentsEnabled && (
             <>
               <input
@@ -1670,45 +1675,55 @@ export function ChatPanel({
             disabled={isStartingNewSession || !onSendMessage}
             rows={1}
           />
-          {agentMentionAutocomplete ? (
-            <div
-              className="pointer-events-none absolute z-20"
-              role="presentation"
-              style={{
-                left: agentMentionAutocomplete.left,
-                top: agentMentionAutocomplete.top,
-              }}
-            >
-              <div className="pointer-events-auto min-w-[240px] max-w-[320px] rounded-md border border-white/10 bg-background/95 p-1 shadow-lg backdrop-blur-sm">
-                {agentMentionAutocomplete.suggestions.map((agent, index) => (
-                  <button
-                    key={agent.id}
-                    type="button"
-                    className={cn(
-                      "flex w-full items-center justify-between gap-3 rounded-sm px-2 py-1.5 text-left text-xs",
-                      index === agentMentionAutocomplete.selectedIndex
-                        ? "bg-primary/15 text-primary"
-                        : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
-                    )}
-                    onMouseDown={(event) => {
-                      event.preventDefault();
-                      applyAgentMentionSuggestion(agent, {
-                        from: agentMentionAutocomplete.from,
-                        to: agentMentionAutocomplete.to,
-                      });
+          {agentMentionAutocomplete && typeof document !== "undefined"
+            ? createPortal(
+                <div
+                  className="pointer-events-none z-50"
+                  role="presentation"
+                  style={{
+                    position: "fixed",
+                    left: agentMentionAutocomplete.left,
+                    top: agentMentionAutocomplete.top,
+                    transform: `translateY(calc(-100% - ${AGENT_MENTION_AUTOCOMPLETE_VIEWPORT_GAP_PX}px))`,
+                  }}
+                >
+                  <div
+                    className="pointer-events-auto rounded-md border border-white/10 bg-background/95 p-1 shadow-lg backdrop-blur-sm"
+                    style={{
+                      width: `min(${AGENT_MENTION_AUTOCOMPLETE_WIDTH_PX}px, calc(100vw - ${AGENT_MENTION_AUTOCOMPLETE_VIEWPORT_PADDING_PX * 2}px))`,
                     }}
                   >
-                    <span className="min-w-0 flex-1 truncate font-medium">
-                      {agent.displayName}
-                    </span>
-                    <span className="shrink-0 text-[10px] text-muted-foreground">
-                      @{agent.id}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
+                    {agentMentionAutocomplete.suggestions.map((agent, index) => (
+                      <button
+                        key={agent.id}
+                        type="button"
+                        className={cn(
+                          "flex w-full items-center justify-between gap-3 rounded-sm px-2 py-1.5 text-left text-xs",
+                          index === agentMentionAutocomplete.selectedIndex
+                            ? "bg-primary/15 text-primary"
+                            : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+                        )}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          applyAgentMentionSuggestion(agent, {
+                            from: agentMentionAutocomplete.from,
+                            to: agentMentionAutocomplete.to,
+                          });
+                        }}
+                      >
+                        <span className="min-w-0 flex-1 truncate font-medium">
+                          {agent.displayName}
+                        </span>
+                        <span className="shrink-0 text-[10px] text-muted-foreground">
+                          @{agent.id}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>,
+                document.body
+              )
+            : null}
           <Button
             size="icon"
             className={cn(
