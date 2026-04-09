@@ -298,4 +298,24 @@ describe("LeftPanel", () => {
     expect(container.querySelector(".text-emerald-500")).toBeNull();
     expect(container.querySelector(".text-amber-500")).toBeNull();
   });
+
+  it("shows a desktop restart notice for pending config changes and restarts on click", () => {
+    const onRestartConfig = vi.fn();
+
+    renderLeftPanel({
+      currentVault: {
+        id: "vault-1",
+        name: "my-vault",
+        path: "/tmp/my-vault",
+      },
+      configChangePending: true,
+      configChangeReason: "config",
+      onRestartConfig,
+    });
+
+    expect(screen.getByText("Pending changes")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Restart now" }));
+
+    expect(onRestartConfig).toHaveBeenCalledTimes(1);
+  });
 });

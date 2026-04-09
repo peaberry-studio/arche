@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { getProviderLabel } from '@/lib/providers/catalog'
 import type { ProviderId } from '@/lib/providers/types'
+import { notifyWorkspaceConfigChanged } from '@/lib/runtime/config-status-events'
 
 type ProviderCredentialsPanelProps = {
   slug: string
@@ -77,12 +78,13 @@ export function ProviderCredentialsPanel({
         return
       }
 
-      setProviderApiKeys((current) => ({ ...current, [providerId]: '' }))
-      setExpandedProviders((current) => ({ ...current, [providerId]: false }))
-      await loadProviders()
-    } catch {
-      setProviderError(getTeamErrorMessage('network_error'))
-    } finally {
+       setProviderApiKeys((current) => ({ ...current, [providerId]: '' }))
+       setExpandedProviders((current) => ({ ...current, [providerId]: false }))
+       await loadProviders()
+        notifyWorkspaceConfigChanged()
+      } catch {
+        setProviderError(getTeamErrorMessage('network_error'))
+      } finally {
       setProviderBusy((current) => ({ ...current, [providerId]: false }))
     }
   }
@@ -102,11 +104,12 @@ export function ProviderCredentialsPanel({
         return
       }
 
-      setExpandedProviders((current) => ({ ...current, [providerId]: false }))
-      await loadProviders()
-    } catch {
-      setProviderError(getTeamErrorMessage('network_error'))
-    } finally {
+       setExpandedProviders((current) => ({ ...current, [providerId]: false }))
+       await loadProviders()
+        notifyWorkspaceConfigChanged()
+      } catch {
+        setProviderError(getTeamErrorMessage('network_error'))
+      } finally {
       setProviderBusy((current) => ({ ...current, [providerId]: false }))
     }
   }

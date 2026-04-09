@@ -1318,7 +1318,12 @@ export function WorkspaceShell({
       persistenceScope={resolvedPersistenceScope}
       currentVault={currentVault}
       status="active"
+      configChangePending={configStatus.pending}
+      configChangeReason={configStatus.reason}
+      configRestartError={configStatus.restartError}
+      configRestarting={configStatus.restarting}
       leftCollapsed={isCompactLayout ? false : leftCollapsed}
+      onRestartConfig={configStatus.restart}
       onToggleLeft={isCompactLayout ? handleShowChat : handleToggleLeft}
       hideCollapseButton={isCompactLayout}
       onSyncComplete={handleSyncComplete}
@@ -1433,13 +1438,15 @@ export function WorkspaceShell({
       {macDesktopWindowInset && (
         <div className="desktop-titlebar-drag absolute inset-x-0 top-0 z-50 h-8" />
       )}
-      <ConfigChangeBanner
-        pending={configStatus.pending}
-        reason={configStatus.reason}
-        restarting={configStatus.restarting}
-        restartError={configStatus.restartError}
-        onRestart={configStatus.restart}
-      />
+      {!currentVault ? (
+        <ConfigChangeBanner
+          pending={configStatus.pending}
+          reason={configStatus.reason}
+          restarting={configStatus.restarting}
+          restartError={configStatus.restartError}
+          onRestart={configStatus.restart}
+        />
+      ) : null}
       <div
         className={cn(
           "flex h-full flex-col",

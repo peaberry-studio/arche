@@ -2,11 +2,16 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import {
+  WORKSPACE_CONFIG_STATUS_CHANGED_EVENT,
+  type ConfigChangeReason,
+} from '@/lib/runtime/config-status-events'
+
 type ConfigStatus = {
   /** Whether there are pending config changes that require a restart */
   pending: boolean;
   /** Why a restart is pending */
-  reason: 'config' | 'provider_sync' | null;
+  reason: ConfigChangeReason | null;
   /** Whether a restart is currently in progress */
   restarting: boolean;
   /** Error from the last restart attempt, if any */
@@ -19,7 +24,7 @@ const POLL_INTERVAL = 30_000; // 30 seconds
 
 export function useConfigStatus(slug: string, enabled: boolean): ConfigStatus {
   const [pending, setPending] = useState(false);
-  const [reason, setReason] = useState<'config' | 'provider_sync' | null>(null);
+  const [reason, setReason] = useState<ConfigChangeReason | null>(null);
   const [restarting, setRestarting] = useState(false);
   const [restartError, setRestartError] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -56,10 +61,16 @@ export function useConfigStatus(slug: string, enabled: boolean): ConfigStatus {
       return;
     }
 
+    const handleConfigStatusChanged = () => {
+      void checkStatus();
+    };
+
     // Check shortly after mount, then poll at interval
     const initial = setTimeout(() => {
       void checkStatus();
     }, 0);
+
+    window.addEventListener(WORKSPACE_CONFIG_STATUS_CHANGED_EVENT, handleConfigStatusChanged);
 
     intervalRef.current = setInterval(() => {
       void checkStatus();
@@ -71,6 +82,7 @@ export function useConfigStatus(slug: string, enabled: boolean): ConfigStatus {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
+      window.removeEventListener(WORKSPACE_CONFIG_STATUS_CHANGED_EVENT, handleConfigStatusChanged);
     };
   }, [checkStatus, enabled]);
 

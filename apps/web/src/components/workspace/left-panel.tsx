@@ -2,22 +2,24 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
-  ArrowLineRight,
-  ChatCircle,
-  Cpu,
-  Database,
-  GearSix,
+   ArrowClockwise,
+   ArrowLineRight,
+   ChatCircle,
+   Cpu,
+   Database,
+   GearSix,
   MagnifyingGlass,
   Minus,
   Moon,
   Palette,
   Plugs,
-  Plus,
-  Robot,
-  ArrowLineLeft,
-  SlidersHorizontal,
-  Sun,
-  X,
+   Plus,
+   Robot,
+   ArrowLineLeft,
+   SlidersHorizontal,
+   Sun,
+   Warning,
+   X,
 } from "@phosphor-icons/react";
 
 import { DesktopVaultSwitcher } from '@/components/desktop/desktop-vault-switcher'
@@ -48,6 +50,10 @@ import { Label } from "@/components/ui/label";
 import type { SyncKbResult } from "@/app/api/instances/[slug]/sync-kb/route";
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import type { AgentCatalogItem } from "@/hooks/use-workspace";
+import {
+  getConfigChangeMessage,
+  type ConfigChangeReason,
+} from '@/lib/runtime/config-status-events'
 import type { WorkspaceFileNode, WorkspaceSession } from "@/lib/opencode/types";
 import { getProviderLabel } from "@/lib/providers/catalog";
 import {
@@ -130,7 +136,12 @@ type LeftPanelProps = {
     path: string;
   } | null;
   status: "active" | "provisioning" | "offline";
+  configChangePending?: boolean;
+  configChangeReason?: ConfigChangeReason | null;
+  configRestartError?: string | null;
+  configRestarting?: boolean;
   leftCollapsed: boolean;
+  onRestartConfig?: () => void;
   onToggleLeft: () => void;
   onSyncComplete?: (status: SyncKbResult["status"]) => void;
   onNavigateDashboard: () => void;
@@ -231,7 +242,13 @@ function SectionHeader({
 
 function MinifiedLeftPanel({
   slug,
+  configChangePending,
+  configChangeReason,
+  configRestartError,
+  configRestarting,
+  showConfigRestartNotice,
   status,
+  onRestartConfig,
   onCreateSession,
   onToggleLeft,
   onExpandWithSection,
@@ -239,7 +256,13 @@ function MinifiedLeftPanel({
   onNavigateSettings,
 }: {
   slug: string;
+  configChangePending?: boolean;
+  configChangeReason?: ConfigChangeReason | null;
+  configRestartError?: string | null;
+  configRestarting?: boolean;
   status: "active" | "provisioning" | "offline";
+  onRestartConfig?: () => void;
+  showConfigRestartNotice?: boolean;
   onCreateSession: () => void;
   onToggleLeft: () => void;
   onExpandWithSection: (section: "chats" | "knowledge" | "experts") => void;
@@ -260,6 +283,11 @@ function MinifiedLeftPanel({
     canIncreaseChatFontSize,
     canDecreaseChatFontSize,
   } = useWorkspaceTheme();
+
+  const showRestartNotice = Boolean(showConfigRestartNotice && (configChangePending || configRestartError) && onRestartConfig);
+  const restartTooltipLabel = configRestartError
+    ? `Restart failed: ${configRestartError}`
+    : getConfigChangeMessage(configChangeReason ?? null);
 
   return (
     <TooltipProvider delayDuration={400}>
@@ -340,6 +368,35 @@ function MinifiedLeftPanel({
 
         {/* Spacer */}
         <div className="flex-1" />
+
+        {showRestartNotice ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={onRestartConfig}
+                className={cn(
+                  "mb-1 flex h-8 w-8 items-center justify-center rounded-lg transition-colors",
+                  configRestartError
+                    ? "bg-destructive/15 text-destructive hover:bg-destructive/20"
+                    : "bg-amber-500/15 text-amber-700 hover:bg-amber-500/20 dark:text-amber-300",
+                )}
+                aria-label="Restart workspace to apply changes"
+              >
+                {configRestartError ? (
+                  <Warning size={16} weight="bold" />
+                ) : (
+                  <ArrowClockwise
+                    size={16}
+                    weight="bold"
+                    className={cn(configRestarting && "animate-spin")}
+                  />
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">{restartTooltipLabel}</TooltipContent>
+          </Tooltip>
+        ) : null}
 
         {/* Action buttons — execute without expanding */}
         <Tooltip>
@@ -452,7 +509,12 @@ export function LeftPanel({
   persistenceScope,
   currentVault,
   status,
+  configChangePending,
+  configChangeReason,
+  configRestartError,
+  configRestarting,
   leftCollapsed,
+  onRestartConfig,
   onToggleLeft,
   onSyncComplete,
   onNavigateDashboard,
@@ -487,10 +549,16 @@ export function LeftPanel({
     return (
         <MinifiedLeftPanel
           slug={slug}
-        status={status}
-        onCreateSession={onCreateSession}
-        onToggleLeft={onToggleLeft}
-        onExpandWithSection={handleExpandWithSection}
+          configChangePending={configChangePending}
+          configChangeReason={configChangeReason}
+          configRestartError={configRestartError}
+          configRestarting={configRestarting}
+          showConfigRestartNotice={Boolean(currentVault)}
+         status={status}
+         onRestartConfig={onRestartConfig}
+         onCreateSession={onCreateSession}
+         onToggleLeft={onToggleLeft}
+         onExpandWithSection={handleExpandWithSection}
         onSyncComplete={onSyncComplete}
         onNavigateSettings={onNavigateSettings}
       />
@@ -504,7 +572,12 @@ export function LeftPanel({
       persistenceScope={persistenceScope}
       currentVault={currentVault}
       status={status}
+      configChangePending={configChangePending}
+      configChangeReason={configChangeReason}
+      configRestartError={configRestartError}
+      configRestarting={configRestarting}
       leftCollapsed={leftCollapsed}
+      onRestartConfig={onRestartConfig}
       onToggleLeft={onToggleLeft}
       onSyncComplete={onSyncComplete}
       onNavigateDashboard={onNavigateDashboard}
@@ -536,10 +609,15 @@ function ExpandedLeftPanel({
   persistenceScope,
   currentVault,
   status,
+  configChangePending = false,
+  configChangeReason = null,
+  configRestartError = null,
+  configRestarting = false,
   onToggleLeft,
   onSyncComplete,
   onNavigateDashboard,
   onNavigateSettings,
+  onRestartConfig,
   sessions,
   activeSessionId,
   unseenCompletedSessions,
@@ -576,6 +654,7 @@ function ExpandedLeftPanel({
     () => getInitialLeftPanelState(leftPanelStorageKey, leftPanelCookieName, initialPanelState),
     [initialPanelState, leftPanelCookieName, leftPanelStorageKey]
   );
+  const showRestartNotice = Boolean(currentVault && (configChangePending || configRestartError) && onRestartConfig);
 
   const [topRatio, setTopRatio] = useState(resolvedInitialPanelState.topRatio);
   const [midRatio, setMidRatio] = useState(resolvedInitialPanelState.midRatio);
@@ -1040,6 +1119,56 @@ function ExpandedLeftPanel({
           </div>
         </div>
       </div>
+
+      {showRestartNotice ? (
+        <div
+          className={cn(
+            "shrink-0 rounded-xl border px-3 py-3",
+            configRestartError
+              ? "border-destructive/30 bg-destructive/10"
+              : "border-amber-500/30 bg-amber-500/10 dark:border-amber-400/30 dark:bg-amber-400/10",
+          )}
+        >
+          <div className="flex items-start gap-2">
+            <Warning
+              size={16}
+              weight="fill"
+              className={cn(
+                "mt-0.5 shrink-0",
+                configRestartError ? "text-destructive" : "text-amber-700 dark:text-amber-300",
+              )}
+            />
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="space-y-1">
+                <p className="text-xs font-semibold uppercase tracking-wide text-foreground/80">
+                  Pending changes
+                </p>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {configRestartError
+                    ? `Restart failed: ${configRestartError}`
+                    : `${getConfigChangeMessage(configChangeReason)} Restart now to apply them.`}
+                </p>
+              </div>
+
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8"
+                onClick={onRestartConfig}
+                disabled={configRestarting}
+              >
+                <ArrowClockwise
+                  size={14}
+                  weight="bold"
+                  className={cn(configRestarting && "animate-spin")}
+                />
+                {configRestarting ? "Restarting..." : "Restart now"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* Bottom bar — connectors & providers (left) | sync, theme, settings (right) */}
       <div className="flex shrink-0 items-center gap-1 px-2 py-1.5">

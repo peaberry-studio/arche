@@ -11,6 +11,7 @@ import type {
   ConnectorTestState,
 } from '@/components/connectors/types'
 import { Button } from '@/components/ui/button'
+import { notifyWorkspaceConfigChanged } from '@/lib/runtime/config-status-events'
 
 type ConnectorsManagerProps = {
   slug: string
@@ -135,6 +136,7 @@ export function ConnectorsManager({
           delete next[id]
           return next
         })
+        notifyWorkspaceConfigChanged()
       } catch {
         setActionError(getConnectorErrorMessage(null, 'network_error'))
       } finally {
@@ -171,6 +173,7 @@ export function ConnectorsManager({
               : connector,
           ),
         )
+        notifyWorkspaceConfigChanged()
       } catch {
         setActionError(getConnectorErrorMessage(null, 'network_error'))
       } finally {
@@ -280,7 +283,10 @@ export function ConnectorsManager({
         existingConnectors={connectors}
         open={isModalOpen}
         onOpenChange={setIsModalOpen}
-        onSaved={loadConnectors}
+        onSaved={() => {
+          notifyWorkspaceConfigChanged()
+          void loadConnectors()
+        }}
       />
     </>
   )

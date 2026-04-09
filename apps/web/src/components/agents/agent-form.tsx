@@ -7,6 +7,7 @@ import { SpinnerGap } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { notifyWorkspaceConfigChanged } from '@/lib/runtime/config-status-events'
 import { cn } from '@/lib/utils'
 import {
   OPENCODE_AGENT_TOOL_OPTIONS,
@@ -180,6 +181,7 @@ export function AgentForm({
       setHash(data?.hash)
       setIsPrimary(true)
       setSaveSuccess(true)
+      notifyWorkspaceConfigChanged()
       setTimeout(() => setSaveSuccess(false), 2000)
     } catch {
       setSaveError('network_error')
@@ -207,6 +209,7 @@ export function AgentForm({
           return
         }
 
+        notifyWorkspaceConfigChanged()
         await onDeleted?.({ agentId })
       } catch {
         setSaveError('network_error')
@@ -277,6 +280,7 @@ export function AgentForm({
         setHash(data?.hash)
         setSaveSuccess(true)
         setTimeout(() => setSaveSuccess(false), 2000)
+        notifyWorkspaceConfigChanged()
         await onSaved?.({ agentId: data?.agent?.id ?? id, mode })
         return
       }
@@ -302,6 +306,7 @@ export function AgentForm({
       }
       setHash(data?.hash)
       setSaveSuccess(true)
+      notifyWorkspaceConfigChanged()
       await onSaved?.({ agentId: agentId ?? id, mode })
       setTimeout(() => setSaveSuccess(false), 2000)
     } catch {
