@@ -469,6 +469,7 @@ function ExpandedInspectorPanel({
                 <div className="flex-1 min-h-0 overflow-y-auto scrollbar-none">
                   {activeFile.kind === "markdown" && activeDraft != null && canEditMarkdown ? (
                     <MarkdownEditor
+                      key={activeFile.path}
                       value={activeDraft}
                       onChange={(next) =>
                         handleChange(activeFile.path, next, activeFile.content, activeFile.hash)

@@ -3,10 +3,9 @@ import path from 'path'
 
 import {
   getConfigRepoHash,
-  listConfigRepoFiles,
   mutateConfigRepo,
-  readConfigRepoFileBuffer,
-  type ConfigRepoFileEntry,
+  listConfigRepoFiles,
+  readConfigRepoSnapshot,
 } from '@/lib/config-repo-store'
 import {
   createDefaultCommonWorkspaceConfig,
@@ -64,6 +63,14 @@ type SaveSkillResult =
 
 class SkillStoreError extends Error {
   constructor(readonly code: 'invalid_config' | 'not_found' | 'skill_exists' | 'unknown_agent') {
+    super(code)
+  }
+}
+
+type SkillStoreReadErrorCode = 'invalid_config' | 'kb_unavailable' | 'not_found' | 'read_failed'
+
+class SkillStoreReadError extends Error {
+  constructor(readonly code: SkillStoreReadErrorCode) {
     super(code)
   }
 }
@@ -138,28 +145,39 @@ async function writeWorkspaceConfigToRepoDir(repoDir: string, config: CommonWork
   )
 }
 
-async function readSkillBundleFromRepoDir(repoDir: string, name: string): Promise<SkillBundle | null> {
+async function loadSkillBundleFromRepoDir(repoDir: string, name: string): Promise<
+  | { ok: true; bundle: SkillBundle }
+  | { ok: false; error: 'not_found' | 'read_failed' }
+> {
   const skillDir = path.join(repoDir, getSkillConfigDirectory(name))
   const stats = await fs.stat(skillDir).catch(() => null)
   if (!stats?.isDirectory()) {
-    return null
+    return { ok: false, error: 'not_found' }
   }
 
   const files = await listFilesRecursive(skillDir)
   const skillMarkdown = files.find((file) => file.path === SKILL_MARKDOWN_FILE_NAME)
   if (!skillMarkdown) {
-    return null
+    return { ok: false, error: 'read_failed' }
   }
 
   const parsed = parseSkillMarkdown(Buffer.from(skillMarkdown.content).toString('utf-8'), name)
   if (!parsed.ok) {
-    return null
+    return { ok: false, error: 'read_failed' }
   }
 
   return {
-    files,
-    skill: parsed.skill,
+    ok: true,
+    bundle: {
+      files,
+      skill: parsed.skill,
+    },
   }
+}
+
+async function readSkillBundleFromRepoDir(repoDir: string, name: string): Promise<SkillBundle | null> {
+  const result = await loadSkillBundleFromRepoDir(repoDir, name)
+  return result.ok ? result.bundle : null
 }
 
 async function writeSkillBundleToRepoDir(repoDir: string, name: string, files: SkillBundleFile[]): Promise<void> {
@@ -172,26 +190,6 @@ async function writeSkillBundleToRepoDir(repoDir: string, name: string, files: S
     await fs.mkdir(path.dirname(filePath), { recursive: true })
     await fs.writeFile(filePath, Buffer.from(file.content))
   }
-}
-
-function groupSkillFiles(files: ConfigRepoFileEntry[]): Map<string, SkillBundleFile[]> {
-  const grouped = new Map<string, SkillBundleFile[]>()
-
-  for (const file of files) {
-    const relativePath = file.path.slice(SKILLS_CONFIG_DIRECTORY.length + 1)
-    const separatorIndex = relativePath.indexOf('/')
-    if (separatorIndex <= 0) {
-      continue
-    }
-
-    const skillName = relativePath.slice(0, separatorIndex)
-    const skillRelativePath = relativePath.slice(separatorIndex + 1)
-    const current = grouped.get(skillName) ?? []
-    current.push({ path: skillRelativePath, content: new Uint8Array(file.content) })
-    grouped.set(skillName, current)
-  }
-
-  return grouped
 }
 
 function createSkillSummary(bundle: SkillBundle, assignedAgentIds: string[]): SkillSummary {
@@ -209,136 +207,135 @@ function createSkillSummary(bundle: SkillBundle, assignedAgentIds: string[]): Sk
   }
 }
 
-async function loadWorkspaceConfigForRead(): Promise<SkillStoreResult<CommonWorkspaceConfig>> {
-  const result = await readConfigRepoFileBuffer(COMMON_WORKSPACE_CONFIG_FILE)
-  if (!result.ok) {
-    if (result.error === 'not_found') {
-      return { ok: true, data: createDefaultCommonWorkspaceConfig(), hash: null }
+async function listSkillNamesFromRepoDir(repoDir: string): Promise<string[]> {
+  const skillsDir = path.join(repoDir, SKILLS_CONFIG_DIRECTORY)
+  const entries = await fs.readdir(skillsDir, { withFileTypes: true }).catch((error: unknown) => {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      return null
     }
 
-    return { ok: false, error: result.error }
+    throw error
+  })
+
+  if (!entries) {
+    return []
   }
 
-  const parsed = parseCommonWorkspaceConfig(result.content.toString('utf-8'))
-  if (!parsed.ok) {
-    return { ok: false, error: 'invalid_config' }
+  return entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort((left, right) => left.localeCompare(right))
+}
+
+export async function readSkillBundlesFromRepoDir(
+  repoDir: string,
+  options: { strict?: boolean } = {}
+): Promise<SkillBundle[]> {
+  const skillNames = await listSkillNamesFromRepoDir(repoDir)
+  const bundles: SkillBundle[] = []
+
+  for (const name of skillNames) {
+    const result = await loadSkillBundleFromRepoDir(repoDir, name)
+    if (!result.ok) {
+      if (options.strict) {
+        throw new SkillStoreReadError(result.error === 'not_found' ? 'read_failed' : result.error)
+      }
+
+      continue
+    }
+
+    bundles.push(result.bundle)
   }
 
-  const validation = validateCommonWorkspaceConfig(parsed.config)
-  if (!validation.ok) {
-    return { ok: false, error: 'invalid_config' }
+  return bundles
+}
+
+function mapSkillStoreReadError(error: unknown): SkillStoreReadErrorCode {
+  if (error instanceof SkillStoreError && error.code === 'invalid_config') {
+    return 'invalid_config'
   }
 
-  return { ok: true, data: parsed.config, hash: result.hash }
+  if (error instanceof SkillStoreReadError) {
+    return error.code
+  }
+
+  return 'read_failed'
+}
+
+async function readSkillStoreSnapshot<T>(
+  reader: (repoDir: string) => Promise<T>
+): Promise<{ ok: true; data: T; hash: string | null } | { ok: false; error: SkillStoreReadErrorCode }> {
+  try {
+    const snapshot = await readConfigRepoSnapshot(async ({ repoDir }) => reader(repoDir))
+    if (!snapshot.ok) {
+      return { ok: false, error: snapshot.error }
+    }
+
+    return snapshot
+  } catch (error) {
+    return { ok: false, error: mapSkillStoreReadError(error) }
+  }
 }
 
 export async function listSkills(): Promise<SkillStoreResult<SkillSummary[]>> {
-  const [skillsResult, configResult] = await Promise.all([
-    listConfigRepoFiles(SKILLS_CONFIG_DIRECTORY),
-    loadWorkspaceConfigForRead(),
-  ])
+  const snapshot = await readSkillStoreSnapshot(async (repoDir) => {
+    const config = await loadWorkspaceConfigFromRepoDir(repoDir)
+    const bundles = await readSkillBundlesFromRepoDir(repoDir, { strict: true })
 
-  if (!skillsResult.ok) {
-    return { ok: false, error: skillsResult.error }
-  }
-
-  if (!configResult.ok) {
-    return configResult
-  }
-
-  const groupedFiles = groupSkillFiles(skillsResult.files)
-  const skills: SkillSummary[] = []
-
-  for (const [name, files] of groupedFiles) {
-    const skillMarkdown = files.find((file) => file.path === SKILL_MARKDOWN_FILE_NAME)
-    if (!skillMarkdown) {
-      continue
-    }
-
-    const parsed = parseSkillMarkdown(Buffer.from(skillMarkdown.content).toString('utf-8'), name)
-    if (!parsed.ok) {
-      continue
-    }
-
-    skills.push(
+    return bundles.map((bundle) =>
       createSkillSummary(
-        { files, skill: parsed.skill },
-        getAssignedAgentIdsForSkill(configResult.data, parsed.skill.frontmatter.name)
+        bundle,
+        getAssignedAgentIdsForSkill(config, bundle.skill.frontmatter.name)
       )
     )
+  })
+
+  if (!snapshot.ok) {
+    return snapshot
   }
 
-  skills.sort((left, right) => left.name.localeCompare(right.name))
-  return { ok: true, data: skills, hash: skillsResult.hash }
+  return { ok: true, data: snapshot.data, hash: snapshot.hash }
 }
 
 export async function listSkillBundles(): Promise<SkillStoreResult<SkillBundle[]>> {
-  const skillsResult = await listConfigRepoFiles(SKILLS_CONFIG_DIRECTORY)
-  if (!skillsResult.ok) {
-    return { ok: false, error: skillsResult.error }
+  const snapshot = await readSkillStoreSnapshot(async (repoDir) =>
+    readSkillBundlesFromRepoDir(repoDir, { strict: true })
+  )
+
+  if (!snapshot.ok) {
+    return snapshot
   }
 
-  const groupedFiles = groupSkillFiles(skillsResult.files)
-  const bundles: SkillBundle[] = []
-
-  for (const [name, files] of groupedFiles) {
-    const skillMarkdown = files.find((file) => file.path === SKILL_MARKDOWN_FILE_NAME)
-    if (!skillMarkdown) {
-      continue
-    }
-
-    const parsed = parseSkillMarkdown(Buffer.from(skillMarkdown.content).toString('utf-8'), name)
-    if (!parsed.ok) {
-      continue
-    }
-
-    bundles.push({ files, skill: parsed.skill })
-  }
-
-  bundles.sort((left, right) => left.skill.frontmatter.name.localeCompare(right.skill.frontmatter.name))
-  return { ok: true, data: bundles, hash: skillsResult.hash }
+  return { ok: true, data: snapshot.data, hash: snapshot.hash }
 }
 
 export async function readSkill(name: string): Promise<SkillStoreResult<SkillDetail>> {
-  const [bundleResult, configResult] = await Promise.all([
-    listConfigRepoFiles(getSkillConfigDirectory(name)),
-    loadWorkspaceConfigForRead(),
-  ])
+  const snapshot = await readSkillStoreSnapshot(async (repoDir) => {
+    const config = await loadWorkspaceConfigFromRepoDir(repoDir)
+    const bundleResult = await loadSkillBundleFromRepoDir(repoDir, name)
+    if (!bundleResult.ok) {
+      throw new SkillStoreReadError(bundleResult.error)
+    }
 
-  if (!bundleResult.ok) {
-    return { ok: false, error: bundleResult.error }
+    const summary = createSkillSummary(
+      bundleResult.bundle,
+      getAssignedAgentIdsForSkill(config, bundleResult.bundle.skill.frontmatter.name)
+    )
+
+    return {
+      ...summary,
+      body: bundleResult.bundle.skill.body,
+    }
+  })
+
+  if (!snapshot.ok) {
+    return snapshot
   }
-
-  if (!configResult.ok) {
-    return configResult
-  }
-
-  const skillMarkdown = bundleResult.files.find((file) => file.path === `${getSkillConfigDirectory(name)}/${SKILL_MARKDOWN_FILE_NAME}`)
-  if (!skillMarkdown) {
-    return { ok: false, error: 'not_found' }
-  }
-
-  const files = bundleResult.files.map((file) => ({
-    path: file.path.slice(getSkillConfigDirectory(name).length + 1),
-    content: new Uint8Array(file.content),
-  }))
-  const parsed = parseSkillMarkdown(skillMarkdown.content.toString('utf-8'), name)
-  if (!parsed.ok) {
-    return { ok: false, error: 'read_failed' }
-  }
-
-  const summary = createSkillSummary(
-    { files, skill: parsed.skill },
-    getAssignedAgentIdsForSkill(configResult.data, parsed.skill.frontmatter.name)
-  )
 
   return {
     ok: true,
-    data: {
-      ...summary,
-      body: parsed.skill.body,
-    },
-    hash: bundleResult.hash,
+    data: snapshot.data,
+    hash: snapshot.hash,
   }
 }
 

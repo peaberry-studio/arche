@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
 import { importSkillArchive, readSkill } from '@/lib/skills/skill-store'
-import { parseSkillArchive } from '@/lib/skills/skill-zip'
+import { MAX_SKILL_ARCHIVE_BYTES, parseSkillArchive } from '@/lib/skills/skill-zip'
 import { withAuth } from '@/lib/runtime/with-auth'
 
 export const runtime = 'nodejs'
@@ -45,6 +45,10 @@ export const POST = withAuth(
     const file = formData.get('file')
     if (!(file instanceof File)) {
       return NextResponse.json({ error: 'missing_file' }, { status: 400 })
+    }
+
+    if (file.size > MAX_SKILL_ARCHIVE_BYTES) {
+      return NextResponse.json({ error: 'archive_too_large' }, { status: 413 })
     }
 
     const assignedAgentIds = parseAssignedAgentIds(formData.get('assignedAgentIds'))

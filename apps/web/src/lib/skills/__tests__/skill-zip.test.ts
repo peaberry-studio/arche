@@ -1,7 +1,11 @@
 import { zipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
 
-import { createSkillArchive, parseSkillArchive } from '@/lib/skills/skill-zip'
+import {
+  MAX_SKILL_ARCHIVE_FILE_BYTES,
+  createSkillArchive,
+  parseSkillArchive,
+} from '@/lib/skills/skill-zip'
 
 const encoder = new TextEncoder()
 
@@ -83,5 +87,16 @@ describe('skill-zip', () => {
       'SKILL.md',
       'references/guide.md',
     ])
+  })
+
+  it('rejects archives whose extracted content exceeds the runtime limits', () => {
+    const archive = zipSync({
+      'pdf-processing/SKILL.md': encoder.encode('---\nname: pdf-processing\ndescription: Handle PDF workflows\n---\n## Workflow\n'),
+      'pdf-processing/references/huge.txt': encoder.encode('A'.repeat(MAX_SKILL_ARCHIVE_FILE_BYTES + 1024)),
+    })
+
+    const parsed = parseSkillArchive(archive)
+
+    expect(parsed).toEqual({ ok: false, error: 'archive_too_large' })
   })
 })

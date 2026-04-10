@@ -9,6 +9,9 @@ import {
 } from '@/lib/skills/types'
 
 export const MAX_SKILL_ARCHIVE_BYTES = 5 * 1024 * 1024
+export const MAX_SKILL_ARCHIVE_ENTRIES = 100
+export const MAX_SKILL_ARCHIVE_EXTRACTED_BYTES = 20 * 1024 * 1024
+export const MAX_SKILL_ARCHIVE_FILE_BYTES = 5 * 1024 * 1024
 
 type ParseSkillArchiveResult =
   | { ok: true; archive: SkillArchive }
@@ -126,10 +129,43 @@ export function parseSkillArchive(buffer: Uint8Array): ParseSkillArchiveResult {
   }
 
   let extracted: Record<string, Uint8Array>
+  let extractedBytes = 0
+  let extractedEntryCount = 0
+  let archiveTooLarge = false
+
   try {
-    extracted = unzipSync(buffer)
+    extracted = unzipSync(buffer, {
+      filter: (file) => {
+        if (file.name.endsWith('/')) {
+          return false
+        }
+
+        extractedEntryCount += 1
+        if (extractedEntryCount > MAX_SKILL_ARCHIVE_ENTRIES) {
+          archiveTooLarge = true
+          return false
+        }
+
+        if (file.originalSize > MAX_SKILL_ARCHIVE_FILE_BYTES) {
+          archiveTooLarge = true
+          return false
+        }
+
+        if (extractedBytes + file.originalSize > MAX_SKILL_ARCHIVE_EXTRACTED_BYTES) {
+          archiveTooLarge = true
+          return false
+        }
+
+        extractedBytes += file.originalSize
+        return true
+      },
+    })
   } catch {
     return { ok: false, error: 'invalid_archive' }
+  }
+
+  if (archiveTooLarge) {
+    return { ok: false, error: 'archive_too_large' }
   }
 
   const files: SkillBundleFile[] = []

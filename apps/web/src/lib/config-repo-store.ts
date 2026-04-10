@@ -85,6 +85,34 @@ async function listFilesRecursive(rootDir: string, prefix = ''): Promise<ConfigR
   return files
 }
 
+export async function readConfigRepoSnapshot<T>(
+  reader: (context: { repoDir: string; hash: string | null }) => Promise<T>
+): Promise<{ ok: true; data: T; hash: string | null } | { ok: false; error: ConfigRepoReadError }> {
+  const root = await resolveConfigRepoRoot()
+  if (!root) return { ok: false, error: 'kb_unavailable' }
+
+  if (!(await hasBareRepoLayout(root))) {
+    return { ok: false, error: 'kb_unavailable' }
+  }
+
+  if (!(await isGitAvailable())) {
+    return { ok: false, error: 'read_failed' }
+  }
+
+  const clone = await cloneRepoToTemp(root)
+  if (!clone.ok) {
+    return { ok: false, error: 'read_failed' }
+  }
+
+  try {
+    const hash = await getCloneHeadHash(clone.dir, clone.gitEnv)
+    const data = await reader({ repoDir: clone.dir, hash })
+    return { ok: true, data, hash }
+  } finally {
+    await cleanupClone(clone)
+  }
+}
+
 export async function getConfigRepoHash(): Promise<
   | { ok: true; hash: string | null }
   | { ok: false; error: ConfigRepoReadError }

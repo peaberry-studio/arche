@@ -136,6 +136,10 @@ export function MarkdownFrontmatterPanel({
 }: MarkdownFrontmatterPanelProps) {
   const [editing, setEditing] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [activeNumberDraft, setActiveNumberDraft] = useState<{
+    index: number;
+    value: string;
+  } | null>(null);
   const [draftProperties, setDraftProperties] = useState<MarkdownFrontmatterProperty[]>(
     frontmatter.mode === "structured" ? frontmatter.properties : []
   );
@@ -195,6 +199,7 @@ export function MarkdownFrontmatterPanel({
                 variant="ghost"
                 className="h-6 px-2 text-[11px]"
                 onClick={() => {
+                  setActiveNumberDraft(null);
                   updateDraftProperties([...draftProperties, createEmptyFrontmatterProperty()], false);
                 }}
               >
@@ -209,10 +214,12 @@ export function MarkdownFrontmatterPanel({
               className="h-6 px-2 text-[11px] text-muted-foreground/60 hover:text-muted-foreground"
               onClick={() => {
                 if (editing) {
+                  setActiveNumberDraft(null);
                   setEditing(false);
                   return;
                 }
 
+                setActiveNumberDraft(null);
                 setDraftProperties(frontmatter.mode === "structured" ? frontmatter.properties : []);
                 setEditing(true);
               }}
@@ -324,6 +331,7 @@ export function MarkdownFrontmatterPanel({
                 className="flex h-7 w-full appearance-none rounded-md border border-border bg-background bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2210%22%20height%3D%226%22%20fill%3D%22none%22%3E%3Cpath%20d%3D%22M1%201l4%204%204-4%22%20stroke%3D%22%23888%22%20stroke-width%3D%221.5%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fsvg%3E')] bg-[length:10px_6px] bg-[right_8px_center] bg-no-repeat px-2 pr-6 text-xs text-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/30"
                 value={property.type}
                 onChange={(event) => {
+                  setActiveNumberDraft((current) => (current?.index === index ? null : current));
                   const next = [...draftProperties];
                   next[index] = coercePropertyValue(
                     property,
@@ -358,15 +366,25 @@ export function MarkdownFrontmatterPanel({
                     placeholder="0"
                     type="number"
                     className="h-7 rounded-md px-2 text-xs"
-                    value={String(property.value)}
+                    value={activeNumberDraft?.index === index ? activeNumberDraft.value : String(property.value)}
                     onChange={(event) => {
-                      const parsed = Number.parseFloat(event.target.value);
+                      const nextValue = event.target.value;
+                      setActiveNumberDraft({ index, value: nextValue });
+
+                      const parsed = Number.parseFloat(nextValue);
+                      if (!Number.isFinite(parsed)) {
+                        return;
+                      }
+
                       const next = [...draftProperties];
                       next[index] = {
                         ...property,
-                        value: Number.isFinite(parsed) ? parsed : 0,
+                        value: parsed,
                       };
                       updateDraftProperties(next);
+                    }}
+                    onBlur={() => {
+                      setActiveNumberDraft((current) => (current?.index === index ? null : current));
                     }}
                   />
                 ) : null}
@@ -411,6 +429,7 @@ export function MarkdownFrontmatterPanel({
                           className="h-7 w-7 shrink-0"
                           aria-label={`Remove item ${entryIndex + 1}`}
                           onClick={() => {
+                            setActiveNumberDraft((current) => (current?.index === index ? null : current));
                             const next = [...draftProperties];
                             next[index] = {
                               ...property,
@@ -447,6 +466,7 @@ export function MarkdownFrontmatterPanel({
                 className="h-7 w-7 shrink-0"
                 aria-label={`Remove property ${index + 1}`}
                 onClick={() => {
+                  setActiveNumberDraft((current) => (current?.index === index ? null : current));
                   updateDraftProperties(
                     draftProperties.filter((_, candidateIndex) => candidateIndex !== index)
                   );
