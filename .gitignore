@@ -48,6 +48,13 @@ apps/desktop/release/
 # Workspace internal storage
 .arche/
 
+# One-click deployment local credential records
+deployments/
+
+# Local Go deployer build artifact
+infra/one-click/archectl
+archectl_*
+
 # Infrastructure secrets (never commit .env or .env.local*)
 infra/**/.env
 infra/**/.env.local*
