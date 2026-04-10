@@ -96,6 +96,7 @@ const defaultProps = {
   onSelectAgent: vi.fn(),
   onOpenExpertsSettings: vi.fn(),
   skills,
+  onSelectSkill: vi.fn(),
   onOpenSkillsSettings: vi.fn(),
   fileNodes,
   activeFilePath: null as string | null,

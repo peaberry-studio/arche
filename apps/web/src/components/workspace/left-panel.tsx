@@ -151,6 +151,8 @@ type LeftPanelProps = {
   onSyncComplete?: (status: SyncKbResult["status"]) => void;
   onNavigateDashboard: () => void;
   onNavigateSettings: () => void;
+  onNavigateConnectors?: () => void;
+  onNavigateProviders?: () => void;
 
   // Sessions
   sessions: WorkspaceSession[];
@@ -166,6 +168,7 @@ type LeftPanelProps = {
 
   // Skills
   skills: SkillListItem[];
+  onSelectSkill: (skill: SkillListItem) => void;
   onOpenSkillsSettings: () => void;
 
   // Knowledge (file tree)
@@ -542,6 +545,8 @@ export function LeftPanel({
   onSyncComplete,
   onNavigateDashboard,
   onNavigateSettings,
+  onNavigateConnectors,
+  onNavigateProviders,
   sessions,
   activeSessionId,
   unseenCompletedSessions,
@@ -551,6 +556,7 @@ export function LeftPanel({
   onSelectAgent,
   onOpenExpertsSettings,
   skills,
+  onSelectSkill,
   onOpenSkillsSettings,
   fileNodes,
   activeFilePath,
@@ -608,6 +614,8 @@ export function LeftPanel({
       onSyncComplete={onSyncComplete}
       onNavigateDashboard={onNavigateDashboard}
       onNavigateSettings={onNavigateSettings}
+      onNavigateConnectors={onNavigateConnectors}
+      onNavigateProviders={onNavigateProviders}
        sessions={sessions}
         activeSessionId={activeSessionId}
         unseenCompletedSessions={unseenCompletedSessions}
@@ -617,6 +625,7 @@ export function LeftPanel({
         onSelectAgent={onSelectAgent}
         onOpenExpertsSettings={onOpenExpertsSettings}
         skills={skills}
+        onSelectSkill={onSelectSkill}
         onOpenSkillsSettings={onOpenSkillsSettings}
         fileNodes={fileNodes}
       activeFilePath={activeFilePath}
@@ -645,6 +654,8 @@ function ExpandedLeftPanel({
   onSyncComplete,
   onNavigateDashboard,
   onNavigateSettings,
+  onNavigateConnectors,
+  onNavigateProviders,
   onRestartConfig,
   sessions,
   activeSessionId,
@@ -655,6 +666,7 @@ function ExpandedLeftPanel({
   onSelectAgent,
   onOpenExpertsSettings,
   skills,
+  onSelectSkill,
   onOpenSkillsSettings,
   fileNodes,
   activeFilePath,
@@ -1002,7 +1014,7 @@ function ExpandedLeftPanel({
       onAction: onOpenSkillsSettings,
       actionIcon: SlidersHorizontal,
       actionLabel: "Edit skills",
-      content: <SkillsPanel skills={skills} query={searchQuery} />,
+      content: <SkillsPanel skills={skills} onSelectSkill={onSelectSkill} query={searchQuery} />,
     },
   ];
 
@@ -1188,7 +1200,19 @@ function ExpandedLeftPanel({
               <TooltipContent side="top">Connectors</TooltipContent>
             </Tooltip>
             <DropdownMenuContent side="top" align="start" className="w-72">
-              <DropdownMenuLabel>Connector status</DropdownMenuLabel>
+              <div className="flex items-center justify-between px-2 py-1.5">
+                <span className="text-sm font-semibold">Connector status</span>
+                {onNavigateConnectors && (
+                  <button
+                    type="button"
+                    onClick={onNavigateConnectors}
+                    className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+                    aria-label="Connector settings"
+                  >
+                    <GearSix size={14} weight="bold" />
+                  </button>
+                )}
+              </div>
               <DropdownMenuSeparator />
               {connectors.length === 0 ? (
                 <p className="px-2 py-1.5 text-xs text-muted-foreground">No connectors configured.</p>
@@ -1231,7 +1255,19 @@ function ExpandedLeftPanel({
               <TooltipContent side="top">Providers</TooltipContent>
             </Tooltip>
             <DropdownMenuContent side="top" align="start" className="w-72">
-              <DropdownMenuLabel>Provider status</DropdownMenuLabel>
+              <div className="flex items-center justify-between px-2 py-1.5">
+                <span className="text-sm font-semibold">Provider status</span>
+                {onNavigateProviders && (
+                  <button
+                    type="button"
+                    onClick={onNavigateProviders}
+                    className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+                    aria-label="Provider settings"
+                  >
+                    <GearSix size={14} weight="bold" />
+                  </button>
+                )}
+              </div>
               <DropdownMenuSeparator />
               {isLoadingProviders ? (
                 <p className="px-2 py-1.5 text-xs text-muted-foreground">Loading providers...</p>

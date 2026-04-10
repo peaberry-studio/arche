@@ -28,7 +28,7 @@ import { takeWorkspaceStartPrompt } from "@/lib/workspace-start-prompt";
 import { cn } from "@/lib/utils";
 
 import { useConfigStatus } from "@/hooks/use-config-status";
-import { useSkillsCatalog } from '@/hooks/use-skills-catalog'
+import { useSkillsCatalog, type SkillListItem } from '@/hooks/use-skills-catalog'
 
 import { ChatPanel } from "./chat-panel";
 import { ConfigChangeBanner } from "./config-change-banner";
@@ -1104,6 +1104,15 @@ export function WorkspaceShell({
     });
   }, [workspace.activeSessionId]);
 
+  const handleSelectSkill = useCallback((skill: SkillListItem) => {
+    if (!workspace.activeSessionId) return;
+
+    setPendingInsert({
+      sessionId: workspace.activeSessionId,
+      value: `Use the "${skill.name}" skill for this task. `,
+    });
+  }, [workspace.activeSessionId]);
+
   const handlePendingInsertConsumed = useCallback(() => {
     setPendingInsert(null);
   }, []);
@@ -1339,6 +1348,16 @@ export function WorkspaceShell({
           currentVault ? getDesktopWorkspaceHref(slug, 'providers') : `/u/${slug}/settings/security`,
         )
       }
+      onNavigateConnectors={() =>
+        router.push(
+          currentVault ? getDesktopWorkspaceHref(slug, 'connectors') : `/u/${slug}/connectors`,
+        )
+      }
+      onNavigateProviders={() =>
+        router.push(
+          currentVault ? getDesktopWorkspaceHref(slug, 'providers') : `/u/${slug}/settings/security`,
+        )
+      }
       sessions={rootSessions}
       activeSessionId={activeRootSessionId}
       unseenCompletedSessions={workspace.unseenCompletedSessions}
@@ -1348,6 +1367,7 @@ export function WorkspaceShell({
       onSelectAgent={handleSelectAgent}
       onOpenExpertsSettings={handleOpenExpertsSettings}
       skills={skillsCatalog.skills}
+      onSelectSkill={handleSelectSkill}
       onOpenSkillsSettings={handleOpenSkillsSettings}
       fileNodes={workspace.fileTree}
       activeFilePath={activeFilePath}
