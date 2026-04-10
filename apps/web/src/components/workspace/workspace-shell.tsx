@@ -28,6 +28,7 @@ import { takeWorkspaceStartPrompt } from "@/lib/workspace-start-prompt";
 import { cn } from "@/lib/utils";
 
 import { useConfigStatus } from "@/hooks/use-config-status";
+import { useSkillsCatalog, type SkillListItem } from '@/hooks/use-skills-catalog'
 
 import { ChatPanel } from "./chat-panel";
 import { ConfigChangeBanner } from "./config-change-banner";
@@ -314,6 +315,7 @@ export function WorkspaceShell({
     workspaceAgentEnabled,
     reaperEnabled,
   });
+  const skillsCatalog = useSkillsCatalog(slug)
 
   const sessionsById = useMemo(() => {
     const map = new Map<string, WorkspaceSession>();
@@ -935,6 +937,10 @@ export function WorkspaceShell({
     router.push(currentVault ? getDesktopWorkspaceHref(slug, 'agents') : `/u/${slug}/agents`);
   }, [currentVault, router, slug]);
 
+  const handleOpenSkillsSettings = useCallback(() => {
+    router.push(currentVault ? getDesktopWorkspaceHref(slug, 'skills') : `/u/${slug}/skills`);
+  }, [currentVault, router, slug]);
+
   const handleCreateKnowledgeFile = useCallback(
     async (path: string) => {
       if (!workspaceAgentEnabled) {
@@ -1095,6 +1101,15 @@ export function WorkspaceShell({
     setPendingInsert({
       sessionId: workspace.activeSessionId,
       value: `@${agent.id} `,
+    });
+  }, [workspace.activeSessionId]);
+
+  const handleSelectSkill = useCallback((skill: SkillListItem) => {
+    if (!workspace.activeSessionId) return;
+
+    setPendingInsert({
+      sessionId: workspace.activeSessionId,
+      value: `Use the "${skill.name}" skill for this task. `,
     });
   }, [workspace.activeSessionId]);
 
@@ -1333,6 +1348,16 @@ export function WorkspaceShell({
           currentVault ? getDesktopWorkspaceHref(slug, 'providers') : `/u/${slug}/settings/security`,
         )
       }
+      onNavigateConnectors={() =>
+        router.push(
+          currentVault ? getDesktopWorkspaceHref(slug, 'connectors') : `/u/${slug}/connectors`,
+        )
+      }
+      onNavigateProviders={() =>
+        router.push(
+          currentVault ? getDesktopWorkspaceHref(slug, 'providers') : `/u/${slug}/settings/security`,
+        )
+      }
       sessions={rootSessions}
       activeSessionId={activeRootSessionId}
       unseenCompletedSessions={workspace.unseenCompletedSessions}
@@ -1341,6 +1366,9 @@ export function WorkspaceShell({
       agents={workspace.agentCatalog}
       onSelectAgent={handleSelectAgent}
       onOpenExpertsSettings={handleOpenExpertsSettings}
+      skills={skillsCatalog.skills}
+      onSelectSkill={handleSelectSkill}
+      onOpenSkillsSettings={handleOpenSkillsSettings}
       fileNodes={workspace.fileTree}
       activeFilePath={activeFilePath}
       onSelectFile={handleOpenFile}

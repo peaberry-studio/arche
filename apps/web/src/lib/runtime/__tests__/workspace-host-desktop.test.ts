@@ -3,12 +3,17 @@ import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'v
 import type { ChildProcess } from 'child_process'
 
 const mockSpawn = vi.fn()
+const mockExecFile = vi.fn()
 const mockExecFileSync = vi.fn()
 const mockExistsSync = vi.fn()
 const mockMkdirSync = vi.fn()
+const mockReadFile = vi.fn()
 const mockReadFileSync = vi.fn()
 const mockWriteFileSync = vi.fn()
 const mockRandomBytes = vi.fn()
+const mockMkdir = vi.fn()
+const mockRm = vi.fn()
+const mockWriteFile = vi.fn()
 
 vi.mock('crypto', async (importOriginal) => {
   const actual = await importOriginal<typeof import('crypto')>()
@@ -19,6 +24,7 @@ vi.mock('crypto', async (importOriginal) => {
 })
 
 vi.mock('child_process', () => ({
+  execFile: (...args: unknown[]) => mockExecFile(...args),
   spawn: (...args: unknown[]) => mockSpawn(...args),
   execFileSync: (...args: unknown[]) => mockExecFileSync(...args),
 }))
@@ -26,8 +32,17 @@ vi.mock('child_process', () => ({
 vi.mock('fs', () => ({
   existsSync: (...args: unknown[]) => mockExistsSync(...args),
   mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
+  promises: {
+    readFile: (...args: unknown[]) => mockReadFile(...args),
+  },
   readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
   writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
+}))
+
+vi.mock('fs/promises', () => ({
+  mkdir: (...args: unknown[]) => mockMkdir(...args),
+  rm: (...args: unknown[]) => mockRm(...args),
+  writeFile: (...args: unknown[]) => mockWriteFile(...args),
 }))
 
 vi.mock('@/lib/runtime/paths', () => ({
@@ -75,6 +90,14 @@ vi.mock('@/lib/common-workspace-config-store', () => ({
   readConfigRepoFile: vi.fn().mockResolvedValue({ ok: false }),
 }))
 
+vi.mock('@/lib/config-repo-store', () => ({
+  readConfigRepoSnapshot: vi.fn(async (reader: (context: { repoDir: string; hash: string | null }) => Promise<unknown>) => ({
+    ok: true,
+    hash: 'snapshot-hash',
+    data: await reader({ repoDir: '/tmp/mock-config-repo', hash: 'snapshot-hash' }),
+  })),
+}))
+
 vi.mock('@/lib/spawner/config', () => ({
   getWorkspaceAgentPort: vi.fn(() => 4097),
 }))
@@ -90,6 +113,10 @@ vi.mock('@/lib/opencode/providers', () => ({
 
 vi.mock('@/lib/spawner/mcp-config', () => ({
   buildMcpConfigForSlug: vi.fn().mockResolvedValue(null),
+}))
+
+vi.mock('@/lib/skills/skill-store', () => ({
+  readSkillBundlesFromRepoDir: vi.fn().mockResolvedValue([]),
 }))
 
 vi.mock('@/lib/spawner/runtime-config-hash', () => ({
@@ -194,8 +221,31 @@ describe('desktopWorkspaceHost', () => {
     // @ts-expect-error test isolation
     process.resourcesPath = undefined
     mockExistsSync.mockImplementation((target: string) => target === '/mock/bin/workspace-agent')
+    mockReadFile.mockImplementation((target: string) => {
+      if (target.endsWith('/CommonWorkspaceConfig.json')) {
+        return Promise.resolve(
+          JSON.stringify({
+            $schema: 'https://opencode.ai/config.json',
+            default_agent: 'assistant',
+            agent: {
+              assistant: {
+                mode: 'primary',
+                tools: { task: true },
+              },
+            },
+          })
+        )
+      }
+
+      const error = new Error('ENOENT') as NodeJS.ErrnoException
+      error.code = 'ENOENT'
+      return Promise.reject(error)
+    })
     mockReadFileSync.mockReturnValue('')
     mockRandomBytes.mockReturnValue({ toString: () => 'generated-password' })
+    mockMkdir.mockResolvedValue(undefined)
+    mockRm.mockResolvedValue(undefined)
+    mockWriteFile.mockResolvedValue(undefined)
     mockHealthyFetch()
   })
 
@@ -313,10 +363,29 @@ describe('desktopWorkspaceHost', () => {
     const workspaceAgentChild = makeChildProcess()
     mockSpawn.mockReturnValueOnce(opencodeChild).mockReturnValueOnce(workspaceAgentChild)
 
-    const { readConfigRepoFile } = await import('@/lib/common-workspace-config-store')
-    vi.mocked(readConfigRepoFile).mockResolvedValue({
-      ok: true,
-      content: '# AGENTS\n\nUse these guardrails.',
+    mockReadFile.mockImplementation((target: string) => {
+      if (target.endsWith('/CommonWorkspaceConfig.json')) {
+        return Promise.resolve(
+          JSON.stringify({
+            $schema: 'https://opencode.ai/config.json',
+            default_agent: 'assistant',
+            agent: {
+              assistant: {
+                mode: 'primary',
+                tools: { task: true },
+              },
+            },
+          })
+        )
+      }
+
+      if (target.endsWith('/AGENTS.md')) {
+        return Promise.resolve('# AGENTS\n\nUse these guardrails.')
+      }
+
+      const error = new Error('ENOENT') as NodeJS.ErrnoException
+      error.code = 'ENOENT'
+      return Promise.reject(error)
     })
 
     const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
@@ -326,6 +395,40 @@ describe('desktopWorkspaceHost', () => {
       expect.stringContaining('AGENTS.md'),
       expect.stringContaining('## Workspace User Identity'),
       'utf-8',
+    )
+  })
+
+  it('materializes runtime skills into the desktop OpenCode config directory', async () => {
+    const opencodeChild = makeChildProcess()
+    const workspaceAgentChild = makeChildProcess()
+    mockSpawn.mockReturnValueOnce(opencodeChild).mockReturnValueOnce(workspaceAgentChild)
+
+    const { readSkillBundlesFromRepoDir } = await import('@/lib/skills/skill-store')
+    vi.mocked(readSkillBundlesFromRepoDir).mockResolvedValue([
+      {
+        skill: {
+          frontmatter: {
+            name: 'pdf-processing',
+            description: 'Handle PDFs',
+          },
+          body: 'Use this for PDFs.',
+          raw: '',
+        },
+        files: [
+          {
+            path: 'SKILL.md',
+            content: new TextEncoder().encode('---\nname: pdf-processing\ndescription: Handle PDFs\n---\nUse this for PDFs.'),
+          },
+        ],
+      },
+    ])
+
+    const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
+    await desktopWorkspaceHost.start('local', 'user-1')
+
+    expect(mockWriteFile).toHaveBeenCalledWith(
+      '/tmp/arche/.runtime/opencode/.config/opencode/skills/pdf-processing/SKILL.md',
+      expect.any(Buffer)
     )
   })
 
@@ -365,26 +468,30 @@ describe('desktopWorkspaceHost', () => {
     const workspaceAgentChild = makeChildProcess()
     mockSpawn.mockReturnValueOnce(opencodeChild).mockReturnValueOnce(workspaceAgentChild)
 
-    const { readCommonWorkspaceConfig } = await import('@/lib/common-workspace-config-store')
-    vi.mocked(readCommonWorkspaceConfig).mockResolvedValue({
-      ok: true,
-      content: JSON.stringify({
-        $schema: 'https://opencode.ai/config.json',
-        default_agent: 'assistant',
-        agent: {
-          assistant: {
-            mode: 'primary',
-            tools: { task: true },
-          },
-          linear: {
-            mode: 'subagent',
-            prompt: 'Handle Linear.',
-            tools: { task: true, 'arche_*': false, 'arche_linear_admin111_*': true },
-          },
-        },
-      }),
-      hash: 'hash',
-      path: '/tmp/arche/kb-config/CommonWorkspaceConfig.json',
+    mockReadFile.mockImplementation((target: string) => {
+      if (target.endsWith('/CommonWorkspaceConfig.json')) {
+        return Promise.resolve(
+          JSON.stringify({
+            $schema: 'https://opencode.ai/config.json',
+            default_agent: 'assistant',
+            agent: {
+              assistant: {
+                mode: 'primary',
+                tools: { task: true },
+              },
+              linear: {
+                mode: 'subagent',
+                prompt: 'Handle Linear.',
+                tools: { task: true, 'arche_*': false, 'arche_linear_admin111_*': true },
+              },
+            },
+          })
+        )
+      }
+
+      const error = new Error('ENOENT') as NodeJS.ErrnoException
+      error.code = 'ENOENT'
+      return Promise.reject(error)
     })
 
     const { buildMcpConfigForSlug } = await import('@/lib/spawner/mcp-config')

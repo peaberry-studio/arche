@@ -9,6 +9,7 @@ import { ProviderCredentialsPanel } from '@/components/providers/provider-creden
 import { AdvancedSettingsPanel } from '@/components/settings/advanced-settings-panel'
 import { AgentsSettingsPanel } from '@/components/settings/agents-settings-panel'
 import { AppearanceSettingsPanel } from '@/components/settings/appearance-settings-panel'
+import { SkillsSettingsPanel } from '@/components/settings/skills-settings-panel'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -31,6 +32,7 @@ const SECTION_LABELS: Record<DesktopSettingsSection, string> = {
   providers: 'Providers',
   connectors: 'Connectors',
   agents: 'Agents',
+  skills: 'Skills',
   appearance: 'Appearance',
   advanced: 'Advanced',
 }
@@ -75,6 +77,8 @@ export function DesktopSettingsDialog({ slug, currentSection }: DesktopSettingsD
         return <AppearanceSettingsPanel />
       case 'agents':
         return <AgentsSettingsPanel slug={slug} />
+      case 'skills':
+        return <SkillsSettingsPanel slug={slug} />
       case 'advanced':
         return <AdvancedSettingsPanel slug={slug} />
       default:
@@ -87,7 +91,7 @@ export function DesktopSettingsDialog({ slug, currentSection }: DesktopSettingsD
       <DialogContent showCloseButton={false} className="max-h-[90vh] overflow-hidden p-0 sm:max-w-6xl">
         <DialogTitle className="sr-only">Desktop settings</DialogTitle>
         <DialogDescription className="sr-only">
-          Configure providers, connectors, agents, appearance, and advanced desktop workspace settings.
+          Configure providers, connectors, agents, skills, appearance, and advanced desktop workspace settings.
         </DialogDescription>
 
         <div className="flex h-[80vh] min-h-[640px] flex-col">

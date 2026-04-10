@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server'
 
 import {
+  buildAgentPermissionConfigFromCapabilities,
   buildAgentToolsConfigFromCapabilities,
   type AgentCapabilities,
   validateAgentCapabilityConnectorIds,
+  validateAgentCapabilitySkillIds,
   validateAgentCapabilityTools,
 } from '@/lib/agent-capabilities'
 import { auditEvent } from '@/lib/auth'
@@ -11,6 +13,7 @@ import { readCommonWorkspaceConfig, writeCommonWorkspaceConfig } from '@/lib/com
 import type { ConnectorType } from '@/lib/connectors/types'
 import { validateConnectorType } from '@/lib/connectors/validators'
 import { withAuth } from '@/lib/runtime/with-auth'
+import { listSkills } from '@/lib/skills/skill-store'
 import { connectorService, userService } from '@/lib/services'
 import {
   type CommonWorkspaceConfig,
@@ -43,6 +46,7 @@ type UpdateAgentRequest = {
   isPrimary?: boolean
   expectedHash?: string
   capabilities?: {
+    skillIds?: unknown
     tools?: unknown
     mcpConnectorIds?: unknown
   }
@@ -98,13 +102,15 @@ async function loadEnabledConnectorsForSlug(slug: string): Promise<EnabledConnec
 
 function parseCapabilities(
   value: unknown,
-  enabledConnectors: EnabledConnector[]
+  enabledConnectors: EnabledConnector[],
+  availableSkillIds: Set<string>,
 ): { ok: true; capabilities: AgentCapabilities } | { ok: false; error: string } {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return { ok: false, error: 'invalid_capabilities' }
   }
 
   const capabilities = value as {
+    skillIds?: unknown
     tools?: unknown
     mcpConnectorIds?: unknown
   }
@@ -127,9 +133,20 @@ function parseCapabilities(
     return { ok: false, error: 'unknown_mcp_connector' }
   }
 
+  const skillResult = validateAgentCapabilitySkillIds(capabilities.skillIds)
+  if (!skillResult.ok) {
+    return { ok: false, error: skillResult.error }
+  }
+
+  const unknownSkillId = skillResult.skillIds.find((skillId) => !availableSkillIds.has(skillId))
+  if (unknownSkillId) {
+    return { ok: false, error: 'unknown_skill' }
+  }
+
   return {
     ok: true,
     capabilities: {
+      skillIds: skillResult.skillIds,
       tools: toolsResult.tools,
       mcpConnectorIds: connectorResult.connectorIds,
     },
@@ -256,7 +273,17 @@ export const PATCH = withAuth<AgentDetailResponse | { error: string; message?: s
 
     if ('capabilities' in body) {
       const enabledConnectors = await loadEnabledConnectorsForSlug(slug)
-      const capabilitiesResult = parseCapabilities(body.capabilities, enabledConnectors)
+      const skillsResult = await listSkills()
+      if (!skillsResult.ok) {
+        const status = skillsResult.error === 'kb_unavailable' ? 503 : 500
+        return NextResponse.json({ error: skillsResult.error }, { status })
+      }
+
+      const capabilitiesResult = parseCapabilities(
+        body.capabilities,
+        enabledConnectors,
+        new Set(skillsResult.data.map((skill) => skill.name))
+      )
       if (!capabilitiesResult.ok) {
         return NextResponse.json({ error: capabilitiesResult.error }, { status: 400 })
       }
@@ -265,6 +292,16 @@ export const PATCH = withAuth<AgentDetailResponse | { error: string; message?: s
         capabilitiesResult.capabilities,
         enabledConnectors
       )
+
+      const permission = buildAgentPermissionConfigFromCapabilities(
+        capabilitiesResult.capabilities,
+        updated.permission,
+      )
+      if (permission) {
+        updated.permission = permission
+      } else {
+        delete updated.permission
+      }
     }
 
     let nextConfig: CommonWorkspaceConfig = {

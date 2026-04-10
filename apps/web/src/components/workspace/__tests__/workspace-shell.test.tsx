@@ -76,6 +76,16 @@ vi.mock("@/hooks/use-workspace", () => ({
   }),
 }));
 
+vi.mock('@/hooks/use-skills-catalog', () => ({
+  useSkillsCatalog: () => ({
+    skills: [],
+    hash: null,
+    isLoading: false,
+    loadError: null,
+    reload: vi.fn(),
+  }),
+}))
+
 vi.mock("@/components/workspace/chat-panel", () => ({
   ChatPanel: ({ onShowContext, pendingInsert }: { onShowContext?: () => void; pendingInsert?: string | null }) => (
     <div>

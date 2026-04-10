@@ -163,6 +163,30 @@ describe("MarkdownEditor", () => {
     expect(onChange).toHaveBeenCalledWith(["---", "title: Beta", "---", "# Body"].join("\n"));
   });
 
+  it("does not coerce cleared numeric properties to zero while typing", () => {
+    const onChange = vi.fn();
+
+    render(
+      <MarkdownEditor
+        value={["---", "rating: 4", "---", "# Body"].join("\n")}
+        onChange={onChange}
+        saveState="saved"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    const input = screen.getByLabelText("Property 1 value") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "" } });
+
+    expect(input.value).toBe("");
+    expect(onChange).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { value: "42" } });
+
+    expect(onChange).toHaveBeenCalledWith(["---", "rating: 42", "---", "# Body"].join("\n"));
+  });
+
   it("does not persist a blank property when adding a new row", () => {
     const onChange = vi.fn();
 

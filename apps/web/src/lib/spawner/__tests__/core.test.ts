@@ -1,4 +1,21 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { promises as fs } from 'fs'
+import { tmpdir } from 'os'
+import path from 'path'
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const mockReadConfigRepoSnapshot = vi.fn()
+let snapshotRepoDir: string | null = null
+
+async function writeSnapshotRepoFile(relativePath: string, content: string): Promise<void> {
+  if (!snapshotRepoDir) {
+    throw new Error('snapshot_repo_not_configured')
+  }
+
+  const filePath = path.join(snapshotRepoDir, relativePath)
+  await fs.mkdir(path.dirname(filePath), { recursive: true })
+  await fs.writeFile(filePath, content, 'utf-8')
+}
 
 // Mock services (used directly by core.ts and transitively by runtime-config-hash.ts, mcp-config.ts)
 vi.mock('@/lib/services', () => ({
@@ -64,6 +81,16 @@ vi.mock('@/lib/common-workspace-config-store', () => ({
   }),
 }))
 
+vi.mock('@/lib/config-repo-store', () => ({
+  readConfigRepoSnapshot: (
+    reader: (context: { repoDir: string; hash: string | null }) => Promise<unknown>
+  ) => mockReadConfigRepoSnapshot(reader),
+}))
+
+vi.mock('@/lib/skills/skill-store', () => ({
+  readSkillBundlesFromRepoDir: vi.fn().mockResolvedValue([]),
+}))
+
 // Mock docker
 vi.mock('../docker', () => ({
   createContainer: vi.fn(),
@@ -85,7 +112,6 @@ vi.mock('../crypto', () => ({
   decryptPassword: vi.fn(() => 'test-password-123'),
 }))
 
-import { readCommonWorkspaceConfig } from '@/lib/common-workspace-config-store'
 import { isInstanceHealthyWithPassword } from '@/lib/opencode/client'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
 import { auditService, instanceService, userService } from '@/lib/services'
@@ -100,12 +126,44 @@ const mockDocker = vi.mocked(docker)
 const mockBuildMcpConfigForSlug = vi.mocked(buildMcpConfigForSlug)
 const mockHealth = vi.mocked(isInstanceHealthyWithPassword)
 const mockSync = vi.mocked(syncProviderAccessForInstance)
-const mockReadCommonWorkspaceConfig = vi.mocked(readCommonWorkspaceConfig)
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks()
+  if (snapshotRepoDir) {
+    await fs.rm(snapshotRepoDir, { recursive: true, force: true })
+  }
+
+  snapshotRepoDir = await fs.mkdtemp(path.join(tmpdir(), 'core-runtime-repo-'))
+  await Promise.all([
+    writeSnapshotRepoFile(
+      'CommonWorkspaceConfig.json',
+      JSON.stringify({
+        $schema: 'https://opencode.ai/config.json',
+        default_agent: 'assistant',
+        agent: {},
+      })
+    ),
+    writeSnapshotRepoFile('AGENTS.md', '# AGENTS.md'),
+  ])
+
+  mockReadConfigRepoSnapshot.mockImplementation(
+    async (
+      reader: (context: { repoDir: string; hash: string | null }) => Promise<unknown>
+    ) => ({
+      ok: true,
+      hash: 'snapshot-hash',
+      data: await reader({ repoDir: snapshotRepoDir!, hash: 'snapshot-hash' }),
+    })
+  )
   mockHealth.mockResolvedValue(true)
   mockBuildMcpConfigForSlug.mockResolvedValue(null)
+})
+
+afterEach(async () => {
+  if (snapshotRepoDir) {
+    await fs.rm(snapshotRepoDir, { recursive: true, force: true })
+    snapshotRepoDir = null
+  }
 })
 
 describe('startInstance', () => {
@@ -141,12 +199,13 @@ describe('startInstance', () => {
     const result = await startInstance('alice', 'user-1')
 
     expect(result).toEqual({ ok: true, status: 'running' })
-    const [slug, password, configContent, agentsMd, gitAuthor] = mockDocker.createContainer.mock.calls[0] ?? []
+    const [slug, password, configContent, agentsMd, skills, gitAuthor] = mockDocker.createContainer.mock.calls[0] ?? []
     expect(slug).toBe('alice')
     expect(password).toBe('test-password-123')
     expect(typeof configContent).toBe('string')
     expect(configContent).toContain('"$schema":"https://opencode.ai/config.json"')
     expect(typeof agentsMd).toBe('string')
+    expect(skills).toEqual([])
     expect(gitAuthor).toEqual({ name: 'alice', email: 'alice@example.com' })
     expect(mockDocker.startContainer).toHaveBeenCalledWith('container-123')
     expect(mockSync).toHaveBeenCalledWith({
@@ -333,9 +392,9 @@ describe('isSlowStart', () => {
 
 describe('startInstance - agent config transforms', () => {
   it('remaps connector IDs and injects self-delegation guards', async () => {
-    mockReadCommonWorkspaceConfig.mockResolvedValue({
-      ok: true,
-      content: JSON.stringify({
+    await writeSnapshotRepoFile(
+      'CommonWorkspaceConfig.json',
+      JSON.stringify({
         $schema: 'https://opencode.ai/config.json',
         default_agent: 'assistant',
         agent: {
@@ -350,10 +409,8 @@ describe('startInstance - agent config transforms', () => {
             tools: { task: true, 'arche_*': false, 'arche_linear_admin111_*': true },
           },
         },
-      }),
-      hash: 'hash',
-      path: '/kb-config/CommonWorkspaceConfig.json',
-    } as never)
+      })
+    )
 
     mockBuildMcpConfigForSlug.mockResolvedValue({
       $schema: 'https://opencode.ai/config.json',
