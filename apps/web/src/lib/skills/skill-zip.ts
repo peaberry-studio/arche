@@ -40,22 +40,84 @@ function normalizeArchivePath(input: string): string | null {
   return segments.join('/')
 }
 
-function stripCommonRoot(files: SkillBundleFile[]): SkillBundleFile[] {
-  const firstSegments = Array.from(new Set(files.map((file) => file.path.split('/')[0])))
-  if (firstSegments.length !== 1) {
-    return files
+function shouldIgnoreArchivePath(path: string): boolean {
+  const segments = path.split('/')
+  const fileName = segments[segments.length - 1] ?? ''
+
+  return segments.includes('__MACOSX') || fileName === '.DS_Store' || fileName.startsWith('._')
+}
+
+type SkillRoot = {
+  directoryPath: string
+  markdownPath: string
+}
+
+function getSkillRoot(files: SkillBundleFile[]): SkillRoot | null {
+  const candidates = files
+    .filter((file) => {
+      const segments = file.path.split('/')
+      const fileName = segments[segments.length - 1] ?? ''
+      return fileName.toLowerCase() === SKILL_MARKDOWN_FILE_NAME.toLowerCase()
+    })
+    .map((file) => {
+      const separatorIndex = file.path.lastIndexOf('/')
+      const directoryPath = separatorIndex === -1 ? '' : file.path.slice(0, separatorIndex)
+      const fileName = separatorIndex === -1 ? file.path : file.path.slice(separatorIndex + 1)
+
+      return {
+        directoryPath,
+        fileName,
+        markdownPath: file.path,
+        depth: directoryPath ? directoryPath.split('/').length : 0,
+      }
+    })
+    .sort((left, right) => {
+      if (left.depth !== right.depth) {
+        return left.depth - right.depth
+      }
+
+      if (left.fileName !== right.fileName) {
+        if (left.fileName === SKILL_MARKDOWN_FILE_NAME) {
+          return -1
+        }
+
+        if (right.fileName === SKILL_MARKDOWN_FILE_NAME) {
+          return 1
+        }
+      }
+
+      return left.markdownPath.localeCompare(right.markdownPath)
+    })
+
+  const selected = candidates[0]
+  if (!selected) {
+    return null
   }
 
-  const [rootSegment] = firstSegments
-  const skillMarkdownPath = `${rootSegment}/${SKILL_MARKDOWN_FILE_NAME}`
-  if (!files.some((file) => file.path === skillMarkdownPath)) {
-    return files
+  return {
+    directoryPath: selected.directoryPath,
+    markdownPath: selected.markdownPath,
+  }
+}
+
+function normalizeSkillFiles(files: SkillBundleFile[]): SkillBundleFile[] | null {
+  const skillRoot = getSkillRoot(files)
+  if (!skillRoot) {
+    return null
   }
 
-  return files.map((file) => ({
-    ...file,
-    path: file.path.slice(rootSegment.length + 1),
-  }))
+  const rootPrefix = skillRoot.directoryPath ? `${skillRoot.directoryPath}/` : ''
+
+  return files
+    .filter((file) => !rootPrefix || file.path.startsWith(rootPrefix))
+    .map((file) => {
+      const relativePath = rootPrefix ? file.path.slice(rootPrefix.length) : file.path
+
+      return {
+        ...file,
+        path: file.path === skillRoot.markdownPath ? SKILL_MARKDOWN_FILE_NAME : relativePath,
+      }
+    })
 }
 
 export function parseSkillArchive(buffer: Uint8Array): ParseSkillArchiveResult {
@@ -81,10 +143,18 @@ export function parseSkillArchive(buffer: Uint8Array): ParseSkillArchiveResult {
       return { ok: false, error: 'invalid_archive_path' }
     }
 
+    if (shouldIgnoreArchivePath(normalizedPath)) {
+      continue
+    }
+
     files.push({ path: normalizedPath, content })
   }
 
-  const normalizedFiles = stripCommonRoot(files)
+  const normalizedFiles = normalizeSkillFiles(files)
+  if (!normalizedFiles) {
+    return { ok: false, error: 'missing_skill_markdown' }
+  }
+
   const skillMarkdown = normalizedFiles.find((file) => file.path === SKILL_MARKDOWN_FILE_NAME)
   if (!skillMarkdown) {
     return { ok: false, error: 'missing_skill_markdown' }
