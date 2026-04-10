@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   parseMarkdownFrontmatter,
+  replaceMarkdownFrontmatterBody,
   serializeMarkdownFrontmatter,
 } from "@/components/workspace/markdown-frontmatter";
 
@@ -88,5 +89,30 @@ describe("markdown-frontmatter", () => {
     );
 
     expect(serialized).toBe(["---", "seo:", "  title: Hello", "---", "# Body"].join("\n"));
+  });
+
+  it("drops blank structured keys during serialization", () => {
+    const serialized = serializeMarkdownFrontmatter(
+      {
+        mode: "structured",
+        properties: [
+          { key: "", type: "string", value: "Ignored" },
+          { key: "title", type: "string", value: "Hello" },
+        ],
+        raw: "",
+      },
+      "# Body"
+    );
+
+    expect(serialized).toBe(["---", "title: Hello", "---", "# Body"].join("\n"));
+  });
+
+  it("replaces only the markdown body while preserving the original YAML block", () => {
+    const serialized = replaceMarkdownFrontmatterBody(
+      ["---", 'title: "Hello"', "...", "# Body"].join("\n"),
+      "## Updated"
+    );
+
+    expect(serialized).toBe(["---", 'title: "Hello"', "...", "## Updated"].join("\n"));
   });
 });

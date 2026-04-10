@@ -7,18 +7,17 @@ import { CaretDown, CaretRight, Check, Info, PencilSimple, Plus, Trash } from "@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type {
-  MarkdownFrontmatterProperty,
-  ParsedMarkdownFrontmatter,
+import {
+  createEmptyFrontmatterProperty,
+  type MarkdownFrontmatterProperty,
+  type ParsedMarkdownFrontmatter,
 } from "@/components/workspace/markdown-frontmatter";
-import { cn } from "@/lib/utils";
 
 type MarkdownFrontmatterPanelProps = {
   frontmatter: ParsedMarkdownFrontmatter;
   editable?: boolean;
   onPropertiesChange?: (properties: MarkdownFrontmatterProperty[]) => void;
   onRawChange?: (raw: string) => void;
-  onAddProperty?: () => void;
 };
 
 function coercePropertyValue(
@@ -134,10 +133,27 @@ export function MarkdownFrontmatterPanel({
   editable = false,
   onPropertiesChange,
   onRawChange,
-  onAddProperty,
 }: MarkdownFrontmatterPanelProps) {
   const [editing, setEditing] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [draftProperties, setDraftProperties] = useState<MarkdownFrontmatterProperty[]>(
+    frontmatter.mode === "structured" ? frontmatter.properties : []
+  );
+
+  const updateDraftProperties = useCallback(
+    (nextProperties: MarkdownFrontmatterProperty[], persist = true) => {
+      setDraftProperties(nextProperties);
+
+      if (!persist) {
+        return;
+      }
+
+      onPropertiesChange?.(
+        nextProperties.filter((property) => property.key.trim().length > 0)
+      );
+    },
+    [onPropertiesChange]
+  );
 
   if (!editable && frontmatter.mode === "none") {
     return null;
@@ -145,7 +161,10 @@ export function MarkdownFrontmatterPanel({
 
   const showRaw = frontmatter.mode === "raw";
   const showStructured = frontmatter.mode === "structured" || (editable && frontmatter.mode === "none");
-  const propertyCount = frontmatter.mode === "structured" ? frontmatter.properties.length : 0;
+  const propertyCount =
+    frontmatter.mode === "structured"
+      ? frontmatter.properties.filter((property) => property.key.trim().length > 0).length
+      : 0;
 
   return (
     <section className="px-4 pt-2 pb-1.5">
@@ -169,8 +188,16 @@ export function MarkdownFrontmatterPanel({
         </div>
         {editable && showStructured && !collapsed ? (
           <div className="flex items-center gap-1">
-            {editing && onAddProperty ? (
-              <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-[11px]" onClick={onAddProperty}>
+            {editing ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-[11px]"
+                onClick={() => {
+                  updateDraftProperties([...draftProperties, createEmptyFrontmatterProperty()], false);
+                }}
+              >
                 <Plus size={11} weight="bold" />
                 Add
               </Button>
@@ -180,7 +207,15 @@ export function MarkdownFrontmatterPanel({
               size="sm"
               variant="ghost"
               className="h-6 px-2 text-[11px] text-muted-foreground/60 hover:text-muted-foreground"
-              onClick={() => setEditing((previous) => !previous)}
+              onClick={() => {
+                if (editing) {
+                  setEditing(false);
+                  return;
+                }
+
+                setDraftProperties(frontmatter.mode === "structured" ? frontmatter.properties : []);
+                setEditing(true);
+              }}
             >
               {editing ? (
                 <>
@@ -201,6 +236,9 @@ export function MarkdownFrontmatterPanel({
       {/* Raw mode */}
       {!collapsed && showRaw ? (
         <div className="mt-2 space-y-2">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/60">
+            Raw YAML
+          </p>
           <p className="text-[11px] text-muted-foreground/70">{formatRawReason(frontmatter.reason)}</p>
           {editable ? (
             <textarea
@@ -261,11 +299,11 @@ export function MarkdownFrontmatterPanel({
       {/* Structured: edit mode */}
       {!collapsed && showStructured && editing ? (
         <div className="mt-2 space-y-1.5">
-          {propertyCount === 0 ? (
+          {draftProperties.length === 0 ? (
             <p className="py-1 text-[11px] text-muted-foreground/50">No properties yet.</p>
           ) : null}
 
-          {frontmatter.properties.map((property, index) => (
+          {draftProperties.map((property, index) => (
             <div
               key={index}
               className="grid gap-1.5 md:grid-cols-[minmax(0,1fr)_90px_minmax(0,1.6fr)_auto] md:items-center"
@@ -276,9 +314,9 @@ export function MarkdownFrontmatterPanel({
                 className="h-7 rounded-md px-2 text-xs"
                 value={property.key}
                 onChange={(event) => {
-                  const next = [...frontmatter.properties];
+                  const next = [...draftProperties];
                   next[index] = { ...property, key: event.target.value };
-                  onPropertiesChange?.(next);
+                  updateDraftProperties(next);
                 }}
               />
               <select
@@ -286,12 +324,12 @@ export function MarkdownFrontmatterPanel({
                 className="flex h-7 w-full appearance-none rounded-md border border-border bg-background bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2210%22%20height%3D%226%22%20fill%3D%22none%22%3E%3Cpath%20d%3D%22M1%201l4%204%204-4%22%20stroke%3D%22%23888%22%20stroke-width%3D%221.5%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fsvg%3E')] bg-[length:10px_6px] bg-[right_8px_center] bg-no-repeat px-2 pr-6 text-xs text-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/30"
                 value={property.type}
                 onChange={(event) => {
-                  const next = [...frontmatter.properties];
+                  const next = [...draftProperties];
                   next[index] = coercePropertyValue(
                     property,
                     event.target.value as MarkdownFrontmatterProperty["type"]
                   );
-                  onPropertiesChange?.(next);
+                  updateDraftProperties(next);
                 }}
               >
                 <option value="string">Text</option>
@@ -307,9 +345,9 @@ export function MarkdownFrontmatterPanel({
                     className="h-7 rounded-md px-2 text-xs"
                     value={property.value}
                     onChange={(event) => {
-                      const next = [...frontmatter.properties];
+                      const next = [...draftProperties];
                       next[index] = { ...property, value: event.target.value };
-                      onPropertiesChange?.(next);
+                      updateDraftProperties(next);
                     }}
                   />
                 ) : null}
@@ -323,12 +361,12 @@ export function MarkdownFrontmatterPanel({
                     value={String(property.value)}
                     onChange={(event) => {
                       const parsed = Number.parseFloat(event.target.value);
-                      const next = [...frontmatter.properties];
+                      const next = [...draftProperties];
                       next[index] = {
                         ...property,
                         value: Number.isFinite(parsed) ? parsed : 0,
                       };
-                      onPropertiesChange?.(next);
+                      updateDraftProperties(next);
                     }}
                   />
                 ) : null}
@@ -340,9 +378,9 @@ export function MarkdownFrontmatterPanel({
                       checked={property.value}
                       type="checkbox"
                       onChange={(event) => {
-                        const next = [...frontmatter.properties];
+                        const next = [...draftProperties];
                         next[index] = { ...property, value: event.target.checked };
-                        onPropertiesChange?.(next);
+                        updateDraftProperties(next);
                       }}
                     />
                     <span className="text-[11px]">{property.value ? "Enabled" : "Disabled"}</span>
@@ -359,11 +397,11 @@ export function MarkdownFrontmatterPanel({
                           className="h-7 rounded-md px-2 text-xs"
                           value={entry}
                           onChange={(event) => {
-                            const next = [...frontmatter.properties];
+                            const next = [...draftProperties];
                             const nextValues = [...property.value];
                             nextValues[entryIndex] = event.target.value;
                             next[index] = { ...property, value: nextValues };
-                            onPropertiesChange?.(next);
+                            updateDraftProperties(next);
                           }}
                         />
                         <Button
@@ -373,12 +411,12 @@ export function MarkdownFrontmatterPanel({
                           className="h-7 w-7 shrink-0"
                           aria-label={`Remove item ${entryIndex + 1}`}
                           onClick={() => {
-                            const next = [...frontmatter.properties];
+                            const next = [...draftProperties];
                             next[index] = {
                               ...property,
                               value: property.value.filter((_, candidateIndex) => candidateIndex !== entryIndex),
                             };
-                            onPropertiesChange?.(next);
+                            updateDraftProperties(next);
                           }}
                         >
                           <Trash size={12} weight="bold" />
@@ -391,9 +429,9 @@ export function MarkdownFrontmatterPanel({
                       variant="ghost"
                       className="h-6 px-2 text-[10px]"
                       onClick={() => {
-                        const next = [...frontmatter.properties];
+                        const next = [...draftProperties];
                         next[index] = { ...property, value: [...property.value, ""] };
-                        onPropertiesChange?.(next);
+                        updateDraftProperties(next);
                       }}
                     >
                       <Plus size={10} weight="bold" />
@@ -409,8 +447,8 @@ export function MarkdownFrontmatterPanel({
                 className="h-7 w-7 shrink-0"
                 aria-label={`Remove property ${index + 1}`}
                 onClick={() => {
-                  onPropertiesChange?.(
-                    frontmatter.properties.filter((_, candidateIndex) => candidateIndex !== index)
+                  updateDraftProperties(
+                    draftProperties.filter((_, candidateIndex) => candidateIndex !== index)
                   );
                 }}
               >

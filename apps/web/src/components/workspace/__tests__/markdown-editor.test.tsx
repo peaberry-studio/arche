@@ -120,17 +120,17 @@ describe("MarkdownEditor", () => {
     );
 
     expect(capturedEditorOptions?.content).toBe("# Body");
-    expect(screen.getByDisplayValue("title")).toBeTruthy();
-    expect(screen.getByDisplayValue("Alpha")).toBeTruthy();
+    expect(screen.getByText("title")).toBeTruthy();
+    expect(screen.getByText("Alpha")).toBeTruthy();
   });
 
-  it("reassembles YAML frontmatter before emitting editor changes", async () => {
+  it("preserves the original YAML block when only the markdown body changes", async () => {
     const onChange = vi.fn();
     fakeMarkdown = "## Updated";
 
     render(
       <MarkdownEditor
-        value={["---", "title: Alpha", "---", "# Body"].join("\n")}
+        value={["---", 'title: "Alpha"', "---", "# Body"].join("\n")}
         onChange={onChange}
         saveState="saved"
       />
@@ -140,7 +140,7 @@ describe("MarkdownEditor", () => {
 
     capturedEditorOptions?.onUpdate?.({ editor: fakeEditor });
 
-    expect(onChange).toHaveBeenCalledWith(["---", "title: Alpha", "---", "## Updated"].join("\n"));
+    expect(onChange).toHaveBeenCalledWith(["---", 'title: "Alpha"', "---", "## Updated"].join("\n"));
   });
 
   it("updates structured properties above the editor", () => {
@@ -154,11 +154,31 @@ describe("MarkdownEditor", () => {
       />
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
     fireEvent.change(screen.getByLabelText("Property 1 value"), {
       target: { value: "Beta" },
     });
 
     expect(onChange).toHaveBeenCalledWith(["---", "title: Beta", "---", "# Body"].join("\n"));
+  });
+
+  it("does not persist a blank property when adding a new row", () => {
+    const onChange = vi.fn();
+
+    render(
+      <MarkdownEditor
+        value="# Body"
+        onChange={onChange}
+        saveState="saved"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+
+    expect(screen.getByLabelText("Property 1 key")).toBeTruthy();
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it("uses raw YAML mode for unsupported frontmatter", () => {

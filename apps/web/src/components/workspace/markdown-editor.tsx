@@ -27,8 +27,8 @@ import StarterKit from "@tiptap/starter-kit";
 import { Button } from "@/components/ui/button";
 import { InternalLinkAutocomplete } from "@/components/workspace/internal-link-autocomplete";
 import {
-  createEmptyFrontmatterProperty,
   parseMarkdownFrontmatter,
+  replaceMarkdownFrontmatterBody,
   serializeMarkdownFrontmatter,
   type MarkdownFrontmatterProperty,
 } from "@/components/workspace/markdown-frontmatter";
@@ -138,14 +138,14 @@ export function MarkdownEditor({
   const ignoreNextUpdateRef = useRef(false);
   const lastEmittedMarkdownRef = useRef<string | null>(null);
   const hoveredLinkHideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const valueRef = useRef(value);
   const [linkAutocomplete, setLinkAutocomplete] = useState<LinkAutocompleteState | null>(null);
   const [hoveredLink, setHoveredLink] = useState<HoveredLinkState | null>(null);
   const frontmatter = useMemo(() => parseMarkdownFrontmatter(value), [value]);
-  const frontmatterRef = useRef(frontmatter);
 
   useEffect(() => {
-    frontmatterRef.current = frontmatter;
-  }, [frontmatter]);
+    valueRef.current = value;
+  }, [value]);
 
   const handlePropertiesChange = useCallback(
     (properties: MarkdownFrontmatterProperty[]) => {
@@ -162,24 +162,6 @@ export function MarkdownEditor({
     },
     [frontmatter.body, onChange]
   );
-
-  const handleAddProperty = useCallback(() => {
-    const properties =
-      frontmatter.mode === "structured"
-        ? [...frontmatter.properties, createEmptyFrontmatterProperty()]
-        : [createEmptyFrontmatterProperty()];
-
-    onChange(
-      serializeMarkdownFrontmatter(
-        {
-          mode: "structured",
-          properties,
-          raw: "",
-        },
-        frontmatter.body
-      )
-    );
-  }, [frontmatter, onChange]);
 
   const handleRawFrontmatterChange = useCallback(
     (raw: string) => {
@@ -363,7 +345,7 @@ export function MarkdownEditor({
 
       const nextBody = normalizeMarkdownForKb(editor.getMarkdown());
       lastEmittedMarkdownRef.current = nextBody;
-      onChange(serializeMarkdownFrontmatter(frontmatterRef.current, nextBody));
+      onChange(replaceMarkdownFrontmatterBody(valueRef.current, nextBody));
       updateLinkAutocomplete(editor);
     },
     onSelectionUpdate: ({ editor }) => {
@@ -533,7 +515,6 @@ export function MarkdownEditor({
       <MarkdownFrontmatterPanel
         editable
         frontmatter={frontmatter}
-        onAddProperty={handleAddProperty}
         onPropertiesChange={handlePropertiesChange}
         onRawChange={handleRawFrontmatterChange}
       />

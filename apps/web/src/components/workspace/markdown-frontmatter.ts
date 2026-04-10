@@ -33,6 +33,7 @@ export type ParsedMarkdownFrontmatter = {
 
 type FrontmatterSplitResult = {
   body: string;
+  closingFence: "---" | "..." | null;
   hasFrontmatter: boolean;
   raw: string;
 };
@@ -49,16 +50,19 @@ function splitMarkdownFrontmatter(value: string): FrontmatterSplitResult {
   if (lines[0] !== "---") {
     return {
       body: normalized,
+      closingFence: null,
       hasFrontmatter: false,
       raw: "",
     };
   }
 
   let endIndex = -1;
+  let closingFence: FrontmatterSplitResult["closingFence"] = null;
 
   for (let index = 1; index < lines.length; index += 1) {
     if (lines[index] === "---" || lines[index] === "...") {
       endIndex = index;
+      closingFence = lines[index] === "..." ? "..." : "---";
       break;
     }
   }
@@ -66,6 +70,7 @@ function splitMarkdownFrontmatter(value: string): FrontmatterSplitResult {
   if (endIndex === -1) {
     return {
       body: normalized,
+      closingFence: null,
       hasFrontmatter: false,
       raw: "",
     };
@@ -73,6 +78,7 @@ function splitMarkdownFrontmatter(value: string): FrontmatterSplitResult {
 
   return {
     body: lines.slice(endIndex + 1).join("\n"),
+    closingFence,
     hasFrontmatter: true,
     raw: lines.slice(1, endIndex).join("\n"),
   };
@@ -98,19 +104,15 @@ function parseStructuredProperty(key: string, value: unknown): MarkdownFrontmatt
   return null;
 }
 
-function stringifySupportedValue(value: MarkdownFrontmatterProperty["value"]) {
-  if (Array.isArray(value)) {
-    return value;
-  }
-
-  return value;
+function isSerializableProperty(property: MarkdownFrontmatterProperty): boolean {
+  return property.key.trim().length > 0;
 }
 
 function stringifyStructuredFrontmatter(properties: MarkdownFrontmatterProperty[]): string {
   const document = new Document();
   const map = new YAMLMap();
 
-  map.items = properties.map((property) => new Pair(property.key, stringifySupportedValue(property.value)));
+  map.items = properties.map((property) => new Pair(property.key, property.value));
   document.contents = map;
 
   return String(document).trimEnd();
@@ -281,12 +283,13 @@ export function serializeMarkdownFrontmatter(
   body: string
 ): string {
   const normalizedBody = normalizeLineEndings(body);
+  const serializableProperties = frontmatter.properties.filter(isSerializableProperty);
 
   let rawFrontmatter = "";
 
   if (frontmatter.mode === "structured") {
     rawFrontmatter =
-      frontmatter.properties.length > 0 ? stringifyStructuredFrontmatter(frontmatter.properties) : "";
+      serializableProperties.length > 0 ? stringifyStructuredFrontmatter(serializableProperties) : "";
   }
 
   if (frontmatter.mode === "raw") {
@@ -298,4 +301,17 @@ export function serializeMarkdownFrontmatter(
   }
 
   return `---\n${rawFrontmatter}\n---${normalizedBody.length > 0 ? `\n${normalizedBody}` : "\n"}`;
+}
+
+export function replaceMarkdownFrontmatterBody(source: string, body: string): string {
+  const split = splitMarkdownFrontmatter(source);
+  const normalizedBody = normalizeLineEndings(body);
+
+  if (!split.hasFrontmatter) {
+    return normalizedBody;
+  }
+
+  const closingFence = split.closingFence ?? "---";
+
+  return `---\n${split.raw}\n${closingFence}${normalizedBody.length > 0 ? `\n${normalizedBody}` : "\n"}`;
 }
