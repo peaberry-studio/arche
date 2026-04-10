@@ -1,4 +1,5 @@
 import type { ConnectorType } from '@/lib/connectors/types'
+import { SKILL_NAME_PATTERN } from '@/lib/skills/types'
 
 export const OPENCODE_AGENT_TOOLS = [
   'write',
@@ -48,6 +49,7 @@ export const OPENCODE_AGENT_TOOL_OPTIONS: Array<{
 ]
 
 export type AgentCapabilities = {
+  skillIds: string[]
   tools: OpenCodeAgentToolId[]
   mcpConnectorIds: string[]
 }
@@ -67,6 +69,14 @@ function buildMcpServerKey(type: ConnectorType, id: string): string {
 
 function uniqueSorted(values: string[]): string[] {
   return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b))
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isPermissionValue(value: unknown): value is 'allow' | 'ask' | 'deny' {
+  return value === 'allow' || value === 'ask' || value === 'deny'
 }
 
 export function validateAgentCapabilityTools(value: unknown): {
@@ -114,6 +124,34 @@ export function validateAgentCapabilityConnectorIds(value: unknown): {
   return { ok: true, connectorIds: uniqueSorted(connectorIds) }
 }
 
+export function validateAgentCapabilitySkillIds(value: unknown): {
+  ok: true
+  skillIds: string[]
+} | {
+  ok: false
+  error: string
+} {
+  if (!Array.isArray(value)) {
+    return { ok: false, error: 'invalid_skill_ids' }
+  }
+
+  const skillIds: string[] = []
+  for (const skillId of value) {
+    if (typeof skillId !== 'string') {
+      return { ok: false, error: 'invalid_skill_ids' }
+    }
+
+    const normalized = skillId.trim()
+    if (!normalized || normalized.length > 64 || !SKILL_NAME_PATTERN.test(normalized)) {
+      return { ok: false, error: 'invalid_skill_ids' }
+    }
+
+    skillIds.push(normalized)
+  }
+
+  return { ok: true, skillIds: uniqueSorted(skillIds) }
+}
+
 export function buildAgentToolsConfigFromCapabilities(
   capabilities: AgentCapabilities,
   connectors: ConnectorCapabilityRecord[]
@@ -124,6 +162,8 @@ export function buildAgentToolsConfigFromCapabilities(
   for (const toolId of OPENCODE_AGENT_TOOLS) {
     toolConfig[toolId] = enabledTools.has(toolId)
   }
+
+  toolConfig.skill = capabilities.skillIds.length > 0
 
   toolConfig['arche_*'] = false
 
@@ -139,10 +179,12 @@ export function buildAgentToolsConfigFromCapabilities(
 }
 
 export function extractAgentCapabilitiesFromTools(
-  tools: Record<string, boolean> | undefined
+  tools: Record<string, boolean> | undefined,
+  permission?: unknown,
 ): AgentCapabilities {
   if (!tools) {
     return {
+      skillIds: [],
       tools: [],
       mcpConnectorIds: [],
     }
@@ -157,8 +199,37 @@ export function extractAgentCapabilitiesFromTools(
       return [match[2]]
     })
 
+  let skillIds: string[] = []
+  if (tools.skill === true && isRecord(permission) && isRecord(permission.skill)) {
+    skillIds = Object.entries(permission.skill)
+      .filter(([name, value]) => name !== '*' && isPermissionValue(value) && value === 'allow')
+      .map(([name]) => name)
+  }
+
   return {
+    skillIds: uniqueSorted(skillIds),
     tools: uniqueSorted(enabledTools) as OpenCodeAgentToolId[],
     mcpConnectorIds: uniqueSorted(connectorIds),
   }
+}
+
+export function buildAgentPermissionConfigFromCapabilities(
+  capabilities: AgentCapabilities,
+  existingPermission: unknown,
+): Record<string, unknown> | undefined {
+  const nextPermission = isRecord(existingPermission)
+    ? { ...existingPermission }
+    : {}
+
+  if (capabilities.skillIds.length === 0) {
+    delete nextPermission.skill
+    return Object.keys(nextPermission).length > 0 ? nextPermission : undefined
+  }
+
+  nextPermission.skill = {
+    '*': 'deny',
+    ...Object.fromEntries(capabilities.skillIds.map((skillId) => [skillId, 'allow'] as const)),
+  }
+
+  return nextPermission
 }

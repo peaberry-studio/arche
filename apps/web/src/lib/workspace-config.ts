@@ -1,10 +1,15 @@
-import { extractAgentCapabilitiesFromTools, type AgentCapabilities } from '@/lib/agent-capabilities'
+import {
+  buildAgentPermissionConfigFromCapabilities,
+  extractAgentCapabilitiesFromTools,
+  type AgentCapabilities,
+} from '@/lib/agent-capabilities'
 
 export type CommonAgentConfig = {
   description?: string
   display_name?: string
   mode?: 'primary' | 'subagent' | 'all'
   model?: string
+  permission?: Record<string, unknown>
   temperature?: number
   prompt?: string
   tools?: Record<string, boolean>
@@ -146,8 +151,74 @@ export function getAgentSummaries(config: CommonWorkspaceConfig): CommonAgentSum
     prompt: typeof agent?.prompt === 'string' ? agent.prompt : undefined,
     mode: typeof agent?.mode === 'string' ? agent.mode : undefined,
     isPrimary: defaultAgent === id || agent?.mode === 'primary',
-    capabilities: extractAgentCapabilitiesFromTools(agent?.tools)
+    capabilities: extractAgentCapabilitiesFromTools(agent?.tools, agent?.permission)
   }))
+}
+
+function isToolMap(value: unknown): value is Record<string, boolean> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+export function setAgentSkillIds(agent: CommonAgentConfig, skillIds: string[]): CommonAgentConfig {
+  const capabilities = extractAgentCapabilitiesFromTools(agent.tools, agent.permission)
+  const nextSkillIds = Array.from(new Set(skillIds)).sort((left, right) => left.localeCompare(right))
+  const nextTools = isToolMap(agent.tools) ? { ...agent.tools } : {}
+
+  if (nextSkillIds.length > 0) {
+    nextTools.skill = true
+  } else {
+    delete nextTools.skill
+  }
+
+  const nextPermission = buildAgentPermissionConfigFromCapabilities(
+    { ...capabilities, skillIds: nextSkillIds },
+    agent.permission,
+  )
+
+  const nextAgent: CommonAgentConfig = {
+    ...agent,
+    tools: Object.keys(nextTools).length > 0 ? nextTools : undefined,
+  }
+
+  if (nextPermission) {
+    nextAgent.permission = nextPermission
+  } else {
+    delete nextAgent.permission
+  }
+
+  return nextAgent
+}
+
+export function getAssignedAgentIdsForSkill(config: CommonWorkspaceConfig, skillId: string): string[] {
+  const agents = config.agent ?? {}
+
+  return Object.entries(agents)
+    .filter(([, agent]) => extractAgentCapabilitiesFromTools(agent?.tools, agent?.permission).skillIds.includes(skillId))
+    .map(([id]) => id)
+    .sort((left, right) => left.localeCompare(right))
+}
+
+export function setSkillAssignments(
+  config: CommonWorkspaceConfig,
+  skillId: string,
+  assignedAgentIds: string[],
+): CommonWorkspaceConfig {
+  const targetAgentIds = new Set(assignedAgentIds)
+  const agents = config.agent ?? {}
+
+  return {
+    ...config,
+    agent: Object.fromEntries(
+      Object.entries(agents).map(([id, agent]) => {
+        const capabilities = extractAgentCapabilitiesFromTools(agent?.tools, agent?.permission)
+        const nextSkillIds = targetAgentIds.has(id)
+          ? [...capabilities.skillIds, skillId]
+          : capabilities.skillIds.filter((entry) => entry !== skillId)
+
+        return [id, setAgentSkillIds(agent, nextSkillIds)]
+      })
+    ),
+  }
 }
 
 export function generateAgentId(displayName: string, existingIds: string[]): string {

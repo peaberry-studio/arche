@@ -24,6 +24,30 @@ vi.mock('@/lib/services', () => ({
   },
 }))
 
+vi.mock('@/lib/skills/skill-store', () => ({
+  listSkillBundles: vi.fn().mockResolvedValue({
+    ok: true,
+    data: [
+      {
+        skill: {
+          frontmatter: {
+            name: 'pdf-processing',
+            description: 'Handle PDF files',
+          },
+          body: 'Use this for PDFs.',
+          raw: '---\nname: pdf-processing\ndescription: Handle PDF files\n---\nUse this for PDFs.',
+        },
+        files: [
+          {
+            path: 'SKILL.md',
+            content: new TextEncoder().encode('---\nname: pdf-processing\ndescription: Handle PDF files\n---\nUse this for PDFs.'),
+          },
+        ],
+      },
+    ],
+  }),
+}))
+
 vi.mock('../mcp-config', () => ({
   buildMcpConfigForSlug: vi.fn().mockResolvedValue(null),
 }))
@@ -60,6 +84,8 @@ describe('runtime artifacts', () => {
     )
     expect(artifacts.agentsMd).toContain('Slug: alice')
     expect(artifacts.agentsMd).toContain('Email: alice@example.com')
+    expect(artifacts.skills).toHaveLength(1)
+    expect(artifacts.skills[0]?.skill.frontmatter.name).toBe('pdf-processing')
   })
 
   it('changes the runtime hash when the generated config or AGENTS content changes', () => {
@@ -79,6 +105,23 @@ describe('runtime artifacts', () => {
       hashWorkspaceRuntimeArtifacts({
         opencodeConfigContent: '{"provider":{"fireworks":{}}}',
         agentsMd: '# Updated instructions',
+      })
+    ).not.toBe(baseHash)
+
+    expect(
+      hashWorkspaceRuntimeArtifacts({
+        opencodeConfigContent: '{"provider":{"fireworks":{}}}',
+        agentsMd: '# Base instructions',
+        skills: [
+          {
+            skill: {
+              frontmatter: { name: 'pdf-processing', description: 'Handle PDFs' },
+              body: 'v2',
+              raw: '',
+            },
+            files: [{ path: 'SKILL.md', content: new TextEncoder().encode('v2') }],
+          },
+        ],
       })
     ).not.toBe(baseHash)
   })

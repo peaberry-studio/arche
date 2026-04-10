@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto'
 
 import { readCommonWorkspaceConfig, readConfigRepoFile } from '@/lib/common-workspace-config-store'
 import { getConnectorGatewayBaseUrl } from '@/lib/connectors/gateway-config'
+import { listSkillBundles } from '@/lib/skills/skill-store'
+import type { SkillBundle } from '@/lib/skills/types'
 import { userService } from '@/lib/services'
 import {
   injectAlwaysOnAgentTools,
@@ -32,6 +34,7 @@ type WorkspaceOwner = {
 } | null
 
 export type WorkspaceRuntimeArtifacts = {
+  skills: SkillBundle[]
   owner: WorkspaceOwner
   opencodeConfigContent: string
   agentsMd?: string
@@ -160,8 +163,11 @@ export async function buildWorkspaceRuntimeArtifacts(
   const owner = await getWorkspaceOwner(slug)
   const config = await buildWorkspaceRuntimeConfig(slug, providerGatewayConfig)
   const agentsMd = await buildWorkspaceAgentsMd(slug, owner)
+  const skillsResult = await listSkillBundles().catch(() => null)
+  const skills = skillsResult?.ok ? skillsResult.data : []
 
   return {
+    skills,
     owner,
     opencodeConfigContent: serializeRuntimeConfig(config),
     ...(agentsMd ? { agentsMd } : {}),
@@ -169,6 +175,7 @@ export async function buildWorkspaceRuntimeArtifacts(
 }
 
 export function hashWorkspaceRuntimeArtifacts(input: {
+  skills?: SkillBundle[]
   opencodeConfigContent: string
   agentsMd?: string
 }): string {
@@ -177,6 +184,13 @@ export function hashWorkspaceRuntimeArtifacts(input: {
       JSON.stringify({
         opencodeConfigContent: normalizeRuntimeConfigForHash(input.opencodeConfigContent),
         agentsMd: input.agentsMd ?? null,
+        skills: (input.skills ?? []).map((skill) => ({
+          name: skill.skill.frontmatter.name,
+          files: skill.files.map((file) => ({
+            path: file.path,
+            content: Buffer.from(file.content).toString('base64'),
+          })),
+        })),
       })
     )
     .digest('hex')

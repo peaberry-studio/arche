@@ -38,6 +38,11 @@ type ConnectorListItem = {
   enabled: boolean
 }
 
+type SkillListItem = {
+  description: string
+  name: string
+}
+
 export function AgentForm({
   slug,
   mode,
@@ -57,7 +62,9 @@ export function AgentForm({
   const [isPrimary, setIsPrimary] = useState(false)
   const [enabledTools, setEnabledTools] = useState<OpenCodeAgentToolId[]>([])
   const [enabledMcpConnectorIds, setEnabledMcpConnectorIds] = useState<string[]>([])
+  const [enabledSkillIds, setEnabledSkillIds] = useState<string[]>([])
   const [connectors, setConnectors] = useState<ConnectorListItem[]>([])
+  const [skills, setSkills] = useState<SkillListItem[]>([])
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([])
   const [hash, setHash] = useState<string | undefined>()
   const [isLoading, setIsLoading] = useState(mode === 'edit')
@@ -72,9 +79,10 @@ export function AgentForm({
     let cancelled = false
 
     async function loadFormOptions() {
-      const [modelsResponse, connectorsResponse] = await Promise.all([
+      const [modelsResponse, connectorsResponse, skillsResponse] = await Promise.all([
         fetch(`/api/u/${slug}/agents/models`, { cache: 'no-store' }).catch(() => null),
         fetch(`/api/u/${slug}/connectors`, { cache: 'no-store' }).catch(() => null),
+        fetch(`/api/u/${slug}/skills`, { cache: 'no-store' }).catch(() => null),
       ])
 
       if (cancelled) return
@@ -97,6 +105,15 @@ export function AgentForm({
             enabledConnectorList.some((connector) => connector.id === connectorId)
           )
         )
+      }
+
+      if (skillsResponse?.ok) {
+        const data = (await skillsResponse.json().catch(() => null)) as
+          | { skills?: SkillListItem[] }
+          | null
+        const availableSkills = data?.skills ?? []
+        setSkills(availableSkills)
+        setEnabledSkillIds((current) => current.filter((skillId) => availableSkills.some((skill) => skill.name === skillId)))
       }
     }
 
@@ -144,6 +161,7 @@ export function AgentForm({
           setIsPrimary(data.agent.isPrimary)
           setEnabledTools((data.agent.capabilities?.tools ?? []) as OpenCodeAgentToolId[])
           setEnabledMcpConnectorIds(data.agent.capabilities?.mcpConnectorIds ?? [])
+          setEnabledSkillIds(data.agent.capabilities?.skillIds ?? [])
           setHash(data.hash)
         })
         .catch(() => setLoadError('network_error'))
@@ -232,6 +250,14 @@ export function AgentForm({
     )
   }
 
+  const toggleSkill = (skillId: string) => {
+    setEnabledSkillIds((current) =>
+      current.includes(skillId)
+        ? current.filter((idEntry) => idEntry !== skillId)
+        : [...current, skillId]
+    )
+  }
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (isSaving) return
@@ -246,6 +272,7 @@ export function AgentForm({
     }
 
     const capabilities: AgentCapabilities = {
+      skillIds: enabledSkillIds,
       tools: enabledTools,
       mcpConnectorIds: enabledMcpConnectorIds,
     }
@@ -481,6 +508,46 @@ export function AgentForm({
                   />
                   <span className="font-medium">{connector.name}</span>
                   <span className="text-xs text-muted-foreground">{connector.type}</span>
+                </label>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-3">
+        <Label>Capabilities - Skills</Label>
+        <p className="text-xs text-muted-foreground">
+          Allow this agent to load the selected skills. Arche enables the OpenCode `skill` tool automatically.
+        </p>
+        {skills.length === 0 ? (
+          <div className="rounded-lg border border-border/60 bg-card/50 p-3 text-sm text-muted-foreground">
+            No skills available.
+          </div>
+        ) : (
+          <div className="grid gap-2 md:grid-cols-2">
+            {skills.map((skill) => {
+              const checked = enabledSkillIds.includes(skill.name)
+              return (
+                <label
+                  key={skill.name}
+                  className={cn(
+                    'flex items-start gap-2 rounded-lg border px-3 py-2 text-sm transition-colors',
+                    checked
+                      ? 'border-primary/40 bg-primary/5 text-foreground'
+                      : 'border-border/60 bg-card/40 text-muted-foreground hover:bg-card/70'
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleSkill(skill.name)}
+                    className={checkboxClassName}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-medium">{skill.name}</span>
+                    <span className="block text-xs text-muted-foreground">{skill.description}</span>
+                  </span>
                 </label>
               )
             })}

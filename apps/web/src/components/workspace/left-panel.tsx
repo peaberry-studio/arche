@@ -15,11 +15,12 @@ import {
   Plugs,
    Plus,
    Robot,
-   ArrowLineLeft,
-   SlidersHorizontal,
-   Sun,
-   Warning,
-   X,
+    ArrowLineLeft,
+    Lightning,
+    SlidersHorizontal,
+    Sun,
+    Warning,
+    X,
 } from "@phosphor-icons/react";
 
 import { DesktopVaultSwitcher } from '@/components/desktop/desktop-vault-switcher'
@@ -50,6 +51,7 @@ import { Label } from "@/components/ui/label";
 import type { SyncKbResult } from "@/app/api/instances/[slug]/sync-kb/route";
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import type { AgentCatalogItem } from "@/hooks/use-workspace";
+import type { SkillListItem } from '@/hooks/use-skills-catalog'
 import {
   getConfigChangeMessage,
   type ConfigChangeReason,
@@ -58,8 +60,10 @@ import type { WorkspaceFileNode, WorkspaceSession } from "@/lib/opencode/types";
 import { getProviderLabel } from "@/lib/providers/catalog";
 import {
   DEFAULT_LEFT_PANEL_STATE,
+  LEFT_PANEL_SECTION_IDS,
   getWorkspaceLeftPanelCookieName,
   getWorkspaceLeftPanelStorageKey,
+  type LeftPanelSectionId,
   normalizeLeftPanelState,
   type NormalizedLeftPanelState,
   parseStoredLeftPanelState,
@@ -72,6 +76,7 @@ import { cn } from "@/lib/utils";
 import { AgentsPanel } from "./agents-panel";
 import { FileTreePanel } from "./file-tree-panel";
 import { SessionsPanel } from "./sessions-panel";
+import { SkillsPanel } from './skills-panel'
 import { SyncKbButton } from "./sync-kb-button";
 
 const MIN_SECTION_PX = 60;
@@ -158,6 +163,10 @@ type LeftPanelProps = {
   agents: AgentCatalogItem[];
   onSelectAgent: (agent: AgentCatalogItem) => void;
   onOpenExpertsSettings: () => void;
+
+  // Skills
+  skills: SkillListItem[];
+  onOpenSkillsSettings: () => void;
 
   // Knowledge (file tree)
   fileNodes: WorkspaceFileNode[];
@@ -265,7 +274,7 @@ function MinifiedLeftPanel({
   showConfigRestartNotice?: boolean;
   onCreateSession: () => void;
   onToggleLeft: () => void;
-  onExpandWithSection: (section: "chats" | "knowledge" | "experts") => void;
+  onExpandWithSection: (section: "chats" | "knowledge" | "experts" | "skills") => void;
   onSyncComplete?: (status: SyncKbResult["status"]) => void;
   onNavigateSettings: () => void;
 }) {
@@ -363,8 +372,22 @@ function MinifiedLeftPanel({
               <Robot size={16} weight="bold" />
             </button>
           </TooltipTrigger>
-          <TooltipContent side="right">Experts</TooltipContent>
-        </Tooltip>
+           <TooltipContent side="right">Experts</TooltipContent>
+         </Tooltip>
+
+         <Tooltip>
+           <TooltipTrigger asChild>
+             <button
+               type="button"
+               onClick={() => onExpandWithSection("skills")}
+               className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+               aria-label="Skills"
+             >
+               <Lightning size={16} weight="bold" />
+             </button>
+           </TooltipTrigger>
+           <TooltipContent side="right">Skills</TooltipContent>
+         </Tooltip>
 
         {/* Spacer */}
         <div className="flex-1" />
@@ -527,6 +550,8 @@ export function LeftPanel({
   agents,
   onSelectAgent,
   onOpenExpertsSettings,
+  skills,
+  onOpenSkillsSettings,
   fileNodes,
   activeFilePath,
   onSelectFile,
@@ -536,10 +561,11 @@ export function LeftPanel({
   hideCollapseButton = false,
   initialPanelState,
   searchInputRef,
-}: LeftPanelProps) {
-  const pendingSectionRef = useRef<"chats" | "knowledge" | "experts" | null>(null);
 
-  const handleExpandWithSection = useCallback((section: "chats" | "knowledge" | "experts") => {
+}: LeftPanelProps) {
+  const pendingSectionRef = useRef<"chats" | "knowledge" | "experts" | "skills" | null>(null);
+
+  const handleExpandWithSection = useCallback((section: "chats" | "knowledge" | "experts" | "skills") => {
     pendingSectionRef.current = section;
     onToggleLeft();
   }, [onToggleLeft]);
@@ -582,15 +608,17 @@ export function LeftPanel({
       onSyncComplete={onSyncComplete}
       onNavigateDashboard={onNavigateDashboard}
       onNavigateSettings={onNavigateSettings}
-      sessions={sessions}
-      activeSessionId={activeSessionId}
-      unseenCompletedSessions={unseenCompletedSessions}
-      onSelectSession={onSelectSession}
-      onCreateSession={onCreateSession}
-      agents={agents}
-      onSelectAgent={onSelectAgent}
-      onOpenExpertsSettings={onOpenExpertsSettings}
-      fileNodes={fileNodes}
+       sessions={sessions}
+        activeSessionId={activeSessionId}
+        unseenCompletedSessions={unseenCompletedSessions}
+        onSelectSession={onSelectSession}
+        onCreateSession={onCreateSession}
+        agents={agents}
+        onSelectAgent={onSelectAgent}
+        onOpenExpertsSettings={onOpenExpertsSettings}
+        skills={skills}
+        onOpenSkillsSettings={onOpenSkillsSettings}
+        fileNodes={fileNodes}
       activeFilePath={activeFilePath}
       onSelectFile={onSelectFile}
       onDownloadFile={onDownloadFile}
@@ -626,6 +654,8 @@ function ExpandedLeftPanel({
   agents,
   onSelectAgent,
   onOpenExpertsSettings,
+  skills,
+  onOpenSkillsSettings,
   fileNodes,
   activeFilePath,
   onSelectFile,
@@ -636,7 +666,7 @@ function ExpandedLeftPanel({
   initialPanelState,
   searchInputRef,
   pendingSectionRef,
-}: LeftPanelProps & { pendingSectionRef?: RefObject<"chats" | "knowledge" | "experts" | null> }) {
+}: LeftPanelProps & { pendingSectionRef?: RefObject<"chats" | "knowledge" | "experts" | "skills" | null> }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const newFileNameRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -656,21 +686,16 @@ function ExpandedLeftPanel({
   );
   const showRestartNotice = Boolean(currentVault && (configChangePending || configRestartError) && onRestartConfig);
 
-  const [topRatio, setTopRatio] = useState(resolvedInitialPanelState.topRatio);
-  const [midRatio, setMidRatio] = useState(resolvedInitialPanelState.midRatio);
-
-  const [topCollapsed, setTopCollapsed] = useState(resolvedInitialPanelState.topCollapsed);
-  const [midCollapsed, setMidCollapsed] = useState(resolvedInitialPanelState.midCollapsed);
-  const [bottomCollapsed, setBottomCollapsed] = useState(resolvedInitialPanelState.bottomCollapsed);
+  const sectionOrder = LEFT_PANEL_SECTION_IDS;
+  const [ratios, setRatios] = useState(resolvedInitialPanelState.ratios);
+  const [collapsedSections, setCollapsedSections] = useState(resolvedInitialPanelState.collapsed);
 
   // Expand the requested section when coming from a minified panel click
   useEffect(() => {
     const section = pendingSectionRef?.current;
     if (!section) return;
     pendingSectionRef.current = null;
-    if (section === "chats") setTopCollapsed(false);
-    else if (section === "knowledge") setMidCollapsed(false);
-    else if (section === "experts") setBottomCollapsed(false);
+    setCollapsedSections((current) => ({ ...current, [section]: false }));
   }, [pendingSectionRef]);
 
   const directoryOptions = useMemo(
@@ -747,8 +772,11 @@ function ExpandedLeftPanel({
   );
 
   useEffect(() => {
-    persistLeftPanelState(leftPanelStorageKey, leftPanelCookieName, { topRatio, midRatio, topCollapsed, midCollapsed, bottomCollapsed });
-  }, [leftPanelCookieName, leftPanelStorageKey, topRatio, midRatio, topCollapsed, midCollapsed, bottomCollapsed]);
+    persistLeftPanelState(leftPanelStorageKey, leftPanelCookieName, {
+      ratios,
+      collapsed: collapsedSections,
+    });
+  }, [collapsedSections, leftPanelCookieName, leftPanelStorageKey, ratios]);
 
   useEffect(() => {
     if (!isCreateFileDialogOpen) return;
@@ -823,81 +851,32 @@ function ExpandedLeftPanel({
     [isCreatingFile, newFileName, onCreateKnowledgeFile, resetCreateFileDialog, selectedDirectoryPath]
   );
 
-  // Effective ratios — redistribute space proportionally among expanded sections
-  const baseBot = 1 - topRatio - midRatio;
-  const expandedSum =
-    (topCollapsed ? 0 : topRatio) +
-    (midCollapsed ? 0 : midRatio) +
-    (bottomCollapsed ? 0 : baseBot);
-
-  const effectiveTop = expandedSum > 0 ? topRatio / expandedSum : 1;
-  const effectiveMid = expandedSum > 0 ? midRatio / expandedSum : 1;
-  const effectiveBot = expandedSum > 0 ? baseBot / expandedSum : 1;
-
-  const handleResizeTop = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      event.preventDefault();
-      const container = containerRef.current;
-      if (!container) return;
-      const containerHeight = container.getBoundingClientRect().height;
-      const handle = event.currentTarget;
-      const startY = event.clientY;
-      const startTopRatio = topRatio;
-      const startMidRatio = midRatio;
-
-      setIsDragging(true);
-      handle.setPointerCapture(event.pointerId);
-      document.body.style.cursor = "row-resize";
-      document.body.style.userSelect = "none";
-
-      const onMove = (moveEvent: PointerEvent) => {
-        const deltaY = moveEvent.clientY - startY;
-        const deltaRatio = deltaY / containerHeight;
-        const minRatio = MIN_SECTION_PX / containerHeight;
-
-        let newTop = startTopRatio + deltaRatio;
-        let newMid = startMidRatio - deltaRatio;
-        const bottomRatio = 1 - newTop - newMid;
-
-        if (newTop < minRatio) {
-          newMid = newMid - (minRatio - newTop);
-          newTop = minRatio;
-        }
-        if (newMid < minRatio) {
-          newTop = newTop - (minRatio - newMid);
-          newMid = minRatio;
-        }
-        if (newTop < minRatio) newTop = minRatio;
-        if (bottomRatio < minRatio) return;
-
-        setTopRatio(newTop);
-        setMidRatio(newMid);
-      };
-
-      const onUp = () => {
-        setIsDragging(false);
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-        handle.releasePointerCapture(event.pointerId);
-        window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onUp);
-      };
-
-      window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onUp);
-    },
-    [topRatio, midRatio]
+  const expandedRatioTotal = useMemo(
+    () => sectionOrder.reduce((sum, sectionId) => sum + (collapsedSections[sectionId] ? 0 : ratios[sectionId]), 0),
+    [collapsedSections, ratios, sectionOrder]
   );
 
-  const handleResizeMid = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
+  const effectiveRatios = useMemo(
+    () => Object.fromEntries(
+      sectionOrder.map((sectionId) => [
+        sectionId,
+        expandedRatioTotal > 0 ? ratios[sectionId] / expandedRatioTotal : 1 / sectionOrder.length,
+      ])
+    ) as Record<LeftPanelSectionId, number>,
+    [expandedRatioTotal, ratios, sectionOrder]
+  );
+
+  const handleResize = useCallback(
+    (firstSectionId: LeftPanelSectionId, secondSectionId: LeftPanelSectionId, event: React.PointerEvent<HTMLDivElement>) => {
       event.preventDefault();
       const container = containerRef.current;
       if (!container) return;
+
       const containerHeight = container.getBoundingClientRect().height;
       const handle = event.currentTarget;
       const startY = event.clientY;
-      const startMidRatio = midRatio;
+      const startFirstRatio = ratios[firstSectionId];
+      const startSecondRatio = ratios[secondSectionId];
 
       setIsDragging(true);
       handle.setPointerCapture(event.pointerId);
@@ -909,15 +888,28 @@ function ExpandedLeftPanel({
         const deltaRatio = deltaY / containerHeight;
         const minRatio = MIN_SECTION_PX / containerHeight;
 
-        let newMid = startMidRatio + deltaRatio;
-        const bottomRatio = 1 - topRatio - newMid;
+        let nextFirstRatio = startFirstRatio + deltaRatio;
+        let nextSecondRatio = startSecondRatio - deltaRatio;
 
-        if (newMid < minRatio) newMid = minRatio;
-        if (bottomRatio < minRatio) {
-          newMid = 1 - topRatio - minRatio;
+        if (nextFirstRatio < minRatio) {
+          nextSecondRatio -= minRatio - nextFirstRatio;
+          nextFirstRatio = minRatio;
         }
 
-        setMidRatio(newMid);
+        if (nextSecondRatio < minRatio) {
+          nextFirstRatio -= minRatio - nextSecondRatio;
+          nextSecondRatio = minRatio;
+        }
+
+        if (nextFirstRatio < minRatio || nextSecondRatio < minRatio) {
+          return;
+        }
+
+        setRatios((current) => ({
+          ...current,
+          [firstSectionId]: nextFirstRatio,
+          [secondSectionId]: nextSecondRatio,
+        }));
       };
 
       const onUp = () => {
@@ -932,7 +924,7 @@ function ExpandedLeftPanel({
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
     },
-    [topRatio, midRatio]
+    [ratios]
   );
 
   const sectionStyle = (collapsed: boolean, ratio: number): React.CSSProperties => ({
@@ -948,6 +940,71 @@ function ExpandedLeftPanel({
     transition: isDragging ? "none" : GRID_TRANSITION,
     minHeight: 0,
   });
+
+  const sectionItems: Array<{
+    actionIcon?: typeof Plus
+    actionLabel?: string
+    content: React.ReactNode
+    icon: typeof ChatCircle
+    id: LeftPanelSectionId
+    label: string
+    onAction?: () => void
+  }> = [
+    {
+      id: "chats",
+      icon: ChatCircle,
+      label: "Chats",
+      onAction: onCreateSession,
+      actionIcon: Plus,
+      actionLabel: "New chat",
+      content: (
+        <SessionsPanel
+          sessions={sessions}
+          activeSessionId={activeSessionId}
+          unseenCompletedSessions={unseenCompletedSessions}
+          onSelectSession={onSelectSession}
+          onCreateSession={onCreateSession}
+          query={searchQuery}
+        />
+      ),
+    },
+    {
+      id: "knowledge",
+      icon: Database,
+      label: "Knowledge",
+      onAction: canCreateKnowledgeFile ? handleOpenCreateFileDialog : undefined,
+      actionIcon: canCreateKnowledgeFile ? Plus : undefined,
+      actionLabel: canCreateKnowledgeFile ? "Create file" : undefined,
+      content: (
+        <FileTreePanel
+          nodes={fileNodes}
+          activePath={activeFilePath}
+          onSelect={onSelectFile}
+          onDownloadFile={onDownloadFile}
+          hideHeader
+          query={searchQuery}
+        />
+      ),
+    },
+    {
+      id: "experts",
+      icon: Robot,
+      label: "Experts",
+      onAction: onOpenExpertsSettings,
+      actionIcon: SlidersHorizontal,
+      actionLabel: "Edit experts",
+      content: <AgentsPanel agents={agents} onSelectAgent={onSelectAgent} query={searchQuery} />,
+    },
+    {
+      id: "skills",
+      icon: Lightning,
+      label: "Skills",
+      onAction: onOpenSkillsSettings,
+      actionIcon: SlidersHorizontal,
+      actionLabel: "Edit skills",
+      content: <SkillsPanel skills={skills} query={searchQuery} />,
+    },
+  ];
 
   return (
     <div
@@ -997,7 +1054,7 @@ function ExpandedLeftPanel({
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
             placeholder="Search..."
-            aria-label="Search chats, knowledge, and experts"
+            aria-label="Search chats, knowledge, experts, and skills"
             className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/40"
           />
           {searchQuery.trim().length > 0 ? (
@@ -1020,105 +1077,45 @@ function ExpandedLeftPanel({
           )}
       </label>
 
-      {/* Section 1: Chats */}
-      <div
-        style={sectionStyle(topCollapsed, effectiveTop)}
-        className="flex min-h-0 flex-col overflow-hidden rounded-xl bg-foreground/[0.03]"
-      >
-        <SectionHeader
-          icon={ChatCircle}
-          label="Chats"
-          onToggle={() => setTopCollapsed(prev => !prev)}
-          onAction={onCreateSession}
-          actionIcon={Plus}
-          actionLabel="New chat"
-        />
-        <div className="min-h-0 flex-1" style={contentStyle(topCollapsed)}>
-          <div className="flex flex-col overflow-hidden" style={{ minHeight: 0 }}>
-            <SessionsPanel
-              sessions={sessions}
-              activeSessionId={activeSessionId}
-              unseenCompletedSessions={unseenCompletedSessions}
-              onSelectSession={onSelectSession}
-              onCreateSession={onCreateSession}
-              query={searchQuery}
-            />
+      {sectionItems.map((section, index) => {
+        const nextSection = sectionItems[index + 1]
+        const isCollapsed = collapsedSections[section.id]
+
+        return (
+          <div key={section.id} className="contents">
+            <div
+              style={sectionStyle(isCollapsed, effectiveRatios[section.id])}
+              className="flex min-h-0 flex-col overflow-hidden rounded-xl bg-foreground/[0.03]"
+            >
+              <SectionHeader
+                icon={section.icon}
+                label={section.label}
+                onToggle={() => setCollapsedSections((current) => ({ ...current, [section.id]: !current[section.id] }))}
+                onAction={section.onAction}
+                actionIcon={section.actionIcon}
+                actionLabel={section.actionLabel}
+              />
+              <div className="min-h-0 flex-1" style={contentStyle(isCollapsed)}>
+                <div className="flex flex-col overflow-hidden" style={{ minHeight: 0 }}>
+                  {section.content}
+                </div>
+              </div>
+            </div>
+
+            {nextSection && !collapsedSections[section.id] && !collapsedSections[nextSection.id] ? (
+              <div
+                className="group relative h-0 w-full shrink-0 cursor-row-resize"
+                onPointerDown={(event) => handleResize(section.id, nextSection.id, event)}
+                role="separator"
+                aria-orientation="horizontal"
+                style={{ marginTop: -SECTION_GAP / 2, marginBottom: -SECTION_GAP / 2 }}
+              >
+                <div className="absolute -top-1 -bottom-1 left-0 right-0" />
+              </div>
+            ) : null}
           </div>
-        </div>
-      </div>
-
-      {/* Resize handle 1 */}
-      {!topCollapsed && !midCollapsed && (
-        <div
-          className="group relative h-0 w-full shrink-0 cursor-row-resize"
-          onPointerDown={handleResizeTop}
-          role="separator"
-          aria-orientation="horizontal"
-          style={{ marginTop: -SECTION_GAP / 2, marginBottom: -SECTION_GAP / 2 }}
-        >
-          <div className="absolute -top-1 -bottom-1 left-0 right-0" />
-        </div>
-      )}
-
-      {/* Section 2: Knowledge */}
-      <div
-        style={sectionStyle(midCollapsed, effectiveMid)}
-        className="flex min-h-0 flex-col overflow-hidden rounded-xl bg-foreground/[0.03]"
-      >
-        <SectionHeader
-          icon={Database}
-          label="Knowledge"
-          onToggle={() => setMidCollapsed(prev => !prev)}
-          onAction={canCreateKnowledgeFile ? handleOpenCreateFileDialog : undefined}
-          actionIcon={canCreateKnowledgeFile ? Plus : undefined}
-          actionLabel={canCreateKnowledgeFile ? "Create file" : undefined}
-        />
-        <div className="min-h-0 flex-1" style={contentStyle(midCollapsed)}>
-          <div className="flex flex-col overflow-hidden" style={{ minHeight: 0 }}>
-            <FileTreePanel
-              nodes={fileNodes}
-              activePath={activeFilePath}
-              onSelect={onSelectFile}
-              onDownloadFile={onDownloadFile}
-              hideHeader
-              query={searchQuery}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Resize handle 2 */}
-      {!midCollapsed && !bottomCollapsed && (
-        <div
-          className="group relative h-0 w-full shrink-0 cursor-row-resize"
-          onPointerDown={handleResizeMid}
-          role="separator"
-          aria-orientation="horizontal"
-          style={{ marginTop: -SECTION_GAP / 2, marginBottom: -SECTION_GAP / 2 }}
-        >
-          <div className="absolute -top-1 -bottom-1 left-0 right-0" />
-        </div>
-      )}
-
-      {/* Section 3: Experts */}
-      <div
-        style={sectionStyle(bottomCollapsed, effectiveBot)}
-        className="flex min-h-0 flex-col overflow-hidden rounded-xl bg-foreground/[0.03]"
-      >
-        <SectionHeader
-          icon={Robot}
-          label="Experts"
-          onToggle={() => setBottomCollapsed(prev => !prev)}
-          onAction={onOpenExpertsSettings}
-          actionIcon={SlidersHorizontal}
-          actionLabel="Edit experts"
-        />
-        <div className="min-h-0 flex-1" style={contentStyle(bottomCollapsed)}>
-          <div className="flex flex-col overflow-hidden" style={{ minHeight: 0 }}>
-            <AgentsPanel agents={agents} onSelectAgent={onSelectAgent} query={searchQuery} />
-          </div>
-        </div>
-      </div>
+        )
+      })}
 
       {showRestartNotice ? (
         <div

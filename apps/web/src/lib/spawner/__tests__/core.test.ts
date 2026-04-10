@@ -64,6 +64,10 @@ vi.mock('@/lib/common-workspace-config-store', () => ({
   }),
 }))
 
+vi.mock('@/lib/skills/skill-store', () => ({
+  listSkillBundles: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+}))
+
 // Mock docker
 vi.mock('../docker', () => ({
   createContainer: vi.fn(),
@@ -141,12 +145,13 @@ describe('startInstance', () => {
     const result = await startInstance('alice', 'user-1')
 
     expect(result).toEqual({ ok: true, status: 'running' })
-    const [slug, password, configContent, agentsMd, gitAuthor] = mockDocker.createContainer.mock.calls[0] ?? []
+    const [slug, password, configContent, agentsMd, skills, gitAuthor] = mockDocker.createContainer.mock.calls[0] ?? []
     expect(slug).toBe('alice')
     expect(password).toBe('test-password-123')
     expect(typeof configContent).toBe('string')
     expect(configContent).toContain('"$schema":"https://opencode.ai/config.json"')
     expect(typeof agentsMd).toBe('string')
+    expect(skills).toEqual([])
     expect(gitAuthor).toEqual({ name: 'alice', email: 'alice@example.com' })
     expect(mockDocker.startContainer).toHaveBeenCalledWith('container-123')
     expect(mockSync).toHaveBeenCalledWith({

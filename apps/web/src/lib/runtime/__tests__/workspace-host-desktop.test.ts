@@ -9,6 +9,9 @@ const mockMkdirSync = vi.fn()
 const mockReadFileSync = vi.fn()
 const mockWriteFileSync = vi.fn()
 const mockRandomBytes = vi.fn()
+const mockMkdir = vi.fn()
+const mockRm = vi.fn()
+const mockWriteFile = vi.fn()
 
 vi.mock('crypto', async (importOriginal) => {
   const actual = await importOriginal<typeof import('crypto')>()
@@ -28,6 +31,12 @@ vi.mock('fs', () => ({
   mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
   readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
   writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
+}))
+
+vi.mock('fs/promises', () => ({
+  mkdir: (...args: unknown[]) => mockMkdir(...args),
+  rm: (...args: unknown[]) => mockRm(...args),
+  writeFile: (...args: unknown[]) => mockWriteFile(...args),
 }))
 
 vi.mock('@/lib/runtime/paths', () => ({
@@ -90,6 +99,13 @@ vi.mock('@/lib/opencode/providers', () => ({
 
 vi.mock('@/lib/spawner/mcp-config', () => ({
   buildMcpConfigForSlug: vi.fn().mockResolvedValue(null),
+}))
+
+vi.mock('@/lib/skills/skill-store', () => ({
+  listSkillBundles: vi.fn().mockResolvedValue({
+    ok: true,
+    data: [],
+  }),
 }))
 
 vi.mock('@/lib/spawner/runtime-config-hash', () => ({
@@ -196,6 +212,9 @@ describe('desktopWorkspaceHost', () => {
     mockExistsSync.mockImplementation((target: string) => target === '/mock/bin/workspace-agent')
     mockReadFileSync.mockReturnValue('')
     mockRandomBytes.mockReturnValue({ toString: () => 'generated-password' })
+    mockMkdir.mockResolvedValue(undefined)
+    mockRm.mockResolvedValue(undefined)
+    mockWriteFile.mockResolvedValue(undefined)
     mockHealthyFetch()
   })
 
@@ -326,6 +345,43 @@ describe('desktopWorkspaceHost', () => {
       expect.stringContaining('AGENTS.md'),
       expect.stringContaining('## Workspace User Identity'),
       'utf-8',
+    )
+  })
+
+  it('materializes runtime skills into the desktop OpenCode config directory', async () => {
+    const opencodeChild = makeChildProcess()
+    const workspaceAgentChild = makeChildProcess()
+    mockSpawn.mockReturnValueOnce(opencodeChild).mockReturnValueOnce(workspaceAgentChild)
+
+    const { listSkillBundles } = await import('@/lib/skills/skill-store')
+    vi.mocked(listSkillBundles).mockResolvedValue({
+      ok: true,
+      data: [
+        {
+          skill: {
+            frontmatter: {
+              name: 'pdf-processing',
+              description: 'Handle PDFs',
+            },
+            body: 'Use this for PDFs.',
+            raw: '',
+          },
+          files: [
+            {
+              path: 'SKILL.md',
+              content: new TextEncoder().encode('---\nname: pdf-processing\ndescription: Handle PDFs\n---\nUse this for PDFs.'),
+            },
+          ],
+        },
+      ],
+    })
+
+    const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
+    await desktopWorkspaceHost.start('local', 'user-1')
+
+    expect(mockWriteFile).toHaveBeenCalledWith(
+      '/tmp/arche/.runtime/opencode/.config/opencode/skills/pdf-processing/SKILL.md',
+      expect.any(Buffer)
     )
   })
 

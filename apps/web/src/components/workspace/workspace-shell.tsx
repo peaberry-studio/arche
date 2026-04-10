@@ -28,6 +28,7 @@ import { takeWorkspaceStartPrompt } from "@/lib/workspace-start-prompt";
 import { cn } from "@/lib/utils";
 
 import { useConfigStatus } from "@/hooks/use-config-status";
+import { useSkillsCatalog } from '@/hooks/use-skills-catalog'
 
 import { ChatPanel } from "./chat-panel";
 import { ConfigChangeBanner } from "./config-change-banner";
@@ -314,6 +315,7 @@ export function WorkspaceShell({
     workspaceAgentEnabled,
     reaperEnabled,
   });
+  const skillsCatalog = useSkillsCatalog(slug)
 
   const sessionsById = useMemo(() => {
     const map = new Map<string, WorkspaceSession>();
@@ -935,6 +937,10 @@ export function WorkspaceShell({
     router.push(currentVault ? getDesktopWorkspaceHref(slug, 'agents') : `/u/${slug}/agents`);
   }, [currentVault, router, slug]);
 
+  const handleOpenSkillsSettings = useCallback(() => {
+    router.push(currentVault ? getDesktopWorkspaceHref(slug, 'skills') : `/u/${slug}/skills`);
+  }, [currentVault, router, slug]);
+
   const handleCreateKnowledgeFile = useCallback(
     async (path: string) => {
       if (!workspaceAgentEnabled) {
@@ -1341,6 +1347,8 @@ export function WorkspaceShell({
       agents={workspace.agentCatalog}
       onSelectAgent={handleSelectAgent}
       onOpenExpertsSettings={handleOpenExpertsSettings}
+      skills={skillsCatalog.skills}
+      onOpenSkillsSettings={handleOpenSkillsSettings}
       fileNodes={workspace.fileTree}
       activeFilePath={activeFilePath}
       onSelectFile={handleOpenFile}

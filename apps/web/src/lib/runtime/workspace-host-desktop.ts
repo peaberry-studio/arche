@@ -23,6 +23,7 @@ import {
   makeAuthHeader,
 } from '@/lib/runtime/desktop/config'
 import { getArcheOpencodeDataDir, getWorkspaceDir } from '@/lib/runtime/desktop/workspace-dirs'
+import { writeRuntimeSkills } from '@/lib/skills/runtime-skills'
 import type { WorkspaceHost, WorkspaceHostConnection, WorkspaceHostStatus } from '@/lib/runtime/types'
 import { instanceService, providerService } from '@/lib/services'
 import { getWorkspaceAgentPort } from '@/lib/spawner/config'
@@ -137,6 +138,7 @@ function getDesktopRuntimePortFromEnv(): number {
 }
 
 type DesktopRuntimeArtifacts = {
+  skills: Awaited<ReturnType<typeof buildWorkspaceRuntimeArtifacts>>['skills']
   owner: { id: string; slug: string; email: string | null } | null
   opencodeConfigContent: string
   agentsMd?: string
@@ -331,6 +333,7 @@ export const desktopWorkspaceHost: WorkspaceHost = {
     const artifacts = await buildDesktopRuntimeArtifacts(slug)
     const appliedConfigSha = hashWorkspaceRuntimeArtifacts(artifacts)
     const opencodeConfigContent = artifacts.opencodeConfigContent
+    const runtimeSkillDir = join(archeDataDir, '.config', 'opencode', 'skills')
 
     writeFileSync(
       join(workspaceDir, 'opencode.json'),
@@ -341,6 +344,8 @@ export const desktopWorkspaceHost: WorkspaceHost = {
     if (artifacts.agentsMd) {
       writeFileSync(join(workspaceDir, 'AGENTS.md'), artifacts.agentsMd, 'utf-8')
     }
+
+    await writeRuntimeSkills(runtimeSkillDir, artifacts.skills)
 
     await instanceService.upsertStarting(slug, encryptedPassword)
 
