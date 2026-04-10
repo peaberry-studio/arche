@@ -310,9 +310,9 @@ function ExpandedInspectorPanel({
 
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="flex h-full flex-col overflow-hidden rounded-xl border border-border/40 bg-foreground/[0.03] py-2 pr-2 text-card-foreground">
-      {/* Segmented control + collapse button */}
-      <div className="flex shrink-0 items-center gap-2 px-3 pb-2 pt-1">
+      <div className="flex h-full flex-col pr-0 text-card-foreground">
+      {/* Floating header — outside the main container */}
+      <div className="flex shrink-0 items-center gap-2 pb-3">
         {workspaceAgentEnabled ? (
           <div className="flex flex-1 justify-start">
             <div className="inline-flex h-8 items-center rounded-lg bg-foreground/[0.06] p-0.5">
@@ -373,15 +373,11 @@ function ExpandedInspectorPanel({
         )}
       </div>
 
-      {activeTab === "preview" && openFiles.length > 0 ? (
-        <div className="px-3 pb-1 pt-1">
-          <div className="h-px bg-border/40" />
-        </div>
-      ) : null}
-
+      {/* Main container */}
+      <div className="flex flex-1 min-h-0 flex-col overflow-hidden rounded-xl border border-border/40 bg-foreground/[0.03]">
       {/* File tabs row — only in Files mode with open files */}
       {activeTab === "preview" && openFiles.length > 0 && (
-        <div className="flex min-h-9 shrink-0 items-center">
+        <div className="flex min-h-9 shrink-0 items-center pt-2">
           <div className="flex min-w-0 flex-1 items-center">
             {canScrollLeft && (
               <Button
@@ -397,7 +393,7 @@ function ExpandedInspectorPanel({
 
             <div
               ref={tabsRef}
-              className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto pl-3 pr-2 py-1 scrollbar-none"
+              className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto pl-3 pr-2 py-1 scrollbar-none"
               style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
             >
               {openFiles.map((file) => (
@@ -407,7 +403,7 @@ function ExpandedInspectorPanel({
                     "group flex shrink-0 items-center gap-1 rounded-lg pl-2.5 pr-1 py-1 text-xs transition-colors",
                     file.path === activeFilePath
                       ? "bg-primary/10 text-primary"
-                      : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+                      : "bg-foreground/[0.04] text-muted-foreground hover:bg-foreground/8 hover:text-foreground"
                   )}
                 >
                   <button
@@ -452,6 +448,13 @@ function ExpandedInspectorPanel({
 
         </div>
       )}
+
+      {/* Divider between tabs and content */}
+      {activeTab === "preview" && openFiles.length > 0 ? (
+        <div className="px-3 pt-2 pb-1">
+          <div className="h-px bg-border/40" />
+        </div>
+      ) : null}
 
       {/* Content area */}
       <div className="relative flex-1 min-h-0">
@@ -525,6 +528,7 @@ function ExpandedInspectorPanel({
             />
           </div>
         )}
+      </div>
       </div>
       </div>
     </TooltipProvider>

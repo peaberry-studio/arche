@@ -530,8 +530,20 @@ export function MarkdownEditor({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-2">
-        <div className="flex items-center gap-1.5">
+      <MarkdownFrontmatterPanel
+        editable
+        frontmatter={frontmatter}
+        onAddProperty={handleAddProperty}
+        onPropertiesChange={handlePropertiesChange}
+        onRawChange={handleRawFrontmatterChange}
+      />
+
+      <div className="mx-4 pt-2 pb-4">
+        <div className="h-px bg-border/40" />
+      </div>
+
+      <div className="mx-4 mb-1 flex items-center justify-between gap-3 rounded-lg border border-border/40 bg-foreground/[0.02] px-3 py-1.5">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto scrollbar-none"  style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
@@ -616,7 +628,7 @@ export function MarkdownEditor({
           >
             <span className={cn(editor?.isActive("taskList") && "text-foreground")}>☑</span>
           </Button>
-          <div className="mx-1 h-4 w-px bg-white/10" />
+          <div className="mx-1 h-4 w-px bg-border/40" />
           <Button
             type="button"
             size="sm"
@@ -641,7 +653,7 @@ export function MarkdownEditor({
               {"</>"}
             </span>
           </Button>
-          <div className="mx-1 h-4 w-px bg-white/10" />
+          <div className="mx-1 h-4 w-px bg-border/40" />
           <Button
             type="button"
             size="icon"
@@ -707,7 +719,7 @@ export function MarkdownEditor({
               <Minus size={10} weight="bold" />
             </span>
           </Button>
-          <div className="mx-1 h-4 w-px bg-white/10" />
+          <div className="mx-1 h-4 w-px bg-border/40" />
           <Button
             type="button"
             size="icon"
@@ -742,9 +754,9 @@ export function MarkdownEditor({
             </Button>
           ) : null}
         </div>
-        <div className="flex min-w-0 items-center gap-2 text-[11px]">
+        <div className="flex shrink-0 items-center gap-2 text-[11px]">
           {modifiedAt ? <span className="shrink-0 text-muted-foreground">{modifiedAt}</span> : null}
-          <div className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 px-2 py-1 text-[10px] text-muted-foreground">
+          <div className="flex shrink-0 items-center gap-1.5 rounded-full border border-border/50 px-2 py-1 text-[10px] text-muted-foreground">
             <span
               className={cn(
                 "h-2 w-2 rounded-full",
@@ -762,23 +774,15 @@ export function MarkdownEditor({
         </div>
       </div>
 
-      <MarkdownFrontmatterPanel
-        editable
-        frontmatter={frontmatter}
-        onAddProperty={handleAddProperty}
-        onPropertiesChange={handlePropertiesChange}
-        onRawChange={handleRawFrontmatterChange}
-      />
-
       <div
-        className="workspace-tiptap relative flex-1 overflow-y-auto px-6 py-5 scrollbar-none"
+        className="workspace-tiptap relative flex-1 overflow-y-auto px-6 pt-2 pb-5 scrollbar-none"
         onMouseLeave={scheduleHoveredLinkHide}
         onMouseMove={handleWorkspaceMouseMove}
       >
         <EditorContent editor={editor} />
         {hoveredLink ? (
           <div
-            className="absolute z-20 flex max-w-72 flex-col gap-2 rounded-md border border-white/15 bg-background/95 p-2 shadow-lg backdrop-blur-sm"
+            className="absolute z-20 flex max-w-72 flex-col gap-2 rounded-md border border-border/50 bg-background/95 p-2 shadow-lg backdrop-blur-sm"
             data-kb-internal-link-hover-card="true"
             style={{ left: hoveredLink.left, top: hoveredLink.top }}
             onMouseEnter={clearHoveredLinkHideTimeout}
@@ -792,7 +796,7 @@ export function MarkdownEditor({
             </div>
             <button
               type="button"
-              className="inline-flex h-7 items-center justify-center gap-1 rounded-md border border-white/15 px-2 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+              className="inline-flex h-7 items-center justify-center gap-1 rounded-md border border-border/50 px-2 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
               onClick={focusLinkForEditing}
             >
               <PencilSimple size={11} weight="bold" />

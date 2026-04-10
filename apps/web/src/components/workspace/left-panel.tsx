@@ -989,7 +989,7 @@ function ExpandedLeftPanel({
       </div>
 
       {/* Search bar (no container) */}
-      <label className="mt-0.5 mb-1.5 flex shrink-0 items-center gap-2 rounded-xl bg-foreground/[0.03] px-3 py-2 transition-colors hover:bg-foreground/5 focus-within:bg-foreground/5">
+      <label className="mt-0.5 mb-0.5 flex shrink-0 items-center gap-2 rounded-xl bg-foreground/[0.03] px-3 py-2 transition-colors hover:bg-foreground/5 focus-within:bg-foreground/5">
           <MagnifyingGlass size={14} className="shrink-0 text-muted-foreground/50" />
           <input
             ref={searchInputRef}
