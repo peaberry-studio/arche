@@ -60,6 +60,8 @@ const (
 	appName                     = "arche"
 	appImageRepo                = "ghcr.io/peaberry-studio/arche/web"
 	workspaceImageRepo          = "ghcr.io/peaberry-studio/arche/workspace"
+	deploySSHUser               = "archectl"
+	rootSSHUser                 = "root"
 	defaultVersion              = "latest"
 	appPort                     = 3000
 	dbName                      = "arche"
@@ -539,7 +541,8 @@ func runInstall(ctx context.Context, ui *ui, args cliArgs) int {
 	ui.ok("Pinned the server SSH host key", started)
 
 	target := sshTarget{
-		ip: ipAddress,
+		ip:   ipAddress,
+		user: deploySSHUser,
 		auth: sshAuth{
 			privateKey: sshMaterial.privateKey,
 			knownHost:  knownHost,
@@ -554,9 +557,9 @@ func runInstall(ctx context.Context, ui *ui, args cliArgs) int {
 	ui.ok("Saved deployment record to "+textFile, started)
 	ui.info("Public URL: " + publicURL)
 	if args.verbose {
-		ui.command("SSH", fmt.Sprintf("ssh -i %s -o UserKnownHostsFile=%s root@%s", keyFile, knownHostsFile, ipAddress))
-		ui.command("Bootstrap logs", fmt.Sprintf("ssh -i %s -o UserKnownHostsFile=%s root@%s 'tail -f /var/log/%s-bootstrap.log'", keyFile, knownHostsFile, ipAddress, appName))
-		ui.command("Compose logs", fmt.Sprintf("ssh -i %s -o UserKnownHostsFile=%s root@%s 'cd /opt/%s && docker compose logs -f web'", keyFile, knownHostsFile, ipAddress, appName))
+		ui.command("SSH", displaySSHCommand(target, state))
+		ui.command("Bootstrap logs", displaySSHRemoteCommand(target, state, fmt.Sprintf("tail -f /var/log/%s-bootstrap.log", appName)))
+		ui.command("Compose logs", displaySSHRemoteCommand(target, state, fmt.Sprintf("cd /opt/%s && docker compose logs -f web", appName)))
 	}
 
 	if args.verbose {
@@ -1184,7 +1187,7 @@ func runUpdate(ctx context.Context, ui *ui, args cliArgs) int {
 
 	started = ui.stage("Updating remote Compose configuration")
 	script := renderUpdateScript(args.version, renderCompose())
-	if err := runRemoteScript(ctx, ui, sshTarget{ip: state.Deployment.IPAddress, auth: sshAuthForState(state)}, script); err != nil {
+	if err := runRemoteScript(ctx, ui, sshTarget{ip: state.Deployment.IPAddress, user: sshUserForState(state), auth: sshAuthForState(state)}, script); err != nil {
 		if errors.Is(err, context.Canceled) {
 			ui.warn("Cancelled by user.")
 			return 130
@@ -1395,6 +1398,7 @@ log 'Update complete'
 
 type sshTarget struct {
 	ip   string
+	user string
 	auth sshAuth
 }
 
@@ -1404,6 +1408,56 @@ func sshAuthForState(state deploymentState) sshAuth {
 		password:   state.Secrets.RootPassword,
 		knownHost:  state.Secrets.SSHKnownHost,
 	}
+}
+
+func sshUserForState(state deploymentState) string {
+	if strings.TrimSpace(state.Secrets.SSHPrivateKey) != "" {
+		return deploySSHUser
+	}
+	return rootSSHUser
+}
+
+func (t sshTarget) login() string {
+	return t.user + "@" + t.ip
+}
+
+func (t sshTarget) shell(command string) string {
+	if t.user == rootSSHUser {
+		return "bash -lc " + shellQuote(command)
+	}
+	return "sudo -n bash -lc " + shellQuote(command)
+}
+
+func (t sshTarget) stdinScriptCommand() string {
+	if t.user == rootSSHUser {
+		return "bash -se"
+	}
+	return "sudo -n bash -se"
+}
+
+func (t sshTarget) streamCommand(command string) string {
+	if t.user == rootSSHUser {
+		return "sh -lc " + shellQuote(command)
+	}
+	return "sudo -n sh -lc " + shellQuote(command)
+}
+
+func displaySSHCommand(target sshTarget, state deploymentState) string {
+	var command strings.Builder
+	if target.auth.hasPrivateKey() {
+		fmt.Fprintf(&command, "ssh -i %s", state.Deployment.SSHKeyFile)
+		if state.Deployment.KnownHostsFile != "" {
+			fmt.Fprintf(&command, " -o UserKnownHostsFile=%s", state.Deployment.KnownHostsFile)
+		}
+	} else {
+		command.WriteString("ssh")
+	}
+	fmt.Fprintf(&command, " %s", target.login())
+	return command.String()
+}
+
+func displaySSHRemoteCommand(target sshTarget, state deploymentState, remoteCommand string) string {
+	return displaySSHCommand(target, state) + " " + shellQuote(target.shell(remoteCommand))
 }
 
 func (a sshAuth) hasPrivateKey() bool {
@@ -1454,7 +1508,7 @@ func runRemoteScript(ctx context.Context, ui *ui, target sshTarget, script strin
 	}
 	defer cleanup()
 
-	cmdArgs := append(args, "root@"+target.ip, "bash -se")
+	cmdArgs := append(args, target.login(), target.stdinScriptCommand())
 	cmd := exec.CommandContext(ctx, sshPath, cmdArgs...)
 	cmd.Stdin = strings.NewReader(script)
 	cmd.Env = env
@@ -1584,7 +1638,7 @@ func (s *remoteStreamer) run(ctx context.Context) {
 	defer close(s.done)
 	attachedClosed := false
 	for ctx.Err() == nil {
-		cmdArgs := append(append([]string{}, s.sshArgs...), "root@"+s.target.ip, "sh -lc "+shellQuote(fmt.Sprintf("touch /var/log/%s-bootstrap.log && tail -n +1 -F /var/log/%s-bootstrap.log", appName, appName)))
+		cmdArgs := append(append([]string{}, s.sshArgs...), s.target.login(), s.target.streamCommand(fmt.Sprintf("touch /var/log/%s-bootstrap.log && tail -n +1 -F /var/log/%s-bootstrap.log", appName, appName)))
 		cmd := exec.CommandContext(ctx, s.sshPath, cmdArgs...)
 		cmd.Stdin = nil
 		cmd.Stderr = nil
@@ -1649,7 +1703,7 @@ func runRemoteCommand(ctx context.Context, target sshTarget, command string) (st
 	}
 	defer cleanup()
 
-	cmdArgs := append(args, "root@"+target.ip, "bash -lc "+shellQuote(command))
+	cmdArgs := append(args, target.login(), target.shell(command))
 	cmd := exec.CommandContext(ctx, sshPath, cmdArgs...)
 	cmd.Env = env
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -2011,15 +2065,15 @@ rand_password() {
 }
 
 step 'Configuring SSH access'
-sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
+sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin no/' /etc/ssh/sshd_config
 sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config
 systemctl restart sshd || systemctl restart ssh
-log 'Root SSH access is restricted to the generated deploy key'
+log 'SSH access is restricted to the generated deploy user key'
 
 step 'Installing system packages'
 apt-get update -y
-apt-get install -y ca-certificates curl git
-log 'Installed ca-certificates, curl, and git'
+apt-get install -y ca-certificates curl git sudo
+log 'Installed ca-certificates, curl, git, and sudo'
 
 step 'Installing Docker'
 curl -fsSL https://get.docker.com | sh
@@ -2114,10 +2168,14 @@ log 'Bootstrap complete. If the public URL is not ready yet, keep tailing /var/l
 
 func renderCloudInit(sshPublicKey, compose, bootstrap string) string {
 	return strings.TrimSpace(fmt.Sprintf(`#cloud-config
-disable_root: false
+disable_root: true
 ssh_pwauth: false
 users:
-  - name: root
+  - name: %s
+    gecos: Arche Deploy
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
     lock_passwd: true
     ssh_authorized_keys:
       - %s
@@ -2135,7 +2193,7 @@ write_files:
 runcmd:
   - bash -lc '/opt/%s/bootstrap.sh > /var/log/%s-bootstrap.log 2>&1'
 final_message: '%s bootstrap finished'
-`, strings.TrimSpace(sshPublicKey), appName, b64(compose), appName, b64(bootstrap), appName, appName, appName)) + "\n"
+`, deploySSHUser, strings.TrimSpace(sshPublicKey), appName, b64(compose), appName, b64(bootstrap), appName, appName, appName)) + "\n"
 }
 
 func validateTemplates(version string) error {
@@ -2203,6 +2261,7 @@ func writeLocalFiles(state deploymentState) error {
 		}
 	}
 
+	target := sshTarget{ip: state.Deployment.IPAddress, user: sshUserForState(state), auth: sshAuthForState(state)}
 	var text strings.Builder
 	text.WriteString("Arche one-click deployment\n")
 	text.WriteString("=========================\n\n")
@@ -2215,21 +2274,16 @@ func writeLocalFiles(state deploymentState) error {
 	fmt.Fprintf(&text, "Public domain:     %s\n", state.Deployment.Domain)
 	fmt.Fprintf(&text, "Public URL:        %s\n\n", state.Deployment.PublicURL)
 
-	text.WriteString("SSH user:          root\n")
+	fmt.Fprintf(&text, "SSH user:          %s\n", target.user)
 	if strings.TrimSpace(state.Secrets.SSHPrivateKey) != "" {
 		fmt.Fprintf(&text, "SSH key file:      %s\n", state.Deployment.SSHKeyFile)
 		if state.Deployment.KnownHostsFile != "" {
 			fmt.Fprintf(&text, "Known hosts file:  %s\n", state.Deployment.KnownHostsFile)
 		}
-		sshCommand := fmt.Sprintf("ssh -i %s", state.Deployment.SSHKeyFile)
-		if state.Deployment.KnownHostsFile != "" {
-			sshCommand += " -o UserKnownHostsFile=" + state.Deployment.KnownHostsFile
-		}
-		sshCommand += " root@" + state.Deployment.IPAddress
-		fmt.Fprintf(&text, "SSH command:       %s\n\n", sshCommand)
+		fmt.Fprintf(&text, "SSH command:       %s\n\n", displaySSHCommand(target, state))
 	} else if strings.TrimSpace(state.Secrets.RootPassword) != "" {
 		fmt.Fprintf(&text, "SSH password:      %s\n", state.Secrets.RootPassword)
-		fmt.Fprintf(&text, "SSH command:       ssh root@%s\n\n", state.Deployment.IPAddress)
+		fmt.Fprintf(&text, "SSH command:       %s\n\n", displaySSHCommand(target, state))
 	} else {
 		text.WriteString("SSH access:        pending recovery data fetch\n\n")
 	}
@@ -2259,15 +2313,10 @@ func writeLocalFiles(state deploymentState) error {
 	}
 
 	text.WriteString("Useful commands:\n")
-	if state.Deployment.SSHKeyFile != "" {
-		baseSSH := fmt.Sprintf("ssh -i %s", state.Deployment.SSHKeyFile)
-		if state.Deployment.KnownHostsFile != "" {
-			baseSSH += " -o UserKnownHostsFile=" + state.Deployment.KnownHostsFile
-		}
-		baseSSH += " root@" + state.Deployment.IPAddress
-		fmt.Fprintf(&text, "%s 'tail -f /var/log/%s-bootstrap.log'\n", baseSSH, appName)
-		fmt.Fprintf(&text, "%s 'cd /opt/%s && docker compose logs -f web'\n", baseSSH, appName)
-		fmt.Fprintf(&text, "%s 'cd /opt/%s && docker compose ps'\n", baseSSH, appName)
+	if state.Deployment.IPAddress != "" && (target.auth.hasPrivateKey() || target.auth.hasPassword()) {
+		fmt.Fprintf(&text, "%s\n", displaySSHRemoteCommand(target, state, fmt.Sprintf("tail -f /var/log/%s-bootstrap.log", appName)))
+		fmt.Fprintf(&text, "%s\n", displaySSHRemoteCommand(target, state, fmt.Sprintf("cd /opt/%s && docker compose logs -f web", appName)))
+		fmt.Fprintf(&text, "%s\n", displaySSHRemoteCommand(target, state, fmt.Sprintf("cd /opt/%s && docker compose ps", appName)))
 	}
 
 	if err := os.WriteFile(state.Deployment.CredentialsFile, []byte(text.String()), 0o600); err != nil {

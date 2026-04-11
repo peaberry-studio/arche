@@ -120,6 +120,9 @@ func TestStateForUpdateReadsManualSSHKey(t *testing.T) {
 	if state.Deployment.PublicURL != "https://arche-203-0-113-10.nip.io" {
 		t.Fatalf("stateForUpdate() public URL = %q", state.Deployment.PublicURL)
 	}
+	if sshUserForState(state) != deploySSHUser {
+		t.Fatalf("sshUserForState() = %q, want %q", sshUserForState(state), deploySSHUser)
+	}
 }
 
 func TestDoClientRequestRetriesRateLimit(t *testing.T) {
@@ -179,5 +182,44 @@ func TestValidateTemplates(t *testing.T) {
 
 	if err := validateTemplates("v1.2.3"); err != nil {
 		t.Fatalf("validateTemplates() error = %v", err)
+	}
+}
+
+func TestRenderCloudInitUsesDeployUserInsteadOfRoot(t *testing.T) {
+	t.Parallel()
+
+	cloudInit := renderCloudInit("ssh-rsa AAAATEST", "services:\n  web:\n", "#!/bin/bash\necho ok\n")
+	if !strings.Contains(cloudInit, "disable_root: true") {
+		t.Fatalf("renderCloudInit() should disable root login:\n%s", cloudInit)
+	}
+	if !strings.Contains(cloudInit, "name: "+deploySSHUser) {
+		t.Fatalf("renderCloudInit() should create the deploy user:\n%s", cloudInit)
+	}
+	if strings.Contains(cloudInit, "name: root") {
+		t.Fatalf("renderCloudInit() should not authorize root directly:\n%s", cloudInit)
+	}
+}
+
+func TestDisplaySSHCommandUsesDeployUserForKeyBasedState(t *testing.T) {
+	t.Parallel()
+
+	state := deploymentState{
+		Deployment: artifacts{
+			IPAddress:      "203.0.113.10",
+			SSHKeyFile:     "/tmp/key.pem",
+			KnownHostsFile: "/tmp/known_hosts",
+		},
+		Secrets: stateSecrets{
+			SSHPrivateKey: "PRIVATE KEY",
+			SSHKnownHost:  "hostkey",
+		},
+	}
+	target := sshTarget{ip: state.Deployment.IPAddress, user: sshUserForState(state), auth: sshAuthForState(state)}
+	command := displaySSHCommand(target, state)
+	if !strings.Contains(command, deploySSHUser+"@203.0.113.10") {
+		t.Fatalf("displaySSHCommand() = %q", command)
+	}
+	if strings.Contains(command, rootSSHUser+"@203.0.113.10") {
+		t.Fatalf("displaySSHCommand() should not target root: %q", command)
 	}
 }
