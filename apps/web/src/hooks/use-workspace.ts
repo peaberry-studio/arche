@@ -306,6 +306,7 @@ function createDefaultSessionSelectionState(
 export type UseWorkspaceOptions = {
   slug: string;
   storageScope?: string;
+  initialSessionId?: string | null;
   /** Poll interval in ms for session status updates */
   pollInterval?: number;
   /** Skip connection attempts when false */
@@ -385,12 +386,14 @@ export type UseWorkspaceReturn = {
 export function useWorkspace({
   slug,
   storageScope,
+  initialSessionId = null,
   pollInterval = 5000,
   enabled = true,
   workspaceAgentEnabled = true,
   reaperEnabled = true,
 }: UseWorkspaceOptions): UseWorkspaceReturn {
   const activeSessionStorageKey = getActiveSessionStorageKey(storageScope ?? slug);
+  const initialSessionIdRef = useRef(initialSessionId);
 
   // --- Sub-hooks ---
   // onConnectedRef holds the real init callback. We declare it as a ref so
@@ -798,6 +801,7 @@ export function useWorkspace({
           return changed ? next : prev;
         });
         const currentSessionId = activeSessionIdRef.current;
+        const requestedSessionId = initialSessionIdRef.current;
         const storedSessionId = loadStoredActiveSessionId(activeSessionStorageKey);
         const firstRootSession = sessions.find(
           (session) => !session.parentId || !sessionIds.has(session.parentId)
@@ -806,12 +810,17 @@ export function useWorkspace({
           (currentSessionId && sessionIds.has(currentSessionId)
             ? currentSessionId
             : null) ??
+          (requestedSessionId && sessionIds.has(requestedSessionId)
+            ? requestedSessionId
+            : null) ??
           (storedSessionId && sessionIds.has(storedSessionId)
             ? storedSessionId
             : null) ??
           firstRootSession?.id ??
           sessions[0]?.id ??
           null;
+
+        initialSessionIdRef.current = null;
 
         if (nextActiveSessionId !== currentSessionId) {
           console.log(

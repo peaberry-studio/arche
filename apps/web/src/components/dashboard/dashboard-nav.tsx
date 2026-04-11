@@ -9,6 +9,7 @@ const webNavItems = [
   { label: 'Overview', href: '' },
   { label: 'Agents', href: '/agents' },
   { label: 'Skills', href: '/skills' },
+  { label: 'Autopilot', href: '/autopilot' },
   { label: 'Connectors', href: '/connectors' },
   { label: 'Team', href: '/team' },
   { label: 'Settings', href: '/settings/security' },

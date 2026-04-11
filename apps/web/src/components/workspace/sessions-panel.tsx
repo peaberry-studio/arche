@@ -29,7 +29,8 @@ export function SessionsPanel({
   const filteredSessions = useMemo(() => {
     if (!normalizedQuery) return sessions;
     return sessions.filter((session) =>
-      session.title.toLowerCase().includes(normalizedQuery)
+      session.title.toLowerCase().includes(normalizedQuery) ||
+      session.autopilot?.taskName.toLowerCase().includes(normalizedQuery)
     );
   }, [normalizedQuery, sessions]);
 
@@ -112,7 +113,21 @@ export function SessionsPanel({
                       className={cn("shrink-0", indicatorClassName ?? "text-transparent")}
                     />
                   </span>
-                  <span className="flex-1 truncate font-medium">{session.title}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-2">
+                      <span className="truncate font-medium">{session.title}</span>
+                      {session.autopilot ? (
+                        <span className="shrink-0 rounded-full border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
+                          Auto
+                        </span>
+                      ) : null}
+                    </span>
+                    {session.autopilot ? (
+                      <span className="block truncate text-[11px] text-muted-foreground/70">
+                        {session.autopilot.taskName}
+                      </span>
+                    ) : null}
+                  </span>
                   <span className="max-w-0 shrink-0 overflow-hidden whitespace-nowrap text-[11px] text-muted-foreground/60 opacity-0 transition-all duration-200 group-hover/session:max-w-24 group-hover/session:opacity-100">
                     {session.updatedAt}
                   </span>

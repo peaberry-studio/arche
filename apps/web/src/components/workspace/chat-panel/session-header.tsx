@@ -92,9 +92,16 @@ export function ChatPanelSessionHeader({
         {isEditingActiveSessionTitle ? (
           renderTitleInput(cn(titleInputClassName, "w-full"))
         ) : (
-          <p className="truncate text-sm font-medium text-foreground">
-            {activeSession?.title ?? "No active session"}
-          </p>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium text-foreground">
+              {activeSession?.title ?? "No active session"}
+            </p>
+            {activeSession?.autopilot ? (
+              <p className="truncate text-xs text-muted-foreground">
+                Autopilot run for {activeSession.autopilot.taskName}
+              </p>
+            ) : null}
+          </div>
         )}
       </div>
 

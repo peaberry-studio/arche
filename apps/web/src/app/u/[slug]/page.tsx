@@ -14,6 +14,7 @@ import { getKickstartStatus } from '@/kickstart/status'
 import type { KickstartStatus } from '@/kickstart/types'
 import { getAgentSummaries, parseCommonWorkspaceConfig } from '@/lib/workspace-config'
 import { getCurrentDesktopVault } from '@/lib/runtime/desktop/current-vault'
+import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { isDesktop } from '@/lib/runtime/mode'
 
 function formatCommitTime(value: string): string {
@@ -157,6 +158,7 @@ export default async function WorkspacePage({
 
   const recentUpdatesResult = await listRecentKbFileUpdates(10)
   const recentUpdates = recentUpdatesResult.ok ? recentUpdatesResult.updates : []
+  const caps = getRuntimeCapabilities()
 
   return (
     <main className="relative mx-auto max-w-6xl overflow-hidden px-6 py-6">
@@ -256,6 +258,23 @@ export default async function WorkspacePage({
             </div>
             <ConnectorsWidget slug={slug} />
           </section>
+
+          {caps.autopilot ? (
+            <section>
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-sm font-medium text-muted-foreground">Autopilot</h2>
+                <Link
+                  href={`/u/${slug}/autopilot`}
+                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Open
+                </Link>
+              </div>
+              <div className="glass-panel rounded-lg px-4 py-4 text-sm text-muted-foreground">
+                Schedule recurring prompts that run in the background with cron and timezone-aware execution.
+              </div>
+            </section>
+          ) : null}
         </div>
       </div>
     </main>

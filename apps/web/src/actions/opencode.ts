@@ -19,7 +19,7 @@ import {
 import { getActiveCredentialForUser } from "@/lib/providers/store";
 import { PROVIDERS, type ProviderId } from "@/lib/providers/types";
 import { getSession } from "@/lib/runtime/session";
-import { instanceService, userService } from "@/lib/services";
+import { autopilotService, instanceService, userService } from "@/lib/services";
 import { decryptPassword } from "@/lib/spawner/crypto";
 import { createWorkspaceAgentClient } from "@/lib/workspace-agent/client";
 import { deriveWorkspaceMessageRuntimeState } from "@/lib/workspace-message-state";
@@ -66,7 +66,7 @@ function extractUserTextContent(parts: ReturnType<typeof transformParts>): strin
   return firstText ? firstText.text : "";
 }
 
-async function getAuthorizedClient(slug: string) {
+async function getAuthorizedClientContext(slug: string) {
   const session = await getSession();
   if (!session) return { error: "unauthorized" as const, client: null };
 
@@ -79,7 +79,12 @@ async function getAuthorizedClient(slug: string) {
     return { error: "instance_unavailable" as const, client: null };
   }
 
-  return { error: null, client };
+  return { error: null, client, session };
+}
+
+async function getAuthorizedClient(slug: string) {
+  const { error, client } = await getAuthorizedClientContext(slug);
+  return { error, client };
 }
 
 // ============================================================================
@@ -312,7 +317,7 @@ export async function listSessionsAction(slug: string): Promise<{
   sessions?: WorkspaceSession[];
   error?: string;
 }> {
-  const { error, client } = await getAuthorizedClient(slug);
+  const { error, client, session } = await getAuthorizedClientContext(slug);
   if (error) return { ok: false, error };
 
   try {
@@ -322,9 +327,23 @@ export async function listSessionsAction(slug: string): Promise<{
     // Get status for all sessions
     const statusResult = await client!.session.status();
     const statuses = statusResult.data ?? {};
+    const targetUserId =
+      session!.user.slug === slug
+        ? session!.user.id
+        : (await userService.findIdBySlug(slug))?.id ?? null;
+    const autopilotMetadata = targetUserId
+      ? await autopilotService.findSessionMetadataByUserId(
+          targetUserId,
+          sessions.map((entry) => entry.id)
+        )
+      : [];
+    const autopilotBySessionId = new Map(
+      autopilotMetadata.map((entry) => [entry.openCodeSessionId, entry])
+    );
 
     const transformed: WorkspaceSession[] = sessions.map((s) => {
       const sessionStatus = statuses[s.id];
+      const autopilot = autopilotBySessionId.get(s.id);
       let status: "active" | "idle" | "busy" | "error" = "idle";
       if (sessionStatus?.type === "busy") status = "busy";
       else if (sessionStatus?.type === "retry") status = "busy";
@@ -336,6 +355,14 @@ export async function listSessionsAction(slug: string): Promise<{
         updatedAt: formatTimestamp(s.time?.updated),
         updatedAtRaw: typeof s.time?.updated === "number" ? s.time.updated : undefined,
         parentId: s.parentID,
+        autopilot: autopilot
+          ? {
+              runId: autopilot.runId,
+              taskId: autopilot.taskId,
+              taskName: autopilot.taskName,
+              trigger: autopilot.trigger,
+            }
+          : undefined,
         share: s.share ? { url: s.share.url, version: 1 } : undefined,
       };
     });

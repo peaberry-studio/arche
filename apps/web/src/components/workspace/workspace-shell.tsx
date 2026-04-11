@@ -45,6 +45,7 @@ type WorkspaceShellProps = {
     path: string;
   } | null;
   initialFilePath?: string | null;
+  initialSessionId?: string | null;
   initialLayoutState?: StoredLayoutState | null;
   initialLeftPanelState?: NormalizedLeftPanelState | null;
   macDesktopWindowInset?: boolean;
@@ -204,6 +205,7 @@ export function WorkspaceShell({
   persistenceScope,
   currentVault = null,
   initialFilePath,
+  initialSessionId = null,
   initialLayoutState = null,
   initialLeftPanelState = null,
   macDesktopWindowInset = false,
@@ -310,6 +312,7 @@ export function WorkspaceShell({
   const workspace = useWorkspace({
     slug,
     storageScope: resolvedPersistenceScope,
+    initialSessionId,
     pollInterval: 5000,
     enabled: instanceStatus === 'running',
     workspaceAgentEnabled,
@@ -885,7 +888,8 @@ export function WorkspaceShell({
       title: s.title,
       status: s.status === 'busy' ? 'active' as const : s.status === 'idle' ? 'idle' as const : 'archived' as const,
       updatedAt: s.updatedAt,
-      agent: 'OpenCode'
+      agent: 'OpenCode',
+      autopilot: s.autopilot,
     }));
   }, [workspace.sessions]);
 

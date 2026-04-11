@@ -26,7 +26,7 @@ export default async function WorkspaceHostPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>
-  searchParams?: Promise<{ path?: string; settings?: string }>
+  searchParams?: Promise<{ path?: string; session?: string; settings?: string }>
 }) {
   const { slug } = await params
   const search = await searchParams
@@ -76,6 +76,7 @@ export default async function WorkspaceHostPage({
         persistenceScope={persistenceScope}
         currentVault={desktopVault ? { id: desktopVault.vaultId, name: desktopVault.vaultName, path: desktopVault.vaultPath } : null}
         initialFilePath={search?.path ?? null}
+        initialSessionId={search?.session ?? null}
         initialLayoutState={initialLayoutState}
         initialLeftPanelState={initialLeftPanelState}
         macDesktopWindowInset={macDesktopWindowInset}

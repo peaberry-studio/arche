@@ -49,6 +49,12 @@ export type WorkspaceSession = {
   updatedAt: string
   updatedAtRaw?: number
   parentId?: string
+  autopilot?: {
+    runId: string
+    taskId: string
+    taskName: string
+    trigger: 'on_create' | 'schedule' | 'manual'
+  }
   share?: {
     url: string
     version: number

@@ -23,6 +23,7 @@ vi.mock('@/lib/runtime/capabilities', () => ({
     teamManagement: true,
     connectors: true,
     kickstart: true,
+    autopilot: true,
   }),
 }))
 

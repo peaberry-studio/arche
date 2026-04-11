@@ -27,6 +27,7 @@ describe('runtime capabilities', () => {
     expect(caps.teamManagement).toBe(true)
     expect(caps.connectors).toBe(true)
     expect(caps.kickstart).toBe(true)
+    expect(caps.autopilot).toBe(true)
   })
 
   it('returns restricted capabilities in desktop mode', async () => {
@@ -46,6 +47,7 @@ describe('runtime capabilities', () => {
     expect(caps.teamManagement).toBe(false)
     expect(caps.connectors).toBe(true)
     expect(caps.kickstart).toBe(true)
+    expect(caps.autopilot).toBe(false)
   })
 
   it('always returns a valid object (no undefined fields)', async () => {
