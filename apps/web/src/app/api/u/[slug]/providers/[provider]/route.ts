@@ -7,6 +7,7 @@ import { replaceApiCredential } from '@/lib/providers/store'
 import { PROVIDERS, type ProviderId } from '@/lib/providers/types'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { instanceService, providerService, userService } from '@/lib/services'
+import { decryptPassword } from '@/lib/spawner/crypto'
 
 export interface CreateProviderCredentialRequest {
   apiKey: string
@@ -44,10 +45,12 @@ async function syncProviderAccessBestEffort(slug: string, userId: string): Promi
       return false
     }
 
+    const password = decryptPassword(instance.serverPassword)
+
     const result = await syncProviderAccessForInstance({
       instance: {
         baseUrl: getInstanceUrl(slug),
-        authHeader: `Basic ${Buffer.from(`opencode:${instance.serverPassword}`).toString('base64')}`,
+        authHeader: `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`,
       },
       slug,
       userId,

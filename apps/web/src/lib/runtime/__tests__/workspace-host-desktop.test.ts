@@ -747,6 +747,29 @@ describe('desktopWorkspaceHost', () => {
     })
   })
 
+  it('retries provider sync before marking restart as required', async () => {
+    const opencodeChild = makeChildProcess()
+    const workspaceAgentChild = makeChildProcess()
+    mockSpawn.mockReturnValueOnce(opencodeChild).mockReturnValueOnce(workspaceAgentChild)
+    process.env.ARCHE_DESKTOP_START_INTERVAL_MS = '1'
+    process.env.ARCHE_DESKTOP_START_TIMEOUT_MS = '20'
+
+    const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
+    const { syncProviderAccessForInstance } = await import('@/lib/opencode/providers')
+    const { providerService } = await import('@/lib/services')
+
+    vi.mocked(syncProviderAccessForInstance)
+      .mockResolvedValueOnce({ ok: false, error: 'sync_failed' })
+      .mockResolvedValueOnce({ ok: true })
+
+    const result = await desktopWorkspaceHost.start('local', 'user-1')
+
+    expect(result).toEqual({ ok: true, status: 'started' })
+    expect(syncProviderAccessForInstance).toHaveBeenCalledTimes(2)
+    expect(providerService.clearWorkspaceRestartRequired).toHaveBeenCalledWith('local')
+    expect(providerService.markWorkspaceRestartRequired).not.toHaveBeenCalled()
+  })
+
   it('stores encrypted credentials in DB on start', async () => {
     const opencodeChild = makeChildProcess()
     const workspaceAgentChild = makeChildProcess()
