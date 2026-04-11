@@ -74,7 +74,7 @@ The installer prompts for:
 - DigitalOcean API token
 - Email address for the initial admin account and Let's Encrypt
 
-You do not provide server, database, or admin passwords. The Go deployer generates them, writes them into the Droplet cloud-init payload, and saves the recovery details locally under `~/.arche/deployments/`.
+You do not provide server, database, or admin passwords. The Go deployer generates a local SSH keypair for the deployment, the Droplet generates the runtime secrets during bootstrap, and `archectl` fetches the recovery details back over pinned SSH into `~/.arche/deployments/`.
 
 The shim installs `archectl` into `/usr/local/bin` when that directory is writable, otherwise into `~/.local/bin`. After installation, use the same binary for lifecycle commands:
 
@@ -89,9 +89,11 @@ By default, `archectl` keeps output minimal and shows only lifecycle steps plus 
 If the local state file is missing, recovery flags are available:
 
 ```bash
-archectl update --token "$DIGITALOCEAN_TOKEN" --version v1.2.4 --ip 203.0.113.10 --ssh-password "root-password"
+archectl update --token "$DIGITALOCEAN_TOKEN" --version v1.2.4 --ip 203.0.113.10 --ssh-key ~/.arche/deployments/arche-20260410-120000-ssh.pem
 archectl destroy --token "$DIGITALOCEAN_TOKEN" --droplet-id 123456789 --firewall-id firewall-id --yes
 ```
+
+Legacy password-based recovery remains available for older deployments with `--ssh-password`.
 
 Assumptions:
 
@@ -100,6 +102,11 @@ Assumptions:
 - Versioned images only: `ghcr.io/peaberry-studio/arche/web:<version>` and `ghcr.io/peaberry-studio/arche/workspace:<version>`
 - Public URL is derived automatically as `https://arche-<droplet-ip>.nip.io`
 - Local deployment state is stored at `~/.arche/deployments/current.json`
+
+Operational caveats:
+
+- The default public URL depends on the third-party `nip.io` DNS service. If `nip.io` is unavailable, point your own DNS name at the Droplet before relying on the deployment.
+- `archectl destroy` permanently removes the Droplet and attached data volumes. Create a Droplet snapshot or other backup before destroying a deployment you may need to recover.
 
 To test installer changes locally before publishing a GitHub release, build the matching binary into `/tmp`, point the shim at that directory, and run template validation:
 

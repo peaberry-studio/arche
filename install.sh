@@ -47,9 +47,10 @@ default_bin_dir() {
 }
 
 run_archectl() {
-  case "${1:-install}" in
+  case "${1:-}" in
+    ""|-* ) "$target" install "$@" ;;
     install|update|destroy|help|--help|-h) "$target" "$@" ;;
-    *) "$target" install "$@" ;;
+    *) fail "Unknown command: $1" ;;
   esac
 }
 

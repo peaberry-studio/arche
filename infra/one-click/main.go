@@ -24,9 +24,13 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
@@ -76,15 +80,15 @@ type input struct {
 	version string
 }
 
-type secretsData struct {
-	postgresPassword          string
-	sessionPepper             string
-	encryptionKey             string
-	internalToken             string
-	gatewayTokenSecret        string
-	connectorOAuthStateSecret string
-	adminPassword             string
-	rootPassword              string
+type sshMaterial struct {
+	privateKey string
+	publicKey  string
+}
+
+type sshAuth struct {
+	privateKey string
+	password   string
+	knownHost  string
 }
 
 type artifacts struct {
@@ -97,6 +101,8 @@ type artifacts struct {
 	AdminEmail      string `json:"admin_email"`
 	CredentialsFile string `json:"credentials_file"`
 	JSONFile        string `json:"json_file"`
+	SSHKeyFile      string `json:"ssh_key_file,omitempty"`
+	KnownHostsFile  string `json:"known_hosts_file,omitempty"`
 }
 
 type healthResult struct {
@@ -115,6 +121,7 @@ type cliArgs struct {
 	statePath      string
 	ipAddress      string
 	sshPassword    string
+	sshKeyPath     string
 	publicURL      string
 	dropletID      int
 	firewallID     string
@@ -139,7 +146,9 @@ type stateSecrets struct {
 	GatewayTokenSecret        string `json:"gateway_token_secret"`
 	ConnectorOAuthStateSecret string `json:"connector_oauth_state_secret"`
 	AdminPassword             string `json:"admin_password"`
-	RootPassword              string `json:"root_password"`
+	RootPassword              string `json:"root_password,omitempty"`
+	SSHPrivateKey             string `json:"ssh_private_key,omitempty"`
+	SSHKnownHost              string `json:"ssh_known_host,omitempty"`
 }
 
 type deploymentState struct {
@@ -152,18 +161,6 @@ type deploymentState struct {
 	Deployment     artifacts    `json:"deployment"`
 	Secrets        stateSecrets `json:"secrets"`
 	UpdatedAt      string       `json:"updated_at"`
-}
-
-type legacyArtifacts struct {
-	DropletID       int    `json:"DropletID"`
-	FirewallID      string `json:"FirewallID"`
-	DropletName     string `json:"DropletName"`
-	IPAddress       string `json:"IPAddress"`
-	Domain          string `json:"Domain"`
-	PublicURL       string `json:"PublicURL"`
-	AdminEmail      string `json:"AdminEmail"`
-	CredentialsFile string `json:"CredentialsFile"`
-	JSONFile        string `json:"JSONFile"`
 }
 
 type ui struct {
@@ -193,7 +190,7 @@ type uiStyles struct {
 func newUI() *ui {
 	width := 92
 	if terminalWidth, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil {
-		width = minInt(maxInt(72, terminalWidth-4), 108)
+		width = min(max(72, terminalWidth-4), 108)
 	}
 	return &ui{
 		width:       width,
@@ -268,7 +265,7 @@ func (u *ui) panel(title string, rows [][2]string, tone string) {
 	}
 	maxKey := 0
 	for _, row := range rows {
-		maxKey = maxInt(maxKey, len(row[0]))
+		maxKey = max(maxKey, len(row[0]))
 	}
 	fmt.Println(style.Render(title))
 	for _, row := range rows {
@@ -337,8 +334,9 @@ func (u *ui) finishProgressLocked() {
 }
 
 type doClient struct {
-	token string
-	http  *http.Client
+	token   string
+	http    *http.Client
+	baseURL string
 }
 
 func main() {
@@ -403,37 +401,41 @@ func runInstall(ctx context.Context, ui *ui, args cliArgs) int {
 		}
 	}()
 
-	done := make(chan struct{})
-	defer close(done)
-	go func() {
-		select {
-		case <-ctx.Done():
-			ui.warn("Cancelled by user.")
-			if streamer != nil {
-				streamer.stop()
-			}
-			os.Exit(130)
-		case <-done:
-		}
-	}()
-
 	inputData, err := collectInput(args, ui)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			ui.warn("Cancelled by user.")
+			return 130
+		}
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 1
 	}
 
-	started := ui.stage("Generating secrets and first-boot payload")
-	secrets := generateSecrets()
-	envTemplate := renderEnvTemplate(inputData, secrets)
-	composeContent := renderCompose()
-	bootstrapScript := renderBootstrapScript()
-	cloudInit := renderCloudInit(secrets, envTemplate, composeContent, bootstrapScript)
-	ui.ok("Generated runtime secrets, cloud-init, .env template, and docker-compose.yml", started)
+	started := ui.stage("Checking local SSH tooling")
+	if err := ensureLocalSSHDependencies(); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 1
+	}
+	ui.ok("Found local ssh and ssh-keyscan clients", started)
 
-	client := &doClient{token: inputData.token, http: &http.Client{Timeout: 30 * time.Second}}
+	started = ui.stage("Generating deploy SSH key and first-boot payload")
+	sshMaterial, err := generateSSHMaterial()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 1
+	}
+	composeContent := renderCompose()
+	bootstrapScript := renderBootstrapScript(inputData)
+	cloudInit := renderCloudInit(sshMaterial.publicKey, composeContent, bootstrapScript)
+	ui.ok("Generated deploy SSH key, cloud-init, and docker-compose.yml", started)
+
+	client := newDOClient(inputData.token)
 	started = ui.stage("Validating DigitalOcean API token")
 	if err := client.validateToken(ctx); err != nil {
+		if errors.Is(err, context.Canceled) {
+			ui.warn("Cancelled by user.")
+			return 130
+		}
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 1
 	}
@@ -442,6 +444,10 @@ func runInstall(ctx context.Context, ui *ui, args cliArgs) int {
 	started = ui.stage("Creating Droplet")
 	dropletID, dropletName, err := createDroplet(ctx, client, inputData, cloudInit)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			ui.warn("Cancelled by user.")
+			return 130
+		}
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 1
 	}
@@ -450,6 +456,10 @@ func runInstall(ctx context.Context, ui *ui, args cliArgs) int {
 	started = ui.stage("Waiting for the Droplet to become active")
 	ipAddress, err := waitForDropletIP(ctx, client, dropletID, ui)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			ui.warn("Cancelled by user.")
+			return 130
+		}
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 1
 	}
@@ -458,6 +468,10 @@ func runInstall(ctx context.Context, ui *ui, args cliArgs) int {
 	started = ui.stage("Attaching firewall")
 	firewallID, err := createFirewall(ctx, client, dropletID, dropletName)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			ui.warn("Cancelled by user.")
+			return 130
+		}
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 1
 	}
@@ -465,53 +479,129 @@ func runInstall(ctx context.Context, ui *ui, args cliArgs) int {
 
 	domain := buildDomainFromIP(ipAddress)
 	publicURL := "https://" + domain
-	started = ui.stage("Writing local deployment record")
-	textFile, jsonFile, err := allocateLocalPaths()
+	textFile, jsonFile, keyFile, knownHostsFile, err := allocateLocalPaths()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 1
 	}
-	result := artifacts{
-		DropletID:       dropletID,
-		FirewallID:      firewallID,
-		DropletName:     dropletName,
-		IPAddress:       ipAddress,
-		Domain:          domain,
-		PublicURL:       publicURL,
-		AdminEmail:      inputData.email,
-		CredentialsFile: textFile,
-		JSONFile:        jsonFile,
+	state := deploymentState{
+		AppName:        appName,
+		Version:        inputData.version,
+		AppImage:       appImageForVersion(inputData.version),
+		WorkspaceImage: workspaceImageForVersion(inputData.version),
+		DBName:         dbName,
+		Input: stateInput{
+			Email:         inputData.email,
+			DropletSize:   inputData.size,
+			DropletRegion: inputData.region,
+		},
+		Deployment: artifacts{
+			DropletID:       dropletID,
+			FirewallID:      firewallID,
+			DropletName:     dropletName,
+			IPAddress:       ipAddress,
+			Domain:          domain,
+			PublicURL:       publicURL,
+			AdminEmail:      inputData.email,
+			CredentialsFile: textFile,
+			JSONFile:        jsonFile,
+			SSHKeyFile:      keyFile,
+			KnownHostsFile:  knownHostsFile,
+		},
+		Secrets: stateSecrets{
+			SSHPrivateKey: sshMaterial.privateKey,
+		},
+		UpdatedAt: time.Now().UTC().Format(time.RFC3339),
 	}
-	if err := writeLocalFiles(inputData, secrets, result); err != nil {
+
+	started = ui.stage("Waiting for SSH access")
+	if !waitForSSHPort(ctx, ipAddress, ui) {
+		if ctx.Err() != nil {
+			ui.warn("Cancelled by user.")
+			return 130
+		}
+		fmt.Fprintln(os.Stderr, "Error: timed out waiting for SSH on the Droplet")
+		return 1
+	}
+	ui.ok("SSH is reachable for recovery and log streaming", started)
+
+	started = ui.stage("Pinning the server SSH host key")
+	knownHost, err := scanSSHHostKey(ctx, ipAddress)
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			ui.warn("Cancelled by user.")
+			return 130
+		}
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 1
+	}
+	state.Secrets.SSHKnownHost = knownHost
+	ui.ok("Pinned the server SSH host key", started)
+
+	target := sshTarget{
+		ip: ipAddress,
+		auth: sshAuth{
+			privateKey: sshMaterial.privateKey,
+			knownHost:  knownHost,
+		},
+	}
+
+	started = ui.stage("Writing local deployment record")
+	if err := writeLocalFiles(state); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 1
 	}
 	ui.ok("Saved deployment record to "+textFile, started)
 	ui.info("Public URL: " + publicURL)
 	if args.verbose {
-		ui.command("Bootstrap logs", fmt.Sprintf("ssh root@%s 'tail -f /var/log/%s-bootstrap.log'", ipAddress, appName))
-		ui.command("Compose logs", fmt.Sprintf("ssh root@%s 'cd /opt/%s && docker compose logs -f web'", ipAddress, appName))
+		ui.command("SSH", fmt.Sprintf("ssh -i %s -o UserKnownHostsFile=%s root@%s", keyFile, knownHostsFile, ipAddress))
+		ui.command("Bootstrap logs", fmt.Sprintf("ssh -i %s -o UserKnownHostsFile=%s root@%s 'tail -f /var/log/%s-bootstrap.log'", keyFile, knownHostsFile, ipAddress, appName))
+		ui.command("Compose logs", fmt.Sprintf("ssh -i %s -o UserKnownHostsFile=%s root@%s 'cd /opt/%s && docker compose logs -f web'", keyFile, knownHostsFile, ipAddress, appName))
 	}
 
 	if args.verbose {
 		started = ui.stage("Opening the live remote bootstrap log")
-		if waitForSSHPort(ctx, ipAddress, ui) {
-			streamer = newRemoteStreamer(ui, ipAddress, secrets.rootPassword)
-			if streamer.available() {
-				if err := streamer.start(ctx); err != nil {
-					ui.warn("Could not start inline remote log stream: "+err.Error(), started)
-				} else if streamer.waitUntilAttached(15 * time.Second) {
-					ui.ok("Streaming /var/log/arche-bootstrap.log inline", started)
-				} else {
-					ui.warn("SSH is reachable, but the live log stream has not attached yet. Health polling will continue.", started)
-				}
+		streamer = newRemoteStreamer(ui, target)
+		if streamer.available() {
+			if err := streamer.start(ctx); err != nil {
+				ui.warn("Could not start inline remote log stream: "+err.Error(), started)
+			} else if streamer.waitUntilAttached(15 * time.Second) {
+				ui.ok("Streaming /var/log/arche-bootstrap.log inline", started)
 			} else {
-				ui.warn("Local ssh client not found. Falling back to manual log commands.", started)
+				ui.warn("SSH is reachable, but the live log stream has not attached yet. Health polling will continue.", started)
 			}
 		} else {
-			ui.warn("SSH did not open in time for the inline log stream. Falling back to manual log commands.", started)
+			ui.warn("Local ssh client not found. Falling back to manual log commands.", started)
 		}
 	}
+
+	started = ui.stage("Fetching server-generated recovery secrets")
+	recoveredSecrets, err := waitForRemoteSecrets(ctx, ui, target, 5*time.Minute)
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			ui.warn("Cancelled by user.")
+			return 130
+		}
+		ui.warn("Saved a partial deployment record before the remote secret fetch failed.", started)
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 1
+	}
+	state.Secrets.PostgresPassword = recoveredSecrets.PostgresPassword
+	state.Secrets.SessionPepper = recoveredSecrets.SessionPepper
+	state.Secrets.EncryptionKey = recoveredSecrets.EncryptionKey
+	state.Secrets.InternalToken = recoveredSecrets.InternalToken
+	state.Secrets.GatewayTokenSecret = recoveredSecrets.GatewayTokenSecret
+	state.Secrets.ConnectorOAuthStateSecret = recoveredSecrets.ConnectorOAuthStateSecret
+	state.Secrets.AdminPassword = recoveredSecrets.AdminPassword
+	state.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	ui.ok("Fetched server-generated secrets over pinned SSH", started)
+
+	started = ui.stage("Refreshing local deployment record")
+	if err := writeLocalFiles(state); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 1
+	}
+	ui.ok("Updated deployment record with recovery secrets", started)
 
 	var health *healthResult
 	if args.skipHealthWait {
@@ -522,13 +612,17 @@ func runInstall(ctx context.Context, ui *ui, args cliArgs) int {
 		result, err := waitForPublicHealth(ctx, publicURL, ui, defaultHealthWait)
 		health = &result
 		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				ui.warn("Cancelled by user.")
+				return 130
+			}
 			ui.warn(err.Error(), started)
 		} else if result.Ready {
 			ui.ok("Public health check passed for "+publicURL, started)
 		}
 	}
 
-	printSummary(ui, result, health)
+	printSummary(ui, state.Deployment, health)
 	return 0
 }
 
@@ -577,6 +671,7 @@ func parseArgs(argv []string) (cliArgs, error) {
 		flags.StringVar(&args.token, "token", "", "DigitalOcean API token")
 		flags.StringVar(&args.statePath, "state", "", "Path to deployment state JSON")
 		flags.StringVar(&args.ipAddress, "ip", "", "Server IPv4 address when no state file is available")
+		flags.StringVar(&args.sshKeyPath, "ssh-key", "", "SSH private key path when no state file is available")
 		flags.StringVar(&args.sshPassword, "ssh-password", "", "Root SSH password when no state file is available")
 		flags.StringVar(&args.publicURL, "url", "", "Public app URL when no state file is available")
 		flags.BoolVar(&args.skipHealthWait, "skip-health-wait", false, "Do not wait for the public URL to answer after update")
@@ -609,7 +704,7 @@ func printUsage(w io.Writer) {
   archectl destroy --token TOKEN [--state PATH] [--yes]
 
 Recovery without a state file:
-  archectl update --token TOKEN --version vX.X.X --ip IP --ssh-password PASSWORD [--url URL]
+  archectl update --token TOKEN --version vX.X.X --ip IP (--ssh-key PATH | --ssh-password PASSWORD) [--url URL]
   archectl destroy --token TOKEN --droplet-id ID [--firewall-id ID] --yes
 
 If no command is provided, archectl defaults to install for curl|bash compatibility.
@@ -618,11 +713,11 @@ Use -vv or --verbose to show SSH/bootstrap logs.`)
 }
 
 func collectInput(args cliArgs, ui *ui) (input, error) {
-	reader := bufio.NewReader(os.Stdin)
 	token, err := collectDOToken(args.token)
 	if err != nil {
 		return input{}, err
 	}
+	reader := bufio.NewReader(os.Stdin)
 
 	email := strings.TrimSpace(args.email)
 	if email == "" {
@@ -654,6 +749,7 @@ func collectInput(args cliArgs, ui *ui) (input, error) {
 		{"Workspace image", workspaceImageForVersion(args.version)},
 		{"Public URL", "https://arche-<droplet-ip>.nip.io"},
 	}, "info")
+	ui.warn("The default public hostname depends on nip.io DNS. If nip.io is unavailable, you will need to point your own domain at the Droplet.")
 	fmt.Print("Continue and create the Droplet? (Y/n): ")
 	answer, err := reader.ReadString('\n')
 	if err != nil {
@@ -667,17 +763,52 @@ func collectInput(args cliArgs, ui *ui) (input, error) {
 	return input{token: token, email: email, size: args.size, region: args.region, version: args.version}, nil
 }
 
-func generateSecrets() secretsData {
-	return secretsData{
-		postgresPassword:          randPassword(28),
-		sessionPepper:             randB64(32),
-		encryptionKey:             randB64(32),
-		internalToken:             randB64(32),
-		gatewayTokenSecret:        randB64(32),
-		connectorOAuthStateSecret: randB64(32),
-		adminPassword:             randPassword(20),
-		rootPassword:              randPassword(24),
+func ensureLocalSSHDependencies() error {
+	if findSSH() == "" {
+		return errors.New("local ssh client not found")
 	}
+	if findSSHKeyscan() == "" {
+		return errors.New("local ssh-keyscan client not found")
+	}
+	return nil
+}
+
+func generateSSHMaterial() (sshMaterial, error) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, 3072)
+	if err != nil {
+		return sshMaterial{}, fmt.Errorf("generate SSH private key: %w", err)
+	}
+	publicKey, err := marshalAuthorizedRSAPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		return sshMaterial{}, fmt.Errorf("encode SSH public key: %w", err)
+	}
+	privatePEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)})
+	return sshMaterial{privateKey: string(privatePEM), publicKey: publicKey}, nil
+}
+
+func marshalAuthorizedRSAPublicKey(key *rsa.PublicKey) (string, error) {
+	var payload bytes.Buffer
+	writeSSHString(&payload, []byte("ssh-rsa"))
+	writeSSHMPInt(&payload, big.NewInt(int64(key.E)))
+	writeSSHMPInt(&payload, key.N)
+	return "ssh-rsa " + base64.StdEncoding.EncodeToString(payload.Bytes()) + " archectl\n", nil
+}
+
+func writeSSHString(buf *bytes.Buffer, value []byte) {
+	_ = binary.Write(buf, binary.BigEndian, uint32(len(value)))
+	_, _ = buf.Write(value)
+}
+
+func writeSSHMPInt(buf *bytes.Buffer, value *big.Int) {
+	raw := value.Bytes()
+	if len(raw) == 0 {
+		writeSSHString(buf, nil)
+		return
+	}
+	if raw[0]&0x80 != 0 {
+		raw = append([]byte{0}, raw...)
+	}
+	writeSSHString(buf, raw)
 }
 
 func randB64(length int) string {
@@ -701,49 +832,124 @@ func randPassword(length int) string {
 	return out.String()
 }
 
+func newDOClient(token string) *doClient {
+	return &doClient{
+		token:   token,
+		http:    &http.Client{Timeout: 30 * time.Second},
+		baseURL: doAPIBase,
+	}
+}
+
 func (c *doClient) request(ctx context.Context, method string, path string, body any, out any) error {
-	var reader io.Reader
+	var rawBody []byte
 	if body != nil {
-		raw, err := json.Marshal(body)
+		encoded, err := json.Marshal(body)
 		if err != nil {
 			return err
 		}
-		reader = bytes.NewReader(raw)
+		rawBody = encoded
 	}
-	req, err := http.NewRequestWithContext(ctx, method, doAPIBase+path, reader)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("Accept", "application/json")
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		var payload struct {
-			Message string `json:"message"`
-			ID      string `json:"id"`
+	for attempt := 1; ; attempt++ {
+		var reader io.Reader
+		if rawBody != nil {
+			reader = bytes.NewReader(rawBody)
 		}
-		_ = json.Unmarshal(raw, &payload)
-		message := strings.TrimSpace(payload.Message)
-		if message == "" {
-			message = strings.TrimSpace(payload.ID)
+
+		req, err := http.NewRequestWithContext(ctx, method, c.apiBaseURL()+path, reader)
+		if err != nil {
+			return err
 		}
-		if message == "" {
-			message = string(raw)
+		req.Header.Set("Authorization", "Bearer "+c.token)
+		req.Header.Set("Accept", "application/json")
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
 		}
-		return fmt.Errorf("DigitalOcean API error (%d): %s", resp.StatusCode, message)
+
+		resp, err := c.http.Do(req)
+		if err != nil {
+			return err
+		}
+		raw, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+
+		if shouldRetryDORequest(resp.StatusCode) && attempt < 6 {
+			if err := sleepWithContext(ctx, digitalOceanRetryDelay(resp, attempt)); err != nil {
+				return err
+			}
+			continue
+		}
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			var payload struct {
+				Message string `json:"message"`
+				ID      string `json:"id"`
+			}
+			_ = json.Unmarshal(raw, &payload)
+			message := strings.TrimSpace(payload.Message)
+			if message == "" {
+				message = strings.TrimSpace(payload.ID)
+			}
+			if message == "" {
+				message = strings.TrimSpace(string(raw))
+			}
+			if message == "" {
+				message = http.StatusText(resp.StatusCode)
+			}
+			return fmt.Errorf("DigitalOcean API error (%d): %s", resp.StatusCode, message)
+		}
+		if out == nil || len(raw) == 0 {
+			return nil
+		}
+		return json.Unmarshal(raw, out)
 	}
-	if out == nil || len(raw) == 0 {
+}
+
+func (c *doClient) apiBaseURL() string {
+	if strings.TrimSpace(c.baseURL) != "" {
+		return c.baseURL
+	}
+	return doAPIBase
+}
+
+func shouldRetryDORequest(statusCode int) bool {
+	return statusCode == http.StatusTooManyRequests || statusCode == http.StatusBadGateway || statusCode == http.StatusServiceUnavailable || statusCode == http.StatusGatewayTimeout
+}
+
+func digitalOceanRetryDelay(resp *http.Response, attempt int) time.Duration {
+	if retryAfter := strings.TrimSpace(resp.Header.Get("Retry-After")); retryAfter != "" {
+		if seconds, err := strconv.Atoi(retryAfter); err == nil && seconds >= 0 {
+			return time.Duration(seconds) * time.Second
+		}
+		if retryAt, err := http.ParseTime(retryAfter); err == nil {
+			if delay := time.Until(retryAt); delay > 0 {
+				return delay
+			}
+		}
+	}
+	if reset := strings.TrimSpace(resp.Header.Get("RateLimit-Reset")); reset != "" {
+		if epoch, err := strconv.ParseInt(reset, 10, 64); err == nil {
+			if delay := time.Until(time.Unix(epoch, 0)); delay > 0 {
+				return delay
+			}
+		}
+	}
+
+	delay := time.Second << min(attempt-1, 4)
+	if delay > 30*time.Second {
+		return 30 * time.Second
+	}
+	return delay
+}
+
+func sleepWithContext(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
 		return nil
 	}
-	return json.Unmarshal(raw, out)
 }
 
 func (c *doClient) validateToken(ctx context.Context) error {
@@ -924,7 +1130,7 @@ func waitForPublicHealth(ctx context.Context, publicURL string, ui *ui, timeout 
 				last = urlErr.Err.Error()
 			}
 		}
-		remaining := maxDuration(0, timeout-time.Since(started))
+		remaining := max(time.Duration(0), timeout-time.Since(started))
 		ui.progressWait("Public health check", time.Since(started), timeout, fmt.Sprintf("attempt=%d | last=%s | remaining=%s", attempt, last, formatDuration(remaining)))
 		select {
 		case <-ctx.Done():
@@ -959,9 +1165,18 @@ func runUpdate(ctx context.Context, ui *ui, args cliArgs) int {
 		{"Workspace image", workspaceImage},
 	}, "info")
 
-	client := &doClient{token: token, http: &http.Client{Timeout: 30 * time.Second}}
+	if err := ensureSSHKnownHost(ctx, ui, &state); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 1
+	}
+
+	client := newDOClient(token)
 	started := ui.stage("Validating DigitalOcean API token")
 	if err := client.validateToken(ctx); err != nil {
+		if errors.Is(err, context.Canceled) {
+			ui.warn("Cancelled by user.")
+			return 130
+		}
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 1
 	}
@@ -969,7 +1184,11 @@ func runUpdate(ctx context.Context, ui *ui, args cliArgs) int {
 
 	started = ui.stage("Updating remote Compose configuration")
 	script := renderUpdateScript(args.version, renderCompose())
-	if err := runRemoteScript(ctx, ui, state.Deployment.IPAddress, state.Secrets.RootPassword, script); err != nil {
+	if err := runRemoteScript(ctx, ui, sshTarget{ip: state.Deployment.IPAddress, auth: sshAuthForState(state)}, script); err != nil {
+		if errors.Is(err, context.Canceled) {
+			ui.warn("Cancelled by user.")
+			return 130
+		}
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 1
 	}
@@ -1002,6 +1221,10 @@ func runUpdate(ctx context.Context, ui *ui, args cliArgs) int {
 	started = ui.stage("Waiting for updated public health check")
 	health, err := waitForPublicHealth(ctx, state.Deployment.PublicURL, ui, defaultHealthWait)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			ui.warn("Cancelled by user.")
+			return 130
+		}
 		ui.warn(err.Error(), started)
 	} else if health.Ready {
 		ui.ok("Updated version answered the public health check", started)
@@ -1011,9 +1234,23 @@ func runUpdate(ctx context.Context, ui *ui, args cliArgs) int {
 }
 
 func stateForUpdate(args cliArgs) (deploymentState, string, error) {
-	if args.ipAddress != "" || args.sshPassword != "" {
-		if args.ipAddress == "" || args.sshPassword == "" {
-			return deploymentState{}, "", errors.New("--ip and --ssh-password must be provided together")
+	if args.ipAddress != "" || args.sshPassword != "" || args.sshKeyPath != "" {
+		if args.ipAddress == "" {
+			return deploymentState{}, "", errors.New("--ip is required when using manual SSH recovery flags")
+		}
+		if args.sshPassword != "" && args.sshKeyPath != "" {
+			return deploymentState{}, "", errors.New("provide either --ssh-key or --ssh-password, not both")
+		}
+		if args.sshPassword == "" && args.sshKeyPath == "" {
+			return deploymentState{}, "", errors.New("manual recovery requires --ssh-key or --ssh-password")
+		}
+		privateKey := ""
+		if args.sshKeyPath != "" {
+			key, err := readSSHPrivateKey(args.sshKeyPath)
+			if err != nil {
+				return deploymentState{}, "", err
+			}
+			privateKey = key
 		}
 		publicURL := strings.TrimSpace(args.publicURL)
 		if publicURL == "" {
@@ -1030,7 +1267,7 @@ func stateForUpdate(args cliArgs) (deploymentState, string, error) {
 				Domain:    strings.TrimPrefix(strings.TrimPrefix(publicURL, "https://"), "http://"),
 				PublicURL: publicURL,
 			},
-			Secrets: stateSecrets{RootPassword: args.sshPassword},
+			Secrets: stateSecrets{RootPassword: args.sshPassword, SSHPrivateKey: privateKey},
 		}, "manual flags", nil
 	}
 	return readState(args.statePath)
@@ -1056,6 +1293,7 @@ func runDestroy(ctx context.Context, ui *ui, args cliArgs) int {
 		{"Server IP", state.Deployment.IPAddress},
 		{"App URL", state.Deployment.PublicURL},
 	}, "warn")
+	ui.warn("Destroy permanently deletes the Droplet, /opt/arche data, and the PostgreSQL volume. Create a DigitalOcean snapshot or backup first if you need recovery.")
 
 	if !args.yes {
 		reader := bufio.NewReader(os.Stdin)
@@ -1071,9 +1309,13 @@ func runDestroy(ctx context.Context, ui *ui, args cliArgs) int {
 		}
 	}
 
-	client := &doClient{token: token, http: &http.Client{Timeout: 30 * time.Second}}
+	client := newDOClient(token)
 	started := ui.stage("Validating DigitalOcean API token")
 	if err := client.validateToken(ctx); err != nil {
+		if errors.Is(err, context.Canceled) {
+			ui.warn("Cancelled by user.")
+			return 130
+		}
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 1
 	}
@@ -1090,6 +1332,10 @@ func runDestroy(ctx context.Context, ui *ui, args cliArgs) int {
 
 	started = ui.stage("Deleting Droplet")
 	if err := deleteDroplet(ctx, client, state.Deployment.DropletID); err != nil {
+		if errors.Is(err, context.Canceled) {
+			ui.warn("Cancelled by user.")
+			return 130
+		}
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 1
 	}
@@ -1119,11 +1365,8 @@ log() { printf '[update][%%s] %%s\n' "$(timestamp)" "$1"; }
 set_env() {
   key="$1"
   value="$2"
-  tmp="$(mktemp)"
-  grep -v "^${key}=" /opt/%s/.env > "$tmp" || true
-  printf '%%s=%%s\n' "$key" "$value" >> "$tmp"
-  cat "$tmp" > /opt/%s/.env
-  rm -f "$tmp"
+  sed -i "/^${key}=/d" /opt/%s/.env
+  printf '%%s=%%s\n' "$key" "$value" >> /opt/%s/.env
 }
 cd /opt/%s
 log 'Backing up current Compose and env files'
@@ -1150,37 +1393,71 @@ log 'Update complete'
 `, appName, appName, appName, shellQuote(b64(compose)), shellQuote(version), shellQuote(version), shellQuote(appImageForVersion(version)), shellQuote(workspaceImageForVersion(version)), appName)
 }
 
-func runRemoteScript(ctx context.Context, ui *ui, ip, password, script string) error {
+type sshTarget struct {
+	ip   string
+	auth sshAuth
+}
+
+func sshAuthForState(state deploymentState) sshAuth {
+	return sshAuth{
+		privateKey: state.Secrets.SSHPrivateKey,
+		password:   state.Secrets.RootPassword,
+		knownHost:  state.Secrets.SSHKnownHost,
+	}
+}
+
+func (a sshAuth) hasPrivateKey() bool {
+	return strings.TrimSpace(a.privateKey) != ""
+}
+
+func (a sshAuth) hasPassword() bool {
+	return strings.TrimSpace(a.password) != ""
+}
+
+func (a sshAuth) validate() error {
+	if a.hasPrivateKey() || a.hasPassword() {
+		return nil
+	}
+	return errors.New("SSH authentication details are missing")
+}
+
+func ensureSSHKnownHost(ctx context.Context, ui *ui, state *deploymentState) error {
+	if strings.TrimSpace(state.Secrets.SSHKnownHost) != "" || strings.TrimSpace(state.Deployment.IPAddress) == "" {
+		return nil
+	}
+	if findSSHKeyscan() == "" {
+		ui.warn("ssh-keyscan is not available locally. Falling back to accept-new host key trust for this update.")
+		return nil
+	}
+	started := ui.stage("Pinning the server SSH host key")
+	knownHost, err := scanSSHHostKey(ctx, state.Deployment.IPAddress)
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return err
+		}
+		ui.warn("Could not pre-pin the SSH host key: "+err.Error(), started)
+		return nil
+	}
+	state.Secrets.SSHKnownHost = knownHost
+	ui.ok("Pinned the server SSH host key", started)
+	return nil
+}
+
+func runRemoteScript(ctx context.Context, ui *ui, target sshTarget, script string) error {
 	sshPath := findSSH()
 	if sshPath == "" {
 		return errors.New("local ssh client not found")
 	}
-	askpassPath, err := createAskpassScript()
+	args, env, cleanup, err := prepareSSHInvocation(target.auth, 15, "archectl")
 	if err != nil {
 		return err
 	}
-	defer os.Remove(askpassPath)
+	defer cleanup()
 
-	cmd := exec.CommandContext(ctx, sshPath,
-		"-o", "StrictHostKeyChecking=no",
-		"-o", "UserKnownHostsFile=/dev/null",
-		"-o", "LogLevel=ERROR",
-		"-o", "PreferredAuthentications=password",
-		"-o", "PubkeyAuthentication=no",
-		"-o", "KbdInteractiveAuthentication=no",
-		"-o", "PasswordAuthentication=yes",
-		"-o", "NumberOfPasswordPrompts=1",
-		"-o", "ConnectTimeout=15",
-		"root@"+ip,
-		"bash -se",
-	)
+	cmdArgs := append(args, "root@"+target.ip, "bash -se")
+	cmd := exec.CommandContext(ctx, sshPath, cmdArgs...)
 	cmd.Stdin = strings.NewReader(script)
-	cmd.Env = append(os.Environ(),
-		"DISPLAY=archectl",
-		"SSH_ASKPASS="+askpassPath,
-		"SSH_ASKPASS_REQUIRE=force",
-		"ARCHE_SSH_PASSWORD="+password,
-	)
+	cmd.Env = env
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	stdout, err := cmd.StdoutPipe()
@@ -1236,21 +1513,22 @@ func runRemoteScript(ctx context.Context, ui *ui, ip, password, script string) e
 }
 
 type remoteStreamer struct {
-	ui          *ui
-	ip          string
-	password    string
-	sshPath     string
-	cancel      context.CancelFunc
-	attached    chan struct{}
-	done        chan struct{}
-	mu          sync.Mutex
-	complete    bool
-	lastError   string
-	askpassPath string
+	ui        *ui
+	target    sshTarget
+	sshPath   string
+	cancel    context.CancelFunc
+	attached  chan struct{}
+	done      chan struct{}
+	cleanup   func()
+	sshArgs   []string
+	sshEnv    []string
+	mu        sync.Mutex
+	complete  bool
+	lastError string
 }
 
-func newRemoteStreamer(ui *ui, ip, password string) *remoteStreamer {
-	return &remoteStreamer{ui: ui, ip: ip, password: password, sshPath: findSSH(), attached: make(chan struct{}), done: make(chan struct{})}
+func newRemoteStreamer(ui *ui, target sshTarget) *remoteStreamer {
+	return &remoteStreamer{ui: ui, target: target, sshPath: findSSH(), attached: make(chan struct{}), done: make(chan struct{})}
 }
 
 func (s *remoteStreamer) available() bool {
@@ -1267,13 +1545,15 @@ func (s *remoteStreamer) start(parent context.Context) error {
 	if s.sshPath == "" {
 		return errors.New("ssh not found")
 	}
-	ctx, cancel := context.WithCancel(parent)
-	s.cancel = cancel
-	path, err := createAskpassScript()
+	args, env, cleanup, err := prepareSSHInvocation(s.target.auth, 10, "arche-installer")
 	if err != nil {
 		return err
 	}
-	s.askpassPath = path
+	ctx, cancel := context.WithCancel(parent)
+	s.cancel = cancel
+	s.cleanup = cleanup
+	s.sshArgs = args
+	s.sshEnv = env
 	go s.run(ctx)
 	return nil
 }
@@ -1295,41 +1575,20 @@ func (s *remoteStreamer) stop() {
 	case <-s.done:
 	case <-time.After(5 * time.Second):
 	}
-	if s.askpassPath != "" {
-		_ = os.Remove(s.askpassPath)
+	if s.cleanup != nil {
+		s.cleanup()
 	}
 }
 
 func (s *remoteStreamer) run(ctx context.Context) {
 	defer close(s.done)
-	defer func() {
-		if s.askpassPath != "" {
-			_ = os.Remove(s.askpassPath)
-		}
-	}()
 	attachedClosed := false
 	for ctx.Err() == nil {
-		cmd := exec.CommandContext(ctx, s.sshPath,
-			"-o", "StrictHostKeyChecking=no",
-			"-o", "UserKnownHostsFile=/dev/null",
-			"-o", "LogLevel=ERROR",
-			"-o", "PreferredAuthentications=password",
-			"-o", "PubkeyAuthentication=no",
-			"-o", "KbdInteractiveAuthentication=no",
-			"-o", "PasswordAuthentication=yes",
-			"-o", "NumberOfPasswordPrompts=1",
-			"-o", "ConnectTimeout=10",
-			"root@"+s.ip,
-			fmt.Sprintf("sh -lc 'touch /var/log/%s-bootstrap.log && tail -n +1 -F /var/log/%s-bootstrap.log'", appName, appName),
-		)
+		cmdArgs := append(append([]string{}, s.sshArgs...), "root@"+s.target.ip, "sh -lc "+shellQuote(fmt.Sprintf("touch /var/log/%s-bootstrap.log && tail -n +1 -F /var/log/%s-bootstrap.log", appName, appName)))
+		cmd := exec.CommandContext(ctx, s.sshPath, cmdArgs...)
 		cmd.Stdin = nil
 		cmd.Stderr = nil
-		cmd.Env = append(os.Environ(),
-			"DISPLAY=arche-installer",
-			"SSH_ASKPASS="+s.askpassPath,
-			"SSH_ASKPASS_REQUIRE=force",
-			"ARCHE_SSH_PASSWORD="+s.password,
-		)
+		cmd.Env = s.sshEnv
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
@@ -1379,6 +1638,96 @@ func (s *remoteStreamer) setError(message string) {
 	s.lastError = message
 }
 
+func runRemoteCommand(ctx context.Context, target sshTarget, command string) (string, error) {
+	sshPath := findSSH()
+	if sshPath == "" {
+		return "", errors.New("local ssh client not found")
+	}
+	args, env, cleanup, err := prepareSSHInvocation(target.auth, 15, "archectl")
+	if err != nil {
+		return "", err
+	}
+	defer cleanup()
+
+	cmdArgs := append(args, "root@"+target.ip, "bash -lc "+shellQuote(command))
+	cmd := exec.CommandContext(ctx, sshPath, cmdArgs...)
+	cmd.Env = env
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return string(output), nil
+}
+
+func prepareSSHInvocation(auth sshAuth, connectTimeout int, display string) ([]string, []string, func(), error) {
+	if err := auth.validate(); err != nil {
+		return nil, nil, nil, err
+	}
+
+	args := []string{
+		"-o", "LogLevel=ERROR",
+		"-o", fmt.Sprintf("ConnectTimeout=%d", connectTimeout),
+	}
+	env := append([]string{}, os.Environ()...)
+	cleanupFns := []func(){}
+	cleanup := func() {
+		for i := len(cleanupFns) - 1; i >= 0; i-- {
+			cleanupFns[i]()
+		}
+	}
+
+	knownHostsPath, err := createKnownHostsFile(auth.knownHost)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	cleanupFns = append(cleanupFns, func() { _ = os.Remove(knownHostsPath) })
+	if strings.TrimSpace(auth.knownHost) != "" {
+		args = append(args, "-o", "StrictHostKeyChecking=yes")
+	} else {
+		args = append(args, "-o", "StrictHostKeyChecking=accept-new")
+	}
+	args = append(args, "-o", "UserKnownHostsFile="+knownHostsPath)
+
+	if auth.hasPrivateKey() {
+		keyPath, err := createSSHKeyFile(auth.privateKey)
+		if err != nil {
+			cleanup()
+			return nil, nil, nil, err
+		}
+		cleanupFns = append(cleanupFns, func() { _ = os.Remove(keyPath) })
+		args = append(args,
+			"-i", keyPath,
+			"-o", "IdentitiesOnly=yes",
+			"-o", "PreferredAuthentications=publickey",
+			"-o", "PasswordAuthentication=no",
+			"-o", "KbdInteractiveAuthentication=no",
+		)
+		return args, env, cleanup, nil
+	}
+
+	askpassPath, err := createAskpassScript()
+	if err != nil {
+		cleanup()
+		return nil, nil, nil, err
+	}
+	cleanupFns = append(cleanupFns, func() { _ = os.Remove(askpassPath) })
+	env = append(env,
+		"DISPLAY="+display,
+		"SSH_ASKPASS="+askpassPath,
+		"SSH_ASKPASS_REQUIRE=force",
+		"ARCHE_SSH_PASSWORD="+auth.password,
+	)
+	args = append(args,
+		"-o", "PreferredAuthentications=password",
+		"-o", "PubkeyAuthentication=no",
+		"-o", "KbdInteractiveAuthentication=no",
+		"-o", "PasswordAuthentication=yes",
+		"-o", "NumberOfPasswordPrompts=1",
+	)
+	return args, env, cleanup, nil
+}
+
 func createAskpassScript() (string, error) {
 	file, err := os.CreateTemp("", "arche-askpass-*.sh")
 	if err != nil {
@@ -1398,6 +1747,46 @@ func createAskpassScript() (string, error) {
 	return path, nil
 }
 
+func createSSHKeyFile(value string) (string, error) {
+	file, err := os.CreateTemp("", "arche-key-*.pem")
+	if err != nil {
+		return "", err
+	}
+	path := file.Name()
+	if _, err := file.WriteString(strings.TrimSpace(value) + "\n"); err != nil {
+		_ = file.Close()
+		return "", err
+	}
+	if err := file.Close(); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func createKnownHostsFile(value string) (string, error) {
+	file, err := os.CreateTemp("", "arche-known-hosts-*")
+	if err != nil {
+		return "", err
+	}
+	path := file.Name()
+	if strings.TrimSpace(value) != "" {
+		if _, err := file.WriteString(strings.TrimSpace(value) + "\n"); err != nil {
+			_ = file.Close()
+			return "", err
+		}
+	}
+	if err := file.Close(); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
 func findSSH() string {
 	path, err := exec.LookPath("ssh")
 	if err != nil {
@@ -1406,7 +1795,39 @@ func findSSH() string {
 	return path
 }
 
-func renderEnvTemplate(data input, secret secretsData) string {
+func findSSHKeyscan() string {
+	path, err := exec.LookPath("ssh-keyscan")
+	if err != nil {
+		return ""
+	}
+	return path
+}
+
+func scanSSHHostKey(ctx context.Context, ip string) (string, error) {
+	sshKeyscanPath := findSSHKeyscan()
+	if sshKeyscanPath == "" {
+		return "", errors.New("local ssh-keyscan client not found")
+	}
+	cmd := exec.CommandContext(ctx, sshKeyscanPath, "-T", "10", ip)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("scan SSH host key: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	lines := []string{}
+	for _, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	if len(lines) == 0 {
+		return "", errors.New("ssh-keyscan returned no host keys")
+	}
+	return strings.Join(lines, "\n"), nil
+}
+
+func renderEnvFile(data input, secret stateSecrets, domain, publicURL string) string {
 	return strings.TrimSpace(fmt.Sprintf(`
 ACME_EMAIL=%s
 ARCHE_DOMAIN=%s
@@ -1439,7 +1860,7 @@ OPENCODE_NETWORK=arche-internal
 KB_CONTENT_HOST_PATH=/opt/arche/kb-content
 KB_CONFIG_HOST_PATH=/opt/arche/kb-config
 ARCHE_USERS_PATH=/opt/arche/users
-`, data.email, envPlaceholderDomain, envPlaceholderPublicBaseURL, data.version, data.version, appImageForVersion(data.version), secret.postgresPassword, dbName, secret.postgresPassword, secret.sessionPepper, secret.encryptionKey, secret.internalToken, secret.connectorOAuthStateSecret, secret.gatewayTokenSecret, data.email, secret.adminPassword, workspaceImageForVersion(data.version))) + "\n"
+`, data.email, domain, publicURL, data.version, data.version, appImageForVersion(data.version), secret.PostgresPassword, dbName, secret.PostgresPassword, secret.SessionPepper, secret.EncryptionKey, secret.InternalToken, secret.ConnectorOAuthStateSecret, secret.GatewayTokenSecret, data.email, secret.AdminPassword, workspaceImageForVersion(data.version))) + "\n"
 }
 
 func renderCompose() string {
@@ -1483,6 +1904,8 @@ services:
       NETWORKS: 1
       IMAGES: 1
       INFO: 1
+      # Arche manages isolated per-user workspaces, so the proxy must allow
+      # container lifecycle calls plus network and volume lookups for attach/mount flows.
       POST: 1
       VOLUMES: 1
     volumes:
@@ -1546,18 +1969,23 @@ volumes:
 `, appName, dbName, appPort)) + "\n"
 }
 
-func renderBootstrapScript() string {
-	template := `
+func renderBootstrapScript(data input) string {
+	return strings.TrimSpace(fmt.Sprintf(`
 #!/usr/bin/env bash
 set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 STEP_NO=0
+ADMIN_EMAIL=%s
+ARCHE_VERSION=%s
+ARCHE_RELEASE_VERSION=%s
+ARCHE_WEB_IMAGE=%s
+OPENCODE_IMAGE=%s
 
-timestamp() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
-log() { printf '[bootstrap][%s] %s\n' "$(timestamp)" "$1"; }
-step() { STEP_NO=$((STEP_NO + 1)); printf '\n[bootstrap][%s] STEP %02d %s\n' "$(timestamp)" "$STEP_NO" "$1"; }
-fail() { printf '[bootstrap][%s] ERROR exit=%s line=%s command=%s\n' "$(timestamp)" "$1" "$2" "$3"; exit "$1"; }
+timestamp() { date -u +"%%Y-%%m-%%dT%%H:%%M:%%SZ"; }
+log() { printf '[bootstrap][%%s] %%s\n' "$(timestamp)" "$1"; }
+step() { STEP_NO=$((STEP_NO + 1)); printf '\n[bootstrap][%%s] STEP %%02d %%s\n' "$(timestamp)" "$STEP_NO" "$1"; }
+fail() { printf '[bootstrap][%%s] ERROR exit=%%s line=%%s command=%%s\n' "$(timestamp)" "$1" "$2" "$3"; exit "$1"; }
 trap 'fail "$?" "$LINENO" "$BASH_COMMAND"' ERR
 
 metadata_ip() { curl -fsS http://169.254.169.254/metadata/v1/interfaces/public/0/ipv4/address; }
@@ -1569,12 +1997,24 @@ ensure_bare_repo() {
   git init --bare --initial-branch=main "$repo" >/dev/null 2>&1 || git init --bare "$repo" >/dev/null 2>&1
   git --git-dir="$repo" symbolic-ref HEAD refs/heads/main >/dev/null 2>&1 || true
 }
+rand_b64() {
+  local bytes="${1:-32}"
+  head -c "$bytes" /dev/urandom | base64 | tr -d '\n'
+}
+rand_password() {
+  local length="$1"
+  local value=""
+  while [ "${#value}" -lt "$length" ]; do
+    value="${value}$(head -c "$length" /dev/urandom | base64 | tr -dc 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789-_')"
+  done
+  printf '%%s' "${value:0:$length}"
+}
 
 step 'Configuring SSH access'
-sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin yes/' /etc/ssh/sshd_config
-sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
+sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config
 systemctl restart sshd || systemctl restart ssh
-log 'Root login and password authentication are enabled for first access'
+log 'Root SSH access is restricted to the generated deploy key'
 
 step 'Installing system packages'
 apt-get update -y
@@ -1589,27 +2029,65 @@ log "$(docker compose version)"
 
 step 'Deriving public endpoint'
 PUBLIC_IP="$(metadata_ip)"
-ARCHE_DOMAIN="{{APP_NAME}}-${PUBLIC_IP//./-}.nip.io"
+ARCHE_DOMAIN="%s-${PUBLIC_IP//./-}.nip.io"
 ARCHE_PUBLIC_BASE_URL="https://${ARCHE_DOMAIN}"
 log "Detected public IP ${PUBLIC_IP}"
 log "Derived public domain ${ARCHE_DOMAIN}"
 log "Using public URL ${ARCHE_PUBLIC_BASE_URL}"
 
 step 'Preparing persistent directories and repositories'
-mkdir -p /opt/{{APP_NAME}} /opt/{{APP_NAME}}/users /opt/{{APP_NAME}}/kb-content /opt/{{APP_NAME}}/kb-config
-ensure_bare_repo /opt/{{APP_NAME}}/kb-content
-ensure_bare_repo /opt/{{APP_NAME}}/kb-config
+mkdir -p /opt/%s /opt/%s/users /opt/%s/kb-content /opt/%s/kb-config
+ensure_bare_repo /opt/%s/kb-content
+ensure_bare_repo /opt/%s/kb-config
 log 'Ensured /opt/arche/users, /opt/arche/kb-content, and /opt/arche/kb-config exist'
 
 step 'Rendering runtime configuration'
-cp /opt/{{APP_NAME}}/.env.template /opt/{{APP_NAME}}/.env
-sed -i "s|{{ENV_PLACEHOLDER_DOMAIN}}|${ARCHE_DOMAIN}|g" /opt/{{APP_NAME}}/.env
-sed -i "s|{{ENV_PLACEHOLDER_PUBLIC_URL}}|${ARCHE_PUBLIC_BASE_URL}|g" /opt/{{APP_NAME}}/.env
-log 'Wrote /opt/arche/.env and injected the live public URL'
+POSTGRES_PASSWORD="$(rand_password 28)"
+ARCHE_SESSION_PEPPER="$(rand_b64 32)"
+ARCHE_ENCRYPTION_KEY="$(rand_b64 32)"
+ARCHE_INTERNAL_TOKEN="$(rand_b64 32)"
+ARCHE_CONNECTOR_OAUTH_STATE_SECRET="$(rand_b64 32)"
+ARCHE_GATEWAY_TOKEN_SECRET="$(rand_b64 32)"
+ARCHE_SEED_ADMIN_PASSWORD="$(rand_password 20)"
+cat > /opt/%s/.env <<EOF
+ACME_EMAIL=${ADMIN_EMAIL}
+ARCHE_DOMAIN=${ARCHE_DOMAIN}
+ARCHE_PUBLIC_BASE_URL=${ARCHE_PUBLIC_BASE_URL}
+ARCHE_VERSION=${ARCHE_VERSION}
+ARCHE_RELEASE_VERSION=${ARCHE_RELEASE_VERSION}
+ARCHE_WEB_IMAGE=${ARCHE_WEB_IMAGE}
+
+DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/%s?schema=public
+POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+
+ARCHE_SESSION_PEPPER=${ARCHE_SESSION_PEPPER}
+ARCHE_ENCRYPTION_KEY=${ARCHE_ENCRYPTION_KEY}
+ARCHE_INTERNAL_TOKEN=${ARCHE_INTERNAL_TOKEN}
+ARCHE_CONNECTOR_OAUTH_STATE_SECRET=${ARCHE_CONNECTOR_OAUTH_STATE_SECRET}
+ARCHE_GATEWAY_TOKEN_SECRET=${ARCHE_GATEWAY_TOKEN_SECRET}
+
+ARCHE_COOKIE_SECURE=true
+ARCHE_SESSION_TTL_DAYS=7
+
+ARCHE_SEED_ADMIN_EMAIL=${ADMIN_EMAIL}
+ARCHE_SEED_ADMIN_PASSWORD=${ARCHE_SEED_ADMIN_PASSWORD}
+ARCHE_SEED_ADMIN_SLUG=admin
+
+CONTAINER_PROXY_HOST=docker-socket-proxy
+CONTAINER_PROXY_PORT=2375
+OPENCODE_IMAGE=${OPENCODE_IMAGE}
+OPENCODE_NETWORK=arche-internal
+
+KB_CONTENT_HOST_PATH=/opt/arche/kb-content
+KB_CONFIG_HOST_PATH=/opt/arche/kb-config
+ARCHE_USERS_PATH=/opt/arche/users
+EOF
+chmod 600 /opt/%s/.env
+log 'Wrote /opt/arche/.env with server-generated secrets and the live public URL'
 
 step 'Pulling container images'
 set -a
-. /opt/{{APP_NAME}}/.env
+. /opt/%s/.env
 set +a
 log "Pulling web image ${ARCHE_WEB_IMAGE}"
 docker pull "${ARCHE_WEB_IMAGE}"
@@ -1617,43 +2095,33 @@ log "Pulling workspace image ${OPENCODE_IMAGE}"
 docker pull "${OPENCODE_IMAGE}"
 
 step 'Starting Arche stack'
-cd /opt/{{APP_NAME}}
+cd /opt/%s
 docker compose up -d
 docker compose ps
 log 'Compose stack started'
 
 step 'Recording bootstrap summary'
-cat > /opt/{{APP_NAME}}/bootstrap-summary.txt <<EOF
+cat > /opt/%s/bootstrap-summary.txt <<EOF
 public_ip=${PUBLIC_IP}
 domain=${ARCHE_DOMAIN}
 public_url=${ARCHE_PUBLIC_BASE_URL}
-compose_dir=/opt/{{APP_NAME}}
+compose_dir=/opt/%s
 EOF
 
 log 'Bootstrap complete. If the public URL is not ready yet, keep tailing /var/log/arche-bootstrap.log and docker compose logs.'
-`
-	replacer := strings.NewReplacer(
-		"{{APP_NAME}}", appName,
-		"{{ENV_PLACEHOLDER_DOMAIN}}", envPlaceholderDomain,
-		"{{ENV_PLACEHOLDER_PUBLIC_URL}}", envPlaceholderPublicBaseURL,
-	)
-	return strings.TrimSpace(replacer.Replace(template)) + "\n"
+`, shellQuote(data.email), shellQuote(data.version), shellQuote(data.version), shellQuote(appImageForVersion(data.version)), shellQuote(workspaceImageForVersion(data.version)), appName, appName, appName, appName, appName, appName, appName, dbName, appName, appName, appName, appName, appName, appName)) + "\n"
 }
 
-func renderCloudInit(secret secretsData, envTemplate, compose, bootstrap string) string {
+func renderCloudInit(sshPublicKey, compose, bootstrap string) string {
 	return strings.TrimSpace(fmt.Sprintf(`#cloud-config
 disable_root: false
-ssh_pwauth: true
-chpasswd:
-  expire: false
-  list: |
-    root:%s
+ssh_pwauth: false
+users:
+  - name: root
+    lock_passwd: true
+    ssh_authorized_keys:
+      - %s
 write_files:
-  - path: /opt/%s/.env.template
-    owner: root:root
-    permissions: "0600"
-    encoding: b64
-    content: %s
   - path: /opt/%s/docker-compose.yml
     owner: root:root
     permissions: "0644"
@@ -1667,13 +2135,20 @@ write_files:
 runcmd:
   - bash -lc '/opt/%s/bootstrap.sh > /var/log/%s-bootstrap.log 2>&1'
 final_message: '%s bootstrap finished'
-`, secret.rootPassword, appName, b64(envTemplate), appName, b64(compose), appName, b64(bootstrap), appName, appName, appName)) + "\n"
+`, strings.TrimSpace(sshPublicKey), appName, b64(compose), appName, b64(bootstrap), appName, appName, appName)) + "\n"
 }
 
 func validateTemplates(version string) error {
 	sample := input{token: "sample", email: "admin@example.com", size: defaultDropletSize, region: defaultDropletRegion, version: version}
-	secret := generateSecrets()
-	envTemplate := renderEnvTemplate(sample, secret)
+	envTemplate := renderEnvFile(sample, stateSecrets{
+		PostgresPassword:          "postgres-password",
+		SessionPepper:             "session-pepper",
+		EncryptionKey:             "encryption-key",
+		InternalToken:             "internal-token",
+		GatewayTokenSecret:        "gateway-token",
+		ConnectorOAuthStateSecret: "oauth-state-token",
+		AdminPassword:             "admin-password",
+	}, envPlaceholderDomain, envPlaceholderPublicBaseURL)
 	compose := renderCompose()
 	envKeys := map[string]bool{}
 	for _, line := range strings.Split(envTemplate, "\n") {
@@ -1704,85 +2179,102 @@ func validateTemplates(version string) error {
 	return nil
 }
 
-func allocateLocalPaths() (string, string, error) {
+func allocateLocalPaths() (string, string, string, string, error) {
 	dir, err := deploymentStateDir()
 	if err != nil {
-		return "", "", err
+		return "", "", "", "", err
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", "", err
+		return "", "", "", "", err
 	}
 	stem := appName + "-" + time.Now().UTC().Format("20060102-150405")
-	return filepath.Join(dir, stem+".txt"), filepath.Join(dir, stem+".json"), nil
+	return filepath.Join(dir, stem+".txt"), filepath.Join(dir, stem+".json"), filepath.Join(dir, stem+"-ssh.pem"), filepath.Join(dir, stem+"-known_hosts"), nil
 }
 
-func writeLocalFiles(data input, secret secretsData, result artifacts) error {
-	text := fmt.Sprintf(`Arche one-click deployment
-=========================
+func writeLocalFiles(state deploymentState) error {
+	if state.Deployment.SSHKeyFile != "" && strings.TrimSpace(state.Secrets.SSHPrivateKey) != "" {
+		if err := os.WriteFile(state.Deployment.SSHKeyFile, []byte(strings.TrimSpace(state.Secrets.SSHPrivateKey)+"\n"), 0o600); err != nil {
+			return err
+		}
+	}
+	if state.Deployment.KnownHostsFile != "" && strings.TrimSpace(state.Secrets.SSHKnownHost) != "" {
+		if err := os.WriteFile(state.Deployment.KnownHostsFile, []byte(strings.TrimSpace(state.Secrets.SSHKnownHost)+"\n"), 0o600); err != nil {
+			return err
+		}
+	}
 
-Droplet id:        %d
-Firewall id:       %s
-Droplet name:      %s
-Region:            %s
-Size:              %s
-Public IP:         %s
-Public domain:     %s
-Public URL:        %s
+	var text strings.Builder
+	text.WriteString("Arche one-click deployment\n")
+	text.WriteString("=========================\n\n")
+	fmt.Fprintf(&text, "Droplet id:        %d\n", state.Deployment.DropletID)
+	fmt.Fprintf(&text, "Firewall id:       %s\n", state.Deployment.FirewallID)
+	fmt.Fprintf(&text, "Droplet name:      %s\n", state.Deployment.DropletName)
+	fmt.Fprintf(&text, "Region:            %s\n", state.Input.DropletRegion)
+	fmt.Fprintf(&text, "Size:              %s\n", state.Input.DropletSize)
+	fmt.Fprintf(&text, "Public IP:         %s\n", state.Deployment.IPAddress)
+	fmt.Fprintf(&text, "Public domain:     %s\n", state.Deployment.Domain)
+	fmt.Fprintf(&text, "Public URL:        %s\n\n", state.Deployment.PublicURL)
 
-SSH user:          root
-SSH password:      %s
-SSH command:       ssh root@%s
+	text.WriteString("SSH user:          root\n")
+	if strings.TrimSpace(state.Secrets.SSHPrivateKey) != "" {
+		fmt.Fprintf(&text, "SSH key file:      %s\n", state.Deployment.SSHKeyFile)
+		if state.Deployment.KnownHostsFile != "" {
+			fmt.Fprintf(&text, "Known hosts file:  %s\n", state.Deployment.KnownHostsFile)
+		}
+		sshCommand := fmt.Sprintf("ssh -i %s", state.Deployment.SSHKeyFile)
+		if state.Deployment.KnownHostsFile != "" {
+			sshCommand += " -o UserKnownHostsFile=" + state.Deployment.KnownHostsFile
+		}
+		sshCommand += " root@" + state.Deployment.IPAddress
+		fmt.Fprintf(&text, "SSH command:       %s\n\n", sshCommand)
+	} else if strings.TrimSpace(state.Secrets.RootPassword) != "" {
+		fmt.Fprintf(&text, "SSH password:      %s\n", state.Secrets.RootPassword)
+		fmt.Fprintf(&text, "SSH command:       ssh root@%s\n\n", state.Deployment.IPAddress)
+	} else {
+		text.WriteString("SSH access:        pending recovery data fetch\n\n")
+	}
 
-Version:           %s
-App image:         %s
-Workspace image:   %s
-Admin email:       %s
-Admin password:    %s
-Admin slug:        admin
+	fmt.Fprintf(&text, "Version:           %s\n", state.Version)
+	fmt.Fprintf(&text, "App image:         %s\n", state.AppImage)
+	fmt.Fprintf(&text, "Workspace image:   %s\n", state.WorkspaceImage)
+	fmt.Fprintf(&text, "Admin email:       %s\n", state.Deployment.AdminEmail)
+	if strings.TrimSpace(state.Secrets.AdminPassword) != "" {
+		fmt.Fprintf(&text, "Admin password:    %s\n", state.Secrets.AdminPassword)
+	} else {
+		text.WriteString("Admin password:    pending recovery data fetch\n")
+	}
+	text.WriteString("Admin slug:        admin\n\n")
 
-PostgreSQL db:     %s
-PostgreSQL user:   postgres
-PostgreSQL pass:   %s
+	fmt.Fprintf(&text, "PostgreSQL db:     %s\n", state.DBName)
+	text.WriteString("PostgreSQL user:   postgres\n")
+	if strings.TrimSpace(state.Secrets.PostgresPassword) != "" {
+		fmt.Fprintf(&text, "PostgreSQL pass:   %s\n\n", state.Secrets.PostgresPassword)
+		fmt.Fprintf(&text, "ARCHE_SESSION_PEPPER=%s\n", state.Secrets.SessionPepper)
+		fmt.Fprintf(&text, "ARCHE_ENCRYPTION_KEY=%s\n", state.Secrets.EncryptionKey)
+		fmt.Fprintf(&text, "ARCHE_INTERNAL_TOKEN=%s\n", state.Secrets.InternalToken)
+		fmt.Fprintf(&text, "ARCHE_GATEWAY_TOKEN_SECRET=%s\n", state.Secrets.GatewayTokenSecret)
+		fmt.Fprintf(&text, "ARCHE_CONNECTOR_OAUTH_STATE_SECRET=%s\n\n", state.Secrets.ConnectorOAuthStateSecret)
+	} else {
+		text.WriteString("PostgreSQL pass:   pending recovery data fetch\n\n")
+	}
 
-ARCHE_SESSION_PEPPER=%s
-ARCHE_ENCRYPTION_KEY=%s
-ARCHE_INTERNAL_TOKEN=%s
-ARCHE_GATEWAY_TOKEN_SECRET=%s
-ARCHE_CONNECTOR_OAUTH_STATE_SECRET=%s
+	text.WriteString("Useful commands:\n")
+	if state.Deployment.SSHKeyFile != "" {
+		baseSSH := fmt.Sprintf("ssh -i %s", state.Deployment.SSHKeyFile)
+		if state.Deployment.KnownHostsFile != "" {
+			baseSSH += " -o UserKnownHostsFile=" + state.Deployment.KnownHostsFile
+		}
+		baseSSH += " root@" + state.Deployment.IPAddress
+		fmt.Fprintf(&text, "%s 'tail -f /var/log/%s-bootstrap.log'\n", baseSSH, appName)
+		fmt.Fprintf(&text, "%s 'cd /opt/%s && docker compose logs -f web'\n", baseSSH, appName)
+		fmt.Fprintf(&text, "%s 'cd /opt/%s && docker compose ps'\n", baseSSH, appName)
+	}
 
-Useful commands:
-ssh root@%s 'tail -f /var/log/%s-bootstrap.log'
-ssh root@%s 'cd /opt/%s && docker compose logs -f web'
-ssh root@%s 'cd /opt/%s && docker compose ps'
-`, result.DropletID, result.FirewallID, result.DropletName, data.region, data.size, result.IPAddress, result.Domain, result.PublicURL, secret.rootPassword, result.IPAddress, data.version, appImageForVersion(data.version), workspaceImageForVersion(data.version), result.AdminEmail, secret.adminPassword, dbName, secret.postgresPassword, secret.sessionPepper, secret.encryptionKey, secret.internalToken, secret.gatewayTokenSecret, secret.connectorOAuthStateSecret, result.IPAddress, appName, result.IPAddress, appName, result.IPAddress, appName)
-	if err := os.WriteFile(result.CredentialsFile, []byte(text), 0o600); err != nil {
+	if err := os.WriteFile(state.Deployment.CredentialsFile, []byte(text.String()), 0o600); err != nil {
 		return err
 	}
-	state := deploymentState{
-		AppName:        appName,
-		Version:        data.version,
-		AppImage:       appImageForVersion(data.version),
-		WorkspaceImage: workspaceImageForVersion(data.version),
-		DBName:         dbName,
-		Input: stateInput{
-			Email:         data.email,
-			DropletSize:   data.size,
-			DropletRegion: data.region,
-		},
-		Deployment: result,
-		Secrets: stateSecrets{
-			PostgresPassword:          secret.postgresPassword,
-			SessionPepper:             secret.sessionPepper,
-			EncryptionKey:             secret.encryptionKey,
-			InternalToken:             secret.internalToken,
-			GatewayTokenSecret:        secret.gatewayTokenSecret,
-			ConnectorOAuthStateSecret: secret.connectorOAuthStateSecret,
-			AdminPassword:             secret.adminPassword,
-			RootPassword:              secret.rootPassword,
-		},
-		UpdatedAt: time.Now().UTC().Format(time.RFC3339),
-	}
-	return writeStateFiles(state, result.JSONFile)
+	state.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	return writeStateFiles(state, state.Deployment.JSONFile)
 }
 
 func printSummary(ui *ui, result artifacts, health *healthResult) {
@@ -1825,14 +2317,6 @@ func appImageForVersion(version string) string {
 
 func workspaceImageForVersion(version string) string {
 	return workspaceImageRepo + ":" + version
-}
-
-func inferVersion(image string) string {
-	_, version, ok := strings.Cut(image, ":")
-	if !ok || strings.TrimSpace(version) == "" {
-		return defaultVersion
-	}
-	return version
 }
 
 func validateVersion(version string) error {
@@ -1910,44 +2394,28 @@ func readState(path string) (deploymentState, string, error) {
 	if err := json.Unmarshal(raw, &state); err != nil {
 		return deploymentState{}, "", fmt.Errorf("parse state file %s: %w", resolved, err)
 	}
-	if state.Deployment.IPAddress == "" {
-		var legacy struct {
-			AppName        string          `json:"app_name"`
-			AppImage       string          `json:"app_image"`
-			WorkspaceImage string          `json:"workspace_image"`
-			DBName         string          `json:"db_name"`
-			Input          stateInput      `json:"input"`
-			Deployment     legacyArtifacts `json:"deployment"`
-			Secrets        stateSecrets    `json:"secrets"`
-		}
-		if err := json.Unmarshal(raw, &legacy); err == nil && legacy.Deployment.IPAddress != "" {
-			state = deploymentState{
-				AppName:        fallback(legacy.AppName, appName),
-				Version:        inferVersion(legacy.AppImage),
-				AppImage:       fallback(legacy.AppImage, appImageForVersion(defaultVersion)),
-				WorkspaceImage: fallback(legacy.WorkspaceImage, workspaceImageForVersion(defaultVersion)),
-				DBName:         fallback(legacy.DBName, dbName),
-				Input:          legacy.Input,
-				Deployment: artifacts{
-					DropletID:       legacy.Deployment.DropletID,
-					FirewallID:      legacy.Deployment.FirewallID,
-					DropletName:     legacy.Deployment.DropletName,
-					IPAddress:       legacy.Deployment.IPAddress,
-					Domain:          legacy.Deployment.Domain,
-					PublicURL:       legacy.Deployment.PublicURL,
-					AdminEmail:      legacy.Deployment.AdminEmail,
-					CredentialsFile: legacy.Deployment.CredentialsFile,
-					JSONFile:        legacy.Deployment.JSONFile,
-				},
-				Secrets:   legacy.Secrets,
-				UpdatedAt: time.Now().UTC().Format(time.RFC3339),
-			}
-		}
+	if state.Deployment.JSONFile == "" {
+		state.Deployment.JSONFile = resolved
 	}
-	if state.Deployment.IPAddress == "" || state.Secrets.RootPassword == "" {
+	if state.Deployment.IPAddress == "" {
+		return deploymentState{}, "", fmt.Errorf("state file %s is missing the server IP address", resolved)
+	}
+	if strings.TrimSpace(state.Secrets.SSHPrivateKey) == "" && strings.TrimSpace(state.Secrets.RootPassword) == "" {
 		return deploymentState{}, "", fmt.Errorf("state file %s is missing SSH connection details", resolved)
 	}
 	return state, resolved, nil
+}
+
+func readSSHPrivateKey(path string) (string, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read SSH private key %s: %w", path, err)
+	}
+	key := strings.TrimSpace(string(raw))
+	if key == "" {
+		return "", fmt.Errorf("SSH private key %s is empty", path)
+	}
+	return key, nil
 }
 
 func collectDOToken(flagValue string) (string, error) {
@@ -1978,7 +2446,7 @@ func shellQuote(value string) string {
 	if value == "" {
 		return "''"
 	}
-	return strconv.Quote(value)
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }
 
 func fallback(value, defaultValue string) string {
@@ -2012,23 +2480,73 @@ func formatDuration(value time.Duration) string {
 	return fmt.Sprintf("%ds", seconds)
 }
 
-func minInt(a, b int) int {
-	if a < b {
-		return a
+func waitForRemoteSecrets(ctx context.Context, ui *ui, target sshTarget, timeout time.Duration) (stateSecrets, error) {
+	started := time.Now()
+	last := "waiting for /opt/arche/.env"
+	attempt := 0
+	for time.Since(started) < timeout {
+		attempt++
+		output, err := runRemoteCommand(ctx, target, fmt.Sprintf("test -s /opt/%s/.env && cat /opt/%s/.env", appName, appName))
+		if err == nil {
+			secrets, parseErr := parseStateSecretsFromEnv(output)
+			if parseErr == nil {
+				ui.progressDone("Remote recovery data", timeout, fmt.Sprintf("attempt=%d | env ready", attempt))
+				return secrets, nil
+			}
+			last = parseErr.Error()
+		} else {
+			last = err.Error()
+		}
+		ui.progressWait("Remote recovery data", time.Since(started), timeout, fmt.Sprintf("attempt=%d | last=%s", attempt, last))
+		select {
+		case <-ctx.Done():
+			return stateSecrets{}, ctx.Err()
+		case <-time.After(5 * time.Second):
+		}
 	}
-	return b
+	return stateSecrets{}, fmt.Errorf("timed out waiting for generated recovery data. Last status: %s", last)
 }
 
-func maxInt(a, b int) int {
-	if a > b {
-		return a
+func parseStateSecretsFromEnv(content string) (stateSecrets, error) {
+	values := map[string]string{}
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || !strings.Contains(line, "=") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		values[key] = value
 	}
-	return b
-}
-
-func maxDuration(a, b time.Duration) time.Duration {
-	if a > b {
-		return a
+	secrets := stateSecrets{
+		PostgresPassword:          values["POSTGRES_PASSWORD"],
+		SessionPepper:             values["ARCHE_SESSION_PEPPER"],
+		EncryptionKey:             values["ARCHE_ENCRYPTION_KEY"],
+		InternalToken:             values["ARCHE_INTERNAL_TOKEN"],
+		GatewayTokenSecret:        values["ARCHE_GATEWAY_TOKEN_SECRET"],
+		ConnectorOAuthStateSecret: values["ARCHE_CONNECTOR_OAUTH_STATE_SECRET"],
+		AdminPassword:             values["ARCHE_SEED_ADMIN_PASSWORD"],
 	}
-	return b
+	missing := []string{}
+	required := map[string]string{
+		"POSTGRES_PASSWORD":                  secrets.PostgresPassword,
+		"ARCHE_SESSION_PEPPER":               secrets.SessionPepper,
+		"ARCHE_ENCRYPTION_KEY":               secrets.EncryptionKey,
+		"ARCHE_INTERNAL_TOKEN":               secrets.InternalToken,
+		"ARCHE_GATEWAY_TOKEN_SECRET":         secrets.GatewayTokenSecret,
+		"ARCHE_CONNECTOR_OAUTH_STATE_SECRET": secrets.ConnectorOAuthStateSecret,
+		"ARCHE_SEED_ADMIN_PASSWORD":          secrets.AdminPassword,
+	}
+	for key, value := range required {
+		if strings.TrimSpace(value) == "" {
+			missing = append(missing, key)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		return stateSecrets{}, fmt.Errorf("remote .env is missing required keys: %s", strings.Join(missing, ", "))
+	}
+	return secrets, nil
 }
