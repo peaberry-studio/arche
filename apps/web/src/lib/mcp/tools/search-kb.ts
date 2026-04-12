@@ -32,6 +32,7 @@ export async function searchKb(input: SearchKbInput): Promise<SearchKbResult> {
     'grep',
     '-n',
     '-I',
+    '-F',
     '-C',
     '3',
     '--max-count',
@@ -41,7 +42,7 @@ export async function searchKb(input: SearchKbInput): Promise<SearchKbResult> {
     args.push('-i')
   }
 
-  args.push(query, 'HEAD')
+  args.push('-e', query, 'HEAD')
 
   if (input.path) {
     const normalizedPath = normalizeKbPath(input.path)
@@ -79,21 +80,18 @@ function parseGitGrepOutput(stdout: string): SearchKbMatch[] {
     .map((block) => block.trim())
     .filter((block) => block.length > 0)
     .flatMap((block) => {
-      const firstMatch = block
+      return block
         .split('\n')
         .map((line) => line.trim())
-        .find((line) => /^HEAD:.+:\d+:/.test(line))
+        .filter((line) => /^HEAD:.+:\d+:/.test(line))
+        .flatMap((line) => {
+          const parsed = parseMatchLine(line)
+          if (!parsed) {
+            return []
+          }
 
-      if (!firstMatch) {
-        return []
-      }
-
-      const parsed = parseMatchLine(firstMatch)
-      if (!parsed) {
-        return []
-      }
-
-      return [{ ...parsed, snippet: block }]
+          return [{ ...parsed, snippet: block }]
+        })
     })
 }
 
