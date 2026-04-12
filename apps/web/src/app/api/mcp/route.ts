@@ -20,7 +20,11 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const mcpSettings = await readMcpSettings()
-  if (!mcpSettings.ok || !mcpSettings.enabled) {
+  if (!mcpSettings.ok) {
+    return Response.json({ error: 'mcp_unavailable' }, { status: 503 })
+  }
+
+  if (!mcpSettings.enabled) {
     return Response.json({ error: 'unauthorized' }, { status: 401 })
   }
 
@@ -42,14 +46,17 @@ export async function POST(request: Request): Promise<Response> {
     )
   }
 
-  const rawBody = await request.text().catch(() => null)
-  const parsedBody = parseBody(rawBody)
-  if (!parsedBody) {
-    return Response.json({ error: 'invalid_json' }, { status: 400 })
+  const bodyResult = await readRequestBody(request)
+  if (!bodyResult.ok) {
+    return Response.json(
+      { error: bodyResult.error },
+      { status: bodyResult.error === 'payload_too_large' ? 413 : 400 }
+    )
   }
 
-  if (parsedBody.tooLarge) {
-    return Response.json({ error: 'payload_too_large' }, { status: 413 })
+  const parsedBody = parseBody(bodyResult.body)
+  if (!parsedBody) {
+    return Response.json({ error: 'invalid_json' }, { status: 400 })
   }
 
   if (isInitializedNotification(parsedBody.value)) {
@@ -77,7 +84,7 @@ export async function POST(request: Request): Promise<Response> {
     sessionIdGenerator: undefined,
   })
   const server = createMcpServer()
-  const forwardedRequest = buildTransportRequest(request, rawBody)
+  const forwardedRequest = buildTransportRequest(request, bodyResult.body)
 
   await server.connect(transport)
   return transport.handleRequest(forwardedRequest, { parsedBody: parsedBody.value })
@@ -88,15 +95,46 @@ function isRequestBodyTooLarge(headers: Headers): boolean {
   return Number.isFinite(contentLength) && contentLength > MCP_MAX_BODY_BYTES
 }
 
-function parseBody(bodyText: string | null): { tooLarge: boolean; value: unknown } | null {
-  if (bodyText === null) return null
-  if (Buffer.byteLength(bodyText, 'utf8') > MCP_MAX_BODY_BYTES) {
-    return { tooLarge: true, value: null }
+async function readRequestBody(
+  request: Request
+): Promise<
+  | { ok: true; body: string }
+  | { ok: false; error: 'invalid_json' | 'payload_too_large' }
+> {
+  if (!request.body) {
+    return { ok: true, body: '' }
   }
 
+  const reader = request.body.getReader()
+  const decoder = new TextDecoder()
+  const chunks: string[] = []
+  let bytesRead = 0
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+
+      if (done) {
+        chunks.push(decoder.decode())
+        return { ok: true, body: chunks.join('') }
+      }
+
+      bytesRead += value.byteLength
+      if (bytesRead > MCP_MAX_BODY_BYTES) {
+        await reader.cancel().catch(() => {})
+        return { ok: false, error: 'payload_too_large' }
+      }
+
+      chunks.push(decoder.decode(value, { stream: true }))
+    }
+  } catch {
+    return { ok: false, error: 'invalid_json' }
+  }
+}
+
+function parseBody(bodyText: string): { value: unknown } | null {
   try {
     return {
-      tooLarge: false,
       value: JSON.parse(bodyText),
     }
   } catch {

@@ -30,10 +30,12 @@ describe('searchKb', () => {
       'grep',
       '-n',
       '-I',
+      '-F',
       '-C',
       '3',
       '--max-count',
       '20',
+      '-e',
       'pricing',
       'HEAD',
     ])
@@ -58,10 +60,12 @@ describe('searchKb', () => {
       'grep',
       '-n',
       '-I',
+      '-F',
       '-C',
       '3',
       '--max-count',
       '20',
+      '-e',
       'test',
       'HEAD',
       '--',
@@ -78,11 +82,13 @@ describe('searchKb', () => {
       'grep',
       '-n',
       '-I',
+      '-F',
       '-C',
       '3',
       '--max-count',
       '20',
       '-i',
+      '-e',
       'Pricing',
       'HEAD',
     ])
@@ -119,12 +125,68 @@ describe('searchKb', () => {
       'grep',
       '-n',
       '-I',
+      '-F',
       '-C',
       '3',
       '--max-count',
       '100',
+      '-e',
       'test',
       'HEAD',
     ])
+  })
+
+  it('treats a leading dash query as literal text instead of a git grep option', async () => {
+    mockRunGit.mockResolvedValue({ ok: true, stdout: '' })
+
+    await searchKb({ query: '--help' })
+
+    expect(mockRunGit).toHaveBeenCalledWith('/kb-content', [
+      'grep',
+      '-n',
+      '-I',
+      '-F',
+      '-C',
+      '3',
+      '--max-count',
+      '20',
+      '-e',
+      '--help',
+      'HEAD',
+    ])
+  })
+
+  it('returns every match line from a grouped git grep block', async () => {
+    mockRunGit.mockResolvedValue({
+      ok: true,
+      stdout: [
+        'HEAD:docs/pricing.md:5:Pricing starts at $10',
+        'HEAD:docs/pricing.md:7:Pricing includes support',
+      ].join('\n'),
+    })
+
+    const result = await searchKb({ query: 'Pricing' })
+
+    expect(result).toEqual({
+      ok: true,
+      matches: [
+        {
+          file: 'docs/pricing.md',
+          line: 5,
+          snippet: [
+            'HEAD:docs/pricing.md:5:Pricing starts at $10',
+            'HEAD:docs/pricing.md:7:Pricing includes support',
+          ].join('\n'),
+        },
+        {
+          file: 'docs/pricing.md',
+          line: 7,
+          snippet: [
+            'HEAD:docs/pricing.md:5:Pricing starts at $10',
+            'HEAD:docs/pricing.md:7:Pricing includes support',
+          ].join('\n'),
+        },
+      ],
+    })
   })
 })
