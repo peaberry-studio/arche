@@ -1,50 +1,28 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
 import { SpinnerGap } from '@phosphor-icons/react'
 
 import { AgentCard } from '@/components/agents/agent-card'
-
-type AgentListItem = {
-  id: string
-  displayName: string
-  description?: string
-  model?: string
-  temperature?: number
-  isPrimary: boolean
-}
+import { useAgentsCatalog } from '@/hooks/use-agents-catalog'
 
 type AgentsPageClientProps = {
+  emptyMessage?: string
+  includePrimary?: boolean
   slug: string
   isAdmin: boolean
+  loadingLabel?: string
 }
 
-export function AgentsPageClient({ slug, isAdmin }: AgentsPageClientProps) {
-  const [agents, setAgents] = useState<AgentListItem[]>([])
-  const [isLoading, setIsLoading] = useState(false)
-  const [loadError, setLoadError] = useState<string | null>(null)
+export function AgentsPageClient({
+  slug,
+  isAdmin,
+  includePrimary = true,
+  loadingLabel = 'Loading agents...',
+  emptyMessage = 'No agents configured yet.',
+}: AgentsPageClientProps) {
+  const { agents, isLoading, loadError } = useAgentsCatalog(slug)
 
-  const loadAgents = useCallback(async () => {
-    setIsLoading(true)
-    setLoadError(null)
-    try {
-      const response = await fetch(`/api/u/${slug}/agents`, { cache: 'no-store' })
-      const data = await response.json().catch(() => null) as { agents?: AgentListItem[]; hash?: string; error?: string } | null
-      if (!response.ok || !data) {
-        setLoadError(data?.error ?? 'load_failed')
-        return
-      }
-      setAgents(data.agents ?? [])
-    } catch {
-      setLoadError('network_error')
-    } finally {
-      setIsLoading(false)
-    }
-  }, [slug])
-
-  useEffect(() => {
-    loadAgents()
-  }, [loadAgents])
+  const visibleAgents = includePrimary ? agents : agents.filter((agent) => !agent.isPrimary)
 
   return (
     <div className="space-y-4">
@@ -52,7 +30,7 @@ export function AgentsPageClient({ slug, isAdmin }: AgentsPageClientProps) {
         <div className="flex min-h-[220px] items-center justify-center">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <SpinnerGap size={16} className="animate-spin" />
-            Loading agents...
+            {loadingLabel}
           </div>
         </div>
       )}
@@ -62,14 +40,14 @@ export function AgentsPageClient({ slug, isAdmin }: AgentsPageClientProps) {
         </div>
       )}
 
-      {!isLoading && agents.length === 0 && !loadError ? (
+      {!isLoading && visibleAgents.length === 0 && !loadError ? (
         <div className="rounded-xl border border-dashed border-border/60 bg-card/40 p-8 text-center text-sm text-muted-foreground">
-          No agents configured yet.
+          {emptyMessage}
         </div>
       ) : null}
 
       <div className="grid gap-4 md:grid-cols-2">
-        {agents.map((agent) => (
+        {visibleAgents.map((agent) => (
           <AgentCard
             key={agent.id}
             displayName={agent.displayName}

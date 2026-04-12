@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 
-import { AgentForm } from '@/components/agents/agent-form'
+import { WebAgentForm } from '@/components/agents/web-agent-form'
 import { getSession } from '@/lib/runtime/session'
 
 export default async function EditAgentPage({
@@ -39,7 +39,7 @@ export default async function EditAgentPage({
           </div>
         </div>
 
-        <AgentForm slug={slug} mode="edit" agentId={name} />
+        <WebAgentForm slug={slug} mode="edit" agentId={name} />
       </div>
     </main>
   )

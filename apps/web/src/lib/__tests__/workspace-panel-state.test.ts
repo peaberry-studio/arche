@@ -6,6 +6,7 @@ import { stubBrowserStorage } from '@/__tests__/storage'
 import {
   getWorkspaceLayoutCookieName,
   getWorkspaceLayoutStorageKey,
+  normalizeLeftPanelState,
   persistWorkspacePanelState,
   readWorkspacePanelState,
 } from '@/lib/workspace-panel-state'
@@ -83,5 +84,56 @@ describe('workspace panel state persistence', () => {
 
     expect(window.localStorage.getItem(storageKey)).toBe(JSON.stringify(state))
     expect(readCookieValue(cookieName)).toBe(JSON.stringify(state))
+  })
+
+  it('normalizes the new left panel state structure', () => {
+    expect(
+      normalizeLeftPanelState({
+        ratios: {
+          chats: 0.5,
+          knowledge: 0.25,
+          experts: 0.15,
+          skills: 0.1,
+        },
+        collapsed: {
+          chats: true,
+          skills: true,
+        },
+      })
+    ).toEqual({
+      ratios: {
+        chats: 0.5,
+        knowledge: 0.25,
+        experts: 0.15,
+        skills: 0.1,
+      },
+      collapsed: {
+        chats: true,
+        knowledge: false,
+        experts: false,
+        skills: true,
+      },
+    })
+  })
+
+  it('migrates the legacy three-section state into the new shape', () => {
+    const migrated = normalizeLeftPanelState({
+      topRatio: 0.4,
+      midRatio: 0.3,
+      topCollapsed: true,
+      midCollapsed: false,
+      bottomCollapsed: true,
+    })
+
+    expect(migrated.collapsed).toEqual({
+      chats: true,
+      knowledge: false,
+      experts: true,
+      skills: true,
+    })
+    expect(migrated.ratios.chats).toBeCloseTo(0.4)
+    expect(migrated.ratios.knowledge).toBeCloseTo(0.3)
+    expect(migrated.ratios.experts).toBeCloseTo(0.15)
+    expect(migrated.ratios.skills).toBeCloseTo(0.15)
   })
 })

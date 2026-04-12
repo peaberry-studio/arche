@@ -7,7 +7,9 @@ type AgentCardProps = {
   displayName: string
   agentId: string
   description?: string
+  editLabel?: string
   model?: string
+  onEdit?: () => void
   isPrimary: boolean
   isAdmin: boolean
   editHref?: string
@@ -17,24 +19,34 @@ export function AgentCard({
   displayName,
   agentId,
   description,
+  editLabel = 'Edit agent',
   model,
+  onEdit,
   isPrimary,
   isAdmin,
   editHref
 }: AgentCardProps) {
+  const editButtonClassName = 'absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100'
+
   return (
     <Card className="group relative border-border/60 bg-card/70">
-      {isAdmin && editHref && (
-        <Link
-          href={editHref}
-          className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
-        >
+      {isAdmin && onEdit ? (
+        <button type="button" onClick={onEdit} aria-label={editLabel} className={editButtonClassName}>
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+            <path d="m15 5 4 4" />
+          </svg>
+        </button>
+      ) : null}
+
+      {isAdmin && !onEdit && editHref ? (
+        <Link href={editHref} aria-label={editLabel} className={editButtonClassName}>
           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
             <path d="m15 5 4 4" />
           </svg>
         </Link>
-      )}
+      ) : null}
 
       <CardHeader>
         <div className="flex items-center gap-3">

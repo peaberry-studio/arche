@@ -1,6 +1,9 @@
 import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
 
 import { WorkspaceThemeProvider } from "@/contexts/workspace-theme-context";
+import { getCurrentDesktopVault, getWorkspacePersistenceScope } from '@/lib/runtime/desktop/current-vault'
+import { isDesktop } from '@/lib/runtime/mode'
 import {
   DEFAULT_CHAT_FONT_FAMILY,
   DEFAULT_CHAT_FONT_SIZE,
@@ -23,11 +26,17 @@ export default async function WorkspaceLayout({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
+  const desktopVault = getCurrentDesktopVault()
+  if (isDesktop() && !desktopVault) {
+    redirect('/')
+  }
+
+  const persistenceScope = getWorkspacePersistenceScope(slug)
   const cookieStore = await cookies()
-  const storedChatFontFamily = cookieStore.get(getWorkspaceChatFontFamilyCookieName(slug))?.value
-  const storedChatFontSize = cookieStore.get(getWorkspaceChatFontSizeCookieName(slug))?.value
-  const storedThemeId = cookieStore.get(getWorkspaceThemeCookieName(slug))?.value
-  const storedDarkMode = cookieStore.get(getWorkspaceDarkModeCookieName(slug))?.value
+  const storedChatFontFamily = cookieStore.get(getWorkspaceChatFontFamilyCookieName(persistenceScope))?.value
+  const storedChatFontSize = cookieStore.get(getWorkspaceChatFontSizeCookieName(persistenceScope))?.value
+  const storedThemeId = cookieStore.get(getWorkspaceThemeCookieName(persistenceScope))?.value
+  const storedDarkMode = cookieStore.get(getWorkspaceDarkModeCookieName(persistenceScope))?.value
   const initialChatFontFamily = storedChatFontFamily && isWorkspaceChatFontFamily(storedChatFontFamily)
     ? storedChatFontFamily
     : DEFAULT_CHAT_FONT_FAMILY
@@ -38,8 +47,8 @@ export default async function WorkspaceLayout({
 
   return (
     <WorkspaceThemeProvider
-      key={slug}
-      storageScope={slug}
+      key={persistenceScope}
+      storageScope={persistenceScope}
       initialChatFontFamily={initialChatFontFamily}
       initialChatFontSize={isWorkspaceChatFontSize(initialChatFontSize) ? initialChatFontSize : DEFAULT_CHAT_FONT_SIZE}
       initialIsDark={initialIsDark}

@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 
 import { ConnectorsWidget } from '@/components/dashboard/connectors-widget'
 import { DashboardHero } from '@/components/dashboard/dashboard-hero'
@@ -12,6 +13,8 @@ import {
 import { getKickstartStatus } from '@/kickstart/status'
 import type { KickstartStatus } from '@/kickstart/types'
 import { getAgentSummaries, parseCommonWorkspaceConfig } from '@/lib/workspace-config'
+import { getCurrentDesktopVault } from '@/lib/runtime/desktop/current-vault'
+import { isDesktop } from '@/lib/runtime/mode'
 
 function formatCommitTime(value: string): string {
   const parsed = new Date(value)
@@ -69,6 +72,16 @@ export default async function WorkspacePage({
 }) {
   const { slug } = await params
   const search = await searchParams
+
+  if (isDesktop()) {
+    const vault = getCurrentDesktopVault()
+    if (!vault) {
+      redirect('/')
+    }
+
+    redirect('/w/local')
+  }
+
   const setupNotice = getSetupNotice(search?.setup)
 
   const [kickstartStatus, session] = await Promise.all([

@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 
 type WorkspaceRestartSectionProps = {
+  showHeader?: boolean
   slug: string
 }
 
@@ -22,7 +23,7 @@ function getRestartErrorMessage(error: string): string {
   return 'Unable to restart the workspace.'
 }
 
-export function WorkspaceRestartSection({ slug }: WorkspaceRestartSectionProps) {
+export function WorkspaceRestartSection({ slug, showHeader = true }: WorkspaceRestartSectionProps) {
   const [isRestarting, setIsRestarting] = useState(false)
   const [restartError, setRestartError] = useState<string | null>(null)
 
@@ -52,13 +53,15 @@ export function WorkspaceRestartSection({ slug }: WorkspaceRestartSectionProps) 
 
   return (
     <div className="space-y-4">
-      <div className="space-y-1">
-        <h2 className="text-lg font-medium">Workspace</h2>
-        <p className="text-sm text-muted-foreground">
-          Force a full workspace restart to rebuild the OpenCode runtime with the latest
-          generated configuration.
-        </p>
-      </div>
+      {showHeader ? (
+        <div className="space-y-1">
+          <h2 className="text-lg font-medium">Workspace</h2>
+          <p className="text-sm text-muted-foreground">
+            Force a full workspace restart to rebuild the OpenCode runtime with the latest
+            generated configuration.
+          </p>
+        </div>
+      ) : null}
 
       {restartError ? (
         <p className="text-sm text-destructive">

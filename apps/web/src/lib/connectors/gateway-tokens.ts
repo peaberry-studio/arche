@@ -1,15 +1,14 @@
 import crypto from 'node:crypto'
 
-import { getConnectorGatewayTokenSecret, getConnectorGatewayTokenTtlSeconds } from '@/lib/connectors/gateway-config'
+import { getConnectorGatewayTokenSecret } from '@/lib/connectors/gateway-config'
 
 export type ConnectorGatewayTokenPayload = {
   userId: string
   workspaceSlug: string
   connectorId: string
-  exp: number
 }
 
-type ConnectorGatewayTokenInput = Omit<ConnectorGatewayTokenPayload, 'exp'>
+type ConnectorGatewayTokenInput = ConnectorGatewayTokenPayload
 
 function encodePayload(payload: ConnectorGatewayTokenPayload): string {
   return Buffer.from(JSON.stringify(payload)).toString('base64url')
@@ -33,17 +32,12 @@ function isValidPayload(payload: ConnectorGatewayTokenPayload): boolean {
     typeof payload.workspaceSlug === 'string' &&
     payload.workspaceSlug.length > 0 &&
     typeof payload.connectorId === 'string' &&
-    payload.connectorId.length > 0 &&
-    typeof payload.exp === 'number' &&
-    Number.isFinite(payload.exp)
+    payload.connectorId.length > 0
   )
 }
 
 export function issueConnectorGatewayToken(input: ConnectorGatewayTokenInput): string {
-  const ttlSeconds = getConnectorGatewayTokenTtlSeconds()
-  const exp = Math.floor(Date.now() / 1000) + ttlSeconds
-  const payload: ConnectorGatewayTokenPayload = { ...input, exp }
-  const encoded = encodePayload(payload)
+  const encoded = encodePayload(input)
   const signature = signPayload(encoded, getConnectorGatewayTokenSecret())
   return `${encoded}.${signature}`
 }
@@ -71,10 +65,6 @@ export function verifyConnectorGatewayToken(token: string): ConnectorGatewayToke
   const payload = raw as ConnectorGatewayTokenPayload
   if (!isValidPayload(payload)) {
     throw new Error('invalid_token')
-  }
-
-  if (payload.exp <= Math.floor(Date.now() / 1000)) {
-    throw new Error('token_expired')
   }
 
   return payload
