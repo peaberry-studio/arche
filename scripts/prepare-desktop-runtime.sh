@@ -8,6 +8,15 @@ OPENCODE_VERSION_FILE="$ROOT_DIR/versions/opencode.version"
 OPENCODE_CONFIG_SOURCE_DIR="$ROOT_DIR/infra/workspace-image/opencode-config"
 OPENCODE_CONFIG_OUTPUT_DIR="$OUTPUT_DIR/opencode-config"
 
+if [[ -n "${NODE_RUNTIME_VERSION:-}" ]]; then
+  RESOLVED_NODE_RUNTIME_VERSION="$NODE_RUNTIME_VERSION"
+else
+  # Desktop runs the packaged Next.js server with the bundled Node binary.
+  # Keep that runtime ABI aligned with the Node version used to install native
+  # dependencies for the standalone bundle (for example better-sqlite3).
+  RESOLVED_NODE_RUNTIME_VERSION="$(node -p "process.versions.node")"
+fi
+
 if [[ -n "${OPENCODE_VERSION:-}" ]]; then
   RESOLVED_OPENCODE_VERSION="$OPENCODE_VERSION"
 else
@@ -63,7 +72,7 @@ prepare_opencode_config_dir() {
 }
 
 echo "==> Preparing desktop runtime binaries"
-bash "$SCRIPT_DIR/download-node.sh" "${NODE_RUNTIME_VERSION:-24.12.0}" "$OUTPUT_DIR"
+bash "$SCRIPT_DIR/download-node.sh" "$RESOLVED_NODE_RUNTIME_VERSION" "$OUTPUT_DIR"
 bash "$SCRIPT_DIR/download-opencode.sh" "$RESOLVED_OPENCODE_VERSION" "$OUTPUT_DIR"
 bash "$SCRIPT_DIR/build-workspace-agent.sh" "$OUTPUT_DIR"
 prepare_opencode_config_dir

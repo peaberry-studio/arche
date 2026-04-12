@@ -54,6 +54,7 @@ import type { AgentCatalogItem } from "@/hooks/use-workspace";
 import type { SkillListItem } from '@/hooks/use-skills-catalog'
 import {
   getConfigChangeMessage,
+  WORKSPACE_CONFIG_STATUS_CHANGED_EVENT,
   type ConfigChangeReason,
 } from '@/lib/runtime/config-status-events'
 import type { WorkspaceFileNode, WorkspaceSession } from "@/lib/opencode/types";
@@ -762,15 +763,38 @@ function ExpandedLeftPanel({
       }
     };
 
-    loadConnectors().catch(() => { if (!cancelled) setIsLoadingConnectors(false); });
-    loadProviders().catch(() => { if (!cancelled) setIsLoadingProviders(false); });
+    const reloadWorkspaceIntegrations = () => {
+      loadConnectors().catch(() => {
+        if (!cancelled) setIsLoadingConnectors(false);
+      });
+      loadProviders().catch(() => {
+        if (!cancelled) setIsLoadingProviders(false);
+      });
+    };
+
+    reloadWorkspaceIntegrations();
+
+    const handleWorkspaceConfigChanged = () => {
+      reloadWorkspaceIntegrations();
+    };
+
+    window.addEventListener(
+      WORKSPACE_CONFIG_STATUS_CHANGED_EVENT,
+      handleWorkspaceConfigChanged
+    );
 
     const interval = setInterval(() => {
-      loadConnectors().catch(() => {});
-      loadProviders().catch(() => {});
+      reloadWorkspaceIntegrations();
     }, 30000);
 
-    return () => { cancelled = true; clearInterval(interval); };
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      window.removeEventListener(
+        WORKSPACE_CONFIG_STATUS_CHANGED_EVENT,
+        handleWorkspaceConfigChanged
+      );
+    };
   }, [slug]);
 
   const activeConnectors = useMemo(

@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LeftPanel } from "@/components/workspace/left-panel";
 import { WorkspaceThemeProvider } from "@/contexts/workspace-theme-context";
 import type { AgentCatalogItem } from "@/hooks/use-workspace";
+import { WORKSPACE_CONFIG_STATUS_CHANGED_EVENT } from '@/lib/runtime/config-status-events'
 import type { SkillListItem } from '@/hooks/use-skills-catalog'
 import type { WorkspaceFileNode, WorkspaceSession } from "@/lib/opencode/types";
 
@@ -341,4 +342,48 @@ describe("LeftPanel", () => {
 
     expect(onRestartConfig).toHaveBeenCalledTimes(1);
   });
+
+  it("refreshes provider status immediately when workspace config changes", async () => {
+    let providerStatus = 'missing'
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === "/api/u/alice/connectors") {
+          return {
+            ok: true,
+            json: async () => ({ connectors: [] }),
+          }
+        }
+
+        if (String(input) === "/api/u/alice/providers") {
+          return {
+            ok: true,
+            json: async () => ({
+              providers:
+                providerStatus === 'enabled'
+                  ? [{ providerId: 'openai', status: 'enabled' }]
+                  : [],
+            }),
+          }
+        }
+
+        throw new Error(`Unexpected fetch: ${String(input)}`)
+      })
+    )
+
+    renderLeftPanel()
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Providers" }).textContent).toContain("0")
+    })
+
+    providerStatus = 'enabled'
+
+    fireEvent(window, new Event(WORKSPACE_CONFIG_STATUS_CHANGED_EVENT))
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Providers" }).textContent).toContain("1")
+    })
+  })
 });

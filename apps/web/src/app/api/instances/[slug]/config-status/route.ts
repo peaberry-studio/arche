@@ -28,7 +28,8 @@ export const GET = withAuth<ConfigStatusResponse | { error: string }>(
       ? await providerService.hasPendingRestartByUserId(user.id)
       : false
 
-    const configPending = instance?.appliedConfigSha !== runtime.hash
+    const appliedConfigSha = instance?.appliedConfigSha ?? null
+    const configPending = Boolean(appliedConfigSha) && appliedConfigSha !== runtime.hash
     const reason = configPending ? 'config' : providerPending ? 'provider_sync' : null
     const pending = Boolean(reason)
     return NextResponse.json(
