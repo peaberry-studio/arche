@@ -7,16 +7,16 @@ RUN apt-get update -y \
 RUN corepack enable
 
 FROM base AS deps
-COPY package.json pnpm-lock.yaml ./
-COPY prisma ./prisma
-COPY prisma.config.ts ./prisma.config.ts
-COPY prisma.config.desktop.ts ./prisma.config.desktop.ts
+COPY web/package.json web/pnpm-lock.yaml ./
+COPY web/prisma ./prisma
+COPY web/prisma.config.ts ./prisma.config.ts
+COPY web/prisma.config.desktop.ts ./prisma.config.desktop.ts
 RUN NODE_ENV=development pnpm install --frozen-lockfile
 
 FROM base AS build
 ARG GIT_SHA=dev
 COPY --from=deps /app/node_modules ./node_modules
-COPY . ./
+COPY web ./
 RUN pnpm prisma generate
 RUN DATABASE_URL="postgresql://build:build@localhost:5432/build" ARCHE_GIT_SHA="$GIT_SHA" pnpm run build
 
@@ -34,7 +34,7 @@ COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/prisma.config.ts ./prisma.config.ts
 COPY --from=build /app/kickstart/agents/definitions ./kickstart/agents/definitions
 COPY --from=build /app/kickstart/templates/definitions ./kickstart/templates/definitions
-COPY start.sh ./start.sh
+COPY web/start.sh ./start.sh
 RUN chmod +x start.sh
 
 HEALTHCHECK --interval=10s --timeout=5s --start-period=120s --retries=3 \

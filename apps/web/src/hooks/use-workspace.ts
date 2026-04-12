@@ -456,6 +456,7 @@ export function useWorkspace({
   const sessionExecutorsRef = useRef(new Map<string, SerialJobExecutor>());
   const latestStreamTokensRef = useRef(new Map<string, number>());
   const isMountedRef = useRef(true);
+  const autoMarkedAutopilotRunIdRef = useRef<string | null>(null);
 
   // Workspace refresh scheduling (diffs + files after stream completion)
   const workspaceRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -919,6 +920,18 @@ export function useWorkspace({
     },
     [loadSessions, slug]
   );
+
+  useEffect(() => {
+    const runId = activeSession?.autopilot?.hasUnseenResult
+      ? activeSession.autopilot.runId
+      : null;
+    if (!runId || autoMarkedAutopilotRunIdRef.current === runId) {
+      return;
+    }
+
+    autoMarkedAutopilotRunIdRef.current = runId;
+    void markAutopilotRunSeen(runId);
+  }, [activeSession, markAutopilotRunSeen]);
 
   const createSession = useCallback(
     async (title?: string) => {

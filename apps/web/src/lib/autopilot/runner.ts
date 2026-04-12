@@ -13,6 +13,7 @@ const RUN_TIMEOUT_MS = 30 * 60 * 1000
 const ACTIVITY_TOUCH_INTERVAL_MS = 20_000
 const LEASE_EXTENSION_INTERVAL_MS = 60_000
 const INSTANCE_START_POLL_INTERVAL_MS = 2_000
+const IDLE_WITHOUT_ASSISTANT_GRACE_MS = 15_000
 export const AUTOPILOT_TASK_LEASE_MS = 15 * 60 * 1000
 
 function importRuntimeModule<T>(specifier: string): Promise<T> {
@@ -110,6 +111,7 @@ async function waitForSessionToComplete(params: {
   slug: string
 }): Promise<string | null> {
   const deadline = Date.now() + RUN_TIMEOUT_MS
+  const startedAt = Date.now()
   let lastActivityTouchAt = 0
   let lastLeaseExtensionAt = 0
   let assistantSeen = false
@@ -146,6 +148,14 @@ async function waitForSessionToComplete(params: {
       }
 
       return outcome
+    }
+
+    if (
+      (sessionStatus?.type === 'idle' || !sessionStatus) &&
+      !assistantSeen &&
+      Date.now() - startedAt >= IDLE_WITHOUT_ASSISTANT_GRACE_MS
+    ) {
+      return 'autopilot_no_assistant_message'
     }
 
     await sleep(RUN_POLL_INTERVAL_MS)

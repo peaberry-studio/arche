@@ -91,6 +91,7 @@ describe("useWorkspace", () => {
       session: { id: "s2", title: "Fresh", status: "active", updatedAt: "now" },
     });
     opencodeMocks.deleteSessionAction.mockResolvedValue({ ok: true });
+    opencodeMocks.markAutopilotRunSeenAction.mockResolvedValue({ ok: true });
     opencodeMocks.updateSessionAction.mockResolvedValue({ ok: true });
     opencodeMocks.listMessagesAction.mockImplementation(async (_slug: string, sessionId: string) => {
       if (sessionId === "s1") {
@@ -229,6 +230,39 @@ describe("useWorkspace", () => {
     expect(result.current.selectedModel?.modelId).toBe("gpt-5.2");
     expect(result.current.hasManualModelSelection).toBe(true);
     expect(result.current.agentDefaultModel?.modelId).toBe("gpt-5.4");
+  });
+
+  it("marks unseen autopilot results as seen when a deep-linked session becomes active", async () => {
+    opencodeMocks.listSessionsAction.mockResolvedValue({
+      ok: true,
+      sessions: [
+        {
+          id: "task-1-session",
+          title: "Autopilot | Daily brief | Apr 12",
+          status: "idle",
+          updatedAt: "now",
+          autopilot: {
+            runId: "run-1",
+            taskId: "task-1",
+            taskName: "Daily brief",
+            trigger: "schedule",
+            hasUnseenResult: true,
+          },
+        },
+      ],
+    });
+
+    const { result } = renderHook(() =>
+      useWorkspace({ slug: "alice", pollInterval: 0, initialSessionId: "task-1-session" })
+    );
+
+    await waitFor(() => {
+      expect(result.current.activeSessionId).toBe("task-1-session");
+    });
+
+    await waitFor(() => {
+      expect(opencodeMocks.markAutopilotRunSeenAction).toHaveBeenCalledWith("alice", "run-1");
+    });
   });
 
   it("sends the primary agent model when there is no manual selection", async () => {

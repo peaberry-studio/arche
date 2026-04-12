@@ -289,4 +289,57 @@ describe('autopilot runner', () => {
       vi.useRealTimers()
     }
   })
+
+  it('fails quickly when a session stays idle without assistant output past the grace period', async () => {
+    vi.useFakeTimers()
+
+    try {
+      createInstanceClientMock.mockResolvedValue({
+        session: {
+          create: vi.fn().mockResolvedValue({
+            data: { id: 'session-1' },
+          }),
+          messages: vi.fn().mockResolvedValue({ data: [] }),
+          promptAsync: vi.fn().mockResolvedValue({ response: { ok: true } }),
+          status: vi.fn().mockResolvedValue({
+            data: {
+              'session-1': { type: 'idle' },
+            },
+          }),
+        },
+      })
+
+      const { runClaimedAutopilotTask } = await import('../runner')
+      const runPromise = runClaimedAutopilotTask(
+        {
+          id: 'task-1',
+          userId: 'user-1',
+          name: 'Daily summary',
+          prompt: 'Summarize the day',
+          targetAgentId: null,
+          cronExpression: '0 9 * * *',
+          timezone: 'UTC',
+          enabled: true,
+          nextRunAt: new Date('2026-04-13T09:00:00.000Z'),
+          lastRunAt: null,
+          leaseOwner: 'lease-1',
+          leaseExpiresAt: new Date('2026-04-12T09:15:00.000Z'),
+          createdAt: new Date('2026-04-12T08:00:00.000Z'),
+          updatedAt: new Date('2026-04-12T08:00:00.000Z'),
+          scheduledFor: new Date('2026-04-12T09:00:00.000Z'),
+        },
+        'schedule'
+      )
+
+      await vi.advanceTimersByTimeAsync(16_000)
+      await runPromise
+
+      expect(markRunFailedMock).toHaveBeenCalledWith(
+        'run-1',
+        expect.objectContaining({ error: 'autopilot_no_assistant_message' })
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

@@ -121,7 +121,7 @@ export async function validateAutopilotTaskPayload(
     value.enabled = record.enabled
   }
 
-  if ('cronExpression' in value && !('timezone' in value) && typeof record.timezone !== 'string') {
+  if ('cronExpression' in value && !('timezone' in value) && !options.fallbackTimezone) {
     return { ok: false, error: 'invalid_timezone', status: 400 }
   }
 

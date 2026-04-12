@@ -217,6 +217,16 @@ describe("LeftPanel", () => {
     expect(onMarkAutopilotRunSeen).toHaveBeenCalledWith("run-1");
   });
 
+  it("shows the tasks list automatically when the active session is an autopilot run", async () => {
+    renderLeftPanel({ activeSessionId: "task-1-session" });
+
+    await waitFor(() => {
+      expect(screen.getByText("Daily brief")).toBeTruthy();
+    });
+
+    expect(screen.queryByText("Alpha chat")).toBeNull();
+  });
+
   it("creates a markdown file in the selected directory", async () => {
     const onCreateKnowledgeFile = vi.fn().mockResolvedValue({ ok: true as const });
 

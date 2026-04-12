@@ -692,6 +692,7 @@ function ExpandedLeftPanel({
   const [isDragging, setIsDragging] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [sessionListMode, setSessionListMode] = useState<"chats" | "tasks">("chats");
+  const autoSwitchedToTasksRef = useRef(false);
   const [isCreateFileDialogOpen, setIsCreateFileDialogOpen] = useState(false);
   const [newFileName, setNewFileName] = useState("");
   const [selectedDirectoryPath, setSelectedDirectoryPath] = useState("");
@@ -726,6 +727,20 @@ function ExpandedLeftPanel({
     [taskSessions]
   );
   const visibleSessions = sessionListMode === "tasks" ? taskSessions : manualSessions;
+
+  useEffect(() => {
+    if (autoSwitchedToTasksRef.current || sessionListMode === "tasks" || !activeSessionId) {
+      return;
+    }
+
+    const activeSession = sessions.find((session) => session.id === activeSessionId);
+    if (!activeSession?.autopilot) {
+      return;
+    }
+
+    autoSwitchedToTasksRef.current = true;
+    setSessionListMode("tasks");
+  }, [activeSessionId, sessionListMode, sessions]);
 
   // Expand the requested section when coming from a minified panel click
   useEffect(() => {

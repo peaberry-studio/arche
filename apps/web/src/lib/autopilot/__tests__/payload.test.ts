@@ -61,4 +61,22 @@ describe('autopilot payload validation', () => {
 
     expect(result).toEqual({ ok: false, error: 'unknown_target_agent', status: 400 })
   })
+
+  it('accepts cron-only task updates when a fallback timezone is provided', async () => {
+    const { validateAutopilotTaskPayload } = await import('../payload')
+    const result = await validateAutopilotTaskPayload(
+      {
+        cronExpression: '0 9 * * 1-5',
+      },
+      'update',
+      { fallbackTimezone: 'UTC' }
+    )
+
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        cronExpression: '0 9 * * 1-5',
+      },
+    })
+  })
 })
