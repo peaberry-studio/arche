@@ -228,6 +228,21 @@ describe("LeftPanel", () => {
     expect(screen.queryByText("Alpha chat")).toBeNull();
   });
 
+  it("shows a static chats header without the tasks switch in desktop mode", () => {
+    renderLeftPanel({
+      currentVault: {
+        id: "vault-1",
+        name: "my-vault",
+        path: "/tmp/my-vault",
+      },
+    });
+
+    expect(screen.getByText("Chats")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /tasks/i })).toBeNull();
+    expect(screen.getByRole("button", { name: "New chat" })).toBeTruthy();
+    expect(screen.getByLabelText("Search chats, knowledge, experts, and skills")).toBeTruthy();
+  });
+
   it("creates a markdown file in the selected directory", async () => {
     const onCreateKnowledgeFile = vi.fn().mockResolvedValue({ ok: true as const });
 

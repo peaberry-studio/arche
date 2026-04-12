@@ -6,6 +6,31 @@ import type { MessagePart, ToolState } from "@/lib/opencode/types";
  */
 const HIDDEN_PART_TYPES = new Set(["snapshot", "compaction"]);
 
+function normalizeSerializableValue(value: unknown): unknown {
+  if (typeof value === "bigint") {
+    return value.toString();
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(normalizeSerializableValue);
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
+      key,
+      normalizeSerializableValue(entry),
+    ])
+  );
+}
+
 /**
  * Transform OpenCode parts to UI-friendly MessagePart types.
  * Unknown types are preserved with 'unknown' type for debugging.
@@ -44,7 +69,11 @@ export function transformParts(parts: unknown[]): MessagePart[] {
           // Map state to our ToolState type
           let toolState: ToolState;
           const status = String(state?.status ?? "pending");
-          const input = (state?.input ?? {}) as Record<string, unknown>;
+          const normalizedInput = normalizeSerializableValue(state?.input ?? {});
+          const input =
+            normalizedInput && typeof normalizedInput === "object" && !Array.isArray(normalizedInput)
+              ? (normalizedInput as Record<string, unknown>)
+              : {};
 
           if (status === "completed") {
             toolState = {
@@ -177,10 +206,14 @@ export function transformParts(parts: unknown[]): MessagePart[] {
         default: {
           // Unknown type - preserve as fallback for debugging
           console.log("[transformParts] Unknown part type:", partType, part);
+          const normalizedData = normalizeSerializableValue(part);
           return {
             type: "unknown" as const,
             originalType: partType,
-            data: part as Record<string, unknown>,
+            data:
+              normalizedData && typeof normalizedData === "object" && !Array.isArray(normalizedData)
+                ? (normalizedData as Record<string, unknown>)
+                : { value: normalizedData },
           };
         }
       }

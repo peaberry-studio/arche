@@ -278,4 +278,31 @@ describe('ChatPanel', () => {
     expect(html).toContain('ana@example.com')
     expect(html).toContain('If you want, I can make it more formal.')
   })
+
+  it('renders unknown parts even when their debug payload contains bigint-like values', () => {
+    const html = renderChatPanel({
+      messages: [
+        {
+          id: 'm1',
+          sessionId: 's1',
+          role: 'assistant',
+          content: '',
+          timestamp: 'now',
+          parts: [
+            {
+              type: 'unknown',
+              originalType: 'mystery',
+              data: {
+                id: '42',
+                nested: { count: '3' },
+              },
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(html).toContain('Unknown type: mystery')
+    expect(html).toContain('&quot;id&quot;: &quot;42&quot;')
+  })
 })

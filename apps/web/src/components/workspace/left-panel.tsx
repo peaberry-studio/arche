@@ -707,6 +707,7 @@ function ExpandedLeftPanel({
     () => getInitialLeftPanelState(leftPanelStorageKey, leftPanelCookieName, initialPanelState),
     [initialPanelState, leftPanelCookieName, leftPanelStorageKey]
   );
+  const supportsAutopilotTasks = !currentVault;
   const showRestartNotice = Boolean(currentVault && (configChangePending || configRestartError) && onRestartConfig);
 
   const sectionOrder = LEFT_PANEL_SECTION_IDS;
@@ -727,10 +728,10 @@ function ExpandedLeftPanel({
     () => taskSessions.filter((session) => session.autopilot?.hasUnseenResult).length,
     [taskSessions]
   );
-  const visibleSessions = sessionListMode === "tasks" ? taskSessions : manualSessions;
+  const visibleSessions = supportsAutopilotTasks && sessionListMode === "tasks" ? taskSessions : manualSessions;
 
   useEffect(() => {
-    if (autoSwitchedToTasksRef.current || sessionListMode === "tasks" || !activeSessionId) {
+    if (!supportsAutopilotTasks || autoSwitchedToTasksRef.current || sessionListMode === "tasks" || !activeSessionId) {
       return;
     }
 
@@ -741,7 +742,7 @@ function ExpandedLeftPanel({
 
     autoSwitchedToTasksRef.current = true;
     setSessionListMode("tasks");
-  }, [activeSessionId, sessionListMode, sessions]);
+  }, [activeSessionId, sessionListMode, sessions, supportsAutopilotTasks]);
 
   // Expand the requested section when coming from a minified panel click
   useEffect(() => {
@@ -1062,41 +1063,50 @@ function ExpandedLeftPanel({
       collapsible: false,
       customHeader: (
         <div className="flex shrink-0 items-center justify-between gap-2 px-3 pt-2.5 pb-1">
-          <div className="inline-flex h-8 items-center rounded-lg bg-foreground/[0.06] p-0.5">
-            <button
-              type="button"
-              onClick={() => setSessionListMode("chats")}
-              className={cn(
-                "flex h-7 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-all",
-                sessionListMode === "chats"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-              aria-pressed={sessionListMode === "chats"}
-            >
-              Chats
-            </button>
-            <button
-              type="button"
-              onClick={() => setSessionListMode("tasks")}
-              className={cn(
-                "flex h-7 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-all",
-                sessionListMode === "tasks"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-              aria-pressed={sessionListMode === "tasks"}
-            >
-              Tasks
-              {unseenTaskSessionsCount > 0 ? (
-                <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
-                  {unseenTaskSessionsCount > 99 ? "99+" : unseenTaskSessionsCount}
-                </span>
-              ) : null}
-            </button>
-          </div>
+          {supportsAutopilotTasks ? (
+            <div className="inline-flex h-8 items-center rounded-lg bg-foreground/[0.06] p-0.5">
+              <button
+                type="button"
+                onClick={() => setSessionListMode("chats")}
+                className={cn(
+                  "flex h-7 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-all",
+                  sessionListMode === "chats"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                aria-pressed={sessionListMode === "chats"}
+              >
+                Chats
+              </button>
+              <button
+                type="button"
+                onClick={() => setSessionListMode("tasks")}
+                className={cn(
+                  "flex h-7 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-all",
+                  sessionListMode === "tasks"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                aria-pressed={sessionListMode === "tasks"}
+              >
+                Tasks
+                {unseenTaskSessionsCount > 0 ? (
+                  <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+                    {unseenTaskSessionsCount > 99 ? "99+" : unseenTaskSessionsCount}
+                  </span>
+                ) : null}
+              </button>
+            </div>
+          ) : (
+            <div className="flex min-w-0 items-center gap-1.5 px-0.5">
+              <ChatCircle size={14} weight="bold" className="text-muted-foreground" />
+              <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Chats
+              </span>
+            </div>
+          )}
 
-          {sessionListMode === "tasks" && onOpenAutopilotSettings ? (
+          {supportsAutopilotTasks && sessionListMode === "tasks" && onOpenAutopilotSettings ? (
             <button
               type="button"
               onClick={onOpenAutopilotSettings}
@@ -1215,7 +1225,11 @@ function ExpandedLeftPanel({
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
             placeholder="Search..."
-            aria-label="Search chats, tasks, knowledge, experts, and skills"
+            aria-label={
+              supportsAutopilotTasks
+                ? "Search chats, tasks, knowledge, experts, and skills"
+                : "Search chats, knowledge, experts, and skills"
+            }
             className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/40"
           />
           {searchQuery.trim().length > 0 ? (
