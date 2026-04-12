@@ -159,6 +159,7 @@ type LeftPanelProps = {
   activeSessionId: string | null;
   unseenCompletedSessions: ReadonlySet<string>;
   onSelectSession: (id: string) => void;
+  onMarkAutopilotRunSeen?: (runId: string) => Promise<void> | void;
   onCreateSession: () => void;
 
   // Agents
@@ -551,6 +552,7 @@ export function LeftPanel({
   activeSessionId,
   unseenCompletedSessions,
   onSelectSession,
+  onMarkAutopilotRunSeen,
   onCreateSession,
   agents,
   onSelectAgent,
@@ -620,6 +622,7 @@ export function LeftPanel({
         activeSessionId={activeSessionId}
         unseenCompletedSessions={unseenCompletedSessions}
         onSelectSession={onSelectSession}
+        onMarkAutopilotRunSeen={onMarkAutopilotRunSeen}
         onCreateSession={onCreateSession}
         agents={agents}
         onSelectAgent={onSelectAgent}
@@ -661,6 +664,7 @@ function ExpandedLeftPanel({
   activeSessionId,
   unseenCompletedSessions,
   onSelectSession,
+  onMarkAutopilotRunSeen,
   onCreateSession,
   agents,
   onSelectAgent,
@@ -683,6 +687,7 @@ function ExpandedLeftPanel({
   const newFileNameRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [sessionListMode, setSessionListMode] = useState<"chats" | "tasks">("chats");
   const [isCreateFileDialogOpen, setIsCreateFileDialogOpen] = useState(false);
   const [newFileName, setNewFileName] = useState("");
   const [selectedDirectoryPath, setSelectedDirectoryPath] = useState("");
@@ -700,13 +705,33 @@ function ExpandedLeftPanel({
 
   const sectionOrder = LEFT_PANEL_SECTION_IDS;
   const [ratios, setRatios] = useState(resolvedInitialPanelState.ratios);
-  const [collapsedSections, setCollapsedSections] = useState(resolvedInitialPanelState.collapsed);
+  const [collapsedSections, setCollapsedSections] = useState<Record<LeftPanelSectionId, boolean>>({
+    ...resolvedInitialPanelState.collapsed,
+    chats: false,
+  });
+  const manualSessions = useMemo(
+    () => sessions.filter((session) => !session.autopilot),
+    [sessions]
+  );
+  const taskSessions = useMemo(
+    () => sessions.filter((session) => Boolean(session.autopilot)),
+    [sessions]
+  );
+  const unseenTaskSessionsCount = useMemo(
+    () => taskSessions.filter((session) => session.autopilot?.hasUnseenResult).length,
+    [taskSessions]
+  );
+  const visibleSessions = sessionListMode === "tasks" ? taskSessions : manualSessions;
 
   // Expand the requested section when coming from a minified panel click
   useEffect(() => {
     const section = pendingSectionRef?.current;
     if (!section) return;
     pendingSectionRef.current = null;
+    if (section === "chats") {
+      setSessionListMode("chats");
+      return;
+    }
     setCollapsedSections((current) => ({ ...current, [section]: false }));
   }, [pendingSectionRef]);
 
@@ -786,7 +811,10 @@ function ExpandedLeftPanel({
   useEffect(() => {
     persistLeftPanelState(leftPanelStorageKey, leftPanelCookieName, {
       ratios,
-      collapsed: collapsedSections,
+      collapsed: {
+        ...collapsedSections,
+        chats: false,
+      },
     });
   }, [collapsedSections, leftPanelCookieName, leftPanelStorageKey, ratios]);
 
@@ -863,19 +891,39 @@ function ExpandedLeftPanel({
     [isCreatingFile, newFileName, onCreateKnowledgeFile, resetCreateFileDialog, selectedDirectoryPath]
   );
 
+  const resizableSectionOrder = useMemo(
+    () => sectionOrder.filter((sectionId) => sectionId !== "chats"),
+    [sectionOrder]
+  );
+
   const expandedRatioTotal = useMemo(
-    () => sectionOrder.reduce((sum, sectionId) => sum + (collapsedSections[sectionId] ? 0 : ratios[sectionId]), 0),
-    [collapsedSections, ratios, sectionOrder]
+    () => resizableSectionOrder.reduce((sum, sectionId) => sum + (collapsedSections[sectionId] ? 0 : ratios[sectionId]), 0),
+    [collapsedSections, ratios, resizableSectionOrder]
   );
 
   const effectiveRatios = useMemo(
     () => Object.fromEntries(
-      sectionOrder.map((sectionId) => [
+      resizableSectionOrder.map((sectionId) => [
         sectionId,
-        expandedRatioTotal > 0 ? ratios[sectionId] / expandedRatioTotal : 1 / sectionOrder.length,
+        expandedRatioTotal > 0 ? ratios[sectionId] / expandedRatioTotal : 1 / resizableSectionOrder.length,
       ])
     ) as Record<LeftPanelSectionId, number>,
-    [expandedRatioTotal, ratios, sectionOrder]
+    [expandedRatioTotal, ratios, resizableSectionOrder]
+  );
+
+  const handleSelectSession = useCallback(
+    (sessionId: string) => {
+      onSelectSession(sessionId);
+
+      const selectedSession = sessions.find((session) => session.id === sessionId);
+      const autopilot = selectedSession?.autopilot;
+      if (!autopilot?.hasUnseenResult) {
+        return;
+      }
+
+      void onMarkAutopilotRunSeen?.(autopilot.runId);
+    },
+    [onMarkAutopilotRunSeen, onSelectSession, sessions]
   );
 
   const handleResize = useCallback(
@@ -963,24 +1011,6 @@ function ExpandedLeftPanel({
     onAction?: () => void
   }> = [
     {
-      id: "chats",
-      icon: ChatCircle,
-      label: "Chats",
-      onAction: onCreateSession,
-      actionIcon: Plus,
-      actionLabel: "New chat",
-      content: (
-        <SessionsPanel
-          sessions={sessions}
-          activeSessionId={activeSessionId}
-          unseenCompletedSessions={unseenCompletedSessions}
-          onSelectSession={onSelectSession}
-          onCreateSession={onCreateSession}
-          query={searchQuery}
-        />
-      ),
-    },
-    {
       id: "knowledge",
       icon: Database,
       label: "Knowledge",
@@ -1017,6 +1047,69 @@ function ExpandedLeftPanel({
       content: <SkillsPanel skills={skills} onSelectSkill={onSelectSkill} query={searchQuery} />,
     },
   ];
+
+  const chatSection = (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-foreground/[0.03]">
+      <div className="flex h-8 shrink-0 items-center justify-between gap-2 px-3">
+        <div className="inline-flex h-8 items-center rounded-lg bg-foreground/[0.06] p-0.5">
+          <button
+            type="button"
+            onClick={() => setSessionListMode("chats")}
+            className={cn(
+              "flex h-7 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-all",
+              sessionListMode === "chats"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+            aria-pressed={sessionListMode === "chats"}
+          >
+            Chats
+          </button>
+          <button
+            type="button"
+            onClick={() => setSessionListMode("tasks")}
+            className={cn(
+              "flex h-7 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-all",
+              sessionListMode === "tasks"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+            aria-pressed={sessionListMode === "tasks"}
+          >
+            Tasks
+            {unseenTaskSessionsCount > 0 ? (
+              <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+                {unseenTaskSessionsCount > 99 ? "99+" : unseenTaskSessionsCount}
+              </span>
+            ) : null}
+          </button>
+        </div>
+
+        {sessionListMode === "chats" ? (
+          <button
+            type="button"
+            onClick={onCreateSession}
+            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+            aria-label="New chat"
+          >
+            <Plus size={14} weight="bold" />
+          </button>
+        ) : null}
+      </div>
+
+      <div className="min-h-0 flex-1">
+        <SessionsPanel
+          kind={sessionListMode}
+          sessions={visibleSessions}
+          activeSessionId={activeSessionId}
+          unseenCompletedSessions={unseenCompletedSessions}
+          onSelectSession={handleSelectSession}
+          onCreateSession={onCreateSession}
+          query={searchQuery}
+        />
+      </div>
+    </div>
+  );
 
   return (
     <div
@@ -1066,7 +1159,7 @@ function ExpandedLeftPanel({
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
             placeholder="Search..."
-            aria-label="Search chats, knowledge, experts, and skills"
+            aria-label="Search chats, tasks, knowledge, experts, and skills"
             className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/40"
           />
           {searchQuery.trim().length > 0 ? (
@@ -1128,6 +1221,8 @@ function ExpandedLeftPanel({
           </div>
         )
       })}
+
+      {chatSection}
 
       {showRestartNotice ? (
         <div

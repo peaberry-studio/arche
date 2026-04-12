@@ -14,6 +14,7 @@ type SessionsPanelProps = {
   unseenCompletedSessions: ReadonlySet<string>;
   onSelectSession: (id: string) => void;
   onCreateSession: () => void;
+  kind?: "chats" | "tasks";
   query?: string;
 };
 
@@ -23,6 +24,7 @@ export function SessionsPanel({
   unseenCompletedSessions,
   onSelectSession,
   onCreateSession,
+  kind = "chats",
   query = "",
 }: SessionsPanelProps) {
   const normalizedQuery = query.trim().toLowerCase();
@@ -42,20 +44,26 @@ export function SessionsPanel({
   const getIndicatorClassName = (session: WorkspaceSession): string | null => {
     if (session.status === "busy") return "text-amber-400";
     if (session.status === "error") return "text-red-400";
+    if (session.autopilot?.hasUnseenResult) return "text-green-400";
     if (unseenCompletedSessions.has(session.id)) return "text-green-400";
     return null;
   };
+
+  const emptyLabel = kind === "tasks" ? "No tasks yet" : "No chats yet";
+  const emptySearchLabel = kind === "tasks" ? "No tasks found" : "No chats found";
 
   if (sessions.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center px-4">
         <div className="flex flex-col items-center justify-center gap-2 text-center">
           <ChatCircle size={24} weight="bold" className="text-muted-foreground/50" />
-          <p className="text-xs text-muted-foreground">No chats yet</p>
-          <Button size="sm" className="h-7 px-2 text-xs" onClick={onCreateSession}>
-            <Plus size={12} weight="bold" className="mr-1" />
-            New chat
-          </Button>
+          <p className="text-xs text-muted-foreground">{emptyLabel}</p>
+          {kind === "chats" ? (
+            <Button size="sm" className="h-7 px-2 text-xs" onClick={onCreateSession}>
+              <Plus size={12} weight="bold" className="mr-1" />
+              New chat
+            </Button>
+          ) : null}
         </div>
       </div>
     );
@@ -64,12 +72,14 @@ export function SessionsPanel({
   if (filteredSessions.length === 0) {
     return (
       <div className="flex flex-1 flex-col">
-        <div className="px-3 pt-3 pb-2">
-          <Button size="sm" className="w-full" onClick={onCreateSession}><Plus size={14} weight="bold" className="mr-1.5" />New chat</Button>
-        </div>
+        {kind === "chats" ? (
+          <div className="px-3 pb-2 pt-3">
+            <Button size="sm" className="w-full" onClick={onCreateSession}><Plus size={14} weight="bold" className="mr-1.5" />New chat</Button>
+          </div>
+        ) : null}
         <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
           <ChatCircle size={24} weight="bold" className="text-muted-foreground/50" />
-          <p className="text-xs text-muted-foreground">No chats found</p>
+          <p className="text-xs text-muted-foreground">{emptySearchLabel}</p>
         </div>
       </div>
     );
@@ -86,6 +96,16 @@ export function SessionsPanel({
             {bucket.items.map((session) => {
               const indicatorClassName = getIndicatorClassName(session);
               const hasIndicator = indicatorClassName !== null;
+              const primaryTitle =
+                kind === "tasks" && session.autopilot
+                  ? session.autopilot.taskName
+                  : session.title;
+              const secondaryLabel =
+                kind === "tasks" && session.autopilot && session.title !== session.autopilot.taskName
+                  ? session.title
+                  : session.autopilot && kind !== "tasks"
+                    ? session.autopilot.taskName
+                    : null;
 
               return (
                 <button
@@ -115,16 +135,16 @@ export function SessionsPanel({
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-2">
-                      <span className="truncate font-medium">{session.title}</span>
-                      {session.autopilot ? (
+                      <span className="truncate font-medium">{primaryTitle}</span>
+                      {session.autopilot && kind !== "tasks" ? (
                         <span className="shrink-0 rounded-full border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
                           Auto
                         </span>
                       ) : null}
                     </span>
-                    {session.autopilot ? (
+                    {secondaryLabel ? (
                       <span className="block truncate text-[11px] text-muted-foreground/70">
-                        {session.autopilot.taskName}
+                        {secondaryLabel}
                       </span>
                     ) : null}
                   </span>

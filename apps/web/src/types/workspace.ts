@@ -31,6 +31,7 @@ export type ChatSession = {
     taskId: string;
     taskName: string;
     trigger: "on_create" | "schedule" | "manual";
+    hasUnseenResult: boolean;
   };
 };
 

@@ -54,6 +54,7 @@ vi.mock("@/hooks/use-workspace", () => ({
     discardFileChanges: vi.fn(),
     createSession: createSessionMock,
     deleteSession: vi.fn(),
+    markAutopilotRunSeen: vi.fn(),
     renameSession: vi.fn(),
     selectSession: vi.fn(),
     agentCatalog: [

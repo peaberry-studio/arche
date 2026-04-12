@@ -1366,6 +1366,7 @@ export function WorkspaceShell({
       activeSessionId={activeRootSessionId}
       unseenCompletedSessions={workspace.unseenCompletedSessions}
       onSelectSession={handleSelectSession}
+      onMarkAutopilotRunSeen={workspace.markAutopilotRunSeen}
       onCreateSession={handleCreateSession}
       agents={workspace.agentCatalog}
       onSelectAgent={handleSelectAgent}

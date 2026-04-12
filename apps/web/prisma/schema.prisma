@@ -157,6 +157,7 @@ model AutopilotRun {
   error           String?
   openCodeSessionId String?          @unique @map("opencode_session_id")
   sessionTitle    String?            @map("session_title")
+  resultSeenAt    DateTime?          @map("result_seen_at")
 
   createdAt       DateTime           @default(now()) @map("created_at")
   updatedAt       DateTime           @updatedAt @map("updated_at")

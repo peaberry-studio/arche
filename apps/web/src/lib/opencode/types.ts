@@ -54,6 +54,7 @@ export type WorkspaceSession = {
     taskId: string
     taskName: string
     trigger: 'on_create' | 'schedule' | 'manual'
+    hasUnseenResult: boolean
   }
   share?: {
     url: string

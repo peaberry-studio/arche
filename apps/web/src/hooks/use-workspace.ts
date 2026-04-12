@@ -5,6 +5,7 @@ import {
   listSessionsAction,
   createSessionAction,
   deleteSessionAction,
+  markAutopilotRunSeenAction,
   updateSessionAction,
   listMessagesAction,
   abortSessionAction,
@@ -344,6 +345,7 @@ export type UseWorkspaceReturn = {
   isLoadingSessions: boolean;
   unseenCompletedSessions: ReadonlySet<string>;
   selectSession: (id: string) => void;
+  markAutopilotRunSeen: (runId: string) => Promise<void>;
   createSession: (title?: string) => Promise<WorkspaceSession | null>;
   deleteSession: (id: string) => Promise<boolean>;
   renameSession: (id: string, title: string) => Promise<boolean>;
@@ -803,6 +805,11 @@ export function useWorkspace({
         const currentSessionId = activeSessionIdRef.current;
         const requestedSessionId = initialSessionIdRef.current;
         const storedSessionId = loadStoredActiveSessionId(activeSessionStorageKey);
+        const firstManualRootSession = sessions.find(
+          (session) =>
+            (!session.parentId || !sessionIds.has(session.parentId)) &&
+            !session.autopilot
+        );
         const firstRootSession = sessions.find(
           (session) => !session.parentId || !sessionIds.has(session.parentId)
         );
@@ -816,6 +823,7 @@ export function useWorkspace({
           (storedSessionId && sessionIds.has(storedSessionId)
             ? storedSessionId
             : null) ??
+          firstManualRootSession?.id ??
           firstRootSession?.id ??
           sessions[0]?.id ??
           null;
@@ -881,6 +889,35 @@ export function useWorkspace({
       });
     },
     []
+  );
+
+  const markAutopilotRunSeen = useCallback(
+    async (runId: string) => {
+      let touched = false;
+
+      setSessions((prev) =>
+        prev.map((session) => {
+          if (session.autopilot?.runId !== runId || !session.autopilot.hasUnseenResult) {
+            return session;
+          }
+
+          touched = true;
+          return {
+            ...session,
+            autopilot: {
+              ...session.autopilot,
+              hasUnseenResult: false,
+            },
+          };
+        })
+      );
+
+      const result = await markAutopilotRunSeenAction(slug, runId);
+      if (!result.ok && touched) {
+        void loadSessions();
+      }
+    },
+    [loadSessions, slug]
   );
 
   const createSession = useCallback(
@@ -2111,6 +2148,7 @@ export function useWorkspace({
     isLoadingSessions,
     unseenCompletedSessions,
     selectSession,
+    markAutopilotRunSeen,
     createSession,
     deleteSession,
     renameSession,

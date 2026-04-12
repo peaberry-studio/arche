@@ -61,8 +61,10 @@ const mockPrisma = {
   },
   autopilotRun: {
     create: vi.fn(),
+    findFirst: vi.fn(),
     findMany: vi.fn(),
     update: vi.fn(),
+    updateMany: vi.fn(),
   },
   twoFactorRecovery: {
     count: vi.fn(),
@@ -289,6 +291,43 @@ describe('service layer', () => {
           lastRunAt,
           leaseOwner: null,
           leaseExpiresAt: null,
+        },
+      })
+    })
+
+    it('markRunResultSeenByIdAndUserId only marks completed unseen runs', async () => {
+      const seenAt = new Date('2026-04-12T11:00:00.000Z')
+      mockPrisma.autopilotRun.findFirst.mockResolvedValue({
+        id: 'run-1',
+        status: 'succeeded',
+        resultSeenAt: null,
+      })
+      mockPrisma.autopilotRun.updateMany.mockResolvedValue({ count: 1 })
+
+      const { autopilotService } = await import('../index')
+      const result = await autopilotService.markRunResultSeenByIdAndUserId('run-1', 'user-1', seenAt)
+
+      expect(result).toBe(true)
+      expect(mockPrisma.autopilotRun.findFirst).toHaveBeenCalledWith({
+        where: {
+          id: 'run-1',
+          task: {
+            userId: 'user-1',
+          },
+        },
+        select: {
+          id: true,
+          resultSeenAt: true,
+          status: true,
+        },
+      })
+      expect(mockPrisma.autopilotRun.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'run-1',
+          resultSeenAt: null,
+        },
+        data: {
+          resultSeenAt: seenAt,
         },
       })
     })

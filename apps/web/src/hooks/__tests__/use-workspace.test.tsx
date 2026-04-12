@@ -11,6 +11,7 @@ const opencodeMocks = vi.hoisted(() => ({
   listSessionsAction: vi.fn(),
   createSessionAction: vi.fn(),
   deleteSessionAction: vi.fn(),
+  markAutopilotRunSeenAction: vi.fn(),
   updateSessionAction: vi.fn(),
   listMessagesAction: vi.fn(),
   abortSessionAction: vi.fn(),

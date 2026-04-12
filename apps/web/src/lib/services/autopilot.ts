@@ -30,6 +30,7 @@ export type AutopilotRunRecord = {
   error: string | null
   openCodeSessionId: string | null
   sessionTitle: string | null
+  resultSeenAt: Date | null
   createdAt: Date
   updatedAt: Date
 }
@@ -60,6 +61,7 @@ type SessionMetadataRecord = {
   taskId: string
   taskName: string
   runId: string
+  hasUnseenResult: boolean
 }
 
 const TASK_RUN_INCLUDE = {
@@ -327,6 +329,42 @@ export function attachRunSession(id: string, data: { openCodeSessionId: string; 
   })
 }
 
+export async function markRunResultSeenByIdAndUserId(id: string, userId: string, seenAt: Date): Promise<boolean> {
+  const run = await prisma.autopilotRun.findFirst({
+    where: {
+      id,
+      task: {
+        userId,
+      },
+    },
+    select: {
+      id: true,
+      resultSeenAt: true,
+      status: true,
+    },
+  })
+
+  if (!run) {
+    return false
+  }
+
+  if (run.status === AutopilotRunStatus.running || run.resultSeenAt) {
+    return true
+  }
+
+  const result = await prisma.autopilotRun.updateMany({
+    where: {
+      id,
+      resultSeenAt: null,
+    },
+    data: {
+      resultSeenAt: seenAt,
+    },
+  })
+
+  return result.count === 1
+}
+
 export async function findSessionMetadataByUserId(userId: string, sessionIds: string[]): Promise<SessionMetadataRecord[]> {
   if (sessionIds.length === 0) return []
 
@@ -343,6 +381,8 @@ export async function findSessionMetadataByUserId(userId: string, sessionIds: st
       id: true,
       trigger: true,
       openCodeSessionId: true,
+      resultSeenAt: true,
+      status: true,
       task: {
         select: {
           id: true,
@@ -362,6 +402,9 @@ export async function findSessionMetadataByUserId(userId: string, sessionIds: st
         taskId: run.task.id,
         taskName: run.task.name,
         runId: run.id,
+        hasUnseenResult:
+          run.status !== AutopilotRunStatus.running &&
+          run.resultSeenAt === null,
       }]
     })
   )

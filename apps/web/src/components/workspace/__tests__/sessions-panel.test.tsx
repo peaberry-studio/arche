@@ -101,11 +101,28 @@ describe("SessionsPanel", () => {
         unseenCompletedSessions={new Set<string>()}
         onSelectSession={vi.fn()}
         onCreateSession={vi.fn()}
+        kind="tasks"
         query="daily summary"
       />
     );
 
-    expect(screen.getByText("Auto")).toBeTruthy();
     expect(screen.getByText("Daily summary")).toBeTruthy();
+    expect(screen.getByText("Autopilot | Daily summary")).toBeTruthy();
+  });
+
+  it("hides chat creation affordances in tasks mode", () => {
+    render(
+      <SessionsPanel
+        sessions={[]}
+        activeSessionId={null}
+        unseenCompletedSessions={new Set<string>()}
+        onSelectSession={vi.fn()}
+        onCreateSession={vi.fn()}
+        kind="tasks"
+      />
+    );
+
+    expect(screen.getByText("No tasks yet")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "New chat" })).toBeNull();
   });
 });
