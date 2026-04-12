@@ -747,6 +747,58 @@ describe('desktopWorkspaceHost', () => {
     })
   })
 
+  it('retries provider sync before marking restart as required', async () => {
+    const opencodeChild = makeChildProcess()
+    const workspaceAgentChild = makeChildProcess()
+    mockSpawn.mockReturnValueOnce(opencodeChild).mockReturnValueOnce(workspaceAgentChild)
+    process.env.ARCHE_DESKTOP_START_INTERVAL_MS = '1'
+    process.env.ARCHE_DESKTOP_START_TIMEOUT_MS = '20'
+
+    const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
+    const { syncProviderAccessForInstance } = await import('@/lib/opencode/providers')
+    const { providerService } = await import('@/lib/services')
+
+    vi.mocked(syncProviderAccessForInstance)
+      .mockResolvedValueOnce({ ok: false, error: 'sync_failed' })
+      .mockResolvedValueOnce({ ok: true })
+
+    const result = await desktopWorkspaceHost.start('local', 'user-1')
+
+    expect(result).toEqual({ ok: true, status: 'started' })
+    expect(syncProviderAccessForInstance).toHaveBeenCalledTimes(2)
+    expect(providerService.clearWorkspaceRestartRequired).toHaveBeenCalledWith('local')
+    expect(providerService.markWorkspaceRestartRequired).not.toHaveBeenCalled()
+  })
+
+  it('marks restart required when provider sync retries are exhausted', async () => {
+    const opencodeChild = makeChildProcess()
+    const workspaceAgentChild = makeChildProcess()
+    mockSpawn.mockReturnValueOnce(opencodeChild).mockReturnValueOnce(workspaceAgentChild)
+    process.env.ARCHE_DESKTOP_START_INTERVAL_MS = '1'
+    process.env.ARCHE_DESKTOP_START_TIMEOUT_MS = '5'
+
+    const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
+    const { syncProviderAccessForInstance } = await import('@/lib/opencode/providers')
+    const { providerService } = await import('@/lib/services')
+
+    const syncMock = vi.mocked(syncProviderAccessForInstance)
+    syncMock.mockResolvedValue({ ok: false, error: 'sync_failed' })
+
+    try {
+      const result = await desktopWorkspaceHost.start('local', 'user-1')
+
+      expect(result).toEqual({ ok: true, status: 'started' })
+      expect(syncMock.mock.calls.length).toBeGreaterThanOrEqual(1)
+      expect(providerService.markWorkspaceRestartRequired).toHaveBeenCalledWith('local')
+      expect(providerService.clearWorkspaceRestartRequired).not.toHaveBeenCalled()
+    } finally {
+      // Reset to the default resolved value so subsequent tests are not
+      // affected by the persistent failure mock (beforeEach uses
+      // clearAllMocks which does not restore mock implementations).
+      syncMock.mockResolvedValue({ ok: true })
+    }
+  })
+
   it('stores encrypted credentials in DB on start', async () => {
     const opencodeChild = makeChildProcess()
     const workspaceAgentChild = makeChildProcess()

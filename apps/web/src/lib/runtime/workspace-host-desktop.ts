@@ -101,6 +101,43 @@ function logDesktopRuntime(
   console.log(`[desktop-runtime] ${JSON.stringify(payload)}`)
 }
 
+async function syncProvidersWithRetry(input: {
+  authHeader: string
+  intervalMs: number
+  port: number
+  slug: string
+  timeoutMs: number
+  userId: string
+}): Promise<Awaited<ReturnType<typeof syncProviderAccessForInstance>>> {
+  const deadline = Date.now() + input.timeoutMs
+  let attempt = 1
+
+  while (true) {
+    const result = await syncProviderAccessForInstance({
+      instance: {
+        baseUrl: `http://${LOOPBACK_HOST}:${input.port}`,
+        authHeader: input.authHeader,
+      },
+      slug: input.slug,
+      userId: input.userId,
+    })
+
+    if (result.ok || Date.now() >= deadline) {
+      return result
+    }
+
+    logDesktopRuntime(
+      input.slug,
+      'providers',
+      'sync_retry',
+      `attempt=${String(attempt)} error=${result.error}`,
+    )
+    attempt += 1
+
+    await new Promise((resolve) => setTimeout(resolve, input.intervalMs))
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Port env sync
 // ---------------------------------------------------------------------------
@@ -449,12 +486,12 @@ export const desktopWorkspaceHost: WorkspaceHost = {
       }
 
       const syncUserId = artifacts.owner?.id ?? userId
-      const syncResult = await syncProviderAccessForInstance({
-        instance: {
-          baseUrl: `http://${LOOPBACK_HOST}:${port}`,
-          authHeader,
-        },
+      const syncResult = await syncProvidersWithRetry({
+        authHeader,
+        intervalMs,
+        port,
         slug,
+        timeoutMs,
         userId: syncUserId,
       })
       if (!syncResult.ok) {
