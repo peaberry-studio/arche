@@ -56,6 +56,15 @@ describe('GET /api/instances/[slug]/config-status', () => {
     expect(body).toEqual({ pending: true, reason: 'config' })
   })
 
+  it('does not report pending changes before a workspace has applied any config', async () => {
+    mockFindAppliedConfigShaBySlug.mockResolvedValue(null)
+
+    const { status, body } = await callConfigStatus('alice')
+
+    expect(status).toBe(200)
+    expect(body).toEqual({ pending: false, reason: null })
+  })
+
   it('reports provider sync restart requirements when runtime hashes already match', async () => {
     mockHasPendingRestartByUserId.mockResolvedValue(true)
 

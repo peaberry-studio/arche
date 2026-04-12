@@ -48,11 +48,16 @@ let nextSupervisor: RuntimeSupervisor | null = null
 let nextPort = DEFAULT_DESKTOP_WEB_PORT
 let runtimeShutdownRequested = false
 let desktopApiToken = ''
+let gatewayTokenSecret = ''
 let launchContext: DesktopLaunchContext = { mode: 'launcher', vaultPath: null }
 let currentVault: DesktopVault | null = null
 let vaultLock: VaultLockHandle | null = null
 
 function generateDesktopApiToken(): string {
+  return randomBytes(32).toString('base64url')
+}
+
+function generateDesktopGatewayTokenSecret(): string {
   return randomBytes(32).toString('base64url')
 }
 
@@ -175,6 +180,9 @@ function setDesktopEnv(): void {
 
   desktopApiToken = generateDesktopApiToken()
   process.env.ARCHE_DESKTOP_API_TOKEN = desktopApiToken
+
+  gatewayTokenSecret = generateDesktopGatewayTokenSecret()
+  process.env.ARCHE_GATEWAY_TOKEN_SECRET = gatewayTokenSecret
 }
 
 async function dugiteExec(args: string[], cwd: string): Promise<string> {
@@ -603,9 +611,10 @@ app.whenReady().then(async () => {
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
+  // Each desktop window owns a vault-specific backend. Leaving the process
+  // alive after the last window closes keeps that backend bound to the old
+  // vault and can leak stale state into the next launch.
+  app.quit()
 })
 
 app.on('before-quit', (event) => {
