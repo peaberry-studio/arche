@@ -2473,8 +2473,13 @@ func collectDOToken(flagValue string) (string, error) {
 		token = strings.TrimSpace(os.Getenv("DIGITALOCEAN_TOKEN"))
 	}
 	if token == "" {
-		fmt.Print("DigitalOcean API token: ")
-		raw, err := term.ReadPassword(int(os.Stdin.Fd()))
+		tty, err := os.Open("/dev/tty")
+		if err != nil {
+			return "", fmt.Errorf("open /dev/tty for token prompt: %w", err)
+		}
+		defer tty.Close()
+		fmt.Print("DigitalOcean API token (input hidden): ")
+		raw, err := term.ReadPassword(int(tty.Fd()))
 		fmt.Println()
 		if err != nil {
 			return "", fmt.Errorf("read DigitalOcean token: %w", err)
