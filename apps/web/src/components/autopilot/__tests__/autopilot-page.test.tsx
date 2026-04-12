@@ -46,7 +46,7 @@ describe('AutopilotPage', () => {
     expect(await screen.findByText('Daily summary')).toBeTruthy()
     expect(screen.getByText('0 9 * * *')).toBeTruthy()
     expect(screen.getByText('Primary agent')).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Open' }).getAttribute('href')).toBe('/u/alice/autopilot/task-1')
+    expect(screen.getByRole('link', { name: /daily summary/i }).getAttribute('href')).toBe('/u/alice/autopilot/task-1')
   })
 
   it('sends a PATCH request when toggling a task', async () => {

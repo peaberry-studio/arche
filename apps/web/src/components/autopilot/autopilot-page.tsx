@@ -231,7 +231,7 @@ export function AutopilotPage({ slug }: AutopilotPageProps) {
                     </span>
                     <span className="inline-flex items-center gap-1">
                       <Robot size={13} weight="bold" className="shrink-0" />
-                      {task.targetAgentId ?? 'Primary'}
+                      {task.targetAgentId ?? 'Primary agent'}
                     </span>
                   </div>
 
