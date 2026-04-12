@@ -897,11 +897,20 @@ export function useWorkspace({
         activeSessionIdRef.current = result.session.id;
         updateSessionMessages(result.session.id, []);
         initializeSessionSelectionState(result.session.id, draftSelection);
+        if (draftSelection) {
+          clearSessionSelectionState(PRE_SESSION_SELECTION_KEY);
+        }
         return result.session;
       }
       return null;
     },
-    [initializeSessionSelectionState, markSessionsMutated, slug, updateSessionMessages]
+    [
+      clearSessionSelectionState,
+      initializeSessionSelectionState,
+      markSessionsMutated,
+      slug,
+      updateSessionMessages,
+    ]
   );
 
   const deleteSession = useCallback(

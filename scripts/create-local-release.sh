@@ -16,7 +16,7 @@ ASSET_DIR=""
 SKIP_VALIDATION=0
 TAG_CREATED=0
 TAG_PUSHED=0
-EXPECTED_NODE_MAJOR='24'
+NODE_VERSION_FILE="$ROOT_DIR/.node-version"
 
 usage() {
   cat <<'EOF'
@@ -44,14 +44,29 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1"
 }
 
-ensure_supported_node_runtime() {
-  local current_version current_major
+read_supported_node_major() {
+  local configured_version
 
+  [[ -f "$NODE_VERSION_FILE" ]] || fail "Missing Node version file at $NODE_VERSION_FILE"
+  configured_version="$(tr -d '[:space:]' < "$NODE_VERSION_FILE")"
+
+  if [[ "$configured_version" =~ ^([0-9]+)(\..*)?$ ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+    return
+  fi
+
+  fail "Unsupported Node version format in $NODE_VERSION_FILE: $configured_version"
+}
+
+ensure_supported_node_runtime() {
+  local current_version current_major supported_major
+
+  supported_major="$(read_supported_node_major)"
   current_version="$(node -p 'process.versions.node')"
   current_major="${current_version%%.*}"
 
-  [[ "$current_major" == "$EXPECTED_NODE_MAJOR" ]] || \
-    fail "Node.js ${EXPECTED_NODE_MAJOR}.x is required for local desktop releases (current: v$current_version)."
+  [[ "$current_major" == "$supported_major" ]] || \
+    fail "Node.js ${supported_major}.x is required for local desktop releases (current: v$current_version)."
 }
 
 validate_version() {
