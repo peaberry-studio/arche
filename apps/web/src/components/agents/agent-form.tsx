@@ -458,8 +458,8 @@ export function AgentForm({
           </p>
         </div>
 
-        <div className="space-y-3">
-          <Label className="text-sm text-muted-foreground">Tools</Label>
+        <div>
+          <Label className="mb-3 block text-sm text-muted-foreground">Tools</Label>
           <div className="grid gap-2 md:grid-cols-2">
             {OPENCODE_AGENT_TOOL_OPTIONS.map((tool) => {
               const checked = enabledTools.includes(tool.id)
@@ -487,8 +487,8 @@ export function AgentForm({
           </div>
         </div>
 
-        <div className="space-y-3">
-          <Label className="text-sm text-muted-foreground">Connectors</Label>
+        <div>
+          <Label className="mb-3 block text-sm text-muted-foreground">Connectors</Label>
           {connectors.length === 0 ? (
             <p className="text-sm text-muted-foreground/70">No enabled connectors available.</p>
           ) : (
@@ -520,8 +520,8 @@ export function AgentForm({
           )}
         </div>
 
-        <div className="space-y-3">
-          <Label className="text-sm text-muted-foreground">Skills</Label>
+        <div>
+          <Label className="mb-3 block text-sm text-muted-foreground">Skills</Label>
           {skills.length === 0 ? (
             <p className="text-sm text-muted-foreground/70">No skills available.</p>
           ) : (
