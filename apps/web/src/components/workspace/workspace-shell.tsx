@@ -945,6 +945,10 @@ export function WorkspaceShell({
     router.push(currentVault ? getDesktopWorkspaceHref(slug, 'skills') : `/u/${slug}/skills`);
   }, [currentVault, router, slug]);
 
+  const handleOpenAutopilotSettings = useCallback(() => {
+    router.push(`/u/${slug}/autopilot`);
+  }, [router, slug]);
+
   const handleCreateKnowledgeFile = useCallback(
     async (path: string) => {
       if (!workspaceAgentEnabled) {
@@ -1368,6 +1372,7 @@ export function WorkspaceShell({
       onSelectSession={handleSelectSession}
       onMarkAutopilotRunSeen={workspace.markAutopilotRunSeen}
       onCreateSession={handleCreateSession}
+      onOpenAutopilotSettings={handleOpenAutopilotSettings}
       agents={workspace.agentCatalog}
       onSelectAgent={handleSelectAgent}
       onOpenExpertsSettings={handleOpenExpertsSettings}

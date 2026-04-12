@@ -161,6 +161,7 @@ type LeftPanelProps = {
   onSelectSession: (id: string) => void;
   onMarkAutopilotRunSeen?: (runId: string) => Promise<void> | void;
   onCreateSession: () => void;
+  onOpenAutopilotSettings?: () => void;
 
   // Agents
   agents: AgentCatalogItem[];
@@ -554,6 +555,7 @@ export function LeftPanel({
   onSelectSession,
   onMarkAutopilotRunSeen,
   onCreateSession,
+  onOpenAutopilotSettings,
   agents,
   onSelectAgent,
   onOpenExpertsSettings,
@@ -624,6 +626,7 @@ export function LeftPanel({
         onSelectSession={onSelectSession}
         onMarkAutopilotRunSeen={onMarkAutopilotRunSeen}
         onCreateSession={onCreateSession}
+        onOpenAutopilotSettings={onOpenAutopilotSettings}
         agents={agents}
         onSelectAgent={onSelectAgent}
         onOpenExpertsSettings={onOpenExpertsSettings}
@@ -666,6 +669,7 @@ function ExpandedLeftPanel({
   onSelectSession,
   onMarkAutopilotRunSeen,
   onCreateSession,
+  onOpenAutopilotSettings,
   agents,
   onSelectAgent,
   onOpenExpertsSettings,
@@ -892,7 +896,7 @@ function ExpandedLeftPanel({
   );
 
   const resizableSectionOrder = useMemo(
-    () => sectionOrder.filter((sectionId) => sectionId !== "chats"),
+    () => sectionOrder,
     [sectionOrder]
   );
 
@@ -1004,12 +1008,88 @@ function ExpandedLeftPanel({
   const sectionItems: Array<{
     actionIcon?: typeof Plus
     actionLabel?: string
+    collapsible?: boolean
     content: React.ReactNode
+    customHeader?: React.ReactNode
     icon: typeof ChatCircle
     id: LeftPanelSectionId
     label: string
     onAction?: () => void
   }> = [
+    {
+      id: "chats",
+      icon: ChatCircle,
+      label: "Chats",
+      collapsible: false,
+      customHeader: (
+        <div className="flex shrink-0 items-center justify-between gap-2 px-3 pt-2.5 pb-1">
+          <div className="inline-flex h-8 items-center rounded-lg bg-foreground/[0.06] p-0.5">
+            <button
+              type="button"
+              onClick={() => setSessionListMode("chats")}
+              className={cn(
+                "flex h-7 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-all",
+                sessionListMode === "chats"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+              aria-pressed={sessionListMode === "chats"}
+            >
+              Chats
+            </button>
+            <button
+              type="button"
+              onClick={() => setSessionListMode("tasks")}
+              className={cn(
+                "flex h-7 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-all",
+                sessionListMode === "tasks"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+              aria-pressed={sessionListMode === "tasks"}
+            >
+              Tasks
+              {unseenTaskSessionsCount > 0 ? (
+                <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+                  {unseenTaskSessionsCount > 99 ? "99+" : unseenTaskSessionsCount}
+                </span>
+              ) : null}
+            </button>
+          </div>
+
+          {sessionListMode === "tasks" && onOpenAutopilotSettings ? (
+            <button
+              type="button"
+              onClick={onOpenAutopilotSettings}
+              className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+              aria-label="Manage tasks"
+            >
+              <SlidersHorizontal size={14} weight="bold" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onCreateSession}
+              className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+              aria-label="New chat"
+            >
+              <Plus size={14} weight="bold" />
+            </button>
+          )}
+        </div>
+      ),
+      content: (
+        <SessionsPanel
+          kind={sessionListMode}
+          sessions={visibleSessions}
+          activeSessionId={activeSessionId}
+          unseenCompletedSessions={unseenCompletedSessions}
+          onSelectSession={handleSelectSession}
+          onCreateSession={onCreateSession}
+          query={searchQuery}
+        />
+      ),
+    },
     {
       id: "knowledge",
       icon: Database,
@@ -1047,69 +1127,6 @@ function ExpandedLeftPanel({
       content: <SkillsPanel skills={skills} onSelectSkill={onSelectSkill} query={searchQuery} />,
     },
   ];
-
-  const chatSection = (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-foreground/[0.03]">
-      <div className="flex h-8 shrink-0 items-center justify-between gap-2 px-3">
-        <div className="inline-flex h-8 items-center rounded-lg bg-foreground/[0.06] p-0.5">
-          <button
-            type="button"
-            onClick={() => setSessionListMode("chats")}
-            className={cn(
-              "flex h-7 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-all",
-              sessionListMode === "chats"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-            aria-pressed={sessionListMode === "chats"}
-          >
-            Chats
-          </button>
-          <button
-            type="button"
-            onClick={() => setSessionListMode("tasks")}
-            className={cn(
-              "flex h-7 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-all",
-              sessionListMode === "tasks"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-            aria-pressed={sessionListMode === "tasks"}
-          >
-            Tasks
-            {unseenTaskSessionsCount > 0 ? (
-              <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
-                {unseenTaskSessionsCount > 99 ? "99+" : unseenTaskSessionsCount}
-              </span>
-            ) : null}
-          </button>
-        </div>
-
-        {sessionListMode === "chats" ? (
-          <button
-            type="button"
-            onClick={onCreateSession}
-            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
-            aria-label="New chat"
-          >
-            <Plus size={14} weight="bold" />
-          </button>
-        ) : null}
-      </div>
-
-      <div className="min-h-0 flex-1">
-        <SessionsPanel
-          kind={sessionListMode}
-          sessions={visibleSessions}
-          activeSessionId={activeSessionId}
-          unseenCompletedSessions={unseenCompletedSessions}
-          onSelectSession={handleSelectSession}
-          onCreateSession={onCreateSession}
-          query={searchQuery}
-        />
-      </div>
-    </div>
-  );
 
   return (
     <div
@@ -1184,7 +1201,7 @@ function ExpandedLeftPanel({
 
       {sectionItems.map((section, index) => {
         const nextSection = sectionItems[index + 1]
-        const isCollapsed = collapsedSections[section.id]
+        const isCollapsed = section.collapsible === false ? false : collapsedSections[section.id]
 
         return (
           <div key={section.id} className="contents">
@@ -1192,14 +1209,16 @@ function ExpandedLeftPanel({
               style={sectionStyle(isCollapsed, effectiveRatios[section.id])}
               className="flex min-h-0 flex-col overflow-hidden rounded-xl bg-foreground/[0.03]"
             >
-              <SectionHeader
-                icon={section.icon}
-                label={section.label}
-                onToggle={() => setCollapsedSections((current) => ({ ...current, [section.id]: !current[section.id] }))}
-                onAction={section.onAction}
-                actionIcon={section.actionIcon}
-                actionLabel={section.actionLabel}
-              />
+              {section.customHeader ?? (
+                <SectionHeader
+                  icon={section.icon}
+                  label={section.label}
+                  onToggle={() => setCollapsedSections((current) => ({ ...current, [section.id]: !current[section.id] }))}
+                  onAction={section.onAction}
+                  actionIcon={section.actionIcon}
+                  actionLabel={section.actionLabel}
+                />
+              )}
               <div className="min-h-0 flex-1" style={contentStyle(isCollapsed)}>
                 <div className="flex flex-col overflow-hidden" style={{ minHeight: 0 }}>
                   {section.content}
@@ -1207,7 +1226,7 @@ function ExpandedLeftPanel({
               </div>
             </div>
 
-            {nextSection && !collapsedSections[section.id] && !collapsedSections[nextSection.id] ? (
+            {nextSection && !isCollapsed && !(nextSection.collapsible === false ? false : collapsedSections[nextSection.id]) ? (
               <div
                 className="group relative h-0 w-full shrink-0 cursor-row-resize"
                 onPointerDown={(event) => handleResize(section.id, nextSection.id, event)}
@@ -1221,8 +1240,6 @@ function ExpandedLeftPanel({
           </div>
         )
       })}
-
-      {chatSection}
 
       {showRestartNotice ? (
         <div
