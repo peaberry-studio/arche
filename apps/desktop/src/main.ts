@@ -344,6 +344,20 @@ function createWindow(): void {
 
   void mainWindow.loadURL(getNextUrl())
 
+  mainWindow.webContents.on('dom-ready', () => {
+    void mainWindow?.webContents.executeJavaScript(`
+      // Next's desktop renderer can surface transient BigInt serialization
+      // errors during RSC hydration. Normalize them to strings in JSON paths.
+      if (!BigInt.prototype.toJSON) {
+        BigInt.prototype.toJSON = function() {
+          return this.toString()
+        }
+      }
+
+      void 0
+    `)
+  })
+
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http://') || url.startsWith('https://')) {
       void shell.openExternal(url)
