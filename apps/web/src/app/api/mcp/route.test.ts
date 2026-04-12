@@ -89,6 +89,20 @@ describe('POST /api/mcp', () => {
     expect(mockAuthenticatePat).not.toHaveBeenCalled()
   })
 
+  it('returns 503 when MCP settings cannot be read', async () => {
+    mockReadMcpSettings.mockResolvedValue({
+      ok: false,
+      enabled: false,
+      error: 'kb_unavailable',
+    })
+
+    const { POST } = await import('./route')
+    const response = await POST(makeRequest({ jsonrpc: '2.0' }))
+
+    expect(response.status).toBe(503)
+    expect(mockAuthenticatePat).not.toHaveBeenCalled()
+  })
+
   it('returns 401 when PAT authentication fails', async () => {
     mockAuthenticatePat.mockResolvedValue({ ok: false, status: 401 })
 
