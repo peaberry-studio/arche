@@ -806,6 +806,11 @@ export function useWorkspace({
           const next: Record<string, SessionSelectionState> = {};
 
           for (const [sessionId, state] of Object.entries(prev)) {
+            if (sessionId === PRE_SESSION_SELECTION_KEY) {
+              next[sessionId] = state;
+              continue;
+            }
+
             if (!sessionIds.has(sessionId)) {
               changed = true;
               continue;

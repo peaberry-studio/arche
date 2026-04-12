@@ -584,6 +584,49 @@ describe("useWorkspace", () => {
     });
   });
 
+  it("preserves the pre-session model selection across session refreshes", async () => {
+    vi.useFakeTimers();
+
+    try {
+      opencodeMocks.listSessionsAction.mockResolvedValue({
+        ok: true,
+        sessions: [],
+      });
+
+      const { result } = renderHook(() =>
+        useWorkspace({ slug: "alice", pollInterval: 1000 })
+      );
+
+      await waitFor(() => {
+        expect(result.current.activeSessionId).toBeNull();
+        expect(result.current.selectedModel?.modelId).toBe("gpt-5.4");
+      });
+
+      act(() => {
+        result.current.setSelectedModel({
+          providerId: "openai",
+          providerName: "OpenAI",
+          modelId: "gpt-5.2",
+          modelName: "GPT 5.2",
+          isDefault: true,
+        });
+      });
+
+      expect(result.current.selectedModel?.modelId).toBe("gpt-5.2");
+      expect(result.current.hasManualModelSelection).toBe(true);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+
+      expect(result.current.activeSessionId).toBeNull();
+      expect(result.current.selectedModel?.modelId).toBe("gpt-5.2");
+      expect(result.current.hasManualModelSelection).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("reloads models when workspace config changes", async () => {
     let providerRequestCount = 0;
 
