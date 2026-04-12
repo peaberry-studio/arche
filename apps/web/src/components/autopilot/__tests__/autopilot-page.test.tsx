@@ -109,4 +109,48 @@ describe('AutopilotPage', () => {
       )
     })
   })
+
+  it('surfaces run-now errors from the list page', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          tasks: [
+            {
+              id: 'task-1',
+              name: 'Daily summary',
+              prompt: 'Summarize the latest work',
+              targetAgentId: null,
+              cronExpression: '0 9 * * *',
+              timezone: 'UTC',
+              enabled: true,
+              nextRunAt: '2026-04-12T09:00:00.000Z',
+              lastRunAt: null,
+              createdAt: '2026-04-11T09:00:00.000Z',
+              updatedAt: '2026-04-11T09:00:00.000Z',
+              latestRun: null,
+            },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({ error: 'task_busy' }),
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<AutopilotPage slug="alice" />)
+
+    const [runNowButton] = await screen.findAllByRole('button', { name: 'Run now' })
+    fireEvent.click(runNowButton)
+
+    expect(await screen.findByText('Could not complete autopilot action')).toBeTruthy()
+    expect(screen.getByText('task_busy')).toBeTruthy()
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/u/alice/autopilot/task-1/run',
+      expect.objectContaining({ method: 'POST' })
+    )
+  })
 })

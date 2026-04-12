@@ -8,6 +8,9 @@ RUN corepack enable
 
 FROM base AS deps
 COPY web/package.json web/pnpm-lock.yaml ./
+COPY web/prisma ./prisma
+COPY web/prisma.config.ts ./prisma.config.ts
+COPY web/prisma.config.desktop.ts ./prisma.config.desktop.ts
 RUN NODE_ENV=development pnpm install --frozen-lockfile
 
 FROM base AS build

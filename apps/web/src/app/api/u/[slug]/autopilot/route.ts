@@ -94,11 +94,29 @@ export const POST = withAuth<{ task: AutopilotTaskDetail } | { error: string }>(
       })
 
       if (task.enabled) {
-        await triggerAutopilotTaskNow({
-          taskId: task.id,
-          trigger: 'on_create',
-          userId,
-        }).catch(() => undefined)
+        try {
+          const triggerResult = await triggerAutopilotTaskNow({
+            taskId: task.id,
+            trigger: 'on_create',
+            userId,
+          })
+
+          if (!triggerResult.ok) {
+            console.error('[autopilot] Failed to trigger initial task run', {
+              reason: triggerResult.error,
+              slug,
+              taskId: task.id,
+              userId,
+            })
+          }
+        } catch (error) {
+          console.error('[autopilot] Unexpected error triggering initial task run', {
+            error,
+            slug,
+            taskId: task.id,
+            userId,
+          })
+        }
       }
 
       const detail = await autopilotService.findTaskByIdAndUserId(task.id, userId)

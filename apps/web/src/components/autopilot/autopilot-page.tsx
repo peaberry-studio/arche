@@ -34,6 +34,7 @@ function getRunBadgeLabel(task: AutopilotTaskListItem): string {
 export function AutopilotPage({ slug }: AutopilotPageProps) {
   const router = useRouter()
   const [tasks, setTasks] = useState<AutopilotTaskListItem[]>([])
+  const [actionError, setActionError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [mutatingTaskIds, setMutatingTaskIds] = useState<Set<string>>(new Set())
@@ -54,6 +55,7 @@ export function AutopilotPage({ slug }: AutopilotPageProps) {
       }
 
       setTasks(data.tasks)
+      setActionError(null)
     } catch {
       setLoadError('network_error')
     } finally {
@@ -79,6 +81,8 @@ export function AutopilotPage({ slug }: AutopilotPageProps) {
 
   const handleToggleEnabled = useCallback(async (task: AutopilotTaskListItem) => {
     markMutating(task.id, true)
+    setActionError(null)
+
     try {
       const response = await fetch(`/api/u/${slug}/autopilot/${task.id}`, {
         method: 'PATCH',
@@ -87,10 +91,14 @@ export function AutopilotPage({ slug }: AutopilotPageProps) {
       })
 
       if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as { error?: string } | null
+        setActionError(data?.error ?? 'toggle_failed')
         return
       }
 
       await loadTasks()
+    } catch {
+      setActionError('network_error')
     } finally {
       markMutating(task.id, false)
     }
@@ -98,11 +106,22 @@ export function AutopilotPage({ slug }: AutopilotPageProps) {
 
   const handleRunNow = useCallback(async (taskId: string) => {
     markMutating(taskId, true)
+    setActionError(null)
+
     try {
-      await fetch(`/api/u/${slug}/autopilot/${taskId}/run`, {
+      const response = await fetch(`/api/u/${slug}/autopilot/${taskId}/run`, {
         method: 'POST',
       })
+
+      if (!response.ok) {
+        const data = (await response.json().catch(() => null)) as { error?: string } | null
+        setActionError(data?.error ?? 'run_failed')
+        return
+      }
+
       await loadTasks()
+    } catch {
+      setActionError('network_error')
     } finally {
       markMutating(taskId, false)
     }
@@ -148,6 +167,15 @@ export function AutopilotPage({ slug }: AutopilotPageProps) {
               Retry
             </Button>
           </CardContent>
+        </Card>
+      ) : null}
+
+      {actionError ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Could not complete autopilot action</CardTitle>
+            <CardDescription>{actionError}</CardDescription>
+          </CardHeader>
         </Card>
       ) : null}
 

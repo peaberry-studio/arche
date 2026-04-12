@@ -145,7 +145,18 @@ export async function runClaimedAutopilotTask(
 
   let finishedAt = new Date()
   let sessionId: string | null = null
+  let slug: string | null = null
   let sessionTitle: string | null = null
+
+  const buildAuditMetadata = (extra: Record<string, unknown> = {}) => ({
+    runId: run.id,
+    sessionId,
+    taskId: task.id,
+    trigger,
+    userId: task.userId,
+    ...(slug ? { slug } : {}),
+    ...extra,
+  })
 
   try {
     const owner = await userService.findByIdSelect(task.userId, { slug: true })
@@ -153,7 +164,7 @@ export async function runClaimedAutopilotTask(
       throw new Error('autopilot_user_not_found')
     }
 
-    const slug = owner.slug
+    slug = owner.slug
     await ensureWorkspaceRunningForAutopilot(slug, task.userId)
 
     await instanceService.touchActivity(slug).catch(() => undefined)
@@ -212,14 +223,7 @@ export async function runClaimedAutopilotTask(
       await auditService.createEvent({
         actorUserId: task.userId,
         action: 'autopilot.run_failed',
-        metadata: {
-          runId: run.id,
-          sessionId,
-          slug,
-          taskId: task.id,
-          trigger,
-          error: failure,
-        },
+        metadata: buildAuditMetadata({ error: failure }),
       })
     } else {
       await autopilotService.markRunSucceeded(run.id, {
@@ -230,13 +234,7 @@ export async function runClaimedAutopilotTask(
       await auditService.createEvent({
         actorUserId: task.userId,
         action: 'autopilot.run_succeeded',
-        metadata: {
-          runId: run.id,
-          sessionId,
-          slug,
-          taskId: task.id,
-          trigger,
-        },
+        metadata: buildAuditMetadata(),
       })
     }
   } catch (error) {
@@ -251,14 +249,7 @@ export async function runClaimedAutopilotTask(
     await auditService.createEvent({
       actorUserId: task.userId,
       action: 'autopilot.run_failed',
-        metadata: {
-          runId: run.id,
-          sessionId,
-          userId: task.userId,
-          taskId: task.id,
-          trigger,
-          error: detail,
-      },
+      metadata: buildAuditMetadata({ error: detail }),
     })
   } finally {
     await autopilotService.releaseTaskLease(

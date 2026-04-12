@@ -124,7 +124,64 @@ describe('autopilot runner', () => {
       'run-1',
       expect.objectContaining({ openCodeSessionId: 'session-1' })
     )
+    expect(createAuditEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'autopilot.run_succeeded',
+        metadata: expect.objectContaining({
+          runId: 'run-1',
+          sessionId: 'session-1',
+          slug: 'alice',
+          taskId: 'task-1',
+          trigger: 'schedule',
+          userId: 'user-1',
+        }),
+      })
+    )
     expect(releaseTaskLeaseMock).toHaveBeenCalledWith('task-1', 'lease-1', expect.any(Date))
+  })
+
+  it('records user-scoped audit metadata when a claimed task fails before loading the owner slug', async () => {
+    findByIdSelectMock.mockResolvedValue(null)
+
+    const { runClaimedAutopilotTask } = await import('../runner')
+    await runClaimedAutopilotTask(
+      {
+        id: 'task-1',
+        userId: 'user-1',
+        name: 'Daily summary',
+        prompt: 'Summarize the day',
+        targetAgentId: null,
+        cronExpression: '0 9 * * *',
+        timezone: 'UTC',
+        enabled: true,
+        nextRunAt: new Date('2026-04-13T09:00:00.000Z'),
+        lastRunAt: null,
+        leaseOwner: 'lease-1',
+        leaseExpiresAt: new Date('2026-04-12T09:15:00.000Z'),
+        createdAt: new Date('2026-04-12T08:00:00.000Z'),
+        updatedAt: new Date('2026-04-12T08:00:00.000Z'),
+        scheduledFor: new Date('2026-04-12T09:00:00.000Z'),
+      },
+      'schedule'
+    )
+
+    expect(markRunFailedMock).toHaveBeenCalledWith(
+      'run-1',
+      expect.objectContaining({ error: 'autopilot_user_not_found' })
+    )
+    expect(createAuditEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'autopilot.run_failed',
+        metadata: expect.objectContaining({
+          runId: 'run-1',
+          sessionId: null,
+          taskId: 'task-1',
+          trigger: 'schedule',
+          userId: 'user-1',
+          error: 'autopilot_user_not_found',
+        }),
+      })
+    )
   })
 
   it('returns task_busy when an immediate run cannot acquire the lease', async () => {
