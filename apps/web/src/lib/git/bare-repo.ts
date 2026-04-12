@@ -1,9 +1,6 @@
-import { execFile } from 'child_process'
-import { createHash } from 'crypto'
-import { promises as fs } from 'fs'
-import { tmpdir } from 'os'
-import path from 'path'
-import { promisify } from 'util'
+import { createHash } from 'node:crypto'
+import * as fs from 'node:fs/promises'
+import * as path from 'node:path'
 
 export type GitResult =
   | { ok: true; stdout: string }
@@ -13,7 +10,19 @@ export type CloneResult =
   | { ok: true; dir: string; gitEnv: NodeJS.ProcessEnv; safeConfigDir: string }
   | { ok: false }
 
-const execFileAsync = promisify(execFile)
+function importRuntimeModule<T>(specifier: string): Promise<T> {
+  if (process.env.VITEST) {
+    return import(specifier) as Promise<T>
+  }
+
+  return Function('runtimeSpecifier', 'return import(runtimeSpecifier)')(specifier) as Promise<T>
+}
+
+async function getExecFileAsync() {
+  const { execFile } = await importRuntimeModule<typeof import('child_process')>('child_process')
+  const { promisify } = await importRuntimeModule<typeof import('util')>('util')
+  return promisify(execFile)
+}
 
 let gitAvailabilityCache: boolean | null = null
 
@@ -22,6 +31,7 @@ export async function runGit(
   options?: { cwd?: string; env?: NodeJS.ProcessEnv }
 ): Promise<GitResult> {
   try {
+    const execFileAsync = await getExecFileAsync()
     const result = await execFileAsync('git', args, {
       cwd: options?.cwd,
       encoding: 'utf-8',
@@ -84,6 +94,7 @@ export async function runGitOnBareRepo(
 }
 
 export async function cloneRepoToTemp(root: string): Promise<CloneResult> {
+  const { tmpdir } = await importRuntimeModule<typeof import('os')>('os')
   const dir = await fs.mkdtemp(path.join(tmpdir(), 'arche-kb-'))
   const safeConfigDir = await fs.mkdtemp(path.join(tmpdir(), 'arche-kb-safe-'))
   const safeConfig = path.join(safeConfigDir, 'gitconfig')

@@ -31,6 +31,13 @@ vi.mock('fs/promises', () => ({
   chmod: (...args: unknown[]) => mockChmod(...args),
 }))
 
+vi.mock('node:fs/promises', () => ({
+  mkdir: (...args: unknown[]) => mockMkdir(...args),
+  rm: (...args: unknown[]) => mockRm(...args),
+  writeFile: (...args: unknown[]) => mockWriteFile(...args),
+  chmod: (...args: unknown[]) => mockChmod(...args),
+}))
+
 vi.mock('@/lib/user-data', () => ({
   getUserDataHostPath: vi.fn((slug: string) => `/opt/arche/users/${slug}`),
   ensureUserDirectory: vi.fn().mockResolvedValue('/opt/arche/users/user-slug'),

@@ -41,6 +41,14 @@ vi.mock('fs', () => ({
 
 vi.mock('fs/promises', () => ({
   mkdir: (...args: unknown[]) => mockMkdir(...args),
+  readFile: (...args: unknown[]) => mockReadFile(...args),
+  rm: (...args: unknown[]) => mockRm(...args),
+  writeFile: (...args: unknown[]) => mockWriteFile(...args),
+}))
+
+vi.mock('node:fs/promises', () => ({
+  mkdir: (...args: unknown[]) => mockMkdir(...args),
+  readFile: (...args: unknown[]) => mockReadFile(...args),
   rm: (...args: unknown[]) => mockRm(...args),
   writeFile: (...args: unknown[]) => mockWriteFile(...args),
 }))

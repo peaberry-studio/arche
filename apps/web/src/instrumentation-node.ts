@@ -5,12 +5,14 @@ declare global {
 async function gracefulShutdown(): Promise<void> {
   console.log('[shutdown] Graceful shutdown initiated')
 
-  try {
-    const { stopAutopilotScheduler } = await import('@/lib/autopilot/scheduler')
-    stopAutopilotScheduler()
-    console.log('[shutdown] Autopilot scheduler stopped')
-  } catch (err) {
-    console.error('[shutdown] Failed to stop autopilot scheduler:', err)
+  if (process.env.NODE_ENV === 'production') {
+    try {
+      const { stopAutopilotScheduler } = await import('@/lib/autopilot/scheduler')
+      stopAutopilotScheduler()
+      console.log('[shutdown] Autopilot scheduler stopped')
+    } catch (err) {
+      console.error('[shutdown] Failed to stop autopilot scheduler:', err)
+    }
   }
 
   try {
@@ -59,8 +61,10 @@ export async function registerNodeInstrumentation() {
   const { initWebPrisma } = await import('@/lib/prisma')
   await initWebPrisma()
 
-  const { startAutopilotScheduler } = await import('@/lib/autopilot/scheduler')
-  startAutopilotScheduler()
+  if (process.env.NODE_ENV === 'production') {
+    const { startAutopilotScheduler } = await import('@/lib/autopilot/scheduler')
+    startAutopilotScheduler()
+  }
 
   registerShutdownHooks()
 }

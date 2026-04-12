@@ -1,12 +1,10 @@
-import { randomUUID } from 'node:crypto'
-
 import { AutopilotRunTrigger } from '@prisma/client'
 
 import { formatAutopilotRunDate } from '@/lib/autopilot/cron'
 import { createInstanceClient } from '@/lib/opencode/client'
 import { transformParts } from '@/lib/opencode/transform'
-import { getWorkspaceStatus, startWorkspace } from '@/lib/runtime/workspace-host'
 import { auditService, autopilotService, instanceService, userService } from '@/lib/services'
+import { getInstanceStatus, startInstance } from '@/lib/spawner/core'
 import type { AutopilotClaimedTask } from '@/lib/services/autopilot'
 import { deriveWorkspaceMessageRuntimeState } from '@/lib/workspace-message-state'
 
@@ -16,6 +14,19 @@ const ACTIVITY_TOUCH_INTERVAL_MS = 20_000
 const LEASE_EXTENSION_INTERVAL_MS = 60_000
 const INSTANCE_START_POLL_INTERVAL_MS = 2_000
 export const AUTOPILOT_TASK_LEASE_MS = 15 * 60 * 1000
+
+function importRuntimeModule<T>(specifier: string): Promise<T> {
+  if (process.env.VITEST) {
+    return import(specifier) as Promise<T>
+  }
+
+  return Function('runtimeSpecifier', 'return import(runtimeSpecifier)')(specifier) as Promise<T>
+}
+
+async function createLeaseOwner(): Promise<string> {
+  const { randomUUID } = await importRuntimeModule<typeof import('crypto')>('crypto')
+  return `autopilot:${process.pid}:${randomUUID()}`
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -34,7 +45,7 @@ function normalizeRole(role: unknown): 'assistant' | 'system' | 'user' | null {
 }
 
 async function ensureWorkspaceRunningForAutopilot(slug: string, userId: string): Promise<void> {
-  const current = await getWorkspaceStatus(slug)
+  const current = await getInstanceStatus(slug)
   if (current?.status === 'running') {
     return
   }
@@ -43,7 +54,7 @@ async function ensureWorkspaceRunningForAutopilot(slug: string, userId: string):
     const deadline = Date.now() + RUN_TIMEOUT_MS
     while (Date.now() < deadline) {
       await sleep(INSTANCE_START_POLL_INTERVAL_MS)
-      const next = await getWorkspaceStatus(slug)
+      const next = await getInstanceStatus(slug)
       if (next?.status === 'running') {
         return
       }
@@ -52,7 +63,7 @@ async function ensureWorkspaceRunningForAutopilot(slug: string, userId: string):
     throw new Error('instance_start_timeout')
   }
 
-  const startResult = await startWorkspace(slug, userId)
+  const startResult = await startInstance(slug, userId)
   if (!startResult.ok && startResult.error !== 'already_running') {
     throw new Error(startResult.detail ?? startResult.error)
   }
@@ -266,7 +277,7 @@ export async function triggerAutopilotTaskNow(params: {
   userId?: string
 }): Promise<{ ok: true } | { ok: false; error: 'not_found' | 'task_busy' }> {
   const now = new Date()
-  const leaseOwner = `autopilot:${process.pid}:${randomUUID()}`
+  const leaseOwner = await createLeaseOwner()
   const claimed = await autopilotService.claimTaskForImmediateRun({
     id: params.taskId,
     leaseMs: AUTOPILOT_TASK_LEASE_MS,

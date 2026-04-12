@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto'
-
 import { getNextAutopilotRunAt } from '@/lib/autopilot/cron'
 import {
   AUTOPILOT_TASK_LEASE_MS,
@@ -13,7 +11,16 @@ const AUTOPILOT_SCHEDULER_BATCH_LIMIT = 4
 let schedulerInterval: NodeJS.Timeout | null = null
 let dispatchPromise: Promise<number> | null = null
 
-function createLeaseOwner(): string {
+function importRuntimeModule<T>(specifier: string): Promise<T> {
+  if (process.env.VITEST) {
+    return import(specifier) as Promise<T>
+  }
+
+  return Function('runtimeSpecifier', 'return import(runtimeSpecifier)')(specifier) as Promise<T>
+}
+
+async function createLeaseOwner(): Promise<string> {
+  const { randomUUID } = await importRuntimeModule<typeof import('crypto')>('crypto')
   return `autopilot:${process.pid}:${randomUUID()}`
 }
 
@@ -24,7 +31,7 @@ export async function dispatchDueAutopilotTasks(limit = AUTOPILOT_SCHEDULER_BATC
     const now = new Date()
     const claimed = await autopilotService.claimNextDueTask({
       leaseMs: AUTOPILOT_TASK_LEASE_MS,
-      leaseOwner: createLeaseOwner(),
+      leaseOwner: await createLeaseOwner(),
       now,
       resolveNextRunAt: (task) => getNextAutopilotRunAt(task.cronExpression, task.timezone, now),
     })

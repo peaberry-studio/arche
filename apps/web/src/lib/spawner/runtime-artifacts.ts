@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
-import { promises as fs } from 'fs'
-import path from 'path'
+import * as fs from 'node:fs/promises'
+import * as path from 'node:path'
 
 import { readConfigRepoSnapshot } from '@/lib/config-repo-store'
 import { readCommonWorkspaceConfig, readConfigRepoFile } from '@/lib/common-workspace-config-store'

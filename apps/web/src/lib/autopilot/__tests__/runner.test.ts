@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const getWorkspaceStatusMock = vi.fn()
-const startWorkspaceMock = vi.fn()
+const getInstanceStatusMock = vi.fn()
+const startInstanceMock = vi.fn()
 const createInstanceClientMock = vi.fn()
 const createRunMock = vi.fn()
 const attachRunSessionMock = vi.fn()
@@ -15,9 +15,9 @@ const touchActivityMock = vi.fn()
 const findByIdSelectMock = vi.fn()
 const createAuditEventMock = vi.fn()
 
-vi.mock('@/lib/runtime/workspace-host', () => ({
-  getWorkspaceStatus: (...args: unknown[]) => getWorkspaceStatusMock(...args),
-  startWorkspace: (...args: unknown[]) => startWorkspaceMock(...args),
+vi.mock('@/lib/spawner/core', () => ({
+  getInstanceStatus: (...args: unknown[]) => getInstanceStatusMock(...args),
+  startInstance: (...args: unknown[]) => startInstanceMock(...args),
 }))
 
 vi.mock('@/lib/opencode/client', () => ({
@@ -49,8 +49,8 @@ vi.mock('@/lib/services', () => ({
 describe('autopilot runner', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    getWorkspaceStatusMock.mockResolvedValue({ status: 'running' })
-    startWorkspaceMock.mockResolvedValue({ ok: true, status: 'running' })
+    getInstanceStatusMock.mockResolvedValue({ status: 'running' })
+    startInstanceMock.mockResolvedValue({ ok: true, status: 'running' })
     findByIdSelectMock.mockResolvedValue({ slug: 'alice' })
     createRunMock.mockResolvedValue({ id: 'run-1' })
     attachRunSessionMock.mockResolvedValue(undefined)

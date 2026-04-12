@@ -64,9 +64,9 @@ describe('autopilot scheduler', () => {
 
     startAutopilotScheduler()
     startAutopilotScheduler()
-    await Promise.resolve()
-
-    expect(claimNextDueTaskMock).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => {
+      expect(claimNextDueTaskMock).toHaveBeenCalledTimes(1)
+    })
 
     await vi.advanceTimersByTimeAsync(AUTOPILOT_SCHEDULER_INTERVAL_MS)
     expect(claimNextDueTaskMock).toHaveBeenCalledTimes(2)
