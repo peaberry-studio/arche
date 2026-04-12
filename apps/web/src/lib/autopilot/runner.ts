@@ -91,6 +91,10 @@ async function inspectSessionOutcome(client: NonNullable<Awaited<ReturnType<type
     sessionStatus: 'idle',
   })
 
+  if (runtimeState.pending) {
+    return 'autopilot_session_pending'
+  }
+
   if (runtimeState.statusInfo?.status === 'error') {
     return runtimeState.statusInfo.detail ?? 'autopilot_run_failed'
   }
@@ -135,7 +139,13 @@ async function waitForSessionToComplete(params: {
     assistantSeen = assistantSeen || messages.some((message) => normalizeRole(message.info.role) === 'assistant')
 
     if ((sessionStatus?.type === 'idle' || !sessionStatus) && assistantSeen) {
-      return inspectSessionOutcome(params.client, params.sessionId)
+      const outcome = await inspectSessionOutcome(params.client, params.sessionId)
+      if (outcome === 'autopilot_session_pending') {
+        await sleep(RUN_POLL_INTERVAL_MS)
+        continue
+      }
+
+      return outcome
     }
 
     await sleep(RUN_POLL_INTERVAL_MS)

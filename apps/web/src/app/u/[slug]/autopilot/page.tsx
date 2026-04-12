@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 
 import { AutopilotPage } from '@/components/autopilot/autopilot-page'
+import { ensureAutopilotSchedulerStarted } from '@/lib/autopilot/scheduler-bootstrap'
 import { getCurrentDesktopVault } from '@/lib/runtime/desktop/current-vault'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { isDesktop } from '@/lib/runtime/mode'
@@ -24,6 +25,8 @@ export default async function AutopilotListPage({
   if (!getRuntimeCapabilities().autopilot) {
     redirect(`/u/${slug}`)
   }
+
+  await ensureAutopilotSchedulerStarted()
 
   return (
     <main className="relative mx-auto max-w-6xl px-6 py-10">

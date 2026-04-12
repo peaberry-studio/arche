@@ -197,4 +197,96 @@ describe('autopilot runner', () => {
 
     expect(result).toEqual({ ok: false, error: 'task_busy' })
   })
+
+  it('keeps polling when the session goes idle but the latest assistant message is still pending', async () => {
+    vi.useFakeTimers()
+
+    try {
+      createInstanceClientMock.mockResolvedValue({
+        session: {
+          create: vi.fn().mockResolvedValue({
+            data: { id: 'session-1' },
+          }),
+          messages: vi
+            .fn()
+            .mockResolvedValueOnce({
+              data: [
+                {
+                  info: {
+                    role: 'assistant',
+                    time: {},
+                  },
+                  parts: [
+                    {
+                      id: 'tool-1',
+                      type: 'tool',
+                      tool: 'task',
+                      state: { status: 'running', input: {}, title: 'working' },
+                    },
+                  ],
+                },
+              ],
+            })
+            .mockResolvedValueOnce({
+              data: [
+                {
+                  info: {
+                    role: 'assistant',
+                    time: { completed: 1 },
+                  },
+                  parts: [
+                    { id: 'part-1', type: 'text', text: 'Done' },
+                  ],
+                },
+              ],
+            }),
+          promptAsync: vi.fn().mockResolvedValue({ response: { ok: true } }),
+          status: vi
+            .fn()
+            .mockResolvedValueOnce({
+              data: {
+                'session-1': { type: 'idle' },
+              },
+            })
+            .mockResolvedValueOnce({
+              data: {
+                'session-1': { type: 'idle' },
+              },
+            }),
+        },
+      })
+
+      const { runClaimedAutopilotTask } = await import('../runner')
+      const runPromise = runClaimedAutopilotTask(
+        {
+          id: 'task-1',
+          userId: 'user-1',
+          name: 'Daily summary',
+          prompt: 'Summarize the day',
+          targetAgentId: null,
+          cronExpression: '0 9 * * *',
+          timezone: 'UTC',
+          enabled: true,
+          nextRunAt: new Date('2026-04-13T09:00:00.000Z'),
+          lastRunAt: null,
+          leaseOwner: 'lease-1',
+          leaseExpiresAt: new Date('2026-04-12T09:15:00.000Z'),
+          createdAt: new Date('2026-04-12T08:00:00.000Z'),
+          updatedAt: new Date('2026-04-12T08:00:00.000Z'),
+          scheduledFor: new Date('2026-04-12T09:00:00.000Z'),
+        },
+        'schedule'
+      )
+
+      await vi.advanceTimersByTimeAsync(2_000)
+      await runPromise
+
+      expect(markRunSucceededMock).toHaveBeenCalledWith(
+        'run-1',
+        expect.objectContaining({ openCodeSessionId: 'session-1' })
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 
 import { DesktopSettingsDialog } from '@/components/desktop/desktop-settings-dialog'
 import { WorkspaceShell } from '@/components/workspace/workspace-shell'
+import { ensureAutopilotSchedulerStarted } from '@/lib/autopilot/scheduler-bootstrap'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import {
   getCurrentDesktopVault,
@@ -56,6 +57,7 @@ export default async function WorkspaceHostPage({
   }
 
   const caps = getRuntimeCapabilities()
+  await ensureAutopilotSchedulerStarted()
   const cookieStore = await cookies()
   const macDesktopWindowInset = shouldUseCurrentMacOsInsetTitleBar()
   const persistenceScope = getWorkspacePersistenceScope(slug)
