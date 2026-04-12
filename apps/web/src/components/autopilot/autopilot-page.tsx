@@ -3,13 +3,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { SpinnerGap } from '@phosphor-icons/react'
+import { ClockCountdown, Lightning, Pause, Play, Robot, SpinnerGap, Timer } from '@phosphor-icons/react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { formatAutopilotRunDate } from '@/lib/autopilot/cron'
 import type { AutopilotTaskListItem } from '@/lib/autopilot/types'
+import { cn } from '@/lib/utils'
 
 type AutopilotPageProps = {
   slug: string
@@ -180,19 +181,19 @@ export function AutopilotPage({ slug }: AutopilotPageProps) {
       ) : null}
 
       {!isLoading && !loadError && sortedTasks.length === 0 ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>No autopilot tasks yet</CardTitle>
-            <CardDescription>
-              Create your first recurring prompt to start running background automations.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button onClick={() => router.push(`/u/${slug}/autopilot/new`)}>
-              Create task
-            </Button>
-          </CardContent>
-        </Card>
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border/70 bg-card/30 px-6 py-16 text-center">
+          <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
+            <Robot size={28} weight="duotone" className="text-primary" />
+          </div>
+          <h2 className="text-lg font-semibold text-foreground">No autopilot tasks yet</h2>
+          <p className="mt-2 max-w-md text-sm text-muted-foreground">
+            Autopilot runs recurring prompts in the background on a cron schedule.
+            Use it to automate daily summaries, periodic checks, scheduled reports, and more.
+          </p>
+          <Button className="mt-6" onClick={() => router.push(`/u/${slug}/autopilot/new`)}>
+            Create your first task
+          </Button>
+        </div>
       ) : null}
 
       {!isLoading && !loadError && sortedTasks.length > 0 ? (
@@ -200,62 +201,73 @@ export function AutopilotPage({ slug }: AutopilotPageProps) {
           {sortedTasks.map((task) => {
             const isMutating = mutatingTaskIds.has(task.id)
             return (
-              <Card key={task.id}>
-                <CardHeader className="space-y-3">
+              <Link
+                key={task.id}
+                href={`/u/${slug}/autopilot/${task.id}`}
+                className="group block"
+              >
+                <div className={cn(
+                  'rounded-xl border border-border/60 bg-card/50 p-5 transition-all hover:border-border hover:bg-card/80 hover:shadow-sm',
+                  !task.enabled && 'opacity-70',
+                )}>
                   <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 space-y-1">
-                      <CardTitle className="truncate">{task.name}</CardTitle>
-                      <CardDescription className="line-clamp-2">{task.prompt}</CardDescription>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <h3 className="truncate text-sm font-semibold text-foreground">{task.name}</h3>
+                        <Badge variant={getRunBadgeVariant(task)} className="shrink-0">{getRunBadgeLabel(task)}</Badge>
+                      </div>
+                      <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">{task.prompt}</p>
                     </div>
-                    <Badge variant={getRunBadgeVariant(task)}>{getRunBadgeLabel(task)}</Badge>
                   </div>
-                </CardHeader>
 
-                <CardContent className="space-y-4 text-sm">
-                  <div className="grid gap-2 text-muted-foreground">
-                    <p>
-                      <span className="font-medium text-foreground">Cron:</span> {task.cronExpression}
-                    </p>
-                    <p>
-                      <span className="font-medium text-foreground">Timezone:</span> {task.timezone}
-                    </p>
-                    <p>
-                      <span className="font-medium text-foreground">Target:</span>{' '}
-                      {task.targetAgentId ?? 'Primary agent'}
-                    </p>
-                    <p>
-                      <span className="font-medium text-foreground">Next run:</span>{' '}
+                  <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
+                    <span className="inline-flex items-center gap-1">
+                      <Timer size={13} weight="bold" className="shrink-0" />
+                      <code className="text-foreground/70">{task.cronExpression}</code>
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <ClockCountdown size={13} weight="bold" className="shrink-0" />
                       {formatAutopilotRunDate(new Date(task.nextRunAt), task.timezone)}
-                    </p>
-                    {task.latestRun ? (
-                      <p>
-                        <span className="font-medium text-foreground">Latest run:</span>{' '}
-                        {formatAutopilotRunDate(new Date(task.latestRun.startedAt), task.timezone)}
-                      </p>
-                    ) : null}
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <Robot size={13} weight="bold" className="shrink-0" />
+                      {task.targetAgentId ?? 'Primary'}
+                    </span>
                   </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" asChild>
-                      <Link href={`/u/${slug}/autopilot/${task.id}`}>Open</Link>
-                    </Button>
+                  <div className="mt-4 flex items-center gap-2" onClick={(e) => e.preventDefault()}>
                     <Button
+                      size="sm"
                       variant="outline"
-                      onClick={() => void handleRunNow(task.id)}
+                      className="h-7 text-xs"
+                      onClick={(e) => {
+                        e.preventDefault()
+                        void handleRunNow(task.id)
+                      }}
                       disabled={isMutating}
                     >
+                      <Lightning size={12} weight="fill" className="mr-1" />
                       Run now
                     </Button>
                     <Button
+                      size="sm"
                       variant="outline"
-                      onClick={() => void handleToggleEnabled(task)}
+                      className="h-7 text-xs"
+                      onClick={(e) => {
+                        e.preventDefault()
+                        void handleToggleEnabled(task)
+                      }}
                       disabled={isMutating}
                     >
-                      {task.enabled ? 'Pause' : 'Enable'}
+                      {task.enabled ? (
+                        <><Pause size={12} weight="fill" className="mr-1" /> Pause</>
+                      ) : (
+                        <><Play size={12} weight="fill" className="mr-1" /> Enable</>
+                      )}
                     </Button>
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              </Link>
             )
           })}
         </div>

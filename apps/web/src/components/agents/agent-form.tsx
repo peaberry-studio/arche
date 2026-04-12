@@ -450,89 +450,24 @@ export function AgentForm({
         />
       </div>
 
-      <div className="space-y-3">
-        <Label>Capabilities - Tools</Label>
-        <p className="text-xs text-muted-foreground">
-          Select the built-in OpenCode tools this agent can use.
-        </p>
-        <div className="grid gap-2 md:grid-cols-2">
-          {OPENCODE_AGENT_TOOL_OPTIONS.map((tool) => {
-            const checked = enabledTools.includes(tool.id)
-            return (
-              <label
-                key={tool.id}
-                className={cn(
-                  'flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors',
-                  checked
-                    ? 'border-primary/40 bg-primary/5 text-foreground'
-                    : 'border-border/60 bg-card/40 text-muted-foreground hover:bg-card/70'
-                )}
-              >
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={() => toggleTool(tool.id)}
-                  className={checkboxClassName}
-                />
-                <span>{tool.label}</span>
-                <span className="text-xs">({tool.id})</span>
-              </label>
-            )
-          })}
+      <div className="space-y-5 rounded-xl border border-border/60 bg-card/30 p-5">
+        <div>
+          <Label className="text-base">Capabilities</Label>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Configure which tools, connectors and skills this agent can use.
+          </p>
         </div>
-      </div>
 
-      <div className="space-y-3">
-        <Label>Capabilities - MCP connectors</Label>
-        <p className="text-xs text-muted-foreground">
-          Allow this agent to use MCP tools from selected connectors.
-        </p>
-        {connectors.length === 0 ? (
-          <div className="rounded-lg border border-border/60 bg-card/50 p-3 text-sm text-muted-foreground">
-            No enabled connectors available.
-          </div>
-        ) : (
+        <div className="space-y-3">
+          <Label className="text-sm text-muted-foreground">Tools</Label>
           <div className="grid gap-2 md:grid-cols-2">
-            {connectors.map((connector) => {
-              const checked = enabledMcpConnectorIds.includes(connector.id)
+            {OPENCODE_AGENT_TOOL_OPTIONS.map((tool) => {
+              const checked = enabledTools.includes(tool.id)
               return (
                 <label
-                  key={connector.id}
-                  className="flex items-center gap-2 rounded-lg border border-border/60 bg-card/50 px-3 py-2 text-sm"
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => toggleMcpConnector(connector.id)}
-                    className={checkboxClassName}
-                  />
-                  <span className="font-medium">{connector.name}</span>
-                  <span className="text-xs text-muted-foreground">{connector.type}</span>
-                </label>
-              )
-            })}
-          </div>
-        )}
-      </div>
-
-      <div className="space-y-3">
-        <Label>Capabilities - Skills</Label>
-        <p className="text-xs text-muted-foreground">
-          Allow this agent to load the selected skills. Arche enables the OpenCode `skill` tool automatically.
-        </p>
-        {skills.length === 0 ? (
-          <div className="rounded-lg border border-border/60 bg-card/50 p-3 text-sm text-muted-foreground">
-            No skills available.
-          </div>
-        ) : (
-          <div className="grid gap-2 md:grid-cols-2">
-            {skills.map((skill) => {
-              const checked = enabledSkillIds.includes(skill.name)
-              return (
-                <label
-                  key={skill.name}
+                  key={tool.id}
                   className={cn(
-                    'flex items-start gap-2 rounded-lg border px-3 py-2 text-sm transition-colors',
+                    'flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors',
                     checked
                       ? 'border-primary/40 bg-primary/5 text-foreground'
                       : 'border-border/60 bg-card/40 text-muted-foreground hover:bg-card/70'
@@ -541,18 +476,81 @@ export function AgentForm({
                   <input
                     type="checkbox"
                     checked={checked}
-                    onChange={() => toggleSkill(skill.name)}
+                    onChange={() => toggleTool(tool.id)}
                     className={checkboxClassName}
                   />
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-medium">{skill.name}</span>
-                    <span className="block text-xs text-muted-foreground">{skill.description}</span>
-                  </span>
+                  <span>{tool.label}</span>
+                  <span className="text-xs">({tool.id})</span>
                 </label>
               )
             })}
           </div>
-        )}
+        </div>
+
+        <div className="space-y-3">
+          <Label className="text-sm text-muted-foreground">Connectors</Label>
+          {connectors.length === 0 ? (
+            <p className="text-sm text-muted-foreground/70">No enabled connectors available.</p>
+          ) : (
+            <div className="grid gap-2 md:grid-cols-2">
+              {connectors.map((connector) => {
+                const checked = enabledMcpConnectorIds.includes(connector.id)
+                return (
+                  <label
+                    key={connector.id}
+                    className={cn(
+                      'flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors',
+                      checked
+                        ? 'border-primary/40 bg-primary/5 text-foreground'
+                        : 'border-border/60 bg-card/40 text-muted-foreground hover:bg-card/70'
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleMcpConnector(connector.id)}
+                      className={checkboxClassName}
+                    />
+                    <span className="font-medium">{connector.name}</span>
+                    <span className="text-xs text-muted-foreground">{connector.type}</span>
+                  </label>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-3">
+          <Label className="text-sm text-muted-foreground">Skills</Label>
+          {skills.length === 0 ? (
+            <p className="text-sm text-muted-foreground/70">No skills available.</p>
+          ) : (
+            <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
+              {skills.map((skill) => {
+                const checked = enabledSkillIds.includes(skill.name)
+                return (
+                  <label
+                    key={skill.name}
+                    className={cn(
+                      'flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors',
+                      checked
+                        ? 'border-primary/40 bg-primary/5 text-foreground'
+                        : 'border-border/60 bg-card/40 text-muted-foreground hover:bg-card/70'
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleSkill(skill.name)}
+                      className={checkboxClassName}
+                    />
+                    <span className="font-medium">{skill.name}</span>
+                  </label>
+                )
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
       {mode === 'edit' && (

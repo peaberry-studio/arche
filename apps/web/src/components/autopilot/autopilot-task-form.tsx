@@ -418,207 +418,105 @@ export function AutopilotTaskForm({ slug, mode, taskId }: AutopilotTaskFormProps
 
             <div className="space-y-2">
               <Label htmlFor="autopilot-agent">Target agent</Label>
-              <select
-                id="autopilot-agent"
-                value={targetAgentId}
-                onChange={(event) => setTargetAgentId(event.target.value)}
-                className="flex h-10 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-              >
-                <option value="">Primary agent</option>
-                {agents.map((agent) => (
-                  <option key={agent.id} value={agent.id}>
-                    {agent.displayName}
-                  </option>
-                ))}
-              </select>
+              <div className="relative">
+                <select
+                  id="autopilot-agent"
+                  value={targetAgentId}
+                  onChange={(event) => setTargetAgentId(event.target.value)}
+                  className="flex h-10 w-full appearance-none rounded-lg border border-border bg-background px-3 py-2 pr-8 text-sm text-foreground"
+                >
+                  <option value="">Primary agent</option>
+                  {agents.map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.displayName}
+                    </option>
+                  ))}
+                </select>
+                <span className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-muted-foreground">
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </span>
+              </div>
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="autopilot-timezone">Timezone</Label>
-              <>
-                <Input
-                  id="autopilot-timezone"
-                  list="autopilot-timezones"
-                  value={timezone}
-                  onChange={(event) => setTimezone(event.target.value)}
-                  placeholder="Europe/Madrid"
-                />
-                <datalist id="autopilot-timezones">
-                  {timezoneOptions.map((option) => (
-                    <option key={option} value={option} />
-                  ))}
-                </datalist>
-              </>
+              <Input
+                id="autopilot-timezone"
+                list="autopilot-timezones"
+                value={timezone}
+                onChange={(event) => setTimezone(event.target.value)}
+                placeholder="Europe/Madrid"
+              />
+              <datalist id="autopilot-timezones">
+                {timezoneOptions.map((option) => (
+                  <option key={option} value={option} />
+                ))}
+              </datalist>
             </div>
           </div>
 
-          <div className="space-y-3">
-            <div className="space-y-2">
-              <Label>Schedule builder</Label>
-              <div className="flex flex-wrap gap-2">
-                {(['minutes', 'hourly', 'daily', 'weekly', 'monthly', 'custom'] as const).map((entry) => (
-                  <button
-                    key={entry}
-                    type="button"
-                    onClick={() => setScheduleMode(entry)}
-                    className={cn(
-                      'rounded-full border px-3 py-1.5 text-sm transition-colors',
-                      schedule.mode === entry
-                        ? 'border-primary bg-primary/10 text-primary'
-                        : 'border-border text-muted-foreground hover:text-foreground',
-                    )}
-                  >
-                    {entry}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {schedule.mode === 'minutes' ? (
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="interval-minutes">Every N minutes</Label>
-                  <Input
-                    id="interval-minutes"
-                    type="number"
-                    min={1}
-                    value={schedule.intervalMinutes}
-                    onChange={(event) => setSchedule((current) => ({
-                      ...current,
-                      intervalMinutes: Number.parseInt(event.target.value, 10) || 1,
-                    }))}
-                  />
+          <div className="rounded-xl border border-border/60 bg-card/30 p-5">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Schedule</Label>
+                <div className="flex flex-wrap gap-2">
+                  {(['minutes', 'hourly', 'daily', 'weekly', 'monthly', 'custom'] as const).map((entry) => (
+                    <button
+                      key={entry}
+                      type="button"
+                      onClick={() => setScheduleMode(entry)}
+                      className={cn(
+                        'rounded-full border px-3 py-1.5 text-sm capitalize transition-colors',
+                        schedule.mode === entry
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-border text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      {entry}
+                    </button>
+                  ))}
                 </div>
               </div>
-            ) : null}
 
-            {schedule.mode === 'hourly' ? (
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="interval-hours">Every N hours</Label>
-                  <Input
-                    id="interval-hours"
-                    type="number"
-                    min={1}
-                    value={schedule.intervalHours}
-                    onChange={(event) => setSchedule((current) => ({
-                      ...current,
-                      intervalHours: Number.parseInt(event.target.value, 10) || 1,
-                    }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="hourly-minute">Minute of the hour</Label>
-                  <Input
-                    id="hourly-minute"
-                    type="number"
-                    min={0}
-                    max={59}
-                    value={schedule.minute}
-                    onChange={(event) => setSchedule((current) => ({
-                      ...current,
-                      minute: Number.parseInt(event.target.value, 10) || 0,
-                    }))}
-                  />
-                </div>
-              </div>
-            ) : null}
-
-            {schedule.mode === 'daily' ? (
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-2">
-                  <Label htmlFor="interval-days">Every N days</Label>
-                  <Input
-                    id="interval-days"
-                    type="number"
-                    min={1}
-                    value={schedule.intervalDays}
-                    onChange={(event) => setSchedule((current) => ({
-                      ...current,
-                      intervalDays: Number.parseInt(event.target.value, 10) || 1,
-                    }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="daily-hour">Hour</Label>
-                  <Input
-                    id="daily-hour"
-                    type="number"
-                    min={0}
-                    max={23}
-                    value={schedule.hour}
-                    onChange={(event) => setSchedule((current) => ({
-                      ...current,
-                      hour: Number.parseInt(event.target.value, 10) || 0,
-                    }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="daily-minute">Minute</Label>
-                  <Input
-                    id="daily-minute"
-                    type="number"
-                    min={0}
-                    max={59}
-                    value={schedule.minute}
-                    onChange={(event) => setSchedule((current) => ({
-                      ...current,
-                      minute: Number.parseInt(event.target.value, 10) || 0,
-                    }))}
-                  />
-                </div>
-              </div>
-            ) : null}
-
-            {schedule.mode === 'weekly' ? (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Weekdays</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {WEEKDAY_OPTIONS.map((option) => {
-                      const selected = schedule.weekdays.includes(option.value)
-                      return (
-                        <button
-                          key={option.value}
-                          type="button"
-                          onClick={() => setSchedule((current) => ({
-                            ...current,
-                            weekdays: selected
-                              ? current.weekdays.filter((weekday) => weekday !== option.value)
-                              : [...current.weekdays, option.value].sort((left, right) => left - right),
-                          }))}
-                          className={cn(
-                            'rounded-full border px-3 py-1.5 text-sm transition-colors',
-                            selected
-                              ? 'border-primary bg-primary/10 text-primary'
-                              : 'border-border text-muted-foreground hover:text-foreground',
-                          )}
-                        >
-                          {option.label}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
+              {schedule.mode === 'minutes' ? (
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="weekly-hour">Hour</Label>
+                    <Label htmlFor="interval-minutes">Every N minutes</Label>
                     <Input
-                      id="weekly-hour"
+                      id="interval-minutes"
                       type="number"
-                      min={0}
-                      max={23}
-                      value={schedule.hour}
+                      min={1}
+                      value={schedule.intervalMinutes}
                       onChange={(event) => setSchedule((current) => ({
                         ...current,
-                        hour: Number.parseInt(event.target.value, 10) || 0,
+                        intervalMinutes: Number.parseInt(event.target.value, 10) || 1,
+                      }))}
+                    />
+                  </div>
+                </div>
+              ) : null}
+
+              {schedule.mode === 'hourly' ? (
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="interval-hours">Every N hours</Label>
+                    <Input
+                      id="interval-hours"
+                      type="number"
+                      min={1}
+                      value={schedule.intervalHours}
+                      onChange={(event) => setSchedule((current) => ({
+                        ...current,
+                        intervalHours: Number.parseInt(event.target.value, 10) || 1,
                       }))}
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="weekly-minute">Minute</Label>
+                    <Label htmlFor="hourly-minute">Minute of the hour</Label>
                     <Input
-                      id="weekly-minute"
+                      id="hourly-minute"
                       type="number"
                       min={0}
                       max={59}
@@ -630,106 +528,217 @@ export function AutopilotTaskForm({ slug, mode, taskId }: AutopilotTaskFormProps
                     />
                   </div>
                 </div>
-              </div>
-            ) : null}
+              ) : null}
 
-            {schedule.mode === 'monthly' ? (
-              <div className="grid gap-4 md:grid-cols-4">
-                <div className="space-y-2">
-                  <Label htmlFor="interval-months">Every N months</Label>
-                  <Input
-                    id="interval-months"
-                    type="number"
-                    min={1}
-                    value={schedule.intervalMonths}
-                    onChange={(event) => setSchedule((current) => ({
-                      ...current,
-                      intervalMonths: Number.parseInt(event.target.value, 10) || 1,
-                    }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="monthly-day">Day of month</Label>
-                  <Input
-                    id="monthly-day"
-                    type="number"
-                    min={1}
-                    max={31}
-                    value={schedule.dayOfMonth}
-                    onChange={(event) => setSchedule((current) => ({
-                      ...current,
-                      dayOfMonth: Number.parseInt(event.target.value, 10) || 1,
-                    }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="monthly-hour">Hour</Label>
-                  <Input
-                    id="monthly-hour"
-                    type="number"
-                    min={0}
-                    max={23}
-                    value={schedule.hour}
-                    onChange={(event) => setSchedule((current) => ({
-                      ...current,
-                      hour: Number.parseInt(event.target.value, 10) || 0,
-                    }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="monthly-minute">Minute</Label>
-                  <Input
-                    id="monthly-minute"
-                    type="number"
-                    min={0}
-                    max={59}
-                    value={schedule.minute}
-                    onChange={(event) => setSchedule((current) => ({
-                      ...current,
-                      minute: Number.parseInt(event.target.value, 10) || 0,
-                    }))}
-                  />
-                </div>
-              </div>
-            ) : null}
-
-            {schedule.mode === 'custom' ? (
-              <div className="space-y-2">
-                <Label htmlFor="custom-cron">Custom cron expression</Label>
-                <Input
-                  id="custom-cron"
-                  value={schedule.customCronExpression}
-                  onChange={(event) => setSchedule((current) => ({
-                    ...current,
-                    customCronExpression: event.target.value,
-                  }))}
-                  placeholder="0 9 * * 1-5"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Use standard 5-field cron format: minute hour day-of-month month day-of-week.
-                </p>
-              </div>
-            ) : null}
-
-            <div className="rounded-xl border border-border/60 bg-card/30 p-4">
-              <div className="space-y-2">
-                <p className="text-sm font-medium text-foreground">Resolved cron</p>
-                <code className="block rounded-md bg-background px-3 py-2 text-sm text-foreground">
-                  {cronExpression}
-                </code>
-                <p className="text-xs text-muted-foreground">
-                  {isScheduleValid
-                    ? `Next runs in ${timezone}`
-                    : 'The cron expression or timezone is invalid.'}
-                </p>
-                {nextRuns.length > 0 ? (
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    {nextRuns.map((runAt) => (
-                      <Badge key={runAt.toISOString()} variant="outline">
-                        {formatAutopilotRunDate(runAt, timezone)}
-                      </Badge>
-                    ))}
+              {schedule.mode === 'daily' ? (
+                <div className="grid gap-4 md:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="interval-days">Every N days</Label>
+                    <Input
+                      id="interval-days"
+                      type="number"
+                      min={1}
+                      value={schedule.intervalDays}
+                      onChange={(event) => setSchedule((current) => ({
+                        ...current,
+                        intervalDays: Number.parseInt(event.target.value, 10) || 1,
+                      }))}
+                    />
                   </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="daily-hour">Hour</Label>
+                    <Input
+                      id="daily-hour"
+                      type="number"
+                      min={0}
+                      max={23}
+                      value={schedule.hour}
+                      onChange={(event) => setSchedule((current) => ({
+                        ...current,
+                        hour: Number.parseInt(event.target.value, 10) || 0,
+                      }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="daily-minute">Minute</Label>
+                    <Input
+                      id="daily-minute"
+                      type="number"
+                      min={0}
+                      max={59}
+                      value={schedule.minute}
+                      onChange={(event) => setSchedule((current) => ({
+                        ...current,
+                        minute: Number.parseInt(event.target.value, 10) || 0,
+                      }))}
+                    />
+                  </div>
+                </div>
+              ) : null}
+
+              {schedule.mode === 'weekly' ? (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Weekdays</Label>
+                    <div className="flex flex-wrap gap-2">
+                      {WEEKDAY_OPTIONS.map((option) => {
+                        const selected = schedule.weekdays.includes(option.value)
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => setSchedule((current) => ({
+                              ...current,
+                              weekdays: selected
+                                ? current.weekdays.filter((weekday) => weekday !== option.value)
+                                : [...current.weekdays, option.value].sort((left, right) => left - right),
+                            }))}
+                            className={cn(
+                              'rounded-full border px-3 py-1.5 text-sm transition-colors',
+                              selected
+                                ? 'border-primary bg-primary/10 text-primary'
+                                : 'border-border text-muted-foreground hover:text-foreground',
+                            )}
+                          >
+                            {option.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="weekly-hour">Hour</Label>
+                      <Input
+                        id="weekly-hour"
+                        type="number"
+                        min={0}
+                        max={23}
+                        value={schedule.hour}
+                        onChange={(event) => setSchedule((current) => ({
+                          ...current,
+                          hour: Number.parseInt(event.target.value, 10) || 0,
+                        }))}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="weekly-minute">Minute</Label>
+                      <Input
+                        id="weekly-minute"
+                        type="number"
+                        min={0}
+                        max={59}
+                        value={schedule.minute}
+                        onChange={(event) => setSchedule((current) => ({
+                          ...current,
+                          minute: Number.parseInt(event.target.value, 10) || 0,
+                        }))}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {schedule.mode === 'monthly' ? (
+                <div className="grid gap-4 md:grid-cols-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="interval-months">Every N months</Label>
+                    <Input
+                      id="interval-months"
+                      type="number"
+                      min={1}
+                      value={schedule.intervalMonths}
+                      onChange={(event) => setSchedule((current) => ({
+                        ...current,
+                        intervalMonths: Number.parseInt(event.target.value, 10) || 1,
+                      }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="monthly-day">Day of month</Label>
+                    <Input
+                      id="monthly-day"
+                      type="number"
+                      min={1}
+                      max={31}
+                      value={schedule.dayOfMonth}
+                      onChange={(event) => setSchedule((current) => ({
+                        ...current,
+                        dayOfMonth: Number.parseInt(event.target.value, 10) || 1,
+                      }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="monthly-hour">Hour</Label>
+                    <Input
+                      id="monthly-hour"
+                      type="number"
+                      min={0}
+                      max={23}
+                      value={schedule.hour}
+                      onChange={(event) => setSchedule((current) => ({
+                        ...current,
+                        hour: Number.parseInt(event.target.value, 10) || 0,
+                      }))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="monthly-minute">Minute</Label>
+                    <Input
+                      id="monthly-minute"
+                      type="number"
+                      min={0}
+                      max={59}
+                      value={schedule.minute}
+                      onChange={(event) => setSchedule((current) => ({
+                        ...current,
+                        minute: Number.parseInt(event.target.value, 10) || 0,
+                      }))}
+                    />
+                  </div>
+                </div>
+              ) : null}
+
+              {schedule.mode === 'custom' ? (
+                <div className="space-y-2">
+                  <Label htmlFor="custom-cron">Custom cron expression</Label>
+                  <Input
+                    id="custom-cron"
+                    value={schedule.customCronExpression}
+                    onChange={(event) => setSchedule((current) => ({
+                      ...current,
+                      customCronExpression: event.target.value,
+                    }))}
+                    placeholder="0 9 * * 1-5"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Use standard 5-field cron format: minute hour day-of-month month day-of-week.
+                  </p>
+                </div>
+              ) : null}
+
+              <div className="border-t border-border/40 pt-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs font-medium text-muted-foreground">Resolved cron</p>
+                  <code className="rounded-md bg-background/80 px-2.5 py-1 font-mono text-xs text-foreground">
+                    {cronExpression}
+                  </code>
+                </div>
+                {isScheduleValid && nextRuns.length > 0 ? (
+                  <div className="mt-3">
+                    <p className="mb-2 text-xs text-muted-foreground">Upcoming runs ({timezone})</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {nextRuns.map((runAt) => (
+                        <Badge key={runAt.toISOString()} variant="outline" className="font-normal">
+                          {formatAutopilotRunDate(runAt, timezone)}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                ) : !isScheduleValid ? (
+                  <p className="mt-2 text-xs text-destructive">
+                    The cron expression or timezone is invalid.
+                  </p>
                 ) : null}
               </div>
             </div>
@@ -761,25 +770,32 @@ export function AutopilotTaskForm({ slug, mode, taskId }: AutopilotTaskFormProps
             <p className="text-sm text-destructive">{formError}</p>
           ) : null}
 
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={() => void handleSave()} disabled={isSaving || !isScheduleValid}>
-              {isSaving ? 'Saving...' : mode === 'create' ? 'Create task' : 'Save changes'}
-            </Button>
-
-            {mode === 'edit' && taskId ? (
-              <Button variant="outline" onClick={() => void handleRunNow()} disabled={isRunningNow}>
-                {isRunningNow ? 'Running...' : 'Run now'}
+          <div className="flex items-center justify-between border-t border-border/40 pt-5">
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => void handleSave()} disabled={isSaving || !isScheduleValid}>
+                {isSaving ? 'Saving...' : mode === 'create' ? 'Create task' : 'Save changes'}
               </Button>
-            ) : null}
 
-            <Button variant="outline" asChild>
-              <Link href={`/u/${slug}/autopilot`}>Back to list</Link>
-            </Button>
+              {mode === 'edit' && taskId ? (
+                <Button variant="outline" onClick={() => void handleRunNow()} disabled={isRunningNow}>
+                  {isRunningNow ? 'Running...' : 'Run now'}
+                </Button>
+              ) : null}
+
+              <Button variant="outline" asChild>
+                <Link href={`/u/${slug}/autopilot`}>Back to list</Link>
+              </Button>
+            </div>
 
             {mode === 'edit' && taskId ? (
-              <Button variant="outline" onClick={() => void handleDelete()} disabled={isDeleting}>
+              <button
+                type="button"
+                onClick={() => void handleDelete()}
+                disabled={isDeleting}
+                className="text-sm text-destructive underline-offset-2 hover:underline disabled:opacity-50"
+              >
                 {isDeleting ? 'Deleting...' : 'Delete task'}
-              </Button>
+              </button>
             ) : null}
           </div>
         </CardContent>
