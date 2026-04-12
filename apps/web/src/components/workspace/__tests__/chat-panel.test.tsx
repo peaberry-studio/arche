@@ -237,6 +237,44 @@ describe('ChatPanel', () => {
     expect(html).not.toContain('agent=')
   })
 
+  it('does not render raw nested delegation permission details in task errors', () => {
+    const rawError =
+      'The user has specified a rule which prevents you from using this specific tool call. ' +
+      'Here are some of the relevant rules ' +
+      '[{"permission":"*","pattern":"*","action":"allow"},{"permission":"task","pattern":"*","action":"allow"},{"permission":"task","pattern":"*","action":"deny"}]'
+
+    const html = renderChatPanel({
+      messages: [
+        {
+          id: 'm1',
+          sessionId: 's1',
+          role: 'assistant',
+          content: '',
+          timestamp: 'now',
+          parts: [
+            {
+              type: 'tool',
+              id: 'tool-1',
+              name: 'task',
+              state: {
+                status: 'error',
+                input: {
+                  subagent_type: 'seo',
+                  description: 'Draft SEO strategy',
+                },
+                error: rawError,
+              },
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(html).toContain('Delegated to Seo')
+    expect(html).not.toContain('The user has specified a rule')
+    expect(html).not.toContain('permission')
+  })
+
   it('renders a dedicated email draft card for email_draft tool output', () => {
     const html = renderChatPanel({
       messages: [
