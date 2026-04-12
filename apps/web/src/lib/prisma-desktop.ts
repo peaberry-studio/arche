@@ -90,6 +90,7 @@ const SCHEMA_DDL = [
     "error" TEXT,
     "opencode_session_id" TEXT,
     "session_title" TEXT,
+    "result_seen_at" DATETIME,
     "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" DATETIME NOT NULL,
     CONSTRAINT "autopilot_runs_task_id_fkey" FOREIGN KEY ("task_id") REFERENCES "autopilot_tasks" ("id") ON DELETE CASCADE ON UPDATE CASCADE
@@ -150,7 +151,16 @@ const SCHEMA_DDL = [
   `CREATE INDEX IF NOT EXISTS "two_factor_recovery_user_id_idx" ON "two_factor_recovery"("user_id")`,
 ]
 
-const SCHEMA_VERSION = '2'
+const SCHEMA_VERSION = '3'
+
+async function ensureAutopilotRunResultSeenAtColumn(client: DesktopPrismaClient): Promise<void> {
+  const columns = await client.$queryRawUnsafe('PRAGMA table_info("autopilot_runs")') as Array<{ name?: string }>
+  const hasResultSeenAt = columns.some((column) => column.name === 'result_seen_at')
+
+  if (!hasResultSeenAt) {
+    await client.$executeRawUnsafe('ALTER TABLE "autopilot_runs" ADD COLUMN "result_seen_at" DATETIME')
+  }
+}
 
 function getDesktopDatabasePath(): string {
   const contextDatabaseUrl = getDesktopVaultRuntimeContext()?.databaseUrl?.trim()
@@ -195,12 +205,15 @@ export async function initDesktopDatabase(): Promise<void> {
   const storedVersion = result[0]?.value
 
   if (storedVersion === SCHEMA_VERSION) {
+    await ensureAutopilotRunResultSeenAtColumn(client)
     return
   }
 
   for (let i = 1; i < SCHEMA_DDL.length; i++) {
     await client.$executeRawUnsafe(SCHEMA_DDL[i])
   }
+
+  await ensureAutopilotRunResultSeenAtColumn(client)
 
   await client.$executeRaw`INSERT OR REPLACE INTO _arche_schema_meta (key, value) VALUES ('schema_version', ${SCHEMA_VERSION})`
 }

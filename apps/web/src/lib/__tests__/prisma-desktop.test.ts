@@ -39,12 +39,14 @@ describe('desktop prisma context isolation', () => {
     // @ts-expect-error test isolation
     globalThis.prismaDesktopClient = undefined
 
+    mockGetDesktopVaultRuntimeContext.mockReturnValue(null)
     mockExistsSync.mockReturnValue(true)
     mockPrismaBetterSqlite3.mockImplementation(({ url }: { url: string }) => ({ url }))
     mockGeneratedPrismaClient.mockImplementation(({ adapter }: { adapter: { url: string } }) => ({
       adapterUrl: adapter.url,
       $executeRaw: vi.fn(),
       $executeRawUnsafe: vi.fn(),
+      $queryRawUnsafe: vi.fn().mockResolvedValue([{ name: 'result_seen_at' }]),
       $queryRaw: vi.fn().mockResolvedValue([{ value: '1' }]),
     }))
   })
@@ -92,5 +94,26 @@ describe('desktop prisma context isolation', () => {
 
     expect(context.prismaClient).toBeDefined()
     expect(globalThis.prismaDesktopClient).toBeUndefined()
+  })
+
+  it('adds the missing autopilot result_seen_at column during desktop init', async () => {
+    const executeRawUnsafe = vi.fn()
+    const queryRawUnsafe = vi.fn().mockResolvedValue([{ name: 'id' }])
+
+    mockGeneratedPrismaClient.mockImplementationOnce(({ adapter }: { adapter: { url: string } }) => ({
+      adapterUrl: adapter.url,
+      $executeRaw: vi.fn(),
+      $executeRawUnsafe: executeRawUnsafe,
+      $queryRawUnsafe: queryRawUnsafe,
+      $queryRaw: vi.fn().mockResolvedValue([{ value: '2' }]),
+    }))
+
+    const { initDesktopDatabase } = await import('../prisma-desktop')
+    await initDesktopDatabase()
+
+    expect(queryRawUnsafe).toHaveBeenCalledWith('PRAGMA table_info("autopilot_runs")')
+    expect(executeRawUnsafe).toHaveBeenCalledWith(
+      'ALTER TABLE "autopilot_runs" ADD COLUMN "result_seen_at" DATETIME',
+    )
   })
 })

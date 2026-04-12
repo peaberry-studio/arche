@@ -597,10 +597,13 @@ describe("useWorkspace", () => {
         useWorkspace({ slug: "alice", pollInterval: 1000 })
       );
 
-      await waitFor(() => {
-        expect(result.current.activeSessionId).toBeNull();
-        expect(result.current.selectedModel?.modelId).toBe("gpt-5.4");
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
       });
+
+      expect(result.current.activeSessionId).toBeNull();
+      expect(result.current.selectedModel?.modelId).toBe("gpt-5.4");
 
       act(() => {
         result.current.setSelectedModel({

@@ -176,6 +176,9 @@ export async function claimNextDueTask(params: {
       return null
     }
 
+    // Product currently prefers best-effort, at-most-once scheduling semantics.
+    // We advance nextRunAt as part of the lease claim, so a process crash after
+    // claiming but before execution can skip the current slot instead of replaying it.
     const nextRunAt = params.resolveNextRunAt(task)
     const leaseExpiresAt = new Date(params.now.getTime() + params.leaseMs)
     const claimed = await prisma.autopilotTask.updateMany({
