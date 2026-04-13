@@ -408,7 +408,7 @@ function MinifiedLeftPanel({
                   "mb-1 flex h-8 w-8 items-center justify-center rounded-lg transition-colors",
                   configRestartError
                     ? "bg-destructive/15 text-destructive hover:bg-destructive/20"
-                    : "bg-amber-500/15 text-amber-700 hover:bg-amber-500/20 dark:text-amber-300",
+                    : "bg-warning/15 text-warning hover:bg-warning/20",
                 )}
                 aria-label="Restart workspace to apply changes"
               >
@@ -1300,7 +1300,7 @@ function ExpandedLeftPanel({
             "shrink-0 rounded-xl border px-3 py-3",
             configRestartError
               ? "border-destructive/30 bg-destructive/10"
-              : "border-amber-500/30 bg-amber-500/10 dark:border-amber-400/30 dark:bg-amber-400/10",
+              : "border-warning/30 bg-warning/10",
           )}
         >
           <div className="flex items-start gap-2">
@@ -1309,7 +1309,7 @@ function ExpandedLeftPanel({
               weight="fill"
               className={cn(
                 "mt-0.5 shrink-0",
-                configRestartError ? "text-destructive" : "text-amber-700 dark:text-amber-300",
+                configRestartError ? "text-destructive" : "text-warning",
               )}
             />
             <div className="min-w-0 flex-1 space-y-2">

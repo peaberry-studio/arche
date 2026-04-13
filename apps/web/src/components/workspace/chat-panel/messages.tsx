@@ -44,6 +44,7 @@ import type { ChatMessage } from "@/types/workspace";
 
 type ToolPart = Extract<MessagePart, { type: "tool" }>;
 type FilePart = Extract<MessagePart, { type: "file" }>;
+type TodoItem = { id: string; title: string; status: "pending" | "in_progress" | "completed" };
 
 type ChatPanelMessagesProps = {
   chatContentStyle: CSSProperties;
@@ -134,6 +135,12 @@ const getNumber = (value: unknown) => (typeof value === "number" && Number.isFin
 const getStringArray = (value: unknown) =>
   Array.isArray(value) ? value.map((item) => String(item)) : undefined;
 
+function formatToolName(tool: string): string {
+  const formatted = tool.replace(/[_-]+/g, " ").trim();
+  if (!formatted) return tool;
+  return formatted.charAt(0).toUpperCase() + formatted.slice(1);
+}
+
 const getFileName = (path?: string) => (path ? path.split("/").pop() ?? path : undefined);
 const getDirectory = (path?: string) => {
   if (!path || !path.includes("/")) return undefined;
@@ -208,7 +215,7 @@ function getChatErrorCopy(detail?: string): { title: string; description?: strin
 function getToolLabel(tool: string, connectorNamesById?: Record<string, string>) {
   const toolDisplay = getWorkspaceToolDisplay(tool, connectorNamesById);
   if (toolDisplay.isConnectorTool) return toolDisplay.groupLabel;
-  return TOOL_LABELS[tool] ?? tool;
+  return TOOL_LABELS[tool] ?? formatToolName(tool);
 }
 
 function getToolDisplay(
@@ -507,6 +514,97 @@ function ReasoningBlock({ text, isPending }: { text: string; isPending: boolean 
   );
 }
 
+function parseTodoItems(parts: ToolPart[]): TodoItem[] {
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const todos = parts[i].state.input?.todos;
+    if (Array.isArray(todos)) {
+      return todos
+        .filter(
+          (item): item is { id: string; title: string; status: string } =>
+            typeof item === "object" &&
+            item !== null &&
+            typeof (item as Record<string, unknown>).id === "string" &&
+            typeof (item as Record<string, unknown>).title === "string"
+        )
+        .map((item) => ({
+          id: item.id,
+          title: item.title,
+          status: (["pending", "in_progress", "completed"].includes(item.status)
+            ? item.status
+            : "pending") as TodoItem["status"],
+        }));
+    }
+  }
+  return [];
+}
+
+function TodoCard({ parts }: { parts: ToolPart[] }) {
+  const isRunning = parts.some(
+    (p) => p.state.status === "running" || p.state.status === "pending"
+  );
+  const todos = parseTodoItems(parts);
+
+  if (todos.length === 0) {
+    return (
+      <div className="my-2 rounded-lg border border-border/40 bg-muted/20 px-3 py-2.5">
+        <div className="flex items-center gap-2 text-xs">
+          {isRunning ? (
+            <SpinnerGap size={12} className="animate-spin text-primary" />
+          ) : (
+            <CheckCircle size={12} weight="fill" className="text-primary" />
+          )}
+          <span className="font-medium">Planning</span>
+        </div>
+      </div>
+    );
+  }
+
+  const completedCount = todos.filter((t) => t.status === "completed").length;
+  const inProgressCount = todos.filter((t) => t.status === "in_progress").length;
+
+  return (
+    <div className="my-2 rounded-lg border border-border/40 bg-muted/20">
+      <div className="flex items-center gap-2 px-3 py-2 text-xs">
+        {isRunning ? (
+          <SpinnerGap size={12} className="animate-spin text-primary" />
+        ) : (
+          <CheckCircle size={12} weight="fill" className="text-primary" />
+        )}
+        <span className="font-medium">Planning</span>
+        <span className="text-muted-foreground">
+          {completedCount}/{todos.length} done
+          {inProgressCount > 0 ? ` · ${inProgressCount} in progress` : ""}
+        </span>
+      </div>
+      <div className="border-t border-border/50 px-3 py-2">
+        <div className="space-y-1">
+          {todos.map((todo) => (
+            <div key={todo.id} className="flex items-start gap-2 text-xs">
+              {todo.status === "completed" ? (
+                <CheckCircle size={12} weight="fill" className="mt-0.5 text-primary" />
+              ) : todo.status === "in_progress" ? (
+                <SpinnerGap size={12} className="mt-0.5 animate-spin text-primary" />
+              ) : (
+                <Circle size={12} className="mt-0.5 text-muted-foreground/60" />
+              )}
+              <span
+                className={cn(
+                  "min-w-0 flex-1",
+                  todo.status === "completed"
+                    ? "text-muted-foreground line-through"
+                    : "text-foreground/80"
+                )}
+              >
+                {todo.title}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DelegationCard({
   parts,
   sessionTabs,
@@ -737,6 +835,10 @@ function ToolGroup({
     if (latestDraft) {
       return <EmailDraftCard draft={latestDraft} isRunning={isRunning} />;
     }
+  }
+
+  if (tool === "todowrite") {
+    return <TodoCard parts={parts} />;
   }
 
   const getStateTitle = (state: ToolPart["state"] | undefined): string | undefined => {
@@ -970,7 +1072,29 @@ function groupMessageParts(parts: MessagePart[]): PartGroup[] {
     index += 1;
   }
 
-  return groups;
+  // Post-merge: coalesce tool-groups with same name separated only by reasoning parts
+  const merged: PartGroup[] = [];
+  for (const group of groups) {
+    if (group.type === "tool-group") {
+      let targetIndex = -1;
+      for (let i = merged.length - 1; i >= 0; i--) {
+        const prev = merged[i];
+        if (prev.type === "single" && prev.part.type === "reasoning") continue;
+        if (prev.type === "tool-group" && prev.tool === group.tool) targetIndex = i;
+        break;
+      }
+      if (targetIndex >= 0) {
+        const target = merged[targetIndex] as { type: "tool-group"; tool: string; parts: ToolPart[] };
+        target.parts.push(...group.parts);
+      } else {
+        merged.push(group);
+      }
+    } else {
+      merged.push(group);
+    }
+  }
+
+  return merged;
 }
 
 function MessagePartRenderer({

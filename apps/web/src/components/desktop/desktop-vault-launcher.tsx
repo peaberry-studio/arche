@@ -273,7 +273,7 @@ export function DesktopVaultLauncher() {
 
   if (status) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-4xl items-center justify-center px-6 py-10">
+      <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center px-6 py-10">
         <section className="w-full max-w-2xl rounded-3xl border border-border/60 bg-card/70 p-10 text-center shadow-sm backdrop-blur">
           <div className="space-y-5">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10">
@@ -295,19 +295,19 @@ export function DesktopVaultLauncher() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-6xl items-center px-6 py-10">
+    <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center px-6 py-10">
       <div className={mode === 'create'
         ? 'w-full'
-        : 'grid w-full gap-8 lg:grid-cols-[minmax(0,1.3fr)_minmax(320px,420px)]'
+        : 'grid w-full gap-8 lg:grid-cols-[minmax(0,1.3fr)_minmax(300px,380px)]'
       }>
         <section className="rounded-3xl border border-border/60 bg-card/60 p-8 shadow-sm backdrop-blur">
-          <div className="max-w-2xl space-y-6">
+          <div className="space-y-6">
             <div className="space-y-3">
               <p className="text-xs uppercase tracking-[0.18em] text-primary/80">Welcome to Arche</p>
               <h1 className="type-display text-3xl leading-tight text-foreground sm:text-4xl">
                 Set up your workspace
               </h1>
-              <p className="max-w-xl text-sm text-muted-foreground sm:text-base">
+              <p className="text-sm text-muted-foreground sm:text-base">
                 A vault is a self-contained workspace where Arche keeps your repos, agents,
                 and knowledge base organized.
               </p>
