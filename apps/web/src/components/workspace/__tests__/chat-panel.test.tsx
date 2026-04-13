@@ -279,6 +279,46 @@ describe('ChatPanel', () => {
     expect(html).toContain('If you want, I can make it more formal.')
   })
 
+  it('renders todowrite items from the OpenCode todo input shape', () => {
+    const html = renderChatPanel({
+      messages: [
+        {
+          id: 'm1',
+          sessionId: 's1',
+          role: 'assistant',
+          content: '',
+          timestamp: 'now',
+          parts: [
+            {
+              type: 'tool',
+              id: 'tool-todo-1',
+              name: 'todowrite',
+              state: {
+                status: 'completed',
+                input: {
+                  todos: [
+                    { content: 'Inspect auth flow', status: 'completed', priority: 'high' },
+                    { content: 'Fix password mismatch', status: 'in_progress', priority: 'high' },
+                    { content: 'Verify login in dev', status: 'pending', priority: 'medium' },
+                  ],
+                },
+                output: '',
+                title: 'todo updated',
+              },
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(html).toContain('Planning')
+    expect(html).toContain('1/3 done')
+    expect(html).toContain('1 in progress')
+    expect(html).toContain('Inspect auth flow')
+    expect(html).toContain('Fix password mismatch')
+    expect(html).toContain('Verify login in dev')
+  })
+
   it('keeps tool groups separate when reasoning appears between identical tool calls', () => {
     const html = renderChatPanel({
       messages: [

@@ -532,20 +532,23 @@ function parseTodoItems(parts: ToolPart[]): TodoItem[] {
     const todos = parts[i].state.input?.todos;
     if (Array.isArray(todos)) {
       return todos
-        .filter(
-          (item): item is { id: string; title: string; status: string } =>
-            typeof item === "object" &&
-            item !== null &&
-            typeof (item as Record<string, unknown>).id === "string" &&
-            typeof (item as Record<string, unknown>).title === "string"
-        )
-        .map((item) => ({
-          id: item.id,
-          title: item.title,
-          status: (["pending", "in_progress", "completed"].includes(item.status)
-            ? item.status
-            : "pending") as TodoItem["status"],
-        }));
+        .flatMap((item, index) => {
+          if (typeof item !== "object" || item === null) return [];
+
+          const record = item as Record<string, unknown>;
+          const title = getString(record.title) ?? getString(record.content);
+          if (!title) return [];
+
+          const rawStatus = getString(record.status);
+
+          return [{
+            id: getString(record.id) ?? `todo-${index}-${title}`,
+            title,
+            status: (["pending", "in_progress", "completed"].includes(rawStatus ?? "")
+              ? rawStatus
+              : "pending") as TodoItem["status"],
+          }];
+        });
     }
   }
   return [];
