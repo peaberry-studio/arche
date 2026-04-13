@@ -4,12 +4,22 @@ import { getIdleFinalizationOutcome, getSilentStreamOutcome } from '@/app/api/w/
 
 describe('chat stream watchdog helpers', () => {
   describe('getIdleFinalizationOutcome', () => {
-    it('returns complete for resume streams', () => {
+    it('returns resume_incomplete for silent resume streams', () => {
       expect(
         getIdleFinalizationOutcome({
           resume: true,
           assistantMessageSeen: false,
           assistantPartSeen: false,
+        }),
+      ).toBe('resume_incomplete')
+    })
+
+    it('returns complete for resume streams once assistant parts arrive', () => {
+      expect(
+        getIdleFinalizationOutcome({
+          resume: true,
+          assistantMessageSeen: true,
+          assistantPartSeen: true,
         }),
       ).toBe('complete')
     })

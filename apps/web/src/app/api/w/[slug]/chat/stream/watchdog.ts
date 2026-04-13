@@ -1,4 +1,8 @@
-export type IdleFinalizationOutcome = 'complete' | 'stream_incomplete' | 'stream_no_assistant_message'
+export type IdleFinalizationOutcome =
+  | 'complete'
+  | 'resume_incomplete'
+  | 'stream_incomplete'
+  | 'stream_no_assistant_message'
 
 export type SilentStreamOutcome = 'finalize_idle' | 'keep_waiting' | 'stream_timeout'
 
@@ -22,7 +26,7 @@ export function getIdleFinalizationOutcome({
   assistantPartSeen,
 }: IdleFinalizationInput): IdleFinalizationOutcome {
   if (resume) {
-    return 'complete'
+    return assistantPartSeen ? 'complete' : 'resume_incomplete'
   }
 
   if (!assistantMessageSeen) {

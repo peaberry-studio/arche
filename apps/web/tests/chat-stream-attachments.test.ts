@@ -1475,6 +1475,81 @@ describe('chat stream attachments forwarding', () => {
     expect(sseOutput).not.toContain('stream_timeout')
   })
 
+  it('does not emit done for silent resume streams that only idle via the watchdog', async () => {
+    vi.useFakeTimers()
+    let statusChecks = 0
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+
+      if (url.endsWith('/session/status')) {
+        statusChecks += 1
+        return new Response(
+          JSON.stringify({
+            'session-1': { type: 'idle' },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        )
+      }
+
+      if (url.endsWith('/event')) {
+        let lateEventTimer: ReturnType<typeof setTimeout> | null = null
+
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            lateEventTimer = setTimeout(() => {
+              controller.close()
+            }, 30_000)
+          },
+          cancel() {
+            if (lateEventTimer) {
+              clearTimeout(lateEventTimer)
+            }
+          },
+        })
+
+        return new Response(body, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        })
+      }
+
+      throw new Error(`Unexpected fetch url: ${url}`)
+    })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('@/app/api/w/[slug]/chat/stream/route')
+    const req = new Request('http://localhost/api/w/alice/chat/stream', {
+      method: 'POST',
+      headers: {
+        host: 'localhost',
+        origin: 'http://localhost',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        sessionId: 'session-1',
+        resume: true,
+        messageId: 'msg-assistant',
+      }),
+    })
+
+    const res = await POST(req as never, {
+      params: Promise.resolve({ slug: 'alice' }),
+    })
+
+    expect(res.status).toBe(200)
+
+    const textPromise = res.text()
+    await vi.advanceTimersByTimeAsync(30_500)
+    const sseOutput = await textPromise
+
+    expect(statusChecks).toBeGreaterThanOrEqual(1)
+    expect(sseOutput).toContain('event: error')
+    expect(sseOutput).toContain('resume_incomplete')
+    expect(sseOutput).not.toContain('event: done')
+  })
+
   it('does not ignore post-response fetch failed session errors in desktop mode', async () => {
     process.env.ARCHE_RUNTIME_MODE = 'desktop'
     process.env.ARCHE_DESKTOP_PLATFORM = 'darwin'
