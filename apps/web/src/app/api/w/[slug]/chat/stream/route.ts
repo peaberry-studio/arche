@@ -557,7 +557,7 @@ export const POST = withAuth(
           if (aborted) return
 
           const outcome = getIdleFinalizationOutcome({
-            resume,
+            resume: Boolean(resume),
             assistantMessageSeen,
             assistantPartSeen,
           })
