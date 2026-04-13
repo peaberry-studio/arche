@@ -1,8 +1,13 @@
+import { join } from 'path'
+import { pathToFileURL } from 'url'
+
 import { NextRequest, NextResponse } from 'next/server'
 
 import { extractPdfText, isPdfMime } from '@/lib/attachments/pdf-text-extractor'
 import { getInstanceUrl } from '@/lib/opencode/client'
 import { normalizeProviderId, resolveRuntimeProviderId } from '@/lib/providers/catalog'
+import { DESKTOP_WORKSPACE_DIR_NAME } from '@/lib/runtime/desktop/vault-layout-constants'
+import { isDesktop } from '@/lib/runtime/mode'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { instanceService } from '@/lib/services'
 import { INITIAL_SSE_PARSE_STATE, parseSseChunk } from '@/lib/sse-parser'
@@ -126,6 +131,14 @@ async function readWorkspaceImageAttachment(
 
 function toWorkspaceFileUrl(path: string): string {
   const normalized = normalizeAttachmentPath(path)
+
+  if (isDesktop()) {
+    const vaultRoot = process.env.ARCHE_DATA_DIR?.trim()
+    if (vaultRoot) {
+      return pathToFileURL(join(vaultRoot, DESKTOP_WORKSPACE_DIR_NAME, ...normalized.split('/'))).toString()
+    }
+  }
+
   const encodedPath = normalized
     .split('/')
     .map((segment) => encodeURIComponent(segment))
@@ -133,10 +146,15 @@ function toWorkspaceFileUrl(path: string): string {
   return `file:///workspace/${encodedPath}`
 }
 
+function toAttachmentPromptPath(path: string): string {
+  const normalized = normalizeAttachmentPath(path)
+  return isDesktop() ? normalized : `/workspace/${normalized}`
+}
+
 function toAttachmentHintText(paths: string[]): string {
   const lines = [
     'Attached workspace files:',
-    ...paths.map((path) => `- /workspace/${path}`),
+    ...paths.map((path) => `- ${toAttachmentPromptPath(path)}`),
     'If direct file parsing is unavailable, inspect these paths with available tools.',
   ]
   return lines.join('\n')
@@ -148,7 +166,7 @@ function toPdfExtractedTextPart(path: string, text: string, truncated: boolean):
     : ''
 
   return [
-    `Extracted text from attached PDF: /workspace/${path}`,
+    `Extracted text from attached PDF: ${toAttachmentPromptPath(path)}`,
     text,
     truncationNote,
   ]
@@ -158,14 +176,14 @@ function toPdfExtractedTextPart(path: string, text: string, truncated: boolean):
 
 function toPdfExtractionFailureText(path: string): string {
   return [
-    `Attached PDF could not be extracted automatically: /workspace/${path}`,
+    `Attached PDF could not be extracted automatically: ${toAttachmentPromptPath(path)}`,
     'Continue by using available tools on this path, or ask the user for an OCR-friendly/text PDF if the file is scanned.',
   ].join('\n')
 }
 
 function toSpreadsheetToolHintText(path: string): string {
   return [
-    `Attached spreadsheet file: /workspace/${path}`,
+    `Attached spreadsheet file: ${toAttachmentPromptPath(path)}`,
     'You must use spreadsheet_inspect first to detect sheets and columns, then use spreadsheet_sample/spreadsheet_query/spreadsheet_stats for focused analysis and calculations.',
   ].join('\n')
 }

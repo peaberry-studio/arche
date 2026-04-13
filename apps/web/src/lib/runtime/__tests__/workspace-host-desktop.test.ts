@@ -361,7 +361,10 @@ describe('desktopWorkspaceHost', () => {
       'opencode',
       expect.any(Array),
       expect.objectContaining({
-        env: expect.objectContaining({ OPENCODE_CONFIG_DIR: '/tmp/opencode-config' }),
+        env: expect.objectContaining({
+          OPENCODE_CONFIG_DIR: '/tmp/opencode-config',
+          WORKSPACE_DIR: '/tmp/arche/workspace',
+        }),
       }),
     )
   })

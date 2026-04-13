@@ -1,4 +1,4 @@
-import test from 'node:test'
+import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 
@@ -6,7 +6,19 @@ import * as XLSX from 'xlsx'
 
 import { inspect, query, resolveSpreadsheetPath, sample, stats } from '../tools/spreadsheet.js'
 
-const FIXTURE_DIR = '/workspace/.arche/attachments'
+const originalWorkspaceDir = process.env.WORKSPACE_DIR
+process.env.WORKSPACE_DIR = '/workspace'
+
+after(() => {
+  if (originalWorkspaceDir === undefined) {
+    delete process.env.WORKSPACE_DIR
+    return
+  }
+
+  process.env.WORKSPACE_DIR = originalWorkspaceDir
+})
+
+const FIXTURE_DIR = `${process.env.WORKSPACE_DIR}/.arche/attachments`
 const FIXTURE_PATH = `${FIXTURE_DIR}/spreadsheet-test.xlsx`
 
 async function ensureFixture() {

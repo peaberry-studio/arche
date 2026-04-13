@@ -20,6 +20,7 @@ type ArcheDesktopBridge = {
   openVaultLauncher: () => Promise<DesktopApiResult>
   pickVaultParentDirectory: () => Promise<string | null>
   quitLauncherProcess: () => Promise<DesktopApiResult>
+  revealAttachmentsDirectory: () => Promise<DesktopApiResult>
 }
 
 type ArcheBridge = {

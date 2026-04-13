@@ -24,6 +24,7 @@ import {
   getDesktopRuntimeDataDir,
   getDesktopSecretsDir,
   getDesktopUserDataDir,
+  getDesktopWorkspaceAttachmentsDir,
   getDesktopWorkspaceDir,
 } from './vault-layout'
 import { LOCAL_DESKTOP_USER_SLUG } from './vault-layout-constants'
@@ -473,6 +474,24 @@ function quitLauncherProcess(): DesktopApiResult {
   return { ok: true }
 }
 
+async function revealAttachmentsDirectory(): Promise<DesktopApiResult> {
+  if (!currentVault) {
+    return { ok: false, error: 'vault_not_open' }
+  }
+
+  const attachmentsDir = getDesktopWorkspaceAttachmentsDir(currentVault.path)
+  if (!existsSync(attachmentsDir)) {
+    mkdirSync(attachmentsDir, { recursive: true })
+  }
+
+  const error = await shell.openPath(attachmentsDir)
+  if (error) {
+    return { ok: false, error: 'reveal_attachments_failed' }
+  }
+
+  return { ok: true }
+}
+
 async function pickDirectory(options: {
   title: string
   defaultPath?: string | null
@@ -530,6 +549,7 @@ function registerDesktopIpcHandlers(): void {
   ipcMain.handle('desktop:open-vault', async (_event, vaultPath: string) => launchVaultProcess(vaultPath))
   ipcMain.handle('desktop:open-vault-launcher', async () => openVaultLauncherProcess())
   ipcMain.handle('desktop:quit-launcher-process', async () => quitLauncherProcess())
+  ipcMain.handle('desktop:reveal-attachments-directory', async () => revealAttachmentsDirectory())
 }
 
 function resolveStartupVault(): DesktopVault | null {

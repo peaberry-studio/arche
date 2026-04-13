@@ -65,6 +65,9 @@ describe('chat stream attachments forwarding', () => {
     vi.clearAllMocks()
     vi.resetModules()
     delete process.env.ARCHE_RUNTIME_MODE
+    delete process.env.ARCHE_DATA_DIR
+    delete process.env.ARCHE_DESKTOP_PLATFORM
+    delete process.env.ARCHE_DESKTOP_WEB_HOST
 
     mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
     mockFindUnique.mockResolvedValue({
@@ -84,6 +87,9 @@ describe('chat stream attachments forwarding', () => {
 
   afterEach(() => {
     delete process.env.ARCHE_RUNTIME_MODE
+    delete process.env.ARCHE_DATA_DIR
+    delete process.env.ARCHE_DESKTOP_PLATFORM
+    delete process.env.ARCHE_DESKTOP_WEB_HOST
     vi.unstubAllGlobals()
   })
 
@@ -606,6 +612,144 @@ describe('chat stream attachments forwarding', () => {
       mime: 'image/jpeg',
       filename: 'photo.jpg',
       url: 'file:///workspace/.arche/attachments/photo.jpg',
+    })
+  })
+
+  it('uses workspace-relative attachment hints and local file URLs in desktop mode', async () => {
+    process.env.ARCHE_RUNTIME_MODE = 'desktop'
+    process.env.ARCHE_DESKTOP_PLATFORM = 'darwin'
+    process.env.ARCHE_DESKTOP_WEB_HOST = '127.0.0.1'
+    process.env.ARCHE_DATA_DIR = '/tmp/Arche'
+
+    let promptBody: Record<string, unknown> | null = null
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+
+      if (url.endsWith('/event')) {
+        return emptyEventStreamResponse()
+      }
+
+      if (url.includes(':4097/files/read')) {
+        return new Response(
+          JSON.stringify({ ok: false, error: 'not_found' }),
+          { status: 404, headers: { 'Content-Type': 'application/json' } },
+        )
+      }
+
+      if (url.includes('/prompt_async')) {
+        promptBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+        return new Response('prompt_failed', { status: 500 })
+      }
+
+      throw new Error(`Unexpected fetch url: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('@/app/api/w/[slug]/chat/stream/route')
+    const req = new Request('http://localhost/api/w/alice/chat/stream', {
+      method: 'POST',
+      headers: {
+        host: 'localhost',
+        origin: 'http://localhost',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        sessionId: 'session-1',
+        text: 'Describe this',
+        attachments: [
+          {
+            path: '.arche/attachments/photo.jpg',
+            filename: 'photo.jpg',
+            mime: 'image/jpeg',
+          },
+        ],
+      }),
+    })
+
+    const res = await POST(req as never, {
+      params: Promise.resolve({ slug: 'alice' }),
+    })
+
+    expect(res.status).toBe(200)
+    await res.text()
+
+    const promptParts = (promptBody?.parts ?? []) as Array<Record<string, unknown>>
+    expect(promptParts[1]).toEqual({
+      type: 'file',
+      mime: 'image/jpeg',
+      filename: 'photo.jpg',
+      url: 'file:///tmp/Arche/workspace/.arche/attachments/photo.jpg',
+    })
+    expect(promptParts[2]).toEqual({
+      type: 'text',
+      text:
+        'Attached workspace files:\n- .arche/attachments/photo.jpg\nIf direct file parsing is unavailable, inspect these paths with available tools.',
+    })
+  })
+
+  it('uses workspace-relative spreadsheet hints in desktop mode', async () => {
+    process.env.ARCHE_RUNTIME_MODE = 'desktop'
+    process.env.ARCHE_DESKTOP_PLATFORM = 'darwin'
+    process.env.ARCHE_DESKTOP_WEB_HOST = '127.0.0.1'
+    process.env.ARCHE_DATA_DIR = '/tmp/Arche'
+
+    let promptBody: Record<string, unknown> | null = null
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+
+      if (url.endsWith('/event')) {
+        return emptyEventStreamResponse()
+      }
+
+      if (url.includes('/prompt_async')) {
+        promptBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+        return new Response('prompt_failed', { status: 500 })
+      }
+
+      throw new Error(`Unexpected fetch url: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('@/app/api/w/[slug]/chat/stream/route')
+    const req = new Request('http://localhost/api/w/alice/chat/stream', {
+      method: 'POST',
+      headers: {
+        host: 'localhost',
+        origin: 'http://localhost',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        sessionId: 'session-1',
+        text: 'Analyze attached data',
+        attachments: [
+          {
+            path: '.arche/attachments/sales.xlsx',
+            filename: 'sales.xlsx',
+            mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          },
+        ],
+      }),
+    })
+
+    const res = await POST(req as never, {
+      params: Promise.resolve({ slug: 'alice' }),
+    })
+
+    expect(res.status).toBe(200)
+    await res.text()
+
+    const promptParts = (promptBody?.parts ?? []) as Array<Record<string, unknown>>
+    expect(promptParts[1]).toEqual({
+      type: 'text',
+      text:
+        'Attached spreadsheet file: .arche/attachments/sales.xlsx\nYou must use spreadsheet_inspect first to detect sheets and columns, then use spreadsheet_sample/spreadsheet_query/spreadsheet_stats for focused analysis and calculations.',
+    })
+    expect(promptParts[2]).toEqual({
+      type: 'text',
+      text:
+        'Attached workspace files:\n- .arche/attachments/sales.xlsx\nIf direct file parsing is unavailable, inspect these paths with available tools.',
     })
   })
 
