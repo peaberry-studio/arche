@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const registerTool = vi.fn()
+const registerPrompt = vi.fn()
 const mockServerInstance = {
   registerTool,
+  registerPrompt,
 }
 
 vi.mock('@modelcontextprotocol/sdk/server/mcp.js', () => ({
@@ -104,6 +106,29 @@ describe('createMcpServer', () => {
     )
   })
 
+  it('registers prompts for default scopes', async () => {
+    const { createMcpServer } = await import('../server')
+
+    createMcpServer()
+
+    expect(registerPrompt).toHaveBeenCalledTimes(3)
+    expect(registerPrompt).toHaveBeenCalledWith(
+      'arche-workspace-context',
+      expect.objectContaining({ description: expect.any(String) }),
+      expect.any(Function)
+    )
+    expect(registerPrompt).toHaveBeenCalledWith(
+      'use-agent',
+      expect.objectContaining({ description: expect.any(String), argsSchema: expect.any(Object) }),
+      expect.any(Function)
+    )
+    expect(registerPrompt).toHaveBeenCalledWith(
+      'use-skill',
+      expect.objectContaining({ description: expect.any(String), argsSchema: expect.any(Object) }),
+      expect.any(Function)
+    )
+  })
+
   it('filters tool registration by PAT scopes', async () => {
     const { createMcpServer } = await import('../server')
 
@@ -125,6 +150,37 @@ describe('createMcpServer', () => {
     expect(registerTool).toHaveBeenNthCalledWith(
       3,
       'read_agent',
+      expect.objectContaining({ description: expect.any(String) }),
+      expect.any(Function)
+    )
+  })
+
+  it('filters prompt registration by PAT scopes', async () => {
+    const { createMcpServer } = await import('../server')
+
+    createMcpServer({ scopes: ['agents:read'] })
+
+    expect(registerPrompt).toHaveBeenCalledTimes(2)
+    expect(registerPrompt).toHaveBeenCalledWith(
+      'arche-workspace-context',
+      expect.objectContaining({ description: expect.any(String) }),
+      expect.any(Function)
+    )
+    expect(registerPrompt).toHaveBeenCalledWith(
+      'use-agent',
+      expect.objectContaining({ description: expect.any(String) }),
+      expect.any(Function)
+    )
+  })
+
+  it('registers only skills prompt when only skills:read scope is granted', async () => {
+    const { createMcpServer } = await import('../server')
+
+    createMcpServer({ scopes: ['skills:read'] })
+
+    expect(registerPrompt).toHaveBeenCalledTimes(1)
+    expect(registerPrompt).toHaveBeenCalledWith(
+      'use-skill',
       expect.objectContaining({ description: expect.any(String) }),
       expect.any(Function)
     )
@@ -190,5 +246,134 @@ describe('createMcpServer', () => {
     expect(mockReadSkillForMcp).toHaveBeenCalledWith('lint')
     expect(mockReadSkillResource).toHaveBeenCalledWith({ name: 'lint', path: 'scripts/check.sh', maxLines: undefined })
     expect(mockSearchKb).toHaveBeenCalledWith({ query: 'hello' })
+  })
+
+  it('arche-workspace-context prompt returns the agents guide', async () => {
+    mockReadAgentsGuide.mockResolvedValue({ ok: true, content: '# Guide\nHello' })
+
+    const { createMcpServer } = await import('../server')
+    createMcpServer({
+      user: { email: 'alice@example.com', id: 'u1', role: 'USER', slug: 'alice' },
+    })
+
+    const handler = registerPrompt.mock.calls.find(
+      ([name]: [string]) => name === 'arche-workspace-context'
+    )?.[2]
+    const result = await handler?.()
+
+    expect(result).toEqual({
+      messages: [{
+        role: 'user',
+        content: { type: 'text', text: '# Guide\nHello' },
+      }],
+    })
+  })
+
+  it('arche-workspace-context prompt returns error when guide unavailable', async () => {
+    mockReadAgentsGuide.mockResolvedValue({ ok: false, error: 'kb_unavailable' })
+
+    const { createMcpServer } = await import('../server')
+    createMcpServer()
+
+    const handler = registerPrompt.mock.calls.find(
+      ([name]: [string]) => name === 'arche-workspace-context'
+    )?.[2]
+    const result = await handler?.()
+
+    expect(result).toEqual({
+      messages: [{
+        role: 'user',
+        content: { type: 'text', text: 'Failed to load workspace context: kb_unavailable' },
+      }],
+    })
+  })
+
+  it('use-agent prompt composes guide, agent prompt, and task', async () => {
+    mockReadAgentsGuide.mockResolvedValue({ ok: true, content: '# Guide' })
+    mockReadAgent.mockResolvedValue({
+      ok: true,
+      agent: {
+        id: 'reviewer',
+        displayName: 'Reviewer',
+        model: 'openai/gpt-5.2',
+        mode: 'subagent',
+        temperature: 0.1,
+        prompt: 'You are a code reviewer.',
+      },
+    })
+
+    const { createMcpServer } = await import('../server')
+    createMcpServer()
+
+    const handler = registerPrompt.mock.calls.find(
+      ([name]: [string]) => name === 'use-agent'
+    )?.[2]
+    const result = await handler?.({ agent_id: 'reviewer', task: 'Review the auth module' })
+
+    expect(result.messages).toHaveLength(1)
+    const text = result.messages[0].content.text
+    expect(text).toContain('# Workspace Context')
+    expect(text).toContain('# Guide')
+    expect(text).toContain('# Agent: Reviewer')
+    expect(text).toContain('Model: openai/gpt-5.2')
+    expect(text).toContain('You are a code reviewer.')
+    expect(text).toContain('# Task')
+    expect(text).toContain('Review the auth module')
+  })
+
+  it('use-agent prompt returns error for unknown agent', async () => {
+    mockReadAgentsGuide.mockResolvedValue({ ok: true, content: '# Guide' })
+    mockReadAgent.mockResolvedValue({ ok: false, error: 'not_found' })
+
+    const { createMcpServer } = await import('../server')
+    createMcpServer()
+
+    const handler = registerPrompt.mock.calls.find(
+      ([name]: [string]) => name === 'use-agent'
+    )?.[2]
+    const result = await handler?.({ agent_id: 'nope', task: 'anything' })
+
+    expect(result.messages[0].content.text).toContain('Agent "nope" not found')
+  })
+
+  it('use-skill prompt composes skill instructions and task', async () => {
+    mockReadSkillForMcp.mockResolvedValue({
+      ok: true,
+      data: {
+        name: 'code-review',
+        description: 'Thorough code review skill',
+        body: 'Step 1: Read the diff\nStep 2: Check for bugs',
+      },
+    })
+
+    const { createMcpServer } = await import('../server')
+    createMcpServer()
+
+    const handler = registerPrompt.mock.calls.find(
+      ([name]: [string]) => name === 'use-skill'
+    )?.[2]
+    const result = await handler?.({ skill_name: 'code-review', task: 'Review PR #42' })
+
+    expect(result.messages).toHaveLength(1)
+    const text = result.messages[0].content.text
+    expect(text).toContain('# Skill: code-review')
+    expect(text).toContain('Thorough code review skill')
+    expect(text).toContain('Step 1: Read the diff')
+    expect(text).toContain('# Task')
+    expect(text).toContain('Review PR #42')
+  })
+
+  it('use-skill prompt returns error for unknown skill', async () => {
+    mockReadSkillForMcp.mockResolvedValue({ ok: false, error: 'not_found' })
+
+    const { createMcpServer } = await import('../server')
+    createMcpServer()
+
+    const handler = registerPrompt.mock.calls.find(
+      ([name]: [string]) => name === 'use-skill'
+    )?.[2]
+    const result = await handler?.({ skill_name: 'nope', task: 'anything' })
+
+    expect(result.messages[0].content.text).toContain('Skill "nope" not found')
   })
 })
