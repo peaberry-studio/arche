@@ -2,12 +2,29 @@
 
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { PaperPlaneTilt } from '@phosphor-icons/react'
+
 import { Button } from '@/components/ui/button'
 import { setWorkspaceStartPrompt } from '@/lib/workspace-start-prompt'
 
 type DashboardHeroProps = {
   slug: string
+}
+
+function SendIcon() {
+  return (
+    <svg
+      aria-hidden
+      className="h-4 w-4"
+      fill="none"
+      viewBox="0 0 16 16"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M2 13.5 14 8 2 2.5l1.8 4.25L9 8l-5.2 1.25L2 13.5Z"
+        fill="currentColor"
+      />
+    </svg>
+  )
 }
 
 export function DashboardHero({ slug }: DashboardHeroProps) {
@@ -66,7 +83,7 @@ export function DashboardHero({ slug }: DashboardHeroProps) {
             onClick={handleSubmit}
             aria-label="Start working"
           >
-            <PaperPlaneTilt size={16} weight="fill" />
+            <SendIcon />
           </Button>
         </div>
       </div>

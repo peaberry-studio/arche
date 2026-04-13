@@ -16,7 +16,7 @@ describe('web dev scripts', () => {
     expect(packageJson.scripts?.predev).toContain('pnpm prisma:generate:desktop')
   })
 
-  it('keeps local-dev compose generating the desktop Prisma client before webpack dev starts', () => {
+  it('keeps local-dev compose generating the desktop Prisma client before dev starts', () => {
     const composeTemplatePath = resolve(
       process.cwd(),
       '..',

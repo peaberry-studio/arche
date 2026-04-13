@@ -30,7 +30,7 @@ vi.mock('@/lib/http', () => ({
 const mockConnect = vi.fn()
 const mockCreateMcpServer = vi.fn(() => ({ connect: mockConnect }))
 vi.mock('@/lib/mcp/server', () => ({
-  createMcpServer: () => mockCreateMcpServer(),
+  createMcpServer: (...args: unknown[]) => mockCreateMcpServer(...args),
 }))
 
 const mockHandleRequest = vi.fn()
@@ -61,6 +61,7 @@ describe('POST /api/mcp', () => {
     })
     mockAuthenticatePat.mockResolvedValue({
       ok: true,
+      scopes: ['kb:read', 'agents:read', 'skills:read'],
       tokenId: 'tok-1',
       user: { id: 'u1', email: 'a@b.com', slug: 'alice', role: 'USER' },
     })
@@ -162,6 +163,10 @@ describe('POST /api/mcp', () => {
     expect(mockTransportConstructor).toHaveBeenCalledWith({
       enableJsonResponse: true,
       sessionIdGenerator: undefined,
+    })
+    expect(mockCreateMcpServer).toHaveBeenCalledWith({
+      scopes: ['kb:read', 'agents:read', 'skills:read'],
+      user: { id: 'u1', email: 'a@b.com', slug: 'alice', role: 'USER' },
     })
     expect(mockConnect).toHaveBeenCalledWith(mockTransport)
     expect(mockHandleRequest).toHaveBeenCalledWith(expect.any(Request), { parsedBody: body })

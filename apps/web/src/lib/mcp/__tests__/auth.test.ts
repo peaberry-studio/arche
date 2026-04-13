@@ -94,6 +94,7 @@ describe('authenticatePat', () => {
   it('rejects when the stored salted hash does not match', async () => {
     mockFindByLookupHash.mockResolvedValue({
       id: 'tok-1',
+      scopes: ['kb:read'],
       userId: 'u1',
       tokenHash: 'stored-hash',
       salt: 'a'.repeat(32),
@@ -111,6 +112,7 @@ describe('authenticatePat', () => {
   it('rejects when token is revoked', async () => {
     mockFindByLookupHash.mockResolvedValue({
       id: 'tok-1',
+      scopes: ['kb:read'],
       userId: 'u1',
       tokenHash: 'stored-hash',
       salt: 'a'.repeat(32),
@@ -127,6 +129,7 @@ describe('authenticatePat', () => {
   it('rejects when token is expired', async () => {
     mockFindByLookupHash.mockResolvedValue({
       id: 'tok-1',
+      scopes: ['kb:read'],
       userId: 'u1',
       tokenHash: 'stored-hash',
       salt: 'a'.repeat(32),
@@ -144,6 +147,7 @@ describe('authenticatePat', () => {
     const user = { id: 'u1', email: 'a@b.com', slug: 'alice', role: 'USER' }
     mockFindByLookupHash.mockResolvedValue({
       id: 'tok-1',
+      scopes: ['kb:read', 'agents:read'],
       userId: 'u1',
       tokenHash: 'stored-hash',
       salt: 'a'.repeat(32),
@@ -154,7 +158,7 @@ describe('authenticatePat', () => {
 
     const result = await authenticatePat(makeRequest('Bearer arche_pat_abc'))
 
-    expect(result).toMatchObject({ ok: true, user, tokenId: 'tok-1' })
+    expect(result).toMatchObject({ ok: true, user, tokenId: 'tok-1', scopes: ['kb:read', 'agents:read'] })
     expect(mockTouchLastUsed).toHaveBeenCalledWith('tok-1')
   })
 })
