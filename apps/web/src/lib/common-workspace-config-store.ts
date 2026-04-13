@@ -153,48 +153,73 @@ export async function listRecentKbFileUpdates(limit = 10): Promise<{
   ok: false
   error: 'kb_unavailable' | 'read_failed'
 }> {
+  const safeLimit = Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 10
+  if (safeLimit === 0) {
+    return { ok: true, updates: [] }
+  }
+
   const root = await resolveContentRepoRoot()
   if (!root) return { ok: false, error: 'kb_unavailable' }
 
-  const logResult = await runGitOnBareRepo(root, [
-    'log',
-    '--name-only',
-    '--date=iso-strict',
-    "--pretty=format:__COMMIT__%an|%ad"
-  ])
-
-  if (!logResult.ok) {
-    return { ok: false, error: 'read_failed' }
-  }
-
   const updates: KbRecentFileUpdate[] = []
   const seen = new Set<string>()
-  let currentAuthor = 'Unknown'
-  let currentDate = ''
+  let skip = 0
 
-  for (const line of logResult.stdout.split('\n')) {
-    if (line.startsWith('__COMMIT__')) {
-      const payload = line.slice('__COMMIT__'.length)
-      const separatorIndex = payload.indexOf('|')
-      if (separatorIndex >= 0) {
-        currentAuthor = payload.slice(0, separatorIndex) || 'Unknown'
-        currentDate = payload.slice(separatorIndex + 1) || ''
-      }
-      continue
+  while (updates.length < safeLimit) {
+    const logResult = await runGitOnBareRepo(root, [
+      'log',
+      '-n', String(safeLimit),
+      '--skip', String(skip),
+      '--name-only',
+      '--date=iso-strict',
+      "--pretty=format:__COMMIT__%an|%ad"
+    ])
+
+    if (!logResult.ok) {
+      return { ok: false, error: 'read_failed' }
     }
 
-    const filePath = line.trim()
-    if (!filePath || seen.has(filePath)) continue
+    if (!logResult.stdout.trim()) {
+      break
+    }
 
-    seen.add(filePath)
-    updates.push({
-      filePath,
-      fileName: path.basename(filePath),
-      author: currentAuthor,
-      committedAt: currentDate
-    })
+    let currentAuthor = 'Unknown'
+    let currentDate = ''
+    let commitsInPage = 0
 
-    if (updates.length >= limit) break
+    for (const line of logResult.stdout.split('\n')) {
+      if (line.startsWith('__COMMIT__')) {
+        commitsInPage += 1
+        const payload = line.slice('__COMMIT__'.length)
+        const separatorIndex = payload.indexOf('|')
+        if (separatorIndex >= 0) {
+          currentAuthor = payload.slice(0, separatorIndex) || 'Unknown'
+          currentDate = payload.slice(separatorIndex + 1) || ''
+        }
+        continue
+      }
+
+      const filePath = line.trim()
+      if (!filePath || seen.has(filePath)) continue
+
+      seen.add(filePath)
+      updates.push({
+        filePath,
+        fileName: path.basename(filePath),
+        author: currentAuthor,
+        committedAt: currentDate
+      })
+
+      if (updates.length >= safeLimit) {
+        break
+      }
+    }
+
+    if (updates.length >= safeLimit || commitsInPage < safeLimit) {
+      break
+    }
+
+    skip += safeLimit
   }
 
   return { ok: true, updates }

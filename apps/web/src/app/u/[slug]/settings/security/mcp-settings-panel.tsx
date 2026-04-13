@@ -11,9 +11,22 @@ import {
   buildMcpClientSetup,
   type McpClientPreset,
 } from './mcp-client-config'
+import {
+  DEFAULT_MCP_PAT_SCOPES,
+  MCP_READ_SCOPE_OPTIONS,
+  type McpReadScope,
+} from '@/lib/mcp/scopes'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
@@ -42,13 +55,35 @@ type LatestToken = {
   expiresAt: string
 }
 
-const QUICK_SETUP_PRESETS: McpClientPreset[] = [
-  'claude-code',
-  'codex',
-  'opencode',
-  'cursor',
-  'generic',
-]
+const QUICK_SETUP_PRESETS: McpClientPreset[] = ['claude-code', 'codex', 'config']
+const LONG_MONTH_NAMES = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+] as const
+const SHORT_MONTH_NAMES = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+] as const
 
 export function McpSettingsPanel({
   mcpEnabled,
@@ -58,15 +93,18 @@ export function McpSettingsPanel({
   personalAccessTokens,
 }: McpSettingsPanelProps) {
   const [enabled, setEnabled] = useState(mcpEnabled)
-  const [tokens, setTokens] = useState(personalAccessTokens)
+  const [tokens, setTokens] = useState(() => personalAccessTokens.filter((token) => !token.revokedAt))
   const [tokenName, setTokenName] = useState('')
   const [expiresInDays, setExpiresInDays] = useState('30')
+  const [selectedScopes, setSelectedScopes] = useState<McpReadScope[]>([...DEFAULT_MCP_PAT_SCOPES])
   const [selectedPreset, setSelectedPreset] = useState<McpClientPreset>('claude-code')
   const [latestToken, setLatestToken] = useState<LatestToken | null>(null)
+  const [pendingRevokeToken, setPendingRevokeToken] = useState<PersonalAccessTokenItem | null>(null)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [busyKey, setBusyKey] = useState<string | null>(null)
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
+  const createDisabled = !enabled || Boolean(mcpConfigError) || busyKey === 'create' || selectedScopes.length === 0
 
   const setup = useMemo(() => {
     if (!latestToken) {
@@ -101,8 +139,9 @@ export function McpSettingsPanel({
     setNotice('')
 
     const result = await createPersonalAccessToken({
-      name: tokenName,
       expiresInDays: Number(expiresInDays),
+      name: tokenName,
+      scopes: selectedScopes,
     })
 
     setBusyKey(null)
@@ -118,15 +157,25 @@ export function McpSettingsPanel({
       expiresAt: result.tokenRecord.expiresAt,
     })
     setTokenName('')
+    setSelectedScopes([...DEFAULT_MCP_PAT_SCOPES])
     setNotice('Token created. Copy it now; it will not be shown again.')
   }
 
-  async function handleRevokeToken(tokenId: string) {
-    setBusyKey(`revoke:${tokenId}`)
+  function handleRequestRevoke(token: PersonalAccessTokenItem) {
+    setPendingRevokeToken(token)
+  }
+
+  async function handleConfirmRevoke() {
+    const token = pendingRevokeToken
+    if (!token) {
+      return
+    }
+
+    setBusyKey(`revoke:${token.id}`)
     setError('')
     setNotice('')
 
-    const result = await revokePersonalAccessToken(tokenId)
+    const result = await revokePersonalAccessToken(token.id)
 
     setBusyKey(null)
     if (!result.ok) {
@@ -134,23 +183,31 @@ export function McpSettingsPanel({
       return
     }
 
-    const revokedAt = new Date().toISOString()
-    setTokens((current) =>
-      current.map((token) =>
-        token.id === tokenId ? { ...token, revokedAt } : token
-      )
-    )
+    setTokens((current) => current.filter((entry) => entry.id !== token.id))
+    setPendingRevokeToken(null)
     setNotice('Token revoked.')
   }
 
   async function copyText(text: string, key: string) {
-    try {
-      await navigator.clipboard.writeText(text)
-      setCopiedKey(key)
-      setTimeout(() => setCopiedKey((current) => (current === key ? null : current)), 1500)
-    } catch {
-      setError('Clipboard access is not available in this browser context.')
+    const copied = await writeTextToClipboard(text)
+    if (!copied) {
+      setError('Copy failed. Select the text manually if your browser blocks clipboard access.')
+      return
     }
+
+    setError('')
+    setCopiedKey(key)
+    setTimeout(() => setCopiedKey((current) => (current === key ? null : current)), 1500)
+  }
+
+  function handleScopeToggle(scope: McpReadScope, checked: boolean) {
+    setSelectedScopes((current) => {
+      const next = checked
+        ? Array.from(new Set([...current, scope]))
+        : current.filter((entry) => entry !== scope)
+
+      return next.sort((left, right) => left.localeCompare(right))
+    })
   }
 
   return (
@@ -159,7 +216,7 @@ export function McpSettingsPanel({
         <div>
           <h2 className="text-lg font-medium">MCP access</h2>
           <p className="text-sm text-muted-foreground">
-            Connect Claude Code, Codex, Cursor, OpenCode, or any other MCP client to your published knowledge base.
+            Connect Claude Code, Codex, Cursor, OpenCode, or any other MCP client to your knowledge base, agents, and skills.
           </p>
         </div>
         <Badge variant={enabled ? 'success' : 'secondary'}>
@@ -206,7 +263,7 @@ export function McpSettingsPanel({
           <CardHeader>
             <CardTitle>Create token</CardTitle>
             <CardDescription>
-              Personal access tokens are shown once and grant read-only MCP access to your knowledge base.
+              Personal access tokens are shown once and grant read-only MCP access to your knowledge base, agents, and skills.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -217,6 +274,7 @@ export function McpSettingsPanel({
                 value={tokenName}
                 onChange={(event) => setTokenName(event.target.value)}
                 placeholder="MacBook Pro - Codex"
+                disabled={!enabled || Boolean(mcpConfigError)}
               />
             </div>
 
@@ -227,6 +285,7 @@ export function McpSettingsPanel({
                 className="flex h-10 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                 value={expiresInDays}
                 onChange={(event) => setExpiresInDays(event.target.value)}
+                disabled={!enabled || Boolean(mcpConfigError)}
               >
                 <option value="7">7 days</option>
                 <option value="30">30 days</option>
@@ -235,7 +294,43 @@ export function McpSettingsPanel({
               </select>
             </div>
 
-            <Button onClick={handleCreateToken} disabled={busyKey === 'create'}>
+            <div className="space-y-3">
+              <Label>MCP permissions</Label>
+              <div className="space-y-3 rounded-lg border border-border/60 bg-background/60 p-3">
+                {MCP_READ_SCOPE_OPTIONS.map((scope) => {
+                  const inputId = `mcp-scope-${scope.value.replace(/[^a-z0-9]+/g, '-')}`
+
+                  return (
+                    <label
+                      key={scope.value}
+                      htmlFor={inputId}
+                      className="flex cursor-pointer items-start gap-3 rounded-md"
+                    >
+                      <input
+                        id={inputId}
+                        type="checkbox"
+                        className="mt-1 h-4 w-4 rounded border border-border"
+                        checked={selectedScopes.includes(scope.value)}
+                        onChange={(event) => handleScopeToggle(scope.value, event.target.checked)}
+                        disabled={!enabled || Boolean(mcpConfigError)}
+                      />
+                      <span className="space-y-1">
+                        <span className="block text-sm font-medium text-foreground">{scope.label}</span>
+                        <span className="block text-sm text-muted-foreground">{scope.description}</span>
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+
+            {!enabled && !mcpConfigError ? (
+              <p className="text-sm text-muted-foreground">
+                Enable MCP endpoint access before creating tokens.
+              </p>
+            ) : null}
+
+            <Button onClick={handleCreateToken} disabled={createDisabled}>
               {busyKey === 'create' ? 'Creating...' : 'Create token'}
             </Button>
           </CardContent>
@@ -257,7 +352,7 @@ export function McpSettingsPanel({
                   key={token.id}
                   token={token}
                   busy={busyKey === `revoke:${token.id}`}
-                  onRevoke={() => handleRevokeToken(token.id)}
+                  onRevoke={() => handleRequestRevoke(token)}
                 />
               ))
             )}
@@ -265,32 +360,56 @@ export function McpSettingsPanel({
         </Card>
       </div>
 
+      <Dialog
+        open={Boolean(pendingRevokeToken)}
+        onOpenChange={(open) => {
+          if (!open && !busyKey?.startsWith('revoke:')) {
+            setPendingRevokeToken(null)
+          }
+        }}
+      >
+        <DialogContent showCloseButton={false} className="max-w-md p-0">
+          <div className="space-y-6 p-6">
+            <DialogHeader className="space-y-2">
+              <DialogTitle>Revoke token?</DialogTitle>
+              <DialogDescription>
+                {pendingRevokeToken
+                  ? `Revoke "${pendingRevokeToken.name}"? It will stop working immediately and cannot be recovered.`
+                  : 'Revoke this token? It will stop working immediately and cannot be recovered.'}
+              </DialogDescription>
+            </DialogHeader>
+
+            <DialogFooter className="gap-2 sm:space-x-0">
+              <Button
+                variant="outline"
+                onClick={() => setPendingRevokeToken(null)}
+                disabled={Boolean(busyKey?.startsWith('revoke:'))}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleConfirmRevoke}
+                disabled={Boolean(busyKey?.startsWith('revoke:'))}
+              >
+                {busyKey?.startsWith('revoke:') ? 'Revoking...' : 'Revoke token'}
+              </Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {latestToken ? (
         <Card>
           <CardHeader>
-            <CardTitle>Quick setup</CardTitle>
+            <CardTitle>Quick connect</CardTitle>
             <CardDescription>
-              This token for <span className="font-medium text-foreground">{latestToken.name}</span> expires on{' '}
-              {formatDate(latestToken.expiresAt)}. Copy it now; Arche will not show it again.
+              Run a single command to connect <span className="font-medium text-foreground">{latestToken.name}</span>.
+              This token expires on {formatDate(latestToken.expiresAt)} and will not be shown again.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label>Raw token</Label>
-              <pre className="overflow-x-auto rounded-lg border border-border/60 bg-muted/40 p-3 text-xs text-foreground">
-                <code>{latestToken.token}</code>
-              </pre>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => copyText(latestToken.token, 'token')}
-              >
-                {copiedKey === 'token' ? 'Copied' : 'Copy token'}
-              </Button>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Client</Label>
+            <div className="space-y-3">
               <div className="flex flex-wrap gap-2">
                 {QUICK_SETUP_PRESETS.map((preset) => {
                   const option = buildMcpClientSetup(preset, mcpBaseUrl, latestToken.token)
@@ -309,20 +428,27 @@ export function McpSettingsPanel({
             </div>
 
             {setup ? (
-              <div className="space-y-2">
-                <p className="text-sm text-muted-foreground">
-                  Suggested file: <span className="font-medium text-foreground">{setup.filePath}</span>
-                </p>
-                <pre className="overflow-x-auto rounded-lg border border-border/60 bg-muted/40 p-3 text-xs text-foreground">
-                  <code>{setup.content}</code>
+              <div className="overflow-hidden rounded-xl border border-border/60 bg-background/60">
+                <div className="flex flex-col gap-3 border-b border-border/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-foreground">{setup.label}</p>
+                    <p className="text-sm text-muted-foreground">{setup.description}</p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => copyText(setup.value, `setup:${setup.preset}`)}
+                  >
+                    {copiedKey === `setup:${setup.preset}`
+                      ? 'Copied'
+                      : setup.mode === 'command'
+                        ? 'Copy command'
+                        : 'Copy config'}
+                  </Button>
+                </div>
+                <pre className="overflow-x-auto px-4 py-4 text-xs leading-6 text-foreground">
+                  <code>{setup.value}</code>
                 </pre>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => copyText(setup.content, 'setup')}
-                >
-                  {copiedKey === 'setup' ? 'Copied' : 'Copy snippet'}
-                </Button>
               </div>
             ) : null}
           </CardContent>
@@ -388,19 +514,61 @@ function getTokenStatus(token: PersonalAccessTokenItem): {
 }
 
 function formatDate(value: string): string {
-  return new Date(value).toLocaleDateString('en-US', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  })
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+
+  return `${LONG_MONTH_NAMES[parsed.getUTCMonth()]} ${parsed.getUTCDate()}, ${parsed.getUTCFullYear()}`
 }
 
 function formatDateTime(value: string): string {
-  return new Date(value).toLocaleString('en-US', {
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  })
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+
+  const hour = parsed.getUTCHours()
+  const minute = String(parsed.getUTCMinutes()).padStart(2, '0')
+  const period = hour >= 12 ? 'PM' : 'AM'
+  const hour12 = hour % 12 || 12
+
+  return `${SHORT_MONTH_NAMES[parsed.getUTCMonth()]} ${parsed.getUTCDate()}, ${parsed.getUTCFullYear()}, ${hour12}:${minute} ${period} UTC`
+}
+
+async function writeTextToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    // Fall back to manual copy below.
+  }
+
+  return copyTextWithSelection(text)
+}
+
+function copyTextWithSelection(text: string): boolean {
+  if (typeof document === 'undefined' || typeof document.execCommand !== 'function') {
+    return false
+  }
+
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.top = '0'
+  textarea.style.left = '0'
+  textarea.style.opacity = '0'
+  textarea.style.pointerEvents = 'none'
+
+  document.body.appendChild(textarea)
+  textarea.focus()
+  textarea.select()
+  textarea.setSelectionRange(0, textarea.value.length)
+
+  try {
+    return document.execCommand('copy')
+  } catch {
+    return false
+  } finally {
+    textarea.remove()
+  }
 }

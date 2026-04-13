@@ -4,7 +4,7 @@ import type { RuntimeUser } from '@/lib/runtime/types'
 import { patService } from '@/lib/services'
 
 export type McpAuthResult =
-  | { ok: true; user: RuntimeUser; tokenId: string }
+  | { ok: true; user: RuntimeUser; tokenId: string; scopes: string[] }
   | { ok: false; status: 401 }
 
 export async function authenticatePat(request: Request): Promise<McpAuthResult> {
@@ -35,6 +35,7 @@ export async function authenticatePat(request: Request): Promise<McpAuthResult> 
 
   return {
     ok: true,
+    scopes: record.scopes,
     user: record.user,
     tokenId: record.id,
   }

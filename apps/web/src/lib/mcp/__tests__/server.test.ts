@@ -10,11 +10,26 @@ vi.mock('@modelcontextprotocol/sdk/server/mcp.js', () => ({
 }))
 
 const mockListKbArticles = vi.fn()
+const mockListAgents = vi.fn()
+const mockListSkillsForMcp = vi.fn()
+const mockReadAgent = vi.fn()
+const mockReadAgentsGuide = vi.fn()
 const mockReadKbArticle = vi.fn()
+const mockReadSkillForMcp = vi.fn()
+const mockReadSkillResource = vi.fn()
 const mockSearchKb = vi.fn()
+
+vi.mock('@/lib/mcp/tools/agents', () => ({
+  listAgents: (...args: unknown[]) => mockListAgents(...args),
+  readAgent: (...args: unknown[]) => mockReadAgent(...args),
+}))
 
 vi.mock('@/lib/mcp/tools/list-kb-articles', () => ({
   listKbArticles: (...args: unknown[]) => mockListKbArticles(...args),
+}))
+
+vi.mock('@/lib/mcp/tools/read-agents-guide', () => ({
+  readAgentsGuide: (...args: unknown[]) => mockReadAgentsGuide(...args),
 }))
 
 vi.mock('@/lib/mcp/tools/read-kb-article', () => ({
@@ -25,24 +40,60 @@ vi.mock('@/lib/mcp/tools/search-kb', () => ({
   searchKb: (...args: unknown[]) => mockSearchKb(...args),
 }))
 
+vi.mock('@/lib/mcp/tools/skills', () => ({
+  listSkillsForMcp: (...args: unknown[]) => mockListSkillsForMcp(...args),
+  readSkillForMcp: (...args: unknown[]) => mockReadSkillForMcp(...args),
+  readSkillResource: (...args: unknown[]) => mockReadSkillResource(...args),
+}))
+
 describe('createMcpServer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('registers the three KB tools', async () => {
+  it('registers the full developer-context tool surface for default scopes', async () => {
     const { createMcpServer } = await import('../server')
 
     createMcpServer()
 
-    expect(registerTool).toHaveBeenCalledTimes(3)
+    expect(registerTool).toHaveBeenCalledTimes(9)
     expect(registerTool).toHaveBeenCalledWith(
       'list_kb_articles',
       expect.objectContaining({ description: expect.any(String) }),
       expect.any(Function)
     )
     expect(registerTool).toHaveBeenCalledWith(
+      'read_agents_guide',
+      expect.objectContaining({ description: expect.any(String) }),
+      expect.any(Function)
+    )
+    expect(registerTool).toHaveBeenCalledWith(
+      'list_agents',
+      expect.objectContaining({ description: expect.any(String) }),
+      expect.any(Function)
+    )
+    expect(registerTool).toHaveBeenCalledWith(
+      'read_agent',
+      expect.objectContaining({ description: expect.any(String) }),
+      expect.any(Function)
+    )
+    expect(registerTool).toHaveBeenCalledWith(
       'read_kb_article',
+      expect.objectContaining({ description: expect.any(String) }),
+      expect.any(Function)
+    )
+    expect(registerTool).toHaveBeenCalledWith(
+      'list_skills',
+      expect.objectContaining({ description: expect.any(String) }),
+      expect.any(Function)
+    )
+    expect(registerTool).toHaveBeenCalledWith(
+      'read_skill',
+      expect.objectContaining({ description: expect.any(String) }),
+      expect.any(Function)
+    )
+    expect(registerTool).toHaveBeenCalledWith(
+      'read_skill_resource',
       expect.objectContaining({ description: expect.any(String) }),
       expect.any(Function)
     )
@@ -53,12 +104,49 @@ describe('createMcpServer', () => {
     )
   })
 
-  it('wires tool handlers to the KB tool modules', async () => {
+  it('filters tool registration by PAT scopes', async () => {
+    const { createMcpServer } = await import('../server')
+
+    createMcpServer({ scopes: ['agents:read'] })
+
+    expect(registerTool).toHaveBeenCalledTimes(3)
+    expect(registerTool).toHaveBeenNthCalledWith(
+      1,
+      'read_agents_guide',
+      expect.objectContaining({ description: expect.any(String) }),
+      expect.any(Function)
+    )
+    expect(registerTool).toHaveBeenNthCalledWith(
+      2,
+      'list_agents',
+      expect.objectContaining({ description: expect.any(String) }),
+      expect.any(Function)
+    )
+    expect(registerTool).toHaveBeenNthCalledWith(
+      3,
+      'read_agent',
+      expect.objectContaining({ description: expect.any(String) }),
+      expect.any(Function)
+    )
+  })
+
+  it('wires tool handlers to the MCP tool modules', async () => {
     mockListKbArticles.mockResolvedValue({ ok: true, articles: ['README.md'] })
+    mockListAgents.mockResolvedValue({ ok: true, agents: [{ id: 'assistant' }] })
+    mockListSkillsForMcp.mockResolvedValue({ ok: true, data: [{ name: 'lint' }] })
+    mockReadAgent.mockResolvedValue({ ok: true, agent: { id: 'assistant' } })
+    mockReadAgentsGuide.mockResolvedValue({ ok: true, content: '# Guide' })
     mockReadKbArticle.mockResolvedValue({
       ok: true,
       kind: 'text',
       content: '# Hello',
+      truncated: false,
+    })
+    mockReadSkillForMcp.mockResolvedValue({ ok: true, data: { name: 'lint' } })
+    mockReadSkillResource.mockResolvedValue({
+      ok: true,
+      kind: 'text',
+      content: 'echo hello',
       truncated: false,
     })
     mockSearchKb.mockResolvedValue({
@@ -67,18 +155,40 @@ describe('createMcpServer', () => {
     })
 
     const { createMcpServer } = await import('../server')
-    createMcpServer()
+    createMcpServer({
+      user: { email: 'alice@example.com', id: 'u1', role: 'USER', slug: 'alice' },
+    })
 
+    const guideHandler = registerTool.mock.calls.find(([name]) => name === 'read_agents_guide')?.[2]
+    const listAgentsHandler = registerTool.mock.calls.find(([name]) => name === 'list_agents')?.[2]
     const listHandler = registerTool.mock.calls.find(([name]) => name === 'list_kb_articles')?.[2]
+    const listSkillsHandler = registerTool.mock.calls.find(([name]) => name === 'list_skills')?.[2]
+    const readAgentHandler = registerTool.mock.calls.find(([name]) => name === 'read_agent')?.[2]
     const readHandler = registerTool.mock.calls.find(([name]) => name === 'read_kb_article')?.[2]
+    const readSkillHandler = registerTool.mock.calls.find(([name]) => name === 'read_skill')?.[2]
+    const readSkillResourceHandler = registerTool.mock.calls.find(([name]) => name === 'read_skill_resource')?.[2]
     const searchHandler = registerTool.mock.calls.find(([name]) => name === 'search_kb')?.[2]
 
+    await guideHandler?.()
+    await listAgentsHandler?.()
     await listHandler?.({ path: 'docs' })
+    await listSkillsHandler?.()
+    await readAgentHandler?.({ id: 'assistant' })
     await readHandler?.({ path: 'README.md' })
+    await readSkillHandler?.({ name: 'lint' })
+    await readSkillResourceHandler?.({ name: 'lint', path: 'scripts/check.sh' })
     await searchHandler?.({ query: 'hello' })
 
+    expect(mockReadAgentsGuide).toHaveBeenCalledWith({
+      user: { email: 'alice@example.com', id: 'u1', role: 'USER', slug: 'alice' },
+    })
+    expect(mockListAgents).toHaveBeenCalledWith()
     expect(mockListKbArticles).toHaveBeenCalledWith({ path: 'docs' })
+    expect(mockListSkillsForMcp).toHaveBeenCalledWith()
+    expect(mockReadAgent).toHaveBeenCalledWith('assistant')
     expect(mockReadKbArticle).toHaveBeenCalledWith({ path: 'README.md' })
+    expect(mockReadSkillForMcp).toHaveBeenCalledWith('lint')
+    expect(mockReadSkillResource).toHaveBeenCalledWith({ name: 'lint', path: 'scripts/check.sh', maxLines: undefined })
     expect(mockSearchKb).toHaveBeenCalledWith({ query: 'hello' })
   })
 })

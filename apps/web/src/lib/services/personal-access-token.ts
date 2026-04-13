@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 
 export type PatWithUser = {
   id: string
+  scopes: string[]
   userId: string
   tokenHash: string
   salt: string
@@ -30,6 +31,7 @@ export function findByLookupHash(lookupHash: string): Promise<PatWithUser | null
     where: { lookupHash },
     select: {
       id: true,
+      scopes: true,
       userId: true,
       tokenHash: true,
       salt: true,
