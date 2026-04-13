@@ -329,10 +329,10 @@ function createWindow(): void {
   const isLauncher = currentVault === null
 
   mainWindow = new BrowserWindow({
-    width: isLauncher ? 720 : 1280,
-    height: isLauncher ? 560 : 800,
-    minWidth: isLauncher ? 600 : 800,
-    minHeight: isLauncher ? 480 : 600,
+    width: isLauncher ? 680 : 1280,
+    height: isLauncher ? 680 : 800,
+    minWidth: isLauncher ? 560 : 800,
+    minHeight: isLauncher ? 560 : 600,
     title: getCurrentVaultTitle(),
     backgroundColor: '#f7f4ef',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : undefined,

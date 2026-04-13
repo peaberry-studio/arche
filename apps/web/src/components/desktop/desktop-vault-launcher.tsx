@@ -293,9 +293,9 @@ export function DesktopVaultLauncher() {
   }
 
   return (
-    <main className="scrollbar-custom relative flex h-screen flex-col overflow-y-auto px-10 pb-8 pt-14">
-      <div className="desktop-titlebar-drag absolute inset-x-0 top-0 z-50 h-8" />
-      <div className="flex flex-1 flex-col space-y-8">
+    <main className="scrollbar-custom relative flex h-screen flex-col overflow-y-auto pb-8">
+      <div className="desktop-titlebar-drag sticky inset-x-0 top-0 z-50 h-10 shrink-0" />
+      <div className="flex flex-1 flex-col space-y-8 px-10 pt-2">
         <div className="space-y-6">
           <div className="space-y-3">
             <p className="text-xs uppercase tracking-[0.18em] text-primary/80">Welcome to Arche</p>

@@ -356,7 +356,10 @@ export function KickstartWizard({
   }, [initialTemplateId, loadCatalog])
 
   useEffect(() => {
-    wizardTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    const scroller = wizardTopRef.current?.closest('main')
+    if (scroller) {
+      scroller.scrollTo({ top: 0, behavior: 'smooth' })
+    }
   }, [step])
 
   const selectedTemplate = useMemo(() => {
@@ -607,7 +610,7 @@ export function KickstartWizard({
         </div>
       )}
 
-      <section className={cn(!embedded && 'rounded-3xl p-6 sm:p-8 glass-panel')}>
+      <section className={cn(embedded ? 'py-6' : 'rounded-3xl p-6 sm:p-8 glass-panel')}>
         <div className="mb-8 flex items-start">
           {STEPS.map((label, index) => {
             const itemStep = index + 1
