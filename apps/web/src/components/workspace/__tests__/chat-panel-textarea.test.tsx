@@ -82,6 +82,7 @@ function createClipboardImageData(file: File) {
 
 afterEach(() => {
   cleanup();
+  delete (window as Window & { arche?: unknown }).arche;
   vi.unstubAllGlobals();
 });
 
@@ -293,6 +294,36 @@ describe("ChatPanel textarea", () => {
         contextPaths: [],
       }
     );
+  });
+
+  it("shows a desktop-only reveal attachments action in the manage dialog", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ attachments: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const revealAttachmentsDirectory = vi.fn().mockResolvedValue({ ok: true });
+    (window as Window & { arche?: unknown }).arche = {
+      isDesktop: true,
+      platform: "darwin",
+      desktop: {
+        revealAttachmentsDirectory,
+      },
+    };
+
+    renderChatPanel();
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Manage attachments" }));
+    await screen.findByText("Upload file");
+    fireEvent.click(screen.getByText("Manage attachments"));
+
+    const revealButton = await screen.findByRole("button", { name: "Reveal in Finder" });
+    fireEvent.click(revealButton);
+
+    await waitFor(() => {
+      expect(revealAttachmentsDirectory).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("does not trigger uploads when pasted clipboard data has no images", async () => {

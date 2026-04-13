@@ -52,6 +52,27 @@ services:
       POSTGRES_DB: arche
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
+    command:
+      - sh
+      - -lc
+      - |
+        set -eu
+        export PATH="/usr/lib/postgresql/$$PG_MAJOR/bin:$$PATH"
+        pid=''
+        cleanup() {
+          if [ -n "$$pid" ]; then
+            kill -TERM "$$pid" 2>/dev/null || true
+            wait "$$pid" || true
+          fi
+        }
+        trap cleanup INT TERM HUP
+        docker-entrypoint.sh postgres &
+        pid="$$!"
+        until gosu postgres pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" >/dev/null 2>&1; do
+          sleep 1
+        done
+        gosu postgres psql -v ON_ERROR_STOP=1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -c "ALTER USER \"$$POSTGRES_USER\" PASSWORD '$$POSTGRES_PASSWORD';"
+        wait "$$pid"
     ports:
       - 5432:5432
     volumes:

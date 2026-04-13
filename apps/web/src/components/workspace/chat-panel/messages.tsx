@@ -44,6 +44,7 @@ import type { ChatMessage } from "@/types/workspace";
 
 type ToolPart = Extract<MessagePart, { type: "tool" }>;
 type FilePart = Extract<MessagePart, { type: "file" }>;
+type TodoItem = { id: string; title: string; status: "pending" | "in_progress" | "completed" };
 
 type ChatPanelMessagesProps = {
   chatContentStyle: CSSProperties;
@@ -56,6 +57,7 @@ type ChatPanelMessagesProps = {
   onSelectSessionTab?: (id: string) => void;
   scrollContainerRef: RefObject<HTMLDivElement | null>;
   sessionTabs: SessionTabInfo[];
+  workspaceRoot?: string;
 };
 
 type ToolDisplay = {
@@ -134,6 +136,22 @@ const getNumber = (value: unknown) => (typeof value === "number" && Number.isFin
 const getStringArray = (value: unknown) =>
   Array.isArray(value) ? value.map((item) => String(item)) : undefined;
 
+function formatToolName(tool: string): string {
+  const formatted = tool.replace(/[_-]+/g, " ").trim();
+  if (!formatted) return tool;
+  return formatted.charAt(0).toUpperCase() + formatted.slice(1);
+}
+
+function relativizePath(absolutePath: string | undefined, workspaceRoot: string | undefined): string | undefined {
+  if (!absolutePath || !workspaceRoot) return absolutePath;
+  const prefix = workspaceRoot.endsWith("/") ? workspaceRoot : `${workspaceRoot}/`;
+  if (absolutePath.startsWith(prefix)) {
+    return absolutePath.slice(prefix.length) || ".";
+  }
+  if (absolutePath === workspaceRoot) return ".";
+  return absolutePath;
+}
+
 const getFileName = (path?: string) => (path ? path.split("/").pop() ?? path : undefined);
 const getDirectory = (path?: string) => {
   if (!path || !path.includes("/")) return undefined;
@@ -208,14 +226,15 @@ function getChatErrorCopy(detail?: string): { title: string; description?: strin
 function getToolLabel(tool: string, connectorNamesById?: Record<string, string>) {
   const toolDisplay = getWorkspaceToolDisplay(tool, connectorNamesById);
   if (toolDisplay.isConnectorTool) return toolDisplay.groupLabel;
-  return TOOL_LABELS[tool] ?? tool;
+  return TOOL_LABELS[tool] ?? formatToolName(tool);
 }
 
 function getToolDisplay(
   tool: string,
   input?: Record<string, unknown>,
   fallbackTitle?: string,
-  connectorNamesById?: Record<string, string>
+  connectorNamesById?: Record<string, string>,
+  workspaceRoot?: string,
 ): ToolDisplay {
   const toolDisplay = getWorkspaceToolDisplay(tool, connectorNamesById);
   if (toolDisplay.isConnectorTool) {
@@ -227,8 +246,9 @@ function getToolDisplay(
 
   const rawPath = typeof input?.path === "string" ? input.path : undefined;
   const normalizedPath = rawPath === "" ? "/" : rawPath;
-  const filePath = getString(input?.filePath) ?? getString(input?.filename);
-  const searchPath = getString(normalizedPath);
+  const rawFilePath = getString(input?.filePath) ?? getString(input?.filename);
+  const filePath = relativizePath(rawFilePath, workspaceRoot);
+  const searchPath = relativizePath(getString(normalizedPath), workspaceRoot);
   const pattern = getString(input?.pattern);
   const include = getString(input?.include);
   const url = getString(input?.url);
@@ -295,7 +315,7 @@ function getToolDisplay(
     }
     case "apply_patch": {
       const count = files?.length ?? 0;
-      const singlePath = count === 1 ? files?.[0] : undefined;
+      const singlePath = count === 1 ? relativizePath(files?.[0], workspaceRoot) : undefined;
       return {
         summary: count > 0 ? `${count} file${count === 1 ? "" : "s"}` : fallbackTitle,
         label: singlePath ? getFileName(singlePath) ?? singlePath : fallbackTitle,
@@ -507,6 +527,100 @@ function ReasoningBlock({ text, isPending }: { text: string; isPending: boolean 
   );
 }
 
+function parseTodoItems(parts: ToolPart[]): TodoItem[] {
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const todos = parts[i].state.input?.todos;
+    if (Array.isArray(todos)) {
+      return todos
+        .flatMap((item, index) => {
+          if (typeof item !== "object" || item === null) return [];
+
+          const record = item as Record<string, unknown>;
+          const title = getString(record.title) ?? getString(record.content);
+          if (!title) return [];
+
+          const rawStatus = getString(record.status);
+
+          return [{
+            id: getString(record.id) ?? `todo-${index}-${title}`,
+            title,
+            status: (["pending", "in_progress", "completed"].includes(rawStatus ?? "")
+              ? rawStatus
+              : "pending") as TodoItem["status"],
+          }];
+        });
+    }
+  }
+  return [];
+}
+
+function TodoCard({ parts }: { parts: ToolPart[] }) {
+  const isRunning = parts.some(
+    (p) => p.state.status === "running" || p.state.status === "pending"
+  );
+  const todos = parseTodoItems(parts);
+
+  if (todos.length === 0) {
+    return (
+      <div className="my-2 rounded-lg border border-border/40 bg-muted/20 px-3 py-2.5">
+        <div className="flex items-center gap-2 text-xs">
+          {isRunning ? (
+            <SpinnerGap size={12} className="animate-spin text-primary" />
+          ) : (
+            <CheckCircle size={12} weight="fill" className="text-primary" />
+          )}
+          <span className="font-medium">Planning</span>
+        </div>
+      </div>
+    );
+  }
+
+  const completedCount = todos.filter((t) => t.status === "completed").length;
+  const inProgressCount = todos.filter((t) => t.status === "in_progress").length;
+
+  return (
+    <div className="my-2 rounded-lg border border-border/40 bg-muted/20">
+      <div className="flex items-center gap-2 px-3 py-2 text-xs">
+        {isRunning ? (
+          <SpinnerGap size={12} className="animate-spin text-primary" />
+        ) : (
+          <CheckCircle size={12} weight="fill" className="text-primary" />
+        )}
+        <span className="font-medium">Planning</span>
+        <span className="text-muted-foreground">
+          {completedCount}/{todos.length} done
+          {inProgressCount > 0 ? ` · ${inProgressCount} in progress` : ""}
+        </span>
+      </div>
+      <div className="border-t border-border/50 px-3 py-2">
+        <div className="space-y-1">
+          {todos.map((todo) => (
+            <div key={todo.id} className="flex items-start gap-2 text-xs">
+              {todo.status === "completed" ? (
+                <CheckCircle size={12} weight="fill" className="mt-0.5 text-primary" />
+              ) : todo.status === "in_progress" ? (
+                <SpinnerGap size={12} className="mt-0.5 animate-spin text-primary" />
+              ) : (
+                <Circle size={12} className="mt-0.5 text-muted-foreground/60" />
+              )}
+              <span
+                className={cn(
+                  "min-w-0 flex-1",
+                  todo.status === "completed"
+                    ? "text-muted-foreground line-through"
+                    : "text-foreground/80"
+                )}
+              >
+                {todo.title}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DelegationCard({
   parts,
   sessionTabs,
@@ -687,6 +801,7 @@ function ToolGroup({
   connectorNamesById,
   sessionTabs,
   onSelectSessionTab,
+  workspaceRoot,
 }: {
   tool: string;
   parts: ToolPart[];
@@ -694,6 +809,7 @@ function ToolGroup({
   connectorNamesById?: Record<string, string>;
   sessionTabs: SessionTabInfo[];
   onSelectSessionTab?: (id: string) => void;
+  workspaceRoot?: string;
 }) {
   const runningCount = parts.filter(
     (part) => part.state.status === "running" || part.state.status === "pending"
@@ -739,6 +855,10 @@ function ToolGroup({
     }
   }
 
+  if (tool === "todowrite") {
+    return <TodoCard parts={parts} />;
+  }
+
   const getStateTitle = (state: ToolPart["state"] | undefined): string | undefined => {
     if (!state) return undefined;
     return "title" in state && typeof state.title === "string" ? state.title : undefined;
@@ -754,7 +874,8 @@ function ToolGroup({
     tool,
     lastPart?.state.input,
     getStateTitle(lastPart?.state) || lastPart?.name || toolLabel,
-    connectorNamesById
+    connectorNamesById,
+    workspaceRoot,
   );
   const summary =
     totalCount > 1
@@ -824,7 +945,7 @@ function ToolGroup({
         </div>
       </button>
 
-      {isOpen ? (
+      {isOpen && canExpand ? (
         <div className="border-t border-border/50 px-3 py-2">
           <div className="space-y-1">
             {parts.map((part) => {
@@ -835,7 +956,8 @@ function ToolGroup({
                 tool,
                 part.state.input,
                 getStateTitle(part.state) || part.name,
-                connectorNamesById
+                connectorNamesById,
+                workspaceRoot,
               );
               const title = detail.label || getStateTitle(part.state) || part.name;
 
@@ -980,6 +1102,7 @@ function MessagePartRenderer({
   onSelectSessionTab,
   part,
   sessionTabs,
+  workspaceRoot,
 }: {
   connectorNamesById: Record<string, string>;
   isPending: boolean;
@@ -987,6 +1110,7 @@ function MessagePartRenderer({
   onSelectSessionTab?: (id: string) => void;
   part: MessagePart;
   sessionTabs: SessionTabInfo[];
+  workspaceRoot?: string;
 }) {
   switch (part.type) {
     case "text":
@@ -1010,6 +1134,7 @@ function MessagePartRenderer({
           connectorNamesById={connectorNamesById}
           sessionTabs={sessionTabs}
           onSelectSessionTab={onSelectSessionTab}
+          workspaceRoot={workspaceRoot}
         />
       );
 
@@ -1114,6 +1239,7 @@ export function ChatPanelMessages({
   onSelectSessionTab,
   scrollContainerRef,
   sessionTabs,
+  workspaceRoot,
 }: ChatPanelMessagesProps) {
   const showsCenteredState = isStartingNewSession || messages.length === 0;
 
@@ -1180,6 +1306,7 @@ export function ChatPanelMessages({
                                     connectorNamesById={connectorNamesById}
                                     sessionTabs={sessionTabs}
                                     onSelectSessionTab={onSelectSessionTab}
+                                    workspaceRoot={workspaceRoot}
                                   />
                                 );
                               }
@@ -1203,6 +1330,7 @@ export function ChatPanelMessages({
                                   isPending={Boolean(message.pending)}
                                   sessionTabs={sessionTabs}
                                   onSelectSessionTab={onSelectSessionTab}
+                                  workspaceRoot={workspaceRoot}
                                 />
                               );
                             })}

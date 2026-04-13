@@ -110,13 +110,13 @@ export default async function WorkspacePage({
             </p>
 
             {setupNotice && (
-              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-900">
+              <div className="rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning-foreground">
                 {setupNotice.text}
               </div>
             )}
 
             {kickstartStatus === 'setup_in_progress' && (
-              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-900">
+              <div className="rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning-foreground">
                 Setup is currently running. You can open the wizard to monitor progress,
                 but apply may be temporarily locked.
               </div>
@@ -167,7 +167,7 @@ export default async function WorkspacePage({
           className={
             setupNotice.tone === 'success'
               ? 'mb-6 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-800'
-              : 'mb-6 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-900'
+              : 'mb-6 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning-foreground'
           }
         >
           {setupNotice.text}

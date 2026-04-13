@@ -13,7 +13,9 @@ export type GatewayTokenPayload = {
 export type GatewayTokenInput = Omit<GatewayTokenPayload, 'exp'>
 
 function encodePayload(payload: GatewayTokenPayload): string {
-  return Buffer.from(JSON.stringify(payload)).toString('base64url')
+  return Buffer.from(JSON.stringify(payload, (_key, value) =>
+    typeof value === 'bigint' ? Number(value) : value
+  )).toString('base64url')
 }
 
 function signPayload(encoded: string, secret: string): string {

@@ -1,15 +1,23 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import * as XLSX from 'xlsx'
 import { z } from 'zod'
 
-const WORKSPACE_ROOT = '/workspace'
-const ATTACHMENTS_PREFIX = '/workspace/.arche/attachments/'
 const MAX_FILE_BYTES = 25 * 1024 * 1024
 const MAX_SAMPLE_LIMIT = 500
 const MAX_QUERY_LIMIT = 1000
 const MAX_COLUMN_COUNT = 200
+const DEFAULT_WORKSPACE_ROOT = '/workspace'
+
+function getWorkspaceRoot() {
+  return path.resolve(process.env.WORKSPACE_DIR?.trim() || DEFAULT_WORKSPACE_ROOT)
+}
+
+function getAttachmentsRoot() {
+  return path.join(getWorkspaceRoot(), '.arche', 'attachments')
+}
 
 function toToolOutput(value) {
   return JSON.stringify(value, null, 2)
@@ -19,20 +27,37 @@ function normalizeAttachmentPath(inputPath) {
   const trimmed = String(inputPath || '').trim()
   if (!trimmed) return null
 
+  if (trimmed.startsWith('file://')) {
+    try {
+      return path.resolve(fileURLToPath(trimmed))
+    } catch {
+      return null
+    }
+  }
+
   const normalized = trimmed.replace(/\\/g, '/')
   if (normalized.startsWith('/workspace/')) {
-    return normalized
+    return path.resolve(getWorkspaceRoot(), normalized.slice('/workspace/'.length))
+  }
+
+  if (path.isAbsolute(trimmed)) {
+    return path.resolve(trimmed)
   }
 
   const relative = normalized.replace(/^\.\//, '').replace(/^\/+/, '')
-  return path.posix.join(WORKSPACE_ROOT, relative)
+  return path.resolve(getWorkspaceRoot(), relative)
 }
 
 export function resolveSpreadsheetPath(inputPath) {
   const candidate = normalizeAttachmentPath(inputPath)
   if (!candidate) return { ok: false, error: 'invalid_path' }
-  const absolute = path.posix.normalize(candidate)
-  if (!absolute.startsWith(ATTACHMENTS_PREFIX)) {
+  const absolute = path.resolve(candidate)
+  const relativeToAttachments = path.relative(getAttachmentsRoot(), absolute)
+  if (
+    relativeToAttachments === '..' ||
+    relativeToAttachments.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relativeToAttachments)
+  ) {
     return { ok: false, error: 'path_outside_attachments' }
   }
   return { ok: true, path: absolute }

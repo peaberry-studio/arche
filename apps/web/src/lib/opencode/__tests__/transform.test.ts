@@ -56,4 +56,25 @@ describe('transformParts', () => {
       },
     ])
   })
+
+  it('extracts attachment paths from local desktop file URLs', () => {
+    const parts = transformParts([
+      {
+        type: 'file',
+        id: 'file-1',
+        filename: 'photo.jpg',
+        url: 'file:///Users/alice/Arche/workspace/.arche/attachments/photo.jpg',
+      },
+    ])
+
+    expect(parts).toEqual([
+      {
+        type: 'file',
+        id: 'file-1',
+        path: '.arche/attachments/photo.jpg',
+        filename: 'photo.jpg',
+        url: 'file:///Users/alice/Arche/workspace/.arche/attachments/photo.jpg',
+      },
+    ])
+  })
 })
