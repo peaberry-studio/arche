@@ -86,7 +86,7 @@ services:
       - "5432:5432"
 {% endif %}
     volumes:
-      - arche_postgres:/var/lib/postgresql/data
+      - {{ postgres_data_path }}:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -140,7 +140,6 @@ networks:
     external: true
 
 volumes:
-  arche_postgres:
 {% if deploy_mode == 'remote' %}
   traefik_letsencrypt:
 {% endif %}

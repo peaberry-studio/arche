@@ -51,6 +51,14 @@
     group: "{{ deploy_user }}"
     mode: "0750"
 
+- name: Create postgres data directory
+  ansible.builtin.file:
+    path: "{{ postgres_data_path }}"
+    state: directory
+    owner: "999"
+    group: "999"
+    mode: "0700"
+
 - name: Create backups directory
   ansible.builtin.file:
     path: "{{ data_dir }}/backups"

@@ -46,3 +46,4 @@ deploy_user: deploy
 app_dir: /opt/arche
 data_dir: /opt/arche/data
 users_path: "{{ lookup('env', 'ARCHE_USERS_PATH') | default('/opt/arche/users', true) }}"
+postgres_data_path: "{{ lookup('env', 'ARCHE_POSTGRES_DATA_PATH') | default('/opt/arche/postgres-data', true) }}"
