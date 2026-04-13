@@ -54,6 +54,7 @@ jobs:
           ARCHE_SEED_ADMIN_PASSWORD: ${{ secrets.ARCHE_SEED_ADMIN_PASSWORD }}
           ARCHE_SEED_ADMIN_SLUG: ${{ secrets.ARCHE_SEED_ADMIN_SLUG }}
           OPENCODE_IMAGE: ghcr.io/peaberry-studio/arche/workspace:latest
+          IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/arche/
           VPS_USER: ${{ secrets.VPS_USER }}
         run: |
           USER_FLAG=()
