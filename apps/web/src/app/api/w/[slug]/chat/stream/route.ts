@@ -3,6 +3,7 @@ import { pathToFileURL } from 'url'
 
 import { NextRequest, NextResponse } from 'next/server'
 
+import { getIdleFinalizationOutcome, getSilentStreamOutcome } from '@/app/api/w/[slug]/chat/stream/watchdog'
 import { extractPdfText, isPdfMime } from '@/lib/attachments/pdf-text-extractor'
 import { getInstanceUrl } from '@/lib/opencode/client'
 import { normalizeProviderId, resolveRuntimeProviderId } from '@/lib/providers/catalog'
@@ -572,16 +573,15 @@ export const POST = withAuth(
         const finalizeFromIdle = () => {
           if (aborted) return
 
-          if (!resume && !assistantMessageSeen) {
-            emitStatus('error', undefined, 'stream_no_assistant_message')
-            sendEvent('error', { error: 'stream_no_assistant_message' })
-            aborted = true
-            return
-          }
+          const outcome = getIdleFinalizationOutcome({
+            resume,
+            assistantMessageSeen,
+            assistantPartSeen,
+          })
 
-          if (!resume && !assistantPartSeen) {
-            emitStatus('error', undefined, 'stream_incomplete')
-            sendEvent('error', { error: 'stream_incomplete' })
+          if (outcome !== 'complete') {
+            emitStatus('error', undefined, outcome)
+            sendEvent('error', { error: outcome })
             aborted = true
             return
           }
@@ -605,14 +605,16 @@ export const POST = withAuth(
 
             if (readResult.type === 'tick') {
               if (Date.now() - lastRelevantEventAt > relevantEventTimeoutMs) {
-                const upstreamStatus = await readUpstreamSessionStatus(baseUrl, authHeader, sessionId)
+                const watchdogOutcome = getSilentStreamOutcome(
+                  await readUpstreamSessionStatus(baseUrl, authHeader, sessionId),
+                )
 
-                if (upstreamStatus === 'busy' || upstreamStatus === 'retry') {
+                if (watchdogOutcome === 'keep_waiting') {
                   markRelevantEvent()
                   continue
                 }
 
-                if (upstreamStatus === 'idle') {
+                if (watchdogOutcome === 'finalize_idle') {
                   markRelevantEvent()
                   finalizeFromIdle()
                   continue
