@@ -1151,7 +1151,8 @@ export function ChatPanel({
               <Button
                 type="button"
                 size="sm"
-                variant="secondary"
+                variant="outline"
+                className="border-warning-foreground/30 bg-background/80 text-warning-foreground hover:bg-background"
                 onClick={onReturnToMainConversation}
               >
                 Main conversation
