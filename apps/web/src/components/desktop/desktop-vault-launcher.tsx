@@ -273,7 +273,8 @@ export function DesktopVaultLauncher() {
 
   if (status) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center px-6 py-10">
+      <main className="relative mx-auto flex min-h-screen max-w-5xl items-center justify-center px-6 py-10">
+        <div className="desktop-titlebar-drag absolute inset-x-0 top-0 z-50 h-8" />
         <section className="w-full max-w-2xl rounded-3xl border border-border/60 bg-card/70 p-10 text-center shadow-sm backdrop-blur">
           <div className="space-y-5">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10">
@@ -295,7 +296,8 @@ export function DesktopVaultLauncher() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-5xl items-center justify-center px-6 py-10">
+    <main className="relative mx-auto flex min-h-screen max-w-5xl items-center justify-center px-6 py-10">
+      <div className="desktop-titlebar-drag absolute inset-x-0 top-0 z-50 h-8" />
       <div className={mode === 'create'
         ? 'w-full'
         : 'grid w-full gap-8 lg:grid-cols-[minmax(0,1.3fr)_minmax(300px,380px)]'

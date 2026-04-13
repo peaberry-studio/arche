@@ -97,6 +97,7 @@ type ChatPanelProps = {
   onReturnToMainConversation?: () => void;
   pendingInsert?: string | null;
   onPendingInsertConsumed?: () => void;
+  workspaceRoot?: string;
 };
 
 type ConnectorSummary = {
@@ -145,7 +146,8 @@ export function ChatPanel({
   isReadOnly = false,
   onReturnToMainConversation,
   pendingInsert,
-  onPendingInsertConsumed
+  onPendingInsertConsumed,
+  workspaceRoot,
 }: ChatPanelProps) {
   const { chatFontFamily, chatFontSize } = useWorkspaceTheme();
   const activeSession = useMemo(
@@ -926,6 +928,7 @@ export function ChatPanel({
         onSelectSessionTab={onSelectSessionTab}
         scrollContainerRef={scrollContainerRef}
         sessionTabs={sessionTabs}
+        workspaceRoot={workspaceRoot}
       />
 
       {/* Input area */}

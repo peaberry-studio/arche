@@ -57,6 +57,7 @@ type ChatPanelMessagesProps = {
   onSelectSessionTab?: (id: string) => void;
   scrollContainerRef: RefObject<HTMLDivElement | null>;
   sessionTabs: SessionTabInfo[];
+  workspaceRoot?: string;
 };
 
 type ToolDisplay = {
@@ -141,6 +142,16 @@ function formatToolName(tool: string): string {
   return formatted.charAt(0).toUpperCase() + formatted.slice(1);
 }
 
+function relativizePath(absolutePath: string | undefined, workspaceRoot: string | undefined): string | undefined {
+  if (!absolutePath || !workspaceRoot) return absolutePath;
+  const prefix = workspaceRoot.endsWith("/") ? workspaceRoot : `${workspaceRoot}/`;
+  if (absolutePath.startsWith(prefix)) {
+    return absolutePath.slice(prefix.length) || ".";
+  }
+  if (absolutePath === workspaceRoot) return ".";
+  return absolutePath;
+}
+
 const getFileName = (path?: string) => (path ? path.split("/").pop() ?? path : undefined);
 const getDirectory = (path?: string) => {
   if (!path || !path.includes("/")) return undefined;
@@ -222,7 +233,8 @@ function getToolDisplay(
   tool: string,
   input?: Record<string, unknown>,
   fallbackTitle?: string,
-  connectorNamesById?: Record<string, string>
+  connectorNamesById?: Record<string, string>,
+  workspaceRoot?: string,
 ): ToolDisplay {
   const toolDisplay = getWorkspaceToolDisplay(tool, connectorNamesById);
   if (toolDisplay.isConnectorTool) {
@@ -234,8 +246,9 @@ function getToolDisplay(
 
   const rawPath = typeof input?.path === "string" ? input.path : undefined;
   const normalizedPath = rawPath === "" ? "/" : rawPath;
-  const filePath = getString(input?.filePath) ?? getString(input?.filename);
-  const searchPath = getString(normalizedPath);
+  const rawFilePath = getString(input?.filePath) ?? getString(input?.filename);
+  const filePath = relativizePath(rawFilePath, workspaceRoot);
+  const searchPath = relativizePath(getString(normalizedPath), workspaceRoot);
   const pattern = getString(input?.pattern);
   const include = getString(input?.include);
   const url = getString(input?.url);
@@ -302,7 +315,7 @@ function getToolDisplay(
     }
     case "apply_patch": {
       const count = files?.length ?? 0;
-      const singlePath = count === 1 ? files?.[0] : undefined;
+      const singlePath = count === 1 ? relativizePath(files?.[0], workspaceRoot) : undefined;
       return {
         summary: count > 0 ? `${count} file${count === 1 ? "" : "s"}` : fallbackTitle,
         label: singlePath ? getFileName(singlePath) ?? singlePath : fallbackTitle,
@@ -785,6 +798,7 @@ function ToolGroup({
   connectorNamesById,
   sessionTabs,
   onSelectSessionTab,
+  workspaceRoot,
 }: {
   tool: string;
   parts: ToolPart[];
@@ -792,6 +806,7 @@ function ToolGroup({
   connectorNamesById?: Record<string, string>;
   sessionTabs: SessionTabInfo[];
   onSelectSessionTab?: (id: string) => void;
+  workspaceRoot?: string;
 }) {
   const runningCount = parts.filter(
     (part) => part.state.status === "running" || part.state.status === "pending"
@@ -856,7 +871,8 @@ function ToolGroup({
     tool,
     lastPart?.state.input,
     getStateTitle(lastPart?.state) || lastPart?.name || toolLabel,
-    connectorNamesById
+    connectorNamesById,
+    workspaceRoot,
   );
   const summary =
     totalCount > 1
@@ -937,7 +953,8 @@ function ToolGroup({
                 tool,
                 part.state.input,
                 getStateTitle(part.state) || part.name,
-                connectorNamesById
+                connectorNamesById,
+                workspaceRoot,
               );
               const title = detail.label || getStateTitle(part.state) || part.name;
 
@@ -1104,6 +1121,7 @@ function MessagePartRenderer({
   onSelectSessionTab,
   part,
   sessionTabs,
+  workspaceRoot,
 }: {
   connectorNamesById: Record<string, string>;
   isPending: boolean;
@@ -1111,6 +1129,7 @@ function MessagePartRenderer({
   onSelectSessionTab?: (id: string) => void;
   part: MessagePart;
   sessionTabs: SessionTabInfo[];
+  workspaceRoot?: string;
 }) {
   switch (part.type) {
     case "text":
@@ -1134,6 +1153,7 @@ function MessagePartRenderer({
           connectorNamesById={connectorNamesById}
           sessionTabs={sessionTabs}
           onSelectSessionTab={onSelectSessionTab}
+          workspaceRoot={workspaceRoot}
         />
       );
 
@@ -1238,6 +1258,7 @@ export function ChatPanelMessages({
   onSelectSessionTab,
   scrollContainerRef,
   sessionTabs,
+  workspaceRoot,
 }: ChatPanelMessagesProps) {
   const showsCenteredState = isStartingNewSession || messages.length === 0;
 
@@ -1304,6 +1325,7 @@ export function ChatPanelMessages({
                                     connectorNamesById={connectorNamesById}
                                     sessionTabs={sessionTabs}
                                     onSelectSessionTab={onSelectSessionTab}
+                                    workspaceRoot={workspaceRoot}
                                   />
                                 );
                               }
@@ -1327,6 +1349,7 @@ export function ChatPanelMessages({
                                   isPending={Boolean(message.pending)}
                                   sessionTabs={sessionTabs}
                                   onSelectSessionTab={onSelectSessionTab}
+                                  workspaceRoot={workspaceRoot}
                                 />
                               );
                             })}

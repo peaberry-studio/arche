@@ -1428,6 +1428,7 @@ export function WorkspaceShell({
           : null
       }
       onPendingInsertConsumed={handlePendingInsertConsumed}
+      workspaceRoot={currentVault ? `${currentVault.path}/workspace` : undefined}
     />
   );
 
