@@ -13,10 +13,12 @@ vi.mock('@/lib/runtime/require-capability', () => ({
 }))
 
 const mockUserFindMany = vi.fn()
+const mockUserFindFirst = vi.fn()
 const mockUserFindUnique = vi.fn()
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     user: {
+      findFirst: (...args: unknown[]) => mockUserFindFirst(...args),
       findMany: (...args: unknown[]) => mockUserFindMany(...args),
       findUnique: (...args: unknown[]) => mockUserFindUnique(...args),
     },
@@ -48,6 +50,7 @@ describe('GET /api/u/[slug]/team', () => {
 
     mockGetAuthenticatedUser.mockResolvedValue(session('alice', 'ADMIN'))
     mockRequireCapability.mockReturnValue(null)
+    mockUserFindFirst.mockResolvedValue(null)
   })
 
   it('returns all team users when team management is available', async () => {
@@ -94,7 +97,7 @@ describe('GET /api/u/[slug]/team', () => {
     mockRequireCapability.mockReturnValue(
       NextResponse.json({ error: 'teamManagement is not available in this runtime mode' }, { status: 403 })
     )
-    mockUserFindUnique.mockResolvedValue({
+    mockUserFindFirst.mockResolvedValue({
       id: 'user-1',
       email: 'admin@example.com',
       slug: 'alice',
@@ -121,7 +124,7 @@ describe('GET /api/u/[slug]/team', () => {
     mockRequireCapability.mockReturnValue(
       NextResponse.json({ error: 'teamManagement is not available in this runtime mode' }, { status: 403 })
     )
-    mockUserFindUnique.mockResolvedValue(null)
+    mockUserFindFirst.mockResolvedValue(null)
 
     const { status, body } = await callGetTeam('alice')
 

@@ -9,6 +9,10 @@ vi.mock('@/components/dashboard/theme-picker', () => ({
   ThemePicker: () => <div>Theme picker</div>,
 }))
 
+vi.mock('@/components/settings/slack-integration-panel', () => ({
+  SlackIntegrationPanel: ({ slug }: { slug: string }) => <div>Slack panel {slug}</div>,
+}))
+
 vi.mock('@/components/totp-setup-wizard', () => ({
   TotpSetupWizard: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }))
@@ -29,9 +33,11 @@ describe('SettingsPageContent', () => {
         passwordChangeEnabled={false}
         twoFactorEnabled={false}
         enabled={false}
+        isAdmin={false}
         verifiedAt={null}
         recoveryCodesRemaining={0}
         releaseVersion="03"
+        slackIntegrationEnabled={false}
       />,
     )
 
@@ -51,14 +57,17 @@ describe('SettingsPageContent', () => {
         passwordChangeEnabled={true}
         twoFactorEnabled
         enabled={false}
+        isAdmin={true}
         verifiedAt={null}
         recoveryCodesRemaining={0}
         releaseVersion="03"
+        slackIntegrationEnabled={true}
       />,
     )
 
     expect(screen.getByRole('heading', { name: 'Change password' })).toBeTruthy()
     expect(screen.getByText('Restart section alice')).toBeTruthy()
+    expect(screen.getByText('Slack panel alice')).toBeTruthy()
     expect(screen.getByText('Two-factor authentication')).toBeTruthy()
     expect(screen.getByText('Set up 2FA')).toBeTruthy()
   })

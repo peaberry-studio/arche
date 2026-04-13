@@ -1,6 +1,7 @@
 import { ChangePasswordForm } from './change-password-form'
 import { WorkspaceRestartSection } from './workspace-restart-section'
 import { ThemePicker } from '@/components/dashboard/theme-picker'
+import { SlackIntegrationPanel } from '@/components/settings/slack-integration-panel'
 import { TotpSetupWizard } from '@/components/totp-setup-wizard'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -13,6 +14,8 @@ type SettingsPageContentProps = {
   verifiedAt: Date | null
   recoveryCodesRemaining: number
   releaseVersion: string
+  isAdmin: boolean
+  slackIntegrationEnabled: boolean
 }
 
 export function SettingsPageContent({
@@ -23,6 +26,8 @@ export function SettingsPageContent({
   verifiedAt,
   recoveryCodesRemaining,
   releaseVersion,
+  isAdmin,
+  slackIntegrationEnabled,
 }: SettingsPageContentProps) {
   return (
     <main className="relative mx-auto max-w-6xl px-6 py-10">
@@ -44,6 +49,8 @@ export function SettingsPageContent({
         <section className="space-y-4 rounded-lg border border-border/60 bg-card/50 p-6">
           <WorkspaceRestartSection slug={slug} />
         </section>
+
+        {slackIntegrationEnabled && isAdmin ? <SlackIntegrationPanel slug={slug} /> : null}
 
         {passwordChangeEnabled ? (
           <section className="space-y-4 rounded-lg border border-border/60 bg-card/50 p-6">

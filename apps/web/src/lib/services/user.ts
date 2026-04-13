@@ -1,4 +1,4 @@
-import type { UserRole } from '@prisma/client'
+import type { UserKind, UserRole } from '@prisma/client'
 
 import { prisma } from '@/lib/prisma'
 
@@ -43,6 +43,14 @@ export type UserTeamRecord = {
   createdAt: Date
 }
 
+export type UserLookupRecord = {
+  id: string
+  email: string
+  slug: string
+  role: UserRole
+  kind: UserKind
+}
+
 // ---------------------------------------------------------------------------
 // Queries
 // ---------------------------------------------------------------------------
@@ -73,8 +81,8 @@ export function findByIdSelect<T extends Parameters<typeof prisma.user.findUniqu
 }
 
 export function findLoginByEmail(email: string): Promise<UserLoginRecord | null> {
-  return prisma.user.findUnique({
-    where: { email },
+  return prisma.user.findFirst({
+    where: { email, kind: 'HUMAN' },
     select: {
       id: true,
       email: true,
@@ -87,8 +95,8 @@ export function findLoginByEmail(email: string): Promise<UserLoginRecord | null>
 }
 
 export function find2faById(id: string): Promise<User2faRecord | null> {
-  return prisma.user.findUnique({
-    where: { id },
+  return prisma.user.findFirst({
+    where: { id, kind: 'HUMAN' },
     select: {
       id: true,
       email: true,
@@ -106,14 +114,15 @@ export function find2faById(id: string): Promise<User2faRecord | null> {
 
 export function findTeamMembers(): Promise<UserTeamRecord[]> {
   return prisma.user.findMany({
+    where: { kind: 'HUMAN' },
     select: { id: true, email: true, slug: true, role: true, createdAt: true },
     orderBy: [{ role: 'asc' }, { createdAt: 'desc' }],
   })
 }
 
 export function findTeamMemberById(id: string): Promise<UserTeamRecord | null> {
-  return prisma.user.findUnique({
-    where: { id },
+  return prisma.user.findFirst({
+    where: { id, kind: 'HUMAN' },
     select: { id: true, email: true, slug: true, role: true, createdAt: true },
   })
 }
@@ -121,12 +130,12 @@ export function findTeamMemberById(id: string): Promise<UserTeamRecord | null> {
 export function findExistingByEmailOrSlug(email: string, slug: string) {
   return prisma.user.findFirst({
     where: { OR: [{ email }, { slug }] },
-    select: { email: true, slug: true },
+    select: { id: true, email: true, slug: true, role: true, kind: true },
   })
 }
 
 export function countAdmins(): Promise<number> {
-  return prisma.user.count({ where: { role: 'ADMIN' } })
+  return prisma.user.count({ where: { role: 'ADMIN', kind: 'HUMAN' } })
 }
 
 // ---------------------------------------------------------------------------
@@ -138,9 +147,13 @@ export function create(data: {
   slug: string
   role: UserRole
   passwordHash: string
+  kind?: UserKind
 }): Promise<UserTeamRecord> {
   return prisma.user.create({
-    data,
+    data: {
+      ...data,
+      kind: data.kind ?? 'HUMAN',
+    },
     select: { id: true, email: true, slug: true, role: true, createdAt: true },
   })
 }

@@ -43,6 +43,8 @@ export default async function SecuritySettingsPage({
       verifiedAt={verifiedAt}
       recoveryCodesRemaining={recoveryCodesRemaining}
       releaseVersion={releaseVersion}
+      isAdmin={session.user.role === 'ADMIN'}
+      slackIntegrationEnabled={caps.slackIntegration}
     />
   )
 }
