@@ -942,7 +942,7 @@ function ToolGroup({
         </div>
       </button>
 
-      {isOpen ? (
+      {isOpen && canExpand ? (
         <div className="border-t border-border/50 px-3 py-2">
           <div className="space-y-1">
             {parts.map((part) => {

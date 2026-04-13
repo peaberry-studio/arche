@@ -326,11 +326,13 @@ function installTokenHeaderInjection(): void {
 }
 
 function createWindow(): void {
+  const isLauncher = currentVault === null
+
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    minWidth: 800,
-    minHeight: 600,
+    width: isLauncher ? 720 : 1280,
+    height: isLauncher ? 560 : 800,
+    minWidth: isLauncher ? 600 : 800,
+    minHeight: isLauncher ? 480 : 600,
     title: getCurrentVaultTitle(),
     backgroundColor: '#f7f4ef',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : undefined,
