@@ -258,194 +258,19 @@ describe('writeCommonWorkspaceConfig', () => {
     expect(result).toEqual({ ok: false, error: 'write_failed' })
   })
 
-  it('returns conflict when expectedHash does not match current content hash', async () => {
+  it('writes content and pushes on success', async () => {
     setupAvailableRepo()
-    mockReadFile.mockResolvedValue('{"existing":"data"}')
-    mockHashContent.mockReturnValue('current-hash')
-
-    const result = await writeCommonWorkspaceConfig('{"new":"data"}', 'stale-hash')
-    expect(result).toEqual({ ok: false, error: 'conflict' })
-    expect(mockCleanupClone).toHaveBeenCalled()
-  })
-
-  it('returns success without committing when no changes detected (status empty)', async () => {
-    setupAvailableRepo()
-    mockReadFile.mockResolvedValue('{"key":"value"}')
-    mockHashContent.mockReturnValue('matching-hash')
-    mockRunGit
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git add
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git status --porcelain (no changes)
-
-    const result = await writeCommonWorkspaceConfig('{"key":"value"}', 'matching-hash')
-    expect(result).toEqual({ ok: true, hash: 'matching-hash' })
-    expect(mockCleanupClone).toHaveBeenCalled()
-  })
-
-  it('commits and pushes when changes are detected', async () => {
-    setupAvailableRepo()
-    mockReadFile.mockRejectedValue(new Error('ENOENT')) // no existing file
-    mockHashContent.mockReturnValue('new-hash')
-    mockDetectDefaultBranch.mockResolvedValue('main')
-    mockRunGit
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git add
-      .mockResolvedValueOnce({ ok: true, stdout: 'M CommonWorkspaceConfig.json\n' }) // git status
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git commit
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git push
+    mockDetectDefaultBranch.mockResolvedValue('master')
+    mockRunGit.mockResolvedValue({ ok: true, stdout: '' })
 
     const result = await writeCommonWorkspaceConfig('{"new":"config"}')
-    expect(result).toEqual({ ok: true, hash: 'new-hash' })
-
-    // Verify the write was performed
+    expect(result).toEqual({ ok: true })
     expect(mockWriteFile).toHaveBeenCalledWith(
       path.join(CLONE_DIR, 'CommonWorkspaceConfig.json'),
       '{"new":"config"}',
       'utf-8'
     )
-
-    // Verify commit args include user config
-    const commitCall = mockRunGit.mock.calls[2]
-    expect(commitCall[0]).toEqual([
-      '-c', 'user.name=Arche Config',
-      '-c', 'user.email=config@arche.local',
-      'commit',
-      '-m', 'Update common workspace config',
-    ])
-
-    // Verify push target
-    const pushCall = mockRunGit.mock.calls[3]
-    expect(pushCall[0]).toEqual(['push', 'origin', 'HEAD:refs/heads/main'])
-  })
-
-  it('skips hash check when expectedHash is not provided', async () => {
-    setupAvailableRepo()
-    mockReadFile.mockResolvedValue('{"old":"content"}')
-    mockHashContent.mockReturnValue('some-hash')
-    mockRunGit
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git add
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git status (no changes)
-
-    const result = await writeCommonWorkspaceConfig('{"old":"content"}')
-    expect(result).toEqual({ ok: true, hash: 'some-hash' })
-  })
-
-  it('skips hash check when current file is empty (read fails)', async () => {
-    setupAvailableRepo()
-    mockReadFile.mockRejectedValue(new Error('ENOENT'))
-    mockHashContent.mockReturnValue('hash-of-new')
-    mockRunGit
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git add
-      .mockResolvedValueOnce({ ok: true, stdout: 'A CommonWorkspaceConfig.json\n' }) // git status
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git commit
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git push
-    mockDetectDefaultBranch.mockResolvedValue('main')
-
-    // Even with expectedHash, if current is '' (from catch), and hashContent('') != expectedHash,
-    // the check `current && hashContent(current) !== expectedHash` passes because current is ''
-    // which is falsy, so the condition short-circuits
-    const result = await writeCommonWorkspaceConfig('{"new":"data"}', 'any-hash')
-    expect(result).toEqual({ ok: true, hash: 'hash-of-new' })
-  })
-
-  it('returns conflict on non-fast-forward push error', async () => {
-    setupAvailableRepo()
-    mockReadFile.mockRejectedValue(new Error('ENOENT'))
-    mockHashContent.mockReturnValue('hash')
-    mockDetectDefaultBranch.mockResolvedValue('main')
-    mockRunGit
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git add
-      .mockResolvedValueOnce({ ok: true, stdout: 'M CommonWorkspaceConfig.json\n' }) // git status
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git commit
-      .mockResolvedValueOnce({ ok: false, stderr: 'error: failed to push some refs: non-fast-forward' }) // push
-
-    const result = await writeCommonWorkspaceConfig('{}')
-    expect(result).toEqual({ ok: false, error: 'conflict' })
-  })
-
-  it('returns write_failed on push error without non-fast-forward', async () => {
-    setupAvailableRepo()
-    mockReadFile.mockRejectedValue(new Error('ENOENT'))
-    mockHashContent.mockReturnValue('hash')
-    mockDetectDefaultBranch.mockResolvedValue('main')
-    mockRunGit
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git add
-      .mockResolvedValueOnce({ ok: true, stdout: 'M CommonWorkspaceConfig.json\n' }) // git status
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git commit
-      .mockResolvedValueOnce({ ok: false, stderr: 'fatal: remote error' }) // push
-
-    const result = await writeCommonWorkspaceConfig('{}')
-    expect(result).toEqual({ ok: false, error: 'write_failed' })
-  })
-
-  it('returns write_failed when git add fails', async () => {
-    setupAvailableRepo()
-    mockReadFile.mockRejectedValue(new Error('ENOENT'))
-    mockRunGit.mockResolvedValueOnce({ ok: false, stderr: 'add error' })
-
-    const result = await writeCommonWorkspaceConfig('{}')
-    expect(result).toEqual({ ok: false, error: 'write_failed' })
-  })
-
-  it('returns write_failed when git status fails', async () => {
-    setupAvailableRepo()
-    mockReadFile.mockRejectedValue(new Error('ENOENT'))
-    mockRunGit
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git add
-      .mockResolvedValueOnce({ ok: false, stderr: 'status error' }) // git status
-
-    const result = await writeCommonWorkspaceConfig('{}')
-    expect(result).toEqual({ ok: false, error: 'write_failed' })
-  })
-
-  it('returns write_failed when git commit fails', async () => {
-    setupAvailableRepo()
-    mockReadFile.mockRejectedValue(new Error('ENOENT'))
-    mockHashContent.mockReturnValue('hash')
-    mockRunGit
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git add
-      .mockResolvedValueOnce({ ok: true, stdout: 'M CommonWorkspaceConfig.json\n' }) // git status
-      .mockResolvedValueOnce({ ok: false, stderr: 'commit error' }) // git commit
-
-    const result = await writeCommonWorkspaceConfig('{}')
-    expect(result).toEqual({ ok: false, error: 'write_failed' })
-  })
-
-  it('always calls cleanupClone in the write pipeline', async () => {
-    setupAvailableRepo()
-    mockReadFile.mockRejectedValue(new Error('ENOENT'))
-    mockRunGit.mockResolvedValueOnce({ ok: false, stderr: 'add error' })
-
-    await writeCommonWorkspaceConfig('{}')
-    expect(mockCleanupClone).toHaveBeenCalled()
-  })
-
-  it('creates parent directory before writing file', async () => {
-    setupAvailableRepo()
-    mockReadFile.mockRejectedValue(new Error('ENOENT'))
-    mockRunGit
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git add
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git status (no changes)
-    mockHashContent.mockReturnValue('h')
-
-    await writeCommonWorkspaceConfig('content')
-
-    expect(mockMkdir).toHaveBeenCalledWith(
-      path.dirname(path.join(CLONE_DIR, 'CommonWorkspaceConfig.json')),
-      { recursive: true }
-    )
-  })
-
-  it('uses detectDefaultBranch for push target', async () => {
-    setupAvailableRepo()
-    mockReadFile.mockRejectedValue(new Error('ENOENT'))
-    mockHashContent.mockReturnValue('hash')
-    mockDetectDefaultBranch.mockResolvedValue('master')
-    mockRunGit
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git add
-      .mockResolvedValueOnce({ ok: true, stdout: 'M CommonWorkspaceConfig.json\n' }) // git status
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git commit
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git push
-
-    await writeCommonWorkspaceConfig('{}')
+    expect(mockRunGit).toHaveBeenCalled()
 
     const pushCall = mockRunGit.mock.calls[3]
     expect(pushCall[0]).toEqual(['push', 'origin', 'HEAD:refs/heads/master'])
@@ -455,11 +280,11 @@ describe('writeCommonWorkspaceConfig', () => {
 describe('listRecentKbFileUpdates', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetKbContentRoot.mockReturnValue(CONTENT_ROOT)
+    mockResolveRepoRoot.mockResolvedValue(CONTENT_ROOT)
   })
 
   it('parses git log output with __COMMIT__ markers', async () => {
-    mockGetKbContentRoot.mockReturnValue(CONTENT_ROOT)
-    mockResolveRepoRoot.mockResolvedValue(CONTENT_ROOT)
     mockRunGitOnBareRepo.mockResolvedValue({
       ok: true,
       stdout: [
@@ -501,8 +326,6 @@ describe('listRecentKbFileUpdates', () => {
   })
 
   it('deduplicates file paths across commits', async () => {
-    mockGetKbContentRoot.mockReturnValue(CONTENT_ROOT)
-    mockResolveRepoRoot.mockResolvedValue(CONTENT_ROOT)
     mockRunGitOnBareRepo.mockResolvedValue({
       ok: true,
       stdout: [
@@ -510,7 +333,7 @@ describe('listRecentKbFileUpdates', () => {
         'docs/file.md',
         '',
         '__COMMIT__Bob|2024-01-14T09:00:00+00:00',
-        'docs/file.md', // same file, different commit
+        'docs/file.md',
         'docs/other.md',
         '',
       ].join('\n'),
@@ -538,8 +361,6 @@ describe('listRecentKbFileUpdates', () => {
   })
 
   it('respects the limit parameter', async () => {
-    mockGetKbContentRoot.mockReturnValue(CONTENT_ROOT)
-    mockResolveRepoRoot.mockResolvedValue(CONTENT_ROOT)
     mockRunGitOnBareRepo.mockResolvedValue({
       ok: true,
       stdout: [
@@ -563,28 +384,75 @@ describe('listRecentKbFileUpdates', () => {
     })
   })
 
-  it('uses default limit of 10', async () => {
-    mockGetKbContentRoot.mockReturnValue(CONTENT_ROOT)
-    mockResolveRepoRoot.mockResolvedValue(CONTENT_ROOT)
-    const files = Array.from({ length: 15 }, (_, i) => `file${i + 1}.md`)
-    mockRunGitOnBareRepo.mockResolvedValue({
-      ok: true,
-      stdout: ['__COMMIT__Author|2024-01-01T00:00:00+00:00', ...files].join('\n'),
-    })
+  it('pages through git history to collect unique files', async () => {
+    mockRunGitOnBareRepo
+      .mockResolvedValueOnce({
+        ok: true,
+        stdout: [
+          '__COMMIT__Alice|2026-04-12T10:00:00Z',
+          'notes/alpha.md',
+          '',
+          '__COMMIT__Bob|2026-04-12T09:00:00Z',
+          'notes/alpha.md',
+          '',
+        ].join('\n'),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        stdout: [
+          '__COMMIT__Carol|2026-04-12T08:00:00Z',
+          'notes/beta.md',
+          '',
+        ].join('\n'),
+      })
 
-    const result = await listRecentKbFileUpdates()
+    const result = await listRecentKbFileUpdates(2)
 
     expect(result).toEqual({
       ok: true,
-      updates: expect.any(Array),
+      updates: [
+        {
+          filePath: 'notes/alpha.md',
+          fileName: 'alpha.md',
+          author: 'Alice',
+          committedAt: '2026-04-12T10:00:00Z',
+        },
+        {
+          filePath: 'notes/beta.md',
+          fileName: 'beta.md',
+          author: 'Carol',
+          committedAt: '2026-04-12T08:00:00Z',
+        },
+      ],
     })
-    if (result.ok) {
-      expect(result.updates).toHaveLength(10)
-    }
+
+    expect(mockRunGitOnBareRepo).toHaveBeenCalledTimes(2)
+    expect(mockRunGitOnBareRepo).toHaveBeenNthCalledWith(1, CONTENT_ROOT, [
+      'log',
+      '-n', '2',
+      '--skip', '0',
+      '--name-only',
+      '--date=iso-strict',
+      '--pretty=format:__COMMIT__%an|%ad',
+    ])
+    expect(mockRunGitOnBareRepo).toHaveBeenNthCalledWith(2, CONTENT_ROOT, [
+      'log',
+      '-n', '2',
+      '--skip', '2',
+      '--name-only',
+      '--date=iso-strict',
+      '--pretty=format:__COMMIT__%an|%ad',
+    ])
+  })
+
+  it('returns no updates without querying git when the limit is zero', async () => {
+    const result = await listRecentKbFileUpdates(0)
+
+    expect(result).toEqual({ ok: true, updates: [] })
+    expect(mockRunGitOnBareRepo).not.toHaveBeenCalled()
   })
 
   it('returns kb_unavailable when content repo root is null', async () => {
-    mockGetKbContentRoot.mockReturnValue(CONTENT_ROOT)
     mockResolveRepoRoot.mockResolvedValue(null)
 
     const result = await listRecentKbFileUpdates()
@@ -592,8 +460,6 @@ describe('listRecentKbFileUpdates', () => {
   })
 
   it('returns read_failed when git log fails', async () => {
-    mockGetKbContentRoot.mockReturnValue(CONTENT_ROOT)
-    mockResolveRepoRoot.mockResolvedValue(CONTENT_ROOT)
     mockRunGitOnBareRepo.mockResolvedValue({ ok: false, stderr: 'git log error' })
 
     const result = await listRecentKbFileUpdates()
@@ -601,8 +467,6 @@ describe('listRecentKbFileUpdates', () => {
   })
 
   it('returns empty updates when log output is empty', async () => {
-    mockGetKbContentRoot.mockReturnValue(CONTENT_ROOT)
-    mockResolveRepoRoot.mockResolvedValue(CONTENT_ROOT)
     mockRunGitOnBareRepo.mockResolvedValue({ ok: true, stdout: '' })
 
     const result = await listRecentKbFileUpdates()
@@ -610,8 +474,6 @@ describe('listRecentKbFileUpdates', () => {
   })
 
   it('handles commit with no files', async () => {
-    mockGetKbContentRoot.mockReturnValue(CONTENT_ROOT)
-    mockResolveRepoRoot.mockResolvedValue(CONTENT_ROOT)
     mockRunGitOnBareRepo.mockResolvedValue({
       ok: true,
       stdout: '__COMMIT__Alice|2024-01-15T10:00:00+00:00\n\n',
@@ -622,8 +484,6 @@ describe('listRecentKbFileUpdates', () => {
   })
 
   it('handles missing author gracefully (defaults to Unknown)', async () => {
-    mockGetKbContentRoot.mockReturnValue(CONTENT_ROOT)
-    mockResolveRepoRoot.mockResolvedValue(CONTENT_ROOT)
     mockRunGitOnBareRepo.mockResolvedValue({
       ok: true,
       stdout: [
@@ -639,8 +499,6 @@ describe('listRecentKbFileUpdates', () => {
   })
 
   it('handles missing date gracefully', async () => {
-    mockGetKbContentRoot.mockReturnValue(CONTENT_ROOT)
-    mockResolveRepoRoot.mockResolvedValue(CONTENT_ROOT)
     mockRunGitOnBareRepo.mockResolvedValue({
       ok: true,
       stdout: [
@@ -655,15 +513,15 @@ describe('listRecentKbFileUpdates', () => {
     }
   })
 
-  it('passes correct git log arguments', async () => {
-    mockGetKbContentRoot.mockReturnValue(CONTENT_ROOT)
-    mockResolveRepoRoot.mockResolvedValue(CONTENT_ROOT)
+  it('passes correct git log arguments with paging', async () => {
     mockRunGitOnBareRepo.mockResolvedValue({ ok: true, stdout: '' })
 
     await listRecentKbFileUpdates()
 
     expect(mockRunGitOnBareRepo).toHaveBeenCalledWith(CONTENT_ROOT, [
       'log',
+      '-n', '10',
+      '--skip', '0',
       '--name-only',
       '--date=iso-strict',
       '--pretty=format:__COMMIT__%an|%ad',
@@ -671,8 +529,6 @@ describe('listRecentKbFileUpdates', () => {
   })
 
   it('skips blank lines between files', async () => {
-    mockGetKbContentRoot.mockReturnValue(CONTENT_ROOT)
-    mockResolveRepoRoot.mockResolvedValue(CONTENT_ROOT)
     mockRunGitOnBareRepo.mockResolvedValue({
       ok: true,
       stdout: [

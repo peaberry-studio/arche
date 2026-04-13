@@ -83,7 +83,10 @@ export async function POST(request: Request): Promise<Response> {
     enableJsonResponse: true,
     sessionIdGenerator: undefined,
   })
-  const server = createMcpServer()
+  const server = createMcpServer({
+    scopes: auth.scopes,
+    user: auth.user,
+  })
   const forwardedRequest = buildTransportRequest(request, bodyResult.body)
 
   await server.connect(transport)
