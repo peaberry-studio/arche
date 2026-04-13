@@ -11,6 +11,11 @@ import {
   hashPat,
   hashPatLookup,
 } from '@/lib/mcp/pat'
+import {
+  DEFAULT_MCP_PAT_SCOPES,
+  isMcpReadScope,
+  type McpReadScope,
+} from '@/lib/mcp/scopes'
 import { readMcpSettings, writeMcpSettings } from '@/lib/mcp/settings'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { getSession } from '@/lib/runtime/session'
@@ -26,7 +31,7 @@ import {
 
 const ISSUER = 'Arche'
 const MAX_PAT_TTL_DAYS = 90
-const PAT_SCOPES = ['kb:read']
+const PAT_SCOPES = [...DEFAULT_MCP_PAT_SCOPES]
 const DAY_MS = 24 * 60 * 60 * 1000
 
 type ChangePasswordResult =
@@ -314,6 +319,7 @@ export async function setMcpEnabled(
 export async function createPersonalAccessToken(input: {
   name: string
   expiresInDays: number
+  scopes?: string[]
 }): Promise<
   | {
       ok: true
@@ -334,6 +340,15 @@ export async function createPersonalAccessToken(input: {
     return { ok: false, error: 'MCP is not available in this runtime mode' }
   }
 
+  const mcpSettings = await readMcpSettings()
+  if (!mcpSettings.ok) {
+    return { ok: false, error: formatMcpConfigError(mcpSettings.error) }
+  }
+
+  if (!mcpSettings.enabled) {
+    return { ok: false, error: 'MCP is disabled' }
+  }
+
   const session = await getSession()
   if (!session) {
     return { ok: false, error: 'Not authenticated' }
@@ -349,6 +364,11 @@ export async function createPersonalAccessToken(input: {
     return { ok: false, error: `Expiration must be between 1 and ${MAX_PAT_TTL_DAYS} days` }
   }
 
+  const scopesResult = parsePatScopes(input.scopes)
+  if (!scopesResult.ok) {
+    return { ok: false, error: scopesResult.error }
+  }
+
   const token = generatePat()
   const salt = generatePatSalt()
   const expiresAt = new Date(Date.now() + expiresInDays * DAY_MS)
@@ -359,7 +379,7 @@ export async function createPersonalAccessToken(input: {
     lookupHash: hashPatLookup(token),
     tokenHash: hashPat(token, salt),
     salt,
-    scopes: PAT_SCOPES,
+    scopes: scopesResult.scopes,
     expiresAt,
   })
 
@@ -385,6 +405,40 @@ export async function createPersonalAccessToken(input: {
       lastUsedAt: record.lastUsedAt?.toISOString() ?? null,
       revokedAt: record.revokedAt?.toISOString() ?? null,
     },
+  }
+}
+
+function parsePatScopes(
+  value: string[] | undefined,
+): { ok: true; scopes: McpReadScope[] } | { ok: false; error: string } {
+  if (typeof value === 'undefined') {
+    return { ok: true, scopes: PAT_SCOPES }
+  }
+
+  if (!Array.isArray(value)) {
+    return { ok: false, error: 'Invalid token scopes' }
+  }
+
+  const normalizedScopes = Array.from(
+    new Set(
+      value
+        .filter((scope): scope is string => typeof scope === 'string')
+        .map((scope) => scope.trim())
+        .filter((scope) => scope.length > 0),
+    ),
+  )
+
+  if (normalizedScopes.length === 0) {
+    return { ok: false, error: 'Select at least one MCP permission' }
+  }
+
+  if (!normalizedScopes.every(isMcpReadScope)) {
+    return { ok: false, error: 'Invalid token scopes' }
+  }
+
+  return {
+    ok: true,
+    scopes: normalizedScopes.sort((left, right) => left.localeCompare(right)) as McpReadScope[],
   }
 }
 

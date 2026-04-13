@@ -8,12 +8,19 @@ const {
   mockGetSession,
   mockUserService,
   mockSessionService,
+  mockPatService,
   mockGenerateSecret,
   mockEncryptSecret,
   mockDecryptSecret,
   mockGenerateTotpUri,
   mockVerifyTotp,
   mockGenerateRecoveryCodes,
+  mockGeneratePat,
+  mockGeneratePatSalt,
+  mockHashPat,
+  mockHashPatLookup,
+  mockReadMcpSettings,
+  mockWriteMcpSettings,
 } = vi.hoisted(() => ({
   mockHash: vi.fn(),
   mockAuditEvent: vi.fn(),
@@ -32,12 +39,21 @@ const {
   mockSessionService: {
     revokeByUserIdExceptSession: vi.fn(),
   },
+  mockPatService: {
+    create: vi.fn(),
+  },
   mockGenerateSecret: vi.fn(),
   mockEncryptSecret: vi.fn(),
   mockDecryptSecret: vi.fn(),
   mockGenerateTotpUri: vi.fn(),
   mockVerifyTotp: vi.fn(),
   mockGenerateRecoveryCodes: vi.fn(),
+  mockGeneratePat: vi.fn(),
+  mockGeneratePatSalt: vi.fn(),
+  mockHashPat: vi.fn(),
+  mockHashPatLookup: vi.fn(),
+  mockReadMcpSettings: vi.fn(),
+  mockWriteMcpSettings: vi.fn(),
 }))
 
 vi.mock('@/lib/argon2', () => ({ hashArgon2: mockHash }))
@@ -47,6 +63,7 @@ vi.mock('@/lib/runtime/session', () => ({ getSession: mockGetSession }))
 vi.mock('@/lib/services', () => ({
   sessionService: mockSessionService,
   userService: mockUserService,
+  patService: mockPatService,
 }))
 vi.mock('@/lib/totp', () => ({
   generateSecret: mockGenerateSecret,
@@ -56,6 +73,16 @@ vi.mock('@/lib/totp', () => ({
   verifyTotp: mockVerifyTotp,
   generateRecoveryCodes: mockGenerateRecoveryCodes,
 }))
+vi.mock('@/lib/mcp/pat', () => ({
+  generatePat: mockGeneratePat,
+  generatePatSalt: mockGeneratePatSalt,
+  hashPat: mockHashPat,
+  hashPatLookup: mockHashPatLookup,
+}))
+vi.mock('@/lib/mcp/settings', () => ({
+  readMcpSettings: mockReadMcpSettings,
+  writeMcpSettings: mockWriteMcpSettings,
+}))
 
 import {
   changePassword,
@@ -64,9 +91,10 @@ import {
   disable2FA,
   regenerateRecoveryCodes,
   get2FAStatus,
+  createPersonalAccessToken,
 } from '../actions'
 
-const CAPS_ALL = { auth: true, twoFactor: true }
+const CAPS_ALL = { auth: true, twoFactor: true, mcp: true }
 const TEST_USER = {
   id: 'user-1',
   email: 'alice@example.com',
@@ -406,5 +434,107 @@ describe('get2FAStatus', () => {
     mockUserService.findById.mockResolvedValue(null)
     const result = await get2FAStatus()
     expect(result.ok).toBe(false)
+  })
+})
+
+describe('createPersonalAccessToken', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetRuntimeCapabilities.mockReturnValue(CAPS_ALL)
+    mockGetSession.mockResolvedValue(TEST_SESSION)
+    mockReadMcpSettings.mockResolvedValue({
+      ok: true,
+      enabled: true,
+      hash: 'settings-hash',
+    })
+    mockGeneratePat.mockReturnValue('arche_pat_123')
+    mockGeneratePatSalt.mockReturnValue('salt-123')
+    mockHashPatLookup.mockReturnValue('lookup-123')
+    mockHashPat.mockReturnValue('token-hash-123')
+    mockPatService.create.mockResolvedValue({
+      id: 'tok-1',
+      name: 'Laptop',
+      scopes: ['agents:read'],
+      createdAt: new Date('2026-04-12T10:00:00.000Z'),
+      expiresAt: new Date('2026-05-12T10:00:00.000Z'),
+      lastUsedAt: null,
+      revokedAt: null,
+    })
+  })
+
+  it('creates a token with the selected scopes', async () => {
+    const result = await createPersonalAccessToken({
+      name: 'Laptop',
+      expiresInDays: 30,
+      scopes: ['agents:read'],
+    })
+
+    expect(mockPatService.create).toHaveBeenCalledWith({
+      userId: 'user-1',
+      name: 'Laptop',
+      lookupHash: 'lookup-123',
+      tokenHash: 'token-hash-123',
+      salt: 'salt-123',
+      scopes: ['agents:read'],
+      expiresAt: expect.any(Date),
+    })
+    expect(result).toEqual({
+      ok: true,
+      token: 'arche_pat_123',
+      tokenRecord: {
+        id: 'tok-1',
+        name: 'Laptop',
+        scopes: ['agents:read'],
+        createdAt: '2026-04-12T10:00:00.000Z',
+        expiresAt: '2026-05-12T10:00:00.000Z',
+        lastUsedAt: null,
+        revokedAt: null,
+      },
+    })
+  })
+
+  it('rejects token creation when MCP is disabled', async () => {
+    mockReadMcpSettings.mockResolvedValue({
+      ok: true,
+      enabled: false,
+      hash: 'settings-hash',
+    })
+
+    await expect(createPersonalAccessToken({
+      name: 'Laptop',
+      expiresInDays: 30,
+      scopes: ['agents:read'],
+    })).resolves.toEqual({
+      ok: false,
+      error: 'MCP is disabled',
+    })
+
+    expect(mockPatService.create).not.toHaveBeenCalled()
+  })
+
+  it('rejects empty scope selections', async () => {
+    await expect(createPersonalAccessToken({
+      name: 'Laptop',
+      expiresInDays: 30,
+      scopes: [],
+    })).resolves.toEqual({
+      ok: false,
+      error: 'Select at least one MCP permission',
+    })
+
+    expect(mockPatService.create).not.toHaveBeenCalled()
+  })
+
+  it('rejects unknown scopes', async () => {
+    await expect(createPersonalAccessToken({
+      name: 'Laptop',
+      expiresInDays: 30,
+      scopes: ['admin:write'],
+    })).resolves.toEqual({
+      ok: false,
+      error: 'Invalid token scopes',
+    })
+
+    expect(mockPatService.create).not.toHaveBeenCalled()
   })
 })
