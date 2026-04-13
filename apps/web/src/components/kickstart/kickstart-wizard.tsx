@@ -357,9 +357,16 @@ export function KickstartWizard({
 
   useEffect(() => {
     const scroller = wizardTopRef.current?.closest('main')
-    if (scroller) {
-      scroller.scrollTo({ top: 0, behavior: 'smooth' })
+    if (!(scroller instanceof HTMLElement)) {
+      return
     }
+
+    if (typeof scroller.scrollTo === 'function') {
+      scroller.scrollTo({ top: 0, behavior: 'smooth' })
+      return
+    }
+
+    scroller.scrollTop = 0
   }, [step])
 
   const selectedTemplate = useMemo(() => {
