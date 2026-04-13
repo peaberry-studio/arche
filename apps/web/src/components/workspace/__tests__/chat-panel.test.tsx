@@ -279,6 +279,52 @@ describe('ChatPanel', () => {
     expect(html).toContain('If you want, I can make it more formal.')
   })
 
+  it('keeps tool groups separate when reasoning appears between identical tool calls', () => {
+    const html = renderChatPanel({
+      messages: [
+        {
+          id: 'm1',
+          sessionId: 's1',
+          role: 'assistant',
+          content: '',
+          timestamp: 'now',
+          parts: [
+            {
+              type: 'tool',
+              id: 'tool-read-1',
+              name: 'read',
+              state: {
+                status: 'completed',
+                input: { filePath: 'docs/first.md' },
+                output: '',
+                title: 'read first file',
+              },
+            },
+            {
+              type: 'reasoning',
+              id: 'reasoning-1',
+              text: 'Comparing it with another file before continuing.',
+            },
+            {
+              type: 'tool',
+              id: 'tool-read-2',
+              name: 'read',
+              state: {
+                status: 'completed',
+                input: { filePath: 'docs/second.md' },
+                output: '',
+                title: 'read second file',
+              },
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(html.match(/Reading file/g)).toHaveLength(2)
+    expect(html).toContain('Reasoning')
+  })
+
   it('renders unknown parts even when their debug payload contains bigint-like values', () => {
     const html = renderChatPanel({
       messages: [

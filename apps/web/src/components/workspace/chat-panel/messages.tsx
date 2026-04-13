@@ -1089,29 +1089,7 @@ function groupMessageParts(parts: MessagePart[]): PartGroup[] {
     index += 1;
   }
 
-  // Post-merge: coalesce tool-groups with same name separated only by reasoning parts
-  const merged: PartGroup[] = [];
-  for (const group of groups) {
-    if (group.type === "tool-group") {
-      let targetIndex = -1;
-      for (let i = merged.length - 1; i >= 0; i--) {
-        const prev = merged[i];
-        if (prev.type === "single" && prev.part.type === "reasoning") continue;
-        if (prev.type === "tool-group" && prev.tool === group.tool) targetIndex = i;
-        break;
-      }
-      if (targetIndex >= 0) {
-        const target = merged[targetIndex] as { type: "tool-group"; tool: string; parts: ToolPart[] };
-        target.parts.push(...group.parts);
-      } else {
-        merged.push(group);
-      }
-    } else {
-      merged.push(group);
-    }
-  }
-
-  return merged;
+  return groups;
 }
 
 function MessagePartRenderer({

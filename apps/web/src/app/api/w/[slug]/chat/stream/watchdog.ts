@@ -2,10 +2,18 @@ export type IdleFinalizationOutcome = 'complete' | 'stream_incomplete' | 'stream
 
 export type SilentStreamOutcome = 'finalize_idle' | 'keep_waiting' | 'stream_timeout'
 
+const SILENT_STREAM_TIMEOUT_MULTIPLIER = 3
+
 type IdleFinalizationInput = {
   resume: boolean
   assistantMessageSeen: boolean
   assistantPartSeen: boolean
+}
+
+type SilentStreamInput = {
+  upstreamStatus: string | null
+  silentForMs: number
+  relevantEventTimeoutMs: number
 }
 
 export function getIdleFinalizationOutcome({
@@ -28,9 +36,15 @@ export function getIdleFinalizationOutcome({
   return 'complete'
 }
 
-export function getSilentStreamOutcome(upstreamStatus: string | null): SilentStreamOutcome {
+export function getSilentStreamOutcome({
+  upstreamStatus,
+  silentForMs,
+  relevantEventTimeoutMs,
+}: SilentStreamInput): SilentStreamOutcome {
   if (upstreamStatus === 'busy' || upstreamStatus === 'retry') {
-    return 'keep_waiting'
+    return silentForMs < relevantEventTimeoutMs * SILENT_STREAM_TIMEOUT_MULTIPLIER
+      ? 'keep_waiting'
+      : 'stream_timeout'
   }
 
   if (upstreamStatus === 'idle') {

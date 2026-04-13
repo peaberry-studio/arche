@@ -554,11 +554,18 @@ export const POST = withAuth(
         let assistantMessageSeen = typeof assistantMessageId === 'string'
         let assistantPartSeen = false
         let lastRelevantEventAt = Date.now()
+        let lastStreamActivityAt = lastRelevantEventAt
         const relevantEventTimeoutMs = resume
           ? RESUME_STREAM_RELEVANT_EVENT_TIMEOUT_MS
           : SEND_STREAM_RELEVANT_EVENT_TIMEOUT_MS
 
         const markRelevantEvent = () => {
+          const now = Date.now()
+          lastRelevantEventAt = now
+          lastStreamActivityAt = now
+        }
+
+        const markWatchdogCheck = () => {
           lastRelevantEventAt = Date.now()
         }
 
@@ -606,16 +613,20 @@ export const POST = withAuth(
             if (readResult.type === 'tick') {
               if (Date.now() - lastRelevantEventAt > relevantEventTimeoutMs) {
                 const watchdogOutcome = getSilentStreamOutcome(
-                  await readUpstreamSessionStatus(baseUrl, authHeader, sessionId),
+                  {
+                    upstreamStatus: await readUpstreamSessionStatus(baseUrl, authHeader, sessionId),
+                    silentForMs: Date.now() - lastStreamActivityAt,
+                    relevantEventTimeoutMs,
+                  },
                 )
 
                 if (watchdogOutcome === 'keep_waiting') {
-                  markRelevantEvent()
+                  markWatchdogCheck()
                   continue
                 }
 
                 if (watchdogOutcome === 'finalize_idle') {
-                  markRelevantEvent()
+                  markWatchdogCheck()
                   finalizeFromIdle()
                   continue
                 }

@@ -1432,7 +1432,7 @@ describe('chat stream attachments forwarding', () => {
                 ),
               )
               controller.close()
-            }, 22_000)
+            }, 45_000)
           },
         })
 
@@ -1466,10 +1466,10 @@ describe('chat stream attachments forwarding', () => {
     })
 
     const textPromise = res.text()
-    await vi.advanceTimersByTimeAsync(22_500)
+    await vi.advanceTimersByTimeAsync(45_500)
     const sseOutput = await textPromise
 
-    expect(statusChecks).toBeGreaterThanOrEqual(1)
+    expect(statusChecks).toBeGreaterThanOrEqual(2)
     expect(sseOutput).toContain('event: part')
     expect(sseOutput).toContain('event: done')
     expect(sseOutput).not.toContain('stream_timeout')
