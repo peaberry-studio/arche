@@ -42,6 +42,8 @@ type WorkspaceAgentReadResponse = {
   error?: string
 }
 
+type UpstreamSessionStatusResponse = Record<string, { type?: string } | undefined>
+
 const MAX_PDF_BYTES_FOR_EXTRACTION = 8 * 1024 * 1024
 const MAX_IMAGE_BYTES_FOR_INLINE = 8 * 1024 * 1024
 const MAX_PDF_TEXT_CHARS = 24_000
@@ -204,6 +206,34 @@ function decodeWorkspaceAgentFileContent(data: WorkspaceAgentReadResponse): Buff
   }
 
   return null
+}
+
+async function readUpstreamSessionStatus(
+  baseUrl: string,
+  authHeader: string,
+  sessionId: string,
+): Promise<string | null> {
+  try {
+    const response = await fetch(`${baseUrl}/session/status`, {
+      method: 'GET',
+      headers: {
+        Authorization: authHeader,
+        Accept: 'application/json',
+      },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(3_000),
+    })
+
+    if (!response.ok) {
+      return null
+    }
+
+    const data = await response.json().catch(() => null) as UpstreamSessionStatusResponse | null
+    const status = data?.[sessionId]
+    return typeof status?.type === 'string' ? status.type : null
+  } catch {
+    return null
+  }
 }
 
 async function readWorkspaceAttachment(
@@ -575,6 +605,19 @@ export const POST = withAuth(
 
             if (readResult.type === 'tick') {
               if (Date.now() - lastRelevantEventAt > relevantEventTimeoutMs) {
+                const upstreamStatus = await readUpstreamSessionStatus(baseUrl, authHeader, sessionId)
+
+                if (upstreamStatus === 'busy' || upstreamStatus === 'retry') {
+                  markRelevantEvent()
+                  continue
+                }
+
+                if (upstreamStatus === 'idle') {
+                  markRelevantEvent()
+                  finalizeFromIdle()
+                  continue
+                }
+
                 emitStatus('error', undefined, 'stream_timeout')
                 sendEvent('error', { error: 'stream_timeout' })
                 aborted = true
