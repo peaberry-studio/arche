@@ -4,6 +4,7 @@ import { pathToFileURL } from 'url'
 import { NextRequest, NextResponse } from 'next/server'
 
 import { getIdleFinalizationOutcome, getSilentStreamOutcome } from '@/app/api/w/[slug]/chat/stream/watchdog'
+import { createUpstreamSessionStatusReader } from '@/app/api/w/[slug]/chat/stream/status-reader'
 import { extractPdfText, isPdfMime } from '@/lib/attachments/pdf-text-extractor'
 import { getInstanceUrl } from '@/lib/opencode/client'
 import { normalizeProviderId, resolveRuntimeProviderId } from '@/lib/providers/catalog'
@@ -42,8 +43,6 @@ type WorkspaceAgentReadResponse = {
   encoding?: 'utf-8' | 'base64'
   error?: string
 }
-
-type UpstreamSessionStatusResponse = Record<string, { type?: string } | undefined>
 
 const MAX_PDF_BYTES_FOR_EXTRACTION = 8 * 1024 * 1024
 const MAX_IMAGE_BYTES_FOR_INLINE = 8 * 1024 * 1024
@@ -209,34 +208,6 @@ function decodeWorkspaceAgentFileContent(data: WorkspaceAgentReadResponse): Buff
   return null
 }
 
-async function readUpstreamSessionStatus(
-  baseUrl: string,
-  authHeader: string,
-  sessionId: string,
-): Promise<string | null> {
-  try {
-    const response = await fetch(`${baseUrl}/session/status`, {
-      method: 'GET',
-      headers: {
-        Authorization: authHeader,
-        Accept: 'application/json',
-      },
-      cache: 'no-store',
-      signal: AbortSignal.timeout(3_000),
-    })
-
-    if (!response.ok) {
-      return null
-    }
-
-    const data = await response.json().catch(() => null) as UpstreamSessionStatusResponse | null
-    const status = data?.[sessionId]
-    return typeof status?.type === 'string' ? status.type : null
-  } catch {
-    return null
-  }
-}
-
 async function readWorkspaceAttachment(
   agent: { baseUrl: string; authHeader: string },
   path: string,
@@ -345,11 +316,16 @@ export const POST = withAuth(
         }
       }
 
-      try {
-        sendEvent('status', { status: 'connecting' })
+        try {
+          sendEvent('status', { status: 'connecting' })
+          const readUpstreamSessionStatus = createUpstreamSessionStatusReader({
+            baseUrl,
+            authHeader,
+            sessionId,
+          })
 
-        // Subscribe first so we don't miss fast session events.
-        const eventsUrl = `${baseUrl}/event`
+          // Subscribe first so we don't miss fast session events.
+          const eventsUrl = `${baseUrl}/event`
 
         const eventsResponse = await fetch(eventsUrl, {
           method: 'GET',
@@ -614,7 +590,7 @@ export const POST = withAuth(
               if (Date.now() - lastRelevantEventAt > relevantEventTimeoutMs) {
                 const watchdogOutcome = getSilentStreamOutcome(
                   {
-                    upstreamStatus: await readUpstreamSessionStatus(baseUrl, authHeader, sessionId),
+                    upstreamStatus: await readUpstreamSessionStatus(),
                     silentForMs: Date.now() - lastStreamActivityAt,
                     relevantEventTimeoutMs,
                   },

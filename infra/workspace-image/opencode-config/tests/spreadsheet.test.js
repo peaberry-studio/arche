@@ -60,6 +60,25 @@ test('resolveSpreadsheetPath enforces .arche/attachments boundary', () => {
   })
 })
 
+test('resolveSpreadsheetPath falls back to /workspace when WORKSPACE_DIR is unset', () => {
+  const previousWorkspaceDir = process.env.WORKSPACE_DIR
+  delete process.env.WORKSPACE_DIR
+
+  try {
+    assert.deepEqual(resolveSpreadsheetPath('.arche/attachments/fallback.xlsx'), {
+      ok: true,
+      path: '/workspace/.arche/attachments/fallback.xlsx',
+    })
+  } finally {
+    if (previousWorkspaceDir === undefined) {
+      delete process.env.WORKSPACE_DIR
+      return
+    }
+
+    process.env.WORKSPACE_DIR = previousWorkspaceDir
+  }
+})
+
 test('spreadsheet tools smoke test', async (t) => {
   try {
     await ensureFixture()

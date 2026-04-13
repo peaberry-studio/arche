@@ -9,9 +9,10 @@ const MAX_FILE_BYTES = 25 * 1024 * 1024
 const MAX_SAMPLE_LIMIT = 500
 const MAX_QUERY_LIMIT = 1000
 const MAX_COLUMN_COUNT = 200
+const DEFAULT_WORKSPACE_ROOT = '/workspace'
 
 function getWorkspaceRoot() {
-  return path.resolve(process.env.WORKSPACE_DIR?.trim() || process.cwd())
+  return path.resolve(process.env.WORKSPACE_DIR?.trim() || DEFAULT_WORKSPACE_ROOT)
 }
 
 function getAttachmentsRoot() {
