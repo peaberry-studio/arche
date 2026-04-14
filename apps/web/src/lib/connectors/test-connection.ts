@@ -1,3 +1,4 @@
+import { getConnectorMcpServerUrl } from '@/lib/connectors/mcp/server-url'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
 import { getZendeskMcpProtocolVersion, parseZendeskConnectorConfig, testZendeskConnection } from '@/lib/connectors/zendesk'
 import type { ConnectorType } from '@/lib/connectors/types'
@@ -16,11 +17,6 @@ type TestConnectionHandler = (
   config: Record<string, unknown>,
   options: TestConnectionOptions
 ) => Promise<TestConnectionResult>
-
-const MCP_SERVER_URLS = {
-  linear: 'https://mcp.linear.app/mcp',
-  notion: 'https://mcp.notion.com/mcp',
-} as const
 
 async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs = 8000) {
   const controller = new AbortController()
@@ -51,27 +47,6 @@ function getAccessToken(type: ConnectorType, config: Record<string, unknown>): s
 function isOAuthPending(type: ConnectorType, config: Record<string, unknown>): boolean {
   if (getConnectorAuthType(config) !== 'oauth') return false
   return !getConnectorOAuthConfig(type, config)?.accessToken
-}
-
-function getMcpServerUrl(type: 'linear' | 'notion', config: Record<string, unknown>): string
-function getMcpServerUrl(type: 'custom', config: Record<string, unknown>): string | null
-function getMcpServerUrl(type: ConnectorType, config: Record<string, unknown>): string | null {
-  const oauth = getConnectorOAuthConfig(type, config)
-  if (oauth?.mcpServerUrl) return oauth.mcpServerUrl
-
-  if (type === 'linear') {
-    return process.env.ARCHE_CONNECTOR_LINEAR_MCP_URL || MCP_SERVER_URLS.linear
-  }
-
-  if (type === 'notion') {
-    return process.env.ARCHE_CONNECTOR_NOTION_MCP_URL || MCP_SERVER_URLS.notion
-  }
-
-  if (type === 'zendesk') {
-    return null
-  }
-
-  return typeof config.endpoint === 'string' ? config.endpoint : null
 }
 
 function buildMcpInitializeBody() {
@@ -186,7 +161,7 @@ const CONNECTOR_TEST_HANDLERS: Record<ConnectorType, TestConnectionHandler> = {
 
       return testRemoteMcpConnection({
         label: 'Notion',
-        url: getMcpServerUrl('notion', config),
+        url: getConnectorMcpServerUrl('notion', config),
         token: token.token,
       })
     }
@@ -222,7 +197,7 @@ const CONNECTOR_TEST_HANDLERS: Record<ConnectorType, TestConnectionHandler> = {
 
     return testRemoteMcpConnection({
       label: 'Linear',
-      url: getMcpServerUrl('linear', config),
+      url: getConnectorMcpServerUrl('linear', config),
       token: token.token,
     })
   },
@@ -235,7 +210,7 @@ const CONNECTOR_TEST_HANDLERS: Record<ConnectorType, TestConnectionHandler> = {
       const token = getRequiredAccessToken('custom', config, 'Missing OAuth access token')
       if (!token.ok) return token.result
 
-      const mcpUrl = options.customEndpointUrl?.toString() ?? getMcpServerUrl('custom', config)
+      const mcpUrl = options.customEndpointUrl?.toString() ?? getConnectorMcpServerUrl('custom', config)
       if (!mcpUrl) {
         return { ok: false, tested: false, message: 'Missing endpoint' }
       }
@@ -276,7 +251,7 @@ const CONNECTOR_TEST_HANDLERS: Record<ConnectorType, TestConnectionHandler> = {
 
 export function getCustomConnectorTestEndpoint(config: Record<string, unknown>): string | null {
   return getConnectorAuthType(config) === 'oauth'
-    ? getMcpServerUrl('custom', config)
+    ? getConnectorMcpServerUrl('custom', config)
     : (typeof config.endpoint === 'string' ? config.endpoint : null)
 }
 
