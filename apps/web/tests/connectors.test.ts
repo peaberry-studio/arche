@@ -48,7 +48,7 @@ describe('connectors/crypto', () => {
 
 describe('connectors/types', () => {
   it('CONNECTOR_TYPES contains expected values', () => {
-    expect(CONNECTOR_TYPES).toEqual(['linear', 'notion', 'custom'])
+    expect(CONNECTOR_TYPES).toEqual(['linear', 'notion', 'zendesk', 'custom'])
   })
 })
 
@@ -57,6 +57,7 @@ describe('connectors/validators', () => {
     it('accepts valid connector types', () => {
       expect(validateConnectorType('linear')).toBe(true)
       expect(validateConnectorType('notion')).toBe(true)
+      expect(validateConnectorType('zendesk')).toBe(true)
       expect(validateConnectorType('custom')).toBe(true)
     })
 
@@ -93,6 +94,44 @@ describe('connectors/validators', () => {
       const invalid = validateConnectorConfig('custom', {})
       expect(invalid.valid).toBe(false)
       expect(invalid.missing).toContain('endpoint')
+    })
+
+    it('validates required fields for zendesk', () => {
+      const valid = validateConnectorConfig('zendesk', {
+        subdomain: 'acme',
+        email: 'agent@example.com',
+        apiToken: 'token-123',
+      })
+      expect(valid).toEqual({ valid: true })
+
+      const invalid = validateConnectorConfig('zendesk', {})
+      expect(invalid.valid).toBe(false)
+      expect(invalid.missing).toEqual(['subdomain', 'email', 'apiToken'])
+    })
+
+    it('rejects invalid zendesk subdomains', () => {
+      const invalid = validateConnectorConfig('zendesk', {
+        subdomain: 'https://127.0.0.1/private',
+        email: 'agent@example.com',
+        apiToken: 'token-123',
+      })
+
+      expect(invalid).toEqual({
+        valid: false,
+        message: 'Subdomain must be a valid Zendesk subdomain or hostname.',
+      })
+    })
+
+    it('rejects oauth mode for zendesk connectors', () => {
+      expect(validateConnectorConfig('zendesk', {
+        authType: 'oauth',
+        subdomain: 'acme',
+        email: 'agent@example.com',
+        apiToken: 'token-123',
+      })).toEqual({
+        valid: false,
+        message: 'Zendesk connectors do not support OAuth',
+      })
     })
 
     it('validates oauth mode for custom connectors', () => {

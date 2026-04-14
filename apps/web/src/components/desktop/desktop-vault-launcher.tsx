@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  ClockCounterClockwise,
   FolderOpen,
   Plus,
   SpinnerGap,
@@ -273,180 +272,159 @@ export function DesktopVaultLauncher() {
 
   if (status) {
     return (
-      <main className="mx-auto flex min-h-screen max-w-4xl items-center justify-center px-6 py-10">
-        <section className="w-full max-w-2xl rounded-3xl border border-border/60 bg-card/70 p-10 text-center shadow-sm backdrop-blur">
-          <div className="space-y-5">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10">
-              <SpinnerGap size={24} className="animate-spin text-primary" />
-            </div>
-            <h1 className="type-display text-3xl leading-tight text-foreground">
-              {status.title}
-            </h1>
-            <p className="mx-auto max-w-md text-sm text-muted-foreground sm:text-base">
-              {status.description}
-            </p>
-            <div className="mx-auto h-1.5 w-48 overflow-hidden rounded-full bg-muted/40">
-              <div className="h-full animate-[progress-sweep_1.8s_ease-in-out_infinite] rounded-full bg-primary" />
-            </div>
+      <main className="relative flex h-screen flex-col items-center justify-center px-10 py-10">
+        <div className="desktop-titlebar-drag absolute inset-x-0 top-0 z-50 h-8" />
+        <div className="w-full max-w-md space-y-6 text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10">
+            <SpinnerGap size={24} className="animate-spin text-primary" />
           </div>
-        </section>
+          <h1 className="type-display text-3xl leading-tight text-foreground">
+            {status.title}
+          </h1>
+          <p className="text-sm text-muted-foreground sm:text-base">
+            {status.description}
+          </p>
+          <div className="mx-auto h-1.5 w-48 overflow-hidden rounded-full bg-muted/40">
+            <div className="h-full animate-[progress-sweep_1.8s_ease-in-out_infinite] rounded-full bg-primary" />
+          </div>
+        </div>
       </main>
     )
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-6xl items-center px-6 py-10">
-      <div className={mode === 'create'
-        ? 'w-full'
-        : 'grid w-full gap-8 lg:grid-cols-[minmax(0,1.3fr)_minmax(320px,420px)]'
-      }>
-        <section className="rounded-3xl border border-border/60 bg-card/60 p-8 shadow-sm backdrop-blur">
-          <div className="max-w-2xl space-y-6">
-            <div className="space-y-3">
-              <p className="text-xs uppercase tracking-[0.18em] text-primary/80">Welcome to Arche</p>
-              <h1 className="type-display text-3xl leading-tight text-foreground sm:text-4xl">
-                Set up your workspace
-              </h1>
-              <p className="max-w-xl text-sm text-muted-foreground sm:text-base">
-                A vault is a self-contained workspace where Arche keeps your repos, agents,
-                and knowledge base organized.
-              </p>
-            </div>
-
-            {!mode && (
-              <div className="grid gap-4 sm:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={() => setMode('create')}
-                  className="group rounded-2xl border border-border/60 bg-background/60 p-5 text-left transition-all hover:border-primary/40 hover:bg-primary/5 hover:shadow-subtle"
-                >
-                  <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
-                    <Plus size={20} weight="bold" />
-                  </div>
-                  <p className="font-medium text-foreground">Create new vault</p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Pick a template, configure agents, and get started.
-                  </p>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleOpenExistingVault}
-                  className="group rounded-2xl border border-border/60 bg-background/60 p-5 text-left transition-all hover:border-primary/40 hover:bg-primary/5 hover:shadow-subtle"
-                >
-                  <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
-                    <FolderOpen size={20} weight="bold" />
-                  </div>
-                  <p className="font-medium text-foreground">Open existing vault</p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Browse your filesystem for an existing Arche vault.
-                  </p>
-                </button>
-              </div>
-            )}
-
-            {mode === 'create' && (
-              <KickstartWizard
-                embedded
-                loadCatalog={loadDesktopKickstartCatalog}
-                onBack={() => setMode(null)}
-                onSubmit={handleCreateVault}
-                renderStepOneExtras={(
-                  <>
-                    <div className="space-y-2">
-                      <Label htmlFor="desktop-vault-name">Vault name</Label>
-                      <Input
-                        id="desktop-vault-name"
-                        value={vaultName}
-                        onChange={(event) => setVaultName(event.target.value)}
-                        placeholder={DEFAULT_NEW_VAULT_NAME}
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Location</Label>
-                      <div className="flex flex-col gap-3 sm:flex-row">
-                        <Input
-                          value={parentPath}
-                          readOnly
-                          placeholder="Choose a parent folder"
-                          className="flex-1"
-                        />
-                        <button
-                          type="button"
-                          onClick={handleChooseLocation}
-                          className="inline-flex items-center justify-center rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted/50"
-                        >
-                          Choose location
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl border border-dashed border-border/60 bg-muted/20 px-4 py-3">
-                      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                        Vault path
-                      </p>
-                      <p className="mt-1 break-all font-mono text-sm text-foreground/80">
-                        {previewPath || (
-                          <span className="italic text-muted-foreground">Choose a location above</span>
-                        )}
-                      </p>
-                    </div>
-                  </>
-                )}
-                stepOneReadyOverride={stepOneReady}
-                submitLabel="Create vault"
-                submittingLabel="Creating vault"
-              />
-            )}
-
-            {error ? (
-              <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                {error}
-              </div>
-            ) : null}
+    <main className="scrollbar-custom relative flex h-screen flex-col overflow-y-auto pb-8">
+      <div className="desktop-titlebar-drag sticky inset-x-0 top-0 z-50 h-10 shrink-0" />
+      <div className="flex flex-1 flex-col space-y-8 px-10 pt-2">
+        <div className="space-y-6">
+          <div className="space-y-3">
+            <p className="text-xs uppercase tracking-[0.18em] text-primary/80">Welcome to Arche</p>
+            <h1 className="type-display text-4xl leading-tight text-foreground">
+              Set up your workspace
+            </h1>
+            <p className="text-sm text-muted-foreground sm:text-base">
+              A vault is a self-contained workspace where Arche keeps your repos, agents,
+              and knowledge base organized.
+            </p>
           </div>
-        </section>
 
-        {!mode && <aside className="rounded-3xl border border-border/60 bg-card/60 p-6 shadow-sm backdrop-blur">
-          <div className="space-y-4">
-            <div>
-              <h2 className="text-lg font-semibold text-foreground">Recent vaults</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Reopen a recent vault in its own window.
-              </p>
-            </div>
-
-            {recentVaults.length === 0 ? (
-              <div className="flex flex-col items-center rounded-2xl border border-dashed border-border/60 px-4 py-8 text-center">
-                <ClockCounterClockwise size={24} className="mb-2 text-muted-foreground/50" />
-                <p className="text-sm text-muted-foreground">No recent vaults yet.</p>
-                <p className="mt-1 text-xs text-muted-foreground/70">
-                  Vaults you open will appear here.
+          {!mode && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => setMode('create')}
+                className="group rounded-2xl border border-border/60 bg-background/60 p-5 text-left transition-all hover:border-primary/40 hover:bg-primary/5 hover:shadow-subtle"
+              >
+                <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
+                  <Plus size={20} weight="bold" />
+                </div>
+                <p className="font-medium text-foreground">Create new vault</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Pick a template, configure agents, and get started.
                 </p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {recentVaults.map((vault) => (
-                  <button
-                    key={vault.path}
-                    type="button"
-                    onClick={() => handleOpenRecentVault(vault.path)}
-                    className="flex w-full items-center gap-3 rounded-2xl border border-border/60 bg-background/60 px-4 py-3 text-left transition-all hover:border-primary/30 hover:bg-background hover:shadow-subtle"
-                  >
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-muted/40 text-muted-foreground">
-                      <Vault size={18} />
+              </button>
+
+              <button
+                type="button"
+                onClick={handleOpenExistingVault}
+                className="group rounded-2xl border border-border/60 bg-background/60 p-5 text-left transition-all hover:border-primary/40 hover:bg-primary/5 hover:shadow-subtle"
+              >
+                <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
+                  <FolderOpen size={20} weight="bold" />
+                </div>
+                <p className="font-medium text-foreground">Open existing vault</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Browse your filesystem for an existing Arche vault.
+                </p>
+              </button>
+            </div>
+          )}
+
+          {mode === 'create' && (
+            <KickstartWizard
+              embedded
+              loadCatalog={loadDesktopKickstartCatalog}
+              onBack={() => setMode(null)}
+              onSubmit={handleCreateVault}
+              renderStepOneExtras={(
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="desktop-vault-name">Vault name</Label>
+                    <Input
+                      id="desktop-vault-name"
+                      value={vaultName}
+                      onChange={(event) => setVaultName(event.target.value)}
+                      placeholder={DEFAULT_NEW_VAULT_NAME}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Location</Label>
+                    <div className="flex flex-col gap-3 sm:flex-row">
+                      <Input
+                        value={parentPath}
+                        readOnly
+                        placeholder="Choose a parent folder"
+                        className="flex-1"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleChooseLocation}
+                        className="inline-flex items-center justify-center rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted/50"
+                      >
+                        Choose location
+                      </button>
                     </div>
-                    <div className="min-w-0">
-                      <span className="block truncate text-sm font-medium text-foreground">{vault.name}</span>
-                      <span className="block truncate text-xs text-muted-foreground">{vault.path}</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
+                  </div>
+
+                  <div className="rounded-xl border border-dashed border-border/60 bg-muted/20 px-4 py-3">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Vault path
+                    </p>
+                    <p className="mt-1 break-all font-mono text-sm text-foreground/80">
+                      {previewPath || (
+                        <span className="italic text-muted-foreground">Choose a location above</span>
+                      )}
+                    </p>
+                  </div>
+                </>
+              )}
+              stepOneReadyOverride={stepOneReady}
+              submitLabel="Create vault"
+              submittingLabel="Creating vault"
+            />
+          )}
+
+          {error ? (
+            <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+              {error}
+            </div>
+          ) : null}
+        </div>
+
+        {!mode && recentVaults.length > 0 && (
+          <div className="space-y-3 border-t border-border/40 pt-6">
+            <h2 className="text-sm font-medium text-muted-foreground">Recent vaults</h2>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {recentVaults.map((vault) => (
+                <button
+                  key={vault.path}
+                  type="button"
+                  onClick={() => handleOpenRecentVault(vault.path)}
+                  className="flex w-full items-center gap-3 rounded-2xl border border-border/60 bg-background/60 px-4 py-3 text-left transition-all hover:border-primary/30 hover:bg-background hover:shadow-subtle"
+                >
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-muted/40 text-muted-foreground">
+                    <Vault size={18} />
+                  </div>
+                  <div className="min-w-0">
+                    <span className="block truncate text-sm font-medium text-foreground">{vault.name}</span>
+                    <span className="block truncate text-xs text-muted-foreground">{vault.path}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
-        </aside>}
+        )}
       </div>
     </main>
   )

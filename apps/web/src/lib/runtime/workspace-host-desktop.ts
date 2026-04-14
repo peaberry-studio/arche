@@ -395,6 +395,7 @@ export const desktopWorkspaceHost: WorkspaceHost = {
           OPENCODE_SERVER_PASSWORD: password,
           OPENCODE_SERVER_USERNAME: DEFAULT_USERNAME,
           ...(opencodeConfigDir ? { OPENCODE_CONFIG_DIR: opencodeConfigDir } : {}),
+          WORKSPACE_DIR: workspaceDir,
           HOME: archeDataDir,
           XDG_DATA_HOME: join(archeDataDir, '.local', 'share'),
           XDG_STATE_HOME: join(archeDataDir, '.local', 'state'),

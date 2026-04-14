@@ -260,6 +260,7 @@ test(spawner): add health check retry tests
 - Do not commit files unrelated to your change.
 - Create new commits; do not amend existing commits unless requested.
 - Use `git add <specific-files>` instead of `git add .` or `git add -A`.
+- Before creating a commit or declaring a PR-ready change, run `bash scripts/check-podman-images.sh` from the repo root and treat failures as blocking.
 
 ---
 
@@ -331,6 +332,7 @@ describe('startInstance', () => {
 - [ ] I did not introduce security vulnerabilities (XSS, injection, exposed secrets).
 - [ ] Tests pass: `pnpm test`.
 - [ ] Linter passes: `pnpm lint`.
+- [ ] Podman images build locally: `bash scripts/check-podman-images.sh`.
 - [ ] Commit follows Conventional Commits.
 - [ ] I did not commit sensitive files (`.env`, credentials, keys).
 
@@ -350,6 +352,7 @@ pnpm db:migrate             # Create migration
 pnpm db:seed                # Seed initial data
 
 # Full stack (from repo root)
+build images locally       # bash scripts/check-podman-images.sh
 podman compose -f infra/compose/compose.yaml up -d --build
 podman compose -f infra/compose/compose.yaml down
 podman compose -f infra/compose/compose.yaml logs -f web

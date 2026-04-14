@@ -1,8 +1,15 @@
+import { join } from 'path'
+import { pathToFileURL } from 'url'
+
 import { NextRequest, NextResponse } from 'next/server'
 
+import { getIdleFinalizationOutcome, getSilentStreamOutcome } from '@/app/api/w/[slug]/chat/stream/watchdog'
+import { createUpstreamSessionStatusReader } from '@/app/api/w/[slug]/chat/stream/status-reader'
 import { extractPdfText, isPdfMime } from '@/lib/attachments/pdf-text-extractor'
 import { getInstanceUrl } from '@/lib/opencode/client'
 import { normalizeProviderId, resolveRuntimeProviderId } from '@/lib/providers/catalog'
+import { DESKTOP_WORKSPACE_DIR_NAME } from '@/lib/runtime/desktop/vault-layout-constants'
+import { isDesktop } from '@/lib/runtime/mode'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { instanceService } from '@/lib/services'
 import { INITIAL_SSE_PARSE_STATE, parseSseChunk } from '@/lib/sse-parser'
@@ -126,6 +133,14 @@ async function readWorkspaceImageAttachment(
 
 function toWorkspaceFileUrl(path: string): string {
   const normalized = normalizeAttachmentPath(path)
+
+  if (isDesktop()) {
+    const vaultRoot = process.env.ARCHE_DATA_DIR?.trim()
+    if (vaultRoot) {
+      return pathToFileURL(join(vaultRoot, DESKTOP_WORKSPACE_DIR_NAME, ...normalized.split('/'))).toString()
+    }
+  }
+
   const encodedPath = normalized
     .split('/')
     .map((segment) => encodeURIComponent(segment))
@@ -133,10 +148,15 @@ function toWorkspaceFileUrl(path: string): string {
   return `file:///workspace/${encodedPath}`
 }
 
+function toAttachmentPromptPath(path: string): string {
+  const normalized = normalizeAttachmentPath(path)
+  return isDesktop() ? normalized : `/workspace/${normalized}`
+}
+
 function toAttachmentHintText(paths: string[]): string {
   const lines = [
     'Attached workspace files:',
-    ...paths.map((path) => `- /workspace/${path}`),
+    ...paths.map((path) => `- ${toAttachmentPromptPath(path)}`),
     'If direct file parsing is unavailable, inspect these paths with available tools.',
   ]
   return lines.join('\n')
@@ -148,7 +168,7 @@ function toPdfExtractedTextPart(path: string, text: string, truncated: boolean):
     : ''
 
   return [
-    `Extracted text from attached PDF: /workspace/${path}`,
+    `Extracted text from attached PDF: ${toAttachmentPromptPath(path)}`,
     text,
     truncationNote,
   ]
@@ -158,14 +178,14 @@ function toPdfExtractedTextPart(path: string, text: string, truncated: boolean):
 
 function toPdfExtractionFailureText(path: string): string {
   return [
-    `Attached PDF could not be extracted automatically: /workspace/${path}`,
+    `Attached PDF could not be extracted automatically: ${toAttachmentPromptPath(path)}`,
     'Continue by using available tools on this path, or ask the user for an OCR-friendly/text PDF if the file is scanned.',
   ].join('\n')
 }
 
 function toSpreadsheetToolHintText(path: string): string {
   return [
-    `Attached spreadsheet file: /workspace/${path}`,
+    `Attached spreadsheet file: ${toAttachmentPromptPath(path)}`,
     'You must use spreadsheet_inspect first to detect sheets and columns, then use spreadsheet_sample/spreadsheet_query/spreadsheet_stats for focused analysis and calculations.',
   ].join('\n')
 }
@@ -296,11 +316,16 @@ export const POST = withAuth(
         }
       }
 
-      try {
-        sendEvent('status', { status: 'connecting' })
+        try {
+          sendEvent('status', { status: 'connecting' })
+          const readUpstreamSessionStatus = createUpstreamSessionStatusReader({
+            baseUrl,
+            authHeader,
+            sessionId,
+          })
 
-        // Subscribe first so we don't miss fast session events.
-        const eventsUrl = `${baseUrl}/event`
+          // Subscribe first so we don't miss fast session events.
+          const eventsUrl = `${baseUrl}/event`
 
         const eventsResponse = await fetch(eventsUrl, {
           method: 'GET',
@@ -505,11 +530,18 @@ export const POST = withAuth(
         let assistantMessageSeen = typeof assistantMessageId === 'string'
         let assistantPartSeen = false
         let lastRelevantEventAt = Date.now()
+        let lastStreamActivityAt = lastRelevantEventAt
         const relevantEventTimeoutMs = resume
           ? RESUME_STREAM_RELEVANT_EVENT_TIMEOUT_MS
           : SEND_STREAM_RELEVANT_EVENT_TIMEOUT_MS
 
         const markRelevantEvent = () => {
+          const now = Date.now()
+          lastRelevantEventAt = now
+          lastStreamActivityAt = now
+        }
+
+        const markWatchdogCheck = () => {
           lastRelevantEventAt = Date.now()
         }
 
@@ -524,16 +556,15 @@ export const POST = withAuth(
         const finalizeFromIdle = () => {
           if (aborted) return
 
-          if (!resume && !assistantMessageSeen) {
-            emitStatus('error', undefined, 'stream_no_assistant_message')
-            sendEvent('error', { error: 'stream_no_assistant_message' })
-            aborted = true
-            return
-          }
+          const outcome = getIdleFinalizationOutcome({
+            resume: Boolean(resume),
+            assistantMessageSeen,
+            assistantPartSeen,
+          })
 
-          if (!resume && !assistantPartSeen) {
-            emitStatus('error', undefined, 'stream_incomplete')
-            sendEvent('error', { error: 'stream_incomplete' })
+          if (outcome !== 'complete') {
+            emitStatus('error', undefined, outcome)
+            sendEvent('error', { error: outcome })
             aborted = true
             return
           }
@@ -557,6 +588,25 @@ export const POST = withAuth(
 
             if (readResult.type === 'tick') {
               if (Date.now() - lastRelevantEventAt > relevantEventTimeoutMs) {
+                const watchdogOutcome = getSilentStreamOutcome(
+                  {
+                    upstreamStatus: await readUpstreamSessionStatus(),
+                    silentForMs: Date.now() - lastStreamActivityAt,
+                    relevantEventTimeoutMs,
+                  },
+                )
+
+                if (watchdogOutcome === 'keep_waiting') {
+                  markWatchdogCheck()
+                  continue
+                }
+
+                if (watchdogOutcome === 'finalize_idle') {
+                  markWatchdogCheck()
+                  finalizeFromIdle()
+                  continue
+                }
+
                 emitStatus('error', undefined, 'stream_timeout')
                 sendEvent('error', { error: 'stream_timeout' })
                 aborted = true

@@ -50,6 +50,7 @@ import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { useAgentMentionAutocomplete } from "@/hooks/use-agent-mention-autocomplete";
 import type { AgentCatalogItem } from "@/hooks/use-workspace";
 import type { AvailableModel } from "@/lib/opencode/types";
+import { getDesktopPlatform, getOptionalDesktopBridge } from "@/lib/runtime/desktop/client";
 import {
   buildWorkspaceSessionMarkdown,
   getWorkspaceSessionExportFilename,
@@ -96,6 +97,7 @@ type ChatPanelProps = {
   onReturnToMainConversation?: () => void;
   pendingInsert?: string | null;
   onPendingInsertConsumed?: () => void;
+  workspaceRoot?: string;
 };
 
 type ConnectorSummary = {
@@ -144,7 +146,8 @@ export function ChatPanel({
   isReadOnly = false,
   onReturnToMainConversation,
   pendingInsert,
-  onPendingInsertConsumed
+  onPendingInsertConsumed,
+  workspaceRoot,
 }: ChatPanelProps) {
   const { chatFontFamily, chatFontSize } = useWorkspaceTheme();
   const activeSession = useMemo(
@@ -193,6 +196,10 @@ export function ChatPanel({
   const [draftTitle, setDraftTitle] = useState("");
   const [isSavingTitle, setIsSavingTitle] = useState(false);
   const [renameError, setRenameError] = useState<string | null>(null);
+  const desktopBridge = getOptionalDesktopBridge();
+  const revealAttachmentsLabel = getDesktopPlatform() === "darwin"
+    ? "Reveal in Finder"
+    : "Reveal in File Explorer";
 
   const selectedAttachments = useMemo(
     () => {
@@ -580,6 +587,16 @@ export function ChatPanel({
     [handleUploadAttachments]
   );
 
+  const handleRevealAttachmentsDirectory = useCallback(async () => {
+    if (!desktopBridge) return;
+
+    setAttachmentsError(null);
+    const result = await desktopBridge.revealAttachmentsDirectory();
+    if (!result.ok) {
+      setAttachmentsError(result.error ?? "reveal_attachments_failed");
+    }
+  }, [desktopBridge]);
+
   const handleTextareaPaste = useCallback(
     async (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
       if (
@@ -911,6 +928,7 @@ export function ChatPanel({
         onSelectSessionTab={onSelectSessionTab}
         scrollContainerRef={scrollContainerRef}
         sessionTabs={sessionTabs}
+        workspaceRoot={workspaceRoot}
       />
 
       {/* Input area */}
@@ -1127,16 +1145,17 @@ export function ChatPanel({
         )}
 
         {isReadOnly ? (
-          <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-100">
-            <div className="flex items-center gap-2 text-amber-800 dark:text-amber-50/90">
-              <Info size={16} weight="fill" className="text-amber-500 dark:text-amber-300" />
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-warning/20 bg-warning/10 px-4 py-3 text-sm text-warning-foreground">
+            <div className="flex items-center gap-2 text-warning-foreground">
+              <Info size={16} weight="fill" className="text-warning" />
               <span>Subagent sessions are read-only. Return to the main conversation to continue chatting.</span>
             </div>
             {onReturnToMainConversation ? (
               <Button
                 type="button"
                 size="sm"
-                variant="secondary"
+                variant="outline"
+                className="border-warning-foreground/30 bg-background/80 text-warning-foreground hover:bg-background"
                 onClick={onReturnToMainConversation}
               >
                 Main conversation
@@ -1361,6 +1380,19 @@ export function ChatPanel({
                         className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
                       />
                     </div>
+                    {desktopBridge ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void handleRevealAttachmentsDirectory();
+                        }}
+                        className="flex items-center gap-1.5 rounded-lg bg-foreground/5 px-3 py-2 text-xs text-foreground transition-colors hover:bg-foreground/10"
+                        disabled={isMutatingAttachments || isUploadingAttachment}
+                      >
+                        <FolderOpen size={14} />
+                        {revealAttachmentsLabel}
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => attachmentInputRef.current?.click()}

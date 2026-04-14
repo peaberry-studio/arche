@@ -1,248 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { decryptConfig } from '@/lib/connectors/crypto'
-import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
+import { getConnectorAuthType } from '@/lib/connectors/oauth-config'
 import { refreshConnectorOAuthConfigIfNeeded } from '@/lib/connectors/oauth-refresh'
-import type { ConnectorType } from '@/lib/connectors/types'
+import { getCustomConnectorTestEndpoint, testConnectorConnection, type TestConnectionResult } from '@/lib/connectors/test-connection'
 import { validateConnectorType } from '@/lib/connectors/validators'
 import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { validateConnectorTestEndpoint } from '@/lib/security/ssrf'
 import { connectorService, userService } from '@/lib/services'
-
-export interface TestConnectionResult {
-  ok: boolean
-  tested: boolean
-  message?: string
-}
-
-const MCP_SERVER_URLS = {
-  linear: 'https://mcp.linear.app/mcp',
-  notion: 'https://mcp.notion.com/mcp',
-} as const
-
-const MCP_PROTOCOL_VERSION = '2025-03-26'
-
-async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs = 8000) {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
-  try {
-    return await fetch(input, { ...init, signal: controller.signal, cache: 'no-store' })
-  } finally {
-    clearTimeout(timer)
-  }
-}
-
-function getAccessToken(type: ConnectorType, config: Record<string, unknown>): string | null {
-  if (getConnectorAuthType(config) === 'oauth') {
-    const oauth = getConnectorOAuthConfig(type, config)
-    return oauth?.accessToken ?? null
-  }
-
-  switch (type) {
-    case 'linear':
-    case 'notion':
-      return typeof config.apiKey === 'string' ? config.apiKey : null
-    case 'custom':
-      return null
-  }
-}
-
-function isOAuthPending(type: ConnectorType, config: Record<string, unknown>): boolean {
-  if (getConnectorAuthType(config) !== 'oauth') return false
-  return !getConnectorOAuthConfig(type, config)?.accessToken
-}
-
-function getMcpServerUrl(type: 'linear' | 'notion', config: Record<string, unknown>): string
-function getMcpServerUrl(type: 'custom', config: Record<string, unknown>): string | null
-function getMcpServerUrl(type: ConnectorType, config: Record<string, unknown>): string | null {
-  const oauth = getConnectorOAuthConfig(type, config)
-  if (oauth?.mcpServerUrl) return oauth.mcpServerUrl
-
-  if (type === 'linear') {
-    return process.env.ARCHE_CONNECTOR_LINEAR_MCP_URL || MCP_SERVER_URLS.linear
-  }
-
-  if (type === 'notion') {
-    return process.env.ARCHE_CONNECTOR_NOTION_MCP_URL || MCP_SERVER_URLS.notion
-  }
-
-  return typeof config.endpoint === 'string' ? config.endpoint : null
-}
-
-function buildMcpInitializeBody() {
-  return {
-    jsonrpc: '2.0',
-    id: 'arche-connector-test',
-    method: 'initialize',
-    params: {
-      protocolVersion: MCP_PROTOCOL_VERSION,
-      clientInfo: {
-        name: 'arche-web',
-        version: '0.1.0',
-      },
-      capabilities: {},
-    },
-  }
-}
-
-async function testRemoteMcpConnection(input: {
-  label: 'Linear' | 'Notion' | 'Custom'
-  url: string
-  token: string
-}): Promise<TestConnectionResult> {
-  const response = await fetchWithTimeout(input.url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${input.token}`,
-      'Content-Type': 'application/json',
-      Accept: 'application/json, text/event-stream',
-    },
-    body: JSON.stringify(buildMcpInitializeBody()),
-  })
-
-  if (response.status === 401 || response.status === 403) {
-    return {
-      ok: false,
-      tested: true,
-      message: `${input.label} MCP authentication failed (${response.status}). Reconnect OAuth and retry.`,
-    }
-  }
-
-  if (!response.ok) {
-    return {
-      ok: false,
-      tested: true,
-      message: `${input.label} MCP test failed (${response.status})`,
-    }
-  }
-
-  return {
-    ok: true,
-    tested: true,
-    message: `${input.label} MCP connection verified.`,
-  }
-}
-
-async function testConnection(
-  type: ConnectorType,
-  config: Record<string, unknown>,
-  options: { customEndpointUrl?: URL } = {}
-): Promise<TestConnectionResult> {
-  try {
-    switch (type) {
-      case 'notion': {
-        if (isOAuthPending(type, config)) {
-          return {
-            ok: false,
-            tested: false,
-            message: 'Complete OAuth from the dashboard before testing this connector.',
-          }
-        }
-
-        if (getConnectorAuthType(config) === 'oauth') {
-          const token = getAccessToken(type, config)
-          if (!token) return { ok: false, tested: false, message: 'Missing OAuth access token' }
-
-          return testRemoteMcpConnection({
-            label: 'Notion',
-            url: getMcpServerUrl(type, config),
-            token,
-          })
-        }
-
-        const token = getAccessToken(type, config)
-        if (!token) return { ok: false, tested: false, message: 'Missing API key' }
-
-        const response = await fetchWithTimeout('https://api.notion.com/v1/users/me', {
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Notion-Version': '2022-06-28',
-          },
-        })
-        if (!response.ok) {
-          return { ok: false, tested: true, message: `Notion test failed (${response.status})` }
-        }
-        return { ok: true, tested: true, message: 'Notion connection verified.' }
-      }
-
-      case 'linear': {
-        if (isOAuthPending(type, config)) {
-          return {
-            ok: false,
-            tested: false,
-            message: 'Complete OAuth from the dashboard before testing this connector.',
-          }
-        }
-
-        const token = getAccessToken(type, config)
-        if (!token) return { ok: false, tested: false, message: 'Missing API key' }
-
-        return testRemoteMcpConnection({
-          label: 'Linear',
-          url: getMcpServerUrl(type, config),
-          token,
-        })
-      }
-
-      case 'custom': {
-        if (isOAuthPending(type, config)) {
-          return {
-            ok: false,
-            tested: false,
-            message: 'Complete OAuth from the dashboard before testing this connector.',
-          }
-        }
-
-        if (getConnectorAuthType(config) === 'oauth') {
-          const token = getAccessToken(type, config)
-          if (!token) return { ok: false, tested: false, message: 'Missing OAuth access token' }
-
-          const mcpUrl = options.customEndpointUrl?.toString() ?? getMcpServerUrl(type, config)
-          if (!mcpUrl) {
-            return { ok: false, tested: false, message: 'Missing endpoint' }
-          }
-
-          return testRemoteMcpConnection({
-            label: 'Custom',
-            url: mcpUrl,
-            token,
-          })
-        }
-
-        const endpoint = typeof config.endpoint === 'string' ? config.endpoint : ''
-        if (!endpoint) {
-          return { ok: false, tested: false, message: 'Missing endpoint' }
-        }
-
-        const headers: Record<string, string> = {
-          Accept: 'application/json',
-        }
-        const auth = typeof config.auth === 'string' ? config.auth : ''
-        if (auth) {
-          headers.Authorization = `Bearer ${auth}`
-        }
-
-        const response = await fetchWithTimeout(options.customEndpointUrl ?? endpoint, {
-          method: 'GET',
-          headers,
-          redirect: 'manual',
-        })
-
-        if (!response.ok) {
-          return { ok: false, tested: true, message: `Custom endpoint test failed (${response.status})` }
-        }
-        return { ok: true, tested: true, message: 'Custom endpoint reachable.' }
-      }
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Connection test failed'
-    return { ok: false, tested: true, message }
-  }
-
-  return { ok: false, tested: false, message: `Unknown connector type: ${type}` }
-}
 
 /**
  * POST /api/u/[slug]/connectors/[id]/test
@@ -302,9 +68,7 @@ export const POST = withAuth<TestConnectionResult | { error: string }, { slug: s
 
     let customEndpointUrl: URL | undefined
     if (connector.type === 'custom') {
-      const endpoint = getConnectorAuthType(config) === 'oauth'
-        ? getMcpServerUrl(connector.type, config) ?? ''
-        : (typeof config.endpoint === 'string' ? config.endpoint : '')
+      const endpoint = getCustomConnectorTestEndpoint(config) ?? ''
 
       if (endpoint) {
         const endpointValidation = await validateConnectorTestEndpoint(endpoint)
@@ -315,7 +79,7 @@ export const POST = withAuth<TestConnectionResult | { error: string }, { slug: s
       }
     }
 
-    const result = await testConnection(connector.type, config, { customEndpointUrl })
+    const result = await testConnectorConnection(connector.type, config, { customEndpointUrl })
 
     if (result.ok && getConnectorAuthType(config) === 'oauth') {
       const message = result.message ?? 'Connection verified.'

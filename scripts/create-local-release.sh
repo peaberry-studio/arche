@@ -305,6 +305,15 @@ prepare_runtime_binaries_for_arch() {
 sync_web_dependencies_for_arch() {
   local arch="$1"
 
+  printf '==> Refreshing web dependencies for %s\n' "$arch"
+  (
+    cd "$WEB_DIR"
+    PATH="$DESKTOP_DIR/bin:$PATH" \
+      npm_config_arch="$arch" \
+      npm_config_target_arch="$arch" \
+      pnpm install --frozen-lockfile
+  )
+
   printf '==> Refreshing web native dependencies for %s\n' "$arch"
   (
     cd "$WEB_DIR"

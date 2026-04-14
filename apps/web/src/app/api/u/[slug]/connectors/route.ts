@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auditEvent } from '@/lib/auth'
 import { decryptConfig, encryptConfig } from '@/lib/connectors/crypto'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
+import { isSingleInstanceConnectorType } from '@/lib/connectors/types'
 import {
   validateConnectorType,
   validateConnectorConfig,
@@ -177,13 +178,13 @@ export const POST = withAuth<ConnectorResponse | { error: string; message?: stri
       return NextResponse.json(
         {
           error: 'invalid_config',
-          message: `Missing required fields: ${configValidation.missing?.join(', ')}`,
+          message: configValidation.message ?? `Missing required fields: ${configValidation.missing?.join(', ')}`,
         },
         { status: 400 }
       )
     }
 
-    if (type === 'linear' || type === 'notion') {
+    if (isSingleInstanceConnectorType(type)) {
       const existing = await connectorService.findFirstByUserIdAndType(targetUser.id, type)
 
       if (existing) {

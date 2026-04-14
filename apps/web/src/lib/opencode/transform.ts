@@ -1,10 +1,44 @@
 import type { MessagePart, ToolState } from "@/lib/opencode/types";
+import { WORKSPACE_ATTACHMENTS_DIR } from "@/lib/workspace-attachments";
 
 /**
  * Internal-only parts that should be completely hidden.
  * These are OpenCode internals that have no user-facing value.
  */
 const HIDDEN_PART_TYPES = new Set(["snapshot", "compaction"]);
+
+function resolveFilePartPath(sourcePath: string | undefined, fileUrl: string | undefined): string | undefined {
+  if (sourcePath) {
+    return sourcePath;
+  }
+
+  if (!fileUrl?.startsWith("file://")) {
+    return undefined;
+  }
+
+  const candidates: string[] = [];
+  try {
+    candidates.push(decodeURIComponent(new URL(fileUrl).pathname));
+  } catch {
+    // Fall back to the raw URL string below.
+  }
+  candidates.push(fileUrl.slice("file://".length));
+
+  for (const rawCandidate of candidates) {
+    const candidate = rawCandidate.replace(/\\/g, "/");
+    if (candidate.startsWith("/workspace/")) {
+      return candidate.slice("/workspace/".length);
+    }
+
+    const attachmentMarker = `/${WORKSPACE_ATTACHMENTS_DIR}/`;
+    const attachmentIndex = candidate.indexOf(attachmentMarker);
+    if (attachmentIndex >= 0) {
+      return candidate.slice(attachmentIndex + 1);
+    }
+  }
+
+  return undefined;
+}
 
 function normalizeSerializableValue(value: unknown): unknown {
   if (typeof value === "bigint") {
@@ -116,16 +150,7 @@ export function transformParts(parts: unknown[]): MessagePart[] {
               : undefined;
           const fileUrl = part.url ? String(part.url) : undefined;
 
-          let resolvedPath = sourcePath;
-          if (!resolvedPath && fileUrl?.startsWith("file:///workspace/")) {
-            try {
-              resolvedPath = decodeURIComponent(
-                fileUrl.slice("file:///workspace/".length)
-              );
-            } catch {
-              resolvedPath = fileUrl.slice("file:///workspace/".length);
-            }
-          }
+          const resolvedPath = resolveFilePartPath(sourcePath, fileUrl);
           return {
             type: "file" as const,
             id: partId,

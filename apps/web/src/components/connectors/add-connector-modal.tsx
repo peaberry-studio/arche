@@ -14,7 +14,14 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useWorkspaceTheme } from '@/contexts/workspace-theme-context'
-import { CONNECTOR_TYPES, OAUTH_CONNECTOR_TYPES, type ConnectorAuthType, type ConnectorType } from '@/lib/connectors/types'
+import {
+  CONNECTOR_TYPES,
+  isSingleInstanceConnectorType,
+  OAUTH_CONNECTOR_TYPES,
+  type ConnectorAuthType,
+  type ConnectorType,
+} from '@/lib/connectors/types'
+import { normalizeZendeskSubdomain } from '@/lib/connectors/zendesk-shared'
 import { cn } from '@/lib/utils'
 
 type AddConnectorModalProps = {
@@ -28,6 +35,7 @@ type AddConnectorModalProps = {
 const CONNECTOR_TYPE_OPTIONS: { type: ConnectorType; label: string; description: string }[] = [
   { type: 'linear', label: 'Linear', description: 'Official Linear MCP integration.' },
   { type: 'notion', label: 'Notion', description: 'Official Notion MCP integration.' },
+  { type: 'zendesk', label: 'Zendesk', description: 'Zendesk Ticketing API via Arche MCP.' },
   { type: 'custom', label: 'Custom', description: 'Any compatible remote MCP endpoint.' },
 ]
 
@@ -39,6 +47,8 @@ function buildDefaultName(type: ConnectorType): string {
       return 'Linear'
     case 'notion':
       return 'Notion'
+    case 'zendesk':
+      return 'Zendesk'
     case 'custom':
       return 'Custom Connector'
   }
@@ -63,11 +73,11 @@ function hasValidHeaders(headersText: string): boolean {
 }
 
 function supportsOAuth(type: ConnectorType): boolean {
-  return OAUTH_CONNECTOR_TYPES.includes(type)
+  return OAUTH_CONNECTOR_TYPES.includes(type as (typeof OAUTH_CONNECTOR_TYPES)[number])
 }
 
 function getDefaultAuthType(type: ConnectorType): ConnectorAuthType {
-  return type === 'custom' ? 'manual' : 'oauth'
+  return type === 'linear' || type === 'notion' ? 'oauth' : 'manual'
 }
 
 export function AddConnectorModal({
@@ -86,6 +96,8 @@ export function AddConnectorModal({
   const [name, setName] = useState('')
 
   const [apiKey, setApiKey] = useState('')
+  const [zendeskSubdomain, setZendeskSubdomain] = useState('')
+  const [zendeskEmail, setZendeskEmail] = useState('')
   const [endpoint, setEndpoint] = useState('')
   const [auth, setAuth] = useState('')
   const [headersText, setHeadersText] = useState('')
@@ -99,12 +111,12 @@ export function AddConnectorModal({
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const isOfficialType = selectedType === 'linear' || selectedType === 'notion'
+  const usesGeneratedName = selectedType !== 'custom'
 
   const availableTypeOptions = useMemo(
     () =>
       CONNECTOR_TYPE_OPTIONS.filter((option) => {
-        if (option.type === 'custom') return true
+        if (!isSingleInstanceConnectorType(option.type)) return true
         return !existingConnectors.some((connector) => connector.type === option.type)
       }),
     [existingConnectors]
@@ -115,6 +127,8 @@ export function AddConnectorModal({
     setAuthType(getDefaultAuthType(DEFAULT_TYPE))
     setName('')
     setApiKey('')
+    setZendeskSubdomain('')
+    setZendeskEmail('')
     setEndpoint('')
     setAuth('')
     setHeadersText('')
@@ -165,6 +179,29 @@ export function AddConnectorModal({
         return { ok: false, message: 'API key is required.' }
       }
       return { ok: true, value: { authType: 'manual', apiKey: apiKey.trim() } }
+    }
+
+    if (selectedType === 'zendesk') {
+      if (!zendeskSubdomain.trim()) {
+        return { ok: false, message: 'Zendesk subdomain is required.' }
+      }
+
+      if (!zendeskEmail.trim()) {
+        return { ok: false, message: 'Zendesk agent email is required.' }
+      }
+
+      if (!apiKey.trim()) {
+        return { ok: false, message: 'Zendesk API token is required.' }
+      }
+
+      return {
+          ok: true,
+          value: {
+            subdomain: normalizeZendeskSubdomain(zendeskSubdomain),
+            email: zendeskEmail.trim(),
+            apiToken: apiKey.trim(),
+          },
+      }
     }
 
     if (selectedType === 'custom') {
@@ -224,6 +261,9 @@ export function AddConnectorModal({
 
   function isConfigurationComplete(): boolean {
     if (selectedType === 'custom' && !name.trim()) return false
+    if (selectedType === 'zendesk') {
+      return Boolean(zendeskSubdomain.trim() && zendeskEmail.trim() && apiKey.trim())
+    }
     if (selectedType === 'custom') {
       if (authType === 'oauth') {
         return Boolean(endpoint.trim())
@@ -240,7 +280,7 @@ export function AddConnectorModal({
   }
 
   async function handleSave() {
-    const effectiveName = isOfficialType ? buildDefaultName(selectedType) : name.trim()
+    const effectiveName = usesGeneratedName ? buildDefaultName(selectedType) : name.trim()
 
     if (!effectiveName) {
       setError('Name is required.')
@@ -337,7 +377,7 @@ export function AddConnectorModal({
           </div>
           {availableTypeOptions.length === 1 && availableTypeOptions[0]?.type === 'custom' ? (
             <p className="text-xs text-muted-foreground">
-              Linear and Notion are already configured.
+              The single-instance connectors are already configured.
             </p>
           ) : null}
         </fieldset>
@@ -348,10 +388,10 @@ export function AddConnectorModal({
         {/* --- Configuration fields --- */}
         <div className="space-y-5">
           {/* Name */}
-          {selectedType === 'custom' ? (
-            <div className="space-y-2">
-              <Label htmlFor="connector-name" className="text-foreground">Name</Label>
-              <Input
+           {selectedType === 'custom' ? (
+             <div className="space-y-2">
+               <Label htmlFor="connector-name" className="text-foreground">Name</Label>
+               <Input
                 id="connector-name"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
@@ -406,6 +446,51 @@ export function AddConnectorModal({
                 placeholder="Paste your API key"
               />
             </div>
+          ) : null}
+
+          {selectedType === 'zendesk' ? (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="connector-zendesk-subdomain" className="text-foreground">
+                  Zendesk subdomain
+                </Label>
+                <Input
+                  id="connector-zendesk-subdomain"
+                  value={zendeskSubdomain}
+                  onChange={(event) => setZendeskSubdomain(event.target.value)}
+                  placeholder="acme"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Enter the account subdomain, for example <code>acme</code> for <code>acme.zendesk.com</code>.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="connector-zendesk-email" className="text-foreground">
+                  Agent email
+                </Label>
+                <Input
+                  id="connector-zendesk-email"
+                  type="email"
+                  value={zendeskEmail}
+                  onChange={(event) => setZendeskEmail(event.target.value)}
+                  placeholder="agent@example.com"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="connector-zendesk-api-token" className="text-foreground">
+                  API token
+                </Label>
+                <Input
+                  id="connector-zendesk-api-token"
+                  type="password"
+                  value={apiKey}
+                  onChange={(event) => setApiKey(event.target.value)}
+                  placeholder="Paste your Zendesk API token"
+                />
+              </div>
+            </>
           ) : null}
 
           {/* Custom connector fields */}

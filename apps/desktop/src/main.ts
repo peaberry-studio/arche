@@ -24,6 +24,7 @@ import {
   getDesktopRuntimeDataDir,
   getDesktopSecretsDir,
   getDesktopUserDataDir,
+  getDesktopWorkspaceAttachmentsDir,
   getDesktopWorkspaceDir,
 } from './vault-layout'
 import { LOCAL_DESKTOP_USER_SLUG } from './vault-layout-constants'
@@ -325,11 +326,13 @@ function installTokenHeaderInjection(): void {
 }
 
 function createWindow(): void {
+  const isLauncher = currentVault === null
+
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    minWidth: 800,
-    minHeight: 600,
+    width: isLauncher ? 680 : 1280,
+    height: isLauncher ? 680 : 800,
+    minWidth: isLauncher ? 560 : 800,
+    minHeight: isLauncher ? 560 : 600,
     title: getCurrentVaultTitle(),
     backgroundColor: '#f7f4ef',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : undefined,
@@ -473,6 +476,24 @@ function quitLauncherProcess(): DesktopApiResult {
   return { ok: true }
 }
 
+async function revealAttachmentsDirectory(): Promise<DesktopApiResult> {
+  if (!currentVault) {
+    return { ok: false, error: 'vault_not_open' }
+  }
+
+  const attachmentsDir = getDesktopWorkspaceAttachmentsDir(currentVault.path)
+  if (!existsSync(attachmentsDir)) {
+    mkdirSync(attachmentsDir, { recursive: true })
+  }
+
+  const error = await shell.openPath(attachmentsDir)
+  if (error) {
+    return { ok: false, error: 'reveal_attachments_failed' }
+  }
+
+  return { ok: true }
+}
+
 async function pickDirectory(options: {
   title: string
   defaultPath?: string | null
@@ -530,6 +551,7 @@ function registerDesktopIpcHandlers(): void {
   ipcMain.handle('desktop:open-vault', async (_event, vaultPath: string) => launchVaultProcess(vaultPath))
   ipcMain.handle('desktop:open-vault-launcher', async () => openVaultLauncherProcess())
   ipcMain.handle('desktop:quit-launcher-process', async () => quitLauncherProcess())
+  ipcMain.handle('desktop:reveal-attachments-directory', async () => revealAttachmentsDirectory())
 }
 
 function resolveStartupVault(): DesktopVault | null {
