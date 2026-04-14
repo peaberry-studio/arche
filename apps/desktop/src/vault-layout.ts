@@ -33,6 +33,10 @@ export function getDesktopWorkspaceDir(vaultPath: string): string {
   return join(vaultPath, DESKTOP_WORKSPACE_DIR_NAME)
 }
 
+export function getDesktopWorkspaceAttachmentsDir(vaultPath: string): string {
+  return join(getDesktopWorkspaceDir(vaultPath), '.arche', 'attachments')
+}
+
 export function getDesktopSecretsDir(vaultPath: string): string {
   return join(vaultPath, DESKTOP_SECRETS_DIR_NAME)
 }

@@ -78,4 +78,51 @@ describe("SessionsPanel", () => {
     expect(timestamp.className).toContain("group-hover/session:opacity-100");
     expect(timestamp.className).toContain("transition-all");
   });
+
+  it("shows autopilot sessions with task context and matches them in search", () => {
+    render(
+      <SessionsPanel
+        sessions={[
+          {
+            id: "autopilot-session",
+            title: "Autopilot | Daily summary",
+            status: "idle",
+            updatedAt: "now",
+            updatedAtRaw: 4,
+            autopilot: {
+              runId: "run-1",
+              taskId: "task-1",
+              taskName: "Daily summary",
+              trigger: "schedule",
+            },
+          },
+        ]}
+        activeSessionId={"autopilot-session"}
+        unseenCompletedSessions={new Set<string>()}
+        onSelectSession={vi.fn()}
+        onCreateSession={vi.fn()}
+        kind="tasks"
+        query="daily summary"
+      />
+    );
+
+    expect(screen.getByText("Daily summary")).toBeTruthy();
+    expect(screen.getByText("Autopilot | Daily summary")).toBeTruthy();
+  });
+
+  it("hides chat creation affordances in tasks mode", () => {
+    render(
+      <SessionsPanel
+        sessions={[]}
+        activeSessionId={null}
+        unseenCompletedSessions={new Set<string>()}
+        onSelectSession={vi.fn()}
+        onCreateSession={vi.fn()}
+        kind="tasks"
+      />
+    );
+
+    expect(screen.getByText("No tasks yet")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "New chat" })).toBeNull();
+  });
 });

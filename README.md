@@ -55,6 +55,68 @@ For more details, see [`apps/desktop/README.md`](apps/desktop/README.md).
 
 Arche can be deployed to your own server so your entire team can use it.
 
+### One-Click DigitalOcean Install
+
+For the narrow-path setup, there is now a one-click installer that creates a fresh DigitalOcean Droplet, configures Docker, deploys the latest Arche images, auto-generates secrets, and exposes the app on a `nip.io` hostname.
+
+```bash
+curl -fsSL https://arche.peaberry.studio/install | bash
+```
+
+You can also pass inputs up front:
+
+```bash
+curl -fsSL https://arche.peaberry.studio/install | bash -s -- --token "$DIGITALOCEAN_TOKEN" --email admin@example.com --version v1.2.3
+```
+
+The installer prompts for:
+
+- DigitalOcean API token
+- Email address for the initial admin account and Let's Encrypt
+
+You do not provide server, database, or admin passwords. The Go deployer generates a local SSH keypair for the deployment, the Droplet generates the runtime secrets during bootstrap, and `archectl` fetches the recovery details back over pinned SSH into `~/.arche/deployments/`.
+
+The shim installs `archectl` into `/usr/local/bin` when that directory is writable, otherwise into `~/.local/bin`. After installation, use the same binary for lifecycle commands:
+
+```bash
+archectl install --token "$DIGITALOCEAN_TOKEN" --email admin@example.com --version v1.2.3
+archectl update --token "$DIGITALOCEAN_TOKEN" --version v1.2.4
+archectl destroy --token "$DIGITALOCEAN_TOKEN"
+```
+
+By default, `archectl` keeps output minimal and shows only lifecycle steps plus in-place progress. Add `-vv` or `--verbose` to show SSH/bootstrap logs.
+
+If the local state file is missing, recovery flags are available:
+
+```bash
+archectl update --token "$DIGITALOCEAN_TOKEN" --version v1.2.4 --ip 203.0.113.10 --ssh-key ~/.arche/deployments/arche-20260410-120000-ssh.pem
+archectl destroy --token "$DIGITALOCEAN_TOKEN" --droplet-id 123456789 --firewall-id firewall-id --yes
+```
+
+Legacy password-based recovery remains available for older deployments with `--ssh-password`.
+
+Assumptions:
+
+- DigitalOcean only
+- The shell entrypoint downloads `https://github.com/peaberry-studio/arche/releases/latest/download/archectl_<os>_<arch>` for macOS/Linux on amd64/arm64
+- Versioned images only: `ghcr.io/peaberry-studio/arche/web:<version>` and `ghcr.io/peaberry-studio/arche/workspace:<version>`
+- Public URL is derived automatically as `https://arche-<droplet-ip>.nip.io`
+- Local deployment state is stored at `~/.arche/deployments/current.json`
+
+Operational caveats:
+
+- The default public URL depends on the third-party `nip.io` DNS service. If `nip.io` is unavailable, point your own DNS name at the Droplet before relying on the deployment.
+- `archectl destroy` permanently removes the Droplet and attached data volumes. Create a Droplet snapshot or other backup before destroying a deployment you may need to recover.
+
+To test installer changes locally before publishing a GitHub release, build the matching binary into `/tmp`, point the shim at that directory, and run template validation:
+
+```bash
+cd infra/one-click
+GOOS="$(go env GOOS)" GOARCH="$(go env GOARCH)" go build -o "/tmp/archectl_$(go env GOOS)_$(go env GOARCH)" .
+cd ../..
+ARCHECTL_RELEASE_BASE_URL=file:///tmp bash install.sh --validate-only
+```
+
 ### Deploy to a VPS (Ansible)
 
 One-command deployment with automatic TLS, database provisioning, and secrets management.

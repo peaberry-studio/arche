@@ -3,6 +3,10 @@ const LAYOUT_COOKIE_NAME_PREFIX = 'arche-workspace-layout'
 const LEFT_PANEL_COOKIE_NAME_PREFIX = 'arche-workspace-left-panel'
 const COOKIE_MAX_AGE_SECONDS = 31536000
 
+export const LEFT_PANEL_SECTION_IDS = ['chats', 'knowledge', 'experts', 'skills'] as const
+
+export type LeftPanelSectionId = (typeof LEFT_PANEL_SECTION_IDS)[number]
+
 export type StoredLayoutState = {
   leftWidth?: number
   rightWidth?: number
@@ -11,35 +15,76 @@ export type StoredLayoutState = {
   rightTab?: 'preview' | 'review'
 }
 
-export type StoredLeftPanelState = {
-  topRatio?: number
+type LegacyStoredLeftPanelState = {
+  bottomCollapsed?: boolean
+  midCollapsed?: boolean
   midRatio?: number
   topCollapsed?: boolean
-  midCollapsed?: boolean
-  bottomCollapsed?: boolean
+  topRatio?: number
 }
+
+export type StoredLeftPanelState = {
+  collapsed?: Partial<Record<LeftPanelSectionId, boolean>>
+  ratios?: Partial<Record<LeftPanelSectionId, number>>
+} & LegacyStoredLeftPanelState
 
 export type NormalizedLeftPanelState = {
-  topRatio: number
-  midRatio: number
-  topCollapsed: boolean
-  midCollapsed: boolean
-  bottomCollapsed: boolean
+  collapsed: Record<LeftPanelSectionId, boolean>
+  ratios: Record<LeftPanelSectionId, number>
 }
 
-const DEFAULT_TOP_RATIO = 3 / 8
-const DEFAULT_MID_RATIO = 3 / 8
+const DEFAULT_LEFT_PANEL_RATIOS: Record<LeftPanelSectionId, number> = {
+  chats: 0.32,
+  knowledge: 0.32,
+  experts: 0.18,
+  skills: 0.18,
+}
+
+const DEFAULT_LEFT_PANEL_COLLAPSED: Record<LeftPanelSectionId, boolean> = {
+  chats: false,
+  knowledge: false,
+  experts: false,
+  skills: false,
+}
 
 export const DEFAULT_LEFT_PANEL_STATE: NormalizedLeftPanelState = {
-  topRatio: DEFAULT_TOP_RATIO,
-  midRatio: DEFAULT_MID_RATIO,
-  topCollapsed: false,
-  midCollapsed: false,
-  bottomCollapsed: false,
+  ratios: DEFAULT_LEFT_PANEL_RATIOS,
+  collapsed: DEFAULT_LEFT_PANEL_COLLAPSED,
 }
 
 function isValidRatio(value: unknown): value is number {
   return typeof value === 'number' && isFinite(value) && value > 0 && value < 1
+}
+
+function isSectionId(value: string): value is LeftPanelSectionId {
+  return LEFT_PANEL_SECTION_IDS.includes(value as LeftPanelSectionId)
+}
+
+function normalizeRatios(partial: Partial<Record<LeftPanelSectionId, number>>): Record<LeftPanelSectionId, number> {
+  const rawRatios = Object.fromEntries(
+    LEFT_PANEL_SECTION_IDS.map((sectionId) => [
+      sectionId,
+      isValidRatio(partial[sectionId]) ? partial[sectionId] : DEFAULT_LEFT_PANEL_RATIOS[sectionId],
+    ])
+  ) as Record<LeftPanelSectionId, number>
+
+  const total = Object.values(rawRatios).reduce((sum, value) => sum + value, 0)
+  if (!isFinite(total) || total <= 0) {
+    return { ...DEFAULT_LEFT_PANEL_RATIOS }
+  }
+
+  return Object.fromEntries(
+    LEFT_PANEL_SECTION_IDS.map((sectionId) => [sectionId, rawRatios[sectionId] / total])
+  ) as Record<LeftPanelSectionId, number>
+}
+
+function normalizeCollapsed(partial: Partial<Record<LeftPanelSectionId, boolean>>): Record<LeftPanelSectionId, boolean> {
+  return Object.fromEntries(
+    LEFT_PANEL_SECTION_IDS.map((sectionId) => [
+      sectionId,
+      typeof partial[sectionId] === 'boolean' ? partial[sectionId] : DEFAULT_LEFT_PANEL_COLLAPSED[sectionId],
+    ])
+  ) as Record<LeftPanelSectionId, boolean>
 }
 
 function readLocalStorageValue(storageKey: string): string | null {
@@ -84,6 +129,27 @@ function writeCookieValue(cookieName: string, value: string): void {
   document.cookie = `${cookieName}=${encodeURIComponent(value)}; Path=/; Max-Age=${COOKIE_MAX_AGE_SECONDS}; SameSite=Lax${secure}`
 }
 
+function normalizeLegacyState(state: LegacyStoredLeftPanelState): NormalizedLeftPanelState {
+  const topRatio = isValidRatio(state.topRatio) ? state.topRatio : DEFAULT_LEFT_PANEL_RATIOS.chats
+  const midRatio = isValidRatio(state.midRatio) ? state.midRatio : DEFAULT_LEFT_PANEL_RATIOS.knowledge
+  const bottomShare = Math.max(0.1, 1 - topRatio - midRatio) / 2
+
+  return {
+    ratios: normalizeRatios({
+      chats: topRatio,
+      knowledge: midRatio,
+      experts: bottomShare,
+      skills: bottomShare,
+    }),
+    collapsed: normalizeCollapsed({
+      chats: typeof state.topCollapsed === 'boolean' ? state.topCollapsed : false,
+      knowledge: typeof state.midCollapsed === 'boolean' ? state.midCollapsed : false,
+      experts: typeof state.bottomCollapsed === 'boolean' ? state.bottomCollapsed : false,
+      skills: typeof state.bottomCollapsed === 'boolean' ? state.bottomCollapsed : false,
+    }),
+  }
+}
+
 export function getWorkspaceLayoutStorageKey(scope: string): string {
   return `${STORAGE_KEY_PREFIX}.${scope}.layout`
 }
@@ -121,13 +187,25 @@ export function normalizeLeftPanelState(
 ): NormalizedLeftPanelState {
   if (!state) return DEFAULT_LEFT_PANEL_STATE
 
-  return {
-    topRatio: isValidRatio(state.topRatio) ? state.topRatio : DEFAULT_TOP_RATIO,
-    midRatio: isValidRatio(state.midRatio) ? state.midRatio : DEFAULT_MID_RATIO,
-    topCollapsed: typeof state.topCollapsed === 'boolean' ? state.topCollapsed : false,
-    midCollapsed: typeof state.midCollapsed === 'boolean' ? state.midCollapsed : false,
-    bottomCollapsed: typeof state.bottomCollapsed === 'boolean' ? state.bottomCollapsed : false,
+  if ('ratios' in state || 'collapsed' in state) {
+    const ratios = state.ratios && typeof state.ratios === 'object' && !Array.isArray(state.ratios)
+      ? Object.fromEntries(
+          Object.entries(state.ratios).filter(([key]) => isSectionId(key))
+        ) as Partial<Record<LeftPanelSectionId, number>>
+      : {}
+    const collapsed = state.collapsed && typeof state.collapsed === 'object' && !Array.isArray(state.collapsed)
+      ? Object.fromEntries(
+          Object.entries(state.collapsed).filter(([key]) => isSectionId(key))
+        ) as Partial<Record<LeftPanelSectionId, boolean>>
+      : {}
+
+    return {
+      ratios: normalizeRatios(ratios),
+      collapsed: normalizeCollapsed(collapsed),
+    }
   }
+
+  return normalizeLegacyState(state)
 }
 
 export function readWorkspacePanelState<T>(

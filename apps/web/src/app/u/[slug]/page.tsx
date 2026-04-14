@@ -14,6 +14,7 @@ import { getKickstartStatus } from '@/kickstart/status'
 import type { KickstartStatus } from '@/kickstart/types'
 import { getAgentSummaries, parseCommonWorkspaceConfig } from '@/lib/workspace-config'
 import { getCurrentDesktopVault } from '@/lib/runtime/desktop/current-vault'
+import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { isDesktop } from '@/lib/runtime/mode'
 
 function formatCommitTime(value: string): string {
@@ -109,13 +110,13 @@ export default async function WorkspacePage({
             </p>
 
             {setupNotice && (
-              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-900">
+              <div className="rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning-foreground">
                 {setupNotice.text}
               </div>
             )}
 
             {kickstartStatus === 'setup_in_progress' && (
-              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-900">
+              <div className="rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning-foreground">
                 Setup is currently running. You can open the wizard to monitor progress,
                 but apply may be temporarily locked.
               </div>
@@ -157,6 +158,7 @@ export default async function WorkspacePage({
 
   const recentUpdatesResult = await listRecentKbFileUpdates(10)
   const recentUpdates = recentUpdatesResult.ok ? recentUpdatesResult.updates : []
+  const caps = getRuntimeCapabilities()
 
   return (
     <main className="relative mx-auto max-w-6xl overflow-hidden px-6 py-6">
@@ -165,7 +167,7 @@ export default async function WorkspacePage({
           className={
             setupNotice.tone === 'success'
               ? 'mb-6 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-800'
-              : 'mb-6 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-900'
+              : 'mb-6 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning-foreground'
           }
         >
           {setupNotice.text}
@@ -256,6 +258,23 @@ export default async function WorkspacePage({
             </div>
             <ConnectorsWidget slug={slug} />
           </section>
+
+          {caps.autopilot ? (
+            <section>
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-sm font-medium text-muted-foreground">Autopilot</h2>
+                <Link
+                  href={`/u/${slug}/autopilot`}
+                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Open
+                </Link>
+              </div>
+              <div className="glass-panel rounded-lg px-4 py-4 text-sm text-muted-foreground">
+                Schedule recurring prompts that run in the background with cron and timezone-aware execution.
+              </div>
+            </section>
+          ) : null}
         </div>
       </div>
     </main>

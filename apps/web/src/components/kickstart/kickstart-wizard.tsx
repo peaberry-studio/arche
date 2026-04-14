@@ -1,6 +1,6 @@
 'use client'
 
-import { type ChangeEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { type ChangeEvent, Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import {
   CaretRight,
   CheckCircle,
@@ -283,6 +283,7 @@ export function KickstartWizard({
   submittingLabel = 'Applying',
 }: KickstartWizardProps) {
   const [step, setStep] = useState(1)
+  const wizardTopRef = useRef<HTMLDivElement>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isApplying, setIsApplying] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -353,6 +354,20 @@ export function KickstartWizard({
       cancelled = true
     }
   }, [initialTemplateId, loadCatalog])
+
+  useEffect(() => {
+    const scroller = wizardTopRef.current?.closest('main')
+    if (!(scroller instanceof HTMLElement)) {
+      return
+    }
+
+    if (typeof scroller.scrollTo === 'function') {
+      scroller.scrollTo({ top: 0, behavior: 'smooth' })
+      return
+    }
+
+    scroller.scrollTop = 0
+  }, [step])
 
   const selectedTemplate = useMemo(() => {
     if (selectedTemplateId === IMPORT_TEMPLATE_ID) {
@@ -595,14 +610,14 @@ export function KickstartWizard({
   }
 
   return (
-    <div className="space-y-6">
+    <div ref={wizardTopRef} className="space-y-6">
       {initialStatus === 'setup_in_progress' && (
         <div className="glass-panel rounded-2xl border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-900">
           Another setup operation is currently running. You can still review this wizard, but apply may return a conflict until the current run finishes.
         </div>
       )}
 
-      <section className={cn('rounded-3xl p-6 sm:p-8', !embedded && 'glass-panel')}>
+      <section className={cn(embedded ? 'py-6' : 'rounded-3xl p-6 sm:p-8 glass-panel')}>
         <div className="mb-8 flex items-start">
           {STEPS.map((label, index) => {
             const itemStep = index + 1
@@ -610,8 +625,20 @@ export function KickstartWizard({
             const active = step === itemStep
 
             return (
-              <div key={label} className="flex flex-1 items-start">
-                <div className="flex flex-col items-center">
+              <Fragment key={label}>
+                {index > 0 && (
+                  <div
+                    className={cn(
+                      'mt-4 h-px flex-1',
+                      step > itemStep
+                        ? 'bg-emerald-500/30'
+                        : step > index
+                          ? 'bg-primary/30'
+                          : 'bg-border/60'
+                    )}
+                  />
+                )}
+                <div className="flex w-20 shrink-0 flex-col items-center">
                   <div
                     className={cn(
                       'flex h-8 w-8 items-center justify-center rounded-full text-xs font-medium transition-colors',
@@ -635,17 +662,7 @@ export function KickstartWizard({
                     {label}
                   </p>
                 </div>
-                {index < STEPS.length - 1 && (
-                  <div className={cn(
-                    'mt-4 mx-2 h-px flex-1',
-                    step > itemStep + 1
-                      ? 'bg-emerald-500/30'
-                      : step > itemStep
-                        ? 'bg-primary/30'
-                        : 'bg-border/60'
-                  )} />
-                )}
-              </div>
+              </Fragment>
             )
           })}
         </div>

@@ -1,4 +1,5 @@
 import { getUserDataHostPath, ensureUserDirectory } from "@/lib/user-data";
+import type { SkillBundle } from '@/lib/skills/types'
 import {
   getContainerSocketPath,
   getContainerProxyUrl,
@@ -54,6 +55,7 @@ export async function createContainer(
   password: string,
   opencodeConfigContent?: string,
   agentsMd?: string,
+  skills?: SkillBundle[],
   gitAuthor?: { name: string; email?: string }
 ) {
   const docker = await getContainerClient();
@@ -96,7 +98,7 @@ export async function createContainer(
   // Persist runtime files in host user-data directory.
   // We mount files individually into /tmp inside the container so the workspace
   // can remain empty during init-workspace git bootstrap.
-  const { chmod, writeFile } = await importRuntimeModule<typeof import("fs/promises")>("fs/promises");
+  const { chmod, mkdir, rm, writeFile } = await importRuntimeModule<typeof import("fs/promises")>("fs/promises");
   const { join } = await importRuntimeModule<typeof import("path")>("path");
   const userDataPath = getUserDataHostPath(slug);
   await ensureUserDirectory(slug);
@@ -110,14 +112,28 @@ export async function createContainer(
     "utf-8"
   );
   await chmod(opencodeConfigPath, 0o644);
-  binds.push(`${opencodeConfigPath}:/tmp/arche-user-data/opencode-config.json:ro`);
 
+  const agentsPath = join(userDataPath, 'AGENTS.md')
   if (agentsMd) {
-    const agentsPath = join(userDataPath, "AGENTS.md");
     await writeFile(agentsPath, agentsMd, "utf-8");
     await chmod(agentsPath, 0o644);
-    binds.push(`${agentsPath}:/tmp/arche-user-data/AGENTS.md:ro`);
+  } else {
+    await rm(agentsPath, { force: true }).catch(() => {})
   }
+
+  const skillsDir = join(userDataPath, 'skills')
+  await rm(skillsDir, { recursive: true, force: true }).catch(() => {})
+  for (const skill of skills ?? []) {
+    const skillDir = join(skillsDir, skill.skill.frontmatter.name)
+    await mkdir(skillDir, { recursive: true })
+    for (const file of skill.files) {
+      const filePath = join(skillDir, file.path)
+      await mkdir(join(skillDir, file.path.split('/').slice(0, -1).join('/')), { recursive: true })
+      await writeFile(filePath, Buffer.from(file.content))
+    }
+  }
+
+  binds.push(`${userDataPath}:/tmp/arche-user-data:ro`);
 
   const env = [
     `OPENCODE_SERVER_PASSWORD=${password}`,
@@ -127,6 +143,7 @@ export async function createContainer(
     // Force HOME/XDG to mounted /home/workspace paths so session data persists.
     `HOME=/home/workspace`,
     `XDG_DATA_HOME=/home/workspace/.local/share`,
+    `XDG_CONFIG_HOME=/home/workspace/.config`,
     `XDG_STATE_HOME=/home/workspace/.local/state`,
     `WORKSPACE_AGENT_PORT=${getWorkspaceAgentPort()}`,
     `WORKSPACE_GIT_AUTHOR_NAME=${gitAuthor?.name ?? slug}`,

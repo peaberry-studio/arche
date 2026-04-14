@@ -42,7 +42,7 @@ export async function syncProviderAccessForInstance(
         providerId: pid,
       })
       if (!credential) continue
-      enabledByProvider.set(pid, { version: credential.version })
+      enabledByProvider.set(pid, { version: Number(credential.version) })
     }
 
     for (const providerId of PROVIDERS) {

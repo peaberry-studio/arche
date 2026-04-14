@@ -22,7 +22,18 @@ vi.mock('dockerode', () => ({
 
 const mockWriteFile = vi.fn().mockResolvedValue(undefined)
 const mockChmod = vi.fn().mockResolvedValue(undefined)
+const mockMkdir = vi.fn().mockResolvedValue(undefined)
+const mockRm = vi.fn().mockResolvedValue(undefined)
 vi.mock('fs/promises', () => ({
+  mkdir: (...args: unknown[]) => mockMkdir(...args),
+  rm: (...args: unknown[]) => mockRm(...args),
+  writeFile: (...args: unknown[]) => mockWriteFile(...args),
+  chmod: (...args: unknown[]) => mockChmod(...args),
+}))
+
+vi.mock('node:fs/promises', () => ({
+  mkdir: (...args: unknown[]) => mockMkdir(...args),
+  rm: (...args: unknown[]) => mockRm(...args),
   writeFile: (...args: unknown[]) => mockWriteFile(...args),
   chmod: (...args: unknown[]) => mockChmod(...args),
 }))
@@ -128,6 +139,7 @@ describe('docker', () => {
           'OPENCODE_CONFIG_DIR=/opt/arche/opencode-config',
           'HOME=/home/workspace',
           'XDG_DATA_HOME=/home/workspace/.local/share',
+          'XDG_CONFIG_HOME=/home/workspace/.config',
           'XDG_STATE_HOME=/home/workspace/.local/state',
           'WORKSPACE_AGENT_PORT=4097',
           'WORKSPACE_GIT_AUTHOR_NAME=user-slug',
@@ -141,7 +153,7 @@ describe('docker', () => {
             'arche-opencode-share-user-slug:/home/workspace/.local/share/opencode',
             'arche-opencode-state-user-slug:/home/workspace/.local/state/opencode',
             '/opt/arche/kb-content:/kb-content',
-            '/opt/arche/users/user-slug/opencode-config.json:/tmp/arche-user-data/opencode-config.json:ro',
+            '/opt/arche/users/user-slug:/tmp/arche-user-data:ro',
           ],
         },
         Labels: {
@@ -205,8 +217,7 @@ describe('docker', () => {
         expect.objectContaining({
           HostConfig: expect.objectContaining({
             Binds: expect.arrayContaining([
-              '/opt/arche/users/user-slug/opencode-config.json:/tmp/arche-user-data/opencode-config.json:ro',
-              '/opt/arche/users/user-slug/AGENTS.md:/tmp/arche-user-data/AGENTS.md:ro',
+              '/opt/arche/users/user-slug:/tmp/arche-user-data:ro',
             ]),
           }),
         })
@@ -222,13 +233,39 @@ describe('docker', () => {
       expect(agentsCalls).toHaveLength(0)
     })
 
+    it('writes runtime skills to the user-data directory when provided', async () => {
+      await createContainer('user-slug', 'secret-password', undefined, undefined, [
+        {
+          skill: {
+            frontmatter: {
+              name: 'pdf-processing',
+              description: 'Handle PDFs',
+            },
+            body: 'Use this for PDFs.',
+            raw: '',
+          },
+          files: [
+            {
+              path: 'SKILL.md',
+              content: new TextEncoder().encode('---\nname: pdf-processing\ndescription: Handle PDFs\n---\nUse this for PDFs.'),
+            },
+          ],
+        },
+      ])
+
+      expect(mockWriteFile).toHaveBeenCalledWith(
+        '/opt/arche/users/user-slug/skills/pdf-processing/SKILL.md',
+        expect.any(Buffer)
+      )
+    })
+
     it('returns the created container', async () => {
       const container = await createContainer('slug', 'pass')
       expect(container.id).toBe('container-123')
     })
 
     it('uses provided git author identity when passed', async () => {
-      await createContainer('user-slug', 'secret-password', undefined, undefined, {
+      await createContainer('user-slug', 'secret-password', undefined, undefined, undefined, {
         name: 'alice',
         email: 'alice@example.com',
       })

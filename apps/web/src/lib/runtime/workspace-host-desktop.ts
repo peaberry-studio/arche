@@ -23,6 +23,7 @@ import {
   makeAuthHeader,
 } from '@/lib/runtime/desktop/config'
 import { getArcheOpencodeDataDir, getWorkspaceDir } from '@/lib/runtime/desktop/workspace-dirs'
+import { writeRuntimeSkills } from '@/lib/skills/runtime-skills'
 import type { WorkspaceHost, WorkspaceHostConnection, WorkspaceHostStatus } from '@/lib/runtime/types'
 import { instanceService, providerService } from '@/lib/services'
 import { getWorkspaceAgentPort } from '@/lib/spawner/config'
@@ -100,6 +101,43 @@ function logDesktopRuntime(
   console.log(`[desktop-runtime] ${JSON.stringify(payload)}`)
 }
 
+async function syncProvidersWithRetry(input: {
+  authHeader: string
+  intervalMs: number
+  port: number
+  slug: string
+  timeoutMs: number
+  userId: string
+}): Promise<Awaited<ReturnType<typeof syncProviderAccessForInstance>>> {
+  const deadline = Date.now() + input.timeoutMs
+  let attempt = 1
+
+  while (true) {
+    const result = await syncProviderAccessForInstance({
+      instance: {
+        baseUrl: `http://${LOOPBACK_HOST}:${input.port}`,
+        authHeader: input.authHeader,
+      },
+      slug: input.slug,
+      userId: input.userId,
+    })
+
+    if (result.ok || Date.now() >= deadline) {
+      return result
+    }
+
+    logDesktopRuntime(
+      input.slug,
+      'providers',
+      'sync_retry',
+      `attempt=${String(attempt)} error=${result.error}`,
+    )
+    attempt += 1
+
+    await new Promise((resolve) => setTimeout(resolve, input.intervalMs))
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Port env sync
 // ---------------------------------------------------------------------------
@@ -137,6 +175,7 @@ function getDesktopRuntimePortFromEnv(): number {
 }
 
 type DesktopRuntimeArtifacts = {
+  skills: Awaited<ReturnType<typeof buildWorkspaceRuntimeArtifacts>>['skills']
   owner: { id: string; slug: string; email: string | null } | null
   opencodeConfigContent: string
   agentsMd?: string
@@ -331,6 +370,7 @@ export const desktopWorkspaceHost: WorkspaceHost = {
     const artifacts = await buildDesktopRuntimeArtifacts(slug)
     const appliedConfigSha = hashWorkspaceRuntimeArtifacts(artifacts)
     const opencodeConfigContent = artifacts.opencodeConfigContent
+    const runtimeSkillDir = join(archeDataDir, '.config', 'opencode', 'skills')
 
     writeFileSync(
       join(workspaceDir, 'opencode.json'),
@@ -341,6 +381,8 @@ export const desktopWorkspaceHost: WorkspaceHost = {
     if (artifacts.agentsMd) {
       writeFileSync(join(workspaceDir, 'AGENTS.md'), artifacts.agentsMd, 'utf-8')
     }
+
+    await writeRuntimeSkills(runtimeSkillDir, artifacts.skills)
 
     await instanceService.upsertStarting(slug, encryptedPassword)
 
@@ -353,6 +395,7 @@ export const desktopWorkspaceHost: WorkspaceHost = {
           OPENCODE_SERVER_PASSWORD: password,
           OPENCODE_SERVER_USERNAME: DEFAULT_USERNAME,
           ...(opencodeConfigDir ? { OPENCODE_CONFIG_DIR: opencodeConfigDir } : {}),
+          WORKSPACE_DIR: workspaceDir,
           HOME: archeDataDir,
           XDG_DATA_HOME: join(archeDataDir, '.local', 'share'),
           XDG_STATE_HOME: join(archeDataDir, '.local', 'state'),
@@ -444,12 +487,12 @@ export const desktopWorkspaceHost: WorkspaceHost = {
       }
 
       const syncUserId = artifacts.owner?.id ?? userId
-      const syncResult = await syncProviderAccessForInstance({
-        instance: {
-          baseUrl: `http://${LOOPBACK_HOST}:${port}`,
-          authHeader,
-        },
+      const syncResult = await syncProvidersWithRetry({
+        authHeader,
+        intervalMs,
+        port,
         slug,
+        timeoutMs,
         userId: syncUserId,
       })
       if (!syncResult.ok) {

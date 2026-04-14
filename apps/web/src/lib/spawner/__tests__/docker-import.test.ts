@@ -4,6 +4,7 @@ describe('docker module import', () => {
   afterEach(() => {
     vi.doUnmock('@/lib/common-workspace-config-store')
     vi.doUnmock('fs/promises')
+    vi.doUnmock('node:fs/promises')
     vi.doUnmock('path')
     vi.resetModules()
   })
@@ -14,6 +15,9 @@ describe('docker module import', () => {
     })
     vi.doMock('fs/promises', () => {
       throw new Error('fs/promises should not load during docker module import')
+    })
+    vi.doMock('node:fs/promises', () => {
+      throw new Error('node:fs/promises should not load during docker module import')
     })
     vi.doMock('path', () => {
       throw new Error('path should not load during docker module import')

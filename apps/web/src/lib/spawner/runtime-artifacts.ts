@@ -1,7 +1,12 @@
 import { createHash } from 'node:crypto'
+import * as fs from 'node:fs/promises'
+import * as path from 'node:path'
 
+import { readConfigRepoSnapshot } from '@/lib/config-repo-store'
 import { readCommonWorkspaceConfig, readConfigRepoFile } from '@/lib/common-workspace-config-store'
 import { getConnectorGatewayBaseUrl } from '@/lib/connectors/gateway-config'
+import { readSkillBundlesFromRepoDir } from '@/lib/skills/skill-store'
+import type { SkillBundle } from '@/lib/skills/types'
 import { userService } from '@/lib/services'
 import {
   injectAlwaysOnAgentTools,
@@ -32,10 +37,13 @@ type WorkspaceOwner = {
 } | null
 
 export type WorkspaceRuntimeArtifacts = {
+  skills: SkillBundle[]
   owner: WorkspaceOwner
   opencodeConfigContent: string
   agentsMd?: string
 }
+
+const COMMON_WORKSPACE_CONFIG_FILE = 'CommonWorkspaceConfig.json'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -96,10 +104,54 @@ async function getWorkspaceOwner(slug: string): Promise<WorkspaceOwner> {
   return userService.findIdentityBySlug(slug).catch(() => null)
 }
 
-async function buildBaseWorkspaceConfig(slug: string): Promise<Record<string, unknown>> {
+async function readOptionalRepoTextFile(repoDir: string, filePath: string): Promise<string | null> {
+  return fs.readFile(path.join(repoDir, filePath), 'utf-8').catch((error: unknown) => {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      return null
+    }
+
+    throw error
+  })
+}
+
+async function readRuntimeRepoSnapshot(): Promise<{
+  agentsMdContent: string | null
+  commonConfigContent: string | null
+  skills: SkillBundle[]
+}> {
+  const snapshot = await readConfigRepoSnapshot(async ({ repoDir }) => {
+    const [agentsMdContent, commonConfigContent, skills] = await Promise.all([
+      readOptionalRepoTextFile(repoDir, 'AGENTS.md'),
+      readOptionalRepoTextFile(repoDir, COMMON_WORKSPACE_CONFIG_FILE),
+      readSkillBundlesFromRepoDir(repoDir, { strict: true }),
+    ])
+
+    return {
+      agentsMdContent,
+      commonConfigContent,
+      skills,
+    }
+  })
+
+  if (!snapshot.ok) {
+    throw new Error(snapshot.error)
+  }
+
+  return snapshot.data
+}
+
+async function buildBaseWorkspaceConfig(
+  slug: string,
+  commonConfigContent?: string | null
+): Promise<Record<string, unknown>> {
   let baseConfig: Record<string, unknown> = {}
 
-  const commonConfigResult = await readCommonWorkspaceConfig().catch(() => null)
+  const commonConfigResult = typeof commonConfigContent === 'undefined'
+    ? await readCommonWorkspaceConfig().catch(() => null)
+    : commonConfigContent == null
+      ? null
+      : { ok: true as const, content: commonConfigContent }
+
   if (commonConfigResult?.ok) {
     try {
       baseConfig = parseRuntimeConfigContent(commonConfigResult.content)
@@ -128,9 +180,10 @@ async function buildBaseWorkspaceConfig(slug: string): Promise<Record<string, un
 
 export async function buildWorkspaceRuntimeConfig(
   slug: string,
-  providerGatewayConfig: Record<string, unknown>
+  providerGatewayConfig: Record<string, unknown>,
+  commonConfigContent?: string | null
 ): Promise<Record<string, unknown>> {
-  const baseConfig = await buildBaseWorkspaceConfig(slug)
+  const baseConfig = await buildBaseWorkspaceConfig(slug, commonConfigContent)
   return withWorkspacePermissionGuards({
     ...baseConfig,
     ...providerGatewayConfig,
@@ -139,9 +192,15 @@ export async function buildWorkspaceRuntimeConfig(
 
 export async function buildWorkspaceAgentsMd(
   slug: string,
-  owner?: WorkspaceOwner
+  owner?: WorkspaceOwner,
+  agentsMdContent?: string | null
 ): Promise<string | undefined> {
-  const agentsResult = await readConfigRepoFile('AGENTS.md').catch(() => null)
+  const agentsResult = typeof agentsMdContent === 'undefined'
+    ? await readConfigRepoFile('AGENTS.md').catch(() => null)
+    : agentsMdContent == null
+      ? null
+      : { ok: true as const, content: agentsMdContent }
+
   if (!agentsResult?.ok) {
     return undefined
   }
@@ -158,10 +217,16 @@ export async function buildWorkspaceRuntimeArtifacts(
   providerGatewayConfig: Record<string, unknown>
 ): Promise<WorkspaceRuntimeArtifacts> {
   const owner = await getWorkspaceOwner(slug)
-  const config = await buildWorkspaceRuntimeConfig(slug, providerGatewayConfig)
-  const agentsMd = await buildWorkspaceAgentsMd(slug, owner)
+  const repoSnapshot = await readRuntimeRepoSnapshot()
+  const config = await buildWorkspaceRuntimeConfig(
+    slug,
+    providerGatewayConfig,
+    repoSnapshot.commonConfigContent
+  )
+  const agentsMd = await buildWorkspaceAgentsMd(slug, owner, repoSnapshot.agentsMdContent)
 
   return {
+    skills: repoSnapshot.skills,
     owner,
     opencodeConfigContent: serializeRuntimeConfig(config),
     ...(agentsMd ? { agentsMd } : {}),
@@ -169,6 +234,7 @@ export async function buildWorkspaceRuntimeArtifacts(
 }
 
 export function hashWorkspaceRuntimeArtifacts(input: {
+  skills?: SkillBundle[]
   opencodeConfigContent: string
   agentsMd?: string
 }): string {
@@ -177,6 +243,13 @@ export function hashWorkspaceRuntimeArtifacts(input: {
       JSON.stringify({
         opencodeConfigContent: normalizeRuntimeConfigForHash(input.opencodeConfigContent),
         agentsMd: input.agentsMd ?? null,
+        skills: (input.skills ?? []).map((skill) => ({
+          name: skill.skill.frontmatter.name,
+          files: skill.files.map((file) => ({
+            path: file.path,
+            content: Buffer.from(file.content).toString('base64'),
+          })),
+        })),
       })
     )
     .digest('hex')

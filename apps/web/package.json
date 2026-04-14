@@ -4,6 +4,7 @@
   "private": true,
   "packageManager": "pnpm@10.14.0",
   "scripts": {
+    "postinstall": "pnpm prisma:generate && pnpm prisma:generate:desktop",
     "predev": "pnpm prisma:generate && pnpm prisma:generate:desktop",
     "dev": "next dev -H 0.0.0.0 -p 3000",
     "prebuild": "pnpm prisma:generate && pnpm prisma:generate:desktop",
@@ -46,7 +47,9 @@
     "better-sqlite3": "^12.6.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "cron-parser": "^5.5.0",
     "dockerode": "^4.0.9",
+    "fflate": "^0.8.2",
     "lucide-react": "^0.563.0",
     "next": "16.1.6",
     "otpauth": "^9.4.1",
@@ -58,7 +61,8 @@
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "^2.6.1",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss-animate": "^1.0.7",
+    "yaml": "^2.8.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.18",

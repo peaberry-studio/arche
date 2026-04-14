@@ -62,6 +62,39 @@ const SCHEMA_DDL = [
     "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "audit_events_actor_user_id_fkey" FOREIGN KEY ("actor_user_id") REFERENCES "users" ("id") ON DELETE SET NULL ON UPDATE CASCADE
   )`,
+  `CREATE TABLE IF NOT EXISTS "autopilot_tasks" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "user_id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "cron_expression" TEXT NOT NULL,
+    "timezone" TEXT NOT NULL,
+    "prompt" TEXT NOT NULL,
+    "target_agent_id" TEXT,
+    "enabled" BOOLEAN NOT NULL DEFAULT true,
+    "next_run_at" DATETIME NOT NULL,
+    "last_run_at" DATETIME,
+    "lease_owner" TEXT,
+    "lease_expires_at" DATETIME,
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" DATETIME NOT NULL,
+    CONSTRAINT "autopilot_tasks_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS "autopilot_runs" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "task_id" TEXT NOT NULL,
+    "status" TEXT NOT NULL,
+    "trigger" TEXT NOT NULL,
+    "scheduled_for" DATETIME NOT NULL,
+    "started_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "finished_at" DATETIME,
+    "error" TEXT,
+    "opencode_session_id" TEXT,
+    "session_title" TEXT,
+    "result_seen_at" DATETIME,
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" DATETIME NOT NULL,
+    CONSTRAINT "autopilot_runs_task_id_fkey" FOREIGN KEY ("task_id") REFERENCES "autopilot_tasks" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
   `CREATE TABLE IF NOT EXISTS "connectors" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "user_id" TEXT NOT NULL,
@@ -104,13 +137,30 @@ const SCHEMA_DDL = [
   `CREATE INDEX IF NOT EXISTS "sessions_expires_at_idx" ON "sessions"("expires_at")`,
   `CREATE INDEX IF NOT EXISTS "audit_events_actor_user_id_idx" ON "audit_events"("actor_user_id")`,
   `CREATE INDEX IF NOT EXISTS "audit_events_created_at_idx" ON "audit_events"("created_at")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "autopilot_tasks_user_id_name_key" ON "autopilot_tasks"("user_id", "name")`,
+  `CREATE INDEX IF NOT EXISTS "autopilot_tasks_user_id_idx" ON "autopilot_tasks"("user_id")`,
+  `CREATE INDEX IF NOT EXISTS "autopilot_tasks_enabled_next_run_at_idx" ON "autopilot_tasks"("enabled", "next_run_at")`,
+  `CREATE INDEX IF NOT EXISTS "autopilot_tasks_lease_expires_at_idx" ON "autopilot_tasks"("lease_expires_at")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "autopilot_runs_opencode_session_id_key" ON "autopilot_runs"("opencode_session_id")`,
+  `CREATE INDEX IF NOT EXISTS "autopilot_runs_task_id_started_at_idx" ON "autopilot_runs"("task_id", "started_at")`,
+  `CREATE INDEX IF NOT EXISTS "autopilot_runs_status_idx" ON "autopilot_runs"("status")`,
+  `CREATE INDEX IF NOT EXISTS "autopilot_runs_scheduled_for_idx" ON "autopilot_runs"("scheduled_for")`,
   `CREATE INDEX IF NOT EXISTS "connectors_user_id_idx" ON "connectors"("user_id")`,
   `CREATE INDEX IF NOT EXISTS "provider_credentials_user_id_idx" ON "provider_credentials"("user_id")`,
   `CREATE INDEX IF NOT EXISTS "provider_credentials_provider_id_idx" ON "provider_credentials"("provider_id")`,
   `CREATE INDEX IF NOT EXISTS "two_factor_recovery_user_id_idx" ON "two_factor_recovery"("user_id")`,
 ]
 
-const SCHEMA_VERSION = '1'
+const SCHEMA_VERSION = '3'
+
+async function ensureAutopilotRunResultSeenAtColumn(client: DesktopPrismaClient): Promise<void> {
+  const columns = await client.$queryRawUnsafe('PRAGMA table_info("autopilot_runs")') as Array<{ name?: string }>
+  const hasResultSeenAt = columns.some((column) => column.name === 'result_seen_at')
+
+  if (!hasResultSeenAt) {
+    await client.$executeRawUnsafe('ALTER TABLE "autopilot_runs" ADD COLUMN "result_seen_at" DATETIME')
+  }
+}
 
 function getDesktopDatabasePath(): string {
   const contextDatabaseUrl = getDesktopVaultRuntimeContext()?.databaseUrl?.trim()
@@ -155,12 +205,15 @@ export async function initDesktopDatabase(): Promise<void> {
   const storedVersion = result[0]?.value
 
   if (storedVersion === SCHEMA_VERSION) {
+    await ensureAutopilotRunResultSeenAtColumn(client)
     return
   }
 
   for (let i = 1; i < SCHEMA_DDL.length; i++) {
     await client.$executeRawUnsafe(SCHEMA_DDL[i])
   }
+
+  await ensureAutopilotRunResultSeenAtColumn(client)
 
   await client.$executeRaw`INSERT OR REPLACE INTO _arche_schema_meta (key, value) VALUES ('schema_version', ${SCHEMA_VERSION})`
 }

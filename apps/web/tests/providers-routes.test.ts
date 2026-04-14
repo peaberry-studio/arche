@@ -17,6 +17,13 @@ vi.mock('@/lib/opencode/client', () => ({
   getInstanceUrl: (...args: unknown[]) => mockGetInstanceUrl(...args),
 }))
 
+const mockDecryptPassword = vi.fn((value: string) => value.replace(/^enc:/, ''))
+const mockEncryptPassword = vi.fn((value: string) => `enc:${value}`)
+vi.mock('@/lib/spawner/crypto', () => ({
+  decryptPassword: (...args: unknown[]) => mockDecryptPassword(...args),
+  encryptPassword: (...args: unknown[]) => mockEncryptPassword(...args),
+}))
+
 const mockFindUnique = vi.fn()
 const mockFindFirst = vi.fn()
 const mockFindMany = vi.fn()
@@ -101,6 +108,8 @@ describe('GET /api/u/[slug]/providers', () => {
     vi.clearAllMocks()
     vi.resetModules()
     mockSyncProviderAccessForInstance.mockResolvedValue({ ok: true })
+    mockDecryptPassword.mockImplementation((value: string) => value.replace(/^enc:/, ''))
+    mockEncryptPassword.mockImplementation((value: string) => `enc:${value}`)
     mockTransaction.mockImplementation(async (callback: (tx: ReturnType<typeof createProviderTransactionClient>) => unknown) =>
       callback(createProviderTransactionClient())
     )
@@ -153,6 +162,8 @@ describe('POST /api/u/[slug]/providers/[provider]', () => {
     vi.clearAllMocks()
     vi.resetModules()
     mockSyncProviderAccessForInstance.mockResolvedValue({ ok: true })
+    mockDecryptPassword.mockImplementation((value: string) => value.replace(/^enc:/, ''))
+    mockEncryptPassword.mockImplementation((value: string) => `enc:${value}`)
     mockTransaction.mockImplementation(async (callback: (tx: ReturnType<typeof createProviderTransactionClient>) => unknown) =>
       callback(createProviderTransactionClient())
     )
@@ -212,7 +223,7 @@ describe('POST /api/u/[slug]/providers/[provider]', () => {
   it('creates new credential and audits creation', async () => {
     mockGetAuthenticatedUser.mockResolvedValue(session('admin', 'ADMIN'))
     mockFindUnique.mockResolvedValueOnce({ id: 'user-1' })
-    mockFindUnique.mockResolvedValueOnce({ serverPassword: 'secret', status: 'running' })
+    mockFindUnique.mockResolvedValueOnce({ serverPassword: 'enc:secret', status: 'running' })
     mockFindFirst.mockResolvedValue({ version: 2 })
     mockUpdateMany.mockResolvedValue({ count: 1 })
     mockCreate.mockResolvedValue({
@@ -256,7 +267,7 @@ describe('POST /api/u/[slug]/providers/[provider]', () => {
   it('returns restartRequired when live provider sync fails', async () => {
     mockGetAuthenticatedUser.mockResolvedValue(session('admin', 'ADMIN'))
     mockFindUnique.mockResolvedValueOnce({ id: 'user-1' })
-    mockFindUnique.mockResolvedValueOnce({ serverPassword: 'secret', status: 'running' })
+    mockFindUnique.mockResolvedValueOnce({ serverPassword: 'enc:secret', status: 'running' })
     mockFindFirst.mockResolvedValue({ version: 0 })
     mockUpdateMany.mockResolvedValue({ count: 1 })
     mockCreate.mockResolvedValue({
@@ -299,7 +310,7 @@ describe('DELETE /api/u/[slug]/providers/[provider]', () => {
   it('disables provider credential and syncs running instance', async () => {
     mockGetAuthenticatedUser.mockResolvedValue(session('admin', 'ADMIN'))
     mockFindUnique.mockResolvedValueOnce({ id: 'user-1' })
-    mockFindUnique.mockResolvedValueOnce({ serverPassword: 'secret', status: 'running' })
+    mockFindUnique.mockResolvedValueOnce({ serverPassword: 'enc:secret', status: 'running' })
     mockUpdateMany.mockResolvedValue({ count: 1 })
 
     const { status, body } = await callDeleteProvider('alice', 'openai')

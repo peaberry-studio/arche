@@ -11,6 +11,7 @@ const {
   getDesktopRuntimeDir,
   getDesktopSecretsDir,
   getDesktopUsersDir,
+  getDesktopWorkspaceAttachmentsDir,
 } = require('../dist/vault-layout.js')
 
 function withTempDir(run) {
@@ -32,5 +33,6 @@ test('returns hidden desktop vault paths', () => {
     assert.equal(getDesktopRuntimeDir(vaultPath), join(vaultPath, '.runtime'))
     assert.equal(getDesktopSecretsDir(vaultPath), join(vaultPath, '.secrets'))
     assert.equal(getDesktopUsersDir(vaultPath), join(vaultPath, '.users'))
+    assert.equal(getDesktopWorkspaceAttachmentsDir(vaultPath), join(vaultPath, 'workspace', '.arche', 'attachments'))
   })
 })

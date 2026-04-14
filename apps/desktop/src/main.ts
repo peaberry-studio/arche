@@ -24,6 +24,7 @@ import {
   getDesktopRuntimeDataDir,
   getDesktopSecretsDir,
   getDesktopUserDataDir,
+  getDesktopWorkspaceAttachmentsDir,
   getDesktopWorkspaceDir,
 } from './vault-layout'
 import { LOCAL_DESKTOP_USER_SLUG } from './vault-layout-constants'
@@ -48,11 +49,16 @@ let nextSupervisor: RuntimeSupervisor | null = null
 let nextPort = DEFAULT_DESKTOP_WEB_PORT
 let runtimeShutdownRequested = false
 let desktopApiToken = ''
+let gatewayTokenSecret = ''
 let launchContext: DesktopLaunchContext = { mode: 'launcher', vaultPath: null }
 let currentVault: DesktopVault | null = null
 let vaultLock: VaultLockHandle | null = null
 
 function generateDesktopApiToken(): string {
+  return randomBytes(32).toString('base64url')
+}
+
+function generateDesktopGatewayTokenSecret(): string {
   return randomBytes(32).toString('base64url')
 }
 
@@ -175,6 +181,9 @@ function setDesktopEnv(): void {
 
   desktopApiToken = generateDesktopApiToken()
   process.env.ARCHE_DESKTOP_API_TOKEN = desktopApiToken
+
+  gatewayTokenSecret = generateDesktopGatewayTokenSecret()
+  process.env.ARCHE_GATEWAY_TOKEN_SECRET = gatewayTokenSecret
 }
 
 async function dugiteExec(args: string[], cwd: string): Promise<string> {
@@ -317,11 +326,13 @@ function installTokenHeaderInjection(): void {
 }
 
 function createWindow(): void {
+  const isLauncher = currentVault === null
+
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    minWidth: 800,
-    minHeight: 600,
+    width: isLauncher ? 680 : 1280,
+    height: isLauncher ? 680 : 800,
+    minWidth: isLauncher ? 560 : 800,
+    minHeight: isLauncher ? 560 : 600,
     title: getCurrentVaultTitle(),
     backgroundColor: '#f7f4ef',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : undefined,
@@ -335,6 +346,20 @@ function createWindow(): void {
   })
 
   void mainWindow.loadURL(getNextUrl())
+
+  mainWindow.webContents.on('dom-ready', () => {
+    void mainWindow?.webContents.executeJavaScript(`
+      // Next's desktop renderer can surface transient BigInt serialization
+      // errors during RSC hydration. Normalize them to strings in JSON paths.
+      if (!BigInt.prototype.toJSON) {
+        BigInt.prototype.toJSON = function() {
+          return this.toString()
+        }
+      }
+
+      void 0
+    `)
+  })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http://') || url.startsWith('https://')) {
@@ -451,6 +476,24 @@ function quitLauncherProcess(): DesktopApiResult {
   return { ok: true }
 }
 
+async function revealAttachmentsDirectory(): Promise<DesktopApiResult> {
+  if (!currentVault) {
+    return { ok: false, error: 'vault_not_open' }
+  }
+
+  const attachmentsDir = getDesktopWorkspaceAttachmentsDir(currentVault.path)
+  if (!existsSync(attachmentsDir)) {
+    mkdirSync(attachmentsDir, { recursive: true })
+  }
+
+  const error = await shell.openPath(attachmentsDir)
+  if (error) {
+    return { ok: false, error: 'reveal_attachments_failed' }
+  }
+
+  return { ok: true }
+}
+
 async function pickDirectory(options: {
   title: string
   defaultPath?: string | null
@@ -508,6 +551,7 @@ function registerDesktopIpcHandlers(): void {
   ipcMain.handle('desktop:open-vault', async (_event, vaultPath: string) => launchVaultProcess(vaultPath))
   ipcMain.handle('desktop:open-vault-launcher', async () => openVaultLauncherProcess())
   ipcMain.handle('desktop:quit-launcher-process', async () => quitLauncherProcess())
+  ipcMain.handle('desktop:reveal-attachments-directory', async () => revealAttachmentsDirectory())
 }
 
 function resolveStartupVault(): DesktopVault | null {
@@ -603,9 +647,10 @@ app.whenReady().then(async () => {
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
+  // Each desktop window owns a vault-specific backend. Leaving the process
+  // alive after the last window closes keeps that backend bound to the old
+  // vault and can leak stale state into the next launch.
+  app.quit()
 })
 
 app.on('before-quit', (event) => {

@@ -261,4 +261,13 @@ describe('ensureInstanceRunningAction', () => {
 
     expect(result).toEqual({ status: 'starting' })
   })
+
+  it('returns a structured error when startup checks throw unexpectedly', async () => {
+    mockGetSession.mockResolvedValue(fakeSession)
+    mockStatus.mockRejectedValue(new Error('boom'))
+
+    const result = await ensureInstanceRunningAction('alice')
+
+    expect(result).toEqual({ status: 'error', error: 'status_check_failed' })
+  })
 })

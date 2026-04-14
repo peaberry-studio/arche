@@ -54,6 +54,7 @@ vi.mock("@/hooks/use-workspace", () => ({
     discardFileChanges: vi.fn(),
     createSession: createSessionMock,
     deleteSession: vi.fn(),
+    markAutopilotRunSeen: vi.fn(),
     renameSession: vi.fn(),
     selectSession: vi.fn(),
     agentCatalog: [
@@ -75,6 +76,16 @@ vi.mock("@/hooks/use-workspace", () => ({
     diffsError: null,
   }),
 }));
+
+vi.mock('@/hooks/use-skills-catalog', () => ({
+  useSkillsCatalog: () => ({
+    skills: [],
+    hash: null,
+    isLoading: false,
+    loadError: null,
+    reload: vi.fn(),
+  }),
+}))
 
 vi.mock("@/components/workspace/chat-panel", () => ({
   ChatPanel: ({ onShowContext, pendingInsert }: { onShowContext?: () => void; pendingInsert?: string | null }) => (

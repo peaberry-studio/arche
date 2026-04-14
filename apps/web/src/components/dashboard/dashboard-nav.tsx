@@ -8,6 +8,8 @@ import { ArrowUpRight, List, X } from '@phosphor-icons/react'
 const webNavItems = [
   { label: 'Overview', href: '' },
   { label: 'Agents', href: '/agents' },
+  { label: 'Skills', href: '/skills' },
+  { label: 'Autopilot', href: '/autopilot' },
   { label: 'Connectors', href: '/connectors' },
   { label: 'Team', href: '/team' },
   { label: 'Settings', href: '/settings/security' },
@@ -16,6 +18,7 @@ const webNavItems = [
 const desktopNavItems = [
   { label: 'Workspace', href: '/w/local' },
   { label: 'Agents', href: '/u/local/agents' },
+  { label: 'Skills', href: '/w/local?settings=skills' },
   { label: 'Connectors', href: '/w/local?settings=connectors' },
   { label: 'Providers', href: '/w/local?settings=providers' },
   { label: 'Settings', href: '/w/local?settings=appearance' },

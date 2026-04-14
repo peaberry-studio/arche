@@ -11,6 +11,7 @@ export type RuntimeCapabilities = {
   teamManagement: boolean
   connectors: boolean
   kickstart: boolean
+  autopilot: boolean
 }
 
 const WEB_CAPABILITIES: RuntimeCapabilities = {
@@ -24,6 +25,7 @@ const WEB_CAPABILITIES: RuntimeCapabilities = {
   teamManagement: true,
   connectors: true,
   kickstart: true,
+  autopilot: true,
 }
 
 const DESKTOP_CAPABILITIES: RuntimeCapabilities = {
@@ -37,6 +39,7 @@ const DESKTOP_CAPABILITIES: RuntimeCapabilities = {
   teamManagement: false,
   connectors: true,
   kickstart: true,
+  autopilot: false,
 }
 
 const CAPABILITIES_BY_MODE: Record<RuntimeMode, RuntimeCapabilities> = {

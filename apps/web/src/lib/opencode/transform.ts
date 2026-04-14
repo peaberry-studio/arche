@@ -1,10 +1,69 @@
 import type { MessagePart, ToolState } from "@/lib/opencode/types";
+import { WORKSPACE_ATTACHMENTS_DIR } from "@/lib/workspace-attachments";
 
 /**
  * Internal-only parts that should be completely hidden.
  * These are OpenCode internals that have no user-facing value.
  */
 const HIDDEN_PART_TYPES = new Set(["snapshot", "compaction"]);
+
+function resolveFilePartPath(sourcePath: string | undefined, fileUrl: string | undefined): string | undefined {
+  if (sourcePath) {
+    return sourcePath;
+  }
+
+  if (!fileUrl?.startsWith("file://")) {
+    return undefined;
+  }
+
+  const candidates: string[] = [];
+  try {
+    candidates.push(decodeURIComponent(new URL(fileUrl).pathname));
+  } catch {
+    // Fall back to the raw URL string below.
+  }
+  candidates.push(fileUrl.slice("file://".length));
+
+  for (const rawCandidate of candidates) {
+    const candidate = rawCandidate.replace(/\\/g, "/");
+    if (candidate.startsWith("/workspace/")) {
+      return candidate.slice("/workspace/".length);
+    }
+
+    const attachmentMarker = `/${WORKSPACE_ATTACHMENTS_DIR}/`;
+    const attachmentIndex = candidate.indexOf(attachmentMarker);
+    if (attachmentIndex >= 0) {
+      return candidate.slice(attachmentIndex + 1);
+    }
+  }
+
+  return undefined;
+}
+
+function normalizeSerializableValue(value: unknown): unknown {
+  if (typeof value === "bigint") {
+    return value.toString();
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(normalizeSerializableValue);
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
+      key,
+      normalizeSerializableValue(entry),
+    ])
+  );
+}
 
 /**
  * Transform OpenCode parts to UI-friendly MessagePart types.
@@ -44,7 +103,11 @@ export function transformParts(parts: unknown[]): MessagePart[] {
           // Map state to our ToolState type
           let toolState: ToolState;
           const status = String(state?.status ?? "pending");
-          const input = (state?.input ?? {}) as Record<string, unknown>;
+          const normalizedInput = normalizeSerializableValue(state?.input ?? {});
+          const input =
+            normalizedInput && typeof normalizedInput === "object" && !Array.isArray(normalizedInput)
+              ? (normalizedInput as Record<string, unknown>)
+              : {};
 
           if (status === "completed") {
             toolState = {
@@ -87,16 +150,7 @@ export function transformParts(parts: unknown[]): MessagePart[] {
               : undefined;
           const fileUrl = part.url ? String(part.url) : undefined;
 
-          let resolvedPath = sourcePath;
-          if (!resolvedPath && fileUrl?.startsWith("file:///workspace/")) {
-            try {
-              resolvedPath = decodeURIComponent(
-                fileUrl.slice("file:///workspace/".length)
-              );
-            } catch {
-              resolvedPath = fileUrl.slice("file:///workspace/".length);
-            }
-          }
+          const resolvedPath = resolveFilePartPath(sourcePath, fileUrl);
           return {
             type: "file" as const,
             id: partId,
@@ -177,10 +231,14 @@ export function transformParts(parts: unknown[]): MessagePart[] {
         default: {
           // Unknown type - preserve as fallback for debugging
           console.log("[transformParts] Unknown part type:", partType, part);
+          const normalizedData = normalizeSerializableValue(part);
           return {
             type: "unknown" as const,
             originalType: partType,
-            data: part as Record<string, unknown>,
+            data:
+              normalizedData && typeof normalizedData === "object" && !Array.isArray(normalizedData)
+                ? (normalizedData as Record<string, unknown>)
+                : { value: normalizedData },
           };
         }
       }

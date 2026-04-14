@@ -5,12 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useWorkspace } from "@/hooks/use-workspace";
 import type { WorkspaceMessage } from "@/lib/opencode/types";
+import { WORKSPACE_CONFIG_STATUS_CHANGED_EVENT } from "@/lib/runtime/config-status-events";
 
 const opencodeMocks = vi.hoisted(() => ({
   checkConnectionAction: vi.fn(),
   listSessionsAction: vi.fn(),
   createSessionAction: vi.fn(),
   deleteSessionAction: vi.fn(),
+  markAutopilotRunSeenAction: vi.fn(),
   updateSessionAction: vi.fn(),
   listMessagesAction: vi.fn(),
   abortSessionAction: vi.fn(),
@@ -90,6 +92,7 @@ describe("useWorkspace", () => {
       session: { id: "s2", title: "Fresh", status: "active", updatedAt: "now" },
     });
     opencodeMocks.deleteSessionAction.mockResolvedValue({ ok: true });
+    opencodeMocks.markAutopilotRunSeenAction.mockResolvedValue({ ok: true });
     opencodeMocks.updateSessionAction.mockResolvedValue({ ok: true });
     opencodeMocks.listMessagesAction.mockImplementation(async (_slug: string, sessionId: string) => {
       if (sessionId === "s1") {
@@ -230,6 +233,39 @@ describe("useWorkspace", () => {
     expect(result.current.agentDefaultModel?.modelId).toBe("gpt-5.4");
   });
 
+  it("marks unseen autopilot results as seen when a deep-linked session becomes active", async () => {
+    opencodeMocks.listSessionsAction.mockResolvedValue({
+      ok: true,
+      sessions: [
+        {
+          id: "task-1-session",
+          title: "Autopilot | Daily brief | Apr 12",
+          status: "idle",
+          updatedAt: "now",
+          autopilot: {
+            runId: "run-1",
+            taskId: "task-1",
+            taskName: "Daily brief",
+            trigger: "schedule",
+            hasUnseenResult: true,
+          },
+        },
+      ],
+    });
+
+    const { result } = renderHook(() =>
+      useWorkspace({ slug: "alice", pollInterval: 0, initialSessionId: "task-1-session" })
+    );
+
+    await waitFor(() => {
+      expect(result.current.activeSessionId).toBe("task-1-session");
+    });
+
+    await waitFor(() => {
+      expect(opencodeMocks.markAutopilotRunSeenAction).toHaveBeenCalledWith("alice", "run-1");
+    });
+  });
+
   it("sends the primary agent model when there is no manual selection", async () => {
     let requestBody:
       | {
@@ -318,6 +354,377 @@ describe("useWorkspace", () => {
     expect(requestBody?.model).toEqual({
       providerId: "openai",
       modelId: "gpt-5.4",
+    });
+  });
+
+  it("allows selecting a model before the first session exists", async () => {
+    let requestBody:
+      | {
+          model?: { providerId: string; modelId: string };
+        }
+      | null = null;
+
+    opencodeMocks.listSessionsAction.mockResolvedValue({
+      ok: true,
+      sessions: [],
+    });
+    opencodeMocks.createSessionAction.mockResolvedValue({
+      ok: true,
+      session: { id: "first", title: "Fresh", status: "active", updatedAt: "now" },
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === "/api/u/alice/agents") {
+          return {
+            ok: true,
+            json: async () => ({
+              agents: [
+                {
+                  id: "assistant",
+                  displayName: "Assistant",
+                  model: "openai/gpt-5.4",
+                  isPrimary: true,
+                },
+              ],
+            }),
+          };
+        }
+
+        if (String(input) === "/api/u/alice/providers") {
+          return {
+            ok: true,
+            json: async () => ({
+              providers: [{ providerId: "openai", status: "enabled" }],
+            }),
+          };
+        }
+
+        if (String(input) === "/api/w/alice/chat/stream") {
+          requestBody = JSON.parse(String(init?.body ?? "{}")) as {
+            model?: { providerId: string; modelId: string };
+          };
+
+          return {
+            ok: true,
+            body: {
+              getReader() {
+                return {
+                  read: async () => ({ done: true, value: undefined }),
+                };
+              },
+            },
+          };
+        }
+
+        throw new Error(`Unexpected fetch: ${String(input)}`);
+      })
+    );
+
+    const { result } = renderHook(() =>
+      useWorkspace({ slug: "alice", pollInterval: 0 })
+    );
+
+    await waitFor(() => {
+      expect(result.current.activeSessionId).toBeNull();
+      expect(result.current.selectedModel?.modelId).toBe("gpt-5.4");
+    });
+
+    act(() => {
+      result.current.setSelectedModel({
+        providerId: "openai",
+        providerName: "OpenAI",
+        modelId: "gpt-5.2",
+        modelName: "GPT 5.2",
+        isDefault: true,
+      });
+    });
+
+    expect(result.current.selectedModel?.modelId).toBe("gpt-5.2");
+    expect(result.current.hasManualModelSelection).toBe(true);
+
+    let accepted = false;
+    await act(async () => {
+      accepted = await result.current.sendMessage("Use the preselected model");
+    });
+
+    expect(accepted).toBe(true);
+
+    await waitFor(() => {
+      expect(result.current.activeSessionId).toBe("first");
+      expect(result.current.selectedModel?.modelId).toBe("gpt-5.2");
+      expect(requestBody?.model).toEqual({
+        providerId: "openai",
+        modelId: "gpt-5.2",
+      });
+    });
+  });
+
+  it("clears the pre-session model selection after the first session consumes it", async () => {
+    const requestBodies: Array<{
+      model?: { providerId: string; modelId: string };
+    }> = [];
+
+    opencodeMocks.listSessionsAction.mockResolvedValue({
+      ok: true,
+      sessions: [],
+    });
+    opencodeMocks.createSessionAction
+      .mockResolvedValueOnce({
+        ok: true,
+        session: { id: "first", title: "Fresh", status: "active", updatedAt: "now" },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        session: { id: "second", title: "Second", status: "active", updatedAt: "now" },
+      });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === "/api/u/alice/agents") {
+          return {
+            ok: true,
+            json: async () => ({
+              agents: [
+                {
+                  id: "assistant",
+                  displayName: "Assistant",
+                  model: "openai/gpt-5.4",
+                  isPrimary: true,
+                },
+              ],
+            }),
+          };
+        }
+
+        if (String(input) === "/api/u/alice/providers") {
+          return {
+            ok: true,
+            json: async () => ({
+              providers: [{ providerId: "openai", status: "enabled" }],
+            }),
+          };
+        }
+
+        if (String(input) === "/api/w/alice/chat/stream") {
+          requestBodies.push(JSON.parse(String(init?.body ?? "{}")) as {
+            model?: { providerId: string; modelId: string };
+          });
+
+          return {
+            ok: true,
+            body: {
+              getReader() {
+                return {
+                  read: async () => ({ done: true, value: undefined }),
+                };
+              },
+            },
+          };
+        }
+
+        throw new Error(`Unexpected fetch: ${String(input)}`);
+      })
+    );
+
+    const { result } = renderHook(() =>
+      useWorkspace({ slug: "alice", pollInterval: 0 })
+    );
+
+    await waitFor(() => {
+      expect(result.current.activeSessionId).toBeNull();
+      expect(result.current.selectedModel?.modelId).toBe("gpt-5.4");
+    });
+
+    act(() => {
+      result.current.setSelectedModel({
+        providerId: "openai",
+        providerName: "OpenAI",
+        modelId: "gpt-5.2",
+        modelName: "GPT 5.2",
+        isDefault: true,
+      });
+    });
+
+    await act(async () => {
+      await result.current.sendMessage("Use the preselected model");
+    });
+
+    await waitFor(() => {
+      expect(result.current.activeSessionId).toBe("first");
+      expect(requestBodies[0]?.model).toEqual({
+        providerId: "openai",
+        modelId: "gpt-5.2",
+      });
+    });
+
+    await act(async () => {
+      await result.current.createSession("Second");
+    });
+
+    await waitFor(() => {
+      expect(result.current.activeSessionId).toBe("second");
+      expect(result.current.selectedModel?.modelId).toBe("gpt-5.4");
+      expect(result.current.hasManualModelSelection).toBe(false);
+    });
+
+    await act(async () => {
+      await result.current.sendMessage("Use the default model");
+    });
+
+    await waitFor(() => {
+      expect(requestBodies).toHaveLength(2);
+    });
+
+    expect(requestBodies[1]?.model).toEqual({
+      providerId: "openai",
+      modelId: "gpt-5.4",
+    });
+  });
+
+  it("preserves the pre-session model selection across session refreshes", async () => {
+    vi.useFakeTimers();
+
+    try {
+      opencodeMocks.listSessionsAction.mockResolvedValue({
+        ok: true,
+        sessions: [],
+      });
+
+      const { result } = renderHook(() =>
+        useWorkspace({ slug: "alice", pollInterval: 1000 })
+      );
+
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(result.current.activeSessionId).toBeNull();
+      expect(result.current.selectedModel?.modelId).toBe("gpt-5.4");
+
+      act(() => {
+        result.current.setSelectedModel({
+          providerId: "openai",
+          providerName: "OpenAI",
+          modelId: "gpt-5.2",
+          modelName: "GPT 5.2",
+          isDefault: true,
+        });
+      });
+
+      expect(result.current.selectedModel?.modelId).toBe("gpt-5.2");
+      expect(result.current.hasManualModelSelection).toBe(true);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+
+      expect(result.current.activeSessionId).toBeNull();
+      expect(result.current.selectedModel?.modelId).toBe("gpt-5.2");
+      expect(result.current.hasManualModelSelection).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reloads models when workspace config changes", async () => {
+    let providerRequestCount = 0;
+
+    opencodeMocks.listModelsAction
+      .mockResolvedValueOnce({
+        ok: true,
+        models: [
+          {
+            providerId: "openai",
+            providerName: "OpenAI",
+            modelId: "gpt-5.2",
+            modelName: "GPT 5.2",
+            isDefault: true,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        models: [
+          {
+            providerId: "openai",
+            providerName: "OpenAI",
+            modelId: "gpt-5.2",
+            modelName: "GPT 5.2",
+            isDefault: true,
+          },
+          {
+            providerId: "anthropic",
+            providerName: "Anthropic",
+            modelId: "claude-sonnet-4",
+            modelName: "Claude Sonnet 4",
+            isDefault: false,
+          },
+        ],
+      });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === "/api/u/alice/agents") {
+          return {
+            ok: true,
+            json: async () => ({
+              agents: [
+                {
+                  id: "assistant",
+                  displayName: "Assistant",
+                  model: "openai/gpt-5.2",
+                  isPrimary: true,
+                },
+              ],
+            }),
+          };
+        }
+
+        if (String(input) === "/api/u/alice/providers") {
+          providerRequestCount += 1;
+          return {
+            ok: true,
+            json: async () => ({
+              providers:
+                providerRequestCount === 1
+                  ? [{ providerId: "openai", status: "enabled" }]
+                  : [
+                      { providerId: "openai", status: "enabled" },
+                      { providerId: "anthropic", status: "enabled" },
+                    ],
+            }),
+          };
+        }
+
+        throw new Error(`Unexpected fetch: ${String(input)}`);
+      })
+    );
+
+    const { result } = renderHook(() =>
+      useWorkspace({ slug: "alice", pollInterval: 0 })
+    );
+
+    await waitFor(() => {
+      expect(result.current.models).toHaveLength(1);
+      expect(result.current.models[0]?.providerId).toBe("openai");
+    });
+
+    act(() => {
+      window.dispatchEvent(new Event(WORKSPACE_CONFIG_STATUS_CHANGED_EVENT));
+    });
+
+    await waitFor(() => {
+      expect(
+        result.current.models.some(
+          (model) =>
+            model.providerId === "anthropic" && model.modelId === "claude-sonnet-4"
+        )
+      ).toBe(true);
     });
   });
 

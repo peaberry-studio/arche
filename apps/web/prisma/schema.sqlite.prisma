@@ -26,6 +26,7 @@ model User {
   twoFactorRecovery  TwoFactorRecovery[]
   connectors         Connector[]
   providerCredentials ProviderCredential[]
+  autopilotTasks      AutopilotTask[]
 
   @@map("users")
 }
@@ -83,6 +84,59 @@ model AuditEvent {
   @@index([actorUserId])
   @@index([createdAt])
   @@map("audit_events")
+}
+
+model AutopilotTask {
+  id             String   @id @default(cuid())
+  userId         String   @map("user_id")
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name           String
+  cronExpression String   @map("cron_expression")
+  timezone       String
+  prompt         String
+  targetAgentId  String?  @map("target_agent_id")
+  enabled        Boolean  @default(true)
+
+  nextRunAt      DateTime @map("next_run_at")
+  lastRunAt      DateTime? @map("last_run_at")
+  leaseOwner     String?  @map("lease_owner")
+  leaseExpiresAt DateTime? @map("lease_expires_at")
+
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  runs           AutopilotRun[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@index([enabled, nextRunAt])
+  @@index([leaseExpiresAt])
+  @@map("autopilot_tasks")
+}
+
+model AutopilotRun {
+  id              String   @id @default(cuid())
+  taskId          String   @map("task_id")
+  task            AutopilotTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  status          String
+  trigger         String
+  scheduledFor    DateTime @map("scheduled_for")
+  startedAt       DateTime @default(now()) @map("started_at")
+  finishedAt      DateTime? @map("finished_at")
+  error           String?
+  openCodeSessionId String? @unique @map("opencode_session_id")
+  sessionTitle    String?  @map("session_title")
+  resultSeenAt    DateTime? @map("result_seen_at")
+
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([taskId, startedAt])
+  @@index([status])
+  @@index([scheduledFor])
+  @@map("autopilot_runs")
 }
 
 model Connector {

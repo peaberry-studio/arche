@@ -46,9 +46,9 @@ export async function startInstance(slug: string, userId: string): Promise<Start
   try {
     const artifacts = await buildWorkspaceRuntimeArtifacts(slug, getWebProviderGatewayConfig())
     const appliedConfigSha = hashWorkspaceRuntimeArtifacts(artifacts)
-    const { owner, opencodeConfigContent, agentsMd } = artifacts
+    const { owner, opencodeConfigContent, agentsMd, skills } = artifacts
 
-    const container = await docker.createContainer(slug, password, opencodeConfigContent, agentsMd, {
+    const container = await docker.createContainer(slug, password, opencodeConfigContent, agentsMd, skills, {
       name: owner?.slug ?? slug,
       email: owner?.email ?? undefined,
     })

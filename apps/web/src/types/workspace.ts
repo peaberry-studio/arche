@@ -26,6 +26,13 @@ export type ChatSession = {
   status: "active" | "idle" | "archived";
   updatedAt: string;
   agent: string;
+  autopilot?: {
+    runId: string;
+    taskId: string;
+    taskName: string;
+    trigger: "on_create" | "schedule" | "manual";
+    hasUnseenResult: boolean;
+  };
 };
 
 /**

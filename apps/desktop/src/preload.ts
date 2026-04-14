@@ -22,5 +22,7 @@ contextBridge.exposeInMainWorld('arche', {
       ipcRenderer.invoke('desktop:pick-vault-parent-directory') as Promise<string | null>,
     quitLauncherProcess: () =>
       ipcRenderer.invoke('desktop:quit-launcher-process') as Promise<DesktopApiResult>,
+    revealAttachmentsDirectory: () =>
+      ipcRenderer.invoke('desktop:reveal-attachments-directory') as Promise<DesktopApiResult>,
   },
 })

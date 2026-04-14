@@ -28,6 +28,7 @@ import { takeWorkspaceStartPrompt } from "@/lib/workspace-start-prompt";
 import { cn } from "@/lib/utils";
 
 import { useConfigStatus } from "@/hooks/use-config-status";
+import { useSkillsCatalog, type SkillListItem } from '@/hooks/use-skills-catalog'
 
 import { ChatPanel } from "./chat-panel";
 import { ConfigChangeBanner } from "./config-change-banner";
@@ -44,6 +45,7 @@ type WorkspaceShellProps = {
     path: string;
   } | null;
   initialFilePath?: string | null;
+  initialSessionId?: string | null;
   initialLayoutState?: StoredLayoutState | null;
   initialLeftPanelState?: NormalizedLeftPanelState | null;
   macDesktopWindowInset?: boolean;
@@ -203,6 +205,7 @@ export function WorkspaceShell({
   persistenceScope,
   currentVault = null,
   initialFilePath,
+  initialSessionId = null,
   initialLayoutState = null,
   initialLeftPanelState = null,
   macDesktopWindowInset = false,
@@ -309,11 +312,13 @@ export function WorkspaceShell({
   const workspace = useWorkspace({
     slug,
     storageScope: resolvedPersistenceScope,
+    initialSessionId,
     pollInterval: 5000,
     enabled: instanceStatus === 'running',
     workspaceAgentEnabled,
     reaperEnabled,
   });
+  const skillsCatalog = useSkillsCatalog(slug)
 
   const sessionsById = useMemo(() => {
     const map = new Map<string, WorkspaceSession>();
@@ -883,7 +888,8 @@ export function WorkspaceShell({
       title: s.title,
       status: s.status === 'busy' ? 'active' as const : s.status === 'idle' ? 'idle' as const : 'archived' as const,
       updatedAt: s.updatedAt,
-      agent: 'OpenCode'
+      agent: 'OpenCode',
+      autopilot: s.autopilot,
     }));
   }, [workspace.sessions]);
 
@@ -934,6 +940,14 @@ export function WorkspaceShell({
   const handleOpenExpertsSettings = useCallback(() => {
     router.push(currentVault ? getDesktopWorkspaceHref(slug, 'agents') : `/u/${slug}/agents`);
   }, [currentVault, router, slug]);
+
+  const handleOpenSkillsSettings = useCallback(() => {
+    router.push(currentVault ? getDesktopWorkspaceHref(slug, 'skills') : `/u/${slug}/skills`);
+  }, [currentVault, router, slug]);
+
+  const handleOpenAutopilotSettings = useCallback(() => {
+    router.push(`/u/${slug}/autopilot`);
+  }, [router, slug]);
 
   const handleCreateKnowledgeFile = useCallback(
     async (path: string) => {
@@ -1095,6 +1109,15 @@ export function WorkspaceShell({
     setPendingInsert({
       sessionId: workspace.activeSessionId,
       value: `@${agent.id} `,
+    });
+  }, [workspace.activeSessionId]);
+
+  const handleSelectSkill = useCallback((skill: SkillListItem) => {
+    if (!workspace.activeSessionId) return;
+
+    setPendingInsert({
+      sessionId: workspace.activeSessionId,
+      value: `Use the "${skill.name}" skill for this task. `,
     });
   }, [workspace.activeSessionId]);
 
@@ -1333,14 +1356,29 @@ export function WorkspaceShell({
           currentVault ? getDesktopWorkspaceHref(slug, 'providers') : `/u/${slug}/settings/security`,
         )
       }
+      onNavigateConnectors={() =>
+        router.push(
+          currentVault ? getDesktopWorkspaceHref(slug, 'connectors') : `/u/${slug}/connectors`,
+        )
+      }
+      onNavigateProviders={() =>
+        router.push(
+          currentVault ? getDesktopWorkspaceHref(slug, 'providers') : `/u/${slug}/settings/security`,
+        )
+      }
       sessions={rootSessions}
       activeSessionId={activeRootSessionId}
       unseenCompletedSessions={workspace.unseenCompletedSessions}
       onSelectSession={handleSelectSession}
+      onMarkAutopilotRunSeen={workspace.markAutopilotRunSeen}
       onCreateSession={handleCreateSession}
+      onOpenAutopilotSettings={handleOpenAutopilotSettings}
       agents={workspace.agentCatalog}
       onSelectAgent={handleSelectAgent}
       onOpenExpertsSettings={handleOpenExpertsSettings}
+      skills={skillsCatalog.skills}
+      onSelectSkill={handleSelectSkill}
+      onOpenSkillsSettings={handleOpenSkillsSettings}
       fileNodes={workspace.fileTree}
       activeFilePath={activeFilePath}
       onSelectFile={handleOpenFile}
@@ -1390,6 +1428,7 @@ export function WorkspaceShell({
           : null
       }
       onPendingInsertConsumed={handlePendingInsertConsumed}
+      workspaceRoot={currentVault ? `${currentVault.path}/workspace` : undefined}
     />
   );
 

@@ -29,6 +29,10 @@ vi.mock('@/components/settings/agents-settings-panel', () => ({
   AgentsSettingsPanel: () => <div>Agents Panel</div>,
 }))
 
+vi.mock('@/components/settings/skills-settings-panel', () => ({
+  SkillsSettingsPanel: () => <div>Skills Panel</div>,
+}))
+
 vi.mock('@/components/settings/advanced-settings-panel', () => ({
   AdvancedSettingsPanel: () => <div>Advanced Panel</div>,
 }))
@@ -48,6 +52,9 @@ describe('DesktopSettingsDialog', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Agents' }))
     expect(replaceMock).toHaveBeenCalledWith('/w/local?settings=agents')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Skills' }))
+    expect(replaceMock).toHaveBeenCalledWith('/w/local?settings=skills')
   })
 
   it('removes the settings query string when closed', () => {

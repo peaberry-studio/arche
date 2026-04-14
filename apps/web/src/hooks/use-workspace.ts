@@ -5,6 +5,7 @@ import {
   listSessionsAction,
   createSessionAction,
   deleteSessionAction,
+  markAutopilotRunSeenAction,
   updateSessionAction,
   listMessagesAction,
   abortSessionAction,
@@ -28,6 +29,7 @@ import {
   recordResumeFailure,
   type ResumeFailureState,
 } from "@/lib/workspace-resume-policy";
+import { WORKSPACE_CONFIG_STATUS_CHANGED_EVENT } from "@/lib/runtime/config-status-events";
 import { SerialJobExecutor } from "@/lib/serial-job-executor";
 import { useInstanceHeartbeat } from "@/hooks/use-instance-heartbeat";
 import { useWorkspaceConnection } from "@/hooks/use-workspace-connection";
@@ -52,6 +54,7 @@ type ProviderStatusEntry = {
 const STALE_PENDING_ASSISTANT_MS = 5_000;
 const RESUME_POLL_INTERVAL_MS = 4_000;
 const EMPTY_WORKSPACE_MESSAGES: WorkspaceMessage[] = [];
+const PRE_SESSION_SELECTION_KEY = "__pre_session__";
 
 function areStatusInfoEqual(
   left: WorkspaceMessage["statusInfo"],
@@ -287,6 +290,10 @@ function getPrimaryAgent(catalog: AgentCatalogItem[]): AgentCatalogItem | null {
   return catalog.find((agent) => agent.isPrimary) ?? null;
 }
 
+function getSessionSelectionKey(sessionId: string | null): string {
+  return sessionId ?? PRE_SESSION_SELECTION_KEY;
+}
+
 type SessionSelectionState = {
   manualModel: AvailableModel | null;
   runtimeModel: AvailableModel | null;
@@ -306,6 +313,7 @@ function createDefaultSessionSelectionState(
 export type UseWorkspaceOptions = {
   slug: string;
   storageScope?: string;
+  initialSessionId?: string | null;
   /** Poll interval in ms for session status updates */
   pollInterval?: number;
   /** Skip connection attempts when false */
@@ -343,6 +351,7 @@ export type UseWorkspaceReturn = {
   isLoadingSessions: boolean;
   unseenCompletedSessions: ReadonlySet<string>;
   selectSession: (id: string) => void;
+  markAutopilotRunSeen: (runId: string) => Promise<void>;
   createSession: (title?: string) => Promise<WorkspaceSession | null>;
   deleteSession: (id: string) => Promise<boolean>;
   renameSession: (id: string, title: string) => Promise<boolean>;
@@ -385,12 +394,14 @@ export type UseWorkspaceReturn = {
 export function useWorkspace({
   slug,
   storageScope,
+  initialSessionId = null,
   pollInterval = 5000,
   enabled = true,
   workspaceAgentEnabled = true,
   reaperEnabled = true,
 }: UseWorkspaceOptions): UseWorkspaceReturn {
   const activeSessionStorageKey = getActiveSessionStorageKey(storageScope ?? slug);
+  const initialSessionIdRef = useRef(initialSessionId);
 
   // --- Sub-hooks ---
   // onConnectedRef holds the real init callback. We declare it as a ref so
@@ -451,6 +462,7 @@ export function useWorkspace({
   const sessionExecutorsRef = useRef(new Map<string, SerialJobExecutor>());
   const latestStreamTokensRef = useRef(new Map<string, number>());
   const isMountedRef = useRef(true);
+  const autoMarkedAutopilotRunIdRef = useRef<string | null>(null);
 
   // Workspace refresh scheduling (diffs + files after stream completion)
   const workspaceRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -461,6 +473,8 @@ export function useWorkspace({
   const [sessionSelectionState, setSessionSelectionState] = useState<
     Record<string, SessionSelectionState>
   >({});
+  const sessionSelectionStateRef = useRef(sessionSelectionState);
+  sessionSelectionStateRef.current = sessionSelectionState;
 
   const messages = useMemo(
     () => (activeSessionId ? messagesBySession[activeSessionId] ?? EMPTY_WORKSPACE_MESSAGES : EMPTY_WORKSPACE_MESSAGES),
@@ -492,10 +506,9 @@ export function useWorkspace({
   const activeSession = enrichedSessions.find((s) => s.id === activeSessionId) ?? null;
   const primaryAgent = getPrimaryAgent(agentCatalog);
   const primaryAgentId = primaryAgent?.id ?? null;
-  const currentSessionSelection = activeSessionId
-    ? sessionSelectionState[activeSessionId] ??
-      createDefaultSessionSelectionState(primaryAgentId)
-    : createDefaultSessionSelectionState(primaryAgentId);
+  const currentSessionSelection =
+    sessionSelectionState[getSessionSelectionKey(activeSessionId)] ??
+    createDefaultSessionSelectionState(primaryAgentId);
   const activeCatalogAgent = currentSessionSelection.activeAgentId
     ? findAgentInCatalog(agentCatalog, currentSessionSelection.activeAgentId)
     : undefined;
@@ -561,9 +574,15 @@ export function useWorkspace({
   );
 
   const initializeSessionSelectionState = useCallback(
-    (sessionId: string) => {
+    (sessionId: string, seed?: SessionSelectionState) => {
       updateSessionSelection(sessionId, () =>
-        createDefaultSessionSelectionState(primaryAgentId)
+        seed
+          ? {
+              manualModel: seed.manualModel,
+              runtimeModel: seed.runtimeModel,
+              activeAgentId: seed.activeAgentId,
+            }
+          : createDefaultSessionSelectionState(primaryAgentId)
       );
     },
     [primaryAgentId, updateSessionSelection]
@@ -571,10 +590,9 @@ export function useWorkspace({
 
   const updateSelectedModel = useCallback(
     (model: AvailableModel | null) => {
-      const sessionId = activeSessionIdRef.current;
-      if (!sessionId) return;
+      const selectionKey = getSessionSelectionKey(activeSessionIdRef.current);
 
-      updateSessionSelection(sessionId, (current) => ({
+      updateSessionSelection(selectionKey, (current) => ({
         ...current,
         manualModel: model,
       }));
@@ -788,6 +806,11 @@ export function useWorkspace({
           const next: Record<string, SessionSelectionState> = {};
 
           for (const [sessionId, state] of Object.entries(prev)) {
+            if (sessionId === PRE_SESSION_SELECTION_KEY) {
+              next[sessionId] = state;
+              continue;
+            }
+
             if (!sessionIds.has(sessionId)) {
               changed = true;
               continue;
@@ -798,7 +821,13 @@ export function useWorkspace({
           return changed ? next : prev;
         });
         const currentSessionId = activeSessionIdRef.current;
+        const requestedSessionId = initialSessionIdRef.current;
         const storedSessionId = loadStoredActiveSessionId(activeSessionStorageKey);
+        const firstManualRootSession = sessions.find(
+          (session) =>
+            (!session.parentId || !sessionIds.has(session.parentId)) &&
+            !session.autopilot
+        );
         const firstRootSession = sessions.find(
           (session) => !session.parentId || !sessionIds.has(session.parentId)
         );
@@ -806,12 +835,18 @@ export function useWorkspace({
           (currentSessionId && sessionIds.has(currentSessionId)
             ? currentSessionId
             : null) ??
+          (requestedSessionId && sessionIds.has(requestedSessionId)
+            ? requestedSessionId
+            : null) ??
           (storedSessionId && sessionIds.has(storedSessionId)
             ? storedSessionId
             : null) ??
+          firstManualRootSession?.id ??
           firstRootSession?.id ??
           sessions[0]?.id ??
           null;
+
+        initialSessionIdRef.current = null;
 
         if (nextActiveSessionId !== currentSessionId) {
           console.log(
@@ -874,21 +909,72 @@ export function useWorkspace({
     []
   );
 
+  const markAutopilotRunSeen = useCallback(
+    async (runId: string) => {
+      let touched = false;
+
+      setSessions((prev) =>
+        prev.map((session) => {
+          if (session.autopilot?.runId !== runId || !session.autopilot.hasUnseenResult) {
+            return session;
+          }
+
+          touched = true;
+          return {
+            ...session,
+            autopilot: {
+              ...session.autopilot,
+              hasUnseenResult: false,
+            },
+          };
+        })
+      );
+
+      const result = await markAutopilotRunSeenAction(slug, runId);
+      if (!result.ok && touched) {
+        void loadSessions();
+      }
+    },
+    [loadSessions, slug]
+  );
+
+  useEffect(() => {
+    const runId = activeSession?.autopilot?.hasUnseenResult
+      ? activeSession.autopilot.runId
+      : null;
+    if (!runId || autoMarkedAutopilotRunIdRef.current === runId) {
+      return;
+    }
+
+    autoMarkedAutopilotRunIdRef.current = runId;
+    void markAutopilotRunSeen(runId);
+  }, [activeSession, markAutopilotRunSeen]);
+
   const createSession = useCallback(
     async (title?: string) => {
       const result = await createSessionAction(slug, title);
       if (result.ok && result.session) {
+        const draftSelection = sessionSelectionStateRef.current[PRE_SESSION_SELECTION_KEY];
         markSessionsMutated();
         setSessions((prev) => [result.session!, ...prev]);
         setActiveSessionId(result.session.id);
         activeSessionIdRef.current = result.session.id;
         updateSessionMessages(result.session.id, []);
-        initializeSessionSelectionState(result.session.id);
+        initializeSessionSelectionState(result.session.id, draftSelection);
+        if (draftSelection) {
+          clearSessionSelectionState(PRE_SESSION_SELECTION_KEY);
+        }
         return result.session;
       }
       return null;
     },
-    [initializeSessionSelectionState, markSessionsMutated, slug, updateSessionMessages]
+    [
+      clearSessionSelectionState,
+      initializeSessionSelectionState,
+      markSessionsMutated,
+      slug,
+      updateSessionMessages,
+    ]
   );
 
   const deleteSession = useCallback(
@@ -1706,7 +1792,8 @@ export function useWorkspace({
       let resolvedModel = model;
       if (!resolvedModel) {
         const selection =
-          sessionSelectionState[sessionId] ??
+          sessionSelectionStateRef.current[sessionId] ??
+          sessionSelectionStateRef.current[PRE_SESSION_SELECTION_KEY] ??
           createDefaultSessionSelectionState(primaryAgentId);
 
         const fallbackModel =
@@ -1776,7 +1863,6 @@ export function useWorkspace({
       agentDefaultModel,
       models,
       primaryAgentId,
-      sessionSelectionState,
       streamChat,
       updateSessionMessages,
     ]
@@ -1937,6 +2023,27 @@ export function useWorkspace({
       refreshMessages(activeSessionId);
     }
   }, [activeSessionId, isConnected, refreshMessages]);
+
+  useEffect(() => {
+    if (!enabled || !isConnected) return;
+
+    const handleWorkspaceConfigChanged = () => {
+      void loadModels();
+      void loadAgentCatalog();
+    };
+
+    window.addEventListener(
+      WORKSPACE_CONFIG_STATUS_CHANGED_EVENT,
+      handleWorkspaceConfigChanged
+    );
+
+    return () => {
+      window.removeEventListener(
+        WORKSPACE_CONFIG_STATUS_CHANGED_EVENT,
+        handleWorkspaceConfigChanged
+      );
+    };
+  }, [enabled, isConnected, loadAgentCatalog, loadModels]);
 
   // Derive a stable fingerprint of pending assistant messages so the resume
   // effect only re-runs when the *set* of pending IDs changes — not on every
@@ -2102,6 +2209,7 @@ export function useWorkspace({
     isLoadingSessions,
     unseenCompletedSessions,
     selectSession,
+    markAutopilotRunSeen,
     createSession,
     deleteSession,
     renameSession,

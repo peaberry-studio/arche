@@ -52,6 +52,20 @@ const mockPrisma = {
   auditEvent: {
     create: vi.fn(),
   },
+  autopilotTask: {
+    create: vi.fn(),
+    deleteMany: vi.fn(),
+    findFirst: vi.fn(),
+    findMany: vi.fn(),
+    updateMany: vi.fn(),
+  },
+  autopilotRun: {
+    create: vi.fn(),
+    findFirst: vi.fn(),
+    findMany: vi.fn(),
+    update: vi.fn(),
+    updateMany: vi.fn(),
+  },
   twoFactorRecovery: {
     count: vi.fn(),
     update: vi.fn(),
@@ -77,6 +91,7 @@ describe('service layer', () => {
       expect(services.sessionService).toBeDefined()
       expect(services.auditService).toBeDefined()
       expect(services.healthService).toBeDefined()
+      expect(services.autopilotService).toBeDefined()
     })
   })
 
@@ -240,6 +255,81 @@ describe('service layer', () => {
       await connectorService.deleteManyByIdAndUserId('c1', 'u1')
 
       expect(mockPrisma.connector.deleteMany).toHaveBeenCalledWith({ where: { id: 'c1', userId: 'u1' } })
+    })
+  })
+
+  describe('autopilotService', () => {
+    it('listTasksByUserId scopes tasks to the user and includes latest runs', async () => {
+      mockPrisma.autopilotTask.findMany.mockResolvedValue([])
+
+      const { autopilotService } = await import('../index')
+      await autopilotService.listTasksByUserId('user-1')
+
+      expect(mockPrisma.autopilotTask.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'user-1' },
+          include: expect.objectContaining({
+            runs: expect.objectContaining({ take: 1 }),
+          }),
+        })
+      )
+    })
+
+    it('releaseTaskLease clears the lease and updates lastRunAt', async () => {
+      mockPrisma.autopilotTask.updateMany.mockResolvedValue({ count: 1 })
+      const lastRunAt = new Date('2026-04-12T10:00:00.000Z')
+
+      const { autopilotService } = await import('../index')
+      await autopilotService.releaseTaskLease('task-1', 'lease-1', lastRunAt)
+
+      expect(mockPrisma.autopilotTask.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'task-1',
+          leaseOwner: 'lease-1',
+        },
+        data: {
+          lastRunAt,
+          leaseOwner: null,
+          leaseExpiresAt: null,
+        },
+      })
+    })
+
+    it('markRunResultSeenByIdAndUserId only marks completed unseen runs', async () => {
+      const seenAt = new Date('2026-04-12T11:00:00.000Z')
+      mockPrisma.autopilotRun.findFirst.mockResolvedValue({
+        id: 'run-1',
+        status: 'succeeded',
+        resultSeenAt: null,
+      })
+      mockPrisma.autopilotRun.updateMany.mockResolvedValue({ count: 1 })
+
+      const { autopilotService } = await import('../index')
+      const result = await autopilotService.markRunResultSeenByIdAndUserId('run-1', 'user-1', seenAt)
+
+      expect(result).toBe(true)
+      expect(mockPrisma.autopilotRun.findFirst).toHaveBeenCalledWith({
+        where: {
+          id: 'run-1',
+          task: {
+            userId: 'user-1',
+          },
+        },
+        select: {
+          id: true,
+          resultSeenAt: true,
+          status: true,
+        },
+      })
+      expect(mockPrisma.autopilotRun.updateMany).toHaveBeenCalledWith({
+        where: {
+          id: 'run-1',
+          resultSeenAt: null,
+        },
+        data: {
+          resultSeenAt: seenAt,
+        },
+      })
     })
   })
 
