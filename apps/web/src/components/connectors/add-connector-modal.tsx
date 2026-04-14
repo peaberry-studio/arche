@@ -21,6 +21,7 @@ import {
   type ConnectorAuthType,
   type ConnectorType,
 } from '@/lib/connectors/types'
+import { normalizeZendeskSubdomain } from '@/lib/connectors/zendesk-shared'
 import { cn } from '@/lib/utils'
 
 type AddConnectorModalProps = {
@@ -51,15 +52,6 @@ function buildDefaultName(type: ConnectorType): string {
     case 'custom':
       return 'Custom Connector'
   }
-}
-
-function normalizeZendeskSubdomainInput(value: string): string {
-  const trimmed = value.trim().toLowerCase()
-  if (!trimmed) return ''
-
-  const withoutProtocol = trimmed.replace(/^https?:\/\//, '')
-  const host = withoutProtocol.split(/[/?#]/, 1)[0] ?? withoutProtocol
-  return host.replace(/\.zendesk\.com$/, '')
 }
 
 function isStringRecord(value: unknown): value is Record<string, string> {
@@ -203,12 +195,12 @@ export function AddConnectorModal({
       }
 
       return {
-        ok: true,
-        value: {
-          subdomain: normalizeZendeskSubdomainInput(zendeskSubdomain),
-          email: zendeskEmail.trim(),
-          apiToken: apiKey.trim(),
-        },
+          ok: true,
+          value: {
+            subdomain: normalizeZendeskSubdomain(zendeskSubdomain),
+            email: zendeskEmail.trim(),
+            apiToken: apiKey.trim(),
+          },
       }
     }
 

@@ -1,6 +1,7 @@
 import { getConnectorAuthType } from '@/lib/connectors/oauth-config'
 import { isOAuthConnectorType } from '@/lib/connectors/oauth'
-import { validateZendeskConnectorConfig } from '@/lib/connectors/zendesk'
+import type { ConnectorConfigValidationResult } from '@/lib/connectors/config-validation'
+import { validateZendeskConnectorConfig } from '@/lib/connectors/zendesk-config'
 
 import { CONNECTOR_TYPES, type ConnectorType } from './types'
 
@@ -14,9 +15,7 @@ export interface ConnectorConfigSchema {
   optional?: string[]
 }
 
-export type ConnectorConfigValidationResult =
-  | { valid: true }
-  | { valid: false; missing?: string[]; message?: string }
+export type { ConnectorConfigValidationResult } from '@/lib/connectors/config-validation'
 
 export const CONNECTOR_SCHEMAS: Record<ConnectorType, ConnectorConfigSchema> = {
   linear: { required: ['apiKey'] },
@@ -79,6 +78,10 @@ export function validateConnectorConfig(
   }
 
   if (type === 'zendesk') {
+    if (getConnectorAuthType(config) === 'oauth') {
+      return { valid: false, message: 'Zendesk connectors do not support OAuth' }
+    }
+
     return validateZendeskConnectorConfig(config)
   }
 

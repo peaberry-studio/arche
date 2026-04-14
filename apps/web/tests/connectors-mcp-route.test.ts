@@ -188,4 +188,105 @@ describe('internal connector MCP route', () => {
     expect(status).toBe(204)
     expect(body).toBeNull()
   })
+
+  it('uses the connector email as the ticket requester', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ticket: { id: 84, subject: 'Need help', status: 'new' } }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { status } = await callMcpRoute({
+      body: {
+        jsonrpc: '2.0',
+        id: 'tool-call-2',
+        method: 'tools/call',
+        params: {
+          name: 'create_ticket',
+          arguments: {
+            subject: 'Need help',
+            comment: 'The issue is still happening.',
+            requesterEmail: 'external@example.com',
+            requesterName: 'External User',
+          },
+        },
+      },
+    })
+
+    expect(status).toBe(200)
+
+    const [, requestInit] = fetchMock.mock.calls[0] as [URL, RequestInit]
+    expect(JSON.parse(String(requestInit.body))).toEqual({
+      ticket: {
+        subject: 'Need help',
+        comment: {
+          body: 'The issue is still happening.',
+          public: true,
+        },
+        requester: {
+          email: 'agent@example.com',
+        },
+      },
+    })
+  })
+
+  it('rejects invalid boolean tool arguments instead of coercing them', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { status, body } = await callMcpRoute({
+      body: {
+        jsonrpc: '2.0',
+        id: 'tool-call-3',
+        method: 'tools/call',
+        params: {
+          name: 'update_ticket',
+          arguments: {
+            ticketId: 42,
+            comment: 'Internal note',
+            publicComment: 'false',
+          },
+        },
+      },
+    })
+
+    expect(status).toBe(200)
+    expect(JSON.parse(body.result.content[0].text)).toEqual({
+      ok: false,
+      error: 'invalid_arguments',
+      message: 'publicComment must be a boolean',
+    })
+    expect(body.result.isError).toBe(true)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects update_ticket calls without any ticket changes', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { status, body } = await callMcpRoute({
+      body: {
+        jsonrpc: '2.0',
+        id: 'tool-call-4',
+        method: 'tools/call',
+        params: {
+          name: 'update_ticket',
+          arguments: {
+            ticketId: 42,
+          },
+        },
+      },
+    })
+
+    expect(status).toBe(200)
+    expect(JSON.parse(body.result.content[0].text)).toEqual({
+      ok: false,
+      error: 'invalid_arguments',
+      message: 'At least one ticket field or comment must be provided',
+    })
+    expect(body.result.isError).toBe(true)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
 })

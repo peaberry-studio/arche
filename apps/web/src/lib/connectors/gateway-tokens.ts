@@ -10,6 +10,12 @@ export type ConnectorGatewayTokenPayload = {
 
 type ConnectorGatewayTokenInput = ConnectorGatewayTokenPayload
 
+// Connector gateway tokens intentionally do not expire.
+// They are embedded into long-lived workspace runtime config, and rotating them
+// requires a workspace restart before OpenCode can pick the new credential up.
+// Adding exp here would break healthy running workspaces when the upstream
+// connector remains valid but the embedded gateway token ages out.
+
 function encodePayload(payload: ConnectorGatewayTokenPayload): string {
   return Buffer.from(JSON.stringify(payload)).toString('base64url')
 }

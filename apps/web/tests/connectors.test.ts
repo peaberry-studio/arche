@@ -122,6 +122,18 @@ describe('connectors/validators', () => {
       })
     })
 
+    it('rejects oauth mode for zendesk connectors', () => {
+      expect(validateConnectorConfig('zendesk', {
+        authType: 'oauth',
+        subdomain: 'acme',
+        email: 'agent@example.com',
+        apiToken: 'token-123',
+      })).toEqual({
+        valid: false,
+        message: 'Zendesk connectors do not support OAuth',
+      })
+    })
+
     it('validates oauth mode for custom connectors', () => {
       expect(validateConnectorConfig('custom', { authType: 'oauth', endpoint: 'https://api.example.com/mcp' })).toEqual({
         valid: true,
