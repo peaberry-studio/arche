@@ -44,6 +44,7 @@ const MAX_CONTEXT_REFERENCES_PER_MESSAGE = 20
 const STREAM_RELEVANT_EVENT_TICK_MS = 1000
 const SEND_STREAM_RELEVANT_EVENT_TIMEOUT_MS = 20_000
 const RESUME_STREAM_RELEVANT_EVENT_TIMEOUT_MS = 12_000
+const AGENT_DELEGATION_TIMEOUT_MS = 5 * 60 * 1000
 
 function jsonErrorResponse(status: number, error: string) {
   return NextResponse.json({ error }, { status })
@@ -505,7 +506,7 @@ export const POST = withAuth(
         let assistantMessageSeen = typeof assistantMessageId === 'string'
         let assistantPartSeen = false
         let lastRelevantEventAt = Date.now()
-        const relevantEventTimeoutMs = resume
+        let relevantEventTimeoutMs = resume
           ? RESUME_STREAM_RELEVANT_EVENT_TIMEOUT_MS
           : SEND_STREAM_RELEVANT_EVENT_TIMEOUT_MS
 
@@ -756,11 +757,13 @@ export const POST = withAuth(
 
                       case 'agent': {
                         sendEvent('agent', { agent: part.name })
+                        relevantEventTimeoutMs = AGENT_DELEGATION_TIMEOUT_MS
                         break
                       }
 
                       case 'subtask': {
                         sendEvent('agent', { agent: part.agent })
+                        relevantEventTimeoutMs = AGENT_DELEGATION_TIMEOUT_MS
                         break
                       }
                     }
