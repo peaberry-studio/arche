@@ -60,15 +60,28 @@ export async function testSlackCredentials(args: {
   botToken: string
 }): Promise<SlackIntegrationTestResponse> {
   const botAuth = await callSlackApi('auth.test', args.botToken)
-  const appAuth = await callSlackApi('auth.test', args.appToken).catch(() => null)
   const socket = await callSlackApi('apps.connections.open', args.appToken)
 
   return {
-    appId: appAuth?.app_id ?? null,
+    appId: extractSlackAppId(socket.url),
     botUserId: botAuth.user_id ?? null,
     ok: true,
     socketUrlAvailable: typeof socket.url === 'string' && socket.url.length > 0,
-    teamId: botAuth.team_id ?? appAuth?.team_id ?? null,
+    teamId: botAuth.team_id ?? null,
+  }
+}
+
+function extractSlackAppId(socketUrl: string | undefined): string | null {
+  if (!socketUrl) {
+    return null
+  }
+
+  try {
+    const parsed = new URL(socketUrl)
+    const appId = parsed.searchParams.get('app_id')
+    return appId && appId.trim() ? appId : null
+  } catch {
+    return null
   }
 }
 

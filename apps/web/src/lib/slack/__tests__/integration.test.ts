@@ -50,8 +50,8 @@ describe('slack integration helpers', () => {
   it('tests Slack credentials through the HTTP API', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, team_id: 'T123', user_id: 'U123' })))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, app_id: 'A123', team_id: 'T123' })))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, url: 'wss://socket.slack.test' })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, url: 'wss://socket.slack.test/link/?ticket=123&app_id=A123' })))
+      .mockResolvedValue(new Response(JSON.stringify({ ok: true, url: 'wss://socket.slack.test/link/?ticket=123&app_id=A123' })))
     vi.stubGlobal('fetch', fetchMock)
 
     const { testSlackCredentials } = await import('../integration')
@@ -64,6 +64,6 @@ describe('slack integration helpers', () => {
       socketUrlAvailable: true,
       teamId: 'T123',
     })
-    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 })
