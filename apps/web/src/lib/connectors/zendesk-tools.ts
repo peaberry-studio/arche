@@ -22,11 +22,17 @@ const MAX_LIST_LIMIT = 100
 const TICKET_STATUSES = ['new', 'open', 'pending', 'hold', 'solved', 'closed'] as const
 const TICKET_PRIORITIES = ['urgent', 'high', 'normal', 'low'] as const
 const TICKET_TYPES = ['problem', 'incident', 'question', 'task'] as const
-const READ_ONLY_ZENDESK_TOOLS = new Set(['search_tickets', 'get_ticket', 'list_ticket_comments'])
 
-const ZENDESK_MCP_TOOLS: ZendeskMcpTool[] = [
+type ZendeskToolPermission = 'read' | 'create' | 'update'
+
+type ZendeskMcpToolDefinition = ZendeskMcpTool & {
+  permission: ZendeskToolPermission
+}
+
+const ZENDESK_MCP_TOOLS: ZendeskMcpToolDefinition[] = [
   {
     name: 'search_tickets',
+    permission: 'read',
     description: 'Search Zendesk tickets using Zendesk search query syntax. The connector automatically scopes queries to tickets.',
     inputSchema: {
       type: 'object',
@@ -53,6 +59,7 @@ const ZENDESK_MCP_TOOLS: ZendeskMcpTool[] = [
   },
   {
     name: 'get_ticket',
+    permission: 'read',
     description: 'Fetch a single Zendesk ticket by ID.',
     inputSchema: {
       type: 'object',
@@ -69,6 +76,7 @@ const ZENDESK_MCP_TOOLS: ZendeskMcpTool[] = [
   },
   {
     name: 'list_ticket_comments',
+    permission: 'read',
     description: 'List comments for a Zendesk ticket.',
     inputSchema: {
       type: 'object',
@@ -85,6 +93,7 @@ const ZENDESK_MCP_TOOLS: ZendeskMcpTool[] = [
   },
   {
     name: 'create_ticket',
+    permission: 'create',
     description: 'Create a Zendesk ticket with an initial comment as the authenticated connector account.',
     inputSchema: {
       type: 'object',
@@ -128,6 +137,7 @@ const ZENDESK_MCP_TOOLS: ZendeskMcpTool[] = [
   },
   {
     name: 'update_ticket',
+    permission: 'update',
     description: 'Update a Zendesk ticket and optionally add a comment.',
     inputSchema: {
       type: 'object',
@@ -175,6 +185,14 @@ const ZENDESK_MCP_TOOLS: ZendeskMcpTool[] = [
     },
   },
 ]
+
+function toZendeskMcpTool({ name, description, inputSchema }: ZendeskMcpToolDefinition): ZendeskMcpTool {
+  return {
+    name,
+    description,
+    inputSchema,
+  }
+}
 
 function toToolText(value: unknown): string {
   return JSON.stringify(value, null, 2)
@@ -249,42 +267,41 @@ function validateCreateOrUpdateEnums(args: Record<string, unknown>): { ok: true 
   return { ok: true }
 }
 
+function getZendeskToolDefinition(toolName: string): ZendeskMcpToolDefinition | undefined {
+  return ZENDESK_MCP_TOOLS.find((tool) => tool.name === toolName)
+}
+
 function isZendeskToolEnabled(
   permissions: ZendeskConnectorPermissions,
-  toolName: string
+  tool: ZendeskMcpToolDefinition
 ): boolean {
-  if (READ_ONLY_ZENDESK_TOOLS.has(toolName)) {
-    return permissions.allowRead
+  switch (tool.permission) {
+    case 'read':
+      return permissions.allowRead
+    case 'create':
+      return permissions.allowCreateTickets
+    case 'update':
+      return permissions.allowUpdateTickets
   }
-
-  if (toolName === 'create_ticket') {
-    return permissions.allowCreateTickets
-  }
-
-  if (toolName === 'update_ticket') {
-    return permissions.allowUpdateTickets
-  }
-
-  return true
 }
 
 function getZendeskToolDisabledMessage(
   permissions: ZendeskConnectorPermissions,
   toolName: string
 ): string | null {
-  if (READ_ONLY_ZENDESK_TOOLS.has(toolName) && !permissions.allowRead) {
-    return 'Read operations are disabled for this Zendesk connector'
+  const tool = getZendeskToolDefinition(toolName)
+  if (!tool) {
+    return null
   }
 
-  if (toolName === 'create_ticket' && !permissions.allowCreateTickets) {
-    return 'Ticket creation is disabled for this Zendesk connector'
+  switch (tool.permission) {
+    case 'read':
+      return permissions.allowRead ? null : 'Read operations are disabled for this Zendesk connector'
+    case 'create':
+      return permissions.allowCreateTickets ? null : 'Ticket creation is disabled for this Zendesk connector'
+    case 'update':
+      return permissions.allowUpdateTickets ? null : 'Ticket updates are disabled for this Zendesk connector'
   }
-
-  if (toolName === 'update_ticket' && !permissions.allowUpdateTickets) {
-    return 'Ticket updates are disabled for this Zendesk connector'
-  }
-
-  return null
 }
 
 function buildTicketPayload(
@@ -389,7 +406,7 @@ export function getZendeskMcpProtocolVersion(): string {
 }
 
 export function getZendeskMcpTools(config: ZendeskConnectorConfig): ZendeskMcpTool[] {
-  return ZENDESK_MCP_TOOLS.filter((tool) => isZendeskToolEnabled(config.permissions, tool.name))
+  return ZENDESK_MCP_TOOLS.filter((tool) => isZendeskToolEnabled(config.permissions, tool)).map(toZendeskMcpTool)
 }
 
 export async function executeZendeskMcpTool(

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { SpinnerGap } from '@phosphor-icons/react'
 
 import { getConnectorErrorMessage } from '@/components/connectors/error-messages'
 import { Button } from '@/components/ui/button'
@@ -105,7 +106,7 @@ export function ZendeskConnectorSettingsDialog({
         if (cancelled) return
 
         if (!response.ok || !data?.permissions) {
-          setError(getConnectorErrorMessage(data, 'load_failed'))
+          setError(getConnectorErrorMessage(data, 'load_settings_failed'))
           return
         }
 
@@ -179,6 +180,13 @@ export function ZendeskConnectorSettingsDialog({
         </DialogHeader>
 
         <div className="space-y-6">
+          {isLoading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <SpinnerGap size={16} className="animate-spin" />
+              Loading settings...
+            </div>
+          ) : null}
+
           {error ? (
             <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
               {error}

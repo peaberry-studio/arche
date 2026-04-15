@@ -41,6 +41,12 @@ describe('zendesk-tools', () => {
     expect(toolNames).toEqual(['update_ticket'])
   })
 
+  it('does not expose internal permission metadata in tools/list', () => {
+    const tools = getZendeskMcpTools(buildConfig())
+
+    expect(tools.every((tool) => !Object.prototype.hasOwnProperty.call(tool, 'permission'))).toBe(true)
+  })
+
   it('rejects read operations when read access is disabled', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)

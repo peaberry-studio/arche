@@ -21,6 +21,7 @@ const CONNECTOR_ERROR_MESSAGES: Record<string, string> = {
   invalid_endpoint: 'Connector endpoint must be a valid public HTTPS URL.',
   blocked_endpoint: 'Connector endpoint is blocked for security reasons.',
   load_failed: 'Failed to load connectors.',
+  load_settings_failed: 'Failed to load connector settings.',
   save_failed: 'Failed to save connector changes.',
   invalid_permissions: 'The selected Zendesk settings are invalid.',
   create_failed: 'Failed to create connector.',

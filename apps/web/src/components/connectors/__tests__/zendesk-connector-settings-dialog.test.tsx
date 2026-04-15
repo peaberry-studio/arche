@@ -28,10 +28,12 @@ describe('ZendeskConnectorSettingsDialog', () => {
   })
 
   it('does not submit default permissions when the initial load fails', async () => {
-    const fetchMock = vi.fn().mockResolvedValueOnce({
-      ok: false,
-      json: async () => ({ error: 'load_failed' }),
-    })
+    let resolveFetch: ((value: { ok: boolean; json: () => Promise<null> }) => void) | undefined
+    const fetchMock = vi.fn().mockReturnValueOnce(
+      new Promise<{ ok: boolean; json: () => Promise<null> }>((resolve) => {
+        resolveFetch = resolve
+      })
+    )
 
     vi.stubGlobal('fetch', fetchMock)
 
@@ -45,7 +47,17 @@ describe('ZendeskConnectorSettingsDialog', () => {
       />
     )
 
-    expect(await screen.findByText('Failed to load connectors.')).toBeTruthy()
+    expect(await screen.findByText('Loading settings...')).toBeTruthy()
+
+    resolveFetch?.({
+      ok: false,
+      json: async () => null,
+    })
+
+    expect(await screen.findByText('Failed to load connector settings.')).toBeTruthy()
+    await waitFor(() => {
+      expect(screen.queryByText('Loading settings...')).toBeNull()
+    })
 
     const saveButton = screen.getByRole('button', { name: 'Save settings' }) as HTMLButtonElement
     expect(saveButton.disabled).toBe(true)
