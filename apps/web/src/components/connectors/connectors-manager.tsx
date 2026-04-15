@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { AddConnectorModal } from '@/components/connectors/add-connector-modal'
 import { getConnectorErrorMessage } from '@/components/connectors/error-messages'
 import { ConnectorList } from '@/components/connectors/connector-list'
+import { ZendeskConnectorSettingsDialog } from '@/components/connectors/zendesk-connector-settings-dialog'
 import type {
   ConnectorListItem,
   ConnectorTestResult,
@@ -54,6 +55,7 @@ export function ConnectorsManager({
   const [busyConnectorIds, setBusyConnectorIds] = useState<Record<string, boolean>>({})
   const [testStates, setTestStates] = useState<Record<string, ConnectorTestState>>({})
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [settingsConnector, setSettingsConnector] = useState<ConnectorListItem | null>(null)
 
   const markConnectorBusy = useCallback((id: string, busy: boolean) => {
     setBusyConnectorIds((current) => {
@@ -273,6 +275,7 @@ export function ConnectorsManager({
         onRetry={loadConnectors}
         onCreateFirst={() => setIsModalOpen(true)}
         onDelete={handleDelete}
+        onOpenSettings={setSettingsConnector}
         onToggleEnabled={handleToggleEnabled}
         onTestConnection={handleTestConnection}
         onConnectOAuth={handleConnectOAuth}
@@ -286,6 +289,18 @@ export function ConnectorsManager({
         onSaved={() => {
           notifyWorkspaceConfigChanged()
           void loadConnectors()
+        }}
+      />
+
+      <ZendeskConnectorSettingsDialog
+        open={Boolean(settingsConnector)}
+        slug={slug}
+        connectorId={settingsConnector?.id ?? null}
+        connectorName={settingsConnector?.name ?? null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSettingsConnector(null)
+          }
         }}
       />
     </>

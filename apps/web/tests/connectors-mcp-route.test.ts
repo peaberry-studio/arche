@@ -73,6 +73,13 @@ describe('internal connector MCP route', () => {
       subdomain: 'acme',
       email: 'agent@example.com',
       apiToken: 'token-123',
+      permissions: {
+        allowRead: true,
+        allowCreateTickets: true,
+        allowUpdateTickets: true,
+        allowPublicComments: true,
+        allowInternalComments: true,
+      },
     })
   })
 
@@ -126,6 +133,37 @@ describe('internal connector MCP route', () => {
       'get_ticket',
       'list_ticket_comments',
       'create_ticket',
+      'update_ticket',
+    ])
+  })
+
+  it('hides disabled write tools from tools/list', async () => {
+    mockDecryptConfig.mockReturnValueOnce({
+      subdomain: 'acme',
+      email: 'agent@example.com',
+      apiToken: 'token-123',
+      permissions: {
+        allowRead: true,
+        allowCreateTickets: false,
+        allowUpdateTickets: true,
+        allowPublicComments: false,
+        allowInternalComments: true,
+      },
+    })
+
+    const { status, body } = await callMcpRoute({
+      body: {
+        jsonrpc: '2.0',
+        id: 'tools-list-2',
+        method: 'tools/list',
+      },
+    })
+
+    expect(status).toBe(200)
+    expect(body.result.tools.map((tool: { name: string }) => tool.name)).toEqual([
+      'search_tickets',
+      'get_ticket',
+      'list_ticket_comments',
       'update_ticket',
     ])
   })
@@ -257,6 +295,48 @@ describe('internal connector MCP route', () => {
       ok: false,
       error: 'invalid_arguments',
       message: 'publicComment must be a boolean',
+    })
+    expect(body.result.isError).toBe(true)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects public comments when the connector forbids them', async () => {
+    mockDecryptConfig.mockReturnValueOnce({
+      subdomain: 'acme',
+      email: 'agent@example.com',
+      apiToken: 'token-123',
+      permissions: {
+        allowRead: true,
+        allowCreateTickets: true,
+        allowUpdateTickets: true,
+        allowPublicComments: false,
+        allowInternalComments: true,
+      },
+    })
+
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { status, body } = await callMcpRoute({
+      body: {
+        jsonrpc: '2.0',
+        id: 'tool-call-5',
+        method: 'tools/call',
+        params: {
+          name: 'update_ticket',
+          arguments: {
+            ticketId: 42,
+            comment: 'This will notify the requester',
+          },
+        },
+      },
+    })
+
+    expect(status).toBe(200)
+    expect(JSON.parse(body.result.content[0].text)).toEqual({
+      ok: false,
+      error: 'operation_not_allowed',
+      message: 'Public comments are disabled for this Zendesk connector',
     })
     expect(body.result.isError).toBe(true)
     expect(fetchMock).not.toHaveBeenCalled()

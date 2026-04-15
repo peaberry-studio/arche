@@ -90,6 +90,20 @@ async function callPostConnectorOAuthStart(slug = 'alice', id = 'conn-1') {
   return { status: res.status, body: await res.json() }
 }
 
+async function callPatchZendeskSettings(slug = 'alice', id = 'conn-1') {
+  const { PATCH } = await import('@/app/api/u/[slug]/connectors/[id]/zendesk-settings/route')
+  const req = new Request(`http://localhost/api/u/${slug}/connectors/${id}/zendesk-settings`, {
+    method: 'PATCH',
+    headers: {
+      host: 'localhost',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ permissions: {} }),
+  })
+  const res = await PATCH(req as never, { params: Promise.resolve({ slug, id }) })
+  return { status: res.status, body: await res.json() }
+}
+
 describe('CSRF guard for connectors routes', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -131,6 +145,12 @@ describe('CSRF guard for connectors routes', () => {
 
   it('POST /api/u/[slug]/connectors/[id]/oauth/start returns 403 when Origin is missing', async () => {
     const { status, body } = await callPostConnectorOAuthStart('alice', 'conn-1')
+    expect(status).toBe(403)
+    expect(body.error).toBe('forbidden')
+  })
+
+  it('PATCH /api/u/[slug]/connectors/[id]/zendesk-settings returns 403 when Origin is missing', async () => {
+    const { status, body } = await callPatchZendeskSettings('alice', 'conn-1')
     expect(status).toBe(403)
     expect(body.error).toBe('forbidden')
   })
