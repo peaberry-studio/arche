@@ -102,7 +102,7 @@ export async function handleZendeskMcpRequest(
 
     case 'tools/list':
       return jsonRpcResult(id, {
-        tools: getZendeskMcpTools(),
+        tools: getZendeskMcpTools(parsedConfig.value),
       })
 
     case 'resources/list':

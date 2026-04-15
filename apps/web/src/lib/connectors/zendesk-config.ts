@@ -1,14 +1,61 @@
 import type { ConnectorConfigValidationResult } from '@/lib/connectors/config-validation'
 import { normalizeZendeskSubdomain } from '@/lib/connectors/zendesk-shared'
-import type { ZendeskConnectorConfig } from '@/lib/connectors/zendesk-types'
-import { getString } from '@/lib/connectors/zendesk-values'
+import {
+  DEFAULT_ZENDESK_CONNECTOR_PERMISSIONS,
+  ZENDESK_CONNECTOR_PERMISSION_KEYS,
+  type ZendeskConnectorConfig,
+  type ZendeskConnectorPermissions,
+} from '@/lib/connectors/zendesk-types'
+import { getBoolean, getString, isRecord } from '@/lib/connectors/zendesk-values'
 
 type ParsedZendeskConnectorConfig =
   | { ok: true; value: ZendeskConnectorConfig }
   | { ok: false; missing?: string[]; message?: string }
 
+type ParsedZendeskConnectorPermissions =
+  | { ok: true; value: ZendeskConnectorPermissions }
+  | { ok: false; message: string }
+
 function isValidZendeskSubdomain(subdomain: string): boolean {
   return /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(subdomain)
+}
+
+export function parseZendeskConnectorPermissions(
+  value: unknown,
+  options?: { requireAll: boolean }
+): ParsedZendeskConnectorPermissions {
+  if (value === undefined) {
+    if (options?.requireAll) {
+      return { ok: false, message: 'permissions is required' }
+    }
+
+    return { ok: true, value: { ...DEFAULT_ZENDESK_CONNECTOR_PERMISSIONS } }
+  }
+
+  if (!isRecord(value)) {
+    return { ok: false, message: 'permissions must be an object' }
+  }
+
+  const permissions: ZendeskConnectorPermissions = { ...DEFAULT_ZENDESK_CONNECTOR_PERMISSIONS }
+
+  for (const key of ZENDESK_CONNECTOR_PERMISSION_KEYS) {
+    if (!(key in value)) {
+      if (options?.requireAll) {
+        return { ok: false, message: `${key} is required` }
+      }
+
+      continue
+    }
+
+    const parsed = getBoolean(value[key])
+    if (parsed === undefined) {
+      return { ok: false, message: `${key} must be a boolean` }
+    }
+
+    permissions[key] = parsed
+  }
+
+  return { ok: true, value: permissions }
 }
 
 function parseZendeskConnectorFields(config: Record<string, unknown>): ParsedZendeskConnectorConfig {
@@ -33,12 +80,18 @@ function parseZendeskConnectorFields(config: Record<string, unknown>): ParsedZen
     }
   }
 
+  const permissions = parseZendeskConnectorPermissions(config.permissions)
+  if (!permissions.ok) {
+    return permissions
+  }
+
   return {
     ok: true,
     value: {
       subdomain,
       email,
       apiToken,
+      permissions: permissions.value,
     },
   }
 }

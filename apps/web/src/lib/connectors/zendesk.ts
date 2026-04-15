@@ -1,4 +1,8 @@
-export { parseZendeskConnectorConfig, validateZendeskConnectorConfig } from '@/lib/connectors/zendesk-config'
+export {
+  parseZendeskConnectorConfig,
+  parseZendeskConnectorPermissions,
+  validateZendeskConnectorConfig,
+} from '@/lib/connectors/zendesk-config'
 export { testZendeskConnection } from '@/lib/connectors/zendesk-client'
 export {
   executeZendeskMcpTool,
@@ -8,6 +12,7 @@ export {
 export type {
   ZendeskApiResponse,
   ZendeskConnectorConfig,
+  ZendeskConnectorPermissions,
   ZendeskMcpTool,
   ZendeskMcpToolResult,
 } from '@/lib/connectors/zendesk-types'

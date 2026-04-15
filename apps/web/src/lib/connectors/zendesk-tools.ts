@@ -3,6 +3,7 @@ import { mapTicket, mapTicketComment, requestZendeskJson } from '@/lib/connector
 import type {
   ZendeskApiResponse,
   ZendeskConnectorConfig,
+  ZendeskConnectorPermissions,
   ZendeskMcpTool,
   ZendeskMcpToolResult,
 } from '@/lib/connectors/zendesk-types'
@@ -21,6 +22,7 @@ const MAX_LIST_LIMIT = 100
 const TICKET_STATUSES = ['new', 'open', 'pending', 'hold', 'solved', 'closed'] as const
 const TICKET_PRIORITIES = ['urgent', 'high', 'normal', 'low'] as const
 const TICKET_TYPES = ['problem', 'incident', 'question', 'task'] as const
+const READ_ONLY_ZENDESK_TOOLS = new Set(['search_tickets', 'get_ticket', 'list_ticket_comments'])
 
 const ZENDESK_MCP_TOOLS: ZendeskMcpTool[] = [
   {
@@ -247,6 +249,44 @@ function validateCreateOrUpdateEnums(args: Record<string, unknown>): { ok: true 
   return { ok: true }
 }
 
+function isZendeskToolEnabled(
+  permissions: ZendeskConnectorPermissions,
+  toolName: string
+): boolean {
+  if (READ_ONLY_ZENDESK_TOOLS.has(toolName)) {
+    return permissions.allowRead
+  }
+
+  if (toolName === 'create_ticket') {
+    return permissions.allowCreateTickets
+  }
+
+  if (toolName === 'update_ticket') {
+    return permissions.allowUpdateTickets
+  }
+
+  return true
+}
+
+function getZendeskToolDisabledMessage(
+  permissions: ZendeskConnectorPermissions,
+  toolName: string
+): string | null {
+  if (READ_ONLY_ZENDESK_TOOLS.has(toolName) && !permissions.allowRead) {
+    return 'Read operations are disabled for this Zendesk connector'
+  }
+
+  if (toolName === 'create_ticket' && !permissions.allowCreateTickets) {
+    return 'Ticket creation is disabled for this Zendesk connector'
+  }
+
+  if (toolName === 'update_ticket' && !permissions.allowUpdateTickets) {
+    return 'Ticket updates are disabled for this Zendesk connector'
+  }
+
+  return null
+}
+
 function buildTicketPayload(
   config: ZendeskConnectorConfig,
   args: Record<string, unknown>,
@@ -267,14 +307,14 @@ function buildTicketPayload(
   if (type) ticket.type = type
 
   if (hasOwnProperty(args, 'assigneeId') && getOptionalIntegerArg(args, 'assigneeId') === undefined) {
-    return { ok: false, message: 'assigneeId must be a positive integer' } as const
+    return { ok: false, error: 'invalid_arguments', message: 'assigneeId must be a positive integer' } as const
   }
 
   const assigneeId = getOptionalIntegerArg(args, 'assigneeId')
   if (assigneeId) ticket.assignee_id = assigneeId
 
   if (hasOwnProperty(args, 'tags') && !isStringArray(args.tags)) {
-    return { ok: false, message: 'tags must be a string array' } as const
+    return { ok: false, error: 'invalid_arguments', message: 'tags must be a string array' } as const
   }
 
   const tags = getStringArray(args.tags)
@@ -283,14 +323,31 @@ function buildTicketPayload(
   }
 
   if (hasOwnProperty(args, 'publicComment') && getOptionalBooleanArg(args, 'publicComment') === undefined) {
-    return { ok: false, message: 'publicComment must be a boolean' } as const
+    return { ok: false, error: 'invalid_arguments', message: 'publicComment must be a boolean' } as const
   }
 
   const comment = getOptionalStringArg(args, 'comment')
   if (comment) {
+    const isPublicComment = getOptionalBooleanArg(args, 'publicComment') ?? true
+    if (isPublicComment && !config.permissions.allowPublicComments) {
+      return {
+        ok: false,
+        error: 'operation_not_allowed',
+        message: 'Public comments are disabled for this Zendesk connector',
+      } as const
+    }
+
+    if (!isPublicComment && !config.permissions.allowInternalComments) {
+      return {
+        ok: false,
+        error: 'operation_not_allowed',
+        message: 'Internal comments are disabled for this Zendesk connector',
+      } as const
+    }
+
     ticket.comment = {
       body: comment,
-      public: getOptionalBooleanArg(args, 'publicComment') ?? true,
+      public: isPublicComment,
     }
   }
 
@@ -331,8 +388,8 @@ export function getZendeskMcpProtocolVersion(): string {
   return ZENDESK_MCP_PROTOCOL_VERSION
 }
 
-export function getZendeskMcpTools(): ZendeskMcpTool[] {
-  return ZENDESK_MCP_TOOLS
+export function getZendeskMcpTools(config: ZendeskConnectorConfig): ZendeskMcpTool[] {
+  return ZENDESK_MCP_TOOLS.filter((tool) => isZendeskToolEnabled(config.permissions, tool.name))
 }
 
 export async function executeZendeskMcpTool(
@@ -341,6 +398,10 @@ export async function executeZendeskMcpTool(
   args: unknown
 ): Promise<ZendeskMcpToolResult> {
   const toolArgs = requireObjectArguments(args)
+  const permissionError = getZendeskToolDisabledMessage(config.permissions, toolName)
+  if (permissionError) {
+    return toToolError('operation_not_allowed', permissionError)
+  }
 
   try {
     switch (toolName) {
@@ -432,7 +493,7 @@ export async function executeZendeskMcpTool(
 
         const payload = buildTicketPayload(config, toolArgs, 'create')
         if (!payload.ok) {
-          return toToolError('invalid_arguments', payload.message)
+          return toToolError(payload.error, payload.message)
         }
 
         return runZendeskRequest(
@@ -462,7 +523,7 @@ export async function executeZendeskMcpTool(
 
         const payload = buildTicketPayload(config, toolArgs, 'update')
         if (!payload.ok) {
-          return toToolError('invalid_arguments', payload.message)
+          return toToolError(payload.error, payload.message)
         }
 
         if (Object.keys(payload.ticket).length === 0) {
