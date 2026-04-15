@@ -16,6 +16,20 @@ type ParsedZendeskConnectorPermissions =
   | { ok: true; value: ZendeskConnectorPermissions }
   | { ok: false; message: string }
 
+export function getZendeskConnectorPermissionsConstraintMessage(
+  permissions: ZendeskConnectorPermissions
+): string | null {
+  if (
+    permissions.allowCreateTickets &&
+    !permissions.allowPublicComments &&
+    !permissions.allowInternalComments
+  ) {
+    return 'Ticket creation requires public comments or internal notes to stay enabled.'
+  }
+
+  return null
+}
+
 function isValidZendeskSubdomain(subdomain: string): boolean {
   return /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(subdomain)
 }
@@ -105,6 +119,16 @@ export function validateZendeskConnectorConfig(
       valid: false,
       missing: parsed.missing,
       message: parsed.message,
+    }
+  }
+
+  const permissionsMessage = getZendeskConnectorPermissionsConstraintMessage(
+    parsed.value.permissions
+  )
+  if (permissionsMessage) {
+    return {
+      valid: false,
+      message: permissionsMessage,
     }
   }
 

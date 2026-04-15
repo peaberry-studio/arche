@@ -161,6 +161,25 @@ describe('Zendesk connector settings route', () => {
     expect(mockEncryptConfig).not.toHaveBeenCalled()
   })
 
+  it('rejects ticket creation without any allowed comment visibility', async () => {
+    const { status, body } = await callPatchRoute({
+      permissions: {
+        allowRead: true,
+        allowCreateTickets: true,
+        allowUpdateTickets: true,
+        allowPublicComments: false,
+        allowInternalComments: false,
+      },
+    })
+
+    expect(status).toBe(400)
+    expect(body).toEqual({
+      error: 'invalid_permissions',
+      message: 'Ticket creation requires public comments or internal notes to stay enabled.',
+    })
+    expect(mockEncryptConfig).not.toHaveBeenCalled()
+  })
+
   it('rejects non-Zendesk connectors', async () => {
     mockFindByIdAndUserId.mockResolvedValueOnce({
       id: 'conn-custom-1',

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auditEvent } from '@/lib/auth'
 import { decryptConfig, encryptConfig } from '@/lib/connectors/crypto'
 import {
+  getZendeskConnectorPermissionsConstraintMessage,
   parseZendeskConnectorConfig,
   parseZendeskConnectorPermissions,
   type ZendeskConnectorPermissions,
@@ -111,6 +112,16 @@ export const PATCH = withAuth<
   if (!parsedPermissions.ok) {
     return NextResponse.json(
       { error: 'invalid_permissions', message: parsedPermissions.message },
+      { status: 400 }
+    )
+  }
+
+  const permissionsMessage = getZendeskConnectorPermissionsConstraintMessage(
+    parsedPermissions.value
+  )
+  if (permissionsMessage) {
+    return NextResponse.json(
+      { error: 'invalid_permissions', message: permissionsMessage },
       { status: 400 }
     )
   }

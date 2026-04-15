@@ -161,6 +161,24 @@ describe('connectors/validators', () => {
       })
     })
 
+    it('rejects Zendesk ticket creation without any allowed comment visibility', () => {
+      expect(validateConnectorConfig('zendesk', {
+        subdomain: 'acme',
+        email: 'agent@example.com',
+        apiToken: 'token-123',
+        permissions: {
+          allowRead: true,
+          allowCreateTickets: true,
+          allowUpdateTickets: true,
+          allowPublicComments: false,
+          allowInternalComments: false,
+        },
+      })).toEqual({
+        valid: false,
+        message: 'Ticket creation requires public comments or internal notes to stay enabled.',
+      })
+    })
+
     it('validates oauth mode for custom connectors', () => {
       expect(validateConnectorConfig('custom', { authType: 'oauth', endpoint: 'https://api.example.com/mcp' })).toEqual({
         valid: true,

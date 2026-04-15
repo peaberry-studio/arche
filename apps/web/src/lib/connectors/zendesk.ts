@@ -1,4 +1,5 @@
 export {
+  getZendeskConnectorPermissionsConstraintMessage,
   parseZendeskConnectorConfig,
   parseZendeskConnectorPermissions,
   validateZendeskConnectorConfig,

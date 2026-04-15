@@ -13,6 +13,9 @@ import {
 } from '@/components/ui/dialog'
 import { Switch } from '@/components/ui/switch'
 import {
+  getZendeskConnectorPermissionsConstraintMessage,
+} from '@/lib/connectors/zendesk'
+import {
   DEFAULT_ZENDESK_CONNECTOR_PERMISSIONS,
   type ZendeskConnectorPermissions,
 } from '@/lib/connectors/zendesk-types'
@@ -57,13 +60,27 @@ export function ZendeskConnectorSettingsDialog({
   onOpenChange,
 }: ZendeskConnectorSettingsDialogProps) {
   const [permissions, setPermissions] = useState<ZendeskConnectorPermissions>(DEFAULT_ZENDESK_CONNECTOR_PERMISSIONS)
+  const [hasLoadedSettings, setHasLoadedSettings] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const hasCommentVisibility = permissions.allowPublicComments || permissions.allowInternalComments
+  const permissionsConstraintMessage = getZendeskConnectorPermissionsConstraintMessage(permissions)
+  const canEditPermissions = hasLoadedSettings && !isLoading && !isSaving
+  const createTicketsDisabled =
+    !canEditPermissions || (!hasCommentVisibility && !permissions.allowCreateTickets)
+  const internalCommentsDisabled =
+    !canEditPermissions ||
+    (permissions.allowCreateTickets && permissions.allowInternalComments && !permissions.allowPublicComments)
+  const publicCommentsDisabled =
+    !canEditPermissions ||
+    (permissions.allowCreateTickets && permissions.allowPublicComments && !permissions.allowInternalComments)
+
   useEffect(() => {
     if (!open || !connectorId) {
       setPermissions(DEFAULT_ZENDESK_CONNECTOR_PERMISSIONS)
+      setHasLoadedSettings(false)
       setError(null)
       setIsLoading(false)
       setIsSaving(false)
@@ -73,6 +90,7 @@ export function ZendeskConnectorSettingsDialog({
     let cancelled = false
 
     async function loadSettings() {
+      setHasLoadedSettings(false)
       setIsLoading(true)
       setError(null)
 
@@ -92,6 +110,7 @@ export function ZendeskConnectorSettingsDialog({
         }
 
         setPermissions(data.permissions)
+        setHasLoadedSettings(true)
       } catch {
         if (!cancelled) {
           setError(getConnectorErrorMessage(null, 'network_error'))
@@ -118,7 +137,9 @@ export function ZendeskConnectorSettingsDialog({
   }
 
   async function handleSave() {
-    if (!connectorId || isLoading || isSaving) return
+    if (!connectorId || !hasLoadedSettings || isLoading || isSaving || permissionsConstraintMessage) {
+      return
+    }
 
     setIsSaving(true)
     setError(null)
@@ -164,6 +185,12 @@ export function ZendeskConnectorSettingsDialog({
             </p>
           ) : null}
 
+          {permissionsConstraintMessage ? (
+            <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
+              {permissionsConstraintMessage}
+            </p>
+          ) : null}
+
           <section className="space-y-3">
             <div className="space-y-1">
               <h3 className="text-sm font-semibold text-foreground">Ticket access</h3>
@@ -176,24 +203,30 @@ export function ZendeskConnectorSettingsDialog({
               <PermissionField
                 checked={permissions.allowRead}
                 description="Allow searching tickets, reading ticket details and listing comments."
-                disabled={isLoading || isSaving}
+                disabled={!canEditPermissions}
                 label="Read tickets"
                 onCheckedChange={(checked) => updatePermission('allowRead', checked)}
               />
               <PermissionField
                 checked={permissions.allowCreateTickets}
                 description="Allow creating new tickets in Zendesk."
-                disabled={isLoading || isSaving}
+                disabled={createTicketsDisabled}
                 label="Create tickets"
                 onCheckedChange={(checked) => updatePermission('allowCreateTickets', checked)}
               />
               <PermissionField
                 checked={permissions.allowUpdateTickets}
                 description="Allow changing ticket fields and adding comments to existing tickets."
-                disabled={isLoading || isSaving}
+                disabled={!canEditPermissions}
                 label="Update tickets"
                 onCheckedChange={(checked) => updatePermission('allowUpdateTickets', checked)}
               />
+
+              {!hasCommentVisibility && !permissions.allowCreateTickets ? (
+                <p className="text-xs text-muted-foreground">
+                  Enable public comments or internal notes before allowing ticket creation.
+                </p>
+              ) : null}
             </div>
           </section>
 
@@ -209,17 +242,23 @@ export function ZendeskConnectorSettingsDialog({
               <PermissionField
                 checked={permissions.allowInternalComments}
                 description="Allow private internal notes that stay visible only to Zendesk agents."
-                disabled={isLoading || isSaving}
+                disabled={internalCommentsDisabled}
                 label="Internal notes"
                 onCheckedChange={(checked) => updatePermission('allowInternalComments', checked)}
               />
               <PermissionField
                 checked={permissions.allowPublicComments}
                 description="Allow public comments that can notify the requester by email."
-                disabled={isLoading || isSaving}
+                disabled={publicCommentsDisabled}
                 label="Public comments"
                 onCheckedChange={(checked) => updatePermission('allowPublicComments', checked)}
               />
+
+              {permissions.allowCreateTickets && permissions.allowPublicComments !== permissions.allowInternalComments ? (
+                <p className="text-xs text-muted-foreground">
+                  Ticket creation needs at least one comment option. Disable ticket creation first to turn off the last enabled comment type.
+                </p>
+              ) : null}
             </div>
           </section>
 
@@ -227,7 +266,10 @@ export function ZendeskConnectorSettingsDialog({
             <Button disabled={isSaving} variant="ghost" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button disabled={isLoading || isSaving || !connectorId} onClick={() => void handleSave()}>
+            <Button
+              disabled={isLoading || isSaving || !connectorId || !hasLoadedSettings || Boolean(permissionsConstraintMessage)}
+              onClick={() => void handleSave()}
+            >
               {isSaving ? 'Saving...' : 'Save settings'}
             </Button>
           </div>
