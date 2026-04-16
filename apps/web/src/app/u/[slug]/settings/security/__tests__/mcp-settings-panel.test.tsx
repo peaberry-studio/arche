@@ -66,8 +66,9 @@ describe('McpSettingsPanel', () => {
       target: { value: 'MacBook Pro - Codex' },
     })
 
-    fireEvent.click(getScopeCheckbox('Knowledge base'))
-    fireEvent.click(getScopeCheckbox('Skills'))
+    fireEvent.click(getScopeCheckbox('Knowledge base read'))
+    fireEvent.click(getScopeCheckbox('Knowledge base write'))
+    fireEvent.click(getScopeCheckbox('Tasks run'))
     fireEvent.click(screen.getByRole('button', { name: 'Create token' }))
 
     await waitFor(() => {
@@ -90,9 +91,10 @@ describe('McpSettingsPanel', () => {
       />,
     )
 
-    fireEvent.click(getScopeCheckbox('Knowledge base'))
-    fireEvent.click(getScopeCheckbox('Agents'))
-    fireEvent.click(getScopeCheckbox('Skills'))
+    fireEvent.click(getScopeCheckbox('Knowledge base read'))
+    fireEvent.click(getScopeCheckbox('Knowledge base write'))
+    fireEvent.click(getScopeCheckbox('Agents read'))
+    fireEvent.click(getScopeCheckbox('Tasks run'))
 
     expect((screen.getByRole('button', { name: 'Create token' }) as HTMLButtonElement).disabled).toBe(true)
   })
