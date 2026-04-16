@@ -11,6 +11,7 @@ type ConnectorListProps = {
   onRetry: () => void
   onCreateFirst: () => void
   onDelete: (id: string, name: string) => void
+  onOpenSettings: (connector: ConnectorListItem) => void
   onToggleEnabled: (id: string, enabled: boolean) => void
   onTestConnection: (id: string) => void
   onConnectOAuth: (id: string) => void
@@ -25,6 +26,7 @@ export function ConnectorList({
   onRetry,
   onCreateFirst,
   onDelete,
+  onOpenSettings,
   onToggleEnabled,
   onTestConnection,
   onConnectOAuth,
@@ -82,6 +84,7 @@ export function ConnectorList({
           testState={testStates[connector.id]}
           isBusy={Boolean(busyConnectorIds[connector.id])}
           onDelete={onDelete}
+          onOpenSettings={onOpenSettings}
           onToggleEnabled={onToggleEnabled}
           onTestConnection={onTestConnection}
           onConnectOAuth={onConnectOAuth}

@@ -36,6 +36,13 @@ describe('handleZendeskMcpRequest', () => {
         subdomain: 'acme',
         email: 'agent@acme.com',
         apiToken: 'secret',
+        permissions: {
+          allowRead: true,
+          allowCreateTickets: true,
+          allowUpdateTickets: true,
+          allowPublicComments: true,
+          allowInternalComments: true,
+        },
       },
     })
     zendeskMocks.getZendeskMcpProtocolVersion.mockReturnValue('2025-03-26')
@@ -87,6 +94,13 @@ describe('handleZendeskMcpRequest', () => {
         subdomain: 'acme',
         email: 'agent@acme.com',
         apiToken: 'secret',
+        permissions: {
+          allowRead: true,
+          allowCreateTickets: true,
+          allowUpdateTickets: true,
+          allowPublicComments: true,
+          allowInternalComments: true,
+        },
       },
       'search_tickets',
       { query: 'priority:urgent' }
@@ -116,6 +130,33 @@ describe('handleZendeskMcpRequest', () => {
       error: {
         code: -32000,
         message: 'Missing apiToken',
+      },
+    })
+  })
+
+  it('lists tools using the parsed connector permissions', async () => {
+    const response = await handleZendeskMcpRequest(
+      buildRequest({ jsonrpc: '2.0', id: 'req-4', method: 'tools/list' }),
+      {}
+    )
+
+    expect(zendeskMocks.getZendeskMcpTools).toHaveBeenCalledWith({
+      subdomain: 'acme',
+      email: 'agent@acme.com',
+      apiToken: 'secret',
+      permissions: {
+        allowRead: true,
+        allowCreateTickets: true,
+        allowUpdateTickets: true,
+        allowPublicComments: true,
+        allowInternalComments: true,
+      },
+    })
+    expect(await response.json()).toEqual({
+      jsonrpc: '2.0',
+      id: 'req-4',
+      result: {
+        tools: [{ name: 'search_tickets' }],
       },
     })
   })

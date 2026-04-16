@@ -2,6 +2,11 @@ import { describe, it, expect } from 'vitest'
 import { encryptConfig, decryptConfig } from '@/lib/connectors/crypto'
 import { CONNECTOR_TYPES } from '@/lib/connectors/types'
 import {
+  parseZendeskConnectorConfig,
+  parseZendeskConnectorPermissions,
+} from '@/lib/connectors/zendesk'
+import { DEFAULT_ZENDESK_CONNECTOR_PERMISSIONS } from '@/lib/connectors/zendesk-types'
+import {
   validateConnectorType,
   validateConnectorConfig,
   validateConnectorName,
@@ -134,6 +139,46 @@ describe('connectors/validators', () => {
       })
     })
 
+    it('accepts Zendesk connectors without explicit permissions for backward compatibility', () => {
+      expect(validateConnectorConfig('zendesk', {
+        subdomain: 'acme',
+        email: 'agent@example.com',
+        apiToken: 'token-123',
+      })).toEqual({ valid: true })
+    })
+
+    it('rejects invalid Zendesk permission values', () => {
+      expect(validateConnectorConfig('zendesk', {
+        subdomain: 'acme',
+        email: 'agent@example.com',
+        apiToken: 'token-123',
+        permissions: {
+          allowRead: 'yes',
+        },
+      })).toEqual({
+        valid: false,
+        message: 'allowRead must be a boolean',
+      })
+    })
+
+    it('rejects Zendesk ticket creation without any allowed comment visibility', () => {
+      expect(validateConnectorConfig('zendesk', {
+        subdomain: 'acme',
+        email: 'agent@example.com',
+        apiToken: 'token-123',
+        permissions: {
+          allowRead: true,
+          allowCreateTickets: true,
+          allowUpdateTickets: true,
+          allowPublicComments: false,
+          allowInternalComments: false,
+        },
+      })).toEqual({
+        valid: false,
+        message: 'Ticket creation requires public comments or internal notes to stay enabled.',
+      })
+    })
+
     it('validates oauth mode for custom connectors', () => {
       expect(validateConnectorConfig('custom', { authType: 'oauth', endpoint: 'https://api.example.com/mcp' })).toEqual({
         valid: true,
@@ -216,6 +261,48 @@ describe('connectors/validators', () => {
         expect(CONNECTOR_SCHEMAS[type].required).toBeDefined()
         expect(Array.isArray(CONNECTOR_SCHEMAS[type].required)).toBe(true)
       }
+    })
+  })
+})
+
+describe('connectors/zendesk-config', () => {
+  it('defaults missing Zendesk permissions to full access', () => {
+    expect(parseZendeskConnectorPermissions(undefined)).toEqual({
+      ok: true,
+      value: DEFAULT_ZENDESK_CONNECTOR_PERMISSIONS,
+    })
+  })
+
+  it('parses partial Zendesk permissions while keeping safe defaults', () => {
+    expect(parseZendeskConnectorPermissions({ allowPublicComments: false })).toEqual({
+      ok: true,
+      value: {
+        ...DEFAULT_ZENDESK_CONNECTOR_PERMISSIONS,
+        allowPublicComments: false,
+      },
+    })
+  })
+
+  it('requires all settings fields when asked to parse a settings payload', () => {
+    expect(parseZendeskConnectorPermissions({ allowRead: true }, { requireAll: true })).toEqual({
+      ok: false,
+      message: 'allowCreateTickets is required',
+    })
+  })
+
+  it('normalizes parsed Zendesk config with default permissions', () => {
+    expect(parseZendeskConnectorConfig({
+      subdomain: 'acme',
+      email: 'agent@example.com',
+      apiToken: 'token-123',
+    })).toEqual({
+      ok: true,
+      value: {
+        subdomain: 'acme',
+        email: 'agent@example.com',
+        apiToken: 'token-123',
+        permissions: DEFAULT_ZENDESK_CONNECTOR_PERMISSIONS,
+      },
     })
   })
 })

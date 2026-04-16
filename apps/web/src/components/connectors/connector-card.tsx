@@ -12,6 +12,7 @@ type ConnectorCardProps = {
   testState?: ConnectorTestState
   isBusy: boolean
   onDelete: (id: string, name: string) => void
+  onOpenSettings: (connector: ConnectorListItem) => void
   onToggleEnabled: (id: string, enabled: boolean) => void
   onTestConnection: (id: string) => void
   onConnectOAuth: (id: string) => void
@@ -50,6 +51,7 @@ export function ConnectorCard({
   testState,
   isBusy,
   onDelete,
+  onOpenSettings,
   onToggleEnabled,
   onTestConnection,
   onConnectOAuth,
@@ -146,6 +148,16 @@ export function ConnectorCard({
               disabled={isBusy}
             >
               {connector.oauthConnected ? 'Reconnect OAuth' : 'Connect OAuth'}
+            </button>
+          ) : null}
+          {connector.type === 'zendesk' ? (
+            <button
+              type="button"
+              className="text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+              onClick={() => onOpenSettings(connector)}
+              disabled={isBusy}
+            >
+              Settings
             </button>
           ) : null}
 
