@@ -2,17 +2,28 @@ import { describe, expect, it } from 'vitest'
 
 import {
   inferAttachmentMimeType,
+  isDocumentMimeType,
+  isPresentationMimeType,
   isWorkspaceAttachmentPath,
   isSpreadsheetMimeType,
   sanitizeAttachmentFilename,
 } from '@/lib/workspace-attachments'
 
-describe('workspace attachments spreadsheet helpers', () => {
+describe('workspace attachments helpers', () => {
   it('infers spreadsheet mime types for open formats', () => {
     expect(inferAttachmentMimeType('report.ods')).toBe(
       'application/vnd.oasis.opendocument.spreadsheet',
     )
     expect(inferAttachmentMimeType('table.tsv')).toBe('text/tab-separated-values')
+  })
+
+  it('infers document and presentation mime types for open formats', () => {
+    expect(inferAttachmentMimeType('brief.odt')).toBe(
+      'application/vnd.oasis.opendocument.text',
+    )
+    expect(inferAttachmentMimeType('deck.odp')).toBe(
+      'application/vnd.oasis.opendocument.presentation',
+    )
   })
 
   it('detects spreadsheet mimes case-insensitively', () => {
@@ -22,6 +33,22 @@ describe('workspace attachments spreadsheet helpers', () => {
       ),
     ).toBe(true)
     expect(isSpreadsheetMimeType('text/plain')).toBe(false)
+  })
+
+  it('detects document and presentation mimes case-insensitively', () => {
+    expect(
+      isDocumentMimeType(
+        'APPLICATION/VND.OPENXMLFORMATS-OFFICEDOCUMENT.WORDPROCESSINGML.DOCUMENT',
+      ),
+    ).toBe(true)
+    expect(isDocumentMimeType('application/msword')).toBe(false)
+
+    expect(
+      isPresentationMimeType(
+        'APPLICATION/VND.OASIS.OPENDOCUMENT.PRESENTATION',
+      ),
+    ).toBe(true)
+    expect(isPresentationMimeType('application/vnd.ms-powerpoint')).toBe(false)
   })
 
   it('sanitizes unsafe filenames', () => {

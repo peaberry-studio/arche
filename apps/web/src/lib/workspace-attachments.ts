@@ -10,7 +10,9 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   md: 'text/markdown',
   mp3: 'audio/mpeg',
   mp4: 'video/mp4',
+  odt: 'application/vnd.oasis.opendocument.text',
   ods: 'application/vnd.oasis.opendocument.spreadsheet',
+  odp: 'application/vnd.oasis.opendocument.presentation',
   pdf: 'application/pdf',
   ppt: 'application/vnd.ms-powerpoint',
   pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
@@ -31,6 +33,16 @@ const SPREADSHEET_MIME_TYPES = new Set([
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'text/csv',
   'text/tab-separated-values',
+])
+
+const DOCUMENT_MIME_TYPES = new Set([
+  'application/vnd.oasis.opendocument.text',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+])
+
+const PRESENTATION_MIME_TYPES = new Set([
+  'application/vnd.oasis.opendocument.presentation',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
 ])
 
 const FALLBACK_MIME = 'text/plain'
@@ -111,4 +123,12 @@ export function formatAttachmentSize(bytes: number): string {
 
 export function isSpreadsheetMimeType(mime: string): boolean {
   return SPREADSHEET_MIME_TYPES.has(mime.toLowerCase())
+}
+
+export function isDocumentMimeType(mime: string): boolean {
+  return DOCUMENT_MIME_TYPES.has(mime.toLowerCase())
+}
+
+export function isPresentationMimeType(mime: string): boolean {
+  return PRESENTATION_MIME_TYPES.has(mime.toLowerCase())
 }

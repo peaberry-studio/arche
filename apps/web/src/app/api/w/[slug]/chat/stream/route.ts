@@ -1,6 +1,3 @@
-import { join } from 'path'
-import { pathToFileURL } from 'url'
-
 import { NextRequest, NextResponse } from 'next/server'
 
 import { getIdleFinalizationOutcome, getSilentStreamOutcome } from '@/app/api/w/[slug]/chat/stream/watchdog'
@@ -8,7 +5,6 @@ import { createUpstreamSessionStatusReader } from '@/app/api/w/[slug]/chat/strea
 import { extractPdfText, isPdfMime } from '@/lib/attachments/pdf-text-extractor'
 import { getInstanceUrl } from '@/lib/opencode/client'
 import { normalizeProviderId, resolveRuntimeProviderId } from '@/lib/providers/catalog'
-import { DESKTOP_WORKSPACE_DIR_NAME } from '@/lib/runtime/desktop/vault-layout-constants'
 import { isDesktop } from '@/lib/runtime/mode'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { instanceService } from '@/lib/services'
@@ -23,6 +19,8 @@ import { workspaceAgentFetch } from '@/lib/workspace-agent-client'
 import { getWorkspaceAgentUrl } from '@/lib/workspace-agent/client'
 import {
   inferAttachmentMimeType,
+  isDocumentMimeType,
+  isPresentationMimeType,
   isWorkspaceAttachmentPath,
   isSpreadsheetMimeType,
   MAX_ATTACHMENTS_PER_MESSAGE,
@@ -131,20 +129,16 @@ async function readWorkspaceImageAttachment(
   return decoded
 }
 
-function toWorkspaceFileUrl(path: string): string {
-  const normalized = normalizeAttachmentPath(path)
-
+function toWorkspaceFileUrl(path: string): string | null {
   if (isDesktop()) {
-    const vaultRoot = process.env.ARCHE_DATA_DIR?.trim()
-    if (vaultRoot) {
-      return pathToFileURL(join(vaultRoot, DESKTOP_WORKSPACE_DIR_NAME, ...normalized.split('/'))).toString()
-    }
+    return null
   }
 
-  const encodedPath = normalized
+  const encodedPath = normalizeAttachmentPath(path)
     .split('/')
     .map((segment) => encodeURIComponent(segment))
     .join('/')
+
   return `file:///workspace/${encodedPath}`
 }
 
@@ -187,6 +181,20 @@ function toSpreadsheetToolHintText(path: string): string {
   return [
     `Attached spreadsheet file: ${toAttachmentPromptPath(path)}`,
     'You must use spreadsheet_inspect first to detect sheets and columns, then use spreadsheet_sample/spreadsheet_query/spreadsheet_stats for focused analysis and calculations.',
+  ].join('\n')
+}
+
+function toDocumentToolHintText(path: string): string {
+  return [
+    `Attached document file: ${toAttachmentPromptPath(path)}`,
+    'Use document_inspect to extract the structure, headings, and normalized text before answering detailed questions about the document.',
+  ].join('\n')
+}
+
+function toPresentationToolHintText(path: string): string {
+  return [
+    `Attached presentation file: ${toAttachmentPromptPath(path)}`,
+    'Use presentation_inspect to inspect slide structure and extracted slide text before summarizing or comparing the deck.',
   ].join('\n')
 }
 
@@ -435,11 +443,30 @@ export const POST = withAuth(
                 continue
               }
 
+              if (isDocumentMimeType(mime)) {
+                promptParts.push({
+                  type: 'text',
+                  text: toDocumentToolHintText(attachmentPath),
+                })
+                attachmentPathsForHint.push(attachmentPath)
+                continue
+              }
+
+              if (isPresentationMimeType(mime)) {
+                promptParts.push({
+                  type: 'text',
+                  text: toPresentationToolHintText(attachmentPath),
+                })
+                attachmentPathsForHint.push(attachmentPath)
+                continue
+              }
+
               if (isImageMime(mime)) {
                 const imageBytes = await readWorkspaceImageAttachment(
                   { baseUrl: workspaceAgentUrl, authHeader },
                   attachmentPath,
                 )
+                const workspaceFileUrl = toWorkspaceFileUrl(attachmentPath)
 
                 if (imageBytes) {
                   const base64 = imageBytes.toString('base64')
@@ -449,12 +476,12 @@ export const POST = withAuth(
                     filename: fileName,
                     url: `data:${mime};base64,${base64}`,
                   })
-                } else {
+                } else if (workspaceFileUrl) {
                   promptParts.push({
                     type: 'file',
                     mime,
                     filename: fileName,
-                    url: toWorkspaceFileUrl(attachmentPath),
+                    url: workspaceFileUrl,
                   })
                 }
 
@@ -462,12 +489,15 @@ export const POST = withAuth(
                 continue
               }
 
-              promptParts.push({
-                type: 'file',
-                mime,
-                filename: fileName,
-                url: toWorkspaceFileUrl(attachmentPath),
-              })
+              const workspaceFileUrl = toWorkspaceFileUrl(attachmentPath)
+              if (workspaceFileUrl) {
+                promptParts.push({
+                  type: 'file',
+                  mime,
+                  filename: fileName,
+                  url: workspaceFileUrl,
+                })
+              }
 
               attachmentPathsForHint.push(attachmentPath)
             }

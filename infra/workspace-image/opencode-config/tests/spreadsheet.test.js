@@ -4,21 +4,17 @@ import fs from 'node:fs/promises'
 
 import * as XLSX from 'xlsx'
 
-import { inspect, query, resolveSpreadsheetPath, sample, stats } from '../tools/spreadsheet.js'
+import { resolveAttachmentPath } from '../shared/attachment-tools.js'
+import { inspect, query, sample, stats } from '../tools/spreadsheet.js'
+import { createWorkspaceTestEnv } from './workspace-test-env.js'
 
-const originalWorkspaceDir = process.env.WORKSPACE_DIR
-process.env.WORKSPACE_DIR = '/workspace'
+const workspace = await createWorkspaceTestEnv('arche-spreadsheet-test-')
 
-after(() => {
-  if (originalWorkspaceDir === undefined) {
-    delete process.env.WORKSPACE_DIR
-    return
-  }
-
-  process.env.WORKSPACE_DIR = originalWorkspaceDir
+after(async () => {
+  await workspace.cleanup()
 })
 
-const FIXTURE_DIR = `${process.env.WORKSPACE_DIR}/.arche/attachments`
+const FIXTURE_DIR = workspace.attachmentsDir
 const FIXTURE_PATH = `${FIXTURE_DIR}/spreadsheet-test.xlsx`
 
 async function ensureFixture() {
@@ -38,34 +34,34 @@ function parseOutput(output) {
   return JSON.parse(output)
 }
 
-test('resolveSpreadsheetPath enforces .arche/attachments boundary', () => {
-  assert.deepEqual(resolveSpreadsheetPath('.arche/attachments/sales.xlsx'), {
+test('resolveAttachmentPath enforces .arche/attachments boundary for spreadsheets', () => {
+  assert.deepEqual(resolveAttachmentPath('.arche/attachments/sales.xlsx'), {
     ok: true,
-    path: '/workspace/.arche/attachments/sales.xlsx',
+    path: `${workspace.workspaceDir}/.arche/attachments/sales.xlsx`,
   })
 
-  assert.deepEqual(resolveSpreadsheetPath('..\\..\\etc\\passwd'), {
+  assert.deepEqual(resolveAttachmentPath('..\\..\\etc\\passwd'), {
     ok: false,
     error: 'path_outside_attachments',
   })
 
-  assert.deepEqual(resolveSpreadsheetPath('/workspace/.arche/../README.md'), {
+  assert.deepEqual(resolveAttachmentPath('/workspace/.arche/../README.md'), {
     ok: false,
     error: 'path_outside_attachments',
   })
 
-  assert.deepEqual(resolveSpreadsheetPath('.arche//attachments//sales.xlsx'), {
+  assert.deepEqual(resolveAttachmentPath('.arche//attachments//sales.xlsx'), {
     ok: true,
-    path: '/workspace/.arche/attachments/sales.xlsx',
+    path: `${workspace.workspaceDir}/.arche/attachments/sales.xlsx`,
   })
 })
 
-test('resolveSpreadsheetPath falls back to /workspace when WORKSPACE_DIR is unset', () => {
+test('resolveAttachmentPath falls back to /workspace when WORKSPACE_DIR is unset', () => {
   const previousWorkspaceDir = process.env.WORKSPACE_DIR
   delete process.env.WORKSPACE_DIR
 
   try {
-    assert.deepEqual(resolveSpreadsheetPath('.arche/attachments/fallback.xlsx'), {
+    assert.deepEqual(resolveAttachmentPath('.arche/attachments/fallback.xlsx'), {
       ok: true,
       path: '/workspace/.arche/attachments/fallback.xlsx',
     })
@@ -79,13 +75,8 @@ test('resolveSpreadsheetPath falls back to /workspace when WORKSPACE_DIR is unse
   }
 })
 
-test('spreadsheet tools smoke test', async (t) => {
-  try {
-    await ensureFixture()
-  } catch {
-    t.skip('workspace mount is unavailable in this environment')
-    return
-  }
+test('spreadsheet tools smoke test', async () => {
+  await ensureFixture()
 
   const inspectResult = parseOutput(await inspect.execute({ path: '.arche/attachments/spreadsheet-test.xlsx' }))
   assert.equal(inspectResult.ok, true)
