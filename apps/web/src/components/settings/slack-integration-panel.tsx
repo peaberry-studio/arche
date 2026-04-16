@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CaretDown, CheckCircle, SpinnerGap, XCircle } from '@phosphor-icons/react'
+import { CaretDown, Check, CheckCircle, Copy, SpinnerGap, XCircle } from '@phosphor-icons/react'
 
 import { SettingsInfoBox } from '@/components/settings/settings-info-box'
 import { Badge } from '@/components/ui/badge'
@@ -90,12 +90,30 @@ function formatTimestamp(value: string | null): string {
 }
 
 async function copyText(text: string): Promise<boolean> {
-  if (navigator.clipboard && window.isSecureContext) {
-    await navigator.clipboard.writeText(text)
-    return true
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    // fall through to the legacy fallback below
   }
 
-  return false
+  try {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.setAttribute('readonly', '')
+    textarea.style.position = 'fixed'
+    textarea.style.top = '0'
+    textarea.style.left = '-9999px'
+    document.body.appendChild(textarea)
+    textarea.select()
+    const succeeded = document.execCommand('copy')
+    document.body.removeChild(textarea)
+    return succeeded
+  } catch {
+    return false
+  }
 }
 
 export function SlackIntegrationPanel({ slug }: SlackIntegrationPanelProps) {
@@ -154,9 +172,11 @@ export function SlackIntegrationPanel({ slug }: SlackIntegrationPanelProps) {
     const text = format === 'yaml' ? SLACK_MANIFEST_YAML : SLACK_MANIFEST_JSON
     const copied = await copyText(text).catch(() => false)
     if (!copied) {
+      setError('Copy failed. Your browser blocked clipboard access — select the manifest text and copy it manually.')
       return
     }
 
+    setError(null)
     setCopyState(format)
     window.setTimeout(() => setCopyState((current) => (current === format ? null : current)), 2000)
   }
@@ -244,6 +264,7 @@ export function SlackIntegrationPanel({ slug }: SlackIntegrationPanelProps) {
   ) : null
 
   const detailsId = 'slack-integration-details'
+  const isEnabled = integration?.enabled ?? false
 
   return (
     <section className="space-y-4 rounded-lg border border-border/60 bg-card/50 p-6">
@@ -288,7 +309,7 @@ export function SlackIntegrationPanel({ slug }: SlackIntegrationPanelProps) {
             </SettingsInfoBox>
           ) : null}
 
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+          <div className="grid gap-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
         <div className="space-y-6">
           <div className="space-y-3">
             <h3 className="text-sm font-medium text-foreground">Setup</h3>
@@ -367,92 +388,167 @@ export function SlackIntegrationPanel({ slug }: SlackIntegrationPanelProps) {
               <p className="text-xs text-muted-foreground">Effective agent: {effectiveAgentLabel}</p>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" disabled={busyAction !== null} onClick={() => void handleTestConnection()}>
-                {busyAction === 'test' ? 'Testing...' : 'Test connection'}
-              </Button>
-              <Button type="button" disabled={busyAction !== null} onClick={() => void mutateIntegration('enable')}>
-                {busyAction === 'enable' ? 'Enabling...' : 'Enable'}
-              </Button>
-              <Button type="button" variant="outline" disabled={busyAction !== null} onClick={() => void mutateIntegration('disable')}>
-                {busyAction === 'disable' ? 'Disabling...' : 'Disable'}
-              </Button>
-              <Button type="button" variant="outline" disabled={busyAction !== null} onClick={() => void mutateIntegration('reconnect')}>
-                {busyAction === 'reconnect' ? 'Reconnecting...' : 'Reconnect'}
+            <div className="flex">
+              <Button
+                type="button"
+                disabled={busyAction !== null}
+                onClick={() => void mutateIntegration('enable')}
+              >
+                {busyAction === 'enable'
+                  ? isEnabled
+                    ? 'Saving...'
+                    : 'Enabling...'
+                  : isEnabled
+                    ? 'Save changes'
+                    : 'Enable'}
               </Button>
             </div>
           </div>
 
-          <div className="space-y-3 rounded-xl border border-border/60 bg-background/40 p-4">
+          <div className="space-y-3">
             <div className="flex items-center justify-between gap-3">
               <h3 className="text-sm font-medium text-foreground">Slack manifest</h3>
-              <div className="flex items-center gap-2">
-                <Button type="button" size="sm" variant={manifestFormat === 'yaml' ? 'secondary' : 'outline'} onClick={() => setManifestFormat('yaml')}>
+              <div className="inline-flex h-6 items-center rounded-md bg-foreground/[0.06] p-[2px]">
+                <button
+                  type="button"
+                  onClick={() => setManifestFormat('yaml')}
+                  aria-pressed={manifestFormat === 'yaml'}
+                  className={cn(
+                    'flex h-[calc(1.5rem-4px)] items-center rounded-[4px] px-2 text-[11px] font-medium transition-all',
+                    manifestFormat === 'yaml'
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
                   YAML
-                </Button>
-                <Button type="button" size="sm" variant={manifestFormat === 'json' ? 'secondary' : 'outline'} onClick={() => setManifestFormat('json')}>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setManifestFormat('json')}
+                  aria-pressed={manifestFormat === 'json'}
+                  className={cn(
+                    'flex h-[calc(1.5rem-4px)] items-center rounded-[4px] px-2 text-[11px] font-medium transition-all',
+                    manifestFormat === 'json'
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
                   JSON
-                </Button>
-                <Button type="button" size="sm" variant="outline" onClick={() => void handleCopy(manifestFormat)}>
-                  {copyState === manifestFormat ? 'Copied' : `Copy ${manifestFormat.toUpperCase()}`}
-                </Button>
+                </button>
               </div>
             </div>
-            <pre className="max-h-80 overflow-auto rounded-lg bg-muted/40 p-3 text-xs text-foreground">
-              {manifestFormat === 'yaml' ? SLACK_MANIFEST_YAML : SLACK_MANIFEST_JSON}
-            </pre>
+            <div className="relative">
+              <pre className="max-h-80 overflow-auto rounded-lg bg-muted/40 p-3 pr-10 text-xs text-foreground">
+                {manifestFormat === 'yaml' ? SLACK_MANIFEST_YAML : SLACK_MANIFEST_JSON}
+              </pre>
+              <button
+                type="button"
+                onClick={() => void handleCopy(manifestFormat)}
+                aria-label={copyState === manifestFormat ? 'Copied' : 'Copy manifest'}
+                className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-md bg-background/80 text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
+              >
+                {copyState === manifestFormat ? (
+                  <Check size={14} weight="bold" />
+                ) : (
+                  <Copy size={14} weight="regular" />
+                )}
+              </button>
+            </div>
           </div>
+
+          {isEnabled ? (
+            <div className="space-y-3 pt-2">
+              <div className="space-y-1">
+                <h3 className="text-sm font-medium text-destructive">Danger zone</h3>
+                <p className="text-sm text-muted-foreground">
+                  Disabling the integration stops the Socket Mode connection and clears stored tokens.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                disabled={busyAction !== null}
+                onClick={() => void mutateIntegration('disable')}
+              >
+                {busyAction === 'disable' ? 'Disabling...' : 'Disable integration'}
+              </Button>
+            </div>
+          ) : null}
         </div>
 
-        <div className="space-y-4 rounded-xl border border-border/60 bg-background/40 p-4">
+        <div className="min-w-0 space-y-4 lg:border-l lg:border-border/60 lg:pl-8">
           <h3 className="text-sm font-medium text-foreground">Diagnostics</h3>
 
-          <div className="grid gap-3 text-sm sm:grid-cols-2">
-            <div>
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Team ID</p>
-              <p className="mt-1 font-mono text-foreground">{integration?.slackTeamId ?? 'Unknown'}</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">App ID</p>
-              <p className="mt-1 font-mono text-foreground">{integration?.slackAppId ?? 'Unknown'}</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Bot User ID</p>
-              <p className="mt-1 font-mono text-foreground">{integration?.slackBotUserId ?? 'Unknown'}</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Config Version</p>
-              <p className="mt-1 font-mono text-foreground">{integration?.version ?? 0}</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Last Connection</p>
-              <p className="mt-1 text-foreground">{formatTimestamp(integration?.lastSocketConnectedAt ?? null)}</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Last Event</p>
-              <p className="mt-1 text-foreground">{formatTimestamp(integration?.lastEventAt ?? null)}</p>
-            </div>
-          </div>
+          <dl className="divide-y divide-border/50 text-sm">
+            <DiagnosticRow label="Team ID" value={integration?.slackTeamId ?? 'Unknown'} mono />
+            <DiagnosticRow label="App ID" value={integration?.slackAppId ?? 'Unknown'} mono />
+            <DiagnosticRow label="Bot User ID" value={integration?.slackBotUserId ?? 'Unknown'} mono />
+            <DiagnosticRow label="Config Version" value={String(integration?.version ?? 0)} mono />
+            <DiagnosticRow label="Last Connection" value={formatTimestamp(integration?.lastSocketConnectedAt ?? null)} />
+            <DiagnosticRow label="Last Event" value={formatTimestamp(integration?.lastEventAt ?? null)} />
+          </dl>
 
-          <div>
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">Last Error</p>
-            <p className="mt-1 rounded-lg bg-muted/40 px-3 py-2 text-sm text-foreground">
-              {integration?.lastError ?? 'None'}
-            </p>
-          </div>
-
-          <div>
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">Saved Tokens</p>
-            <ul className="mt-2 space-y-1 text-sm">
+          <div className="space-y-2">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Saved tokens</p>
+            <ul className="space-y-1 text-sm">
               <TokenStatusRow label="Bot token" saved={integration?.hasBotToken ?? false} />
               <TokenStatusRow label="App token" saved={integration?.hasAppToken ?? false} />
             </ul>
+          </div>
+
+          {integration?.lastError ? (
+            <div className="space-y-1">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Last error</p>
+              <p className="break-words rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {integration.lastError}
+              </p>
+            </div>
+          ) : null}
+
+          <div className="flex flex-wrap gap-2 border-t border-border/50 pt-3">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={busyAction !== null}
+              onClick={() => void handleTestConnection()}
+            >
+              {busyAction === 'test' ? 'Testing...' : 'Test connection'}
+            </Button>
+            {isEnabled ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={busyAction !== null}
+                onClick={() => void mutateIntegration('reconnect')}
+              >
+                {busyAction === 'reconnect' ? 'Reconnecting...' : 'Reconnect'}
+              </Button>
+            ) : null}
           </div>
         </div>
           </div>
         </div>
       ) : null}
     </section>
+  )
+}
+
+function DiagnosticRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 py-2 first:pt-0 last:pb-0">
+      <dt className="shrink-0 text-xs uppercase tracking-wide text-muted-foreground">{label}</dt>
+      <dd
+        className={cn(
+          'min-w-0 break-all text-right text-foreground',
+          mono && 'font-mono text-xs',
+        )}
+      >
+        {value}
+      </dd>
+    </div>
   )
 }
 
