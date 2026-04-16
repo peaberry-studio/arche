@@ -1,4 +1,6 @@
 import { ChangePasswordForm } from './change-password-form'
+import { SettingsInfoBox } from '@/components/settings/settings-info-box'
+import { SettingsSection } from '@/components/settings/settings-section'
 import { TotpSetupWizard } from '@/components/totp-setup-wizard'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -28,44 +30,43 @@ export function SecuritySettingsPanel({
       </div>
 
       {passwordChangeEnabled ? (
-        <section className="space-y-4 rounded-lg border border-border/60 bg-card/50 p-6">
-          <div className="space-y-1">
-            <h3 className="text-lg font-medium">Change password</h3>
-            <p className="text-sm text-muted-foreground">
-              Update your account password and keep your credentials current.
-            </p>
-          </div>
-
+        <SettingsSection
+          headingLevel="h3"
+          title="Change password"
+          description="Update your account password and keep your credentials current."
+        >
           <ChangePasswordForm />
-        </section>
+        </SettingsSection>
       ) : null}
 
       {twoFactorEnabled ? (
-        <section className="space-y-4 rounded-lg border border-border/60 bg-card/50 p-6">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-medium">Two-factor authentication</h3>
+        <SettingsSection
+          headingLevel="h3"
+          title="Two-factor authentication"
+          action={
             <Badge variant={enabled ? 'default' : 'secondary'}>
               {enabled ? 'Enabled' : 'Disabled'}
             </Badge>
-          </div>
-
+          }
+        >
           {enabled ? (
             <div className="space-y-4">
-              {verifiedAt && (
-                <p className="text-sm text-muted-foreground">
-                  Enabled on{' '}
-                  {new Date(verifiedAt).toLocaleDateString('en-US', {
-                    day: 'numeric',
-                    month: 'long',
-                    year: 'numeric',
-                  })}
+              <SettingsInfoBox tone="info">
+                {verifiedAt && (
+                  <p>
+                    Enabled on{' '}
+                    {new Date(verifiedAt).toLocaleDateString('en-US', {
+                      day: 'numeric',
+                      month: 'long',
+                      year: 'numeric',
+                    })}
+                  </p>
+                )}
+                <p className={verifiedAt ? 'mt-1' : undefined}>
+                  Recovery codes remaining:{' '}
+                  <span className="font-medium text-foreground">{recoveryCodesRemaining}</span>
                 </p>
-              )}
-
-              <p className="text-sm text-muted-foreground">
-                Recovery codes remaining:{' '}
-                <span className="font-medium text-foreground">{recoveryCodesRemaining}</span>
-              </p>
+              </SettingsInfoBox>
 
               <div className="flex gap-3">
                 <TotpSetupWizard mode="regenerate">
@@ -93,7 +94,7 @@ export function SecuritySettingsPanel({
               </TotpSetupWizard>
             </div>
           )}
-        </section>
+        </SettingsSection>
       ) : null}
     </section>
   )

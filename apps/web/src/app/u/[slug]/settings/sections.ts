@@ -1,17 +1,15 @@
 export const SETTINGS_SECTIONS = [
-  'appearance',
+  'general',
   'integrations',
   'security',
-  'advanced',
 ] as const
 
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
 
 export const SETTINGS_SECTION_LABELS: Record<SettingsSection, string> = {
-  appearance: 'Look & Feel',
+  general: 'General',
   integrations: 'Integrations',
   security: 'Security',
-  advanced: 'Advanced',
 }
 
 type SettingsSectionAvailability = {
@@ -27,7 +25,7 @@ export function getAvailableSettingsSections({
   slackIntegrationEnabled,
   twoFactorEnabled,
 }: SettingsSectionAvailability): SettingsSection[] {
-  const sections: SettingsSection[] = ['appearance']
+  const sections: SettingsSection[] = ['general']
 
   if (slackIntegrationEnabled && isAdmin) {
     sections.push('integrations')
@@ -36,8 +34,6 @@ export function getAvailableSettingsSections({
   if (passwordChangeEnabled || twoFactorEnabled) {
     sections.push('security')
   }
-
-  sections.push('advanced')
 
   return sections
 }
@@ -50,7 +46,7 @@ export function resolveSettingsSection(
     return section
   }
 
-  return availableSections[0] ?? 'appearance'
+  return availableSections[0] ?? 'general'
 }
 
 function isSettingsSection(value: string): value is SettingsSection {

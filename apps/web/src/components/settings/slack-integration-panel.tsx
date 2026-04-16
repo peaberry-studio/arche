@@ -1,7 +1,10 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { CheckCircle, SpinnerGap, XCircle } from '@phosphor-icons/react'
 
+import { SettingsInfoBox } from '@/components/settings/settings-info-box'
+import { SettingsSection } from '@/components/settings/settings-section'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -228,48 +231,52 @@ export function SlackIntegrationPanel({ slug }: SlackIntegrationPanelProps) {
     }
   }
 
-  return (
-    <section className="space-y-6 rounded-lg border border-border/60 bg-card/50 p-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg font-medium">Slack integration</h2>
-            {integration ? (
-              <Badge variant={getStatusVariant(integration.status)}>{getStatusLabel(integration.status)}</Badge>
-            ) : null}
-          </div>
-          <p className="text-sm text-muted-foreground">
-            Configure a single admin-managed Slack bot for this Arche installation using Socket Mode.
-          </p>
-        </div>
-        {isLoading ? <span className="text-xs text-muted-foreground">Loading...</span> : null}
-      </div>
+  const statusBadge = integration ? (
+    <Badge variant={getStatusVariant(integration.status)}>{getStatusLabel(integration.status)}</Badge>
+  ) : null
 
-      {error ? (
-        <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>
-      ) : null}
+  const loadingIndicator = isLoading ? (
+    <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+      <SpinnerGap size={14} className="animate-spin" />
+      Loading…
+    </span>
+  ) : null
+
+  return (
+    <SettingsSection
+      title="Slack integration"
+      description="Configure a single admin-managed Slack bot for this Arche installation using Socket Mode."
+      action={
+        <>
+          {statusBadge}
+          {loadingIndicator}
+        </>
+      }
+      className="space-y-6"
+    >
+      {error ? <SettingsInfoBox tone="error">{error}</SettingsInfoBox> : null}
 
       {testResult ? (
-        <div className="rounded-lg border border-border/60 bg-background/60 px-4 py-3 text-sm">
+        <SettingsInfoBox tone="success">
           <p className="font-medium text-foreground">Test connection succeeded.</p>
           <p className="mt-1 text-muted-foreground">
             Team: {testResult.teamId ?? 'unknown'} | App: {testResult.appId ?? 'unknown'} | Bot user:{' '}
             {testResult.botUserId ?? 'unknown'}
           </p>
-        </div>
+        </SettingsInfoBox>
       ) : null}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
         <div className="space-y-6">
           <div className="space-y-3">
             <h3 className="text-sm font-medium text-foreground">Setup</h3>
-            <ol className="space-y-2 text-sm text-muted-foreground">
-              <li>1. Create an internal Slack app from the manifest below.</li>
-              <li>2. Enable Socket Mode.</li>
-              <li>3. Install the app in your Slack workspace.</li>
-              <li>4. Generate an app-level token with `connections:write`.</li>
-              <li>5. Paste the bot token and app token here.</li>
-              <li>6. Invite the bot to the channels where it should operate.</li>
+            <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
+              <li>Create an internal Slack app from the manifest below.</li>
+              <li>Enable Socket Mode.</li>
+              <li>Install the app in your Slack workspace.</li>
+              <li>Generate an app-level token with <code>connections:write</code>.</li>
+              <li>Paste the bot token and app token here.</li>
+              <li>Invite the bot to the channels where it should operate.</li>
             </ol>
             <a
               href={SLACK_DOCS_URL}
@@ -292,6 +299,7 @@ export function SlackIntegrationPanel({ slug }: SlackIntegrationPanelProps) {
                 placeholder={integration?.hasBotToken ? 'Saved. Paste to rotate.' : 'xoxb-...'}
                 value={botToken}
                 onChange={(event) => setBotToken(event.target.value)}
+                disabled={busyAction !== null}
               />
             </div>
 
@@ -305,6 +313,7 @@ export function SlackIntegrationPanel({ slug }: SlackIntegrationPanelProps) {
                 placeholder={integration?.hasAppToken ? 'Saved. Paste to rotate.' : 'xapp-...'}
                 value={appToken}
                 onChange={(event) => setAppToken(event.target.value)}
+                disabled={busyAction !== null}
               />
             </div>
 
@@ -317,9 +326,10 @@ export function SlackIntegrationPanel({ slug }: SlackIntegrationPanelProps) {
                   id="slack-default-agent"
                   value={defaultAgentId}
                   onChange={(event) => setDefaultAgentId(event.target.value)}
-                  className="flex h-10 w-full appearance-none rounded-lg border border-border bg-background px-3 py-2 pr-8 text-sm text-foreground"
+                  disabled={busyAction !== null}
+                  className="flex h-10 w-full appearance-none rounded-lg border border-border bg-background px-3 py-2 pr-8 text-sm text-foreground disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <option value="">Primary agent</option>
+                  <option value="">Use primary agent</option>
                   {agents.map((agent) => (
                     <option key={agent.id} value={agent.id}>
                       {agent.displayName}{agent.isPrimary ? ' (Primary)' : ''}
@@ -411,12 +421,31 @@ export function SlackIntegrationPanel({ slug }: SlackIntegrationPanelProps) {
 
           <div>
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Saved Tokens</p>
-            <p className="mt-1 text-sm text-foreground">
-              Bot: {integration?.hasBotToken ? 'Saved' : 'Missing'} | App: {integration?.hasAppToken ? 'Saved' : 'Missing'}
-            </p>
+            <ul className="mt-2 space-y-1 text-sm">
+              <TokenStatusRow label="Bot token" saved={integration?.hasBotToken ?? false} />
+              <TokenStatusRow label="App token" saved={integration?.hasAppToken ?? false} />
+            </ul>
           </div>
         </div>
       </div>
-    </section>
+    </SettingsSection>
+  )
+}
+
+function TokenStatusRow({ label, saved }: { label: string; saved: boolean }) {
+  return (
+    <li className="flex items-center gap-2">
+      {saved ? (
+        <CheckCircle size={16} weight="fill" className="text-foreground" aria-label="Saved" />
+      ) : (
+        <XCircle size={16} weight="fill" className="text-muted-foreground" aria-label="Missing" />
+      )}
+      <span className={saved ? 'text-foreground' : 'text-muted-foreground'}>
+        {label}
+        <span className="ml-1 text-xs text-muted-foreground">
+          ({saved ? 'Saved' : 'Missing'})
+        </span>
+      </span>
+    </li>
   )
 }

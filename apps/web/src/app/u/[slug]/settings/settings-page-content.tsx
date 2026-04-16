@@ -1,9 +1,10 @@
 import Link from 'next/link'
 
 import { ThemePicker } from '@/components/dashboard/theme-picker'
-import { AdvancedSettingsPanel } from '@/components/settings/advanced-settings-panel'
+import { SettingsSection } from '@/components/settings/settings-section'
 import { SlackIntegrationPanel } from '@/components/settings/slack-integration-panel'
 import { cn } from '@/lib/utils'
+import { WorkspaceRestartSection } from './security/workspace-restart-section'
 import { SecuritySettingsPanel } from './security/settings-page-content'
 import {
   SETTINGS_SECTION_LABELS,
@@ -42,10 +43,6 @@ export function SettingsPageContent({
       <div className="mt-8 grid gap-8 lg:grid-cols-[220px_minmax(0,1fr)]">
         <aside className="lg:sticky lg:top-6 lg:self-start">
           <div className="rounded-2xl border border-border/60 bg-card/50 p-4">
-            <p className="pb-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Sections
-            </p>
-
             <nav className="flex gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
               {availableSections.map((section) => (
                 <Link
@@ -76,18 +73,23 @@ export function SettingsPageContent({
 
   function renderSection() {
     switch (currentSection) {
-      case 'appearance':
+      case 'general':
         return (
-          <section className="space-y-4 rounded-lg border border-border/60 bg-card/50 p-6">
-            <div className="space-y-1">
-              <h2 className="text-lg font-medium">Look &amp; Feel</h2>
-              <p className="text-sm text-muted-foreground">
-                Customize the dashboard theme for this workspace.
-              </p>
-            </div>
+          <div className="space-y-6">
+            <SettingsSection
+              title="Look & Feel"
+              description="Customize the dashboard theme for this workspace."
+            >
+              <ThemePicker />
+            </SettingsSection>
 
-            <ThemePicker />
-          </section>
+            <SettingsSection
+              title="Workspace restart"
+              description="Force a full restart of the local workspace runtime when connector or provider changes require a rebuild."
+            >
+              <WorkspaceRestartSection slug={slug} showHeader={false} />
+            </SettingsSection>
+          </div>
         )
       case 'integrations':
         return (
@@ -112,8 +114,6 @@ export function SettingsPageContent({
             recoveryCodesRemaining={recoveryCodesRemaining}
           />
         )
-      case 'advanced':
-        return <AdvancedSettingsPanel slug={slug} />
     }
   }
 }
