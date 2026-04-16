@@ -1,14 +1,14 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CheckCircle, SpinnerGap, XCircle } from '@phosphor-icons/react'
+import { CaretDown, CheckCircle, SpinnerGap, XCircle } from '@phosphor-icons/react'
 
 import { SettingsInfoBox } from '@/components/settings/settings-info-box'
-import { SettingsSection } from '@/components/settings/settings-section'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { SLACK_MANIFEST_JSON, SLACK_MANIFEST_YAML } from '@/lib/slack/manifest'
+import { cn } from '@/lib/utils'
 import type {
   SlackIntegrationGetResponse,
   SlackIntegrationMutateResponse,
@@ -107,6 +107,7 @@ export function SlackIntegrationPanel({ slug }: SlackIntegrationPanelProps) {
   const [busyAction, setBusyAction] = useState<'disable' | 'enable' | 'reconnect' | 'test' | null>(null)
   const [copyState, setCopyState] = useState<'json' | 'yaml' | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [isExpanded, setIsExpanded] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [manifestFormat, setManifestFormat] = useState<'json' | 'yaml'>('yaml')
   const [testResult, setTestResult] = useState<SlackIntegrationTestResponse | null>(null)
@@ -242,31 +243,52 @@ export function SlackIntegrationPanel({ slug }: SlackIntegrationPanelProps) {
     </span>
   ) : null
 
+  const detailsId = 'slack-integration-details'
+
   return (
-    <SettingsSection
-      title="Slack integration"
-      description="Configure a single admin-managed Slack bot for this Arche installation using Socket Mode."
-      action={
-        <>
-          {statusBadge}
-          {loadingIndicator}
-        </>
-      }
-      className="space-y-6"
-    >
-      {error ? <SettingsInfoBox tone="error">{error}</SettingsInfoBox> : null}
-
-      {testResult ? (
-        <SettingsInfoBox tone="success">
-          <p className="font-medium text-foreground">Test connection succeeded.</p>
-          <p className="mt-1 text-muted-foreground">
-            Team: {testResult.teamId ?? 'unknown'} | App: {testResult.appId ?? 'unknown'} | Bot user:{' '}
-            {testResult.botUserId ?? 'unknown'}
+    <section className="space-y-4 rounded-lg border border-border/60 bg-card/50 p-6">
+      <button
+        type="button"
+        onClick={() => setIsExpanded((value) => !value)}
+        aria-expanded={isExpanded}
+        aria-controls={detailsId}
+        className="flex w-full items-center justify-between gap-4 text-left"
+      >
+        <div className="min-w-0 space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-lg font-medium">Slack integration</h2>
+            {statusBadge}
+            {loadingIndicator}
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Connect a Slack bot so your workspace can chat with Arche agents directly from Slack channels.
           </p>
-        </SettingsInfoBox>
-      ) : null}
+        </div>
+        <CaretDown
+          size={16}
+          weight="bold"
+          className={cn(
+            'shrink-0 text-muted-foreground transition-transform',
+            isExpanded && 'rotate-180',
+          )}
+        />
+      </button>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+      {isExpanded ? (
+        <div id={detailsId} className="space-y-6 pt-2">
+          {error ? <SettingsInfoBox tone="error">{error}</SettingsInfoBox> : null}
+
+          {testResult ? (
+            <SettingsInfoBox tone="success">
+              <p className="font-medium text-foreground">Test connection succeeded.</p>
+              <p className="mt-1 text-muted-foreground">
+                Team: {testResult.teamId ?? 'unknown'} | App: {testResult.appId ?? 'unknown'} | Bot user:{' '}
+                {testResult.botUserId ?? 'unknown'}
+              </p>
+            </SettingsInfoBox>
+          ) : null}
+
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
         <div className="space-y-6">
           <div className="space-y-3">
             <h3 className="text-sm font-medium text-foreground">Setup</h3>
@@ -427,8 +449,10 @@ export function SlackIntegrationPanel({ slug }: SlackIntegrationPanelProps) {
             </ul>
           </div>
         </div>
-      </div>
-    </SettingsSection>
+          </div>
+        </div>
+      ) : null}
+    </section>
   )
 }
 
