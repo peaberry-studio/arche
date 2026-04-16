@@ -19,6 +19,8 @@ import { workspaceAgentFetch } from '@/lib/workspace-agent-client'
 import { getWorkspaceAgentUrl } from '@/lib/workspace-agent/client'
 import {
   inferAttachmentMimeType,
+  isDocumentMimeType,
+  isPresentationMimeType,
   isWorkspaceAttachmentPath,
   isSpreadsheetMimeType,
   MAX_ATTACHMENTS_PER_MESSAGE,
@@ -179,6 +181,20 @@ function toSpreadsheetToolHintText(path: string): string {
   return [
     `Attached spreadsheet file: ${toAttachmentPromptPath(path)}`,
     'You must use spreadsheet_inspect first to detect sheets and columns, then use spreadsheet_sample/spreadsheet_query/spreadsheet_stats for focused analysis and calculations.',
+  ].join('\n')
+}
+
+function toDocumentToolHintText(path: string): string {
+  return [
+    `Attached document file: ${toAttachmentPromptPath(path)}`,
+    'Use document_inspect to extract the structure, headings, and normalized text before answering detailed questions about the document.',
+  ].join('\n')
+}
+
+function toPresentationToolHintText(path: string): string {
+  return [
+    `Attached presentation file: ${toAttachmentPromptPath(path)}`,
+    'Use presentation_inspect to inspect slide structure and extracted slide text before summarizing or comparing the deck.',
   ].join('\n')
 }
 
@@ -422,6 +438,24 @@ export const POST = withAuth(
                 promptParts.push({
                   type: 'text',
                   text: toSpreadsheetToolHintText(attachmentPath),
+                })
+                attachmentPathsForHint.push(attachmentPath)
+                continue
+              }
+
+              if (isDocumentMimeType(mime)) {
+                promptParts.push({
+                  type: 'text',
+                  text: toDocumentToolHintText(attachmentPath),
+                })
+                attachmentPathsForHint.push(attachmentPath)
+                continue
+              }
+
+              if (isPresentationMimeType(mime)) {
+                promptParts.push({
+                  type: 'text',
+                  text: toPresentationToolHintText(attachmentPath),
                 })
                 attachmentPathsForHint.push(attachmentPath)
                 continue

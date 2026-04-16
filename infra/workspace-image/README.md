@@ -9,7 +9,7 @@ Image derived from OpenCode with support for a shared Knowledge Base (KB).
 - Automatic workspace initialization script
 - Workspace agent HTTP service for diffs and file operations
 - Support for runtime config injected by the spawner (`opencode.json` and `AGENTS.md`)
-- Global OpenCode custom tools for tabular analysis (`spreadsheet_*`) and structured email drafts (`email_draft`)
+- Global OpenCode custom tools for spreadsheets (`spreadsheet_*`), documents (`document_inspect`), presentations (`presentation_inspect`), and structured email drafts (`email_draft`)
 
 ## Workspace Agent
 

@@ -1,94 +1,32 @@
-import fs from 'node:fs/promises'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-
 import * as XLSX from 'xlsx'
 import { z } from 'zod'
 
-const MAX_FILE_BYTES = 25 * 1024 * 1024
+import {
+  readAttachmentBuffer,
+  resolveAttachmentPath,
+  toToolOutput,
+} from '../shared/attachment-tools.js'
+
 const MAX_SAMPLE_LIMIT = 500
 const MAX_QUERY_LIMIT = 1000
 const MAX_COLUMN_COUNT = 200
-const DEFAULT_WORKSPACE_ROOT = '/workspace'
 
-function getWorkspaceRoot() {
-  return path.resolve(process.env.WORKSPACE_DIR?.trim() || DEFAULT_WORKSPACE_ROOT)
-}
-
-function getAttachmentsRoot() {
-  return path.join(getWorkspaceRoot(), '.arche', 'attachments')
-}
-
-function toToolOutput(value) {
-  return JSON.stringify(value, null, 2)
-}
-
-function normalizeAttachmentPath(inputPath) {
-  const trimmed = String(inputPath || '').trim()
-  if (!trimmed) return null
-
-  if (trimmed.startsWith('file://')) {
-    try {
-      return path.resolve(fileURLToPath(trimmed))
-    } catch {
-      return null
-    }
-  }
-
-  const normalized = trimmed.replace(/\\/g, '/')
-  if (normalized.startsWith('/workspace/')) {
-    return path.resolve(getWorkspaceRoot(), normalized.slice('/workspace/'.length))
-  }
-
-  if (path.isAbsolute(trimmed)) {
-    return path.resolve(trimmed)
-  }
-
-  const relative = normalized.replace(/^\.\//, '').replace(/^\/+/, '')
-  return path.resolve(getWorkspaceRoot(), relative)
-}
-
-export function resolveSpreadsheetPath(inputPath) {
-  const candidate = normalizeAttachmentPath(inputPath)
-  if (!candidate) return { ok: false, error: 'invalid_path' }
-  const absolute = path.resolve(candidate)
-  const relativeToAttachments = path.relative(getAttachmentsRoot(), absolute)
-  if (
-    relativeToAttachments === '..' ||
-    relativeToAttachments.startsWith(`..${path.sep}`) ||
-    path.isAbsolute(relativeToAttachments)
-  ) {
-    return { ok: false, error: 'path_outside_attachments' }
-  }
-  return { ok: true, path: absolute }
+function resolveSpreadsheetPath(inputPath) {
+  return resolveAttachmentPath(inputPath)
 }
 
 async function readWorkbook(filePath) {
-  let stat
-  try {
-    stat = await fs.stat(filePath)
-  } catch {
-    return { ok: false, error: 'file_not_found' }
-  }
-
-  if (!stat.isFile()) return { ok: false, error: 'not_a_file' }
-  if (stat.size > MAX_FILE_BYTES) return { ok: false, error: 'file_too_large' }
-
-  let buffer
-  try {
-    buffer = await fs.readFile(filePath)
-  } catch {
-    return { ok: false, error: 'file_read_failed' }
-  }
+  const fileResult = await readAttachmentBuffer(filePath)
+  if (!fileResult.ok) return fileResult
 
   try {
-    const workbook = XLSX.read(buffer, {
+    const workbook = XLSX.read(fileResult.buffer, {
       type: 'buffer',
       cellDates: true,
       raw: false,
       dense: true,
     })
-    return { ok: true, workbook, fileSize: stat.size }
+    return { ok: true, workbook, fileSize: fileResult.fileSize }
   } catch {
     return { ok: false, error: 'unsupported_or_corrupted_spreadsheet' }
   }
