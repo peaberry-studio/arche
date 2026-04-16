@@ -79,6 +79,10 @@ prepare_opencode_config_dir() {
   mkdir -p "$OPENCODE_CONFIG_OUTPUT_DIR"
   cp "$OPENCODE_CONFIG_SOURCE_DIR/package.json" "$OPENCODE_CONFIG_OUTPUT_DIR/package.json"
 
+  rm -rf "$OPENCODE_CONFIG_OUTPUT_DIR/shared"
+  mkdir -p "$OPENCODE_CONFIG_OUTPUT_DIR/shared"
+  cp "$OPENCODE_CONFIG_SOURCE_DIR/shared/"*.js "$OPENCODE_CONFIG_OUTPUT_DIR/shared/"
+
   rm -rf "$OPENCODE_CONFIG_OUTPUT_DIR/tools"
   mkdir -p "$OPENCODE_CONFIG_OUTPUT_DIR/tools"
   cp "$OPENCODE_CONFIG_SOURCE_DIR/tools/"*.js "$OPENCODE_CONFIG_OUTPUT_DIR/tools/"

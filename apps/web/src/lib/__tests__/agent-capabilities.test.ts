@@ -17,14 +17,16 @@ describe('agent-capabilities', () => {
 
   it('accepts known tools and deduplicates values', () => {
     const result = validateAgentCapabilityTools([
+      'presentation_inspect',
       'grep',
       'spreadsheet_query',
+      'document_inspect',
       'read',
       'read',
     ])
     expect(result).toEqual({
       ok: true,
-      tools: ['grep', 'read', 'spreadsheet_query'],
+      tools: ['document_inspect', 'grep', 'presentation_inspect', 'read', 'spreadsheet_query'],
     })
   })
 
@@ -37,7 +39,7 @@ describe('agent-capabilities', () => {
     const config = buildAgentToolsConfigFromCapabilities(
       {
         skillIds: ['pdf-processing'],
-        tools: ['read', 'grep'],
+        tools: ['document_inspect', 'presentation_inspect', 'read', 'grep'],
         mcpConnectorIds: ['cntr1', 'cntr3'],
       },
       [
@@ -49,6 +51,8 @@ describe('agent-capabilities', () => {
 
     expect(config.read).toBe(true)
     expect(config.grep).toBe(true)
+    expect(config.document_inspect).toBe(true)
+    expect(config.presentation_inspect).toBe(true)
     expect(config.skill).toBe(true)
     expect(config.write).toBe(false)
     expect(config['arche_*']).toBe(false)
@@ -62,6 +66,7 @@ describe('agent-capabilities', () => {
       {
         read: true,
         grep: true,
+        document_inspect: true,
         skill: true,
         write: false,
         'arche_*': false,
@@ -78,7 +83,7 @@ describe('agent-capabilities', () => {
 
     expect(capabilities).toEqual({
       skillIds: ['pdf-processing'],
-      tools: ['grep', 'read'],
+      tools: ['document_inspect', 'grep', 'read'],
       mcpConnectorIds: ['conn123', 'conn456'],
     })
   })
