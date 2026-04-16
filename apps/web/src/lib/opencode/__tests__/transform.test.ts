@@ -77,4 +77,26 @@ describe('transformParts', () => {
       },
     ])
   })
+
+  it('prefers canonical file paths over absolute file URLs', () => {
+    const parts = transformParts([
+      {
+        type: 'file',
+        id: 'file-2',
+        path: '.arche/attachments/photo.jpg',
+        filename: 'photo.jpg',
+        url: 'file:///Users/alice/Arche/workspace/.arche/attachments/photo.jpg',
+      },
+    ])
+
+    expect(parts).toEqual([
+      {
+        type: 'file',
+        id: 'file-2',
+        path: '.arche/attachments/photo.jpg',
+        filename: 'photo.jpg',
+        url: 'file:///Users/alice/Arche/workspace/.arche/attachments/photo.jpg',
+      },
+    ])
+  })
 })

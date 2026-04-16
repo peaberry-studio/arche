@@ -354,7 +354,7 @@ export const POST = withAuth(
         if (!resume) {
           const promptParts: Array<
             { type: 'text'; text: string } |
-            { type: 'file'; mime: string; filename?: string; url: string }
+            { type: 'file'; path: string; mime: string; filename?: string; url: string }
           > = []
 
           if (typeof text === 'string' && text.trim().length > 0) {
@@ -445,6 +445,7 @@ export const POST = withAuth(
                   const base64 = imageBytes.toString('base64')
                   promptParts.push({
                     type: 'file',
+                    path: attachmentPath,
                     mime,
                     filename: fileName,
                     url: `data:${mime};base64,${base64}`,
@@ -452,6 +453,7 @@ export const POST = withAuth(
                 } else {
                   promptParts.push({
                     type: 'file',
+                    path: attachmentPath,
                     mime,
                     filename: fileName,
                     url: toWorkspaceFileUrl(attachmentPath),
@@ -464,6 +466,7 @@ export const POST = withAuth(
 
               promptParts.push({
                 type: 'file',
+                path: attachmentPath,
                 mime,
                 filename: fileName,
                 url: toWorkspaceFileUrl(attachmentPath),

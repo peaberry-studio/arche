@@ -541,6 +541,7 @@ describe('chat stream attachments forwarding', () => {
     })
     expect(promptParts[1]).toEqual({
       type: 'file',
+      path: '.arche/attachments/screenshot.png',
       mime: 'image/png',
       filename: 'screenshot.png',
       url: `data:image/png;base64,${fakeImageBytes.toString('base64')}`,
@@ -610,6 +611,7 @@ describe('chat stream attachments forwarding', () => {
     const promptParts = (promptBody?.parts ?? []) as Array<Record<string, unknown>>
     expect(promptParts[1]).toEqual({
       type: 'file',
+      path: '.arche/attachments/photo.jpg',
       mime: 'image/jpeg',
       filename: 'photo.jpg',
       url: 'file:///workspace/.arche/attachments/photo.jpg',
@@ -678,6 +680,7 @@ describe('chat stream attachments forwarding', () => {
     const promptParts = (promptBody?.parts ?? []) as Array<Record<string, unknown>>
     expect(promptParts[1]).toEqual({
       type: 'file',
+      path: '.arche/attachments/photo.jpg',
       mime: 'image/jpeg',
       filename: 'photo.jpg',
       url: 'file:///tmp/Arche/workspace/.arche/attachments/photo.jpg',
