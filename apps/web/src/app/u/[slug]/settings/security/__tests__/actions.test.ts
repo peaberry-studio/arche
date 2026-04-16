@@ -229,6 +229,17 @@ describe('createPersonalAccessToken', () => {
     })
   })
 
+  it('uses the full default scope set when scopes are omitted', async () => {
+    await createPersonalAccessToken({
+      name: 'Laptop',
+      expiresInDays: 30,
+    })
+
+    expect(mockCreatePat).toHaveBeenCalledWith(expect.objectContaining({
+      scopes: ['agents:read', 'kb:read', 'kb:write', 'tasks:run'],
+    }))
+  })
+
   it('rejects token creation when MCP is disabled', async () => {
     mockReadMcpSettings.mockResolvedValue({
       ok: true,
