@@ -13,8 +13,8 @@ import {
 } from './mcp-client-config'
 import {
   DEFAULT_MCP_PAT_SCOPES,
-  MCP_READ_SCOPE_OPTIONS,
-  type McpReadScope,
+  MCP_SCOPE_OPTIONS,
+  type McpScope,
 } from '@/lib/mcp/scopes'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -96,7 +96,7 @@ export function McpSettingsPanel({
   const [tokens, setTokens] = useState(() => personalAccessTokens.filter((token) => !token.revokedAt))
   const [tokenName, setTokenName] = useState('')
   const [expiresInDays, setExpiresInDays] = useState('30')
-  const [selectedScopes, setSelectedScopes] = useState<McpReadScope[]>([...DEFAULT_MCP_PAT_SCOPES])
+  const [selectedScopes, setSelectedScopes] = useState<McpScope[]>([...DEFAULT_MCP_PAT_SCOPES])
   const [selectedPreset, setSelectedPreset] = useState<McpClientPreset>('claude-code')
   const [latestToken, setLatestToken] = useState<LatestToken | null>(null)
   const [pendingRevokeToken, setPendingRevokeToken] = useState<PersonalAccessTokenItem | null>(null)
@@ -200,7 +200,7 @@ export function McpSettingsPanel({
     setTimeout(() => setCopiedKey((current) => (current === key ? null : current)), 1500)
   }
 
-  function handleScopeToggle(scope: McpReadScope, checked: boolean) {
+  function handleScopeToggle(scope: McpScope, checked: boolean) {
     setSelectedScopes((current) => {
       const next = checked
         ? Array.from(new Set([...current, scope]))
@@ -216,7 +216,7 @@ export function McpSettingsPanel({
         <div>
           <h2 className="text-lg font-medium">MCP access</h2>
           <p className="text-sm text-muted-foreground">
-            Connect Claude Code, Codex, Cursor, OpenCode, or any other MCP client to your knowledge base, agents, and skills.
+            Connect Claude Code, Codex, Cursor, OpenCode, or any other MCP client to your knowledge base, agents, and task prompts.
           </p>
         </div>
         <Badge variant={enabled ? 'success' : 'secondary'}>
@@ -263,7 +263,7 @@ export function McpSettingsPanel({
           <CardHeader>
             <CardTitle>Create token</CardTitle>
             <CardDescription>
-              Personal access tokens are shown once and grant read-only MCP access to your knowledge base, agents, and skills.
+              Personal access tokens are shown once and can be scoped for knowledge base read/write, agent reads, and task prompts.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -297,7 +297,7 @@ export function McpSettingsPanel({
             <div className="space-y-3">
               <Label>MCP permissions</Label>
               <div className="space-y-3 rounded-lg border border-border/60 bg-background/60 p-3">
-                {MCP_READ_SCOPE_OPTIONS.map((scope) => {
+                {MCP_SCOPE_OPTIONS.map((scope) => {
                   const inputId = `mcp-scope-${scope.value.replace(/[^a-z0-9]+/g, '-')}`
 
                   return (

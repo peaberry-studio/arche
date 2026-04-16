@@ -61,7 +61,7 @@ describe('POST /api/mcp', () => {
     })
     mockAuthenticatePat.mockResolvedValue({
       ok: true,
-      scopes: ['kb:read', 'agents:read', 'skills:read'],
+      scopes: ['kb:read', 'kb:write', 'agents:read', 'tasks:run'],
       tokenId: 'tok-1',
       user: { id: 'u1', email: 'a@b.com', slug: 'alice', role: 'USER' },
     })
@@ -165,7 +165,7 @@ describe('POST /api/mcp', () => {
       sessionIdGenerator: undefined,
     })
     expect(mockCreateMcpServer).toHaveBeenCalledWith({
-      scopes: ['kb:read', 'agents:read', 'skills:read'],
+      scopes: ['kb:read', 'kb:write', 'agents:read', 'tasks:run'],
       user: { id: 'u1', email: 'a@b.com', slug: 'alice', role: 'USER' },
     })
     expect(mockConnect).toHaveBeenCalledWith(mockTransport)

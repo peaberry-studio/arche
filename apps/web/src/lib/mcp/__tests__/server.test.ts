@@ -134,7 +134,7 @@ describe('createMcpServer', () => {
 
     createMcpServer({ scopes: ['agents:read'] })
 
-    expect(registerTool).toHaveBeenCalledTimes(3)
+    expect(registerTool).toHaveBeenCalledTimes(6)
     expect(registerTool).toHaveBeenNthCalledWith(
       1,
       'read_agents_guide',
@@ -153,6 +153,24 @@ describe('createMcpServer', () => {
       expect.objectContaining({ description: expect.any(String) }),
       expect.any(Function)
     )
+    expect(registerTool).toHaveBeenNthCalledWith(
+      4,
+      'list_skills',
+      expect.objectContaining({ description: expect.any(String) }),
+      expect.any(Function)
+    )
+    expect(registerTool).toHaveBeenNthCalledWith(
+      5,
+      'read_skill',
+      expect.objectContaining({ description: expect.any(String) }),
+      expect.any(Function)
+    )
+    expect(registerTool).toHaveBeenNthCalledWith(
+      6,
+      'read_skill_resource',
+      expect.objectContaining({ description: expect.any(String) }),
+      expect.any(Function)
+    )
   })
 
   it('filters prompt registration by PAT scopes', async () => {
@@ -160,7 +178,20 @@ describe('createMcpServer', () => {
 
     createMcpServer({ scopes: ['agents:read'] })
 
-    expect(registerPrompt).toHaveBeenCalledTimes(2)
+    expect(registerPrompt).toHaveBeenCalledTimes(1)
+    expect(registerPrompt).toHaveBeenCalledWith(
+      'arche-workspace-context',
+      expect.objectContaining({ description: expect.any(String) }),
+      expect.any(Function)
+    )
+  })
+
+  it('registers task prompts when tasks:run is granted', async () => {
+    const { createMcpServer } = await import('../server')
+
+    createMcpServer({ scopes: ['agents:read', 'tasks:run'] })
+
+    expect(registerPrompt).toHaveBeenCalledTimes(3)
     expect(registerPrompt).toHaveBeenCalledWith(
       'arche-workspace-context',
       expect.objectContaining({ description: expect.any(String) }),
@@ -171,14 +202,6 @@ describe('createMcpServer', () => {
       expect.objectContaining({ description: expect.any(String) }),
       expect.any(Function)
     )
-  })
-
-  it('registers only skills prompt when only skills:read scope is granted', async () => {
-    const { createMcpServer } = await import('../server')
-
-    createMcpServer({ scopes: ['skills:read'] })
-
-    expect(registerPrompt).toHaveBeenCalledTimes(1)
     expect(registerPrompt).toHaveBeenCalledWith(
       'use-skill',
       expect.objectContaining({ description: expect.any(String) }),

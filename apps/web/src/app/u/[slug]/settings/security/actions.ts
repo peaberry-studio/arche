@@ -13,8 +13,8 @@ import {
 } from '@/lib/mcp/pat'
 import {
   DEFAULT_MCP_PAT_SCOPES,
-  isMcpReadScope,
-  type McpReadScope,
+  isMcpScope,
+  type McpScope,
 } from '@/lib/mcp/scopes'
 import { readMcpSettings, writeMcpSettings } from '@/lib/mcp/settings'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
@@ -31,7 +31,7 @@ import {
 
 const ISSUER = 'Arche'
 const MAX_PAT_TTL_DAYS = 90
-const PAT_SCOPES = [...DEFAULT_MCP_PAT_SCOPES]
+const PAT_SCOPES = [...DEFAULT_MCP_PAT_SCOPES].sort((left, right) => left.localeCompare(right))
 const DAY_MS = 24 * 60 * 60 * 1000
 
 type ChangePasswordResult =
@@ -410,7 +410,7 @@ export async function createPersonalAccessToken(input: {
 
 function parsePatScopes(
   value: string[] | undefined,
-): { ok: true; scopes: McpReadScope[] } | { ok: false; error: string } {
+): { ok: true; scopes: McpScope[] } | { ok: false; error: string } {
   if (typeof value === 'undefined') {
     return { ok: true, scopes: PAT_SCOPES }
   }
@@ -432,13 +432,13 @@ function parsePatScopes(
     return { ok: false, error: 'Select at least one MCP permission' }
   }
 
-  if (!normalizedScopes.every(isMcpReadScope)) {
+  if (!normalizedScopes.every(isMcpScope)) {
     return { ok: false, error: 'Invalid token scopes' }
   }
 
   return {
     ok: true,
-    scopes: normalizedScopes.sort((left, right) => left.localeCompare(right)) as McpReadScope[],
+    scopes: normalizedScopes.sort((left, right) => left.localeCompare(right)) as McpScope[],
   }
 }
 
