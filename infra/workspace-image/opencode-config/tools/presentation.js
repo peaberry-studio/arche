@@ -16,7 +16,7 @@ import {
 const MAX_TEXT_CHARS = 24_000
 const MAX_SLIDE_TEXT_CHARS = 4_000
 
-export function resolvePresentationPath(inputPath) {
+function resolvePresentationPath(inputPath) {
   return resolveAttachmentPath(inputPath)
 }
 

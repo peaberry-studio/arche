@@ -1,7 +1,8 @@
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { inspect, resolveDocumentPath } from '../tools/document.js'
+import { resolveAttachmentPath } from '../shared/attachment-tools.js'
+import { inspect } from '../tools/document.js'
 import { ensureOfficeFixtures } from './office-fixtures.js'
 import { createWorkspaceTestEnv } from './workspace-test-env.js'
 
@@ -17,13 +18,13 @@ function parseOutput(output) {
   return JSON.parse(output)
 }
 
-test('resolveDocumentPath enforces .arche/attachments boundary', () => {
-  assert.deepEqual(resolveDocumentPath('.arche/attachments/brief.docx'), {
+test('resolveAttachmentPath enforces .arche/attachments boundary for documents', () => {
+  assert.deepEqual(resolveAttachmentPath('.arche/attachments/brief.docx'), {
     ok: true,
     path: `${workspace.workspaceDir}/.arche/attachments/brief.docx`,
   })
 
-  assert.deepEqual(resolveDocumentPath('../outside.docx'), {
+  assert.deepEqual(resolveAttachmentPath('../outside.docx'), {
     ok: false,
     error: 'path_outside_attachments',
   })

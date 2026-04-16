@@ -11,7 +11,7 @@ const MAX_SAMPLE_LIMIT = 500
 const MAX_QUERY_LIMIT = 1000
 const MAX_COLUMN_COUNT = 200
 
-export function resolveSpreadsheetPath(inputPath) {
+function resolveSpreadsheetPath(inputPath) {
   return resolveAttachmentPath(inputPath)
 }
 

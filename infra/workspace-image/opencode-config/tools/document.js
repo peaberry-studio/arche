@@ -16,7 +16,7 @@ import {
 const MAX_TEXT_CHARS = 24_000
 const MAX_HEADINGS = 100
 
-export function resolveDocumentPath(inputPath) {
+function resolveDocumentPath(inputPath) {
   return resolveAttachmentPath(inputPath)
 }
 

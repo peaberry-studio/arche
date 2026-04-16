@@ -4,7 +4,8 @@ import fs from 'node:fs/promises'
 
 import * as XLSX from 'xlsx'
 
-import { inspect, query, resolveSpreadsheetPath, sample, stats } from '../tools/spreadsheet.js'
+import { resolveAttachmentPath } from '../shared/attachment-tools.js'
+import { inspect, query, sample, stats } from '../tools/spreadsheet.js'
 import { createWorkspaceTestEnv } from './workspace-test-env.js'
 
 const workspace = await createWorkspaceTestEnv('arche-spreadsheet-test-')
@@ -33,34 +34,34 @@ function parseOutput(output) {
   return JSON.parse(output)
 }
 
-test('resolveSpreadsheetPath enforces .arche/attachments boundary', () => {
-  assert.deepEqual(resolveSpreadsheetPath('.arche/attachments/sales.xlsx'), {
+test('resolveAttachmentPath enforces .arche/attachments boundary for spreadsheets', () => {
+  assert.deepEqual(resolveAttachmentPath('.arche/attachments/sales.xlsx'), {
     ok: true,
     path: `${workspace.workspaceDir}/.arche/attachments/sales.xlsx`,
   })
 
-  assert.deepEqual(resolveSpreadsheetPath('..\\..\\etc\\passwd'), {
+  assert.deepEqual(resolveAttachmentPath('..\\..\\etc\\passwd'), {
     ok: false,
     error: 'path_outside_attachments',
   })
 
-  assert.deepEqual(resolveSpreadsheetPath('/workspace/.arche/../README.md'), {
+  assert.deepEqual(resolveAttachmentPath('/workspace/.arche/../README.md'), {
     ok: false,
     error: 'path_outside_attachments',
   })
 
-  assert.deepEqual(resolveSpreadsheetPath('.arche//attachments//sales.xlsx'), {
+  assert.deepEqual(resolveAttachmentPath('.arche//attachments//sales.xlsx'), {
     ok: true,
     path: `${workspace.workspaceDir}/.arche/attachments/sales.xlsx`,
   })
 })
 
-test('resolveSpreadsheetPath falls back to /workspace when WORKSPACE_DIR is unset', () => {
+test('resolveAttachmentPath falls back to /workspace when WORKSPACE_DIR is unset', () => {
   const previousWorkspaceDir = process.env.WORKSPACE_DIR
   delete process.env.WORKSPACE_DIR
 
   try {
-    assert.deepEqual(resolveSpreadsheetPath('.arche/attachments/fallback.xlsx'), {
+    assert.deepEqual(resolveAttachmentPath('.arche/attachments/fallback.xlsx'), {
       ok: true,
       path: '/workspace/.arche/attachments/fallback.xlsx',
     })

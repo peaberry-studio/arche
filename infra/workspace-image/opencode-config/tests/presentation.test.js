@@ -1,7 +1,8 @@
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { inspect, resolvePresentationPath } from '../tools/presentation.js'
+import { resolveAttachmentPath } from '../shared/attachment-tools.js'
+import { inspect } from '../tools/presentation.js'
 import { ensureOfficeFixtures } from './office-fixtures.js'
 import { createWorkspaceTestEnv } from './workspace-test-env.js'
 
@@ -17,13 +18,13 @@ function parseOutput(output) {
   return JSON.parse(output)
 }
 
-test('resolvePresentationPath enforces .arche/attachments boundary', () => {
-  assert.deepEqual(resolvePresentationPath('.arche/attachments/deck.pptx'), {
+test('resolveAttachmentPath enforces .arche/attachments boundary for presentations', () => {
+  assert.deepEqual(resolveAttachmentPath('.arche/attachments/deck.pptx'), {
     ok: true,
     path: `${workspace.workspaceDir}/.arche/attachments/deck.pptx`,
   })
 
-  assert.deepEqual(resolvePresentationPath('/workspace/.arche/../deck.pptx'), {
+  assert.deepEqual(resolveAttachmentPath('/workspace/.arche/../deck.pptx'), {
     ok: false,
     error: 'path_outside_attachments',
   })
