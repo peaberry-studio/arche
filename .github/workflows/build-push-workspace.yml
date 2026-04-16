@@ -21,6 +21,10 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
     permissions:
       contents: read
       packages: write
@@ -32,28 +36,46 @@ jobs:
         with:
           ref: ${{ github.event.client_payload.ref || github.ref }}
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Log in to GHCR
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Determine image tags
         id: tags
         run: |
           SHA_TAG="$(git rev-parse --short HEAD)"
+          ARCH_SUFFIX="-${{ matrix.arch }}"
+          DEFAULT_ARCH_TAGS=false
+          if [[ "${{ matrix.arch }}" == "amd64" ]]; then
+            DEFAULT_ARCH_TAGS=true
+          fi
+
           echo "SHA_TAG=$SHA_TAG" >> "$GITHUB_OUTPUT"
+          echo "ARCH_SUFFIX=$ARCH_SUFFIX" >> "$GITHUB_OUTPUT"
+          echo "DEFAULT_ARCH_TAGS=$DEFAULT_ARCH_TAGS" >> "$GITHUB_OUTPUT"
 
           if [[ "${{ github.event_name }}" == "repository_dispatch" ]] || [[ -n "${{ github.event.inputs.pr_number }}" ]]; then
             PR_NUM="${{ github.event.client_payload.pr_number || github.event.inputs.pr_number }}"
             echo "PR_NUMBER=$PR_NUM" >> $GITHUB_OUTPUT
             echo "PR_TAG=pr-$PR_NUM" >> $GITHUB_OUTPUT
             echo "MODE=pr" >> $GITHUB_OUTPUT
-            echo "Building PR workspace image with tag: pr-$PR_NUM"
+            echo "Building PR workspace image with tag: pr-$PR_NUM$ARCH_SUFFIX"
           elif [[ "${GITHUB_REF_TYPE}" == "tag" ]] && [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "RELEASE_TAG=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
             echo "MODE=release" >> "$GITHUB_OUTPUT"
-            echo "Building release workspace image with tag: ${GITHUB_REF_NAME}"
+            echo "Building release workspace image with tag: ${GITHUB_REF_NAME}$ARCH_SUFFIX"
           else
             echo "MODE=main" >> "$GITHUB_OUTPUT"
-            echo "Building main workspace image with tags: latest, ${SHA_TAG}"
+            echo "Building main workspace image with tags: latest$ARCH_SUFFIX, ${SHA_TAG}$ARCH_SUFFIX"
           fi
 
       - name: Resolve OpenCode version
@@ -66,43 +88,31 @@ jobs:
           fi
           echo "OPENCODE_VERSION=$OPENCODE_VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Build image
-        run: |
-          if [[ "${{ steps.tags.outputs.MODE }}" == "pr" ]]; then
-            podman build \
-              --build-arg OPENCODE_VERSION=${{ steps.opencode.outputs.OPENCODE_VERSION }} \
-              -t $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.PR_TAG }} \
-              -f infra/workspace-image/Containerfile infra/workspace-image
-          elif [[ "${{ steps.tags.outputs.MODE }}" == "release" ]]; then
-            podman build \
-              --build-arg OPENCODE_VERSION=${{ steps.opencode.outputs.OPENCODE_VERSION }} \
-              -t $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.RELEASE_TAG }} \
-              -f infra/workspace-image/Containerfile infra/workspace-image
-          else
-            podman build \
-              --build-arg OPENCODE_VERSION=${{ steps.opencode.outputs.OPENCODE_VERSION }} \
-              -t $REGISTRY/$IMAGE_NAME:latest \
-              -t $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.SHA_TAG }} \
-              -f infra/workspace-image/Containerfile infra/workspace-image
-          fi
-
-      - name: Push image
-        run: |
-          if [[ "${{ steps.tags.outputs.MODE }}" == "pr" ]]; then
-            podman push $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.PR_TAG }}
-            echo "Pushed PR workspace image: $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.PR_TAG }}"
-          elif [[ "${{ steps.tags.outputs.MODE }}" == "release" ]]; then
-            podman push $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.RELEASE_TAG }}
-          else
-            podman push $REGISTRY/$IMAGE_NAME:latest
-            podman push $REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.SHA_TAG }}
-          fi
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: infra/workspace-image
+          file: infra/workspace-image/Containerfile
+          push: true
+          platforms: linux/${{ matrix.arch }}
+          build-args: |
+            OPENCODE_VERSION=${{ steps.opencode.outputs.OPENCODE_VERSION }}
+          tags: |
+            ${{ steps.tags.outputs.MODE == 'pr' && format('{0}/{1}:{2}{3}', env.REGISTRY, env.IMAGE_NAME, steps.tags.outputs.PR_TAG, steps.tags.outputs.ARCH_SUFFIX) || '' }}
+            ${{ steps.tags.outputs.MODE == 'pr' && steps.tags.outputs.DEFAULT_ARCH_TAGS == 'true' && format('{0}/{1}:{2}', env.REGISTRY, env.IMAGE_NAME, steps.tags.outputs.PR_TAG) || '' }}
+            ${{ steps.tags.outputs.MODE == 'release' && format('{0}/{1}:{2}{3}', env.REGISTRY, env.IMAGE_NAME, steps.tags.outputs.RELEASE_TAG, steps.tags.outputs.ARCH_SUFFIX) || '' }}
+            ${{ steps.tags.outputs.MODE == 'release' && steps.tags.outputs.DEFAULT_ARCH_TAGS == 'true' && format('{0}/{1}:{2}', env.REGISTRY, env.IMAGE_NAME, steps.tags.outputs.RELEASE_TAG) || '' }}
+            ${{ steps.tags.outputs.MODE == 'main' && format('{0}/{1}:latest{2}', env.REGISTRY, env.IMAGE_NAME, steps.tags.outputs.ARCH_SUFFIX) || '' }}
+            ${{ steps.tags.outputs.MODE == 'main' && format('{0}/{1}:{2}{3}', env.REGISTRY, env.IMAGE_NAME, steps.tags.outputs.SHA_TAG, steps.tags.outputs.ARCH_SUFFIX) || '' }}
+            ${{ steps.tags.outputs.MODE == 'main' && steps.tags.outputs.DEFAULT_ARCH_TAGS == 'true' && format('{0}/{1}:latest', env.REGISTRY, env.IMAGE_NAME) || '' }}
+            ${{ steps.tags.outputs.MODE == 'main' && steps.tags.outputs.DEFAULT_ARCH_TAGS == 'true' && format('{0}/{1}:{2}', env.REGISTRY, env.IMAGE_NAME, steps.tags.outputs.SHA_TAG) || '' }}
 
       - name: Comment PR with image info
-        if: steps.tags.outputs.MODE == 'pr'
+        if: steps.tags.outputs.MODE == 'pr' && matrix.arch == 'amd64'
         run: |
           IMAGE="$REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.PR_TAG }}"
-          BODY=$(printf '📦 **PR Workspace Image Built Successfully**\n\n```\n%s\n```' "$IMAGE")
+          ARM_IMAGE="$REGISTRY/$IMAGE_NAME:${{ steps.tags.outputs.PR_TAG }}-arm64"
+          BODY=$(printf '📦 **PR Workspace Image Built Successfully**\n\nDefault (amd64):\n```\n%s\n```\n\nOptional arm64:\n```\n%s\n```' "$IMAGE" "$ARM_IMAGE")
           PAYLOAD=$(jq -nc --arg body "$BODY" '{body: $body}')
 
           curl -X POST \

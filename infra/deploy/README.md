@@ -159,6 +159,7 @@ No DNS provider token is required. Traefik uses ACME HTTP challenge on entrypoin
 
 To build the web image directly on the VPS, set `WEB_IMAGE=arche-web:latest`.
 To build the workspace image directly on the VPS, set `OPENCODE_IMAGE=arche-workspace:latest`.
+Published GHCR tags stay amd64 by default. If you need arm64, use the matching `-arm64` tag explicitly, for example `WEB_IMAGE=ghcr.io/peaberry-studio/arche/web:latest-arm64` and `OPENCODE_IMAGE=ghcr.io/peaberry-studio/arche/workspace:latest-arm64`.
 
 ## Podman Socket
 

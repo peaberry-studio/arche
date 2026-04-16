@@ -173,6 +173,8 @@ The spawner can connect to the container runtime in two ways:
 podman build --build-arg OPENCODE_VERSION="$(cat versions/opencode.version)" -t arche-workspace:latest infra/workspace-image
 ```
 
+For published GHCR images, the default tags remain amd64. To run the arm64 variant, set `OPENCODE_IMAGE=ghcr.io/peaberry-studio/arche/workspace:latest-arm64`.
+
 ### Troubleshooting
 
 **Error: `Invalid key length`**
