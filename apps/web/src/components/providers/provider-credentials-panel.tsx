@@ -15,12 +15,14 @@ type ProviderCredentialsPanelProps = {
   slug: string
   title?: string
   description?: string
+  showHeader?: boolean
 }
 
 export function ProviderCredentialsPanel({
   slug,
   title = 'Provider credentials',
   description = 'Configure API credentials for the current workspace user.',
+  showHeader = true,
 }: ProviderCredentialsPanelProps) {
   const [providers, setProviders] = useState<TeamProviderStatus[]>([])
   const [providerApiKeys, setProviderApiKeys] = useState<Record<string, string>>({})
@@ -116,13 +118,15 @@ export function ProviderCredentialsPanel({
 
   return (
     <section className="space-y-4">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-medium text-foreground">{title}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+      {showHeader ? (
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-medium text-foreground">{title}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+          </div>
+          {isLoadingProviders ? <span className="text-xs text-muted-foreground">Loading...</span> : null}
         </div>
-        {isLoadingProviders ? <span className="text-xs text-muted-foreground">Loading...</span> : null}
-      </div>
+      ) : null}
 
       {providerError ? (
         <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">

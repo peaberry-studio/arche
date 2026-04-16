@@ -2,7 +2,9 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
 import { ProviderCredentialsPanel } from '@/components/providers/provider-credentials-panel'
+import { SlackIntegrationDangerZone } from '@/components/settings/slack-integration-danger-zone'
 import { SlackIntegrationPanel } from '@/components/settings/slack-integration-panel'
+import { SettingsSection } from '@/components/settings/settings-section'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { isDesktop } from '@/lib/runtime/mode'
 import { getSession } from '@/lib/runtime/session'
@@ -57,13 +59,16 @@ export default async function SlackIntegrationSettingsPage({
           </div>
         </div>
 
-        <SlackIntegrationPanel slug={slug} collapsible={false} />
+        <SlackIntegrationPanel slug={slug} collapsible={false} showDangerZone={false} />
 
-        <ProviderCredentialsPanel
-          slug={SLACK_SERVICE_USER_SLUG}
+        <SettingsSection
           title="Provider credentials for Slack bot"
           description="Manage API access for the reserved slack-bot service workspace used to generate Slack replies."
-        />
+        >
+          <ProviderCredentialsPanel slug={SLACK_SERVICE_USER_SLUG} showHeader={false} />
+        </SettingsSection>
+
+        <SlackIntegrationDangerZone slug={slug} />
       </div>
     </main>
   )

@@ -23,13 +23,19 @@ vi.mock('next/navigation', () => ({
 }))
 
 vi.mock('@/components/providers/provider-credentials-panel', () => ({
-  ProviderCredentialsPanel: ({ slug, title }: { slug: string; title: string }) => <div>{title} {slug}</div>,
+  ProviderCredentialsPanel: ({ slug, showHeader }: { slug: string; showHeader?: boolean }) => (
+    <div>Provider credentials panel {slug} {String(showHeader)}</div>
+  ),
 }))
 
 vi.mock('@/components/settings/slack-integration-panel', () => ({
-  SlackIntegrationPanel: ({ slug, collapsible }: { slug: string; collapsible?: boolean }) => (
-    <div>Slack integration panel {slug} {String(collapsible)}</div>
+  SlackIntegrationPanel: ({ slug, collapsible, showDangerZone }: { slug: string; collapsible?: boolean; showDangerZone?: boolean }) => (
+    <div>Slack integration panel {slug} {String(collapsible)} {String(showDangerZone)}</div>
   ),
+}))
+
+vi.mock('@/components/settings/slack-integration-danger-zone', () => ({
+  SlackIntegrationDangerZone: ({ slug }: { slug: string }) => <div>Slack danger zone {slug}</div>,
 }))
 
 vi.mock('@/lib/runtime/capabilities', () => ({
@@ -75,8 +81,10 @@ describe('SlackIntegrationSettingsPage', () => {
 
     expect(screen.getByRole('heading', { name: 'Slack integration' })).toBeTruthy()
     expect(screen.getByRole('link', { name: /Back to integrations/ }).getAttribute('href')).toBe('/u/alice/settings?section=integrations')
-    expect(screen.getByText('Slack integration panel alice false')).toBeTruthy()
-    expect(screen.getByText('Provider credentials for Slack bot slack-bot')).toBeTruthy()
+    expect(screen.getByText('Slack integration panel alice false false')).toBeTruthy()
+    expect(screen.getByText('Provider credentials for Slack bot')).toBeTruthy()
+    expect(screen.getByText('Provider credentials panel slack-bot false')).toBeTruthy()
+    expect(screen.getByText('Slack danger zone alice')).toBeTruthy()
   })
 
   it('redirects non-admin users back to settings integrations', async () => {

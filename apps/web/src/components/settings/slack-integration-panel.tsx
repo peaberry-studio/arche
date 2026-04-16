@@ -20,6 +20,7 @@ import type {
 type SlackIntegrationPanelProps = {
   slug: string
   collapsible?: boolean
+  showDangerZone?: boolean
 }
 
 const SLACK_DOCS_URL = 'https://api.slack.com/apis/connections/socket'
@@ -117,7 +118,11 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-export function SlackIntegrationPanel({ slug, collapsible = true }: SlackIntegrationPanelProps) {
+export function SlackIntegrationPanel({
+  slug,
+  collapsible = true,
+  showDangerZone = true,
+}: SlackIntegrationPanelProps) {
   const [agents, setAgents] = useState<SlackIntegrationGetResponse['agents']>([])
   const [integration, setIntegration] = useState<SlackIntegrationSummary | null>(null)
   const [botToken, setBotToken] = useState('')
@@ -473,7 +478,7 @@ export function SlackIntegrationPanel({ slug, collapsible = true }: SlackIntegra
             </div>
           </div>
 
-          {isEnabled ? (
+          {showDangerZone && isEnabled ? (
             <div className="space-y-3 pt-2">
               <div className="space-y-1">
                 <h3 className="text-sm font-medium text-destructive">Danger zone</h3>

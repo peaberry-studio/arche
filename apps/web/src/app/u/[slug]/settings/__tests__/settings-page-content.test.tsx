@@ -64,7 +64,8 @@ describe('SettingsPageContent', () => {
     expect(screen.getByRole('link', { name: 'General' }).getAttribute('href')).toBe('/u/alice/settings')
     expect(screen.getByRole('link', { name: 'Security' }).getAttribute('href')).toBe('/u/alice/settings?section=security')
     expect(screen.getByText('Slack integration')).toBeTruthy()
-    expect(screen.getByText('Open settings').closest('a')?.getAttribute('href')).toBe('/u/alice/settings/integrations/slack')
+    expect(screen.getByText('Connected')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Setup' }).getAttribute('href')).toBe('/u/alice/settings/integrations/slack')
     expect(screen.getByText(/Arche 03/)).toBeTruthy()
   })
 
