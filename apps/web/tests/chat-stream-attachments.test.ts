@@ -361,7 +361,7 @@ describe('chat stream attachments forwarding', () => {
     })
   })
 
-  it('normalizes unsupported octet-stream mime to safe fallback', async () => {
+  it('uses canonical workspace file URLs for unsupported attachments in web mode', async () => {
     let promptBody: Record<string, unknown> | null = null
 
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -409,7 +409,18 @@ describe('chat stream attachments forwarding', () => {
     await res.text()
 
     const promptParts = (promptBody?.parts ?? []) as Array<Record<string, unknown>>
-    expect(promptParts[1].mime).toBe('text/plain')
+    expect(promptParts).toHaveLength(3)
+    expect(promptParts[1]).toEqual({
+      type: 'file',
+      mime: 'text/plain',
+      filename: 'blob.unknown',
+      url: 'file:///workspace/.arche/attachments/blob.unknown',
+    })
+    expect(promptParts[2]).toEqual({
+      type: 'text',
+      text:
+        'Attached workspace files:\n- /workspace/.arche/attachments/blob.unknown\nIf direct file parsing is unavailable, inspect these paths with available tools.',
+    })
   })
 
   it('routes spreadsheet attachments to spreadsheet tools hints', async () => {
@@ -674,7 +685,7 @@ describe('chat stream attachments forwarding', () => {
     })
   })
 
-  it('falls back to file URL when image read fails', async () => {
+  it('falls back to a canonical workspace file URL when image read fails in web mode', async () => {
     let promptBody: Record<string, unknown> | null = null
 
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -730,15 +741,22 @@ describe('chat stream attachments forwarding', () => {
 
     expect(promptBody).not.toBeNull()
     const promptParts = (promptBody?.parts ?? []) as Array<Record<string, unknown>>
+    expect(promptParts).toHaveLength(3)
+    expect(promptParts[0]).toEqual({ type: 'text', text: 'Describe this' })
     expect(promptParts[1]).toEqual({
       type: 'file',
       mime: 'image/jpeg',
       filename: 'photo.jpg',
       url: 'file:///workspace/.arche/attachments/photo.jpg',
     })
+    expect(promptParts[2]).toEqual({
+      type: 'text',
+      text:
+        'Attached workspace files:\n- /workspace/.arche/attachments/photo.jpg\nIf direct file parsing is unavailable, inspect these paths with available tools.',
+    })
   })
 
-  it('uses workspace-relative attachment hints and local file URLs in desktop mode', async () => {
+  it('never leaks absolute vault paths in desktop mode when image read fails', async () => {
     process.env.ARCHE_RUNTIME_MODE = 'desktop'
     process.env.ARCHE_DESKTOP_PLATFORM = 'darwin'
     process.env.ARCHE_DESKTOP_WEB_HOST = '127.0.0.1'
@@ -798,17 +816,97 @@ describe('chat stream attachments forwarding', () => {
     await res.text()
 
     const promptParts = (promptBody?.parts ?? []) as Array<Record<string, unknown>>
+    expect(promptParts).toHaveLength(2)
     expect(promptParts[1]).toEqual({
-      type: 'file',
-      mime: 'image/jpeg',
-      filename: 'photo.jpg',
-      url: 'file:///tmp/Arche/workspace/.arche/attachments/photo.jpg',
-    })
-    expect(promptParts[2]).toEqual({
       type: 'text',
       text:
         'Attached workspace files:\n- .arche/attachments/photo.jpg\nIf direct file parsing is unavailable, inspect these paths with available tools.',
     })
+    const serialized = JSON.stringify(promptBody)
+    expect(serialized).not.toContain('file://')
+    expect(serialized).not.toContain('/tmp/Arche')
+  })
+
+  it('inlines images as data URLs in desktop mode without leaking vault paths', async () => {
+    process.env.ARCHE_RUNTIME_MODE = 'desktop'
+    process.env.ARCHE_DESKTOP_PLATFORM = 'darwin'
+    process.env.ARCHE_DESKTOP_WEB_HOST = '127.0.0.1'
+    process.env.ARCHE_DATA_DIR = '/tmp/Arche'
+
+    let promptBody: Record<string, unknown> | null = null
+    const fakeImageBytes = Buffer.from('fake-png-content')
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+
+      if (url.endsWith('/event')) {
+        return emptyEventStreamResponse()
+      }
+
+      if (url.includes(':4097/files/read')) {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            content: fakeImageBytes.toString('base64'),
+            encoding: 'base64',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        )
+      }
+
+      if (url.includes('/prompt_async')) {
+        promptBody = JSON.parse(String(init?.body)) as Record<string, unknown>
+        return new Response('prompt_failed', { status: 500 })
+      }
+
+      throw new Error(`Unexpected fetch url: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('@/app/api/w/[slug]/chat/stream/route')
+    const req = new Request('http://localhost/api/w/alice/chat/stream', {
+      method: 'POST',
+      headers: {
+        host: 'localhost',
+        origin: 'http://localhost',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        sessionId: 'session-1',
+        text: 'What does this image show?',
+        attachments: [
+          {
+            path: '.arche/attachments/screenshot.png',
+            filename: 'screenshot.png',
+            mime: 'image/png',
+          },
+        ],
+      }),
+    })
+
+    const res = await POST(req as never, {
+      params: Promise.resolve({ slug: 'alice' }),
+    })
+
+    expect(res.status).toBe(200)
+    await res.text()
+
+    const promptParts = (promptBody?.parts ?? []) as Array<Record<string, unknown>>
+    expect(promptParts).toHaveLength(3)
+    expect(promptParts[1]).toEqual({
+      type: 'file',
+      mime: 'image/png',
+      filename: 'screenshot.png',
+      url: `data:image/png;base64,${fakeImageBytes.toString('base64')}`,
+    })
+    expect(promptParts[2]).toEqual({
+      type: 'text',
+      text:
+        'Attached workspace files:\n- .arche/attachments/screenshot.png\nIf direct file parsing is unavailable, inspect these paths with available tools.',
+    })
+    const serialized = JSON.stringify(promptBody)
+    expect(serialized).not.toContain('file://')
+    expect(serialized).not.toContain('/tmp/Arche')
   })
 
   it('uses workspace-relative spreadsheet hints in desktop mode', async () => {

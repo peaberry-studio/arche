@@ -508,6 +508,10 @@ export function WorkspaceShell({
     setMobileView("chat");
   }, []);
 
+  const switchToChatOnMobile = useCallback(() => {
+    if (isCompactLayout) setMobileView("chat");
+  }, [isCompactLayout]);
+
   const focusSearchInput = useCallback(() => {
     if (isCompactLayout) {
       setMobileView("left");
@@ -522,8 +526,9 @@ export function WorkspaceShell({
   }, [isCompactLayout, leftCollapsed]);
 
   const handleCreateSession = useCallback(async () => {
+    switchToChatOnMobile();
     await workspace.createSession();
-  }, [workspace]);
+  }, [switchToChatOnMobile, workspace]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1072,8 +1077,9 @@ export function WorkspaceShell({
 
   // Session handlers
   const handleSelectSession = useCallback((sessionId: string) => {
+    switchToChatOnMobile();
     workspace.selectSession(sessionId);
-  }, [workspace]);
+  }, [switchToChatOnMobile, workspace]);
 
   const handleSelectSessionTab = useCallback((sessionId: string) => {
     workspace.selectSession(sessionId);
@@ -1106,20 +1112,22 @@ export function WorkspaceShell({
   const handleSelectAgent = useCallback((agent: AgentCatalogItem) => {
     if (!workspace.activeSessionId) return;
 
+    switchToChatOnMobile();
     setPendingInsert({
       sessionId: workspace.activeSessionId,
       value: `@${agent.id} `,
     });
-  }, [workspace.activeSessionId]);
+  }, [switchToChatOnMobile, workspace.activeSessionId]);
 
   const handleSelectSkill = useCallback((skill: SkillListItem) => {
     if (!workspace.activeSessionId) return;
 
+    switchToChatOnMobile();
     setPendingInsert({
       sessionId: workspace.activeSessionId,
       value: `Use the "${skill.name}" skill for this task. `,
     });
-  }, [workspace.activeSessionId]);
+  }, [switchToChatOnMobile, workspace.activeSessionId]);
 
   const handlePendingInsertConsumed = useCallback(() => {
     setPendingInsert(null);
@@ -1226,7 +1234,7 @@ export function WorkspaceShell({
     return (
       <div
         className={cn(
-          'flex h-screen flex-col overflow-hidden bg-background text-foreground',
+          'flex h-dvh flex-col overflow-hidden bg-background text-foreground',
           macDesktopWindowInset && 'pt-8',
           darkModeClasses,
           themeClassName,
@@ -1298,7 +1306,7 @@ export function WorkspaceShell({
     return (
       <div
         className={cn(
-          'flex h-screen flex-col overflow-hidden bg-background text-foreground',
+          'flex h-dvh flex-col overflow-hidden bg-background text-foreground',
           macDesktopWindowInset && 'pt-8',
           darkModeClasses,
           themeClassName,
@@ -1468,7 +1476,7 @@ export function WorkspaceShell({
   return (
     <div
       className={cn(
-        'flex h-screen flex-col overflow-hidden bg-background text-foreground',
+        'flex h-dvh flex-col overflow-hidden bg-background text-foreground',
         macDesktopWindowInset && 'pt-8',
         macDesktopWindowInset && 'desktop-no-select',
         darkModeClasses,
@@ -1495,70 +1503,10 @@ export function WorkspaceShell({
       >
         {isCompactLayout ? (
           <>
-            <div
-              className="grid shrink-0 grid-cols-3 gap-2 border-b border-border/40 px-3"
-              style={{
-                minHeight: "calc(3rem + env(safe-area-inset-top, 0px))",
-                paddingTop: "env(safe-area-inset-top, 0px)",
-              }}
-            >
-              <button
-                type="button"
-                onClick={handleToggleLeft}
-                className={cn(
-                  "flex h-9 items-center justify-center gap-1.5 self-center rounded-lg text-xs font-medium transition-colors",
-                  isLeftPanelActive
-                    ? "bg-foreground/10 text-foreground"
-                    : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
-                )}
-                aria-label={isLeftPanelActive ? "Close navigate panel" : "Open navigate panel"}
-                aria-pressed={isLeftPanelActive}
-              >
-                <Compass size={14} weight="bold" />
-                <span>Navigate</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleShowChat}
-                className={cn(
-                  "flex h-9 items-center justify-center gap-1.5 self-center rounded-lg text-xs font-medium transition-colors",
-                  isChatActive
-                    ? "bg-foreground/10 text-foreground"
-                    : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
-                )}
-                aria-label="Show chat"
-                aria-pressed={isChatActive}
-              >
-                <ChatCircle size={14} weight="bold" />
-                <span>Chat</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleToggleRight}
-                className={cn(
-                  "relative flex h-9 items-center justify-center gap-1.5 self-center rounded-lg text-xs font-medium transition-colors",
-                  isRightPanelActive
-                    ? "bg-foreground/10 text-foreground"
-                    : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
-                )}
-                aria-label={isRightPanelActive ? "Close context panel" : "Open context panel"}
-                aria-pressed={isRightPanelActive}
-              >
-                <File size={14} weight="bold" />
-                <span>Context</span>
-                {workspace.diffs.length > 0 ? (
-                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
-                    {rightPanelBadgeLabel}
-                  </span>
-                ) : null}
-              </button>
-            </div>
-
             <div className="relative min-h-0 flex-1">
               <div
                 className="absolute inset-0 min-h-0 overflow-hidden px-3 pb-3"
+                style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
                 hidden={!isLeftPanelActive}
                 aria-hidden={!isLeftPanelActive}
               >
@@ -1567,6 +1515,7 @@ export function WorkspaceShell({
 
               <div
                 className="absolute inset-0 min-h-0 overflow-hidden"
+                style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
                 hidden={!isChatActive}
                 aria-hidden={!isChatActive}
               >
@@ -1574,13 +1523,78 @@ export function WorkspaceShell({
               </div>
 
               <div
-                className="absolute inset-0 min-h-0 overflow-hidden px-5 pb-4 pt-2"
+                className="absolute inset-0 min-h-0 overflow-hidden px-5 pb-4"
+                style={{ paddingTop: "calc(0.5rem + env(safe-area-inset-top, 0px))" }}
                 hidden={!isRightPanelActive}
                 aria-hidden={!isRightPanelActive}
               >
                 {inspectorPanelElement}
               </div>
             </div>
+
+            <nav
+              className="grid shrink-0 grid-cols-3 border-t border-border/40 bg-background"
+              style={{
+                minHeight: "calc(3.5rem + env(safe-area-inset-bottom, 0px))",
+                paddingBottom: "env(safe-area-inset-bottom, 0px)",
+              }}
+              aria-label="Workspace sections"
+            >
+              <button
+                type="button"
+                onClick={handleToggleLeft}
+                className={cn(
+                  "flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium transition-colors",
+                  isLeftPanelActive
+                    ? "text-foreground"
+                    : "text-muted-foreground active:text-foreground"
+                )}
+                aria-label={isLeftPanelActive ? "Close navigate panel" : "Open navigate panel"}
+                aria-pressed={isLeftPanelActive}
+              >
+                <Compass size={22} weight={isLeftPanelActive ? "fill" : "regular"} />
+                <span>Navigate</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleShowChat}
+                className={cn(
+                  "flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium transition-colors",
+                  isChatActive
+                    ? "text-foreground"
+                    : "text-muted-foreground active:text-foreground"
+                )}
+                aria-label="Show chat"
+                aria-pressed={isChatActive}
+              >
+                <ChatCircle size={22} weight={isChatActive ? "fill" : "regular"} />
+                <span>Chat</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleToggleRight}
+                className={cn(
+                  "relative flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium transition-colors",
+                  isRightPanelActive
+                    ? "text-foreground"
+                    : "text-muted-foreground active:text-foreground"
+                )}
+                aria-label={isRightPanelActive ? "Close context panel" : "Open context panel"}
+                aria-pressed={isRightPanelActive}
+              >
+                <div className="relative">
+                  <File size={22} weight={isRightPanelActive ? "fill" : "regular"} />
+                  {workspace.diffs.length > 0 ? (
+                    <span className="absolute -right-1.5 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+                      {rightPanelBadgeLabel}
+                    </span>
+                  ) : null}
+                </div>
+                <span>Context</span>
+              </button>
+            </nav>
           </>
         ) : (
           <div ref={containerRef} className="relative z-10 flex min-h-0 flex-1 gap-3">
