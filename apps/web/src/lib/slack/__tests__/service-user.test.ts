@@ -1,19 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const hashMock = vi.fn()
-const generatePasswordMock = vi.fn()
 const createMock = vi.fn()
 const findExistingByEmailOrSlugMock = vi.fn()
 
-vi.mock('argon2', () => ({
-  default: {
-    hash: (...args: unknown[]) => hashMock(...args),
-  },
-}))
-
-vi.mock('@/lib/spawner/crypto', () => ({
-  generatePassword: (...args: unknown[]) => generatePasswordMock(...args),
-}))
+const EXPECTED_PASSWORD_HASH = '$argon2id$v=19$m=65536,t=3,p=4$Rd07A5lN6/xNvx47pvH1Gw$J5TKBjCI3UOaBd2uUHMbX/AdzYT+/pvqx1io3emVwsU'
 
 vi.mock('@/lib/services', () => ({
   userService: {
@@ -25,8 +15,6 @@ vi.mock('@/lib/services', () => ({
 describe('ensureSlackServiceUser', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    generatePasswordMock.mockReturnValue('generated-password')
-    hashMock.mockResolvedValue('hashed-password')
   })
 
   it('returns the existing service user when it is already provisioned', async () => {
@@ -74,11 +62,10 @@ describe('ensureSlackServiceUser', () => {
     const result = await ensureSlackServiceUser()
 
     expect(result).toEqual({ ok: true, user: { id: 'service-1', slug: 'slack-bot' } })
-    expect(hashMock).toHaveBeenCalledWith('generated-password')
     expect(createMock).toHaveBeenCalledWith({
       email: 'slack-bot@arche.local',
       kind: 'SERVICE',
-      passwordHash: 'hashed-password',
+      passwordHash: EXPECTED_PASSWORD_HASH,
       role: 'USER',
       slug: 'slack-bot',
     })

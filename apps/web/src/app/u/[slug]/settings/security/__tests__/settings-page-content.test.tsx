@@ -3,72 +3,52 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { SettingsPageContent } from '../settings-page-content'
-
-vi.mock('@/components/dashboard/theme-picker', () => ({
-  ThemePicker: () => <div>Theme picker</div>,
-}))
-
-vi.mock('@/components/settings/slack-integration-panel', () => ({
-  SlackIntegrationPanel: ({ slug }: { slug: string }) => <div>Slack panel {slug}</div>,
-}))
+import { SecuritySettingsPanel } from '../settings-page-content'
 
 vi.mock('@/components/totp-setup-wizard', () => ({
   TotpSetupWizard: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }))
 
-vi.mock('../workspace-restart-section', () => ({
-  WorkspaceRestartSection: ({ slug }: { slug: string }) => <div>Restart section {slug}</div>,
+vi.mock('../change-password-form', () => ({
+  ChangePasswordForm: () => <div>Change password form</div>,
 }))
 
-describe('SettingsPageContent', () => {
+describe('SecuritySettingsPanel', () => {
   afterEach(() => {
     cleanup()
   })
 
-  it('omits the two-factor section in desktop mode', () => {
+  it('renders password and 2FA controls when available', () => {
     render(
-      <SettingsPageContent
-        slug="alice"
+      <SecuritySettingsPanel
+        passwordChangeEnabled={true}
+        twoFactorEnabled={true}
+        enabled={false}
+        verifiedAt={null}
+        recoveryCodesRemaining={0}
+      />,
+    )
+
+    expect(screen.getByRole('heading', { name: 'Security' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Change password' })).toBeTruthy()
+    expect(screen.getByText('Change password form')).toBeTruthy()
+    expect(screen.getByText('Two-factor authentication')).toBeTruthy()
+    expect(screen.getByText('Set up 2FA')).toBeTruthy()
+  })
+
+  it('omits change-password and 2FA blocks when unavailable', () => {
+    render(
+      <SecuritySettingsPanel
         passwordChangeEnabled={false}
         twoFactorEnabled={false}
         enabled={false}
-        isAdmin={false}
         verifiedAt={null}
         recoveryCodesRemaining={0}
-        releaseVersion="03"
-        slackIntegrationEnabled={false}
       />,
     )
 
-    expect(screen.getByText('Appearance')).toBeTruthy()
-    expect(screen.getByText('Restart section alice')).toBeTruthy()
-    expect(screen.queryByText('Change password')).toBeNull()
+    expect(screen.getByRole('heading', { name: 'Security' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Change password' })).toBeNull()
     expect(screen.queryByText('Two-factor authentication')).toBeNull()
-    expect(screen.queryByText('Set up 2FA')).toBeNull()
-    expect(screen.getByText(/Peaberry Studio/)).toBeTruthy()
-    expect(screen.getByText(/Arche 03/)).toBeTruthy()
-  })
-
-  it('renders the two-factor section in web mode', () => {
-    render(
-      <SettingsPageContent
-        slug="alice"
-        passwordChangeEnabled={true}
-        twoFactorEnabled
-        enabled={false}
-        isAdmin={true}
-        verifiedAt={null}
-        recoveryCodesRemaining={0}
-        releaseVersion="03"
-        slackIntegrationEnabled={true}
-      />,
-    )
-
-    expect(screen.getByRole('heading', { name: 'Change password' })).toBeTruthy()
-    expect(screen.getByText('Restart section alice')).toBeTruthy()
-    expect(screen.getByText('Slack panel alice')).toBeTruthy()
-    expect(screen.getByText('Two-factor authentication')).toBeTruthy()
-    expect(screen.getByText('Set up 2FA')).toBeTruthy()
   })
 })

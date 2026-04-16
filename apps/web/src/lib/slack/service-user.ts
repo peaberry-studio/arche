@@ -1,10 +1,8 @@
-import argon2 from 'argon2'
-
-import { generatePassword } from '@/lib/spawner/crypto'
 import { userService } from '@/lib/services'
 
 export const SLACK_SERVICE_USER_EMAIL = 'slack-bot@arche.local'
 export const SLACK_SERVICE_USER_SLUG = 'slack-bot'
+const SLACK_SERVICE_USER_PASSWORD_HASH = '$argon2id$v=19$m=65536,t=3,p=4$Rd07A5lN6/xNvx47pvH1Gw$J5TKBjCI3UOaBd2uUHMbX/AdzYT+/pvqx1io3emVwsU'
 
 export type EnsureSlackServiceUserResult =
   | { ok: true; user: { id: string; slug: string } }
@@ -38,7 +36,7 @@ export async function ensureSlackServiceUser(): Promise<EnsureSlackServiceUserRe
     const created = await userService.create({
       email: SLACK_SERVICE_USER_EMAIL,
       kind: 'SERVICE',
-      passwordHash: await argon2.hash(generatePassword()),
+      passwordHash: SLACK_SERVICE_USER_PASSWORD_HASH,
       role: 'USER',
       slug: SLACK_SERVICE_USER_SLUG,
     })
