@@ -51,6 +51,7 @@ type ManagedSlackApp = {
 let currentApp: ManagedSlackApp | null = null
 let syncInterval: NodeJS.Timeout | null = null
 let syncPromise: Promise<void> | null = null
+const eventExecutionLocks = new Map<string, Promise<void>>()
 const threadExecutionLocks = new Map<string, Promise<void>>()
 
 export function startSlackSocketManager(): void {
@@ -108,17 +109,19 @@ async function performSlackSocketSync(forceReconnect: boolean): Promise<void> {
     return
   }
 
-  const botToken = decryptSlackToken(integration.botTokenSecret)
-  const appToken = decryptSlackToken(integration.appTokenSecret)
-  const nextApp = createSlackApp({
-    appToken,
-    botToken,
-    botUserId: integration.slackBotUserId,
-  })
-
-  await teardownCurrentApp()
+  let nextApp: App | null = null
 
   try {
+    await teardownCurrentApp()
+
+    const botToken = decryptSlackToken(integration.botTokenSecret)
+    const appToken = decryptSlackToken(integration.appTokenSecret)
+    nextApp = createSlackApp({
+      appToken,
+      botToken,
+      botUserId: integration.slackBotUserId,
+    })
+
     await nextApp.start()
     currentApp = {
       app: nextApp,
@@ -127,8 +130,8 @@ async function performSlackSocketSync(forceReconnect: boolean): Promise<void> {
     await slackService.markSocketConnected(new Date())
     await slackService.markLastError(null)
   } catch (error) {
-    await nextApp.stop().catch(() => undefined)
-    await slackService.markLastError(toErrorMessage(error))
+    await nextApp?.stop().catch(() => undefined)
+    await slackService.markLastError(toErrorMessage(error)).catch(() => undefined)
     throw error
   }
 }
@@ -189,114 +192,123 @@ async function handleSlackEvent(args: {
     return
   }
 
-  const recorded = await slackService.recordEventReceipt({
-    eventId,
-    receivedAt: new Date(),
-    type: args.type,
-  })
-  if (!recorded) {
+  if (await slackService.hasEventReceipt(eventId)) {
     return
   }
 
-  await slackService.markEventReceived(new Date()).catch(() => undefined)
-
-  const event = args.event
-  if (!event.channel || !event.ts) {
-    return
-  }
-
-  const channel = event.channel
-  const eventTs = event.ts
-
-  if (shouldIgnoreSlackMessage(event, args.savedBotUserId)) {
-    return
-  }
-
-  const threadTs = event.thread_ts ?? eventTs
-  await withSlackThreadLock(buildSlackThreadKey(channel, threadTs), async () => {
-    const existingBinding = await slackService.findThreadBinding(channel, threadTs)
-    if (!args.isMention && (!event.thread_ts || event.thread_ts === eventTs || !existingBinding)) {
+  await withSlackEventLock(eventId, async () => {
+    if (await slackService.hasEventReceipt(eventId)) {
       return
     }
 
-    let placeholderTs: string | null = null
+    const event = args.event
+    if (!event || !event.channel || !event.ts) {
+      return
+    }
 
-    try {
-      const serviceUser = await ensureSlackServiceUser()
-      if (!serviceUser.ok) {
-        throw new Error(serviceUser.error)
+    const channel = event.channel
+    const eventTs = event.ts
+
+    if (shouldIgnoreSlackMessage(event, args.savedBotUserId)) {
+      return
+    }
+
+    const threadTs = event.thread_ts ?? eventTs
+    await withSlackThreadLock(buildSlackThreadKey(channel, threadTs), async () => {
+      const existingBinding = await slackService.findThreadBinding(channel, threadTs)
+      if (!args.isMention && (!event.thread_ts || event.thread_ts === eventTs || !existingBinding)) {
+        return
       }
 
-      await ensureWorkspaceRunningForExecution(serviceUser.user.slug, serviceUser.user.id)
+      let placeholderTs: string | null = null
 
-      const opencodeClient = await createInstanceClient(serviceUser.user.slug)
-      if (!opencodeClient) {
-        throw new Error('instance_unavailable')
-      }
-
-      let sessionId = existingBinding?.openCodeSessionId ?? null
-      if (!sessionId) {
-        const sessionResult = await opencodeClient.session.create(
-          { title: buildSlackSessionTitle(channel, threadTs) },
-          { throwOnError: true },
-        )
-        if (!sessionResult.data) {
-          throw new Error('slack_session_create_failed')
+      try {
+        const serviceUser = await ensureSlackServiceUser()
+        if (!serviceUser.ok) {
+          throw new Error(serviceUser.error)
         }
 
-        sessionId = sessionResult.data.id
-        await slackService.upsertThreadBinding({
-          channelId: channel,
-          executionUserId: serviceUser.user.id,
-          openCodeSessionId: sessionId,
-          threadTs,
+        await ensureWorkspaceRunningForExecution(serviceUser.user.slug, serviceUser.user.id)
+
+        const opencodeClient = await createInstanceClient(serviceUser.user.slug)
+        if (!opencodeClient) {
+          throw new Error('instance_unavailable')
+        }
+
+        let sessionId = existingBinding?.openCodeSessionId ?? null
+        if (!sessionId) {
+          const sessionResult = await opencodeClient.session.create(
+            { title: buildSlackSessionTitle(channel, threadTs) },
+            { throwOnError: true },
+          )
+          if (!sessionResult.data) {
+            throw new Error('slack_session_create_failed')
+          }
+
+          sessionId = sessionResult.data.id
+          await slackService.upsertThreadBinding({
+            channelId: channel,
+            executionUserId: serviceUser.user.id,
+            openCodeSessionId: sessionId,
+            threadTs,
+          })
+        }
+
+        const agentId = await resolveTargetAgentId((await slackService.findIntegration())?.defaultAgentId ?? null)
+        const context = await buildSlackContext(args.client, {
+          channel,
+          text: stripBotMention(event.text ?? '', args.savedBotUserId),
+          threadTs: event.thread_ts ?? null,
+          ts: eventTs,
+          user: event.user ?? null,
         })
+        const prompt = buildSlackPrompt(context)
+
+        placeholderTs = await postSlackPlaceholder(args.client, channel, threadTs)
+
+        await opencodeClient.session.promptAsync(
+          {
+            agent: agentId ?? undefined,
+            parts: [{ type: 'text', text: prompt }],
+            sessionID: sessionId,
+          },
+          { throwOnError: true },
+        )
+
+        const failure = await waitForSessionToComplete({
+          client: opencodeClient,
+          sessionId,
+          slug: serviceUser.user.slug,
+        })
+        const replyText = failure
+          ? mapSlackFailureToMessage(failure)
+          : (await readLatestAssistantText(opencodeClient, sessionId)) ?? 'I could not produce a Slack-ready text response.'
+
+        await finalizeSlackReply(args.client, channel, threadTs, placeholderTs, replyText)
+        await slackService.markLastError(null).catch(() => undefined)
+      } catch (error) {
+        const detail = toErrorMessage(error)
+        await finalizeSlackReply(
+          args.client,
+          channel,
+          threadTs,
+          placeholderTs,
+          'I hit an error while preparing the Slack reply. Please try again.',
+        ).catch(() => undefined)
+        await slackService.markLastError(detail).catch(() => undefined)
+        throw error
       }
+    })
 
-      const agentId = await resolveTargetAgentId((await slackService.findIntegration())?.defaultAgentId ?? null)
-      const context = await buildSlackContext(args.client, {
-        channel,
-        text: stripBotMention(event.text ?? '', args.savedBotUserId),
-        threadTs: event.thread_ts ?? null,
-        ts: eventTs,
-        user: event.user ?? null,
-      })
-      const prompt = buildSlackPrompt(context)
-
-      placeholderTs = await postSlackPlaceholder(args.client, channel, threadTs)
-
-      await opencodeClient.session.promptAsync(
-        {
-          agent: agentId ?? undefined,
-          parts: [{ type: 'text', text: prompt }],
-          sessionID: sessionId,
-        },
-        { throwOnError: true },
-      )
-
-      const failure = await waitForSessionToComplete({
-        client: opencodeClient,
-        sessionId,
-        slug: serviceUser.user.slug,
-      })
-      const replyText = failure
-        ? mapSlackFailureToMessage(failure)
-        : (await readLatestAssistantText(opencodeClient, sessionId)) ?? 'I could not produce a Slack-ready text response.'
-
-      await finalizeSlackReply(args.client, channel, threadTs, placeholderTs, replyText)
-      await slackService.markLastError(null).catch(() => undefined)
-    } catch (error) {
-      const detail = toErrorMessage(error)
-      await finalizeSlackReply(
-        args.client,
-        channel,
-        threadTs,
-        placeholderTs,
-        'I hit an error while preparing the Slack reply. Please try again.',
-      ).catch(() => undefined)
-      await slackService.markLastError(detail).catch(() => undefined)
+    const recorded = await slackService.recordEventReceipt({
+      eventId,
+      receivedAt: new Date(),
+      type: args.type,
+    })
+    if (recorded) {
+      await slackService.markEventReceived(new Date()).catch(() => undefined)
     }
-  })
+  }).catch(() => undefined)
 }
 
 async function finalizeSlackReply(
@@ -423,13 +435,21 @@ function stripBotMention(text: string, botUserId: string | null): string {
 }
 
 async function withSlackThreadLock<T>(key: string, work: () => Promise<T>): Promise<T> {
-  const previous = threadExecutionLocks.get(key) ?? Promise.resolve()
+  return withLock(threadExecutionLocks, key, work)
+}
+
+async function withSlackEventLock<T>(key: string, work: () => Promise<T>): Promise<T> {
+  return withLock(eventExecutionLocks, key, work)
+}
+
+async function withLock<T>(locks: Map<string, Promise<void>>, key: string, work: () => Promise<T>): Promise<T> {
+  const previous = locks.get(key) ?? Promise.resolve()
   let releaseCurrent!: () => void
   const current = new Promise<void>((resolve) => {
     releaseCurrent = resolve
   })
 
-  threadExecutionLocks.set(key, current)
+  locks.set(key, current)
   await previous.catch(() => undefined)
 
   try {
@@ -437,8 +457,8 @@ async function withSlackThreadLock<T>(key: string, work: () => Promise<T>): Prom
   } finally {
     releaseCurrent()
 
-    if (threadExecutionLocks.get(key) === current) {
-      threadExecutionLocks.delete(key)
+    if (locks.get(key) === current) {
+      locks.delete(key)
     }
   }
 }

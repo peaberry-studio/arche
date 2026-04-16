@@ -167,9 +167,15 @@ export const PUT = withAuth<SlackIntegrationMutateResponse | { error: string; me
 
     const enabled = typeof body.enabled === 'boolean' ? body.enabled : existing?.enabled ?? false
     const reconnect = body.reconnect === true
-    const resolvedBotToken = botTokenInput || (existing?.botTokenSecret ? decryptSlackToken(existing.botTokenSecret) : '')
-    const resolvedAppToken = appTokenInput || (existing?.appTokenSecret ? decryptSlackToken(existing.appTokenSecret) : '')
     const tokensChanged = Boolean(botTokenInput || appTokenInput)
+
+    let resolvedBotToken = ''
+    let resolvedAppToken = ''
+
+    if (enabled || reconnect) {
+      resolvedBotToken = botTokenInput || (existing?.botTokenSecret ? decryptSlackToken(existing.botTokenSecret) : '')
+      resolvedAppToken = appTokenInput || (existing?.appTokenSecret ? decryptSlackToken(existing.appTokenSecret) : '')
+    }
 
     if ((enabled || reconnect) && (!resolvedBotToken || !resolvedAppToken)) {
       return toErrorResponse('missing_tokens', 400)

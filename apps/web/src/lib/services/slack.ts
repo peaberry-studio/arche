@@ -145,6 +145,15 @@ export function markLastError(lastError: string | null) {
   })
 }
 
+export async function hasEventReceipt(eventId: string): Promise<boolean> {
+  const receipt = await prisma.slackEventReceipt.findUnique({
+    where: { eventId },
+    select: { id: true },
+  })
+
+  return Boolean(receipt)
+}
+
 export async function recordEventReceipt(args: {
   eventId: string
   type: string

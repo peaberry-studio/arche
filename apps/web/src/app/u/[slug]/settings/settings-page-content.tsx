@@ -8,13 +8,13 @@ import { WorkspaceRestartSection } from './security/workspace-restart-section'
 import { SecuritySettingsPanel } from './security/settings-page-content'
 import {
   SETTINGS_SECTION_LABELS,
-  type SettingsSection,
+  type SettingsSection as SettingsSectionName,
 } from './sections'
 
 type SettingsPageContentProps = {
   slug: string
-  availableSections: SettingsSection[]
-  currentSection: SettingsSection
+  availableSections: SettingsSectionName[]
+  currentSection: SettingsSectionName
   passwordChangeEnabled: boolean
   twoFactorEnabled: boolean
   enabled: boolean
@@ -120,8 +120,8 @@ export function SettingsPageContent({
 
 function getSettingsSectionHref(
   slug: string,
-  section: SettingsSection,
-  defaultSection: SettingsSection | undefined,
+  section: SettingsSectionName,
+  defaultSection: SettingsSectionName | undefined,
 ): string {
   if (section === defaultSection) {
     return `/u/${slug}/settings`

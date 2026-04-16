@@ -8,6 +8,8 @@ const ensureSlackServiceUserMock = vi.fn()
 const syncSlackSocketManagerMock = vi.fn()
 const testSlackCredentialsMock = vi.fn()
 const auditEventMock = vi.fn()
+const decryptSlackTokenMock = vi.fn()
+const encryptSlackTokenMock = vi.fn()
 
 const authState = {
   user: { id: 'admin-1', role: 'ADMIN', slug: 'alice' },
@@ -40,8 +42,8 @@ vi.mock('@/lib/slack/agents', () => ({
 }))
 
 vi.mock('@/lib/slack/crypto', () => ({
-  decryptSlackToken: (value: string) => value,
-  encryptSlackToken: (value: string) => `enc:${value}`,
+  decryptSlackToken: (...args: unknown[]) => decryptSlackTokenMock(...args),
+  encryptSlackToken: (...args: unknown[]) => encryptSlackTokenMock(...args),
 }))
 
 vi.mock('@/lib/slack/integration', () => ({
@@ -87,6 +89,8 @@ describe('/api/u/[slug]/slack-integration', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     authState.user = { id: 'admin-1', role: 'ADMIN', slug: 'alice' }
+    decryptSlackTokenMock.mockImplementation((value: string) => value)
+    encryptSlackTokenMock.mockImplementation((value: string) => `enc:${value}`)
     loadSlackAgentOptionsMock.mockResolvedValue({
       agents: [{ displayName: 'Assistant', id: 'assistant', isPrimary: true }],
       ok: true,
@@ -178,5 +182,36 @@ describe('/api/u/[slug]/slack-integration', () => {
     })
 
     expect(response.status).toBe(403)
+  })
+
+  it('disables the integration without decrypting saved tokens', async () => {
+    decryptSlackTokenMock.mockImplementation(() => {
+      throw new Error('invalid_secret')
+    })
+
+    const { PUT } = await import('./route')
+    const response = await PUT(
+      new Request('http://localhost/api/u/alice/slack-integration', {
+        body: JSON.stringify({
+          defaultAgentId: null,
+          enabled: false,
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'PUT',
+      }) as never,
+      { params: Promise.resolve({ slug: 'alice' }) },
+    )
+
+    expect(response.status).toBe(200)
+    expect(decryptSlackTokenMock).not.toHaveBeenCalled()
+    expect(testSlackCredentialsMock).not.toHaveBeenCalled()
+    expect(saveIntegrationConfigMock).toHaveBeenCalledWith({
+      clearLastError: true,
+      defaultAgentId: null,
+      enabled: false,
+      slackAppId: 'A123',
+      slackBotUserId: 'U123',
+      slackTeamId: 'T123',
+    })
   })
 })

@@ -29,8 +29,12 @@ export const POST = withAuth<SlackIntegrationTestResponse | { error: string; mes
 
     let body: SlackIntegrationTestRequest | null = null
     try {
-      body = await request.json().catch(() => ({})) as SlackIntegrationTestRequest
-    } catch {
+      body = await request.json() as SlackIntegrationTestRequest
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) {
+        throw error
+      }
+
       return toErrorResponse('invalid_json', 400)
     }
 

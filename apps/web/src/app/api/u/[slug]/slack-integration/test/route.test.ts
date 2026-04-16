@@ -113,4 +113,19 @@ describe('/api/u/[slug]/slack-integration/test', () => {
 
     expect(response.status).toBe(403)
   })
+
+  it('returns invalid_json for malformed request bodies', async () => {
+    const { POST } = await import('./route')
+    const response = await POST(new Request('http://localhost/api/u/alice/slack-integration/test', {
+      body: '{',
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+    }) as never, {
+      params: Promise.resolve({ slug: 'alice' }),
+    })
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ error: 'invalid_json' })
+    expect(testSlackCredentialsMock).not.toHaveBeenCalled()
+  })
 })
