@@ -15,10 +15,6 @@ vi.mock('@/components/dashboard/theme-picker', () => ({
   ThemePicker: () => <div>Theme picker</div>,
 }))
 
-vi.mock('@/components/settings/slack-integration-panel', () => ({
-  SlackIntegrationPanel: ({ slug }: { slug: string }) => <div>Slack panel {slug}</div>,
-}))
-
 vi.mock('../security/workspace-restart-section', () => ({
   WorkspaceRestartSection: ({ slug }: { slug: string }) => <div>Workspace restart {slug}</div>,
 }))
@@ -44,13 +40,31 @@ describe('SettingsPageContent', () => {
         verifiedAt={null}
         recoveryCodesRemaining={0}
         releaseVersion="03"
+        slackIntegrationSummary={{
+          configured: true,
+          defaultAgentId: null,
+          enabled: true,
+          hasAppToken: true,
+          hasBotToken: true,
+          lastError: null,
+          lastEventAt: '2026-04-16T20:00:00.000Z',
+          lastSocketConnectedAt: '2026-04-16T19:00:00.000Z',
+          resolvedDefaultAgentId: null,
+          slackAppId: 'A123',
+          slackBotUserId: 'U123',
+          slackTeamId: 'T123',
+          status: 'connected',
+          updatedAt: '2026-04-16T20:00:00.000Z',
+          version: 3,
+        }}
       />,
     )
 
     expect(screen.getByRole('heading', { name: 'Settings' })).toBeTruthy()
     expect(screen.getByRole('link', { name: 'General' }).getAttribute('href')).toBe('/u/alice/settings')
     expect(screen.getByRole('link', { name: 'Security' }).getAttribute('href')).toBe('/u/alice/settings?section=security')
-    expect(screen.getByText('Slack panel alice')).toBeTruthy()
+    expect(screen.getByText('Slack integration')).toBeTruthy()
+    expect(screen.getByText('Open settings').closest('a')?.getAttribute('href')).toBe('/u/alice/settings/integrations/slack')
     expect(screen.getByText(/Arche 03/)).toBeTruthy()
   })
 
@@ -66,12 +80,13 @@ describe('SettingsPageContent', () => {
         verifiedAt={null}
         recoveryCodesRemaining={0}
         releaseVersion="03"
+        slackIntegrationSummary={null}
       />,
     )
 
     expect(screen.queryByRole('link', { name: 'Integrations' })).toBeNull()
     expect(screen.getByText('Theme picker')).toBeTruthy()
     expect(screen.getByText('Workspace restart alice')).toBeTruthy()
-    expect(screen.queryByText('Slack panel alice')).toBeNull()
+    expect(screen.queryByText('Slack integration')).toBeNull()
   })
 })

@@ -19,6 +19,7 @@ import type {
 
 type SlackIntegrationPanelProps = {
   slug: string
+  collapsible?: boolean
 }
 
 const SLACK_DOCS_URL = 'https://api.slack.com/apis/connections/socket'
@@ -116,7 +117,7 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-export function SlackIntegrationPanel({ slug }: SlackIntegrationPanelProps) {
+export function SlackIntegrationPanel({ slug, collapsible = true }: SlackIntegrationPanelProps) {
   const [agents, setAgents] = useState<SlackIntegrationGetResponse['agents']>([])
   const [integration, setIntegration] = useState<SlackIntegrationSummary | null>(null)
   const [botToken, setBotToken] = useState('')
@@ -125,7 +126,7 @@ export function SlackIntegrationPanel({ slug }: SlackIntegrationPanelProps) {
   const [busyAction, setBusyAction] = useState<'disable' | 'enable' | 'reconnect' | 'test' | null>(null)
   const [copyState, setCopyState] = useState<'json' | 'yaml' | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [isExpanded, setIsExpanded] = useState(false)
+  const [isExpanded, setIsExpanded] = useState(!collapsible)
   const [isLoading, setIsLoading] = useState(true)
   const [manifestFormat, setManifestFormat] = useState<'json' | 'yaml'>('yaml')
   const [testResult, setTestResult] = useState<SlackIntegrationTestResponse | null>(null)
@@ -265,37 +266,53 @@ export function SlackIntegrationPanel({ slug }: SlackIntegrationPanelProps) {
 
   const detailsId = 'slack-integration-details'
   const isEnabled = integration?.enabled ?? false
+  const showDetails = collapsible ? isExpanded : true
 
-  return (
-    <section className="space-y-4 rounded-lg border border-border/60 bg-card/50 p-6">
-      <button
-        type="button"
-        onClick={() => setIsExpanded((value) => !value)}
-        aria-expanded={isExpanded}
-        aria-controls={detailsId}
-        className="flex w-full items-center justify-between gap-4 text-left"
-      >
-        <div className="min-w-0 space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-lg font-medium">Slack integration</h2>
-            {statusBadge}
-            {loadingIndicator}
-          </div>
-          <p className="text-sm text-muted-foreground">
-            Connect a Slack bot so your workspace can chat with Arche agents directly from Slack channels.
-          </p>
+  const headerContent = (
+    <>
+      <div className="min-w-0 space-y-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-lg font-medium">Slack integration</h2>
+          {statusBadge}
+          {loadingIndicator}
         </div>
+        <p className="text-sm text-muted-foreground">
+          Connect a Slack bot so your workspace can chat with Arche agents directly from Slack
+          channels.
+        </p>
+      </div>
+      {collapsible ? (
         <CaretDown
           size={16}
           weight="bold"
           className={cn(
             'shrink-0 text-muted-foreground transition-transform',
-            isExpanded && 'rotate-180',
+            showDetails && 'rotate-180',
           )}
         />
-      </button>
+      ) : null}
+    </>
+  )
 
-      {isExpanded ? (
+  return (
+    <section className="space-y-4 rounded-lg border border-border/60 bg-card/50 p-6">
+      {collapsible ? (
+        <button
+          type="button"
+          onClick={() => setIsExpanded((value) => !value)}
+          aria-expanded={showDetails}
+          aria-controls={detailsId}
+          className="flex w-full items-center justify-between gap-4 text-left"
+        >
+          {headerContent}
+        </button>
+      ) : (
+        <div className="flex items-start justify-between gap-4">
+          {headerContent}
+        </div>
+      )}
+
+      {showDetails ? (
         <div id={detailsId} className="space-y-6 pt-2">
           {error ? <SettingsInfoBox tone="error">{error}</SettingsInfoBox> : null}
 

@@ -4,6 +4,9 @@ import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { getCurrentDesktopVault, getDesktopWorkspaceHref } from '@/lib/runtime/desktop/current-vault'
 import { isDesktop } from '@/lib/runtime/mode'
 import { getSession } from '@/lib/runtime/session'
+import { serializeSlackIntegration } from '@/lib/slack/integration'
+import type { SlackIntegrationSummary } from '@/lib/slack/types'
+import { slackService } from '@/lib/services'
 import { get2FAStatus } from './security/actions'
 import { normalizeTwoFactorStatus } from './security/status'
 import { SettingsPageContent } from './settings-page-content'
@@ -28,7 +31,13 @@ export default async function SettingsPage({
   if (!session) redirect('/login')
 
   const caps = getRuntimeCapabilities()
-  const status = caps.twoFactor ? await get2FAStatus() : null
+  const [status, slackIntegrationSummary] = await Promise.all([
+    caps.twoFactor ? get2FAStatus() : Promise.resolve(null),
+    caps.slackIntegration && session.user.role === 'ADMIN'
+      ? loadSlackIntegrationSummary()
+      : Promise.resolve<SlackIntegrationSummary | null>(null),
+  ])
+
   if (caps.twoFactor && (!status || !status.ok)) redirect('/login')
 
   const { enabled, verifiedAt, recoveryCodesRemaining } = normalizeTwoFactorStatus(status)
@@ -57,6 +66,12 @@ export default async function SettingsPage({
       verifiedAt={verifiedAt}
       recoveryCodesRemaining={recoveryCodesRemaining}
       releaseVersion={releaseVersion}
+      slackIntegrationSummary={slackIntegrationSummary}
     />
   )
+}
+
+async function loadSlackIntegrationSummary(): Promise<SlackIntegrationSummary> {
+  const integration = await slackService.findIntegration()
+  return serializeSlackIntegration(integration, null)
 }

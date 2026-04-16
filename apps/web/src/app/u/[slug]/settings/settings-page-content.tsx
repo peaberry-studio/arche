@@ -2,7 +2,8 @@ import Link from 'next/link'
 
 import { ThemePicker } from '@/components/dashboard/theme-picker'
 import { SettingsSection } from '@/components/settings/settings-section'
-import { SlackIntegrationPanel } from '@/components/settings/slack-integration-panel'
+import { SlackIntegrationSummaryCard } from '@/components/settings/slack-integration-summary-card'
+import type { SlackIntegrationSummary } from '@/lib/slack/types'
 import { cn } from '@/lib/utils'
 import { WorkspaceRestartSection } from './security/workspace-restart-section'
 import { SecuritySettingsPanel } from './security/settings-page-content'
@@ -21,6 +22,7 @@ type SettingsPageContentProps = {
   verifiedAt: Date | null
   recoveryCodesRemaining: number
   releaseVersion: string
+  slackIntegrationSummary: SlackIntegrationSummary | null
 }
 
 export function SettingsPageContent({
@@ -33,6 +35,7 @@ export function SettingsPageContent({
   verifiedAt,
   recoveryCodesRemaining,
   releaseVersion,
+  slackIntegrationSummary,
 }: SettingsPageContentProps) {
   return (
     <main className="relative mx-auto max-w-6xl px-6 py-10">
@@ -101,7 +104,9 @@ export function SettingsPageContent({
               </p>
             </div>
 
-            <SlackIntegrationPanel slug={slug} />
+            {slackIntegrationSummary ? (
+              <SlackIntegrationSummaryCard slug={slug} integration={slackIntegrationSummary} />
+            ) : null}
           </section>
         )
       case 'security':
