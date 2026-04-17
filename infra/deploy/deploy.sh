@@ -736,6 +736,9 @@ PLAYBOOK
     --extra-vars "deploy_dir=${SCRIPT_DIR}" \
     "$TEMP_PLAYBOOK"
 
+  LOCAL_DEV_ENV_FILE="$SCRIPT_DIR/.env.local-dev"
+  LOCAL_DEV_COMPOSE_ARGS=(-f "$COMPOSE_OUT" --env-file "$LOCAL_DEV_ENV_FILE" -p "$LOCAL_DEV_PROJECT_NAME")
+
   # Ensure the local-dev workspace network exists
   if ! podman network inspect "$LOCAL_DEV_NETWORK_NAME" &>/dev/null; then
     log "Creating $LOCAL_DEV_NETWORK_NAME network..."
@@ -744,30 +747,47 @@ PLAYBOOK
 
   # Start the stack
   log "Starting Podman Compose stack..."
-  podman compose -f "$COMPOSE_OUT" --env-file "$SCRIPT_DIR/.env.local-dev" -p "$LOCAL_DEV_PROJECT_NAME" up -d
+  podman compose "${LOCAL_DEV_COMPOSE_ARGS[@]}" up -d
 
   # Wait for web to be ready (longer timeout — first-run pnpm install is slow)
   log "Waiting for web service to be ready (first run may take a while for pnpm install)..."
   RETRIES=60
-  until podman compose -f "$COMPOSE_OUT" -p "$LOCAL_DEV_PROJECT_NAME" exec -T web sh -c "node -e 'const net=require(\"net\");const s=net.connect(3000,\"127.0.0.1\");s.on(\"connect\",()=>process.exit(0));s.on(\"error\",()=>process.exit(1));'" 2>/dev/null; do
+  until podman compose "${LOCAL_DEV_COMPOSE_ARGS[@]}" exec -T web sh -c "node -e 'const net=require(\"net\");const s=net.connect(3000,\"127.0.0.1\");s.on(\"connect\",()=>process.exit(0));s.on(\"error\",()=>process.exit(1));'" 2>/dev/null; do
     RETRIES=$((RETRIES - 1))
     if [[ $RETRIES -le 0 ]]; then
-      warn "Web service did not become healthy. Continuing with migrations anyway..."
-      break
+      err "Web service did not become healthy in time."
+      podman compose "${LOCAL_DEV_COMPOSE_ARGS[@]}" logs --tail 100 web postgres || true
+      exit 1
     fi
     sleep 3
   done
 
   # In local-dev mode, migrations are NOT run by start.sh (uses pnpm dev, not start.sh)
   log "Running Prisma migrations..."
-  podman compose -f "$COMPOSE_OUT" -p "$LOCAL_DEV_PROJECT_NAME" exec -T web pnpm prisma migrate deploy || {
-    warn "Migration failed — check web container logs for details."
-  }
+  RETRIES=10
+  until podman compose "${LOCAL_DEV_COMPOSE_ARGS[@]}" exec -T web pnpm prisma migrate deploy; do
+    RETRIES=$((RETRIES - 1))
+    if [[ $RETRIES -le 0 ]]; then
+      err "Prisma migrations failed after repeated attempts."
+      podman compose "${LOCAL_DEV_COMPOSE_ARGS[@]}" logs --tail 100 web postgres || true
+      exit 1
+    fi
+    warn "Migration attempt failed. Retrying in 3s..."
+    sleep 3
+  done
 
   log "Running seed..."
-  podman compose -f "$COMPOSE_OUT" -p "$LOCAL_DEV_PROJECT_NAME" exec -T web pnpm prisma db seed || {
-    warn "Seed failed — this may be expected if already seeded."
-  }
+  RETRIES=10
+  until podman compose "${LOCAL_DEV_COMPOSE_ARGS[@]}" exec -T web pnpm prisma db seed; do
+    RETRIES=$((RETRIES - 1))
+    if [[ $RETRIES -le 0 ]]; then
+      err "Seed failed after repeated attempts."
+      podman compose "${LOCAL_DEV_COMPOSE_ARGS[@]}" logs --tail 100 web postgres || true
+      exit 1
+    fi
+    warn "Seed attempt failed. Retrying in 3s..."
+    sleep 3
+  done
 
   echo ""
   log "Local dev deployment ready!"
@@ -782,10 +802,10 @@ PLAYBOOK
   info "Hot reload is active — edit files in apps/web/src/ and Next.js reloads automatically."
   echo ""
   info "Useful commands:"
-  info "  Logs:     podman compose -f $COMPOSE_OUT -p $LOCAL_DEV_PROJECT_NAME logs -f"
-  info "  Web logs: podman compose -f $COMPOSE_OUT -p $LOCAL_DEV_PROJECT_NAME logs -f web"
-  info "  Stop:     podman compose -f $COMPOSE_OUT -p $LOCAL_DEV_PROJECT_NAME down"
-  info "  Restart:  podman compose -f $COMPOSE_OUT -p $LOCAL_DEV_PROJECT_NAME restart"
+  info "  Logs:     podman compose -f $COMPOSE_OUT --env-file $LOCAL_DEV_ENV_FILE -p $LOCAL_DEV_PROJECT_NAME logs -f"
+  info "  Web logs: podman compose -f $COMPOSE_OUT --env-file $LOCAL_DEV_ENV_FILE -p $LOCAL_DEV_PROJECT_NAME logs -f web"
+  info "  Stop:     podman compose -f $COMPOSE_OUT --env-file $LOCAL_DEV_ENV_FILE -p $LOCAL_DEV_PROJECT_NAME down"
+  info "  Restart:  podman compose -f $COMPOSE_OUT --env-file $LOCAL_DEV_ENV_FILE -p $LOCAL_DEV_PROJECT_NAME restart"
 }
 
 # ---------------------------------------------------------------------------
