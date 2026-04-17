@@ -2,7 +2,7 @@
 # Mode: {{ deploy_mode }}
 # Domain: {{ domain }}
 
-name: {{ compose_project_name | default('arche') }}
+name: arche
 
 services:
   traefik:
@@ -45,7 +45,7 @@ services:
 {% endif %}
     networks:
       - default
-      - {{ opencode_network | default('arche-internal') }}
+      - arche-internal
     depends_on:
       - docker-socket-proxy
   
@@ -67,7 +67,7 @@ services:
     volumes:
       - {{ podman_socket_path }}:/var/run/docker.sock:ro
     networks:
-      - {{ opencode_network | default('arche-internal') }}
+      - arche-internal
     healthcheck:
       test: ["CMD-SHELL", "test -S /var/run/docker.sock"]
       interval: 10s
@@ -134,7 +134,7 @@ services:
       WATCHPACK_POLLING: "true"
     networks:
       - default
-      - {{ opencode_network | default('arche-internal') }}
+      - arche-internal
     depends_on:
       postgres:
         condition: service_healthy
@@ -156,8 +156,8 @@ services:
 
 networks:
   default:
-  {{ opencode_network | default('arche-internal') }}:
-    name: {{ opencode_network | default('arche-internal') }}
+  arche-internal:
+    name: arche-internal
     external: true
 
 volumes:
