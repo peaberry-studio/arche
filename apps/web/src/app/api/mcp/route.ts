@@ -12,11 +12,23 @@ export const dynamic = 'force-dynamic'
 
 const MCP_RATE_LIMIT_MAX = 100
 const MCP_RATE_LIMIT_WINDOW_MS = 60 * 1000
+const MCP_PREAUTH_RATE_LIMIT_MAX = 300
+const MCP_PREAUTH_RATE_LIMIT_WINDOW_MS = 60 * 1000
 const MCP_MAX_BODY_BYTES = 64 * 1024
 
 export async function POST(request: Request): Promise<Response> {
   if (isRequestBodyTooLarge(request.headers)) {
     return Response.json({ error: 'payload_too_large' }, { status: 413 })
+  }
+
+  const clientIp = getClientIp(request.headers) ?? 'unknown'
+  const preAuthRateLimit = checkRateLimit(
+    `mcp:ip:${clientIp}`,
+    MCP_PREAUTH_RATE_LIMIT_MAX,
+    MCP_PREAUTH_RATE_LIMIT_WINDOW_MS
+  )
+  if (!preAuthRateLimit.allowed) {
+    return buildRateLimitedResponse(preAuthRateLimit.resetAt)
   }
 
   const mcpSettings = await readMcpSettings()
@@ -35,15 +47,7 @@ export async function POST(request: Request): Promise<Response> {
 
   const rateLimit = checkRateLimit(`mcp:${auth.tokenId}`, MCP_RATE_LIMIT_MAX, MCP_RATE_LIMIT_WINDOW_MS)
   if (!rateLimit.allowed) {
-    return Response.json(
-      { error: 'rate_limited' },
-      {
-        status: 429,
-        headers: {
-          'Retry-After': String(Math.ceil((rateLimit.resetAt - Date.now()) / 1000)),
-        },
-      }
-    )
+    return buildRateLimitedResponse(rateLimit.resetAt)
   }
 
   const bodyResult = await readRequestBody(request)
@@ -72,7 +76,7 @@ export async function POST(request: Request): Promise<Response> {
     actorUserId: auth.user.id,
     action: 'mcp.request',
     metadata: {
-      ip: getClientIp(request.headers) ?? 'unknown',
+      ip: clientIp,
       method: getRequestMethod(parsedBody.value),
       tokenId: auth.tokenId,
       toolName: getToolName(parsedBody.value),
@@ -91,6 +95,18 @@ export async function POST(request: Request): Promise<Response> {
 
   await server.connect(transport)
   return transport.handleRequest(forwardedRequest, { parsedBody: parsedBody.value })
+}
+
+function buildRateLimitedResponse(resetAt: number): Response {
+  return Response.json(
+    { error: 'rate_limited' },
+    {
+      status: 429,
+      headers: {
+        'Retry-After': String(Math.max(1, Math.ceil((resetAt - Date.now()) / 1000))),
+      },
+    }
+  )
 }
 
 function isRequestBodyTooLarge(headers: Headers): boolean {
