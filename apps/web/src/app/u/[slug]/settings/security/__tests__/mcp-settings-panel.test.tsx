@@ -165,6 +165,29 @@ describe('McpSettingsPanel', () => {
     expect(screen.queryByRole('switch')).toBeNull()
   })
 
+  it('renders token creation buttons with pointer cursor', () => {
+    render(
+      <McpSettingsPanel
+        mcpEnabled={true}
+        mcpConfigError={null}
+        canManageMcp={true}
+        mcpBaseUrl="https://arche.example.com"
+        personalAccessTokens={[]}
+      />,
+    )
+
+    const newTokenButton = screen.getByRole('button', { name: /new token/i })
+    expect(newTokenButton.className.includes('cursor-pointer')).toBe(true)
+
+    openCreateDialog()
+
+    const cancelButton = screen.getByRole('button', { name: 'Cancel' })
+    const createTokenButton = screen.getByRole('button', { name: 'Create token' })
+
+    expect(cancelButton.className.includes('cursor-pointer')).toBe(true)
+    expect(createTokenButton.className.includes('cursor-pointer')).toBe(true)
+  })
+
   it('shows add-server commands in the success step after token creation', async () => {
     render(
       <McpSettingsPanel
