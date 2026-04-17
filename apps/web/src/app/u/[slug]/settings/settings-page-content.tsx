@@ -39,20 +39,23 @@ export function SettingsPageContent({
 }: SettingsPageContentProps) {
   return (
     <main className="relative mx-auto max-w-6xl px-6 py-10">
-      <div>
+      <div className="space-y-2">
         <h1 className="type-display text-3xl font-semibold tracking-tight">Settings</h1>
+        <p className="text-muted-foreground">
+          Manage your workspace preferences, integrations, and account security.
+        </p>
       </div>
 
       <div className="mt-8 grid gap-8 lg:grid-cols-[220px_minmax(0,1fr)]">
-        <aside className="lg:sticky lg:top-6 lg:self-start">
-          <div className="rounded-2xl border border-border/60 bg-card/50 p-4">
+        <aside className="lg:sticky lg:top-10 lg:self-start">
+          <div className="rounded-lg border border-border/60 bg-card/50 p-4">
             <nav className="flex gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
               {availableSections.map((section) => (
                 <Link
                   key={section}
                   href={getSettingsSectionHref(slug, section, availableSections[0])}
                   className={cn(
-                    'rounded-xl px-3 py-2 text-sm transition-colors',
+                    'rounded-md px-3 py-2 text-sm transition-colors',
                     currentSection === section
                       ? 'bg-primary/10 font-medium text-primary'
                       : 'text-muted-foreground hover:bg-background hover:text-foreground',
@@ -78,7 +81,14 @@ export function SettingsPageContent({
     switch (currentSection) {
       case 'general':
         return (
-          <div className="space-y-6">
+          <section className="space-y-6">
+            <div className="space-y-1">
+              <h2 className="text-lg font-medium">General</h2>
+              <p className="text-sm text-muted-foreground">
+                Customize the look and runtime behavior of this workspace.
+              </p>
+            </div>
+
             <SettingsSection
               title="Look & Feel"
               description="Customize the dashboard theme for this workspace."
@@ -92,7 +102,7 @@ export function SettingsPageContent({
             >
               <WorkspaceRestartSection slug={slug} showHeader={false} />
             </SettingsSection>
-          </div>
+          </section>
         )
       case 'integrations':
         return (
