@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import argon2 from 'argon2'
-
+import { hashArgon2 } from '@/lib/argon2'
 import { auditEvent } from '@/lib/auth'
 import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
@@ -124,7 +123,7 @@ export const POST = withAuth<{ user: TeamUserListItem } | { error: string; messa
       return NextResponse.json({ error }, { status: 409 })
     }
 
-    const passwordHash = await argon2.hash(password)
+    const passwordHash = await hashArgon2(password)
 
     try {
       const createdUser = await userService.create({

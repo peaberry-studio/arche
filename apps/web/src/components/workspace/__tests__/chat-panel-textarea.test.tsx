@@ -6,6 +6,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ChatPanel } from "@/components/workspace/chat-panel";
 import { WorkspaceThemeProvider } from "@/contexts/workspace-theme-context";
+import {
+  MAX_ATTACHMENT_UPLOAD_BYTES,
+  MAX_ATTACHMENT_UPLOAD_MEGABYTES,
+} from "@/lib/workspace-attachments";
 
 vi.mock("next/image", () => ({
   default: () => null,
@@ -226,31 +230,28 @@ describe("ChatPanel textarea", () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === "POST") {
         const requestBody = init.body;
-        if (!(requestBody instanceof FormData)) {
-          throw new Error("Expected upload request body to be FormData");
+        if (!(requestBody instanceof File)) {
+          throw new Error("Expected upload request body to be a File");
         }
 
-        const files = requestBody.getAll("files");
-        expect(files).toHaveLength(1);
-
-        const uploadedFile = files[0];
-        if (!(uploadedFile instanceof File)) {
-          throw new Error("Expected uploaded file in FormData");
-        }
-
-        expect(uploadedFile.type).toBe("image/png");
-        expect(uploadedFile.name).toBe("clipboard-image.png");
+        expect(requestBody.type).toBe("image/png");
+        expect(requestBody.name).toBe("clipboard-image.png");
+        expect(String(_input)).toBe(
+          "/api/w/alice/attachments?filename=clipboard-image.png"
+        );
 
         attachmentStore.push(uploadedAttachment);
 
         return {
           ok: true,
-          json: async () => ({ uploaded: [uploadedAttachment], failed: [] }),
+          status: 201,
+          json: async () => ({ attachment: uploadedAttachment }),
         };
       }
 
       return {
         ok: true,
+        status: 200,
         json: async () => ({ attachments: attachmentStore }),
       };
     });
@@ -294,6 +295,37 @@ describe("ChatPanel textarea", () => {
         contextPaths: [],
       }
     );
+  });
+
+  it("shows a clear error when a pasted image exceeds the upload limit", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ attachments: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderChatPanel();
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled();
+    });
+    const initialFetchCount = fetchMock.mock.calls.length;
+
+    const oversizedFile = new File(["image"], "too-large.png", { type: "image/png" });
+    Object.defineProperty(oversizedFile, "size", {
+      value: MAX_ATTACHMENT_UPLOAD_BYTES + 1,
+    });
+
+    fireEvent.paste(getTextarea(), {
+      clipboardData: createClipboardImageData(oversizedFile),
+    });
+
+    expect(
+      await screen.findByText(
+        `You can't upload files larger than ${MAX_ATTACHMENT_UPLOAD_MEGABYTES} MB.`
+      )
+    ).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(initialFetchCount);
   });
 
   it("shows a desktop-only reveal attachments action in the manage dialog", async () => {
@@ -527,13 +559,15 @@ describe("ChatPanel textarea", () => {
     let resolveUpload: (() => void) | null = null;
     const uploadResponse = new Promise<{
       ok: boolean;
-      json: () => Promise<{ uploaded: MockAttachment[]; failed: [] }>;
+      status: number;
+      json: () => Promise<{ attachment: MockAttachment }>;
     }>((resolve) => {
       resolveUpload = () => {
         attachmentStore.push(uploadedAttachment);
         resolve({
           ok: true,
-          json: async () => ({ uploaded: [uploadedAttachment], failed: [] }),
+          status: 201,
+          json: async () => ({ attachment: uploadedAttachment }),
         });
       };
     });
@@ -545,6 +579,7 @@ describe("ChatPanel textarea", () => {
 
       return {
         ok: true,
+        status: 200,
         json: async () => ({ attachments: attachmentStore }),
       };
     });
@@ -576,6 +611,96 @@ describe("ChatPanel textarea", () => {
     await waitFor(() => {
       expect(sendButton.disabled).toBe(false);
     });
+  });
+
+  it("uploads multiple files sequentially and reports partial failures", async () => {
+    const attachmentStore: MockAttachment[] = [];
+    const firstAttachment: MockAttachment = {
+      id: ".arche/attachments/first.png",
+      path: ".arche/attachments/first.png",
+      name: "first.png",
+      mime: "image/png",
+      size: 5,
+      uploadedAt: 10,
+    };
+
+    const uploadOrder: string[] = [];
+    let resolveFirstUpload: (() => void) | null = null;
+
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        const body = init.body;
+        if (!(body instanceof File)) {
+          throw new Error("Expected upload request body to be a File");
+        }
+
+        uploadOrder.push(body.name);
+
+        if (body.name === "first.png") {
+          return await new Promise<{
+            ok: boolean;
+            status: number;
+            json: () => Promise<{ attachment: MockAttachment }>;
+          }>((resolve) => {
+            resolveFirstUpload = () => {
+              attachmentStore.push(firstAttachment);
+              resolve({
+                ok: true,
+                status: 201,
+                json: async () => ({ attachment: firstAttachment }),
+              });
+            };
+          });
+        }
+
+        return {
+          ok: false,
+          status: 500,
+          json: async () => ({ error: "upload_failed" }),
+        };
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ attachments: attachmentStore }),
+      };
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderChatPanel();
+
+    const input = document.querySelector('input[type="file"]');
+    if (!(input instanceof HTMLInputElement)) {
+      throw new Error("Expected attachment file input");
+    }
+
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File(["first"], "first.png", { type: "image/png" }),
+          new File(["second"], "second.png", { type: "image/png" }),
+        ],
+      },
+    });
+
+    await waitFor(() => {
+      expect(uploadOrder).toEqual(["first.png"]);
+    });
+
+    if (!resolveFirstUpload) {
+      throw new Error("Expected first upload resolver");
+    }
+    resolveFirstUpload();
+
+    await waitFor(() => {
+      expect(uploadOrder).toEqual(["first.png", "second.png"]);
+    });
+
+    expect(await screen.findByText("Some files couldn't be uploaded.")).toBeTruthy();
+    expect(await screen.findByText("second.png: Couldn't upload the selected file.")).toBeTruthy();
+    expect(await screen.findByText("first.png")).toBeTruthy();
   });
 
   it("does not send a model override when only the agent default is selected", async () => {

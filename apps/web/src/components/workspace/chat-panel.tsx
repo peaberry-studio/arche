@@ -55,7 +55,12 @@ import {
   buildWorkspaceSessionMarkdown,
   getWorkspaceSessionExportFilename,
 } from "@/lib/workspace-session-export";
-import { formatAttachmentSize } from "@/lib/workspace-attachments";
+import {
+  formatAttachmentSize,
+  MAX_ATTACHMENTS_PER_UPLOAD,
+  MAX_ATTACHMENT_UPLOAD_BYTES,
+  MAX_ATTACHMENT_UPLOAD_MEGABYTES,
+} from "@/lib/workspace-attachments";
 import { cn } from "@/lib/utils";
 import type {
   ChatMessage,
@@ -105,7 +110,31 @@ type ConnectorSummary = {
   name: string;
 };
 
+type AttachmentUploadFailure = {
+  name: string;
+  error: string;
+};
+
 const MAX_CONTEXT_PATHS_PER_MESSAGE = 20;
+
+function getAttachmentErrorMessage(error: string): string {
+  switch (error) {
+    case "attachments_load_failed":
+      return "Couldn't load attachments.";
+    case "file_too_large":
+      return `You can't upload files larger than ${MAX_ATTACHMENT_UPLOAD_MEGABYTES} MB.`;
+    case "too_many_files":
+      return `You can upload up to ${MAX_ATTACHMENTS_PER_UPLOAD} files at a time.`;
+    case "upload_partial_failure":
+      return "Some files couldn't be uploaded.";
+    case "upload_failed":
+      return "Couldn't upload the selected file.";
+    case "reveal_attachments_failed":
+      return "Couldn't open the attachments folder.";
+    default:
+      return error.replace(/_/g, " ");
+  }
+}
 
 function downloadMarkdownFile(filename: string, content: string) {
   const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
@@ -184,6 +213,7 @@ export function ChatPanel({
   const [isLoadingAttachments, setIsLoadingAttachments] = useState(false);
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
   const [attachmentsError, setAttachmentsError] = useState<string | null>(null);
+  const [attachmentUploadFailures, setAttachmentUploadFailures] = useState<AttachmentUploadFailure[]>([]);
   const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false);
   const [isManageAttachmentsOpen, setIsManageAttachmentsOpen] = useState(false);
   const [attachmentSearch, setAttachmentSearch] = useState("");
@@ -479,6 +509,7 @@ export function ChatPanel({
       setAttachments([]);
       setSelectedAttachmentPaths([]);
       setAttachmentsError(null);
+      setAttachmentUploadFailures([]);
       setIsLoadingAttachments(false);
       return;
     }
@@ -494,6 +525,7 @@ export function ChatPanel({
 
       if (!response.ok || !data?.attachments) {
         setAttachmentsError(data?.error ?? "attachments_load_failed");
+        setAttachmentUploadFailures([]);
         return;
       }
 
@@ -505,8 +537,10 @@ export function ChatPanel({
         )
       );
       setAttachmentsError(null);
+      setAttachmentUploadFailures([]);
     } catch {
       setAttachmentsError("attachments_load_failed");
+      setAttachmentUploadFailures([]);
     } finally {
       setIsLoadingAttachments(false);
     }
@@ -528,34 +562,68 @@ export function ChatPanel({
   const handleUploadAttachments = useCallback(async (files: File[]) => {
     if (!attachmentsEnabled || files.length === 0) return;
 
-    const formData = new FormData();
-    files.forEach((file) => {
-      formData.append("files", file);
-    });
+    if (files.length > MAX_ATTACHMENTS_PER_UPLOAD) {
+      setAttachmentUploadFailures([]);
+      setAttachmentsError("too_many_files");
+      return;
+    }
 
     setIsUploadingAttachment(true);
     setAttachmentsError(null);
+    setAttachmentUploadFailures([]);
+
+    const failedUploads: AttachmentUploadFailure[] = [];
+    let nextError: string | null = null;
+    let shouldRefreshAttachments = false;
 
     try {
-      const response = await fetch(`/api/w/${slug}/attachments`, {
-        method: "POST",
-        body: formData,
-      });
+      const uploaded: WorkspaceAttachment[] = [];
+      let firstError: string | null = null;
 
-      const data = (await response
-        .json()
-        .catch(() => null)) as {
-        uploaded?: WorkspaceAttachment[];
-        failed?: Array<{ name: string; error: string }>;
-        error?: string;
-      } | null;
+      for (const file of files) {
+        if (file.size > MAX_ATTACHMENT_UPLOAD_BYTES) {
+          failedUploads.push({ name: file.name, error: "file_too_large" });
+          firstError ??= "file_too_large";
+          continue;
+        }
 
-      if (!response.ok || !data?.uploaded) {
-        setAttachmentsError(data?.error ?? "upload_failed");
-        return;
+        const headers = file.type ? { "Content-Type": file.type } : undefined;
+
+        try {
+          shouldRefreshAttachments = true;
+          const response = await fetch(
+            `/api/w/${slug}/attachments?filename=${encodeURIComponent(file.name)}`,
+            {
+              method: "POST",
+              headers,
+              body: file,
+            }
+          );
+
+          const data = (await response
+            .json()
+            .catch(() => null)) as { attachment?: WorkspaceAttachment; error?: string } | null;
+
+          if (response.status === 413) {
+            failedUploads.push({ name: file.name, error: "file_too_large" });
+            firstError ??= "file_too_large";
+            continue;
+          }
+
+          if (!response.ok || !data?.attachment) {
+            const error = data?.error ?? "upload_failed";
+            failedUploads.push({ name: file.name, error });
+            firstError ??= error;
+            continue;
+          }
+
+          uploaded.push(data.attachment);
+        } catch {
+          failedUploads.push({ name: file.name, error: "upload_failed" });
+          firstError ??= "upload_failed";
+        }
       }
 
-      const uploaded = data.uploaded;
       setAttachments((previous) => {
         const indexed = new Map(previous.map((attachment) => [attachment.path, attachment]));
         uploaded.forEach((attachment) => indexed.set(attachment.path, attachment));
@@ -566,15 +634,25 @@ export function ChatPanel({
         uploaded.forEach((attachment) => selected.add(attachment.path));
         return [...selected];
       });
-      if ((data.failed?.length ?? 0) > 0) {
-        setAttachmentsError("upload_partial_failure");
-      } else {
-        setAttachmentsError(null);
-      }
+
+      nextError = firstError
+        ? uploaded.length > 0
+          ? "upload_partial_failure"
+          : firstError
+        : null;
     } catch {
-      setAttachmentsError("upload_failed");
+      nextError = "upload_failed";
     } finally {
-      await refreshAttachments();
+      if (shouldRefreshAttachments) {
+        await refreshAttachments();
+      }
+
+      setAttachmentUploadFailures(failedUploads);
+
+      if (nextError !== null || !shouldRefreshAttachments) {
+        setAttachmentsError(nextError);
+      }
+
       setIsUploadingAttachment(false);
     }
   }, [attachmentsEnabled, refreshAttachments, slug]);
@@ -590,6 +668,7 @@ export function ChatPanel({
   const handleRevealAttachmentsDirectory = useCallback(async () => {
     if (!desktopBridge) return;
 
+    setAttachmentUploadFailures([]);
     setAttachmentsError(null);
     const result = await desktopBridge.revealAttachmentsDirectory();
     if (!result.ok) {
@@ -651,6 +730,7 @@ export function ChatPanel({
       if (!trimmedName || trimmedName === attachment.name) return;
 
       setIsMutatingAttachments(true);
+      setAttachmentUploadFailures([]);
       setAttachmentsError(null);
 
       try {
@@ -699,6 +779,7 @@ export function ChatPanel({
       if (!confirmed) return;
 
       setIsMutatingAttachments(true);
+      setAttachmentUploadFailures([]);
       setAttachmentsError(null);
 
       try {
@@ -1187,9 +1268,14 @@ export function ChatPanel({
         )}
 
         {attachmentsEnabled && attachmentsError && (
-          <p className="mb-3 text-xs text-destructive">
-            {attachmentsError.replace(/_/g, ' ')}
-          </p>
+          <div className="mb-3 space-y-1 text-xs text-destructive">
+            <p>{getAttachmentErrorMessage(attachmentsError)}</p>
+            {attachmentUploadFailures.map((failure) => (
+              <p key={`${failure.name}:${failure.error}`}>
+                {`${failure.name}: ${getAttachmentErrorMessage(failure.error)}`}
+              </p>
+            ))}
+          </div>
         )}
         
         <div className="relative flex items-end gap-1.5 rounded-xl border border-white/10 bg-foreground/5 px-2 py-2">

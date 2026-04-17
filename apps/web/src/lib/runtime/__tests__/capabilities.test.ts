@@ -28,6 +28,7 @@ describe('runtime capabilities', () => {
     expect(caps.connectors).toBe(true)
     expect(caps.kickstart).toBe(true)
     expect(caps.autopilot).toBe(true)
+    expect(caps.slackIntegration).toBe(true)
   })
 
   it('returns restricted capabilities in desktop mode', async () => {
@@ -42,12 +43,13 @@ describe('runtime capabilities', () => {
     expect(caps.containers).toBe(false)
     expect(caps.workspaceAgent).toBe(true)
     expect(caps.reaper).toBe(false)
-    expect(caps.csrf).toBe(true)
+    expect(caps.csrf).toBe(false)
     expect(caps.twoFactor).toBe(false)
     expect(caps.teamManagement).toBe(false)
     expect(caps.connectors).toBe(true)
     expect(caps.kickstart).toBe(true)
     expect(caps.autopilot).toBe(false)
+    expect(caps.slackIntegration).toBe(false)
   })
 
   it('always returns a valid object (no undefined fields)', async () => {

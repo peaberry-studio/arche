@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import {
+  MAX_ATTACHMENT_UPLOAD_BYTES,
+  MAX_ATTACHMENT_UPLOAD_MEGABYTES,
+} from '@/lib/workspace-attachments'
+
 const mockGetAuthenticatedUser = vi.fn()
 vi.mock('@/lib/auth', () => ({
   getAuthenticatedUser: (...args: unknown[]) => mockGetAuthenticatedUser(...args),
@@ -29,25 +34,35 @@ async function callGetAttachments(slug = 'alice') {
 
 async function callPostAttachments(options: {
   slug?: string
-  files: File[]
+  file: File
+  filename?: string
   includeOrigin?: boolean
+  contentLength?: number
 }) {
   const { POST } = await import('@/app/api/w/[slug]/attachments/route')
   const slug = options.slug ?? 'alice'
-
-  const formData = new FormData()
-  options.files.forEach((file) => formData.append('files', file))
+  const filename = options.filename ?? options.file.name
 
   const headers = new Headers({ host: 'localhost' })
   if (options.includeOrigin !== false) {
     headers.set('origin', 'http://localhost')
   }
+  if (options.file.type) {
+    headers.set('content-type', options.file.type)
+  }
+  if (typeof options.contentLength === 'number') {
+    headers.set('content-length', String(options.contentLength))
+  }
 
-  const req = new Request(`http://localhost/api/w/${slug}/attachments`, {
-    method: 'POST',
-    headers,
-    body: formData,
-  })
+  const req = new Request(
+    `http://localhost/api/w/${slug}/attachments?filename=${encodeURIComponent(filename)}`,
+    {
+      method: 'POST',
+      headers,
+      body: options.file,
+    },
+  )
+
   const res = await POST(req as never, { params: Promise.resolve({ slug }) })
   return { status: res.status, body: await res.json() }
 }
@@ -180,7 +195,7 @@ describe('workspace attachments route', () => {
     mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
 
     const { status, body } = await callPostAttachments({
-      files: [new File(['x'], 'a.txt', { type: 'text/plain' })],
+      file: new File(['x'], 'a.txt', { type: 'text/plain' }),
       includeOrigin: false,
     })
 
@@ -188,7 +203,7 @@ describe('workspace attachments route', () => {
     expect(body.error).toBe('forbidden')
   })
 
-  it('POST uploads files using base64 encoding and resolves name conflicts', async () => {
+  it('POST proxies a raw file upload to /files/upload and resolves name conflicts', async () => {
     mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
     const fetchMock = vi
       .fn()
@@ -210,13 +225,13 @@ describe('workspace attachments route', () => {
         ),
       )
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ ok: true, hash: 'h1' }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }),
-      )
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ ok: true, hash: 'h2' }), {
+        new Response(JSON.stringify({
+          ok: true,
+          path: '.arche/attachments/report (1).pdf',
+          hash: 'h1',
+          size: 8,
+          modifiedAt: 123,
+        }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         }),
@@ -224,26 +239,48 @@ describe('workspace attachments route', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const { status, body } = await callPostAttachments({
-      files: [
-        new File(['pdf-data'], 'report.pdf', { type: 'application/pdf' }),
-        new File(['img-data'], 'diagram.png', { type: 'image/png' }),
-      ],
+      file: new File(['pdf-data'], 'report.pdf', { type: 'application/pdf' }),
     })
 
     expect(status).toBe(201)
-    expect(body.uploaded).toHaveLength(2)
-    expect(body.failed).toEqual([])
-    expect(body.uploaded[0].name).toBe('report (1).pdf')
-    expect(body.uploaded[1].name).toBe('diagram.png')
+    expect(body.attachment).toMatchObject({
+      id: '.arche/attachments/report (1).pdf',
+      path: '.arche/attachments/report (1).pdf',
+      name: 'report (1).pdf',
+      mime: 'application/pdf',
+      size: 8,
+      uploadedAt: 123,
+    })
 
-    const firstWriteBody = JSON.parse(String(fetchMock.mock.calls[1][1]?.body))
-    expect(firstWriteBody.path).toBe('.arche/attachments/report (1).pdf')
-    expect(firstWriteBody.encoding).toBe('base64')
-    expect(typeof firstWriteBody.content).toBe('string')
-    expect(firstWriteBody.content.length).toBeGreaterThan(0)
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      'http://agent/files/upload?path=.arche%2Fattachments%2Freport%20(1).pdf',
+    )
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+      method: 'POST',
+      duplex: 'half',
+    })
   })
 
-  it('POST returns per-file failures without losing successes', async () => {
+  it('POST rejects files larger than the upload limit before proxying', async () => {
+    mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { status, body } = await callPostAttachments({
+      file: new File(['x'], 'huge.bin', { type: 'application/octet-stream' }),
+      contentLength: MAX_ATTACHMENT_UPLOAD_BYTES + 1,
+    })
+
+    expect(status).toBe(413)
+    expect(body).toEqual({
+      error: 'file_too_large',
+      maxBytes: MAX_ATTACHMENT_UPLOAD_BYTES,
+      maxMegabytes: MAX_ATTACHMENT_UPLOAD_MEGABYTES,
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('POST maps an upstream 413 to file_too_large', async () => {
     mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
     const fetchMock = vi
       .fn()
@@ -257,10 +294,37 @@ describe('workspace attachments route', () => {
         ),
       )
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ ok: true, hash: 'h1' }), {
-          status: 200,
+        new Response(JSON.stringify({ ok: false, error: 'file_too_large' }), {
+          status: 413,
           headers: { 'Content-Type': 'application/json' },
         }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { status, body } = await callPostAttachments({
+      file: new File(['bad'], 'bad.txt', { type: 'text/plain' }),
+    })
+
+    expect(status).toBe(413)
+    expect(body).toEqual({
+      error: 'file_too_large',
+      maxBytes: MAX_ATTACHMENT_UPLOAD_BYTES,
+      maxMegabytes: MAX_ATTACHMENT_UPLOAD_MEGABYTES,
+    })
+  })
+
+  it('POST passes through upstream upload errors from the workspace agent', async () => {
+    mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            entries: [],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ ok: false, error: 'write_failed' }), {
@@ -271,17 +335,44 @@ describe('workspace attachments route', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const { status, body } = await callPostAttachments({
-      files: [
-        new File(['ok'], 'ok.txt', { type: 'text/plain' }),
-        new File(['bad'], 'bad.txt', { type: 'text/plain' }),
-      ],
+      file: new File(['bad'], 'bad.txt', { type: 'text/plain' }),
     })
 
-    expect(status).toBe(207)
-    expect(body.uploaded).toHaveLength(1)
-    expect(body.failed).toHaveLength(1)
-    expect(body.failed[0].name).toBe('bad.txt')
-    expect(body.failed[0].error).toBe('write_failed')
+    expect(status).toBe(502)
+    expect(body).toEqual({ error: 'write_failed' })
+  })
+
+  it('POST rejects malformed upload metadata from the workspace agent', async () => {
+    mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            entries: [],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          ok: true,
+          path: '.arche/attachments/bad.txt',
+          size: 3,
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { status, body } = await callPostAttachments({
+      file: new File(['bad'], 'bad.txt', { type: 'text/plain' }),
+    })
+
+    expect(status).toBe(502)
+    expect(body).toEqual({ error: 'upload_failed' })
   })
 
   it('PATCH renames a workspace attachment', async () => {

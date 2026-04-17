@@ -8,6 +8,7 @@ import { dirname, join } from 'path'
 
 import type { CreateVaultArgs, DesktopApiResult, DesktopVaultSummary } from './desktop-bridge-types'
 import { ensureDesktopEncryptionKey } from './desktop-encryption-key'
+import { createDesktopSmokeTestHarness } from './desktop-smoke-test'
 import { createDesktopVault } from './create-vault'
 import { getDesktopNextDistDirName } from './desktop-next-dist'
 import {
@@ -43,6 +44,8 @@ const LOOPBACK_HOST = '127.0.0.1'
 const DESKTOP_TOKEN_HEADER = 'x-arche-desktop-token'
 const DESKTOP_GIT_AUTHOR_NAME = 'Arche Workspace'
 const DESKTOP_GIT_AUTHOR_EMAIL = 'workspace@arche.local'
+
+const smokeTest = createDesktopSmokeTestHarness({ app, dialog })
 
 let mainWindow: BrowserWindow | null = null
 let nextSupervisor: RuntimeSupervisor | null = null
@@ -335,6 +338,7 @@ function createWindow(): void {
     minHeight: isLauncher ? 560 : 600,
     title: getCurrentVaultTitle(),
     backgroundColor: '#f7f4ef',
+    show: smokeTest.shouldShowWindow(),
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : undefined,
     trafficLightPosition: process.platform === 'darwin' ? { x: 12, y: 12 } : undefined,
     webPreferences: {
@@ -344,6 +348,8 @@ function createWindow(): void {
       sandbox: true,
     },
   })
+
+  smokeTest.installWindowHooks(mainWindow)
 
   void mainWindow.loadURL(getNextUrl())
 
@@ -559,12 +565,16 @@ function resolveStartupVault(): DesktopVault | null {
   const registry = readVaultRegistry(metadataDir)
   launchContext = resolveLaunchContext(process.argv.slice(1), registry.lastOpenedVaultPath)
 
+  smokeTest.reportLaunchContext(launchContext)
+
   if (launchContext.mode === 'launcher') {
     return null
   }
 
   const vault = tryReadVault(launchContext.vaultPath)
   if (!vault) {
+    smokeTest.reportInvalidVault(launchContext.vaultPath)
+
     if (registry.lastOpenedVaultPath === launchContext.vaultPath) {
       clearLastOpenedVault(metadataDir, launchContext.vaultPath)
     }
@@ -582,10 +592,12 @@ app.whenReady().then(async () => {
   if (currentVault) {
     vaultLock = acquireVaultLock(currentVault.path)
     if (!vaultLock) {
-      dialog.showErrorBox(
+      if (smokeTest.handleStartupFailure(
         'Arche',
         `The vault "${currentVault.name}" is already open in another Arche process.`,
-      )
+      )) {
+        return
+      }
       currentVault = null
       launchContext = { mode: 'launcher', vaultPath: null }
     }
@@ -595,7 +607,9 @@ app.whenReady().then(async () => {
     setDesktopEnv()
   } catch (error) {
     console.error('Failed to initialize desktop environment:', error)
-    dialog.showErrorBox('Arche', 'Failed to initialize desktop security configuration.')
+    if (smokeTest.handleStartupFailure('Arche', 'Failed to initialize desktop security configuration.')) {
+      return
+    }
     app.quit()
     return
   }
@@ -607,7 +621,9 @@ app.whenReady().then(async () => {
       await ensureVaultDataDirectories(currentVault)
     } catch (error) {
       console.error('Failed to initialize vault data directories:', error)
-      dialog.showErrorBox('Arche', 'Failed to initialize the selected vault.')
+      if (smokeTest.handleStartupFailure('Arche', 'Failed to initialize the selected vault.')) {
+        return
+      }
       app.quit()
       return
     }
@@ -618,10 +634,12 @@ app.whenReady().then(async () => {
 
   const missingRuntimeBinaries = verifyPackagedRuntimeBinaries()
   if (missingRuntimeBinaries.length > 0) {
-    dialog.showErrorBox(
+    if (smokeTest.handleStartupFailure(
       'Arche',
       `Missing packaged runtime resources: ${missingRuntimeBinaries.join(', ')}.`,
-    )
+    )) {
+      return
+    }
     app.quit()
     return
   }
@@ -630,7 +648,9 @@ app.whenReady().then(async () => {
     await startNextServer()
   } catch (error) {
     console.error('Failed to start Next.js server:', error)
-    dialog.showErrorBox('Arche', 'Failed to start the local desktop runtime.')
+    if (smokeTest.handleStartupFailure('Arche', 'Failed to start the local desktop runtime.')) {
+      return
+    }
     app.quit()
     return
   }

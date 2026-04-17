@@ -19,6 +19,7 @@
     "db:seed": "prisma db seed"
   },
   "dependencies": {
+    "@slack/bolt": "^4.6.0",
     "@opencode-ai/sdk": "^1.1.48",
     "@phosphor-icons/react": "^2.1.10",
     "@prisma/adapter-better-sqlite3": "^7.5.0",

@@ -12,6 +12,7 @@ export type RuntimeCapabilities = {
   connectors: boolean
   kickstart: boolean
   autopilot: boolean
+  slackIntegration: boolean
 }
 
 const WEB_CAPABILITIES: RuntimeCapabilities = {
@@ -26,6 +27,7 @@ const WEB_CAPABILITIES: RuntimeCapabilities = {
   connectors: true,
   kickstart: true,
   autopilot: true,
+  slackIntegration: true,
 }
 
 const DESKTOP_CAPABILITIES: RuntimeCapabilities = {
@@ -34,12 +36,13 @@ const DESKTOP_CAPABILITIES: RuntimeCapabilities = {
   containers: false,
   workspaceAgent: true,
   reaper: false,
-  csrf: true,
+  csrf: false,
   twoFactor: false,
   teamManagement: false,
   connectors: true,
   kickstart: true,
   autopilot: false,
+  slackIntegration: false,
 }
 
 const CAPABILITIES_BY_MODE: Record<RuntimeMode, RuntimeCapabilities> = {

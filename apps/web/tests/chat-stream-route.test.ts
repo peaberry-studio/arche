@@ -3,6 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RuntimeSessionResult } from '@/lib/runtime/types'
 
 const mockGetSession = vi.fn<() => Promise<RuntimeSessionResult>>()
+const mockGetRuntimeCapabilities = vi.fn()
+const mockIsDesktop = vi.fn(() => false)
+const mockValidateDesktopToken = vi.fn(() => false)
 
 const mockFindCredentialsBySlug = vi.fn()
 
@@ -21,22 +24,11 @@ async function loadRoute() {
   }))
 
   vi.doMock('@/lib/runtime/mode', () => ({
-    isDesktop: () => false,
+    isDesktop: () => mockIsDesktop(),
   }))
 
   vi.doMock('@/lib/runtime/capabilities', () => ({
-    getRuntimeCapabilities: () => ({
-      multiUser: true,
-      auth: true,
-      containers: true,
-      workspaceAgent: true,
-      reaper: true,
-      csrf: true,
-      twoFactor: true,
-      teamManagement: true,
-      connectors: true,
-      kickstart: true,
-    }),
+    getRuntimeCapabilities: () => mockGetRuntimeCapabilities(),
   }))
 
   vi.doMock('@/lib/csrf', () => ({
@@ -48,7 +40,7 @@ async function loadRoute() {
 
   vi.doMock('@/lib/runtime/desktop/token', () => ({
     DESKTOP_TOKEN_HEADER: 'x-arche-desktop-token',
-    validateDesktopToken: () => false,
+    validateDesktopToken: () => mockValidateDesktopToken(),
   }))
 
   vi.doMock('@/lib/services', () => ({
@@ -111,6 +103,22 @@ describe('POST /api/w/[slug]/chat/stream', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.resetModules()
+    mockIsDesktop.mockReturnValue(false)
+    mockValidateDesktopToken.mockReturnValue(false)
+    mockGetRuntimeCapabilities.mockReturnValue({
+      multiUser: true,
+      auth: true,
+      containers: true,
+      workspaceAgent: true,
+      reaper: true,
+      csrf: true,
+      twoFactor: true,
+      teamManagement: true,
+      connectors: true,
+      kickstart: true,
+      autopilot: true,
+      slackIntegration: true,
+    })
     mockGetSession.mockResolvedValue(session('alice'))
     mockFindCredentialsBySlug.mockResolvedValue({
       serverPassword: 'encrypted-password',
@@ -172,6 +180,43 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     const { POST } = await loadRoute()
     const response = await POST(createRequest() as never, {
       params: Promise.resolve({ slug: 'alice' }),
+    })
+
+    expect(response.status).toBe(503)
+    await expect(response.json()).resolves.toEqual({ error: 'instance_unavailable' })
+  })
+
+  it('accepts desktop chat requests without origin when the desktop token is valid', async () => {
+    mockIsDesktop.mockReturnValue(true)
+    mockValidateDesktopToken.mockReturnValue(true)
+    mockGetRuntimeCapabilities.mockReturnValue({
+      multiUser: false,
+      auth: false,
+      containers: false,
+      workspaceAgent: true,
+      reaper: false,
+      csrf: false,
+      twoFactor: false,
+      teamManagement: false,
+      connectors: true,
+      kickstart: true,
+      autopilot: false,
+      slackIntegration: false,
+    })
+    mockGetSession.mockResolvedValue(session('local', 'ADMIN'))
+    mockFindCredentialsBySlug.mockResolvedValue(null)
+
+    const { POST } = await loadRoute()
+    const response = await POST(new Request('http://localhost/api/w/local/chat/stream', {
+      method: 'POST',
+      headers: {
+        host: 'localhost',
+        'content-type': 'application/json',
+        'x-arche-desktop-token': 'desktop-token',
+      },
+      body: JSON.stringify({ sessionId: 'session-1', text: 'Hello' }),
+    }) as never, {
+      params: Promise.resolve({ slug: 'local' }),
     })
 
     expect(response.status).toBe(503)

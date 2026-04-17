@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RuntimeSessionResult } from '@/lib/runtime/types'
 
 const mockGetSession = vi.fn<() => Promise<RuntimeSessionResult>>()
+const mockGetRuntimeCapabilities = vi.fn()
+
 vi.mock('@/lib/runtime/session', () => ({
   getSession: () => mockGetSession(),
 }))
@@ -14,17 +16,7 @@ vi.mock('@/lib/runtime/mode', () => ({
 }))
 
 vi.mock('@/lib/runtime/capabilities', () => ({
-  getRuntimeCapabilities: () => ({
-    multiUser: true,
-    auth: true,
-    containers: true,
-    csrf: true,
-    twoFactor: true,
-    teamManagement: true,
-    connectors: true,
-    kickstart: true,
-    autopilot: true,
-  }),
+  getRuntimeCapabilities: () => mockGetRuntimeCapabilities(),
 }))
 
 vi.mock('@/lib/csrf', () => ({
@@ -41,6 +33,40 @@ vi.mock('@/lib/runtime/desktop/token', () => ({
 }))
 
 import { withAuth } from '../with-auth'
+
+function getWebCapabilities() {
+  return {
+    multiUser: true,
+    auth: true,
+    containers: true,
+    workspaceAgent: true,
+    reaper: true,
+    csrf: true,
+    twoFactor: true,
+    teamManagement: true,
+    connectors: true,
+    kickstart: true,
+    autopilot: true,
+    slackIntegration: true,
+  }
+}
+
+function getDesktopCapabilities() {
+  return {
+    multiUser: false,
+    auth: false,
+    containers: false,
+    workspaceAgent: true,
+    reaper: false,
+    csrf: false,
+    twoFactor: false,
+    teamManagement: false,
+    connectors: true,
+    kickstart: true,
+    autopilot: false,
+    slackIntegration: false,
+  }
+}
 
 function makeRequest(
   method: string,
@@ -62,6 +88,8 @@ function makeHandler() {
 describe('withAuth wrapper', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockIsDesktop.mockReturnValue(false)
+    mockGetRuntimeCapabilities.mockReturnValue(getWebCapabilities())
   })
 
   it('returns 401 when session is null', async () => {
@@ -182,6 +210,7 @@ describe('withAuth desktop token validation', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockIsDesktop.mockReturnValue(true)
+    mockGetRuntimeCapabilities.mockReturnValue(getDesktopCapabilities())
     mockGetSession.mockResolvedValue({
       user: { id: 'local', email: 'local@arche.local', slug: 'local', role: 'ADMIN' },
       sessionId: 'local',
@@ -252,5 +281,19 @@ describe('withAuth desktop token validation', () => {
 
     // Should fail on token check (401) not CSRF check (403)
     expect(res.status).toBe(401)
+  })
+
+  it('skips CSRF checks in desktop mode when the local token is valid', async () => {
+    mockValidateDesktopToken.mockReturnValue(true)
+
+    const handler = makeHandler()
+    const wrapped = withAuth({ csrf: true }, handler)
+    const req = makeRequest('POST', 'http://localhost/api/u/local/agents', {
+      'x-arche-desktop-token': 'valid-token',
+    })
+    const res = await wrapped(req, { params: Promise.resolve({ slug: 'local' }) })
+
+    expect(res.status).toBe(200)
+    expect(handler).toHaveBeenCalledOnce()
   })
 })

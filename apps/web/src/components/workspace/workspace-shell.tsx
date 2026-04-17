@@ -1361,7 +1361,7 @@ export function WorkspaceShell({
       onNavigateDashboard={() => router.push(`/u/${slug}`)}
       onNavigateSettings={() =>
         router.push(
-          currentVault ? getDesktopWorkspaceHref(slug, 'providers') : `/u/${slug}/settings/security`,
+          currentVault ? getDesktopWorkspaceHref(slug, 'appearance') : `/u/${slug}/settings`,
         )
       }
       onNavigateConnectors={() =>
@@ -1371,7 +1371,7 @@ export function WorkspaceShell({
       }
       onNavigateProviders={() =>
         router.push(
-          currentVault ? getDesktopWorkspaceHref(slug, 'providers') : `/u/${slug}/settings/security`,
+          currentVault ? getDesktopWorkspaceHref(slug, 'providers') : `/u/${slug}/settings`,
         )
       }
       sessions={rootSessions}

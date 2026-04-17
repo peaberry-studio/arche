@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
 
-import argon2 from 'argon2'
-
+import { verifyArgon2 } from '@/lib/argon2'
 import { auditEvent, createSession, getCookieDomain, SESSION_COOKIE_NAME, shouldUseSecureCookies } from '@/lib/auth'
 import { checkRateLimit, resetRateLimit } from '@/lib/rate-limit'
 import { hashSessionToken } from '@/lib/security'
@@ -47,7 +46,7 @@ export async function POST(request: Request) {
 
   if (isRecoveryCode) {
     for (const recovery of user.twoFactorRecovery) {
-      if (await argon2.verify(recovery.codeHash, code.toUpperCase())) {
+      if (await verifyArgon2(recovery.codeHash, code.toUpperCase())) {
         await userService.markRecoveryCodeUsed(recovery.id)
         verified = true
         await auditEvent({

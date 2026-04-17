@@ -1,10 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockHash = vi.fn<(password: string) => Promise<string>>()
-vi.mock('argon2', () => ({
-  default: {
-    hash: (password: string) => mockHash(password),
-  },
+vi.mock('@/lib/argon2', () => ({
+  hashArgon2: (password: string) => mockHash(password),
 }))
 
 const mockAuditEvent = vi.fn()
