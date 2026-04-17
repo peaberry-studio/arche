@@ -548,7 +548,7 @@ function CreateTokenDialog({
                       type="button"
                       onClick={() => setExpiresInDays(option.value)}
                       className={cn(
-                        'rounded-md border px-3 py-1.5 text-sm transition-colors',
+                        'cursor-pointer rounded-md border px-3 py-1.5 text-sm transition-colors',
                         expiresInDays === option.value
                           ? 'border-primary bg-primary text-primary-foreground'
                           : 'border-border bg-background text-foreground hover:bg-muted',

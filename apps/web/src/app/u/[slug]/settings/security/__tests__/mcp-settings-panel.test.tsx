@@ -183,9 +183,11 @@ describe('McpSettingsPanel', () => {
 
     const cancelButton = screen.getByRole('button', { name: 'Cancel' })
     const createTokenButton = screen.getByRole('button', { name: 'Create token' })
+    const expires30DaysButton = screen.getByRole('button', { name: '30 days' })
 
     expect(cancelButton.className.includes('cursor-pointer')).toBe(true)
     expect(createTokenButton.className.includes('cursor-pointer')).toBe(true)
+    expect(expires30DaysButton.className.includes('cursor-pointer')).toBe(true)
   })
 
   it('shows add-server commands in the success step after token creation', async () => {
