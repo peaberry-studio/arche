@@ -51,6 +51,10 @@ describe('McpSettingsPanel', () => {
     return screen.getByRole('checkbox', { name: new RegExp(name, 'i') }) as HTMLInputElement
   }
 
+  function openCreateDialog() {
+    fireEvent.click(screen.getByRole('button', { name: /new token/i }))
+  }
+
   it('submits the selected MCP scopes when creating a token', async () => {
     render(
       <McpSettingsPanel
@@ -61,6 +65,8 @@ describe('McpSettingsPanel', () => {
         personalAccessTokens={[]}
       />,
     )
+
+    openCreateDialog()
 
     fireEvent.change(screen.getByLabelText('Token name'), {
       target: { value: 'MacBook Pro - Codex' },
@@ -91,6 +97,8 @@ describe('McpSettingsPanel', () => {
       />,
     )
 
+    openCreateDialog()
+
     fireEvent.click(getScopeCheckbox('Knowledge base read'))
     fireEvent.click(getScopeCheckbox('Knowledge base write'))
     fireEvent.click(getScopeCheckbox('Agents read'))
@@ -99,7 +107,7 @@ describe('McpSettingsPanel', () => {
     expect((screen.getByRole('button', { name: 'Create token' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
-  it('disables token creation when MCP is turned off', () => {
+  it('hides the New token button and explains MCP is off for admins when disabled', () => {
     render(
       <McpSettingsPanel
         mcpEnabled={false}
@@ -110,12 +118,54 @@ describe('McpSettingsPanel', () => {
       />,
     )
 
+    expect(screen.getByText('MCP access is off')).toBeTruthy()
     expect(screen.getByText('Enable MCP endpoint access before creating tokens.')).toBeTruthy()
-    expect((screen.getByRole('button', { name: 'Create token' }) as HTMLButtonElement).disabled).toBe(true)
-    expect((screen.getByLabelText('Token name') as HTMLInputElement).disabled).toBe(true)
+    expect(screen.queryByRole('button', { name: /new token/i })).toBeNull()
   })
 
-  it('shows add-server commands instead of config file snippets after token creation', async () => {
+  it('tells non-admin users to contact their administrator when MCP is off', () => {
+    render(
+      <McpSettingsPanel
+        mcpEnabled={false}
+        mcpConfigError={null}
+        canManageMcp={false}
+        mcpBaseUrl="https://arche.example.com"
+        personalAccessTokens={[]}
+      />,
+    )
+
+    expect(screen.getByText(/ask your workspace administrator/i)).toBeTruthy()
+    expect(screen.queryByRole('switch')).toBeNull()
+  })
+
+  it('exposes the admin toggle only when the user can manage MCP', () => {
+    const { unmount } = render(
+      <McpSettingsPanel
+        mcpEnabled={true}
+        mcpConfigError={null}
+        canManageMcp={true}
+        mcpBaseUrl="https://arche.example.com"
+        personalAccessTokens={[]}
+      />,
+    )
+
+    expect(screen.getByRole('switch')).toBeTruthy()
+    unmount()
+
+    render(
+      <McpSettingsPanel
+        mcpEnabled={true}
+        mcpConfigError={null}
+        canManageMcp={false}
+        mcpBaseUrl="https://arche.example.com"
+        personalAccessTokens={[]}
+      />,
+    )
+
+    expect(screen.queryByRole('switch')).toBeNull()
+  })
+
+  it('shows add-server commands in the success step after token creation', async () => {
     render(
       <McpSettingsPanel
         mcpEnabled={true}
@@ -125,6 +175,8 @@ describe('McpSettingsPanel', () => {
         personalAccessTokens={[]}
       />,
     )
+
+    openCreateDialog()
 
     fireEvent.change(screen.getByLabelText('Token name'), {
       target: { value: 'MacBook Pro - Codex' },
@@ -156,6 +208,8 @@ describe('McpSettingsPanel', () => {
         personalAccessTokens={[]}
       />,
     )
+
+    openCreateDialog()
 
     fireEvent.change(screen.getByLabelText('Token name'), {
       target: { value: 'MacBook Pro - Codex' },
