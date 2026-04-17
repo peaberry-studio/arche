@@ -81,14 +81,7 @@ export function SettingsPageContent({
     switch (currentSection) {
       case 'general':
         return (
-          <section className="space-y-6">
-            <div className="space-y-1">
-              <h2 className="text-lg font-medium">General</h2>
-              <p className="text-sm text-muted-foreground">
-                Customize the look and runtime behavior of this workspace.
-              </p>
-            </div>
-
+          <div className="space-y-6">
             <SettingsSection
               title="Look & Feel"
               description="Customize the dashboard theme for this workspace."
@@ -102,23 +95,12 @@ export function SettingsPageContent({
             >
               <WorkspaceRestartSection slug={slug} showHeader={false} />
             </SettingsSection>
-          </section>
+          </div>
         )
       case 'integrations':
-        return (
-          <section className="space-y-6">
-            <div className="space-y-1">
-              <h2 className="text-lg font-medium">Integrations</h2>
-              <p className="text-sm text-muted-foreground">
-                Manage admin-controlled integrations that connect Arche with external tools.
-              </p>
-            </div>
-
-            {slackIntegrationSummary ? (
-              <SlackIntegrationSummaryCard slug={slug} integration={slackIntegrationSummary} />
-            ) : null}
-          </section>
-        )
+        return slackIntegrationSummary ? (
+          <SlackIntegrationSummaryCard slug={slug} integration={slackIntegrationSummary} />
+        ) : null
       case 'security':
         return (
           <SecuritySettingsPanel

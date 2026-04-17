@@ -21,14 +21,7 @@ export function SecuritySettingsPanel({
   recoveryCodesRemaining,
 }: SecuritySettingsPanelProps) {
   return (
-    <section className="space-y-6">
-      <div className="space-y-1">
-        <h2 className="text-lg font-medium">Security</h2>
-        <p className="text-sm text-muted-foreground">
-          Manage password access and two-factor authentication for your account.
-        </p>
-      </div>
-
+    <div className="space-y-6">
       {passwordChangeEnabled ? (
         <SettingsSection
           headingLevel="h3"
@@ -96,6 +89,6 @@ export function SecuritySettingsPanel({
           )}
         </SettingsSection>
       ) : null}
-    </section>
+    </div>
   )
 }
