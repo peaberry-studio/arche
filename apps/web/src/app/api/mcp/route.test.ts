@@ -114,18 +114,41 @@ describe('POST /api/mcp', () => {
     expect(mockTransportConstructor).not.toHaveBeenCalled()
   })
 
-  it('returns 429 when the token is rate limited', async () => {
-    mockCheckRateLimit.mockReturnValue({
+  it('applies pre-auth rate limiting before PAT authentication', async () => {
+    mockCheckRateLimit.mockReturnValueOnce({
       allowed: false,
       remaining: 0,
-      resetAt: Date.now() + 4500,
+      resetAt: Date.now() + 2500,
     })
 
     const { POST } = await import('./route')
     const response = await POST(makeRequest({ jsonrpc: '2.0' }))
 
     expect(response.status).toBe(429)
+    expect(response.headers.get('Retry-After')).toBe('3')
+    expect(mockAuthenticatePat).not.toHaveBeenCalled()
+    expect(mockTransportConstructor).not.toHaveBeenCalled()
+  })
+
+  it('returns 429 when the token is rate limited', async () => {
+    mockCheckRateLimit
+      .mockReturnValueOnce({
+        allowed: true,
+        remaining: 299,
+        resetAt: Date.now() + 60000,
+      })
+      .mockReturnValueOnce({
+        allowed: false,
+        remaining: 0,
+        resetAt: Date.now() + 4500,
+      })
+
+    const { POST } = await import('./route')
+    const response = await POST(makeRequest({ jsonrpc: '2.0' }))
+
+    expect(response.status).toBe(429)
     expect(response.headers.get('Retry-After')).toBe('5')
+    expect(mockAuthenticatePat).toHaveBeenCalledTimes(1)
     expect(mockTransportConstructor).not.toHaveBeenCalled()
   })
 

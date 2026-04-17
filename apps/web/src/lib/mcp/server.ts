@@ -7,6 +7,7 @@ import {
   hasMcpScope,
   MCP_SCOPE_AGENTS_READ,
   MCP_SCOPE_KB_READ,
+  MCP_SCOPE_KB_WRITE,
   MCP_SCOPE_TASKS_RUN,
 } from '@/lib/mcp/scopes'
 import {
@@ -22,6 +23,10 @@ import {
   readSkillForMcp,
   readSkillResource,
 } from '@/lib/mcp/tools/skills'
+import {
+  deleteKbArticle,
+  writeKbArticle,
+} from '@/lib/mcp/tools/write-kb-article'
 
 type CreateMcpServerInput = {
   scopes?: readonly string[]
@@ -98,6 +103,34 @@ function registerTools(
       async ({ query, path, caseSensitive, limit }) => {
         return toToolResult(await searchKb({ query, path, caseSensitive, limit }))
       }
+    )
+  }
+
+  if (hasMcpScope(scopes, MCP_SCOPE_KB_WRITE)) {
+    server.registerTool(
+      'write_kb_article',
+      {
+        description:
+          'Create or update a knowledge base article by path in the published vault. ' +
+          'Use this to write markdown/text content into the KB repository.',
+        inputSchema: {
+          path: z.string().min(1),
+          content: z.string(),
+        },
+      },
+      async ({ path, content }) => toToolResult(await writeKbArticle({ path, content }))
+    )
+
+    server.registerTool(
+      'delete_kb_article',
+      {
+        description:
+          'Delete a knowledge base article by path from the published vault.',
+        inputSchema: {
+          path: z.string().min(1),
+        },
+      },
+      async ({ path }) => toToolResult(await deleteKbArticle({ path }))
     )
   }
 
@@ -218,113 +251,114 @@ function registerPrompts(
       }
     )
 
-    if (hasMcpScope(scopes, MCP_SCOPE_TASKS_RUN)) {
-      server.registerPrompt(
-        'use-agent',
-        {
-          description:
-            'Adopt an Arche workspace agent\'s persona. Loads the agent\'s system prompt, ' +
-            'capabilities, and workspace context so you can work as that agent on local tasks.',
-          argsSchema: {
-            agent_id: z.string().describe(
-              'The agent ID to adopt. Use list_agents to discover available agents.'
-            ),
-            task: z.string().describe('The task to perform as this agent.'),
-          },
+  }
+
+  if (hasMcpScope(scopes, MCP_SCOPE_TASKS_RUN)) {
+    server.registerPrompt(
+      'use-agent',
+      {
+        description:
+          'Adopt an Arche workspace agent\'s persona. Loads the agent\'s system prompt, ' +
+          'capabilities, and workspace context so you can work as that agent on local tasks.',
+        argsSchema: {
+          agent_id: z.string().describe(
+            'The agent ID to adopt. Use list_agents to discover available agents.'
+          ),
+          task: z.string().describe('The task to perform as this agent.'),
         },
-        async ({ agent_id, task }) => {
-          const [guide, agentResult] = await Promise.all([
-            readAgentsGuide({ user }),
-            readAgent(agent_id),
-          ])
+      },
+      async ({ agent_id, task }) => {
+        const [guide, agentResult] = await Promise.all([
+          readAgentsGuide({ user }),
+          readAgent(agent_id),
+        ])
 
-          if (!agentResult.ok) {
-            return {
-              messages: [{
-                role: 'user' as const,
-                content: {
-                  type: 'text' as const,
-                  text: `Agent "${agent_id}" not found. Use list_agents to see available agents.`,
-                },
-              }],
-            }
-          }
-
-          const sections: string[] = []
-
-          if (guide.ok) {
-            sections.push('# Workspace Context\n\n' + guide.content)
-          }
-
-          const a = agentResult.agent
-          sections.push(
-            `# Agent: ${a.displayName}\n\n` +
-            `Model: ${a.model ?? 'default'}\n` +
-            `Mode: ${a.mode ?? 'primary'}\n` +
-            `Temperature: ${a.temperature ?? 'default'}\n\n` +
-            (a.prompt ? `## System Prompt\n\n${a.prompt}` : '*(no system prompt)*')
-          )
-
-          sections.push(`# Task\n\n${task}`)
-
+        if (!agentResult.ok) {
           return {
             messages: [{
               role: 'user' as const,
-              content: { type: 'text' as const, text: sections.join('\n\n---\n\n') },
+              content: {
+                type: 'text' as const,
+                text: `Agent "${agent_id}" not found. Use list_agents to see available agents.`,
+              },
             }],
           }
         }
-      )
 
-      server.registerPrompt(
-        'use-skill',
-        {
-          description:
-            'Load an Arche workspace skill\'s instructions to guide your work on a task. ' +
-            'Skills are curated instruction sets for specific workflows like code review, ' +
-            'debugging, documentation, etc.',
-          argsSchema: {
-            skill_name: z.string().describe(
-              'The skill name to use. Use list_skills to discover available skills.'
-            ),
-            task: z.string().describe('The task to perform using this skill\'s instructions.'),
-          },
+        const sections: string[] = []
+
+        if (guide.ok) {
+          sections.push('# Workspace Context\n\n' + guide.content)
+        }
+
+        const a = agentResult.agent
+        sections.push(
+          `# Agent: ${a.displayName}\n\n` +
+          `Model: ${a.model ?? 'default'}\n` +
+          `Mode: ${a.mode ?? 'primary'}\n` +
+          `Temperature: ${a.temperature ?? 'default'}\n\n` +
+          (a.prompt ? `## System Prompt\n\n${a.prompt}` : '*(no system prompt)*')
+        )
+
+        sections.push(`# Task\n\n${task}`)
+
+        return {
+          messages: [{
+            role: 'user' as const,
+            content: { type: 'text' as const, text: sections.join('\n\n---\n\n') },
+          }],
+        }
+      }
+    )
+
+    server.registerPrompt(
+      'use-skill',
+      {
+        description:
+          'Load an Arche workspace skill\'s instructions to guide your work on a task. ' +
+          'Skills are curated instruction sets for specific workflows like code review, ' +
+          'debugging, documentation, etc.',
+        argsSchema: {
+          skill_name: z.string().describe(
+            'The skill name to use. Use list_skills to discover available skills.'
+          ),
+          task: z.string().describe('The task to perform using this skill\'s instructions.'),
         },
-        async ({ skill_name, task }) => {
-          const result = await readSkillForMcp(skill_name)
+      },
+      async ({ skill_name, task }) => {
+        const result = await readSkillForMcp(skill_name)
 
-          if (!result.ok) {
-            return {
-              messages: [{
-                role: 'user' as const,
-                content: {
-                  type: 'text' as const,
-                  text: `Skill "${skill_name}" not found. Use list_skills to see available skills.`,
-                },
-              }],
-            }
-          }
-
-          const skill = result.data
-          const sections: string[] = []
-
-          sections.push(
-            `# Skill: ${skill.name}\n\n` +
-            `${skill.description}\n\n` +
-            `## Instructions\n\n${skill.body}`
-          )
-
-          sections.push(`# Task\n\n${task}`)
-
+        if (!result.ok) {
           return {
             messages: [{
               role: 'user' as const,
-              content: { type: 'text' as const, text: sections.join('\n\n---\n\n') },
+              content: {
+                type: 'text' as const,
+                text: `Skill "${skill_name}" not found. Use list_skills to see available skills.`,
+              },
             }],
           }
         }
-      )
-    }
+
+        const skill = result.data
+        const sections: string[] = []
+
+        sections.push(
+          `# Skill: ${skill.name}\n\n` +
+          `${skill.description}\n\n` +
+          `## Instructions\n\n${skill.body}`
+        )
+
+        sections.push(`# Task\n\n${task}`)
+
+        return {
+          messages: [{
+            role: 'user' as const,
+            content: { type: 'text' as const, text: sections.join('\n\n---\n\n') },
+          }],
+        }
+      }
+    )
   }
 }
 
