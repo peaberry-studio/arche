@@ -16,6 +16,14 @@ async function gracefulShutdown(): Promise<void> {
   }
 
   try {
+    const { stopSlackSocketManager } = await import('@/lib/slack/socket-mode')
+    stopSlackSocketManager()
+    console.log('[shutdown] Slack socket manager stopped')
+  } catch (err) {
+    console.error('[shutdown] Failed to stop Slack socket manager:', err)
+  }
+
+  try {
     const { stopReaper } = await import('@/lib/spawner/reaper')
     stopReaper()
     console.log('[shutdown] Reaper stopped')
@@ -65,6 +73,9 @@ export async function registerNodeInstrumentation() {
     const { startAutopilotScheduler } = await import('@/lib/autopilot/scheduler')
     startAutopilotScheduler()
   }
+
+  const { startSlackSocketManager } = await import('@/lib/slack/socket-mode')
+  startSlackSocketManager()
 
   registerShutdownHooks()
 }

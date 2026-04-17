@@ -52,6 +52,18 @@ const mockPrisma = {
   auditEvent: {
     create: vi.fn(),
   },
+  slackEventReceipt: {
+    create: vi.fn(),
+  },
+  slackIntegration: {
+    findUnique: vi.fn(),
+    updateMany: vi.fn(),
+    upsert: vi.fn(),
+  },
+  slackThreadBinding: {
+    findUnique: vi.fn(),
+    upsert: vi.fn(),
+  },
   autopilotTask: {
     create: vi.fn(),
     deleteMany: vi.fn(),
@@ -92,6 +104,7 @@ describe('service layer', () => {
       expect(services.auditService).toBeDefined()
       expect(services.healthService).toBeDefined()
       expect(services.autopilotService).toBeDefined()
+      expect(services.slackService).toBeDefined()
     })
   })
 
@@ -168,7 +181,9 @@ describe('service layer', () => {
       const count = await userService.countAdmins()
 
       expect(count).toBe(2)
-      expect(mockPrisma.user.count).toHaveBeenCalledWith({ where: { role: 'ADMIN' } })
+      expect(mockPrisma.user.count).toHaveBeenCalledWith({
+        where: { kind: 'HUMAN', role: 'ADMIN' },
+      })
     })
   })
 

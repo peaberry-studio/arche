@@ -12,7 +12,7 @@ const webNavItems = [
   { label: 'Autopilot', href: '/autopilot' },
   { label: 'Connectors', href: '/connectors' },
   { label: 'Team', href: '/team' },
-  { label: 'Settings', href: '/settings/security' },
+  { label: 'Settings', href: '/settings' },
 ]
 
 const desktopNavItems = [

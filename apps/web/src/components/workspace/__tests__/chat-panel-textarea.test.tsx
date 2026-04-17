@@ -6,6 +6,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ChatPanel } from "@/components/workspace/chat-panel";
 import { WorkspaceThemeProvider } from "@/contexts/workspace-theme-context";
+import {
+  MAX_ATTACHMENT_UPLOAD_BYTES,
+  MAX_ATTACHMENT_UPLOAD_MEGABYTES,
+} from "@/lib/workspace-attachments";
 
 vi.mock("next/image", () => ({
   default: () => null,
@@ -294,6 +298,37 @@ describe("ChatPanel textarea", () => {
         contextPaths: [],
       }
     );
+  });
+
+  it("shows a clear error when a pasted image exceeds the upload limit", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ attachments: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderChatPanel();
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled();
+    });
+    const initialFetchCount = fetchMock.mock.calls.length;
+
+    const oversizedFile = new File(["image"], "too-large.png", { type: "image/png" });
+    Object.defineProperty(oversizedFile, "size", {
+      value: MAX_ATTACHMENT_UPLOAD_BYTES + 1,
+    });
+
+    fireEvent.paste(getTextarea(), {
+      clipboardData: createClipboardImageData(oversizedFile),
+    });
+
+    expect(
+      await screen.findByText(
+        `You can't upload files larger than ${MAX_ATTACHMENT_UPLOAD_MEGABYTES} MB.`
+      )
+    ).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(initialFetchCount);
   });
 
   it("shows a desktop-only reveal attachments action in the manage dialog", async () => {

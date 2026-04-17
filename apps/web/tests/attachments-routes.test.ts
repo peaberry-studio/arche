@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import {
+  MAX_ATTACHMENT_UPLOAD_BYTES,
+  MAX_ATTACHMENT_UPLOAD_MEGABYTES,
+} from '@/lib/workspace-attachments'
+
 const mockGetAuthenticatedUser = vi.fn()
 vi.mock('@/lib/auth', () => ({
   getAuthenticatedUser: (...args: unknown[]) => mockGetAuthenticatedUser(...args),
@@ -31,6 +36,7 @@ async function callPostAttachments(options: {
   slug?: string
   files: File[]
   includeOrigin?: boolean
+  formDataOverride?: FormData
 }) {
   const { POST } = await import('@/app/api/w/[slug]/attachments/route')
   const slug = options.slug ?? 'alice'
@@ -48,6 +54,13 @@ async function callPostAttachments(options: {
     headers,
     body: formData,
   })
+
+  if (options.formDataOverride) {
+    Object.defineProperty(req, 'formData', {
+      value: async () => options.formDataOverride,
+    })
+  }
+
   const res = await POST(req as never, { params: Promise.resolve({ slug }) })
   return { status: res.status, body: await res.json() }
 }
@@ -241,6 +254,33 @@ describe('workspace attachments route', () => {
     expect(firstWriteBody.encoding).toBe('base64')
     expect(typeof firstWriteBody.content).toBe('string')
     expect(firstWriteBody.content.length).toBeGreaterThan(0)
+  })
+
+  it('POST rejects files larger than the upload limit', async () => {
+    mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const oversizedFile = new File(['x'], 'huge.bin', { type: 'application/octet-stream' })
+    Object.defineProperty(oversizedFile, 'size', {
+      value: MAX_ATTACHMENT_UPLOAD_BYTES + 1,
+    })
+
+    const formData = new FormData()
+    formData.append('files', oversizedFile)
+
+    const { status, body } = await callPostAttachments({
+      files: [oversizedFile],
+      formDataOverride: formData,
+    })
+
+    expect(status).toBe(413)
+    expect(body).toEqual({
+      error: 'file_too_large',
+      maxBytes: MAX_ATTACHMENT_UPLOAD_BYTES,
+      maxMegabytes: MAX_ATTACHMENT_UPLOAD_MEGABYTES,
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('POST returns per-file failures without losing successes', async () => {

@@ -21,6 +21,7 @@ const SCHEMA_DDL = [
     "email" TEXT NOT NULL,
     "slug" TEXT NOT NULL,
     "role" TEXT NOT NULL DEFAULT 'USER',
+    "kind" TEXT NOT NULL DEFAULT 'HUMAN',
     "password_hash" TEXT NOT NULL,
     "totp_enabled" BOOLEAN NOT NULL DEFAULT false,
     "totp_secret" TEXT,
@@ -61,6 +62,38 @@ const SCHEMA_DDL = [
     "metadata" TEXT,
     "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "audit_events_actor_user_id_fkey" FOREIGN KEY ("actor_user_id") REFERENCES "users" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS "slack_integration" (
+    "singleton_key" TEXT NOT NULL PRIMARY KEY DEFAULT 'default',
+    "enabled" BOOLEAN NOT NULL DEFAULT false,
+    "bot_token_secret" TEXT,
+    "app_token_secret" TEXT,
+    "slack_team_id" TEXT,
+    "slack_app_id" TEXT,
+    "slack_bot_user_id" TEXT,
+    "default_agent_id" TEXT,
+    "last_error" TEXT,
+    "last_socket_connected_at" DATETIME,
+    "last_event_at" DATETIME,
+    "version" INTEGER NOT NULL DEFAULT 1,
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" DATETIME NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS "slack_thread_bindings" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "channel_id" TEXT NOT NULL,
+    "thread_ts" TEXT NOT NULL,
+    "opencode_session_id" TEXT NOT NULL,
+    "execution_user_id" TEXT NOT NULL,
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" DATETIME NOT NULL,
+    CONSTRAINT "slack_thread_bindings_execution_user_id_fkey" FOREIGN KEY ("execution_user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS "slack_event_receipts" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "event_id" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "received_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`,
   `CREATE TABLE IF NOT EXISTS "autopilot_tasks" (
     "id" TEXT NOT NULL PRIMARY KEY,
@@ -137,6 +170,10 @@ const SCHEMA_DDL = [
   `CREATE INDEX IF NOT EXISTS "sessions_expires_at_idx" ON "sessions"("expires_at")`,
   `CREATE INDEX IF NOT EXISTS "audit_events_actor_user_id_idx" ON "audit_events"("actor_user_id")`,
   `CREATE INDEX IF NOT EXISTS "audit_events_created_at_idx" ON "audit_events"("created_at")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "slack_thread_bindings_channel_id_thread_ts_key" ON "slack_thread_bindings"("channel_id", "thread_ts")`,
+  `CREATE INDEX IF NOT EXISTS "slack_thread_bindings_execution_user_id_idx" ON "slack_thread_bindings"("execution_user_id")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "slack_event_receipts_event_id_key" ON "slack_event_receipts"("event_id")`,
+  `CREATE INDEX IF NOT EXISTS "slack_event_receipts_received_at_idx" ON "slack_event_receipts"("received_at")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "autopilot_tasks_user_id_name_key" ON "autopilot_tasks"("user_id", "name")`,
   `CREATE INDEX IF NOT EXISTS "autopilot_tasks_user_id_idx" ON "autopilot_tasks"("user_id")`,
   `CREATE INDEX IF NOT EXISTS "autopilot_tasks_enabled_next_run_at_idx" ON "autopilot_tasks"("enabled", "next_run_at")`,
@@ -151,7 +188,7 @@ const SCHEMA_DDL = [
   `CREATE INDEX IF NOT EXISTS "two_factor_recovery_user_id_idx" ON "two_factor_recovery"("user_id")`,
 ]
 
-const SCHEMA_VERSION = '3'
+const SCHEMA_VERSION = '4'
 
 async function ensureAutopilotRunResultSeenAtColumn(client: DesktopPrismaClient): Promise<void> {
   const columns = await client.$queryRawUnsafe('PRAGMA table_info("autopilot_runs")') as Array<{ name?: string }>
@@ -159,6 +196,15 @@ async function ensureAutopilotRunResultSeenAtColumn(client: DesktopPrismaClient)
 
   if (!hasResultSeenAt) {
     await client.$executeRawUnsafe('ALTER TABLE "autopilot_runs" ADD COLUMN "result_seen_at" DATETIME')
+  }
+}
+
+async function ensureUserKindColumn(client: DesktopPrismaClient): Promise<void> {
+  const columns = await client.$queryRawUnsafe('PRAGMA table_info("users")') as Array<{ name?: string }>
+  const hasKind = columns.some((column) => column.name === 'kind')
+
+  if (!hasKind) {
+    await client.$executeRawUnsafe('ALTER TABLE "users" ADD COLUMN "kind" TEXT NOT NULL DEFAULT \'HUMAN\'')
   }
 }
 
@@ -206,6 +252,7 @@ export async function initDesktopDatabase(): Promise<void> {
 
   if (storedVersion === SCHEMA_VERSION) {
     await ensureAutopilotRunResultSeenAtColumn(client)
+    await ensureUserKindColumn(client)
     return
   }
 
@@ -214,6 +261,7 @@ export async function initDesktopDatabase(): Promise<void> {
   }
 
   await ensureAutopilotRunResultSeenAtColumn(client)
+  await ensureUserKindColumn(client)
 
   await client.$executeRaw`INSERT OR REPLACE INTO _arche_schema_meta (key, value) VALUES ('schema_version', ${SCHEMA_VERSION})`
 }

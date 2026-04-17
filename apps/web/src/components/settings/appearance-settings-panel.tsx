@@ -24,9 +24,9 @@ export function AppearanceSettingsPanel() {
 
   return (
     <section className="space-y-6">
-      <div>
-        <h2 className="text-lg font-medium text-foreground">Appearance</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
+      <div className="space-y-1">
+        <h2 className="text-lg font-medium">Appearance</h2>
+        <p className="text-sm text-muted-foreground">
           Control how this vault looks inside the desktop workspace.
         </p>
       </div>
