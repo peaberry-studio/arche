@@ -28,8 +28,9 @@ import {
   runGit,
 } from '@/lib/git/bare-repo'
 import {
+  createKbArticle,
   deleteKbArticle,
-  writeKbArticle,
+  updateKbArticle,
 } from '../write-kb-article'
 
 const mockCleanupClone = vi.mocked(cleanupClone)
@@ -80,8 +81,8 @@ describe('kb write tools', () => {
     await fs.rm(safeConfigDir, { recursive: true, force: true }).catch(() => {})
   })
 
-  it('writes an article and commits the change', async () => {
-    const result = await writeKbArticle({
+  it('creates a new article and commits the change', async () => {
+    const result = await createKbArticle({
       path: 'docs/intro.md',
       content: '# Hello',
     })
@@ -98,14 +99,60 @@ describe('kb write tools', () => {
     )
   })
 
-  it('rejects unsafe write paths', async () => {
-    const result = await writeKbArticle({
+  it('rejects unsafe create paths', async () => {
+    const result = await createKbArticle({
       path: '../../etc/passwd',
       content: 'nope',
     })
 
     expect(result).toEqual({ ok: false, error: 'invalid_path' })
     expect(mockCloneRepoToTemp).not.toHaveBeenCalled()
+    expect(mockRunGit).not.toHaveBeenCalled()
+  })
+
+  it('returns already_exists when creating an existing article', async () => {
+    const filePath = path.join(repoDir, 'docs/intro.md')
+    await fs.mkdir(path.dirname(filePath), { recursive: true })
+    await fs.writeFile(filePath, 'old content', 'utf-8')
+
+    const result = await createKbArticle({
+      path: 'docs/intro.md',
+      content: '# New content',
+    })
+
+    expect(result).toEqual({ ok: false, error: 'already_exists' })
+    expect(mockRunGit).not.toHaveBeenCalled()
+  })
+
+  it('updates an existing article and commits the change', async () => {
+    const filePath = path.join(repoDir, 'docs/intro.md')
+    await fs.mkdir(path.dirname(filePath), { recursive: true })
+    await fs.writeFile(filePath, '# Old', 'utf-8')
+
+    const result = await updateKbArticle({
+      path: 'docs/intro.md',
+      content: '# Updated',
+    })
+
+    expect(result).toEqual({
+      ok: true,
+      hash: 'abc123',
+      path: 'docs/intro.md',
+    })
+    expect(await fs.readFile(filePath, 'utf-8')).toBe('# Updated')
+    expect(mockRunGit).toHaveBeenCalledWith(
+      ['add', '-A', '--', 'docs/intro.md'],
+      expect.objectContaining({ cwd: repoDir }),
+    )
+  })
+
+  it('returns not_found when updating a missing article', async () => {
+    const result = await updateKbArticle({
+      path: 'docs/missing.md',
+      content: '# Updated',
+    })
+
+    expect(result).toEqual({ ok: false, error: 'not_found' })
     expect(mockRunGit).not.toHaveBeenCalled()
   })
 
@@ -138,7 +185,7 @@ describe('kb write tools', () => {
   it('returns kb_unavailable when content repo root is unavailable', async () => {
     mockResolveRepoRoot.mockResolvedValue(null)
 
-    const result = await writeKbArticle({
+    const result = await createKbArticle({
       path: 'docs/intro.md',
       content: '# Hello',
     })
