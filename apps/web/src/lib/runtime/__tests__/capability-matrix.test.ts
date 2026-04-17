@@ -61,6 +61,7 @@ describe('capability enforcement matrix', () => {
     { capability: 'connectors', web: true, desktop: true },
     { capability: 'kickstart', web: true, desktop: true },
     { capability: 'autopilot', web: true, desktop: false },
+    { capability: 'slackIntegration', web: true, desktop: false },
   ]
 
   describe.each([webMode, desktopMode])('$name mode', (mode) => {

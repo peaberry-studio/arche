@@ -19,17 +19,22 @@ function isArgon2Api(value: unknown): value is Argon2Api {
 
 async function getArgon2(): Promise<Argon2Api> {
   if (!argon2Promise) {
-    argon2Promise = importArgon2Module().then((module) => {
-      if (isArgon2Api(module)) {
-        return module
-      }
+    argon2Promise = importArgon2Module()
+      .then((module) => {
+        if (isArgon2Api(module)) {
+          return module
+        }
 
-      if (typeof module === 'object' && module !== null && 'default' in module && isArgon2Api(module.default)) {
-        return module.default
-      }
+        if (typeof module === 'object' && module !== null && 'default' in module && isArgon2Api(module.default)) {
+          return module.default
+        }
 
-      throw new Error('argon2 module did not expose hash/verify functions')
-    })
+        throw new Error('argon2 module did not expose hash/verify functions')
+      })
+      .catch((error) => {
+        argon2Promise = null
+        throw error
+      })
   }
 
   return argon2Promise

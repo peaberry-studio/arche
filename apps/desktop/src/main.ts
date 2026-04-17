@@ -8,6 +8,7 @@ import { dirname, join } from 'path'
 
 import type { CreateVaultArgs, DesktopApiResult, DesktopVaultSummary } from './desktop-bridge-types'
 import { ensureDesktopEncryptionKey } from './desktop-encryption-key'
+import { createDesktopSmokeTestHarness } from './desktop-smoke-test'
 import { createDesktopVault } from './create-vault'
 import { getDesktopNextDistDirName } from './desktop-next-dist'
 import {
@@ -39,11 +40,12 @@ import {
 import { createVaultManifest, tryReadVault, type DesktopVault } from './vault-manifest'
 
 const DEFAULT_DESKTOP_WEB_PORT = 3000
-const DEFAULT_SMOKE_TEST_TIMEOUT_MS = 90_000
 const LOOPBACK_HOST = '127.0.0.1'
 const DESKTOP_TOKEN_HEADER = 'x-arche-desktop-token'
 const DESKTOP_GIT_AUTHOR_NAME = 'Arche Workspace'
 const DESKTOP_GIT_AUTHOR_EMAIL = 'workspace@arche.local'
+
+const smokeTest = createDesktopSmokeTestHarness({ app, dialog })
 
 let mainWindow: BrowserWindow | null = null
 let nextSupervisor: RuntimeSupervisor | null = null
@@ -54,172 +56,6 @@ let gatewayTokenSecret = ''
 let launchContext: DesktopLaunchContext = { mode: 'launcher', vaultPath: null }
 let currentVault: DesktopVault | null = null
 let vaultLock: VaultLockHandle | null = null
-let smokeTestFinished = false
-let smokeTestTimer: NodeJS.Timeout | null = null
-
-function isSmokeTestEnabled(): boolean {
-  return process.env.ARCHE_DESKTOP_SMOKE_TEST === '1'
-}
-
-function getSmokeTestExpectedPath(): string {
-  const expectedPath = process.env.ARCHE_DESKTOP_SMOKE_TEST_EXPECTED_PATH?.trim()
-  return expectedPath || '/w/local'
-}
-
-function getSmokeTestTimeoutMs(): number {
-  const raw = process.env.ARCHE_DESKTOP_SMOKE_TEST_TIMEOUT_MS
-  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return DEFAULT_SMOKE_TEST_TIMEOUT_MS
-  }
-
-  return parsed
-}
-
-function writeSmokeTestLog(message: string, stream: 'stdout' | 'stderr' = 'stdout'): void {
-  process[stream].write(`[desktop-smoke] ${message}\n`)
-}
-
-function completeSmokeTest(ok: boolean, message: string): void {
-  if (!isSmokeTestEnabled() || smokeTestFinished) {
-    return
-  }
-
-  smokeTestFinished = true
-  if (smokeTestTimer) {
-    clearTimeout(smokeTestTimer)
-    smokeTestTimer = null
-  }
-
-  process.exitCode = ok ? 0 : 1
-  writeSmokeTestLog(message, ok ? 'stdout' : 'stderr')
-  app.quit()
-}
-
-function showDesktopError(title: string, message: string): boolean {
-  if (isSmokeTestEnabled()) {
-    completeSmokeTest(false, message)
-    return true
-  }
-
-  dialog.showErrorBox(title, message)
-  return false
-}
-
-async function evaluateSmokeTestWindow(window: BrowserWindow): Promise<void> {
-  if (!isSmokeTestEnabled() || smokeTestFinished || window.isDestroyed()) {
-    return
-  }
-
-  try {
-    const expectedPath = getSmokeTestExpectedPath()
-    const state = await window.webContents.executeJavaScript(
-      `(async () => {
-        const pathname = window.location.pathname
-        const isDesktop = Boolean(window.arche?.isDesktop)
-
-        if (pathname !== ${JSON.stringify(expectedPath)} || !isDesktop) {
-          return { pathname, isDesktop, probeStatus: null, probeError: null }
-        }
-
-        try {
-          const response = await fetch('/api/u/local/agents', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: 'not-json',
-          })
-
-          let body = null
-          try {
-            body = await response.json()
-          } catch {
-            body = null
-          }
-
-          return {
-            pathname,
-            isDesktop,
-            probeStatus: response.status,
-            probeError: typeof body?.error === 'string' ? body.error : null,
-          }
-        } catch (error) {
-          return {
-            pathname,
-            isDesktop,
-            probeStatus: null,
-            probeError: error instanceof Error ? error.message : String(error),
-          }
-        }
-      })()`,
-      true,
-    )
-
-    const pathname = typeof state?.pathname === 'string' ? state.pathname : 'unknown'
-    const isDesktop = state?.isDesktop === true
-    const probeStatus = typeof state?.probeStatus === 'number' ? state.probeStatus : null
-    const probeError = typeof state?.probeError === 'string' ? state.probeError : null
-
-    if (pathname === expectedPath && isDesktop && probeStatus === 400 && probeError === 'invalid_json') {
-      completeSmokeTest(true, `success path=${pathname} probe=${probeStatus}:${probeError}`)
-      return
-    }
-
-    if (pathname === expectedPath && isDesktop && probeStatus !== null) {
-      completeSmokeTest(
-        false,
-        `unexpected auth probe status=${String(probeStatus)} error=${probeError ?? 'null'} path=${pathname}`,
-      )
-      return
-    }
-
-    if (pathname === expectedPath && isDesktop && probeError) {
-      completeSmokeTest(false, `auth probe failed: ${probeError}`)
-      return
-    }
-
-    writeSmokeTestLog(
-      `waiting expected=${expectedPath} current=${pathname} desktop=${String(isDesktop)} probe=${probeStatus === null ? 'pending' : `${String(probeStatus)}:${probeError ?? 'null'}`}`,
-    )
-  } catch (error) {
-    completeSmokeTest(
-      false,
-      `window evaluation failed: ${error instanceof Error ? error.message : String(error)}`,
-    )
-  }
-}
-
-function installSmokeTestHooks(window: BrowserWindow): void {
-  if (!isSmokeTestEnabled() || smokeTestTimer) {
-    return
-  }
-
-  const timeoutMs = getSmokeTestTimeoutMs()
-  smokeTestTimer = setTimeout(() => {
-    completeSmokeTest(false, `timeout after ${timeoutMs}ms waiting for ${getSmokeTestExpectedPath()}`)
-  }, timeoutMs)
-
-  window.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
-    if (!isMainFrame) {
-      return
-    }
-
-    completeSmokeTest(
-      false,
-      `did-fail-load code=${String(errorCode)} url=${validatedURL} error=${errorDescription}`,
-    )
-  })
-
-  window.webContents.on('render-process-gone', (_event, details) => {
-    completeSmokeTest(
-      false,
-      `render-process-gone reason=${details.reason} exitCode=${String(details.exitCode)}`,
-    )
-  })
-
-  window.webContents.on('did-finish-load', () => {
-    void evaluateSmokeTestWindow(window)
-  })
-}
 
 function generateDesktopApiToken(): string {
   return randomBytes(32).toString('base64url')
@@ -502,7 +338,7 @@ function createWindow(): void {
     minHeight: isLauncher ? 560 : 600,
     title: getCurrentVaultTitle(),
     backgroundColor: '#f7f4ef',
-    show: !isSmokeTestEnabled(),
+    show: smokeTest.shouldShowWindow(),
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : undefined,
     trafficLightPosition: process.platform === 'darwin' ? { x: 12, y: 12 } : undefined,
     webPreferences: {
@@ -513,7 +349,7 @@ function createWindow(): void {
     },
   })
 
-  installSmokeTestHooks(mainWindow)
+  smokeTest.installWindowHooks(mainWindow)
 
   void mainWindow.loadURL(getNextUrl())
 
@@ -729,11 +565,7 @@ function resolveStartupVault(): DesktopVault | null {
   const registry = readVaultRegistry(metadataDir)
   launchContext = resolveLaunchContext(process.argv.slice(1), registry.lastOpenedVaultPath)
 
-  if (isSmokeTestEnabled()) {
-    writeSmokeTestLog(
-      `launch_context mode=${launchContext.mode} vaultPath=${launchContext.vaultPath ?? 'null'}`,
-    )
-  }
+  smokeTest.reportLaunchContext(launchContext)
 
   if (launchContext.mode === 'launcher') {
     return null
@@ -741,9 +573,7 @@ function resolveStartupVault(): DesktopVault | null {
 
   const vault = tryReadVault(launchContext.vaultPath)
   if (!vault) {
-    if (isSmokeTestEnabled()) {
-      writeSmokeTestLog(`invalid_vault path=${launchContext.vaultPath}`, 'stderr')
-    }
+    smokeTest.reportInvalidVault(launchContext.vaultPath)
 
     if (registry.lastOpenedVaultPath === launchContext.vaultPath) {
       clearLastOpenedVault(metadataDir, launchContext.vaultPath)
@@ -762,7 +592,7 @@ app.whenReady().then(async () => {
   if (currentVault) {
     vaultLock = acquireVaultLock(currentVault.path)
     if (!vaultLock) {
-      if (showDesktopError(
+      if (smokeTest.handleStartupFailure(
         'Arche',
         `The vault "${currentVault.name}" is already open in another Arche process.`,
       )) {
@@ -777,7 +607,7 @@ app.whenReady().then(async () => {
     setDesktopEnv()
   } catch (error) {
     console.error('Failed to initialize desktop environment:', error)
-    if (showDesktopError('Arche', 'Failed to initialize desktop security configuration.')) {
+    if (smokeTest.handleStartupFailure('Arche', 'Failed to initialize desktop security configuration.')) {
       return
     }
     app.quit()
@@ -791,7 +621,7 @@ app.whenReady().then(async () => {
       await ensureVaultDataDirectories(currentVault)
     } catch (error) {
       console.error('Failed to initialize vault data directories:', error)
-      if (showDesktopError('Arche', 'Failed to initialize the selected vault.')) {
+      if (smokeTest.handleStartupFailure('Arche', 'Failed to initialize the selected vault.')) {
         return
       }
       app.quit()
@@ -804,7 +634,7 @@ app.whenReady().then(async () => {
 
   const missingRuntimeBinaries = verifyPackagedRuntimeBinaries()
   if (missingRuntimeBinaries.length > 0) {
-    if (showDesktopError(
+    if (smokeTest.handleStartupFailure(
       'Arche',
       `Missing packaged runtime resources: ${missingRuntimeBinaries.join(', ')}.`,
     )) {
@@ -818,7 +648,7 @@ app.whenReady().then(async () => {
     await startNextServer()
   } catch (error) {
     console.error('Failed to start Next.js server:', error)
-    if (showDesktopError('Arche', 'Failed to start the local desktop runtime.')) {
+    if (smokeTest.handleStartupFailure('Arche', 'Failed to start the local desktop runtime.')) {
       return
     }
     app.quit()

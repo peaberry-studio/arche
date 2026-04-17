@@ -10,6 +10,9 @@ const electronPath = require('electron')
 const { getDesktopKbConfigDir, getDesktopKbContentDir } = require('../dist/vault-layout.js')
 const { createVaultManifest } = require('../dist/vault-manifest.js')
 
+const APP_SMOKE_TIMEOUT_MS = 180_000
+const TEST_TIMEOUT_MS = APP_SMOKE_TIMEOUT_MS + 30_000
+
 async function withTempDir(run) {
   const root = mkdtempSync(join(tmpdir(), 'arche-desktop-smoke-'))
   try {
@@ -105,7 +108,7 @@ function createKickstartedVault(rootDir) {
   return vaultPath
 }
 
-test('opens the desktop workspace and accepts authenticated POST requests', { timeout: 180_000, skip: process.platform !== 'darwin' }, async (t) => {
+test('opens the desktop workspace and accepts authenticated POST requests', { timeout: TEST_TIMEOUT_MS, skip: process.platform !== 'darwin' }, async (t) => {
   await withTempDir(async (rootDir) => {
     const vaultPath = createKickstartedVault(rootDir)
     const stdout = []
@@ -119,7 +122,7 @@ test('opens the desktop workspace and accepts authenticated POST requests', { ti
         ...process.env,
         ARCHE_DESKTOP_SMOKE_TEST: '1',
         ARCHE_DESKTOP_SMOKE_TEST_EXPECTED_PATH: '/w/local',
-        ARCHE_DESKTOP_SMOKE_TEST_TIMEOUT_MS: '180000',
+        ARCHE_DESKTOP_SMOKE_TEST_TIMEOUT_MS: String(APP_SMOKE_TIMEOUT_MS),
         ELECTRON_ENABLE_LOGGING: '1',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -142,7 +145,7 @@ test('opens the desktop workspace and accepts authenticated POST requests', { ti
     const result = await new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         reject(new Error(`Timed out waiting for Electron workspace launch\n\n${stdout.join('')}${stderr.join('')}`))
-      }, 120_000)
+      }, TEST_TIMEOUT_MS)
 
       child.once('error', reject)
       child.once('exit', (code, signal) => {
