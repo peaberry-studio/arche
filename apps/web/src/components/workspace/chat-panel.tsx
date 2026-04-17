@@ -55,7 +55,12 @@ import {
   buildWorkspaceSessionMarkdown,
   getWorkspaceSessionExportFilename,
 } from "@/lib/workspace-session-export";
-import { formatAttachmentSize } from "@/lib/workspace-attachments";
+import {
+  formatAttachmentSize,
+  MAX_ATTACHMENTS_PER_UPLOAD,
+  MAX_ATTACHMENT_UPLOAD_BYTES,
+  MAX_ATTACHMENT_UPLOAD_MEGABYTES,
+} from "@/lib/workspace-attachments";
 import { cn } from "@/lib/utils";
 import type {
   ChatMessage,
@@ -106,6 +111,25 @@ type ConnectorSummary = {
 };
 
 const MAX_CONTEXT_PATHS_PER_MESSAGE = 20;
+
+function getAttachmentErrorMessage(error: string): string {
+  switch (error) {
+    case "attachments_load_failed":
+      return "Couldn't load attachments.";
+    case "file_too_large":
+      return `You can't upload files larger than ${MAX_ATTACHMENT_UPLOAD_MEGABYTES} MB.`;
+    case "too_many_files":
+      return `You can upload up to ${MAX_ATTACHMENTS_PER_UPLOAD} files at a time.`;
+    case "upload_partial_failure":
+      return "Some files couldn't be uploaded.";
+    case "upload_failed":
+      return "Couldn't upload the selected file.";
+    case "reveal_attachments_failed":
+      return "Couldn't open the attachments folder.";
+    default:
+      return error.replace(/_/g, " ");
+  }
+}
 
 function downloadMarkdownFile(filename: string, content: string) {
   const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
@@ -528,6 +552,16 @@ export function ChatPanel({
   const handleUploadAttachments = useCallback(async (files: File[]) => {
     if (!attachmentsEnabled || files.length === 0) return;
 
+    if (files.length > MAX_ATTACHMENTS_PER_UPLOAD) {
+      setAttachmentsError("too_many_files");
+      return;
+    }
+
+    if (files.some((file) => file.size > MAX_ATTACHMENT_UPLOAD_BYTES)) {
+      setAttachmentsError("file_too_large");
+      return;
+    }
+
     const formData = new FormData();
     files.forEach((file) => {
       formData.append("files", file);
@@ -549,6 +583,11 @@ export function ChatPanel({
         failed?: Array<{ name: string; error: string }>;
         error?: string;
       } | null;
+
+      if (response.status === 413) {
+        setAttachmentsError("file_too_large");
+        return;
+      }
 
       if (!response.ok || !data?.uploaded) {
         setAttachmentsError(data?.error ?? "upload_failed");
@@ -1188,7 +1227,7 @@ export function ChatPanel({
 
         {attachmentsEnabled && attachmentsError && (
           <p className="mb-3 text-xs text-destructive">
-            {attachmentsError.replace(/_/g, ' ')}
+            {getAttachmentErrorMessage(attachmentsError)}
           </p>
         )}
         

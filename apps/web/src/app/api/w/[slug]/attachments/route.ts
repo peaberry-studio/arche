@@ -7,6 +7,7 @@ import {
   isWorkspaceAttachmentPath,
   MAX_ATTACHMENTS_PER_UPLOAD,
   MAX_ATTACHMENT_UPLOAD_BYTES,
+  MAX_ATTACHMENT_UPLOAD_MEGABYTES,
   normalizeAttachmentPath,
   sanitizeAttachmentFilename,
   WORKSPACE_ATTACHMENTS_DIR,
@@ -45,6 +46,22 @@ function jsonResponse(status: number, payload: unknown) {
     status,
     headers: { 'Content-Type': 'application/json' },
   })
+}
+
+function fileTooLargeResponse() {
+  return jsonResponse(413, {
+    error: 'file_too_large',
+    maxBytes: MAX_ATTACHMENT_UPLOAD_BYTES,
+    maxMegabytes: MAX_ATTACHMENT_UPLOAD_MEGABYTES,
+  })
+}
+
+function isRequestBodyTooLargeError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+
+  const message = error.message.toLowerCase()
+
+  return message.includes('request body exceeded') || message.includes('body exceeded')
 }
 
 function normalizeAndValidateAttachmentPath(path: unknown): string | null {
@@ -132,7 +149,18 @@ export const POST = withAuth(
     const auth = await getWorkspaceAgentForSlug(slug)
     if (!auth.ok) return auth.response
 
-    const formData = await request.formData()
+    let formData: FormData
+
+    try {
+      formData = await request.formData()
+    } catch (error) {
+      if (isRequestBodyTooLargeError(error)) {
+        return fileTooLargeResponse()
+      }
+
+      return jsonResponse(400, { error: 'invalid_form_data' })
+    }
+
     const files = formData
       .getAll('files')
       .filter((value): value is File => value instanceof File)
@@ -146,7 +174,7 @@ export const POST = withAuth(
     }
 
     if (files.some((file) => file.size > MAX_ATTACHMENT_UPLOAD_BYTES)) {
-      return jsonResponse(413, { error: 'file_too_large' })
+      return fileTooLargeResponse()
     }
 
     const existing = await listWorkspaceAttachments(auth.agent)

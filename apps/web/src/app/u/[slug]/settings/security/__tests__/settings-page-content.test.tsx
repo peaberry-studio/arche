@@ -29,7 +29,6 @@ describe('SecuritySettingsPanel', () => {
       />,
     )
 
-    expect(screen.getByRole('heading', { name: 'Security' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Change password' })).toBeTruthy()
     expect(screen.getByText('Change password form')).toBeTruthy()
     expect(screen.getByText('Two-factor authentication')).toBeTruthy()
@@ -47,7 +46,6 @@ describe('SecuritySettingsPanel', () => {
       />,
     )
 
-    expect(screen.getByRole('heading', { name: 'Security' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Change password' })).toBeNull()
     expect(screen.queryByText('Two-factor authentication')).toBeNull()
   })

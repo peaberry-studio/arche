@@ -20,6 +20,9 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: ["arche.lvh.me", "127.0.0.1", "localhost"],
   ...(process.env.ARCHE_DESKTOP_NEXT_DIST_DIR && { distDir: process.env.ARCHE_DESKTOP_NEXT_DIST_DIR }),
   serverExternalPackages: ["dockerode", "better-sqlite3", "@prisma/adapter-better-sqlite3", "argon2", "@slack/bolt"],
+  experimental: {
+    proxyClientMaxBodySize: "110mb",
+  },
   webpack: (config, { isServer }) => {
     if (isServer) {
       config.externals = [

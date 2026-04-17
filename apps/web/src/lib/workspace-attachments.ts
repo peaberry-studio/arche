@@ -49,7 +49,10 @@ const FALLBACK_MIME = 'text/plain'
 const ATTACHMENT_DIR_PREFIX = '.arche/attachments/'
 
 export const WORKSPACE_ATTACHMENTS_DIR = '.arche/attachments'
-export const MAX_ATTACHMENT_UPLOAD_BYTES = 8 * 1024 * 1024
+export const MAX_ATTACHMENT_UPLOAD_BYTES = 100 * 1024 * 1024
+export const MAX_ATTACHMENT_UPLOAD_MEGABYTES = Math.floor(
+  MAX_ATTACHMENT_UPLOAD_BYTES / (1024 * 1024),
+)
 export const MAX_ATTACHMENTS_PER_UPLOAD = 8
 export const MAX_ATTACHMENTS_PER_MESSAGE = 8
 
