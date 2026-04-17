@@ -75,15 +75,16 @@ export async function testSlackCredentials(args: {
     new URLSearchParams({ bot: botId }).toString(),
   )
   const socket = await callSlackApi('apps.connections.open', args.appToken)
-  const socketAppId = extractSlackAppId(socket.url)
+  const appTokenAppId = extractSlackAppIdFromAppToken(args.appToken)
+  const socketAppId = extractSlackAppIdFromSocketUrl(socket.url)
   const botAppId = botInfo.bot?.app_id ?? null
 
-  if (socketAppId && botAppId && socketAppId !== botAppId) {
+  if (appTokenAppId && botAppId && appTokenAppId !== botAppId) {
     throw new Error('slack_app_mismatch')
   }
 
   return {
-    appId: socketAppId,
+    appId: appTokenAppId ?? botAppId ?? socketAppId,
     botUserId: botAuth.user_id ?? null,
     ok: true,
     socketUrlAvailable: typeof socket.url === 'string' && socket.url.length > 0,
@@ -91,7 +92,12 @@ export async function testSlackCredentials(args: {
   }
 }
 
-function extractSlackAppId(socketUrl: string | undefined): string | null {
+function extractSlackAppIdFromAppToken(appToken: string): string | null {
+  const match = /^xapp-\d+-(A[0-9A-Z]+)-/.exec(appToken)
+  return match?.[1] ?? null
+}
+
+function extractSlackAppIdFromSocketUrl(socketUrl: string | undefined): string | null {
   if (!socketUrl) {
     return null
   }
@@ -99,7 +105,7 @@ function extractSlackAppId(socketUrl: string | undefined): string | null {
   try {
     const parsed = new URL(socketUrl)
     const appId = parsed.searchParams.get('app_id')
-    return appId && appId.trim() ? appId : null
+    return appId && /^A[0-9A-Z]+$/.test(appId.trim()) ? appId.trim() : null
   } catch {
     return null
   }

@@ -56,7 +56,7 @@ describe('slack integration helpers', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const { testSlackCredentials } = await import('../integration')
-    const result = await testSlackCredentials({ appToken: 'xapp-1', botToken: 'xoxb-1' })
+    const result = await testSlackCredentials({ appToken: 'xapp-1-A123-token', botToken: 'xoxb-1' })
 
     expect(result).toEqual({
       appId: 'A123',
@@ -72,14 +72,33 @@ describe('slack integration helpers', () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, bot_id: 'B123', team_id: 'T123', user_id: 'U123' })))
       .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, bot: { app_id: 'A123' } })))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, url: 'wss://socket.slack.test/link/?ticket=123&app_id=A999' })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, url: 'wss://socket.slack.test/link/?ticket=123&app_id=53513cf46490c17413a96039a118aaf4e4c42749e08afcfb0ac64e4e66e46d02' })))
     vi.stubGlobal('fetch', fetchMock)
 
     const { testSlackCredentials } = await import('../integration')
 
-    await expect(testSlackCredentials({ appToken: 'xapp-1', botToken: 'xoxb-1' })).rejects.toThrow(
+    await expect(testSlackCredentials({ appToken: 'xapp-1-A999-token', botToken: 'xoxb-1' })).rejects.toThrow(
       'slack_app_mismatch',
     )
+  })
+
+  it('accepts valid credentials when Slack returns an opaque socket app identifier', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, bot_id: 'B123', team_id: 'T123', user_id: 'U123' })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, bot: { app_id: 'A123' } })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, url: 'wss://socket.slack.test/link/?ticket=123&app_id=53513cf46490c17413a96039a118aaf4e4c42749e08afcfb0ac64e4e66e46d02' })))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { testSlackCredentials } = await import('../integration')
+    const result = await testSlackCredentials({ appToken: 'xapp-1-A123-token', botToken: 'xoxb-1' })
+
+    expect(result).toEqual({
+      appId: 'A123',
+      botUserId: 'U123',
+      ok: true,
+      socketUrlAvailable: true,
+      teamId: 'T123',
+    })
   })
 
   it('applies a timeout to each Slack API request', async () => {
@@ -92,7 +111,7 @@ describe('slack integration helpers', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const { testSlackCredentials } = await import('../integration')
-    await testSlackCredentials({ appToken: 'xapp-1', botToken: 'xoxb-1' })
+    await testSlackCredentials({ appToken: 'xapp-1-A123-token', botToken: 'xoxb-1' })
 
     expect(timeoutSpy).toHaveBeenCalledWith(10_000)
     expect(fetchMock).toHaveBeenCalledWith(

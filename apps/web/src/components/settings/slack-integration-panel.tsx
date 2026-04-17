@@ -30,13 +30,17 @@ const SLACK_DOCS_URL = 'https://api.slack.com/apis/connections/socket'
 const ERROR_MESSAGES: Record<string, string> = {
   cannot_reconnect_disabled: 'Enable the integration before requesting a reconnect.',
   forbidden: 'Only admins can manage the Slack integration.',
+  invalid_auth: 'Slack rejected one of the provided tokens.',
   invalid_app_token: 'Paste a valid Slack app token that starts with xapp-.',
   invalid_body: 'The request body was invalid.',
   invalid_bot_token: 'Paste a valid Slack bot token that starts with xoxb-.',
   invalid_json: 'The request body was invalid JSON.',
   missing_tokens: 'Both the bot token and the app token are required.',
   network_error: 'Could not reach the server.',
+  not_allowed_token_type: 'Use an app token that starts with xapp- and a bot token that starts with xoxb-.',
   service_user_conflict: 'The reserved slack-bot service user is already used by a human account.',
+  slack_app_mismatch: 'The bot token and app token belong to different Slack apps.',
+  slack_bot_id_missing: 'Slack did not return a bot identity for this bot token.',
   slack_test_failed: 'Slack rejected the provided credentials.',
   unknown_agent: 'Choose an existing agent or keep the primary-agent fallback.',
 }
@@ -47,6 +51,10 @@ function getErrorMessage(error: string | undefined): string {
   }
 
   return ERROR_MESSAGES[error] ?? error
+}
+
+function getApiErrorMessage(error: string | undefined, message: string | undefined): string {
+  return getErrorMessage(message ?? error)
 }
 
 function getStatusVariant(status: SlackIntegrationStatus): 'default' | 'secondary' | 'warning' | 'outline' {
@@ -214,7 +222,7 @@ export function SlackIntegrationPanel({
         | null
 
       if (!response.ok || !data || !('integration' in data)) {
-        setError(getErrorMessage(data?.error ?? data?.message))
+        setError(getApiErrorMessage(data?.error, data?.message))
         return
       }
 
@@ -251,7 +259,7 @@ export function SlackIntegrationPanel({
         | null
 
       if (!response.ok || !data || !('ok' in data)) {
-        setError(getErrorMessage(data?.error ?? data?.message))
+        setError(getApiErrorMessage(data?.error, data?.message))
         return
       }
 
