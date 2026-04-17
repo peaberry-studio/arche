@@ -1,7 +1,6 @@
 'use server'
 
-import argon2 from 'argon2'
-
+import { hashArgon2 } from '@/lib/argon2'
 import {
   auditEvent,
   verifyPassword,
@@ -105,7 +104,7 @@ export async function changePassword(
     }
   }
 
-  const passwordHash = await argon2.hash(newPassword)
+  const passwordHash = await hashArgon2(newPassword)
   await userService.updatePasswordHash(user.id, passwordHash)
   await sessionService.revokeByUserIdExceptSession(user.id, session.sessionId)
 
@@ -169,7 +168,7 @@ export async function verify2FASetup(
 
   const recoveryCodes = generateRecoveryCodes()
   const hashedCodes = await Promise.all(
-    recoveryCodes.map((c) => argon2.hash(c))
+    recoveryCodes.map((c) => hashArgon2(c))
   )
 
   await userService.enableTwoFactor(
@@ -229,7 +228,7 @@ export async function regenerateRecoveryCodes(password: string): Promise<
 
   const recoveryCodes = generateRecoveryCodes()
   const hashedCodes = await Promise.all(
-    recoveryCodes.map((c) => argon2.hash(c))
+    recoveryCodes.map((c) => hashArgon2(c))
   )
 
   await userService.regenerateRecoveryCodes(

@@ -23,8 +23,8 @@ echo "==> Installing web dependencies..."
 cd "$WEB_DIR"
 "$PNPM_BIN" install
 
-echo "==> Rebuilding desktop SQLite native module for $(node -v)..."
-"$PNPM_BIN" rebuild better-sqlite3
+echo "==> Rebuilding desktop native modules for $(node -v)..."
+"$PNPM_BIN" rebuild argon2 better-sqlite3
 
 echo "==> Generating Prisma clients..."
 "$PNPM_BIN" prisma:generate

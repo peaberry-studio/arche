@@ -1,5 +1,4 @@
-import argon2 from 'argon2'
-
+import { verifyArgon2 } from '@/lib/argon2'
 import { getClientIp } from '@/lib/http'
 import { hashSessionToken, newSessionToken } from '@/lib/security'
 import { auditService, sessionService } from '@/lib/services'
@@ -46,7 +45,7 @@ export async function auditEvent(args: {
 }
 
 export async function verifyPassword(password: string, passwordHash: string): Promise<boolean> {
-  return argon2.verify(passwordHash, password)
+  return verifyArgon2(passwordHash, password)
 }
 
 export async function createSession(params: {

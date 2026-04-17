@@ -1,15 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mockGetAuthenticatedUser = vi.fn()
+const mockGetWebSession = vi.fn()
 const mockGetDesktopSession = vi.fn()
-
-vi.mock('@/lib/auth', () => ({
-  getAuthenticatedUser: (...args: unknown[]) => mockGetAuthenticatedUser(...args),
-}))
-
-vi.mock('@/lib/runtime/session-desktop', () => ({
-  getDesktopSession: (...args: unknown[]) => mockGetDesktopSession(...args),
-}))
 
 describe('runtime session dispatcher', () => {
   const originalEnv = process.env
@@ -22,6 +14,14 @@ describe('runtime session dispatcher', () => {
       user: { id: 'local', email: 'local@arche.local', slug: 'local', role: 'ADMIN' },
       sessionId: 'local',
     })
+
+    vi.doMock('@/lib/runtime/session-web', () => ({
+      getWebSession: (...args: unknown[]) => mockGetWebSession(...args),
+    }))
+
+    vi.doMock('@/lib/runtime/session-desktop', () => ({
+      getDesktopSession: (...args: unknown[]) => mockGetDesktopSession(...args),
+    }))
   })
 
   afterEach(() => {
@@ -35,18 +35,18 @@ describe('runtime session dispatcher', () => {
       user: { id: 'u1', email: 'a@b.com', slug: 'alice', role: 'USER' },
       sessionId: 's1',
     }
-    mockGetAuthenticatedUser.mockResolvedValue(webSession)
+    mockGetWebSession.mockResolvedValue(webSession)
 
     const { getSession } = await import('../session')
     const result = await getSession()
 
     expect(result).toEqual(webSession)
-    expect(mockGetAuthenticatedUser).toHaveBeenCalledOnce()
+    expect(mockGetWebSession).toHaveBeenCalledOnce()
   })
 
   it('returns null when web session is not authenticated', async () => {
     delete process.env.ARCHE_RUNTIME_MODE
-    mockGetAuthenticatedUser.mockResolvedValue(null)
+    mockGetWebSession.mockResolvedValue(null)
 
     const { getSession } = await import('../session')
     const result = await getSession()
@@ -66,6 +66,30 @@ describe('runtime session dispatcher', () => {
     expect(result!.user.slug).toBe('local')
     expect(result!.user.role).toBe('ADMIN')
     expect(result!.sessionId).toBe('local')
-    expect(mockGetAuthenticatedUser).not.toHaveBeenCalled()
+    expect(mockGetWebSession).not.toHaveBeenCalled()
+  })
+
+  it('does not import the web session module in desktop mode', async () => {
+    vi.resetModules()
+    process.env = {
+      ...originalEnv,
+      ARCHE_RUNTIME_MODE: 'desktop',
+      ARCHE_DESKTOP_PLATFORM: 'darwin',
+      ARCHE_DESKTOP_WEB_HOST: '127.0.0.1',
+    }
+
+    vi.doMock('@/lib/runtime/session-web', () => {
+      throw new Error('session-web should not load in desktop mode')
+    })
+
+    vi.doMock('@/lib/runtime/session-desktop', () => ({
+      getDesktopSession: (...args: unknown[]) => mockGetDesktopSession(...args),
+    }))
+
+    const { getSession } = await import('../session')
+    const result = await getSession()
+
+    expect(result).not.toBeNull()
+    expect(result!.sessionId).toBe('local')
   })
 })
