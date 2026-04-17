@@ -10,6 +10,7 @@ import type { SkillBundle } from '@/lib/skills/types'
 import { userService } from '@/lib/services'
 import {
   injectAlwaysOnAgentTools,
+  injectProactiveMcpPromptGuidance,
   injectSelfDelegationGuards,
   remapAgentConnectorTools,
 } from '@/lib/spawner/agent-config-transforms'
@@ -175,6 +176,7 @@ async function buildBaseWorkspaceConfig(
   }
 
   baseConfig = injectAlwaysOnAgentTools(baseConfig)
+  baseConfig = injectProactiveMcpPromptGuidance(baseConfig)
   return injectSelfDelegationGuards(baseConfig)
 }
 
