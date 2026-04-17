@@ -54,8 +54,9 @@ Mounts your source code for hot reload via `next dev`. Use this for active devel
 - **Postgres**: `localhost:5432`
 - Source from `apps/web/` is bind-mounted; `node_modules` lives in a named volume
 - Workspace image (`arche-workspace:latest`) is built automatically
-- Knowledge Base content is deployed to `~/.arche/kb-content` (repo bare)
-- Common config is deployed to `~/.arche/kb-config` (repo bare)
+- Project name, internal network, and state paths are derived from the current worktree
+- Knowledge Base content is deployed to `~/.arche/local-dev/<worktree-id>/kb-content` (repo bare)
+- Common config is deployed to `~/.arche/local-dev/<worktree-id>/kb-config` (repo bare)
 
 ```bash
 cd infra/deploy
@@ -65,7 +66,7 @@ cp .env.example .env   # edit if needed, defaults work for local
 
 Edit files in `apps/web/src/` and Next.js hot reloads automatically.
 
-> **Note**: `--local-dev` uses project name `arche`. Run `podman compose -f <compose-file> -p arche down` before re-running if a previous stack is still active.
+> **Note**: `--local-dev` derives its Compose project name from the current worktree path, but still binds the same local ports and domain. Stop any previous local-dev stack before starting another one.
 
 > **macOS**: Podman Machine mounts `$HOME` into the VM by default, so source bind mounts work for repos under `$HOME`. Repos outside `$HOME` need manual Podman Machine volume configuration.
 

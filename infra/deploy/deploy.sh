@@ -31,6 +31,21 @@ resolve_opencode_version() {
   printf '%s' "$version"
 }
 
+derive_local_dev_worktree_id() {
+  python3 - "$1" <<'PY'
+import hashlib
+import pathlib
+import re
+import sys
+
+repo_root = pathlib.Path(sys.argv[1]).resolve()
+base = re.sub(r'[^a-z0-9]+', '-', repo_root.name.lower()).strip('-') or 'repo'
+base = base[:24].rstrip('-') or 'repo'
+suffix = hashlib.sha256(str(repo_root).encode()).hexdigest()[:8]
+print(f"{base}-{suffix}")
+PY
+}
+
 # ---------------------------------------------------------------------------
 # Defaults
 # ---------------------------------------------------------------------------
@@ -160,8 +175,9 @@ LOCAL DEV MODE:
     - Postgres:         localhost:5432
     - Source mounted from apps/web/ with node_modules in a named volume
     - Workspace image built automatically
-    - KB content deployed to ~/.arche/kb-content
-    - KB config deployed to ~/.arche/kb-config
+    - Project/network/state paths are derived from the current worktree
+    - KB content deployed to ~/.arche/local-dev/<worktree-id>/kb-content
+    - KB config deployed to ~/.arche/local-dev/<worktree-id>/kb-config
 
 
 ENVIRONMENT VARIABLES (via .env or exported):
@@ -625,14 +641,22 @@ deploy_local_dev() {
     exit 1
   fi
 
+  LOCAL_DEV_WORKTREE_ID="$(derive_local_dev_worktree_id "$REPO_ROOT")"
+  LOCAL_DEV_PROJECT_NAME="arche-${LOCAL_DEV_WORKTREE_ID}"
+  LOCAL_DEV_NETWORK_NAME="arche-internal-${LOCAL_DEV_WORKTREE_ID}"
+  LOCAL_DEV_STATE_ROOT="$HOME/.arche/local-dev/${LOCAL_DEV_WORKTREE_ID}"
+
+  log "Using local-dev project: $LOCAL_DEV_PROJECT_NAME"
+  log "Using local-dev network: $LOCAL_DEV_NETWORK_NAME"
+
   # Build workspace image
   log "Building workspace image: arche-workspace:latest"
   podman build --build-arg OPENCODE_VERSION="$RESOLVED_OPENCODE_VERSION" -t arche-workspace:latest "$REPO_ROOT/infra/workspace-image"
 
   # Deploy Knowledge Base
-  KB_CONTENT_DEST="${KB_CONTENT_HOST_PATH:-$HOME/.arche/kb-content}"
-  KB_CONFIG_DEST="${KB_CONFIG_HOST_PATH:-$HOME/.arche/kb-config}"
-  USERS_DEST="${ARCHE_USERS_PATH:-$HOME/.arche/users}"
+  KB_CONTENT_DEST="${KB_CONTENT_HOST_PATH:-$LOCAL_DEV_STATE_ROOT/kb-content}"
+  KB_CONFIG_DEST="${KB_CONFIG_HOST_PATH:-$LOCAL_DEV_STATE_ROOT/kb-config}"
+  USERS_DEST="${ARCHE_USERS_PATH:-$LOCAL_DEV_STATE_ROOT/users}"
   log "Deploying KB content to: $KB_CONTENT_DEST"
   "$REPO_ROOT/scripts/deploy-kb.sh" "$KB_CONTENT_DEST"
   log "Deploying KB config to: $KB_CONFIG_DEST"
@@ -654,15 +678,17 @@ deploy_local_dev() {
   EXTRA_VARS_FILE=$(mktemp)
   trap 'rm -f "$TEMP_PLAYBOOK" "$EXTRA_VARS_FILE"' EXIT
 
-  export LOCAL_DOMAIN PODMAN_SOCKET_PATH IMAGE_PREFIX WEB_VERSION REPO_ROOT KB_CONTENT_DEST KB_CONFIG_DEST USERS_DEST
+  export LOCAL_DOMAIN PODMAN_SOCKET_PATH IMAGE_PREFIX WEB_VERSION REPO_ROOT KB_CONTENT_DEST KB_CONFIG_DEST USERS_DEST LOCAL_DEV_PROJECT_NAME LOCAL_DEV_NETWORK_NAME
 
   python3 -c '
 import json, os, sys
 vars = {
     "deploy_mode": "local-dev",
     "domain": os.environ["LOCAL_DOMAIN"],
+    "compose_project_name": os.environ["LOCAL_DEV_PROJECT_NAME"],
     "acme_email": "",
     "env_file_name": ".env.local-dev",
+    "opencode_network": os.environ["LOCAL_DEV_NETWORK_NAME"],
     "podman_socket_path": os.environ["PODMAN_SOCKET_PATH"],
     "image_prefix": os.environ["IMAGE_PREFIX"],
     "web_version": os.environ["WEB_VERSION"],
@@ -710,20 +736,20 @@ PLAYBOOK
     --extra-vars "deploy_dir=${SCRIPT_DIR}" \
     "$TEMP_PLAYBOOK"
 
-  # Ensure arche-internal network exists
-  if ! podman network inspect arche-internal &>/dev/null; then
-    log "Creating arche-internal network..."
-    podman network create arche-internal
+  # Ensure the local-dev workspace network exists
+  if ! podman network inspect "$LOCAL_DEV_NETWORK_NAME" &>/dev/null; then
+    log "Creating $LOCAL_DEV_NETWORK_NAME network..."
+    podman network create "$LOCAL_DEV_NETWORK_NAME"
   fi
 
   # Start the stack
   log "Starting Podman Compose stack..."
-  podman compose -f "$COMPOSE_OUT" --env-file "$SCRIPT_DIR/.env.local-dev" -p arche up -d
+  podman compose -f "$COMPOSE_OUT" --env-file "$SCRIPT_DIR/.env.local-dev" -p "$LOCAL_DEV_PROJECT_NAME" up -d
 
   # Wait for web to be ready (longer timeout — first-run pnpm install is slow)
   log "Waiting for web service to be ready (first run may take a while for pnpm install)..."
   RETRIES=60
-  until podman compose -f "$COMPOSE_OUT" -p arche exec -T web sh -c "node -e 'const net=require(\"net\");const s=net.connect(3000,\"127.0.0.1\");s.on(\"connect\",()=>process.exit(0));s.on(\"error\",()=>process.exit(1));'" 2>/dev/null; do
+  until podman compose -f "$COMPOSE_OUT" -p "$LOCAL_DEV_PROJECT_NAME" exec -T web sh -c "node -e 'const net=require(\"net\");const s=net.connect(3000,\"127.0.0.1\");s.on(\"connect\",()=>process.exit(0));s.on(\"error\",()=>process.exit(1));'" 2>/dev/null; do
     RETRIES=$((RETRIES - 1))
     if [[ $RETRIES -le 0 ]]; then
       warn "Web service did not become healthy. Continuing with migrations anyway..."
@@ -734,12 +760,12 @@ PLAYBOOK
 
   # In local-dev mode, migrations are NOT run by start.sh (uses pnpm dev, not start.sh)
   log "Running Prisma migrations..."
-  podman compose -f "$COMPOSE_OUT" -p arche exec -T web pnpm prisma migrate deploy || {
+  podman compose -f "$COMPOSE_OUT" -p "$LOCAL_DEV_PROJECT_NAME" exec -T web pnpm prisma migrate deploy || {
     warn "Migration failed — check web container logs for details."
   }
 
   log "Running seed..."
-  podman compose -f "$COMPOSE_OUT" -p arche exec -T web pnpm prisma db seed || {
+  podman compose -f "$COMPOSE_OUT" -p "$LOCAL_DEV_PROJECT_NAME" exec -T web pnpm prisma db seed || {
     warn "Seed failed — this may be expected if already seeded."
   }
 
@@ -750,14 +776,16 @@ PLAYBOOK
   info "  Workspace:         http://${LOCAL_DOMAIN}/w/${ARCHE_SEED_ADMIN_SLUG}"
   info "  Traefik dashboard: http://localhost:8081"
   info "  Postgres:         localhost:5432"
+  info "  Project:          ${LOCAL_DEV_PROJECT_NAME}"
+  info "  Network:          ${LOCAL_DEV_NETWORK_NAME}"
   echo ""
   info "Hot reload is active — edit files in apps/web/src/ and Next.js reloads automatically."
   echo ""
   info "Useful commands:"
-  info "  Logs:     podman compose -f $COMPOSE_OUT -p arche logs -f"
-  info "  Web logs: podman compose -f $COMPOSE_OUT -p arche logs -f web"
-  info "  Stop:     podman compose -f $COMPOSE_OUT -p arche down"
-  info "  Restart:  podman compose -f $COMPOSE_OUT -p arche restart"
+  info "  Logs:     podman compose -f $COMPOSE_OUT -p $LOCAL_DEV_PROJECT_NAME logs -f"
+  info "  Web logs: podman compose -f $COMPOSE_OUT -p $LOCAL_DEV_PROJECT_NAME logs -f web"
+  info "  Stop:     podman compose -f $COMPOSE_OUT -p $LOCAL_DEV_PROJECT_NAME down"
+  info "  Restart:  podman compose -f $COMPOSE_OUT -p $LOCAL_DEV_PROJECT_NAME restart"
 }
 
 # ---------------------------------------------------------------------------

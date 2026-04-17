@@ -34,5 +34,25 @@ describe('web dev scripts', () => {
     expect(composeTemplate).toContain('pnpm prisma generate')
     expect(composeTemplate).toContain('pnpm prisma:generate:desktop')
     expect(composeTemplate).toContain('pnpm next dev --webpack -H 0.0.0.0 -p 3000')
+    expect(composeTemplate).toContain("name: {{ compose_project_name | default('arche') }}")
+    expect(composeTemplate).toContain("{{ opencode_network | default('arche-internal') }}")
+  })
+
+  it('keeps local-dev env generation parameterized by the derived workspace network', () => {
+    const envTemplatePath = resolve(
+      process.cwd(),
+      '..',
+      '..',
+      'infra',
+      'deploy',
+      'ansible',
+      'roles',
+      'app',
+      'templates',
+      '.env.j2',
+    )
+    const envTemplate = readFileSync(envTemplatePath, 'utf8')
+
+    expect(envTemplate).toContain("OPENCODE_NETWORK={{ opencode_network | default('arche-internal') }}")
   })
 })
