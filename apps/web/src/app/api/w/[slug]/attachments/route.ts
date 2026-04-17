@@ -71,6 +71,12 @@ function normalizeAndValidateAttachmentPath(path: unknown): string | null {
   return normalized
 }
 
+function getAttachmentName(path: string): string | null {
+  const parts = path.split('/')
+  const name = parts[parts.length - 1]?.trim() ?? ''
+  return name.length > 0 ? name : null
+}
+
 function getAttachmentUploadName(request: NextRequest): string | null {
   const filename = new URL(request.url).searchParams.get('filename')
   if (!filename || filename.trim().length === 0) return null
@@ -181,16 +187,11 @@ export const POST = withAuth(
     const uniqueName = ensureUniqueAttachmentFilename(filename, usedNames)
     const path = `${WORKSPACE_ATTACHMENTS_DIR}/${uniqueName}`
     const contentType = request.headers.get('content-type')?.trim() ?? ''
-    const mime =
-      contentType.length > 0 && contentType !== 'application/octet-stream'
-        ? contentType
-        : inferAttachmentMimeType(uniqueName)
-
     const headers = new Headers({
       Accept: 'application/json',
       Authorization: auth.agent.authHeader,
     })
-    if (contentType) {
+    if (contentType && contentType !== 'application/octet-stream') {
       headers.set('Content-Type', contentType)
     }
 
@@ -220,20 +221,26 @@ export const POST = withAuth(
       return jsonResponse(502, { error: data?.error ?? 'upload_failed' })
     }
 
-    if (
-      !data?.ok ||
-      typeof data.path !== 'string' ||
-      typeof data.size !== 'number' ||
-      typeof data.modifiedAt !== 'number'
-    ) {
+    const attachmentPath = normalizeAndValidateAttachmentPath(data?.path)
+    if (!data?.ok || !attachmentPath || typeof data.size !== 'number' || typeof data.modifiedAt !== 'number') {
       return jsonResponse(502, { error: 'upload_failed' })
     }
 
+    const attachmentName = getAttachmentName(attachmentPath)
+    if (!attachmentName) {
+      return jsonResponse(502, { error: 'upload_failed' })
+    }
+
+    const mime =
+      contentType.length > 0 && contentType !== 'application/octet-stream'
+        ? contentType
+        : inferAttachmentMimeType(attachmentName)
+
     return jsonResponse(201, {
       attachment: {
-        id: data.path,
-        path: data.path,
-        name: uniqueName,
+        id: attachmentPath,
+        path: attachmentPath,
+        name: attachmentName,
         mime,
         size: data.size,
         uploadedAt: data.modifiedAt,

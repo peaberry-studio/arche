@@ -313,6 +313,68 @@ describe('workspace attachments route', () => {
     })
   })
 
+  it('POST passes through upstream upload errors from the workspace agent', async () => {
+    mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            entries: [],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: false, error: 'write_failed' }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { status, body } = await callPostAttachments({
+      file: new File(['bad'], 'bad.txt', { type: 'text/plain' }),
+    })
+
+    expect(status).toBe(502)
+    expect(body).toEqual({ error: 'write_failed' })
+  })
+
+  it('POST rejects malformed upload metadata from the workspace agent', async () => {
+    mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            entries: [],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          ok: true,
+          path: '.arche/attachments/bad.txt',
+          size: 3,
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { status, body } = await callPostAttachments({
+      file: new File(['bad'], 'bad.txt', { type: 'text/plain' }),
+    })
+
+    expect(status).toBe(502)
+    expect(body).toEqual({ error: 'upload_failed' })
+  })
+
   it('PATCH renames a workspace attachment', async () => {
     mockGetAuthenticatedUser.mockResolvedValue(session('alice'))
     const fetchMock = vi

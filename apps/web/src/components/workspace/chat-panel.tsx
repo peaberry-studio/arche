@@ -110,6 +110,11 @@ type ConnectorSummary = {
   name: string;
 };
 
+type AttachmentUploadFailure = {
+  name: string;
+  error: string;
+};
+
 const MAX_CONTEXT_PATHS_PER_MESSAGE = 20;
 
 function getAttachmentErrorMessage(error: string): string {
@@ -208,6 +213,7 @@ export function ChatPanel({
   const [isLoadingAttachments, setIsLoadingAttachments] = useState(false);
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
   const [attachmentsError, setAttachmentsError] = useState<string | null>(null);
+  const [attachmentUploadFailures, setAttachmentUploadFailures] = useState<AttachmentUploadFailure[]>([]);
   const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false);
   const [isManageAttachmentsOpen, setIsManageAttachmentsOpen] = useState(false);
   const [attachmentSearch, setAttachmentSearch] = useState("");
@@ -503,6 +509,7 @@ export function ChatPanel({
       setAttachments([]);
       setSelectedAttachmentPaths([]);
       setAttachmentsError(null);
+      setAttachmentUploadFailures([]);
       setIsLoadingAttachments(false);
       return;
     }
@@ -518,6 +525,7 @@ export function ChatPanel({
 
       if (!response.ok || !data?.attachments) {
         setAttachmentsError(data?.error ?? "attachments_load_failed");
+        setAttachmentUploadFailures([]);
         return;
       }
 
@@ -529,8 +537,10 @@ export function ChatPanel({
         )
       );
       setAttachmentsError(null);
+      setAttachmentUploadFailures([]);
     } catch {
       setAttachmentsError("attachments_load_failed");
+      setAttachmentUploadFailures([]);
     } finally {
       setIsLoadingAttachments(false);
     }
@@ -553,13 +563,16 @@ export function ChatPanel({
     if (!attachmentsEnabled || files.length === 0) return;
 
     if (files.length > MAX_ATTACHMENTS_PER_UPLOAD) {
+      setAttachmentUploadFailures([]);
       setAttachmentsError("too_many_files");
       return;
     }
 
     setIsUploadingAttachment(true);
     setAttachmentsError(null);
+    setAttachmentUploadFailures([]);
 
+    const failedUploads: AttachmentUploadFailure[] = [];
     let nextError: string | null = null;
     let shouldRefreshAttachments = false;
 
@@ -569,6 +582,7 @@ export function ChatPanel({
 
       for (const file of files) {
         if (file.size > MAX_ATTACHMENT_UPLOAD_BYTES) {
+          failedUploads.push({ name: file.name, error: "file_too_large" });
           firstError ??= "file_too_large";
           continue;
         }
@@ -591,17 +605,21 @@ export function ChatPanel({
             .catch(() => null)) as { attachment?: WorkspaceAttachment; error?: string } | null;
 
           if (response.status === 413) {
+            failedUploads.push({ name: file.name, error: "file_too_large" });
             firstError ??= "file_too_large";
             continue;
           }
 
           if (!response.ok || !data?.attachment) {
-            firstError ??= data?.error ?? "upload_failed";
+            const error = data?.error ?? "upload_failed";
+            failedUploads.push({ name: file.name, error });
+            firstError ??= error;
             continue;
           }
 
           uploaded.push(data.attachment);
         } catch {
+          failedUploads.push({ name: file.name, error: "upload_failed" });
           firstError ??= "upload_failed";
         }
       }
@@ -629,6 +647,8 @@ export function ChatPanel({
         await refreshAttachments();
       }
 
+      setAttachmentUploadFailures(failedUploads);
+
       if (nextError !== null || !shouldRefreshAttachments) {
         setAttachmentsError(nextError);
       }
@@ -648,6 +668,7 @@ export function ChatPanel({
   const handleRevealAttachmentsDirectory = useCallback(async () => {
     if (!desktopBridge) return;
 
+    setAttachmentUploadFailures([]);
     setAttachmentsError(null);
     const result = await desktopBridge.revealAttachmentsDirectory();
     if (!result.ok) {
@@ -709,6 +730,7 @@ export function ChatPanel({
       if (!trimmedName || trimmedName === attachment.name) return;
 
       setIsMutatingAttachments(true);
+      setAttachmentUploadFailures([]);
       setAttachmentsError(null);
 
       try {
@@ -757,6 +779,7 @@ export function ChatPanel({
       if (!confirmed) return;
 
       setIsMutatingAttachments(true);
+      setAttachmentUploadFailures([]);
       setAttachmentsError(null);
 
       try {
@@ -1245,9 +1268,14 @@ export function ChatPanel({
         )}
 
         {attachmentsEnabled && attachmentsError && (
-          <p className="mb-3 text-xs text-destructive">
-            {getAttachmentErrorMessage(attachmentsError)}
-          </p>
+          <div className="mb-3 space-y-1 text-xs text-destructive">
+            <p>{getAttachmentErrorMessage(attachmentsError)}</p>
+            {attachmentUploadFailures.map((failure) => (
+              <p key={`${failure.name}:${failure.error}`}>
+                {`${failure.name}: ${getAttachmentErrorMessage(failure.error)}`}
+              </p>
+            ))}
+          </div>
         )}
         
         <div className="relative flex items-end gap-1.5 rounded-xl border border-white/10 bg-foreground/5 px-2 py-2">

@@ -699,6 +699,7 @@ describe("ChatPanel textarea", () => {
     });
 
     expect(await screen.findByText("Some files couldn't be uploaded.")).toBeTruthy();
+    expect(await screen.findByText("second.png: Couldn't upload the selected file.")).toBeTruthy();
     expect(await screen.findByText("first.png")).toBeTruthy();
   });
 
