@@ -55,7 +55,7 @@ describe('capability enforcement matrix', () => {
     { capability: 'containers', web: true, desktop: false },
     { capability: 'workspaceAgent', web: true, desktop: true },
     { capability: 'reaper', web: true, desktop: false },
-    { capability: 'csrf', web: true, desktop: true },
+    { capability: 'csrf', web: true, desktop: false },
     { capability: 'twoFactor', web: true, desktop: false },
     { capability: 'teamManagement', web: true, desktop: false },
     { capability: 'connectors', web: true, desktop: true },
