@@ -361,12 +361,11 @@ describe('createMcpServer', () => {
     )?.[2]
     const result = await handler?.()
 
-    expect(result).toEqual({
-      messages: [{
-        role: 'user',
-        content: { type: 'text', text: '# Guide\nHello' },
-      }],
-    })
+    expect(result.messages).toHaveLength(1)
+    expect(result.messages[0].role).toBe('user')
+    expect(result.messages[0].content.type).toBe('text')
+    expect(result.messages[0].content.text).toContain('# Arche Operating Mode')
+    expect(result.messages[0].content.text).toContain('# Guide\nHello')
   })
 
   it('arche-workspace-context prompt returns error when guide unavailable', async () => {
@@ -412,6 +411,7 @@ describe('createMcpServer', () => {
 
     expect(result.messages).toHaveLength(1)
     const text = result.messages[0].content.text
+    expect(text).toContain('# Arche Operating Mode')
     expect(text).toContain('# Workspace Context')
     expect(text).toContain('# Guide')
     expect(text).toContain('# Agent: Reviewer')
@@ -456,6 +456,7 @@ describe('createMcpServer', () => {
 
     expect(result.messages).toHaveLength(1)
     const text = result.messages[0].content.text
+    expect(text).toContain('# Arche Operating Mode')
     expect(text).toContain('# Skill: code-review')
     expect(text).toContain('Thorough code review skill')
     expect(text).toContain('Step 1: Read the diff')
