@@ -8,6 +8,7 @@ type SettingsSectionProps = {
   action?: ReactNode
   headingLevel?: 'h2' | 'h3'
   className?: string
+  titleClassName?: string
   children: ReactNode
 }
 
@@ -17,6 +18,7 @@ export function SettingsSection({
   action,
   headingLevel = 'h2',
   className,
+  titleClassName,
   children,
 }: SettingsSectionProps) {
   const Heading = headingLevel
@@ -30,7 +32,7 @@ export function SettingsSection({
     >
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-1">
-          <Heading className="text-lg font-medium">{title}</Heading>
+          <Heading className={cn('text-lg font-medium', titleClassName)}>{title}</Heading>
           {description ? (
             <p className="text-sm text-muted-foreground">{description}</p>
           ) : null}

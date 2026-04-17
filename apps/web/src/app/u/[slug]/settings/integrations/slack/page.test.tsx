@@ -11,6 +11,7 @@ const getRuntimeCapabilitiesMock = vi.fn()
 const getSessionMock = vi.fn()
 const get2FAStatusMock = vi.fn()
 const isDesktopMock = vi.fn()
+const ensureSlackServiceUserMock = vi.fn()
 
 vi.mock('next/link', () => ({
   default: ({ children, href, className }: { children: React.ReactNode; href: string; className?: string }) => (
@@ -22,20 +23,10 @@ vi.mock('next/navigation', () => ({
   redirect: (path: string) => redirectMock(path),
 }))
 
-vi.mock('@/components/providers/provider-credentials-panel', () => ({
-  ProviderCredentialsPanel: ({ slug, showHeader }: { slug: string; showHeader?: boolean }) => (
-    <div>Provider credentials panel {slug} {String(showHeader)}</div>
+vi.mock('@/components/settings/slack-integration-settings-content', () => ({
+  SlackIntegrationSettingsContent: ({ slug, showProviderCredentials }: { slug: string; showProviderCredentials?: boolean }) => (
+    <div>Slack integration settings content {slug} {String(showProviderCredentials)}</div>
   ),
-}))
-
-vi.mock('@/components/settings/slack-integration-panel', () => ({
-  SlackIntegrationPanel: ({ slug, collapsible, showDangerZone }: { slug: string; collapsible?: boolean; showDangerZone?: boolean }) => (
-    <div>Slack integration panel {slug} {String(collapsible)} {String(showDangerZone)}</div>
-  ),
-}))
-
-vi.mock('@/components/settings/slack-integration-danger-zone', () => ({
-  SlackIntegrationDangerZone: ({ slug }: { slug: string }) => <div>Slack danger zone {slug}</div>,
 }))
 
 vi.mock('@/lib/runtime/capabilities', () => ({
@@ -48,6 +39,10 @@ vi.mock('@/lib/runtime/mode', () => ({
 
 vi.mock('@/lib/runtime/session', () => ({
   getSession: () => getSessionMock(),
+}))
+
+vi.mock('@/lib/slack/service-user', () => ({
+  ensureSlackServiceUser: () => ensureSlackServiceUserMock(),
 }))
 
 vi.mock('../../security/actions', () => ({
@@ -72,6 +67,7 @@ describe('SlackIntegrationSettingsPage', () => {
       sessionId: 'session-1',
     })
     get2FAStatusMock.mockResolvedValue({ ok: true })
+    ensureSlackServiceUserMock.mockResolvedValue({ ok: true, user: { id: 'service-1', slug: 'slack-bot' } })
   })
 
   it('renders the dedicated Slack integration page for admins', async () => {
@@ -81,10 +77,18 @@ describe('SlackIntegrationSettingsPage', () => {
 
     expect(screen.getByRole('heading', { name: 'Slack integration' })).toBeTruthy()
     expect(screen.getByRole('link', { name: /Back to integrations/ }).getAttribute('href')).toBe('/u/alice/settings?section=integrations')
-    expect(screen.getByText('Slack integration panel alice false false')).toBeTruthy()
-    expect(screen.getByText('Provider credentials for Slack bot')).toBeTruthy()
-    expect(screen.getByText('Provider credentials panel slack-bot false')).toBeTruthy()
-    expect(screen.getByText('Slack danger zone alice')).toBeTruthy()
+    expect(screen.getByText('Slack integration settings content alice true')).toBeTruthy()
+    expect(ensureSlackServiceUserMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('hides provider credentials when the reserved service user cannot be provisioned', async () => {
+    ensureSlackServiceUserMock.mockResolvedValue({ ok: false, error: 'service_user_conflict' })
+
+    const Page = (await import('./page')).default
+
+    render(await Page({ params: Promise.resolve({ slug: 'alice' }) }))
+
+    expect(screen.getByText('Slack integration settings content alice false')).toBeTruthy()
   })
 
   it('redirects non-admin users back to settings integrations', async () => {

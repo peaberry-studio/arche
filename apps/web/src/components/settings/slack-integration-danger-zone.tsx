@@ -9,6 +9,8 @@ import type { SlackIntegrationGetResponse } from '@/lib/slack/types'
 
 type SlackIntegrationDangerZoneProps = {
   slug: string
+  refreshVersion?: number
+  onMutated?: () => void
 }
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -16,7 +18,11 @@ const ERROR_MESSAGES: Record<string, string> = {
   network_error: 'Could not reach the server.',
 }
 
-export function SlackIntegrationDangerZone({ slug }: SlackIntegrationDangerZoneProps) {
+export function SlackIntegrationDangerZone({
+  slug,
+  refreshVersion,
+  onMutated,
+}: SlackIntegrationDangerZoneProps) {
   const [enabled, setEnabled] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isDisabling, setIsDisabling] = useState(false)
@@ -48,7 +54,7 @@ export function SlackIntegrationDangerZone({ slug }: SlackIntegrationDangerZoneP
 
   useEffect(() => {
     void loadIntegration()
-  }, [loadIntegration])
+  }, [loadIntegration, refreshVersion])
 
   async function handleDisable() {
     setIsDisabling(true)
@@ -66,6 +72,7 @@ export function SlackIntegrationDangerZone({ slug }: SlackIntegrationDangerZoneP
       }
 
       setEnabled(false)
+      onMutated?.()
     } catch {
       setError(getErrorMessage('network_error'))
     } finally {
@@ -77,7 +84,7 @@ export function SlackIntegrationDangerZone({ slug }: SlackIntegrationDangerZoneP
     <SettingsSection
       title="Danger zone"
       description="Disabling the integration stops the Socket Mode connection and clears stored tokens."
-      className="border-destructive/30 bg-destructive/5"
+      titleClassName="text-destructive"
       action={
         <Button
           type="button"

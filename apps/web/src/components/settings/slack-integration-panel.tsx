@@ -21,6 +21,8 @@ type SlackIntegrationPanelProps = {
   slug: string
   collapsible?: boolean
   showDangerZone?: boolean
+  refreshVersion?: number
+  onMutated?: () => void
 }
 
 const SLACK_DOCS_URL = 'https://api.slack.com/apis/connections/socket'
@@ -122,6 +124,8 @@ export function SlackIntegrationPanel({
   slug,
   collapsible = true,
   showDangerZone = true,
+  refreshVersion,
+  onMutated,
 }: SlackIntegrationPanelProps) {
   const [agents, setAgents] = useState<SlackIntegrationGetResponse['agents']>([])
   const [integration, setIntegration] = useState<SlackIntegrationSummary | null>(null)
@@ -172,7 +176,7 @@ export function SlackIntegrationPanel({
 
   useEffect(() => {
     void loadIntegration()
-  }, [loadIntegration])
+  }, [loadIntegration, refreshVersion])
 
   async function handleCopy(format: 'json' | 'yaml') {
     const text = format === 'yaml' ? SLACK_MANIFEST_YAML : SLACK_MANIFEST_JSON
@@ -219,6 +223,7 @@ export function SlackIntegrationPanel({
       setDefaultAgentId(data.integration.defaultAgentId ?? '')
       setBotToken('')
       setAppToken('')
+      onMutated?.()
     } catch {
       setError(getErrorMessage('network_error'))
     } finally {
