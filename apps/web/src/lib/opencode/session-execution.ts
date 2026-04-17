@@ -1,5 +1,6 @@
 import { createInstanceClient } from '@/lib/opencode/client'
-import { extractTextContent, transformParts } from '@/lib/opencode/transform'
+import { transformParts } from '@/lib/opencode/transform'
+import type { MessagePart } from '@/lib/opencode/types'
 import { instanceService } from '@/lib/services'
 import { getInstanceStatus, startInstance } from '@/lib/spawner/core'
 import { deriveWorkspaceMessageRuntimeState } from '@/lib/workspace-message-state'
@@ -37,6 +38,14 @@ function getMessagesSinceCursor(
   }
 
   return allMessages.slice(cursor.messageCount)
+}
+
+function extractAssistantReplyText(parts: unknown[]): string {
+  return transformParts(parts)
+    .filter((part): part is Extract<MessagePart, { type: 'text' }> => part.type === 'text')
+    .map((part) => part.text)
+    .join('\n')
+    .trim()
 }
 
 async function inspectSessionOutcome(
@@ -185,7 +194,7 @@ export async function readLatestAssistantText(
       continue
     }
 
-    const text = extractTextContent(transformParts(message.parts ?? [])).trim()
+    const text = extractAssistantReplyText(message.parts ?? [])
     if (text) {
       return text
     }

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+type ReadLatestAssistantTextFn = typeof import('@/lib/opencode/session-execution').readLatestAssistantText
+
 function createDeferred<T>() {
   let resolve!: (value: T) => void
   let reject!: (reason?: unknown) => void
@@ -37,6 +39,7 @@ const markSocketConnectedMock = vi.fn()
 const pruneEventReceiptsMock = vi.fn()
 const readLatestAssistantTextMock = vi.fn()
 const recordEventReceiptMock = vi.fn()
+let realReadLatestAssistantText: ReadLatestAssistantTextFn | null = null
 const upsertThreadBindingMock = vi.fn()
 const waitForSessionToCompleteMock = vi.fn()
 const recordedEventIds = new Set<string>()
@@ -62,12 +65,18 @@ vi.mock('@/lib/opencode/client', () => ({
   createInstanceClient: (...args: unknown[]) => createInstanceClientMock(...args),
 }))
 
-vi.mock('@/lib/opencode/session-execution', () => ({
-  captureSessionMessageCursor: (...args: unknown[]) => captureSessionMessageCursorMock(...args),
-  ensureWorkspaceRunningForExecution: (...args: unknown[]) => ensureWorkspaceRunningForExecutionMock(...args),
-  readLatestAssistantText: (...args: unknown[]) => readLatestAssistantTextMock(...args),
-  waitForSessionToComplete: (...args: unknown[]) => waitForSessionToCompleteMock(...args),
-}))
+vi.mock('@/lib/opencode/session-execution', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/opencode/session-execution')>()
+  realReadLatestAssistantText = actual.readLatestAssistantText
+
+  return {
+    ...actual,
+    captureSessionMessageCursor: (...args: unknown[]) => captureSessionMessageCursorMock(...args),
+    ensureWorkspaceRunningForExecution: (...args: unknown[]) => ensureWorkspaceRunningForExecutionMock(...args),
+    readLatestAssistantText: (...args: Parameters<ReadLatestAssistantTextFn>) => readLatestAssistantTextMock(...args),
+    waitForSessionToComplete: (...args: unknown[]) => waitForSessionToCompleteMock(...args),
+  }
+})
 
 vi.mock('../agents', () => ({
   loadSlackAgentOptions: (...args: unknown[]) => loadSlackAgentOptionsMock(...args),
@@ -254,6 +263,76 @@ describe('slack socket manager', () => {
 
     expect(upsertThreadBindingMock).toHaveBeenCalledTimes(1)
     expect(recordEventReceiptMock).toHaveBeenCalledTimes(1)
+
+    stopSlackSocketManager()
+  })
+
+  it('publishes only the visible assistant text when the session message includes reasoning parts', async () => {
+    const client = {
+      chat: {
+        postMessage: vi.fn().mockResolvedValue({ ts: 'reply-1' }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      conversations: {
+        history: vi.fn().mockResolvedValue({ messages: [] }),
+        replies: vi.fn().mockResolvedValue({ messages: [] }),
+      },
+      users: {
+        info: vi.fn().mockResolvedValue({ user: { profile: { display_name: 'Alice' } } }),
+      },
+    }
+    const sessionMessagesMock = vi.fn().mockResolvedValue({
+      data: [
+        {
+          info: {
+            role: 'assistant',
+            time: { completed: 1 },
+          },
+          parts: [
+            { id: 'part-1', text: 'Internal reasoning', type: 'reasoning' },
+            { id: 'part-2', text: 'Final reply', type: 'text' },
+          ],
+        },
+      ],
+    })
+
+    readLatestAssistantTextMock.mockImplementation((...args: Parameters<ReadLatestAssistantTextFn>) => {
+      if (!realReadLatestAssistantText) {
+        throw new Error('readLatestAssistantText_unavailable')
+      }
+
+      return realReadLatestAssistantText(...args)
+    })
+    createInstanceClientMock.mockResolvedValue({
+      session: {
+        create: vi.fn().mockResolvedValue({ data: { id: 'session-1' } }),
+        messages: sessionMessagesMock,
+        promptAsync: vi.fn().mockResolvedValue({}),
+      },
+    })
+
+    const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
+    await syncSlackSocketManager()
+
+    const mentionHandler = appInstances[0].event.mock.calls.find(([name]) => name === 'app_mention')?.[1]
+    expect(typeof mentionHandler).toBe('function')
+
+    await mentionHandler({
+      body: { event_id: 'evt-visible-reply' },
+      client,
+      event: {
+        channel: 'C123',
+        text: '<@U999> hello',
+        ts: '100.1',
+        user: 'U123',
+      },
+    })
+
+    expect(client.chat.update).toHaveBeenCalledWith({
+      channel: 'C123',
+      text: 'Final reply',
+      ts: 'reply-1',
+    })
 
     stopSlackSocketManager()
   })

@@ -84,4 +84,29 @@ describe('session execution helpers', () => {
       { messageCount: 1 },
     )).resolves.toBeNull()
   })
+
+  it('returns only visible assistant text and excludes reasoning parts', async () => {
+    const messages = vi.fn().mockResolvedValue({
+      data: [
+        {
+          info: {
+            role: 'assistant',
+            time: { completed: 1 },
+          },
+          parts: [
+            { id: 'part-1', text: 'Internal reasoning', type: 'reasoning' },
+            { id: 'part-2', text: 'Final reply', type: 'text' },
+          ],
+        },
+      ],
+    })
+
+    const { readLatestAssistantText } = await import('../session-execution')
+    await expect(readLatestAssistantText(
+      {
+        session: { messages },
+      } as Parameters<typeof readLatestAssistantText>[0],
+      'session-1',
+    )).resolves.toBe('Final reply')
+  })
 })
