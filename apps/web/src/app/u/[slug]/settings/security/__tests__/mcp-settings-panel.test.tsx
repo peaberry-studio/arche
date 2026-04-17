@@ -183,7 +183,7 @@ describe('McpSettingsPanel', () => {
 
     const cancelButton = screen.getByRole('button', { name: 'Cancel' })
     const createTokenButton = screen.getByRole('button', { name: 'Create token' })
-    const expires30DaysButton = screen.getByRole('button', { name: '30 days' })
+    const expires30DaysButton = screen.getByRole('radio', { name: '30 days' })
 
     expect(cancelButton.className.includes('cursor-pointer')).toBe(true)
     expect(createTokenButton.className.includes('cursor-pointer')).toBe(true)
@@ -212,12 +212,20 @@ describe('McpSettingsPanel', () => {
     expect(screen.getByText(/claude mcp add-json arche/i)).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Copy command' })).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Codex' }))
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Codex' }))
 
     expect(screen.getByText(/export ARCHE_MCP_TOKEN='arche_pat_123'/i)).toBeTruthy()
-    expect(screen.getByText(/codex mcp add arche --url 'http:\/\/arche\.lvh\.me:8080\/api\/mcp'/i)).toBeTruthy()
+    expect(screen.getByText(/codex mcp add arche/i)).toBeTruthy()
+    expect(screen.getByText(/--url 'http:\/\/arche\.lvh\.me:8080\/api\/mcp'/i)).toBeTruthy()
+    expect(screen.getByText(/--bearer-token-env-var ARCHE_MCP_TOKEN/i)).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Config' }))
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Cursor' }))
+
+    expect(screen.getByText(/~\/\.cursor\/mcp\.json/i)).toBeTruthy()
+    expect(screen.getByText(/"mcpServers"/i)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Copy config' })).toBeTruthy()
+
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Manual' }))
 
     expect(screen.getByText(/"mcpServers"/i)).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Copy config' })).toBeTruthy()
