@@ -12,6 +12,7 @@ function createDeferred<T>() {
 }
 
 const appConstructorMock = vi.fn()
+let nextAppStartImplementation: (() => Promise<void>) | null = null
 const appInstances: Array<{
   error: ReturnType<typeof vi.fn>
   event: ReturnType<typeof vi.fn>
@@ -33,6 +34,7 @@ const findThreadBindingMock = vi.fn()
 const markEventReceivedMock = vi.fn()
 const markLastErrorMock = vi.fn()
 const markSocketConnectedMock = vi.fn()
+const pruneEventReceiptsMock = vi.fn()
 const readLatestAssistantTextMock = vi.fn()
 const recordEventReceiptMock = vi.fn()
 const upsertThreadBindingMock = vi.fn()
@@ -44,7 +46,9 @@ vi.mock('@slack/bolt', () => ({
     const instance = {
       error: vi.fn(),
       event: vi.fn(),
-      start: vi.fn().mockResolvedValue(undefined),
+      start: vi.fn().mockImplementation(async () => {
+        await nextAppStartImplementation?.()
+      }),
       stop: vi.fn().mockResolvedValue(undefined),
     }
     appInstances.push(instance)
@@ -86,22 +90,24 @@ vi.mock('../service-user', () => ({
 }))
 
 vi.mock('@/lib/services', () => ({
-  slackService: {
-    findIntegration: (...args: unknown[]) => findIntegrationMock(...args),
-    hasEventReceipt: (...args: unknown[]) => hasEventReceiptMock(...args),
-    findThreadBinding: (...args: unknown[]) => findThreadBindingMock(...args),
-    markEventReceived: (...args: unknown[]) => markEventReceivedMock(...args),
-    markLastError: (...args: unknown[]) => markLastErrorMock(...args),
-    markSocketConnected: (...args: unknown[]) => markSocketConnectedMock(...args),
-    recordEventReceipt: (...args: unknown[]) => recordEventReceiptMock(...args),
-    upsertThreadBinding: (...args: unknown[]) => upsertThreadBindingMock(...args),
-  },
+    slackService: {
+      findIntegration: (...args: unknown[]) => findIntegrationMock(...args),
+      hasEventReceipt: (...args: unknown[]) => hasEventReceiptMock(...args),
+      findThreadBinding: (...args: unknown[]) => findThreadBindingMock(...args),
+      markEventReceived: (...args: unknown[]) => markEventReceivedMock(...args),
+      markLastError: (...args: unknown[]) => markLastErrorMock(...args),
+      markSocketConnected: (...args: unknown[]) => markSocketConnectedMock(...args),
+      pruneEventReceipts: (...args: unknown[]) => pruneEventReceiptsMock(...args),
+      recordEventReceipt: (...args: unknown[]) => recordEventReceiptMock(...args),
+      upsertThreadBinding: (...args: unknown[]) => upsertThreadBindingMock(...args),
+    },
 }))
 
 describe('slack socket manager', () => {
   beforeEach(async () => {
     vi.clearAllMocks()
     appInstances.length = 0
+    nextAppStartImplementation = null
     recordedEventIds.clear()
     const { stopSlackSocketManager } = await import('../socket-mode')
     stopSlackSocketManager()
@@ -154,6 +160,7 @@ describe('slack socket manager', () => {
     markEventReceivedMock.mockResolvedValue(undefined)
     markLastErrorMock.mockResolvedValue(undefined)
     markSocketConnectedMock.mockResolvedValue(undefined)
+    pruneEventReceiptsMock.mockResolvedValue(undefined)
   })
 
   it('starts a socket-mode app for an enabled integration', async () => {
@@ -252,6 +259,7 @@ describe('slack socket manager', () => {
   })
 
   it('does not persist an event receipt when processing fails, so the same event can retry', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const client = {
       chat: {
         postMessage: vi.fn().mockResolvedValue({ ts: 'reply-1' }),
@@ -288,6 +296,10 @@ describe('slack socket manager', () => {
     })
 
     expect(recordEventReceiptMock).not.toHaveBeenCalled()
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      '[slack] Failed to handle event',
+      expect.objectContaining({ eventId: 'evt-1', type: 'app_mention' }),
+    )
 
     await mentionHandler({
       body: { event_id: 'evt-1' },
@@ -302,6 +314,45 @@ describe('slack socket manager', () => {
 
     expect(upsertThreadBindingMock).toHaveBeenCalledTimes(1)
     expect(recordEventReceiptMock).toHaveBeenCalledTimes(1)
+
+    consoleErrorSpy.mockRestore()
+    stopSlackSocketManager()
+  })
+
+  it('does not store receipts for ignored Slack bot messages', async () => {
+    const client = {
+      chat: {
+        postMessage: vi.fn().mockResolvedValue({ ts: 'reply-1' }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      conversations: {
+        history: vi.fn().mockResolvedValue({ messages: [] }),
+        replies: vi.fn().mockResolvedValue({ messages: [] }),
+      },
+      users: {
+        info: vi.fn().mockResolvedValue({ user: { profile: { display_name: 'Alice' } } }),
+      },
+    }
+
+    const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
+    await syncSlackSocketManager()
+
+    const messageHandler = appInstances[0].event.mock.calls.find(([name]) => name === 'message')?.[1]
+    expect(typeof messageHandler).toBe('function')
+
+    await messageHandler({
+      body: { event_id: 'evt-bot-1' },
+      client,
+      event: {
+        bot_id: 'B123',
+        channel: 'C123',
+        text: 'ignored',
+        ts: '100.1',
+      },
+    })
+
+    expect(recordEventReceiptMock).not.toHaveBeenCalled()
+    expect(pruneEventReceiptsMock).not.toHaveBeenCalled()
 
     stopSlackSocketManager()
   })
@@ -399,6 +450,75 @@ describe('slack socket manager', () => {
 
     expect(sessionCreateMock).toHaveBeenCalledTimes(1)
     expect(upsertThreadBindingMock).toHaveBeenCalledTimes(1)
+
+    stopSlackSocketManager()
+  })
+
+  it('prunes old Slack event receipts after recording a new event', async () => {
+    vi.useFakeTimers()
+
+    try {
+      vi.setSystemTime(new Date('2026-04-20T00:00:00.000Z'))
+      const client = {
+        chat: {
+          postMessage: vi.fn().mockResolvedValue({ ts: 'reply-1' }),
+          update: vi.fn().mockResolvedValue({}),
+        },
+        conversations: {
+          history: vi.fn().mockResolvedValue({ messages: [] }),
+          replies: vi.fn().mockResolvedValue({ messages: [] }),
+        },
+        users: {
+          info: vi.fn().mockResolvedValue({ user: { profile: { display_name: 'Alice' } } }),
+        },
+      }
+
+      const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
+      await syncSlackSocketManager()
+
+      const mentionHandler = appInstances[0].event.mock.calls.find(([name]) => name === 'app_mention')?.[1]
+      expect(typeof mentionHandler).toBe('function')
+
+      await mentionHandler({
+        body: { event_id: 'evt-prune-1' },
+        client,
+        event: {
+          channel: 'C123',
+          text: '<@U999> hello',
+          ts: '100.1',
+          user: 'U123',
+        },
+      })
+
+      expect(pruneEventReceiptsMock).toHaveBeenCalledWith(new Date('2026-04-13T00:00:00.000Z'))
+
+      stopSlackSocketManager()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not retain a socket app that finishes starting after shutdown begins', async () => {
+    const startDeferred = createDeferred<void>()
+    nextAppStartImplementation = () => startDeferred.promise
+
+    const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
+    const syncPromise = syncSlackSocketManager()
+
+    await vi.waitFor(() => {
+      expect(appConstructorMock).toHaveBeenCalledTimes(1)
+      expect(appInstances[0].start).toHaveBeenCalledTimes(1)
+    })
+
+    stopSlackSocketManager()
+    startDeferred.resolve(undefined)
+    await syncPromise
+
+    expect(appInstances[0].stop).toHaveBeenCalledTimes(1)
+
+    await syncSlackSocketManager()
+
+    expect(appConstructorMock).toHaveBeenCalledTimes(2)
 
     stopSlackSocketManager()
   })

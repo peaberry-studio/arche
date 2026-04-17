@@ -177,6 +177,16 @@ export async function recordEventReceipt(args: {
   }
 }
 
+export function pruneEventReceipts(olderThan: Date) {
+  return prisma.slackEventReceipt.deleteMany({
+    where: {
+      receivedAt: {
+        lt: olderThan,
+      },
+    },
+  })
+}
+
 export function findThreadBinding(channelId: string, threadTs: string): Promise<SlackThreadBindingRecord | null> {
   return prisma.slackThreadBinding.findUnique({
     where: {

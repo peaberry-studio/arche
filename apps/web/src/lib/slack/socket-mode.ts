@@ -15,6 +15,8 @@ import { ensureSlackServiceUser } from '@/lib/slack/service-user'
 import { slackService } from '@/lib/services'
 
 const SLACK_MANAGER_SYNC_INTERVAL_MS = 30_000
+const SLACK_EVENT_RECEIPT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
+const SLACK_EVENT_RECEIPT_PRUNE_INTERVAL_MS = 60 * 60 * 1000
 
 type SlackEventEnvelope = {
   event_id?: string
@@ -53,6 +55,8 @@ let currentApp: ManagedSlackApp | null = null
 let needsResync = false
 let syncInterval: NodeJS.Timeout | null = null
 let syncPromise: Promise<void> | null = null
+let lastEventReceiptPrunedAt = 0
+let managerGeneration = 0
 const eventExecutionLocks = new Map<string, Promise<void>>()
 const threadExecutionLocks = new Map<string, Promise<void>>()
 
@@ -73,6 +77,8 @@ export function startSlackSocketManager(): void {
 }
 
 export function stopSlackSocketManager(): void {
+  managerGeneration += 1
+
   if (syncInterval) {
     clearInterval(syncInterval)
     syncInterval = null
@@ -80,6 +86,7 @@ export function stopSlackSocketManager(): void {
 
   if (!currentApp) {
     needsResync = false
+    lastEventReceiptPrunedAt = 0
     return
   }
 
@@ -88,6 +95,7 @@ export function stopSlackSocketManager(): void {
   })
   currentApp = null
   needsResync = false
+  lastEventReceiptPrunedAt = 0
 }
 
 export async function syncSlackSocketManager(forceReconnect = false): Promise<void> {
@@ -103,6 +111,7 @@ export async function syncSlackSocketManager(forceReconnect = false): Promise<vo
 }
 
 async function performSlackSocketSync(forceReconnect: boolean): Promise<void> {
+  const syncGeneration = managerGeneration
   const integration = await slackService.findIntegration()
   if (!integration?.enabled || !integration.botTokenSecret || !integration.appTokenSecret) {
     await teardownCurrentApp()
@@ -127,6 +136,11 @@ async function performSlackSocketSync(forceReconnect: boolean): Promise<void> {
     })
 
     await nextApp.start()
+    if (syncGeneration !== managerGeneration) {
+      await nextApp.stop().catch(() => undefined)
+      return
+    }
+
     currentApp = {
       app: nextApp,
       version: integration.version,
@@ -314,9 +328,30 @@ async function handleSlackEvent(args: {
       type: args.type,
     })
     if (recorded) {
+      await maybePruneSlackEventReceipts()
       await slackService.markEventReceived(new Date()).catch(() => undefined)
     }
-  }).catch(() => undefined)
+  }).catch((error) => {
+    console.error('[slack] Failed to handle event', {
+      error,
+      eventId,
+      type: args.type,
+    })
+  })
+}
+
+async function maybePruneSlackEventReceipts(): Promise<void> {
+  const now = Date.now()
+  if (now - lastEventReceiptPrunedAt < SLACK_EVENT_RECEIPT_PRUNE_INTERVAL_MS) {
+    return
+  }
+
+  lastEventReceiptPrunedAt = now
+  try {
+    await slackService.pruneEventReceipts(new Date(now - SLACK_EVENT_RECEIPT_RETENTION_MS))
+  } catch {
+    lastEventReceiptPrunedAt = 0
+  }
 }
 
 async function finalizeSlackReply(
