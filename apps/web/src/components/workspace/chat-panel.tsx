@@ -562,39 +562,45 @@ export function ChatPanel({
       return;
     }
 
-    const formData = new FormData();
-    files.forEach((file) => {
-      formData.append("files", file);
-    });
-
     setIsUploadingAttachment(true);
     setAttachmentsError(null);
 
     try {
-      const response = await fetch(`/api/w/${slug}/attachments`, {
-        method: "POST",
-        body: formData,
-      });
+      const uploaded: WorkspaceAttachment[] = [];
+      let firstFailure: string | null = null;
 
-      const data = (await response
-        .json()
-        .catch(() => null)) as {
-        uploaded?: WorkspaceAttachment[];
-        failed?: Array<{ name: string; error: string }>;
-        error?: string;
-      } | null;
+      for (const file of files) {
+        const headers = file.type ? { "Content-Type": file.type } : undefined;
+        const response = await fetch(
+          `/api/w/${slug}/attachments?filename=${encodeURIComponent(file.name)}`,
+          {
+            method: "POST",
+            headers,
+            body: file,
+          }
+        );
 
-      if (response.status === 413) {
-        setAttachmentsError("file_too_large");
-        return;
+        const data = (await response
+          .json()
+          .catch(() => null)) as {
+          uploaded?: WorkspaceAttachment[];
+          error?: string;
+        } | null;
+
+        if (response.status === 413) {
+          firstFailure ??= "file_too_large";
+          continue;
+        }
+
+        if (!response.ok || !data?.uploaded?.length) {
+          firstFailure ??= data?.error ?? "upload_failed";
+          continue;
+        }
+
+        uploaded.push(...data.uploaded);
       }
 
-      if (!response.ok || !data?.uploaded) {
-        setAttachmentsError(data?.error ?? "upload_failed");
-        return;
-      }
-
-      const uploaded = data.uploaded;
+      if (uploaded.length > 0) {
       setAttachments((previous) => {
         const indexed = new Map(previous.map((attachment) => [attachment.path, attachment]));
         uploaded.forEach((attachment) => indexed.set(attachment.path, attachment));
@@ -605,8 +611,10 @@ export function ChatPanel({
         uploaded.forEach((attachment) => selected.add(attachment.path));
         return [...selected];
       });
-      if ((data.failed?.length ?? 0) > 0) {
-        setAttachmentsError("upload_partial_failure");
+      }
+
+      if (firstFailure) {
+        setAttachmentsError(uploaded.length > 0 ? "upload_partial_failure" : firstFailure);
       } else {
         setAttachmentsError(null);
       }

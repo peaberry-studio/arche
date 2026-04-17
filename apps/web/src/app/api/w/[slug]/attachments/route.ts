@@ -1,19 +1,18 @@
 import { NextRequest } from 'next/server'
 
 import { withAuth } from '@/lib/runtime/with-auth'
+import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
+import { workspaceAgentFetch, type WorkspaceAgent } from '@/lib/workspace-agent-client'
 import {
   ensureUniqueAttachmentFilename,
   inferAttachmentMimeType,
   isWorkspaceAttachmentPath,
-  MAX_ATTACHMENTS_PER_UPLOAD,
   MAX_ATTACHMENT_UPLOAD_BYTES,
   MAX_ATTACHMENT_UPLOAD_MEGABYTES,
   normalizeAttachmentPath,
   sanitizeAttachmentFilename,
   WORKSPACE_ATTACHMENTS_DIR,
 } from '@/lib/workspace-attachments'
-import { workspaceAgentFetch, type WorkspaceAgent } from '@/lib/workspace-agent-client'
-import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -29,6 +28,15 @@ type WorkspaceAgentListEntry = {
 type WorkspaceAgentListResponse = {
   ok: boolean
   entries?: WorkspaceAgentListEntry[]
+  error?: string
+}
+
+type WorkspaceAgentUploadResponse = {
+  ok: boolean
+  path?: string
+  hash?: string
+  size?: number
+  modifiedAt?: number
   error?: string
 }
 
@@ -56,19 +64,30 @@ function fileTooLargeResponse() {
   })
 }
 
-function isRequestBodyTooLargeError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false
-
-  const message = error.message.toLowerCase()
-
-  return message.includes('request body exceeded') || message.includes('body exceeded')
-}
-
 function normalizeAndValidateAttachmentPath(path: unknown): string | null {
   if (typeof path !== 'string') return null
   const normalized = normalizeAttachmentPath(path)
   if (!isWorkspaceAttachmentPath(normalized)) return null
   return normalized
+}
+
+function getRequestContentLength(request: NextRequest): number | null {
+  const raw = request.headers.get('content-length')
+  if (!raw) return null
+
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed < 0) return null
+
+  return parsed
+}
+
+function inferUploadedAttachmentMimeType(request: NextRequest, filename: string): string {
+  const rawContentType = request.headers.get('content-type')?.trim()
+  if (rawContentType && rawContentType !== 'application/octet-stream') {
+    return rawContentType
+  }
+
+  return inferAttachmentMimeType(filename)
 }
 
 async function getWorkspaceAgentForSlug(slug: string) {
@@ -149,31 +168,23 @@ export const POST = withAuth(
     const auth = await getWorkspaceAgentForSlug(slug)
     if (!auth.ok) return auth.response
 
-    let formData: FormData
-
-    try {
-      formData = await request.formData()
-    } catch (error) {
-      if (isRequestBodyTooLargeError(error)) {
-        return fileTooLargeResponse()
-      }
-
-      return jsonResponse(400, { error: 'invalid_form_data' })
+    const { searchParams } = new URL(request.url)
+    const requestedName = searchParams.get('filename')
+    if (typeof requestedName !== 'string') {
+      return jsonResponse(400, { error: 'invalid_name' })
     }
 
-    const files = formData
-      .getAll('files')
-      .filter((value): value is File => value instanceof File)
+    const sanitizedName = sanitizeAttachmentFilename(requestedName)
+    if (sanitizedName.length === 0) {
+      return jsonResponse(400, { error: 'invalid_name' })
+    }
 
-    if (files.length === 0) {
+    if (!request.body) {
       return jsonResponse(400, { error: 'missing_files' })
     }
 
-    if (files.length > MAX_ATTACHMENTS_PER_UPLOAD) {
-      return jsonResponse(400, { error: 'too_many_files' })
-    }
-
-    if (files.some((file) => file.size > MAX_ATTACHMENT_UPLOAD_BYTES)) {
+    const contentLength = getRequestContentLength(request)
+    if (contentLength !== null && contentLength > MAX_ATTACHMENT_UPLOAD_BYTES) {
       return fileTooLargeResponse()
     }
 
@@ -183,83 +194,63 @@ export const POST = withAuth(
     }
 
     const usedNames = new Set(existing.attachments.map((attachment) => attachment.name))
-    const uploadTargets = files.map((file) => {
-      const safeName = sanitizeAttachmentFilename(file.name)
-      const uniqueName = ensureUniqueAttachmentFilename(safeName, usedNames)
-      usedNames.add(uniqueName)
+    const uniqueName = ensureUniqueAttachmentFilename(sanitizedName, usedNames)
+    const path = `${WORKSPACE_ATTACHMENTS_DIR}/${uniqueName}`
 
-      return {
-        file,
-        name: uniqueName,
-        path: `${WORKSPACE_ATTACHMENTS_DIR}/${uniqueName}`,
-      }
+    const headers = new Headers({
+      Accept: 'application/json',
+      Authorization: auth.agent.authHeader,
     })
-
-    const results = await Promise.allSettled(
-      uploadTargets.map(async ({ file, name, path }) => {
-        const bytes = Buffer.from(await file.arrayBuffer())
-        const fileType = file.type.trim()
-        const mime =
-          fileType.length > 0 && fileType !== 'application/octet-stream'
-            ? fileType
-            : inferAttachmentMimeType(name)
-        const uploadedAt = Date.now()
-
-        const response = await workspaceAgentFetch<{ ok: boolean; hash?: string; error?: string }>(
-          auth.agent,
-          '/files/write',
-          {
-            path,
-            content: bytes.toString('base64'),
-            encoding: 'base64',
-          },
-        )
-
-        if (!response.ok) {
-          throw new Error(response.error)
-        }
-
-        return {
-          id: path,
-          path,
-          name,
-          mime,
-          size: bytes.length,
-          uploadedAt,
-        } satisfies WorkspaceAttachment
-      }),
-    )
-
-    const uploaded: WorkspaceAttachment[] = []
-    const failed: Array<{ name: string; error: string }> = []
-
-    for (let index = 0; index < results.length; index += 1) {
-      const result = results[index]
-      const target = uploadTargets[index]
-
-      if (result.status === 'fulfilled') {
-        uploaded.push(result.value)
-        continue
-      }
-
-      failed.push({
-        name: target.name,
-        error:
-          result.reason instanceof Error && result.reason.message
-            ? result.reason.message
-            : 'upload_failed',
-      })
+    const contentType = request.headers.get('content-type')
+    if (contentType) {
+      headers.set('Content-Type', contentType)
     }
 
-    if (failed.length > 0 && uploaded.length === 0) {
-      return jsonResponse(502, { error: 'upload_failed', uploaded, failed })
+    const uploadRequestInit: RequestInit & { duplex?: 'half' } = {
+      method: 'POST',
+      headers,
+      body: request.body,
+      cache: 'no-store',
+      duplex: 'half',
     }
 
-    if (failed.length > 0) {
-      return jsonResponse(207, { uploaded, failed })
+    let upstreamResponse: Response
+    try {
+      upstreamResponse = await fetch(
+        `${auth.agent.baseUrl}/files/upload?path=${encodeURIComponent(path)}`,
+        uploadRequestInit,
+      )
+    } catch {
+      return jsonResponse(502, { error: 'upload_failed' })
     }
 
-    return jsonResponse(201, { uploaded, failed: [] })
+    const uploaded = (await upstreamResponse.json().catch(() => null)) as WorkspaceAgentUploadResponse | null
+
+    if (upstreamResponse.status === 413) {
+      return fileTooLargeResponse()
+    }
+
+    if (
+      !upstreamResponse.ok ||
+      !uploaded?.ok ||
+      typeof uploaded.path !== 'string' ||
+      typeof uploaded.hash !== 'string' ||
+      typeof uploaded.size !== 'number' ||
+      typeof uploaded.modifiedAt !== 'number'
+    ) {
+      return jsonResponse(502, { error: uploaded?.error ?? 'upload_failed' })
+    }
+
+    const attachment: WorkspaceAttachment = {
+      id: uploaded.path,
+      path: uploaded.path,
+      name: uniqueName,
+      mime: inferUploadedAttachmentMimeType(request, uniqueName),
+      size: uploaded.size,
+      uploadedAt: uploaded.modifiedAt,
+    }
+
+    return jsonResponse(201, { uploaded: [attachment], failed: [] })
   },
 )
 

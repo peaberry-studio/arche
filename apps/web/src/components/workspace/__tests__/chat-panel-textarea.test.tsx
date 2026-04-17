@@ -71,6 +71,14 @@ function getSendButton(): HTMLButtonElement {
   return sendButton;
 }
 
+function getAttachmentInput(): HTMLInputElement {
+  const input = document.querySelector('input[type="file"]');
+  if (!(input instanceof HTMLInputElement)) {
+    throw new Error("Expected attachment input element");
+  }
+  return input;
+}
+
 function createClipboardImageData(file: File) {
   return {
     items: [
@@ -229,21 +237,16 @@ describe("ChatPanel textarea", () => {
 
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === "POST") {
+        expect(String(_input)).toBe(
+          "/api/w/alice/attachments?filename=clipboard-image.png"
+        );
         const requestBody = init.body;
-        if (!(requestBody instanceof FormData)) {
-          throw new Error("Expected upload request body to be FormData");
+        if (!(requestBody instanceof File)) {
+          throw new Error("Expected upload request body to be File");
         }
 
-        const files = requestBody.getAll("files");
-        expect(files).toHaveLength(1);
-
-        const uploadedFile = files[0];
-        if (!(uploadedFile instanceof File)) {
-          throw new Error("Expected uploaded file in FormData");
-        }
-
-        expect(uploadedFile.type).toBe("image/png");
-        expect(uploadedFile.name).toBe("clipboard-image.png");
+        expect(requestBody.type).toBe("image/png");
+        expect(requestBody.name).toBe("clipboard-image.png");
 
         attachmentStore.push(uploadedAttachment);
 
@@ -298,6 +301,77 @@ describe("ChatPanel textarea", () => {
         contextPaths: [],
       }
     );
+  });
+
+  it("uploads selected files one by one", async () => {
+    const attachmentStore: MockAttachment[] = [];
+    const uploadedByName: Record<string, MockAttachment> = {
+      "first.txt": {
+        id: ".arche/attachments/first.txt",
+        path: ".arche/attachments/first.txt",
+        name: "first.txt",
+        mime: "text/plain",
+        size: 5,
+        uploadedAt: 1,
+      },
+      "second.txt": {
+        id: ".arche/attachments/second.txt",
+        path: ".arche/attachments/second.txt",
+        name: "second.txt",
+        mime: "text/plain",
+        size: 6,
+        uploadedAt: 2,
+      },
+    };
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        const requestUrl = String(input);
+        const filename = new URL(requestUrl, "http://localhost").searchParams.get("filename");
+        if (!filename || !(filename in uploadedByName)) {
+          throw new Error(`Unexpected upload filename: ${filename}`);
+        }
+
+        attachmentStore.push(uploadedByName[filename]);
+
+        return {
+          ok: true,
+          json: async () => ({ uploaded: [uploadedByName[filename]], failed: [] }),
+        };
+      }
+
+      return {
+        ok: true,
+        json: async () => ({ attachments: attachmentStore }),
+      };
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderChatPanel();
+
+    const attachmentInput = getAttachmentInput();
+    fireEvent.change(attachmentInput, {
+      target: {
+        files: [
+          new File(["first"], "first.txt", { type: "text/plain" }),
+          new File(["second"], "second.txt", { type: "text/plain" }),
+        ],
+      },
+    });
+
+    await waitFor(() => {
+      const uploadCalls = fetchMock.mock.calls.filter(([, init]) => init?.method === "POST");
+      expect(uploadCalls).toHaveLength(2);
+    });
+
+    const uploadUrls = fetchMock.mock.calls
+      .filter(([, init]) => init?.method === "POST")
+      .map(([input]) => String(input));
+    expect(uploadUrls).toEqual([
+      "/api/w/alice/attachments?filename=first.txt",
+      "/api/w/alice/attachments?filename=second.txt",
+    ]);
   });
 
   it("shows a clear error when a pasted image exceeds the upload limit", async () => {
