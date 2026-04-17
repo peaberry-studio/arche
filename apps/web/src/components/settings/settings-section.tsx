@@ -30,7 +30,7 @@ export function SettingsSection({
         className,
       )}
     >
-      <div className="flex flex-wrap items-start justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="space-y-1">
           <Heading className={cn('text-lg font-medium', titleClassName)}>{title}</Heading>
           {description ? (

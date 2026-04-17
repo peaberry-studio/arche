@@ -465,7 +465,7 @@ export function SlackIntegrationPanel({
               </div>
             </div>
             <div className="relative">
-              <pre className="max-h-80 overflow-auto rounded-lg bg-muted/40 p-3 pr-10 text-xs text-foreground">
+              <pre className="scrollbar-custom max-h-80 overflow-auto rounded-lg bg-muted/40 p-3 pr-10 text-xs text-foreground">
                 {manifestFormat === 'yaml' ? SLACK_MANIFEST_YAML : SLACK_MANIFEST_JSON}
               </pre>
               <button
