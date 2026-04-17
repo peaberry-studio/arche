@@ -20,7 +20,8 @@ const mockReadKbArticle = vi.fn()
 const mockReadSkillForMcp = vi.fn()
 const mockReadSkillResource = vi.fn()
 const mockSearchKb = vi.fn()
-const mockWriteKbArticle = vi.fn()
+const mockCreateKbArticle = vi.fn()
+const mockUpdateKbArticle = vi.fn()
 const mockDeleteKbArticle = vi.fn()
 
 vi.mock('@/lib/mcp/tools/agents', () => ({
@@ -51,7 +52,8 @@ vi.mock('@/lib/mcp/tools/skills', () => ({
 }))
 
 vi.mock('@/lib/mcp/tools/write-kb-article', () => ({
-  writeKbArticle: (...args: unknown[]) => mockWriteKbArticle(...args),
+  createKbArticle: (...args: unknown[]) => mockCreateKbArticle(...args),
+  updateKbArticle: (...args: unknown[]) => mockUpdateKbArticle(...args),
   deleteKbArticle: (...args: unknown[]) => mockDeleteKbArticle(...args),
 }))
 
@@ -65,14 +67,19 @@ describe('createMcpServer', () => {
 
     createMcpServer()
 
-    expect(registerTool).toHaveBeenCalledTimes(11)
+    expect(registerTool).toHaveBeenCalledTimes(12)
     expect(registerTool).toHaveBeenCalledWith(
       'list_kb_articles',
       expect.objectContaining({ description: expect.any(String) }),
       expect.any(Function)
     )
     expect(registerTool).toHaveBeenCalledWith(
-      'write_kb_article',
+      'create_kb_article',
+      expect.objectContaining({ description: expect.any(String) }),
+      expect.any(Function)
+    )
+    expect(registerTool).toHaveBeenCalledWith(
+      'update_kb_article',
       expect.objectContaining({ description: expect.any(String) }),
       expect.any(Function)
     )
@@ -249,9 +256,14 @@ describe('createMcpServer', () => {
 
     createMcpServer({ scopes: ['kb:write'] })
 
-    expect(registerTool).toHaveBeenCalledTimes(2)
+    expect(registerTool).toHaveBeenCalledTimes(3)
     expect(registerTool).toHaveBeenCalledWith(
-      'write_kb_article',
+      'create_kb_article',
+      expect.objectContaining({ description: expect.any(String), inputSchema: expect.any(Object) }),
+      expect.any(Function)
+    )
+    expect(registerTool).toHaveBeenCalledWith(
+      'update_kb_article',
       expect.objectContaining({ description: expect.any(String), inputSchema: expect.any(Object) }),
       expect.any(Function)
     )
@@ -274,8 +286,9 @@ describe('createMcpServer', () => {
       content: '# Hello',
       truncated: false,
     })
-    mockWriteKbArticle.mockResolvedValue({ ok: true, path: 'README.md', hash: 'hash-1' })
-    mockDeleteKbArticle.mockResolvedValue({ ok: true, path: 'README.md', hash: 'hash-2' })
+    mockCreateKbArticle.mockResolvedValue({ ok: true, path: 'README.md', hash: 'hash-1' })
+    mockUpdateKbArticle.mockResolvedValue({ ok: true, path: 'README.md', hash: 'hash-2' })
+    mockDeleteKbArticle.mockResolvedValue({ ok: true, path: 'README.md', hash: 'hash-3' })
     mockReadSkillForMcp.mockResolvedValue({ ok: true, data: { name: 'lint' } })
     mockReadSkillResource.mockResolvedValue({
       ok: true,
@@ -296,7 +309,8 @@ describe('createMcpServer', () => {
     const guideHandler = registerTool.mock.calls.find(([name]) => name === 'read_agents_guide')?.[2]
     const listAgentsHandler = registerTool.mock.calls.find(([name]) => name === 'list_agents')?.[2]
     const listHandler = registerTool.mock.calls.find(([name]) => name === 'list_kb_articles')?.[2]
-    const writeHandler = registerTool.mock.calls.find(([name]) => name === 'write_kb_article')?.[2]
+    const createHandler = registerTool.mock.calls.find(([name]) => name === 'create_kb_article')?.[2]
+    const updateHandler = registerTool.mock.calls.find(([name]) => name === 'update_kb_article')?.[2]
     const deleteHandler = registerTool.mock.calls.find(([name]) => name === 'delete_kb_article')?.[2]
     const listSkillsHandler = registerTool.mock.calls.find(([name]) => name === 'list_skills')?.[2]
     const readAgentHandler = registerTool.mock.calls.find(([name]) => name === 'read_agent')?.[2]
@@ -308,7 +322,8 @@ describe('createMcpServer', () => {
     await guideHandler?.()
     await listAgentsHandler?.()
     await listHandler?.({ path: 'docs' })
-    await writeHandler?.({ path: 'README.md', content: '# Updated' })
+    await createHandler?.({ path: 'README.md', content: '# Created' })
+    await updateHandler?.({ path: 'README.md', content: '# Updated' })
     await deleteHandler?.({ path: 'README.md' })
     await listSkillsHandler?.()
     await readAgentHandler?.({ id: 'assistant' })
@@ -322,7 +337,8 @@ describe('createMcpServer', () => {
     })
     expect(mockListAgents).toHaveBeenCalledWith()
     expect(mockListKbArticles).toHaveBeenCalledWith({ path: 'docs' })
-    expect(mockWriteKbArticle).toHaveBeenCalledWith({ path: 'README.md', content: '# Updated' })
+    expect(mockCreateKbArticle).toHaveBeenCalledWith({ path: 'README.md', content: '# Created' })
+    expect(mockUpdateKbArticle).toHaveBeenCalledWith({ path: 'README.md', content: '# Updated' })
     expect(mockDeleteKbArticle).toHaveBeenCalledWith({ path: 'README.md' })
     expect(mockListSkillsForMcp).toHaveBeenCalledWith()
     expect(mockReadAgent).toHaveBeenCalledWith('assistant')

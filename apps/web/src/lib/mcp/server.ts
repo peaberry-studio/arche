@@ -24,8 +24,9 @@ import {
   readSkillResource,
 } from '@/lib/mcp/tools/skills'
 import {
+  createKbArticle,
   deleteKbArticle,
-  writeKbArticle,
+  updateKbArticle,
 } from '@/lib/mcp/tools/write-kb-article'
 
 type CreateMcpServerInput = {
@@ -108,17 +109,31 @@ function registerTools(
 
   if (hasMcpScope(scopes, MCP_SCOPE_KB_WRITE)) {
     server.registerTool(
-      'write_kb_article',
+      'create_kb_article',
       {
         description:
-          'Create or update a knowledge base article by path in the published vault. ' +
-          'Use this to write markdown/text content into the KB repository.',
+          'Create a new knowledge base article by path in the published vault. ' +
+          'Fails when the target path already exists.',
         inputSchema: {
           path: z.string().min(1),
           content: z.string(),
         },
       },
-      async ({ path, content }) => toToolResult(await writeKbArticle({ path, content }))
+      async ({ path, content }) => toToolResult(await createKbArticle({ path, content }))
+    )
+
+    server.registerTool(
+      'update_kb_article',
+      {
+        description:
+          'Update an existing knowledge base article by path in the published vault. ' +
+          'Fails when the target path does not exist.',
+        inputSchema: {
+          path: z.string().min(1),
+          content: z.string(),
+        },
+      },
+      async ({ path, content }) => toToolResult(await updateKbArticle({ path, content }))
     )
 
     server.registerTool(

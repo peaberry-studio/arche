@@ -13,7 +13,12 @@ import {
 import { normalizeKbPath } from '@/lib/mcp/tools/path'
 import { getKbContentRoot } from '@/lib/runtime/paths'
 
-type WriteKbArticleInput = {
+type CreateKbArticleInput = {
+  content: string
+  path: string
+}
+
+type UpdateKbArticleInput = {
   content: string
   path: string
 }
@@ -22,31 +27,71 @@ type DeleteKbArticleInput = {
   path: string
 }
 
-type WriteKbArticleResult =
+type CreateKbArticleResult =
   | { ok: true; path: string; hash: string }
-  | { ok: false; error: 'invalid_path' | 'kb_unavailable' | 'write_failed' }
+  | { ok: false; error: 'invalid_path' | 'kb_unavailable' | 'already_exists' | 'write_failed' }
+
+type UpdateKbArticleResult =
+  | { ok: true; path: string; hash: string }
+  | { ok: false; error: 'invalid_path' | 'kb_unavailable' | 'not_found' | 'write_failed' }
 
 type DeleteKbArticleResult =
   | { ok: true; path: string; hash: string }
   | { ok: false; error: 'invalid_path' | 'kb_unavailable' | 'not_found' | 'write_failed' }
 
-type MutateKbRepoResult =
+type MutateKbRepoResult<CustomError extends string> =
   | { ok: true; hash: string }
-  | { ok: false; error: 'kb_unavailable' | 'not_found' | 'write_failed' }
+  | { ok: false; error: 'kb_unavailable' | 'write_failed' | CustomError }
 
-export async function writeKbArticle(input: WriteKbArticleInput): Promise<WriteKbArticleResult> {
+export async function createKbArticle(input: CreateKbArticleInput): Promise<CreateKbArticleResult> {
   const normalizedPath = normalizeKbPath(input.path)
   if (!normalizedPath) {
     return { ok: false, error: 'invalid_path' }
   }
 
-  const result = await mutateKbRepo({
-    commitMessage: `Update KB article: ${normalizedPath}`,
+  const result = await mutateKbRepo<'already_exists'>({
+    commitMessage: `Create KB article: ${normalizedPath}`,
     path: normalizedPath,
     mutate: async (absolutePath) => {
+      const existing = await fs.stat(absolutePath).catch(() => null)
+      if (existing) {
+        return { ok: false as const, error: 'already_exists' as const }
+      }
+
       await fs.mkdir(path.dirname(absolutePath), { recursive: true })
       await fs.writeFile(absolutePath, input.content, 'utf-8')
       return { ok: true }
+    },
+  })
+
+  if (!result.ok) {
+    return result
+  }
+
+  return {
+    ok: true,
+    path: normalizedPath,
+    hash: result.hash,
+  }
+}
+
+export async function updateKbArticle(input: UpdateKbArticleInput): Promise<UpdateKbArticleResult> {
+  const normalizedPath = normalizeKbPath(input.path)
+  if (!normalizedPath) {
+    return { ok: false, error: 'invalid_path' }
+  }
+
+  const result = await mutateKbRepo<'not_found'>({
+    commitMessage: `Update KB article: ${normalizedPath}`,
+    path: normalizedPath,
+    mutate: async (absolutePath) => {
+      const existing = await fs.stat(absolutePath).catch(() => null)
+      if (!existing?.isFile()) {
+        return { ok: false as const, error: 'not_found' as const }
+      }
+
+      await fs.writeFile(absolutePath, input.content, 'utf-8')
+      return { ok: true as const }
     },
   })
 
@@ -67,7 +112,7 @@ export async function deleteKbArticle(input: DeleteKbArticleInput): Promise<Dele
     return { ok: false, error: 'invalid_path' }
   }
 
-  const result = await mutateKbRepo({
+  const result = await mutateKbRepo<'not_found'>({
     commitMessage: `Delete KB article: ${normalizedPath}`,
     path: normalizedPath,
     mutate: async (absolutePath) => {
@@ -92,14 +137,14 @@ export async function deleteKbArticle(input: DeleteKbArticleInput): Promise<Dele
   }
 }
 
-async function mutateKbRepo(input: {
+async function mutateKbRepo<CustomError extends string>(input: {
   commitMessage: string
   path: string
   mutate: (absolutePath: string) => Promise<
     | { ok: true }
-    | { ok: false; error: 'not_found' | 'write_failed' }
+    | { ok: false; error: CustomError }
   >
-}): Promise<MutateKbRepoResult> {
+}): Promise<MutateKbRepoResult<CustomError>> {
   const root = await resolveRepoRoot(getKbContentRoot())
   if (!root) {
     return { ok: false, error: 'kb_unavailable' }

@@ -33,7 +33,7 @@ export type ReadSkillResourceResult =
       kind: 'binary'
       metadata: { name: string; path: string; size: number }
     }
-  | { ok: false; error: 'invalid_path' | 'kb_unavailable' | 'not_found' | 'read_failed' }
+  | { ok: false; error: 'invalid_config' | 'invalid_path' | 'kb_unavailable' | 'not_found' | 'read_failed' }
 
 export async function listSkillsForMcp(): Promise<ListSkillsResult> {
   return listSkills()

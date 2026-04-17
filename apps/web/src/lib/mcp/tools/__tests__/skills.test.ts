@@ -167,4 +167,13 @@ describe('mcp skill tools', () => {
       path: '../secrets.txt',
     })).resolves.toEqual({ ok: false, error: 'invalid_path' })
   })
+
+  it('propagates invalid_config from skill bundle reads', async () => {
+    mockReadSkillBundle.mockResolvedValue({ ok: false, error: 'invalid_config' })
+
+    await expect(readSkillResource({
+      name: 'lint',
+      path: 'scripts/check.sh',
+    })).resolves.toEqual({ ok: false, error: 'invalid_config' })
+  })
 })
