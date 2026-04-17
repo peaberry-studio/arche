@@ -48,6 +48,36 @@ function extractAssistantReplyText(parts: unknown[]): string {
     .trim()
 }
 
+function extractAssistantFailure(messages: ReturnType<typeof getMessagesSinceCursor>): string | null {
+  const assistantMessages = messages.filter((message) => normalizeRole(message.info.role) === 'assistant')
+  const latestAssistant = assistantMessages[assistantMessages.length - 1]
+  if (!latestAssistant) {
+    return null
+  }
+
+  const error = (latestAssistant.info as { error?: unknown }).error
+  if (!error || typeof error !== 'object') {
+    return null
+  }
+
+  const errorRecord = error as {
+    data?: { message?: unknown }
+    name?: unknown
+  }
+  const errorName = typeof errorRecord.name === 'string' ? errorRecord.name : null
+  const errorMessage =
+    typeof errorRecord.data?.message === 'string' ? errorRecord.data.message : null
+
+  if (
+    errorName === 'ProviderAuthError' ||
+    (errorMessage && /api key is missing|provider credential|configure .*provider/i.test(errorMessage))
+  ) {
+    return 'provider_auth_missing'
+  }
+
+  return null
+}
+
 async function inspectSessionOutcome(
   client: SessionExecutionClient,
   sessionId: string,
@@ -58,6 +88,11 @@ async function inspectSessionOutcome(
     { throwOnError: true },
   )
   const messages = getMessagesSinceCursor(response.data, cursor)
+  const assistantFailure = extractAssistantFailure(messages)
+  if (assistantFailure) {
+    return assistantFailure
+  }
+
   const assistantMessages = messages.filter((message) => normalizeRole(message.info.role) === 'assistant')
 
   if (assistantMessages.length === 0) {

@@ -337,6 +337,50 @@ describe('slack socket manager', () => {
     stopSlackSocketManager()
   })
 
+  it('posts an actionable reply when provider credentials are missing', async () => {
+    const client = {
+      chat: {
+        postMessage: vi.fn().mockResolvedValue({ ts: 'reply-1' }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      conversations: {
+        history: vi.fn().mockResolvedValue({ messages: [] }),
+        replies: vi.fn().mockResolvedValue({ messages: [] }),
+      },
+      users: {
+        info: vi.fn().mockResolvedValue({ user: { profile: { display_name: 'Alice' } } }),
+      },
+    }
+
+    waitForSessionToCompleteMock.mockResolvedValue('provider_auth_missing')
+
+    const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
+    await syncSlackSocketManager()
+
+    const mentionHandler = appInstances[0].event.mock.calls.find(([name]) => name === 'app_mention')?.[1]
+    expect(typeof mentionHandler).toBe('function')
+
+    await mentionHandler({
+      body: { event_id: 'evt-provider-auth' },
+      client,
+      event: {
+        channel: 'C123',
+        text: '<@U999> hello',
+        ts: '100.1',
+        user: 'U123',
+      },
+    })
+
+    expect(client.chat.update).toHaveBeenCalledWith({
+      channel: 'C123',
+      text: 'I cannot answer in Slack yet because this workspace has no provider credentials configured. Add a provider API key in Settings > Providers and try again.',
+      ts: 'reply-1',
+    })
+    expect(readLatestAssistantTextMock).not.toHaveBeenCalled()
+
+    stopSlackSocketManager()
+  })
+
   it('does not persist an event receipt when processing fails, so the same event can retry', async () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const client = {

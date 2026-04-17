@@ -109,4 +109,39 @@ describe('session execution helpers', () => {
       'session-1',
     )).resolves.toBe('Final reply')
   })
+
+  it('returns provider_auth_missing when the assistant run ends with a provider auth error', async () => {
+    const status = vi.fn().mockResolvedValue({
+      data: {
+        'session-1': { type: 'idle' },
+      },
+    })
+    const messages = vi.fn().mockResolvedValue({
+      data: [
+        {
+          info: {
+            role: 'assistant',
+            time: { completed: 1 },
+            error: {
+              data: {
+                message: 'OpenRouter API key is missing. Pass it using OPENROUTER_API_KEY.',
+              },
+              name: 'ProviderAuthError',
+            },
+          },
+          parts: [],
+        },
+      ],
+    })
+
+    const { waitForSessionToComplete } = await import('../session-execution')
+
+    await expect(waitForSessionToComplete({
+      client: {
+        session: { messages, status },
+      } as Parameters<typeof waitForSessionToComplete>[0]['client'],
+      sessionId: 'session-1',
+      slug: 'slack-bot',
+    })).resolves.toBe('provider_auth_missing')
+  })
 })

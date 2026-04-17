@@ -402,6 +402,9 @@ function mapSlackFailureToMessage(error: string): string {
   if (error === 'autopilot_no_assistant_message') {
     return 'I could not produce a Slack reply for that message.'
   }
+  if (error === 'provider_auth_missing') {
+    return 'I cannot answer in Slack yet because this workspace has no provider credentials configured. Add a provider API key in Settings > Providers and try again.'
+  }
 
   return 'I hit an error while preparing the Slack reply. Please try again.'
 }
