@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const auditEventMock = vi.fn()
+const decryptSlackTokenMock = vi.fn()
 const findIntegrationMock = vi.fn()
 const testSlackCredentialsMock = vi.fn()
 
@@ -31,7 +32,7 @@ vi.mock('@/lib/runtime/with-auth', () => ({
 }))
 
 vi.mock('@/lib/slack/crypto', () => ({
-  decryptSlackToken: (value: string) => value,
+  decryptSlackToken: (...args: unknown[]) => decryptSlackTokenMock(...args),
 }))
 
 vi.mock('@/lib/slack/integration', () => ({
@@ -50,6 +51,7 @@ describe('/api/u/[slug]/slack-integration/test', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     authState.user = { id: 'admin-1', role: 'ADMIN', slug: 'alice' }
+    decryptSlackTokenMock.mockImplementation((value: string) => value)
     findIntegrationMock.mockResolvedValue({
       appTokenSecret: 'xapp-saved',
       botTokenSecret: 'xoxb-saved',
@@ -126,6 +128,28 @@ describe('/api/u/[slug]/slack-integration/test', () => {
 
     expect(response.status).toBe(400)
     await expect(response.json()).resolves.toEqual({ error: 'invalid_json' })
+    expect(testSlackCredentialsMock).not.toHaveBeenCalled()
+  })
+
+  it('returns invalid_saved_tokens when saved credentials cannot be decrypted', async () => {
+    decryptSlackTokenMock.mockImplementation(() => {
+      throw new Error('invalid_secret')
+    })
+
+    const { POST } = await import('./route')
+    const response = await POST(new Request('http://localhost/api/u/alice/slack-integration/test', {
+      body: JSON.stringify({}),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+    }) as never, {
+      params: Promise.resolve({ slug: 'alice' }),
+    })
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: 'invalid_saved_tokens',
+      message: 'Saved Slack tokens could not be decrypted. Paste fresh credentials and try again.',
+    })
     expect(testSlackCredentialsMock).not.toHaveBeenCalled()
   })
 })

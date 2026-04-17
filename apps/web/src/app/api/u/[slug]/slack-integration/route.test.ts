@@ -214,4 +214,27 @@ describe('/api/u/[slug]/slack-integration', () => {
       slackTeamId: 'T123',
     })
   })
+
+  it('returns invalid_saved_tokens when reconnecting with undecryptable saved credentials', async () => {
+    decryptSlackTokenMock.mockImplementation(() => {
+      throw new Error('invalid_secret')
+    })
+
+    const { PUT } = await import('./route')
+    const response = await PUT(
+      new Request('http://localhost/api/u/alice/slack-integration', {
+        body: JSON.stringify({ defaultAgentId: 'assistant', enabled: true }),
+        headers: { 'content-type': 'application/json' },
+        method: 'PUT',
+      }) as never,
+      { params: Promise.resolve({ slug: 'alice' }) },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: 'invalid_saved_tokens',
+      message: 'Saved Slack tokens could not be decrypted. Paste fresh credentials and try again.',
+    })
+    expect(testSlackCredentialsMock).not.toHaveBeenCalled()
+  })
 })

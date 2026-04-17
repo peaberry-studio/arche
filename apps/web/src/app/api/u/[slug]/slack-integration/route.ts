@@ -38,6 +38,14 @@ function toErrorResponse(error: string, status: number, message?: string) {
   )
 }
 
+function toInvalidSavedTokensResponse() {
+  return toErrorResponse(
+    'invalid_saved_tokens',
+    400,
+    'Saved Slack tokens could not be decrypted. Paste fresh credentials and try again.',
+  )
+}
+
 async function loadSlackSettingsResponse(): Promise<
   | { ok: true; response: SlackIntegrationGetResponse }
   | { ok: false; response: NextResponse<{ error: string }> }
@@ -173,8 +181,12 @@ export const PUT = withAuth<SlackIntegrationMutateResponse | { error: string; me
     let resolvedAppToken = ''
 
     if (enabled || reconnect) {
-      resolvedBotToken = botTokenInput || (existing?.botTokenSecret ? decryptSlackToken(existing.botTokenSecret) : '')
-      resolvedAppToken = appTokenInput || (existing?.appTokenSecret ? decryptSlackToken(existing.appTokenSecret) : '')
+      try {
+        resolvedBotToken = botTokenInput || (existing?.botTokenSecret ? decryptSlackToken(existing.botTokenSecret) : '')
+        resolvedAppToken = appTokenInput || (existing?.appTokenSecret ? decryptSlackToken(existing.appTokenSecret) : '')
+      } catch {
+        return toInvalidSavedTokensResponse()
+      }
     }
 
     if ((enabled || reconnect) && (!resolvedBotToken || !resolvedAppToken)) {

@@ -15,6 +15,14 @@ function toErrorResponse(error: string, status: number, message?: string) {
   )
 }
 
+function toInvalidSavedTokensResponse() {
+  return toErrorResponse(
+    'invalid_saved_tokens',
+    400,
+    'Saved Slack tokens could not be decrypted. Paste fresh credentials and try again.',
+  )
+}
+
 export const POST = withAuth<SlackIntegrationTestResponse | { error: string; message?: string }>(
   { csrf: true },
   async (request: NextRequest, { user }) => {
@@ -39,16 +47,23 @@ export const POST = withAuth<SlackIntegrationTestResponse | { error: string; mes
     }
 
     const existing = await slackService.findIntegration()
-    const botToken = typeof body?.botToken === 'string' && body.botToken.trim()
-      ? body.botToken.trim()
-      : existing?.botTokenSecret
-        ? decryptSlackToken(existing.botTokenSecret)
-        : ''
-    const appToken = typeof body?.appToken === 'string' && body.appToken.trim()
-      ? body.appToken.trim()
-      : existing?.appTokenSecret
-        ? decryptSlackToken(existing.appTokenSecret)
-        : ''
+    let botToken = ''
+    let appToken = ''
+
+    try {
+      botToken = typeof body?.botToken === 'string' && body.botToken.trim()
+        ? body.botToken.trim()
+        : existing?.botTokenSecret
+          ? decryptSlackToken(existing.botTokenSecret)
+          : ''
+      appToken = typeof body?.appToken === 'string' && body.appToken.trim()
+        ? body.appToken.trim()
+        : existing?.appTokenSecret
+          ? decryptSlackToken(existing.appTokenSecret)
+          : ''
+    } catch {
+      return toInvalidSavedTokensResponse()
+    }
 
     if (!botToken || !appToken) {
       return toErrorResponse('missing_tokens', 400)
