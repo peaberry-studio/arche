@@ -50,6 +50,7 @@ type ManagedSlackApp = {
 }
 
 let currentApp: ManagedSlackApp | null = null
+let needsResync = false
 let syncInterval: NodeJS.Timeout | null = null
 let syncPromise: Promise<void> | null = null
 const eventExecutionLocks = new Map<string, Promise<void>>()
@@ -78,6 +79,7 @@ export function stopSlackSocketManager(): void {
   }
 
   if (!currentApp) {
+    needsResync = false
     return
   }
 
@@ -85,6 +87,7 @@ export function stopSlackSocketManager(): void {
     console.error('[slack] Failed to stop socket app', error)
   })
   currentApp = null
+  needsResync = false
 }
 
 export async function syncSlackSocketManager(forceReconnect = false): Promise<void> {
@@ -106,7 +109,7 @@ async function performSlackSocketSync(forceReconnect: boolean): Promise<void> {
     return
   }
 
-  if (!forceReconnect && currentApp?.version === integration.version) {
+  if (!forceReconnect && !needsResync && currentApp?.version === integration.version) {
     return
   }
 
@@ -128,6 +131,7 @@ async function performSlackSocketSync(forceReconnect: boolean): Promise<void> {
       app: nextApp,
       version: integration.version,
     }
+    needsResync = false
     await slackService.markSocketConnected(new Date())
     await slackService.markLastError(null)
   } catch (error) {
@@ -173,6 +177,7 @@ function createSlackApp(args: {
 
   app.error(async (error) => {
     const detail = toErrorMessage(error)
+    needsResync = true
     console.error('[slack] Socket app error', detail)
     await slackService.markLastError(detail).catch(() => undefined)
   })

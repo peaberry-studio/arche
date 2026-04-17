@@ -167,6 +167,24 @@ describe('slack socket manager', () => {
     stopSlackSocketManager()
   })
 
+  it('rebuilds the socket app after a runtime error even when the config version is unchanged', async () => {
+    const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
+
+    await syncSlackSocketManager()
+
+    const errorHandler = appInstances[0].error.mock.calls[0]?.[0]
+    expect(typeof errorHandler).toBe('function')
+
+    await errorHandler(new Error('socket_lost'))
+    await syncSlackSocketManager()
+
+    expect(appConstructorMock).toHaveBeenCalledTimes(2)
+    expect(appInstances[0].stop).toHaveBeenCalledTimes(1)
+    expect(appInstances[1].start).toHaveBeenCalledTimes(1)
+
+    stopSlackSocketManager()
+  })
+
   it('deduplicates repeated Slack events and binds a new thread to a session', async () => {
     const client = {
       chat: {
