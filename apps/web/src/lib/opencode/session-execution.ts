@@ -11,6 +11,9 @@ const INSTANCE_START_POLL_INTERVAL_MS = 2_000
 const IDLE_WITHOUT_ASSISTANT_GRACE_MS = 15_000
 
 export type SessionExecutionClient = NonNullable<Awaited<ReturnType<typeof createInstanceClient>>>
+export type SessionMessageCursor = {
+  messageCount: number
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -24,12 +27,28 @@ function normalizeRole(role: unknown): 'assistant' | 'system' | 'user' | null {
   return null
 }
 
-async function inspectSessionOutcome(client: SessionExecutionClient, sessionId: string): Promise<string | null> {
+function getMessagesSinceCursor(
+  messages: Awaited<ReturnType<SessionExecutionClient['session']['messages']>>['data'] | undefined,
+  cursor?: SessionMessageCursor,
+) {
+  const allMessages = messages ?? []
+  if (!cursor) {
+    return allMessages
+  }
+
+  return allMessages.slice(cursor.messageCount)
+}
+
+async function inspectSessionOutcome(
+  client: SessionExecutionClient,
+  sessionId: string,
+  cursor?: SessionMessageCursor,
+): Promise<string | null> {
   const response = await client.session.messages(
     { sessionID: sessionId },
     { throwOnError: true },
   )
-  const messages = response.data ?? []
+  const messages = getMessagesSinceCursor(response.data, cursor)
   const assistantMessages = messages.filter((message) => normalizeRole(message.info.role) === 'assistant')
 
   if (assistantMessages.length === 0) {
@@ -82,8 +101,23 @@ export async function ensureWorkspaceRunningForExecution(slug: string, userId: s
   }
 }
 
+export async function captureSessionMessageCursor(
+  client: SessionExecutionClient,
+  sessionId: string,
+): Promise<SessionMessageCursor> {
+  const response = await client.session.messages(
+    { sessionID: sessionId },
+    { throwOnError: true },
+  )
+
+  return {
+    messageCount: response.data?.length ?? 0,
+  }
+}
+
 export async function waitForSessionToComplete(params: {
   client: SessionExecutionClient
+  cursor?: SessionMessageCursor
   sessionId: string
   slug: string
   onPulse?: () => Promise<void>
@@ -107,11 +141,11 @@ export async function waitForSessionToComplete(params: {
     ])
 
     const sessionStatus = statusResult.data?.[params.sessionId]
-    const messages = messagesResult.data ?? []
+    const messages = getMessagesSinceCursor(messagesResult.data, params.cursor)
     assistantSeen = assistantSeen || messages.some((message) => normalizeRole(message.info.role) === 'assistant')
 
     if ((sessionStatus?.type === 'idle' || !sessionStatus) && assistantSeen) {
-      const outcome = await inspectSessionOutcome(params.client, params.sessionId)
+      const outcome = await inspectSessionOutcome(params.client, params.sessionId, params.cursor)
       if (outcome === 'autopilot_session_pending') {
         await sleep(RUN_POLL_INTERVAL_MS)
         continue
@@ -134,12 +168,16 @@ export async function waitForSessionToComplete(params: {
   return 'autopilot_run_timeout'
 }
 
-export async function readLatestAssistantText(client: SessionExecutionClient, sessionId: string): Promise<string | null> {
+export async function readLatestAssistantText(
+  client: SessionExecutionClient,
+  sessionId: string,
+  cursor?: SessionMessageCursor,
+): Promise<string | null> {
   const response = await client.session.messages(
     { sessionID: sessionId },
     { throwOnError: true },
   )
-  const messages = response.data ?? []
+  const messages = getMessagesSinceCursor(response.data, cursor)
 
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]

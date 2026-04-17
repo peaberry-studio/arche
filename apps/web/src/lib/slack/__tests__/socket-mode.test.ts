@@ -22,6 +22,7 @@ const appInstances: Array<{
 const loadSlackAgentOptionsMock = vi.fn()
 const buildSlackContextMock = vi.fn()
 const buildSlackPromptMock = vi.fn()
+const captureSessionMessageCursorMock = vi.fn()
 const createInstanceClientMock = vi.fn()
 const decryptSlackTokenMock = vi.fn()
 const ensureSlackServiceUserMock = vi.fn()
@@ -58,6 +59,7 @@ vi.mock('@/lib/opencode/client', () => ({
 }))
 
 vi.mock('@/lib/opencode/session-execution', () => ({
+  captureSessionMessageCursor: (...args: unknown[]) => captureSessionMessageCursorMock(...args),
   ensureWorkspaceRunningForExecution: (...args: unknown[]) => ensureWorkspaceRunningForExecutionMock(...args),
   readLatestAssistantText: (...args: unknown[]) => readLatestAssistantTextMock(...args),
   waitForSessionToComplete: (...args: unknown[]) => waitForSessionToCompleteMock(...args),
@@ -132,6 +134,7 @@ describe('slack socket manager', () => {
     findThreadBindingMock.mockResolvedValue(null)
     ensureSlackServiceUserMock.mockResolvedValue({ ok: true, user: { id: 'service-1', slug: 'slack-bot' } })
     ensureWorkspaceRunningForExecutionMock.mockResolvedValue(undefined)
+    captureSessionMessageCursorMock.mockResolvedValue({ messageCount: 0 })
     loadSlackAgentOptionsMock.mockResolvedValue({
       agents: [{ displayName: 'Assistant', id: 'assistant', isPrimary: true }],
       ok: true,

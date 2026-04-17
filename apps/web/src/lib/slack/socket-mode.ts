@@ -2,6 +2,7 @@ import { App, LogLevel } from '@slack/bolt'
 
 import { createInstanceClient } from '@/lib/opencode/client'
 import {
+  captureSessionMessageCursor,
   ensureWorkspaceRunningForExecution,
   readLatestAssistantText,
   waitForSessionToComplete,
@@ -265,6 +266,7 @@ async function handleSlackEvent(args: {
         const prompt = buildSlackPrompt(context)
 
         placeholderTs = await postSlackPlaceholder(args.client, channel, threadTs)
+        const sessionCursor = await captureSessionMessageCursor(opencodeClient, sessionId)
 
         await opencodeClient.session.promptAsync(
           {
@@ -277,12 +279,13 @@ async function handleSlackEvent(args: {
 
         const failure = await waitForSessionToComplete({
           client: opencodeClient,
+          cursor: sessionCursor,
           sessionId,
           slug: serviceUser.user.slug,
         })
         const replyText = failure
           ? mapSlackFailureToMessage(failure)
-          : (await readLatestAssistantText(opencodeClient, sessionId)) ?? 'I could not produce a Slack-ready text response.'
+          : (await readLatestAssistantText(opencodeClient, sessionId, sessionCursor)) ?? 'I could not produce a Slack-ready text response.'
 
         await finalizeSlackReply(args.client, channel, threadTs, placeholderTs, replyText)
         await slackService.markLastError(null).catch(() => undefined)
