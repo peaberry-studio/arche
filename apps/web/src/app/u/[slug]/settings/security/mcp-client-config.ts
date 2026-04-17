@@ -1,4 +1,4 @@
-export type McpClientPreset = 'claude-code' | 'codex' | 'config'
+export type McpClientPreset = 'claude-code' | 'codex' | 'cursor' | 'config'
 
 type McpClientSetupMode = 'command' | 'config'
 
@@ -21,26 +21,25 @@ export function buildMcpClientSetup(
   const url = `${baseUrl.replace(/\/$/, '')}/api/mcp`
 
   switch (preset) {
-    case 'claude-code':
+    case 'claude-code': {
+      const prettyJson = JSON.stringify(
+        {
+          type: 'http',
+          url,
+          headers: { Authorization: `Bearer ${token}` },
+        },
+        null,
+        2,
+      )
+
       return {
         preset,
-        label: 'Claude',
+        label: 'Claude Code',
         description: 'Run once in the project where you want Claude Code to use Arche.',
         mode: 'command',
-        value: [
-          'claude mcp add-json',
-          MCP_SERVER_NAME,
-          shellQuote(
-            JSON.stringify({
-              type: 'http',
-              url,
-              headers: {
-                Authorization: `Bearer ${token}`,
-              },
-            }),
-          ),
-        ].join(' '),
+        value: `claude mcp add-json ${MCP_SERVER_NAME} '${prettyJson}'`,
       }
+    }
 
     case 'codex':
       return {
@@ -50,27 +49,53 @@ export function buildMcpClientSetup(
         mode: 'command',
         value: [
           `export ${CODEX_TOKEN_ENV_VAR}=${shellQuote(token)}`,
-          `codex mcp add ${MCP_SERVER_NAME} --url ${shellQuote(url)} --bearer-token-env-var ${CODEX_TOKEN_ENV_VAR}`,
+          `codex mcp add ${MCP_SERVER_NAME} \\`,
+          `  --url ${shellQuote(url)} \\`,
+          `  --bearer-token-env-var ${CODEX_TOKEN_ENV_VAR}`,
         ].join('\n'),
+      }
+
+    case 'cursor':
+      return {
+        preset,
+        label: 'Cursor',
+        description:
+          'Save as ~/.cursor/mcp.json (all projects) or .cursor/mcp.json in your project. Cursor reloads servers automatically.',
+        mode: 'config',
+        value: `${JSON.stringify(
+          {
+            mcpServers: {
+              [MCP_SERVER_NAME]: {
+                type: 'http',
+                url,
+                headers: { Authorization: `Bearer ${token}` },
+              },
+            },
+          },
+          null,
+          2,
+        )}\n`,
       }
 
     case 'config':
       return {
         preset,
-        label: 'Config',
+        label: 'Manual',
         description: 'Fallback JSON for any MCP client that accepts manual HTTP server configuration.',
         mode: 'config',
-        value: `${JSON.stringify({
-          mcpServers: {
-            [MCP_SERVER_NAME]: {
-              type: 'http',
-              url,
-              headers: {
-                Authorization: `Bearer ${token}`,
+        value: `${JSON.stringify(
+          {
+            mcpServers: {
+              [MCP_SERVER_NAME]: {
+                type: 'http',
+                url,
+                headers: { Authorization: `Bearer ${token}` },
               },
             },
           },
-        }, null, 2)}\n`,
+          null,
+          2,
+        )}\n`,
       }
   }
 }

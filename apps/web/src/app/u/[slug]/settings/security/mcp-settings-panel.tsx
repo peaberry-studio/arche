@@ -1,7 +1,7 @@
 'use client'
 
-import { Check, Copy, Plus } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { Braces, Check, Copy, Plus } from 'lucide-react'
+import { type ReactElement, useState } from 'react'
 
 import {
   createPersonalAccessToken,
@@ -12,6 +12,7 @@ import {
   buildMcpClientSetup,
   type McpClientPreset,
 } from './mcp-client-config'
+import { ClaudeLogo, CodexLogo, CursorLogo } from './mcp-preset-logos'
 import {
   DEFAULT_MCP_PAT_SCOPES,
   MCP_SCOPE_OPTIONS,
@@ -30,6 +31,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 
 export type PersonalAccessTokenItem = {
@@ -56,7 +58,13 @@ type LatestToken = {
   expiresAt: string
 }
 
-const QUICK_SETUP_PRESETS: McpClientPreset[] = ['claude-code', 'codex', 'config']
+const QUICK_SETUP_PRESETS: McpClientPreset[] = ['claude-code', 'codex', 'cursor', 'config']
+const PRESET_ICON: Record<McpClientPreset, (props: { className?: string }) => ReactElement> = {
+  'claude-code': ClaudeLogo,
+  codex: CodexLogo,
+  cursor: CursorLogo,
+  config: (props) => <Braces {...props} aria-hidden />,
+}
 const EXPIRATION_OPTIONS = [
   { value: '7', label: '7 days' },
   { value: '30', label: '30 days' },
@@ -387,11 +395,6 @@ function CreateTokenDialog({
 
   const createDisabled = submitting || selectedScopes.length === 0
 
-  const setup = useMemo(() => {
-    if (!latestToken) return null
-    return buildMcpClientSetup(selectedPreset, mcpBaseUrl, latestToken.token)
-  }, [latestToken, mcpBaseUrl, selectedPreset])
-
   function resetForm() {
     setTokenName('')
     setExpiresInDays('30')
@@ -455,12 +458,12 @@ function CreateTokenDialog({
     setTimeout(() => setCopiedKey((current) => (current === key ? null : current)), 1500)
   }
 
-  const inSuccessStep = Boolean(latestToken && setup)
+  const inSuccessStep = Boolean(latestToken)
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-xl grid-cols-[minmax(0,1fr)]">
-        {inSuccessStep && latestToken && setup ? (
+      <DialogContent className="top-[18vh] max-h-[78vh] max-w-xl translate-y-0 grid-cols-[minmax(0,1fr)] overflow-y-auto">
+        {inSuccessStep && latestToken ? (
           <>
             <DialogHeader className="min-w-0">
               <DialogTitle>Almost there</DialogTitle>
@@ -478,36 +481,44 @@ function CreateTokenDialog({
 
               <div className="space-y-2">
                 <p className="text-sm font-medium text-foreground">Quick connect</p>
-                <div className="flex flex-wrap gap-2">
+                <Tabs
+                  value={selectedPreset}
+                  onValueChange={(value) => setSelectedPreset(value as McpClientPreset)}
+                >
+                  <TabsList>
+                    {QUICK_SETUP_PRESETS.map((preset) => {
+                      const option = buildMcpClientSetup(preset, mcpBaseUrl, latestToken.token)
+                      const Icon = PRESET_ICON[preset]
+                      return (
+                        <TabsTrigger key={preset} value={preset}>
+                          <Icon className="h-3.5 w-3.5" />
+                          <span>{option.label}</span>
+                        </TabsTrigger>
+                      )
+                    })}
+                  </TabsList>
+
                   {QUICK_SETUP_PRESETS.map((preset) => {
                     const option = buildMcpClientSetup(preset, mcpBaseUrl, latestToken.token)
                     return (
-                      <Button
-                        key={preset}
-                        variant={selectedPreset === preset ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => setSelectedPreset(preset)}
-                      >
-                        {option.label}
-                      </Button>
+                      <TabsContent key={preset} value={preset} className="mt-3 space-y-2">
+                        <p className="text-xs text-muted-foreground">{option.description}</p>
+                        <div className="relative min-w-0 overflow-hidden rounded-md border border-border/60 bg-background/60">
+                          <pre className="overflow-x-auto whitespace-pre px-3 py-3 pr-12 text-xs leading-6 text-foreground">
+                            <code className="block">{option.value}</code>
+                          </pre>
+                          <div className="absolute right-1.5 top-1.5">
+                            <CopyIconButton
+                              label={option.mode === 'command' ? 'Copy command' : 'Copy config'}
+                              copied={copiedKey === `setup:${option.preset}`}
+                              onClick={() => copyText(option.value, `setup:${option.preset}`)}
+                            />
+                          </div>
+                        </div>
+                      </TabsContent>
                     )
                   })}
-                </div>
-
-                <p className="text-xs text-muted-foreground">{setup.description}</p>
-
-                <div className="relative min-w-0 overflow-hidden rounded-md border border-border/60 bg-background/60">
-                  <pre className="max-w-full whitespace-pre-wrap break-words px-3 py-3 pr-12 text-xs leading-6 text-foreground">
-                    <code className="block">{setup.value}</code>
-                  </pre>
-                  <div className="absolute right-1.5 top-1.5">
-                    <CopyIconButton
-                      label={setup.mode === 'command' ? 'Copy command' : 'Copy config'}
-                      copied={copiedKey === `setup:${setup.preset}`}
-                      onClick={() => copyText(setup.value, `setup:${setup.preset}`)}
-                    />
-                  </div>
-                </div>
+                </Tabs>
               </div>
 
               {dialogError ? (
@@ -539,24 +550,33 @@ function CreateTokenDialog({
                 />
               </div>
 
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <Label>Expires in</Label>
-                <div className="flex flex-wrap gap-2">
-                  {EXPIRATION_OPTIONS.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => setExpiresInDays(option.value)}
-                      className={cn(
-                        'cursor-pointer rounded-md border px-3 py-1.5 text-sm transition-colors',
-                        expiresInDays === option.value
-                          ? 'border-primary bg-primary text-primary-foreground'
-                          : 'border-border bg-background text-foreground hover:bg-muted',
-                      )}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
+                <div
+                  role="radiogroup"
+                  aria-label="Token expiration"
+                  className="inline-flex items-center justify-center gap-1 rounded-md border border-border/60 bg-background/60 p-1"
+                >
+                  {EXPIRATION_OPTIONS.map((option) => {
+                    const active = expiresInDays === option.value
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={active}
+                        onClick={() => setExpiresInDays(option.value)}
+                        className={cn(
+                          'inline-flex cursor-pointer items-center justify-center rounded px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30',
+                          active
+                            ? 'bg-primary text-primary-foreground shadow-sm'
+                            : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+                        )}
+                      >
+                        {option.label}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
 
