@@ -557,44 +557,55 @@ export function ChatPanel({
       return;
     }
 
-    if (files.some((file) => file.size > MAX_ATTACHMENT_UPLOAD_BYTES)) {
-      setAttachmentsError("file_too_large");
-      return;
-    }
-
-    const formData = new FormData();
-    files.forEach((file) => {
-      formData.append("files", file);
-    });
-
     setIsUploadingAttachment(true);
     setAttachmentsError(null);
 
+    let nextError: string | null = null;
+    let shouldRefreshAttachments = false;
+
     try {
-      const response = await fetch(`/api/w/${slug}/attachments`, {
-        method: "POST",
-        body: formData,
-      });
+      const uploaded: WorkspaceAttachment[] = [];
+      let firstError: string | null = null;
 
-      const data = (await response
-        .json()
-        .catch(() => null)) as {
-        uploaded?: WorkspaceAttachment[];
-        failed?: Array<{ name: string; error: string }>;
-        error?: string;
-      } | null;
+      for (const file of files) {
+        if (file.size > MAX_ATTACHMENT_UPLOAD_BYTES) {
+          firstError ??= "file_too_large";
+          continue;
+        }
 
-      if (response.status === 413) {
-        setAttachmentsError("file_too_large");
-        return;
+        const headers = file.type ? { "Content-Type": file.type } : undefined;
+
+        try {
+          shouldRefreshAttachments = true;
+          const response = await fetch(
+            `/api/w/${slug}/attachments?filename=${encodeURIComponent(file.name)}`,
+            {
+              method: "POST",
+              headers,
+              body: file,
+            }
+          );
+
+          const data = (await response
+            .json()
+            .catch(() => null)) as { attachment?: WorkspaceAttachment; error?: string } | null;
+
+          if (response.status === 413) {
+            firstError ??= "file_too_large";
+            continue;
+          }
+
+          if (!response.ok || !data?.attachment) {
+            firstError ??= data?.error ?? "upload_failed";
+            continue;
+          }
+
+          uploaded.push(data.attachment);
+        } catch {
+          firstError ??= "upload_failed";
+        }
       }
 
-      if (!response.ok || !data?.uploaded) {
-        setAttachmentsError(data?.error ?? "upload_failed");
-        return;
-      }
-
-      const uploaded = data.uploaded;
       setAttachments((previous) => {
         const indexed = new Map(previous.map((attachment) => [attachment.path, attachment]));
         uploaded.forEach((attachment) => indexed.set(attachment.path, attachment));
@@ -605,15 +616,23 @@ export function ChatPanel({
         uploaded.forEach((attachment) => selected.add(attachment.path));
         return [...selected];
       });
-      if ((data.failed?.length ?? 0) > 0) {
-        setAttachmentsError("upload_partial_failure");
-      } else {
-        setAttachmentsError(null);
-      }
+
+      nextError = firstError
+        ? uploaded.length > 0
+          ? "upload_partial_failure"
+          : firstError
+        : null;
     } catch {
-      setAttachmentsError("upload_failed");
+      nextError = "upload_failed";
     } finally {
-      await refreshAttachments();
+      if (shouldRefreshAttachments) {
+        await refreshAttachments();
+      }
+
+      if (nextError !== null || !shouldRefreshAttachments) {
+        setAttachmentsError(nextError);
+      }
+
       setIsUploadingAttachment(false);
     }
   }, [attachmentsEnabled, refreshAttachments, slug]);
