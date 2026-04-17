@@ -5,7 +5,7 @@ import { SlackIntegrationSettingsContent } from '@/components/settings/slack-int
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { isDesktop } from '@/lib/runtime/mode'
 import { getSession } from '@/lib/runtime/session'
-import { ensureSlackServiceUser } from '@/lib/slack/service-user'
+import { ensureSlackServiceUser, SLACK_SERVICE_USER_SLUG } from '@/lib/slack/service-user'
 import { get2FAStatus } from '../../security/actions'
 
 export default async function SlackIntegrationSettingsPage({
@@ -58,7 +58,11 @@ export default async function SlackIntegrationSettingsPage({
           </div>
         </div>
 
-        <SlackIntegrationSettingsContent slug={slug} showProviderCredentials={serviceUser.ok} />
+        <SlackIntegrationSettingsContent
+          serviceUserSlug={SLACK_SERVICE_USER_SLUG}
+          slug={slug}
+          showProviderCredentials={serviceUser.ok}
+        />
       </div>
     </main>
   )

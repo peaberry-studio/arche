@@ -43,7 +43,13 @@ describe('SlackIntegrationSettingsContent', () => {
   it('keeps the panel and danger zone refresh state in sync after mutations', async () => {
     const { SlackIntegrationSettingsContent } = await import('./slack-integration-settings-content')
 
-    render(<SlackIntegrationSettingsContent showProviderCredentials slug="alice" />)
+    render(
+      <SlackIntegrationSettingsContent
+        serviceUserSlug="slack-bot"
+        showProviderCredentials
+        slug="alice"
+      />,
+    )
 
     expect(screen.getByRole('button', { name: 'Panel refresh 0' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Danger refresh 0' })).toBeTruthy()

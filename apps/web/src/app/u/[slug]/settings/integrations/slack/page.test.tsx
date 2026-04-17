@@ -24,8 +24,16 @@ vi.mock('next/navigation', () => ({
 }))
 
 vi.mock('@/components/settings/slack-integration-settings-content', () => ({
-  SlackIntegrationSettingsContent: ({ slug, showProviderCredentials }: { slug: string; showProviderCredentials?: boolean }) => (
-    <div>Slack integration settings content {slug} {String(showProviderCredentials)}</div>
+  SlackIntegrationSettingsContent: ({
+    serviceUserSlug,
+    slug,
+    showProviderCredentials,
+  }: {
+    serviceUserSlug: string
+    slug: string
+    showProviderCredentials?: boolean
+  }) => (
+    <div>Slack integration settings content {slug} {serviceUserSlug} {String(showProviderCredentials)}</div>
   ),
 }))
 
@@ -42,6 +50,7 @@ vi.mock('@/lib/runtime/session', () => ({
 }))
 
 vi.mock('@/lib/slack/service-user', () => ({
+  SLACK_SERVICE_USER_SLUG: 'slack-bot',
   ensureSlackServiceUser: () => ensureSlackServiceUserMock(),
 }))
 
@@ -77,7 +86,7 @@ describe('SlackIntegrationSettingsPage', () => {
 
     expect(screen.getByRole('heading', { name: 'Slack integration' })).toBeTruthy()
     expect(screen.getByRole('link', { name: /Back to integrations/ }).getAttribute('href')).toBe('/u/alice/settings?section=integrations')
-    expect(screen.getByText('Slack integration settings content alice true')).toBeTruthy()
+    expect(screen.getByText('Slack integration settings content alice slack-bot true')).toBeTruthy()
     expect(ensureSlackServiceUserMock).toHaveBeenCalledTimes(1)
   })
 
@@ -88,7 +97,7 @@ describe('SlackIntegrationSettingsPage', () => {
 
     render(await Page({ params: Promise.resolve({ slug: 'alice' }) }))
 
-    expect(screen.getByText('Slack integration settings content alice false')).toBeTruthy()
+    expect(screen.getByText('Slack integration settings content alice slack-bot false')).toBeTruthy()
   })
 
   it('redirects non-admin users back to settings integrations', async () => {
