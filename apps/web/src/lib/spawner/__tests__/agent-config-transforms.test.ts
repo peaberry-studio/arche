@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest'
 
 import {
   injectAlwaysOnAgentTools,
+  injectProactiveMcpPromptGuidance,
   injectSelfDelegationGuards,
   remapAgentConnectorTools,
 } from '../agent-config-transforms'
@@ -149,6 +150,61 @@ describe('injectSelfDelegationGuards', () => {
 
     const result = injectSelfDelegationGuards(config) as typeof config
     expect(result.agent.worker.prompt).toBe('Worker.')
+  })
+})
+
+describe('injectProactiveMcpPromptGuidance', () => {
+  it('injects MCP operating guidance into agents with enabled MCP tools', () => {
+    const config = {
+      agent: {
+        assistant: {
+          prompt: 'Help the user.',
+          tools: {
+            task: true,
+            'arche_linear_conn1_*': true,
+          },
+        },
+      },
+    }
+
+    const result = injectProactiveMcpPromptGuidance(config) as typeof config
+
+    expect(result.agent.assistant.prompt).toContain('## MCP operating mode')
+    expect(result.agent.assistant.prompt).toContain('Use connected MCP tools proactively')
+    expect(result.agent.assistant.prompt).toMatch(/^Help the user\./)
+  })
+
+  it('does not modify agents without enabled MCP tools', () => {
+    const config = {
+      agent: {
+        assistant: {
+          prompt: 'Help the user.',
+          tools: {
+            task: true,
+            bash: true,
+          },
+        },
+      },
+    }
+
+    const result = injectProactiveMcpPromptGuidance(config)
+    expect(result).toBe(config)
+  })
+
+  it('does not inject the guidance twice', () => {
+    const config = {
+      agent: {
+        assistant: {
+          prompt: 'Help the user.\n\n## MCP operating mode\nAlready here.',
+          tools: {
+            'arche_linear_conn1_*': true,
+          },
+        },
+      },
+    }
+
+    const result = injectProactiveMcpPromptGuidance(config)
+    expect(result).toBe(config)
   })
 })
 
