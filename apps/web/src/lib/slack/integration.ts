@@ -3,6 +3,10 @@ import type { SlackIntegrationStatus, SlackIntegrationSummary, SlackIntegrationT
 
 type SlackApiResponse = {
   ok?: boolean
+  bot?: {
+    app_id?: string
+  }
+  bot_id?: string
   error?: string
   app_id?: string
   team_id?: string
@@ -60,10 +64,26 @@ export async function testSlackCredentials(args: {
   botToken: string
 }): Promise<SlackIntegrationTestResponse> {
   const botAuth = await callSlackApi('auth.test', args.botToken)
+  const botId = botAuth.bot_id
+  if (!botId) {
+    throw new Error('slack_bot_id_missing')
+  }
+
+  const botInfo = await callSlackApi(
+    'bots.info',
+    args.botToken,
+    new URLSearchParams({ bot: botId }).toString(),
+  )
   const socket = await callSlackApi('apps.connections.open', args.appToken)
+  const socketAppId = extractSlackAppId(socket.url)
+  const botAppId = botInfo.bot?.app_id ?? null
+
+  if (socketAppId && botAppId && socketAppId !== botAppId) {
+    throw new Error('slack_app_mismatch')
+  }
 
   return {
-    appId: extractSlackAppId(socket.url),
+    appId: socketAppId,
     botUserId: botAuth.user_id ?? null,
     ok: true,
     socketUrlAvailable: typeof socket.url === 'string' && socket.url.length > 0,
@@ -85,15 +105,16 @@ function extractSlackAppId(socketUrl: string | undefined): string | null {
   }
 }
 
-async function callSlackApi(method: string, token: string): Promise<SlackApiResponse> {
+async function callSlackApi(method: string, token: string, body = ''): Promise<SlackApiResponse> {
   const response = await fetch(`https://slack.com/api/${method}`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/x-www-form-urlencoded',
     },
-    body: '',
+    body,
     cache: 'no-store',
+    signal: AbortSignal.timeout(10_000),
   })
 
   const data = await response.json().catch(() => null) as SlackApiResponse | null

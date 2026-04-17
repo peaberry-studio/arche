@@ -49,7 +49,8 @@ describe('slack integration helpers', () => {
 
   it('tests Slack credentials through the HTTP API', async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, team_id: 'T123', user_id: 'U123' })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, bot_id: 'B123', team_id: 'T123', user_id: 'U123' })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, bot: { app_id: 'A123' } })))
       .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, url: 'wss://socket.slack.test/link/?ticket=123&app_id=A123' })))
       .mockResolvedValue(new Response(JSON.stringify({ ok: true, url: 'wss://socket.slack.test/link/?ticket=123&app_id=A123' })))
     vi.stubGlobal('fetch', fetchMock)
@@ -64,6 +65,47 @@ describe('slack integration helpers', () => {
       socketUrlAvailable: true,
       teamId: 'T123',
     })
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('rejects Slack credentials when the bot token belongs to a different app', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, bot_id: 'B123', team_id: 'T123', user_id: 'U123' })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, bot: { app_id: 'A123' } })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, url: 'wss://socket.slack.test/link/?ticket=123&app_id=A999' })))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { testSlackCredentials } = await import('../integration')
+
+    await expect(testSlackCredentials({ appToken: 'xapp-1', botToken: 'xoxb-1' })).rejects.toThrow(
+      'slack_app_mismatch',
+    )
+  })
+
+  it('applies a timeout to each Slack API request', async () => {
+    const timeoutSignal = new AbortController().signal
+    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(timeoutSignal)
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, bot_id: 'B123', team_id: 'T123', user_id: 'U123' })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, bot: { app_id: 'A123' } })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, url: 'wss://socket.slack.test/link/?ticket=123&app_id=A123' })))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { testSlackCredentials } = await import('../integration')
+    await testSlackCredentials({ appToken: 'xapp-1', botToken: 'xoxb-1' })
+
+    expect(timeoutSpy).toHaveBeenCalledWith(10_000)
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://slack.com/api/auth.test',
+      expect.objectContaining({ signal: timeoutSignal }),
+    )
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://slack.com/api/bots.info',
+      expect.objectContaining({ signal: timeoutSignal }),
+    )
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://slack.com/api/apps.connections.open',
+      expect.objectContaining({ signal: timeoutSignal }),
+    )
   })
 })
