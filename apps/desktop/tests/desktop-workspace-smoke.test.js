@@ -105,7 +105,7 @@ function createKickstartedVault(rootDir) {
   return vaultPath
 }
 
-test('opens the desktop workspace for a ready vault', { timeout: 180_000, skip: process.platform !== 'darwin' }, async (t) => {
+test('opens the desktop workspace and accepts authenticated POST requests', { timeout: 180_000, skip: process.platform !== 'darwin' }, async (t) => {
   await withTempDir(async (rootDir) => {
     const vaultPath = createKickstartedVault(rootDir)
     const stdout = []
@@ -154,6 +154,6 @@ test('opens the desktop workspace for a ready vault', { timeout: 180_000, skip: 
     const output = `${stdout.join('')}${stderr.join('')}`
 
     assert.deepEqual(result, { code: 0, signal: null }, output)
-    assert.match(output, /\[desktop-smoke\] success path=\/w\/local/)
+    assert.match(output, /\[desktop-smoke\] success path=\/w\/local probe=400:invalid_json/)
   })
 })

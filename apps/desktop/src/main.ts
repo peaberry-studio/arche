@@ -112,21 +112,74 @@ async function evaluateSmokeTestWindow(window: BrowserWindow): Promise<void> {
   }
 
   try {
+    const expectedPath = getSmokeTestExpectedPath()
     const state = await window.webContents.executeJavaScript(
-      `({ pathname: window.location.pathname, isDesktop: Boolean(window.arche?.isDesktop) })`,
+      `(async () => {
+        const pathname = window.location.pathname
+        const isDesktop = Boolean(window.arche?.isDesktop)
+
+        if (pathname !== ${JSON.stringify(expectedPath)} || !isDesktop) {
+          return { pathname, isDesktop, probeStatus: null, probeError: null }
+        }
+
+        try {
+          const response = await fetch('/api/u/local/agents', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: 'not-json',
+          })
+
+          let body = null
+          try {
+            body = await response.json()
+          } catch {
+            body = null
+          }
+
+          return {
+            pathname,
+            isDesktop,
+            probeStatus: response.status,
+            probeError: typeof body?.error === 'string' ? body.error : null,
+          }
+        } catch (error) {
+          return {
+            pathname,
+            isDesktop,
+            probeStatus: null,
+            probeError: error instanceof Error ? error.message : String(error),
+          }
+        }
+      })()`,
       true,
     )
 
     const pathname = typeof state?.pathname === 'string' ? state.pathname : 'unknown'
     const isDesktop = state?.isDesktop === true
-    const expectedPath = getSmokeTestExpectedPath()
+    const probeStatus = typeof state?.probeStatus === 'number' ? state.probeStatus : null
+    const probeError = typeof state?.probeError === 'string' ? state.probeError : null
 
-    if (pathname === expectedPath && isDesktop) {
-      completeSmokeTest(true, `success path=${pathname}`)
+    if (pathname === expectedPath && isDesktop && probeStatus === 400 && probeError === 'invalid_json') {
+      completeSmokeTest(true, `success path=${pathname} probe=${probeStatus}:${probeError}`)
       return
     }
 
-    writeSmokeTestLog(`waiting expected=${expectedPath} current=${pathname} desktop=${String(isDesktop)}`)
+    if (pathname === expectedPath && isDesktop && probeStatus !== null) {
+      completeSmokeTest(
+        false,
+        `unexpected auth probe status=${String(probeStatus)} error=${probeError ?? 'null'} path=${pathname}`,
+      )
+      return
+    }
+
+    if (pathname === expectedPath && isDesktop && probeError) {
+      completeSmokeTest(false, `auth probe failed: ${probeError}`)
+      return
+    }
+
+    writeSmokeTestLog(
+      `waiting expected=${expectedPath} current=${pathname} desktop=${String(isDesktop)} probe=${probeStatus === null ? 'pending' : `${String(probeStatus)}:${probeError ?? 'null'}`}`,
+    )
   } catch (error) {
     completeSmokeTest(
       false,
