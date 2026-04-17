@@ -237,4 +237,38 @@ describe('/api/u/[slug]/slack-integration', () => {
     })
     expect(testSlackCredentialsMock).not.toHaveBeenCalled()
   })
+
+  it('returns cannot_reconnect_disabled before resolving tokens for a disabled integration', async () => {
+    findIntegrationMock.mockResolvedValue({
+      appTokenSecret: null,
+      botTokenSecret: null,
+      createdAt: new Date(),
+      defaultAgentId: 'researcher',
+      enabled: false,
+      lastError: null,
+      lastEventAt: null,
+      lastSocketConnectedAt: null,
+      singletonKey: 'default',
+      slackAppId: null,
+      slackBotUserId: null,
+      slackTeamId: null,
+      updatedAt: new Date(),
+      version: 1,
+    })
+
+    const { PUT } = await import('./route')
+    const response = await PUT(
+      new Request('http://localhost/api/u/alice/slack-integration', {
+        body: JSON.stringify({ defaultAgentId: 'assistant', enabled: false, reconnect: true }),
+        headers: { 'content-type': 'application/json' },
+        method: 'PUT',
+      }) as never,
+      { params: Promise.resolve({ slug: 'alice' }) },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ error: 'cannot_reconnect_disabled' })
+    expect(decryptSlackTokenMock).not.toHaveBeenCalled()
+    expect(testSlackCredentialsMock).not.toHaveBeenCalled()
+  })
 })

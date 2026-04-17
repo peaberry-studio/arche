@@ -177,6 +177,10 @@ export const PUT = withAuth<SlackIntegrationMutateResponse | { error: string; me
     const reconnect = body.reconnect === true
     const tokensChanged = Boolean(botTokenInput || appTokenInput)
 
+    if (reconnect && !enabled) {
+      return toErrorResponse('cannot_reconnect_disabled', 400)
+    }
+
     let resolvedBotToken = ''
     let resolvedAppToken = ''
 
@@ -191,9 +195,6 @@ export const PUT = withAuth<SlackIntegrationMutateResponse | { error: string; me
 
     if ((enabled || reconnect) && (!resolvedBotToken || !resolvedAppToken)) {
       return toErrorResponse('missing_tokens', 400)
-    }
-    if (reconnect && !enabled) {
-      return toErrorResponse('cannot_reconnect_disabled', 400)
     }
 
     if (enabled || reconnect) {
