@@ -48,6 +48,18 @@ export function createMcpServer(input: CreateMcpServerInput = {}): McpServer {
   return server
 }
 
+function buildProactiveWorkspaceContextPreamble(): string {
+  return [
+    '# Arche Operating Mode',
+    '',
+    'Treat this workspace as ambient context, not a tool you only touch on demand.',
+    'At the start of a session or new task, load the workspace guide and quickly decide whether you should also inspect agents, skills, or knowledge-base articles before answering.',
+    'Use Arche tools proactively whenever the user mentions project conventions, architecture, documentation, agent responsibilities, reusable workflows, deadlines, owners, or related workspace state.',
+    'Do not narrate routine Arche lookups. Check first, then fold the relevant findings into your answer naturally.',
+    'Prefer lightweight discovery before deep reads: list/search first, then read only the specific artifacts that appear relevant.',
+  ].join('\n')
+}
+
 // ---------------------------------------------------------------------------
 // Tools
 // ---------------------------------------------------------------------------
@@ -260,7 +272,10 @@ function registerPrompts(
         return {
           messages: [{
             role: 'user' as const,
-            content: { type: 'text' as const, text: guide.content },
+            content: {
+              type: 'text' as const,
+              text: [buildProactiveWorkspaceContextPreamble(), guide.content].join('\n\n---\n\n'),
+            },
           }],
         }
       }
@@ -305,6 +320,8 @@ function registerPrompts(
         if (guide.ok) {
           sections.push('# Workspace Context\n\n' + guide.content)
         }
+
+        sections.unshift(buildProactiveWorkspaceContextPreamble())
 
         const a = agentResult.agent
         sections.push(
@@ -357,6 +374,8 @@ function registerPrompts(
 
         const skill = result.data
         const sections: string[] = []
+
+        sections.push(buildProactiveWorkspaceContextPreamble())
 
         sections.push(
           `# Skill: ${skill.name}\n\n` +

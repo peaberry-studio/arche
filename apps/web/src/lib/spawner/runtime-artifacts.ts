@@ -12,6 +12,7 @@ import { userService } from '@/lib/services'
 import {
   applyDefaultAgentModel,
   injectAlwaysOnAgentTools,
+  injectProactiveMcpPromptGuidance,
   injectSelfDelegationGuards,
   remapAgentConnectorTools,
 } from '@/lib/spawner/agent-config-transforms'
@@ -178,6 +179,7 @@ async function buildBaseWorkspaceConfig(
 
   baseConfig = injectAlwaysOnAgentTools(baseConfig)
   baseConfig = applyDefaultAgentModel(baseConfig)
+  baseConfig = injectProactiveMcpPromptGuidance(baseConfig)
   return injectSelfDelegationGuards(baseConfig)
 }
 
