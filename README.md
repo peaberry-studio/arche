@@ -6,7 +6,7 @@ Define your company's identity, tone, products, and processes once. Arche's agen
 
 ## Desktop App
 
-The easiest way to try Arche is the desktop app. It runs locally on your machine — no server or Docker setup required.
+The easiest way to try Arche locally is the desktop app. It runs on your machine with no server or Docker setup required.
 
 Desktop vault behavior:
 
@@ -26,10 +26,12 @@ Head to the [latest release](https://github.com/peaberry-studio/arche/releases/l
 
 | Platform | File |
 |----------|------|
-| macOS (Apple Silicon) | `Arche-*-arm64.dmg` |
-| macOS (Intel) | `Arche-*-x64.dmg` |
-| Linux | `Arche-*-amd64.AppImage` or `.deb` |
-| Windows | `Arche-*-Setup.exe` |
+| macOS (Apple Silicon) | `Arche-arm64.dmg` or `Arche-<version>-arm64-mac.zip` |
+| macOS (Intel) | `Arche-x64.dmg` or `Arche-<version>-mac.zip` |
+
+Official GitHub release assets are currently published for macOS only.
+
+Linux and Windows packaging targets exist in `apps/desktop`, but they are not part of the current release workflow or validation matrix, so they should not be documented as supported release artifacts.
 
 ### Build from Source
 
@@ -42,12 +44,12 @@ If you prefer to build the desktop app yourself:
 cd apps/web && pnpm install
 cd ../desktop && pnpm install
 
-# 2. Build the distributable
+# 2. Build a desktop package for your current host platform
 cd ../..
 bash scripts/build-desktop.sh
 ```
 
-The installer will be in `apps/desktop/release/`.
+The packaged desktop artifacts will be in `apps/desktop/release/`.
 
 For more details, see [`apps/desktop/README.md`](apps/desktop/README.md).
 
@@ -99,7 +101,7 @@ Assumptions:
 
 - DigitalOcean only
 - The shell entrypoint downloads `https://github.com/peaberry-studio/arche/releases/latest/download/archectl_<os>_<arch>` for macOS/Linux on amd64/arm64
-- Versioned images only: `ghcr.io/peaberry-studio/arche/web:<version>` and `ghcr.io/peaberry-studio/arche/workspace:<version>`
+- Image tags are derived from `--version`: `latest` by default, or a pinned tag such as `v1.2.3`
 - Public URL is derived automatically as `https://arche-<droplet-ip>.nip.io`
 - Local deployment state is stored at `~/.arche/deployments/current.json`
 

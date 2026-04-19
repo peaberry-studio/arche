@@ -96,14 +96,14 @@ Set these in the web application's environment variables in Coolify:
 | `ARCHE_GATEWAY_TOKEN_SECRET` | Yes | `openssl rand -base64 32` |
 | `ARCHE_CONNECTOR_OAUTH_STATE_SECRET` | Yes | `openssl rand -base64 32` |
 | `ARCHE_GATEWAY_TOKEN_TTL_SECONDS` | No | Default: `86400` (24h) |
-| `ARCHE_GATEWAY_BASE_URL` | No | Default: `http://localhost:3000` |
+| `ARCHE_GATEWAY_BASE_URL` | No | Default: `http://web:3000` |
 | `ARCHE_COOKIE_SECURE` | No | Default: `true` |
 | `ARCHE_SEED_ADMIN_EMAIL` | Yes | Initial admin email |
 | `ARCHE_SEED_ADMIN_PASSWORD` | Yes | Initial admin password |
 | `ARCHE_SEED_ADMIN_SLUG` | No | Default: `admin` |
 | `CONTAINER_PROXY_HOST` | Yes | Hostname of docker-socket-proxy (use the Coolify service name) |
 | `CONTAINER_PROXY_PORT` | Yes | `2375` |
-| `OPENCODE_IMAGE` | No | Default: `arche-workspace:latest` |
+| `OPENCODE_IMAGE` | No | Default: `ghcr.io/peaberry-studio/arche/workspace:latest` |
 | `OPENCODE_NETWORK` | Yes | `arche_internal` |
 
 ### Step 6: Deploy
@@ -167,7 +167,10 @@ git init --bare --initial-branch=main /opt/arche/kb-content
 git init --bare --initial-branch=main /opt/arche/kb-config
 ```
 
-Set `KB_HOST_PATH=/opt/arche/kb` in the web app environment variables.
+Set these web app environment variables:
+
+- `KB_CONTENT_HOST_PATH=/opt/arche/kb-content`
+- `KB_CONFIG_HOST_PATH=/opt/arche/kb-config`
 
 By default, Coolify deployments use `ghcr.io/peaberry-studio/arche/workspace:latest` for user workspaces.
 You only need to build a custom image if you want to override `OPENCODE_IMAGE`.

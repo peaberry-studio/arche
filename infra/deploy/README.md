@@ -187,7 +187,7 @@ HTTP-01 challenge is used in remote mode. Make sure your domain resolves to the 
 | Service | Image | Purpose |
 |---------|-------|---------|
 | Traefik | `traefik:v3.6.7` | Reverse proxy, TLS termination, routing |
-| docker-socket-proxy | `tecnativa/docker-socket-proxy:0.3` | Secure container API access |
+| docker-socket-proxy | `ghcr.io/tecnativa/docker-socket-proxy:latest` | Secure container API access |
 | PostgreSQL | `postgres:16` | Database |
 | Web | Configurable (`WEB_IMAGE`) | Next.js app (BFF + spawner) |
 

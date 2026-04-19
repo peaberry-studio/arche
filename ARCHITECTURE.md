@@ -13,7 +13,7 @@ arche/
 │   ├── compose/       # Local stack (Podman Compose)
 │   ├── deploy/        # VPS deployer (Ansible + Bash)
 │   ├── coolify/       # Coolify deployment configuration
-│   └── workspace-image/  # Workspace Docker image (OpenCode + git)
+│   └── workspace-image/  # Workspace container image (OpenCode + git)
 └── scripts/           # Bare repo initialization scripts (kb-content/kb-config)
 ```
 
