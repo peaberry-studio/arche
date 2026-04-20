@@ -79,6 +79,17 @@ describe('GET /api/internal/desktop/runtime', () => {
     expect(body.version).toBe('abc123')
   })
 
+  it('falls back to git sha when the release version is empty', async () => {
+    process.env.ARCHE_RELEASE_VERSION = '   '
+    mockValidateDesktopToken.mockReturnValue(true)
+
+    const { GET } = await import('./route')
+    const res = await GET(makeRequest({ 'x-arche-desktop-token': 'valid-token' }))
+    const body = await res.json()
+
+    expect(body.version).toBe('abc123')
+  })
+
   it('falls back to dev when no version metadata is available', async () => {
     delete process.env.ARCHE_RELEASE_VERSION
     delete process.env.ARCHE_GIT_SHA

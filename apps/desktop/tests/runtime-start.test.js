@@ -16,8 +16,8 @@ test('retries startup on another port after a failed first attempt', async () =>
       acquired.push({ preferredPort, excludedPorts: [...excludedPorts] })
       return allocatedPorts.shift()
     },
-    start: async (nextPort) => {
-      started.push(nextPort)
+    start: async (nextPort, attempt) => {
+      started.push({ port: nextPort, attempt })
       if (nextPort === 3000) {
         throw new Error('desktop readiness validation failed')
       }
@@ -36,7 +36,10 @@ test('retries startup on another port after a failed first attempt', async () =>
     { preferredPort: 3000, excludedPorts: [] },
     { preferredPort: 0, excludedPorts: [3000] },
   ])
-  assert.deepEqual(started, [3000, 4312])
+  assert.deepEqual(started, [
+    { port: 3000, attempt: 1 },
+    { port: 4312, attempt: 2 },
+  ])
   assert.deepEqual(retries, [
     {
       attempt: 2,
@@ -46,7 +49,7 @@ test('retries startup on another port after a failed first attempt', async () =>
   ])
 })
 
-test('throws the last startup error after exhausting retries', async () => {
+test('throws an aggregate startup error after exhausting retries', async () => {
   const attempts = []
 
   await assert.rejects(
@@ -61,7 +64,15 @@ test('throws the last startup error after exhausting retries', async () => {
         throw new Error(`failed:${port}`)
       },
     }),
-    /failed:4312/,
+    (error) => {
+      assert.equal(error instanceof AggregateError, true)
+      assert.equal(error.message, 'Failed to start the local desktop runtime after 2 attempts.')
+      assert.deepEqual(
+        error.errors.map((attemptError) => attemptError.message),
+        ['failed:3000', 'failed:4312'],
+      )
+      return true
+    },
   )
 
   assert.deepEqual(attempts, [

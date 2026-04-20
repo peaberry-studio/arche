@@ -43,6 +43,8 @@ import { createVaultManifest, tryReadVault, type DesktopVault } from './vault-ma
 const DEFAULT_DESKTOP_WEB_PORT = 3000
 const DESKTOP_RUNTIME_READY_PATH = '/api/internal/desktop/runtime'
 const MAX_NEXT_START_ATTEMPTS = 4
+const NEXT_READY_TIMEOUT_MS = 30_000
+const NEXT_RETRY_READY_TIMEOUT_MS = 20_000
 const LOOPBACK_HOST = '127.0.0.1'
 const DESKTOP_TOKEN_HEADER = 'x-arche-desktop-token'
 const DESKTOP_GIT_AUTHOR_NAME = 'Arche Workspace'
@@ -72,12 +74,12 @@ function getPort(): number {
   return nextPort
 }
 
-function getNextUrl(): string {
-  return `http://${LOOPBACK_HOST}:${getPort()}`
+function getNextUrl(port = getPort()): string {
+  return `http://${LOOPBACK_HOST}:${port}`
 }
 
-function getDesktopRuntimeReadyUrl(): string {
-  return `${getNextUrl()}${DESKTOP_RUNTIME_READY_PATH}`
+function getDesktopRuntimeReadyUrl(port = getPort()): string {
+  return `${getNextUrl(port)}${DESKTOP_RUNTIME_READY_PATH}`
 }
 
 function isDesktopRuntimeReadyResponse(response: Response, bodyText: string): boolean {
@@ -306,8 +308,13 @@ async function startNextServer(): Promise<void> {
       await initializeDesktopWebPort(preferredPort, excludedPorts)
       return getPort()
     },
-    start: async () => {
-      nextSupervisor = createNextSupervisor()
+    start: async (port, attempt) => {
+      const readyTimeoutMs =
+        attempt === MAX_NEXT_START_ATTEMPTS ? NEXT_READY_TIMEOUT_MS : NEXT_RETRY_READY_TIMEOUT_MS
+      process.stdout.write(
+        `[desktop-runtime] starting_next_start attempt=${String(attempt)}/${String(MAX_NEXT_START_ATTEMPTS)} port=${String(port)} ready_timeout_ms=${String(readyTimeoutMs)}\n`,
+      )
+      nextSupervisor = createNextSupervisor(port, readyTimeoutMs)
 
       try {
         await nextSupervisor.start()
@@ -317,32 +324,35 @@ async function startNextServer(): Promise<void> {
       }
     },
     onRetry: ({ attempt, previousPort, error }) => {
+      const nextReadyTimeoutMs =
+        attempt === MAX_NEXT_START_ATTEMPTS ? NEXT_READY_TIMEOUT_MS : NEXT_RETRY_READY_TIMEOUT_MS
       process.stdout.write(
-        `[desktop-runtime] retrying_next_start attempt=${String(attempt)} previous_port=${String(previousPort)} error=${error instanceof Error ? error.message : String(error)}\n`,
+        `[desktop-runtime] retrying_next_start attempt=${String(attempt)}/${String(MAX_NEXT_START_ATTEMPTS)} previous_port=${String(previousPort)} next_ready_timeout_ms=${String(nextReadyTimeoutMs)} error=${error instanceof Error ? error.message : String(error)}\n`,
       )
     },
   })
 }
 
-function createNextSupervisor(): RuntimeSupervisor {
+function createNextSupervisor(port: number, readyTimeoutMs: number): RuntimeSupervisor {
   return new RuntimeSupervisor({
     componentName: 'next',
     command: app.isPackaged ? getPackagedNodeBinaryPath(getRuntimeBinaryOptions()) : 'pnpm',
     args: app.isPackaged
       ? ['server.js']
-      : ['exec', 'next', 'dev', '-H', LOOPBACK_HOST, '-p', String(getPort())],
+      : ['exec', 'next', 'dev', '-H', LOOPBACK_HOST, '-p', String(port)],
     cwd: getWebAppDir(),
     env: {
       ...getDesktopRuntimeEnv(),
       ARCHE_RUNTIME_MODE: 'desktop',
       ARCHE_DESKTOP_NEXT_DIST_DIR: getDesktopNextDistDirNameForCurrentProcess(),
-      ARCHE_DESKTOP_WEB_PORT: String(getPort()),
-      ARCHE_CONNECTOR_GATEWAY_BASE_URL: `http://${LOOPBACK_HOST}:${getPort()}/api/internal/mcp/connectors`,
-      PORT: String(getPort()),
+      ARCHE_DESKTOP_WEB_PORT: String(port),
+      ARCHE_CONNECTOR_GATEWAY_BASE_URL: `http://${LOOPBACK_HOST}:${String(port)}/api/internal/mcp/connectors`,
+      PORT: String(port),
       HOSTNAME: LOOPBACK_HOST,
     },
+    readyTimeoutMs,
     probeReadiness: () =>
-      probeHttpServerReady(getDesktopRuntimeReadyUrl(), {
+      probeHttpServerReady(getDesktopRuntimeReadyUrl(port), {
         headers: {
           [DESKTOP_TOKEN_HEADER]: desktopApiToken,
         },

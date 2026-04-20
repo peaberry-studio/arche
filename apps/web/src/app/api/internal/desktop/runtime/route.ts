@@ -13,12 +13,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401, headers: HEADERS })
   }
 
+  const version =
+    process.env.ARCHE_RELEASE_VERSION?.trim() || process.env.ARCHE_GIT_SHA?.trim() || 'dev'
+
   return NextResponse.json(
     {
       app: 'arche',
       runtime: 'desktop',
       status: 'ok',
-      version: process.env.ARCHE_RELEASE_VERSION ?? process.env.ARCHE_GIT_SHA ?? 'dev',
+      version,
     },
     { headers: HEADERS },
   )
