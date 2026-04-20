@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { decryptConfig } from '@/lib/connectors/crypto'
 import { verifyConnectorGatewayToken } from '@/lib/connectors/gateway-tokens'
+import { handleMetaAdsMcpRequest } from '@/lib/connectors/mcp/meta-ads-handler'
 import { proxyConnectorMcpRequest } from '@/lib/connectors/mcp/remote-proxy'
 import { handleZendeskMcpRequest } from '@/lib/connectors/mcp/zendesk-handler'
 import { isOAuthConnectorType } from '@/lib/connectors/oauth'
@@ -68,6 +69,10 @@ async function handleProxy(
 
   if (connector.type === 'zendesk') {
     return handleZendeskMcpRequest(request, decryptedConfig)
+  }
+
+  if (connector.type === 'meta-ads') {
+    return handleMetaAdsMcpRequest(request, decryptedConfig)
   }
 
   if (!isOAuthConnectorType(connector.type)) {

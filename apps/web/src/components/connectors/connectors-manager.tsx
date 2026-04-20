@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { AddConnectorModal } from '@/components/connectors/add-connector-modal'
 import { getConnectorErrorMessage } from '@/components/connectors/error-messages'
 import { ConnectorList } from '@/components/connectors/connector-list'
+import { MetaAdsConnectorSettingsDialog } from '@/components/connectors/meta-ads-connector-settings-dialog'
 import { ZendeskConnectorSettingsDialog } from '@/components/connectors/zendesk-connector-settings-dialog'
 import type {
   ConnectorListItem,
@@ -293,7 +294,19 @@ export function ConnectorsManager({
       />
 
       <ZendeskConnectorSettingsDialog
-        open={Boolean(settingsConnector)}
+        open={settingsConnector?.type === 'zendesk'}
+        slug={slug}
+        connectorId={settingsConnector?.id ?? null}
+        connectorName={settingsConnector?.name ?? null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSettingsConnector(null)
+          }
+        }}
+      />
+
+      <MetaAdsConnectorSettingsDialog
+        open={settingsConnector?.type === 'meta-ads'}
         slug={slug}
         connectorId={settingsConnector?.id ?? null}
         connectorName={settingsConnector?.name ?? null}

@@ -1,6 +1,7 @@
 import { decryptConfig } from '@/lib/connectors/crypto'
 import { getConnectorGatewayBaseUrl } from '@/lib/connectors/gateway-config'
 import { issueConnectorGatewayToken } from '@/lib/connectors/gateway-tokens'
+import { isMetaAdsConnectorReady, parseMetaAdsConnectorConfig } from '@/lib/connectors/meta-ads'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
 import { parseZendeskConnectorConfig } from '@/lib/connectors/zendesk'
 import type { ConnectorType } from '@/lib/connectors/types'
@@ -232,6 +233,26 @@ export function buildMcpConfigFromConnectors(
         break
       }
 
+      case 'meta-ads': {
+        const parsed = parseMetaAdsConnectorConfig(config)
+        const gatewayTarget = options?.gatewayTargets?.[connector.id]
+        const oauthToken = getConnectorOAuthConfig('meta-ads', config)?.accessToken
+        if (!parsed.ok || !gatewayTarget || !oauthToken || !isMetaAdsConnectorReady(config)) {
+          break
+        }
+
+        mcp[key] = {
+          type: 'remote',
+          url: gatewayTarget.url,
+          enabled: true,
+          headers: {
+            Authorization: `Bearer ${gatewayTarget.token}`,
+          },
+          oauth: false,
+        }
+        break
+      }
+
       default:
         break
     }
@@ -264,6 +285,24 @@ export async function buildMcpConfigForSlug(slug: string): Promise<McpConfig | n
     if (connector.type === 'zendesk') {
       const parsed = parseZendeskConnectorConfig(config)
       if (!parsed.ok) continue
+
+      gatewayTargets[connector.id] = {
+        url: `${gatewayBase}/${connector.id}/mcp`,
+        token: issueConnectorGatewayToken({
+          userId: user.id,
+          workspaceSlug: slug,
+          connectorId: connector.id,
+        }),
+      }
+      continue
+    }
+
+    if (connector.type === 'meta-ads') {
+      const parsed = parseMetaAdsConnectorConfig(config)
+      const oauth = getConnectorOAuthConfig('meta-ads', config)
+      if (!parsed.ok || !oauth?.accessToken || !isMetaAdsConnectorReady(config)) {
+        continue
+      }
 
       gatewayTargets[connector.id] = {
         url: `${gatewayBase}/${connector.id}/mcp`,

@@ -14,6 +14,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useWorkspaceTheme } from '@/contexts/workspace-theme-context'
+import { DEFAULT_META_ADS_CONNECTOR_PERMISSIONS } from '@/lib/connectors/meta-ads-types'
 import {
   CONNECTOR_TYPES,
   isSingleInstanceConnectorType,
@@ -36,6 +37,7 @@ const CONNECTOR_TYPE_OPTIONS: { type: ConnectorType; label: string; description:
   { type: 'linear', label: 'Linear', description: 'Official Linear MCP integration.' },
   { type: 'notion', label: 'Notion', description: 'Official Notion MCP integration.' },
   { type: 'zendesk', label: 'Zendesk', description: 'Zendesk Ticketing API via Arche MCP.' },
+  { type: 'meta-ads', label: 'Meta Ads', description: 'Meta Marketing API insights via Arche MCP.' },
   { type: 'custom', label: 'Custom', description: 'Any compatible remote MCP endpoint.' },
 ]
 
@@ -49,6 +51,8 @@ function buildDefaultName(type: ConnectorType): string {
       return 'Notion'
     case 'zendesk':
       return 'Zendesk'
+    case 'meta-ads':
+      return 'Meta Ads'
     case 'custom':
       return 'Custom Connector'
   }
@@ -77,7 +81,7 @@ function supportsOAuth(type: ConnectorType): boolean {
 }
 
 function getDefaultAuthType(type: ConnectorType): ConnectorAuthType {
-  return type === 'linear' || type === 'notion' ? 'oauth' : 'manual'
+  return type === 'linear' || type === 'notion' || type === 'meta-ads' ? 'oauth' : 'manual'
 }
 
 export function AddConnectorModal({
@@ -107,6 +111,8 @@ export function AddConnectorModal({
   const [oauthAuthorizationEndpoint, setOauthAuthorizationEndpoint] = useState('')
   const [oauthTokenEndpoint, setOauthTokenEndpoint] = useState('')
   const [oauthRegistrationEndpoint, setOauthRegistrationEndpoint] = useState('')
+  const [metaAdsAppId, setMetaAdsAppId] = useState('')
+  const [metaAdsAppSecret, setMetaAdsAppSecret] = useState('')
 
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -138,6 +144,8 @@ export function AddConnectorModal({
     setOauthAuthorizationEndpoint('')
     setOauthTokenEndpoint('')
     setOauthRegistrationEndpoint('')
+    setMetaAdsAppId('')
+    setMetaAdsAppSecret('')
     setIsSaving(false)
     setError(null)
   }
@@ -171,6 +179,27 @@ export function AddConnectorModal({
   }, [availableTypeOptions, open, selectedType])
 
   function buildConfig(): { ok: true; value: Record<string, unknown> } | { ok: false; message: string } {
+    if (selectedType === 'meta-ads') {
+      if (!metaAdsAppId.trim()) {
+        return { ok: false, message: 'Meta Ads App ID is required.' }
+      }
+
+      if (!metaAdsAppSecret.trim()) {
+        return { ok: false, message: 'Meta Ads App Secret is required.' }
+      }
+
+      return {
+        ok: true,
+        value: {
+          authType: 'oauth',
+          appId: metaAdsAppId.trim(),
+          appSecret: metaAdsAppSecret.trim(),
+          permissions: DEFAULT_META_ADS_CONNECTOR_PERMISSIONS,
+          selectedAdAccountIds: [],
+        },
+      }
+    }
+
     if (selectedType === 'linear' || selectedType === 'notion') {
       if (authType === 'oauth') {
         return { ok: true, value: { authType: 'oauth' } }
@@ -261,6 +290,9 @@ export function AddConnectorModal({
 
   function isConfigurationComplete(): boolean {
     if (selectedType === 'custom' && !name.trim()) return false
+    if (selectedType === 'meta-ads') {
+      return Boolean(metaAdsAppId.trim() && metaAdsAppSecret.trim())
+    }
     if (selectedType === 'zendesk') {
       return Boolean(zendeskSubdomain.trim() && zendeskEmail.trim() && apiKey.trim())
     }
@@ -408,7 +440,7 @@ export function AddConnectorModal({
           )}
 
           {/* Auth mode */}
-          {supportsOAuth(selectedType) ? (
+          {supportsOAuth(selectedType) && selectedType !== 'meta-ads' ? (
             <div className="space-y-2">
               <Label htmlFor="connector-auth-mode" className="text-foreground">
                 Authentication
@@ -432,6 +464,47 @@ export function AddConnectorModal({
             <p className="rounded-lg bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
               Save first, then click <strong className="text-foreground/80">Connect OAuth</strong> from the connector card.
             </p>
+          ) : null}
+
+          {selectedType === 'meta-ads' ? (
+            <div className="space-y-4 rounded-xl border border-border/60 bg-card/30 p-4">
+              <div className="space-y-1">
+                <h3 className="text-sm font-semibold text-foreground">Meta setup</h3>
+                <p className="text-xs text-muted-foreground">
+                  Create a Meta app, enable Facebook Login, set this redirect URI, request <code>ads_read</code>, then connect OAuth from the connector card.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-foreground">Redirect URI</Label>
+                <p className="rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-xs text-foreground">
+                  {typeof window === 'undefined'
+                    ? '/api/connectors/oauth/callback'
+                    : `${window.location.origin}/api/connectors/oauth/callback`}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="meta-ads-app-id" className="text-foreground">App ID</Label>
+                <Input
+                  id="meta-ads-app-id"
+                  value={metaAdsAppId}
+                  onChange={(event) => setMetaAdsAppId(event.target.value)}
+                  placeholder="Paste your Meta App ID"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="meta-ads-app-secret" className="text-foreground">App Secret</Label>
+                <Input
+                  id="meta-ads-app-secret"
+                  type="password"
+                  value={metaAdsAppSecret}
+                  onChange={(event) => setMetaAdsAppSecret(event.target.value)}
+                  placeholder="Paste your Meta App Secret"
+                />
+              </div>
+            </div>
           ) : null}
 
           {/* Manual API key (official types) */}

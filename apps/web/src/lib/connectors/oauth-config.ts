@@ -95,7 +95,9 @@ export function buildConfigWithOAuth(input: {
 export function clearConnectorOAuthConfig(currentConfig: ConnectorConfigRecord): ConnectorConfigRecord {
   const next = { ...currentConfig }
   delete next.oauth
-  return { ...next, authType: 'manual' }
+  return currentConfig.authType === 'oauth'
+    ? { ...next, authType: 'oauth' }
+    : { ...next, authType: 'manual' }
 }
 
 export function isOAuthTokenExpiringSoon(oauth: ConnectorOAuthConfig, withinSeconds = 120): boolean {

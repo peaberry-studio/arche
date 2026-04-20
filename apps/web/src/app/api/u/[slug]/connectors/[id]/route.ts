@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
 import { encryptConfig, decryptConfig } from '@/lib/connectors/crypto'
+import { parseMetaAdsConnectorConfig } from '@/lib/connectors/meta-ads'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
 import type { ConnectorType } from '@/lib/connectors/types'
 import {
@@ -31,6 +32,21 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function sanitizeConfigForResponse(type: ConnectorType, config: Record<string, unknown>): Record<string, unknown> {
+  if (type === 'meta-ads') {
+    const parsed = parseMetaAdsConnectorConfig(config)
+    if (!parsed.ok) {
+      const sanitizedConfig = { ...config }
+      delete sanitizedConfig.appSecret
+      return sanitizedConfig
+    }
+
+    return {
+      ...parsed.value,
+      appSecret: undefined,
+      hasAppSecret: true,
+    }
+  }
+
   if (getConnectorAuthType(config) !== 'oauth') return config
 
   const sanitizedConfig = { ...config }

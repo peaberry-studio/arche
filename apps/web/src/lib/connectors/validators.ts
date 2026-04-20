@@ -1,4 +1,5 @@
 import { getConnectorAuthType } from '@/lib/connectors/oauth-config'
+import { validateMetaAdsConnectorConfig } from '@/lib/connectors/meta-ads-config'
 import { isOAuthConnectorType } from '@/lib/connectors/oauth'
 import type { ConnectorConfigValidationResult } from '@/lib/connectors/config-validation'
 import { validateZendeskConnectorConfig } from '@/lib/connectors/zendesk-config'
@@ -21,6 +22,10 @@ export const CONNECTOR_SCHEMAS: Record<ConnectorType, ConnectorConfigSchema> = {
   linear: { required: ['apiKey'] },
   notion: { required: ['apiKey'] },
   zendesk: { required: ['subdomain', 'email', 'apiToken'] },
+  'meta-ads': {
+    required: ['authType', 'appId', 'appSecret'],
+    optional: ['permissions', 'selectedAdAccountIds', 'defaultAdAccountId', 'oauth'],
+  },
   custom: {
     required: ['endpoint'],
     optional: [
@@ -67,6 +72,10 @@ export function validateConnectorConfig(
   type: ConnectorType,
   config: Record<string, unknown>
 ): ConnectorConfigValidationResult {
+  if (type === 'meta-ads') {
+    return validateMetaAdsConnectorConfig(config)
+  }
+
   if (getConnectorAuthType(config) === 'oauth' && isOAuthConnectorType(type)) {
     if (type === 'custom') {
       return isValidConfigValue(config.endpoint)

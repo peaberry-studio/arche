@@ -1,4 +1,5 @@
 import { getConnectorMcpServerUrl } from '@/lib/connectors/mcp/server-url'
+import { testMetaAdsConnection } from '@/lib/connectors/meta-ads'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
 import { getZendeskMcpProtocolVersion, parseZendeskConnectorConfig, testZendeskConnection } from '@/lib/connectors/zendesk'
 import type { ConnectorType } from '@/lib/connectors/types'
@@ -39,6 +40,7 @@ function getAccessToken(type: ConnectorType, config: Record<string, unknown>): s
     case 'notion':
       return typeof config.apiKey === 'string' ? config.apiKey : null
     case 'zendesk':
+    case 'meta-ads':
     case 'custom':
       return null
   }
@@ -149,6 +151,18 @@ const CONNECTOR_TEST_HANDLERS: Record<ConnectorType, TestConnectionHandler> = {
     }
 
     return { ok: true, tested: true, message: 'Zendesk connection verified.' }
+  },
+
+  'meta-ads': async (config) => {
+    const pending = getPendingOAuthMessage('meta-ads', config)
+    if (pending) return pending
+
+    const response = await testMetaAdsConnection(config)
+    return {
+      ok: response.ok,
+      tested: true,
+      message: response.message,
+    }
   },
 
   notion: async (config) => {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
 import { decryptConfig, encryptConfig } from '@/lib/connectors/crypto'
+import { isMetaAdsConnectorReady } from '@/lib/connectors/meta-ads'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
 import { isSingleInstanceConnectorType } from '@/lib/connectors/types'
 import {
@@ -57,6 +58,7 @@ export const GET = withAuth<{ connectors: ConnectorListItem[] } | { error: strin
         let authType: 'manual' | 'oauth' = 'manual'
         let oauthConnected = false
         let oauthExpiresAt: string | undefined
+        let metaAdsReady = false
 
         try {
           const config = decryptConfig(c.config)
@@ -64,6 +66,7 @@ export const GET = withAuth<{ connectors: ConnectorListItem[] } | { error: strin
           const oauth = validateConnectorType(c.type) ? getConnectorOAuthConfig(c.type, config) : null
           oauthConnected = Boolean(oauth?.accessToken)
           oauthExpiresAt = oauth?.expiresAt
+          metaAdsReady = c.type === 'meta-ads' ? isMetaAdsConnectorReady(config) : false
         } catch {
           authType = 'manual'
         }
@@ -73,7 +76,15 @@ export const GET = withAuth<{ connectors: ConnectorListItem[] } | { error: strin
           type: c.type,
           name: c.name,
           enabled: c.enabled,
-          status: !c.enabled ? 'disabled' : authType === 'oauth' && !oauthConnected ? 'pending' : 'ready',
+          status: !c.enabled
+            ? 'disabled'
+            : c.type === 'meta-ads'
+              ? authType === 'oauth' && oauthConnected && metaAdsReady
+                ? 'ready'
+                : 'pending'
+              : authType === 'oauth' && !oauthConnected
+                ? 'pending'
+                : 'ready',
           authType,
           oauthConnected,
           oauthExpiresAt,

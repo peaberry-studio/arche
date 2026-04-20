@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { encryptConfig, decryptConfig } from '@/lib/connectors/crypto'
+import {
+  DEFAULT_META_ADS_CONNECTOR_PERMISSIONS,
+} from '@/lib/connectors/meta-ads-types'
+import {
+  parseMetaAdsConnectorConfig,
+  parseMetaAdsConnectorPermissions,
+} from '@/lib/connectors/meta-ads'
 import { CONNECTOR_TYPES } from '@/lib/connectors/types'
 import {
   parseZendeskConnectorConfig,
@@ -53,7 +60,7 @@ describe('connectors/crypto', () => {
 
 describe('connectors/types', () => {
   it('CONNECTOR_TYPES contains expected values', () => {
-    expect(CONNECTOR_TYPES).toEqual(['linear', 'notion', 'zendesk', 'custom'])
+    expect(CONNECTOR_TYPES).toEqual(['linear', 'notion', 'zendesk', 'custom', 'meta-ads'])
   })
 })
 
@@ -112,6 +119,30 @@ describe('connectors/validators', () => {
       const invalid = validateConnectorConfig('zendesk', {})
       expect(invalid.valid).toBe(false)
       expect(invalid.missing).toEqual(['subdomain', 'email', 'apiToken'])
+    })
+
+    it('validates required fields for meta-ads', () => {
+      const valid = validateConnectorConfig('meta-ads', {
+        authType: 'oauth',
+        appId: 'app-123',
+        appSecret: 'secret-123',
+      })
+      expect(valid).toEqual({ valid: true })
+
+      const invalid = validateConnectorConfig('meta-ads', { authType: 'oauth' })
+      expect(invalid.valid).toBe(false)
+      expect(invalid.missing).toEqual(['appId', 'appSecret'])
+    })
+
+    it('rejects manual mode for meta-ads connectors', () => {
+      expect(validateConnectorConfig('meta-ads', {
+        authType: 'manual',
+        appId: 'app-123',
+        appSecret: 'secret-123',
+      })).toEqual({
+        valid: false,
+        message: 'Meta Ads connectors require OAuth',
+      })
     })
 
     it('rejects invalid zendesk subdomains', () => {
@@ -302,6 +333,35 @@ describe('connectors/zendesk-config', () => {
         email: 'agent@example.com',
         apiToken: 'token-123',
         permissions: DEFAULT_ZENDESK_CONNECTOR_PERMISSIONS,
+      },
+    })
+  })
+})
+
+describe('connectors/meta-ads-config', () => {
+  it('defaults missing Meta Ads permissions to read-only', () => {
+    expect(parseMetaAdsConnectorPermissions(undefined)).toEqual({
+      ok: true,
+      value: DEFAULT_META_ADS_CONNECTOR_PERMISSIONS,
+    })
+  })
+
+  it('normalizes selected ad account ids and validates default account membership', () => {
+    expect(parseMetaAdsConnectorConfig({
+      authType: 'oauth',
+      appId: 'app-123',
+      appSecret: 'secret-123',
+      selectedAdAccountIds: ['123', 'act_456', '123'],
+      defaultAdAccountId: '456',
+    })).toEqual({
+      ok: true,
+      value: {
+        authType: 'oauth',
+        appId: 'app-123',
+        appSecret: 'secret-123',
+        permissions: DEFAULT_META_ADS_CONNECTOR_PERMISSIONS,
+        selectedAdAccountIds: ['act_123', 'act_456'],
+        defaultAdAccountId: 'act_456',
       },
     })
   })

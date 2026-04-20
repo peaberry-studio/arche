@@ -43,7 +43,7 @@ export const POST = withAuth<
   const redirectUri = `${baseUrl}/api/connectors/oauth/callback`
 
   let connectorConfig: Record<string, unknown> | undefined
-  if (connector.type === 'custom') {
+  if (connector.type === 'custom' || connector.type === 'meta-ads') {
     try {
       connectorConfig = decryptConfig(connector.config)
     } catch {
@@ -72,8 +72,19 @@ export const POST = withAuth<
       || message === 'invalid_endpoint'
       || message === 'blocked_endpoint'
       || message === 'oauth_state_too_large'
+      || message === 'meta_ads_missing_app_id'
+      || message === 'meta_ads_missing_app_secret'
     ) {
-      return NextResponse.json({ error: message }, { status: 400 })
+      const errorPayload = message.startsWith('meta_ads_missing_')
+        ? {
+            error: message,
+            message: message === 'meta_ads_missing_app_id'
+              ? 'Meta Ads App ID is required before connecting OAuth.'
+              : 'Meta Ads App Secret is required before connecting OAuth.',
+          }
+        : { error: message }
+
+      return NextResponse.json(errorPayload, { status: 400 })
     }
 
     if (message.startsWith('oauth_discovery_failed')) {

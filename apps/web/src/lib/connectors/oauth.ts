@@ -1,5 +1,10 @@
 import crypto from 'node:crypto'
 
+import {
+  META_ADS_DEFAULT_OAUTH_SCOPE,
+  getMetaAdsAuthorizationEndpoint,
+  getMetaAdsTokenEndpoint,
+} from '@/lib/connectors/meta-ads-shared'
 import { OAUTH_CONNECTOR_TYPES, type ConnectorType, type OAuthConnectorType } from '@/lib/connectors/types'
 import { validateConnectorTestEndpoint } from '@/lib/security/ssrf'
 
@@ -94,7 +99,7 @@ async function validateConnectorUrl(rawUrl: string): Promise<string> {
   return validation.url.toString()
 }
 
-function getOptionalScope(type: Exclude<OAuthConnectorType, 'custom'>): string | undefined {
+function getOptionalScope(type: Exclude<OAuthConnectorType, 'custom' | 'meta-ads'>): string | undefined {
   if (type === 'linear') {
     const value = process.env.ARCHE_CONNECTOR_LINEAR_SCOPE
     return value && value.trim() ? value.trim() : undefined
@@ -104,7 +109,7 @@ function getOptionalScope(type: Exclude<OAuthConnectorType, 'custom'>): string |
   return value && value.trim() ? value.trim() : undefined
 }
 
-function getOfficialMcpServerUrl(type: Exclude<OAuthConnectorType, 'custom'>): string {
+function getOfficialMcpServerUrl(type: Exclude<OAuthConnectorType, 'custom' | 'meta-ads'>): string {
   if (type === 'linear') {
     return process.env.ARCHE_CONNECTOR_LINEAR_MCP_URL || MCP_SERVER_URLS.linear
   }
@@ -125,6 +130,10 @@ async function sanitizeOAuthMetadata(metadata: OAuthServerMetadata): Promise<OAu
       ? await validateConnectorUrl(metadata.registrationEndpoint)
       : undefined,
   }
+}
+
+function usesPkce(type: OAuthConnectorType): boolean {
+  return type !== 'meta-ads'
 }
 
 function resolveOAuthMetadata(
@@ -246,6 +255,27 @@ async function postForm(
   return data
 }
 
+async function getJson(endpoint: string, errorPrefix: string): Promise<Record<string, unknown>> {
+  const response = await fetch(endpoint, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+    },
+    cache: 'no-store',
+  })
+
+  const data = (await response.json().catch(() => null)) as Record<string, unknown> | null
+  if (!response.ok || !data) {
+    throw new Error(errorPrefix)
+  }
+  if (typeof data.error === 'string' && data.error.trim()) {
+    const description = getString(data.error_description)
+    throw new Error(description ? `${errorPrefix}:${data.error}:${description}` : `${errorPrefix}:${data.error}`)
+  }
+
+  return data
+}
+
 async function discoverOAuthMetadata(mcpServerUrl: string): Promise<OAuthServerMetadata> {
   const serverUrl = new URL(mcpServerUrl)
   const authorizationBase = `${serverUrl.protocol}//${serverUrl.host}`
@@ -290,6 +320,17 @@ function getStaticOAuthClientRegistration(
   type: OAuthConnectorType,
   connectorConfig?: Record<string, unknown>,
 ): OAuthClientRegistration | null {
+  if (type === 'meta-ads') {
+    const clientId = getString(connectorConfig?.appId)
+    const clientSecret = getString(connectorConfig?.appSecret)
+    if (!clientId || !clientSecret) return null
+
+    return {
+      clientId,
+      clientSecret,
+    }
+  }
+
   if (type === 'custom') {
     const clientId = getString(connectorConfig?.oauthClientId)
     if (!clientId) return null
@@ -322,6 +363,28 @@ async function resolveOAuthPreparationContext(input: {
   connectorType: OAuthConnectorType
   connectorConfig?: Record<string, unknown>
 }): Promise<OAuthPreparationContext> {
+  if (input.connectorType === 'meta-ads') {
+    const client = getStaticOAuthClientRegistration('meta-ads', input.connectorConfig)
+    if (!client?.clientId) {
+      throw new Error('meta_ads_missing_app_id')
+    }
+
+    if (!client.clientSecret) {
+      throw new Error('meta_ads_missing_app_secret')
+    }
+
+    return {
+      mcpServerUrl: getMetaAdsAuthorizationEndpoint(),
+      scope: getString(input.connectorConfig?.oauthScope) ?? META_ADS_DEFAULT_OAUTH_SCOPE,
+      staticClientRegistration: client,
+      metadataOverrides: {
+        authorizationEndpoint: getMetaAdsAuthorizationEndpoint(),
+        tokenEndpoint: getMetaAdsTokenEndpoint(),
+      },
+      validateMetadataEndpoints: false,
+    }
+  }
+
   if (input.connectorType !== 'custom') {
     return {
       mcpServerUrl: getOfficialMcpServerUrl(input.connectorType),
@@ -501,8 +564,8 @@ export async function prepareConnectorOAuthAuthorization(input: {
     context.staticClientRegistration,
   )
 
-  const codeVerifier = createPkceCodeVerifier()
-  const codeChallenge = createPkceCodeChallenge(codeVerifier)
+  const codeVerifier = usesPkce(input.connectorType) ? createPkceCodeVerifier() : undefined
+  const codeChallenge = codeVerifier ? createPkceCodeChallenge(codeVerifier) : undefined
 
   const state = issueConnectorOAuthState({
     connectorId: input.connectorId,
@@ -525,8 +588,10 @@ export async function prepareConnectorOAuthAuthorization(input: {
   authorizeUrl.searchParams.set('client_id', client.clientId)
   authorizeUrl.searchParams.set('redirect_uri', input.redirectUri)
   authorizeUrl.searchParams.set('state', state)
-  authorizeUrl.searchParams.set('code_challenge', codeChallenge)
-  authorizeUrl.searchParams.set('code_challenge_method', 'S256')
+  if (codeChallenge) {
+    authorizeUrl.searchParams.set('code_challenge', codeChallenge)
+    authorizeUrl.searchParams.set('code_challenge_method', 'S256')
+  }
 
   const scope = context.scope
   if (scope) {
@@ -546,6 +611,35 @@ export async function exchangeConnectorOAuthCode(input: {
   redirectUri: string
   state: OAuthStatePayload
 }): Promise<OAuthTokenResult> {
+  if (input.state.connectorType === 'meta-ads') {
+    if (!input.state.clientId || !input.state.clientSecret || !input.state.tokenEndpoint) {
+      throw new Error('invalid_state')
+    }
+
+    const shortLivedUrl = new URL(input.state.tokenEndpoint)
+    shortLivedUrl.searchParams.set('client_id', input.state.clientId)
+    shortLivedUrl.searchParams.set('redirect_uri', input.redirectUri)
+    shortLivedUrl.searchParams.set('client_secret', input.state.clientSecret)
+    shortLivedUrl.searchParams.set('code', input.code)
+
+    const shortLived = mapTokenResponse(await getJson(shortLivedUrl.toString(), 'oauth_exchange_failed'))
+
+    const longLivedUrl = new URL(input.state.tokenEndpoint)
+    longLivedUrl.searchParams.set('grant_type', 'fb_exchange_token')
+    longLivedUrl.searchParams.set('client_id', input.state.clientId)
+    longLivedUrl.searchParams.set('client_secret', input.state.clientSecret)
+    longLivedUrl.searchParams.set('fb_exchange_token', shortLived.accessToken)
+
+    const longLived = mapTokenResponse(await getJson(longLivedUrl.toString(), 'oauth_exchange_failed'))
+
+    return {
+      accessToken: longLived.accessToken,
+      tokenType: longLived.tokenType ?? shortLived.tokenType,
+      scope: longLived.scope ?? shortLived.scope,
+      expiresAt: longLived.expiresAt ?? shortLived.expiresAt,
+    }
+  }
+
   if (!input.state.clientId || !input.state.codeVerifier || !input.state.tokenEndpoint) {
     throw new Error('invalid_state')
   }
@@ -577,6 +671,10 @@ export async function refreshConnectorOAuthToken(input: {
   tokenEndpoint?: string
   mcpServerUrl?: string
 }): Promise<OAuthTokenResult> {
+  if (input.connectorType === 'meta-ads') {
+    throw new Error('oauth_refresh_failed:unsupported_provider')
+  }
+
   let tokenEndpoint: string
 
   if (input.tokenEndpoint) {

@@ -257,6 +257,80 @@ describe('connectors oauth state', () => {
       expect.objectContaining({ method: 'POST' })
     )
   })
+
+  it('prepares Meta Ads OAuth without PKCE using connector credentials', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const prepared = await prepareConnectorOAuthAuthorization({
+      connectorId: 'conn-meta',
+      slug: 'alice',
+      userId: 'user-1',
+      connectorType: 'meta-ads',
+      redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
+      connectorConfig: {
+        authType: 'oauth',
+        appId: 'meta-app-id',
+        appSecret: 'meta-app-secret',
+      },
+    })
+
+    const authorizeUrl = new URL(prepared.authorizeUrl)
+    expect(authorizeUrl.origin).toBe('https://www.facebook.com')
+    expect(authorizeUrl.pathname).toContain('/dialog/oauth')
+    expect(authorizeUrl.searchParams.get('client_id')).toBe('meta-app-id')
+    expect(authorizeUrl.searchParams.get('scope')).toBe('ads_read')
+    expect(authorizeUrl.searchParams.get('code_challenge')).toBeNull()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('exchanges Meta Ads code into a long-lived token', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ access_token: 'short-lived-token', token_type: 'bearer' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ access_token: 'long-lived-token', expires_in: 5183944 }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const state = verifyConnectorOAuthState(issueConnectorOAuthState({
+      connectorId: 'conn-meta',
+      slug: 'alice',
+      userId: 'user-1',
+      connectorType: 'meta-ads',
+      redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
+      clientId: 'meta-app-id',
+      clientSecret: 'meta-app-secret',
+      tokenEndpoint: 'https://graph.facebook.com/v25.0/oauth/access_token',
+      authorizationEndpoint: 'https://www.facebook.com/v25.0/dialog/oauth',
+    }))
+
+    const result = await (await import('@/lib/connectors/oauth')).exchangeConnectorOAuthCode({
+      code: 'oauth-code',
+      redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
+      state,
+    })
+
+    expect(result.accessToken).toBe('long-lived-token')
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining('code=oauth-code'),
+      expect.objectContaining({ method: 'GET' })
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining('fb_exchange_token=short-lived-token'),
+      expect.objectContaining({ method: 'GET' })
+    )
+  })
 })
 
 describe('connectors oauth config', () => {
@@ -266,6 +340,11 @@ describe('connectors oauth config', () => {
     expect(validateConnectorConfig('custom', { authType: 'oauth', endpoint: 'https://api.example.com/mcp' })).toEqual({
       valid: true,
     })
+    expect(validateConnectorConfig('meta-ads', {
+      authType: 'oauth',
+      appId: 'meta-app-id',
+      appSecret: 'meta-app-secret',
+    })).toEqual({ valid: true })
     expect(validateConnectorConfig('custom', { authType: 'oauth' })).toEqual({
       valid: false,
       missing: ['endpoint'],
@@ -301,6 +380,23 @@ describe('connectors oauth config', () => {
     const customOauth = getConnectorOAuthConfig('custom', customConfig)
     expect(customOauth?.provider).toBe('custom')
     expect(customOauth?.accessToken).toBe('custom-token')
+
+    const metaConfig = buildConfigWithOAuth({
+      connectorType: 'meta-ads',
+      currentConfig: {
+        authType: 'oauth',
+        appId: 'meta-app-id',
+        appSecret: 'meta-app-secret',
+      },
+      oauth: {
+        clientId: 'meta-app-id',
+        clientSecret: 'meta-app-secret',
+        accessToken: 'meta-token',
+      },
+    })
+    const metaOauth = getConnectorOAuthConfig('meta-ads', metaConfig)
+    expect(metaOauth?.provider).toBe('meta-ads')
+    expect(metaOauth?.accessToken).toBe('meta-token')
   })
 
   it('detects token expiring soon', () => {
