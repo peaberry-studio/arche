@@ -1,18 +1,26 @@
 import { createServer } from 'net'
 
-export async function findAvailablePort(preferredPort: number, host: string): Promise<number> {
+export async function findAvailablePort(
+  preferredPort: number,
+  host: string,
+  excludedPorts: number[] = [],
+): Promise<number> {
   const preferredResult = await tryListen(preferredPort, host)
-  if (preferredResult.ok) {
+  if (preferredResult.ok && !excludedPorts.includes(preferredResult.port)) {
     return preferredResult.port
   }
 
-  if (preferredResult.errorCode !== 'EADDRINUSE') {
+  if (!preferredResult.ok && preferredResult.errorCode !== 'EADDRINUSE') {
     throw preferredResult.error
   }
 
   const fallbackResult = await tryListen(0, host)
   if (!fallbackResult.ok) {
     throw fallbackResult.error
+  }
+
+  if (excludedPorts.includes(fallbackResult.port)) {
+    return findAvailablePort(0, host, excludedPorts)
   }
 
   return fallbackResult.port

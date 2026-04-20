@@ -17,6 +17,7 @@ import {
   getRuntimeBinaryEnv,
 } from './runtime-binaries'
 import { findAvailablePort } from './runtime-network'
+import { startRuntimeWithPortRetries } from './runtime-start'
 import { probeHttpServerReady, RuntimeSupervisor } from './runtime-supervisor'
 import { buildLaunchArgs, resolveLaunchContext, type DesktopLaunchContext } from './vault-launch'
 import {
@@ -40,6 +41,8 @@ import {
 import { createVaultManifest, tryReadVault, type DesktopVault } from './vault-manifest'
 
 const DEFAULT_DESKTOP_WEB_PORT = 3000
+const DESKTOP_RUNTIME_READY_PATH = '/api/internal/desktop/runtime'
+const MAX_NEXT_START_ATTEMPTS = 4
 const LOOPBACK_HOST = '127.0.0.1'
 const DESKTOP_TOKEN_HEADER = 'x-arche-desktop-token'
 const DESKTOP_GIT_AUTHOR_NAME = 'Arche Workspace'
@@ -71,6 +74,23 @@ function getPort(): number {
 
 function getNextUrl(): string {
   return `http://${LOOPBACK_HOST}:${getPort()}`
+}
+
+function getDesktopRuntimeReadyUrl(): string {
+  return `${getNextUrl()}${DESKTOP_RUNTIME_READY_PATH}`
+}
+
+function isDesktopRuntimeReadyResponse(response: Response, bodyText: string): boolean {
+  if (!response.ok) {
+    return false
+  }
+
+  try {
+    const payload = JSON.parse(bodyText) as Record<string, unknown>
+    return payload.app === 'arche' && payload.runtime === 'desktop' && payload.status === 'ok'
+  } catch {
+    return false
+  }
 }
 
 function getWebAppDir(): string {
@@ -279,11 +299,29 @@ function verifyPackagedRuntimeBinaries(): string[] {
 }
 
 async function startNextServer(): Promise<void> {
-  if (!nextSupervisor) {
-    nextSupervisor = createNextSupervisor()
-  }
+  await startRuntimeWithPortRetries({
+    preferredPort: DEFAULT_DESKTOP_WEB_PORT,
+    maxAttempts: MAX_NEXT_START_ATTEMPTS,
+    acquirePort: async (preferredPort, excludedPorts) => {
+      await initializeDesktopWebPort(preferredPort, excludedPorts)
+      return getPort()
+    },
+    start: async () => {
+      nextSupervisor = createNextSupervisor()
 
-  await nextSupervisor.start()
+      try {
+        await nextSupervisor.start()
+      } catch (error) {
+        nextSupervisor = null
+        throw error
+      }
+    },
+    onRetry: ({ attempt, previousPort, error }) => {
+      process.stdout.write(
+        `[desktop-runtime] retrying_next_start attempt=${String(attempt)} previous_port=${String(previousPort)} error=${error instanceof Error ? error.message : String(error)}\n`,
+      )
+    },
+  })
 }
 
 function createNextSupervisor(): RuntimeSupervisor {
@@ -303,7 +341,13 @@ function createNextSupervisor(): RuntimeSupervisor {
       PORT: String(getPort()),
       HOSTNAME: LOOPBACK_HOST,
     },
-    probeReadiness: () => probeHttpServerReady(getNextUrl()),
+    probeReadiness: () =>
+      probeHttpServerReady(getDesktopRuntimeReadyUrl(), {
+        headers: {
+          [DESKTOP_TOKEN_HEADER]: desktopApiToken,
+        },
+        validateResponse: isDesktopRuntimeReadyResponse,
+      }),
     restartOnCrash: true,
     maxRestarts: 3,
     log: (event) => {
@@ -312,8 +356,11 @@ function createNextSupervisor(): RuntimeSupervisor {
   })
 }
 
-async function initializeDesktopWebPort(): Promise<void> {
-  nextPort = await findAvailablePort(DEFAULT_DESKTOP_WEB_PORT, LOOPBACK_HOST)
+async function initializeDesktopWebPort(
+  preferredPort: number,
+  excludedPorts: number[] = [],
+): Promise<void> {
+  nextPort = await findAvailablePort(preferredPort, LOOPBACK_HOST, excludedPorts)
   process.env.ARCHE_DESKTOP_WEB_PORT = String(nextPort)
 }
 
@@ -630,7 +677,6 @@ app.whenReady().then(async () => {
   }
 
   resetDesktopDevNextArtifacts()
-  await initializeDesktopWebPort()
 
   const missingRuntimeBinaries = verifyPackagedRuntimeBinaries()
   if (missingRuntimeBinaries.length > 0) {

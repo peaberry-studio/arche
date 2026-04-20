@@ -10,6 +10,13 @@ test('returns the preferred port when it is available', async () => {
   assert.notEqual(port, 0)
 })
 
+test('does not reuse an excluded preferred port', async () => {
+  const preferredPort = await findAvailablePort(0, '127.0.0.1')
+  const port = await findAvailablePort(preferredPort, '127.0.0.1', [preferredPort])
+
+  assert.notEqual(port, preferredPort)
+})
+
 test('falls back when the preferred port is already in use', async () => {
   const busyServer = net.createServer()
   // Use port 0 to let the OS pick an available ephemeral port, avoiding
