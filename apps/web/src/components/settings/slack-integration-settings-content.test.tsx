@@ -3,8 +3,8 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/components/connectors/connectors-manager', () => ({
-  ConnectorsManager: ({ slug, oauthReturnTo }: { slug: string; oauthReturnTo?: string }) => (
+vi.mock('@/components/connectors/connectors-panel', () => ({
+  ConnectorsPanel: ({ slug, oauthReturnTo }: { slug: string; oauthReturnTo?: string }) => (
     <div>Connectors {slug} {oauthReturnTo}</div>
   ),
 }))

@@ -1,12 +1,16 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
-import { ConnectorsManager } from '@/components/connectors/connectors-manager'
+import {
+  ConnectorsPanel,
+  type ConnectorsPanelHandle,
+} from '@/components/connectors/connectors-panel'
 import { ProviderCredentialsPanel } from '@/components/providers/provider-credentials-panel'
 import { SettingsSection } from '@/components/settings/settings-section'
 import { SlackIntegrationDangerZone } from '@/components/settings/slack-integration-danger-zone'
 import { SlackIntegrationPanel } from '@/components/settings/slack-integration-panel'
+import { Button } from '@/components/ui/button'
 
 type SlackIntegrationSettingsContentProps = {
   serviceUserSlug: string
@@ -20,6 +24,7 @@ export function SlackIntegrationSettingsContent({
   showProviderCredentials,
 }: SlackIntegrationSettingsContentProps) {
   const [refreshVersion, setRefreshVersion] = useState(0)
+  const connectorsPanelRef = useRef<ConnectorsPanelHandle>(null)
 
   function handleIntegrationMutated() {
     setRefreshVersion((current) => current + 1)
@@ -47,12 +52,18 @@ export function SlackIntegrationSettingsContent({
           <SettingsSection
             title="Connectors for Slack bot"
             description="Create, enable, and test the connectors available to the reserved slack-bot service workspace."
+            action={
+              <Button
+                variant="outline"
+                onClick={() => connectorsPanelRef.current?.openAddModal()}
+              >
+                Add connector
+              </Button>
+            }
           >
-            <ConnectorsManager
+            <ConnectorsPanel
+              ref={connectorsPanelRef}
               slug={serviceUserSlug}
-              embedded
-              title="Slack bot connectors"
-              description="These connectors are available to the slack-bot service workspace when an agent capability allows them."
               oauthReturnTo={`/u/${slug}/settings/integrations/slack`}
             />
           </SettingsSection>
