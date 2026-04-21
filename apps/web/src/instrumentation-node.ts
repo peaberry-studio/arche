@@ -70,6 +70,7 @@ export async function registerNodeInstrumentation() {
   await initWebPrisma()
 
   const { startReaper } = await import('@/lib/spawner/reaper')
+  // Repeated bootstrap calls rely on startReaper's internal idempotency guard.
   startReaper()
 
   if (process.env.NODE_ENV === 'production') {
