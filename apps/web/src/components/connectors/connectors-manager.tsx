@@ -19,6 +19,7 @@ type ConnectorsManagerProps = {
   embedded?: boolean
   title?: string
   description?: string
+  oauthReturnTo?: string
 }
 
 function toConnectorListItemArray(value: unknown): ConnectorListItem[] {
@@ -47,6 +48,7 @@ export function ConnectorsManager({
   embedded = false,
   title = 'Connectors',
   description = 'Configure integrations for your workspace.',
+  oauthReturnTo,
 }: ConnectorsManagerProps) {
   const [connectors, setConnectors] = useState<ConnectorListItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -227,7 +229,12 @@ export function ConnectorsManager({
       setActionError(null)
 
       try {
-        const response = await fetch(`/api/u/${slug}/connectors/${id}/oauth/start`, {
+        const requestUrl = new URL(`/api/u/${slug}/connectors/${id}/oauth/start`, window.location.origin)
+        if (oauthReturnTo) {
+          requestUrl.searchParams.set('returnTo', oauthReturnTo)
+        }
+
+        const response = await fetch(`${requestUrl.pathname}${requestUrl.search}`, {
           method: 'POST',
           headers: { accept: 'application/json' },
         })
@@ -247,7 +254,7 @@ export function ConnectorsManager({
         markConnectorBusy(id, false)
       }
     },
-    [markConnectorBusy, slug],
+    [markConnectorBusy, oauthReturnTo, slug],
   )
 
   const content = (

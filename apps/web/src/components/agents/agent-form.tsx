@@ -8,13 +8,14 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { notifyWorkspaceConfigChanged } from '@/lib/runtime/config-status-events'
-import { cn } from '@/lib/utils'
 import {
   OPENCODE_AGENT_TOOL_OPTIONS,
   type AgentCapabilities,
   type OpenCodeAgentToolId,
 } from '@/lib/agent-capabilities'
+import type { AgentConnectorCapabilityOption } from '@/lib/agent-connector-capabilities'
+import { notifyWorkspaceConfigChanged } from '@/lib/runtime/config-status-events'
+import { cn } from '@/lib/utils'
 
 type AgentFormProps = {
   agentId?: string
@@ -30,13 +31,6 @@ type AgentFormProps = {
 type ModelOption = {
   id: string
   label: string
-}
-
-type ConnectorListItem = {
-  id: string
-  type: string
-  name: string
-  enabled: boolean
 }
 
 type SkillListItem = {
@@ -64,7 +58,7 @@ export function AgentForm({
   const [enabledTools, setEnabledTools] = useState<OpenCodeAgentToolId[]>([])
   const [enabledMcpConnectorIds, setEnabledMcpConnectorIds] = useState<string[]>([])
   const [enabledSkillIds, setEnabledSkillIds] = useState<string[]>([])
-  const [connectors, setConnectors] = useState<ConnectorListItem[]>([])
+  const [connectors, setConnectors] = useState<AgentConnectorCapabilityOption[]>([])
   const [skills, setSkills] = useState<SkillListItem[]>([])
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([])
   const [hash, setHash] = useState<string | undefined>()
@@ -82,7 +76,7 @@ export function AgentForm({
     async function loadFormOptions() {
       const [modelsResponse, connectorsResponse, skillsResponse] = await Promise.all([
         fetch(`/api/u/${slug}/agents/models`, { cache: 'no-store' }).catch(() => null),
-        fetch(`/api/u/${slug}/connectors`, { cache: 'no-store' }).catch(() => null),
+        fetch(`/api/u/${slug}/agents/connectors`, { cache: 'no-store' }).catch(() => null),
         fetch(`/api/u/${slug}/skills`, { cache: 'no-store' }).catch(() => null),
       ])
 
@@ -97,13 +91,13 @@ export function AgentForm({
 
       if (connectorsResponse?.ok) {
         const data = (await connectorsResponse.json().catch(() => null)) as
-          | { connectors?: ConnectorListItem[] }
+          | { connectors?: AgentConnectorCapabilityOption[] }
           | null
-        const enabledConnectorList = (data?.connectors ?? []).filter((connector) => connector.enabled)
-        setConnectors(enabledConnectorList)
+        const availableConnectors = data?.connectors ?? []
+        setConnectors(availableConnectors)
         setEnabledMcpConnectorIds((current) =>
           current.filter((connectorId) =>
-            enabledConnectorList.some((connector) => connector.id === connectorId)
+            availableConnectors.some((connector) => connector.id === connectorId)
           )
         )
       }
@@ -510,18 +504,21 @@ export function AgentForm({
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="right" className="max-w-[240px] text-xs leading-relaxed">
-                  MCP connectors let the agent interact with external services like Linear, Notion, or custom APIs. Manage connectors from the Connectors page.
+                  Built-in MCP connectors apply globally by type. Custom connectors are granted per configured connector across all workspaces, including service users.
                 </TooltipContent>
               </Tooltip>
             </div>
             {connectors.length === 0 ? (
               <div className="flex items-center gap-2 rounded-lg border border-dashed border-border/60 px-3 py-2.5 text-sm text-muted-foreground/70">
-                No enabled connectors available.
+                No connectors available.
               </div>
             ) : (
               <div className="grid gap-2 md:grid-cols-2">
                 {connectors.map((connector) => {
                   const checked = enabledMcpConnectorIds.includes(connector.id)
+                  const metadata = connector.scope === 'type'
+                    ? 'All workspaces with this connector type'
+                    : `${connector.ownerSlug ?? 'Unknown workspace'}${connector.ownerKind === 'SERVICE' ? ' service workspace' : ''}${connector.enabled ? '' : ' · disabled'}`
                   return (
                     <label
                       key={connector.id}
@@ -538,8 +535,12 @@ export function AgentForm({
                         onChange={() => toggleMcpConnector(connector.id)}
                         className={checkboxClassName}
                       />
-                      <span className="font-medium">{connector.name}</span>
-                      <span className="text-xs text-muted-foreground">{connector.type}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">{connector.name}</span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {connector.type} · {metadata}
+                        </span>
+                      </span>
                     </label>
                   )
                 })}

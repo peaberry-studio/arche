@@ -1,5 +1,5 @@
 import { MCP_TOOL_PATTERN } from '@/lib/agent-capabilities'
-import { CONNECTOR_TYPES } from '@/lib/connectors/types'
+import { CONNECTOR_TYPES, isSingleInstanceConnectorType, type ConnectorType } from '@/lib/connectors/types'
 
 const CONNECTOR_TYPE_PATTERN = CONNECTOR_TYPES.join('|')
 const MCP_SERVER_KEY_PATTERN = new RegExp(`^arche_(${CONNECTOR_TYPE_PATTERN})_([a-z0-9]+)$`)
@@ -142,6 +142,17 @@ export function remapAgentConnectorTools(
       }
 
       const [, type, adminId] = match
+
+      if (!isSingleInstanceConnectorType(type as ConnectorType)) {
+        if (userMcpKeys.has(`arche_${type}_${adminId}`)) {
+          nextTools[toolKey] = enabled
+          continue
+        }
+
+        toolsChanged = true
+        continue
+      }
+
       const userIds = userConnectorsByType.get(type)
 
       if (!userIds || userIds.length === 0) {

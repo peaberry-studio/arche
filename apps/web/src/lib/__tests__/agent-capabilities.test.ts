@@ -40,12 +40,12 @@ describe('agent-capabilities', () => {
       {
         skillIds: ['pdf-processing'],
         tools: ['document_inspect', 'presentation_inspect', 'read', 'grep'],
-        mcpConnectorIds: ['cntr1', 'cntr3'],
+        mcpConnectorIds: ['globallinear', 'globalzendesk'],
       },
       [
-        { id: 'cntr1', type: 'linear', enabled: true },
-        { id: 'cntr2', type: 'notion', enabled: true },
-        { id: 'cntr3', type: 'zendesk', enabled: true },
+        { id: 'globallinear', type: 'linear' },
+        { id: 'globalnotion', type: 'notion' },
+        { id: 'globalzendesk', type: 'zendesk' },
       ]
     )
 
@@ -56,9 +56,9 @@ describe('agent-capabilities', () => {
     expect(config.skill).toBe(true)
     expect(config.write).toBe(false)
     expect(config['arche_*']).toBe(false)
-    expect(config['arche_linear_cntr1_*']).toBe(true)
-    expect(config['arche_zendesk_cntr3_*']).toBe(true)
-    expect(config['arche_notion_cntr2_*']).toBeUndefined()
+    expect(config['arche_linear_globallinear_*']).toBe(true)
+    expect(config['arche_zendesk_globalzendesk_*']).toBe(true)
+    expect(config['arche_notion_globalnotion_*']).toBeUndefined()
   })
 
   it('extracts capabilities from tools config', () => {
@@ -84,7 +84,7 @@ describe('agent-capabilities', () => {
     expect(capabilities).toEqual({
       skillIds: ['pdf-processing'],
       tools: ['document_inspect', 'grep', 'read'],
-      mcpConnectorIds: ['conn123', 'conn456'],
+      mcpConnectorIds: ['conn123', 'globalzendesk'],
     })
   })
 
