@@ -4,6 +4,12 @@ vi.mock('@/lib/providers/store', () => ({
   getActiveCredentialForUser: vi.fn(),
 }))
 
+vi.mock('@/lib/services', () => ({
+  instanceService: {
+    setProviderSyncState: vi.fn(),
+  },
+}))
+
 vi.mock('@/lib/providers/tokens', () => ({
   issueGatewayToken: vi.fn(),
 }))

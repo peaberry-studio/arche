@@ -1,4 +1,5 @@
 import { createInstanceClient } from '@/lib/opencode/client'
+import { ensureProviderAccessFreshForExecution } from '@/lib/opencode/providers'
 import { transformParts } from '@/lib/opencode/transform'
 import type { MessagePart } from '@/lib/opencode/types'
 import { instanceService } from '@/lib/services'
@@ -123,6 +124,7 @@ async function inspectSessionOutcome(
 export async function ensureWorkspaceRunningForExecution(slug: string, userId: string): Promise<void> {
   const current = await getInstanceStatus(slug)
   if (current?.status === 'running') {
+    await ensureProviderAccessFreshForExecution({ slug, userId })
     return
   }
 
@@ -132,6 +134,7 @@ export async function ensureWorkspaceRunningForExecution(slug: string, userId: s
       await sleep(INSTANCE_START_POLL_INTERVAL_MS)
       const next = await getInstanceStatus(slug)
       if (next?.status === 'running') {
+        await ensureProviderAccessFreshForExecution({ slug, userId })
         return
       }
     }
@@ -143,6 +146,8 @@ export async function ensureWorkspaceRunningForExecution(slug: string, userId: s
   if (!startResult.ok && startResult.error !== 'already_running') {
     throw new Error(startResult.detail ?? startResult.error)
   }
+
+  await ensureProviderAccessFreshForExecution({ slug, userId })
 }
 
 export async function captureSessionMessageCursor(

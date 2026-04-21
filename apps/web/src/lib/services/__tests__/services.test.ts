@@ -476,7 +476,28 @@ describe('service layer', () => {
 
       expect(mockPrisma.instance.update).toHaveBeenCalledWith({
         where: { slug: 'alice' },
-        data: { status: 'error', containerId: null },
+        data: {
+          status: 'error',
+          containerId: null,
+          providerSyncHash: null,
+          providerSyncedAt: null,
+        },
+      })
+    })
+
+    it('setProviderSyncState persists the latest provider sync hash and timestamp', async () => {
+      const syncedAt = new Date('2026-04-21T10:00:00.000Z')
+      mockPrisma.instance.update.mockResolvedValue({ slug: 'alice', providerSyncHash: 'hash-123' })
+
+      const { instanceService } = await import('../index')
+      await instanceService.setProviderSyncState('alice', 'hash-123', syncedAt)
+
+      expect(mockPrisma.instance.update).toHaveBeenCalledWith({
+        where: { slug: 'alice' },
+        data: {
+          providerSyncHash: 'hash-123',
+          providerSyncedAt: syncedAt,
+        },
       })
     })
 
