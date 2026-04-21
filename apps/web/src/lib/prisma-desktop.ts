@@ -41,6 +41,8 @@ const SCHEMA_DDL = [
     "container_id" TEXT,
     "server_password" TEXT NOT NULL,
     "applied_config_sha" TEXT,
+    "provider_sync_hash" TEXT,
+    "provider_synced_at" DATETIME,
     CONSTRAINT "instances_slug_fkey" FOREIGN KEY ("slug") REFERENCES "users" ("slug") ON DELETE RESTRICT ON UPDATE CASCADE
   )`,
   `CREATE TABLE IF NOT EXISTS "sessions" (
@@ -188,7 +190,7 @@ const SCHEMA_DDL = [
   `CREATE INDEX IF NOT EXISTS "two_factor_recovery_user_id_idx" ON "two_factor_recovery"("user_id")`,
 ]
 
-const SCHEMA_VERSION = '4'
+const SCHEMA_VERSION = '5'
 
 async function ensureAutopilotRunResultSeenAtColumn(client: DesktopPrismaClient): Promise<void> {
   const columns = await client.$queryRawUnsafe('PRAGMA table_info("autopilot_runs")') as Array<{ name?: string }>
@@ -205,6 +207,20 @@ async function ensureUserKindColumn(client: DesktopPrismaClient): Promise<void> 
 
   if (!hasKind) {
     await client.$executeRawUnsafe('ALTER TABLE "users" ADD COLUMN "kind" TEXT NOT NULL DEFAULT \'HUMAN\'')
+  }
+}
+
+async function ensureInstanceProviderSyncColumns(client: DesktopPrismaClient): Promise<void> {
+  const columns = await client.$queryRawUnsafe('PRAGMA table_info("instances")') as Array<{ name?: string }>
+  const hasProviderSyncHash = columns.some((column) => column.name === 'provider_sync_hash')
+  const hasProviderSyncedAt = columns.some((column) => column.name === 'provider_synced_at')
+
+  if (!hasProviderSyncHash) {
+    await client.$executeRawUnsafe('ALTER TABLE "instances" ADD COLUMN "provider_sync_hash" TEXT')
+  }
+
+  if (!hasProviderSyncedAt) {
+    await client.$executeRawUnsafe('ALTER TABLE "instances" ADD COLUMN "provider_synced_at" DATETIME')
   }
 }
 
@@ -252,6 +268,7 @@ export async function initDesktopDatabase(): Promise<void> {
 
   if (storedVersion === SCHEMA_VERSION) {
     await ensureAutopilotRunResultSeenAtColumn(client)
+    await ensureInstanceProviderSyncColumns(client)
     await ensureUserKindColumn(client)
     return
   }
@@ -261,6 +278,7 @@ export async function initDesktopDatabase(): Promise<void> {
   }
 
   await ensureAutopilotRunResultSeenAtColumn(client)
+  await ensureInstanceProviderSyncColumns(client)
   await ensureUserKindColumn(client)
 
   await client.$executeRaw`INSERT OR REPLACE INTO _arche_schema_meta (key, value) VALUES ('schema_version', ${SCHEMA_VERSION})`

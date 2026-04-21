@@ -302,6 +302,10 @@ async function handleProxy(
         return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
       }
     } else {
+      if (payload && payload.version !== credential.version) {
+        return NextResponse.json({ error: 'invalid_token' }, { status: 401 })
+      }
+
       if (credential.type !== 'api') {
         return NextResponse.json({ error: 'unsupported_credential' }, { status: 501 })
       }

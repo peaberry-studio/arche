@@ -125,6 +125,8 @@ model Instance {
   containerId     String?        @map("container_id")
   serverPassword  String         @map("server_password")
   appliedConfigSha String?       @map("applied_config_sha")
+  providerSyncHash String?       @map("provider_sync_hash")
+  providerSyncedAt DateTime?     @map("provider_synced_at")
 
   user            User           @relation(fields: [slug], references: [slug])
 

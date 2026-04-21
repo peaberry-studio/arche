@@ -14,6 +14,7 @@ const findTaskByIdAndUserIdMock = vi.fn()
 const touchActivityMock = vi.fn()
 const findByIdSelectMock = vi.fn()
 const createAuditEventMock = vi.fn()
+const ensureProviderAccessFreshForExecutionMock = vi.fn()
 
 vi.mock('@/lib/spawner/core', () => ({
   getInstanceStatus: (...args: unknown[]) => getInstanceStatusMock(...args),
@@ -22,6 +23,10 @@ vi.mock('@/lib/spawner/core', () => ({
 
 vi.mock('@/lib/opencode/client', () => ({
   createInstanceClient: (...args: unknown[]) => createInstanceClientMock(...args),
+}))
+
+vi.mock('@/lib/opencode/providers', () => ({
+  ensureProviderAccessFreshForExecution: (...args: unknown[]) => ensureProviderAccessFreshForExecutionMock(...args),
 }))
 
 vi.mock('@/lib/services', () => ({
@@ -61,6 +66,7 @@ describe('autopilot runner', () => {
     releaseTaskLeaseMock.mockResolvedValue(undefined)
     touchActivityMock.mockResolvedValue(undefined)
     createAuditEventMock.mockResolvedValue(undefined)
+    ensureProviderAccessFreshForExecutionMock.mockResolvedValue(undefined)
   })
 
   it('marks a claimed task as succeeded when the session completes cleanly', async () => {
