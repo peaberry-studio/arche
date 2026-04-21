@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const initWebPrismaMock = vi.fn()
 const isDesktopMock = vi.fn()
 const startAutopilotSchedulerMock = vi.fn()
-const startReaperMock = vi.fn()
 const startSlackSocketManagerMock = vi.fn()
 
 vi.mock('@/lib/autopilot/scheduler', () => ({
@@ -25,11 +24,6 @@ vi.mock('@/lib/slack/socket-mode', () => ({
   stopSlackSocketManager: vi.fn(),
 }))
 
-vi.mock('@/lib/spawner/reaper', () => ({
-  startReaper: (...args: unknown[]) => startReaperMock(...args),
-  stopReaper: vi.fn(),
-}))
-
 describe('registerNodeInstrumentation', () => {
   const originalNodeEnv = process.env.NODE_ENV
 
@@ -47,14 +41,13 @@ describe('registerNodeInstrumentation', () => {
     delete globalThis.archeWebCleanupRegistered
   })
 
-  it('starts Prisma, reaper, Slack, and autopilot in production web mode', async () => {
+  it('starts Prisma, Slack, and autopilot in production web mode', async () => {
     const processOnceSpy = vi.spyOn(process, 'once').mockImplementation(() => process)
 
     const { registerNodeInstrumentation } = await import('./instrumentation-node')
     await registerNodeInstrumentation()
 
     expect(initWebPrismaMock).toHaveBeenCalledTimes(1)
-    expect(startReaperMock).toHaveBeenCalledTimes(1)
     expect(startSlackSocketManagerMock).toHaveBeenCalledTimes(1)
     expect(startAutopilotSchedulerMock).toHaveBeenCalledTimes(1)
     expect(processOnceSpy).toHaveBeenCalledTimes(3)
@@ -65,7 +58,7 @@ describe('registerNodeInstrumentation', () => {
     processOnceSpy.mockRestore()
   })
 
-  it('skips autopilot outside production but still starts reaper and Slack', async () => {
+  it('skips autopilot outside production but still starts Slack', async () => {
     process.env.NODE_ENV = 'development'
     const processOnceSpy = vi.spyOn(process, 'once').mockImplementation(() => process)
 
@@ -73,7 +66,6 @@ describe('registerNodeInstrumentation', () => {
     await registerNodeInstrumentation()
 
     expect(initWebPrismaMock).toHaveBeenCalledTimes(1)
-    expect(startReaperMock).toHaveBeenCalledTimes(1)
     expect(startSlackSocketManagerMock).toHaveBeenCalledTimes(1)
     expect(startAutopilotSchedulerMock).not.toHaveBeenCalled()
     expect(processOnceSpy).toHaveBeenCalledTimes(3)
@@ -89,7 +81,6 @@ describe('registerNodeInstrumentation', () => {
     await registerNodeInstrumentation()
 
     expect(initWebPrismaMock).not.toHaveBeenCalled()
-    expect(startReaperMock).not.toHaveBeenCalled()
     expect(startSlackSocketManagerMock).not.toHaveBeenCalled()
     expect(startAutopilotSchedulerMock).not.toHaveBeenCalled()
     expect(processOnceSpy).not.toHaveBeenCalled()
@@ -104,7 +95,6 @@ describe('registerNodeInstrumentation', () => {
     await registerNodeInstrumentation()
     await registerNodeInstrumentation()
 
-    expect(startReaperMock).toHaveBeenCalledTimes(2)
     expect(startSlackSocketManagerMock).toHaveBeenCalledTimes(2)
     expect(processOnceSpy).toHaveBeenCalledTimes(3)
 
