@@ -19,12 +19,16 @@ type SyncProviderAccessInput = {
   disposeInstance?: boolean
 }
 
+// Refresh slightly before the gateway token expires so long-running runs do not
+// reuse credentials that are about to age out.
 const PROVIDER_SYNC_REFRESH_SKEW_MS = 60_000
 const providerSyncLocks = new Map<string, Promise<void>>()
 
 type EnabledProviderVersions = Map<ProviderId, { version: number }>
 
 function buildProviderSyncHash(enabledByProvider: EnabledProviderVersions): string {
+  // Only configured providers affect runtime auth. Missing credentials and
+  // providers that require no managed sync intentionally hash to the same state.
   const payload = Array.from(enabledByProvider.entries())
     .map(([providerId, value]) => ({ providerId, version: value.version }))
     .sort((left, right) => left.providerId.localeCompare(right.providerId))
@@ -223,7 +227,11 @@ export async function syncProviderAccessForInstance(
       })
     }
 
-    await instanceService.setProviderSyncState(input.slug, providerSyncHash, new Date())
+    try {
+      await instanceService.setProviderSyncState(input.slug, providerSyncHash, new Date())
+    } catch (error) {
+      console.error('[opencode/providers] Failed to persist provider sync state', error)
+    }
 
     return { ok: true }
   } catch (error) {

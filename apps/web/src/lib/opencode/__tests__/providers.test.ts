@@ -194,6 +194,26 @@ describe('syncProviderAccessForInstance', () => {
     }
   })
 
+  it('returns success when provider sync state persistence fails after auth succeeds', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    mockGetCredential.mockResolvedValue(null)
+    mockInstanceService.setProviderSyncState.mockRejectedValue(new Error('db unavailable'))
+
+    const result = await syncProviderAccessForInstance({
+      instance: fakeInstance,
+      slug: 'alice',
+      userId: 'user-1',
+    })
+
+    expect(result).toEqual({ ok: true })
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      '[opencode/providers] Failed to persist provider sync state',
+      expect.any(Error),
+    )
+
+    consoleErrorSpy.mockRestore()
+  })
+
   it('skips provider sync refresh when the running instance already matches the expected hash', async () => {
     mockGetCredential.mockImplementation(async ({ providerId }) => {
       if (providerId === 'openai') return { id: '1', version: 3 } as never
