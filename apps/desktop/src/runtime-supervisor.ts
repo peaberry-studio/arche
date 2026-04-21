@@ -44,6 +44,11 @@ type RuntimeSupervisorOptions = {
   log?: (event: RuntimeLogEvent) => void
 }
 
+type HttpProbeOptions = {
+  headers?: Record<string, string>
+  validateResponse?: (response: Response, bodyText: string) => boolean | Promise<boolean>
+}
+
 const DEFAULT_READY_TIMEOUT_MS = 30_000
 const DEFAULT_READY_POLL_INTERVAL_MS = 250
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 5_000
@@ -332,13 +337,23 @@ export class RuntimeSupervisor {
   }
 }
 
-export async function probeHttpServerReady(url: string): Promise<boolean> {
+export async function probeHttpServerReady(
+  url: string,
+  options: HttpProbeOptions = {},
+): Promise<boolean> {
   try {
     const response = await fetch(url, {
+      headers: options.headers,
       method: 'GET',
       redirect: 'manual',
       signal: AbortSignal.timeout(1_000),
     })
+
+    if (options.validateResponse) {
+      const bodyText = await response.text()
+      return await options.validateResponse(response, bodyText)
+    }
+
     return response.status > 0
   } catch {
     return false

@@ -17,6 +17,7 @@ import {
   getRuntimeBinaryEnv,
 } from './runtime-binaries'
 import { findAvailablePort } from './runtime-network'
+import { startRuntimeWithPortRetries } from './runtime-start'
 import { probeHttpServerReady, RuntimeSupervisor } from './runtime-supervisor'
 import { buildLaunchArgs, resolveLaunchContext, type DesktopLaunchContext } from './vault-launch'
 import {
@@ -40,6 +41,10 @@ import {
 import { createVaultManifest, tryReadVault, type DesktopVault } from './vault-manifest'
 
 const DEFAULT_DESKTOP_WEB_PORT = 3000
+const DESKTOP_RUNTIME_READY_PATH = '/api/internal/desktop/runtime'
+const MAX_NEXT_START_ATTEMPTS = 4
+const NEXT_READY_TIMEOUT_MS = 30_000
+const NEXT_RETRY_READY_TIMEOUT_MS = 20_000
 const LOOPBACK_HOST = '127.0.0.1'
 const DESKTOP_TOKEN_HEADER = 'x-arche-desktop-token'
 const DESKTOP_GIT_AUTHOR_NAME = 'Arche Workspace'
@@ -69,8 +74,25 @@ function getPort(): number {
   return nextPort
 }
 
-function getNextUrl(): string {
-  return `http://${LOOPBACK_HOST}:${getPort()}`
+function getNextUrl(port = getPort()): string {
+  return `http://${LOOPBACK_HOST}:${port}`
+}
+
+function getDesktopRuntimeReadyUrl(port = getPort()): string {
+  return `${getNextUrl(port)}${DESKTOP_RUNTIME_READY_PATH}`
+}
+
+function isDesktopRuntimeReadyResponse(response: Response, bodyText: string): boolean {
+  if (!response.ok) {
+    return false
+  }
+
+  try {
+    const payload = JSON.parse(bodyText) as Record<string, unknown>
+    return payload.app === 'arche' && payload.runtime === 'desktop' && payload.status === 'ok'
+  } catch {
+    return false
+  }
 }
 
 function getWebAppDir(): string {
@@ -279,31 +301,63 @@ function verifyPackagedRuntimeBinaries(): string[] {
 }
 
 async function startNextServer(): Promise<void> {
-  if (!nextSupervisor) {
-    nextSupervisor = createNextSupervisor()
-  }
+  await startRuntimeWithPortRetries({
+    preferredPort: DEFAULT_DESKTOP_WEB_PORT,
+    maxAttempts: MAX_NEXT_START_ATTEMPTS,
+    acquirePort: async (preferredPort, excludedPorts) => {
+      await initializeDesktopWebPort(preferredPort, excludedPorts)
+      return getPort()
+    },
+    start: async (port, attempt) => {
+      const readyTimeoutMs =
+        attempt === MAX_NEXT_START_ATTEMPTS ? NEXT_READY_TIMEOUT_MS : NEXT_RETRY_READY_TIMEOUT_MS
+      process.stdout.write(
+        `[desktop-runtime] starting_next_start attempt=${String(attempt)}/${String(MAX_NEXT_START_ATTEMPTS)} port=${String(port)} ready_timeout_ms=${String(readyTimeoutMs)}\n`,
+      )
+      nextSupervisor = createNextSupervisor(port, readyTimeoutMs)
 
-  await nextSupervisor.start()
+      try {
+        await nextSupervisor.start()
+      } catch (error) {
+        nextSupervisor = null
+        throw error
+      }
+    },
+    onRetry: ({ attempt, previousPort, error }) => {
+      const nextReadyTimeoutMs =
+        attempt === MAX_NEXT_START_ATTEMPTS ? NEXT_READY_TIMEOUT_MS : NEXT_RETRY_READY_TIMEOUT_MS
+      process.stdout.write(
+        `[desktop-runtime] retrying_next_start attempt=${String(attempt)}/${String(MAX_NEXT_START_ATTEMPTS)} previous_port=${String(previousPort)} next_ready_timeout_ms=${String(nextReadyTimeoutMs)} error=${error instanceof Error ? error.message : String(error)}\n`,
+      )
+    },
+  })
 }
 
-function createNextSupervisor(): RuntimeSupervisor {
+function createNextSupervisor(port: number, readyTimeoutMs: number): RuntimeSupervisor {
   return new RuntimeSupervisor({
     componentName: 'next',
     command: app.isPackaged ? getPackagedNodeBinaryPath(getRuntimeBinaryOptions()) : 'pnpm',
     args: app.isPackaged
       ? ['server.js']
-      : ['exec', 'next', 'dev', '-H', LOOPBACK_HOST, '-p', String(getPort())],
+      : ['exec', 'next', 'dev', '-H', LOOPBACK_HOST, '-p', String(port)],
     cwd: getWebAppDir(),
     env: {
       ...getDesktopRuntimeEnv(),
       ARCHE_RUNTIME_MODE: 'desktop',
       ARCHE_DESKTOP_NEXT_DIST_DIR: getDesktopNextDistDirNameForCurrentProcess(),
-      ARCHE_DESKTOP_WEB_PORT: String(getPort()),
-      ARCHE_CONNECTOR_GATEWAY_BASE_URL: `http://${LOOPBACK_HOST}:${getPort()}/api/internal/mcp/connectors`,
-      PORT: String(getPort()),
+      ARCHE_DESKTOP_WEB_PORT: String(port),
+      ARCHE_CONNECTOR_GATEWAY_BASE_URL: `http://${LOOPBACK_HOST}:${String(port)}/api/internal/mcp/connectors`,
+      PORT: String(port),
       HOSTNAME: LOOPBACK_HOST,
     },
-    probeReadiness: () => probeHttpServerReady(getNextUrl()),
+    readyTimeoutMs,
+    probeReadiness: () =>
+      probeHttpServerReady(getDesktopRuntimeReadyUrl(port), {
+        headers: {
+          [DESKTOP_TOKEN_HEADER]: desktopApiToken,
+        },
+        validateResponse: isDesktopRuntimeReadyResponse,
+      }),
     restartOnCrash: true,
     maxRestarts: 3,
     log: (event) => {
@@ -312,8 +366,11 @@ function createNextSupervisor(): RuntimeSupervisor {
   })
 }
 
-async function initializeDesktopWebPort(): Promise<void> {
-  nextPort = await findAvailablePort(DEFAULT_DESKTOP_WEB_PORT, LOOPBACK_HOST)
+async function initializeDesktopWebPort(
+  preferredPort: number,
+  excludedPorts: number[] = [],
+): Promise<void> {
+  nextPort = await findAvailablePort(preferredPort, LOOPBACK_HOST, excludedPorts)
   process.env.ARCHE_DESKTOP_WEB_PORT = String(nextPort)
 }
 
@@ -630,7 +687,6 @@ app.whenReady().then(async () => {
   }
 
   resetDesktopDevNextArtifacts()
-  await initializeDesktopWebPort()
 
   const missingRuntimeBinaries = verifyPackagedRuntimeBinaries()
   if (missingRuntimeBinaries.length > 0) {

@@ -251,6 +251,33 @@ describe('service layer', () => {
       expect(mockPrisma.connector.findFirst).toHaveBeenCalledWith({ where: { id: 'c1', userId: 'u1' } })
     })
 
+    it('findCapabilityInventoryEntries returns connector owners', async () => {
+      mockPrisma.connector.findMany.mockResolvedValue([])
+
+      const { connectorService } = await import('../index')
+      await connectorService.findCapabilityInventoryEntries()
+
+      expect(mockPrisma.connector.findMany).toHaveBeenCalledWith({
+        select: {
+          id: true,
+          type: true,
+          name: true,
+          enabled: true,
+          user: {
+            select: {
+              kind: true,
+              slug: true,
+            },
+          },
+        },
+        orderBy: [
+          { type: 'asc' },
+          { name: 'asc' },
+          { id: 'asc' },
+        ],
+      })
+    })
+
     it('updateManyByIdAndUserId scopes update to both id and userId', async () => {
       mockPrisma.connector.updateMany.mockResolvedValue({ count: 1 })
 
@@ -476,7 +503,28 @@ describe('service layer', () => {
 
       expect(mockPrisma.instance.update).toHaveBeenCalledWith({
         where: { slug: 'alice' },
-        data: { status: 'error', containerId: null },
+        data: {
+          status: 'error',
+          containerId: null,
+          providerSyncHash: null,
+          providerSyncedAt: null,
+        },
+      })
+    })
+
+    it('setProviderSyncState persists the latest provider sync hash and timestamp', async () => {
+      const syncedAt = new Date('2026-04-21T10:00:00.000Z')
+      mockPrisma.instance.update.mockResolvedValue({ slug: 'alice', providerSyncHash: 'hash-123' })
+
+      const { instanceService } = await import('../index')
+      await instanceService.setProviderSyncState('alice', 'hash-123', syncedAt)
+
+      expect(mockPrisma.instance.update).toHaveBeenCalledWith({
+        where: { slug: 'alice' },
+        data: {
+          providerSyncHash: 'hash-123',
+          providerSyncedAt: syncedAt,
+        },
       })
     })
 

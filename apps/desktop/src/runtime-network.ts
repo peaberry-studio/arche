@@ -1,21 +1,36 @@
 import { createServer } from 'net'
 
-export async function findAvailablePort(preferredPort: number, host: string): Promise<number> {
+const MAX_FALLBACK_PORT_ATTEMPTS = 10
+
+export async function findAvailablePort(
+  preferredPort: number,
+  host: string,
+  excludedPorts: number[] = [],
+): Promise<number> {
   const preferredResult = await tryListen(preferredPort, host)
-  if (preferredResult.ok) {
+  if (preferredResult.ok && !excludedPorts.includes(preferredResult.port)) {
     return preferredResult.port
   }
 
-  if (preferredResult.errorCode !== 'EADDRINUSE') {
+  if (!preferredResult.ok && preferredResult.errorCode !== 'EADDRINUSE') {
     throw preferredResult.error
   }
 
-  const fallbackResult = await tryListen(0, host)
-  if (!fallbackResult.ok) {
-    throw fallbackResult.error
+  const maxFallbackAttempts = Math.max(MAX_FALLBACK_PORT_ATTEMPTS, excludedPorts.length + 1)
+  for (let attempt = 0; attempt < maxFallbackAttempts; attempt++) {
+    const fallbackResult = await tryListen(0, host)
+    if (!fallbackResult.ok) {
+      throw fallbackResult.error
+    }
+
+    if (!excludedPorts.includes(fallbackResult.port)) {
+      return fallbackResult.port
+    }
   }
 
-  return fallbackResult.port
+  throw new Error(
+    `Failed to find an available port after ${String(maxFallbackAttempts)} fallback attempts.`,
+  )
 }
 
 type ListenResult =

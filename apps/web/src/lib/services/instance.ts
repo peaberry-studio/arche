@@ -18,6 +18,8 @@ export type InstanceRecord = {
   containerId: string | null
   serverPassword: string
   appliedConfigSha: string | null
+  providerSyncHash: string | null
+  providerSyncedAt: Date | null
 }
 
 export type InstanceCredentials = {
@@ -32,6 +34,14 @@ export type InstanceStatusDetails = {
   lastActivityAt: Date | null
   containerId: string | null
   serverPassword: string
+  providerSyncHash: string | null
+  providerSyncedAt: Date | null
+}
+
+export type InstanceProviderSyncDetails = {
+  providerSyncHash: string | null
+  providerSyncedAt: Date | null
+  status: InstanceStatus
 }
 
 export type InstanceActiveEntry = {
@@ -66,6 +76,19 @@ export function findStatusBySlug(slug: string): Promise<InstanceStatusDetails | 
       lastActivityAt: true,
       containerId: true,
       serverPassword: true,
+      providerSyncHash: true,
+      providerSyncedAt: true,
+    },
+  })
+}
+
+export function findProviderSyncBySlug(slug: string): Promise<InstanceProviderSyncDetails | null> {
+  return prisma.instance.findUnique({
+    where: { slug },
+    select: {
+      providerSyncHash: true,
+      providerSyncedAt: true,
+      status: true,
     },
   })
 }
@@ -135,6 +158,8 @@ export function upsertStarting(slug: string, serverPassword: string) {
       status: 'starting',
       serverPassword,
       startedAt: new Date(),
+      providerSyncHash: null,
+      providerSyncedAt: null,
     },
     update: {
       status: 'starting',
@@ -142,6 +167,8 @@ export function upsertStarting(slug: string, serverPassword: string) {
       startedAt: new Date(),
       stoppedAt: null,
       containerId: null,
+      providerSyncHash: null,
+      providerSyncedAt: null,
     },
   })
 }
@@ -156,7 +183,12 @@ export function setContainerId(slug: string, containerId: string) {
 export function setError(slug: string) {
   return prisma.instance.update({
     where: { slug },
-    data: { status: 'error', containerId: null },
+    data: {
+      status: 'error',
+      containerId: null,
+      providerSyncHash: null,
+      providerSyncedAt: null,
+    },
   })
 }
 
@@ -178,6 +210,8 @@ export function setStopped(slug: string) {
       status: 'stopped',
       stoppedAt: new Date(),
       containerId: null,
+      providerSyncHash: null,
+      providerSyncedAt: null,
     },
   })
 }
@@ -188,6 +222,8 @@ export function setStoppedNoContainer(slug: string) {
     data: {
       status: 'stopped',
       stoppedAt: new Date(),
+      providerSyncHash: null,
+      providerSyncedAt: null,
     },
   })
 }
@@ -199,6 +235,18 @@ export function setStoppedById(id: string) {
       status: 'stopped',
       stoppedAt: new Date(),
       containerId: null,
+      providerSyncHash: null,
+      providerSyncedAt: null,
+    },
+  })
+}
+
+export function setProviderSyncState(slug: string, providerSyncHash: string, providerSyncedAt: Date) {
+  return prisma.instance.update({
+    where: { slug },
+    data: {
+      providerSyncHash,
+      providerSyncedAt,
     },
   })
 }

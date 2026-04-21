@@ -6,6 +6,10 @@ vi.mock('@/lib/opencode/client', () => ({
   createInstanceClient: vi.fn(),
 }))
 
+vi.mock('@/lib/opencode/providers', () => ({
+  ensureProviderAccessFreshForExecution: vi.fn(),
+}))
+
 vi.mock('@/lib/services', () => ({
   instanceService: {
     touchActivity: (...args: unknown[]) => touchActivityMock(...args),
@@ -143,5 +147,46 @@ describe('session execution helpers', () => {
       sessionId: 'session-1',
       slug: 'slack-bot',
     })).resolves.toBe('provider_auth_missing')
+  })
+
+  it('refreshes provider access when execution reuses a running workspace', async () => {
+    const { ensureProviderAccessFreshForExecution } = await import('@/lib/opencode/providers')
+    const { getInstanceStatus } = await import('@/lib/spawner/core')
+
+    vi.mocked(getInstanceStatus).mockResolvedValue({ status: 'running' } as never)
+
+    const { ensureWorkspaceRunningForExecution } = await import('../session-execution')
+    await ensureWorkspaceRunningForExecution('slack-bot', 'user-1')
+
+    expect(ensureProviderAccessFreshForExecution).toHaveBeenCalledWith({
+      slug: 'slack-bot',
+      userId: 'user-1',
+    })
+  })
+
+  it('refreshes provider access after a workspace finishes starting', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const { ensureProviderAccessFreshForExecution } = await import('@/lib/opencode/providers')
+      const { getInstanceStatus } = await import('@/lib/spawner/core')
+
+      vi.mocked(getInstanceStatus)
+        .mockResolvedValueOnce({ status: 'starting' } as never)
+        .mockResolvedValueOnce({ status: 'running' } as never)
+
+      const { ensureWorkspaceRunningForExecution } = await import('../session-execution')
+      const promise = ensureWorkspaceRunningForExecution('slack-bot', 'user-1')
+
+      await vi.advanceTimersByTimeAsync(2_000)
+      await promise
+
+      expect(ensureProviderAccessFreshForExecution).toHaveBeenCalledWith({
+        slug: 'slack-bot',
+        userId: 'user-1',
+      })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

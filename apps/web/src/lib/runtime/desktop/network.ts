@@ -1,6 +1,7 @@
 import { createServer } from 'net'
 
 const LOOPBACK_HOST = '127.0.0.1'
+const MAX_FALLBACK_PORT_ATTEMPTS = 10
 
 type ListenResult =
   | { ok: true; port: number }
@@ -40,14 +41,19 @@ export async function findAvailablePort(preferredPort: number, excludedPorts: nu
     throw preferredResult.error
   }
 
-  const fallbackResult = await tryListen(0)
-  if (!fallbackResult.ok) {
-    throw fallbackResult.error
+  const maxFallbackAttempts = Math.max(MAX_FALLBACK_PORT_ATTEMPTS, excludedPorts.length + 1)
+  for (let attempt = 0; attempt < maxFallbackAttempts; attempt++) {
+    const fallbackResult = await tryListen(0)
+    if (!fallbackResult.ok) {
+      throw fallbackResult.error
+    }
+
+    if (!excludedPorts.includes(fallbackResult.port)) {
+      return fallbackResult.port
+    }
   }
 
-  if (excludedPorts.includes(fallbackResult.port)) {
-    return findAvailablePort(0, excludedPorts)
-  }
-
-  return fallbackResult.port
+  throw new Error(
+    `Failed to find an available port after ${String(maxFallbackAttempts)} fallback attempts.`,
+  )
 }

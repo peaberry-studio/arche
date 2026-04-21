@@ -1,6 +1,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const { EventEmitter } = require('node:events')
+const http = require('node:http')
 
 class MockStream extends EventEmitter {}
 
@@ -238,5 +239,92 @@ test('stops restarting after maxRestarts is exceeded', async () => {
     assert.equal(supervisor.getState(), 'error')
   } finally {
     process.kill = originalKill
+  }
+})
+
+test('probeHttpServerReady forwards headers to the readiness endpoint', async () => {
+  const { probeHttpServerReady } = require('../dist/runtime-supervisor.js')
+  const server = http.createServer((req, res) => {
+    if (req.headers['x-arche-desktop-token'] !== 'valid-token') {
+      res.writeHead(401, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ error: 'unauthorized' }))
+      return
+    }
+
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ app: 'arche', runtime: 'desktop', status: 'ok' }))
+  })
+
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  assert.equal(typeof address, 'object')
+
+  try {
+    const ready = await probeHttpServerReady(`http://127.0.0.1:${address.port}/ready`, {
+      headers: { 'x-arche-desktop-token': 'valid-token' },
+      validateResponse: (response, bodyText) => {
+        if (!response.ok) {
+          return false
+        }
+
+        const body = JSON.parse(bodyText)
+        return body.app === 'arche' && body.runtime === 'desktop' && body.status === 'ok'
+      },
+    })
+
+    assert.equal(ready, true)
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error)
+          return
+        }
+
+        resolve()
+      })
+    })
+  }
+})
+
+test('probeHttpServerReady rejects unrelated HTTP responses when validation fails', async () => {
+  const { probeHttpServerReady } = require('../dist/runtime-supervisor.js')
+  const server = http.createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'text/html' })
+    res.end('<html><body>not arche</body></html>')
+  })
+
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  assert.equal(typeof address, 'object')
+
+  try {
+    const ready = await probeHttpServerReady(`http://127.0.0.1:${address.port}/`, {
+      validateResponse: (response, bodyText) => {
+        if (!response.ok) {
+          return false
+        }
+
+        try {
+          const body = JSON.parse(bodyText)
+          return body.app === 'arche'
+        } catch {
+          return false
+        }
+      },
+    })
+
+    assert.equal(ready, false)
+  } finally {
+    await new Promise((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error)
+          return
+        }
+
+        resolve()
+      })
+    })
   }
 })

@@ -56,6 +56,7 @@ describe('connectors oauth state', () => {
     const state = issueConnectorOAuthState({
       connectorId: 'conn-custom',
       slug: 'alice',
+      returnTo: '/u/alice/settings/integrations/slack',
       userId: 'user1',
       connectorType: 'custom',
       redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
@@ -73,6 +74,7 @@ describe('connectors oauth state', () => {
     expect(payload).toMatchObject({
       connectorId: 'conn-custom',
       slug: 'alice',
+      returnTo: '/u/alice/settings/integrations/slack',
       userId: 'user1',
       connectorType: 'custom',
       redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
@@ -155,6 +157,31 @@ describe('connectors oauth state', () => {
     expect(state.authorizationEndpoint).toBe('https://mcp.custom.example.com/authorize')
     expect(state.tokenEndpoint).toBe('https://mcp.custom.example.com/token')
     expect(state.registrationEndpoint).toBe('https://mcp.custom.example.com/register')
+  })
+
+  it('propagates an optional returnTo path through prepared OAuth state', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response('registration error', { status: 500 }))
+    )
+
+    const prepared = await prepareConnectorOAuthAuthorization({
+      connectorId: 'conn-custom',
+      slug: 'alice',
+      returnTo: '/u/alice/settings/integrations/slack',
+      userId: 'user1',
+      connectorType: 'custom',
+      redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
+      connectorConfig: {
+        endpoint: 'https://mcp.custom.example.com/mcp',
+        oauthClientId: 'static-client-id',
+        oauthAuthorizationEndpoint: 'https://oauth.custom.example.com/authorize',
+        oauthTokenEndpoint: 'https://oauth.custom.example.com/token',
+      },
+    })
+
+    const state = verifyConnectorOAuthState(prepared.state)
+    expect(state.returnTo).toBe('/u/alice/settings/integrations/slack')
   })
 
   it('falls back to static custom OAuth client when dynamic registration fails', async () => {
