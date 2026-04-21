@@ -47,14 +47,14 @@ describe('registerNodeInstrumentation', () => {
     delete globalThis.archeWebCleanupRegistered
   })
 
-  it('starts Prisma, reaper, Slack, and autopilot in production web mode', async () => {
+  it('starts Prisma, Slack, and autopilot in production web mode', async () => {
     const processOnceSpy = vi.spyOn(process, 'once').mockImplementation(() => process)
 
     const { registerNodeInstrumentation } = await import('./instrumentation-node')
     await registerNodeInstrumentation()
 
     expect(initWebPrismaMock).toHaveBeenCalledTimes(1)
-    expect(startReaperMock).toHaveBeenCalledTimes(1)
+    expect(startReaperMock).not.toHaveBeenCalled()
     expect(startSlackSocketManagerMock).toHaveBeenCalledTimes(1)
     expect(startAutopilotSchedulerMock).toHaveBeenCalledTimes(1)
     expect(processOnceSpy).toHaveBeenCalledTimes(3)
@@ -65,7 +65,7 @@ describe('registerNodeInstrumentation', () => {
     processOnceSpy.mockRestore()
   })
 
-  it('skips autopilot outside production but still starts reaper and Slack', async () => {
+  it('skips autopilot outside production but still starts Slack', async () => {
     process.env.NODE_ENV = 'development'
     const processOnceSpy = vi.spyOn(process, 'once').mockImplementation(() => process)
 
@@ -73,7 +73,7 @@ describe('registerNodeInstrumentation', () => {
     await registerNodeInstrumentation()
 
     expect(initWebPrismaMock).toHaveBeenCalledTimes(1)
-    expect(startReaperMock).toHaveBeenCalledTimes(1)
+    expect(startReaperMock).not.toHaveBeenCalled()
     expect(startSlackSocketManagerMock).toHaveBeenCalledTimes(1)
     expect(startAutopilotSchedulerMock).not.toHaveBeenCalled()
     expect(processOnceSpy).toHaveBeenCalledTimes(3)
@@ -104,7 +104,7 @@ describe('registerNodeInstrumentation', () => {
     await registerNodeInstrumentation()
     await registerNodeInstrumentation()
 
-    expect(startReaperMock).toHaveBeenCalledTimes(2)
+    expect(startReaperMock).not.toHaveBeenCalled()
     expect(startSlackSocketManagerMock).toHaveBeenCalledTimes(2)
     expect(processOnceSpy).toHaveBeenCalledTimes(3)
 
