@@ -13,6 +13,23 @@ type StartOAuthResponse = {
   authorizeUrl: string
 }
 
+function normalizeReturnTo(value: string | null): string | undefined {
+  if (!value) {
+    return undefined
+  }
+
+  try {
+    const url = new URL(value, 'http://localhost')
+    if (url.origin !== 'http://localhost') {
+      return undefined
+    }
+
+    return `${url.pathname}${url.search}${url.hash}`
+  } catch {
+    return undefined
+  }
+}
+
 export const POST = withAuth<
   StartOAuthResponse | { error: string; message?: string },
   { slug: string; id: string }
@@ -41,6 +58,7 @@ export const POST = withAuth<
 
   const baseUrl = getPublicBaseUrl(request.headers, request.nextUrl.origin)
   const redirectUri = `${baseUrl}/api/connectors/oauth/callback`
+  const returnTo = normalizeReturnTo(request.nextUrl.searchParams.get('returnTo'))
 
   let connectorConfig: Record<string, unknown> | undefined
   if (connector.type === 'custom') {
@@ -59,6 +77,7 @@ export const POST = withAuth<
     const prepared = await prepareConnectorOAuthAuthorization({
       connectorId: connector.id,
       slug,
+      returnTo,
       userId: targetUser.id,
       connectorType: connector.type,
       redirectUri,
