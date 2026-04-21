@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { decryptConfig } from '@/lib/connectors/crypto'
 import { verifyConnectorGatewayToken } from '@/lib/connectors/gateway-tokens'
 import { proxyConnectorMcpRequest } from '@/lib/connectors/mcp/remote-proxy'
+import { handleUmamiMcpRequest } from '@/lib/connectors/mcp/umami-handler'
 import { handleZendeskMcpRequest } from '@/lib/connectors/mcp/zendesk-handler'
 import { isOAuthConnectorType } from '@/lib/connectors/oauth'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
@@ -68,6 +69,10 @@ async function handleProxy(
 
   if (connector.type === 'zendesk') {
     return handleZendeskMcpRequest(request, decryptedConfig)
+  }
+
+  if (connector.type === 'umami') {
+    return handleUmamiMcpRequest(request, decryptedConfig)
   }
 
   if (!isOAuthConnectorType(connector.type)) {

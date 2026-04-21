@@ -2,6 +2,7 @@ import { decryptConfig } from '@/lib/connectors/crypto'
 import { getConnectorGatewayBaseUrl } from '@/lib/connectors/gateway-config'
 import { issueConnectorGatewayToken } from '@/lib/connectors/gateway-tokens'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
+import { parseUmamiConnectorConfig } from '@/lib/connectors/umami'
 import { parseZendeskConnectorConfig } from '@/lib/connectors/zendesk'
 import type { ConnectorType } from '@/lib/connectors/types'
 import { validateConnectorConfig, validateConnectorType } from '@/lib/connectors/validators'
@@ -232,6 +233,23 @@ export function buildMcpConfigFromConnectors(
         break
       }
 
+      case 'umami': {
+        const parsed = parseUmamiConnectorConfig(config)
+        const gatewayTarget = options?.gatewayTargets?.[connector.id]
+        if (!parsed.ok || !gatewayTarget) break
+
+        mcp[key] = {
+          type: 'remote',
+          url: gatewayTarget.url,
+          enabled: true,
+          headers: {
+            Authorization: `Bearer ${gatewayTarget.token}`,
+          },
+          oauth: false,
+        }
+        break
+      }
+
       default:
         break
     }
@@ -261,8 +279,10 @@ export async function buildMcpConfigForSlug(slug: string): Promise<McpConfig | n
       continue
     }
 
-    if (connector.type === 'zendesk') {
-      const parsed = parseZendeskConnectorConfig(config)
+    if (connector.type === 'zendesk' || connector.type === 'umami') {
+      const parsed = connector.type === 'zendesk'
+        ? parseZendeskConnectorConfig(config)
+        : parseUmamiConnectorConfig(config)
       if (!parsed.ok) continue
 
       gatewayTargets[connector.id] = {

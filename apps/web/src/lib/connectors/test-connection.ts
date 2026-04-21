@@ -1,5 +1,6 @@
 import { getConnectorMcpServerUrl } from '@/lib/connectors/mcp/server-url'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
+import { parseUmamiConnectorConfig, testUmamiConnection } from '@/lib/connectors/umami'
 import { getZendeskMcpProtocolVersion, parseZendeskConnectorConfig, testZendeskConnection } from '@/lib/connectors/zendesk'
 import type { ConnectorType } from '@/lib/connectors/types'
 
@@ -39,6 +40,7 @@ function getAccessToken(type: ConnectorType, config: Record<string, unknown>): s
     case 'notion':
       return typeof config.apiKey === 'string' ? config.apiKey : null
     case 'zendesk':
+    case 'umami':
     case 'custom':
       return null
   }
@@ -149,6 +151,28 @@ const CONNECTOR_TEST_HANDLERS: Record<ConnectorType, TestConnectionHandler> = {
     }
 
     return { ok: true, tested: true, message: 'Zendesk connection verified.' }
+  },
+
+  umami: async (config) => {
+    const parsed = parseUmamiConnectorConfig(config)
+    if (!parsed.ok) {
+      return {
+        ok: false,
+        tested: false,
+        message: parsed.message ?? `Missing required fields: ${parsed.missing?.join(', ')}`,
+      }
+    }
+
+    const response = await testUmamiConnection(parsed.value)
+    if (!response.ok) {
+      return {
+        ok: false,
+        tested: true,
+        message: response.message,
+      }
+    }
+
+    return { ok: true, tested: true, message: 'Umami connection verified.' }
   },
 
   notion: async (config) => {

@@ -4,6 +4,7 @@ const CONNECTOR_TYPE_LABELS: Record<ConnectorType, string> = {
   linear: 'Linear',
   notion: 'Notion',
   zendesk: 'Zendesk',
+  umami: 'Umami',
   custom: 'Custom Connector',
 }
 
