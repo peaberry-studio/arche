@@ -251,6 +251,33 @@ describe('service layer', () => {
       expect(mockPrisma.connector.findFirst).toHaveBeenCalledWith({ where: { id: 'c1', userId: 'u1' } })
     })
 
+    it('findCapabilityInventoryEntries returns connector owners', async () => {
+      mockPrisma.connector.findMany.mockResolvedValue([])
+
+      const { connectorService } = await import('../index')
+      await connectorService.findCapabilityInventoryEntries()
+
+      expect(mockPrisma.connector.findMany).toHaveBeenCalledWith({
+        select: {
+          id: true,
+          type: true,
+          name: true,
+          enabled: true,
+          user: {
+            select: {
+              kind: true,
+              slug: true,
+            },
+          },
+        },
+        orderBy: [
+          { type: 'asc' },
+          { name: 'asc' },
+          { id: 'asc' },
+        ],
+      })
+    })
+
     it('updateManyByIdAndUserId scopes update to both id and userId', async () => {
       mockPrisma.connector.updateMany.mockResolvedValue({ count: 1 })
 

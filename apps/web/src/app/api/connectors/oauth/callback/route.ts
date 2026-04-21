@@ -5,6 +5,7 @@ import { decryptConfig, encryptConfig } from '@/lib/connectors/crypto'
 import {
   exchangeConnectorOAuthCode,
   isOAuthConnectorType,
+  normalizeConnectorOAuthReturnTo,
   verifyConnectorOAuthState,
 } from '@/lib/connectors/oauth'
 import { buildConfigWithOAuth } from '@/lib/connectors/oauth-config'
@@ -29,9 +30,20 @@ function normalizeOAuthError(error: string): string {
   return 'oauth_failed'
 }
 
-function buildRedirect(baseUrl: string, slug: string, status: 'success' | 'error', message?: string): URL {
+function buildRedirect(
+  baseUrl: string,
+  slug: string,
+  status: 'success' | 'error',
+  message?: string,
+  returnTo?: string,
+): URL {
   const desktopVault = getCurrentDesktopVault()
-  const targetPath = desktopVault ? getDesktopWorkspaceHref('local', 'connectors') : `/u/${slug}/connectors`
+  const returnToPath = normalizeConnectorOAuthReturnTo(returnTo)
+  const targetPath = desktopVault
+    ? getDesktopWorkspaceHref('local', 'connectors')
+    : returnToPath
+      ? returnToPath
+      : `/u/${slug}/connectors`
   const url = new URL(targetPath, baseUrl)
   url.searchParams.set('oauth', status)
   if (message) {
@@ -60,11 +72,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   if (!session) {
-    return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'error', 'unauthorized'))
+    return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'error', 'unauthorized', parsedState.returnTo))
   }
 
   if (session.user.slug !== parsedState.slug && session.user.role !== 'ADMIN') {
-    return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'error', 'forbidden'))
+    return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'error', 'forbidden', parsedState.returnTo))
   }
 
   if (providerError) {
@@ -77,11 +89,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         error: providerError,
       },
     })
-    return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'error', normalizeOAuthError(providerError)))
+    return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'error', normalizeOAuthError(providerError), parsedState.returnTo))
   }
 
   if (!code) {
-    return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'error', 'missing_code'))
+    return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'error', 'missing_code', parsedState.returnTo))
   }
 
   const connector = await connectorService.findByIdAndUserIdSelect(
@@ -91,13 +103,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   )
 
   if (!connector || !validateConnectorType(connector.type) || !isOAuthConnectorType(connector.type)) {
-    return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'error', 'connector_not_found'))
+    return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'error', 'connector_not_found', parsedState.returnTo))
   }
 
   const redirectUri = parsedState.redirectUri || `${baseUrl}/api/connectors/oauth/callback`
   try {
     if (!parsedState.clientId || !parsedState.codeVerifier || !parsedState.tokenEndpoint) {
-      return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'error', 'invalid_state'))
+      return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'error', 'invalid_state', parsedState.returnTo))
     }
 
     const token = await exchangeConnectorOAuthCode({
@@ -151,8 +163,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       },
     })
     console.error('[oauth/callback] exchange failed:', message)
-    return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'error', 'oauth_failed'))
+    return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'error', 'oauth_failed', parsedState.returnTo))
   }
 
-  return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'success'))
+  return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'success', undefined, parsedState.returnTo))
 }

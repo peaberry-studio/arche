@@ -1,7 +1,19 @@
 import { auditService, instanceService } from '@/lib/services'
 import { getIdleTimeoutMinutes } from './config'
 
+export const REAPER_INTERVAL_MS = 5 * 60 * 1000
+
 let reaperInterval: NodeJS.Timeout | null = null
+let lastRunError: string | null = null
+let lastRunFinishedAt: Date | null = null
+let lastRunStartedAt: Date | null = null
+
+export type ReaperStatus = {
+  lastRunError: string | null
+  lastRunFinishedAt: Date | null
+  lastRunStartedAt: Date | null
+  running: boolean
+}
 
 export async function reapIdleInstances(): Promise<number> {
   const timeoutMinutes = getIdleTimeoutMinutes()
@@ -44,24 +56,41 @@ export async function reapIdleInstances(): Promise<number> {
   return reapedCount
 }
 
+export function getReaperStatus(): ReaperStatus {
+  return {
+    lastRunError,
+    lastRunFinishedAt,
+    lastRunStartedAt,
+    running: reaperInterval !== null,
+  }
+}
+
+async function runReaperCycle(): Promise<void> {
+  lastRunStartedAt = new Date()
+
+  try {
+    const count = await reapIdleInstances()
+    lastRunError = null
+
+    if (count > 0) {
+      console.error(`[reaper] Stopped ${count} idle instance(s)`)
+    }
+  } catch (err) {
+    lastRunError = err instanceof Error ? err.message : 'reaper_error'
+    console.error('[reaper] Error:', err)
+  } finally {
+    lastRunFinishedAt = new Date()
+  }
+}
+
 export function startReaper(): void {
   if (reaperInterval) return
-  const REAPER_INTERVAL_MS = 5 * 60 * 1000
 
-  reaperInterval = setInterval(async () => {
-    try {
-      const count = await reapIdleInstances()
-      if (count > 0) {
-        console.error(`[reaper] Stopped ${count} idle instance(s)`)
-      }
-    } catch (err) {
-      console.error('[reaper] Error:', err)
-    }
+  reaperInterval = setInterval(() => {
+    void runReaperCycle()
   }, REAPER_INTERVAL_MS)
 
-  reapIdleInstances().catch((err) => {
-    console.error('[reaper] Initial reap failed:', err)
-  })
+  void runReaperCycle()
 }
 
 export function stopReaper(): void {

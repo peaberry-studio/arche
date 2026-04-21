@@ -1,4 +1,8 @@
-import { CONNECTOR_TYPES, type ConnectorType } from '@/lib/connectors/types'
+import {
+  CONNECTOR_TYPES,
+  isSingleInstanceConnectorType,
+  type ConnectorType,
+} from '@/lib/connectors/types'
 import { SKILL_NAME_PATTERN } from '@/lib/skills/types'
 
 export const OPENCODE_AGENT_TOOLS = [
@@ -61,8 +65,13 @@ export type AgentCapabilities = {
 export type ConnectorCapabilityRecord = {
   id: string
   type: ConnectorType
-  enabled: boolean
 }
+
+const SINGLE_INSTANCE_AGENT_CONNECTOR_CAPABILITY_IDS = {
+  linear: 'globallinear',
+  notion: 'globalnotion',
+  zendesk: 'globalzendesk',
+} as const satisfies Record<Exclude<ConnectorType, 'custom'>, string>
 
 const TOOL_SET = new Set<string>(OPENCODE_AGENT_TOOLS)
 const CONNECTOR_TYPE_PATTERN = CONNECTOR_TYPES.join('|')
@@ -70,6 +79,16 @@ export const MCP_TOOL_PATTERN = new RegExp(`^arche_(${CONNECTOR_TYPE_PATTERN})_(
 
 function buildMcpServerKey(type: ConnectorType, id: string): string {
   return `arche_${type}_${id}`
+}
+
+export function getConnectorCapabilityId(type: ConnectorType, id: string): string {
+  if (type === 'custom') {
+    return id
+  }
+
+  return isSingleInstanceConnectorType(type)
+    ? SINGLE_INSTANCE_AGENT_CONNECTOR_CAPABILITY_IDS[type]
+    : id
 }
 
 function uniqueSorted(values: string[]): string[] {
@@ -175,7 +194,7 @@ export function buildAgentToolsConfigFromCapabilities(
   const connectorById = new Map(connectors.map((connector) => [connector.id, connector]))
   for (const connectorId of capabilities.mcpConnectorIds) {
     const connector = connectorById.get(connectorId)
-    if (!connector || !connector.enabled) continue
+    if (!connector) continue
     const serverKey = buildMcpServerKey(connector.type, connector.id)
     toolConfig[`${serverKey}_*`] = true
   }
@@ -201,7 +220,8 @@ export function extractAgentCapabilitiesFromTools(
     .flatMap(([toolId]) => {
       const match = toolId.match(MCP_TOOL_PATTERN)
       if (!match) return []
-      return [match[2]]
+      const [, type, connectorId] = match
+      return [getConnectorCapabilityId(type as ConnectorType, connectorId)]
     })
 
   let skillIds: string[] = []
