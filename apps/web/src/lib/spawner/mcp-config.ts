@@ -1,3 +1,4 @@
+import { isConnectorTypeAvailable } from '@/lib/connectors/availability'
 import { decryptConfig } from '@/lib/connectors/crypto'
 import { getConnectorGatewayBaseUrl } from '@/lib/connectors/gateway-config'
 import { issueConnectorGatewayToken } from '@/lib/connectors/gateway-tokens'
@@ -6,6 +7,7 @@ import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/
 import { parseZendeskConnectorConfig } from '@/lib/connectors/zendesk'
 import type { ConnectorType } from '@/lib/connectors/types'
 import { validateConnectorConfig, validateConnectorType } from '@/lib/connectors/validators'
+import { getRuntimeMode, type RuntimeMode } from '@/lib/runtime/mode'
 
 const OPENCODE_CONFIG_SCHEMA = 'https://opencode.ai/config.json'
 
@@ -56,13 +58,14 @@ export function buildMcpServerKey(type: ConnectorType, id: string): string {
 
 export function buildMcpConfigFromConnectors(
   connectors: ConnectorRecord[],
-  options?: { gatewayTargets?: Record<string, GatewayTarget> },
+  options?: { gatewayTargets?: Record<string, GatewayTarget>; runtimeMode?: RuntimeMode },
 ): McpConfig {
   const mcp: Record<string, McpServerConfig> = {}
+  const runtimeMode = options?.runtimeMode ?? getRuntimeMode()
 
   for (const connector of connectors) {
     if (!connector.enabled) continue
-    if (!validateConnectorType(connector.type)) continue
+    if (!validateConnectorType(connector.type) || !isConnectorTypeAvailable(connector.type, runtimeMode)) continue
 
     let config: Record<string, unknown>
     try {
@@ -273,7 +276,7 @@ export async function buildMcpConfigForSlug(slug: string): Promise<McpConfig | n
   const gatewayBase = getConnectorGatewayBaseUrl()
 
   for (const connector of connectors) {
-    if (!validateConnectorType(connector.type)) continue
+    if (!validateConnectorType(connector.type) || !isConnectorTypeAvailable(connector.type)) continue
 
     let config: Record<string, unknown>
     try {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
+import { requireAvailableConnectorType } from '@/lib/connectors/availability-response'
 import { decryptConfig } from '@/lib/connectors/crypto'
 import {
   isOAuthConnectorType,
@@ -39,7 +40,16 @@ export const POST = withAuth<
     return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })
   }
 
-  if (!validateConnectorType(connector.type) || !isOAuthConnectorType(connector.type)) {
+  if (!validateConnectorType(connector.type)) {
+    return NextResponse.json({ error: 'oauth_not_supported' }, { status: 400 })
+  }
+
+  const unavailable = requireAvailableConnectorType(connector.type)
+  if (unavailable) {
+    return unavailable
+  }
+
+  if (!isOAuthConnectorType(connector.type)) {
     return NextResponse.json({ error: 'oauth_not_supported' }, { status: 400 })
   }
 

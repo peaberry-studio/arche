@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
+import { requireAvailableConnectorType } from '@/lib/connectors/availability-response'
 import { encryptConfig, decryptConfig } from '@/lib/connectors/crypto'
 import { parseMetaAdsConnectorConfig } from '@/lib/connectors/meta-ads'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
@@ -110,6 +111,11 @@ export const GET = withAuth<ConnectorDetail | { error: string }, { slug: string;
       return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })
     }
 
+    const unavailable = requireAvailableConnectorType(connector.type)
+    if (unavailable) {
+      return unavailable
+    }
+
     let config: Record<string, unknown>
     try {
       config = decryptConfig(connector.config)
@@ -175,11 +181,16 @@ export const PATCH = withAuth<
 
   const existingConnector = await connectorService.findByIdAndUserId(id, targetUser.id)
 
-  if (!existingConnector) {
-    return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })
-  }
+    if (!existingConnector) {
+      return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })
+    }
 
-  // Parse request body
+    const unavailable = requireAvailableConnectorType(existingConnector.type)
+    if (unavailable) {
+      return unavailable
+    }
+
+    // Parse request body
   let body: UpdateConnectorRequest
   try {
     body = await request.json()

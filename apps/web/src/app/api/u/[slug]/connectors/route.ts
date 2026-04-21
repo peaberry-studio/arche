@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
+import { getAvailableConnectorTypes, isConnectorTypeAvailable } from '@/lib/connectors/availability'
+import { requireAvailableConnectorType } from '@/lib/connectors/availability-response'
 import { decryptConfig, encryptConfig } from '@/lib/connectors/crypto'
 import { isMetaAdsConnectorReady } from '@/lib/connectors/meta-ads'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
@@ -26,6 +28,11 @@ export interface ConnectorListItem {
   createdAt: string
 }
 
+export interface ConnectorListResponse {
+  connectors: ConnectorListItem[]
+  availableConnectorTypes: string[]
+}
+
 /**
  * GET /api/u/[slug]/connectors
  *
@@ -39,7 +46,7 @@ export interface ConnectorListItem {
  * - 403: Not authorized (different user)
  * - 404: User not found
  */
-export const GET = withAuth<{ connectors: ConnectorListItem[] } | { error: string }>(
+export const GET = withAuth<ConnectorListResponse | { error: string }>(
   { csrf: false },
   async (_request: NextRequest, { slug }) => {
     const denied = requireCapability('connectors')
@@ -52,9 +59,10 @@ export const GET = withAuth<{ connectors: ConnectorListItem[] } | { error: strin
     }
 
     const connectors = await connectorService.findManyByUserId(user.id)
+    const availableConnectorTypes = getAvailableConnectorTypes()
 
     return NextResponse.json({
-      connectors: connectors.filter((c) => validateConnectorType(c.type)).map((c) => {
+      connectors: connectors.filter((c) => validateConnectorType(c.type) && isConnectorTypeAvailable(c.type)).map((c) => {
         let authType: 'manual' | 'oauth' = 'manual'
         let oauthConnected = false
         let oauthExpiresAt: string | undefined
@@ -91,6 +99,7 @@ export const GET = withAuth<{ connectors: ConnectorListItem[] } | { error: strin
           createdAt: c.createdAt.toISOString(),
         }
       }),
+      availableConnectorTypes,
     })
   },
 )
@@ -182,6 +191,11 @@ export const POST = withAuth<ConnectorResponse | { error: string; message?: stri
         { error: 'invalid_type', message: `Invalid connector type: ${type}` },
         { status: 400 }
       )
+    }
+
+    const unavailable = requireAvailableConnectorType(type)
+    if (unavailable) {
+      return unavailable
     }
 
     const configValidation = validateConnectorConfig(type, config)

@@ -28,6 +28,8 @@ import { cn } from '@/lib/utils'
 type AddConnectorModalProps = {
   slug: string
   existingConnectors: Array<{ id: string; type: ConnectorType }>
+  availableConnectorTypes: ConnectorType[]
+  isLoadingAvailableConnectorTypes: boolean
   open: boolean
   onOpenChange: (open: boolean) => void
   onSaved: () => void
@@ -87,6 +89,8 @@ function getDefaultAuthType(type: ConnectorType): ConnectorAuthType {
 export function AddConnectorModal({
   slug,
   existingConnectors,
+  availableConnectorTypes,
+  isLoadingAvailableConnectorTypes,
   open,
   onOpenChange,
   onSaved,
@@ -122,10 +126,11 @@ export function AddConnectorModal({
   const availableTypeOptions = useMemo(
     () =>
       CONNECTOR_TYPE_OPTIONS.filter((option) => {
+        if (!availableConnectorTypes.includes(option.type)) return false
         if (!isSingleInstanceConnectorType(option.type)) return true
         return !existingConnectors.some((connector) => connector.type === option.type)
       }),
-    [existingConnectors]
+    [availableConnectorTypes, existingConnectors]
   )
 
   function resetState(): void {
@@ -289,6 +294,7 @@ export function AddConnectorModal({
   }
 
   function isConfigurationComplete(): boolean {
+    if (availableTypeOptions.length === 0) return false
     if (selectedType === 'custom' && !name.trim()) return false
     if (selectedType === 'meta-ads') {
       return Boolean(metaAdsAppId.trim() && metaAdsAppSecret.trim())
@@ -378,35 +384,43 @@ export function AddConnectorModal({
           <legend className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
             Type
           </legend>
-          <div className="grid gap-3 sm:grid-cols-3">
-            {availableTypeOptions.map((option) => {
-              const isSelected = option.type === selectedType
-              return (
-                <button
-                  key={option.type}
-                  type="button"
-                  onClick={() => {
-                    setSelectedType(option.type)
-                    setAuthType(getDefaultAuthType(option.type))
-                    setError(null)
-                  }}
-                  className={cn(
-                    'rounded-xl border px-4 py-3 text-left transition-all',
-                    isSelected
-                      ? 'border-primary/60 bg-primary/5 ring-1 ring-primary/20'
-                      : 'border-border/50 hover:border-border'
-                  )}
-                >
-                  <p className="text-sm font-medium text-foreground">
-                    {option.label}
-                  </p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {option.description}
-                  </p>
-                </button>
-              )
-            })}
-          </div>
+          {availableTypeOptions.length > 0 ? (
+            <div className="grid gap-3 sm:grid-cols-3">
+              {availableTypeOptions.map((option) => {
+                const isSelected = option.type === selectedType
+                return (
+                  <button
+                    key={option.type}
+                    type="button"
+                    onClick={() => {
+                      setSelectedType(option.type)
+                      setAuthType(getDefaultAuthType(option.type))
+                      setError(null)
+                    }}
+                    className={cn(
+                      'rounded-xl border px-4 py-3 text-left transition-all',
+                      isSelected
+                        ? 'border-primary/60 bg-primary/5 ring-1 ring-primary/20'
+                        : 'border-border/50 hover:border-border'
+                    )}
+                  >
+                    <p className="text-sm font-medium text-foreground">
+                      {option.label}
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {option.description}
+                    </p>
+                  </button>
+                )
+              })}
+            </div>
+          ) : (
+            <p className="rounded-lg border border-border/60 bg-card/40 px-3 py-2 text-sm text-muted-foreground">
+              {isLoadingAvailableConnectorTypes
+                ? 'Loading connector types...'
+                : 'No connector types are available in this runtime.'}
+            </p>
+          )}
           {availableTypeOptions.length === 1 && availableTypeOptions[0]?.type === 'custom' ? (
             <p className="text-xs text-muted-foreground">
               The single-instance connectors are already configured.
@@ -705,7 +719,7 @@ export function AddConnectorModal({
           <Button
             type="button"
             onClick={handleSave}
-            disabled={isSaving || !isConfigurationComplete()}
+            disabled={isSaving || isLoadingAvailableConnectorTypes || !isConfigurationComplete()}
           >
             {isSaving ? 'Saving...' : 'Save connector'}
           </Button>

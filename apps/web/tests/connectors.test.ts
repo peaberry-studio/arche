@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { encryptConfig, decryptConfig } from '@/lib/connectors/crypto'
 import {
   DEFAULT_META_ADS_CONNECTOR_PERMISSIONS,
@@ -61,6 +61,60 @@ describe('connectors/crypto', () => {
 describe('connectors/types', () => {
   it('CONNECTOR_TYPES contains expected values', () => {
     expect(CONNECTOR_TYPES).toEqual(['linear', 'notion', 'zendesk', 'custom', 'meta-ads'])
+  })
+})
+
+describe('connectors/availability', () => {
+  const originalEnv = process.env
+
+  beforeEach(() => {
+    vi.resetModules()
+    process.env = { ...originalEnv }
+  })
+
+  afterEach(() => {
+    process.env = originalEnv
+  })
+
+  it('keeps Meta Ads available in web runtime', async () => {
+    delete process.env.ARCHE_RUNTIME_MODE
+
+    const {
+      getAvailableConnectorTypes,
+      getConnectorTypeAvailabilityMessage,
+      isConnectorTypeAvailable,
+    } = await import('@/lib/connectors/availability')
+
+    expect(isConnectorTypeAvailable('meta-ads')).toBe(true)
+    expect(getConnectorTypeAvailabilityMessage('meta-ads')).toBeNull()
+    expect(getAvailableConnectorTypes()).toContain('meta-ads')
+  })
+
+  it('hides Meta Ads in desktop runtime and exposes a consistent error message', async () => {
+    process.env.ARCHE_RUNTIME_MODE = 'desktop'
+    process.env.ARCHE_DESKTOP_PLATFORM = 'darwin'
+    process.env.ARCHE_DESKTOP_WEB_HOST = '127.0.0.1'
+
+    const {
+      getAvailableConnectorTypes,
+      getConnectorTypeAvailabilityMessage,
+      isConnectorTypeAvailable,
+    } = await import('@/lib/connectors/availability')
+    const { requireAvailableConnectorType } = await import('@/lib/connectors/availability-response')
+
+    expect(isConnectorTypeAvailable('meta-ads')).toBe(false)
+    expect(getAvailableConnectorTypes()).not.toContain('meta-ads')
+    expect(getConnectorTypeAvailabilityMessage('meta-ads')).toBe(
+      'Meta Ads connectors are only available in the VPS runtime.'
+    )
+
+    const response = requireAvailableConnectorType('meta-ads')
+    expect(response).not.toBeNull()
+    expect(response!.status).toBe(403)
+    await expect(response!.json()).resolves.toEqual({
+      error: 'connector_not_available',
+      message: 'Meta Ads connectors are only available in the VPS runtime.',
+    })
   })
 })
 

@@ -4,7 +4,7 @@ import { isOAuthConnectorType } from '@/lib/connectors/oauth'
 import type { ConnectorConfigValidationResult } from '@/lib/connectors/config-validation'
 import { validateZendeskConnectorConfig } from '@/lib/connectors/zendesk-config'
 
-import { CONNECTOR_TYPES, type ConnectorType } from './types'
+import { isConnectorType, type ConnectorType } from './types'
 
 export { getConnectorAuthType } from '@/lib/connectors/oauth-config'
 export { isOAuthConnectorType } from '@/lib/connectors/oauth'
@@ -42,7 +42,7 @@ export const CONNECTOR_SCHEMAS: Record<ConnectorType, ConnectorConfigSchema> = {
 }
 
 export function validateConnectorType(type: string): type is ConnectorType {
-  return CONNECTOR_TYPES.includes(type as ConnectorType)
+  return isConnectorType(type)
 }
 
 export function validateConnectorName(name: unknown): { valid: boolean; error?: string } {

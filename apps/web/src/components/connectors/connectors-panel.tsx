@@ -12,6 +12,7 @@ import type {
   ConnectorTestResult,
   ConnectorTestState,
 } from '@/components/connectors/types'
+import { isConnectorType, type ConnectorType } from '@/lib/connectors/types'
 import { notifyWorkspaceConfigChanged } from '@/lib/runtime/config-status-events'
 
 export type ConnectorsPanelHandle = {
@@ -24,10 +25,25 @@ type ConnectorsPanelProps = {
   ref?: Ref<ConnectorsPanelHandle>
 }
 
-function toConnectorListItemArray(value: unknown): ConnectorListItem[] {
-  if (!value || typeof value !== 'object' || !('connectors' in value)) return []
-  const data = value as { connectors?: ConnectorListItem[] }
-  return Array.isArray(data.connectors) ? data.connectors : []
+function toConnectorsPayload(value: unknown): {
+  connectors: ConnectorListItem[]
+  availableConnectorTypes: ConnectorType[]
+} {
+  if (!value || typeof value !== 'object') {
+    return { connectors: [], availableConnectorTypes: [] }
+  }
+
+  const data = value as {
+    connectors?: ConnectorListItem[]
+    availableConnectorTypes?: string[]
+  }
+
+  return {
+    connectors: Array.isArray(data.connectors) ? data.connectors : [],
+    availableConnectorTypes: Array.isArray(data.availableConnectorTypes)
+      ? data.availableConnectorTypes.filter(isConnectorType)
+      : [],
+  }
 }
 
 function formatTestResult(result: ConnectorTestResult): ConnectorTestState {
@@ -54,6 +70,7 @@ export function ConnectorsPanel({ slug, oauthReturnTo, ref }: ConnectorsPanelPro
   const [testStates, setTestStates] = useState<Record<string, ConnectorTestState>>({})
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [settingsConnector, setSettingsConnector] = useState<ConnectorListItem | null>(null)
+  const [availableConnectorTypes, setAvailableConnectorTypes] = useState<ConnectorType[]>([])
 
   useImperativeHandle(
     ref,
@@ -87,7 +104,9 @@ export function ConnectorsPanel({ slug, oauthReturnTo, ref }: ConnectorsPanelPro
         return
       }
 
-      setConnectors(toConnectorListItemArray(data))
+      const payload = toConnectorsPayload(data)
+      setConnectors(payload.connectors)
+      setAvailableConnectorTypes(payload.availableConnectorTypes)
       setActionError(null)
     } catch {
       setLoadError(getConnectorErrorMessage(null, 'network_error'))
@@ -284,12 +303,14 @@ export function ConnectorsPanel({ slug, oauthReturnTo, ref }: ConnectorsPanelPro
         onConnectOAuth={handleConnectOAuth}
       />
 
-      <AddConnectorModal
-        slug={slug}
-        existingConnectors={connectors}
-        open={isModalOpen}
-        onOpenChange={setIsModalOpen}
-        onSaved={() => {
+        <AddConnectorModal
+          slug={slug}
+          existingConnectors={connectors}
+          availableConnectorTypes={availableConnectorTypes}
+          isLoadingAvailableConnectorTypes={isLoading && availableConnectorTypes.length === 0}
+          open={isModalOpen}
+          onOpenChange={setIsModalOpen}
+          onSaved={() => {
           notifyWorkspaceConfigChanged()
           void loadConnectors()
         }}

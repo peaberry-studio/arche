@@ -1,12 +1,14 @@
 import type { UserKind } from '@prisma/client'
 
 import { getConnectorCapabilityId, type ConnectorCapabilityRecord } from '@/lib/agent-capabilities'
+import { isConnectorTypeAvailable } from '@/lib/connectors/availability'
 import {
   isSingleInstanceConnectorType,
   SINGLE_INSTANCE_CONNECTOR_TYPES,
   type ConnectorType,
 } from '@/lib/connectors/types'
 import { validateConnectorType } from '@/lib/connectors/validators'
+import { getRuntimeMode, type RuntimeMode } from '@/lib/runtime/mode'
 import { connectorService } from '@/lib/services'
 
 export type AgentConnectorCapabilityOption = {
@@ -32,10 +34,14 @@ export function buildAgentConnectorCapabilityOptions(entries: Array<{
   name: string
   enabled: boolean
   user: { kind: UserKind; slug: string }
-}>): AgentConnectorCapabilityOption[] {
+}>, runtimeMode: RuntimeMode = getRuntimeMode()): AgentConnectorCapabilityOption[] {
   const options = new Map<string, AgentConnectorCapabilityOption>()
 
   for (const type of SINGLE_INSTANCE_CONNECTOR_TYPES) {
+    if (!isConnectorTypeAvailable(type, runtimeMode)) {
+      continue
+    }
+
     options.set(getConnectorCapabilityId(type, type), {
       id: getConnectorCapabilityId(type, type),
       type,
@@ -49,6 +55,7 @@ export function buildAgentConnectorCapabilityOptions(entries: Array<{
 
   for (const entry of entries) {
     if (!validateConnectorType(entry.type)) continue
+    if (!isConnectorTypeAvailable(entry.type, runtimeMode)) continue
 
     if (isSingleInstanceConnectorType(entry.type)) {
       const id = getConnectorCapabilityId(entry.type, entry.id)

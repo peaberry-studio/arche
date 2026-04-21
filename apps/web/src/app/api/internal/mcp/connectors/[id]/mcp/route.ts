@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+import { requireAvailableConnectorType } from '@/lib/connectors/availability-response'
 import { decryptConfig } from '@/lib/connectors/crypto'
 import { verifyConnectorGatewayToken } from '@/lib/connectors/gateway-tokens'
 import { handleMetaAdsMcpRequest } from '@/lib/connectors/mcp/meta-ads-handler'
@@ -55,6 +56,11 @@ async function handleProxy(
 
   if (!validateConnectorType(connector.type)) {
     return NextResponse.json({ error: 'unsupported_connector' }, { status: 400 })
+  }
+
+  const unavailable = requireAvailableConnectorType(connector.type)
+  if (unavailable) {
+    return unavailable
   }
 
   const refreshedConfig = await refreshConnectorOAuthConfigIfNeeded(connector)

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+import { requireAvailableConnectorType } from '@/lib/connectors/availability-response'
 import { decryptConfig } from '@/lib/connectors/crypto'
 import { getConnectorAuthType } from '@/lib/connectors/oauth-config'
 import { refreshConnectorOAuthConfigIfNeeded } from '@/lib/connectors/oauth-refresh'
@@ -46,6 +47,15 @@ export const POST = withAuth<TestConnectionResult | { error: string }, { slug: s
       return NextResponse.json({ error: 'connector_disabled' }, { status: 409 })
     }
 
+    if (!validateConnectorType(connector.type)) {
+      return NextResponse.json({ error: 'unsupported_connector_type' }, { status: 400 })
+    }
+
+    const unavailable = requireAvailableConnectorType(connector.type)
+    if (unavailable) {
+      return unavailable
+    }
+
     const refreshedConfig = await refreshConnectorOAuthConfigIfNeeded({
       id: connector.id,
       type: connector.type,
@@ -60,10 +70,6 @@ export const POST = withAuth<TestConnectionResult | { error: string }, { slug: s
         { error: 'config_corrupted', message: 'Failed to decrypt connector configuration' },
         { status: 500 }
       )
-    }
-
-    if (!validateConnectorType(connector.type)) {
-      return NextResponse.json({ error: 'unsupported_connector_type' }, { status: 400 })
     }
 
     let customEndpointUrl: URL | undefined

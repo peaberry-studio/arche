@@ -156,6 +156,42 @@ describe('mcp-config', () => {
     })
   })
 
+  it('skips Meta Ads connectors in desktop runtime', () => {
+    const connectors = [
+      {
+        id: 'm1',
+        type: 'meta-ads',
+        name: 'Meta Ads',
+        enabled: true,
+        config: encryptConfig({
+          authType: 'oauth',
+          appId: 'meta-app-id',
+          appSecret: 'meta-app-secret',
+          permissions: {
+            allowRead: true,
+            allowWriteCampaigns: false,
+            allowWriteAdSets: false,
+            allowWriteAds: false,
+          },
+          selectedAdAccountIds: ['act_123'],
+          oauth: { provider: 'meta-ads', clientId: 'meta-app-id', accessToken: 'meta-token' },
+        }),
+      },
+    ]
+
+    const result = buildMcpConfigFromConnectors(connectors, {
+      gatewayTargets: {
+        m1: {
+          url: 'http://web:3000/api/internal/mcp/connectors/m1/mcp',
+          token: 'gateway-token-m1',
+        },
+      },
+      runtimeMode: 'desktop',
+    })
+
+    expect(result.mcp['arche_meta-ads_m1']).toBeUndefined()
+  })
+
   it('skips connectors when required fields are not strings', () => {
     const connectors = [
       {
