@@ -69,6 +69,9 @@ export async function registerNodeInstrumentation() {
   const { initWebPrisma } = await import('@/lib/prisma')
   await initWebPrisma()
 
+  const { startReaper } = await import('@/lib/spawner/reaper')
+  startReaper()
+
   if (process.env.NODE_ENV === 'production') {
     const { startAutopilotScheduler } = await import('@/lib/autopilot/scheduler')
     startAutopilotScheduler()
