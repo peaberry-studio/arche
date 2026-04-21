@@ -1,6 +1,11 @@
 "use server";
 
 import { createInstanceClient, getInstanceUrl } from "@/lib/opencode/client";
+import {
+  listStoredWorkspaceSessionFamily,
+  listStoredWorkspaceSessionsPage,
+  type StoredWorkspaceSession,
+} from "@/lib/opencode/session-storage";
 import { extractTextContent, transformParts } from "@/lib/opencode/transform";
 import type {
   AvailableModel,
@@ -18,6 +23,7 @@ import {
 } from "@/lib/providers/catalog";
 import { getActiveCredentialForUser } from "@/lib/providers/store";
 import { PROVIDERS, type ProviderId } from "@/lib/providers/types";
+import { getRuntimeCapabilities } from "@/lib/runtime/capabilities";
 import { getSession } from "@/lib/runtime/session";
 import { autopilotService, instanceService, userService } from "@/lib/services";
 import { decryptPassword } from "@/lib/spawner/crypto";
@@ -337,61 +343,276 @@ function formatTimestamp(
   return d.toLocaleDateString("en-US", { day: "numeric", month: "short" });
 }
 
-export async function listSessionsAction(slug: string): Promise<{
+export type WorkspaceSessionCursor = {
+  id: string;
+  updatedAt: number;
+};
+
+type ListWorkspaceSessionsOptions = {
+  cursor?: WorkspaceSessionCursor | null;
+  limit?: number;
+  rootsOnly?: boolean;
+};
+
+type ListWorkspaceSessionsResult = {
   ok: boolean;
   sessions?: WorkspaceSession[];
+  hasMore?: boolean;
+  nextCursor?: WorkspaceSessionCursor | null;
   error?: string;
-}> {
+};
+
+type ListWorkspaceSessionFamilyResult = {
+  ok: boolean;
+  rootSessionId?: string | null;
+  sessions?: WorkspaceSession[];
+  error?: string;
+};
+
+function toBusyStatus(type: unknown): "active" | "idle" | "busy" | "error" {
+  if (type === "busy" || type === "retry") {
+    return "busy";
+  }
+
+  return "idle";
+}
+
+function toWorkspaceSessions(
+  sessions: StoredWorkspaceSession[],
+  statuses: Record<string, { type?: string }>,
+  autopilotBySessionId: Map<string, Awaited<ReturnType<typeof autopilotService.findSessionMetadataByUserId>>[number]>,
+): WorkspaceSession[] {
+  return sessions.map((session) => {
+    const autopilot = autopilotBySessionId.get(session.id);
+
+    return {
+      id: session.id,
+      title: session.title || "Untitled",
+      status: toBusyStatus(statuses[session.id]?.type),
+      updatedAt: formatTimestamp(session.updatedAtRaw),
+      updatedAtRaw: session.updatedAtRaw,
+      parentId: session.parentId,
+      autopilot: autopilot
+        ? {
+            runId: autopilot.runId,
+            taskId: autopilot.taskId,
+            taskName: autopilot.taskName,
+            trigger: autopilot.trigger,
+            hasUnseenResult: autopilot.hasUnseenResult,
+          }
+        : undefined,
+    };
+  });
+}
+
+async function getWorkspaceSessionMetadata(
+  slug: string,
+  client: NonNullable<Awaited<ReturnType<typeof createInstanceClient>>>,
+  sessionIds: string[],
+) {
+  const [statusResult, workspaceUser] = await Promise.all([
+    client.session.status(),
+    getAuthorizedWorkspaceUserId(slug),
+  ]);
+  const statuses = statusResult?.data ?? {};
+  const targetUserId = workspaceUser.ok ? workspaceUser.userId : null;
+  const autopilotMetadata = targetUserId
+    ? await autopilotService.findSessionMetadataByUserId(targetUserId, sessionIds)
+    : [];
+
+  return {
+    autopilotBySessionId: new Map(
+      autopilotMetadata.map((entry) => [entry.openCodeSessionId, entry]),
+    ),
+    statuses,
+  };
+}
+
+function fallbackSessionPage(
+  sessions: Array<{
+    id: string;
+    parentID?: string;
+    title?: string;
+    time?: { updated?: number };
+  }>,
+  options: ListWorkspaceSessionsOptions,
+): {
+  hasMore: boolean;
+  nextCursor: WorkspaceSessionCursor | null;
+  sessions: StoredWorkspaceSession[];
+} {
+  const filtered = sessions
+    .filter((session) => !options.rootsOnly || !session.parentID)
+    .filter((session) => {
+      if (!options.cursor) return true;
+      const updatedAt = typeof session.time?.updated === "number" ? session.time.updated : 0;
+      return (
+        updatedAt < options.cursor.updatedAt ||
+        (updatedAt === options.cursor.updatedAt && session.id < options.cursor.id)
+      );
+    });
+  const limit = options.limit ?? 100;
+  const hasMore = filtered.length > limit;
+  const page = filtered.slice(0, limit).map((session) => ({
+    id: session.id,
+    parentId: session.parentID,
+    title: session.title || "Untitled",
+    updatedAtRaw: typeof session.time?.updated === "number" ? session.time.updated : undefined,
+  }));
+  const lastSession = page.at(-1);
+
+  return {
+    hasMore,
+    nextCursor: hasMore && lastSession?.updatedAtRaw
+      ? { id: lastSession.id, updatedAt: lastSession.updatedAtRaw }
+      : null,
+    sessions: page,
+  };
+}
+
+async function listWorkspaceSessionsFromStorage(
+  slug: string,
+  client: NonNullable<Awaited<ReturnType<typeof createInstanceClient>>>,
+  options: ListWorkspaceSessionsOptions,
+): Promise<ListWorkspaceSessionsResult> {
+  const caps = getRuntimeCapabilities();
+  const project = await client.project.current();
+  const projectId = project.data?.id;
+
+  if (!projectId) {
+    return { ok: false, error: "project_unavailable" };
+  }
+
+  if (!caps.containers) {
+    const result = await client.session.list();
+    const page = fallbackSessionPage(result.data ?? [], options);
+    const metadata = await getWorkspaceSessionMetadata(slug, client, page.sessions.map((session) => session.id));
+
+    return {
+      ok: true,
+      hasMore: page.hasMore,
+      nextCursor: page.nextCursor,
+      sessions: toWorkspaceSessions(page.sessions, metadata.statuses, metadata.autopilotBySessionId),
+    };
+  }
+
+  const instance = await instanceService.findBySlug(slug);
+  if (!instance?.containerId || instance.status !== "running") {
+    return { ok: false, error: "instance_unavailable" };
+  }
+
+  const page = await listStoredWorkspaceSessionsPage({
+    containerId: instance.containerId,
+    cursor: options.cursor,
+    limit: options.limit ?? 100,
+    projectId,
+    rootsOnly: options.rootsOnly,
+  });
+  const metadata = await getWorkspaceSessionMetadata(slug, client, page.sessions.map((session) => session.id));
+
+  return {
+    ok: true,
+    hasMore: page.hasMore,
+    nextCursor: page.nextCursor,
+    sessions: toWorkspaceSessions(page.sessions, metadata.statuses, metadata.autopilotBySessionId),
+  };
+}
+
+export async function listSessionsAction(
+  slug: string,
+  options: ListWorkspaceSessionsOptions = {},
+): Promise<ListWorkspaceSessionsResult> {
   const { error, client } = await getAuthorizedClientContext(slug);
   if (error) return { ok: false, error };
 
   try {
-    const result = await client!.session.list();
-    const sessions = result.data ?? [];
+    return listWorkspaceSessionsFromStorage(slug, client!, options);
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "unknown" };
+  }
+}
 
-    // Get status for all sessions
-    const statusResult = await client!.session.status();
-    const statuses = statusResult.data ?? {};
-    const workspaceUser = await getAuthorizedWorkspaceUserId(slug);
-    const targetUserId = workspaceUser.ok ? workspaceUser.userId : null;
-    const autopilotMetadata = targetUserId
-      ? await autopilotService.findSessionMetadataByUserId(
-          targetUserId,
-          sessions.map((entry) => entry.id)
-        )
-      : [];
-    const autopilotBySessionId = new Map(
-      autopilotMetadata.map((entry) => [entry.openCodeSessionId, entry])
-    );
+export async function listSessionFamilyAction(
+  slug: string,
+  sessionId: string,
+): Promise<ListWorkspaceSessionFamilyResult> {
+  const { error, client } = await getAuthorizedClientContext(slug);
+  if (error) return { ok: false, error };
 
-    const transformed: WorkspaceSession[] = sessions.map((s) => {
-      const sessionStatus = statuses[s.id];
-      const autopilot = autopilotBySessionId.get(s.id);
-      let status: "active" | "idle" | "busy" | "error" = "idle";
-      if (sessionStatus?.type === "busy") status = "busy";
-      else if (sessionStatus?.type === "retry") status = "busy";
+  try {
+    const caps = getRuntimeCapabilities();
+
+    if (!caps.containers) {
+      const result = await client!.session.list();
+      const allSessions = result.data ?? [];
+      const byId = new Map(allSessions.map((session) => [session.id, session]));
+      const target = byId.get(sessionId);
+      if (!target) {
+        return { ok: false, error: "not_found" };
+      }
+
+      let root = target;
+      while (root.parentID && byId.has(root.parentID)) {
+        root = byId.get(root.parentID)!;
+      }
+
+      const familyIds = new Set<string>([root.id]);
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (const session of allSessions) {
+          if (session.parentID && familyIds.has(session.parentID) && !familyIds.has(session.id)) {
+            familyIds.add(session.id);
+            changed = true;
+          }
+        }
+      }
+
+      const family = allSessions
+        .filter((session) => familyIds.has(session.id))
+        .map((session) => ({
+          id: session.id,
+          parentId: session.parentID,
+          title: session.title || "Untitled",
+          updatedAtRaw: typeof session.time?.updated === "number" ? session.time.updated : undefined,
+        }))
+        .sort((a, b) => (b.updatedAtRaw ?? 0) - (a.updatedAtRaw ?? 0));
+      const metadata = await getWorkspaceSessionMetadata(slug, client!, family.map((session) => session.id));
 
       return {
-        id: s.id,
-        title: s.title || "Untitled",
-        status,
-        updatedAt: formatTimestamp(s.time?.updated),
-        updatedAtRaw: typeof s.time?.updated === "number" ? s.time.updated : undefined,
-        parentId: s.parentID,
-        autopilot: autopilot
-            ? {
-                runId: autopilot.runId,
-                taskId: autopilot.taskId,
-                taskName: autopilot.taskName,
-                trigger: autopilot.trigger,
-                hasUnseenResult: autopilot.hasUnseenResult,
-              }
-            : undefined,
-        share: s.share ? { url: s.share.url, version: 1 } : undefined,
+        ok: true,
+        rootSessionId: root.id,
+        sessions: toWorkspaceSessions(family, metadata.statuses, metadata.autopilotBySessionId),
       };
-    });
+    }
 
-    return { ok: true, sessions: transformed };
+    const instance = await instanceService.findBySlug(slug);
+    if (!instance?.containerId || instance.status !== "running") {
+      return { ok: false, error: "instance_unavailable" };
+    }
+
+    const project = await client!.project.current();
+    const projectId = project.data?.id;
+    if (!projectId) {
+      return { ok: false, error: "project_unavailable" };
+    }
+
+    const family = await listStoredWorkspaceSessionFamily({
+      containerId: instance.containerId,
+      projectId,
+      sessionId,
+    });
+    if (!family.rootSessionId) {
+      return { ok: false, error: "not_found" };
+    }
+
+    const metadata = await getWorkspaceSessionMetadata(slug, client!, family.sessions.map((session) => session.id));
+
+    return {
+      ok: true,
+      rootSessionId: family.rootSessionId,
+      sessions: toWorkspaceSessions(family.sessions, metadata.statuses, metadata.autopilotBySessionId),
+    };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "unknown" };
   }

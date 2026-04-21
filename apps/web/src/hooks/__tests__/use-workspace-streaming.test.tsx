@@ -13,6 +13,7 @@ import { useWorkspace } from "@/hooks/use-workspace";
 const opencodeMocks = vi.hoisted(() => ({
   checkConnectionAction: vi.fn(),
   listSessionsAction: vi.fn(),
+  listSessionFamilyAction: vi.fn(),
   createSessionAction: vi.fn(),
   deleteSessionAction: vi.fn(),
   markAutopilotRunSeenAction: vi.fn(),
@@ -89,7 +90,10 @@ function setupDefaultMocks() {
   opencodeMocks.listSessionsAction.mockResolvedValue({
     ok: true,
     sessions: [{ id: "s1", title: "Existing", status: "idle", updatedAt: "now" }],
+    hasMore: false,
+    nextCursor: null,
   });
+  opencodeMocks.listSessionFamilyAction.mockResolvedValue({ ok: true, rootSessionId: "s1", sessions: [] });
   opencodeMocks.createSessionAction.mockResolvedValue({
     ok: true,
     session: { id: "s2", title: "Fresh", status: "active", updatedAt: "now" },
@@ -786,10 +790,15 @@ describe("useWorkspace streaming", () => {
     });
 
     it("selects null when deleting the last session", async () => {
-      opencodeMocks.listSessionsAction.mockResolvedValue({
-        ok: true,
-        sessions: [{ id: "s1", title: "Only", status: "idle", updatedAt: "now" }],
-      });
+      opencodeMocks.listSessionsAction
+        .mockResolvedValueOnce({
+          ok: true,
+          sessions: [{ id: "s1", title: "Only", status: "idle", updatedAt: "now" }],
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          sessions: [],
+        });
       stubFetchWithStream(() => createSSEStream());
 
       const result = await renderConnectedHook();
