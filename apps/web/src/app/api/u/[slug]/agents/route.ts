@@ -4,17 +4,16 @@ import {
   buildAgentPermissionConfigFromCapabilities,
   buildAgentToolsConfigFromCapabilities,
   type AgentCapabilities,
+  type ConnectorCapabilityRecord,
   validateAgentCapabilityConnectorIds,
   validateAgentCapabilitySkillIds,
   validateAgentCapabilityTools,
 } from '@/lib/agent-capabilities'
+import { loadAvailableConnectorCapabilities } from '@/lib/agent-connector-capabilities'
 import { auditEvent } from '@/lib/auth'
 import { readCommonWorkspaceConfig, writeCommonWorkspaceConfig } from '@/lib/common-workspace-config-store'
-import type { ConnectorType } from '@/lib/connectors/types'
-import { validateConnectorType } from '@/lib/connectors/validators'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { listSkills } from '@/lib/skills/skill-store'
-import { connectorService, userService } from '@/lib/services'
 import {
   type CommonAgentConfig,
   type CommonWorkspaceConfig,
@@ -58,13 +57,7 @@ type CreateAgentRequest = {
   }
 }
 
-type EnabledConnector = {
-  id: string
-  type: ConnectorType
-  enabled: boolean
-}
-
-const RESERVED_AGENT_IDS = new Set(['models'])
+const RESERVED_AGENT_IDS = new Set(['connectors', 'models'])
 
 async function loadCommonConfig() {
   const result = await readCommonWorkspaceConfig()
@@ -89,28 +82,9 @@ async function loadCommonConfig() {
   }
 }
 
-async function loadEnabledConnectorsForSlug(slug: string): Promise<EnabledConnector[]> {
-  const user = await userService.findIdBySlug(slug)
-  if (!user) return []
-
-  const connectors = await connectorService.findEnabledByUserId(user.id)
-
-  const enabled: EnabledConnector[] = []
-  for (const connector of connectors) {
-    if (!validateConnectorType(connector.type)) continue
-    enabled.push({
-      id: connector.id,
-      type: connector.type as ConnectorType,
-      enabled: connector.enabled,
-    })
-  }
-
-  return enabled
-}
-
 function parseCapabilities(
   value: unknown,
-  enabledConnectors: EnabledConnector[],
+  availableConnectors: ConnectorCapabilityRecord[],
   availableSkillIds: Set<string>,
 ): { ok: true; capabilities: AgentCapabilities } | { ok: false; error: string } {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -133,9 +107,9 @@ function parseCapabilities(
     return { ok: false, error: connectorResult.error }
   }
 
-  const enabledConnectorIds = new Set(enabledConnectors.map((connector) => connector.id))
+  const availableConnectorIds = new Set(availableConnectors.map((connector) => connector.id))
   const unknownConnectorId = connectorResult.connectorIds.find(
-    (connectorId) => !enabledConnectorIds.has(connectorId)
+    (connectorId) => !availableConnectorIds.has(connectorId)
   )
   if (unknownConnectorId) {
     return { ok: false, error: 'unknown_mcp_connector' }
@@ -268,7 +242,7 @@ export const POST = withAuth<{ agent: AgentListItem; hash?: string } | { error: 
         ? body.temperature
         : undefined
 
-    const enabledConnectors = await loadEnabledConnectorsForSlug(slug)
+    const availableConnectors = await loadAvailableConnectorCapabilities()
     const skillsResult = await listSkills()
     if (!skillsResult.ok) {
       const status = skillsResult.error === 'kb_unavailable' ? 503 : 500
@@ -277,7 +251,7 @@ export const POST = withAuth<{ agent: AgentListItem; hash?: string } | { error: 
 
     const capabilitiesResult = parseCapabilities(
       body.capabilities,
-      enabledConnectors,
+      availableConnectors,
       new Set(skillsResult.data.map((skill) => skill.name))
     )
     if (!capabilitiesResult.ok) {
@@ -292,7 +266,7 @@ export const POST = withAuth<{ agent: AgentListItem; hash?: string } | { error: 
       temperature,
       prompt,
       permission: buildAgentPermissionConfigFromCapabilities(capabilitiesResult.capabilities, undefined),
-      tools: buildAgentToolsConfigFromCapabilities(capabilitiesResult.capabilities, enabledConnectors),
+      tools: buildAgentToolsConfigFromCapabilities(capabilitiesResult.capabilities, availableConnectors),
     }
 
     const nextConfig: CommonWorkspaceConfig = {

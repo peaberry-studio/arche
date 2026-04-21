@@ -219,7 +219,7 @@ describe('remapAgentConnectorTools', () => {
     expect(tools.task).toBe(true)
   })
 
-  it('adds all user connectors when user has multiple custom connectors', () => {
+  it('keeps custom connector access scoped to the exact connector id', () => {
     const config = {
       agent: {
         worker: {
@@ -234,9 +234,22 @@ describe('remapAgentConnectorTools', () => {
     const result = remapAgentConnectorTools(config, userKeys)
     const tools = (result.agent as Record<string, Record<string, unknown>>).worker.tools as Record<string, boolean>
 
-    expect(tools['arche_custom_user1_*']).toBe(true)
-    expect(tools['arche_custom_user2_*']).toBe(true)
     expect(tools['arche_custom_admin1_*']).toBeUndefined()
+  })
+
+  it('preserves custom connector access when the exact connector exists', () => {
+    const config = {
+      agent: {
+        worker: {
+          tools: {
+            'arche_custom_sameconnector_*': true,
+          },
+        },
+      },
+    }
+
+    const result = remapAgentConnectorTools(config, new Set(['arche_custom_sameconnector']))
+    expect(result).toBe(config)
   })
 
   it('preserves arche_*: false', () => {

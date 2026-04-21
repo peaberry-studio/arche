@@ -1,3 +1,5 @@
+import type { UserKind } from '@prisma/client'
+
 import { prisma } from '@/lib/prisma'
 
 // ---------------------------------------------------------------------------
@@ -32,6 +34,17 @@ export type ConnectorHashEntry = {
   type: string
   enabled: boolean
   updatedAt: Date
+}
+
+export type ConnectorCapabilityInventoryEntry = {
+  id: string
+  type: string
+  name: string
+  enabled: boolean
+  user: {
+    kind: UserKind
+    slug: string
+  }
 }
 
 export type ConnectorFullRecord = {
@@ -76,6 +89,28 @@ export function findHashEntriesByUserId(userId: string): Promise<ConnectorHashEn
     where: { userId },
     select: { id: true, type: true, enabled: true, updatedAt: true },
     orderBy: { id: 'asc' },
+  })
+}
+
+export function findCapabilityInventoryEntries(): Promise<ConnectorCapabilityInventoryEntry[]> {
+  return prisma.connector.findMany({
+    select: {
+      id: true,
+      type: true,
+      name: true,
+      enabled: true,
+      user: {
+        select: {
+          kind: true,
+          slug: true,
+        },
+      },
+    },
+    orderBy: [
+      { type: 'asc' },
+      { name: 'asc' },
+      { id: 'asc' },
+    ],
   })
 }
 

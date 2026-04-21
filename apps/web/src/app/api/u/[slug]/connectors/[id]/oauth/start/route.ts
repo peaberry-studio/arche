@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
 import { decryptConfig } from '@/lib/connectors/crypto'
-import { isOAuthConnectorType, prepareConnectorOAuthAuthorization } from '@/lib/connectors/oauth'
+import {
+  isOAuthConnectorType,
+  normalizeConnectorOAuthReturnTo,
+  prepareConnectorOAuthAuthorization,
+} from '@/lib/connectors/oauth'
 import { validateConnectorType } from '@/lib/connectors/validators'
 import { getPublicBaseUrl } from '@/lib/http'
 import { requireCapability } from '@/lib/runtime/require-capability'
@@ -41,6 +45,7 @@ export const POST = withAuth<
 
   const baseUrl = getPublicBaseUrl(request.headers, request.nextUrl.origin)
   const redirectUri = `${baseUrl}/api/connectors/oauth/callback`
+  const returnTo = normalizeConnectorOAuthReturnTo(request.nextUrl.searchParams.get('returnTo'))
 
   let connectorConfig: Record<string, unknown> | undefined
   if (connector.type === 'custom') {
@@ -59,6 +64,7 @@ export const POST = withAuth<
     const prepared = await prepareConnectorOAuthAuthorization({
       connectorId: connector.id,
       slug,
+      returnTo,
       userId: targetUser.id,
       connectorType: connector.type,
       redirectUri,
