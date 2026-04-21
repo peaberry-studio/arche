@@ -17,6 +17,7 @@ export const GET = withAuth<AgentConnectorCapabilitiesResponse | { error: string
       return NextResponse.json({ error: 'forbidden' }, { status: 403 })
     }
 
+    // This catalog is global across workspaces; the slug is only used for authenticated routing.
     const connectors = await loadAgentConnectorCapabilityOptions()
     return NextResponse.json({ connectors })
   },

@@ -528,19 +528,19 @@ export function AgentForm({
                           ? 'border-primary/40 bg-primary/5 text-foreground'
                           : 'border-border/60 bg-card/40 text-muted-foreground hover:bg-card/70'
                       )}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggleMcpConnector(connector.id)}
-                          className={checkboxClassName}
-                        />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate font-medium">{connector.name}</span>
-                          <span className="block truncate text-xs text-muted-foreground">
-                            {connector.type} · {metadata}
-                          </span>
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleMcpConnector(connector.id)}
+                        className={checkboxClassName}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">{connector.name}</span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {connector.type} · {metadata}
                         </span>
+                      </span>
                     </label>
                   )
                 })}

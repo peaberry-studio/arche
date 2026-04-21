@@ -9,7 +9,7 @@ import {
   validateAgentCapabilitySkillIds,
   validateAgentCapabilityTools,
 } from '@/lib/agent-capabilities'
-import { loadAgentConnectorCapabilityOptions } from '@/lib/agent-connector-capabilities'
+import { loadAvailableConnectorCapabilities } from '@/lib/agent-connector-capabilities'
 import { auditEvent } from '@/lib/auth'
 import { readCommonWorkspaceConfig, writeCommonWorkspaceConfig } from '@/lib/common-workspace-config-store'
 import { withAuth } from '@/lib/runtime/with-auth'
@@ -72,14 +72,6 @@ async function loadCommonConfig() {
     config: parsed.config,
     hash: result.hash,
   }
-}
-
-async function loadAvailableConnectorCapabilities(): Promise<ConnectorCapabilityRecord[]> {
-  const connectors = await loadAgentConnectorCapabilityOptions()
-  return connectors.map((connector) => ({
-    id: connector.id,
-    type: connector.type,
-  }))
 }
 
 function parseCapabilities(

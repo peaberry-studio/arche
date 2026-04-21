@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
 import { decryptConfig } from '@/lib/connectors/crypto'
-import { isOAuthConnectorType, prepareConnectorOAuthAuthorization } from '@/lib/connectors/oauth'
+import {
+  isOAuthConnectorType,
+  normalizeConnectorOAuthReturnTo,
+  prepareConnectorOAuthAuthorization,
+} from '@/lib/connectors/oauth'
 import { validateConnectorType } from '@/lib/connectors/validators'
 import { getPublicBaseUrl } from '@/lib/http'
 import { requireCapability } from '@/lib/runtime/require-capability'
@@ -11,23 +15,6 @@ import { connectorService, userService } from '@/lib/services'
 
 type StartOAuthResponse = {
   authorizeUrl: string
-}
-
-function normalizeReturnTo(value: string | null): string | undefined {
-  if (!value) {
-    return undefined
-  }
-
-  try {
-    const url = new URL(value, 'http://localhost')
-    if (url.origin !== 'http://localhost') {
-      return undefined
-    }
-
-    return `${url.pathname}${url.search}${url.hash}`
-  } catch {
-    return undefined
-  }
 }
 
 export const POST = withAuth<
@@ -58,7 +45,7 @@ export const POST = withAuth<
 
   const baseUrl = getPublicBaseUrl(request.headers, request.nextUrl.origin)
   const redirectUri = `${baseUrl}/api/connectors/oauth/callback`
-  const returnTo = normalizeReturnTo(request.nextUrl.searchParams.get('returnTo'))
+  const returnTo = normalizeConnectorOAuthReturnTo(request.nextUrl.searchParams.get('returnTo'))
 
   let connectorConfig: Record<string, unknown> | undefined
   if (connector.type === 'custom') {

@@ -5,6 +5,7 @@ import { decryptConfig, encryptConfig } from '@/lib/connectors/crypto'
 import {
   exchangeConnectorOAuthCode,
   isOAuthConnectorType,
+  normalizeConnectorOAuthReturnTo,
   verifyConnectorOAuthState,
 } from '@/lib/connectors/oauth'
 import { buildConfigWithOAuth } from '@/lib/connectors/oauth-config'
@@ -29,14 +30,6 @@ function normalizeOAuthError(error: string): string {
   return 'oauth_failed'
 }
 
-function isSafeReturnToPath(value: string | undefined): value is string {
-  if (!value) {
-    return false
-  }
-
-  return value.startsWith('/') && !value.startsWith('//')
-}
-
 function buildRedirect(
   baseUrl: string,
   slug: string,
@@ -45,10 +38,11 @@ function buildRedirect(
   returnTo?: string,
 ): URL {
   const desktopVault = getCurrentDesktopVault()
+  const returnToPath = normalizeConnectorOAuthReturnTo(returnTo)
   const targetPath = desktopVault
     ? getDesktopWorkspaceHref('local', 'connectors')
-    : isSafeReturnToPath(returnTo)
-      ? returnTo
+    : returnToPath
+      ? returnToPath
       : `/u/${slug}/connectors`
   const url = new URL(targetPath, baseUrl)
   url.searchParams.set('oauth', status)

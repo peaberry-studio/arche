@@ -42,11 +42,16 @@ async function loadRoute() {
     },
   }))
 
-  vi.doMock('@/lib/connectors/oauth', () => ({
-    exchangeConnectorOAuthCode: (...args: unknown[]) => mockExchangeConnectorOAuthCode(...args),
-    isOAuthConnectorType: () => true,
-    verifyConnectorOAuthState: (...args: unknown[]) => mockVerifyConnectorOAuthState(...args),
-  }))
+  vi.doMock('@/lib/connectors/oauth', async () => {
+    const actual = await vi.importActual<typeof import('@/lib/connectors/oauth')>('@/lib/connectors/oauth')
+
+    return {
+      ...actual,
+      exchangeConnectorOAuthCode: (...args: unknown[]) => mockExchangeConnectorOAuthCode(...args),
+      isOAuthConnectorType: () => true,
+      verifyConnectorOAuthState: (...args: unknown[]) => mockVerifyConnectorOAuthState(...args),
+    }
+  })
 
   vi.doMock('@/lib/connectors/crypto', () => ({
     decryptConfig: (...args: unknown[]) => mockDecryptConfig(...args),
@@ -118,7 +123,7 @@ describe('GET /api/connectors/oauth/callback', () => {
     mockVerifyConnectorOAuthState.mockReturnValue({
       connectorId: 'custom-1',
       slug: 'slack-bot',
-      returnTo: 'https://evil.example.com/steal',
+      returnTo: '/\\evil.example.com',
       userId: 'service-1',
       connectorType: 'custom',
       clientId: 'client-id',
@@ -137,6 +142,34 @@ describe('GET /api/connectors/oauth/callback', () => {
 
     expect(response.headers.get('location')).toBe(
       'https://arche.example.com/u/slack-bot/connectors?oauth=success'
+    )
+  })
+
+  it('keeps a safe embedded return path on connector lookup errors', async () => {
+    mockGetSession.mockResolvedValue(session('alice', 'ADMIN'))
+    mockFindByIdAndUserIdSelect.mockResolvedValue(null)
+    mockVerifyConnectorOAuthState.mockReturnValue({
+      connectorId: 'custom-1',
+      slug: 'slack-bot',
+      returnTo: '/u/alice/settings/integrations/slack',
+      userId: 'service-1',
+      connectorType: 'custom',
+      clientId: 'client-id',
+      codeVerifier: 'verifier',
+      tokenEndpoint: 'https://oauth.example.com/token',
+      authorizationEndpoint: 'https://oauth.example.com/authorize',
+      registrationEndpoint: 'https://oauth.example.com/register',
+      redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
+    })
+
+    const { GET } = await loadRoute()
+    const response = await GET({
+      headers: new Headers(),
+      nextUrl: new URL('https://arche.example.com/api/connectors/oauth/callback?code=oauth-code&state=token'),
+    } as never)
+
+    expect(response.headers.get('location')).toBe(
+      'https://arche.example.com/u/alice/settings/integrations/slack?oauth=error&message=connector_not_found'
     )
   })
 })

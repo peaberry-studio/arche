@@ -1,6 +1,6 @@
 import type { UserKind } from '@prisma/client'
 
-import { getConnectorCapabilityId } from '@/lib/agent-capabilities'
+import { getConnectorCapabilityId, type ConnectorCapabilityRecord } from '@/lib/agent-capabilities'
 import {
   isSingleInstanceConnectorType,
   SINGLE_INSTANCE_CONNECTOR_TYPES,
@@ -19,16 +19,11 @@ export type AgentConnectorCapabilityOption = {
   ownerSlug: string | null
 }
 
-function getSingleInstanceConnectorLabel(type: Exclude<ConnectorType, 'custom'>): string {
-  switch (type) {
-    case 'linear':
-      return 'Linear'
-    case 'notion':
-      return 'Notion'
-    case 'zendesk':
-      return 'Zendesk'
-  }
-}
+const SINGLE_INSTANCE_CONNECTOR_LABELS = {
+  linear: 'Linear',
+  notion: 'Notion',
+  zendesk: 'Zendesk',
+} as const satisfies Record<Exclude<ConnectorType, 'custom'>, string>
 
 export function buildAgentConnectorCapabilityOptions(entries: Array<{
   id: string
@@ -43,7 +38,7 @@ export function buildAgentConnectorCapabilityOptions(entries: Array<{
     options.set(getConnectorCapabilityId(type, type), {
       id: getConnectorCapabilityId(type, type),
       type,
-      name: getSingleInstanceConnectorLabel(type),
+      name: SINGLE_INSTANCE_CONNECTOR_LABELS[type],
       enabled: false,
       scope: 'type',
       ownerKind: null,
@@ -97,4 +92,12 @@ export function buildAgentConnectorCapabilityOptions(entries: Array<{
 export async function loadAgentConnectorCapabilityOptions(): Promise<AgentConnectorCapabilityOption[]> {
   const entries = await connectorService.findCapabilityInventoryEntries()
   return buildAgentConnectorCapabilityOptions(entries)
+}
+
+export async function loadAvailableConnectorCapabilities(): Promise<ConnectorCapabilityRecord[]> {
+  const connectors = await loadAgentConnectorCapabilityOptions()
+  return connectors.map((connector) => ({
+    id: connector.id,
+    type: connector.type,
+  }))
 }
