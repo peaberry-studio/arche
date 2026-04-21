@@ -14,6 +14,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useWorkspaceTheme } from '@/contexts/workspace-theme-context'
+import { type LinearOAuthActor } from '@/lib/connectors/linear'
 import {
   CONNECTOR_TYPES,
   isSingleInstanceConnectorType,
@@ -40,6 +41,10 @@ const CONNECTOR_TYPE_OPTIONS: { type: ConnectorType; label: string; description:
 ]
 
 const DEFAULT_TYPE: ConnectorType = CONNECTOR_TYPES[0]
+const DEFAULT_LINEAR_OAUTH_ACTOR: LinearOAuthActor = 'user'
+const LINEAR_CREATE_APPLICATION_URL = 'https://linear.app/settings/api/applications/new'
+const LINEAR_ACTOR_AUTH_DOCS_URL = 'https://linear.app/developers/oauth-actor-authorization'
+const LINEAR_CALLBACK_URL_HINT = 'https://your-arche-host/api/connectors/oauth/callback'
 
 function buildDefaultName(type: ConnectorType): string {
   switch (type) {
@@ -107,6 +112,7 @@ export function AddConnectorModal({
   const [oauthAuthorizationEndpoint, setOauthAuthorizationEndpoint] = useState('')
   const [oauthTokenEndpoint, setOauthTokenEndpoint] = useState('')
   const [oauthRegistrationEndpoint, setOauthRegistrationEndpoint] = useState('')
+  const [linearOAuthActor, setLinearOAuthActor] = useState<LinearOAuthActor>(DEFAULT_LINEAR_OAUTH_ACTOR)
 
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -138,6 +144,7 @@ export function AddConnectorModal({
     setOauthAuthorizationEndpoint('')
     setOauthTokenEndpoint('')
     setOauthRegistrationEndpoint('')
+    setLinearOAuthActor(DEFAULT_LINEAR_OAUTH_ACTOR)
     setIsSaving(false)
     setError(null)
   }
@@ -152,6 +159,7 @@ export function AddConnectorModal({
     setSelectedType(defaultType)
     setAuthType(getDefaultAuthType(defaultType))
     setName(buildDefaultName(defaultType))
+    setLinearOAuthActor(DEFAULT_LINEAR_OAUTH_ACTOR)
   }, [availableTypeOptions, open])
 
   useEffect(() => {
@@ -167,13 +175,20 @@ export function AddConnectorModal({
       setSelectedType(fallbackType)
       setAuthType(getDefaultAuthType(fallbackType))
       setName(buildDefaultName(fallbackType))
+      setLinearOAuthActor(DEFAULT_LINEAR_OAUTH_ACTOR)
     }
   }, [availableTypeOptions, open, selectedType])
 
   function buildConfig(): { ok: true; value: Record<string, unknown> } | { ok: false; message: string } {
     if (selectedType === 'linear' || selectedType === 'notion') {
       if (authType === 'oauth') {
-        return { ok: true, value: { authType: 'oauth' } }
+        return {
+          ok: true,
+          value: {
+            authType: 'oauth',
+            ...(selectedType === 'linear' && linearOAuthActor === 'app' ? { oauthActor: 'app' } : {}),
+          },
+        }
       }
       if (!apiKey.trim()) {
         return { ok: false, message: 'API key is required.' }
@@ -351,13 +366,14 @@ export function AddConnectorModal({
               const isSelected = option.type === selectedType
               return (
                 <button
-                  key={option.type}
-                  type="button"
-                  onClick={() => {
-                    setSelectedType(option.type)
-                    setAuthType(getDefaultAuthType(option.type))
-                    setError(null)
-                  }}
+                    key={option.type}
+                    type="button"
+                    onClick={() => {
+                      setSelectedType(option.type)
+                      setAuthType(getDefaultAuthType(option.type))
+                      setLinearOAuthActor(DEFAULT_LINEAR_OAUTH_ACTOR)
+                      setError(null)
+                    }}
                   className={cn(
                     'rounded-xl border px-4 py-3 text-left transition-all',
                     isSelected
@@ -427,11 +443,73 @@ export function AddConnectorModal({
             </div>
           ) : null}
 
+          {selectedType === 'linear' && authType === 'oauth' ? (
+            <div className="space-y-2">
+              <Label htmlFor="linear-oauth-actor" className="text-foreground">
+                OAuth actor
+              </Label>
+              <select
+                id="linear-oauth-actor"
+                className="w-full rounded-lg border border-border/50 bg-background px-3 py-2 text-sm text-foreground"
+                value={linearOAuthActor}
+                onChange={(event) =>
+                  setLinearOAuthActor(event.target.value === 'app' ? 'app' : 'user')
+                }
+              >
+                <option value="user">User OAuth</option>
+                <option value="app">App actor OAuth</option>
+              </select>
+              <p className="text-xs text-muted-foreground">
+                User OAuth acts as the person who connects it. App actor OAuth installs your Linear app so
+                mutations appear as the app instead.
+              </p>
+            </div>
+          ) : null}
+
           {/* OAuth hint */}
           {supportsOAuth(selectedType) && authType === 'oauth' ? (
             <p className="rounded-lg bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
               Save first, then click <strong className="text-foreground/80">Connect OAuth</strong> from the connector card.
             </p>
+          ) : null}
+
+          {selectedType === 'linear' && authType === 'oauth' && linearOAuthActor === 'app' ? (
+            <div className="space-y-3 rounded-lg border border-border/50 bg-muted/20 px-4 py-3 text-sm">
+              <div className="space-y-1">
+                <p className="font-medium text-foreground">Create a Linear OAuth application first</p>
+                <p className="text-muted-foreground">
+                  Linear app actor mode uses your OAuth application name and icon as the author in Linear.
+                  A workspace admin must complete the OAuth connection.
+                </p>
+              </div>
+
+              <ol className="list-decimal space-y-1 pl-5 text-muted-foreground">
+                <li>Open Linear Settings -&gt; API -&gt; Applications.</li>
+                <li>Create a new OAuth2 application for Arche with the name and icon you want to appear in Linear.</li>
+                <li>Add <code>{LINEAR_CALLBACK_URL_HINT}</code> as a callback URL, replacing the host with your Arche URL.</li>
+                <li>Configure the Linear client ID and client secret in Arche before starting OAuth.</li>
+                <li>Save this connector, then connect OAuth as a Linear workspace admin.</li>
+              </ol>
+
+              <div className="flex flex-wrap items-center gap-4 text-sm">
+                <a
+                  href={LINEAR_CREATE_APPLICATION_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-primary hover:underline"
+                >
+                  Create Linear OAuth application
+                </a>
+                <a
+                  href={LINEAR_ACTOR_AUTH_DOCS_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-primary hover:underline"
+                >
+                  Open Linear actor auth docs
+                </a>
+              </div>
+            </div>
           ) : null}
 
           {/* Manual API key (official types) */}

@@ -16,6 +16,8 @@ vi.mock('@/lib/security/ssrf', () => ({
 }))
 
 const originalOAuthMaxAuthorizeUrlLength = process.env.ARCHE_CONNECTOR_OAUTH_MAX_AUTHORIZE_URL_LENGTH
+const originalLinearClientId = process.env.ARCHE_CONNECTOR_LINEAR_CLIENT_ID
+const originalLinearClientSecret = process.env.ARCHE_CONNECTOR_LINEAR_CLIENT_SECRET
 
 describe('connectors oauth state', () => {
   beforeEach(() => {
@@ -31,10 +33,21 @@ describe('connectors oauth state', () => {
     vi.unstubAllGlobals()
     if (originalOAuthMaxAuthorizeUrlLength === undefined) {
       delete process.env.ARCHE_CONNECTOR_OAUTH_MAX_AUTHORIZE_URL_LENGTH
-      return
+    } else {
+      process.env.ARCHE_CONNECTOR_OAUTH_MAX_AUTHORIZE_URL_LENGTH = originalOAuthMaxAuthorizeUrlLength
     }
 
-    process.env.ARCHE_CONNECTOR_OAUTH_MAX_AUTHORIZE_URL_LENGTH = originalOAuthMaxAuthorizeUrlLength
+    if (originalLinearClientId === undefined) {
+      delete process.env.ARCHE_CONNECTOR_LINEAR_CLIENT_ID
+    } else {
+      process.env.ARCHE_CONNECTOR_LINEAR_CLIENT_ID = originalLinearClientId
+    }
+
+    if (originalLinearClientSecret === undefined) {
+      delete process.env.ARCHE_CONNECTOR_LINEAR_CLIENT_SECRET
+    } else {
+      process.env.ARCHE_CONNECTOR_LINEAR_CLIENT_SECRET = originalLinearClientSecret
+    }
   })
 
   it('issues and verifies state token', () => {
@@ -184,6 +197,56 @@ describe('connectors oauth state', () => {
     expect(state.returnTo).toBe('/u/alice/settings/integrations/slack')
   })
 
+  it('adds actor=app only for Linear app actor OAuth', async () => {
+    process.env.ARCHE_CONNECTOR_LINEAR_CLIENT_ID = 'linear-client-id'
+    process.env.ARCHE_CONNECTOR_LINEAR_CLIENT_SECRET = 'linear-client-secret'
+
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({
+            authorization_endpoint: 'https://linear.app/oauth/authorize',
+            token_endpoint: 'https://api.linear.app/oauth/token',
+          }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          })
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({
+            authorization_endpoint: 'https://linear.app/oauth/authorize',
+            token_endpoint: 'https://api.linear.app/oauth/token',
+          }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          })
+        )
+    )
+
+    const userPrepared = await prepareConnectorOAuthAuthorization({
+      connectorId: 'linear-user',
+      slug: 'alice',
+      userId: 'user-1',
+      connectorType: 'linear',
+      redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
+      connectorConfig: { authType: 'oauth' },
+    })
+
+    const appPrepared = await prepareConnectorOAuthAuthorization({
+      connectorId: 'linear-app',
+      slug: 'alice',
+      userId: 'user-1',
+      connectorType: 'linear',
+      redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
+      connectorConfig: { authType: 'oauth', oauthActor: 'app' },
+    })
+
+    expect(new URL(userPrepared.authorizeUrl).searchParams.get('actor')).toBeNull()
+    expect(new URL(appPrepared.authorizeUrl).searchParams.get('actor')).toBe('app')
+  })
+
   it('falls back to static custom OAuth client when dynamic registration fails', async () => {
     vi.stubGlobal(
       'fetch',
@@ -302,7 +365,7 @@ describe('connectors oauth config', () => {
   it('builds and parses oauth config', () => {
     const config = buildConfigWithOAuth({
       connectorType: 'linear',
-      currentConfig: { org: 'acme' },
+      currentConfig: { org: 'acme', oauthActor: 'app' },
       oauth: {
         clientId: 'client-123',
         accessToken: 'token123',
@@ -312,6 +375,7 @@ describe('connectors oauth config', () => {
     })
 
     expect(getConnectorAuthType(config)).toBe('oauth')
+    expect(config.oauthActor).toBe('app')
     const oauth = getConnectorOAuthConfig('linear', config)
     expect(oauth?.clientId).toBe('client-123')
     expect(oauth?.accessToken).toBe('token123')

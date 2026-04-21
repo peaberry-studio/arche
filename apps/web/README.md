@@ -94,6 +94,13 @@ This repo uses `pnpm` by default.
 - Custom connector endpoints are SSRF-validated (HTTPS only, DNS/IP checks), but a DNS rebinding window still exists between validation and outbound fetch.
 - Keep outbound egress controls in place (network policy, firewall, allowlists) for defense in depth.
 
+## Linear app actor mode
+
+- Linear connectors support standard user OAuth and app actor OAuth.
+- App actor mode adds `actor=app` to the Linear authorization URL, so actions appear in Linear as the OAuth application instead of as the user who completed consent.
+- The visible author name and icon come from the Linear OAuth application configuration.
+- Arche can optionally present a per-mutation display name like `User (via Application)` only if the underlying Linear API caller supports `createAsUser` and `displayIconUrl`.
+
 ## UI
 
 The UI uses Tailwind + shadcn/ui. Components live in `src/components/ui`.

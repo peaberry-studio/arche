@@ -1,3 +1,4 @@
+import type { LinearOAuthActor } from '@/lib/connectors/linear'
 import type { ConnectorType } from '@/lib/connectors/types'
 
 export type ConnectorListItem = {
@@ -7,6 +8,7 @@ export type ConnectorListItem = {
   enabled: boolean
   status: 'ready' | 'pending' | 'disabled'
   authType: 'manual' | 'oauth'
+  oauthActor?: LinearOAuthActor
   oauthConnected: boolean
   oauthExpiresAt?: string
   createdAt: string
@@ -19,6 +21,7 @@ export type ConnectorDetail = {
   config: Record<string, unknown>
   enabled: boolean
   authType: 'manual' | 'oauth'
+  oauthActor?: LinearOAuthActor
   oauthConnected: boolean
   oauthExpiresAt?: string
   createdAt: string

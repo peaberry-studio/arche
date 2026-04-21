@@ -17,6 +17,10 @@ type StartOAuthResponse = {
   authorizeUrl: string
 }
 
+function requiresConnectorConfig(type: 'linear' | 'notion' | 'custom'): boolean {
+  return type === 'custom' || type === 'linear'
+}
+
 export const POST = withAuth<
   StartOAuthResponse | { error: string; message?: string },
   { slug: string; id: string }
@@ -48,7 +52,7 @@ export const POST = withAuth<
   const returnTo = normalizeConnectorOAuthReturnTo(request.nextUrl.searchParams.get('returnTo'))
 
   let connectorConfig: Record<string, unknown> | undefined
-  if (connector.type === 'custom') {
+  if (requiresConnectorConfig(connector.type)) {
     try {
       connectorConfig = decryptConfig(connector.config)
     } catch {

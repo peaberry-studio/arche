@@ -46,6 +46,14 @@ function getStatusMeta(connector: ConnectorListItem): {
   return { label: 'Working', variant: 'success' }
 }
 
+function getLinearOAuthModeLabel(connector: ConnectorListItem): string | null {
+  if (connector.type !== 'linear' || connector.authType !== 'oauth') {
+    return null
+  }
+
+  return connector.oauthActor === 'app' ? 'App actor OAuth' : 'User OAuth'
+}
+
 export function ConnectorCard({
   connector,
   testState,
@@ -58,6 +66,7 @@ export function ConnectorCard({
 }: ConnectorCardProps) {
   const usesOAuth = connector.authType === 'oauth'
   const statusMeta = getStatusMeta(connector)
+  const linearOAuthModeLabel = getLinearOAuthModeLabel(connector)
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const popoverRef = useRef<HTMLDivElement>(null)
@@ -95,9 +104,10 @@ export function ConnectorCard({
             </div>
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold">{connector.name}</p>
-              <Badge variant={statusMeta.variant} className="mt-1">
-                {statusMeta.label}
-              </Badge>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <Badge variant={statusMeta.variant}>{statusMeta.label}</Badge>
+                {linearOAuthModeLabel ? <Badge variant="outline">{linearOAuthModeLabel}</Badge> : null}
+              </div>
             </div>
           </div>
 

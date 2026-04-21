@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { encryptConfig, decryptConfig } from '@/lib/connectors/crypto'
+import { getLinearOAuthActor } from '@/lib/connectors/linear'
 import { CONNECTOR_TYPES } from '@/lib/connectors/types'
 import {
   parseZendeskConnectorConfig,
@@ -81,6 +82,17 @@ describe('connectors/validators', () => {
       const invalid = validateConnectorConfig('linear', {})
       expect(invalid.valid).toBe(false)
       expect(invalid.missing).toContain('apiKey')
+    })
+
+    it('validates optional Linear OAuth actor mode', () => {
+      expect(validateConnectorConfig('linear', { authType: 'oauth', oauthActor: 'app' })).toEqual({
+        valid: true,
+      })
+
+      expect(validateConnectorConfig('linear', { authType: 'oauth', oauthActor: 'robot' })).toEqual({
+        valid: false,
+        message: 'Linear OAuth actor must be user or app',
+      })
     })
 
     it('validates required fields for notion', () => {
@@ -304,5 +316,15 @@ describe('connectors/zendesk-config', () => {
         permissions: DEFAULT_ZENDESK_CONNECTOR_PERMISSIONS,
       },
     })
+  })
+})
+
+describe('connectors/linear', () => {
+  it('defaults missing actor mode to user', () => {
+    expect(getLinearOAuthActor({ authType: 'oauth' })).toBe('user')
+  })
+
+  it('reads app actor mode from connector config', () => {
+    expect(getLinearOAuthActor({ authType: 'oauth', oauthActor: 'app' })).toBe('app')
   })
 })
