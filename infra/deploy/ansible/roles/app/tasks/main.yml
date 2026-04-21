@@ -402,6 +402,38 @@
   changed_when: true
   ignore_errors: true
 
+- name: Recreate reaper daemon (podman compose)
+  ansible.builtin.shell:
+    cmd: >
+      podman compose -f {{ app_dir }}/compose.yml --env-file {{ app_dir }}/.env
+      -p arche up -d --force-recreate reaper
+  changed_when: true
+  when:
+    - deploy_mode == 'remote'
+    - podman_compose_check.rc == 0
+
+- name: Recreate reaper daemon (podman-compose fallback)
+  ansible.builtin.shell:
+    cmd: >
+      podman-compose -f {{ app_dir }}/compose.yml --env-file {{ app_dir }}/.env
+      -p arche up -d --force-recreate reaper
+  changed_when: true
+  when:
+    - deploy_mode == 'remote'
+    - podman_compose_check.rc != 0
+
+- name: Verify reaper daemon is running
+  ansible.builtin.shell:
+    cmd: >
+      podman ps --filter label=com.docker.compose.project=arche --filter label=com.docker.compose.service=reaper
+      --format '{{ '{{' }}.Names{{ '}}' }}'
+  register: reaper_status
+  changed_when: false
+  failed_when:
+    - deploy_mode == 'remote'
+    - reaper_status.stdout | trim | length == 0
+  when: deploy_mode == 'remote'
+
 # ---------------------------------------------------------------------------
 # Step 6: Post-deploy verification
 # ---------------------------------------------------------------------------
