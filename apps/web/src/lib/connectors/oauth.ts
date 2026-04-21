@@ -6,6 +6,7 @@ import { validateConnectorTestEndpoint } from '@/lib/security/ssrf'
 type OAuthStatePayload = {
   connectorId: string
   slug: string
+  returnTo?: string
   userId: string
   connectorType: OAuthConnectorType
   exp: number
@@ -442,9 +443,27 @@ export function isOAuthConnectorType(type: ConnectorType): type is OAuthConnecto
   return OAUTH_CONNECTOR_TYPES.includes(type as OAuthConnectorType)
 }
 
+export function normalizeConnectorOAuthReturnTo(value: string | null | undefined): string | undefined {
+  if (!value) {
+    return undefined
+  }
+
+  try {
+    const url = new URL(value, 'http://localhost')
+    if (url.origin !== 'http://localhost') {
+      return undefined
+    }
+
+    return `${url.pathname}${url.search}${url.hash}`
+  } catch {
+    return undefined
+  }
+}
+
 export function issueConnectorOAuthState(input: {
   connectorId: string
   slug: string
+  returnTo?: string
   userId: string
   connectorType: OAuthConnectorType
   redirectUri?: string
@@ -460,6 +479,7 @@ export function issueConnectorOAuthState(input: {
   return encodeStatePayload({
     connectorId: input.connectorId,
     slug: input.slug,
+    returnTo: input.returnTo,
     userId: input.userId,
     connectorType: input.connectorType,
     exp: Math.floor(Date.now() / 1000) + getOAuthStateTtlSeconds(),
@@ -483,6 +503,7 @@ export function verifyConnectorOAuthState(token: string): OAuthStatePayload {
 export async function prepareConnectorOAuthAuthorization(input: {
   connectorId: string
   slug: string
+  returnTo?: string
   userId: string
   connectorType: OAuthConnectorType
   redirectUri: string
@@ -507,6 +528,7 @@ export async function prepareConnectorOAuthAuthorization(input: {
   const state = issueConnectorOAuthState({
     connectorId: input.connectorId,
     slug: input.slug,
+    returnTo: input.returnTo,
     userId: input.userId,
     connectorType: input.connectorType,
     redirectUri: input.redirectUri,
