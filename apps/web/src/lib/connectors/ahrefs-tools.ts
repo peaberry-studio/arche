@@ -19,7 +19,7 @@ const AHREFS_MCP_TOOLS: AhrefsMcpTool[] = [
         },
         date: {
           type: 'string',
-          description: 'Date in YYYY-MM-DD format. Defaults to the most recent available date.',
+          description: 'Date in YYYY-MM-DD format.',
         },
         protocol: {
           type: 'string',
@@ -27,7 +27,7 @@ const AHREFS_MCP_TOOLS: AhrefsMcpTool[] = [
           description: 'Protocol filter.',
         },
       },
-      required: ['target'],
+      required: ['target', 'date'],
       additionalProperties: false,
     },
   },
@@ -43,7 +43,7 @@ const AHREFS_MCP_TOOLS: AhrefsMcpTool[] = [
         },
         date: {
           type: 'string',
-          description: 'Date in YYYY-MM-DD format. Defaults to the most recent available date.',
+          description: 'Date in YYYY-MM-DD format.',
         },
         country: {
           type: 'string',
@@ -60,7 +60,7 @@ const AHREFS_MCP_TOOLS: AhrefsMcpTool[] = [
           description: 'Scope of the target. Defaults to subdomains.',
         },
       },
-      required: ['target'],
+      required: ['target', 'date'],
       additionalProperties: false,
     },
   },
@@ -111,7 +111,7 @@ const AHREFS_MCP_TOOLS: AhrefsMcpTool[] = [
         },
         date: {
           type: 'string',
-          description: 'Date in YYYY-MM-DD format. Defaults to the most recent available date.',
+          description: 'Date in YYYY-MM-DD format.',
         },
         country: {
           type: 'string',
@@ -138,7 +138,7 @@ const AHREFS_MCP_TOOLS: AhrefsMcpTool[] = [
           description: 'Scope of the target. Defaults to subdomains.',
         },
       },
-      required: ['target'],
+      required: ['target', 'date'],
       additionalProperties: false,
     },
   },
@@ -154,7 +154,7 @@ const AHREFS_MCP_TOOLS: AhrefsMcpTool[] = [
         },
         date: {
           type: 'string',
-          description: 'Date in YYYY-MM-DD format. Defaults to the most recent available date.',
+          description: 'Date in YYYY-MM-DD format.',
         },
         country: {
           type: 'string',
@@ -181,7 +181,7 @@ const AHREFS_MCP_TOOLS: AhrefsMcpTool[] = [
           description: 'Scope of the target. Defaults to subdomains.',
         },
       },
-      required: ['target'],
+      required: ['target', 'date'],
       additionalProperties: false,
     },
   },
@@ -343,15 +343,19 @@ export async function executeAhrefsMcpTool(
   switch (toolName) {
     case 'get_domain_rating': {
       const target = getString(params.target)
+      const date = getString(params.date)
       if (!target) {
         return toToolError('invalid_arguments', 'target is required')
+      }
+      if (!date) {
+        return toToolError('invalid_arguments', 'date is required')
       }
       const response = await requestAhrefsJson({
         config,
         path: '/v3/site-explorer/domain-rating',
         searchParams: buildSearchParams({
           target,
-          date: getString(params.date),
+          date,
           protocol: getString(params.protocol) ?? 'both',
         }),
       })
@@ -360,15 +364,19 @@ export async function executeAhrefsMcpTool(
 
     case 'get_site_metrics': {
       const target = getString(params.target)
+      const date = getString(params.date)
       if (!target) {
         return toToolError('invalid_arguments', 'target is required')
+      }
+      if (!date) {
+        return toToolError('invalid_arguments', 'date is required')
       }
       const response = await requestAhrefsJson({
         config,
         path: '/v3/site-explorer/metrics',
         searchParams: buildSearchParams({
           target,
-          date: getString(params.date),
+          date,
           country: getString(params.country),
           protocol: getString(params.protocol) ?? 'both',
           mode: getString(params.mode) ?? 'subdomains',
@@ -399,8 +407,12 @@ export async function executeAhrefsMcpTool(
 
     case 'get_organic_keywords': {
       const target = getString(params.target)
+      const date = getString(params.date)
       if (!target) {
         return toToolError('invalid_arguments', 'target is required')
+      }
+      if (!date) {
+        return toToolError('invalid_arguments', 'date is required')
       }
       const limit = getPositiveInteger(params.limit) ?? 100
       const response = await requestAhrefsJson({
@@ -408,12 +420,12 @@ export async function executeAhrefsMcpTool(
         path: '/v3/site-explorer/organic-keywords',
         searchParams: buildSearchParams({
           target,
-          date: getString(params.date),
+          date,
           country: getString(params.country),
           limit: Math.min(limit, 1000),
           select:
             getString(params.select) ??
-            'keyword,country,volume,keyword_difficulty,traffic,cpc,position',
+            'keyword,keyword_country,volume,keyword_difficulty,sum_traffic,cpc,best_position',
           protocol: getString(params.protocol) ?? 'both',
           mode: getString(params.mode) ?? 'subdomains',
         }),
@@ -423,8 +435,12 @@ export async function executeAhrefsMcpTool(
 
     case 'get_top_pages': {
       const target = getString(params.target)
+      const date = getString(params.date)
       if (!target) {
         return toToolError('invalid_arguments', 'target is required')
+      }
+      if (!date) {
+        return toToolError('invalid_arguments', 'date is required')
       }
       const limit = getPositiveInteger(params.limit) ?? 100
       const response = await requestAhrefsJson({
@@ -432,7 +448,7 @@ export async function executeAhrefsMcpTool(
         path: '/v3/site-explorer/top-pages',
         searchParams: buildSearchParams({
           target,
-          date: getString(params.date),
+          date,
           country: getString(params.country),
           limit: Math.min(limit, 1000),
           select:

@@ -54,6 +54,24 @@ describe('ahrefs-tools', () => {
     expect(result.isError).toBe(true)
   })
 
+  it.each([
+    'get_domain_rating',
+    'get_site_metrics',
+    'get_organic_keywords',
+    'get_top_pages',
+  ])('returns error when date is missing for %s', async (toolName) => {
+    const result = await executeAhrefsMcpTool(buildConfig(), toolName, {
+      target: 'example.com',
+    })
+
+    expect(parseToolResult(result)).toEqual({
+      ok: false,
+      error: 'invalid_arguments',
+      message: 'date is required',
+    })
+    expect(result.isError).toBe(true)
+  })
+
   it('calls the Ahrefs API for get_domain_rating', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ domain_rating: { domain_rating: 85, ahrefs_rank: 1234 } }), {
@@ -96,6 +114,7 @@ describe('ahrefs-tools', () => {
 
     const result = await executeAhrefsMcpTool(buildConfig(), 'get_site_metrics', {
       target: 'example.com',
+      date: '2024-01-01',
       country: 'us',
       mode: 'domain',
     })
@@ -111,8 +130,31 @@ describe('ahrefs-tools', () => {
     const [url] = fetchMock.mock.calls[0] as [URL, RequestInit]
     expect(url.pathname).toBe('/v3/site-explorer/metrics')
     expect(url.searchParams.get('target')).toBe('example.com')
+    expect(url.searchParams.get('date')).toBe('2024-01-01')
     expect(url.searchParams.get('country')).toBe('us')
     expect(url.searchParams.get('mode')).toBe('domain')
+  })
+
+  it('uses documented select fields for get_organic_keywords', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ keywords: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await executeAhrefsMcpTool(buildConfig(), 'get_organic_keywords', {
+      target: 'example.com',
+      date: '2024-01-01',
+    })
+
+    const [url] = fetchMock.mock.calls[0] as [URL, RequestInit]
+    expect(url.pathname).toBe('/v3/site-explorer/organic-keywords')
+    expect(url.searchParams.get('date')).toBe('2024-01-01')
+    expect(url.searchParams.get('select')).toBe(
+      'keyword,keyword_country,volume,keyword_difficulty,sum_traffic,cpc,best_position'
+    )
   })
 
   it('calls the Ahrefs API for get_keyword_overview', async () => {
@@ -183,6 +225,7 @@ describe('ahrefs-tools', () => {
 
     const result = await executeAhrefsMcpTool(buildConfig(), 'get_domain_rating', {
       target: 'example.com',
+      date: '2024-01-01',
     })
 
     expect(parseToolResult(result)).toEqual({
