@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 
+import { getLinearOAuthActor } from '@/lib/connectors/linear'
 import { OAUTH_CONNECTOR_TYPES, type ConnectorType, type OAuthConnectorType } from '@/lib/connectors/types'
 import { validateConnectorTestEndpoint } from '@/lib/security/ssrf'
 
@@ -553,6 +554,10 @@ export async function prepareConnectorOAuthAuthorization(input: {
   const scope = context.scope
   if (scope) {
     authorizeUrl.searchParams.set('scope', scope)
+  }
+
+  if (input.connectorType === 'linear' && input.connectorConfig && getLinearOAuthActor(input.connectorConfig) === 'app') {
+    authorizeUrl.searchParams.set('actor', 'app')
   }
 
   const authorizeUrlString = authorizeUrl.toString()

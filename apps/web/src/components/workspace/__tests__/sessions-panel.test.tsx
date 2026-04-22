@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SessionsPanel } from "@/components/workspace/sessions-panel";
@@ -8,6 +8,7 @@ import type { WorkspaceSession } from "@/lib/opencode/types";
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
 });
 
 const sessions: WorkspaceSession[] = [
@@ -124,5 +125,53 @@ describe("SessionsPanel", () => {
 
     expect(screen.getByText("No tasks yet")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "New chat" })).toBeNull();
+  });
+
+  it("requests more sessions when the load-more sentinel becomes visible", () => {
+    const observe = vi.fn();
+    const disconnect = vi.fn();
+    let callback: IntersectionObserverCallback | null = null;
+
+    vi.stubGlobal(
+      "IntersectionObserver",
+      vi.fn((nextCallback: IntersectionObserverCallback) => {
+        callback = nextCallback;
+        return {
+          observe,
+          disconnect,
+          unobserve: vi.fn(),
+          takeRecords: vi.fn(() => []),
+          root: null,
+          rootMargin: "",
+          thresholds: [],
+        } satisfies IntersectionObserver;
+      })
+    );
+
+    const onLoadMore = vi.fn();
+
+    render(
+      <SessionsPanel
+        sessions={sessions}
+        activeSessionId={"idle-session"}
+        hasMore
+        unseenCompletedSessions={new Set<string>()}
+        onLoadMore={onLoadMore}
+        onSelectSession={vi.fn()}
+        onCreateSession={vi.fn()}
+      />
+    );
+
+    expect(observe).toHaveBeenCalled();
+
+    act(() => {
+      callback?.(
+        [{ isIntersecting: true } as IntersectionObserverEntry],
+        {} as IntersectionObserver
+      );
+    });
+
+    expect(onLoadMore).toHaveBeenCalledTimes(1);
+    expect(disconnect).not.toHaveBeenCalled();
   });
 });
