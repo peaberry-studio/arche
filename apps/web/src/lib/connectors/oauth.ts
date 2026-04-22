@@ -63,6 +63,11 @@ const MCP_SERVER_URLS = {
   notion: 'https://mcp.notion.com/mcp',
 } as const
 
+const LINEAR_APP_ACTOR_OAUTH_METADATA: OAuthMetadataOverrides = {
+  authorizationEndpoint: 'https://linear.app/oauth/authorize',
+  tokenEndpoint: 'https://api.linear.app/oauth/token',
+}
+
 function getOAuthStateSecret(): string {
   const secret = process.env.ARCHE_CONNECTOR_OAUTH_STATE_SECRET
   if (secret) return secret
@@ -335,7 +340,7 @@ async function resolveOAuthPreparationContext(input: {
       scope: getOptionalScope(input.connectorType),
       staticClientRegistration,
       preferStaticClientRegistration,
-      metadataOverrides: {},
+      metadataOverrides: preferStaticClientRegistration ? LINEAR_APP_ACTOR_OAUTH_METADATA : {},
       validateMetadataEndpoints: false,
     }
   }
