@@ -30,6 +30,15 @@ describe('agent connector capabilities', () => {
 
     expect(options).toEqual([
       {
+        id: 'globalahrefs',
+        type: 'ahrefs',
+        name: 'Ahrefs',
+        enabled: false,
+        scope: 'type',
+        ownerKind: null,
+        ownerSlug: null,
+      },
+      {
         id: 'globallinear',
         type: 'linear',
         name: 'Linear',

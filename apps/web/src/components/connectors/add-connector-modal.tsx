@@ -36,6 +36,7 @@ const CONNECTOR_TYPE_OPTIONS: { type: ConnectorType; label: string; description:
   { type: 'linear', label: 'Linear', description: 'Official Linear MCP integration.' },
   { type: 'notion', label: 'Notion', description: 'Official Notion MCP integration.' },
   { type: 'zendesk', label: 'Zendesk', description: 'Zendesk Ticketing API via Arche MCP.' },
+  { type: 'ahrefs', label: 'Ahrefs', description: 'Ahrefs SEO data via Arche MCP.' },
   { type: 'custom', label: 'Custom', description: 'Any compatible remote MCP endpoint.' },
 ]
 
@@ -49,6 +50,8 @@ function buildDefaultName(type: ConnectorType): string {
       return 'Notion'
     case 'zendesk':
       return 'Zendesk'
+    case 'ahrefs':
+      return 'Ahrefs'
     case 'custom':
       return 'Custom Connector'
   }
@@ -204,6 +207,19 @@ export function AddConnectorModal({
       }
     }
 
+    if (selectedType === 'ahrefs') {
+      if (!apiKey.trim()) {
+        return { ok: false, message: 'Ahrefs API key is required.' }
+      }
+
+      return {
+        ok: true,
+        value: {
+          apiKey: apiKey.trim(),
+        },
+      }
+    }
+
     if (selectedType === 'custom') {
       if (!endpoint.trim()) {
         return { ok: false, message: 'Endpoint is required.' }
@@ -263,6 +279,9 @@ export function AddConnectorModal({
     if (selectedType === 'custom' && !name.trim()) return false
     if (selectedType === 'zendesk') {
       return Boolean(zendeskSubdomain.trim() && zendeskEmail.trim() && apiKey.trim())
+    }
+    if (selectedType === 'ahrefs') {
+      return Boolean(apiKey.trim())
     }
     if (selectedType === 'custom') {
       if (authType === 'oauth') {
@@ -445,6 +464,22 @@ export function AddConnectorModal({
                 onChange={(event) => setApiKey(event.target.value)}
                 placeholder="Paste your API key"
               />
+            </div>
+          ) : null}
+
+          {selectedType === 'ahrefs' ? (
+            <div className="space-y-2">
+              <Label htmlFor="connector-ahrefs-api-key" className="text-foreground">API Key</Label>
+              <Input
+                id="connector-ahrefs-api-key"
+                type="password"
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+                placeholder="Paste your Ahrefs API key"
+              />
+              <p className="text-xs text-muted-foreground">
+                Create an API key in your Ahrefs account settings.
+              </p>
             </div>
           ) : null}
 

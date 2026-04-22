@@ -1,3 +1,4 @@
+import { parseAhrefsConnectorConfig } from '@/lib/connectors/ahrefs-config'
 import { decryptConfig } from '@/lib/connectors/crypto'
 import { getConnectorGatewayBaseUrl } from '@/lib/connectors/gateway-config'
 import { issueConnectorGatewayToken } from '@/lib/connectors/gateway-tokens'
@@ -232,6 +233,23 @@ export function buildMcpConfigFromConnectors(
         break
       }
 
+      case 'ahrefs': {
+        const parsed = parseAhrefsConnectorConfig(config)
+        const gatewayTarget = options?.gatewayTargets?.[connector.id]
+        if (!parsed.ok || !gatewayTarget) break
+
+        mcp[key] = {
+          type: 'remote',
+          url: gatewayTarget.url,
+          enabled: true,
+          headers: {
+            Authorization: `Bearer ${gatewayTarget.token}`,
+          },
+          oauth: false,
+        }
+        break
+      }
+
       default:
         break
     }
@@ -263,6 +281,21 @@ export async function buildMcpConfigForSlug(slug: string): Promise<McpConfig | n
 
     if (connector.type === 'zendesk') {
       const parsed = parseZendeskConnectorConfig(config)
+      if (!parsed.ok) continue
+
+      gatewayTargets[connector.id] = {
+        url: `${gatewayBase}/${connector.id}/mcp`,
+        token: issueConnectorGatewayToken({
+          userId: user.id,
+          workspaceSlug: slug,
+          connectorId: connector.id,
+        }),
+      }
+      continue
+    }
+
+    if (connector.type === 'ahrefs') {
+      const parsed = parseAhrefsConnectorConfig(config)
       if (!parsed.ok) continue
 
       gatewayTargets[connector.id] = {

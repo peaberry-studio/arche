@@ -1,6 +1,7 @@
-import { getConnectorAuthType } from '@/lib/connectors/oauth-config'
-import { isOAuthConnectorType } from '@/lib/connectors/oauth'
 import type { ConnectorConfigValidationResult } from '@/lib/connectors/config-validation'
+import { validateAhrefsConnectorConfig } from '@/lib/connectors/ahrefs-config'
+import { isOAuthConnectorType } from '@/lib/connectors/oauth'
+import { getConnectorAuthType } from '@/lib/connectors/oauth-config'
 import { validateZendeskConnectorConfig } from '@/lib/connectors/zendesk-config'
 
 import { CONNECTOR_TYPES, type ConnectorType } from './types'
@@ -21,6 +22,7 @@ export const CONNECTOR_SCHEMAS: Record<ConnectorType, ConnectorConfigSchema> = {
   linear: { required: ['apiKey'] },
   notion: { required: ['apiKey'] },
   zendesk: { required: ['subdomain', 'email', 'apiToken'] },
+  ahrefs: { required: ['apiKey'] },
   custom: {
     required: ['endpoint'],
     optional: [
@@ -83,6 +85,14 @@ export function validateConnectorConfig(
     }
 
     return validateZendeskConnectorConfig(config)
+  }
+
+  if (type === 'ahrefs') {
+    if (getConnectorAuthType(config) === 'oauth') {
+      return { valid: false, message: 'Ahrefs connectors do not support OAuth' }
+    }
+
+    return validateAhrefsConnectorConfig(config)
   }
 
   const schema = CONNECTOR_SCHEMAS[type]

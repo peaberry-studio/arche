@@ -37,6 +37,7 @@ function getAccessToken(type: ConnectorType, config: Record<string, unknown>): s
   switch (type) {
     case 'linear':
     case 'notion':
+    case 'ahrefs':
       return typeof config.apiKey === 'string' ? config.apiKey : null
     case 'zendesk':
     case 'custom':
@@ -129,6 +130,29 @@ async function testRemoteMcpConnection(input: {
 }
 
 const CONNECTOR_TEST_HANDLERS: Record<ConnectorType, TestConnectionHandler> = {
+  ahrefs: async (config) => {
+    const { parseAhrefsConnectorConfig, testAhrefsConnection } = await import('@/lib/connectors/ahrefs')
+    const parsed = parseAhrefsConnectorConfig(config)
+    if (!parsed.ok) {
+      return {
+        ok: false,
+        tested: false,
+        message: parsed.message ?? `Missing required fields: ${parsed.missing?.join(', ')}`,
+      }
+    }
+
+    const response = await testAhrefsConnection(parsed.value)
+    if (!response.ok) {
+      return {
+        ok: false,
+        tested: true,
+        message: response.message,
+      }
+    }
+
+    return { ok: true, tested: true, message: 'Ahrefs connection verified.' }
+  },
+
   zendesk: async (config) => {
     const parsed = parseZendeskConnectorConfig(config)
     if (!parsed.ok) {
