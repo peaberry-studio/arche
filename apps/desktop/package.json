@@ -27,10 +27,10 @@
     "electron-is-dev": "^3.0.1"
   },
   "devDependencies": {
-    "@playwright/test": "^1.55.1",
+    "@playwright/test": "^1.59.1",
     "electron": "^35.1.2",
     "electron-builder": "^26.0.12",
-    "playwright": "^1.55.1",
+    "playwright": "^1.59.1",
     "typescript": "^5.9.3"
   },
   "pnpm": {
