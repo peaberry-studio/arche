@@ -405,6 +405,7 @@ function getFilters(value: unknown):
 
 function appendFilters(searchParams: URLSearchParams, filters: Record<string, string>): void {
   for (const [key, value] of Object.entries(filters)) {
+    if (searchParams.has(key)) continue
     searchParams.set(key, value)
   }
 }

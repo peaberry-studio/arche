@@ -83,6 +83,89 @@ describe('umami-client', () => {
     expect(new Headers(requestInit.headers).get('authorization')).toBe('Bearer login-token')
   })
 
+  it('reuses the cached self-hosted login token across requests', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ token: 'cached-token' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ pageviews: 10 }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ pageviews: 20 }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const config = {
+      authMethod: 'login' as const,
+      baseUrl: 'https://analytics-cache.example.com/api',
+      username: 'cache-user',
+      password: 'secret',
+    }
+
+    await requestUmamiJson({
+      config,
+      path: 'websites/site-1/stats',
+    })
+
+    await requestUmamiJson({
+      config,
+      path: 'websites/site-1/pageviews',
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+
+    const [firstDataUrl, firstDataInit] = fetchMock.mock.calls[1] as [URL, RequestInit]
+    expect(firstDataUrl.toString()).toBe('https://analytics-cache.example.com/api/websites/site-1/stats')
+    expect(new Headers(firstDataInit.headers).get('authorization')).toBe('Bearer cached-token')
+
+    const [secondDataUrl, secondDataInit] = fetchMock.mock.calls[2] as [URL, RequestInit]
+    expect(secondDataUrl.toString()).toBe('https://analytics-cache.example.com/api/websites/site-1/pageviews')
+    expect(new Headers(secondDataInit.headers).get('authorization')).toBe('Bearer cached-token')
+  })
+
+  it('surfaces Retry-After from Umami rate limits', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ message: 'Too many requests' }), {
+        status: 429,
+        headers: {
+          'content-type': 'application/json',
+          'retry-after': '17',
+        },
+      })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const response = await requestUmamiJson({
+      config: {
+        authMethod: 'api-key',
+        baseUrl: 'https://api.umami.is/v1',
+        apiKey: 'api-key-123',
+      },
+      path: 'websites',
+    })
+
+    expect(response).toEqual({
+      ok: false,
+      error: 'umami_request_failed',
+      message: 'Umami request failed (429): Too many requests',
+      status: 429,
+      headers: expect.any(Headers),
+      data: { message: 'Too many requests' },
+      retryAfter: 17,
+    })
+  })
+
   it('blocks private or invalid endpoints before any request is sent', async () => {
     ssrfMocks.validateConnectorTestEndpoint.mockResolvedValue({
       ok: false,

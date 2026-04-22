@@ -119,4 +119,25 @@ describe('handleUmamiMcpRequest', () => {
       },
     })
   })
+
+  it('falls back to a generic invalid config message when no details are available', async () => {
+    umamiMocks.parseUmamiConnectorConfig.mockReturnValue({
+      ok: false,
+    })
+
+    const response = await handleUmamiMcpRequest(
+      buildRequest({ jsonrpc: '2.0', id: 'req-3', method: 'initialize' }),
+      {}
+    )
+
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({
+      jsonrpc: '2.0',
+      id: null,
+      error: {
+        code: -32000,
+        message: 'Invalid Umami connector config',
+      },
+    })
+  })
 })

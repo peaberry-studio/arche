@@ -78,6 +78,45 @@ describe('umami-tools', () => {
     })
   })
 
+  it('keeps typed parameters when filters include colliding keys', async () => {
+    await executeUmamiMcpTool(config, 'get_website_stats', {
+      websiteId: 'site-1',
+      startAt: '2026-01-01T00:00:00.000Z',
+      endAt: '2026-01-02T00:00:00.000Z',
+      compare: 'prev',
+      filters: {
+        event: 'signup',
+        startAt: '999',
+        compare: 'yoy',
+      },
+    })
+
+    const [request] = umamiClientMocks.requestUmamiJson.mock.calls[0] as [{
+      searchParams: URLSearchParams
+    }]
+    expect(request.searchParams.toString()).toBe(
+      'startAt=1767225600000&endAt=1767312000000&compare=prev&event=signup'
+    )
+  })
+
+  it('uses the non-expanded metrics endpoint by default', async () => {
+    await executeUmamiMcpTool(config, 'get_website_metrics', {
+      websiteId: 'site-1',
+      type: 'country',
+      filters: {
+        event: 'signup',
+      },
+    })
+
+    const [request] = umamiClientMocks.requestUmamiJson.mock.calls[0] as [{
+      path: string
+      searchParams: URLSearchParams
+    }]
+
+    expect(request.path).toBe('websites/site-1/metrics')
+    expect(request.searchParams.get('event')).toBe('signup')
+  })
+
   it('rejects missing website identifiers before calling Umami', async () => {
     const result = await executeUmamiMcpTool(config, 'get_realtime', {})
 

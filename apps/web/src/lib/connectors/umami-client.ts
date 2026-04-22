@@ -3,6 +3,12 @@ import { validateConnectorTestEndpoint } from '@/lib/security/ssrf'
 import type { UmamiApiResponse, UmamiConnectorConfig } from '@/lib/connectors/umami-types'
 
 const UMAMI_TIMEOUT_MS = 15_000
+const UMAMI_LOGIN_CACHE_TTL_MS = 60_000
+
+type UmamiLoginCacheEntry = {
+  token: string
+  expiresAt: number
+}
 
 type RequestUmamiJsonInput = {
   config: UmamiConnectorConfig
@@ -11,6 +17,8 @@ type RequestUmamiJsonInput = {
   searchParams?: URLSearchParams
   body?: unknown
 }
+
+const umamiLoginTokenCache = new Map<string, UmamiLoginCacheEntry>()
 
 function getString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
@@ -62,6 +70,36 @@ function buildValidationFailure<TData = unknown>(
 
 function buildUmamiUrl(baseUrl: string, path: string): URL {
   return new URL(path, baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`)
+}
+
+function getUmamiLoginCacheKey(baseUrl: string, username: string): string {
+  return `${baseUrl}\n${username}`
+}
+
+function getCachedUmamiLoginToken(cacheKey: string): string | null {
+  const entry = umamiLoginTokenCache.get(cacheKey)
+  if (!entry) {
+    return null
+  }
+
+  if (entry.expiresAt <= Date.now()) {
+    umamiLoginTokenCache.delete(cacheKey)
+    return null
+  }
+
+  return entry.token
+}
+
+function setCachedUmamiLoginToken(cacheKey: string, token: string): void {
+  umamiLoginTokenCache.set(cacheKey, {
+    token,
+    expiresAt: Date.now() + UMAMI_LOGIN_CACHE_TTL_MS,
+  })
+}
+
+function clearCachedUmamiLoginToken(cacheKey: string | undefined): void {
+  if (!cacheKey) return
+  umamiLoginTokenCache.delete(cacheKey)
 }
 
 async function fetchJson(url: URL, init: RequestInit): Promise<UmamiApiResponse> {
@@ -136,14 +174,33 @@ async function resolveValidatedBaseUrl(config: UmamiConnectorConfig): Promise<Um
 
 async function buildAuthHeaders(
   config: UmamiConnectorConfig,
-  baseUrl: string
-): Promise<{ ok: true; headers: Headers } | { ok: false; response: UmamiApiResponse }> {
+  baseUrl: string,
+  options?: { forceRefresh?: boolean }
+): Promise<
+  | { ok: true; headers: Headers; cacheKey?: string; usedCachedToken?: boolean }
+  | { ok: false; response: UmamiApiResponse }
+> {
   if (config.authMethod === 'api-key') {
     return {
       ok: true,
       headers: new Headers({
         'x-umami-api-key': config.apiKey,
       }),
+    }
+  }
+
+  const cacheKey = getUmamiLoginCacheKey(baseUrl, config.username)
+  if (!options?.forceRefresh) {
+    const cachedToken = getCachedUmamiLoginToken(cacheKey)
+    if (cachedToken) {
+      return {
+        ok: true,
+        headers: new Headers({
+          Authorization: `Bearer ${cachedToken}`,
+        }),
+        cacheKey,
+        usedCachedToken: true,
+      }
     }
   }
 
@@ -188,12 +245,43 @@ async function buildAuthHeaders(
     }
   }
 
+  setCachedUmamiLoginToken(cacheKey, token)
+
   return {
     ok: true,
     headers: new Headers({
       Authorization: `Bearer ${token}`,
     }),
+    cacheKey,
+    usedCachedToken: false,
   }
+}
+
+async function executeUmamiRequest(
+  input: RequestUmamiJsonInput,
+  baseUrl: string,
+  headers: Headers
+): Promise<UmamiApiResponse> {
+  const requestHeaders = new Headers(headers)
+  requestHeaders.set('Accept', 'application/json')
+  requestHeaders.set('User-Agent', 'Arche Umami Connector')
+
+  let body: string | undefined
+  if (input.body !== undefined) {
+    requestHeaders.set('Content-Type', 'application/json')
+    body = JSON.stringify(input.body)
+  }
+
+  const url = buildUmamiUrl(baseUrl, input.path)
+  if (input.searchParams) {
+    url.search = input.searchParams.toString()
+  }
+
+  return fetchJson(url, {
+    method: input.method ?? 'GET',
+    headers: requestHeaders,
+    body,
+  })
 }
 
 export async function requestUmamiJson(input: RequestUmamiJsonInput): Promise<UmamiApiResponse> {
@@ -203,26 +291,21 @@ export async function requestUmamiJson(input: RequestUmamiJsonInput): Promise<Um
   const auth = await buildAuthHeaders(input.config, baseUrl.data)
   if (!auth.ok) return auth.response
 
-  const headers = new Headers(auth.headers)
-  headers.set('Accept', 'application/json')
-  headers.set('User-Agent', 'Arche Umami Connector')
-
-  let body: string | undefined
-  if (input.body !== undefined) {
-    headers.set('Content-Type', 'application/json')
-    body = JSON.stringify(input.body)
+  const response = await executeUmamiRequest(input, baseUrl.data, auth.headers)
+  if (
+    input.config.authMethod !== 'login'
+    || !auth.usedCachedToken
+    || (response.status !== 401 && response.status !== 403)
+  ) {
+    return response
   }
 
-  const url = buildUmamiUrl(baseUrl.data, input.path)
-  if (input.searchParams) {
-    url.search = input.searchParams.toString()
-  }
+  clearCachedUmamiLoginToken(auth.cacheKey)
 
-  return fetchJson(url, {
-    method: input.method ?? 'GET',
-    headers,
-    body,
-  })
+  const refreshedAuth = await buildAuthHeaders(input.config, baseUrl.data, { forceRefresh: true })
+  if (!refreshedAuth.ok) return refreshedAuth.response
+
+  return executeUmamiRequest(input, baseUrl.data, refreshedAuth.headers)
 }
 
 export async function testUmamiConnection(config: UmamiConnectorConfig): Promise<UmamiApiResponse> {
