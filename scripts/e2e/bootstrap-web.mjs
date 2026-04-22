@@ -1,4 +1,4 @@
-import { createHash, createCipheriv, randomBytes } from 'node:crypto'
+import { createHash, createCipheriv, randomBytes, randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
@@ -91,10 +91,10 @@ async function upsertAdmin() {
         )
       } else {
         const insertedUser = await client.query(
-          `INSERT INTO users (email, slug, role, kind, password_hash, totp_enabled, created_at, updated_at)
-           VALUES ($1, $2, 'ADMIN', 'HUMAN', $3, false, NOW(), NOW())
+          `INSERT INTO users (id, email, slug, role, kind, password_hash, totp_enabled, created_at, updated_at)
+           VALUES ($1, $2, $3, 'ADMIN', 'HUMAN', $4, false, NOW(), NOW())
            RETURNING id`,
-          [adminEmail, adminSlug, passwordHash],
+          [randomUUID(), adminEmail, adminSlug, passwordHash],
         )
         userId = insertedUser.rows[0].id
       }
@@ -129,6 +129,7 @@ async function upsertFakeInstance(configSha) {
 
       await client.query(
         `INSERT INTO instances (
+          id,
           slug,
           status,
           created_at,
@@ -142,14 +143,15 @@ async function upsertFakeInstance(configSha) {
           provider_synced_at
         ) VALUES (
           $1,
+          $2,
           'running',
           NOW(),
           NOW(),
           NULL,
           NOW(),
-          $2,
           $3,
           $4,
+          $5,
           NULL,
           NULL
         )
@@ -163,7 +165,7 @@ async function upsertFakeInstance(configSha) {
           applied_config_sha = EXCLUDED.applied_config_sha,
           provider_sync_hash = NULL,
           provider_synced_at = NULL`,
-        [adminSlug, 'e2e-fake-runtime', encryptedPassword, configSha],
+        [randomUUID(), adminSlug, 'e2e-fake-runtime', encryptedPassword, configSha],
       )
 
       await client.query('COMMIT')
@@ -210,9 +212,9 @@ async function seedFakeOpenAiCredential(userId) {
       )
 
       await client.query(
-        `INSERT INTO provider_credentials (user_id, provider_id, type, status, version, secret, created_at, updated_at)
-         VALUES ($1, $2, 'api', 'enabled', $3, $4, NOW(), NOW())`,
-        [userId, 'openai', nextVersion, encryptedSecret],
+        `INSERT INTO provider_credentials (id, user_id, provider_id, type, status, version, secret, created_at, updated_at)
+         VALUES ($1, $2, $3, 'api', 'enabled', $4, $5, NOW(), NOW())`,
+        [randomUUID(), userId, 'openai', nextVersion, encryptedSecret],
       )
 
       await client.query('COMMIT')

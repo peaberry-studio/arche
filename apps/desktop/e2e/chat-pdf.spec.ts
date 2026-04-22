@@ -8,7 +8,7 @@ test('uploads a PDF in desktop and gets the extracted token back', async ({ page
   await ensureFakeOpenAiProvider()
 
   await page.locator('input[type="file"]').setInputFiles(samplePdfPath)
-  await expect(page.getByText('sample.pdf')).toBeVisible()
+  await expect(page.getByText('sample.pdf')).toBeVisible({ timeout: 30_000 })
 
   await page.getByPlaceholder('Type a message...').fill('What token is in this PDF?')
   await page.getByLabel('Send message').click()

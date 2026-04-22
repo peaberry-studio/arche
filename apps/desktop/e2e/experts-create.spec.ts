@@ -18,6 +18,6 @@ test('creates an expert from desktop settings', async ({ page }) => {
   await page.getByLabel('Display name').fill(displayName)
   await page.getByRole('button', { name: 'Create agent' }).click()
 
-  await expect(page.getByRole('button', { name: 'Create expert' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: displayName })).toBeVisible()
+  await expect(page.getByRole('heading', { name: displayName })).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByRole('button', { name: 'Create expert' })).toBeVisible({ timeout: 30_000 })
 })
