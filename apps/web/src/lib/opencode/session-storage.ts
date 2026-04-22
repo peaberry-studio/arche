@@ -54,6 +54,45 @@ type SessionStorageRow = {
 const OPENCODE_SESSION_DB_FILENAME = "opencode.db";
 const OPENCODE_SESSION_DB_CONTAINER_PATH = "/home/workspace/.local/share/opencode/opencode.db";
 const SESSION_DB_QUERY_TIMEOUT_MS = 30_000;
+const MAX_LIMIT = 1000;
+
+const SQL_PAGE_BASE = [
+  "SELECT id, parent_id, title, time_updated",
+  "FROM session",
+  "WHERE {whereClause}",
+  "ORDER BY time_updated DESC, id DESC",
+  "LIMIT ?",
+].join(" ");
+
+const SQL_FAMILY_TARGET =
+  "SELECT id, parent_id FROM session WHERE id = ? AND project_id = ? LIMIT 1";
+
+const SQL_FAMILY_ANCESTORS = [
+  "WITH RECURSIVE ancestry(id, parent_id) AS (",
+  "  SELECT id, parent_id FROM session WHERE id = ? AND project_id = ?",
+  "  UNION ALL",
+  "  SELECT session.id, session.parent_id",
+  "  FROM session",
+  "  JOIN ancestry ON session.id = ancestry.parent_id",
+  "  WHERE session.project_id = ?",
+  ")",
+  "SELECT id, parent_id FROM ancestry",
+].join(" ");
+
+const SQL_FAMILY_DESCENDANTS = [
+  "WITH RECURSIVE family(id, parent_id, title, time_updated) AS (",
+  "  SELECT id, parent_id, title, time_updated",
+  "  FROM session",
+  "  WHERE id = ? AND project_id = ?",
+  "  UNION ALL",
+  "  SELECT session.id, session.parent_id, session.title, session.time_updated",
+  "  FROM session",
+  "  JOIN family ON session.parent_id = family.id",
+  "  WHERE session.project_id = ?",
+  ")",
+  "SELECT id, parent_id, title, time_updated FROM family",
+  "ORDER BY time_updated DESC, id DESC",
+].join(" ");
 
 function mapSessionRow(row: SessionStorageRow): StoredWorkspaceSession {
   return {
@@ -114,7 +153,11 @@ const mapSession = (row) => ({
   updatedAtRaw: typeof row.time_updated === 'number' ? row.time_updated : undefined,
 });
 
-const MAX_LIMIT = 1000;
+const MAX_LIMIT = ${MAX_LIMIT};
+const SQL_PAGE_BASE = ${JSON.stringify(SQL_PAGE_BASE)};
+const SQL_FAMILY_TARGET = ${JSON.stringify(SQL_FAMILY_TARGET)};
+const SQL_FAMILY_ANCESTORS = ${JSON.stringify(SQL_FAMILY_ANCESTORS)};
+const SQL_FAMILY_DESCENDANTS = ${JSON.stringify(SQL_FAMILY_DESCENDANTS)};
 
 try {
   if (input.mode === 'page') {
@@ -131,17 +174,8 @@ try {
     }
 
     const limit = Math.max(1, Math.min(Number(input.limit ?? 100), MAX_LIMIT));
-    const rows = db
-      .prepare(
-        [
-          'SELECT id, parent_id, title, time_updated',
-          'FROM session',
-          'WHERE ' + where.join(' AND '),
-          'ORDER BY time_updated DESC, id DESC',
-          'LIMIT ?',
-        ].join(' '),
-      )
-      .all(...params, limit + 1);
+    const sql = SQL_PAGE_BASE.replace('{whereClause}', where.join(' AND '));
+    const rows = db.prepare(sql).all(...params, limit + 1);
 
     const hasMore = rows.length > limit;
     const pageRows = hasMore ? rows.slice(0, limit) : rows;
@@ -160,50 +194,17 @@ try {
   }
 
   if (input.mode === 'family') {
-    const target = db
-      .prepare('SELECT id, parent_id FROM session WHERE id = ? AND project_id = ? LIMIT 1')
-      .get(input.sessionId, input.projectId);
+    const target = db.prepare(SQL_FAMILY_TARGET).get(input.sessionId, input.projectId);
 
     if (!target) {
       console.log(JSON.stringify({ rootSessionId: null, sessions: [] }));
       process.exit(0);
     }
 
-    const ancestors = db
-      .prepare(
-        [
-          'WITH RECURSIVE ancestry(id, parent_id) AS (',
-          '  SELECT id, parent_id FROM session WHERE id = ? AND project_id = ?',
-          '  UNION ALL',
-          '  SELECT session.id, session.parent_id',
-          '  FROM session',
-          '  JOIN ancestry ON session.id = ancestry.parent_id',
-          '  WHERE session.project_id = ?',
-          ')',
-          'SELECT id, parent_id FROM ancestry',
-        ].join(' '),
-      )
-      .all(input.sessionId, input.projectId, input.projectId);
+    const ancestors = db.prepare(SQL_FAMILY_ANCESTORS).all(input.sessionId, input.projectId, input.projectId);
 
     const root = ancestors.find((row) => !row.parent_id) ?? ancestors.at(-1) ?? target;
-    const familyRows = db
-      .prepare(
-        [
-          'WITH RECURSIVE family(id, parent_id, title, time_updated) AS (',
-          '  SELECT id, parent_id, title, time_updated',
-          '  FROM session',
-          '  WHERE id = ? AND project_id = ?',
-          '  UNION ALL',
-          '  SELECT session.id, session.parent_id, session.title, session.time_updated',
-          '  FROM session',
-          '  JOIN family ON session.parent_id = family.id',
-          '  WHERE session.project_id = ?',
-          ')',
-          'SELECT id, parent_id, title, time_updated FROM family',
-          'ORDER BY time_updated DESC, id DESC',
-        ].join(' '),
-      )
-      .all(root.id, input.projectId, input.projectId);
+    const familyRows = db.prepare(SQL_FAMILY_DESCENDANTS).all(root.id, input.projectId, input.projectId);
 
     console.log(
       JSON.stringify({
@@ -236,17 +237,10 @@ function queryStoredWorkspaceSessionsPage(
     params.push(input.cursor.updatedAt, input.cursor.updatedAt, input.cursor.id);
   }
 
-  const limit = Math.max(1, Math.min(Number(input.limit ?? 100), 1000));
+  const limit = Math.max(1, Math.min(Number(input.limit ?? 100), MAX_LIMIT));
+  const sql = SQL_PAGE_BASE.replace("{whereClause}", where.join(" AND "));
   const rows = db
-    .prepare(
-      [
-        "SELECT id, parent_id, title, time_updated",
-        "FROM session",
-        `WHERE ${where.join(" AND ")}`,
-        "ORDER BY time_updated DESC, id DESC",
-        "LIMIT ?",
-      ].join(" "),
-    )
+    .prepare(sql)
     .all(...params, limit + 1) as SessionStorageRow[];
 
   const hasMore = rows.length > limit;
@@ -264,7 +258,7 @@ function queryStoredWorkspaceSessionFamily(
   input: SessionStorageFamilyQuery,
 ): StoredWorkspaceSessionFamily {
   const target = db
-    .prepare("SELECT id, parent_id FROM session WHERE id = ? AND project_id = ? LIMIT 1")
+    .prepare(SQL_FAMILY_TARGET)
     .get(input.sessionId, input.projectId) as { id: string; parent_id: string | null } | undefined;
 
   if (!target) {
@@ -272,39 +266,12 @@ function queryStoredWorkspaceSessionFamily(
   }
 
   const ancestors = db
-    .prepare(
-      [
-        "WITH RECURSIVE ancestry(id, parent_id) AS (",
-        "  SELECT id, parent_id FROM session WHERE id = ? AND project_id = ?",
-        "  UNION ALL",
-        "  SELECT session.id, session.parent_id",
-        "  FROM session",
-        "  JOIN ancestry ON session.id = ancestry.parent_id",
-        "  WHERE session.project_id = ?",
-        ")",
-        "SELECT id, parent_id FROM ancestry",
-      ].join(" "),
-    )
+    .prepare(SQL_FAMILY_ANCESTORS)
     .all(input.sessionId, input.projectId, input.projectId) as Array<{ id: string; parent_id: string | null }>;
 
   const root = ancestors.find((row) => !row.parent_id) ?? ancestors.at(-1) ?? target;
   const familyRows = db
-    .prepare(
-      [
-        "WITH RECURSIVE family(id, parent_id, title, time_updated) AS (",
-        "  SELECT id, parent_id, title, time_updated",
-        "  FROM session",
-        "  WHERE id = ? AND project_id = ?",
-        "  UNION ALL",
-        "  SELECT session.id, session.parent_id, session.title, session.time_updated",
-        "  FROM session",
-        "  JOIN family ON session.parent_id = family.id",
-        "  WHERE session.project_id = ?",
-        ")",
-        "SELECT id, parent_id, title, time_updated FROM family",
-        "ORDER BY time_updated DESC, id DESC",
-      ].join(" "),
-    )
+    .prepare(SQL_FAMILY_DESCENDANTS)
     .all(root.id, input.projectId, input.projectId) as SessionStorageRow[];
 
   return {
