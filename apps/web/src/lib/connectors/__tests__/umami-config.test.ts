@@ -9,6 +9,12 @@ describe('umami-config', () => {
     )
   })
 
+  it('appends /api for self-hosted installations mounted under a subpath', () => {
+    expect(normalizeUmamiBaseUrl('https://analytics.example.com/umami', 'login')).toBe(
+      'https://analytics.example.com/umami/api'
+    )
+  })
+
   it('defaults cloud root URLs to the /v1 base path', () => {
     expect(normalizeUmamiBaseUrl('https://api.umami.is', 'api-key')).toBe(
       'https://api.umami.is/v1'

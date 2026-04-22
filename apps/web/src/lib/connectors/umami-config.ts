@@ -30,8 +30,14 @@ export function normalizeUmamiBaseUrl(rawBaseUrl: string, authMethod: UmamiAuthM
   url.hash = ''
 
   const pathname = url.pathname.replace(/\/+$/, '')
-  if (!pathname || pathname === '/') {
-    url.pathname = authMethod === 'login' ? '/api' : '/v1'
+  if (authMethod === 'login') {
+    if (!pathname || pathname === '/') {
+      url.pathname = '/api'
+    } else {
+      url.pathname = pathname.endsWith('/api') ? pathname : `${pathname}/api`
+    }
+  } else if (!pathname || pathname === '/') {
+    url.pathname = '/v1'
   } else {
     url.pathname = pathname
   }

@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import { isRecord, getString } from '@/lib/connectors/connector-values'
 import { validateConnectorTestEndpoint } from '@/lib/security/ssrf'
 
@@ -65,8 +67,12 @@ function buildUmamiUrl(baseUrl: string, path: string): URL {
   return new URL(path, baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`)
 }
 
-function getUmamiLoginCacheKey(baseUrl: string, username: string): string {
-  return `${baseUrl}\n${username}`
+function getUmamiSecretFingerprint(secret: string): string {
+  return createHash('sha256').update(secret).digest('hex')
+}
+
+function getUmamiLoginCacheKey(baseUrl: string, username: string, password: string): string {
+  return `${baseUrl}\n${username}\n${getUmamiSecretFingerprint(password)}`
 }
 
 function getCachedUmamiLoginToken(cacheKey: string): string | null {
@@ -182,7 +188,7 @@ async function buildAuthHeaders(
     }
   }
 
-  const cacheKey = getUmamiLoginCacheKey(baseUrl, config.username)
+  const cacheKey = getUmamiLoginCacheKey(baseUrl, config.username, config.password)
   if (!options?.forceRefresh) {
     const cachedToken = getCachedUmamiLoginToken(cacheKey)
     if (cachedToken) {

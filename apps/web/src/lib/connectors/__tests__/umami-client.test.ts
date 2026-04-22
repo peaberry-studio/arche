@@ -134,6 +134,74 @@ describe('umami-client', () => {
     expect(new Headers(secondDataInit.headers).get('authorization')).toBe('Bearer cached-token')
   })
 
+  it('does not reuse a cached login token when the password changes', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ token: 'cached-token' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ pageviews: 10 }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: 'Invalid credentials' }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: 'Invalid credentials' }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await requestUmamiJson({
+      config: {
+        authMethod: 'login',
+        baseUrl: 'https://analytics-password.example.com/api',
+        username: 'shared-user',
+        password: 'first-secret',
+      },
+      path: 'websites/site-1/stats',
+    })
+
+    const response = await requestUmamiJson({
+      config: {
+        authMethod: 'login',
+        baseUrl: 'https://analytics-password.example.com/api',
+        username: 'shared-user',
+        password: 'second-secret',
+      },
+      path: 'websites/site-1/pageviews',
+    })
+
+    expect(response).toEqual({
+      ok: false,
+      error: 'umami_request_failed',
+      message: 'Umami authentication failed (401). Check the username and password.',
+      status: 401,
+      headers: expect.any(Headers),
+      data: { message: 'Invalid credentials' },
+      retryAfter: undefined,
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+
+    const [thirdUrl, thirdInit] = fetchMock.mock.calls[2] as [URL, RequestInit]
+    expect(thirdUrl.toString()).toBe('https://analytics-password.example.com/api/auth/login')
+    expect(JSON.parse(String(thirdInit.body))).toEqual({
+      username: 'shared-user',
+      password: 'second-secret',
+    })
+  })
+
   it('surfaces Retry-After from Umami rate limits', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ message: 'Too many requests' }), {

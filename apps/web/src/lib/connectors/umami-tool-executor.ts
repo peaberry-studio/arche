@@ -124,6 +124,10 @@ function getWebsiteId(args: JsonRecord): string | null {
   return getString(args.websiteId) ?? null
 }
 
+function encodePathSegment(value: string): string {
+  return encodeURIComponent(value)
+}
+
 function getPage(args: JsonRecord):
   | { ok: true; value: number }
   | { ok: false; message: string } {
@@ -247,6 +251,7 @@ const handleListWebsites: ToolHandler = async (config, args) => {
 const handleGetWebsiteStats: ToolHandler = async (config, args) => {
   const websiteId = getWebsiteId(args)
   if (!websiteId) return toToolError('invalid_arguments', 'websiteId is required')
+  const encodedWebsiteId = encodePathSegment(websiteId)
 
   const range = getDateRange(args)
   if (!range.ok) return toToolError('invalid_arguments', range.message)
@@ -265,7 +270,7 @@ const handleGetWebsiteStats: ToolHandler = async (config, args) => {
 
   const response = await requestUmamiJson({
     config,
-    path: `websites/${websiteId}/stats`,
+    path: `websites/${encodedWebsiteId}/stats`,
     searchParams,
   })
   if (!response.ok) {
@@ -284,6 +289,7 @@ const handleGetWebsiteStats: ToolHandler = async (config, args) => {
 const handleGetWebsitePageviews: ToolHandler = async (config, args) => {
   const websiteId = getWebsiteId(args)
   if (!websiteId) return toToolError('invalid_arguments', 'websiteId is required')
+  const encodedWebsiteId = encodePathSegment(websiteId)
 
   const range = getDateRange(args)
   if (!range.ok) return toToolError('invalid_arguments', range.message)
@@ -311,7 +317,7 @@ const handleGetWebsitePageviews: ToolHandler = async (config, args) => {
 
   const response = await requestUmamiJson({
     config,
-    path: `websites/${websiteId}/pageviews`,
+    path: `websites/${encodedWebsiteId}/pageviews`,
     searchParams,
   })
   if (!response.ok) {
@@ -330,6 +336,7 @@ const handleGetWebsitePageviews: ToolHandler = async (config, args) => {
 const handleGetWebsiteMetrics: ToolHandler = async (config, args) => {
   const websiteId = getWebsiteId(args)
   if (!websiteId) return toToolError('invalid_arguments', 'websiteId is required')
+  const encodedWebsiteId = encodePathSegment(websiteId)
 
   const type = getMetricType(args.type)
   if (!type) {
@@ -360,7 +367,7 @@ const handleGetWebsiteMetrics: ToolHandler = async (config, args) => {
 
   const response = await requestUmamiJson({
     config,
-    path: `websites/${websiteId}/metrics${expanded ? '/expanded' : ''}`,
+    path: `websites/${encodedWebsiteId}/metrics${expanded ? '/expanded' : ''}`,
     searchParams,
   })
   if (!response.ok) {
@@ -381,6 +388,7 @@ const handleGetWebsiteMetrics: ToolHandler = async (config, args) => {
 const handleListSessions: ToolHandler = async (config, args) => {
   const websiteId = getWebsiteId(args)
   if (!websiteId) return toToolError('invalid_arguments', 'websiteId is required')
+  const encodedWebsiteId = encodePathSegment(websiteId)
 
   const range = getDateRange(args)
   if (!range.ok) return toToolError('invalid_arguments', range.message)
@@ -407,7 +415,7 @@ const handleListSessions: ToolHandler = async (config, args) => {
 
   const response = await requestUmamiJson({
     config,
-    path: `websites/${websiteId}/sessions`,
+    path: `websites/${encodedWebsiteId}/sessions`,
     searchParams,
   })
   if (!response.ok) {
@@ -426,6 +434,7 @@ const handleListSessions: ToolHandler = async (config, args) => {
 const handleListEvents: ToolHandler = async (config, args) => {
   const websiteId = getWebsiteId(args)
   if (!websiteId) return toToolError('invalid_arguments', 'websiteId is required')
+  const encodedWebsiteId = encodePathSegment(websiteId)
 
   const range = getDateRange(args)
   if (!range.ok) return toToolError('invalid_arguments', range.message)
@@ -452,7 +461,7 @@ const handleListEvents: ToolHandler = async (config, args) => {
 
   const response = await requestUmamiJson({
     config,
-    path: `websites/${websiteId}/events`,
+    path: `websites/${encodedWebsiteId}/events`,
     searchParams,
   })
   if (!response.ok) {
@@ -471,10 +480,11 @@ const handleListEvents: ToolHandler = async (config, args) => {
 const handleGetRealtime: ToolHandler = async (config, args) => {
   const websiteId = getWebsiteId(args)
   if (!websiteId) return toToolError('invalid_arguments', 'websiteId is required')
+  const encodedWebsiteId = encodePathSegment(websiteId)
 
   const response = await requestUmamiJson({
     config,
-    path: `realtime/${websiteId}`,
+    path: `realtime/${encodedWebsiteId}`,
   })
   if (!response.ok) {
     return toToolError(response.error, response.message, buildResponseErrorDetail(response))

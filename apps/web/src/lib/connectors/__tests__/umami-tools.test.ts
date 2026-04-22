@@ -117,6 +117,18 @@ describe('umami-tools', () => {
     expect(request.searchParams.get('event')).toBe('signup')
   })
 
+  it('escapes website identifiers before interpolating them into Umami paths', async () => {
+    await executeUmamiMcpTool(config, 'get_realtime', {
+      websiteId: '../../users',
+    })
+
+    const [request] = umamiClientMocks.requestUmamiJson.mock.calls[0] as [{
+      path: string
+    }]
+
+    expect(request.path).toBe('realtime/..%2F..%2Fusers')
+  })
+
   it('rejects missing website identifiers before calling Umami', async () => {
     const result = await executeUmamiMcpTool(config, 'get_realtime', {})
 
