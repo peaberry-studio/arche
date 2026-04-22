@@ -329,6 +329,27 @@ function mergeWorkspaceSessions(
   return merged;
 }
 
+function areWorkspaceSessionListsEqual(
+  left: WorkspaceSession[],
+  right: WorkspaceSession[]
+): boolean {
+  if (left.length !== right.length) return false;
+
+  return left.every((session, index) => {
+    const candidate = right[index];
+    return (
+      session.id === candidate.id &&
+      session.title === candidate.title &&
+      session.status === candidate.status &&
+      session.updatedAt === candidate.updatedAt &&
+      session.updatedAtRaw === candidate.updatedAtRaw &&
+      session.parentId === candidate.parentId &&
+      session.autopilot?.runId === candidate.autopilot?.runId &&
+      session.autopilot?.hasUnseenResult === candidate.autopilot?.hasUnseenResult
+    );
+  });
+}
+
 function removeWorkspaceSessions(
   sessions: WorkspaceSession[],
   sessionIdsToRemove: Set<string>
@@ -353,6 +374,8 @@ function collectSessionFamilyIds(
   sessions: WorkspaceSession[],
   sessionId: string
 ): Set<string> {
+  // Delete cleanup operates on already-loaded client state to avoid another
+  // round-trip before pruning the visible root + descendant session tree.
   const familyIds = new Set<string>([sessionId]);
   let changed = true;
 
@@ -529,7 +552,6 @@ export function useWorkspace({
   const sessionLoadRequestIdRef = useRef(0);
   const sessionFamilyLoadRequestIdRef = useRef(0);
   const activeFamilyRootIdRef = useRef<string | null>(null);
-  const nextSessionCursorRef = useRef<WorkspaceSessionCursor | null>(null);
   const streamCounterRef = useRef(0);
   const activeStreamsRef = useRef(new Map<string, {
     token: number;
@@ -922,7 +944,9 @@ export function useWorkspace({
         );
 
         setRootSessions(mergedRootSessions);
-        setActiveFamilySessions(familySessions);
+        setActiveFamilySessions((prev) =>
+          areWorkspaceSessionListsEqual(prev, familySessions) ? prev : familySessions
+        );
         activeFamilyRootIdRef.current = familyRootId;
 
         if (!hasLoadedAdditionalRootPages) {
@@ -995,7 +1019,11 @@ export function useWorkspace({
       return;
     }
 
-    const cursor = nextSessionCursorRef.current;
+    const lastRootSession = rootSessionsRef.current.at(-1);
+    const cursor: WorkspaceSessionCursor | null =
+      lastRootSession?.updatedAtRaw
+        ? { id: lastRootSession.id, updatedAt: lastRootSession.updatedAtRaw }
+        : null;
     if (!cursor) {
       setHasMoreSessions(false);
       return;
@@ -1008,7 +1036,14 @@ export function useWorkspace({
         limit: ROOT_SESSION_PAGE_SIZE,
         rootsOnly: true,
       });
-      if (!result.ok || !result.sessions || result.sessions.length === 0) {
+      if (!result.ok) {
+        console.error("[useWorkspace] loadMoreSessions failed", result.error);
+        setHasMoreSessions(false);
+        return;
+      }
+
+      if (!result.sessions || result.sessions.length === 0) {
+        setHasMoreSessions(false);
         return;
       }
 
@@ -1037,7 +1072,9 @@ export function useWorkspace({
         return;
       }
 
-      setActiveFamilySessions(result.sessions);
+      setActiveFamilySessions((prev) =>
+        areWorkspaceSessionListsEqual(prev, result.sessions!) ? prev : result.sessions!
+      );
       activeFamilyRootIdRef.current = result.rootSessionId ?? null;
     },
     [slug]
@@ -1211,7 +1248,6 @@ export function useWorkspace({
         setLoadingMessageSessionIds((prev) =>
           prev.filter((sessionId) => !sessionIdsToRemove.has(sessionId))
         );
-        void loadSessions();
         return true;
       }
       return false;
@@ -1219,7 +1255,6 @@ export function useWorkspace({
     [
       abortSessionStream,
       clearSessionSelectionState,
-      loadSessions,
       markSessionsMutated,
       setSessionStreamStatusTo,
       slug,
@@ -2211,14 +2246,6 @@ export function useWorkspace({
       diffsHook.refreshDiffs({ force: true }),
     ]);
   };
-
-  useEffect(() => {
-    const lastRootSession = rootSessions.at(-1);
-    nextSessionCursorRef.current =
-      hasMoreSessions && lastRootSession?.updatedAtRaw
-        ? { id: lastRootSession.id, updatedAt: lastRootSession.updatedAtRaw }
-        : null;
-  }, [hasMoreSessions, rootSessions]);
 
   // --- Effects ---
 

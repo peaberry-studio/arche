@@ -150,7 +150,7 @@ function stubFetchWithStream(
 
 async function renderConnectedHook(options?: { pollInterval?: number }) {
   const { result } = renderHook(() =>
-    useWorkspace({ slug: "alice", pollInterval: options?.pollInterval ?? 0 })
+    useWorkspace({ slug: "alice", pollInterval: options?.pollInterval ?? 0, initialSessionId: "s1" })
   );
   await waitFor(() => {
     expect(result.current.isConnected).toBe(true);
@@ -166,7 +166,9 @@ async function renderConnectedHook(options?: { pollInterval?: number }) {
 describe("useWorkspace streaming", () => {
   beforeEach(() => {
     stubBrowserStorage();
+    vi.resetAllMocks();
     localStorage.clear();
+    sessionStorage.clear();
     setupDefaultMocks();
   });
 
@@ -811,16 +813,24 @@ describe("useWorkspace streaming", () => {
     });
 
     it("does not change active session when deleting a non-active session", async () => {
-      opencodeMocks.listSessionsAction.mockResolvedValue({
-        ok: true,
-        sessions: [
-          { id: "s1", title: "First", status: "idle", updatedAt: "now" },
-          { id: "s2", title: "Second", status: "idle", updatedAt: "now" },
-        ],
-      });
       stubFetchWithStream(() => createSSEStream());
 
-      const result = await renderConnectedHook();
+      const { result } = renderHook(() =>
+        useWorkspace({ slug: "alice", pollInterval: 0, initialSessionId: "s1" })
+      );
+
+      await waitFor(() => {
+        expect(result.current.isConnected).toBe(true);
+        expect(result.current.sessions.some((session) => session.id === "s1")).toBe(true);
+      });
+
+      await act(async () => {
+        await result.current.createSession("Second");
+      });
+
+      act(() => {
+        result.current.selectSession("s1");
+      });
 
       await act(async () => {
         await result.current.deleteSession("s2");

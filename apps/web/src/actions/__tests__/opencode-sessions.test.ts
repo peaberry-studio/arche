@@ -196,4 +196,54 @@ describe("session listing actions", () => {
       ],
     });
   });
+
+  it("uses local session storage when containers are unavailable", async () => {
+    mockGetRuntimeCapabilities.mockReturnValue({
+      multiUser: false,
+      auth: false,
+      containers: false,
+      workspaceAgent: true,
+      reaper: false,
+      csrf: false,
+      twoFactor: false,
+      teamManagement: false,
+      connectors: true,
+      kickstart: true,
+      autopilot: false,
+      slackIntegration: false,
+    });
+    mockFindInstanceBySlug.mockResolvedValue({
+      id: "instance-1",
+      slug: "alice",
+      status: "running",
+      createdAt: new Date(),
+      startedAt: new Date(),
+      stoppedAt: null,
+      lastActivityAt: new Date(),
+      containerId: null,
+      serverPassword: "encrypted",
+      appliedConfigSha: null,
+      providerSyncHash: null,
+      providerSyncedAt: null,
+    });
+    mockListStoredWorkspaceSessionsPage.mockResolvedValue({
+      hasMore: false,
+      nextCursor: null,
+      sessions: [{ id: "desktop-root", title: "Desktop root", updatedAtRaw: 50 }],
+    });
+
+    const result = await listSessionsAction("alice", { rootsOnly: true });
+
+    expect(mockListStoredWorkspaceSessionsPage).toHaveBeenCalledWith({
+      containerId: null,
+      cursor: undefined,
+      limit: 100,
+      projectId: "project-1",
+      rootsOnly: true,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.sessions).toEqual([
+      expect.objectContaining({ id: "desktop-root", title: "Desktop root" }),
+    ]);
+  });
 });

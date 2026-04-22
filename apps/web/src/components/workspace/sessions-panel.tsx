@@ -90,7 +90,7 @@ export function SessionsPanel({
     return () => {
       observer.disconnect();
     };
-  }, [hasMore, isLoadingMore, onLoadMore, sessions.length]);
+  }, [hasMore, isLoadingMore, onLoadMore]);
 
   if (sessions.length === 0) {
     return (

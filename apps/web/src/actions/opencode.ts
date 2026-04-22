@@ -441,6 +441,9 @@ function fallbackSessionPage(
   nextCursor: WorkspaceSessionCursor | null;
   sessions: StoredWorkspaceSession[];
 } {
+  // This is a degraded fallback when direct SQLite access is unavailable.
+  // OpenCode's HTTP /session list is capped internally, so this path can only
+  // page within the bounded server response.
   const filtered = sessions
     .filter((session) => !options.rootsOnly || !session.parentID)
     .filter((session) => {
@@ -470,6 +473,13 @@ function fallbackSessionPage(
   };
 }
 
+function isSessionStorageError(error: unknown): boolean {
+  return error instanceof Error && (
+    error.message === "session_storage_missing" ||
+    error.message === "session_storage_query_failed"
+  );
+}
+
 async function listWorkspaceSessionsFromStorage(
   slug: string,
   client: NonNullable<Awaited<ReturnType<typeof createInstanceClient>>>,
@@ -483,31 +493,32 @@ async function listWorkspaceSessionsFromStorage(
     return { ok: false, error: "project_unavailable" };
   }
 
-  if (!caps.containers) {
-    const result = await client.session.list();
-    const page = fallbackSessionPage(result.data ?? [], options);
-    const metadata = await getWorkspaceSessionMetadata(slug, client, page.sessions.map((session) => session.id));
-
-    return {
-      ok: true,
-      hasMore: page.hasMore,
-      nextCursor: page.nextCursor,
-      sessions: toWorkspaceSessions(page.sessions, metadata.statuses, metadata.autopilotBySessionId),
-    };
-  }
-
   const instance = await instanceService.findBySlug(slug);
-  if (!instance?.containerId || instance.status !== "running") {
+  if (!instance || instance.status !== "running") {
     return { ok: false, error: "instance_unavailable" };
   }
 
-  const page = await listStoredWorkspaceSessionsPage({
-    containerId: instance.containerId,
-    cursor: options.cursor,
-    limit: options.limit ?? 100,
-    projectId,
-    rootsOnly: options.rootsOnly,
-  });
+  if (caps.containers && !instance.containerId) {
+    return { ok: false, error: "instance_unavailable" };
+  }
+
+  let page;
+  try {
+    page = await listStoredWorkspaceSessionsPage({
+      containerId: caps.containers ? instance.containerId : null,
+      cursor: options.cursor,
+      limit: options.limit ?? 100,
+      projectId,
+      rootsOnly: options.rootsOnly,
+    });
+  } catch (error) {
+    if (!isSessionStorageError(error)) {
+      throw error;
+    }
+
+    const result = await client.session.list();
+    page = fallbackSessionPage(result.data ?? [], options);
+  }
   const metadata = await getWorkspaceSessionMetadata(slug, client, page.sessions.map((session) => session.id));
 
   return {
@@ -542,7 +553,33 @@ export async function listSessionFamilyAction(
   try {
     const caps = getRuntimeCapabilities();
 
-    if (!caps.containers) {
+    const instance = await instanceService.findBySlug(slug);
+    if (!instance || instance.status !== "running") {
+      return { ok: false, error: "instance_unavailable" };
+    }
+
+    if (caps.containers && !instance.containerId) {
+      return { ok: false, error: "instance_unavailable" };
+    }
+
+    const project = await client!.project.current();
+    const projectId = project.data?.id;
+    if (!projectId) {
+      return { ok: false, error: "project_unavailable" };
+    }
+
+    let family;
+    try {
+      family = await listStoredWorkspaceSessionFamily({
+        containerId: caps.containers ? instance.containerId : null,
+        projectId,
+        sessionId,
+      });
+    } catch (error) {
+      if (!isSessionStorageError(error)) {
+        throw error;
+      }
+
       const result = await client!.session.list();
       const allSessions = result.data ?? [];
       const byId = new Map(allSessions.map((session) => [session.id, session]));
@@ -568,40 +605,19 @@ export async function listSessionFamilyAction(
         }
       }
 
-      const family = allSessions
-        .filter((session) => familyIds.has(session.id))
-        .map((session) => ({
-          id: session.id,
-          parentId: session.parentID,
-          title: session.title || "Untitled",
-          updatedAtRaw: typeof session.time?.updated === "number" ? session.time.updated : undefined,
-        }))
-        .sort((a, b) => (b.updatedAtRaw ?? 0) - (a.updatedAtRaw ?? 0));
-      const metadata = await getWorkspaceSessionMetadata(slug, client!, family.map((session) => session.id));
-
-      return {
-        ok: true,
+      family = {
         rootSessionId: root.id,
-        sessions: toWorkspaceSessions(family, metadata.statuses, metadata.autopilotBySessionId),
+        sessions: allSessions
+          .filter((session) => familyIds.has(session.id))
+          .map((session) => ({
+            id: session.id,
+            parentId: session.parentID,
+            title: session.title || "Untitled",
+            updatedAtRaw: typeof session.time?.updated === "number" ? session.time.updated : undefined,
+          }))
+          .sort((a, b) => (b.updatedAtRaw ?? 0) - (a.updatedAtRaw ?? 0)),
       };
     }
-
-    const instance = await instanceService.findBySlug(slug);
-    if (!instance?.containerId || instance.status !== "running") {
-      return { ok: false, error: "instance_unavailable" };
-    }
-
-    const project = await client!.project.current();
-    const projectId = project.data?.id;
-    if (!projectId) {
-      return { ok: false, error: "project_unavailable" };
-    }
-
-    const family = await listStoredWorkspaceSessionFamily({
-      containerId: instance.containerId,
-      projectId,
-      sessionId,
-    });
     if (!family.rootSessionId) {
       return { ok: false, error: "not_found" };
     }

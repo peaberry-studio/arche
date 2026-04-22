@@ -1438,6 +1438,36 @@ describe("useWorkspace", () => {
     expect(result.current.hasMoreSessions).toBe(false);
   });
 
+  it("stops lazy pagination when loading more sessions fails", async () => {
+    opencodeMocks.listSessionsAction
+      .mockResolvedValueOnce({
+        ok: true,
+        sessions: [{ id: "s1", title: "Latest", status: "idle", updatedAt: "now", updatedAtRaw: 200 }],
+        hasMore: true,
+        nextCursor: { id: "s1", updatedAt: 200 },
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        error: "session_storage_query_failed",
+      });
+    opencodeMocks.listSessionFamilyAction.mockResolvedValue({ ok: true, rootSessionId: "s1", sessions: [] });
+
+    const { result } = renderHook(() =>
+      useWorkspace({ slug: "alice", pollInterval: 0 })
+    );
+
+    await waitFor(() => {
+      expect(result.current.hasMoreSessions).toBe(true);
+    });
+
+    await act(async () => {
+      await result.current.loadMoreSessions();
+    });
+
+    expect(result.current.hasMoreSessions).toBe(false);
+    expect(result.current.isLoadingMoreSessions).toBe(false);
+  });
+
   it("restores an older active session by loading its family outside the first page", async () => {
     opencodeMocks.listSessionsAction.mockResolvedValue({
       ok: true,
