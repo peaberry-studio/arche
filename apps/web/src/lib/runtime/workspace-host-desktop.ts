@@ -2,9 +2,10 @@ import { spawn, type ChildProcess } from 'child_process'
 import { writeFileSync } from 'fs'
 import { join } from 'path'
 
-import { getE2eRuntimeConnection, isE2eFakeRuntimeEnabled } from '@/lib/e2e/runtime'
+import { isE2eFakeRuntimeEnabled } from '@/lib/e2e/runtime'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
 import { getKbContentRoot } from '@/lib/runtime/paths'
+import { desktopWorkspaceHostE2e } from '@/lib/runtime/workspace-host-desktop-e2e'
 import {
   checkOpenCodeHealthy,
   waitForHttpReady,
@@ -341,22 +342,11 @@ export async function reconcileDesktopInstances(): Promise<void> {
 // WorkspaceHost implementation
 // ---------------------------------------------------------------------------
 
-export const desktopWorkspaceHost: WorkspaceHost = {
+const desktopWorkspaceHostReal: WorkspaceHost = {
   async start(
     slug: string,
     userId: string,
   ): Promise<{ ok: true; status: string } | { ok: false; error: string; detail?: string }> {
-    if (isE2eFakeRuntimeEnabled()) {
-      const connection = getE2eRuntimeConnection()
-      if (!connection) {
-        return { ok: false, error: 'start_failed', detail: 'missing_e2e_runtime_connection' }
-      }
-
-      await instanceService.upsertStarting(slug, encryptPassword(connection.password))
-      await instanceService.setRunning(slug, null)
-      return { ok: true, status: 'started' }
-    }
-
     ensureCleanupHooks()
     await reconcileDesktopInstances()
 
@@ -534,16 +524,6 @@ export const desktopWorkspaceHost: WorkspaceHost = {
   },
 
   async stop(slug: string): Promise<{ ok: true; status: string } | { ok: false; error: string }> {
-    if (isE2eFakeRuntimeEnabled()) {
-      const instance = await instanceService.findStatusBySlug(slug)
-      if (!instance || instance.status === 'stopped') {
-        return { ok: true, status: 'already_stopped' }
-      }
-
-      await instanceService.setStopped(slug)
-      return { ok: true, status: 'stopped' }
-    }
-
     const runtime = runtimes.get(slug)
     if (!runtime) {
       return { ok: true, status: 'already_stopped' }
@@ -556,25 +536,6 @@ export const desktopWorkspaceHost: WorkspaceHost = {
   },
 
   async getStatus(slug: string): Promise<WorkspaceHostStatus | null> {
-    if (isE2eFakeRuntimeEnabled()) {
-      const instance = await instanceService.findStatusBySlug(slug)
-      if (!instance) {
-        return {
-          status: 'stopped',
-          startedAt: null,
-          stoppedAt: null,
-          lastActivityAt: null,
-        }
-      }
-
-      return {
-        status: instance.status,
-        startedAt: instance.startedAt,
-        stoppedAt: instance.stoppedAt,
-        lastActivityAt: instance.lastActivityAt,
-      }
-    }
-
     const runtime = runtimes.get(slug)
     if (!runtime) {
       const instance = await instanceService.findStatusBySlug(slug)
@@ -621,18 +582,6 @@ export const desktopWorkspaceHost: WorkspaceHost = {
   },
 
   async getConnection(slug: string): Promise<WorkspaceHostConnection | null> {
-    if (isE2eFakeRuntimeEnabled()) {
-      const instance = await instanceService.findStatusBySlug(slug)
-      if (!instance || instance.status !== 'running') {
-        return null
-      }
-
-      const connection = getE2eRuntimeConnection()
-      return connection
-        ? { baseUrl: connection.baseUrl, authHeader: connection.authHeader }
-        : null
-    }
-
     const runtime = runtimes.get(slug)
     if (!runtime || runtime.state !== 'running') {
       return null
@@ -645,18 +594,6 @@ export const desktopWorkspaceHost: WorkspaceHost = {
   },
 
   async getAgentConnection(slug: string): Promise<WorkspaceHostConnection | null> {
-    if (isE2eFakeRuntimeEnabled()) {
-      const instance = await instanceService.findStatusBySlug(slug)
-      if (!instance || instance.status !== 'running') {
-        return null
-      }
-
-      const connection = getE2eRuntimeConnection()
-      return connection
-        ? { baseUrl: connection.baseUrl, authHeader: connection.authHeader }
-        : null
-    }
-
     const runtime = runtimes.get(slug)
     if (!runtime || runtime.state !== 'running') {
       return null
@@ -672,3 +609,7 @@ export const desktopWorkspaceHost: WorkspaceHost = {
     }
   },
 }
+
+export const desktopWorkspaceHost: WorkspaceHost = isE2eFakeRuntimeEnabled()
+  ? desktopWorkspaceHostE2e
+  : desktopWorkspaceHostReal
