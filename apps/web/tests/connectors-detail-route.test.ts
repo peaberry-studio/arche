@@ -100,6 +100,8 @@ describe('GET /api/u/[slug]/connectors/[id]', () => {
         provider: 'linear',
         accessToken: 'linear-token',
         clientId: 'client-1',
+        clientSecret: 'linear-secret',
+        tokenEndpoint: 'https://api.linear.app/oauth/token',
         connectedAt: '2026-04-21T09:59:00.000Z',
       },
     })
@@ -153,6 +155,7 @@ describe('GET /api/u/[slug]/connectors/[id]', () => {
         config: {
           authType: 'oauth',
           oauthActor: 'app',
+          oauthClientId: 'linear-client-id',
           oauth: {
             provider: 'linear',
             connected: true,
@@ -168,10 +171,16 @@ describe('GET /api/u/[slug]/connectors/[id]', () => {
     expect(mockEncryptConfig).toHaveBeenCalledWith({
       authType: 'oauth',
       oauthActor: 'app',
+      oauthClientId: 'linear-client-id',
+      oauthClientSecret: 'linear-client-secret',
       oauth: {
         provider: 'linear',
         connected: true,
+        accessToken: 'linear-token',
+        clientId: 'client-1',
+        clientSecret: 'linear-secret',
         connectedAt: '2026-04-21T09:59:00.000Z',
+        tokenEndpoint: 'https://api.linear.app/oauth/token',
       },
     })
 
@@ -179,19 +188,20 @@ describe('GET /api/u/[slug]/connectors/[id]', () => {
       id: 'linear-app',
       type: 'linear',
       name: 'Linear',
-      config: {
-        authType: 'oauth',
-        oauthActor: 'app',
-        oauth: {
-          provider: 'linear',
-          connected: true,
+        config: {
+          authType: 'oauth',
+          oauthActor: 'app',
+          oauthClientId: 'linear-client-id',
+          oauth: {
+            provider: 'linear',
+            connected: true,
           connectedAt: '2026-04-21T09:59:00.000Z',
         },
       },
       enabled: true,
       authType: 'oauth',
       oauthActor: 'app',
-      oauthConnected: false,
+      oauthConnected: true,
       oauthExpiresAt: undefined,
       createdAt: '2026-04-21T10:00:00.000Z',
       updatedAt: '2026-04-21T10:06:00.000Z',

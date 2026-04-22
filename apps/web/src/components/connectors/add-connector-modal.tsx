@@ -184,6 +184,12 @@ export function AddConnectorModal({
   function buildConfig(): { ok: true; value: Record<string, unknown> } | { ok: false; message: string } {
     if (selectedType === 'linear' || selectedType === 'notion') {
       if (authType === 'oauth') {
+        if (selectedType === 'linear' && linearOAuthActor === 'app') {
+          if (!oauthClientId.trim() || !oauthClientSecret.trim()) {
+            return { ok: false, message: 'Linear app actor OAuth requires client ID and client secret.' }
+          }
+        }
+
         return {
           ok: true,
           value: {
@@ -296,6 +302,10 @@ export function AddConnectorModal({
     }
 
     if (selectedType === 'linear' || selectedType === 'notion') {
+      if (selectedType === 'linear' && authType === 'oauth' && linearOAuthActor === 'app') {
+        return Boolean(oauthClientId.trim() && oauthClientSecret.trim())
+      }
+
       return authType === 'oauth' || Boolean(apiKey.trim())
     }
 
@@ -495,7 +505,7 @@ export function AddConnectorModal({
                 <li>Open Linear Settings -&gt; API -&gt; Applications.</li>
                 <li>Create a new OAuth2 application for Arche with the name and icon you want to appear in Linear.</li>
                 <li>Add <code>{LINEAR_CALLBACK_URL_HINT}</code> as a callback URL, replacing the host with your Arche URL.</li>
-                <li>Paste the Linear client ID and client secret below, or use server-level env vars, before starting OAuth.</li>
+                <li>Paste the Linear client ID and client secret below before starting OAuth.</li>
                 <li>Save this connector, then connect OAuth as a Linear workspace admin.</li>
               </ol>
 
@@ -524,7 +534,7 @@ export function AddConnectorModal({
             <>
               <div className="space-y-2">
                 <Label htmlFor="linear-oauth-client-id" className="text-foreground">
-                  Client ID <span className="font-normal text-muted-foreground">(optional override)</span>
+                  Client ID
                 </Label>
                 <Input
                   id="linear-oauth-client-id"
@@ -536,7 +546,7 @@ export function AddConnectorModal({
 
               <div className="space-y-2">
                 <Label htmlFor="linear-oauth-client-secret" className="text-foreground">
-                  Client secret <span className="font-normal text-muted-foreground">(optional override)</span>
+                  Client secret
                 </Label>
                 <Input
                   id="linear-oauth-client-secret"
@@ -546,7 +556,7 @@ export function AddConnectorModal({
                   placeholder="Linear OAuth client secret"
                 />
                 <p className="text-xs text-muted-foreground">
-                  If left blank, Arche falls back to server-level Linear OAuth credentials when available.
+                  Linear app actor mode uses the credentials stored on this connector only.
                 </p>
               </div>
             </>

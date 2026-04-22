@@ -64,7 +64,7 @@ function isValidConfigValue(value: unknown): boolean {
   return true
 }
 
-function validateOptionalNonEmptyString(label: string, value: unknown): string | undefined {
+function getOptionalNonEmptyStringError(label: string, value: unknown): string | undefined {
   if (value === undefined) return undefined
   return typeof value === 'string' && value.trim()
     ? undefined
@@ -81,18 +81,18 @@ export function validateConnectorConfig(
     }
 
     if (type === 'linear' && config.oauthActor === 'app') {
-      const clientIdError = validateOptionalNonEmptyString('Linear OAuth client ID', config.oauthClientId)
+      const clientIdError = getOptionalNonEmptyStringError('Linear OAuth client ID', config.oauthClientId)
       if (clientIdError) {
         return { valid: false, message: clientIdError }
       }
 
-      const clientSecretError = validateOptionalNonEmptyString('Linear OAuth client secret', config.oauthClientSecret)
+      const clientSecretError = getOptionalNonEmptyStringError('Linear OAuth client secret', config.oauthClientSecret)
       if (clientSecretError) {
         return { valid: false, message: clientSecretError }
       }
 
-      if (config.oauthClientSecret !== undefined && !isValidConfigValue(config.oauthClientId)) {
-        return { valid: false, message: 'Linear OAuth client ID is required when client secret is set' }
+      if (!isValidConfigValue(config.oauthClientId) || !isValidConfigValue(config.oauthClientSecret)) {
+        return { valid: false, message: 'Linear app actor OAuth requires both client ID and client secret' }
       }
     }
 

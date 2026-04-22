@@ -92,6 +92,43 @@ export function buildConfigWithOAuth(input: {
   return next
 }
 
+export function mergeConnectorConfigWithPreservedOAuth(input: {
+  connectorType: ConnectorType
+  currentConfig: ConnectorConfigRecord
+  nextConfig: ConnectorConfigRecord
+}): ConnectorConfigRecord {
+  const next = { ...input.nextConfig }
+
+  if (getConnectorAuthType(next) !== 'oauth' || !isOAuthConnectorType(input.connectorType)) {
+    return next
+  }
+
+  if ((input.connectorType === 'custom' || input.connectorType === 'linear') && next.oauthClientSecret === undefined) {
+    const currentClientSecret = getString(input.currentConfig.oauthClientSecret)
+    if (currentClientSecret) {
+      next.oauthClientSecret = currentClientSecret
+    }
+  }
+
+  if (!isObject(input.currentConfig.oauth)) {
+    return next
+  }
+
+  if (next.oauth === undefined) {
+    next.oauth = { ...input.currentConfig.oauth }
+    return next
+  }
+
+  if (isObject(next.oauth)) {
+    next.oauth = {
+      ...input.currentConfig.oauth,
+      ...next.oauth,
+    }
+  }
+
+  return next
+}
+
 export function clearConnectorOAuthConfig(currentConfig: ConnectorConfigRecord): ConnectorConfigRecord {
   const next = { ...currentConfig }
   delete next.oauth

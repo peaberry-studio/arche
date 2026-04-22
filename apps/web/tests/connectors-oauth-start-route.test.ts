@@ -146,4 +146,24 @@ describe('POST /api/u/[slug]/connectors/[id]/oauth/start', () => {
       },
     })
   })
+
+  it('returns 400 when Linear app actor credentials are missing', async () => {
+    mockDecryptConfig.mockReturnValue({ authType: 'oauth', oauthActor: 'app' })
+    mockPrepareConnectorOAuthAuthorization.mockRejectedValue(new Error('missing_linear_oauth_client_credentials'))
+
+    const { POST } = await loadRoute()
+    const request = {
+      headers: new Headers({ host: 'localhost', origin: 'http://localhost' }),
+      nextUrl: new URL('http://localhost/api/u/alice/connectors/conn-1/oauth/start'),
+    }
+
+    const response = await POST(request as never, {
+      params: Promise.resolve({ slug: 'alice', id: 'conn-1' }),
+    })
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: 'missing_linear_oauth_client_credentials',
+    })
+  })
 })

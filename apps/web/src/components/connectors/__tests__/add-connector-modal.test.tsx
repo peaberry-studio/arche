@@ -55,12 +55,16 @@ describe('AddConnectorModal', () => {
       'https://linear.app/developers/oauth-actor-authorization'
     )
 
-    fireEvent.change(screen.getByLabelText('Client ID (optional override)'), {
+    expect(screen.getByRole('button', { name: 'Save connector' }).hasAttribute('disabled')).toBe(true)
+
+    fireEvent.change(screen.getByLabelText('Client ID'), {
       target: { value: 'linear-client-id' },
     })
-    fireEvent.change(screen.getByLabelText('Client secret (optional override)'), {
+    fireEvent.change(screen.getByLabelText('Client secret'), {
       target: { value: 'linear-client-secret' },
     })
+
+    expect(screen.getByRole('button', { name: 'Save connector' }).hasAttribute('disabled')).toBe(false)
 
     fireEvent.click(screen.getByRole('button', { name: 'Save connector' }))
 

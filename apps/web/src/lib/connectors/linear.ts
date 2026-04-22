@@ -2,9 +2,9 @@ export const LINEAR_OAUTH_ACTORS = ['user', 'app'] as const
 
 export type LinearOAuthActor = (typeof LINEAR_OAUTH_ACTORS)[number]
 
-type LinearOAuthClientRegistration = {
+type LinearOAuthClientCredentials = {
   clientId: string
-  clientSecret?: string
+  clientSecret: string
 }
 
 function getString(value: unknown): string | undefined {
@@ -19,15 +19,16 @@ export function getLinearOAuthActor(config: Record<string, unknown>): LinearOAut
   return isLinearOAuthActor(config.oauthActor) ? config.oauthActor : 'user'
 }
 
-export function getLinearOAuthClientRegistration(
+export function getLinearOAuthClientCredentials(
   config: Record<string, unknown>
-): LinearOAuthClientRegistration | null {
+): LinearOAuthClientCredentials | null {
   const clientId = getString(config.oauthClientId)
-  if (!clientId) return null
+  const clientSecret = getString(config.oauthClientSecret)
+  if (!clientId || !clientSecret) return null
 
   return {
     clientId,
-    clientSecret: getString(config.oauthClientSecret),
+    clientSecret,
   }
 }
 
