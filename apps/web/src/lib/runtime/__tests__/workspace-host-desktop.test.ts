@@ -225,6 +225,7 @@ describe('desktopWorkspaceHost', () => {
     delete process.env.ARCHE_DESKTOP_WEB_PORT
     delete process.env.ARCHE_DESKTOP_START_TIMEOUT_MS
     delete process.env.ARCHE_DESKTOP_START_INTERVAL_MS
+    delete process.env.ARCHE_ENABLE_E2E_HOOKS
     delete process.env.ARCHE_E2E_RUNTIME_BASE_URL
     delete process.env.ARCHE_E2E_RUNTIME_PASSWORD
     delete process.env.OPENCODE_SERVER_PASSWORD
@@ -281,6 +282,7 @@ describe('desktopWorkspaceHost', () => {
   })
 
   it('skips real process startup in E2E fake mode and returns fake connections', async () => {
+    process.env.ARCHE_ENABLE_E2E_HOOKS = '1'
     process.env.ARCHE_E2E_RUNTIME_BASE_URL = 'http://127.0.0.1:4210'
     process.env.ARCHE_E2E_RUNTIME_PASSWORD = 'fake-password'
     const { instanceService } = await import('@/lib/services')

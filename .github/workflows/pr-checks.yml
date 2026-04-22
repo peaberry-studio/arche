@@ -62,6 +62,8 @@ jobs:
           --health-timeout=5s
           --health-retries=5
     env:
+      ARCHE_ENABLE_E2E_HOOKS: '1'
+      ARCHE_ENCRYPTION_KEY: ZGV2LWluc2VjdXJlLWtleS0zMi1ieXRlcy1sb25nISE=
       ARCHE_SEED_ADMIN_EMAIL: admin-e2e@arche.local
       ARCHE_SEED_ADMIN_PASSWORD: arche-e2e-admin
       ARCHE_SEED_ADMIN_SLUG: admin
@@ -139,6 +141,9 @@ jobs:
     runs-on: macos-14
     permissions:
       contents: read
+    env:
+      ARCHE_ENABLE_E2E_HOOKS: '1'
+      ARCHE_ENCRYPTION_KEY: ZGV2LWluc2VjdXJlLWtleS0zMi1ieXRlcy1sb25nISE=
 
     steps:
       - name: Checkout

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 class FakeNextRequest extends Request {
   nextUrl: URL
@@ -61,8 +61,14 @@ function buildRequest(headers?: HeadersInit): Request {
 }
 
 describe('POST /api/internal/providers/[provider]/[...path]', () => {
+  const originalEnv = process.env
+
   beforeEach(() => {
+    process.env = { ...originalEnv }
+    delete process.env.ARCHE_ENABLE_E2E_HOOKS
+    delete process.env.ARCHE_E2E_FAKE_PROVIDER_URL
     vi.clearAllMocks()
+    vi.resetModules()
     mockGetCanonicalProviderId.mockReturnValue('openai')
     mockGetRuntimeCapabilities.mockReturnValue({ auth: true })
     mockCheckRateLimit.mockReturnValue({ allowed: true, resetAt: Date.now() + 60_000 })
@@ -80,6 +86,10 @@ describe('POST /api/internal/providers/[provider]/[...path]', () => {
     })
     mockDecryptProviderSecret.mockReturnValue({ apiKey: 'sk-test' })
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 })))
+  })
+
+  afterEach(() => {
+    process.env = originalEnv
   })
 
   it('rejects gateway tokens whose credential version no longer matches', async () => {
@@ -108,5 +118,25 @@ describe('POST /api/internal/providers/[provider]/[...path]', () => {
 
     expect(response.status).toBe(200)
     expect(global.fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores the fake provider override in production even when hooks are enabled', async () => {
+    process.env.NODE_ENV = 'production'
+    process.env.ARCHE_ENABLE_E2E_HOOKS = '1'
+    process.env.ARCHE_E2E_FAKE_PROVIDER_URL = 'http://127.0.0.1:4211/v1'
+    mockGetActiveCredentialForUser.mockResolvedValue({
+      id: 'cred-1',
+      secret: 'enc',
+      type: 'api',
+      version: 1,
+    })
+
+    const { POST } = await import('./route')
+    const response = await POST(buildRequest({ authorization: 'Bearer gateway-token' }) as never, {
+      params: Promise.resolve({ path: ['responses'], provider: 'openai' }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(String(vi.mocked(global.fetch).mock.calls[0]?.[0])).toBe('https://api.openai.com/v1/responses')
   })
 })

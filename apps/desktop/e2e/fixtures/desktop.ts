@@ -15,6 +15,12 @@ const isSmokeFake = (process.env.ARCHE_E2E_PROFILE?.trim() || 'smoke-fake') === 
 const debugDesktopE2E = process.env.ARCHE_E2E_DEBUG === '1'
 const fakeProviderUrl = process.env.ARCHE_E2E_FAKE_PROVIDER_URL
 const fakeProviderApiKey = process.env.ARCHE_E2E_FAKE_PROVIDER_API_KEY ?? 'sk-e2e-fake-provider'
+const DEFAULT_E2E_ENCRYPTION_KEY = 'ZGV2LWluc2VjdXJlLWtleS0zMi1ieXRlcy1sb25nISE='
+
+async function hasRequestHeaderTooLargeError(page: Page): Promise<boolean> {
+  const content = await page.content().catch(() => '')
+  return /Request Header Fields Too Large|\b431\b/i.test(content)
+}
 
 type DesktopFixtures = {
   app: ElectronApplication
@@ -45,12 +51,15 @@ async function createDesktopVault(): Promise<{ parentDir: string; vaultPath: str
 
 export async function waitForWorkspaceReady(page: Page) {
   // Wait for the stable UI signal instead of an early strict navigation.
-  // If the composer does not appear, clear potentially bloated cookies
-  // (e.g. accumulated workspace cookies from previous desktop runs) and
-  // reload so the Next.js server does not reject with 431.
+  // If the page has already fallen into a 431 error state, clear the cookies
+  // once and retry. Re-throw other failures so the fixture does not hide them.
   try {
     await expect(page.getByPlaceholder('Type a message...')).toBeVisible({ timeout: 30_000 })
-  } catch {
+  } catch (error) {
+    if (!(await hasRequestHeaderTooLargeError(page))) {
+      throw error
+    }
+
     await page.context().clearCookies()
     await page.reload({ waitUntil: 'domcontentloaded' })
     await expect(page.getByPlaceholder('Type a message...')).toBeVisible({ timeout: 120_000 })
@@ -79,12 +88,10 @@ export const test = base.extend<DesktopFixtures>({
       cwd: path.resolve(__dirname, '../..'),
       env: {
         ...process.env,
-        ...(isSmokeFake
-          ? {
-              ARCHE_E2E_RUNTIME_BASE_URL: runtimeBaseUrl,
-              ARCHE_E2E_RUNTIME_PASSWORD: runtimePassword,
-            }
-          : {}),
+        ARCHE_ENABLE_E2E_HOOKS: isSmokeFake || Boolean(fakeProviderUrl) ? '1' : '',
+        ARCHE_ENCRYPTION_KEY: process.env.ARCHE_ENCRYPTION_KEY ?? DEFAULT_E2E_ENCRYPTION_KEY,
+        ARCHE_E2E_RUNTIME_BASE_URL: isSmokeFake ? runtimeBaseUrl : '',
+        ARCHE_E2E_RUNTIME_PASSWORD: isSmokeFake ? runtimePassword : '',
       },
     })
 

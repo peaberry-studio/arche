@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { decryptProviderSecret } from '@/lib/providers/crypto'
+import { getE2eFakeProviderUrl } from '@/lib/e2e/runtime'
 import { getCanonicalProviderId } from '@/lib/providers/catalog'
 import { getActiveCredentialForUser } from '@/lib/providers/store'
 import { verifyGatewayToken } from '@/lib/providers/tokens'
@@ -19,9 +20,13 @@ const PROVIDER_BASE_URL: Record<ProviderId, string> = {
 }
 
 function getProviderBaseUrl(providerId: ProviderId): string {
-  if (providerId === 'openai' && process.env.ARCHE_E2E_FAKE_PROVIDER_URL) {
-    return process.env.ARCHE_E2E_FAKE_PROVIDER_URL
+  if (providerId === 'openai') {
+    const fakeProviderUrl = getE2eFakeProviderUrl()
+    if (fakeProviderUrl) {
+      return fakeProviderUrl
+    }
   }
+
   return PROVIDER_BASE_URL[providerId]
 }
 

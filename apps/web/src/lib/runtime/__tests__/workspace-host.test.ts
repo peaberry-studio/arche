@@ -38,6 +38,7 @@ describe('workspace-host dispatcher', () => {
     mockUpsertStarting.mockResolvedValue(undefined)
     mockSetRunning.mockResolvedValue(undefined)
     mockSetStopped.mockResolvedValue(undefined)
+    delete process.env.ARCHE_ENABLE_E2E_HOOKS
     delete process.env.ARCHE_E2E_RUNTIME_BASE_URL
     delete process.env.ARCHE_E2E_RUNTIME_PASSWORD
   })
@@ -111,6 +112,7 @@ describe('workspace-host dispatcher', () => {
     })
 
     it('uses the fake E2E runtime without calling the spawner', async () => {
+      process.env.ARCHE_ENABLE_E2E_HOOKS = '1'
       process.env.ARCHE_E2E_RUNTIME_BASE_URL = 'http://127.0.0.1:4210'
       process.env.ARCHE_E2E_RUNTIME_PASSWORD = 'fake-password'
       mockFindStatusBySlug.mockResolvedValue({

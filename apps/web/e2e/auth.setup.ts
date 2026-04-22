@@ -16,6 +16,20 @@ test('stores admin auth state', async ({ request }) => {
 
   expect(response.ok()).toBeTruthy()
 
+  const body = (await response.json()) as {
+    ok?: boolean
+    requires2FA?: boolean
+    user?: {
+      email?: string
+    }
+  }
+
+  expect(body).toMatchObject({
+    ok: true,
+    requires2FA: false,
+    user: { email },
+  })
+
   const storageState = await request.storageState()
   const hasSessionCookie = storageState.cookies.some((cookie) => cookie.name === 'arche_session')
 

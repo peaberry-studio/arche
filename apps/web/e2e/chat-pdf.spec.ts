@@ -5,7 +5,7 @@ import { adminSlug, pdfToken, samplePdfPath } from './support/test-data'
 test('uploads a PDF and gets the extracted token back', async ({ page }) => {
   await page.goto(`/w/${adminSlug}`)
 
-  await expect(page.getByPlaceholder('Type a message...')).toBeVisible()
+  await expect(page.getByPlaceholder('Type a message...')).toBeVisible({ timeout: 120_000 })
 
   await page.locator('input[type="file"]').setInputFiles(samplePdfPath)
   await expect(page.getByText('sample.pdf')).toBeVisible()

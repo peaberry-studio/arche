@@ -6,12 +6,14 @@ import { getE2eProfile } from './src/lib/e2e/profile'
 
 const profile = getE2eProfile()
 const isSmokeFake = profile === 'smoke-fake'
+const DEFAULT_E2E_ENCRYPTION_KEY = 'ZGV2LWluc2VjdXJlLWtleS0zMi1ieXRlcy1sb25nISE='
 
 const e2eRoot = path.join(__dirname, '.e2e')
 const runtimePassword = process.env.ARCHE_E2E_RUNTIME_PASSWORD ?? 'arche-e2e-runtime'
 const runtimeBaseUrl = process.env.ARCHE_E2E_RUNTIME_BASE_URL ?? `http://127.0.0.1:${process.env.ARCHE_E2E_RUNTIME_PORT ?? '4210'}`
 
 const commonEnv = {
+  ARCHE_ENCRYPTION_KEY: process.env.ARCHE_ENCRYPTION_KEY ?? DEFAULT_E2E_ENCRYPTION_KEY,
   ARCHE_SEED_ADMIN_EMAIL: process.env.ARCHE_SEED_ADMIN_EMAIL ?? 'admin-e2e@arche.local',
   ARCHE_SEED_ADMIN_PASSWORD: process.env.ARCHE_SEED_ADMIN_PASSWORD ?? 'arche-e2e-admin',
   ARCHE_SEED_ADMIN_SLUG: process.env.ARCHE_SEED_ADMIN_SLUG ?? 'admin',
@@ -23,14 +25,21 @@ const commonEnv = {
 }
 
 const fakeRuntimeEnv = {
+  ARCHE_ENABLE_E2E_HOOKS: '1',
   ARCHE_E2E_RUNTIME_BASE_URL: runtimeBaseUrl,
   ARCHE_E2E_RUNTIME_PASSWORD: runtimePassword,
+}
+
+const disabledFakeRuntimeEnv = {
+  ARCHE_E2E_RUNTIME_BASE_URL: '',
+  ARCHE_E2E_RUNTIME_PASSWORD: '',
 }
 
 const fakeProviderUrl = process.env.ARCHE_E2E_FAKE_PROVIDER_URL
 const fakeProviderPort = process.env.ARCHE_E2E_FAKE_PROVIDER_PORT ?? '4211'
 const fakeProviderEnv = fakeProviderUrl
   ? {
+      ARCHE_ENABLE_E2E_HOOKS: '1',
       ARCHE_E2E_FAKE_PROVIDER_URL: fakeProviderUrl,
       ARCHE_E2E_FAKE_PROVIDER_PORT: fakeProviderPort,
       ARCHE_E2E_FAKE_PROVIDER_API_KEY: process.env.ARCHE_E2E_FAKE_PROVIDER_API_KEY ?? 'sk-e2e-fake-provider',
@@ -119,7 +128,9 @@ export default defineConfig({
           env: {
             ...process.env,
             ...commonEnv,
+            ...disabledFakeRuntimeEnv,
             ...(fakeProviderEnv ?? {}),
+            ...(fakeProviderEnv ? {} : { ARCHE_ENABLE_E2E_HOOKS: '' }),
           },
           url: 'http://127.0.0.1:3000',
           reuseExistingServer: !process.env.CI,

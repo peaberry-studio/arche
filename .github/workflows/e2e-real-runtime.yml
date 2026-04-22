@@ -47,6 +47,8 @@ jobs:
       - name: Run desktop E2E real-runtime tests
         working-directory: apps/desktop
         env:
+          ARCHE_ENABLE_E2E_HOOKS: '1'
+          ARCHE_ENCRYPTION_KEY: ZGV2LWluc2VjdXJlLWtleS0zMi1ieXRlcy1sb25nISE=
           ARCHE_E2E_PROFILE: real-runtime
           CI: true
           ARCHE_E2E_FAKE_PROVIDER_URL: http://127.0.0.1:4211/v1
@@ -91,6 +93,8 @@ jobs:
           --health-retries=5
 
     env:
+      ARCHE_ENABLE_E2E_HOOKS: '1'
+      ARCHE_ENCRYPTION_KEY: ZGV2LWluc2VjdXJlLWtleS0zMi1ieXRlcy1sb25nISE=
       ARCHE_E2E_PROFILE: real-runtime
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/arche_ci
       ARCHE_SEED_ADMIN_EMAIL: admin-e2e@arche.local

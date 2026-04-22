@@ -23,6 +23,7 @@ describe('createWorkspaceAgentClient', () => {
     delete process.env.ARCHE_RUNTIME_MODE
     delete process.env.WORKSPACE_AGENT_PORT
     delete process.env.ARCHE_DESKTOP_WORKSPACE_AGENT_PORT
+    delete process.env.ARCHE_ENABLE_E2E_HOOKS
     delete process.env.ARCHE_E2E_RUNTIME_BASE_URL
     delete process.env.ARCHE_E2E_RUNTIME_PASSWORD
 
@@ -79,6 +80,7 @@ describe('createWorkspaceAgentClient', () => {
   })
 
   it('uses the shared E2E runtime URL in fake mode', async () => {
+    process.env.ARCHE_ENABLE_E2E_HOOKS = '1'
     process.env.ARCHE_E2E_RUNTIME_BASE_URL = 'http://127.0.0.1:4210/'
     process.env.ARCHE_E2E_RUNTIME_PASSWORD = 'fake-password'
 

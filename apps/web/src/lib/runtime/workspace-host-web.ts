@@ -29,7 +29,7 @@ export const webWorkspaceHost: WorkspaceHost = {
 
     const instance = await instanceService.findStatusBySlug(slug)
     if (!instance || instance.status === 'stopped') {
-      return { ok: false, error: 'not_running' }
+      return { ok: true, status: 'already_stopped' }
     }
 
     await instanceService.setStopped(slug)

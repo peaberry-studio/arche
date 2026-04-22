@@ -255,6 +255,10 @@ function listFilesAtPath(files: Array<{ hash?: string; modifiedAt?: number; path
 }
 
 function createE2eFakeClient(baseUrl: string, authHeader: string): OpencodeClient {
+  // Keep this list in sync with scripts/e2e/fake-runtime-server.mjs.
+  // The fake runtime only supports the OpenCode operations Arche exercises in
+  // smoke flows: global.health, session.list/create/update/delete/messages/status,
+  // file.list, config.providers, and app.agents.
   const client = {
     global: {
       health: async () => {
@@ -386,7 +390,6 @@ function createE2eFakeClient(baseUrl: string, authHeader: string): OpencodeClien
     },
   }
 
-  // E2E fake runtime only implements the client subset Arche exercises in those flows.
   return client as unknown as OpencodeClient
 }
 

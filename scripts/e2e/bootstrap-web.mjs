@@ -34,6 +34,7 @@ function getEncryptionKey() {
     return Buffer.from(key, 'base64')
   }
 
+  // Keep this fallback aligned with apps/web/src/lib/spawner/config.ts for local E2E runs.
   return Buffer.from('dev-insecure-key-32-bytes-long!!')
 }
 
