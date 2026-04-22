@@ -18,6 +18,13 @@ const PROVIDER_BASE_URL: Record<ProviderId, string> = {
   opencode: 'https://opencode.ai/zen/v1',
 }
 
+function getProviderBaseUrl(providerId: ProviderId): string {
+  if (providerId === 'openai' && process.env.ARCHE_E2E_FAKE_PROVIDER_URL) {
+    return process.env.ARCHE_E2E_FAKE_PROVIDER_URL
+  }
+  return PROVIDER_BASE_URL[providerId]
+}
+
 const OPENAI_RESPONSES_MAX_FETCH_ATTEMPTS = 3
 const OPENAI_RESPONSES_RETRY_DELAY_MS = 250
 const RETRYABLE_FETCH_ERROR_CODES = new Set([
@@ -332,7 +339,7 @@ async function handleProxy(
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
-  const upstreamUrl = buildUpstreamUrl(PROVIDER_BASE_URL[providerId], pathSegments, new URL(request.url))
+  const upstreamUrl = buildUpstreamUrl(getProviderBaseUrl(providerId), pathSegments, new URL(request.url))
 
   const headers = new Headers(request.headers)
   stripHopByHopHeaders(headers)

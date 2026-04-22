@@ -174,6 +174,39 @@ describe('providers gateway', () => {
     expect(headers.get('accept-encoding')).toBe('identity')
   })
 
+  it('proxies to overridden OpenAI base URL when ARCHE_E2E_FAKE_PROVIDER_URL is set', async () => {
+    vi.stubEnv('ARCHE_E2E_FAKE_PROVIDER_URL', 'http://127.0.0.1:4211/v1')
+
+    mockGetActiveCredentialForUser.mockResolvedValue({
+      id: 'cred-1',
+      type: 'api',
+      secret: 'encrypted',
+      version: 1,
+    })
+    mockDecryptProviderSecret.mockReturnValue({ apiKey: 'sk-fake' })
+
+    ;(global.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+      new Response('ok', { status: 200 })
+    )
+
+    const response = await callProxy({
+      provider: 'openai',
+      headers: {
+        Authorization: 'Bearer internal-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ input: 'hello' }),
+    })
+
+    expect(response.status).toBe(200)
+    const [url, options] = (global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(url).toBe('http://127.0.0.1:4211/v1/chat/completions?foo=bar')
+    const headers = options.headers as Headers
+    expect(headers.get('authorization')).toBe('Bearer sk-fake')
+
+    vi.unstubAllEnvs()
+  })
+
   it('normalizes unsupported OpenAI text verbosity for responses API', async () => {
     mockGetActiveCredentialForUser.mockResolvedValue({
       id: 'cred-1',
