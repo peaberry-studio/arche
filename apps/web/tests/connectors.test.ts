@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { encryptConfig, decryptConfig } from '@/lib/connectors/crypto'
-import { getLinearOAuthActor } from '@/lib/connectors/linear'
+import { getLinearOAuthActor, getLinearOAuthModeLabel, resolveLinearOAuthActor } from '@/lib/connectors/linear'
 import { CONNECTOR_TYPES } from '@/lib/connectors/types'
 import {
   parseZendeskConnectorConfig,
@@ -326,5 +326,19 @@ describe('connectors/linear', () => {
 
   it('reads app actor mode from connector config', () => {
     expect(getLinearOAuthActor({ authType: 'oauth', oauthActor: 'app' })).toBe('app')
+  })
+
+  it('resolves actor only for linear oauth connectors', () => {
+    expect(resolveLinearOAuthActor('linear', 'oauth', { authType: 'oauth', oauthActor: 'app' })).toBe('app')
+    expect(resolveLinearOAuthActor('linear', 'oauth', { authType: 'oauth' })).toBe('user')
+    expect(resolveLinearOAuthActor('linear', 'manual', { authType: 'manual' })).toBeUndefined()
+    expect(resolveLinearOAuthActor('notion', 'oauth', { authType: 'oauth' })).toBeUndefined()
+  })
+
+  it('returns mode label only for linear oauth connectors', () => {
+    expect(getLinearOAuthModeLabel({ type: 'linear', authType: 'oauth', oauthActor: 'app' })).toBe('App actor OAuth')
+    expect(getLinearOAuthModeLabel({ type: 'linear', authType: 'oauth', oauthActor: 'user' })).toBe('User OAuth')
+    expect(getLinearOAuthModeLabel({ type: 'linear', authType: 'manual' })).toBeNull()
+    expect(getLinearOAuthModeLabel({ type: 'notion', authType: 'oauth' })).toBeNull()
   })
 })

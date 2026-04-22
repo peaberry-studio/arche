@@ -9,3 +9,23 @@ export function isLinearOAuthActor(value: unknown): value is LinearOAuthActor {
 export function getLinearOAuthActor(config: Record<string, unknown>): LinearOAuthActor {
   return isLinearOAuthActor(config.oauthActor) ? config.oauthActor : 'user'
 }
+
+export function resolveLinearOAuthActor(
+  connectorType: string,
+  authType: 'manual' | 'oauth',
+  config: Record<string, unknown>
+): LinearOAuthActor | undefined {
+  return connectorType === 'linear' && authType === 'oauth' ? getLinearOAuthActor(config) : undefined
+}
+
+export function getLinearOAuthModeLabel(connector: {
+  type: string
+  authType: 'manual' | 'oauth'
+  oauthActor?: LinearOAuthActor
+}): string | null {
+  if (connector.type !== 'linear' || connector.authType !== 'oauth') {
+    return null
+  }
+
+  return connector.oauthActor === 'app' ? 'App actor OAuth' : 'User OAuth'
+}

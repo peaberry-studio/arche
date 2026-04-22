@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
 import { encryptConfig, decryptConfig } from '@/lib/connectors/crypto'
-import { getLinearOAuthActor, type LinearOAuthActor } from '@/lib/connectors/linear'
+import { resolveLinearOAuthActor, type LinearOAuthActor } from '@/lib/connectors/linear'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
 import type { ConnectorType } from '@/lib/connectors/types'
 import {
@@ -117,9 +117,7 @@ export const GET = withAuth<ConnectorDetail | { error: string }, { slug: string;
       config: validateConnectorType(connector.type) ? sanitizeConfigForResponse(connector.type, config) : config,
       enabled: connector.enabled,
       authType: getConnectorAuthType(config),
-      oauthActor: connector.type === 'linear' && getConnectorAuthType(config) === 'oauth'
-        ? getLinearOAuthActor(config)
-        : undefined,
+      oauthActor: resolveLinearOAuthActor(connector.type, getConnectorAuthType(config), config),
       oauthConnected: validateConnectorType(connector.type)
         ? Boolean(getConnectorOAuthConfig(connector.type, config)?.accessToken)
         : false,
@@ -317,9 +315,7 @@ export const PATCH = withAuth<
     config: connectorType ? sanitizeConfigForResponse(connectorType, responseConfig) : responseConfig,
     enabled: connector.enabled,
     authType,
-    oauthActor: connectorType === 'linear' && authType === 'oauth'
-      ? getLinearOAuthActor(responseConfig)
-      : undefined,
+    oauthActor: resolveLinearOAuthActor(connectorType, authType, responseConfig),
     oauthConnected: Boolean(oauthConfig?.accessToken),
     oauthExpiresAt: oauthConfig?.expiresAt,
     createdAt: connector.createdAt.toISOString(),

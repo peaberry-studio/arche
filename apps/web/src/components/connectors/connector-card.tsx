@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { BookText, Boxes, Globe, Ticket, Trash2 } from 'lucide-react'
 
 import type { ConnectorListItem, ConnectorTestState } from '@/components/connectors/types'
+import { getLinearOAuthModeLabel } from '@/lib/connectors/linear'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
@@ -44,14 +45,6 @@ function getStatusMeta(connector: ConnectorListItem): {
     return { label: 'Pending setup', variant: 'warning' }
   }
   return { label: 'Working', variant: 'success' }
-}
-
-function getLinearOAuthModeLabel(connector: ConnectorListItem): string | null {
-  if (connector.type !== 'linear' || connector.authType !== 'oauth') {
-    return null
-  }
-
-  return connector.oauthActor === 'app' ? 'App actor OAuth' : 'User OAuth'
 }
 
 export function ConnectorCard({

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
 import { decryptConfig, encryptConfig } from '@/lib/connectors/crypto'
-import { getLinearOAuthActor, type LinearOAuthActor } from '@/lib/connectors/linear'
+import { resolveLinearOAuthActor, type LinearOAuthActor } from '@/lib/connectors/linear'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
 import { isSingleInstanceConnectorType } from '@/lib/connectors/types'
 import {
@@ -64,7 +64,7 @@ export const GET = withAuth<{ connectors: ConnectorListItem[] } | { error: strin
         try {
           const config = decryptConfig(c.config)
           authType = getConnectorAuthType(config)
-          oauthActor = c.type === 'linear' && authType === 'oauth' ? getLinearOAuthActor(config) : undefined
+          oauthActor = resolveLinearOAuthActor(c.type, authType, config)
           const oauth = validateConnectorType(c.type) ? getConnectorOAuthConfig(c.type, config) : null
           oauthConnected = Boolean(oauth?.accessToken)
           oauthExpiresAt = oauth?.expiresAt
