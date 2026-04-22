@@ -8,7 +8,7 @@
 import type { OpencodeClient } from '@opencode-ai/sdk/v2/client'
 
 import { getE2eRuntimeConnection, isE2eFakeRuntimeEnabled } from '@/lib/e2e/runtime'
-import { getOpencodeClientFactory } from '@/lib/opencode/client-factory'
+import { createConfiguredOpencodeClient } from '@/lib/opencode/client-factory'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { instanceService } from '@/lib/services'
 import { decryptPassword } from '@/lib/spawner/crypto'
@@ -105,8 +105,7 @@ export async function createInstanceClient(slug: string): Promise<OpencodeClient
   
   const authHeader = `Basic ${Buffer.from(`${credentials.username}:${credentials.password}`).toString('base64')}`
 
-  const createClient = getOpencodeClientFactory()
-  return createClient({ baseUrl, authHeader })
+  return createConfiguredOpencodeClient({ baseUrl, authHeader })
 }
 
 /**

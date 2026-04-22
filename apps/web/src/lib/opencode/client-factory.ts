@@ -1,16 +1,11 @@
 import { createOpencodeClient, type OpencodeClient } from '@opencode-ai/sdk/v2/client'
 
-import { isE2eFakeRuntimeEnabled } from '@/lib/e2e/runtime'
-import { createE2eFakeClient } from '@/lib/opencode/e2e-fake-client'
-
 type CreateOpencodeClientArgs = {
   authHeader: string
   baseUrl: string
 }
 
-type OpencodeClientFactory = (args: CreateOpencodeClientArgs) => OpencodeClient
-
-function createRealOpencodeClient({ baseUrl, authHeader }: CreateOpencodeClientArgs): OpencodeClient {
+export function createConfiguredOpencodeClient({ baseUrl, authHeader }: CreateOpencodeClientArgs): OpencodeClient {
   return createOpencodeClient({
     baseUrl,
     fetch: async (input, init) => {
@@ -47,12 +42,4 @@ function createRealOpencodeClient({ baseUrl, authHeader }: CreateOpencodeClientA
   })
 }
 
-function createFakeOpencodeClient({ baseUrl, authHeader }: CreateOpencodeClientArgs): OpencodeClient {
-  return createE2eFakeClient(baseUrl, authHeader)
-}
-
-export function getOpencodeClientFactory(): OpencodeClientFactory {
-  return isE2eFakeRuntimeEnabled() ? createFakeOpencodeClient : createRealOpencodeClient
-}
-
-export type { CreateOpencodeClientArgs, OpencodeClientFactory }
+export type { CreateOpencodeClientArgs }

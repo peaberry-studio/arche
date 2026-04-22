@@ -4,6 +4,90 @@ const mockCreateOpencodeClient = vi.fn()
 const mockFindCredentialsBySlug = vi.fn()
 const mockDecryptPassword = vi.fn()
 
+function createMockSdkClient(config: {
+  baseUrl: string
+  fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
+}) {
+  const requestJson = async (
+    path: string,
+    options?: {
+      body?: unknown
+      method?: string
+      query?: Record<string, string | number | boolean | undefined>
+    },
+  ) => {
+    const url = new URL(path, config.baseUrl)
+    for (const [key, value] of Object.entries(options?.query ?? {})) {
+      if (value === undefined) {
+        continue
+      }
+      url.searchParams.set(key, String(value))
+    }
+
+    const response = await config.fetch?.(url.toString(), {
+      method: options?.method ?? 'GET',
+      headers: options?.body ? { 'Content-Type': 'application/json' } : undefined,
+      body: options?.body ? JSON.stringify(options.body) : undefined,
+    })
+
+    if (!response) {
+      throw new Error('missing_mock_fetch')
+    }
+
+    if (response.status === 204) {
+      return { data: null }
+    }
+
+    return { data: await response.json() }
+  }
+
+  return {
+    app: {
+      agents: () => requestJson('/agent'),
+    },
+    config: {
+      providers: () => requestJson('/config/providers'),
+    },
+    file: {
+      list: (parameters?: { path?: string }) => requestJson('/file', { query: { path: parameters?.path ?? '' } }),
+      read: (parameters: { path: string }) => requestJson('/file/content', { query: { path: parameters.path } }),
+    },
+    find: {
+      files: (parameters?: { limit?: number; query?: string }) =>
+        requestJson('/find/file', { query: { limit: parameters?.limit, query: parameters?.query } }),
+    },
+    global: {
+      health: () => requestJson('/global/health'),
+    },
+    session: {
+      abort: (parameters: { sessionID: string }) =>
+        requestJson(`/session/${parameters.sessionID}/abort`, { method: 'POST' }),
+      children: (parameters: { sessionID: string }) => requestJson(`/session/${parameters.sessionID}/children`),
+      create: (parameters?: { parentID?: string; title?: string }) =>
+        requestJson('/session', { method: 'POST', body: parameters }),
+      delete: (parameters: { sessionID: string }) =>
+        requestJson(`/session/${parameters.sessionID}`, { method: 'DELETE' }),
+      diff: (parameters: { messageID?: string; sessionID: string }) =>
+        requestJson(`/session/${parameters.sessionID}/diff`, { query: { messageID: parameters.messageID } }),
+      get: (parameters: { sessionID: string }) => requestJson(`/session/${parameters.sessionID}`),
+      list: (parameters?: { limit?: number; roots?: boolean; start?: number }) =>
+        requestJson('/session', {
+          query: {
+            limit: parameters?.limit,
+            roots: parameters?.roots,
+            start: parameters?.start,
+          },
+        }),
+      messages: (parameters: { sessionID: string }) => requestJson(`/session/${parameters.sessionID}/message`),
+      promptAsync: (parameters: { sessionID: string; [key: string]: unknown }) =>
+        requestJson(`/session/${parameters.sessionID}/prompt_async`, { method: 'POST', body: parameters }),
+      status: () => requestJson('/session/status'),
+      update: (parameters: { sessionID: string; title?: string }) =>
+        requestJson(`/session/${parameters.sessionID}`, { method: 'PATCH', body: { title: parameters.title } }),
+    },
+  }
+}
+
 vi.mock('@opencode-ai/sdk/v2/client', () => ({
   createOpencodeClient: (...args: unknown[]) => mockCreateOpencodeClient(...args),
 }))
@@ -35,6 +119,7 @@ describe('getInstanceUrl', () => {
       status: 'running',
     })
     mockDecryptPassword.mockReturnValue('plain-password')
+    mockCreateOpencodeClient.mockImplementation((config) => createMockSdkClient(config as never))
   })
 
   afterEach(() => {
@@ -109,19 +194,32 @@ describe('createInstanceClient', () => {
     process.env = originalEnv
   })
 
-  it('uses the fake runtime HTTP client instead of the SDK', async () => {
+  it('uses the SDK client against the fake runtime in E2E mode', async () => {
     const mockFetch = vi.fn((input: RequestInfo | URL) => {
       const url = String(input)
 
-      if (url.endsWith('/__e2e/health')) {
+      if (url.endsWith('/global/health')) {
         return Promise.resolve(
-          new Response(JSON.stringify({ ok: true, version: 'e2e-fake-runtime' }), { status: 200 }),
+          new Response(JSON.stringify({ healthy: true, version: 'e2e-fake-runtime' }), { status: 200 }),
         )
       }
 
-      if (url.endsWith('/__e2e/sessions')) {
+      if (url.endsWith('/session')) {
         return Promise.resolve(
-          new Response(JSON.stringify({ ok: true, sessions: [{ id: 'session-1', title: 'Session 1', createdAt: 1, updatedAt: 2 }] }), { status: 200 }),
+          new Response(
+            JSON.stringify([
+              {
+                id: 'session-1',
+                slug: 'session-1',
+                projectID: 'project-e2e',
+                directory: '/workspace',
+                title: 'Session 1',
+                version: 'e2e-fake-runtime',
+                time: { created: 1, updated: 2 },
+              },
+            ]),
+            { status: 200 },
+          ),
         )
       }
 
@@ -134,89 +232,178 @@ describe('createInstanceClient', () => {
     const client = await createInstanceClient('alice')
 
     expect(client).not.toBeNull()
-    expect(mockCreateOpencodeClient).not.toHaveBeenCalled()
+    expect(mockCreateOpencodeClient).toHaveBeenCalledTimes(1)
     await expect(client!.global.health()).resolves.toEqual({
       data: { healthy: true, version: 'e2e-fake-runtime' },
     })
     await expect(client!.session.list()).resolves.toEqual({
       data: [
-        {
+        expect.objectContaining({
           id: 'session-1',
           title: 'Session 1',
-          parentID: null,
           time: { created: 1, updated: 2 },
-        },
+        }),
       ],
     })
   })
 
-  it('supports every fake runtime operation Arche exercises in smoke flows', async () => {
+  it('supports the fake runtime server through the real SDK surface', async () => {
     const mockFetch = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       const method = init?.method ?? 'GET'
 
-      if (url.endsWith('/__e2e/sessions') && method === 'POST') {
+      if (url.endsWith('/session') && method === 'POST') {
         return Promise.resolve(
           new Response(
             JSON.stringify({
-              ok: true,
-              session: { id: 'session-2', title: 'Created', createdAt: 3, updatedAt: 4 },
-            }),
-            { status: 201 },
-          ),
-        )
-      }
-
-      if (url.endsWith('/__e2e/sessions/session-1') && method === 'PATCH') {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              ok: true,
-              session: { id: 'session-1', title: 'Renamed', createdAt: 1, updatedAt: 5 },
+              id: 'session-2',
+              slug: 'session-2',
+              projectID: 'project-e2e',
+              directory: '/workspace',
+              title: 'Created',
+              version: 'e2e-fake-runtime',
+              time: { created: 3, updated: 4 },
             }),
             { status: 200 },
           ),
         )
       }
 
-      if (url.endsWith('/__e2e/sessions/session-1') && method === 'DELETE') {
-        return Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 }))
-      }
-
-      if (url.endsWith('/__e2e/sessions/session-1/messages')) {
+      if (url.endsWith('/session/session-1') && method === 'PATCH') {
         return Promise.resolve(
           new Response(
             JSON.stringify({
-              ok: true,
-              messages: [
-                { id: 'message-1', role: 'user', sessionId: 'session-1', text: 'hello', createdAt: 11 },
-                { id: 'message-2', role: 'assistant', sessionId: 'session-1', text: 'world', createdAt: 12 },
-              ],
+              id: 'session-1',
+              slug: 'session-1',
+              projectID: 'project-e2e',
+              directory: '/workspace',
+              title: 'Renamed',
+              version: 'e2e-fake-runtime',
+              time: { created: 1, updated: 5 },
             }),
             { status: 200 },
           ),
         )
       }
 
-      if (url.endsWith('/__e2e/sessions/status')) {
+      if (url.endsWith('/session/session-1') && method === 'DELETE') {
+        return Promise.resolve(new Response(JSON.stringify(true), { status: 200 }))
+      }
+
+      if (url.endsWith('/session/session-1/children')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+
+      if (url.endsWith('/session/session-1/message')) {
         return Promise.resolve(
-          new Response(JSON.stringify({ ok: true, sessions: [{ id: 'session-1', status: 'busy' }] }), {
-            status: 200,
-          }),
+          new Response(
+            JSON.stringify([
+              {
+                info: {
+                  id: 'message-1',
+                  role: 'user',
+                  sessionID: 'session-1',
+                  time: { created: 11 },
+                  agent: 'assistant',
+                  model: { providerID: 'e2e-provider', modelID: 'e2e-model' },
+                },
+                parts: [
+                  {
+                    id: 'part-message-1',
+                    sessionID: 'session-1',
+                    messageID: 'message-1',
+                    type: 'text',
+                    text: 'hello',
+                  },
+                ],
+              },
+              {
+                info: {
+                  id: 'message-2',
+                  role: 'assistant',
+                  sessionID: 'session-1',
+                  time: { created: 12, completed: 12 },
+                  parentID: 'message-1',
+                  modelID: 'e2e-model',
+                  providerID: 'e2e-provider',
+                  mode: 'primary',
+                  agent: 'assistant',
+                  path: { cwd: '/workspace', root: '/workspace' },
+                  cost: 0,
+                  tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+                },
+                parts: [
+                  {
+                    id: 'part-message-2',
+                    sessionID: 'session-1',
+                    messageID: 'message-2',
+                    type: 'text',
+                    text: 'world',
+                  },
+                ],
+              },
+            ]),
+            { status: 200 },
+          ),
         )
       }
 
-      if (url.endsWith('/__e2e/files')) {
+      if (url.endsWith('/session/status')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ 'session-1': { type: 'busy' } }), { status: 200 }),
+        )
+      }
+
+      if (url.endsWith('/find/file?query=readme&limit=10') || url.endsWith('/find/file?limit=10&query=readme')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify(['docs/readme.md']),
+            { status: 200 },
+          ),
+        )
+      }
+
+      if (url.includes('/file?')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify([
+              {
+                absolute: '/workspace/docs/readme.md',
+                ignored: false,
+                name: 'readme.md',
+                path: 'docs/readme.md',
+                type: 'file',
+              },
+            ]),
+            { status: 200 },
+          ),
+        )
+      }
+
+      if (url.endsWith('/file/content?path=docs%2Freadme.md')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ type: 'text', content: 'hello world', mimeType: 'text/markdown' }),
+            { status: 200 },
+          ),
+        )
+      }
+
+      if (url.endsWith('/config/providers')) {
         return Promise.resolve(
           new Response(
             JSON.stringify({
-              ok: true,
-              files: [
+              default: { 'e2e-provider': 'e2e-model' },
+              providers: [
                 {
-                  path: 'docs/readme.md',
-                  hash: 'hash-1',
-                  modifiedAt: 10,
-                  size: 42,
+                  id: 'e2e-provider',
+                  name: 'OpenAI',
+                  models: {
+                    'e2e-model': {
+                      cost: { input: 0, output: 0 },
+                      name: 'E2E Model',
+                    },
+                  },
                 },
               ],
             }),
@@ -225,22 +412,33 @@ describe('createInstanceClient', () => {
         )
       }
 
-      if (url.endsWith('/__e2e/providers')) {
+      if (url.endsWith('/agent')) {
         return Promise.resolve(
           new Response(
-            JSON.stringify({ ok: true, providers: [{ id: 'openai', name: 'OpenAI' }] }),
+            JSON.stringify([
+              {
+                name: 'assistant',
+                description: 'Assistant',
+                mode: 'primary',
+                permission: [],
+                options: {},
+              },
+            ]),
             { status: 200 },
           ),
         )
       }
 
-      if (url.endsWith('/__e2e/agents')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({ ok: true, agents: [{ id: 'assistant', name: 'Assistant' }] }),
-            { status: 200 },
-          ),
-        )
+      if (url.endsWith('/session/session-1/abort') && method === 'POST') {
+        return Promise.resolve(new Response(JSON.stringify(true), { status: 200 }))
+      }
+
+      if (url.endsWith('/session/session-1/diff')) {
+        return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }))
+      }
+
+      if (url.endsWith('/session/session-1/prompt_async') && method === 'POST') {
+        return Promise.resolve(new Response(null, { status: 204 }))
       }
 
       return Promise.reject(new Error(`unexpected fetch ${method} ${url}`))
@@ -252,45 +450,70 @@ describe('createInstanceClient', () => {
     const client = await createInstanceClient('alice')
 
     expect(client).not.toBeNull()
+    expect(mockCreateOpencodeClient).toHaveBeenCalledTimes(1)
     await expect(client!.session.create({ title: 'Created' })).resolves.toEqual({
       data: {
+        directory: '/workspace',
         id: 'session-2',
-        parentID: null,
+        projectID: 'project-e2e',
+        slug: 'session-2',
         time: { created: 3, updated: 4 },
         title: 'Created',
+        version: 'e2e-fake-runtime',
       },
     })
     await expect(client!.session.update({ sessionID: 'session-1', title: 'Renamed' })).resolves.toEqual({
       data: {
+        directory: '/workspace',
         id: 'session-1',
-        parentID: null,
+        projectID: 'project-e2e',
+        slug: 'session-1',
         time: { created: 1, updated: 5 },
         title: 'Renamed',
+        version: 'e2e-fake-runtime',
       },
     })
-    await expect(client!.session.delete({ sessionID: 'session-1' })).resolves.toEqual({ data: null })
+    await expect(client!.session.delete({ sessionID: 'session-1' })).resolves.toEqual({ data: true })
+    await expect(client!.session.children({ sessionID: 'session-1' })).resolves.toEqual({ data: [] })
     await expect(client!.session.messages({ sessionID: 'session-1' })).resolves.toEqual({
       data: [
         {
           info: {
+            agent: 'assistant',
             id: 'message-1',
+            model: { modelID: 'e2e-model', providerID: 'e2e-provider' },
             role: 'user',
             sessionID: 'session-1',
             time: { created: 11 },
           },
-          parts: [{ type: 'text', text: 'hello' }],
+          parts: [
+            expect.objectContaining({
+              type: 'text',
+              text: 'hello',
+            }),
+          ],
         },
         {
           info: {
             agent: 'assistant',
             id: 'message-2',
+            mode: 'primary',
             modelID: 'e2e-model',
+            parentID: 'message-1',
+            path: { cwd: '/workspace', root: '/workspace' },
             providerID: 'e2e-provider',
             role: 'assistant',
             sessionID: 'session-1',
-            time: { created: 12 },
+            time: { created: 12, completed: 12 },
+            cost: 0,
+            tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
           },
-          parts: [{ type: 'text', text: 'world' }],
+          parts: [
+            expect.objectContaining({
+              type: 'text',
+              text: 'world',
+            }),
+          ],
         },
       ],
     })
@@ -302,22 +525,26 @@ describe('createInstanceClient', () => {
     await expect(client!.file.list({ path: 'docs' })).resolves.toEqual({
       data: [
         {
-          hash: 'hash-1',
+          absolute: '/workspace/docs/readme.md',
           ignored: false,
-          modifiedAt: 10,
           name: 'readme.md',
           path: 'docs/readme.md',
-          size: 42,
           type: 'file',
         },
       ],
+    })
+    await expect(client!.file.read({ path: 'docs/readme.md' })).resolves.toEqual({
+      data: { type: 'text', content: 'hello world', mimeType: 'text/markdown' },
+    })
+    await expect(client!.find.files({ query: 'readme', limit: 10 })).resolves.toEqual({
+      data: ['docs/readme.md'],
     })
     await expect(client!.config.providers()).resolves.toEqual({
       data: {
         default: { 'e2e-provider': 'e2e-model' },
         providers: [
           {
-            id: 'openai',
+            id: 'e2e-provider',
             models: {
               'e2e-model': {
                 cost: { input: 0, output: 0 },
@@ -330,7 +557,10 @@ describe('createInstanceClient', () => {
       },
     })
     await expect(client!.app.agents()).resolves.toEqual({
-      data: [{ description: 'Assistant', name: 'assistant' }],
+      data: [{ description: 'Assistant', mode: 'primary', name: 'assistant', options: {}, permission: [] }],
     })
+    await expect(client!.session.abort({ sessionID: 'session-1' })).resolves.toEqual({ data: true })
+    await expect(client!.session.diff({ sessionID: 'session-1' })).resolves.toEqual({ data: [] })
+    await expect(client!.session.promptAsync({ sessionID: 'session-1', parts: [] })).resolves.toEqual({ data: null })
   })
 })
