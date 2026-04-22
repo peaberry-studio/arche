@@ -1,3 +1,4 @@
+import { isRecord, getString } from '@/lib/connectors/connector-values'
 import { validateConnectorTestEndpoint } from '@/lib/security/ssrf'
 
 import type { UmamiApiResponse, UmamiConnectorConfig } from '@/lib/connectors/umami-types'
@@ -19,14 +20,6 @@ type RequestUmamiJsonInput = {
 }
 
 const umamiLoginTokenCache = new Map<string, UmamiLoginCacheEntry>()
-
-function getString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
 
 function parseRetryAfter(headers: Headers): number | undefined {
   const retryAfter = headers.get('retry-after')

@@ -4,7 +4,8 @@ export {
   validateUmamiConnectorConfig,
 } from '@/lib/connectors/umami-config'
 export { requestUmamiJson, testUmamiConnection } from '@/lib/connectors/umami-client'
-export { executeUmamiMcpTool, getUmamiMcpProtocolVersion, getUmamiMcpTools } from '@/lib/connectors/umami-tools'
+export { getUmamiMcpProtocolVersion, getUmamiMcpTools } from '@/lib/connectors/umami-tool-definitions'
+export { executeUmamiMcpTool } from '@/lib/connectors/umami-tool-executor'
 export type {
   UmamiApiResponse,
   UmamiAuthMethod,

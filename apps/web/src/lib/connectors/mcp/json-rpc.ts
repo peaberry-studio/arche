@@ -1,12 +1,10 @@
+import { isRecord } from '@/lib/connectors/connector-values'
+
 type JsonRpcId = string | number | null
 
 export type ParsedEmbeddedConnectorConfig<TConfig> =
   | { ok: true; value: TConfig }
   | { ok: false; missing?: string[]; message?: string }
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
 
 function toJsonRpcId(value: unknown): JsonRpcId {
   if (typeof value === 'string') return value

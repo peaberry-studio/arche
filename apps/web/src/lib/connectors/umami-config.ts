@@ -1,13 +1,10 @@
+import { getString } from '@/lib/connectors/connector-values'
 import type { ConnectorConfigValidationResult } from '@/lib/connectors/config-validation'
 import type { UmamiAuthMethod, UmamiConnectorConfig } from '@/lib/connectors/umami-types'
 
 type ParsedUmamiConnectorConfig =
   | { ok: true; value: UmamiConnectorConfig }
   | { ok: false; missing?: string[]; message?: string }
-
-function getString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined
-}
 
 function getAuthMethod(value: unknown): UmamiAuthMethod | null {
   return value === 'api-key' || value === 'login' ? value : null

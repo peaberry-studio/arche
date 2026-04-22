@@ -130,50 +130,48 @@ async function testRemoteMcpConnection(input: {
   }
 }
 
+type EmbeddedConnectorTestConnection<TConfig> = (config: TConfig) => Promise<{ ok: boolean; message?: string }>
+
+function buildEmbeddedConnectorTestHandler<TConfig>(
+  label: string,
+  parseConfig: (config: Record<string, unknown>) => { ok: true; value: TConfig } | { ok: false; missing?: string[]; message?: string },
+  testConnection: EmbeddedConnectorTestConnection<TConfig>
+): TestConnectionHandler {
+  return async (config) => {
+    const parsed = parseConfig(config)
+    if (!parsed.ok) {
+      return {
+        ok: false,
+        tested: false,
+        message: parsed.message ?? `Missing required fields: ${parsed.missing?.join(', ')}`,
+      }
+    }
+
+    const response = await testConnection(parsed.value)
+    if (!response.ok) {
+      return {
+        ok: false,
+        tested: true,
+        message: response.message,
+      }
+    }
+
+    return { ok: true, tested: true, message: `${label} connection verified.` }
+  }
+}
+
 const CONNECTOR_TEST_HANDLERS: Record<ConnectorType, TestConnectionHandler> = {
-  zendesk: async (config) => {
-    const parsed = parseZendeskConnectorConfig(config)
-    if (!parsed.ok) {
-      return {
-        ok: false,
-        tested: false,
-        message: parsed.message ?? `Missing required fields: ${parsed.missing?.join(', ')}`,
-      }
-    }
+  zendesk: buildEmbeddedConnectorTestHandler(
+    'Zendesk',
+    parseZendeskConnectorConfig,
+    testZendeskConnection
+  ),
 
-    const response = await testZendeskConnection(parsed.value)
-    if (!response.ok) {
-      return {
-        ok: false,
-        tested: true,
-        message: response.message,
-      }
-    }
-
-    return { ok: true, tested: true, message: 'Zendesk connection verified.' }
-  },
-
-  umami: async (config) => {
-    const parsed = parseUmamiConnectorConfig(config)
-    if (!parsed.ok) {
-      return {
-        ok: false,
-        tested: false,
-        message: parsed.message ?? `Missing required fields: ${parsed.missing?.join(', ')}`,
-      }
-    }
-
-    const response = await testUmamiConnection(parsed.value)
-    if (!response.ok) {
-      return {
-        ok: false,
-        tested: true,
-        message: response.message,
-      }
-    }
-
-    return { ok: true, tested: true, message: 'Umami connection verified.' }
-  },
+  umami: buildEmbeddedConnectorTestHandler(
+    'Umami',
+    parseUmamiConnectorConfig,
+    testUmamiConnection
+  ),
 
   notion: async (config) => {
     const pending = getPendingOAuthMessage('notion', config)
