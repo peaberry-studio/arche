@@ -10,6 +10,7 @@ import { WORKSPACE_CONFIG_STATUS_CHANGED_EVENT } from "@/lib/runtime/config-stat
 const opencodeMocks = vi.hoisted(() => ({
   checkConnectionAction: vi.fn(),
   listSessionsAction: vi.fn(),
+  listSessionFamilyAction: vi.fn(),
   createSessionAction: vi.fn(),
   deleteSessionAction: vi.fn(),
   markAutopilotRunSeenAction: vi.fn(),
@@ -86,7 +87,10 @@ describe("useWorkspace", () => {
     opencodeMocks.listSessionsAction.mockResolvedValue({
       ok: true,
       sessions: [{ id: "s1", title: "Existing", status: "idle", updatedAt: "now" }],
+      hasMore: false,
+      nextCursor: null,
     });
+    opencodeMocks.listSessionFamilyAction.mockResolvedValue({ ok: true, rootSessionId: "s1", sessions: [] });
     opencodeMocks.createSessionAction.mockResolvedValue({
       ok: true,
       session: { id: "s2", title: "Fresh", status: "active", updatedAt: "now" },
@@ -1152,6 +1156,14 @@ describe("useWorkspace", () => {
         { id: "root", title: "Root", status: "busy", updatedAt: "now" },
       ],
     });
+    opencodeMocks.listSessionFamilyAction.mockResolvedValue({
+      ok: true,
+      rootSessionId: "root",
+      sessions: [
+        { id: "child", title: "Child", status: "idle", updatedAt: "now", parentId: "root" },
+        { id: "root", title: "Root", status: "busy", updatedAt: "now" },
+      ],
+    });
     opencodeMocks.listMessagesAction.mockImplementation(async (_slug: string, sessionId: string) => ({
       ok: true,
       messages: sessionMessages[sessionId] ?? [],
@@ -1385,6 +1397,128 @@ describe("useWorkspace", () => {
 
     await act(async () => {
       await Promise.all([firstSendPromise, secondSendPromise]);
+    });
+  });
+
+  it("loads older root sessions on demand", async () => {
+    opencodeMocks.listSessionsAction
+      .mockResolvedValueOnce({
+        ok: true,
+        sessions: [{ id: "s1", title: "Latest", status: "idle", updatedAt: "now", updatedAtRaw: 200 }],
+        hasMore: true,
+        nextCursor: { id: "s1", updatedAt: 200 },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        sessions: [{ id: "s0", title: "Older", status: "idle", updatedAt: "earlier", updatedAtRaw: 100 }],
+        hasMore: false,
+        nextCursor: null,
+      });
+    opencodeMocks.listSessionFamilyAction.mockResolvedValue({ ok: true, rootSessionId: "s1", sessions: [] });
+
+    const { result } = renderHook(() =>
+      useWorkspace({ slug: "alice", pollInterval: 0 })
+    );
+
+    await waitFor(() => {
+      expect(result.current.activeSessionId).toBe("s1");
+      expect(result.current.hasMoreSessions).toBe(true);
+    });
+
+    await act(async () => {
+      await result.current.loadMoreSessions();
+    });
+
+    expect(opencodeMocks.listSessionsAction).toHaveBeenNthCalledWith(2, "alice", {
+      cursor: { id: "s1", updatedAt: 200 },
+      limit: 500,
+      rootsOnly: true,
+    });
+    expect(result.current.sessions.map((session) => session.id)).toEqual(["s1", "s0"]);
+    expect(result.current.hasMoreSessions).toBe(false);
+  });
+
+  it("stops lazy pagination when loading more sessions fails", async () => {
+    opencodeMocks.listSessionsAction
+      .mockResolvedValueOnce({
+        ok: true,
+        sessions: [{ id: "s1", title: "Latest", status: "idle", updatedAt: "now", updatedAtRaw: 200 }],
+        hasMore: true,
+        nextCursor: { id: "s1", updatedAt: 200 },
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        error: "session_storage_query_failed",
+      });
+    opencodeMocks.listSessionFamilyAction.mockResolvedValue({ ok: true, rootSessionId: "s1", sessions: [] });
+
+    const { result } = renderHook(() =>
+      useWorkspace({ slug: "alice", pollInterval: 0 })
+    );
+
+    await waitFor(() => {
+      expect(result.current.hasMoreSessions).toBe(true);
+    });
+
+    await act(async () => {
+      await result.current.loadMoreSessions();
+    });
+
+    expect(result.current.hasMoreSessions).toBe(false);
+    expect(result.current.isLoadingMoreSessions).toBe(false);
+  });
+
+  it("restores an older active session by loading its family outside the first page", async () => {
+    opencodeMocks.listSessionsAction.mockResolvedValue({
+      ok: true,
+      sessions: [{ id: "recent-root", title: "Recent", status: "idle", updatedAt: "now", updatedAtRaw: 300 }],
+      hasMore: true,
+      nextCursor: { id: "recent-root", updatedAt: 300 },
+    });
+    opencodeMocks.listSessionFamilyAction.mockResolvedValue({
+      ok: true,
+      rootSessionId: "old-root",
+      sessions: [
+        { id: "old-child", title: "Older child", status: "idle", updatedAt: "older", updatedAtRaw: 150, parentId: "old-root" },
+        { id: "old-root", title: "Older root", status: "idle", updatedAt: "older", updatedAtRaw: 160 },
+      ],
+    });
+    opencodeMocks.listMessagesAction.mockImplementation(async (_slug: string, sessionId: string) => {
+      if (sessionId === "old-child") {
+        return {
+          ok: true,
+          messages: [
+            {
+              id: "m-old",
+              sessionId: "old-child",
+              role: "assistant",
+              content: "Recovered older session",
+              timestamp: "older",
+              parts: [],
+              pending: false,
+            },
+          ],
+        };
+      }
+
+      return { ok: true, messages: [] };
+    });
+
+    const { result } = renderHook(() =>
+      useWorkspace({ slug: "alice", pollInterval: 0, initialSessionId: "old-child" })
+    );
+
+    await waitFor(() => {
+      expect(result.current.activeSessionId).toBe("old-child");
+    });
+
+    expect(result.current.sessions.map((session) => session.id)).toEqual(
+      expect.arrayContaining(["recent-root", "old-child", "old-root"])
+    );
+    await waitFor(() => {
+      expect(result.current.messages.map((message) => message.content)).toEqual([
+        "Recovered older session",
+      ]);
     });
   });
 

@@ -158,7 +158,10 @@ type LeftPanelProps = {
   // Sessions
   sessions: WorkspaceSession[];
   activeSessionId: string | null;
+  hasMoreSessions: boolean;
+  isLoadingMoreSessions: boolean;
   unseenCompletedSessions: ReadonlySet<string>;
+  onLoadMoreSessions: () => Promise<void>;
   onSelectSession: (id: string) => void;
   onMarkAutopilotRunSeen?: (runId: string) => Promise<void> | void;
   onCreateSession: () => void;
@@ -552,7 +555,10 @@ export function LeftPanel({
   onNavigateProviders,
   sessions,
   activeSessionId,
+  hasMoreSessions,
+  isLoadingMoreSessions,
   unseenCompletedSessions,
+  onLoadMoreSessions,
   onSelectSession,
   onMarkAutopilotRunSeen,
   onCreateSession,
@@ -621,20 +627,23 @@ export function LeftPanel({
       onNavigateSettings={onNavigateSettings}
       onNavigateConnectors={onNavigateConnectors}
       onNavigateProviders={onNavigateProviders}
-       sessions={sessions}
-        activeSessionId={activeSessionId}
-        unseenCompletedSessions={unseenCompletedSessions}
-        onSelectSession={onSelectSession}
-        onMarkAutopilotRunSeen={onMarkAutopilotRunSeen}
-        onCreateSession={onCreateSession}
-        onOpenAutopilotSettings={onOpenAutopilotSettings}
-        agents={agents}
-        onSelectAgent={onSelectAgent}
-        onOpenExpertsSettings={onOpenExpertsSettings}
-        skills={skills}
-        onSelectSkill={onSelectSkill}
-        onOpenSkillsSettings={onOpenSkillsSettings}
-        fileNodes={fileNodes}
+      sessions={sessions}
+      activeSessionId={activeSessionId}
+      hasMoreSessions={hasMoreSessions}
+      isLoadingMoreSessions={isLoadingMoreSessions}
+      unseenCompletedSessions={unseenCompletedSessions}
+      onLoadMoreSessions={onLoadMoreSessions}
+      onSelectSession={onSelectSession}
+      onMarkAutopilotRunSeen={onMarkAutopilotRunSeen}
+      onCreateSession={onCreateSession}
+      onOpenAutopilotSettings={onOpenAutopilotSettings}
+      agents={agents}
+      onSelectAgent={onSelectAgent}
+      onOpenExpertsSettings={onOpenExpertsSettings}
+      skills={skills}
+      onSelectSkill={onSelectSkill}
+      onOpenSkillsSettings={onOpenSkillsSettings}
+      fileNodes={fileNodes}
       activeFilePath={activeFilePath}
       onSelectFile={onSelectFile}
       onDownloadFile={onDownloadFile}
@@ -666,7 +675,10 @@ function ExpandedLeftPanel({
   onRestartConfig,
   sessions,
   activeSessionId,
+  hasMoreSessions,
+  isLoadingMoreSessions,
   unseenCompletedSessions,
+  onLoadMoreSessions,
   onSelectSession,
   onMarkAutopilotRunSeen,
   onCreateSession,
@@ -1132,7 +1144,10 @@ function ExpandedLeftPanel({
           kind={sessionListMode}
           sessions={visibleSessions}
           activeSessionId={activeSessionId}
+          hasMore={hasMoreSessions}
+          isLoadingMore={isLoadingMoreSessions}
           unseenCompletedSessions={unseenCompletedSessions}
+          onLoadMore={onLoadMoreSessions}
           onSelectSession={handleSelectSession}
           onCreateSession={onCreateSession}
           query={searchQuery}
