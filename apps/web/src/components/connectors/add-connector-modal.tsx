@@ -366,14 +366,14 @@ export function AddConnectorModal({
               const isSelected = option.type === selectedType
               return (
                 <button
-                    key={option.type}
-                    type="button"
-                    onClick={() => {
-                      setSelectedType(option.type)
-                      setAuthType(getDefaultAuthType(option.type))
-                      setLinearOAuthActor(DEFAULT_LINEAR_OAUTH_ACTOR)
-                      setError(null)
-                    }}
+                  key={option.type}
+                  type="button"
+                  onClick={() => {
+                    setSelectedType(option.type)
+                    setAuthType(getDefaultAuthType(option.type))
+                    setLinearOAuthActor(DEFAULT_LINEAR_OAUTH_ACTOR)
+                    setError(null)
+                  }}
                   className={cn(
                     'rounded-xl border px-4 py-3 text-left transition-all',
                     isSelected

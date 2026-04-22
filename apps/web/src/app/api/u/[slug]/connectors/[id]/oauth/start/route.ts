@@ -7,6 +7,7 @@ import {
   normalizeConnectorOAuthReturnTo,
   prepareConnectorOAuthAuthorization,
 } from '@/lib/connectors/oauth'
+import type { OAuthConnectorType } from '@/lib/connectors/types'
 import { validateConnectorType } from '@/lib/connectors/validators'
 import { getPublicBaseUrl } from '@/lib/http'
 import { requireCapability } from '@/lib/runtime/require-capability'
@@ -17,8 +18,8 @@ type StartOAuthResponse = {
   authorizeUrl: string
 }
 
-function requiresConnectorConfig(type: 'linear' | 'notion' | 'custom'): boolean {
-  return type === 'custom' || type === 'linear'
+function requiresConnectorConfig(type: OAuthConnectorType): boolean {
+  return type === 'linear' || type === 'custom'
 }
 
 export const POST = withAuth<

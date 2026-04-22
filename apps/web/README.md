@@ -99,7 +99,7 @@ This repo uses `pnpm` by default.
 - Linear connectors support standard user OAuth and app actor OAuth.
 - App actor mode adds `actor=app` to the Linear authorization URL, so actions appear in Linear as the OAuth application instead of as the user who completed consent.
 - The visible author name and icon come from the Linear OAuth application configuration.
-- Arche can optionally present a per-mutation display name like `User (via Application)` only if the underlying Linear API caller supports `createAsUser` and `displayIconUrl`.
+- Arche does not currently set Linear's optional `createAsUser` or `displayIconUrl` fields, so app actor changes appear as the OAuth application itself.
 
 ## UI
 
