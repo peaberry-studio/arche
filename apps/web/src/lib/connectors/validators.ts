@@ -1,4 +1,5 @@
 import { getConnectorAuthType } from '@/lib/connectors/oauth-config'
+import { isLinearOAuthActor } from '@/lib/connectors/linear'
 import { isOAuthConnectorType } from '@/lib/connectors/oauth'
 import { validateUmamiConnectorConfig } from '@/lib/connectors/umami-config'
 import type { ConnectorConfigValidationResult } from '@/lib/connectors/config-validation'
@@ -70,6 +71,10 @@ export function validateConnectorConfig(
   config: Record<string, unknown>
 ): ConnectorConfigValidationResult {
   if (getConnectorAuthType(config) === 'oauth' && isOAuthConnectorType(type)) {
+    if (type === 'linear' && config.oauthActor !== undefined && !isLinearOAuthActor(config.oauthActor)) {
+      return { valid: false, message: 'Linear OAuth actor must be user or app' }
+    }
+
     if (type === 'custom') {
       return isValidConfigValue(config.endpoint)
         ? { valid: true }
