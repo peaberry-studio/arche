@@ -5,10 +5,10 @@
  * The web app acts as a proxy/BFF, authenticating and forwarding requests.
  */
 
-import { createOpencodeClient, type OpencodeClient } from '@opencode-ai/sdk/v2/client'
+import type { OpencodeClient } from '@opencode-ai/sdk/v2/client'
 
 import { getE2eRuntimeConnection, isE2eFakeRuntimeEnabled } from '@/lib/e2e/runtime'
-import { createE2eFakeClient } from '@/lib/opencode/e2e-fake-client'
+import { getOpencodeClientFactory } from '@/lib/opencode/client-factory'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { instanceService } from '@/lib/services'
 import { decryptPassword } from '@/lib/spawner/crypto'
@@ -105,46 +105,8 @@ export async function createInstanceClient(slug: string): Promise<OpencodeClient
   
   const authHeader = `Basic ${Buffer.from(`${credentials.username}:${credentials.password}`).toString('base64')}`
 
-  if (isE2eFakeRuntimeEnabled()) {
-    return createE2eFakeClient(baseUrl, authHeader)
-  }
-  
-  const client = createOpencodeClient({
-    baseUrl,
-    fetch: async (input, init) => {
-      // The SDK may pass a fully-formed Request object as `input` with
-      // method, headers and body already set (and `init` undefined).
-      // We must preserve all of those while injecting the auth header.
-      const isRequest = input instanceof Request
-      const method = init?.method ?? (isRequest ? input.method : 'GET')
-      const mergedHeaders = new Headers(isRequest ? input.headers : undefined)
-      if (init?.headers) {
-        const extra = new Headers(init.headers)
-        extra.forEach((value, key) => mergedHeaders.set(key, value))
-      }
-      mergedHeaders.set('Authorization', authHeader)
-
-      const url = typeof input === 'string' ? input : input instanceof Request ? input.url : input.toString()
-      console.log(`[opencode/client] ${method} ${url}`)
-      try {
-        const response = await fetch(url, {
-          ...init,
-          method,
-          headers: mergedHeaders,
-          body: init?.body ?? (isRequest ? input.body : undefined),
-          // @ts-expect-error -- Node/undici duplex hint for streaming bodies
-          duplex: (init?.body ?? (isRequest ? input.body : undefined)) ? 'half' : undefined,
-        })
-        console.log(`[opencode/client] Response: ${response.status}`)
-        return response
-      } catch (err) {
-        console.error(`[opencode/client] Fetch error:`, err)
-        throw err
-      }
-    }
-  })
-  
-  return client
+  const createClient = getOpencodeClientFactory()
+  return createClient({ baseUrl, authHeader })
 }
 
 /**
