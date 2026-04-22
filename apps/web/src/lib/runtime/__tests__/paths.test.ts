@@ -33,9 +33,9 @@ describe('runtime paths', () => {
       expect(getKbConfigRoot()).toBe('/kb-config')
     })
 
-    it('respects ARCHE_KB_CONFIG_PATH and ARCHE_KB_CONTENT_PATH overrides', async () => {
-      process.env.ARCHE_KB_CONFIG_PATH = '/custom/kb-config'
-      process.env.ARCHE_KB_CONTENT_PATH = '/custom/kb-content'
+    it('respects KB_CONFIG_HOST_PATH and KB_CONTENT_HOST_PATH overrides', async () => {
+      process.env.KB_CONFIG_HOST_PATH = '/custom/kb-config'
+      process.env.KB_CONTENT_HOST_PATH = '/custom/kb-content'
       const { getKbConfigRoot, getKbContentRoot } = await import('../paths')
 
       expect(getKbConfigRoot()).toBe('/custom/kb-config')

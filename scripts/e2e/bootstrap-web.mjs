@@ -17,8 +17,8 @@ const { Pool } = requireFromWeb('pg')
 const argon2 = requireFromWeb('argon2')
 
 const e2eRoot = path.join(webDir, '.e2e')
-const kbConfigRoot = process.env.ARCHE_KB_CONFIG_PATH ?? process.env.KB_CONFIG_HOST_PATH ?? path.join(e2eRoot, 'kb-config')
-const kbContentRoot = process.env.ARCHE_KB_CONTENT_PATH ?? process.env.KB_CONTENT_HOST_PATH ?? path.join(e2eRoot, 'kb-content')
+const kbConfigRoot = process.env.KB_CONFIG_HOST_PATH ?? path.join(e2eRoot, 'kb-config')
+const kbContentRoot = process.env.KB_CONTENT_HOST_PATH ?? path.join(e2eRoot, 'kb-content')
 const usersRoot = process.env.ARCHE_USERS_PATH ?? path.join(e2eRoot, 'users')
 const adminEmail = (process.env.ARCHE_SEED_ADMIN_EMAIL ?? 'admin-e2e@arche.local').trim().toLowerCase()
 const adminPassword = process.env.ARCHE_SEED_ADMIN_PASSWORD ?? 'arche-e2e-admin'

@@ -18,10 +18,8 @@ const commonEnv = {
   ARCHE_SEED_ADMIN_PASSWORD: process.env.ARCHE_SEED_ADMIN_PASSWORD ?? 'arche-e2e-admin',
   ARCHE_SEED_ADMIN_SLUG: process.env.ARCHE_SEED_ADMIN_SLUG ?? 'admin',
   ARCHE_USERS_PATH: process.env.ARCHE_USERS_PATH ?? path.join(e2eRoot, 'users'),
-  ARCHE_KB_CONFIG_PATH: process.env.ARCHE_KB_CONFIG_PATH ?? process.env.KB_CONFIG_HOST_PATH ?? path.join(e2eRoot, 'kb-config'),
-  ARCHE_KB_CONTENT_PATH: process.env.ARCHE_KB_CONTENT_PATH ?? process.env.KB_CONTENT_HOST_PATH ?? path.join(e2eRoot, 'kb-content'),
-  KB_CONFIG_HOST_PATH: process.env.KB_CONFIG_HOST_PATH ?? process.env.ARCHE_KB_CONFIG_PATH ?? path.join(e2eRoot, 'kb-config'),
-  KB_CONTENT_HOST_PATH: process.env.KB_CONTENT_HOST_PATH ?? process.env.ARCHE_KB_CONTENT_PATH ?? path.join(e2eRoot, 'kb-content'),
+  KB_CONFIG_HOST_PATH: process.env.KB_CONFIG_HOST_PATH ?? path.join(e2eRoot, 'kb-config'),
+  KB_CONTENT_HOST_PATH: process.env.KB_CONTENT_HOST_PATH ?? path.join(e2eRoot, 'kb-content'),
 }
 
 const fakeRuntimeEnv = {
