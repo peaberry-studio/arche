@@ -94,6 +94,8 @@ describe('GET /api/u/[slug]/connectors/[id]', () => {
     mockDecryptConfig.mockReturnValue({
       authType: 'oauth',
       oauthActor: 'app',
+      oauthClientId: 'linear-client-id',
+      oauthClientSecret: 'linear-client-secret',
       oauth: {
         provider: 'linear',
         accessToken: 'linear-token',
@@ -103,7 +105,7 @@ describe('GET /api/u/[slug]/connectors/[id]', () => {
     })
   })
 
-  it('returns Linear OAuth actor mode at the top level and inside config for editing', async () => {
+  it('returns Linear OAuth actor mode and hides stored client secrets from the edit payload', async () => {
     const { GET } = await loadRoute()
     const response = await GET(new Request('http://localhost/api/u/alice/connectors/linear-app') as never, {
       params: Promise.resolve({ slug: 'alice', id: 'linear-app' }),
@@ -116,6 +118,7 @@ describe('GET /api/u/[slug]/connectors/[id]', () => {
     expect(body.config).toEqual({
       authType: 'oauth',
       oauthActor: 'app',
+      oauthClientId: 'linear-client-id',
       oauth: {
         provider: 'linear',
         connected: true,

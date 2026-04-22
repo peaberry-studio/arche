@@ -55,6 +55,13 @@ describe('AddConnectorModal', () => {
       'https://linear.app/developers/oauth-actor-authorization'
     )
 
+    fireEvent.change(screen.getByLabelText('Client ID (optional override)'), {
+      target: { value: 'linear-client-id' },
+    })
+    fireEvent.change(screen.getByLabelText('Client secret (optional override)'), {
+      target: { value: 'linear-client-secret' },
+    })
+
     fireEvent.click(screen.getByRole('button', { name: 'Save connector' }))
 
     await waitFor(() => {
@@ -70,6 +77,8 @@ describe('AddConnectorModal', () => {
       config: {
         authType: 'oauth',
         oauthActor: 'app',
+        oauthClientId: 'linear-client-id',
+        oauthClientSecret: 'linear-client-secret',
       },
     })
     expect(onSaved).toHaveBeenCalledTimes(1)

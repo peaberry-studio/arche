@@ -101,7 +101,12 @@ describe('POST /api/u/[slug]/connectors/[id]/oauth/start', () => {
       type: 'linear',
       config: 'encrypted-config',
     })
-    mockDecryptConfig.mockReturnValue({ authType: 'oauth', oauthActor: 'app' })
+    mockDecryptConfig.mockReturnValue({
+      authType: 'oauth',
+      oauthActor: 'app',
+      oauthClientId: 'linear-client-id',
+      oauthClientSecret: 'linear-client-secret',
+    })
     mockPrepareConnectorOAuthAuthorization.mockResolvedValue({
       authorizeUrl: 'https://linear.app/oauth/authorize?actor=app',
       state: 'state-token',
@@ -133,7 +138,12 @@ describe('POST /api/u/[slug]/connectors/[id]/oauth/start', () => {
       userId: 'user-1',
       connectorType: 'linear',
       redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
-      connectorConfig: { authType: 'oauth', oauthActor: 'app' },
+      connectorConfig: {
+        authType: 'oauth',
+        oauthActor: 'app',
+        oauthClientId: 'linear-client-id',
+        oauthClientSecret: 'linear-client-secret',
+      },
     })
   })
 })

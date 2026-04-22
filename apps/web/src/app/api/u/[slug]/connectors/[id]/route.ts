@@ -36,7 +36,7 @@ function sanitizeConfigForResponse(type: ConnectorType, config: Record<string, u
   if (getConnectorAuthType(config) !== 'oauth') return config
 
   const sanitizedConfig = { ...config }
-  if (type === 'custom') {
+  if (type === 'custom' || type === 'linear') {
     delete sanitizedConfig.oauthClientSecret
   }
 

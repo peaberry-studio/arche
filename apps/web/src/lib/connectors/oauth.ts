@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 
-import { getLinearOAuthActor } from '@/lib/connectors/linear'
+import { getLinearOAuthActor, getLinearOAuthClientRegistration } from '@/lib/connectors/linear'
 import { OAUTH_CONNECTOR_TYPES, type ConnectorType, type OAuthConnectorType } from '@/lib/connectors/types'
 import { validateConnectorTestEndpoint } from '@/lib/security/ssrf'
 
@@ -53,6 +53,7 @@ type OAuthPreparationContext = {
   mcpServerUrl: string
   scope?: string
   staticClientRegistration: OAuthClientRegistration | null
+  staticClientRegistrationMode: 'fallback' | 'preferred'
   metadataOverrides: OAuthMetadataOverrides
   validateMetadataEndpoints: boolean
 }
@@ -302,6 +303,11 @@ function getStaticOAuthClientRegistration(
   }
 
   if (type === 'linear') {
+    const connectorClient = connectorConfig ? getLinearOAuthClientRegistration(connectorConfig) : null
+    if (connectorClient) {
+      return connectorClient
+    }
+
     const clientId = process.env.ARCHE_CONNECTOR_LINEAR_CLIENT_ID
     if (!clientId || !clientId.trim()) return null
     const clientSecret = process.env.ARCHE_CONNECTOR_LINEAR_CLIENT_SECRET
@@ -320,6 +326,15 @@ function getStaticOAuthClientRegistration(
   }
 }
 
+function getStaticOAuthClientRegistrationMode(
+  type: OAuthConnectorType,
+  connectorConfig?: Record<string, unknown>,
+): 'fallback' | 'preferred' {
+  return type === 'linear' && connectorConfig && getLinearOAuthActor(connectorConfig) === 'app'
+    ? 'preferred'
+    : 'fallback'
+}
+
 async function resolveOAuthPreparationContext(input: {
   connectorType: OAuthConnectorType
   connectorConfig?: Record<string, unknown>
@@ -328,7 +343,8 @@ async function resolveOAuthPreparationContext(input: {
     return {
       mcpServerUrl: getOfficialMcpServerUrl(input.connectorType),
       scope: getOptionalScope(input.connectorType),
-      staticClientRegistration: getStaticOAuthClientRegistration(input.connectorType),
+      staticClientRegistration: getStaticOAuthClientRegistration(input.connectorType, input.connectorConfig),
+      staticClientRegistrationMode: getStaticOAuthClientRegistrationMode(input.connectorType, input.connectorConfig),
       metadataOverrides: {},
       validateMetadataEndpoints: false,
     }
@@ -348,6 +364,7 @@ async function resolveOAuthPreparationContext(input: {
     mcpServerUrl: await validateConnectorUrl(endpoint),
     scope: getString(connectorConfig?.oauthScope),
     staticClientRegistration: getStaticOAuthClientRegistration(input.connectorType, connectorConfig),
+    staticClientRegistrationMode: getStaticOAuthClientRegistrationMode(input.connectorType, connectorConfig),
     metadataOverrides: {
       authorizationEndpoint: authorizationEndpoint
         ? await validateConnectorUrl(authorizationEndpoint)
@@ -391,7 +408,12 @@ async function registerOAuthClient(
   redirectUri: string,
   connectorType: OAuthConnectorType,
   staticRegistration: OAuthClientRegistration | null,
+  staticRegistrationMode: 'fallback' | 'preferred',
 ): Promise<OAuthClientRegistration> {
+  if (staticRegistration && staticRegistrationMode === 'preferred') {
+    return staticRegistration
+  }
+
   if (!metadata.registrationEndpoint) {
     if (staticRegistration) return staticRegistration
     throw new Error('oauth_registration_failed:missing_registration_endpoint')
@@ -521,6 +543,7 @@ export async function prepareConnectorOAuthAuthorization(input: {
     input.redirectUri,
     input.connectorType,
     context.staticClientRegistration,
+    context.staticClientRegistrationMode,
   )
 
   const codeVerifier = createPkceCodeVerifier()
