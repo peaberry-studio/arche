@@ -36,10 +36,6 @@ function sanitizeConfigForResponse(type: ConnectorType, config: Record<string, u
   if (getConnectorAuthType(config) !== 'oauth') return config
 
   const sanitizedConfig = { ...config }
-  if (type === 'linear') {
-    delete sanitizedConfig.oauthActor
-  }
-
   if (type === 'custom') {
     delete sanitizedConfig.oauthClientSecret
   }
@@ -315,7 +311,7 @@ export const PATCH = withAuth<
     config: connectorType ? sanitizeConfigForResponse(connectorType, responseConfig) : responseConfig,
     enabled: connector.enabled,
     authType,
-    oauthActor: resolveLinearOAuthActor(connectorType, authType, responseConfig),
+    oauthActor: connectorType ? resolveLinearOAuthActor(connectorType, authType, responseConfig) : undefined,
     oauthConnected: Boolean(oauthConfig?.accessToken),
     oauthExpiresAt: oauthConfig?.expiresAt,
     createdAt: connector.createdAt.toISOString(),

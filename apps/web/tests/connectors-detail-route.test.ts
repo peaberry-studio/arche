@@ -2,12 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockAuditEvent = vi.fn()
 const mockDecryptConfig = vi.fn()
+const mockEncryptConfig = vi.fn()
 const mockGetRuntimeCapabilities = vi.fn()
 const mockGetSession = vi.fn()
 const mockIsDesktop = vi.fn(() => false)
 const mockValidateDesktopToken = vi.fn(() => true)
 const mockFindByIdAndUserId = vi.fn()
+const mockFindById = vi.fn()
 const mockFindIdBySlug = vi.fn()
+const mockUpdateManyByIdAndUserId = vi.fn()
 
 function session(slug: string, role: 'USER' | 'ADMIN' = 'USER') {
   return {
@@ -23,7 +26,7 @@ async function loadRoute() {
 
   vi.doMock('@/lib/connectors/crypto', () => ({
     decryptConfig: (...args: unknown[]) => mockDecryptConfig(...args),
-    encryptConfig: vi.fn(),
+    encryptConfig: (...args: unknown[]) => mockEncryptConfig(...args),
   }))
 
   vi.doMock('@/lib/runtime/capabilities', () => ({
@@ -45,7 +48,9 @@ async function loadRoute() {
 
   vi.doMock('@/lib/services', () => ({
     connectorService: {
+      findById: (...args: unknown[]) => mockFindById(...args),
       findByIdAndUserId: (...args: unknown[]) => mockFindByIdAndUserId(...args),
+      updateManyByIdAndUserId: (...args: unknown[]) => mockUpdateManyByIdAndUserId(...args),
     },
     userService: {
       findIdBySlug: (...args: unknown[]) => mockFindIdBySlug(...args),
@@ -98,7 +103,7 @@ describe('GET /api/u/[slug]/connectors/[id]', () => {
     })
   })
 
-  it('returns Linear OAuth actor mode only at the top level', async () => {
+  it('returns Linear OAuth actor mode at the top level and inside config for editing', async () => {
     const { GET } = await loadRoute()
     const response = await GET(new Request('http://localhost/api/u/alice/connectors/linear-app') as never, {
       params: Promise.resolve({ slug: 'alice', id: 'linear-app' }),
@@ -110,6 +115,7 @@ describe('GET /api/u/[slug]/connectors/[id]', () => {
     expect(body.oauthActor).toBe('app')
     expect(body.config).toEqual({
       authType: 'oauth',
+      oauthActor: 'app',
       oauth: {
         provider: 'linear',
         connected: true,
@@ -118,6 +124,74 @@ describe('GET /api/u/[slug]/connectors/[id]', () => {
         scope: undefined,
       },
     })
-    expect('oauthActor' in body.config).toBe(false)
+  })
+
+  it('preserves Linear app actor mode when patching with the config returned by GET', async () => {
+    mockFindById.mockResolvedValue({
+      id: 'linear-app',
+      type: 'linear',
+      name: 'Linear',
+      enabled: true,
+      createdAt: new Date('2026-04-21T10:00:00.000Z'),
+      updatedAt: new Date('2026-04-21T10:06:00.000Z'),
+    })
+    mockUpdateManyByIdAndUserId.mockResolvedValue({ count: 1 })
+    mockEncryptConfig.mockReturnValue('encrypted-updated-config')
+
+    const { PATCH } = await loadRoute()
+    const response = await PATCH(new Request('http://localhost/api/u/alice/connectors/linear-app', {
+      method: 'PATCH',
+      headers: {
+        'content-type': 'application/json',
+        host: 'localhost',
+        origin: 'http://localhost',
+      },
+      body: JSON.stringify({
+        config: {
+          authType: 'oauth',
+          oauthActor: 'app',
+          oauth: {
+            provider: 'linear',
+            connected: true,
+            connectedAt: '2026-04-21T09:59:00.000Z',
+          },
+        },
+      }),
+    }) as never, {
+      params: Promise.resolve({ slug: 'alice', id: 'linear-app' }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(mockEncryptConfig).toHaveBeenCalledWith({
+      authType: 'oauth',
+      oauthActor: 'app',
+      oauth: {
+        provider: 'linear',
+        connected: true,
+        connectedAt: '2026-04-21T09:59:00.000Z',
+      },
+    })
+
+    await expect(response.json()).resolves.toEqual({
+      id: 'linear-app',
+      type: 'linear',
+      name: 'Linear',
+      config: {
+        authType: 'oauth',
+        oauthActor: 'app',
+        oauth: {
+          provider: 'linear',
+          connected: true,
+          connectedAt: '2026-04-21T09:59:00.000Z',
+        },
+      },
+      enabled: true,
+      authType: 'oauth',
+      oauthActor: 'app',
+      oauthConnected: false,
+      oauthExpiresAt: undefined,
+      createdAt: '2026-04-21T10:00:00.000Z',
+      updatedAt: '2026-04-21T10:06:00.000Z',
+    })
   })
 })
