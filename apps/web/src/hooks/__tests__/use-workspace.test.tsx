@@ -88,7 +88,6 @@ describe("useWorkspace", () => {
       ok: true,
       sessions: [{ id: "s1", title: "Existing", status: "idle", updatedAt: "now" }],
       hasMore: false,
-      nextCursor: null,
     });
     opencodeMocks.listSessionFamilyAction.mockResolvedValue({ ok: true, rootSessionId: "s1", sessions: [] });
     opencodeMocks.createSessionAction.mockResolvedValue({
@@ -1406,13 +1405,14 @@ describe("useWorkspace", () => {
         ok: true,
         sessions: [{ id: "s1", title: "Latest", status: "idle", updatedAt: "now", updatedAtRaw: 200 }],
         hasMore: true,
-        nextCursor: { id: "s1", updatedAt: 200 },
       })
       .mockResolvedValueOnce({
         ok: true,
-        sessions: [{ id: "s0", title: "Older", status: "idle", updatedAt: "earlier", updatedAtRaw: 100 }],
+        sessions: [
+          { id: "s1", title: "Latest", status: "idle", updatedAt: "now", updatedAtRaw: 200 },
+          { id: "s0", title: "Older", status: "idle", updatedAt: "earlier", updatedAtRaw: 100 },
+        ],
         hasMore: false,
-        nextCursor: null,
       });
     opencodeMocks.listSessionFamilyAction.mockResolvedValue({ ok: true, rootSessionId: "s1", sessions: [] });
 
@@ -1430,8 +1430,7 @@ describe("useWorkspace", () => {
     });
 
     expect(opencodeMocks.listSessionsAction).toHaveBeenNthCalledWith(2, "alice", {
-      cursor: { id: "s1", updatedAt: 200 },
-      limit: 500,
+      limit: 1000,
       rootsOnly: true,
     });
     expect(result.current.sessions.map((session) => session.id)).toEqual(["s1", "s0"]);
@@ -1444,11 +1443,10 @@ describe("useWorkspace", () => {
         ok: true,
         sessions: [{ id: "s1", title: "Latest", status: "idle", updatedAt: "now", updatedAtRaw: 200 }],
         hasMore: true,
-        nextCursor: { id: "s1", updatedAt: 200 },
       })
       .mockResolvedValueOnce({
         ok: false,
-        error: "session_storage_query_failed",
+        error: "list_failed",
       });
     opencodeMocks.listSessionFamilyAction.mockResolvedValue({ ok: true, rootSessionId: "s1", sessions: [] });
 
@@ -1473,7 +1471,6 @@ describe("useWorkspace", () => {
       ok: true,
       sessions: [{ id: "recent-root", title: "Recent", status: "idle", updatedAt: "now", updatedAtRaw: 300 }],
       hasMore: true,
-      nextCursor: { id: "recent-root", updatedAt: 300 },
     });
     opencodeMocks.listSessionFamilyAction.mockResolvedValue({
       ok: true,

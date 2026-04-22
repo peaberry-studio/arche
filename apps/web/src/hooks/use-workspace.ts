@@ -11,7 +11,6 @@ import {
   listMessagesAction,
   abortSessionAction,
   listModelsAction,
-  type WorkspaceSessionCursor,
 } from "@/actions/opencode";
 import type {
   WorkspaceConnectionState,
@@ -55,7 +54,7 @@ type ProviderStatusEntry = {
 
 const STALE_PENDING_ASSISTANT_MS = 5_000;
 const RESUME_POLL_INTERVAL_MS = 4_000;
-const ROOT_SESSION_PAGE_SIZE = 500;
+const ROOT_SESSION_LIMIT_STEP = 500;
 const EMPTY_WORKSPACE_MESSAGES: WorkspaceMessage[] = [];
 const PRE_SESSION_SELECTION_KEY = "__pre_session__";
 
@@ -357,19 +356,6 @@ function removeWorkspaceSessions(
   return sessions.filter((session) => !sessionIdsToRemove.has(session.id));
 }
 
-function isSessionOlderThanCursor(
-  session: WorkspaceSession,
-  cursor: WorkspaceSessionCursor | null
-): boolean {
-  if (!cursor) return false;
-
-  const updatedAt = session.updatedAtRaw ?? 0;
-  return (
-    updatedAt < cursor.updatedAt ||
-    (updatedAt === cursor.updatedAt && session.id < cursor.id)
-  );
-}
-
 function collectSessionFamilyIds(
   sessions: WorkspaceSession[],
   sessionId: string
@@ -552,6 +538,9 @@ export function useWorkspace({
   const sessionLoadRequestIdRef = useRef(0);
   const sessionFamilyLoadRequestIdRef = useRef(0);
   const activeFamilyRootIdRef = useRef<string | null>(null);
+  // OpenCode's session API does not expose a backwards cursor yet, so we grow
+  // the root-session limit progressively when the user asks for more history.
+  const rootSessionLimitRef = useRef(ROOT_SESSION_LIMIT_STEP);
   const streamCounterRef = useRef(0);
   const activeStreamsRef = useRef(new Map<string, {
     token: number;
@@ -888,8 +877,13 @@ export function useWorkspace({
     console.log("[useWorkspace] loadSessions: loading...");
     setIsLoadingSessions(true);
     try {
+      const rootSessionLimit = Math.max(
+        ROOT_SESSION_LIMIT_STEP,
+        rootSessionLimitRef.current,
+        rootSessionsRef.current.length,
+      );
       const result = await listSessionsAction(slug, {
-        limit: ROOT_SESSION_PAGE_SIZE,
+        limit: rootSessionLimit,
         rootsOnly: true,
       });
       console.log(
@@ -922,36 +916,19 @@ export function useWorkspace({
           return;
         }
 
-        const nextPageCursor = result.nextCursor ?? null;
-        const hasLoadedAdditionalRootPages = rootSessionsRef.current.some((session) =>
-          isSessionOlderThanCursor(session, nextPageCursor)
-        );
-        const firstPageIds = new Set(result.sessions.map((session) => session.id));
-        const preservedOlderRootSessions = hasLoadedAdditionalRootPages
-          ? rootSessionsRef.current.filter(
-              (session) =>
-                !firstPageIds.has(session.id) &&
-                isSessionOlderThanCursor(session, nextPageCursor)
-            )
-          : [];
-        const mergedRootSessions = [
-          ...result.sessions,
-          ...preservedOlderRootSessions,
-        ];
+        const mergedRootSessions = result.sessions;
         const visibleSessions = mergeWorkspaceSessions(
           mergedRootSessions,
           familySessions
         );
 
         setRootSessions(mergedRootSessions);
+        rootSessionLimitRef.current = rootSessionLimit;
         setActiveFamilySessions((prev) =>
           areWorkspaceSessionListsEqual(prev, familySessions) ? prev : familySessions
         );
         activeFamilyRootIdRef.current = familyRootId;
-
-        if (!hasLoadedAdditionalRootPages) {
-          setHasMoreSessions(Boolean(result.hasMore));
-        }
+        setHasMoreSessions(Boolean(result.hasMore));
 
         const sessionIds = new Set(visibleSessions.map((session) => session.id));
         setSessionSelectionState((prev) => {
@@ -1019,21 +996,15 @@ export function useWorkspace({
       return;
     }
 
-    const lastRootSession = rootSessionsRef.current.at(-1);
-    const cursor: WorkspaceSessionCursor | null =
-      lastRootSession?.updatedAtRaw
-        ? { id: lastRootSession.id, updatedAt: lastRootSession.updatedAtRaw }
-        : null;
-    if (!cursor) {
-      setHasMoreSessions(false);
-      return;
-    }
+    const nextLimit = Math.max(
+      rootSessionLimitRef.current + ROOT_SESSION_LIMIT_STEP,
+      rootSessionsRef.current.length + ROOT_SESSION_LIMIT_STEP,
+    );
 
     setIsLoadingMoreSessions(true);
     try {
       const result = await listSessionsAction(slug, {
-        cursor,
-        limit: ROOT_SESSION_PAGE_SIZE,
+        limit: nextLimit,
         rootsOnly: true,
       });
       if (!result.ok) {
@@ -1047,7 +1018,8 @@ export function useWorkspace({
         return;
       }
 
-      setRootSessions((prev) => mergeWorkspaceSessions(prev, result.sessions!));
+      setRootSessions(result.sessions);
+      rootSessionLimitRef.current = nextLimit;
       setHasMoreSessions(Boolean(result.hasMore));
     } finally {
       setIsLoadingMoreSessions(false);

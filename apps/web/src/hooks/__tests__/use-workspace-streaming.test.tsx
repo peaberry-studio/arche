@@ -91,7 +91,6 @@ function setupDefaultMocks() {
     ok: true,
     sessions: [{ id: "s1", title: "Existing", status: "idle", updatedAt: "now" }],
     hasMore: false,
-    nextCursor: null,
   });
   opencodeMocks.listSessionFamilyAction.mockResolvedValue({ ok: true, rootSessionId: "s1", sessions: [] });
   opencodeMocks.createSessionAction.mockResolvedValue({

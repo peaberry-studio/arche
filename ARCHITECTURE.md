@@ -155,6 +155,13 @@ Breaking desktop storage change:
 
 See `apps/web/.env.example` for the complete reference.
 
+## Session History Note
+
+- Arche must consume workspace session history through OpenCode's public API, not by reading `opencode.db` directly and not by using container `exec` from the web app.
+- The current OpenCode `/session` API supports `roots`, `limit`, `search`, and `start`.
+- `start` is a lower-bound filter (`updatedAt >= start`), so it is useful for incremental refreshes but it does not support backwards pagination for older history.
+- Until OpenCode exposes a real backwards cursor or a dedicated family/history endpoint, the workspace UI uses root sessions plus a progressively increasing `limit` (500, 1000, 1500, ...) and reconstructs the active family via `session.get` + `session.children`.
+
 ## Source Code Structure (`apps/web/`)
 
 ```

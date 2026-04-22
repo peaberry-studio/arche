@@ -4,26 +4,14 @@ vi.mock("@/lib/runtime/session", () => ({
   getSession: vi.fn(),
 }));
 
-vi.mock("@/lib/runtime/capabilities", () => ({
-  getRuntimeCapabilities: vi.fn(),
-}));
-
 vi.mock("@/lib/opencode/client", () => ({
   createInstanceClient: vi.fn(),
   getInstanceUrl: vi.fn(),
 }));
 
-vi.mock("@/lib/opencode/session-storage", () => ({
-  listStoredWorkspaceSessionFamily: vi.fn(),
-  listStoredWorkspaceSessionsPage: vi.fn(),
-}));
-
 vi.mock("@/lib/services", () => ({
   autopilotService: {
     findSessionMetadataByUserId: vi.fn(),
-  },
-  instanceService: {
-    findBySlug: vi.fn(),
   },
   userService: {
     findIdBySlug: vi.fn(),
@@ -31,25 +19,20 @@ vi.mock("@/lib/services", () => ({
 }));
 
 import { getSession } from "@/lib/runtime/session";
-import { getRuntimeCapabilities } from "@/lib/runtime/capabilities";
 import { createInstanceClient } from "@/lib/opencode/client";
-import {
-  listStoredWorkspaceSessionFamily,
-  listStoredWorkspaceSessionsPage,
-} from "@/lib/opencode/session-storage";
-import { autopilotService, instanceService } from "@/lib/services";
+import { autopilotService } from "@/lib/services";
 import {
   listSessionFamilyAction,
   listSessionsAction,
 } from "../opencode";
 
 const mockGetSession = vi.mocked(getSession);
-const mockGetRuntimeCapabilities = vi.mocked(getRuntimeCapabilities);
 const mockCreateInstanceClient = vi.mocked(createInstanceClient);
-const mockListStoredWorkspaceSessionsPage = vi.mocked(listStoredWorkspaceSessionsPage);
-const mockListStoredWorkspaceSessionFamily = vi.mocked(listStoredWorkspaceSessionFamily);
 const mockFindSessionMetadataByUserId = vi.mocked(autopilotService.findSessionMetadataByUserId);
-const mockFindInstanceBySlug = vi.mocked(instanceService.findBySlug);
+const mockSessionList = vi.fn();
+const mockSessionStatus = vi.fn();
+const mockSessionGet = vi.fn();
+const mockSessionChildren = vi.fn();
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -64,45 +47,19 @@ beforeEach(() => {
     sessionId: "sess-1",
   });
 
-  mockGetRuntimeCapabilities.mockReturnValue({
-    multiUser: true,
-    auth: true,
-    containers: true,
-    workspaceAgent: true,
-    reaper: true,
-    csrf: true,
-    twoFactor: true,
-    teamManagement: true,
-    connectors: true,
-    kickstart: true,
-    autopilot: true,
-    slackIntegration: true,
-  });
-
   mockCreateInstanceClient.mockResolvedValue({
-    project: {
-      current: vi.fn().mockResolvedValue({ data: { id: "project-1" } }),
-    },
     session: {
-      list: vi.fn().mockResolvedValue({ data: [] }),
-      status: vi.fn().mockResolvedValue({ data: { root: { type: "busy" } } }),
+      children: mockSessionChildren,
+      get: mockSessionGet,
+      list: mockSessionList,
+      status: mockSessionStatus,
     },
   } as never);
 
-  mockFindInstanceBySlug.mockResolvedValue({
-    id: "instance-1",
-    slug: "alice",
-    status: "running",
-    createdAt: new Date(),
-    startedAt: new Date(),
-    stoppedAt: null,
-    lastActivityAt: new Date(),
-    containerId: "container-1",
-    serverPassword: "encrypted",
-    appliedConfigSha: null,
-    providerSyncHash: null,
-    providerSyncedAt: null,
-  });
+  mockSessionList.mockResolvedValue({ data: [] });
+  mockSessionStatus.mockResolvedValue({ data: { root: { type: "busy" } } });
+  mockSessionGet.mockResolvedValue({ data: null });
+  mockSessionChildren.mockResolvedValue({ data: [] });
 
   mockFindSessionMetadataByUserId.mockResolvedValue([
     {
@@ -117,15 +74,16 @@ beforeEach(() => {
 });
 
 describe("session listing actions", () => {
-  it("lists a paginated root page from storage with cursor metadata", async () => {
-    mockListStoredWorkspaceSessionsPage.mockResolvedValue({
-      hasMore: true,
-      nextCursor: { id: "root", updatedAt: 200 },
-      sessions: [
+  it("lists root sessions from the OpenCode API with optimistic hasMore metadata", async () => {
+    mockSessionList.mockResolvedValue({
+      data: [
         {
           id: "root",
+          parentID: undefined,
+          share: { url: "https://share.test/root" },
+          time: { created: 100, updated: 200 },
           title: "Daily brief",
-          updatedAtRaw: 200,
+          version: "1",
         },
       ],
     });
@@ -135,20 +93,18 @@ describe("session listing actions", () => {
       rootsOnly: true,
     });
 
-    expect(mockListStoredWorkspaceSessionsPage).toHaveBeenCalledWith({
-      containerId: "container-1",
-      cursor: undefined,
+    expect(mockSessionList).toHaveBeenCalledWith({
       limit: 1,
-      projectId: "project-1",
-      rootsOnly: true,
+      roots: true,
+      start: undefined,
     });
     expect(result).toEqual({
       ok: true,
       hasMore: true,
-      nextCursor: { id: "root", updatedAt: 200 },
       sessions: [
         expect.objectContaining({
           id: "root",
+          share: { url: "https://share.test/root", version: 1 },
           title: "Daily brief",
           status: "busy",
           updatedAtRaw: 200,
@@ -162,84 +118,75 @@ describe("session listing actions", () => {
     });
   });
 
-  it("loads the active family from storage", async () => {
-    mockListStoredWorkspaceSessionFamily.mockResolvedValue({
-      rootSessionId: "root",
-      sessions: [
+  it("loads the active family from the OpenCode API", async () => {
+    mockSessionGet
+      .mockResolvedValueOnce({
+        data: {
+          id: "child",
+          parentID: "root",
+          time: { created: 120, updated: 150 },
+          title: "Child session",
+          version: "1",
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          id: "root",
+          parentID: undefined,
+          time: { created: 100, updated: 200 },
+          title: "Root session",
+          version: "1",
+        },
+      });
+    mockSessionChildren.mockResolvedValueOnce({
+      data: [
         {
           id: "child",
-          parentId: "root",
+          parentID: "root",
+          time: { created: 120, updated: 150 },
           title: "Child session",
-          updatedAtRaw: 150,
-        },
-        {
-          id: "root",
-          title: "Root session",
-          updatedAtRaw: 200,
+          version: "1",
         },
       ],
     });
 
     const result = await listSessionFamilyAction("alice", "child");
 
-    expect(mockListStoredWorkspaceSessionFamily).toHaveBeenCalledWith({
-      containerId: "container-1",
-      projectId: "project-1",
-      sessionId: "child",
-    });
+    expect(mockSessionGet).toHaveBeenNthCalledWith(1, { sessionID: "child" });
+    expect(mockSessionGet).toHaveBeenNthCalledWith(2, { sessionID: "root" });
+    expect(mockSessionChildren).toHaveBeenCalledWith({ sessionID: "root" });
     expect(result).toEqual({
       ok: true,
       rootSessionId: "root",
-      sessions: [
+      sessions: expect.arrayContaining([
         expect.objectContaining({ id: "child", parentId: "root", title: "Child session" }),
         expect.objectContaining({ id: "root", parentId: undefined, title: "Root session" }),
-      ],
+      ]),
     });
   });
 
-  it("uses local session storage when containers are unavailable", async () => {
-    mockGetRuntimeCapabilities.mockReturnValue({
-      multiUser: false,
-      auth: false,
-      containers: false,
-      workspaceAgent: true,
-      reaper: false,
-      csrf: false,
-      twoFactor: false,
-      teamManagement: false,
-      connectors: true,
-      kickstart: true,
-      autopilot: false,
-      slackIntegration: false,
-    });
-    mockFindInstanceBySlug.mockResolvedValue({
-      id: "instance-1",
-      slug: "alice",
-      status: "running",
-      createdAt: new Date(),
-      startedAt: new Date(),
-      stoppedAt: null,
-      lastActivityAt: new Date(),
-      containerId: null,
-      serverPassword: "encrypted",
-      appliedConfigSha: null,
-      providerSyncHash: null,
-      providerSyncedAt: null,
-    });
-    mockListStoredWorkspaceSessionsPage.mockResolvedValue({
-      hasMore: false,
-      nextCursor: null,
-      sessions: [{ id: "desktop-root", title: "Desktop root", updatedAtRaw: 50 }],
+  it("passes the optional start timestamp through to the OpenCode API", async () => {
+    mockSessionList.mockResolvedValue({
+      data: [
+        {
+          id: "desktop-root",
+          parentID: undefined,
+          time: { created: 25, updated: 50 },
+          title: "Desktop root",
+          version: "1",
+        },
+      ],
     });
 
-    const result = await listSessionsAction("alice", { rootsOnly: true });
-
-    expect(mockListStoredWorkspaceSessionsPage).toHaveBeenCalledWith({
-      containerId: null,
-      cursor: undefined,
-      limit: 100,
-      projectId: "project-1",
+    const result = await listSessionsAction("alice", {
       rootsOnly: true,
+      start: 25,
+    });
+
+    expect(mockSessionList).toHaveBeenCalledWith({
+      limit: undefined,
+      roots: true,
+      start: 25,
     });
     expect(result.ok).toBe(true);
     expect(result.sessions).toEqual([
