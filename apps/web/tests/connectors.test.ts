@@ -86,12 +86,49 @@ describe('connectors/validators', () => {
 
     it('validates optional Linear OAuth actor mode', () => {
       expect(validateConnectorConfig('linear', { authType: 'oauth', oauthActor: 'app' })).toEqual({
+        valid: false,
+        message: 'Linear app actor OAuth requires both client ID and client secret',
+      })
+
+      expect(validateConnectorConfig('linear', {
+        authType: 'oauth',
+        oauthActor: 'app',
+        oauthClientId: 'client-123',
+        oauthClientSecret: 'secret-123',
+      })).toEqual({
         valid: true,
       })
 
       expect(validateConnectorConfig('linear', { authType: 'oauth', oauthActor: 'robot' })).toEqual({
         valid: false,
         message: 'Linear OAuth actor must be user or app',
+      })
+
+      expect(validateConnectorConfig('linear', {
+        authType: 'oauth',
+        oauthActor: 'app',
+        oauthClientSecret: 'secret-123',
+      })).toEqual({
+        valid: false,
+        message: 'Linear app actor OAuth requires both client ID and client secret',
+      })
+
+      expect(validateConnectorConfig('linear', {
+        authType: 'oauth',
+        oauthActor: 'app',
+        oauthClientId: 'client-123',
+      })).toEqual({
+        valid: false,
+        message: 'Linear app actor OAuth requires both client ID and client secret',
+      })
+
+      expect(validateConnectorConfig('linear', {
+        authType: 'oauth',
+        oauthActor: 'app',
+        oauthClientId: '   ',
+      })).toEqual({
+        valid: false,
+        message: 'Linear OAuth client ID must be a non-empty string',
       })
     })
 

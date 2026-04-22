@@ -118,6 +118,8 @@ export function AddConnectorModal({
   const [error, setError] = useState<string | null>(null)
 
   const usesGeneratedName = selectedType !== 'custom'
+  const showsLinearAppOAuthClientFields =
+    selectedType === 'linear' && authType === 'oauth' && linearOAuthActor === 'app'
 
   const availableTypeOptions = useMemo(
     () =>
@@ -182,11 +184,23 @@ export function AddConnectorModal({
   function buildConfig(): { ok: true; value: Record<string, unknown> } | { ok: false; message: string } {
     if (selectedType === 'linear' || selectedType === 'notion') {
       if (authType === 'oauth') {
+        if (selectedType === 'linear' && linearOAuthActor === 'app') {
+          if (!oauthClientId.trim() || !oauthClientSecret.trim()) {
+            return { ok: false, message: 'Linear app actor OAuth requires client ID and client secret.' }
+          }
+        }
+
         return {
           ok: true,
           value: {
             authType: 'oauth',
-            ...(selectedType === 'linear' && linearOAuthActor === 'app' ? { oauthActor: 'app' } : {}),
+            ...(selectedType === 'linear' && linearOAuthActor === 'app'
+              ? {
+                  oauthActor: 'app',
+                  oauthClientId: oauthClientId.trim() || undefined,
+                  oauthClientSecret: oauthClientSecret.trim() || undefined,
+                }
+              : {}),
           },
         }
       }
@@ -288,6 +302,10 @@ export function AddConnectorModal({
     }
 
     if (selectedType === 'linear' || selectedType === 'notion') {
+      if (selectedType === 'linear' && authType === 'oauth' && linearOAuthActor === 'app') {
+        return Boolean(oauthClientId.trim() && oauthClientSecret.trim())
+      }
+
       return authType === 'oauth' || Boolean(apiKey.trim())
     }
 
@@ -473,7 +491,7 @@ export function AddConnectorModal({
             </p>
           ) : null}
 
-          {selectedType === 'linear' && authType === 'oauth' && linearOAuthActor === 'app' ? (
+          {showsLinearAppOAuthClientFields ? (
             <div className="space-y-3 rounded-lg border border-border/50 bg-muted/20 px-4 py-3 text-sm">
               <div className="space-y-1">
                 <p className="font-medium text-foreground">Create a Linear OAuth application first</p>
@@ -487,7 +505,7 @@ export function AddConnectorModal({
                 <li>Open Linear Settings -&gt; API -&gt; Applications.</li>
                 <li>Create a new OAuth2 application for Arche with the name and icon you want to appear in Linear.</li>
                 <li>Add <code>{LINEAR_CALLBACK_URL_HINT}</code> as a callback URL, replacing the host with your Arche URL.</li>
-                <li>Configure the Linear client ID and client secret in Arche before starting OAuth.</li>
+                <li>Paste the Linear client ID and client secret below before starting OAuth.</li>
                 <li>Save this connector, then connect OAuth as a Linear workspace admin.</li>
               </ol>
 
@@ -510,6 +528,38 @@ export function AddConnectorModal({
                 </a>
               </div>
             </div>
+          ) : null}
+
+          {showsLinearAppOAuthClientFields ? (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="linear-oauth-client-id" className="text-foreground">
+                  Client ID
+                </Label>
+                <Input
+                  id="linear-oauth-client-id"
+                  value={oauthClientId}
+                  onChange={(event) => setOauthClientId(event.target.value)}
+                  placeholder="Linear OAuth client id"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="linear-oauth-client-secret" className="text-foreground">
+                  Client secret
+                </Label>
+                <Input
+                  id="linear-oauth-client-secret"
+                  type="password"
+                  value={oauthClientSecret}
+                  onChange={(event) => setOauthClientSecret(event.target.value)}
+                  placeholder="Linear OAuth client secret"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Linear app actor mode uses the credentials stored on this connector only.
+                </p>
+              </div>
+            </>
           ) : null}
 
           {/* Manual API key (official types) */}

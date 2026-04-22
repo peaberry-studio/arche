@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
-import { encryptConfig, decryptConfig } from '@/lib/connectors/crypto'
+import { decryptConfig, encryptConfig } from '@/lib/connectors/crypto'
 import { resolveLinearOAuthActor, type LinearOAuthActor } from '@/lib/connectors/linear'
-import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
+import {
+  getConnectorAuthType,
+  getConnectorOAuthConfig,
+  mergeConnectorConfigWithPreservedOAuth,
+} from '@/lib/connectors/oauth-config'
 import type { ConnectorType } from '@/lib/connectors/types'
 import {
   validateConnectorConfig,
@@ -36,7 +40,7 @@ function sanitizeConfigForResponse(type: ConnectorType, config: Record<string, u
   if (getConnectorAuthType(config) !== 'oauth') return config
 
   const sanitizedConfig = { ...config }
-  if (type === 'custom') {
+  if (type === 'custom' || type === 'linear') {
     delete sanitizedConfig.oauthClientSecret
   }
 
@@ -189,6 +193,7 @@ export const PATCH = withAuth<
 
   // Prepare data to update
   const updateData: { name?: string; config?: string; enabled?: boolean } = {}
+  let responseConfig: Record<string, unknown> | null = null
 
   if (name !== undefined) {
     const nameValidation = validateConnectorName(name)
@@ -211,6 +216,16 @@ export const PATCH = withAuth<
     updateData.enabled = enabled
   }
 
+  let existingDecryptedConfig: Record<string, unknown>
+  try {
+    existingDecryptedConfig = decryptConfig(existingConnector.config)
+  } catch {
+    return NextResponse.json(
+      { error: 'config_corrupted', message: 'Existing connector configuration is corrupted' },
+      { status: 500 }
+    )
+  }
+
   if (config !== undefined) {
     // Validate config is a non-null object
     if (config === null || typeof config !== 'object' || Array.isArray(config)) {
@@ -226,10 +241,13 @@ export const PATCH = withAuth<
         { status: 500 }
       )
     }
-    // NOTE: config is "full replace", not partial merge.
-    // Client must send the complete config with all required fields.
     const connectorType = existingConnector.type as ConnectorType
-    const configValidation = validateConnectorConfig(connectorType, config)
+    const mergedConfig = mergeConnectorConfigWithPreservedOAuth({
+      connectorType,
+      currentConfig: existingDecryptedConfig,
+      nextConfig: config,
+    })
+    const configValidation = validateConnectorConfig(connectorType, mergedConfig)
     if (!configValidation.valid) {
       return NextResponse.json(
         {
@@ -240,7 +258,8 @@ export const PATCH = withAuth<
       )
     }
     try {
-      updateData.config = encryptConfig(config)
+      updateData.config = encryptConfig(mergedConfig)
+      responseConfig = mergedConfig
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to encrypt config'
       return NextResponse.json(
@@ -258,19 +277,11 @@ export const PATCH = withAuth<
     )
   }
 
-  // If config is NOT being updated, validate that existing config can be decrypted
-  // BEFORE applying changes (prevents mutation + 500 if config is corrupted)
-  let existingDecryptedConfig: Record<string, unknown> | null = null
-  if (config === undefined) {
-    try {
-      existingDecryptedConfig = decryptConfig(existingConnector.config)
-    } catch {
-      return NextResponse.json(
-        { error: 'config_corrupted', message: 'Existing connector configuration is corrupted' },
-        { status: 500 }
-      )
-    }
+  if (responseConfig === null) {
+    responseConfig = existingDecryptedConfig
   }
+
+  const resolvedResponseConfig = responseConfig ?? existingDecryptedConfig
 
   // Update connector atomically while verifying ownership (prevents TOCTOU)
   const result = await connectorService.updateManyByIdAndUserId(id, targetUser.id, updateData)
@@ -295,23 +306,18 @@ export const PATCH = withAuth<
     metadata: { connectorId: connector.id, fields: Object.keys(updateData) },
   })
 
-  // For response: use request config if updated, otherwise use existing decrypted config
-  const responseConfig = config !== undefined
-    ? config  // Already validated, use input directly
-    : existingDecryptedConfig!  // Already decrypted before update
-
   const connectorType = validateConnectorType(connector.type) ? connector.type : null
-  const authType = getConnectorAuthType(responseConfig)
-  const oauthConfig = connectorType ? getConnectorOAuthConfig(connectorType, responseConfig) : null
+  const authType = getConnectorAuthType(resolvedResponseConfig)
+  const oauthConfig = connectorType ? getConnectorOAuthConfig(connectorType, resolvedResponseConfig) : null
 
   return NextResponse.json({
     id: connector.id,
     type: connector.type,
     name: connector.name,
-    config: connectorType ? sanitizeConfigForResponse(connectorType, responseConfig) : responseConfig,
+    config: connectorType ? sanitizeConfigForResponse(connectorType, resolvedResponseConfig) : resolvedResponseConfig,
     enabled: connector.enabled,
     authType,
-    oauthActor: connectorType ? resolveLinearOAuthActor(connectorType, authType, responseConfig) : undefined,
+    oauthActor: connectorType ? resolveLinearOAuthActor(connectorType, authType, resolvedResponseConfig) : undefined,
     oauthConnected: Boolean(oauthConfig?.accessToken),
     oauthExpiresAt: oauthConfig?.expiresAt,
     createdAt: connector.createdAt.toISOString(),
