@@ -1,3 +1,5 @@
+import { getString, isRecord } from '@/lib/connectors/connector-values'
+
 import type { AhrefsApiResponse, AhrefsConnectorConfig } from '@/lib/connectors/ahrefs-types'
 
 const AHREFS_API_BASE = 'https://api.ahrefs.com'
@@ -12,20 +14,18 @@ function parseRetryAfter(headers: Headers): number | undefined {
 }
 
 function extractAhrefsErrorDetail(payload: unknown): string | undefined {
-  if (typeof payload === 'string' && payload.trim()) {
-    return payload.trim()
+  const payloadText = getString(payload)
+  if (payloadText) {
+    return payloadText
   }
 
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+  if (!isRecord(payload)) {
     return undefined
   }
 
-  const record = payload as Record<string, unknown>
   for (const key of ['error', 'message', 'detail']) {
-    const value = record[key]
-    if (typeof value === 'string' && value.trim()) {
-      return value.trim()
-    }
+    const value = getString(payload[key])
+    if (value) return value
   }
 
   return undefined

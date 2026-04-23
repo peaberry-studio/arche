@@ -15,6 +15,13 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useWorkspaceTheme } from '@/contexts/workspace-theme-context'
 import {
+  buildLinearOAuthScope,
+  isLinearOAuthScopeAllowedForActor,
+  LINEAR_OAUTH_SCOPE_OPTIONS,
+  type LinearOAuthActor,
+  type LinearOptionalOAuthScope,
+} from '@/lib/connectors/linear'
+import {
   CONNECTOR_TYPES,
   isSingleInstanceConnectorType,
   OAUTH_CONNECTOR_TYPES,
@@ -37,10 +44,15 @@ const CONNECTOR_TYPE_OPTIONS: { type: ConnectorType; label: string; description:
   { type: 'notion', label: 'Notion', description: 'Official Notion MCP integration.' },
   { type: 'zendesk', label: 'Zendesk', description: 'Zendesk Ticketing API via Arche MCP.' },
   { type: 'ahrefs', label: 'Ahrefs', description: 'Ahrefs SEO data via Arche MCP.' },
+  { type: 'umami', label: 'Umami', description: 'Website analytics from Umami Cloud or self-hosted Umami.' },
   { type: 'custom', label: 'Custom', description: 'Any compatible remote MCP endpoint.' },
 ]
 
 const DEFAULT_TYPE: ConnectorType = CONNECTOR_TYPES[0]
+const DEFAULT_LINEAR_OAUTH_ACTOR: LinearOAuthActor = 'user'
+const LINEAR_CREATE_APPLICATION_URL = 'https://linear.app/settings/api/applications/new'
+const LINEAR_ACTOR_AUTH_DOCS_URL = 'https://linear.app/developers/oauth-actor-authorization'
+const LINEAR_CALLBACK_URL_HINT = 'https://your-arche-host/api/connectors/oauth/callback'
 
 function buildDefaultName(type: ConnectorType): string {
   switch (type) {
@@ -52,6 +64,8 @@ function buildDefaultName(type: ConnectorType): string {
       return 'Zendesk'
     case 'ahrefs':
       return 'Ahrefs'
+    case 'umami':
+      return 'Umami'
     case 'custom':
       return 'Custom Connector'
   }
@@ -101,6 +115,11 @@ export function AddConnectorModal({
   const [apiKey, setApiKey] = useState('')
   const [zendeskSubdomain, setZendeskSubdomain] = useState('')
   const [zendeskEmail, setZendeskEmail] = useState('')
+  const [umamiAuthMethod, setUmamiAuthMethod] = useState<'api-key' | 'login'>('api-key')
+  const [umamiBaseUrl, setUmamiBaseUrl] = useState('')
+  const [umamiApiKey, setUmamiApiKey] = useState('')
+  const [umamiUsername, setUmamiUsername] = useState('')
+  const [umamiPassword, setUmamiPassword] = useState('')
   const [endpoint, setEndpoint] = useState('')
   const [auth, setAuth] = useState('')
   const [headersText, setHeadersText] = useState('')
@@ -110,11 +129,18 @@ export function AddConnectorModal({
   const [oauthAuthorizationEndpoint, setOauthAuthorizationEndpoint] = useState('')
   const [oauthTokenEndpoint, setOauthTokenEndpoint] = useState('')
   const [oauthRegistrationEndpoint, setOauthRegistrationEndpoint] = useState('')
+  const [linearOAuthActor, setLinearOAuthActor] = useState<LinearOAuthActor>(DEFAULT_LINEAR_OAUTH_ACTOR)
+  const [linearOAuthScopes, setLinearOAuthScopes] = useState<LinearOptionalOAuthScope[]>([])
 
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const usesGeneratedName = selectedType !== 'custom'
+  const showsLinearAppOAuthClientFields =
+    selectedType === 'linear' && authType === 'oauth' && linearOAuthActor === 'app'
+  const visibleLinearOAuthScopeOptions = LINEAR_OAUTH_SCOPE_OPTIONS.filter((option) =>
+    isLinearOAuthScopeAllowedForActor(option.scope, linearOAuthActor)
+  )
 
   const availableTypeOptions = useMemo(
     () =>
@@ -132,6 +158,11 @@ export function AddConnectorModal({
     setApiKey('')
     setZendeskSubdomain('')
     setZendeskEmail('')
+    setUmamiAuthMethod('api-key')
+    setUmamiBaseUrl('')
+    setUmamiApiKey('')
+    setUmamiUsername('')
+    setUmamiPassword('')
     setEndpoint('')
     setAuth('')
     setHeadersText('')
@@ -141,6 +172,8 @@ export function AddConnectorModal({
     setOauthAuthorizationEndpoint('')
     setOauthTokenEndpoint('')
     setOauthRegistrationEndpoint('')
+    setLinearOAuthActor(DEFAULT_LINEAR_OAUTH_ACTOR)
+    setLinearOAuthScopes([])
     setIsSaving(false)
     setError(null)
   }
@@ -155,6 +188,8 @@ export function AddConnectorModal({
     setSelectedType(defaultType)
     setAuthType(getDefaultAuthType(defaultType))
     setName(buildDefaultName(defaultType))
+    setLinearOAuthActor(DEFAULT_LINEAR_OAUTH_ACTOR)
+    setLinearOAuthScopes([])
   }, [availableTypeOptions, open])
 
   useEffect(() => {
@@ -170,13 +205,46 @@ export function AddConnectorModal({
       setSelectedType(fallbackType)
       setAuthType(getDefaultAuthType(fallbackType))
       setName(buildDefaultName(fallbackType))
+      setLinearOAuthActor(DEFAULT_LINEAR_OAUTH_ACTOR)
+      setLinearOAuthScopes([])
     }
   }, [availableTypeOptions, open, selectedType])
+
+  useEffect(() => {
+    if (selectedType !== 'linear' || authType !== 'oauth') return
+
+    setLinearOAuthScopes((current) =>
+      current.filter((scope) => isLinearOAuthScopeAllowedForActor(scope, linearOAuthActor))
+    )
+  }, [authType, linearOAuthActor, selectedType])
 
   function buildConfig(): { ok: true; value: Record<string, unknown> } | { ok: false; message: string } {
     if (selectedType === 'linear' || selectedType === 'notion') {
       if (authType === 'oauth') {
-        return { ok: true, value: { authType: 'oauth' } }
+        if (selectedType === 'linear' && linearOAuthActor === 'app') {
+          if (!oauthClientId.trim() || !oauthClientSecret.trim()) {
+            return { ok: false, message: 'Linear app actor OAuth requires client ID and client secret.' }
+          }
+        }
+
+        return {
+          ok: true,
+          value: {
+            authType: 'oauth',
+            ...(selectedType === 'linear'
+              ? {
+                  oauthScope: buildLinearOAuthScope(linearOAuthScopes),
+                }
+              : {}),
+            ...(selectedType === 'linear' && linearOAuthActor === 'app'
+              ? {
+                  oauthActor: 'app',
+                  oauthClientId: oauthClientId.trim() || undefined,
+                  oauthClientSecret: oauthClientSecret.trim() || undefined,
+                }
+              : {}),
+          },
+        }
       }
       if (!apiKey.trim()) {
         return { ok: false, message: 'API key is required.' }
@@ -198,12 +266,12 @@ export function AddConnectorModal({
       }
 
       return {
-          ok: true,
-          value: {
-            subdomain: normalizeZendeskSubdomain(zendeskSubdomain),
-            email: zendeskEmail.trim(),
-            apiToken: apiKey.trim(),
-          },
+        ok: true,
+        value: {
+          subdomain: normalizeZendeskSubdomain(zendeskSubdomain),
+          email: zendeskEmail.trim(),
+          apiToken: apiKey.trim(),
+        }
       }
     }
 
@@ -216,6 +284,45 @@ export function AddConnectorModal({
         ok: true,
         value: {
           apiKey: apiKey.trim(),
+        },
+      }
+    }
+
+    if (selectedType === 'umami') {
+      if (!umamiBaseUrl.trim()) {
+        return { ok: false, message: 'Umami base URL is required.' }
+      }
+
+      if (umamiAuthMethod === 'api-key') {
+        if (!umamiApiKey.trim()) {
+          return { ok: false, message: 'Umami API key is required.' }
+        }
+
+        return {
+          ok: true,
+          value: {
+            authMethod: 'api-key',
+            baseUrl: umamiBaseUrl.trim(),
+            apiKey: umamiApiKey.trim(),
+          },
+        }
+      }
+
+      if (!umamiUsername.trim()) {
+        return { ok: false, message: 'Umami username is required.' }
+      }
+
+      if (!umamiPassword.trim()) {
+        return { ok: false, message: 'Umami password is required.' }
+      }
+
+      return {
+        ok: true,
+        value: {
+          authMethod: 'login',
+          baseUrl: umamiBaseUrl.trim(),
+          username: umamiUsername.trim(),
+          password: umamiPassword.trim(),
         },
       }
     }
@@ -283,6 +390,14 @@ export function AddConnectorModal({
     if (selectedType === 'ahrefs') {
       return Boolean(apiKey.trim())
     }
+
+    if (selectedType === 'umami') {
+      if (umamiAuthMethod === 'api-key') {
+        return Boolean(umamiBaseUrl.trim() && umamiApiKey.trim())
+      }
+
+      return Boolean(umamiBaseUrl.trim() && umamiUsername.trim() && umamiPassword.trim())
+    }
     if (selectedType === 'custom') {
       if (authType === 'oauth') {
         return Boolean(endpoint.trim())
@@ -292,6 +407,10 @@ export function AddConnectorModal({
     }
 
     if (selectedType === 'linear' || selectedType === 'notion') {
+      if (selectedType === 'linear' && authType === 'oauth' && linearOAuthActor === 'app') {
+        return Boolean(oauthClientId.trim() && oauthClientSecret.trim())
+      }
+
       return authType === 'oauth' || Boolean(apiKey.trim())
     }
 
@@ -375,6 +494,8 @@ export function AddConnectorModal({
                   onClick={() => {
                     setSelectedType(option.type)
                     setAuthType(getDefaultAuthType(option.type))
+                    setLinearOAuthActor(DEFAULT_LINEAR_OAUTH_ACTOR)
+                    setLinearOAuthScopes([])
                     setError(null)
                   }}
                   className={cn(
@@ -446,11 +567,149 @@ export function AddConnectorModal({
             </div>
           ) : null}
 
+          {selectedType === 'linear' && authType === 'oauth' ? (
+            <div className="space-y-2">
+              <Label htmlFor="linear-oauth-actor" className="text-foreground">
+                OAuth actor
+              </Label>
+              <select
+                id="linear-oauth-actor"
+                className="w-full rounded-lg border border-border/50 bg-background px-3 py-2 text-sm text-foreground"
+                value={linearOAuthActor}
+                onChange={(event) =>
+                  setLinearOAuthActor(event.target.value === 'app' ? 'app' : 'user')
+                }
+              >
+                <option value="user">User OAuth</option>
+                <option value="app">App actor OAuth</option>
+              </select>
+              <p className="text-xs text-muted-foreground">
+                User OAuth acts as the person who connects it. App actor OAuth installs your Linear app so
+                mutations appear as the app instead.
+              </p>
+            </div>
+          ) : null}
+
+          {selectedType === 'linear' && authType === 'oauth' ? (
+            <fieldset className="space-y-3 rounded-lg border border-border/50 bg-muted/20 px-4 py-3">
+              <legend className="px-1 text-sm font-medium text-foreground">
+                OAuth permissions
+              </legend>
+              <p className="text-xs text-muted-foreground">
+                Linear always includes <code>read</code>. Select any extra permissions you want Arche to request.
+              </p>
+              <div className="space-y-3">
+                {visibleLinearOAuthScopeOptions.map((option) => {
+                  const inputId = `linear-oauth-scope-${option.scope.replace(/:/g, '-')}`
+                  const checked = linearOAuthScopes.includes(option.scope)
+
+                  return (
+                    <label key={option.scope} htmlFor={inputId} className="flex items-start gap-3 rounded-lg border border-border/40 bg-background/40 px-3 py-2">
+                      <input
+                        id={inputId}
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(event) => {
+                          const nextChecked = event.target.checked
+                          setLinearOAuthScopes((current) => {
+                            if (nextChecked) {
+                              return current.includes(option.scope)
+                                ? current
+                                : [...current, option.scope]
+                            }
+
+                            return current.filter((scope) => scope !== option.scope)
+                          })
+                        }}
+                        className="mt-1 h-4 w-4 rounded border-border text-primary"
+                      />
+                      <span className="space-y-1">
+                        <span className="block text-sm font-medium text-foreground">{option.label}</span>
+                        <span className="block text-xs text-muted-foreground">{option.description}</span>
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+            </fieldset>
+          ) : null}
+
           {/* OAuth hint */}
           {supportsOAuth(selectedType) && authType === 'oauth' ? (
             <p className="rounded-lg bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
               Save first, then click <strong className="text-foreground/80">Connect OAuth</strong> from the connector card.
             </p>
+          ) : null}
+
+          {showsLinearAppOAuthClientFields ? (
+            <div className="space-y-3 rounded-lg border border-border/50 bg-muted/20 px-4 py-3 text-sm">
+              <div className="space-y-1">
+                <p className="font-medium text-foreground">Create a Linear OAuth application first</p>
+                <p className="text-muted-foreground">
+                  Linear app actor mode uses your OAuth application name and icon as the author in Linear.
+                  A workspace admin must complete the OAuth connection.
+                </p>
+              </div>
+
+              <ol className="list-decimal space-y-1 pl-5 text-muted-foreground">
+                <li>Open Linear Settings -&gt; API -&gt; Applications.</li>
+                <li>Create a new OAuth2 application for Arche with the name and icon you want to appear in Linear.</li>
+                <li>Add <code>{LINEAR_CALLBACK_URL_HINT}</code> as a callback URL, replacing the host with your Arche URL.</li>
+                <li>Paste the Linear client ID and client secret below before starting OAuth.</li>
+                <li>Save this connector, then connect OAuth as a Linear workspace admin.</li>
+              </ol>
+
+              <div className="flex flex-wrap items-center gap-4 text-sm">
+                <a
+                  href={LINEAR_CREATE_APPLICATION_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-primary hover:underline"
+                >
+                  Create Linear OAuth application
+                </a>
+                <a
+                  href={LINEAR_ACTOR_AUTH_DOCS_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-primary hover:underline"
+                >
+                  Open Linear actor auth docs
+                </a>
+              </div>
+            </div>
+          ) : null}
+
+          {showsLinearAppOAuthClientFields ? (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="linear-oauth-client-id" className="text-foreground">
+                  Client ID
+                </Label>
+                <Input
+                  id="linear-oauth-client-id"
+                  value={oauthClientId}
+                  onChange={(event) => setOauthClientId(event.target.value)}
+                  placeholder="Linear OAuth client id"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="linear-oauth-client-secret" className="text-foreground">
+                  Client secret
+                </Label>
+                <Input
+                  id="linear-oauth-client-secret"
+                  type="password"
+                  value={oauthClientSecret}
+                  onChange={(event) => setOauthClientSecret(event.target.value)}
+                  placeholder="Linear OAuth client secret"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Linear app actor mode uses the credentials stored on this connector only.
+                </p>
+              </div>
+            </>
           ) : null}
 
           {/* Manual API key (official types) */}
@@ -525,6 +784,91 @@ export function AddConnectorModal({
                   placeholder="Paste your Zendesk API token"
                 />
               </div>
+            </>
+          ) : null}
+
+          {selectedType === 'umami' ? (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="connector-umami-base-url" className="text-foreground">
+                  Base URL
+                </Label>
+                <Input
+                  id="connector-umami-base-url"
+                  value={umamiBaseUrl}
+                  onChange={(event) => setUmamiBaseUrl(event.target.value)}
+                  placeholder={umamiAuthMethod === 'api-key' ? 'https://api.umami.is/v1' : 'https://analytics.example.com'}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Use the public HTTPS API base. For Umami Cloud the default is <code>https://api.umami.is/v1</code>. For self-hosted Umami you can enter the site root and Arche will use <code>/api</code> automatically.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="connector-umami-auth-method" className="text-foreground">
+                  Authentication method
+                </Label>
+                <select
+                  id="connector-umami-auth-method"
+                  className="w-full rounded-lg border border-border/50 bg-background px-3 py-2 text-sm text-foreground"
+                  value={umamiAuthMethod}
+                  onChange={(event) => setUmamiAuthMethod(event.target.value === 'login' ? 'login' : 'api-key')}
+                >
+                  <option value="api-key">Umami Cloud API key</option>
+                  <option value="login">Self-hosted username/password</option>
+                </select>
+              </div>
+
+              {umamiAuthMethod === 'api-key' ? (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="connector-umami-api-key" className="text-foreground">
+                      API key
+                    </Label>
+                    <Input
+                      id="connector-umami-api-key"
+                      type="password"
+                      value={umamiApiKey}
+                      onChange={(event) => setUmamiApiKey(event.target.value)}
+                      placeholder="Paste your Umami Cloud API key"
+                    />
+                  </div>
+                  <p className="rounded-lg bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                    Supported reads: websites, summary stats, pageview series, ranked metrics, recent sessions, recent events, and realtime. Umami Cloud API keys are rate-limited to 50 requests every 15 seconds.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="connector-umami-username" className="text-foreground">
+                      Username
+                    </Label>
+                    <Input
+                      id="connector-umami-username"
+                      value={umamiUsername}
+                      onChange={(event) => setUmamiUsername(event.target.value)}
+                      placeholder="admin"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="connector-umami-password" className="text-foreground">
+                      Password
+                    </Label>
+                    <Input
+                      id="connector-umami-password"
+                      type="password"
+                      value={umamiPassword}
+                      onChange={(event) => setUmamiPassword(event.target.value)}
+                      placeholder="Paste your Umami password"
+                    />
+                  </div>
+
+                  <p className="rounded-lg bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                    The configured user needs permission to read the target websites in Umami. Arche only exposes read-only analytics tools for this connector.
+                  </p>
+                </>
+              )}
             </>
           ) : null}
 

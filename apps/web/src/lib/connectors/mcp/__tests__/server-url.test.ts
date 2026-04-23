@@ -42,11 +42,12 @@ describe('getConnectorMcpServerUrl', () => {
     expect(getConnectorMcpServerUrl('notion', {})).toBe('https://notion.internal/mcp')
   })
 
-  it('returns the configured custom endpoint and no URL for zendesk or ahrefs', () => {
+  it('returns the configured custom endpoint and no URL for embedded connectors', () => {
     expect(getConnectorMcpServerUrl('custom', { endpoint: 'https://custom.example/mcp' })).toBe(
       'https://custom.example/mcp'
     )
     expect(getConnectorMcpServerUrl('zendesk', { subdomain: 'acme' })).toBeNull()
     expect(getConnectorMcpServerUrl('ahrefs', { apiKey: 'key' })).toBeNull()
+    expect(getConnectorMcpServerUrl('umami', { baseUrl: 'https://api.umami.is/v1' })).toBeNull()
   })
 })

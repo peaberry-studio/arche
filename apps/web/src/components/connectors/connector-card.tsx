@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { BookText, Boxes, Globe, Search, Ticket, Trash2 } from 'lucide-react'
+import { BarChart3, BookText, Boxes, Globe, Search, Ticket, Trash2 } from 'lucide-react'
 
 import type { ConnectorListItem, ConnectorTestState } from '@/components/connectors/types'
+import { getLinearOAuthModeLabel } from '@/lib/connectors/linear'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
@@ -28,6 +29,8 @@ function getTypeIcon(type: ConnectorListItem['type']) {
       return <Ticket className="h-4 w-4" />
     case 'ahrefs':
       return <Search className="h-4 w-4" />
+    case 'umami':
+      return <BarChart3 className="h-4 w-4" />
     case 'custom':
       return <Globe className="h-4 w-4" />
     default:
@@ -60,6 +63,7 @@ export function ConnectorCard({
 }: ConnectorCardProps) {
   const usesOAuth = connector.authType === 'oauth'
   const statusMeta = getStatusMeta(connector)
+  const linearOAuthModeLabel = getLinearOAuthModeLabel(connector)
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const popoverRef = useRef<HTMLDivElement>(null)
@@ -97,9 +101,10 @@ export function ConnectorCard({
             </div>
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold">{connector.name}</p>
-              <Badge variant={statusMeta.variant} className="mt-1">
-                {statusMeta.label}
-              </Badge>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <Badge variant={statusMeta.variant}>{statusMeta.label}</Badge>
+                {linearOAuthModeLabel ? <Badge variant="outline">{linearOAuthModeLabel}</Badge> : null}
+              </div>
             </div>
           </div>
 

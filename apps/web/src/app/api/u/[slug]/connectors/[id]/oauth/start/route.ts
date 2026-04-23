@@ -7,6 +7,7 @@ import {
   normalizeConnectorOAuthReturnTo,
   prepareConnectorOAuthAuthorization,
 } from '@/lib/connectors/oauth'
+import type { OAuthConnectorType } from '@/lib/connectors/types'
 import { validateConnectorType } from '@/lib/connectors/validators'
 import { getPublicBaseUrl } from '@/lib/http'
 import { requireCapability } from '@/lib/runtime/require-capability'
@@ -15,6 +16,10 @@ import { connectorService, userService } from '@/lib/services'
 
 type StartOAuthResponse = {
   authorizeUrl: string
+}
+
+function requiresConnectorConfig(type: OAuthConnectorType): boolean {
+  return type === 'linear' || type === 'custom'
 }
 
 export const POST = withAuth<
@@ -48,7 +53,7 @@ export const POST = withAuth<
   const returnTo = normalizeConnectorOAuthReturnTo(request.nextUrl.searchParams.get('returnTo'))
 
   let connectorConfig: Record<string, unknown> | undefined
-  if (connector.type === 'custom') {
+  if (requiresConnectorConfig(connector.type)) {
     try {
       connectorConfig = decryptConfig(connector.config)
     } catch {
@@ -75,6 +80,7 @@ export const POST = withAuth<
     const message = error instanceof Error ? error.message : 'oauth_start_failed'
     if (
       message === 'missing_endpoint'
+      || message === 'missing_linear_oauth_client_credentials'
       || message === 'invalid_endpoint'
       || message === 'blocked_endpoint'
       || message === 'oauth_state_too_large'

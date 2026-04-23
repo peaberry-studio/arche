@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 
+import { getLinearOAuthActor, getLinearOAuthClientCredentials } from '@/lib/connectors/linear'
 import { OAUTH_CONNECTOR_TYPES, type ConnectorType, type OAuthConnectorType } from '@/lib/connectors/types'
 import { validateConnectorTestEndpoint } from '@/lib/security/ssrf'
 
@@ -52,6 +53,7 @@ type OAuthPreparationContext = {
   mcpServerUrl: string
   scope?: string
   staticClientRegistration: OAuthClientRegistration | null
+  preferStaticClientRegistration: boolean
   metadataOverrides: OAuthMetadataOverrides
   validateMetadataEndpoints: boolean
 }
@@ -60,6 +62,11 @@ const MCP_SERVER_URLS = {
   linear: 'https://mcp.linear.app/mcp',
   notion: 'https://mcp.notion.com/mcp',
 } as const
+
+const LINEAR_APP_ACTOR_OAUTH_METADATA: OAuthMetadataOverrides = {
+  authorizationEndpoint: 'https://linear.app/oauth/authorize',
+  tokenEndpoint: 'https://api.linear.app/oauth/token',
+}
 
 function getOAuthStateSecret(): string {
   const secret = process.env.ARCHE_CONNECTOR_OAUTH_STATE_SECRET
@@ -301,13 +308,8 @@ function getStaticOAuthClientRegistration(
   }
 
   if (type === 'linear') {
-    const clientId = process.env.ARCHE_CONNECTOR_LINEAR_CLIENT_ID
-    if (!clientId || !clientId.trim()) return null
-    const clientSecret = process.env.ARCHE_CONNECTOR_LINEAR_CLIENT_SECRET
-    return {
-      clientId: clientId.trim(),
-      clientSecret: clientSecret?.trim() || undefined,
-    }
+    if (!connectorConfig || getLinearOAuthActor(connectorConfig) !== 'app') return null
+    return getLinearOAuthClientCredentials(connectorConfig)
   }
 
   const clientId = process.env.ARCHE_CONNECTOR_NOTION_CLIENT_ID
@@ -324,11 +326,23 @@ async function resolveOAuthPreparationContext(input: {
   connectorConfig?: Record<string, unknown>
 }): Promise<OAuthPreparationContext> {
   if (input.connectorType !== 'custom') {
+    const preferStaticClientRegistration = input.connectorType === 'linear'
+      && input.connectorConfig !== undefined
+      && getLinearOAuthActor(input.connectorConfig) === 'app'
+    const staticClientRegistration = getStaticOAuthClientRegistration(input.connectorType, input.connectorConfig)
+
+    if (preferStaticClientRegistration && !staticClientRegistration) {
+      throw new Error('missing_linear_oauth_client_credentials')
+    }
+
     return {
       mcpServerUrl: getOfficialMcpServerUrl(input.connectorType),
-      scope: getOptionalScope(input.connectorType),
-      staticClientRegistration: getStaticOAuthClientRegistration(input.connectorType),
-      metadataOverrides: {},
+      scope: input.connectorType === 'linear'
+        ? getString(input.connectorConfig?.oauthScope) ?? getOptionalScope(input.connectorType)
+        : getOptionalScope(input.connectorType),
+      staticClientRegistration,
+      preferStaticClientRegistration,
+      metadataOverrides: preferStaticClientRegistration ? LINEAR_APP_ACTOR_OAUTH_METADATA : {},
       validateMetadataEndpoints: false,
     }
   }
@@ -347,6 +361,7 @@ async function resolveOAuthPreparationContext(input: {
     mcpServerUrl: await validateConnectorUrl(endpoint),
     scope: getString(connectorConfig?.oauthScope),
     staticClientRegistration: getStaticOAuthClientRegistration(input.connectorType, connectorConfig),
+    preferStaticClientRegistration: false,
     metadataOverrides: {
       authorizationEndpoint: authorizationEndpoint
         ? await validateConnectorUrl(authorizationEndpoint)
@@ -390,7 +405,12 @@ async function registerOAuthClient(
   redirectUri: string,
   connectorType: OAuthConnectorType,
   staticRegistration: OAuthClientRegistration | null,
+  preferStaticClientRegistration: boolean,
 ): Promise<OAuthClientRegistration> {
+  if (staticRegistration && preferStaticClientRegistration) {
+    return staticRegistration
+  }
+
   if (!metadata.registrationEndpoint) {
     if (staticRegistration) return staticRegistration
     throw new Error('oauth_registration_failed:missing_registration_endpoint')
@@ -520,6 +540,7 @@ export async function prepareConnectorOAuthAuthorization(input: {
     input.redirectUri,
     input.connectorType,
     context.staticClientRegistration,
+    context.preferStaticClientRegistration,
   )
 
   const codeVerifier = createPkceCodeVerifier()
@@ -553,6 +574,10 @@ export async function prepareConnectorOAuthAuthorization(input: {
   const scope = context.scope
   if (scope) {
     authorizeUrl.searchParams.set('scope', scope)
+  }
+
+  if (input.connectorType === 'linear' && input.connectorConfig && getLinearOAuthActor(input.connectorConfig) === 'app') {
+    authorizeUrl.searchParams.set('actor', 'app')
   }
 
   const authorizeUrlString = authorizeUrl.toString()

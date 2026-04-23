@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { encryptConfig, decryptConfig } from '@/lib/connectors/crypto'
+import {
+  buildLinearOAuthScope,
+  getLinearOAuthActor,
+  getLinearOAuthModeLabel,
+  parseLinearOptionalOAuthScopes,
+  resolveLinearOAuthActor,
+} from '@/lib/connectors/linear'
 import { CONNECTOR_TYPES } from '@/lib/connectors/types'
 import {
   parseZendeskConnectorConfig,
@@ -53,7 +60,7 @@ describe('connectors/crypto', () => {
 
 describe('connectors/types', () => {
   it('CONNECTOR_TYPES contains expected values', () => {
-    expect(CONNECTOR_TYPES).toEqual(['linear', 'notion', 'zendesk', 'ahrefs', 'custom'])
+    expect(CONNECTOR_TYPES).toEqual(['linear', 'notion', 'zendesk', 'ahrefs', 'umami', 'custom'])
   })
 })
 
@@ -63,6 +70,8 @@ describe('connectors/validators', () => {
       expect(validateConnectorType('linear')).toBe(true)
       expect(validateConnectorType('notion')).toBe(true)
       expect(validateConnectorType('zendesk')).toBe(true)
+      expect(validateConnectorType('ahrefs')).toBe(true)
+      expect(validateConnectorType('umami')).toBe(true)
       expect(validateConnectorType('custom')).toBe(true)
     })
 
@@ -81,6 +90,74 @@ describe('connectors/validators', () => {
       const invalid = validateConnectorConfig('linear', {})
       expect(invalid.valid).toBe(false)
       expect(invalid.missing).toContain('apiKey')
+    })
+
+    it('validates optional Linear OAuth actor mode', () => {
+      expect(validateConnectorConfig('linear', { authType: 'oauth', oauthActor: 'app' })).toEqual({
+        valid: false,
+        message: 'Linear app actor OAuth requires both client ID and client secret',
+      })
+
+      expect(validateConnectorConfig('linear', {
+        authType: 'oauth',
+        oauthActor: 'app',
+        oauthClientId: 'client-123',
+        oauthClientSecret: 'secret-123',
+        oauthScope: 'read,write,app:mentionable',
+      })).toEqual({
+        valid: true,
+      })
+
+      expect(validateConnectorConfig('linear', {
+        authType: 'oauth',
+        oauthScope: 'read,app:mentionable',
+      })).toEqual({
+        valid: false,
+        message: 'Linear user OAuth cannot request app-only permissions',
+      })
+
+      expect(validateConnectorConfig('linear', {
+        authType: 'oauth',
+        oauthActor: 'app',
+        oauthClientId: 'client-123',
+        oauthClientSecret: 'secret-123',
+        oauthScope: 'read,admin',
+      })).toEqual({
+        valid: false,
+        message: 'Linear app actor OAuth cannot request admin scope',
+      })
+
+      expect(validateConnectorConfig('linear', { authType: 'oauth', oauthActor: 'robot' })).toEqual({
+        valid: false,
+        message: 'Linear OAuth actor must be user or app',
+      })
+
+      expect(validateConnectorConfig('linear', {
+        authType: 'oauth',
+        oauthActor: 'app',
+        oauthClientSecret: 'secret-123',
+      })).toEqual({
+        valid: false,
+        message: 'Linear app actor OAuth requires both client ID and client secret',
+      })
+
+      expect(validateConnectorConfig('linear', {
+        authType: 'oauth',
+        oauthActor: 'app',
+        oauthClientId: 'client-123',
+      })).toEqual({
+        valid: false,
+        message: 'Linear app actor OAuth requires both client ID and client secret',
+      })
+
+      expect(validateConnectorConfig('linear', {
+        authType: 'oauth',
+        oauthActor: 'app',
+        oauthClientId: '   ',
+      })).toEqual({
+        valid: false,
+        message: 'Linear OAuth client ID must be a non-empty string',
+      })
     })
 
     it('validates required fields for notion', () => {
@@ -112,6 +189,56 @@ describe('connectors/validators', () => {
       const invalid = validateConnectorConfig('zendesk', {})
       expect(invalid.valid).toBe(false)
       expect(invalid.missing).toEqual(['subdomain', 'email', 'apiToken'])
+    })
+
+    it('validates required fields for ahrefs', () => {
+      expect(validateConnectorConfig('ahrefs', {
+        apiKey: 'ahrefs-key-123',
+      })).toEqual({ valid: true })
+
+      expect(validateConnectorConfig('ahrefs', {})).toEqual({
+        valid: false,
+        missing: ['apiKey'],
+      })
+    })
+
+    it('rejects oauth mode for ahrefs connectors', () => {
+      expect(validateConnectorConfig('ahrefs', {
+        authType: 'oauth',
+        apiKey: 'ahrefs-key-123',
+      })).toEqual({
+        valid: false,
+        message: 'Ahrefs connectors do not support OAuth',
+      })
+    })
+
+    it('validates required fields for umami', () => {
+      expect(validateConnectorConfig('umami', {
+        authMethod: 'api-key',
+        baseUrl: 'https://api.umami.is/v1',
+        apiKey: 'key-123',
+      })).toEqual({ valid: true })
+
+      expect(validateConnectorConfig('umami', {
+        authMethod: 'login',
+        baseUrl: 'https://analytics.example.com',
+        username: 'admin',
+      })).toEqual({
+        valid: false,
+        missing: ['password'],
+      })
+    })
+
+    it('rejects oauth mode for umami connectors', () => {
+      expect(validateConnectorConfig('umami', {
+        authType: 'oauth',
+        authMethod: 'api-key',
+        baseUrl: 'https://api.umami.is/v1',
+        apiKey: 'key-123',
+      })).toEqual({
+        valid: false,
+        message: 'Umami connectors do not support OAuth',
+      })
     })
 
     it('rejects invalid zendesk subdomains', () => {
@@ -304,5 +431,37 @@ describe('connectors/zendesk-config', () => {
         permissions: DEFAULT_ZENDESK_CONNECTOR_PERMISSIONS,
       },
     })
+  })
+})
+
+describe('connectors/linear', () => {
+  it('defaults missing actor mode to user', () => {
+    expect(getLinearOAuthActor({ authType: 'oauth' })).toBe('user')
+  })
+
+  it('reads app actor mode from connector config', () => {
+    expect(getLinearOAuthActor({ authType: 'oauth', oauthActor: 'app' })).toBe('app')
+  })
+
+  it('builds and parses Linear OAuth scopes', () => {
+    expect(buildLinearOAuthScope(['write', 'app:mentionable'])).toBe('read,write,app:mentionable')
+    expect(parseLinearOptionalOAuthScopes('read,write,app:mentionable,write')).toEqual([
+      'write',
+      'app:mentionable',
+    ])
+  })
+
+  it('resolves actor only for linear oauth connectors', () => {
+    expect(resolveLinearOAuthActor('linear', 'oauth', { authType: 'oauth', oauthActor: 'app' })).toBe('app')
+    expect(resolveLinearOAuthActor('linear', 'oauth', { authType: 'oauth' })).toBe('user')
+    expect(resolveLinearOAuthActor('linear', 'manual', { authType: 'manual' })).toBeUndefined()
+    expect(resolveLinearOAuthActor('notion', 'oauth', { authType: 'oauth' })).toBeUndefined()
+  })
+
+  it('returns mode label only for linear oauth connectors', () => {
+    expect(getLinearOAuthModeLabel({ type: 'linear', authType: 'oauth', oauthActor: 'app' })).toBe('App actor OAuth')
+    expect(getLinearOAuthModeLabel({ type: 'linear', authType: 'oauth', oauthActor: 'user' })).toBe('User OAuth')
+    expect(getLinearOAuthModeLabel({ type: 'linear', authType: 'manual' })).toBeNull()
+    expect(getLinearOAuthModeLabel({ type: 'notion', authType: 'oauth' })).toBeNull()
   })
 })

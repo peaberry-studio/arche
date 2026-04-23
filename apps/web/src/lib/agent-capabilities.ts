@@ -72,6 +72,7 @@ const SINGLE_INSTANCE_AGENT_CONNECTOR_CAPABILITY_IDS = {
   notion: 'globalnotion',
   zendesk: 'globalzendesk',
   ahrefs: 'globalahrefs',
+  umami: 'globalumami',
 } as const satisfies Record<Exclude<ConnectorType, 'custom'>, string>
 
 const TOOL_SET = new Set<string>(OPENCODE_AGENT_TOOLS)

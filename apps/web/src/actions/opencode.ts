@@ -4,6 +4,7 @@ import { createInstanceClient, getInstanceUrl } from "@/lib/opencode/client";
 import { extractTextContent, transformParts } from "@/lib/opencode/transform";
 import type {
   AvailableModel,
+  Session as OpenCodeSession,
   WorkspaceConnectionState,
   WorkspaceFileContent,
   WorkspaceFileNode,
@@ -337,61 +338,254 @@ function formatTimestamp(
   return d.toLocaleDateString("en-US", { day: "numeric", month: "short" });
 }
 
-export async function listSessionsAction(slug: string): Promise<{
+type WorkspaceSessionListEntry = {
+  id: string;
+  parentId?: string;
+  share?: {
+    url: string;
+  };
+  title: string;
+  updatedAtRaw?: number;
+};
+
+type ListWorkspaceSessionsOptions = {
+  limit?: number;
+  rootsOnly?: boolean;
+  start?: number;
+};
+
+type ListWorkspaceSessionsResult = {
   ok: boolean;
   sessions?: WorkspaceSession[];
+  hasMore?: boolean;
   error?: string;
+};
+
+type ListWorkspaceSessionFamilyResult = {
+  ok: boolean;
+  rootSessionId?: string | null;
+  sessions?: WorkspaceSession[];
+  error?: string;
+};
+
+function toBusyStatus(type: unknown): "active" | "idle" | "busy" | "error" {
+  if (type === "busy" || type === "retry") {
+    return "busy";
+  }
+
+  return "idle";
+}
+
+function toWorkspaceSessions(
+  sessions: WorkspaceSessionListEntry[],
+  statuses: Record<string, { type?: string }>,
+  autopilotBySessionId: Map<string, Awaited<ReturnType<typeof autopilotService.findSessionMetadataByUserId>>[number]>,
+): WorkspaceSession[] {
+  return sessions.map((session) => {
+    const autopilot = autopilotBySessionId.get(session.id);
+
+    return {
+      id: session.id,
+      title: session.title || "Untitled",
+      status: toBusyStatus(statuses[session.id]?.type),
+      updatedAt: formatTimestamp(session.updatedAtRaw),
+      updatedAtRaw: session.updatedAtRaw,
+      parentId: session.parentId,
+      autopilot: autopilot
+        ? {
+            runId: autopilot.runId,
+            taskId: autopilot.taskId,
+            taskName: autopilot.taskName,
+            trigger: autopilot.trigger,
+            hasUnseenResult: autopilot.hasUnseenResult,
+          }
+        : undefined,
+      share: session.share ? { url: session.share.url, version: 1 } : undefined,
+    };
+  });
+}
+
+function mapApiSession(session: OpenCodeSession): WorkspaceSessionListEntry {
+  return {
+    id: session.id,
+    parentId: session.parentID,
+    share: session.share,
+    title: session.title || "Untitled",
+    updatedAtRaw: typeof session.time?.updated === "number" ? session.time.updated : undefined,
+  };
+}
+
+function compareSessionListEntries(
+  left: WorkspaceSessionListEntry,
+  right: WorkspaceSessionListEntry,
+): number {
+  const rightUpdatedAt = right.updatedAtRaw ?? 0;
+  const leftUpdatedAt = left.updatedAtRaw ?? 0;
+
+  if (rightUpdatedAt !== leftUpdatedAt) {
+    return rightUpdatedAt - leftUpdatedAt;
+  }
+
+  return right.id.localeCompare(left.id);
+}
+
+async function getWorkspaceSessionMetadata(
+  slug: string,
+  client: NonNullable<Awaited<ReturnType<typeof createInstanceClient>>>,
+  sessionIds: string[],
+) {
+  const [statusResult, workspaceUser] = await Promise.all([
+    client.session.status(),
+    getAuthorizedWorkspaceUserId(slug),
+  ]);
+  const statuses = statusResult?.data ?? {};
+  const targetUserId = workspaceUser.ok ? workspaceUser.userId : null;
+  const autopilotMetadata = targetUserId
+    ? await autopilotService.findSessionMetadataByUserId(targetUserId, sessionIds)
+    : [];
+
+  return {
+    autopilotBySessionId: new Map(
+      autopilotMetadata.map((entry) => [entry.openCodeSessionId, entry]),
+    ),
+    statuses,
+  };
+}
+
+async function listWorkspaceSessionsFromApi(
+  slug: string,
+  client: NonNullable<Awaited<ReturnType<typeof createInstanceClient>>>,
+  options: ListWorkspaceSessionsOptions,
+): Promise<ListWorkspaceSessionsResult> {
+  const requestedLimit =
+    typeof options.limit === "number" && Number.isFinite(options.limit)
+      ? Math.max(1, Math.trunc(options.limit))
+      : undefined;
+  const requestedStart =
+    typeof options.start === "number" && Number.isFinite(options.start)
+      ? Math.trunc(options.start)
+      : undefined;
+  const result = await client.session.list({
+    limit: requestedLimit,
+    roots: options.rootsOnly ? true : undefined,
+    start: requestedStart,
+  });
+  const sessions = (result.data ?? []).map(mapApiSession);
+  const metadata = await getWorkspaceSessionMetadata(slug, client, sessions.map((session) => session.id));
+
+  return {
+    ok: true,
+    hasMore: requestedLimit ? sessions.length >= requestedLimit : false,
+    sessions: toWorkspaceSessions(sessions, metadata.statuses, metadata.autopilotBySessionId),
+  };
+}
+
+async function getWorkspaceSessionById(
+  client: NonNullable<Awaited<ReturnType<typeof createInstanceClient>>>,
+  sessionId: string,
+): Promise<OpenCodeSession | null> {
+  const result = await client.session.get({ sessionID: sessionId });
+  return result.data ?? null;
+}
+
+async function listWorkspaceSessionFamilyFromApi(
+  client: NonNullable<Awaited<ReturnType<typeof createInstanceClient>>>,
+  sessionId: string,
+): Promise<{
+  rootSessionId: string | null;
+  sessions: WorkspaceSessionListEntry[];
 }> {
+  const target = await getWorkspaceSessionById(client, sessionId);
+  if (!target) {
+    return { rootSessionId: null, sessions: [] };
+  }
+
+  const sessionsById = new Map<string, OpenCodeSession>([[target.id, target]]);
+  const visitedAncestorIds = new Set<string>();
+  let root = target;
+  let current: OpenCodeSession | null = target;
+
+  while (current) {
+    if (visitedAncestorIds.has(current.id)) {
+      break;
+    }
+
+    visitedAncestorIds.add(current.id);
+    sessionsById.set(current.id, current);
+    root = current;
+
+    if (!current.parentID) {
+      break;
+    }
+
+    current = await getWorkspaceSessionById(client, current.parentID);
+  }
+
+  const queue: string[] = [root.id];
+  const visitedFamilyIds = new Set<string>([root.id]);
+
+  while (queue.length > 0) {
+    const parentId = queue.shift();
+    if (!parentId) {
+      continue;
+    }
+
+    const childrenResult = await client.session.children({ sessionID: parentId });
+    const children = childrenResult.data ?? [];
+
+    for (const child of children) {
+      if (visitedFamilyIds.has(child.id)) {
+        continue;
+      }
+
+      visitedFamilyIds.add(child.id);
+      sessionsById.set(child.id, child);
+      queue.push(child.id);
+    }
+  }
+
+  return {
+    rootSessionId: root.id,
+    sessions: Array.from(sessionsById.values())
+      .map(mapApiSession)
+      .sort(compareSessionListEntries),
+  };
+}
+
+export async function listSessionsAction(
+  slug: string,
+  options: ListWorkspaceSessionsOptions = {},
+): Promise<ListWorkspaceSessionsResult> {
   const { error, client } = await getAuthorizedClientContext(slug);
   if (error) return { ok: false, error };
 
   try {
-    const result = await client!.session.list();
-    const sessions = result.data ?? [];
+    return await listWorkspaceSessionsFromApi(slug, client!, options);
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "unknown" };
+  }
+}
 
-    // Get status for all sessions
-    const statusResult = await client!.session.status();
-    const statuses = statusResult.data ?? {};
-    const workspaceUser = await getAuthorizedWorkspaceUserId(slug);
-    const targetUserId = workspaceUser.ok ? workspaceUser.userId : null;
-    const autopilotMetadata = targetUserId
-      ? await autopilotService.findSessionMetadataByUserId(
-          targetUserId,
-          sessions.map((entry) => entry.id)
-        )
-      : [];
-    const autopilotBySessionId = new Map(
-      autopilotMetadata.map((entry) => [entry.openCodeSessionId, entry])
-    );
+export async function listSessionFamilyAction(
+  slug: string,
+  sessionId: string,
+): Promise<ListWorkspaceSessionFamilyResult> {
+  const { error, client } = await getAuthorizedClientContext(slug);
+  if (error) return { ok: false, error };
 
-    const transformed: WorkspaceSession[] = sessions.map((s) => {
-      const sessionStatus = statuses[s.id];
-      const autopilot = autopilotBySessionId.get(s.id);
-      let status: "active" | "idle" | "busy" | "error" = "idle";
-      if (sessionStatus?.type === "busy") status = "busy";
-      else if (sessionStatus?.type === "retry") status = "busy";
+  try {
+    const family = await listWorkspaceSessionFamilyFromApi(client!, sessionId);
+    if (!family.rootSessionId) {
+      return { ok: false, error: "not_found" };
+    }
 
-      return {
-        id: s.id,
-        title: s.title || "Untitled",
-        status,
-        updatedAt: formatTimestamp(s.time?.updated),
-        updatedAtRaw: typeof s.time?.updated === "number" ? s.time.updated : undefined,
-        parentId: s.parentID,
-        autopilot: autopilot
-            ? {
-                runId: autopilot.runId,
-                taskId: autopilot.taskId,
-                taskName: autopilot.taskName,
-                trigger: autopilot.trigger,
-                hasUnseenResult: autopilot.hasUnseenResult,
-              }
-            : undefined,
-        share: s.share ? { url: s.share.url, version: 1 } : undefined,
-      };
-    });
+    const metadata = await getWorkspaceSessionMetadata(slug, client!, family.sessions.map((session) => session.id));
 
-    return { ok: true, sessions: transformed };
+    return {
+      ok: true,
+      rootSessionId: family.rootSessionId,
+      sessions: toWorkspaceSessions(family.sessions, metadata.statuses, metadata.autopilotBySessionId),
+    };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "unknown" };
   }

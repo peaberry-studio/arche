@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { decryptProviderSecret } from '@/lib/providers/crypto'
+import { getE2eFakeProviderUrl } from '@/lib/e2e/runtime'
 import { getCanonicalProviderId } from '@/lib/providers/catalog'
 import { getActiveCredentialForUser } from '@/lib/providers/store'
 import { verifyGatewayToken } from '@/lib/providers/tokens'
@@ -16,6 +17,17 @@ const PROVIDER_BASE_URL: Record<ProviderId, string> = {
   fireworks: 'https://api.fireworks.ai/inference/v1',
   openrouter: 'https://openrouter.ai/api/v1',
   opencode: 'https://opencode.ai/zen/v1',
+}
+
+function getProviderBaseUrl(providerId: ProviderId): string {
+  if (providerId === 'openai') {
+    const fakeProviderUrl = getE2eFakeProviderUrl()
+    if (fakeProviderUrl) {
+      return fakeProviderUrl
+    }
+  }
+
+  return PROVIDER_BASE_URL[providerId]
 }
 
 const OPENAI_RESPONSES_MAX_FETCH_ATTEMPTS = 3
@@ -332,7 +344,7 @@ async function handleProxy(
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
-  const upstreamUrl = buildUpstreamUrl(PROVIDER_BASE_URL[providerId], pathSegments, new URL(request.url))
+  const upstreamUrl = buildUpstreamUrl(getProviderBaseUrl(providerId), pathSegments, new URL(request.url))
 
   const headers = new Headers(request.headers)
   stripHopByHopHeaders(headers)

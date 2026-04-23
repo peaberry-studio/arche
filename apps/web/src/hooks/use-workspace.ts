@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import {
+  listSessionFamilyAction,
   listSessionsAction,
   createSessionAction,
   deleteSessionAction,
@@ -53,6 +54,7 @@ type ProviderStatusEntry = {
 
 const STALE_PENDING_ASSISTANT_MS = 5_000;
 const RESUME_POLL_INTERVAL_MS = 4_000;
+const ROOT_SESSION_LIMIT_STEP = 500;
 const EMPTY_WORKSPACE_MESSAGES: WorkspaceMessage[] = [];
 const PRE_SESSION_SELECTION_KEY = "__pre_session__";
 
@@ -310,6 +312,76 @@ function createDefaultSessionSelectionState(
   };
 }
 
+function mergeWorkspaceSessions(
+  primary: WorkspaceSession[],
+  secondary: WorkspaceSession[]
+): WorkspaceSession[] {
+  const merged = [...primary];
+  const seen = new Set(primary.map((session) => session.id));
+
+  for (const session of secondary) {
+    if (seen.has(session.id)) continue;
+    seen.add(session.id);
+    merged.push(session);
+  }
+
+  return merged;
+}
+
+function areWorkspaceSessionListsEqual(
+  left: WorkspaceSession[],
+  right: WorkspaceSession[]
+): boolean {
+  if (left.length !== right.length) return false;
+
+  return left.every((session, index) => {
+    const candidate = right[index];
+    return (
+      session.id === candidate.id &&
+      session.title === candidate.title &&
+      session.status === candidate.status &&
+      session.updatedAt === candidate.updatedAt &&
+      session.updatedAtRaw === candidate.updatedAtRaw &&
+      session.parentId === candidate.parentId &&
+      session.autopilot?.runId === candidate.autopilot?.runId &&
+      session.autopilot?.hasUnseenResult === candidate.autopilot?.hasUnseenResult
+    );
+  });
+}
+
+function removeWorkspaceSessions(
+  sessions: WorkspaceSession[],
+  sessionIdsToRemove: Set<string>
+): WorkspaceSession[] {
+  return sessions.filter((session) => !sessionIdsToRemove.has(session.id));
+}
+
+function collectSessionFamilyIds(
+  sessions: WorkspaceSession[],
+  sessionId: string
+): Set<string> {
+  // Delete cleanup operates on already-loaded client state to avoid another
+  // round-trip before pruning the visible root + descendant session tree.
+  const familyIds = new Set<string>([sessionId]);
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    for (const session of sessions) {
+      if (
+        session.parentId &&
+        familyIds.has(session.parentId) &&
+        !familyIds.has(session.id)
+      ) {
+        familyIds.add(session.id);
+        changed = true;
+      }
+    }
+  }
+
+  return familyIds;
+}
+
 export type UseWorkspaceOptions = {
   slug: string;
   storageScope?: string;
@@ -349,7 +421,10 @@ export type UseWorkspaceReturn = {
   activeSessionId: string | null;
   activeSession: WorkspaceSession | null;
   isLoadingSessions: boolean;
+  isLoadingMoreSessions: boolean;
+  hasMoreSessions: boolean;
   unseenCompletedSessions: ReadonlySet<string>;
+  loadMoreSessions: () => Promise<void>;
   selectSession: (id: string) => void;
   markAutopilotRunSeen: (runId: string) => Promise<void>;
   createSession: (title?: string) => Promise<WorkspaceSession | null>;
@@ -427,9 +502,12 @@ export function useWorkspace({
   useInstanceHeartbeat(slug, enabled && reaperEnabled);
 
   // Sessions
-  const [sessions, setSessions] = useState<WorkspaceSession[]>([]);
+  const [rootSessions, setRootSessions] = useState<WorkspaceSession[]>([]);
+  const [activeFamilySessions, setActiveFamilySessions] = useState<WorkspaceSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+  const [isLoadingMoreSessions, setIsLoadingMoreSessions] = useState(false);
+  const [hasMoreSessions, setHasMoreSessions] = useState(false);
 
   // Messages
   const [messagesBySession, setMessagesBySession] = useState<
@@ -446,10 +524,23 @@ export function useWorkspace({
   const [unseenCompletedSessions, setUnseenCompletedSessions] = useState<Set<string>>(new Set());
   const activeSessionIdRef = useRef(activeSessionId);
   activeSessionIdRef.current = activeSessionId;
+  const rootSessionsRef = useRef(rootSessions);
+  rootSessionsRef.current = rootSessions;
+  const activeFamilySessionsRef = useRef(activeFamilySessions);
+  activeFamilySessionsRef.current = activeFamilySessions;
+  const sessions = useMemo(
+    () => mergeWorkspaceSessions(rootSessions, activeFamilySessions),
+    [activeFamilySessions, rootSessions]
+  );
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
   const sessionMutationVersionRef = useRef(0);
   const sessionLoadRequestIdRef = useRef(0);
+  const sessionFamilyLoadRequestIdRef = useRef(0);
+  const activeFamilyRootIdRef = useRef<string | null>(null);
+  // OpenCode's session API does not expose a backwards cursor yet, so we grow
+  // the root-session limit progressively when the user asks for more history.
+  const rootSessionLimitRef = useRef(ROOT_SESSION_LIMIT_STEP);
   const streamCounterRef = useRef(0);
   const activeStreamsRef = useRef(new Map<string, {
     token: number;
@@ -777,11 +868,24 @@ export function useWorkspace({
     const requestId = sessionLoadRequestIdRef.current + 1;
     sessionLoadRequestIdRef.current = requestId;
     const mutationVersionAtStart = sessionMutationVersionRef.current;
+    const currentSessionId = activeSessionIdRef.current;
+    const requestedSessionId = initialSessionIdRef.current;
+    const storedSessionId = loadStoredActiveSessionId(activeSessionStorageKey);
+    const preferredSessionId =
+      currentSessionId ?? requestedSessionId ?? storedSessionId ?? null;
 
     console.log("[useWorkspace] loadSessions: loading...");
     setIsLoadingSessions(true);
     try {
-      const result = await listSessionsAction(slug);
+      const rootSessionLimit = Math.max(
+        ROOT_SESSION_LIMIT_STEP,
+        rootSessionLimitRef.current,
+        rootSessionsRef.current.length,
+      );
+      const result = await listSessionsAction(slug, {
+        limit: rootSessionLimit,
+        rootsOnly: true,
+      });
       console.log(
         "[useWorkspace] loadSessions result:",
         result.ok,
@@ -789,6 +893,21 @@ export function useWorkspace({
         result.sessions?.length
       );
       if (result.ok && result.sessions) {
+        let familySessions = preferredSessionId && activeFamilySessionsRef.current.some(
+          (session) => session.id === preferredSessionId
+        )
+          ? activeFamilySessionsRef.current
+          : [];
+        let familyRootId = familySessions.length > 0 ? activeFamilyRootIdRef.current : null;
+
+        if (preferredSessionId) {
+          const familyResult = await listSessionFamilyAction(slug, preferredSessionId);
+          if (familyResult.ok && familyResult.sessions) {
+            familySessions = familyResult.sessions;
+            familyRootId = familyResult.rootSessionId ?? familyRootId;
+          }
+        }
+
         if (requestId !== sessionLoadRequestIdRef.current) {
           return;
         }
@@ -797,10 +916,21 @@ export function useWorkspace({
           return;
         }
 
-        const sessions = result.sessions;
+        const mergedRootSessions = result.sessions;
+        const visibleSessions = mergeWorkspaceSessions(
+          mergedRootSessions,
+          familySessions
+        );
 
-        setSessions(sessions);
-        const sessionIds = new Set(sessions.map((session) => session.id));
+        setRootSessions(mergedRootSessions);
+        rootSessionLimitRef.current = rootSessionLimit;
+        setActiveFamilySessions((prev) =>
+          areWorkspaceSessionListsEqual(prev, familySessions) ? prev : familySessions
+        );
+        activeFamilyRootIdRef.current = familyRootId;
+        setHasMoreSessions(Boolean(result.hasMore));
+
+        const sessionIds = new Set(visibleSessions.map((session) => session.id));
         setSessionSelectionState((prev) => {
           let changed = false;
           const next: Record<string, SessionSelectionState> = {};
@@ -820,15 +950,12 @@ export function useWorkspace({
 
           return changed ? next : prev;
         });
-        const currentSessionId = activeSessionIdRef.current;
-        const requestedSessionId = initialSessionIdRef.current;
-        const storedSessionId = loadStoredActiveSessionId(activeSessionStorageKey);
-        const firstManualRootSession = sessions.find(
+        const firstManualRootSession = visibleSessions.find(
           (session) =>
             (!session.parentId || !sessionIds.has(session.parentId)) &&
             !session.autopilot
         );
-        const firstRootSession = sessions.find(
+        const firstRootSession = visibleSessions.find(
           (session) => !session.parentId || !sessionIds.has(session.parentId)
         );
         const nextActiveSessionId =
@@ -843,7 +970,7 @@ export function useWorkspace({
             : null) ??
           firstManualRootSession?.id ??
           firstRootSession?.id ??
-          sessions[0]?.id ??
+          visibleSessions[0]?.id ??
           null;
 
         initialSessionIdRef.current = null;
@@ -863,6 +990,75 @@ export function useWorkspace({
       }
     }
   }, [activeSessionStorageKey, slug]);
+
+  const loadMoreSessions = useCallback(async () => {
+    if (!isConnected || isLoadingMoreSessions || !hasMoreSessions) {
+      return;
+    }
+
+    const nextLimit = Math.max(
+      rootSessionLimitRef.current + ROOT_SESSION_LIMIT_STEP,
+      rootSessionsRef.current.length + ROOT_SESSION_LIMIT_STEP,
+    );
+
+    setIsLoadingMoreSessions(true);
+    try {
+      const result = await listSessionsAction(slug, {
+        limit: nextLimit,
+        rootsOnly: true,
+      });
+      if (!result.ok) {
+        console.error("[useWorkspace] loadMoreSessions failed", result.error);
+        setHasMoreSessions(false);
+        return;
+      }
+
+      if (!result.sessions || result.sessions.length === 0) {
+        setHasMoreSessions(false);
+        return;
+      }
+
+      setRootSessions(result.sessions);
+      rootSessionLimitRef.current = nextLimit;
+      setHasMoreSessions(Boolean(result.hasMore));
+    } finally {
+      setIsLoadingMoreSessions(false);
+    }
+  }, [hasMoreSessions, isConnected, isLoadingMoreSessions, slug]);
+
+  const ensureSessionFamilyLoaded = useCallback(
+    async (sessionId: string) => {
+      if (activeFamilySessionsRef.current.some((session) => session.id === sessionId)) {
+        return;
+      }
+
+      const requestId = sessionFamilyLoadRequestIdRef.current + 1;
+      sessionFamilyLoadRequestIdRef.current = requestId;
+
+      const result = await listSessionFamilyAction(slug, sessionId);
+      if (requestId !== sessionFamilyLoadRequestIdRef.current) {
+        return;
+      }
+
+      if (!result.ok || !result.sessions) {
+        return;
+      }
+
+      setActiveFamilySessions((prev) =>
+        areWorkspaceSessionListsEqual(prev, result.sessions!) ? prev : result.sessions!
+      );
+      activeFamilyRootIdRef.current = result.rootSessionId ?? null;
+    },
+    [slug]
+  );
+
+  const updateVisibleSessions = useCallback(
+    (updater: (sessions: WorkspaceSession[]) => WorkspaceSession[]) => {
+      setRootSessions((prev) => updater(prev));
+      setActiveFamilySessions((prev) => updater(prev));
+    },
+    []
+  );
 
   // --- Stream management ---
 
@@ -897,6 +1093,7 @@ export function useWorkspace({
     (id: string) => {
       setActiveSessionId(id);
       activeSessionIdRef.current = id;
+      void ensureSessionFamilyLoaded(id);
 
       // Clear "unseen completed" flag when the user visits this session
       setUnseenCompletedSessions((prev) => {
@@ -906,14 +1103,14 @@ export function useWorkspace({
         return next;
       });
     },
-    []
+    [ensureSessionFamilyLoaded]
   );
 
   const markAutopilotRunSeen = useCallback(
     async (runId: string) => {
       let touched = false;
 
-      setSessions((prev) =>
+      updateVisibleSessions((prev) =>
         prev.map((session) => {
           if (session.autopilot?.runId !== runId || !session.autopilot.hasUnseenResult) {
             return session;
@@ -935,7 +1132,7 @@ export function useWorkspace({
         void loadSessions();
       }
     },
-    [loadSessions, slug]
+    [loadSessions, slug, updateVisibleSessions]
   );
 
   useEffect(() => {
@@ -956,7 +1153,9 @@ export function useWorkspace({
       if (result.ok && result.session) {
         const draftSelection = sessionSelectionStateRef.current[PRE_SESSION_SELECTION_KEY];
         markSessionsMutated();
-        setSessions((prev) => [result.session!, ...prev]);
+        setRootSessions((prev) => mergeWorkspaceSessions([result.session!], prev));
+        setActiveFamilySessions([result.session]);
+        activeFamilyRootIdRef.current = result.session.id;
         setActiveSessionId(result.session.id);
         activeSessionIdRef.current = result.session.id;
         updateSessionMessages(result.session.id, []);
@@ -982,29 +1181,45 @@ export function useWorkspace({
       const result = await deleteSessionAction(slug, id);
       if (result.ok) {
         markSessionsMutated();
-        abortSessionStream(id);
-        setSessions((prev) => {
-          const filtered = prev.filter((s) => s.id !== id);
-          const nextActiveSessionId =
-            activeSessionIdRef.current === id
-              ? filtered[0]?.id ?? null
-              : activeSessionIdRef.current;
+        const sessionIdsToRemove = collectSessionFamilyIds(sessionsRef.current, id);
+        const nextVisibleSessions = removeWorkspaceSessions(
+          sessionsRef.current,
+          sessionIdsToRemove,
+        );
 
-          activeSessionIdRef.current = nextActiveSessionId;
-          setActiveSessionId(nextActiveSessionId);
-          return filtered;
+        sessionIdsToRemove.forEach((sessionId) => {
+          abortSessionStream(sessionId);
+          setSessionStreamStatusTo(sessionId, "ready");
+          clearSessionSelectionState(sessionId);
+          sessionExecutorsRef.current.delete(sessionId);
         });
+
+        setRootSessions((prev) => removeWorkspaceSessions(prev, sessionIdsToRemove));
+        setActiveFamilySessions((prev) => removeWorkspaceSessions(prev, sessionIdsToRemove));
+        if (activeFamilyRootIdRef.current && sessionIdsToRemove.has(activeFamilyRootIdRef.current)) {
+          activeFamilyRootIdRef.current = null;
+        }
+
+        const nextActiveSessionId = activeSessionIdRef.current && sessionIdsToRemove.has(activeSessionIdRef.current)
+          ? nextVisibleSessions[0]?.id ?? null
+          : activeSessionIdRef.current;
+        activeSessionIdRef.current = nextActiveSessionId;
+        setActiveSessionId(nextActiveSessionId);
         setMessagesBySession((prev) => {
-          if (!(id in prev)) return prev;
-
           const next = { ...prev };
-          delete next[id];
-          return next;
+          let changed = false;
+
+          sessionIdsToRemove.forEach((sessionId) => {
+            if (!(sessionId in next)) return;
+            delete next[sessionId];
+            changed = true;
+          });
+
+          return changed ? next : prev;
         });
-        setLoadingMessageSessionIds((prev) => prev.filter((sessionId) => sessionId !== id));
-        setSessionStreamStatusTo(id, "ready");
-        clearSessionSelectionState(id);
-        sessionExecutorsRef.current.delete(id);
+        setLoadingMessageSessionIds((prev) =>
+          prev.filter((sessionId) => !sessionIdsToRemove.has(sessionId))
+        );
         return true;
       }
       return false;
@@ -1026,7 +1241,7 @@ export function useWorkspace({
       markSessionsMutated();
       const result = await updateSessionAction(slug, id, nextTitle);
       if (result.ok) {
-        setSessions((prev) =>
+        updateVisibleSessions((prev) =>
           prev.map((session) => {
             if (session.id !== id) return session;
 
@@ -1044,7 +1259,7 @@ export function useWorkspace({
       void loadSessions();
       return false;
     },
-    [loadSessions, markSessionsMutated, slug]
+    [loadSessions, markSessionsMutated, slug, updateVisibleSessions]
   );
 
   // --- Messages ---
@@ -2025,6 +2240,11 @@ export function useWorkspace({
   }, [activeSessionId, isConnected, refreshMessages]);
 
   useEffect(() => {
+    if (!activeSessionId || !isConnected) return;
+    void ensureSessionFamilyLoaded(activeSessionId);
+  }, [activeSessionId, ensureSessionFamilyLoaded, isConnected]);
+
+  useEffect(() => {
     if (!enabled || !isConnected) return;
 
     const handleWorkspaceConfigChanged = () => {
@@ -2207,7 +2427,10 @@ export function useWorkspace({
     activeSessionId,
     activeSession,
     isLoadingSessions,
+    isLoadingMoreSessions,
+    hasMoreSessions,
     unseenCompletedSessions,
+    loadMoreSessions,
     selectSession,
     markAutopilotRunSeen,
     createSession,

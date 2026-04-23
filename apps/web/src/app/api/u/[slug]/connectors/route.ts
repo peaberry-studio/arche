@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
 import { decryptConfig, encryptConfig } from '@/lib/connectors/crypto'
+import { resolveLinearOAuthActor, type LinearOAuthActor } from '@/lib/connectors/linear'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
 import { isSingleInstanceConnectorType } from '@/lib/connectors/types'
 import {
@@ -20,6 +21,7 @@ export interface ConnectorListItem {
   enabled: boolean
   status: 'ready' | 'pending' | 'disabled'
   authType: 'manual' | 'oauth'
+  oauthActor?: LinearOAuthActor
   oauthConnected: boolean
   oauthExpiresAt?: string
   createdAt: string
@@ -55,12 +57,14 @@ export const GET = withAuth<{ connectors: ConnectorListItem[] } | { error: strin
     return NextResponse.json({
       connectors: connectors.filter((c) => validateConnectorType(c.type)).map((c) => {
         let authType: 'manual' | 'oauth' = 'manual'
+        let oauthActor: LinearOAuthActor | undefined
         let oauthConnected = false
         let oauthExpiresAt: string | undefined
 
         try {
           const config = decryptConfig(c.config)
           authType = getConnectorAuthType(config)
+          oauthActor = resolveLinearOAuthActor(c.type, authType, config)
           const oauth = validateConnectorType(c.type) ? getConnectorOAuthConfig(c.type, config) : null
           oauthConnected = Boolean(oauth?.accessToken)
           oauthExpiresAt = oauth?.expiresAt
@@ -75,6 +79,7 @@ export const GET = withAuth<{ connectors: ConnectorListItem[] } | { error: strin
           enabled: c.enabled,
           status: !c.enabled ? 'disabled' : authType === 'oauth' && !oauthConnected ? 'pending' : 'ready',
           authType,
+          oauthActor,
           oauthConnected,
           oauthExpiresAt,
           createdAt: c.createdAt.toISOString(),

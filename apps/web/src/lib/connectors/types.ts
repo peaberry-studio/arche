@@ -1,7 +1,7 @@
-export const CONNECTOR_TYPES = ['linear', 'notion', 'zendesk', 'ahrefs', 'custom'] as const
+export const CONNECTOR_TYPES = ['linear', 'notion', 'zendesk', 'ahrefs', 'umami', 'custom'] as const
 export type ConnectorType = (typeof CONNECTOR_TYPES)[number]
 
-export const SINGLE_INSTANCE_CONNECTOR_TYPES = ['linear', 'notion', 'zendesk', 'ahrefs'] as const satisfies readonly ConnectorType[]
+export const SINGLE_INSTANCE_CONNECTOR_TYPES = ['linear', 'notion', 'zendesk', 'ahrefs', 'umami'] as const satisfies readonly ConnectorType[]
 
 export function isSingleInstanceConnectorType(type: ConnectorType): boolean {
   return SINGLE_INSTANCE_CONNECTOR_TYPES.includes(type as (typeof SINGLE_INSTANCE_CONNECTOR_TYPES)[number])

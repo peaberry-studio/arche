@@ -4,12 +4,14 @@ import { handleAhrefsMcpRequest } from '@/lib/connectors/mcp/ahrefs-handler'
 
 const ahrefsMocks = vi.hoisted(() => ({
   executeAhrefsMcpTool: vi.fn(),
+  getAhrefsMcpProtocolVersion: vi.fn(),
   getAhrefsMcpTools: vi.fn(),
   parseAhrefsConnectorConfig: vi.fn(),
 }))
 
 vi.mock('@/lib/connectors/ahrefs', () => ({
   executeAhrefsMcpTool: ahrefsMocks.executeAhrefsMcpTool,
+  getAhrefsMcpProtocolVersion: ahrefsMocks.getAhrefsMcpProtocolVersion,
   getAhrefsMcpTools: ahrefsMocks.getAhrefsMcpTools,
   parseAhrefsConnectorConfig: ahrefsMocks.parseAhrefsConnectorConfig,
 }))
@@ -34,6 +36,7 @@ describe('handleAhrefsMcpRequest', () => {
         apiKey: 'ahrefs-api-key-123',
       },
     })
+    ahrefsMocks.getAhrefsMcpProtocolVersion.mockReturnValue('2025-03-26')
     ahrefsMocks.getAhrefsMcpTools.mockReturnValue([{ name: 'get_domain_rating' }])
     ahrefsMocks.executeAhrefsMcpTool.mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] })
   })
@@ -48,11 +51,11 @@ describe('handleAhrefsMcpRequest', () => {
     expect(await response.json()).toEqual({
       jsonrpc: '2.0',
       id: 'req-1',
-      result: {
-        protocolVersion: '2025-03-26',
-        capabilities: {
-          tools: {
-            listChanged: false,
+        result: {
+          protocolVersion: '2025-03-26',
+          capabilities: {
+            tools: {
+              listChanged: false,
           },
         },
         serverInfo: {
@@ -107,6 +110,27 @@ describe('handleAhrefsMcpRequest', () => {
       error: {
         code: -32000,
         message: 'Missing apiKey',
+      },
+    })
+  })
+
+  it('falls back to a generic invalid config message when no details are available', async () => {
+    ahrefsMocks.parseAhrefsConnectorConfig.mockReturnValue({
+      ok: false,
+    })
+
+    const response = await handleAhrefsMcpRequest(
+      buildRequest({ jsonrpc: '2.0', id: 'req-3', method: 'initialize' }),
+      {}
+    )
+
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({
+      jsonrpc: '2.0',
+      id: null,
+      error: {
+        code: -32000,
+        message: 'Invalid Ahrefs connector config',
       },
     })
   })

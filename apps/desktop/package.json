@@ -9,6 +9,10 @@
     "prepare:runtime": "bash ../../scripts/prepare-desktop-runtime.sh",
     "dev": "pnpm prepare:runtime && tsc && electron dist/main.js",
     "build": "tsc",
+    "test:e2e": "pnpm build && playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:real-runtime": "ARCHE_E2E_PROFILE=real-runtime pnpm build && ARCHE_E2E_PROFILE=real-runtime playwright test",
     "test:smoke": "pnpm build && node --test tests/desktop-workspace-smoke.test.js",
     "test": "pnpm build && node --test tests/create-vault.test.js tests/desktop-encryption-key.test.js tests/desktop-next-dist.test.js tests/runtime-binaries.test.js tests/runtime-network.test.js tests/runtime-start.test.js tests/runtime-supervisor.test.js tests/vault-manifest.test.js tests/vault-registry.test.js tests/vault-lock.test.js tests/vault-layout.test.js tests/vault-launch.test.js",
     "start": "electron dist/main.js",
@@ -23,8 +27,10 @@
     "electron-is-dev": "^3.0.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "electron": "^35.1.2",
     "electron-builder": "^26.0.12",
+    "playwright": "^1.59.1",
     "typescript": "^5.9.3"
   },
   "pnpm": {

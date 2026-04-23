@@ -57,6 +57,15 @@ describe('agent connector capabilities', () => {
         ownerSlug: null,
       },
       {
+        id: 'globalumami',
+        type: 'umami',
+        name: 'Umami',
+        enabled: false,
+        scope: 'type',
+        ownerKind: null,
+        ownerSlug: null,
+      },
+      {
         id: 'globalzendesk',
         type: 'zendesk',
         name: 'Zendesk',
