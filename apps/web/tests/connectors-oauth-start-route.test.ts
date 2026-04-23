@@ -106,6 +106,7 @@ describe('POST /api/u/[slug]/connectors/[id]/oauth/start', () => {
       oauthActor: 'app',
       oauthClientId: 'linear-client-id',
       oauthClientSecret: 'linear-client-secret',
+      oauthScope: 'read,write,app:mentionable',
     })
     mockPrepareConnectorOAuthAuthorization.mockResolvedValue({
       authorizeUrl: 'https://linear.app/oauth/authorize?actor=app',
@@ -138,13 +139,14 @@ describe('POST /api/u/[slug]/connectors/[id]/oauth/start', () => {
       userId: 'user-1',
       connectorType: 'linear',
       redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
-      connectorConfig: {
-        authType: 'oauth',
-        oauthActor: 'app',
-        oauthClientId: 'linear-client-id',
-        oauthClientSecret: 'linear-client-secret',
-      },
-    })
+        connectorConfig: {
+          authType: 'oauth',
+          oauthActor: 'app',
+          oauthClientId: 'linear-client-id',
+          oauthClientSecret: 'linear-client-secret',
+          oauthScope: 'read,write,app:mentionable',
+        },
+      })
   })
 
   it('returns 400 when Linear app actor credentials are missing', async () => {

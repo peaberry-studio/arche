@@ -1,5 +1,5 @@
 import { getConnectorAuthType } from '@/lib/connectors/oauth-config'
-import { isLinearOAuthActor } from '@/lib/connectors/linear'
+import { getLinearOAuthActor, getLinearOAuthScopeValidationError, isLinearOAuthActor } from '@/lib/connectors/linear'
 import { isOAuthConnectorType } from '@/lib/connectors/oauth'
 import type { ConnectorConfigValidationResult } from '@/lib/connectors/config-validation'
 import { validateZendeskConnectorConfig } from '@/lib/connectors/zendesk-config'
@@ -19,7 +19,7 @@ export interface ConnectorConfigSchema {
 export type { ConnectorConfigValidationResult } from '@/lib/connectors/config-validation'
 
 export const CONNECTOR_SCHEMAS: Record<ConnectorType, ConnectorConfigSchema> = {
-  linear: { required: ['apiKey'], optional: ['oauthActor', 'oauthClientId', 'oauthClientSecret'] },
+  linear: { required: ['apiKey'], optional: ['oauthActor', 'oauthClientId', 'oauthClientSecret', 'oauthScope'] },
   notion: { required: ['apiKey'] },
   zendesk: { required: ['subdomain', 'email', 'apiToken'] },
   custom: {
@@ -93,6 +93,13 @@ export function validateConnectorConfig(
 
       if (!isValidConfigValue(config.oauthClientId) || !isValidConfigValue(config.oauthClientSecret)) {
         return { valid: false, message: 'Linear app actor OAuth requires both client ID and client secret' }
+      }
+    }
+
+    if (type === 'linear') {
+      const scopeError = getLinearOAuthScopeValidationError(config.oauthScope, getLinearOAuthActor(config))
+      if (scopeError) {
+        return { valid: false, message: scopeError }
       }
     }
 

@@ -209,7 +209,7 @@ describe('connectors oauth state', () => {
       userId: 'user-1',
       connectorType: 'linear',
       redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
-      connectorConfig: { authType: 'oauth' },
+      connectorConfig: { authType: 'oauth', oauthScope: 'read,write' },
     })
 
     const appPrepared = await prepareConnectorOAuthAuthorization({
@@ -223,6 +223,7 @@ describe('connectors oauth state', () => {
         oauthActor: 'app',
         oauthClientId: 'linear-app-client-id',
         oauthClientSecret: 'linear-app-client-secret',
+        oauthScope: 'read,write,app:mentionable',
       },
     })
 
@@ -231,6 +232,8 @@ describe('connectors oauth state', () => {
 
     expect(`${userAuthorizeUrl.origin}${userAuthorizeUrl.pathname}`).toBe('https://mcp.linear.app/authorize')
     expect(`${appAuthorizeUrl.origin}${appAuthorizeUrl.pathname}`).toBe('https://linear.app/oauth/authorize')
+    expect(userAuthorizeUrl.searchParams.get('scope')).toBe('read,write')
+    expect(appAuthorizeUrl.searchParams.get('scope')).toBe('read,write,app:mentionable')
     expect(userAuthorizeUrl.searchParams.get('actor')).toBeNull()
     expect(appAuthorizeUrl.searchParams.get('actor')).toBe('app')
 

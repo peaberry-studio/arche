@@ -337,7 +337,9 @@ async function resolveOAuthPreparationContext(input: {
 
     return {
       mcpServerUrl: getOfficialMcpServerUrl(input.connectorType),
-      scope: getOptionalScope(input.connectorType),
+      scope: input.connectorType === 'linear'
+        ? getString(input.connectorConfig?.oauthScope) ?? getOptionalScope(input.connectorType)
+        : getOptionalScope(input.connectorType),
       staticClientRegistration,
       preferStaticClientRegistration,
       metadataOverrides: preferStaticClientRegistration ? LINEAR_APP_ACTOR_OAUTH_METADATA : {},
