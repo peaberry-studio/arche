@@ -80,6 +80,7 @@ export const POST = withAuth<
     const message = error instanceof Error ? error.message : 'oauth_start_failed'
     if (
       message === 'missing_endpoint'
+      || message === 'missing_linear_oauth_client_credentials'
       || message === 'invalid_endpoint'
       || message === 'blocked_endpoint'
       || message === 'oauth_state_too_large'

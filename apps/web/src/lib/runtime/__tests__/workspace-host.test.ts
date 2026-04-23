@@ -15,9 +15,15 @@ vi.mock('@/lib/workspace-agent/client', () => ({
 }))
 
 const mockFindStatusBySlug = vi.fn()
+const mockSetRunning = vi.fn()
+const mockSetStopped = vi.fn()
+const mockUpsertStarting = vi.fn()
 vi.mock('@/lib/services', () => ({
   instanceService: {
     findStatusBySlug: (...args: unknown[]) => mockFindStatusBySlug(...args),
+    setRunning: (...args: unknown[]) => mockSetRunning(...args),
+    setStopped: (...args: unknown[]) => mockSetStopped(...args),
+    upsertStarting: (...args: unknown[]) => mockUpsertStarting(...args),
   },
 }))
 
@@ -29,6 +35,12 @@ describe('workspace-host dispatcher', () => {
     vi.clearAllMocks()
     process.env = { ...originalEnv }
     mockFindStatusBySlug.mockResolvedValue(null)
+    mockUpsertStarting.mockResolvedValue(undefined)
+    mockSetRunning.mockResolvedValue(undefined)
+    mockSetStopped.mockResolvedValue(undefined)
+    delete process.env.ARCHE_ENABLE_E2E_HOOKS
+    delete process.env.ARCHE_E2E_RUNTIME_BASE_URL
+    delete process.env.ARCHE_E2E_RUNTIME_PASSWORD
   })
 
   afterEach(() => {
@@ -97,6 +109,32 @@ describe('workspace-host dispatcher', () => {
       const { getWorkspaceConnection } = await import('../workspace-host')
       const conn = await getWorkspaceConnection('alice')
       expect(conn).toEqual({ baseUrl: 'http://opencode-alice:4096', authHeader: 'Basic abc' })
+    })
+
+    it('uses the fake E2E runtime without calling the spawner', async () => {
+      process.env.ARCHE_ENABLE_E2E_HOOKS = '1'
+      process.env.ARCHE_E2E_RUNTIME_BASE_URL = 'http://127.0.0.1:4210'
+      process.env.ARCHE_E2E_RUNTIME_PASSWORD = 'fake-password'
+      mockFindStatusBySlug.mockResolvedValue({
+        status: 'running',
+        startedAt: new Date('2026-04-21T10:00:00.000Z'),
+        stoppedAt: null,
+        lastActivityAt: new Date('2026-04-21T10:00:00.000Z'),
+      })
+
+      const { webWorkspaceHost } = await import('../workspace-host-web')
+      const { startInstance } = await import('@/lib/spawner/core')
+
+      expect(await webWorkspaceHost.start('alice', 'user-1')).toEqual({ ok: true, status: 'running' })
+      expect(startInstance).not.toHaveBeenCalled()
+      expect(await webWorkspaceHost.getConnection('alice')).toEqual({
+        baseUrl: 'http://127.0.0.1:4210',
+        authHeader: expect.any(String),
+      })
+      expect(await webWorkspaceHost.getAgentConnection('alice')).toEqual({
+        baseUrl: 'http://127.0.0.1:4210',
+        authHeader: expect.any(String),
+      })
     })
   })
 

@@ -209,7 +209,7 @@ describe('desktopWorkspaceHost', () => {
   const originalEnv = process.env
   const originalResourcesPath = process.resourcesPath
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.resetModules()
     vi.clearAllMocks()
     vi.stubGlobal('fetch', mockFetch)
@@ -225,6 +225,9 @@ describe('desktopWorkspaceHost', () => {
     delete process.env.ARCHE_DESKTOP_WEB_PORT
     delete process.env.ARCHE_DESKTOP_START_TIMEOUT_MS
     delete process.env.ARCHE_DESKTOP_START_INTERVAL_MS
+    delete process.env.ARCHE_ENABLE_E2E_HOOKS
+    delete process.env.ARCHE_E2E_RUNTIME_BASE_URL
+    delete process.env.ARCHE_E2E_RUNTIME_PASSWORD
     delete process.env.OPENCODE_SERVER_PASSWORD
     // @ts-expect-error test isolation
     process.resourcesPath = undefined
@@ -255,6 +258,9 @@ describe('desktopWorkspaceHost', () => {
     mockRm.mockResolvedValue(undefined)
     mockWriteFile.mockResolvedValue(undefined)
     mockHealthyFetch()
+
+    const { instanceService } = await import('@/lib/services')
+    vi.mocked(instanceService.findStatusBySlug).mockResolvedValue(null)
   })
 
   afterEach(() => {
@@ -273,6 +279,37 @@ describe('desktopWorkspaceHost', () => {
 
     expect(result).toEqual({ ok: true, status: 'started' })
     expect(mockSpawn).toHaveBeenCalledTimes(2)
+  })
+
+  it('skips real process startup in E2E fake mode and returns fake connections', async () => {
+    process.env.ARCHE_ENABLE_E2E_HOOKS = '1'
+    process.env.ARCHE_E2E_RUNTIME_BASE_URL = 'http://127.0.0.1:4210'
+    process.env.ARCHE_E2E_RUNTIME_PASSWORD = 'fake-password'
+    const { instanceService } = await import('@/lib/services')
+    vi.mocked(instanceService.findStatusBySlug).mockResolvedValue({
+      status: 'running',
+      startedAt: new Date('2026-04-21T10:00:00.000Z'),
+      stoppedAt: null,
+      lastActivityAt: new Date('2026-04-21T10:00:00.000Z'),
+      containerId: null,
+      serverPassword: 'enc:fake-password',
+      providerSyncHash: null,
+      providerSyncedAt: null,
+    })
+
+    const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
+    const result = await desktopWorkspaceHost.start('local', 'user-1')
+
+    expect(result).toEqual({ ok: true, status: 'started' })
+    expect(mockSpawn).not.toHaveBeenCalled()
+    expect(await desktopWorkspaceHost.getConnection('local')).toEqual({
+      baseUrl: 'http://127.0.0.1:4210',
+      authHeader: expect.any(String),
+    })
+    expect(await desktopWorkspaceHost.getAgentConnection('local')).toEqual({
+      baseUrl: 'http://127.0.0.1:4210',
+      authHeader: expect.any(String),
+    })
   })
 
   it('stores the applied runtime config hash after successful startup', async () => {

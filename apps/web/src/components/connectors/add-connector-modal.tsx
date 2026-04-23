@@ -14,7 +14,13 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useWorkspaceTheme } from '@/contexts/workspace-theme-context'
-import { type LinearOAuthActor } from '@/lib/connectors/linear'
+import {
+  buildLinearOAuthScope,
+  isLinearOAuthScopeAllowedForActor,
+  LINEAR_OAUTH_SCOPE_OPTIONS,
+  type LinearOAuthActor,
+  type LinearOptionalOAuthScope,
+} from '@/lib/connectors/linear'
 import {
   CONNECTOR_TYPES,
   isSingleInstanceConnectorType,
@@ -121,11 +127,17 @@ export function AddConnectorModal({
   const [oauthTokenEndpoint, setOauthTokenEndpoint] = useState('')
   const [oauthRegistrationEndpoint, setOauthRegistrationEndpoint] = useState('')
   const [linearOAuthActor, setLinearOAuthActor] = useState<LinearOAuthActor>(DEFAULT_LINEAR_OAUTH_ACTOR)
+  const [linearOAuthScopes, setLinearOAuthScopes] = useState<LinearOptionalOAuthScope[]>([])
 
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const usesGeneratedName = selectedType !== 'custom'
+  const showsLinearAppOAuthClientFields =
+    selectedType === 'linear' && authType === 'oauth' && linearOAuthActor === 'app'
+  const visibleLinearOAuthScopeOptions = LINEAR_OAUTH_SCOPE_OPTIONS.filter((option) =>
+    isLinearOAuthScopeAllowedForActor(option.scope, linearOAuthActor)
+  )
 
   const availableTypeOptions = useMemo(
     () =>
@@ -158,6 +170,7 @@ export function AddConnectorModal({
     setOauthTokenEndpoint('')
     setOauthRegistrationEndpoint('')
     setLinearOAuthActor(DEFAULT_LINEAR_OAUTH_ACTOR)
+    setLinearOAuthScopes([])
     setIsSaving(false)
     setError(null)
   }
@@ -173,6 +186,7 @@ export function AddConnectorModal({
     setAuthType(getDefaultAuthType(defaultType))
     setName(buildDefaultName(defaultType))
     setLinearOAuthActor(DEFAULT_LINEAR_OAUTH_ACTOR)
+    setLinearOAuthScopes([])
   }, [availableTypeOptions, open])
 
   useEffect(() => {
@@ -189,17 +203,43 @@ export function AddConnectorModal({
       setAuthType(getDefaultAuthType(fallbackType))
       setName(buildDefaultName(fallbackType))
       setLinearOAuthActor(DEFAULT_LINEAR_OAUTH_ACTOR)
+      setLinearOAuthScopes([])
     }
   }, [availableTypeOptions, open, selectedType])
+
+  useEffect(() => {
+    if (selectedType !== 'linear' || authType !== 'oauth') return
+
+    setLinearOAuthScopes((current) =>
+      current.filter((scope) => isLinearOAuthScopeAllowedForActor(scope, linearOAuthActor))
+    )
+  }, [authType, linearOAuthActor, selectedType])
 
   function buildConfig(): { ok: true; value: Record<string, unknown> } | { ok: false; message: string } {
     if (selectedType === 'linear' || selectedType === 'notion') {
       if (authType === 'oauth') {
+        if (selectedType === 'linear' && linearOAuthActor === 'app') {
+          if (!oauthClientId.trim() || !oauthClientSecret.trim()) {
+            return { ok: false, message: 'Linear app actor OAuth requires client ID and client secret.' }
+          }
+        }
+
         return {
           ok: true,
           value: {
             authType: 'oauth',
-            ...(selectedType === 'linear' && linearOAuthActor === 'app' ? { oauthActor: 'app' } : {}),
+            ...(selectedType === 'linear'
+              ? {
+                  oauthScope: buildLinearOAuthScope(linearOAuthScopes),
+                }
+              : {}),
+            ...(selectedType === 'linear' && linearOAuthActor === 'app'
+              ? {
+                  oauthActor: 'app',
+                  oauthClientId: oauthClientId.trim() || undefined,
+                  oauthClientSecret: oauthClientSecret.trim() || undefined,
+                }
+              : {}),
           },
         }
       }
@@ -347,6 +387,10 @@ export function AddConnectorModal({
     }
 
     if (selectedType === 'linear' || selectedType === 'notion') {
+      if (selectedType === 'linear' && authType === 'oauth' && linearOAuthActor === 'app') {
+        return Boolean(oauthClientId.trim() && oauthClientSecret.trim())
+      }
+
       return authType === 'oauth' || Boolean(apiKey.trim())
     }
 
@@ -431,6 +475,7 @@ export function AddConnectorModal({
                     setSelectedType(option.type)
                     setAuthType(getDefaultAuthType(option.type))
                     setLinearOAuthActor(DEFAULT_LINEAR_OAUTH_ACTOR)
+                    setLinearOAuthScopes([])
                     setError(null)
                   }}
                   className={cn(
@@ -525,6 +570,50 @@ export function AddConnectorModal({
             </div>
           ) : null}
 
+          {selectedType === 'linear' && authType === 'oauth' ? (
+            <fieldset className="space-y-3 rounded-lg border border-border/50 bg-muted/20 px-4 py-3">
+              <legend className="px-1 text-sm font-medium text-foreground">
+                OAuth permissions
+              </legend>
+              <p className="text-xs text-muted-foreground">
+                Linear always includes <code>read</code>. Select any extra permissions you want Arche to request.
+              </p>
+              <div className="space-y-3">
+                {visibleLinearOAuthScopeOptions.map((option) => {
+                  const inputId = `linear-oauth-scope-${option.scope.replace(/:/g, '-')}`
+                  const checked = linearOAuthScopes.includes(option.scope)
+
+                  return (
+                    <label key={option.scope} htmlFor={inputId} className="flex items-start gap-3 rounded-lg border border-border/40 bg-background/40 px-3 py-2">
+                      <input
+                        id={inputId}
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(event) => {
+                          const nextChecked = event.target.checked
+                          setLinearOAuthScopes((current) => {
+                            if (nextChecked) {
+                              return current.includes(option.scope)
+                                ? current
+                                : [...current, option.scope]
+                            }
+
+                            return current.filter((scope) => scope !== option.scope)
+                          })
+                        }}
+                        className="mt-1 h-4 w-4 rounded border-border text-primary"
+                      />
+                      <span className="space-y-1">
+                        <span className="block text-sm font-medium text-foreground">{option.label}</span>
+                        <span className="block text-xs text-muted-foreground">{option.description}</span>
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+            </fieldset>
+          ) : null}
+
           {/* OAuth hint */}
           {supportsOAuth(selectedType) && authType === 'oauth' ? (
             <p className="rounded-lg bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
@@ -532,7 +621,7 @@ export function AddConnectorModal({
             </p>
           ) : null}
 
-          {selectedType === 'linear' && authType === 'oauth' && linearOAuthActor === 'app' ? (
+          {showsLinearAppOAuthClientFields ? (
             <div className="space-y-3 rounded-lg border border-border/50 bg-muted/20 px-4 py-3 text-sm">
               <div className="space-y-1">
                 <p className="font-medium text-foreground">Create a Linear OAuth application first</p>
@@ -546,7 +635,7 @@ export function AddConnectorModal({
                 <li>Open Linear Settings -&gt; API -&gt; Applications.</li>
                 <li>Create a new OAuth2 application for Arche with the name and icon you want to appear in Linear.</li>
                 <li>Add <code>{LINEAR_CALLBACK_URL_HINT}</code> as a callback URL, replacing the host with your Arche URL.</li>
-                <li>Configure the Linear client ID and client secret in Arche before starting OAuth.</li>
+                <li>Paste the Linear client ID and client secret below before starting OAuth.</li>
                 <li>Save this connector, then connect OAuth as a Linear workspace admin.</li>
               </ol>
 
@@ -569,6 +658,38 @@ export function AddConnectorModal({
                 </a>
               </div>
             </div>
+          ) : null}
+
+          {showsLinearAppOAuthClientFields ? (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="linear-oauth-client-id" className="text-foreground">
+                  Client ID
+                </Label>
+                <Input
+                  id="linear-oauth-client-id"
+                  value={oauthClientId}
+                  onChange={(event) => setOauthClientId(event.target.value)}
+                  placeholder="Linear OAuth client id"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="linear-oauth-client-secret" className="text-foreground">
+                  Client secret
+                </Label>
+                <Input
+                  id="linear-oauth-client-secret"
+                  type="password"
+                  value={oauthClientSecret}
+                  onChange={(event) => setOauthClientSecret(event.target.value)}
+                  placeholder="Linear OAuth client secret"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Linear app actor mode uses the credentials stored on this connector only.
+                </p>
+              </div>
+            </>
           ) : null}
 
           {/* Manual API key (official types) */}

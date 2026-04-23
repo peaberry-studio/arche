@@ -16,9 +16,6 @@ vi.mock('@/lib/security/ssrf', () => ({
 }))
 
 const originalOAuthMaxAuthorizeUrlLength = process.env.ARCHE_CONNECTOR_OAUTH_MAX_AUTHORIZE_URL_LENGTH
-const originalLinearClientId = process.env.ARCHE_CONNECTOR_LINEAR_CLIENT_ID
-const originalLinearClientSecret = process.env.ARCHE_CONNECTOR_LINEAR_CLIENT_SECRET
-
 describe('connectors oauth state', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -35,18 +32,6 @@ describe('connectors oauth state', () => {
       delete process.env.ARCHE_CONNECTOR_OAUTH_MAX_AUTHORIZE_URL_LENGTH
     } else {
       process.env.ARCHE_CONNECTOR_OAUTH_MAX_AUTHORIZE_URL_LENGTH = originalOAuthMaxAuthorizeUrlLength
-    }
-
-    if (originalLinearClientId === undefined) {
-      delete process.env.ARCHE_CONNECTOR_LINEAR_CLIENT_ID
-    } else {
-      process.env.ARCHE_CONNECTOR_LINEAR_CLIENT_ID = originalLinearClientId
-    }
-
-    if (originalLinearClientSecret === undefined) {
-      delete process.env.ARCHE_CONNECTOR_LINEAR_CLIENT_SECRET
-    } else {
-      process.env.ARCHE_CONNECTOR_LINEAR_CLIENT_SECRET = originalLinearClientSecret
     }
   })
 
@@ -198,32 +183,25 @@ describe('connectors oauth state', () => {
   })
 
   it('adds actor=app only for Linear app actor OAuth', async () => {
-    process.env.ARCHE_CONNECTOR_LINEAR_CLIENT_ID = 'linear-client-id'
-    process.env.ARCHE_CONNECTOR_LINEAR_CLIENT_SECRET = 'linear-client-secret'
-
-    vi.stubGlobal(
-      'fetch',
-      vi
-        .fn()
-        .mockResolvedValueOnce(
-          new Response(JSON.stringify({
-            authorization_endpoint: 'https://linear.app/oauth/authorize',
-            token_endpoint: 'https://api.linear.app/oauth/token',
-          }), {
-            status: 200,
-            headers: { 'content-type': 'application/json' },
-          })
-        )
-        .mockResolvedValueOnce(
-          new Response(JSON.stringify({
-            authorization_endpoint: 'https://linear.app/oauth/authorize',
-            token_endpoint: 'https://api.linear.app/oauth/token',
-          }), {
-            status: 200,
-            headers: { 'content-type': 'application/json' },
-          })
-        )
-    )
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          authorization_endpoint: 'https://mcp.linear.app/authorize',
+          token_endpoint: 'https://mcp.linear.app/token',
+          registration_endpoint: 'https://mcp.linear.app/register',
+        }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ client_id: 'dynamic-user-client' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+    vi.stubGlobal('fetch', fetchMock)
 
     const userPrepared = await prepareConnectorOAuthAuthorization({
       connectorId: 'linear-user',
@@ -231,7 +209,7 @@ describe('connectors oauth state', () => {
       userId: 'user-1',
       connectorType: 'linear',
       redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
-      connectorConfig: { authType: 'oauth' },
+      connectorConfig: { authType: 'oauth', oauthScope: 'read,write' },
     })
 
     const appPrepared = await prepareConnectorOAuthAuthorization({
@@ -240,11 +218,70 @@ describe('connectors oauth state', () => {
       userId: 'user-1',
       connectorType: 'linear',
       redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
-      connectorConfig: { authType: 'oauth', oauthActor: 'app' },
+      connectorConfig: {
+        authType: 'oauth',
+        oauthActor: 'app',
+        oauthClientId: 'linear-app-client-id',
+        oauthClientSecret: 'linear-app-client-secret',
+        oauthScope: 'read,write,app:mentionable',
+      },
     })
 
-    expect(new URL(userPrepared.authorizeUrl).searchParams.get('actor')).toBeNull()
-    expect(new URL(appPrepared.authorizeUrl).searchParams.get('actor')).toBe('app')
+    const userAuthorizeUrl = new URL(userPrepared.authorizeUrl)
+    const appAuthorizeUrl = new URL(appPrepared.authorizeUrl)
+
+    expect(`${userAuthorizeUrl.origin}${userAuthorizeUrl.pathname}`).toBe('https://mcp.linear.app/authorize')
+    expect(`${appAuthorizeUrl.origin}${appAuthorizeUrl.pathname}`).toBe('https://linear.app/oauth/authorize')
+    expect(userAuthorizeUrl.searchParams.get('scope')).toBe('read,write')
+    expect(appAuthorizeUrl.searchParams.get('scope')).toBe('read,write,app:mentionable')
+    expect(userAuthorizeUrl.searchParams.get('actor')).toBeNull()
+    expect(appAuthorizeUrl.searchParams.get('actor')).toBe('app')
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://mcp.linear.app/.well-known/oauth-authorization-server')
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('https://mcp.linear.app/register')
+  })
+
+  it('requires Linear app actor client credentials', async () => {
+    await expect(prepareConnectorOAuthAuthorization({
+      connectorId: 'linear-app',
+      slug: 'alice',
+      userId: 'user-1',
+      connectorType: 'linear',
+      redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
+      connectorConfig: {
+        authType: 'oauth',
+        oauthActor: 'app',
+      },
+    })).rejects.toThrow('missing_linear_oauth_client_credentials')
+  })
+
+  it('uses Linear app actor client credentials from connector config before dynamic registration', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const prepared = await prepareConnectorOAuthAuthorization({
+      connectorId: 'linear-app',
+      slug: 'alice',
+      userId: 'user-1',
+      connectorType: 'linear',
+      redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
+      connectorConfig: {
+        authType: 'oauth',
+        oauthActor: 'app',
+        oauthClientId: 'connector-client-id',
+        oauthClientSecret: 'connector-client-secret',
+      },
+    })
+
+    const authorizeUrl = new URL(prepared.authorizeUrl)
+    expect(authorizeUrl.searchParams.get('client_id')).toBe('connector-client-id')
+    expect(authorizeUrl.searchParams.get('actor')).toBe('app')
+
+    const state = verifyConnectorOAuthState(prepared.state)
+    expect(state.clientId).toBe('connector-client-id')
+    expect(state.clientSecret).toBe('connector-client-secret')
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('falls back to static custom OAuth client when dynamic registration fails', async () => {
