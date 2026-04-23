@@ -22,11 +22,9 @@ export { getInstanceBasicAuth, getInstanceUrl } from '@/lib/opencode/connection-
 export async function createInstanceClient(slug: string): Promise<OpencodeClient | null> {
   const connection = await resolveInstanceConnection(slug)
   if (!connection) {
-    console.log(`[opencode/client] No credentials for ${slug}`)
     return null
   }
 
-  console.log(`[opencode/client] Creating client for ${slug} at ${connection.baseUrl}`)
   return createConfiguredOpencodeClient(connection)
 }
 

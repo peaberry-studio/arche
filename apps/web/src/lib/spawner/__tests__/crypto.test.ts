@@ -1,4 +1,15 @@
+import { createCipheriv, randomBytes } from 'node:crypto'
+
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+
+function encryptLikeBootstrapWeb(plaintext: string, key: Buffer): string {
+  const iv = randomBytes(16)
+  const cipher = createCipheriv('aes-256-gcm', key, iv)
+  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()])
+  const authTag = cipher.getAuthTag()
+
+  return `${iv.toString('base64')}:${authTag.toString('base64')}:${encrypted.toString('base64')}`
+}
 
 describe('crypto', () => {
   const originalEnv = process.env
@@ -107,6 +118,16 @@ describe('crypto', () => {
       const decrypted = decryptPassword(encrypted)
 
       expect(decrypted).toBe(original)
+    })
+
+    it('decrypts passwords encrypted by the web E2E bootstrap format', async () => {
+      const key = Buffer.from('test-key-32-bytes-long-for-aes!!')
+      process.env.ARCHE_ENCRYPTION_KEY = key.toString('base64')
+
+      const { decryptPassword } = await import('../crypto')
+      const encrypted = encryptLikeBootstrapWeb('bootstrap-runtime-password', key)
+
+      expect(decryptPassword(encrypted)).toBe('bootstrap-runtime-password')
     })
   })
 })

@@ -12,6 +12,7 @@ export const desktopWorkspaceHostE2e: WorkspaceHost = {
 
     await instanceService.upsertStarting(slug, encryptPassword(connection.password))
     await instanceService.setRunning(slug, null)
+    // Mirror the desktop host contract, which reports a successful launch as started.
     return { ok: true, status: 'started' }
   },
 

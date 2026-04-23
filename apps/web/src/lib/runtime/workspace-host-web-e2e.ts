@@ -12,6 +12,7 @@ export const webWorkspaceHostE2e: WorkspaceHost = {
 
     await instanceService.upsertStarting(slug, encryptPassword(connection.password))
     await instanceService.setRunning(slug, null)
+    // Mirror the web spawner contract, which reports a ready instance as running.
     return { ok: true, status: 'running' }
   },
 

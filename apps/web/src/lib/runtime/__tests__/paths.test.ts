@@ -33,7 +33,19 @@ describe('runtime paths', () => {
       expect(getKbConfigRoot()).toBe('/kb-config')
     })
 
-    it('respects KB_CONFIG_HOST_PATH and KB_CONTENT_HOST_PATH overrides', async () => {
+    it('ignores KB_CONFIG_HOST_PATH and KB_CONTENT_HOST_PATH overrides outside E2E hooks', async () => {
+      process.env.NODE_ENV = 'test'
+      process.env.KB_CONFIG_HOST_PATH = '/custom/kb-config'
+      process.env.KB_CONTENT_HOST_PATH = '/custom/kb-content'
+      const { getKbConfigRoot, getKbContentRoot } = await import('../paths')
+
+      expect(getKbConfigRoot()).toBe('/kb-config')
+      expect(getKbContentRoot()).toBe('/kb-content')
+    })
+
+    it('respects KB_CONFIG_HOST_PATH and KB_CONTENT_HOST_PATH overrides in E2E mode', async () => {
+      process.env.NODE_ENV = 'test'
+      process.env.ARCHE_ENABLE_E2E_HOOKS = '1'
       process.env.KB_CONFIG_HOST_PATH = '/custom/kb-config'
       process.env.KB_CONTENT_HOST_PATH = '/custom/kb-content'
       const { getKbConfigRoot, getKbContentRoot } = await import('../paths')

@@ -8,9 +8,12 @@ import { _electron as electron, expect, test as base } from '@playwright/test'
 import type { ElectronApplication, Page } from 'playwright'
 
 const execFileAsync = promisify(execFile)
+const desktopAppRoot = path.resolve(__dirname, '../..')
+const repoRoot = path.resolve(desktopAppRoot, '..', '..')
+const e2eScriptsRoot = path.join(repoRoot, 'scripts', 'e2e')
 const runtimeBaseUrl = process.env.ARCHE_E2E_RUNTIME_BASE_URL ?? 'http://127.0.0.1:4210'
 const runtimePassword = process.env.ARCHE_E2E_RUNTIME_PASSWORD ?? 'arche-e2e-runtime'
-const samplePdfPath = path.resolve(__dirname, '../../../../scripts/e2e/fixtures/sample.pdf')
+const samplePdfPath = path.join(e2eScriptsRoot, 'fixtures', 'sample.pdf')
 const isSmokeFake = (process.env.ARCHE_E2E_PROFILE?.trim() || 'smoke-fake') === 'smoke-fake'
 const debugDesktopE2E = process.env.ARCHE_E2E_DEBUG === '1'
 const fakeProviderUrl = process.env.ARCHE_E2E_FAKE_PROVIDER_URL
@@ -32,7 +35,7 @@ type DesktopFixtures = {
 
 async function createDesktopVault(): Promise<{ parentDir: string; vaultPath: string }> {
   const parentDir = await mkdtemp(path.join(tmpdir(), 'arche-e2e-desktop-'))
-  const scriptPath = path.resolve(__dirname, '../../../../scripts/e2e/bootstrap-desktop-vault.mjs')
+  const scriptPath = path.join(e2eScriptsRoot, 'bootstrap-desktop-vault.mjs')
   const { stdout } = await execFileAsync('node', [scriptPath], {
     env: {
       ...process.env,
@@ -85,7 +88,7 @@ export const test = base.extend<DesktopFixtures>({
   app: async ({ vaultPath }, use) => {
     const app = await electron.launch({
       args: ['dist/main.js', `--vault-path=${vaultPath}`],
-      cwd: path.resolve(__dirname, '../..'),
+      cwd: desktopAppRoot,
       env: {
         ...process.env,
         ARCHE_ENABLE_E2E_HOOKS: isSmokeFake || Boolean(fakeProviderUrl) ? '1' : '',

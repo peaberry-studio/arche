@@ -20,11 +20,10 @@ export function createConfiguredOpencodeClient({ baseUrl, authHeader }: CreateOp
         extra.forEach((value, key) => mergedHeaders.set(key, value))
       }
       mergedHeaders.set('Authorization', authHeader)
-
       const url = typeof input === 'string' ? input : input instanceof Request ? input.url : input.toString()
-      console.log(`[opencode/client] ${method} ${url}`)
+
       try {
-        const response = await fetch(url, {
+        return await fetch(url, {
           ...init,
           method,
           headers: mergedHeaders,
@@ -32,8 +31,6 @@ export function createConfiguredOpencodeClient({ baseUrl, authHeader }: CreateOp
           // @ts-expect-error -- Node/undici duplex hint for streaming bodies
           duplex: (init?.body ?? (isRequest ? input.body : undefined)) ? 'half' : undefined,
         })
-        console.log(`[opencode/client] Response: ${response.status}`)
-        return response
       } catch (err) {
         console.error(`[opencode/client] Fetch error:`, err)
         throw err
