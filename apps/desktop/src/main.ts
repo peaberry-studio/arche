@@ -7,6 +7,7 @@ import { tmpdir } from 'os'
 import { dirname, join } from 'path'
 
 import type { CreateVaultArgs, DesktopApiResult, DesktopVaultSummary } from './desktop-bridge-types'
+import { ensureDesktopConnectorOAuthStateSecret } from './desktop-connector-oauth-secret'
 import { ensureDesktopEncryptionKey } from './desktop-encryption-key'
 import { createDesktopSmokeTestHarness } from './desktop-smoke-test'
 import { createDesktopVault } from './create-vault'
@@ -193,6 +194,7 @@ function setDesktopEnv(): void {
     process.env.ARCHE_DESKTOP_VAULT_NAME = currentVault.name
     process.env.ARCHE_DESKTOP_VAULT_PATH = currentVault.path
     ensureDesktopEncryptionKey({ dataDir: currentVault.path })
+    ensureDesktopConnectorOAuthStateSecret({ dataDir: currentVault.path })
   } else {
     delete process.env.ARCHE_DATA_DIR
     delete process.env.ARCHE_OPENCODE_DATA_DIR
