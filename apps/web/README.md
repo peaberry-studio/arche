@@ -102,6 +102,18 @@ This repo uses `pnpm` by default.
 - In app actor mode, you paste the Linear app `client_id` and `client_secret` directly into the connector modal. User OAuth keeps using dynamic client registration.
 - Arche does not currently set Linear's optional `createAsUser` or `displayIconUrl` fields, so app actor changes appear as the OAuth application itself.
 
+## Umami connector
+
+- Supported authentication:
+  - Umami Cloud via `https://api.umami.is/v1` plus `x-umami-api-key`
+  - Self-hosted Umami via a public HTTPS base URL plus username/password login
+- Required access: the configured Umami user must be able to read the target websites.
+- Supported reads: website listing, summary stats, pageview series, ranked metrics, recent sessions, recent events, and realtime activity.
+- Limits:
+  - The connector is read-only.
+  - Umami Cloud API keys are limited to 50 requests every 15 seconds.
+  - Self-hosted base URLs are validated as public HTTPS endpoints before Arche connects.
+
 ## UI
 
 The UI uses Tailwind + shadcn/ui. Components live in `src/components/ui`.

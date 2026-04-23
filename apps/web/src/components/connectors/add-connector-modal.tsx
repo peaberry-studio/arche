@@ -43,6 +43,7 @@ const CONNECTOR_TYPE_OPTIONS: { type: ConnectorType; label: string; description:
   { type: 'linear', label: 'Linear', description: 'Official Linear MCP integration.' },
   { type: 'notion', label: 'Notion', description: 'Official Notion MCP integration.' },
   { type: 'zendesk', label: 'Zendesk', description: 'Zendesk Ticketing API via Arche MCP.' },
+  { type: 'umami', label: 'Umami', description: 'Website analytics from Umami Cloud or self-hosted Umami.' },
   { type: 'custom', label: 'Custom', description: 'Any compatible remote MCP endpoint.' },
 ]
 
@@ -60,6 +61,8 @@ function buildDefaultName(type: ConnectorType): string {
       return 'Notion'
     case 'zendesk':
       return 'Zendesk'
+    case 'umami':
+      return 'Umami'
     case 'custom':
       return 'Custom Connector'
   }
@@ -109,6 +112,11 @@ export function AddConnectorModal({
   const [apiKey, setApiKey] = useState('')
   const [zendeskSubdomain, setZendeskSubdomain] = useState('')
   const [zendeskEmail, setZendeskEmail] = useState('')
+  const [umamiAuthMethod, setUmamiAuthMethod] = useState<'api-key' | 'login'>('api-key')
+  const [umamiBaseUrl, setUmamiBaseUrl] = useState('')
+  const [umamiApiKey, setUmamiApiKey] = useState('')
+  const [umamiUsername, setUmamiUsername] = useState('')
+  const [umamiPassword, setUmamiPassword] = useState('')
   const [endpoint, setEndpoint] = useState('')
   const [auth, setAuth] = useState('')
   const [headersText, setHeadersText] = useState('')
@@ -147,6 +155,11 @@ export function AddConnectorModal({
     setApiKey('')
     setZendeskSubdomain('')
     setZendeskEmail('')
+    setUmamiAuthMethod('api-key')
+    setUmamiBaseUrl('')
+    setUmamiApiKey('')
+    setUmamiUsername('')
+    setUmamiPassword('')
     setEndpoint('')
     setAuth('')
     setHeadersText('')
@@ -259,6 +272,45 @@ export function AddConnectorModal({
       }
     }
 
+    if (selectedType === 'umami') {
+      if (!umamiBaseUrl.trim()) {
+        return { ok: false, message: 'Umami base URL is required.' }
+      }
+
+      if (umamiAuthMethod === 'api-key') {
+        if (!umamiApiKey.trim()) {
+          return { ok: false, message: 'Umami API key is required.' }
+        }
+
+        return {
+          ok: true,
+          value: {
+            authMethod: 'api-key',
+            baseUrl: umamiBaseUrl.trim(),
+            apiKey: umamiApiKey.trim(),
+          },
+        }
+      }
+
+      if (!umamiUsername.trim()) {
+        return { ok: false, message: 'Umami username is required.' }
+      }
+
+      if (!umamiPassword.trim()) {
+        return { ok: false, message: 'Umami password is required.' }
+      }
+
+      return {
+        ok: true,
+        value: {
+          authMethod: 'login',
+          baseUrl: umamiBaseUrl.trim(),
+          username: umamiUsername.trim(),
+          password: umamiPassword.trim(),
+        },
+      }
+    }
+
     if (selectedType === 'custom') {
       if (!endpoint.trim()) {
         return { ok: false, message: 'Endpoint is required.' }
@@ -318,6 +370,13 @@ export function AddConnectorModal({
     if (selectedType === 'custom' && !name.trim()) return false
     if (selectedType === 'zendesk') {
       return Boolean(zendeskSubdomain.trim() && zendeskEmail.trim() && apiKey.trim())
+    }
+    if (selectedType === 'umami') {
+      if (umamiAuthMethod === 'api-key') {
+        return Boolean(umamiBaseUrl.trim() && umamiApiKey.trim())
+      }
+
+      return Boolean(umamiBaseUrl.trim() && umamiUsername.trim() && umamiPassword.trim())
     }
     if (selectedType === 'custom') {
       if (authType === 'oauth') {
@@ -689,6 +748,91 @@ export function AddConnectorModal({
                   placeholder="Paste your Zendesk API token"
                 />
               </div>
+            </>
+          ) : null}
+
+          {selectedType === 'umami' ? (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="connector-umami-base-url" className="text-foreground">
+                  Base URL
+                </Label>
+                <Input
+                  id="connector-umami-base-url"
+                  value={umamiBaseUrl}
+                  onChange={(event) => setUmamiBaseUrl(event.target.value)}
+                  placeholder={umamiAuthMethod === 'api-key' ? 'https://api.umami.is/v1' : 'https://analytics.example.com'}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Use the public HTTPS API base. For Umami Cloud the default is <code>https://api.umami.is/v1</code>. For self-hosted Umami you can enter the site root and Arche will use <code>/api</code> automatically.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="connector-umami-auth-method" className="text-foreground">
+                  Authentication method
+                </Label>
+                <select
+                  id="connector-umami-auth-method"
+                  className="w-full rounded-lg border border-border/50 bg-background px-3 py-2 text-sm text-foreground"
+                  value={umamiAuthMethod}
+                  onChange={(event) => setUmamiAuthMethod(event.target.value === 'login' ? 'login' : 'api-key')}
+                >
+                  <option value="api-key">Umami Cloud API key</option>
+                  <option value="login">Self-hosted username/password</option>
+                </select>
+              </div>
+
+              {umamiAuthMethod === 'api-key' ? (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="connector-umami-api-key" className="text-foreground">
+                      API key
+                    </Label>
+                    <Input
+                      id="connector-umami-api-key"
+                      type="password"
+                      value={umamiApiKey}
+                      onChange={(event) => setUmamiApiKey(event.target.value)}
+                      placeholder="Paste your Umami Cloud API key"
+                    />
+                  </div>
+                  <p className="rounded-lg bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                    Supported reads: websites, summary stats, pageview series, ranked metrics, recent sessions, recent events, and realtime. Umami Cloud API keys are rate-limited to 50 requests every 15 seconds.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="connector-umami-username" className="text-foreground">
+                      Username
+                    </Label>
+                    <Input
+                      id="connector-umami-username"
+                      value={umamiUsername}
+                      onChange={(event) => setUmamiUsername(event.target.value)}
+                      placeholder="admin"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="connector-umami-password" className="text-foreground">
+                      Password
+                    </Label>
+                    <Input
+                      id="connector-umami-password"
+                      type="password"
+                      value={umamiPassword}
+                      onChange={(event) => setUmamiPassword(event.target.value)}
+                      placeholder="Paste your Umami password"
+                    />
+                  </div>
+
+                  <p className="rounded-lg bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                    The configured user needs permission to read the target websites in Umami. Arche only exposes read-only analytics tools for this connector.
+                  </p>
+                </>
+              )}
             </>
           ) : null}
 

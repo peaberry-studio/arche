@@ -19,6 +19,12 @@ describe('workspace-tool-display', () => {
       connectorId: 'conn456',
       commandName: 'search_tickets',
     })
+
+    expect(parseConnectorToolName('arche_umami_conn789_get_website_stats')).toEqual({
+      connectorType: 'umami',
+      connectorId: 'conn789',
+      commandName: 'get_website_stats',
+    })
   })
 
   it('formats connector commands into readable labels', () => {

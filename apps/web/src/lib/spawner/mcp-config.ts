@@ -2,6 +2,7 @@ import { decryptConfig } from '@/lib/connectors/crypto'
 import { getConnectorGatewayBaseUrl } from '@/lib/connectors/gateway-config'
 import { issueConnectorGatewayToken } from '@/lib/connectors/gateway-tokens'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
+import { parseUmamiConnectorConfig } from '@/lib/connectors/umami'
 import { parseZendeskConnectorConfig } from '@/lib/connectors/zendesk'
 import type { ConnectorType } from '@/lib/connectors/types'
 import { validateConnectorConfig, validateConnectorType } from '@/lib/connectors/validators'
@@ -36,6 +37,13 @@ type GatewayTarget = {
   token: string
 }
 
+type EmbeddedConnectorParser = (config: Record<string, unknown>) => { ok: boolean }
+
+const EMBEDDED_CONNECTOR_PARSERS: Partial<Record<ConnectorType, EmbeddedConnectorParser>> = {
+  zendesk: parseZendeskConnectorConfig,
+  umami: parseUmamiConnectorConfig,
+}
+
 function getString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
@@ -47,6 +55,10 @@ function toStringRecord(value: unknown): Record<string, string> | undefined {
     if (typeof entry === 'string') record[key] = entry
   }
   return Object.keys(record).length ? record : undefined
+}
+
+function getEmbeddedConnectorParser(type: ConnectorType) {
+  return EMBEDDED_CONNECTOR_PARSERS[type]
 }
 
 export function buildMcpServerKey(type: ConnectorType, id: string): string {
@@ -215,10 +227,12 @@ export function buildMcpConfigFromConnectors(
         break
       }
 
-      case 'zendesk': {
-        const parsed = parseZendeskConnectorConfig(config)
+      case 'zendesk':
+      case 'umami': {
+        const parser = getEmbeddedConnectorParser(connector.type)
+        const parsed = parser?.(config)
         const gatewayTarget = options?.gatewayTargets?.[connector.id]
-        if (!parsed.ok || !gatewayTarget) break
+        if (!parsed?.ok || !gatewayTarget) break
 
         mcp[key] = {
           type: 'remote',
@@ -261,8 +275,9 @@ export async function buildMcpConfigForSlug(slug: string): Promise<McpConfig | n
       continue
     }
 
-    if (connector.type === 'zendesk') {
-      const parsed = parseZendeskConnectorConfig(config)
+    const parser = getEmbeddedConnectorParser(connector.type)
+    if (parser) {
+      const parsed = parser(config)
       if (!parsed.ok) continue
 
       gatewayTargets[connector.id] = {

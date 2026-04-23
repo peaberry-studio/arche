@@ -5,6 +5,7 @@ const routeMocks = vi.hoisted(() => ({
   decryptConfig: vi.fn(),
   verifyConnectorGatewayToken: vi.fn(),
   refreshConnectorOAuthConfigIfNeeded: vi.fn(),
+  handleUmamiMcpRequest: vi.fn(),
   handleZendeskMcpRequest: vi.fn(),
   proxyConnectorMcpRequest: vi.fn(),
   connectorService: {
@@ -22,6 +23,10 @@ vi.mock('@/lib/connectors/gateway-tokens', () => ({
 
 vi.mock('@/lib/connectors/mcp/remote-proxy', () => ({
   proxyConnectorMcpRequest: routeMocks.proxyConnectorMcpRequest,
+}))
+
+vi.mock('@/lib/connectors/mcp/umami-handler', () => ({
+  handleUmamiMcpRequest: routeMocks.handleUmamiMcpRequest,
 }))
 
 vi.mock('@/lib/connectors/mcp/zendesk-handler', () => ({
@@ -72,6 +77,7 @@ describe('POST /api/internal/mcp/connectors/[id]/mcp', () => {
       apiToken: 'secret',
     })
     routeMocks.handleZendeskMcpRequest.mockResolvedValue(Response.json({ ok: true }))
+    routeMocks.handleUmamiMcpRequest.mockResolvedValue(Response.json({ ok: true }))
     routeMocks.proxyConnectorMcpRequest.mockResolvedValue(Response.json({ ok: true }))
   })
 
@@ -96,6 +102,35 @@ describe('POST /api/internal/mcp/connectors/[id]/mcp', () => {
       email: 'agent@acme.com',
       apiToken: 'secret',
     })
+    expect(routeMocks.proxyConnectorMcpRequest).not.toHaveBeenCalled()
+  })
+
+  it('dispatches Umami connectors to the embedded handler', async () => {
+    routeMocks.connectorService.findEnabledByIdAndUserId.mockResolvedValue({
+      id: 'connector-1',
+      userId: 'user-1',
+      type: 'umami',
+      config: 'encrypted-config',
+      enabled: true,
+    })
+    routeMocks.decryptConfig.mockReturnValue({
+      authMethod: 'api-key',
+      baseUrl: 'https://api.umami.is/v1',
+      apiKey: 'secret',
+    })
+
+    const { POST } = await import('./route')
+
+    const response = await POST(buildRequest({ Authorization: 'Bearer gateway-token' }), buildContext())
+
+    expect(response.status).toBe(200)
+    expect(routeMocks.handleUmamiMcpRequest).toHaveBeenCalledOnce()
+    expect(routeMocks.handleUmamiMcpRequest).toHaveBeenCalledWith(expect.any(NextRequest), {
+      authMethod: 'api-key',
+      baseUrl: 'https://api.umami.is/v1',
+      apiKey: 'secret',
+    })
+    expect(routeMocks.handleZendeskMcpRequest).not.toHaveBeenCalled()
     expect(routeMocks.proxyConnectorMcpRequest).not.toHaveBeenCalled()
   })
 

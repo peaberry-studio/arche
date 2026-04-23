@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { BookText, Boxes, Globe, Ticket, Trash2 } from 'lucide-react'
+import { BarChart3, BookText, Boxes, Globe, Ticket, Trash2 } from 'lucide-react'
 
 import type { ConnectorListItem, ConnectorTestState } from '@/components/connectors/types'
 import { getLinearOAuthModeLabel } from '@/lib/connectors/linear'
@@ -27,6 +27,8 @@ function getTypeIcon(type: ConnectorListItem['type']) {
       return <BookText className="h-4 w-4" />
     case 'zendesk':
       return <Ticket className="h-4 w-4" />
+    case 'umami':
+      return <BarChart3 className="h-4 w-4" />
     case 'custom':
       return <Globe className="h-4 w-4" />
     default:
