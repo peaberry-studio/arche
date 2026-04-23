@@ -14,7 +14,13 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useWorkspaceTheme } from '@/contexts/workspace-theme-context'
-import { type LinearOAuthActor } from '@/lib/connectors/linear'
+import {
+  buildLinearOAuthScope,
+  isLinearOAuthScopeAllowedForActor,
+  LINEAR_OAUTH_SCOPE_OPTIONS,
+  type LinearOAuthActor,
+  type LinearOptionalOAuthScope,
+} from '@/lib/connectors/linear'
 import {
   CONNECTOR_TYPES,
   isSingleInstanceConnectorType,
@@ -113,6 +119,7 @@ export function AddConnectorModal({
   const [oauthTokenEndpoint, setOauthTokenEndpoint] = useState('')
   const [oauthRegistrationEndpoint, setOauthRegistrationEndpoint] = useState('')
   const [linearOAuthActor, setLinearOAuthActor] = useState<LinearOAuthActor>(DEFAULT_LINEAR_OAUTH_ACTOR)
+  const [linearOAuthScopes, setLinearOAuthScopes] = useState<LinearOptionalOAuthScope[]>([])
 
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -120,6 +127,9 @@ export function AddConnectorModal({
   const usesGeneratedName = selectedType !== 'custom'
   const showsLinearAppOAuthClientFields =
     selectedType === 'linear' && authType === 'oauth' && linearOAuthActor === 'app'
+  const visibleLinearOAuthScopeOptions = LINEAR_OAUTH_SCOPE_OPTIONS.filter((option) =>
+    isLinearOAuthScopeAllowedForActor(option.scope, linearOAuthActor)
+  )
 
   const availableTypeOptions = useMemo(
     () =>
@@ -147,6 +157,7 @@ export function AddConnectorModal({
     setOauthTokenEndpoint('')
     setOauthRegistrationEndpoint('')
     setLinearOAuthActor(DEFAULT_LINEAR_OAUTH_ACTOR)
+    setLinearOAuthScopes([])
     setIsSaving(false)
     setError(null)
   }
@@ -162,6 +173,7 @@ export function AddConnectorModal({
     setAuthType(getDefaultAuthType(defaultType))
     setName(buildDefaultName(defaultType))
     setLinearOAuthActor(DEFAULT_LINEAR_OAUTH_ACTOR)
+    setLinearOAuthScopes([])
   }, [availableTypeOptions, open])
 
   useEffect(() => {
@@ -178,8 +190,17 @@ export function AddConnectorModal({
       setAuthType(getDefaultAuthType(fallbackType))
       setName(buildDefaultName(fallbackType))
       setLinearOAuthActor(DEFAULT_LINEAR_OAUTH_ACTOR)
+      setLinearOAuthScopes([])
     }
   }, [availableTypeOptions, open, selectedType])
+
+  useEffect(() => {
+    if (selectedType !== 'linear' || authType !== 'oauth') return
+
+    setLinearOAuthScopes((current) =>
+      current.filter((scope) => isLinearOAuthScopeAllowedForActor(scope, linearOAuthActor))
+    )
+  }, [authType, linearOAuthActor, selectedType])
 
   function buildConfig(): { ok: true; value: Record<string, unknown> } | { ok: false; message: string } {
     if (selectedType === 'linear' || selectedType === 'notion') {
@@ -194,6 +215,11 @@ export function AddConnectorModal({
           ok: true,
           value: {
             authType: 'oauth',
+            ...(selectedType === 'linear'
+              ? {
+                  oauthScope: buildLinearOAuthScope(linearOAuthScopes),
+                }
+              : {}),
             ...(selectedType === 'linear' && linearOAuthActor === 'app'
               ? {
                   oauthActor: 'app',
@@ -390,6 +416,7 @@ export function AddConnectorModal({
                     setSelectedType(option.type)
                     setAuthType(getDefaultAuthType(option.type))
                     setLinearOAuthActor(DEFAULT_LINEAR_OAUTH_ACTOR)
+                    setLinearOAuthScopes([])
                     setError(null)
                   }}
                   className={cn(
@@ -482,6 +509,50 @@ export function AddConnectorModal({
                 mutations appear as the app instead.
               </p>
             </div>
+          ) : null}
+
+          {selectedType === 'linear' && authType === 'oauth' ? (
+            <fieldset className="space-y-3 rounded-lg border border-border/50 bg-muted/20 px-4 py-3">
+              <legend className="px-1 text-sm font-medium text-foreground">
+                OAuth permissions
+              </legend>
+              <p className="text-xs text-muted-foreground">
+                Linear always includes <code>read</code>. Select any extra permissions you want Arche to request.
+              </p>
+              <div className="space-y-3">
+                {visibleLinearOAuthScopeOptions.map((option) => {
+                  const inputId = `linear-oauth-scope-${option.scope.replace(/:/g, '-')}`
+                  const checked = linearOAuthScopes.includes(option.scope)
+
+                  return (
+                    <label key={option.scope} htmlFor={inputId} className="flex items-start gap-3 rounded-lg border border-border/40 bg-background/40 px-3 py-2">
+                      <input
+                        id={inputId}
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(event) => {
+                          const nextChecked = event.target.checked
+                          setLinearOAuthScopes((current) => {
+                            if (nextChecked) {
+                              return current.includes(option.scope)
+                                ? current
+                                : [...current, option.scope]
+                            }
+
+                            return current.filter((scope) => scope !== option.scope)
+                          })
+                        }}
+                        className="mt-1 h-4 w-4 rounded border-border text-primary"
+                      />
+                      <span className="space-y-1">
+                        <span className="block text-sm font-medium text-foreground">{option.label}</span>
+                        <span className="block text-xs text-muted-foreground">{option.description}</span>
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
+            </fieldset>
           ) : null}
 
           {/* OAuth hint */}

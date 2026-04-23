@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { encryptConfig, decryptConfig } from '@/lib/connectors/crypto'
-import { getLinearOAuthActor, getLinearOAuthModeLabel, resolveLinearOAuthActor } from '@/lib/connectors/linear'
+import {
+  buildLinearOAuthScope,
+  getLinearOAuthActor,
+  getLinearOAuthModeLabel,
+  parseLinearOptionalOAuthScopes,
+  resolveLinearOAuthActor,
+} from '@/lib/connectors/linear'
 import { CONNECTOR_TYPES } from '@/lib/connectors/types'
 import {
   parseZendeskConnectorConfig,
@@ -95,8 +101,28 @@ describe('connectors/validators', () => {
         oauthActor: 'app',
         oauthClientId: 'client-123',
         oauthClientSecret: 'secret-123',
+        oauthScope: 'read,write,app:mentionable',
       })).toEqual({
         valid: true,
+      })
+
+      expect(validateConnectorConfig('linear', {
+        authType: 'oauth',
+        oauthScope: 'read,app:mentionable',
+      })).toEqual({
+        valid: false,
+        message: 'Linear user OAuth cannot request app-only permissions',
+      })
+
+      expect(validateConnectorConfig('linear', {
+        authType: 'oauth',
+        oauthActor: 'app',
+        oauthClientId: 'client-123',
+        oauthClientSecret: 'secret-123',
+        oauthScope: 'read,admin',
+      })).toEqual({
+        valid: false,
+        message: 'Linear app actor OAuth cannot request admin scope',
       })
 
       expect(validateConnectorConfig('linear', { authType: 'oauth', oauthActor: 'robot' })).toEqual({
@@ -363,6 +389,14 @@ describe('connectors/linear', () => {
 
   it('reads app actor mode from connector config', () => {
     expect(getLinearOAuthActor({ authType: 'oauth', oauthActor: 'app' })).toBe('app')
+  })
+
+  it('builds and parses Linear OAuth scopes', () => {
+    expect(buildLinearOAuthScope(['write', 'app:mentionable'])).toBe('read,write,app:mentionable')
+    expect(parseLinearOptionalOAuthScopes('read,write,app:mentionable,write')).toEqual([
+      'write',
+      'app:mentionable',
+    ])
   })
 
   it('resolves actor only for linear oauth connectors', () => {

@@ -63,6 +63,8 @@ describe('AddConnectorModal', () => {
     fireEvent.change(screen.getByLabelText('Client secret'), {
       target: { value: 'linear-client-secret' },
     })
+    fireEvent.click(screen.getByRole('checkbox', { name: /Write access/i }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /Mentionable app/i }))
 
     expect(screen.getByRole('button', { name: 'Save connector' }).hasAttribute('disabled')).toBe(false)
 
@@ -80,6 +82,7 @@ describe('AddConnectorModal', () => {
       name: 'Linear',
       config: {
         authType: 'oauth',
+        oauthScope: 'read,write,app:mentionable',
         oauthActor: 'app',
         oauthClientId: 'linear-client-id',
         oauthClientSecret: 'linear-client-secret',

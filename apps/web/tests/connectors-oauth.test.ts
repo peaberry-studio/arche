@@ -183,36 +183,25 @@ describe('connectors oauth state', () => {
   })
 
   it('adds actor=app only for Linear app actor OAuth', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi
-        .fn()
-        .mockResolvedValueOnce(
-          new Response(JSON.stringify({
-            authorization_endpoint: 'https://linear.app/oauth/authorize',
-            token_endpoint: 'https://api.linear.app/oauth/token',
-            registration_endpoint: 'https://api.linear.app/oauth/register',
-          }), {
-            status: 200,
-            headers: { 'content-type': 'application/json' },
-          })
-        )
-        .mockResolvedValueOnce(
-          new Response(JSON.stringify({ client_id: 'dynamic-user-client' }), {
-            status: 200,
-            headers: { 'content-type': 'application/json' },
-          })
-        )
-        .mockResolvedValueOnce(
-          new Response(JSON.stringify({
-            authorization_endpoint: 'https://linear.app/oauth/authorize',
-            token_endpoint: 'https://api.linear.app/oauth/token',
-          }), {
-            status: 200,
-            headers: { 'content-type': 'application/json' },
-          })
-        )
-    )
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          authorization_endpoint: 'https://mcp.linear.app/authorize',
+          token_endpoint: 'https://mcp.linear.app/token',
+          registration_endpoint: 'https://mcp.linear.app/register',
+        }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ client_id: 'dynamic-user-client' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+    vi.stubGlobal('fetch', fetchMock)
 
     const userPrepared = await prepareConnectorOAuthAuthorization({
       connectorId: 'linear-user',
@@ -220,7 +209,7 @@ describe('connectors oauth state', () => {
       userId: 'user-1',
       connectorType: 'linear',
       redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
-      connectorConfig: { authType: 'oauth' },
+      connectorConfig: { authType: 'oauth', oauthScope: 'read,write' },
     })
 
     const appPrepared = await prepareConnectorOAuthAuthorization({
@@ -234,27 +223,26 @@ describe('connectors oauth state', () => {
         oauthActor: 'app',
         oauthClientId: 'linear-app-client-id',
         oauthClientSecret: 'linear-app-client-secret',
+        oauthScope: 'read,write,app:mentionable',
       },
     })
 
-    expect(new URL(userPrepared.authorizeUrl).searchParams.get('actor')).toBeNull()
-    expect(new URL(appPrepared.authorizeUrl).searchParams.get('actor')).toBe('app')
+    const userAuthorizeUrl = new URL(userPrepared.authorizeUrl)
+    const appAuthorizeUrl = new URL(appPrepared.authorizeUrl)
+
+    expect(`${userAuthorizeUrl.origin}${userAuthorizeUrl.pathname}`).toBe('https://mcp.linear.app/authorize')
+    expect(`${appAuthorizeUrl.origin}${appAuthorizeUrl.pathname}`).toBe('https://linear.app/oauth/authorize')
+    expect(userAuthorizeUrl.searchParams.get('scope')).toBe('read,write')
+    expect(appAuthorizeUrl.searchParams.get('scope')).toBe('read,write,app:mentionable')
+    expect(userAuthorizeUrl.searchParams.get('actor')).toBeNull()
+    expect(appAuthorizeUrl.searchParams.get('actor')).toBe('app')
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://mcp.linear.app/.well-known/oauth-authorization-server')
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('https://mcp.linear.app/register')
   })
 
   it('requires Linear app actor client credentials', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({
-          authorization_endpoint: 'https://linear.app/oauth/authorize',
-          token_endpoint: 'https://api.linear.app/oauth/token',
-        }), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        })
-      )
-    )
-
     await expect(prepareConnectorOAuthAuthorization({
       connectorId: 'linear-app',
       slug: 'alice',
@@ -269,16 +257,7 @@ describe('connectors oauth state', () => {
   })
 
   it('uses Linear app actor client credentials from connector config before dynamic registration', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({
-        authorization_endpoint: 'https://linear.app/oauth/authorize',
-        token_endpoint: 'https://api.linear.app/oauth/token',
-        registration_endpoint: 'https://api.linear.app/oauth/register',
-      }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      })
-    )
+    const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
 
     const prepared = await prepareConnectorOAuthAuthorization({
@@ -302,7 +281,7 @@ describe('connectors oauth state', () => {
     const state = verifyConnectorOAuthState(prepared.state)
     expect(state.clientId).toBe('connector-client-id')
     expect(state.clientSecret).toBe('connector-client-secret')
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('falls back to static custom OAuth client when dynamic registration fails', async () => {
