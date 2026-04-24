@@ -13,15 +13,12 @@ import {
   supportsOAuth,
   type ConnectorFormState,
 } from '@/components/connectors/add-connector-config'
-import { CustomConnectorFields } from '@/components/connectors/custom-connector-fields'
+import { CustomConnectorFields } from '@/components/connectors/add-connector/custom/fields'
+import { LinearAppOAuthFields, LinearOAuthFields } from '@/components/connectors/add-connector/linear/fields'
+import { ManualApiKeyField } from '@/components/connectors/add-connector/manual-api-key-field'
+import { UmamiConnectorFields } from '@/components/connectors/add-connector/umami/fields'
+import { ZendeskConnectorFields } from '@/components/connectors/add-connector/zendesk/fields'
 import { getConnectorErrorMessage } from '@/components/connectors/error-messages'
-import {
-  LinearAppOAuthFields,
-  LinearOAuthFields,
-} from '@/components/connectors/linear-connector-fields'
-import { ManualApiKeyField } from '@/components/connectors/manual-api-key-field'
-import { UmamiConnectorFields } from '@/components/connectors/umami-connector-fields'
-import { ZendeskConnectorFields } from '@/components/connectors/zendesk-connector-fields'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
