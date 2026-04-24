@@ -158,7 +158,7 @@ export function AddConnectorModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className={cn(
-          'max-h-[90vh] overflow-y-auto sm:max-w-xl',
+          'scrollbar-custom max-h-[90vh] overflow-y-auto sm:max-w-xl',
           darkModeClasses,
           themeClassName
         )}
