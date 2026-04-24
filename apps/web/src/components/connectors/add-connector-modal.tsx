@@ -65,18 +65,16 @@ export function AddConnectorModal({
     setTick((t) => t + 1)
   }, [])
 
-  const activeRef =
-    selectedType === 'linear'
-      ? linearRef
-      : selectedType === 'notion'
-        ? notionRef
-        : selectedType === 'zendesk'
-          ? zendeskRef
-          : selectedType === 'ahrefs'
-            ? ahrefsRef
-            : selectedType === 'umami'
-              ? umamiRef
-              : customRef
+  const sectionRefs = {
+    linear: linearRef,
+    notion: notionRef,
+    zendesk: zendeskRef,
+    ahrefs: ahrefsRef,
+    umami: umamiRef,
+    custom: customRef,
+  } satisfies Record<ConnectorType, typeof linearRef>
+
+  const activeRef = sectionRefs[selectedType]
 
   const availableTypeOptions = useMemo(
     () =>
