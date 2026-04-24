@@ -1,23 +1,18 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { AhrefsSection } from '@/components/connectors/add-connector/ahrefs/section'
+import { CustomSection } from '@/components/connectors/add-connector/custom/section'
+import { LinearSection } from '@/components/connectors/add-connector/linear/section'
+import { NotionSection } from '@/components/connectors/add-connector/notion/section'
 import {
-  buildConnectorConfig,
-  buildDefaultName,
   CONNECTOR_TYPE_OPTIONS,
-  DEFAULT_LINEAR_OAUTH_ACTOR,
   DEFAULT_TYPE,
-  getDefaultAuthType,
-  isConnectorConfigurationComplete,
-  supportsOAuth,
-  type ConnectorFormState,
-} from '@/components/connectors/add-connector-config'
-import { CustomConnectorFields } from '@/components/connectors/add-connector/custom/fields'
-import { LinearAppOAuthFields, LinearOAuthFields } from '@/components/connectors/add-connector/linear/fields'
-import { ManualApiKeyField } from '@/components/connectors/add-connector/manual-api-key-field'
-import { UmamiConnectorFields } from '@/components/connectors/add-connector/umami/fields'
-import { ZendeskConnectorFields } from '@/components/connectors/add-connector/zendesk/fields'
+} from '@/components/connectors/add-connector/shared'
+import type { AddConnectorSectionHandle } from '@/components/connectors/add-connector/section-types'
+import { UmamiSection } from '@/components/connectors/add-connector/umami/section'
+import { ZendeskSection } from '@/components/connectors/add-connector/zendesk/section'
 import { getConnectorErrorMessage } from '@/components/connectors/error-messages'
 import { Button } from '@/components/ui/button'
 import {
@@ -27,17 +22,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { useWorkspaceTheme } from '@/contexts/workspace-theme-context'
 import {
-  isLinearOAuthScopeAllowedForActor,
-  type LinearOAuthActor,
-  type LinearOptionalOAuthScope,
-} from '@/lib/connectors/linear'
-import {
   isSingleInstanceConnectorType,
-  type ConnectorAuthType,
   type ConnectorType,
 } from '@/lib/connectors/types'
 import { cn } from '@/lib/utils'
@@ -62,42 +49,34 @@ export function AddConnectorModal({
   const darkModeClasses = isDark ? 'dark' : ''
 
   const [selectedType, setSelectedType] = useState<ConnectorType>(DEFAULT_TYPE)
-  const [authType, setAuthType] = useState<ConnectorAuthType>(
-    getDefaultAuthType(DEFAULT_TYPE)
-  )
-  const [name, setName] = useState('')
-
-  const [apiKey, setApiKey] = useState('')
-  const [zendeskSubdomain, setZendeskSubdomain] = useState('')
-  const [zendeskEmail, setZendeskEmail] = useState('')
-  const [umamiAuthMethod, setUmamiAuthMethod] = useState<'api-key' | 'login'>(
-    'api-key'
-  )
-  const [umamiBaseUrl, setUmamiBaseUrl] = useState('')
-  const [umamiApiKey, setUmamiApiKey] = useState('')
-  const [umamiUsername, setUmamiUsername] = useState('')
-  const [umamiPassword, setUmamiPassword] = useState('')
-  const [endpoint, setEndpoint] = useState('')
-  const [auth, setAuth] = useState('')
-  const [headersText, setHeadersText] = useState('')
-  const [oauthScope, setOauthScope] = useState('')
-  const [oauthClientId, setOauthClientId] = useState('')
-  const [oauthClientSecret, setOauthClientSecret] = useState('')
-  const [oauthAuthorizationEndpoint, setOauthAuthorizationEndpoint] =
-    useState('')
-  const [oauthTokenEndpoint, setOauthTokenEndpoint] = useState('')
-  const [oauthRegistrationEndpoint, setOauthRegistrationEndpoint] =
-    useState('')
-  const [linearOAuthActor, setLinearOAuthActor] =
-    useState<LinearOAuthActor>(DEFAULT_LINEAR_OAUTH_ACTOR)
-  const [linearOAuthScopes, setLinearOAuthScopes] = useState<
-    LinearOptionalOAuthScope[]
-  >([])
-
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [sessionKey, setSessionKey] = useState(0)
+  const [, setTick] = useState(0)
 
-  const usesGeneratedName = selectedType !== 'custom'
+  const linearRef = useRef<AddConnectorSectionHandle>(null)
+  const notionRef = useRef<AddConnectorSectionHandle>(null)
+  const zendeskRef = useRef<AddConnectorSectionHandle>(null)
+  const ahrefsRef = useRef<AddConnectorSectionHandle>(null)
+  const umamiRef = useRef<AddConnectorSectionHandle>(null)
+  const customRef = useRef<AddConnectorSectionHandle>(null)
+
+  const handleStateChange = useCallback(() => {
+    setTick((t) => t + 1)
+  }, [])
+
+  const activeRef =
+    selectedType === 'linear'
+      ? linearRef
+      : selectedType === 'notion'
+        ? notionRef
+        : selectedType === 'zendesk'
+          ? zendeskRef
+          : selectedType === 'ahrefs'
+            ? ahrefsRef
+            : selectedType === 'umami'
+              ? umamiRef
+              : customRef
 
   const availableTypeOptions = useMemo(
     () =>
@@ -110,53 +89,22 @@ export function AddConnectorModal({
     [existingConnectors]
   )
 
-  function resetState(): void {
-    setSelectedType(DEFAULT_TYPE)
-    setAuthType(getDefaultAuthType(DEFAULT_TYPE))
-    setName('')
-    setApiKey('')
-    setZendeskSubdomain('')
-    setZendeskEmail('')
-    setUmamiAuthMethod('api-key')
-    setUmamiBaseUrl('')
-    setUmamiApiKey('')
-    setUmamiUsername('')
-    setUmamiPassword('')
-    setEndpoint('')
-    setAuth('')
-    setHeadersText('')
-    setOauthScope('')
-    setOauthClientId('')
-    setOauthClientSecret('')
-    setOauthAuthorizationEndpoint('')
-    setOauthTokenEndpoint('')
-    setOauthRegistrationEndpoint('')
-    setLinearOAuthActor(DEFAULT_LINEAR_OAUTH_ACTOR)
-    setLinearOAuthScopes([])
-    setIsSaving(false)
-    setError(null)
-  }
+  const initializedForOpen = useRef(false)
 
   useEffect(() => {
     if (!open) {
-      resetState()
+      setSelectedType(DEFAULT_TYPE)
+      setIsSaving(false)
+      setError(null)
+      initializedForOpen.current = false
       return
     }
-
+    if (initializedForOpen.current) return
+    initializedForOpen.current = true
     const defaultType = availableTypeOptions[0]?.type ?? 'custom'
     setSelectedType(defaultType)
-    setAuthType(getDefaultAuthType(defaultType))
-    setName(buildDefaultName(defaultType))
-    setLinearOAuthActor(DEFAULT_LINEAR_OAUTH_ACTOR)
-    setLinearOAuthScopes([])
-  }, [availableTypeOptions, open])
-
-  useEffect(() => {
-    if (!open) return
-    setName((currentName) =>
-      currentName.trim() ? currentName : buildDefaultName(selectedType)
-    )
-  }, [open, selectedType])
+    setSessionKey((k) => k + 1)
+  }, [open, availableTypeOptions])
 
   useEffect(() => {
     if (!open) return
@@ -166,125 +114,13 @@ export function AddConnectorModal({
     if (!selectedStillAvailable) {
       const fallbackType = availableTypeOptions[0]?.type ?? 'custom'
       setSelectedType(fallbackType)
-      setAuthType(getDefaultAuthType(fallbackType))
-      setName(buildDefaultName(fallbackType))
-      setLinearOAuthActor(DEFAULT_LINEAR_OAUTH_ACTOR)
-      setLinearOAuthScopes([])
     }
   }, [availableTypeOptions, open, selectedType])
 
-  useEffect(() => {
-    if (selectedType !== 'linear' || authType !== 'oauth') return
-
-    setLinearOAuthScopes((current) =>
-      current.filter((scope) =>
-        isLinearOAuthScopeAllowedForActor(scope, linearOAuthActor)
-      )
-    )
-  }, [authType, linearOAuthActor, selectedType])
-
-  const formState: ConnectorFormState = useMemo(() => {
-    switch (selectedType) {
-      case 'linear':
-        return authType === 'oauth'
-          ? {
-              selectedType: 'linear',
-              authType: 'oauth',
-              linearOAuthActor,
-              linearOAuthScopes,
-              oauthClientId,
-              oauthClientSecret,
-            }
-          : { selectedType: 'linear', authType: 'manual', apiKey }
-      case 'notion':
-        return authType === 'oauth'
-          ? { selectedType: 'notion', authType: 'oauth' }
-          : { selectedType: 'notion', authType: 'manual', apiKey }
-      case 'zendesk':
-        return {
-          selectedType: 'zendesk',
-          zendeskSubdomain,
-          zendeskEmail,
-          apiToken: apiKey,
-        }
-      case 'ahrefs':
-        return { selectedType: 'ahrefs', apiKey }
-      case 'umami':
-        return umamiAuthMethod === 'api-key'
-          ? {
-              selectedType: 'umami',
-              umamiAuthMethod: 'api-key',
-              umamiBaseUrl,
-              umamiApiKey,
-            }
-          : {
-              selectedType: 'umami',
-              umamiAuthMethod: 'login',
-              umamiBaseUrl,
-              umamiUsername,
-              umamiPassword,
-            }
-      case 'custom':
-        return authType === 'oauth'
-          ? {
-              selectedType: 'custom',
-              authType: 'oauth',
-              name,
-              endpoint,
-              oauthScope,
-              oauthClientId,
-              oauthClientSecret,
-              oauthAuthorizationEndpoint,
-              oauthTokenEndpoint,
-              oauthRegistrationEndpoint,
-            }
-          : {
-              selectedType: 'custom',
-              authType: 'manual',
-              name,
-              endpoint,
-              auth,
-              headersText,
-            }
-    }
-  }, [
-    selectedType,
-    authType,
-    apiKey,
-    zendeskSubdomain,
-    zendeskEmail,
-    umamiAuthMethod,
-    umamiBaseUrl,
-    umamiApiKey,
-    umamiUsername,
-    umamiPassword,
-    endpoint,
-    auth,
-    headersText,
-    oauthScope,
-    oauthClientId,
-    oauthClientSecret,
-    oauthAuthorizationEndpoint,
-    oauthTokenEndpoint,
-    oauthRegistrationEndpoint,
-    linearOAuthActor,
-    linearOAuthScopes,
-    name,
-  ])
-
   async function handleSave() {
-    const effectiveName = usesGeneratedName
-      ? buildDefaultName(selectedType)
-      : name.trim()
-
-    if (!effectiveName) {
-      setError('Name is required.')
-      return
-    }
-
-    const configResult = buildConnectorConfig(formState)
-    if (!configResult.ok) {
-      setError(configResult.message)
+    const submission = activeRef.current?.getSubmission()
+    if (!submission || !submission.ok) {
+      setError(submission?.message ?? 'Configuration is incomplete.')
       return
     }
 
@@ -297,8 +133,8 @@ export function AddConnectorModal({
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           type: selectedType,
-          name: effectiveName,
-          config: configResult.value,
+          name: submission.name,
+          config: submission.config,
         }),
       })
 
@@ -350,9 +186,6 @@ export function AddConnectorModal({
                   type="button"
                   onClick={() => {
                     setSelectedType(option.type)
-                    setAuthType(getDefaultAuthType(option.type))
-                    setLinearOAuthActor(DEFAULT_LINEAR_OAUTH_ACTOR)
-                    setLinearOAuthScopes([])
                     setError(null)
                   }}
                   className={cn(
@@ -384,149 +217,42 @@ export function AddConnectorModal({
         <hr className="border-border/40" />
 
         {/* --- Configuration fields --- */}
-        <div className="space-y-5">
-          {/* Name */}
-          {selectedType === 'custom' ? (
-            <div className="space-y-2">
-              <Label htmlFor="connector-name" className="text-foreground">
-                Name
-              </Label>
-              <Input
-                id="connector-name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Connector name"
-              />
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <Label className="text-foreground">Name</Label>
-              <p className="rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-sm text-foreground">
-                {buildDefaultName(selectedType)}
-              </p>
-            </div>
-          )}
-
-          {/* Auth mode */}
-          {supportsOAuth(selectedType) ? (
-            <div className="space-y-2">
-              <Label htmlFor="connector-auth-mode" className="text-foreground">
-                Authentication
-              </Label>
-              <select
-                id="connector-auth-mode"
-                className="w-full rounded-lg border border-border/50 bg-background px-3 py-2 text-sm text-foreground"
-                value={authType}
-                onChange={(event) =>
-                  setAuthType(
-                    event.target.value === 'oauth' ? 'oauth' : 'manual'
-                  )
-                }
-              >
-                <option value="oauth">OAuth</option>
-                <option value="manual">Manual token / API key</option>
-              </select>
-            </div>
-          ) : null}
-
-          {selectedType === 'linear' && authType === 'oauth' ? (
-            <LinearOAuthFields
-              linearOAuthActor={linearOAuthActor}
-              onLinearOAuthActorChange={setLinearOAuthActor}
-              linearOAuthScopes={linearOAuthScopes}
-              onLinearOAuthScopesChange={setLinearOAuthScopes}
-            />
-          ) : null}
-
-          {/* OAuth hint */}
-          {supportsOAuth(selectedType) && authType === 'oauth' ? (
-            <p className="rounded-lg bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              Save first, then click{' '}
-              <strong className="text-foreground/80">Connect OAuth</strong> from
-              the connector card.
-            </p>
-          ) : null}
-
-          {selectedType === 'linear' &&
-          authType === 'oauth' &&
-          linearOAuthActor === 'app' ? (
-            <LinearAppOAuthFields
-              oauthClientId={oauthClientId}
-              onOauthClientIdChange={setOauthClientId}
-              oauthClientSecret={oauthClientSecret}
-              onOauthClientSecretChange={setOauthClientSecret}
-            />
-          ) : null}
-
-          {(selectedType === 'linear' || selectedType === 'notion') &&
-          authType === 'manual' ? (
-            <ManualApiKeyField
-              id="connector-api-key"
-              value={apiKey}
-              onChange={setApiKey}
-            />
-          ) : null}
-
-          {selectedType === 'ahrefs' ? (
-            <ManualApiKeyField
-              id="connector-ahrefs-api-key"
-              placeholder="Paste your Ahrefs API key"
-              value={apiKey}
-              onChange={setApiKey}
-              helperText="Create an API key in your Ahrefs account settings."
-            />
-          ) : null}
-
-          {selectedType === 'zendesk' ? (
-            <ZendeskConnectorFields
-              zendeskSubdomain={zendeskSubdomain}
-              onZendeskSubdomainChange={setZendeskSubdomain}
-              zendeskEmail={zendeskEmail}
-              onZendeskEmailChange={setZendeskEmail}
-              apiToken={apiKey}
-              onApiTokenChange={setApiKey}
-            />
-          ) : null}
-
-          {selectedType === 'umami' ? (
-            <UmamiConnectorFields
-              umamiAuthMethod={umamiAuthMethod}
-              onUmamiAuthMethodChange={setUmamiAuthMethod}
-              umamiBaseUrl={umamiBaseUrl}
-              onUmamiBaseUrlChange={setUmamiBaseUrl}
-              umamiApiKey={umamiApiKey}
-              onUmamiApiKeyChange={setUmamiApiKey}
-              umamiUsername={umamiUsername}
-              onUmamiUsernameChange={setUmamiUsername}
-              umamiPassword={umamiPassword}
-              onUmamiPasswordChange={setUmamiPassword}
-            />
-          ) : null}
-
-          {selectedType === 'custom' ? (
-            <CustomConnectorFields
-              authType={authType}
-              endpoint={endpoint}
-              onEndpointChange={setEndpoint}
-              auth={auth}
-              onAuthChange={setAuth}
-              headersText={headersText}
-              onHeadersTextChange={setHeadersText}
-              oauthScope={oauthScope}
-              onOauthScopeChange={setOauthScope}
-              oauthClientId={oauthClientId}
-              onOauthClientIdChange={setOauthClientId}
-              oauthClientSecret={oauthClientSecret}
-              onOauthClientSecretChange={setOauthClientSecret}
-              oauthAuthorizationEndpoint={oauthAuthorizationEndpoint}
-              onOauthAuthorizationEndpointChange={setOauthAuthorizationEndpoint}
-              oauthTokenEndpoint={oauthTokenEndpoint}
-              onOauthTokenEndpointChange={setOauthTokenEndpoint}
-              oauthRegistrationEndpoint={oauthRegistrationEndpoint}
-              onOauthRegistrationEndpointChange={setOauthRegistrationEndpoint}
-            />
-          ) : null}
-        </div>
+        <LinearSection
+          key={`linear-${sessionKey}`}
+          ref={linearRef}
+          onStateChange={handleStateChange}
+          isActive={selectedType === 'linear'}
+        />
+        <NotionSection
+          key={`notion-${sessionKey}`}
+          ref={notionRef}
+          onStateChange={handleStateChange}
+          isActive={selectedType === 'notion'}
+        />
+        <ZendeskSection
+          key={`zendesk-${sessionKey}`}
+          ref={zendeskRef}
+          onStateChange={handleStateChange}
+          isActive={selectedType === 'zendesk'}
+        />
+        <AhrefsSection
+          key={`ahrefs-${sessionKey}`}
+          ref={ahrefsRef}
+          onStateChange={handleStateChange}
+          isActive={selectedType === 'ahrefs'}
+        />
+        <UmamiSection
+          key={`umami-${sessionKey}`}
+          ref={umamiRef}
+          onStateChange={handleStateChange}
+          isActive={selectedType === 'umami'}
+        />
+        <CustomSection
+          key={`custom-${sessionKey}`}
+          ref={customRef}
+          onStateChange={handleStateChange}
+          isActive={selectedType === 'custom'}
+        />
 
         {/* --- Error --- */}
         {error ? (
@@ -540,7 +266,7 @@ export function AddConnectorModal({
           <Button
             type="button"
             onClick={handleSave}
-            disabled={isSaving || !isConnectorConfigurationComplete(formState)}
+            disabled={isSaving || !activeRef.current?.isComplete()}
           >
             {isSaving ? 'Saving...' : 'Save connector'}
           </Button>
