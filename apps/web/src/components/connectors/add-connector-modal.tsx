@@ -271,7 +271,7 @@ export function AddConnectorModal({
           subdomain: normalizeZendeskSubdomain(zendeskSubdomain),
           email: zendeskEmail.trim(),
           apiToken: apiKey.trim(),
-        }
+        },
       }
     }
 
