@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildConnectorConfig,
   buildDefaultName,
+  getDefaultAuthType,
   hasValidHeaders,
   isConnectorConfigurationComplete,
   isStringRecord,
@@ -99,6 +100,19 @@ describe('supportsOAuth', () => {
   })
 })
 
+describe('getDefaultAuthType', () => {
+  it.each([
+    ['linear', 'oauth'],
+    ['notion', 'oauth'],
+    ['zendesk', 'manual'],
+    ['ahrefs', 'manual'],
+    ['umami', 'manual'],
+    ['custom', 'manual'],
+  ] as const)('returns %s for %s', (type, expected) => {
+    expect(getDefaultAuthType(type)).toBe(expected)
+  })
+})
+
 describe('buildConnectorConfig', () => {
   it('Linear app OAuth incomplete without client credentials', () => {
     const state = makeState({
@@ -156,6 +170,22 @@ describe('buildConnectorConfig', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.value).toEqual({ authType: 'manual', apiKey: 'key' })
+  })
+
+  it('Linear user OAuth with write scope produces read,write', () => {
+    const state = makeState({
+      selectedType: 'linear',
+      authType: 'oauth',
+      linearOAuthActor: 'user',
+      linearOAuthScopes: ['write'],
+    })
+    const result = buildConnectorConfig(state)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value).toEqual({
+      authType: 'oauth',
+      oauthScope: 'read,write',
+    })
   })
 
   it('Custom manual invalid headers returns error', () => {

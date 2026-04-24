@@ -112,9 +112,7 @@ export function hasValidHeaders(headersText: string): boolean {
 }
 
 export function supportsOAuth(type: ConnectorType): boolean {
-  return OAUTH_CONNECTOR_TYPES.includes(
-    type as (typeof OAUTH_CONNECTOR_TYPES)[number]
-  )
+  return (OAUTH_CONNECTOR_TYPES as readonly ConnectorType[]).includes(type)
 }
 
 export function getDefaultAuthType(type: ConnectorType): ConnectorAuthType {
@@ -386,7 +384,7 @@ export function isConnectorConfigurationComplete(
       return Boolean(oauthClientId.trim() && oauthClientSecret.trim())
     }
 
-    return authType === 'oauth' || Boolean(apiKey.trim())
+    return authType === 'oauth' ? true : Boolean(apiKey.trim())
   }
 
   return false
