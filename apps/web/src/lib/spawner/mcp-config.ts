@@ -1,3 +1,4 @@
+import { parseAhrefsConnectorConfig } from '@/lib/connectors/ahrefs'
 import { decryptConfig } from '@/lib/connectors/crypto'
 import { getConnectorGatewayBaseUrl } from '@/lib/connectors/gateway-config'
 import { issueConnectorGatewayToken } from '@/lib/connectors/gateway-tokens'
@@ -41,6 +42,7 @@ type EmbeddedConnectorParser = (config: Record<string, unknown>) => { ok: boolea
 
 const EMBEDDED_CONNECTOR_PARSERS: Partial<Record<ConnectorType, EmbeddedConnectorParser>> = {
   zendesk: parseZendeskConnectorConfig,
+  ahrefs: parseAhrefsConnectorConfig,
   umami: parseUmamiConnectorConfig,
 }
 
@@ -228,6 +230,7 @@ export function buildMcpConfigFromConnectors(
       }
 
       case 'zendesk':
+      case 'ahrefs':
       case 'umami': {
         const parser = getEmbeddedConnectorParser(connector.type)
         const parsed = parser?.(config)

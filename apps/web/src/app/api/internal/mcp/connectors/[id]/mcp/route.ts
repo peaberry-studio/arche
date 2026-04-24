@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { decryptConfig } from '@/lib/connectors/crypto'
 import { verifyConnectorGatewayToken } from '@/lib/connectors/gateway-tokens'
+import { handleAhrefsMcpRequest } from '@/lib/connectors/mcp/ahrefs-handler'
 import { proxyConnectorMcpRequest } from '@/lib/connectors/mcp/remote-proxy'
 import { handleUmamiMcpRequest } from '@/lib/connectors/mcp/umami-handler'
 import { handleZendeskMcpRequest } from '@/lib/connectors/mcp/zendesk-handler'
@@ -69,6 +70,10 @@ async function handleProxy(
 
   if (connector.type === 'zendesk') {
     return handleZendeskMcpRequest(request, decryptedConfig)
+  }
+
+  if (connector.type === 'ahrefs') {
+    return handleAhrefsMcpRequest(request, decryptedConfig)
   }
 
   if (connector.type === 'umami') {

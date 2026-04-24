@@ -1,3 +1,4 @@
+import { parseAhrefsConnectorConfig, testAhrefsConnection } from '@/lib/connectors/ahrefs'
 import { getConnectorMcpServerUrl } from '@/lib/connectors/mcp/server-url'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
 import { parseUmamiConnectorConfig, testUmamiConnection } from '@/lib/connectors/umami'
@@ -40,6 +41,7 @@ function getAccessToken(type: ConnectorType, config: Record<string, unknown>): s
     case 'notion':
       return typeof config.apiKey === 'string' ? config.apiKey : null
     case 'zendesk':
+    case 'ahrefs':
     case 'umami':
     case 'custom':
       return null
@@ -161,6 +163,12 @@ function buildEmbeddedConnectorTestHandler<TConfig>(
 }
 
 const CONNECTOR_TEST_HANDLERS: Record<ConnectorType, TestConnectionHandler> = {
+  ahrefs: buildEmbeddedConnectorTestHandler(
+    'Ahrefs',
+    parseAhrefsConnectorConfig,
+    testAhrefsConnection
+  ),
+
   zendesk: buildEmbeddedConnectorTestHandler(
     'Zendesk',
     parseZendeskConnectorConfig,

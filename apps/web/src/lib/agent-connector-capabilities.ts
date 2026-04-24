@@ -23,6 +23,7 @@ const SINGLE_INSTANCE_CONNECTOR_LABELS = {
   linear: 'Linear',
   notion: 'Notion',
   zendesk: 'Zendesk',
+  ahrefs: 'Ahrefs',
   umami: 'Umami',
 } as const satisfies Record<Exclude<ConnectorType, 'custom'>, string>
 

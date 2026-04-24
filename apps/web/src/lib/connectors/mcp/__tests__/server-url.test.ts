@@ -47,6 +47,7 @@ describe('getConnectorMcpServerUrl', () => {
       'https://custom.example/mcp'
     )
     expect(getConnectorMcpServerUrl('zendesk', { subdomain: 'acme' })).toBeNull()
+    expect(getConnectorMcpServerUrl('ahrefs', { apiKey: 'key' })).toBeNull()
     expect(getConnectorMcpServerUrl('umami', { baseUrl: 'https://api.umami.is/v1' })).toBeNull()
   })
 })
