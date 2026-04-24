@@ -1,7 +1,19 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { AhrefsSection } from '@/components/connectors/add-connector/ahrefs/section'
+import { CustomSection } from '@/components/connectors/add-connector/custom/section'
+import { LinearSection } from '@/components/connectors/add-connector/linear/section'
+import { NotionSection } from '@/components/connectors/add-connector/notion/section'
+import {
+  CONNECTOR_TYPE_OPTIONS,
+  DEFAULT_TYPE,
+} from '@/components/connectors/add-connector/shared'
+import type { AddConnectorSectionHandle } from '@/components/connectors/add-connector/section-types'
+import { TypeSelectorStep } from '@/components/connectors/add-connector/type-selector-step'
+import { UmamiSection } from '@/components/connectors/add-connector/umami/section'
+import { ZendeskSection } from '@/components/connectors/add-connector/zendesk/section'
 import { getConnectorErrorMessage } from '@/components/connectors/error-messages'
 import { Button } from '@/components/ui/button'
 import {
@@ -11,24 +23,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { useWorkspaceTheme } from '@/contexts/workspace-theme-context'
 import {
-  buildLinearOAuthScope,
-  isLinearOAuthScopeAllowedForActor,
-  LINEAR_OAUTH_SCOPE_OPTIONS,
-  type LinearOAuthActor,
-  type LinearOptionalOAuthScope,
-} from '@/lib/connectors/linear'
-import {
-  CONNECTOR_TYPES,
   isSingleInstanceConnectorType,
-  OAUTH_CONNECTOR_TYPES,
-  type ConnectorAuthType,
   type ConnectorType,
 } from '@/lib/connectors/types'
-import { normalizeZendeskSubdomain } from '@/lib/connectors/zendesk-shared'
 import { cn } from '@/lib/utils'
 
 type AddConnectorModalProps = {
@@ -37,64 +36,6 @@ type AddConnectorModalProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSaved: () => void
-}
-
-const CONNECTOR_TYPE_OPTIONS: { type: ConnectorType; label: string; description: string }[] = [
-  { type: 'linear', label: 'Linear', description: 'Official Linear MCP integration.' },
-  { type: 'notion', label: 'Notion', description: 'Official Notion MCP integration.' },
-  { type: 'zendesk', label: 'Zendesk', description: 'Zendesk Ticketing API via Arche MCP.' },
-  { type: 'ahrefs', label: 'Ahrefs', description: 'Ahrefs SEO data via Arche MCP.' },
-  { type: 'umami', label: 'Umami', description: 'Website analytics from Umami Cloud or self-hosted Umami.' },
-  { type: 'custom', label: 'Custom', description: 'Any compatible remote MCP endpoint.' },
-]
-
-const DEFAULT_TYPE: ConnectorType = CONNECTOR_TYPES[0]
-const DEFAULT_LINEAR_OAUTH_ACTOR: LinearOAuthActor = 'user'
-const LINEAR_CREATE_APPLICATION_URL = 'https://linear.app/settings/api/applications/new'
-const LINEAR_ACTOR_AUTH_DOCS_URL = 'https://linear.app/developers/oauth-actor-authorization'
-const LINEAR_CALLBACK_URL_HINT = 'https://your-arche-host/api/connectors/oauth/callback'
-
-function buildDefaultName(type: ConnectorType): string {
-  switch (type) {
-    case 'linear':
-      return 'Linear'
-    case 'notion':
-      return 'Notion'
-    case 'zendesk':
-      return 'Zendesk'
-    case 'ahrefs':
-      return 'Ahrefs'
-    case 'umami':
-      return 'Umami'
-    case 'custom':
-      return 'Custom Connector'
-  }
-}
-
-function isStringRecord(value: unknown): value is Record<string, string> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
-  for (const entry of Object.values(value)) {
-    if (typeof entry !== 'string') return false
-  }
-  return true
-}
-
-function hasValidHeaders(headersText: string): boolean {
-  if (!headersText.trim()) return true
-  try {
-    const parsed = JSON.parse(headersText) as unknown
-    return isStringRecord(parsed)
-  } catch {
-    return false
-  }
-}
-
-function supportsOAuth(type: ConnectorType): boolean {
-  return OAUTH_CONNECTOR_TYPES.includes(type as (typeof OAUTH_CONNECTOR_TYPES)[number])
-}
-
-function getDefaultAuthType(type: ConnectorType): ConnectorAuthType {
-  return type === 'linear' || type === 'notion' ? 'oauth' : 'manual'
 }
 
 export function AddConnectorModal({
@@ -108,326 +49,91 @@ export function AddConnectorModal({
   const themeClassName = `theme-${themeId}`
   const darkModeClasses = isDark ? 'dark' : ''
 
+  const [modalStep, setModalStep] = useState<'select' | 'configure'>('select')
   const [selectedType, setSelectedType] = useState<ConnectorType>(DEFAULT_TYPE)
-  const [authType, setAuthType] = useState<ConnectorAuthType>(getDefaultAuthType(DEFAULT_TYPE))
-  const [name, setName] = useState('')
-
-  const [apiKey, setApiKey] = useState('')
-  const [zendeskSubdomain, setZendeskSubdomain] = useState('')
-  const [zendeskEmail, setZendeskEmail] = useState('')
-  const [umamiAuthMethod, setUmamiAuthMethod] = useState<'api-key' | 'login'>('api-key')
-  const [umamiBaseUrl, setUmamiBaseUrl] = useState('')
-  const [umamiApiKey, setUmamiApiKey] = useState('')
-  const [umamiUsername, setUmamiUsername] = useState('')
-  const [umamiPassword, setUmamiPassword] = useState('')
-  const [endpoint, setEndpoint] = useState('')
-  const [auth, setAuth] = useState('')
-  const [headersText, setHeadersText] = useState('')
-  const [oauthScope, setOauthScope] = useState('')
-  const [oauthClientId, setOauthClientId] = useState('')
-  const [oauthClientSecret, setOauthClientSecret] = useState('')
-  const [oauthAuthorizationEndpoint, setOauthAuthorizationEndpoint] = useState('')
-  const [oauthTokenEndpoint, setOauthTokenEndpoint] = useState('')
-  const [oauthRegistrationEndpoint, setOauthRegistrationEndpoint] = useState('')
-  const [linearOAuthActor, setLinearOAuthActor] = useState<LinearOAuthActor>(DEFAULT_LINEAR_OAUTH_ACTOR)
-  const [linearOAuthScopes, setLinearOAuthScopes] = useState<LinearOptionalOAuthScope[]>([])
-
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [sessionKey, setSessionKey] = useState(0)
+  const [, setTick] = useState(0)
 
-  const usesGeneratedName = selectedType !== 'custom'
-  const showsLinearAppOAuthClientFields =
-    selectedType === 'linear' && authType === 'oauth' && linearOAuthActor === 'app'
-  const visibleLinearOAuthScopeOptions = LINEAR_OAUTH_SCOPE_OPTIONS.filter((option) =>
-    isLinearOAuthScopeAllowedForActor(option.scope, linearOAuthActor)
-  )
+  const linearRef = useRef<AddConnectorSectionHandle>(null)
+  const notionRef = useRef<AddConnectorSectionHandle>(null)
+  const zendeskRef = useRef<AddConnectorSectionHandle>(null)
+  const ahrefsRef = useRef<AddConnectorSectionHandle>(null)
+  const umamiRef = useRef<AddConnectorSectionHandle>(null)
+  const customRef = useRef<AddConnectorSectionHandle>(null)
+
+  const handleStateChange = useCallback(() => {
+    setTick((t) => t + 1)
+  }, [])
+
+  const sectionRefs = {
+    linear: linearRef,
+    notion: notionRef,
+    zendesk: zendeskRef,
+    ahrefs: ahrefsRef,
+    umami: umamiRef,
+    custom: customRef,
+  } satisfies Record<ConnectorType, typeof linearRef>
+
+  const activeRef = sectionRefs[selectedType]
 
   const availableTypeOptions = useMemo(
     () =>
       CONNECTOR_TYPE_OPTIONS.filter((option) => {
         if (!isSingleInstanceConnectorType(option.type)) return true
-        return !existingConnectors.some((connector) => connector.type === option.type)
+        return !existingConnectors.some(
+          (connector) => connector.type === option.type
+        )
       }),
     [existingConnectors]
   )
 
-  function resetState(): void {
-    setSelectedType(DEFAULT_TYPE)
-    setAuthType(getDefaultAuthType(DEFAULT_TYPE))
-    setName('')
-    setApiKey('')
-    setZendeskSubdomain('')
-    setZendeskEmail('')
-    setUmamiAuthMethod('api-key')
-    setUmamiBaseUrl('')
-    setUmamiApiKey('')
-    setUmamiUsername('')
-    setUmamiPassword('')
-    setEndpoint('')
-    setAuth('')
-    setHeadersText('')
-    setOauthScope('')
-    setOauthClientId('')
-    setOauthClientSecret('')
-    setOauthAuthorizationEndpoint('')
-    setOauthTokenEndpoint('')
-    setOauthRegistrationEndpoint('')
-    setLinearOAuthActor(DEFAULT_LINEAR_OAUTH_ACTOR)
-    setLinearOAuthScopes([])
-    setIsSaving(false)
-    setError(null)
-  }
+  const initializedForOpen = useRef(false)
 
   useEffect(() => {
     if (!open) {
-      resetState()
+      setModalStep('select')
+      setSelectedType(DEFAULT_TYPE)
+      setIsSaving(false)
+      setError(null)
+      initializedForOpen.current = false
       return
     }
-
+    if (initializedForOpen.current) return
+    initializedForOpen.current = true
     const defaultType = availableTypeOptions[0]?.type ?? 'custom'
     setSelectedType(defaultType)
-    setAuthType(getDefaultAuthType(defaultType))
-    setName(buildDefaultName(defaultType))
-    setLinearOAuthActor(DEFAULT_LINEAR_OAUTH_ACTOR)
-    setLinearOAuthScopes([])
-  }, [availableTypeOptions, open])
+    setSessionKey((k) => k + 1)
+  }, [open, availableTypeOptions])
 
   useEffect(() => {
     if (!open) return
-    setName((currentName) => (currentName.trim() ? currentName : buildDefaultName(selectedType)))
-  }, [open, selectedType])
-
-  useEffect(() => {
-    if (!open) return
-    const selectedStillAvailable = availableTypeOptions.some((option) => option.type === selectedType)
+    const selectedStillAvailable = availableTypeOptions.some(
+      (option) => option.type === selectedType
+    )
     if (!selectedStillAvailable) {
       const fallbackType = availableTypeOptions[0]?.type ?? 'custom'
       setSelectedType(fallbackType)
-      setAuthType(getDefaultAuthType(fallbackType))
-      setName(buildDefaultName(fallbackType))
-      setLinearOAuthActor(DEFAULT_LINEAR_OAUTH_ACTOR)
-      setLinearOAuthScopes([])
+      setModalStep('select')
     }
   }, [availableTypeOptions, open, selectedType])
 
-  useEffect(() => {
-    if (selectedType !== 'linear' || authType !== 'oauth') return
-
-    setLinearOAuthScopes((current) =>
-      current.filter((scope) => isLinearOAuthScopeAllowedForActor(scope, linearOAuthActor))
-    )
-  }, [authType, linearOAuthActor, selectedType])
-
-  function buildConfig(): { ok: true; value: Record<string, unknown> } | { ok: false; message: string } {
-    if (selectedType === 'linear' || selectedType === 'notion') {
-      if (authType === 'oauth') {
-        if (selectedType === 'linear' && linearOAuthActor === 'app') {
-          if (!oauthClientId.trim() || !oauthClientSecret.trim()) {
-            return { ok: false, message: 'Linear app actor OAuth requires client ID and client secret.' }
-          }
-        }
-
-        return {
-          ok: true,
-          value: {
-            authType: 'oauth',
-            ...(selectedType === 'linear'
-              ? {
-                  oauthScope: buildLinearOAuthScope(linearOAuthScopes),
-                }
-              : {}),
-            ...(selectedType === 'linear' && linearOAuthActor === 'app'
-              ? {
-                  oauthActor: 'app',
-                  oauthClientId: oauthClientId.trim() || undefined,
-                  oauthClientSecret: oauthClientSecret.trim() || undefined,
-                }
-              : {}),
-          },
-        }
-      }
-      if (!apiKey.trim()) {
-        return { ok: false, message: 'API key is required.' }
-      }
-      return { ok: true, value: { authType: 'manual', apiKey: apiKey.trim() } }
-    }
-
-    if (selectedType === 'zendesk') {
-      if (!zendeskSubdomain.trim()) {
-        return { ok: false, message: 'Zendesk subdomain is required.' }
-      }
-
-      if (!zendeskEmail.trim()) {
-        return { ok: false, message: 'Zendesk agent email is required.' }
-      }
-
-      if (!apiKey.trim()) {
-        return { ok: false, message: 'Zendesk API token is required.' }
-      }
-
-      return {
-        ok: true,
-        value: {
-          subdomain: normalizeZendeskSubdomain(zendeskSubdomain),
-          email: zendeskEmail.trim(),
-          apiToken: apiKey.trim(),
-        },
-      }
-    }
-
-    if (selectedType === 'ahrefs') {
-      if (!apiKey.trim()) {
-        return { ok: false, message: 'Ahrefs API key is required.' }
-      }
-
-      return {
-        ok: true,
-        value: {
-          apiKey: apiKey.trim(),
-        },
-      }
-    }
-
-    if (selectedType === 'umami') {
-      if (!umamiBaseUrl.trim()) {
-        return { ok: false, message: 'Umami base URL is required.' }
-      }
-
-      if (umamiAuthMethod === 'api-key') {
-        if (!umamiApiKey.trim()) {
-          return { ok: false, message: 'Umami API key is required.' }
-        }
-
-        return {
-          ok: true,
-          value: {
-            authMethod: 'api-key',
-            baseUrl: umamiBaseUrl.trim(),
-            apiKey: umamiApiKey.trim(),
-          },
-        }
-      }
-
-      if (!umamiUsername.trim()) {
-        return { ok: false, message: 'Umami username is required.' }
-      }
-
-      if (!umamiPassword.trim()) {
-        return { ok: false, message: 'Umami password is required.' }
-      }
-
-      return {
-        ok: true,
-        value: {
-          authMethod: 'login',
-          baseUrl: umamiBaseUrl.trim(),
-          username: umamiUsername.trim(),
-          password: umamiPassword.trim(),
-        },
-      }
-    }
-
-    if (selectedType === 'custom') {
-      if (!endpoint.trim()) {
-        return { ok: false, message: 'Endpoint is required.' }
-      }
-
-      if (authType === 'oauth') {
-        return {
-          ok: true,
-          value: {
-            authType: 'oauth',
-            endpoint: endpoint.trim(),
-            oauthScope: oauthScope.trim() || undefined,
-            oauthClientId: oauthClientId.trim() || undefined,
-            oauthClientSecret: oauthClientSecret.trim() || undefined,
-            oauthAuthorizationEndpoint: oauthAuthorizationEndpoint.trim() || undefined,
-            oauthTokenEndpoint: oauthTokenEndpoint.trim() || undefined,
-            oauthRegistrationEndpoint: oauthRegistrationEndpoint.trim() || undefined,
-          },
-        }
-      }
-
-      if (!headersText.trim()) {
-        return {
-          ok: true,
-          value: {
-            authType: 'manual',
-            endpoint: endpoint.trim(),
-            auth: auth.trim() || undefined,
-          },
-        }
-      }
-
-      try {
-        const parsed = JSON.parse(headersText) as unknown
-        if (!isStringRecord(parsed)) {
-          return { ok: false, message: 'Headers must be a JSON object with string values.' }
-        }
-
-        return {
-          ok: true,
-          value: {
-            authType: 'manual',
-            endpoint: endpoint.trim(),
-            auth: auth.trim() || undefined,
-            headers: parsed,
-          },
-        }
-      } catch {
-        return { ok: false, message: 'Headers is not valid JSON.' }
-      }
-    }
-
-    return { ok: false, message: 'Unsupported connector type.' }
+  function handleSelectType(type: ConnectorType) {
+    setSelectedType(type)
+    setError(null)
+    setModalStep('configure')
   }
 
-  function isConfigurationComplete(): boolean {
-    if (selectedType === 'custom' && !name.trim()) return false
-    if (selectedType === 'zendesk') {
-      return Boolean(zendeskSubdomain.trim() && zendeskEmail.trim() && apiKey.trim())
-    }
-    if (selectedType === 'ahrefs') {
-      return Boolean(apiKey.trim())
-    }
-
-    if (selectedType === 'umami') {
-      if (umamiAuthMethod === 'api-key') {
-        return Boolean(umamiBaseUrl.trim() && umamiApiKey.trim())
-      }
-
-      return Boolean(umamiBaseUrl.trim() && umamiUsername.trim() && umamiPassword.trim())
-    }
-    if (selectedType === 'custom') {
-      if (authType === 'oauth') {
-        return Boolean(endpoint.trim())
-      }
-
-      return Boolean(endpoint.trim() && hasValidHeaders(headersText))
-    }
-
-    if (selectedType === 'linear' || selectedType === 'notion') {
-      if (selectedType === 'linear' && authType === 'oauth' && linearOAuthActor === 'app') {
-        return Boolean(oauthClientId.trim() && oauthClientSecret.trim())
-      }
-
-      return authType === 'oauth' || Boolean(apiKey.trim())
-    }
-
-    return false
+  function handleBack() {
+    setModalStep('select')
+    setError(null)
   }
 
   async function handleSave() {
-    const effectiveName = usesGeneratedName ? buildDefaultName(selectedType) : name.trim()
-
-    if (!effectiveName) {
-      setError('Name is required.')
-      return
-    }
-
-    const configResult = buildConfig()
-    if (!configResult.ok) {
-      setError(configResult.message)
+    const submission = activeRef.current?.getSubmission()
+    if (!submission || !submission.ok) {
+      setError(submission?.message ?? 'Configuration is incomplete.')
       return
     }
 
@@ -440,8 +146,8 @@ export function AddConnectorModal({
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           type: selectedType,
-          name: effectiveName,
-          config: configResult.value,
+          name: submission.name,
+          config: submission.config,
         }),
       })
 
@@ -467,7 +173,7 @@ export function AddConnectorModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className={cn(
-          'max-h-[90vh] overflow-y-auto sm:max-w-xl',
+          'scrollbar-custom max-h-[90vh] overflow-y-auto sm:max-w-xl',
           darkModeClasses,
           themeClassName
         )}
@@ -475,528 +181,57 @@ export function AddConnectorModal({
         <DialogHeader>
           <DialogTitle>Add connector</DialogTitle>
           <DialogDescription>
-            Choose a type and configure the connection details.
+            {modalStep === 'select'
+              ? 'Choose a connector to add.'
+              : 'Configure the connection details.'}
           </DialogDescription>
         </DialogHeader>
 
-        {/* --- Type selector --- */}
-        <fieldset className="space-y-3">
-          <legend className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Type
-          </legend>
-          <div className="grid gap-3 sm:grid-cols-3">
-            {availableTypeOptions.map((option) => {
-              const isSelected = option.type === selectedType
-              return (
-                <button
-                  key={option.type}
-                  type="button"
-                  onClick={() => {
-                    setSelectedType(option.type)
-                    setAuthType(getDefaultAuthType(option.type))
-                    setLinearOAuthActor(DEFAULT_LINEAR_OAUTH_ACTOR)
-                    setLinearOAuthScopes([])
-                    setError(null)
-                  }}
-                  className={cn(
-                    'rounded-xl border px-4 py-3 text-left transition-all',
-                    isSelected
-                      ? 'border-primary/60 bg-primary/5 ring-1 ring-primary/20'
-                      : 'border-border/50 hover:border-border'
-                  )}
-                >
-                  <p className="text-sm font-medium text-foreground">
-                    {option.label}
-                  </p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {option.description}
-                  </p>
-                </button>
-              )
-            })}
-          </div>
-          {availableTypeOptions.length === 1 && availableTypeOptions[0]?.type === 'custom' ? (
-            <p className="text-xs text-muted-foreground">
-              The single-instance connectors are already configured.
-            </p>
-          ) : null}
-        </fieldset>
-
-        {/* --- Divider --- */}
-        <hr className="border-border/40" />
+        {/* --- Selection step --- */}
+        <TypeSelectorStep
+          availableTypeOptions={availableTypeOptions}
+          isActive={modalStep === 'select'}
+          onSelectType={handleSelectType}
+        />
 
         {/* --- Configuration fields --- */}
-        <div className="space-y-5">
-          {/* Name */}
-           {selectedType === 'custom' ? (
-             <div className="space-y-2">
-               <Label htmlFor="connector-name" className="text-foreground">Name</Label>
-               <Input
-                id="connector-name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Connector name"
-              />
-            </div>
-          ) : (
-            <div className="space-y-2">
-              <Label className="text-foreground">Name</Label>
-              <p className="rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-sm text-foreground">
-                {buildDefaultName(selectedType)}
-              </p>
-            </div>
-          )}
-
-          {/* Auth mode */}
-          {supportsOAuth(selectedType) ? (
-            <div className="space-y-2">
-              <Label htmlFor="connector-auth-mode" className="text-foreground">
-                Authentication
-              </Label>
-              <select
-                id="connector-auth-mode"
-                className="w-full rounded-lg border border-border/50 bg-background px-3 py-2 text-sm text-foreground"
-                value={authType}
-                onChange={(event) =>
-                  setAuthType(event.target.value === 'oauth' ? 'oauth' : 'manual')
-                }
-              >
-                <option value="oauth">OAuth</option>
-                <option value="manual">Manual token / API key</option>
-              </select>
-            </div>
-          ) : null}
-
-          {selectedType === 'linear' && authType === 'oauth' ? (
-            <div className="space-y-2">
-              <Label htmlFor="linear-oauth-actor" className="text-foreground">
-                OAuth actor
-              </Label>
-              <select
-                id="linear-oauth-actor"
-                className="w-full rounded-lg border border-border/50 bg-background px-3 py-2 text-sm text-foreground"
-                value={linearOAuthActor}
-                onChange={(event) =>
-                  setLinearOAuthActor(event.target.value === 'app' ? 'app' : 'user')
-                }
-              >
-                <option value="user">User OAuth</option>
-                <option value="app">App actor OAuth</option>
-              </select>
-              <p className="text-xs text-muted-foreground">
-                User OAuth acts as the person who connects it. App actor OAuth installs your Linear app so
-                mutations appear as the app instead.
-              </p>
-            </div>
-          ) : null}
-
-          {selectedType === 'linear' && authType === 'oauth' ? (
-            <fieldset className="space-y-3 rounded-lg border border-border/50 bg-muted/20 px-4 py-3">
-              <legend className="px-1 text-sm font-medium text-foreground">
-                OAuth permissions
-              </legend>
-              <p className="text-xs text-muted-foreground">
-                Linear always includes <code>read</code>. Select any extra permissions you want Arche to request.
-              </p>
-              <div className="space-y-3">
-                {visibleLinearOAuthScopeOptions.map((option) => {
-                  const inputId = `linear-oauth-scope-${option.scope.replace(/:/g, '-')}`
-                  const checked = linearOAuthScopes.includes(option.scope)
-
-                  return (
-                    <label key={option.scope} htmlFor={inputId} className="flex items-start gap-3 rounded-lg border border-border/40 bg-background/40 px-3 py-2">
-                      <input
-                        id={inputId}
-                        type="checkbox"
-                        checked={checked}
-                        onChange={(event) => {
-                          const nextChecked = event.target.checked
-                          setLinearOAuthScopes((current) => {
-                            if (nextChecked) {
-                              return current.includes(option.scope)
-                                ? current
-                                : [...current, option.scope]
-                            }
-
-                            return current.filter((scope) => scope !== option.scope)
-                          })
-                        }}
-                        className="mt-1 h-4 w-4 rounded border-border text-primary"
-                      />
-                      <span className="space-y-1">
-                        <span className="block text-sm font-medium text-foreground">{option.label}</span>
-                        <span className="block text-xs text-muted-foreground">{option.description}</span>
-                      </span>
-                    </label>
-                  )
-                })}
-              </div>
-            </fieldset>
-          ) : null}
-
-          {/* OAuth hint */}
-          {supportsOAuth(selectedType) && authType === 'oauth' ? (
-            <p className="rounded-lg bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              Save first, then click <strong className="text-foreground/80">Connect OAuth</strong> from the connector card.
-            </p>
-          ) : null}
-
-          {showsLinearAppOAuthClientFields ? (
-            <div className="space-y-3 rounded-lg border border-border/50 bg-muted/20 px-4 py-3 text-sm">
-              <div className="space-y-1">
-                <p className="font-medium text-foreground">Create a Linear OAuth application first</p>
-                <p className="text-muted-foreground">
-                  Linear app actor mode uses your OAuth application name and icon as the author in Linear.
-                  A workspace admin must complete the OAuth connection.
-                </p>
-              </div>
-
-              <ol className="list-decimal space-y-1 pl-5 text-muted-foreground">
-                <li>Open Linear Settings -&gt; API -&gt; Applications.</li>
-                <li>Create a new OAuth2 application for Arche with the name and icon you want to appear in Linear.</li>
-                <li>Add <code>{LINEAR_CALLBACK_URL_HINT}</code> as a callback URL, replacing the host with your Arche URL.</li>
-                <li>Paste the Linear client ID and client secret below before starting OAuth.</li>
-                <li>Save this connector, then connect OAuth as a Linear workspace admin.</li>
-              </ol>
-
-              <div className="flex flex-wrap items-center gap-4 text-sm">
-                <a
-                  href={LINEAR_CREATE_APPLICATION_URL}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-medium text-primary hover:underline"
-                >
-                  Create Linear OAuth application
-                </a>
-                <a
-                  href={LINEAR_ACTOR_AUTH_DOCS_URL}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-medium text-primary hover:underline"
-                >
-                  Open Linear actor auth docs
-                </a>
-              </div>
-            </div>
-          ) : null}
-
-          {showsLinearAppOAuthClientFields ? (
-            <>
-              <div className="space-y-2">
-                <Label htmlFor="linear-oauth-client-id" className="text-foreground">
-                  Client ID
-                </Label>
-                <Input
-                  id="linear-oauth-client-id"
-                  value={oauthClientId}
-                  onChange={(event) => setOauthClientId(event.target.value)}
-                  placeholder="Linear OAuth client id"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="linear-oauth-client-secret" className="text-foreground">
-                  Client secret
-                </Label>
-                <Input
-                  id="linear-oauth-client-secret"
-                  type="password"
-                  value={oauthClientSecret}
-                  onChange={(event) => setOauthClientSecret(event.target.value)}
-                  placeholder="Linear OAuth client secret"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Linear app actor mode uses the credentials stored on this connector only.
-                </p>
-              </div>
-            </>
-          ) : null}
-
-          {/* Manual API key (official types) */}
-          {(selectedType === 'linear' || selectedType === 'notion') && authType === 'manual' ? (
-            <div className="space-y-2">
-              <Label htmlFor="connector-api-key" className="text-foreground">API Key</Label>
-              <Input
-                id="connector-api-key"
-                type="password"
-                value={apiKey}
-                onChange={(event) => setApiKey(event.target.value)}
-                placeholder="Paste your API key"
-              />
-            </div>
-          ) : null}
-
-          {selectedType === 'ahrefs' ? (
-            <div className="space-y-2">
-              <Label htmlFor="connector-ahrefs-api-key" className="text-foreground">API Key</Label>
-              <Input
-                id="connector-ahrefs-api-key"
-                type="password"
-                value={apiKey}
-                onChange={(event) => setApiKey(event.target.value)}
-                placeholder="Paste your Ahrefs API key"
-              />
-              <p className="text-xs text-muted-foreground">
-                Create an API key in your Ahrefs account settings.
-              </p>
-            </div>
-          ) : null}
-
-          {selectedType === 'zendesk' ? (
-            <>
-              <div className="space-y-2">
-                <Label htmlFor="connector-zendesk-subdomain" className="text-foreground">
-                  Zendesk subdomain
-                </Label>
-                <Input
-                  id="connector-zendesk-subdomain"
-                  value={zendeskSubdomain}
-                  onChange={(event) => setZendeskSubdomain(event.target.value)}
-                  placeholder="acme"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Enter the account subdomain, for example <code>acme</code> for <code>acme.zendesk.com</code>.
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="connector-zendesk-email" className="text-foreground">
-                  Agent email
-                </Label>
-                <Input
-                  id="connector-zendesk-email"
-                  type="email"
-                  value={zendeskEmail}
-                  onChange={(event) => setZendeskEmail(event.target.value)}
-                  placeholder="agent@example.com"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="connector-zendesk-api-token" className="text-foreground">
-                  API token
-                </Label>
-                <Input
-                  id="connector-zendesk-api-token"
-                  type="password"
-                  value={apiKey}
-                  onChange={(event) => setApiKey(event.target.value)}
-                  placeholder="Paste your Zendesk API token"
-                />
-              </div>
-            </>
-          ) : null}
-
-          {selectedType === 'umami' ? (
-            <>
-              <div className="space-y-2">
-                <Label htmlFor="connector-umami-base-url" className="text-foreground">
-                  Base URL
-                </Label>
-                <Input
-                  id="connector-umami-base-url"
-                  value={umamiBaseUrl}
-                  onChange={(event) => setUmamiBaseUrl(event.target.value)}
-                  placeholder={umamiAuthMethod === 'api-key' ? 'https://api.umami.is/v1' : 'https://analytics.example.com'}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Use the public HTTPS API base. For Umami Cloud the default is <code>https://api.umami.is/v1</code>. For self-hosted Umami you can enter the site root and Arche will use <code>/api</code> automatically.
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="connector-umami-auth-method" className="text-foreground">
-                  Authentication method
-                </Label>
-                <select
-                  id="connector-umami-auth-method"
-                  className="w-full rounded-lg border border-border/50 bg-background px-3 py-2 text-sm text-foreground"
-                  value={umamiAuthMethod}
-                  onChange={(event) => setUmamiAuthMethod(event.target.value === 'login' ? 'login' : 'api-key')}
-                >
-                  <option value="api-key">Umami Cloud API key</option>
-                  <option value="login">Self-hosted username/password</option>
-                </select>
-              </div>
-
-              {umamiAuthMethod === 'api-key' ? (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="connector-umami-api-key" className="text-foreground">
-                      API key
-                    </Label>
-                    <Input
-                      id="connector-umami-api-key"
-                      type="password"
-                      value={umamiApiKey}
-                      onChange={(event) => setUmamiApiKey(event.target.value)}
-                      placeholder="Paste your Umami Cloud API key"
-                    />
-                  </div>
-                  <p className="rounded-lg bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                    Supported reads: websites, summary stats, pageview series, ranked metrics, recent sessions, recent events, and realtime. Umami Cloud API keys are rate-limited to 50 requests every 15 seconds.
-                  </p>
-                </>
-              ) : (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="connector-umami-username" className="text-foreground">
-                      Username
-                    </Label>
-                    <Input
-                      id="connector-umami-username"
-                      value={umamiUsername}
-                      onChange={(event) => setUmamiUsername(event.target.value)}
-                      placeholder="admin"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="connector-umami-password" className="text-foreground">
-                      Password
-                    </Label>
-                    <Input
-                      id="connector-umami-password"
-                      type="password"
-                      value={umamiPassword}
-                      onChange={(event) => setUmamiPassword(event.target.value)}
-                      placeholder="Paste your Umami password"
-                    />
-                  </div>
-
-                  <p className="rounded-lg bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                    The configured user needs permission to read the target websites in Umami. Arche only exposes read-only analytics tools for this connector.
-                  </p>
-                </>
-              )}
-            </>
-          ) : null}
-
-          {/* Custom connector fields */}
-          {selectedType === 'custom' && authType === 'manual' ? (
-            <>
-              <div className="space-y-2">
-                <Label htmlFor="connector-endpoint" className="text-foreground">Endpoint</Label>
-                <Input
-                  id="connector-endpoint"
-                  value={endpoint}
-                  onChange={(event) => setEndpoint(event.target.value)}
-                  placeholder="https://example.com/mcp"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="connector-auth" className="text-foreground">
-                  Auth token <span className="font-normal text-muted-foreground">(optional)</span>
-                </Label>
-                <Input
-                  id="connector-auth"
-                  type="password"
-                  value={auth}
-                  onChange={(event) => setAuth(event.target.value)}
-                  placeholder="Bearer token or API key"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="connector-headers" className="text-foreground">
-                  Headers <span className="font-normal text-muted-foreground">(optional JSON)</span>
-                </Label>
-                <textarea
-                  id="connector-headers"
-                  className="min-h-24 w-full rounded-lg border border-border/50 bg-background px-3 py-2 font-mono text-sm text-foreground placeholder:text-muted-foreground/60"
-                  value={headersText}
-                  onChange={(event) => setHeadersText(event.target.value)}
-                  placeholder={'{\n  "x-api-key": "value"\n}'}
-                />
-              </div>
-            </>
-          ) : null}
-
-          {selectedType === 'custom' && authType === 'oauth' ? (
-            <>
-              <div className="space-y-2">
-                <Label htmlFor="connector-endpoint-oauth" className="text-foreground">MCP endpoint</Label>
-                <Input
-                  id="connector-endpoint-oauth"
-                  value={endpoint}
-                  onChange={(event) => setEndpoint(event.target.value)}
-                  placeholder="https://example.com/mcp"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="connector-oauth-scope" className="text-foreground">
-                  OAuth scope <span className="font-normal text-muted-foreground">(optional)</span>
-                </Label>
-                <Input
-                  id="connector-oauth-scope"
-                  value={oauthScope}
-                  onChange={(event) => setOauthScope(event.target.value)}
-                  placeholder="read write"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="connector-oauth-client-id" className="text-foreground">
-                  Client ID <span className="font-normal text-muted-foreground">(optional override)</span>
-                </Label>
-                <Input
-                  id="connector-oauth-client-id"
-                  value={oauthClientId}
-                  onChange={(event) => setOauthClientId(event.target.value)}
-                  placeholder="oauth client id"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="connector-oauth-client-secret" className="text-foreground">
-                  Client secret <span className="font-normal text-muted-foreground">(optional override)</span>
-                </Label>
-                <Input
-                  id="connector-oauth-client-secret"
-                  type="password"
-                  value={oauthClientSecret}
-                  onChange={(event) => setOauthClientSecret(event.target.value)}
-                  placeholder="oauth client secret"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="connector-oauth-auth-endpoint" className="text-foreground">
-                  Authorization endpoint <span className="font-normal text-muted-foreground">(optional override)</span>
-                </Label>
-                <Input
-                  id="connector-oauth-auth-endpoint"
-                  value={oauthAuthorizationEndpoint}
-                  onChange={(event) => setOauthAuthorizationEndpoint(event.target.value)}
-                  placeholder="https://example.com/authorize"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="connector-oauth-token-endpoint" className="text-foreground">
-                  Token endpoint <span className="font-normal text-muted-foreground">(optional override)</span>
-                </Label>
-                <Input
-                  id="connector-oauth-token-endpoint"
-                  value={oauthTokenEndpoint}
-                  onChange={(event) => setOauthTokenEndpoint(event.target.value)}
-                  placeholder="https://example.com/token"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="connector-oauth-registration-endpoint" className="text-foreground">
-                  Registration endpoint <span className="font-normal text-muted-foreground">(optional override)</span>
-                </Label>
-                <Input
-                  id="connector-oauth-registration-endpoint"
-                  value={oauthRegistrationEndpoint}
-                  onChange={(event) => setOauthRegistrationEndpoint(event.target.value)}
-                  placeholder="https://example.com/register"
-                />
-              </div>
-            </>
-          ) : null}
+        <div className={cn(modalStep !== 'configure' && 'hidden')}>
+          <LinearSection
+            key={`linear-${sessionKey}`}
+            ref={linearRef}
+            onStateChange={handleStateChange}
+            isActive={selectedType === 'linear'}
+          />
+          <NotionSection
+            key={`notion-${sessionKey}`}
+            ref={notionRef}
+            onStateChange={handleStateChange}
+            isActive={selectedType === 'notion'}
+          />
+          <ZendeskSection
+            key={`zendesk-${sessionKey}`}
+            ref={zendeskRef}
+            onStateChange={handleStateChange}
+            isActive={selectedType === 'zendesk'}
+          />
+          <AhrefsSection
+            key={`ahrefs-${sessionKey}`}
+            ref={ahrefsRef}
+            onStateChange={handleStateChange}
+            isActive={selectedType === 'ahrefs'}
+          />
+          <UmamiSection
+            key={`umami-${sessionKey}`}
+            ref={umamiRef}
+            onStateChange={handleStateChange}
+            isActive={selectedType === 'umami'}
+          />
+          <CustomSection
+            key={`custom-${sessionKey}`}
+            ref={customRef}
+            onStateChange={handleStateChange}
+            isActive={selectedType === 'custom'}
+          />
         </div>
 
         {/* --- Error --- */}
@@ -1007,14 +242,26 @@ export function AddConnectorModal({
         ) : null}
 
         {/* --- Footer --- */}
-        <div className="flex justify-end pt-2">
-          <Button
-            type="button"
-            onClick={handleSave}
-            disabled={isSaving || !isConfigurationComplete()}
-          >
-            {isSaving ? 'Saving...' : 'Save connector'}
-          </Button>
+        <div className="flex justify-end gap-2 pt-2">
+          {modalStep === 'configure' ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleBack}
+                disabled={isSaving}
+              >
+                Back
+              </Button>
+              <Button
+                type="button"
+                onClick={handleSave}
+                disabled={isSaving || !activeRef.current?.isComplete()}
+              >
+                {isSaving ? 'Saving...' : 'Save connector'}
+              </Button>
+            </>
+          ) : null}
         </div>
       </DialogContent>
     </Dialog>

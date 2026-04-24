@@ -41,6 +41,9 @@ describe('AddConnectorModal', () => {
       />
     )
 
+    // Select Linear from the grid
+    fireEvent.click(screen.getByRole('button', { name: /Linear/i }))
+
     expect(screen.queryByText('Create a Linear OAuth application first')).toBeNull()
 
     fireEvent.change(screen.getByLabelText('OAuth actor'), {
@@ -90,5 +93,30 @@ describe('AddConnectorModal', () => {
     })
     expect(onSaved).toHaveBeenCalledTimes(1)
     expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('filters connectors by search query on the selection step', () => {
+    const onOpenChange = vi.fn()
+    const onSaved = vi.fn()
+
+    render(
+      <AddConnectorModal
+        slug="alice"
+        existingConnectors={[]}
+        open
+        onOpenChange={onOpenChange}
+        onSaved={onSaved}
+      />
+    )
+
+    expect(screen.getByRole('button', { name: /Linear/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Zendesk/i })).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText('Search connectors'), {
+      target: { value: 'zendesk' },
+    })
+
+    expect(screen.queryByRole('button', { name: /Linear/i })).toBeNull()
+    expect(screen.getByRole('button', { name: /Zendesk/i })).toBeTruthy()
   })
 })
