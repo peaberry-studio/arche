@@ -11,6 +11,7 @@ import {
   DEFAULT_TYPE,
 } from '@/components/connectors/add-connector/shared'
 import type { AddConnectorSectionHandle } from '@/components/connectors/add-connector/section-types'
+import { TypeSelectorStep } from '@/components/connectors/add-connector/type-selector-step'
 import { UmamiSection } from '@/components/connectors/add-connector/umami/section'
 import { ZendeskSection } from '@/components/connectors/add-connector/zendesk/section'
 import { getConnectorErrorMessage } from '@/components/connectors/error-messages'
@@ -48,6 +49,7 @@ export function AddConnectorModal({
   const themeClassName = `theme-${themeId}`
   const darkModeClasses = isDark ? 'dark' : ''
 
+  const [modalStep, setModalStep] = useState<'select' | 'configure'>('select')
   const [selectedType, setSelectedType] = useState<ConnectorType>(DEFAULT_TYPE)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -91,6 +93,7 @@ export function AddConnectorModal({
 
   useEffect(() => {
     if (!open) {
+      setModalStep('select')
       setSelectedType(DEFAULT_TYPE)
       setIsSaving(false)
       setError(null)
@@ -112,8 +115,20 @@ export function AddConnectorModal({
     if (!selectedStillAvailable) {
       const fallbackType = availableTypeOptions[0]?.type ?? 'custom'
       setSelectedType(fallbackType)
+      setModalStep('select')
     }
   }, [availableTypeOptions, open, selectedType])
+
+  function handleSelectType(type: ConnectorType) {
+    setSelectedType(type)
+    setError(null)
+    setModalStep('configure')
+  }
+
+  function handleBack() {
+    setModalStep('select')
+    setError(null)
+  }
 
   async function handleSave() {
     const submission = activeRef.current?.getSubmission()
@@ -166,91 +181,58 @@ export function AddConnectorModal({
         <DialogHeader>
           <DialogTitle>Add connector</DialogTitle>
           <DialogDescription>
-            Choose a type and configure the connection details.
+            {modalStep === 'select'
+              ? 'Choose a connector to add.'
+              : 'Configure the connection details.'}
           </DialogDescription>
         </DialogHeader>
 
-        {/* --- Type selector --- */}
-        <fieldset className="space-y-3">
-          <legend className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            Type
-          </legend>
-          <div className="grid gap-3 sm:grid-cols-3">
-            {availableTypeOptions.map((option) => {
-              const isSelected = option.type === selectedType
-              return (
-                <button
-                  key={option.type}
-                  type="button"
-                  onClick={() => {
-                    setSelectedType(option.type)
-                    setError(null)
-                  }}
-                  className={cn(
-                    'rounded-xl border px-4 py-3 text-left transition-all',
-                    isSelected
-                      ? 'border-primary/60 bg-primary/5 ring-1 ring-primary/20'
-                      : 'border-border/50 hover:border-border'
-                  )}
-                >
-                  <p className="text-sm font-medium text-foreground">
-                    {option.label}
-                  </p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {option.description}
-                  </p>
-                </button>
-              )
-            })}
-          </div>
-          {availableTypeOptions.length === 1 &&
-          availableTypeOptions[0]?.type === 'custom' ? (
-            <p className="text-xs text-muted-foreground">
-              The single-instance connectors are already configured.
-            </p>
-          ) : null}
-        </fieldset>
-
-        {/* --- Divider --- */}
-        <hr className="border-border/40" />
+        {/* --- Selection step --- */}
+        <TypeSelectorStep
+          availableTypeOptions={availableTypeOptions}
+          isActive={modalStep === 'select'}
+          onSelectType={handleSelectType}
+        />
 
         {/* --- Configuration fields --- */}
-        <LinearSection
-          key={`linear-${sessionKey}`}
-          ref={linearRef}
-          onStateChange={handleStateChange}
-          isActive={selectedType === 'linear'}
-        />
-        <NotionSection
-          key={`notion-${sessionKey}`}
-          ref={notionRef}
-          onStateChange={handleStateChange}
-          isActive={selectedType === 'notion'}
-        />
-        <ZendeskSection
-          key={`zendesk-${sessionKey}`}
-          ref={zendeskRef}
-          onStateChange={handleStateChange}
-          isActive={selectedType === 'zendesk'}
-        />
-        <AhrefsSection
-          key={`ahrefs-${sessionKey}`}
-          ref={ahrefsRef}
-          onStateChange={handleStateChange}
-          isActive={selectedType === 'ahrefs'}
-        />
-        <UmamiSection
-          key={`umami-${sessionKey}`}
-          ref={umamiRef}
-          onStateChange={handleStateChange}
-          isActive={selectedType === 'umami'}
-        />
-        <CustomSection
-          key={`custom-${sessionKey}`}
-          ref={customRef}
-          onStateChange={handleStateChange}
-          isActive={selectedType === 'custom'}
-        />
+        <div className={cn(modalStep !== 'configure' && 'hidden')}>
+          <LinearSection
+            key={`linear-${sessionKey}`}
+            ref={linearRef}
+            onStateChange={handleStateChange}
+            isActive={selectedType === 'linear'}
+          />
+          <NotionSection
+            key={`notion-${sessionKey}`}
+            ref={notionRef}
+            onStateChange={handleStateChange}
+            isActive={selectedType === 'notion'}
+          />
+          <ZendeskSection
+            key={`zendesk-${sessionKey}`}
+            ref={zendeskRef}
+            onStateChange={handleStateChange}
+            isActive={selectedType === 'zendesk'}
+          />
+          <AhrefsSection
+            key={`ahrefs-${sessionKey}`}
+            ref={ahrefsRef}
+            onStateChange={handleStateChange}
+            isActive={selectedType === 'ahrefs'}
+          />
+          <UmamiSection
+            key={`umami-${sessionKey}`}
+            ref={umamiRef}
+            onStateChange={handleStateChange}
+            isActive={selectedType === 'umami'}
+          />
+          <CustomSection
+            key={`custom-${sessionKey}`}
+            ref={customRef}
+            onStateChange={handleStateChange}
+            isActive={selectedType === 'custom'}
+          />
+        </div>
 
         {/* --- Error --- */}
         {error ? (
@@ -260,14 +242,26 @@ export function AddConnectorModal({
         ) : null}
 
         {/* --- Footer --- */}
-        <div className="flex justify-end pt-2">
-          <Button
-            type="button"
-            onClick={handleSave}
-            disabled={isSaving || !activeRef.current?.isComplete()}
-          >
-            {isSaving ? 'Saving...' : 'Save connector'}
-          </Button>
+        <div className="flex justify-end gap-2 pt-2">
+          {modalStep === 'configure' ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleBack}
+                disabled={isSaving}
+              >
+                Back
+              </Button>
+              <Button
+                type="button"
+                onClick={handleSave}
+                disabled={isSaving || !activeRef.current?.isComplete()}
+              >
+                {isSaving ? 'Saving...' : 'Save connector'}
+              </Button>
+            </>
+          ) : null}
         </div>
       </DialogContent>
     </Dialog>
