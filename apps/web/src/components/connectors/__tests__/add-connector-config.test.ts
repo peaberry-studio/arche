@@ -11,33 +11,6 @@ import {
   type ConnectorFormState,
 } from '@/components/connectors/add-connector-config'
 
-function makeState(overrides: Partial<ConnectorFormState> = {}): ConnectorFormState {
-  return {
-    selectedType: 'linear',
-    authType: 'oauth',
-    apiKey: '',
-    zendeskSubdomain: '',
-    zendeskEmail: '',
-    umamiAuthMethod: 'api-key',
-    umamiBaseUrl: '',
-    umamiApiKey: '',
-    umamiUsername: '',
-    umamiPassword: '',
-    endpoint: '',
-    auth: '',
-    headersText: '',
-    oauthScope: '',
-    oauthClientId: '',
-    oauthClientSecret: '',
-    oauthAuthorizationEndpoint: '',
-    oauthTokenEndpoint: '',
-    oauthRegistrationEndpoint: '',
-    linearOAuthActor: 'user',
-    linearOAuthScopes: [],
-    ...overrides,
-  }
-}
-
 describe('buildDefaultName', () => {
   it.each([
     ['linear', 'Linear'],
@@ -115,13 +88,14 @@ describe('getDefaultAuthType', () => {
 
 describe('buildConnectorConfig', () => {
   it('Linear app OAuth incomplete without client credentials', () => {
-    const state = makeState({
+    const state: ConnectorFormState = {
       selectedType: 'linear',
       authType: 'oauth',
       linearOAuthActor: 'app',
+      linearOAuthScopes: [],
       oauthClientId: '',
       oauthClientSecret: '',
-    })
+    }
     const result = buildConnectorConfig(state)
     expect(result).toEqual({
       ok: false,
@@ -130,14 +104,14 @@ describe('buildConnectorConfig', () => {
   })
 
   it('Linear app OAuth complete with client credentials and scopes', () => {
-    const state = makeState({
+    const state: ConnectorFormState = {
       selectedType: 'linear',
       authType: 'oauth',
       linearOAuthActor: 'app',
       oauthClientId: 'client-id',
       oauthClientSecret: 'client-secret',
       linearOAuthScopes: ['write', 'app:mentionable'],
-    })
+    }
     const result = buildConnectorConfig(state)
     expect(result.ok).toBe(true)
     if (!result.ok) return
@@ -151,21 +125,21 @@ describe('buildConnectorConfig', () => {
   })
 
   it('Linear manual requires API key', () => {
-    const state = makeState({
+    const state: ConnectorFormState = {
       selectedType: 'linear',
       authType: 'manual',
       apiKey: '',
-    })
+    }
     const result = buildConnectorConfig(state)
     expect(result).toEqual({ ok: false, message: 'API key is required.' })
   })
 
   it('Linear manual config includes apiKey', () => {
-    const state = makeState({
+    const state: ConnectorFormState = {
       selectedType: 'linear',
       authType: 'manual',
       apiKey: 'key',
-    })
+    }
     const result = buildConnectorConfig(state)
     expect(result.ok).toBe(true)
     if (!result.ok) return
@@ -173,12 +147,14 @@ describe('buildConnectorConfig', () => {
   })
 
   it('Linear user OAuth with write scope produces read,write', () => {
-    const state = makeState({
+    const state: ConnectorFormState = {
       selectedType: 'linear',
       authType: 'oauth',
       linearOAuthActor: 'user',
       linearOAuthScopes: ['write'],
-    })
+      oauthClientId: '',
+      oauthClientSecret: '',
+    }
     const result = buildConnectorConfig(state)
     expect(result.ok).toBe(true)
     if (!result.ok) return
@@ -189,12 +165,14 @@ describe('buildConnectorConfig', () => {
   })
 
   it('Custom manual invalid headers returns error', () => {
-    const state = makeState({
+    const state: ConnectorFormState = {
       selectedType: 'custom',
       authType: 'manual',
+      name: 'Test',
       endpoint: 'https://example.com/mcp',
+      auth: '',
       headersText: 'not json',
-    })
+    }
     const result = buildConnectorConfig(state)
     expect(result).toEqual({
       ok: false,
@@ -203,12 +181,14 @@ describe('buildConnectorConfig', () => {
   })
 
   it('Custom manual valid headers are included', () => {
-    const state = makeState({
+    const state: ConnectorFormState = {
       selectedType: 'custom',
       authType: 'manual',
+      name: 'Test',
       endpoint: 'https://example.com/mcp',
+      auth: '',
       headersText: '{"x-api-key":"value"}',
-    })
+    }
     const result = buildConnectorConfig(state)
     expect(result.ok).toBe(true)
     if (!result.ok) return
@@ -220,23 +200,23 @@ describe('buildConnectorConfig', () => {
   })
 
   it('Zendesk config normalizes subdomain and requires fields', () => {
-    const state = makeState({
+    const incomplete: ConnectorFormState = {
       selectedType: 'zendesk',
       zendeskSubdomain: 'ACME.zendesk.com',
       zendeskEmail: '',
-      apiKey: '',
-    })
-    expect(buildConnectorConfig(state)).toEqual({
+      apiToken: '',
+    }
+    expect(buildConnectorConfig(incomplete)).toEqual({
       ok: false,
       message: 'Zendesk agent email is required.',
     })
 
-    const complete = makeState({
+    const complete: ConnectorFormState = {
       selectedType: 'zendesk',
       zendeskSubdomain: 'ACME.zendesk.com',
       zendeskEmail: 'agent@example.com',
-      apiKey: 'token',
-    })
+      apiToken: 'token',
+    }
     const result = buildConnectorConfig(complete)
     expect(result.ok).toBe(true)
     if (!result.ok) return
@@ -248,12 +228,12 @@ describe('buildConnectorConfig', () => {
   })
 
   it('Umami api-key config shape', () => {
-    const state = makeState({
+    const state: ConnectorFormState = {
       selectedType: 'umami',
       umamiAuthMethod: 'api-key',
       umamiBaseUrl: 'https://api.umami.is/v1',
       umamiApiKey: 'key',
-    })
+    }
     const result = buildConnectorConfig(state)
     expect(result.ok).toBe(true)
     if (!result.ok) return
@@ -265,13 +245,13 @@ describe('buildConnectorConfig', () => {
   })
 
   it('Umami login config shape', () => {
-    const state = makeState({
+    const state: ConnectorFormState = {
       selectedType: 'umami',
       umamiAuthMethod: 'login',
       umamiBaseUrl: 'https://analytics.example.com',
       umamiUsername: 'admin',
       umamiPassword: 'secret',
-    })
+    }
     const result = buildConnectorConfig(state)
     expect(result.ok).toBe(true)
     if (!result.ok) return
@@ -286,140 +266,168 @@ describe('buildConnectorConfig', () => {
 
 describe('isConnectorConfigurationComplete', () => {
   it('custom without name is incomplete', () => {
-    const state = makeState({
+    const state: ConnectorFormState = {
       selectedType: 'custom',
       authType: 'manual',
+      name: '',
       endpoint: 'https://example.com',
-    })
-    expect(isConnectorConfigurationComplete(state, '')).toBe(false)
-    expect(isConnectorConfigurationComplete(state, 'My Connector')).toBe(true)
+      auth: '',
+      headersText: '',
+    }
+    expect(isConnectorConfigurationComplete(state)).toBe(false)
+
+    const named: ConnectorFormState = {
+      selectedType: 'custom',
+      authType: 'manual',
+      name: 'My Connector',
+      endpoint: 'https://example.com',
+      auth: '',
+      headersText: '',
+    }
+    expect(isConnectorConfigurationComplete(named)).toBe(true)
   })
 
   it('custom oauth requires endpoint', () => {
-    const state = makeState({
+    const state: ConnectorFormState = {
       selectedType: 'custom',
       authType: 'oauth',
+      name: 'Name',
       endpoint: '',
-    })
-    expect(isConnectorConfigurationComplete(state, 'Name')).toBe(false)
+      oauthScope: '',
+      oauthClientId: '',
+      oauthClientSecret: '',
+      oauthAuthorizationEndpoint: '',
+      oauthTokenEndpoint: '',
+      oauthRegistrationEndpoint: '',
+    }
+    expect(isConnectorConfigurationComplete(state)).toBe(false)
   })
 
   it('custom manual requires endpoint and valid headers', () => {
-    const state = makeState({
+    const state: ConnectorFormState = {
       selectedType: 'custom',
       authType: 'manual',
+      name: 'Name',
       endpoint: 'https://example.com',
+      auth: '',
       headersText: 'bad',
-    })
-    expect(isConnectorConfigurationComplete(state, 'Name')).toBe(false)
+    }
+    expect(isConnectorConfigurationComplete(state)).toBe(false)
 
-    const valid = makeState({
+    const valid: ConnectorFormState = {
       selectedType: 'custom',
       authType: 'manual',
+      name: 'Name',
       endpoint: 'https://example.com',
+      auth: '',
       headersText: '{"ok":"yes"}',
-    })
-    expect(isConnectorConfigurationComplete(valid, 'Name')).toBe(true)
+    }
+    expect(isConnectorConfigurationComplete(valid)).toBe(true)
   })
 
   it('linear app oauth requires client id and secret', () => {
-    const state = makeState({
+    const state: ConnectorFormState = {
       selectedType: 'linear',
       authType: 'oauth',
       linearOAuthActor: 'app',
+      linearOAuthScopes: [],
       oauthClientId: '',
       oauthClientSecret: '',
-    })
-    expect(isConnectorConfigurationComplete(state, '')).toBe(false)
+    }
+    expect(isConnectorConfigurationComplete(state)).toBe(false)
 
-    const complete = makeState({
+    const complete: ConnectorFormState = {
       selectedType: 'linear',
       authType: 'oauth',
       linearOAuthActor: 'app',
+      linearOAuthScopes: [],
       oauthClientId: 'id',
       oauthClientSecret: 'secret',
-    })
-    expect(isConnectorConfigurationComplete(complete, '')).toBe(true)
+    }
+    expect(isConnectorConfigurationComplete(complete)).toBe(true)
   })
 
   it('linear user oauth is complete without credentials', () => {
-    const state = makeState({
+    const state: ConnectorFormState = {
       selectedType: 'linear',
       authType: 'oauth',
       linearOAuthActor: 'user',
-    })
-    expect(isConnectorConfigurationComplete(state, '')).toBe(true)
+      linearOAuthScopes: [],
+      oauthClientId: '',
+      oauthClientSecret: '',
+    }
+    expect(isConnectorConfigurationComplete(state)).toBe(true)
   })
 
   it('notion oauth is complete', () => {
-    const state = makeState({
+    const state: ConnectorFormState = {
       selectedType: 'notion',
       authType: 'oauth',
-    })
-    expect(isConnectorConfigurationComplete(state, '')).toBe(true)
+    }
+    expect(isConnectorConfigurationComplete(state)).toBe(true)
   })
 
   it('ahrefs requires api key', () => {
-    const state = makeState({ selectedType: 'ahrefs', apiKey: '' })
-    expect(isConnectorConfigurationComplete(state, '')).toBe(false)
+    const state: ConnectorFormState = { selectedType: 'ahrefs', apiKey: '' }
+    expect(isConnectorConfigurationComplete(state)).toBe(false)
 
-    const complete = makeState({ selectedType: 'ahrefs', apiKey: 'key' })
-    expect(isConnectorConfigurationComplete(complete, '')).toBe(true)
+    const complete: ConnectorFormState = { selectedType: 'ahrefs', apiKey: 'key' }
+    expect(isConnectorConfigurationComplete(complete)).toBe(true)
   })
 
   it('zendesk requires subdomain, email, and token', () => {
-    const state = makeState({
+    const state: ConnectorFormState = {
       selectedType: 'zendesk',
       zendeskSubdomain: 'acme',
       zendeskEmail: '',
-      apiKey: '',
-    })
-    expect(isConnectorConfigurationComplete(state, '')).toBe(false)
+      apiToken: '',
+    }
+    expect(isConnectorConfigurationComplete(state)).toBe(false)
 
-    const complete = makeState({
+    const complete: ConnectorFormState = {
       selectedType: 'zendesk',
       zendeskSubdomain: 'acme',
       zendeskEmail: 'a@b.com',
-      apiKey: 't',
-    })
-    expect(isConnectorConfigurationComplete(complete, '')).toBe(true)
+      apiToken: 't',
+    }
+    expect(isConnectorConfigurationComplete(complete)).toBe(true)
   })
 
   it('umami api-key requires base url and api key', () => {
-    const state = makeState({
+    const state: ConnectorFormState = {
       selectedType: 'umami',
       umamiAuthMethod: 'api-key',
       umamiBaseUrl: '',
       umamiApiKey: '',
-    })
-    expect(isConnectorConfigurationComplete(state, '')).toBe(false)
+    }
+    expect(isConnectorConfigurationComplete(state)).toBe(false)
 
-    const complete = makeState({
+    const complete: ConnectorFormState = {
       selectedType: 'umami',
       umamiAuthMethod: 'api-key',
       umamiBaseUrl: 'https://api.umami.is/v1',
       umamiApiKey: 'k',
-    })
-    expect(isConnectorConfigurationComplete(complete, '')).toBe(true)
+    }
+    expect(isConnectorConfigurationComplete(complete)).toBe(true)
   })
 
   it('umami login requires base url, username, and password', () => {
-    const state = makeState({
+    const state: ConnectorFormState = {
       selectedType: 'umami',
       umamiAuthMethod: 'login',
       umamiBaseUrl: 'https://example.com',
       umamiUsername: '',
       umamiPassword: '',
-    })
-    expect(isConnectorConfigurationComplete(state, '')).toBe(false)
+    }
+    expect(isConnectorConfigurationComplete(state)).toBe(false)
 
-    const complete = makeState({
+    const complete: ConnectorFormState = {
       selectedType: 'umami',
       umamiAuthMethod: 'login',
       umamiBaseUrl: 'https://example.com',
       umamiUsername: 'u',
       umamiPassword: 'p',
-    })
-    expect(isConnectorConfigurationComplete(complete, '')).toBe(true)
+    }
+    expect(isConnectorConfigurationComplete(complete)).toBe(true)
   })
 })

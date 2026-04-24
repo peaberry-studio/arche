@@ -186,54 +186,94 @@ export function AddConnectorModal({
     )
   }, [authType, linearOAuthActor, selectedType])
 
-  const formState: ConnectorFormState = useMemo(
-    () => ({
-      selectedType,
-      authType,
-      apiKey,
-      zendeskSubdomain,
-      zendeskEmail,
-      umamiAuthMethod,
-      umamiBaseUrl,
-      umamiApiKey,
-      umamiUsername,
-      umamiPassword,
-      endpoint,
-      auth,
-      headersText,
-      oauthScope,
-      oauthClientId,
-      oauthClientSecret,
-      oauthAuthorizationEndpoint,
-      oauthTokenEndpoint,
-      oauthRegistrationEndpoint,
-      linearOAuthActor,
-      linearOAuthScopes,
-    }),
-    [
-      selectedType,
-      authType,
-      apiKey,
-      zendeskSubdomain,
-      zendeskEmail,
-      umamiAuthMethod,
-      umamiBaseUrl,
-      umamiApiKey,
-      umamiUsername,
-      umamiPassword,
-      endpoint,
-      auth,
-      headersText,
-      oauthScope,
-      oauthClientId,
-      oauthClientSecret,
-      oauthAuthorizationEndpoint,
-      oauthTokenEndpoint,
-      oauthRegistrationEndpoint,
-      linearOAuthActor,
-      linearOAuthScopes,
-    ]
-  )
+  const formState: ConnectorFormState = useMemo(() => {
+    switch (selectedType) {
+      case 'linear':
+        return authType === 'oauth'
+          ? {
+              selectedType: 'linear',
+              authType: 'oauth',
+              linearOAuthActor,
+              linearOAuthScopes,
+              oauthClientId,
+              oauthClientSecret,
+            }
+          : { selectedType: 'linear', authType: 'manual', apiKey }
+      case 'notion':
+        return authType === 'oauth'
+          ? { selectedType: 'notion', authType: 'oauth' }
+          : { selectedType: 'notion', authType: 'manual', apiKey }
+      case 'zendesk':
+        return {
+          selectedType: 'zendesk',
+          zendeskSubdomain,
+          zendeskEmail,
+          apiToken: apiKey,
+        }
+      case 'ahrefs':
+        return { selectedType: 'ahrefs', apiKey }
+      case 'umami':
+        return umamiAuthMethod === 'api-key'
+          ? {
+              selectedType: 'umami',
+              umamiAuthMethod: 'api-key',
+              umamiBaseUrl,
+              umamiApiKey,
+            }
+          : {
+              selectedType: 'umami',
+              umamiAuthMethod: 'login',
+              umamiBaseUrl,
+              umamiUsername,
+              umamiPassword,
+            }
+      case 'custom':
+        return authType === 'oauth'
+          ? {
+              selectedType: 'custom',
+              authType: 'oauth',
+              name,
+              endpoint,
+              oauthScope,
+              oauthClientId,
+              oauthClientSecret,
+              oauthAuthorizationEndpoint,
+              oauthTokenEndpoint,
+              oauthRegistrationEndpoint,
+            }
+          : {
+              selectedType: 'custom',
+              authType: 'manual',
+              name,
+              endpoint,
+              auth,
+              headersText,
+            }
+    }
+  }, [
+    selectedType,
+    authType,
+    apiKey,
+    zendeskSubdomain,
+    zendeskEmail,
+    umamiAuthMethod,
+    umamiBaseUrl,
+    umamiApiKey,
+    umamiUsername,
+    umamiPassword,
+    endpoint,
+    auth,
+    headersText,
+    oauthScope,
+    oauthClientId,
+    oauthClientSecret,
+    oauthAuthorizationEndpoint,
+    oauthTokenEndpoint,
+    oauthRegistrationEndpoint,
+    linearOAuthActor,
+    linearOAuthScopes,
+    name,
+  ])
 
   async function handleSave() {
     const effectiveName = usesGeneratedName
@@ -503,7 +543,7 @@ export function AddConnectorModal({
           <Button
             type="button"
             onClick={handleSave}
-            disabled={isSaving || !isConnectorConfigurationComplete(formState, name)}
+            disabled={isSaving || !isConnectorConfigurationComplete(formState)}
           >
             {isSaving ? 'Saving...' : 'Save connector'}
           </Button>

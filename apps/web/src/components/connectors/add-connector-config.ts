@@ -52,29 +52,77 @@ export const CONNECTOR_TYPE_OPTIONS: {
 export const DEFAULT_TYPE: ConnectorType = CONNECTOR_TYPES[0]
 export const DEFAULT_LINEAR_OAUTH_ACTOR: LinearOAuthActor = 'user'
 
-export type ConnectorFormState = {
-  selectedType: ConnectorType
-  authType: ConnectorAuthType
-  apiKey: string
+export type LinearConnectorFormState =
+  | {
+      selectedType: 'linear'
+      authType: 'oauth'
+      linearOAuthActor: LinearOAuthActor
+      linearOAuthScopes: LinearOptionalOAuthScope[]
+      oauthClientId: string
+      oauthClientSecret: string
+    }
+  | { selectedType: 'linear'; authType: 'manual'; apiKey: string }
+
+export type NotionConnectorFormState =
+  | { selectedType: 'notion'; authType: 'oauth' }
+  | { selectedType: 'notion'; authType: 'manual'; apiKey: string }
+
+export type ZendeskConnectorFormState = {
+  selectedType: 'zendesk'
   zendeskSubdomain: string
   zendeskEmail: string
-  umamiAuthMethod: 'api-key' | 'login'
-  umamiBaseUrl: string
-  umamiApiKey: string
-  umamiUsername: string
-  umamiPassword: string
-  endpoint: string
-  auth: string
-  headersText: string
-  oauthScope: string
-  oauthClientId: string
-  oauthClientSecret: string
-  oauthAuthorizationEndpoint: string
-  oauthTokenEndpoint: string
-  oauthRegistrationEndpoint: string
-  linearOAuthActor: LinearOAuthActor
-  linearOAuthScopes: LinearOptionalOAuthScope[]
+  apiToken: string
 }
+
+export type AhrefsConnectorFormState = {
+  selectedType: 'ahrefs'
+  apiKey: string
+}
+
+export type UmamiConnectorFormState =
+  | {
+      selectedType: 'umami'
+      umamiAuthMethod: 'api-key'
+      umamiBaseUrl: string
+      umamiApiKey: string
+    }
+  | {
+      selectedType: 'umami'
+      umamiAuthMethod: 'login'
+      umamiBaseUrl: string
+      umamiUsername: string
+      umamiPassword: string
+    }
+
+export type CustomConnectorFormState =
+  | {
+      selectedType: 'custom'
+      authType: 'manual'
+      name: string
+      endpoint: string
+      auth: string
+      headersText: string
+    }
+  | {
+      selectedType: 'custom'
+      authType: 'oauth'
+      name: string
+      endpoint: string
+      oauthScope: string
+      oauthClientId: string
+      oauthClientSecret: string
+      oauthAuthorizationEndpoint: string
+      oauthTokenEndpoint: string
+      oauthRegistrationEndpoint: string
+    }
+
+export type ConnectorFormState =
+  | LinearConnectorFormState
+  | NotionConnectorFormState
+  | ZendeskConnectorFormState
+  | AhrefsConnectorFormState
+  | UmamiConnectorFormState
+  | CustomConnectorFormState
 
 export function buildDefaultName(type: ConnectorType): string {
   switch (type) {
@@ -124,268 +172,240 @@ export function buildConnectorConfig(
 ):
   | { ok: true; value: Record<string, unknown> }
   | { ok: false; message: string } {
-  const {
-    selectedType,
-    authType,
-    apiKey,
-    zendeskSubdomain,
-    zendeskEmail,
-    umamiAuthMethod,
-    umamiBaseUrl,
-    umamiApiKey,
-    umamiUsername,
-    umamiPassword,
-    endpoint,
-    auth,
-    headersText,
-    oauthScope,
-    oauthClientId,
-    oauthClientSecret,
-    oauthAuthorizationEndpoint,
-    oauthTokenEndpoint,
-    oauthRegistrationEndpoint,
-    linearOAuthActor,
-    linearOAuthScopes,
-  } = state
-
-  if (selectedType === 'linear' || selectedType === 'notion') {
-    if (authType === 'oauth') {
-      if (selectedType === 'linear' && linearOAuthActor === 'app') {
-        if (!oauthClientId.trim() || !oauthClientSecret.trim()) {
-          return {
-            ok: false,
-            message:
-              'Linear app actor OAuth requires client ID and client secret.',
+  switch (state.selectedType) {
+    case 'linear': {
+      if (state.authType === 'oauth') {
+        if (state.linearOAuthActor === 'app') {
+          if (!state.oauthClientId.trim() || !state.oauthClientSecret.trim()) {
+            return {
+              ok: false,
+              message:
+                'Linear app actor OAuth requires client ID and client secret.',
+            }
           }
         }
-      }
 
-      return {
-        ok: true,
-        value: {
-          authType: 'oauth',
-          ...(selectedType === 'linear'
-            ? {
-                oauthScope: buildLinearOAuthScope(linearOAuthScopes),
-              }
-            : {}),
-          ...(selectedType === 'linear' && linearOAuthActor === 'app'
-            ? {
-                oauthActor: 'app',
-                oauthClientId: oauthClientId.trim() || undefined,
-                oauthClientSecret: oauthClientSecret.trim() || undefined,
-              }
-            : {}),
-        },
-      }
-    }
-    if (!apiKey.trim()) {
-      return { ok: false, message: 'API key is required.' }
-    }
-    return {
-      ok: true,
-      value: { authType: 'manual', apiKey: apiKey.trim() },
-    }
-  }
-
-  if (selectedType === 'zendesk') {
-    if (!zendeskSubdomain.trim()) {
-      return { ok: false, message: 'Zendesk subdomain is required.' }
-    }
-
-    if (!zendeskEmail.trim()) {
-      return { ok: false, message: 'Zendesk agent email is required.' }
-    }
-
-    if (!apiKey.trim()) {
-      return { ok: false, message: 'Zendesk API token is required.' }
-    }
-
-    return {
-      ok: true,
-      value: {
-        subdomain: normalizeZendeskSubdomain(zendeskSubdomain),
-        email: zendeskEmail.trim(),
-        apiToken: apiKey.trim(),
-      },
-    }
-  }
-
-  if (selectedType === 'ahrefs') {
-    if (!apiKey.trim()) {
-      return { ok: false, message: 'Ahrefs API key is required.' }
-    }
-
-    return {
-      ok: true,
-      value: {
-        apiKey: apiKey.trim(),
-      },
-    }
-  }
-
-  if (selectedType === 'umami') {
-    if (!umamiBaseUrl.trim()) {
-      return { ok: false, message: 'Umami base URL is required.' }
-    }
-
-    if (umamiAuthMethod === 'api-key') {
-      if (!umamiApiKey.trim()) {
-        return { ok: false, message: 'Umami API key is required.' }
-      }
-
-      return {
-        ok: true,
-        value: {
-          authMethod: 'api-key',
-          baseUrl: umamiBaseUrl.trim(),
-          apiKey: umamiApiKey.trim(),
-        },
-      }
-    }
-
-    if (!umamiUsername.trim()) {
-      return { ok: false, message: 'Umami username is required.' }
-    }
-
-    if (!umamiPassword.trim()) {
-      return { ok: false, message: 'Umami password is required.' }
-    }
-
-    return {
-      ok: true,
-      value: {
-        authMethod: 'login',
-        baseUrl: umamiBaseUrl.trim(),
-        username: umamiUsername.trim(),
-        password: umamiPassword.trim(),
-      },
-    }
-  }
-
-  if (selectedType === 'custom') {
-    if (!endpoint.trim()) {
-      return { ok: false, message: 'Endpoint is required.' }
-    }
-
-    if (authType === 'oauth') {
-      return {
-        ok: true,
-        value: {
-          authType: 'oauth',
-          endpoint: endpoint.trim(),
-          oauthScope: oauthScope.trim() || undefined,
-          oauthClientId: oauthClientId.trim() || undefined,
-          oauthClientSecret: oauthClientSecret.trim() || undefined,
-          oauthAuthorizationEndpoint:
-            oauthAuthorizationEndpoint.trim() || undefined,
-          oauthTokenEndpoint: oauthTokenEndpoint.trim() || undefined,
-          oauthRegistrationEndpoint:
-            oauthRegistrationEndpoint.trim() || undefined,
-        },
-      }
-    }
-
-    if (!headersText.trim()) {
-      return {
-        ok: true,
-        value: {
-          authType: 'manual',
-          endpoint: endpoint.trim(),
-          auth: auth.trim() || undefined,
-        },
-      }
-    }
-
-    try {
-      const parsed = JSON.parse(headersText) as unknown
-      if (!isStringRecord(parsed)) {
         return {
-          ok: false,
-          message: 'Headers must be a JSON object with string values.',
+          ok: true,
+          value: {
+            authType: 'oauth',
+            oauthScope: buildLinearOAuthScope(state.linearOAuthScopes),
+            ...(state.linearOAuthActor === 'app'
+              ? {
+                  oauthActor: 'app',
+                  oauthClientId: state.oauthClientId.trim() || undefined,
+                  oauthClientSecret: state.oauthClientSecret.trim() || undefined,
+                }
+              : {}),
+          },
         }
       }
 
+      if (!state.apiKey.trim()) {
+        return { ok: false, message: 'API key is required.' }
+      }
+      return {
+        ok: true,
+        value: { authType: 'manual', apiKey: state.apiKey.trim() },
+      }
+    }
+
+    case 'notion': {
+      if (state.authType === 'oauth') {
+        return {
+          ok: true,
+          value: { authType: 'oauth' },
+        }
+      }
+
+      if (!state.apiKey.trim()) {
+        return { ok: false, message: 'API key is required.' }
+      }
+      return {
+        ok: true,
+        value: { authType: 'manual', apiKey: state.apiKey.trim() },
+      }
+    }
+
+    case 'zendesk': {
+      if (!state.zendeskSubdomain.trim()) {
+        return { ok: false, message: 'Zendesk subdomain is required.' }
+      }
+
+      if (!state.zendeskEmail.trim()) {
+        return { ok: false, message: 'Zendesk agent email is required.' }
+      }
+
+      if (!state.apiToken.trim()) {
+        return { ok: false, message: 'Zendesk API token is required.' }
+      }
+
       return {
         ok: true,
         value: {
-          authType: 'manual',
-          endpoint: endpoint.trim(),
-          auth: auth.trim() || undefined,
-          headers: parsed,
+          subdomain: normalizeZendeskSubdomain(state.zendeskSubdomain),
+          email: state.zendeskEmail.trim(),
+          apiToken: state.apiToken.trim(),
         },
       }
-    } catch {
-      return { ok: false, message: 'Headers is not valid JSON.' }
+    }
+
+    case 'ahrefs': {
+      if (!state.apiKey.trim()) {
+        return { ok: false, message: 'Ahrefs API key is required.' }
+      }
+
+      return {
+        ok: true,
+        value: {
+          apiKey: state.apiKey.trim(),
+        },
+      }
+    }
+
+    case 'umami': {
+      if (!state.umamiBaseUrl.trim()) {
+        return { ok: false, message: 'Umami base URL is required.' }
+      }
+
+      if (state.umamiAuthMethod === 'api-key') {
+        if (!state.umamiApiKey.trim()) {
+          return { ok: false, message: 'Umami API key is required.' }
+        }
+
+        return {
+          ok: true,
+          value: {
+            authMethod: 'api-key',
+            baseUrl: state.umamiBaseUrl.trim(),
+            apiKey: state.umamiApiKey.trim(),
+          },
+        }
+      }
+
+      if (!state.umamiUsername.trim()) {
+        return { ok: false, message: 'Umami username is required.' }
+      }
+
+      if (!state.umamiPassword.trim()) {
+        return { ok: false, message: 'Umami password is required.' }
+      }
+
+      return {
+        ok: true,
+        value: {
+          authMethod: 'login',
+          baseUrl: state.umamiBaseUrl.trim(),
+          username: state.umamiUsername.trim(),
+          password: state.umamiPassword.trim(),
+        },
+      }
+    }
+
+    case 'custom': {
+      if (!state.endpoint.trim()) {
+        return { ok: false, message: 'Endpoint is required.' }
+      }
+
+      if (state.authType === 'oauth') {
+        return {
+          ok: true,
+          value: {
+            authType: 'oauth',
+            endpoint: state.endpoint.trim(),
+            oauthScope: state.oauthScope.trim() || undefined,
+            oauthClientId: state.oauthClientId.trim() || undefined,
+            oauthClientSecret: state.oauthClientSecret.trim() || undefined,
+            oauthAuthorizationEndpoint:
+              state.oauthAuthorizationEndpoint.trim() || undefined,
+            oauthTokenEndpoint: state.oauthTokenEndpoint.trim() || undefined,
+            oauthRegistrationEndpoint:
+              state.oauthRegistrationEndpoint.trim() || undefined,
+          },
+        }
+      }
+
+      if (!state.headersText.trim()) {
+        return {
+          ok: true,
+          value: {
+            authType: 'manual',
+            endpoint: state.endpoint.trim(),
+            auth: state.auth.trim() || undefined,
+          },
+        }
+      }
+
+      try {
+        const parsed = JSON.parse(state.headersText) as unknown
+        if (!isStringRecord(parsed)) {
+          return {
+            ok: false,
+            message: 'Headers must be a JSON object with string values.',
+          }
+        }
+
+        return {
+          ok: true,
+          value: {
+            authType: 'manual',
+            endpoint: state.endpoint.trim(),
+            auth: state.auth.trim() || undefined,
+            headers: parsed,
+          },
+        }
+      } catch {
+        return { ok: false, message: 'Headers is not valid JSON.' }
+      }
     }
   }
-
-  return { ok: false, message: 'Unsupported connector type.' }
 }
 
 export function isConnectorConfigurationComplete(
-  state: ConnectorFormState,
-  name: string
+  state: ConnectorFormState
 ): boolean {
-  const {
-    selectedType,
-    authType,
-    apiKey,
-    zendeskSubdomain,
-    zendeskEmail,
-    umamiAuthMethod,
-    umamiBaseUrl,
-    umamiApiKey,
-    umamiUsername,
-    umamiPassword,
-    endpoint,
-    headersText,
-    oauthClientId,
-    oauthClientSecret,
-    linearOAuthActor,
-  } = state
-
-  if (selectedType === 'custom' && !name.trim()) return false
-
-  if (selectedType === 'zendesk') {
-    return Boolean(
-      zendeskSubdomain.trim() && zendeskEmail.trim() && apiKey.trim()
-    )
-  }
-
-  if (selectedType === 'ahrefs') {
-    return Boolean(apiKey.trim())
-  }
-
-  if (selectedType === 'umami') {
-    if (umamiAuthMethod === 'api-key') {
-      return Boolean(umamiBaseUrl.trim() && umamiApiKey.trim())
+  switch (state.selectedType) {
+    case 'linear': {
+      if (
+        state.authType === 'oauth' &&
+        state.linearOAuthActor === 'app'
+      ) {
+        return Boolean(state.oauthClientId.trim() && state.oauthClientSecret.trim())
+      }
+      return state.authType === 'oauth' ? true : Boolean(state.apiKey.trim())
     }
 
-    return Boolean(
-      umamiBaseUrl.trim() && umamiUsername.trim() && umamiPassword.trim()
-    )
-  }
-
-  if (selectedType === 'custom') {
-    if (authType === 'oauth') {
-      return Boolean(endpoint.trim())
+    case 'notion': {
+      return state.authType === 'oauth' ? true : Boolean(state.apiKey.trim())
     }
 
-    return Boolean(endpoint.trim() && hasValidHeaders(headersText))
-  }
-
-  if (selectedType === 'linear' || selectedType === 'notion') {
-    if (
-      selectedType === 'linear' &&
-      authType === 'oauth' &&
-      linearOAuthActor === 'app'
-    ) {
-      return Boolean(oauthClientId.trim() && oauthClientSecret.trim())
+    case 'zendesk': {
+      return Boolean(
+        state.zendeskSubdomain.trim() && state.zendeskEmail.trim() && state.apiToken.trim()
+      )
     }
 
-    return authType === 'oauth' ? true : Boolean(apiKey.trim())
-  }
+    case 'ahrefs': {
+      return Boolean(state.apiKey.trim())
+    }
 
-  return false
+    case 'umami': {
+      if (state.umamiAuthMethod === 'api-key') {
+        return Boolean(state.umamiBaseUrl.trim() && state.umamiApiKey.trim())
+      }
+      return Boolean(
+        state.umamiBaseUrl.trim() && state.umamiUsername.trim() && state.umamiPassword.trim()
+      )
+    }
+
+    case 'custom': {
+      if (!state.name.trim()) return false
+
+      if (state.authType === 'oauth') {
+        return Boolean(state.endpoint.trim())
+      }
+
+      return Boolean(state.endpoint.trim() && hasValidHeaders(state.headersText))
+    }
+  }
 }
