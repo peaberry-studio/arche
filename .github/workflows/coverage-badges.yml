@@ -1,21 +1,20 @@
-name: Coverage Badges
+name: Verify Web Coverage Badges
 
 on:
-  push:
+  pull_request:
     branches: [main]
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: coverage-badges-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  refresh-web-coverage-badges:
-    name: Refresh Web Coverage Badges
+  verify-web-coverage-badges:
+    name: Verify Web Coverage Badges
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
 
@@ -43,14 +42,10 @@ jobs:
       - name: Refresh coverage reports and badges
         run: pnpm coverage:refresh
 
-      - name: Create Pull Request for updated badges
-        uses: peter-evans/create-pull-request@v7
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: 'chore(web): refresh coverage badges'
-          branch: chore/refresh-coverage-badges
-          delete-branch: true
-          add-paths: .github/badges
-          title: 'chore(web): refresh coverage badges'
-          body: |
-            Automated refresh of coverage badges.
+      - name: Verify coverage badges are up to date
+        working-directory: .
+        run: |
+          if ! git diff --quiet -- .github/badges; then
+            echo "::error::Coverage badges are stale. Run 'cd apps/web && pnpm coverage:refresh' and commit the updated badges."
+            exit 1
+          fi
