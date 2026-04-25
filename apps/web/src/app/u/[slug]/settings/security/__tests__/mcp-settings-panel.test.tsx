@@ -107,6 +107,23 @@ describe('McpSettingsPanel', () => {
     expect((screen.getByRole('button', { name: 'Create token' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
+  it('gives the token expiration selector breathing room from its label', () => {
+    render(
+      <McpSettingsPanel
+        mcpEnabled={true}
+        mcpConfigError={null}
+        canManageMcp={true}
+        mcpBaseUrl="https://arche.example.com"
+        personalAccessTokens={[]}
+      />,
+    )
+
+    openCreateDialog()
+
+    const radiogroup = screen.getByRole('radiogroup', { name: 'Token expiration' })
+    expect(radiogroup.className).toContain('w-fit')
+  })
+
   it('hides the New token button and explains MCP is off for admins when disabled', () => {
     render(
       <McpSettingsPanel

@@ -10,6 +10,7 @@ import type { GoogleWorkspaceIntegrationSummary } from '@/lib/google-workspace/t
 import type { KbGithubRemoteIntegrationSummary } from '@/lib/kb-github-remote/types'
 import type { SlackIntegrationSummary } from '@/lib/slack/types'
 import { cn } from '@/lib/utils'
+import { McpSettingsPanel, type PersonalAccessTokenItem } from './security/mcp-settings-panel'
 import { WorkspaceRestartSection } from './security/workspace-restart-section'
 import { SecuritySettingsPanel } from './security/settings-page-content'
 import {
@@ -26,6 +27,12 @@ type SettingsPageContentProps = {
   enabled: boolean
   verifiedAt: Date | null
   recoveryCodesRemaining: number
+  mcpAvailable: boolean
+  mcpEnabled: boolean
+  mcpConfigError: string | null
+  canManageMcp: boolean
+  mcpBaseUrl: string
+  personalAccessTokens: PersonalAccessTokenItem[]
   releaseVersion: string
   slackIntegrationSummary: SlackIntegrationSummary | null
   googleWorkspaceSummary: GoogleWorkspaceIntegrationSummary | null
@@ -41,6 +48,12 @@ export function SettingsPageContent({
   enabled,
   verifiedAt,
   recoveryCodesRemaining,
+  mcpAvailable,
+  mcpEnabled,
+  mcpConfigError,
+  canManageMcp,
+  mcpBaseUrl,
+  personalAccessTokens,
   releaseVersion,
   slackIntegrationSummary,
   googleWorkspaceSummary,
@@ -111,7 +124,7 @@ export function SettingsPageContent({
         )
       case 'integrations':
         return (
-          <div className="space-y-5">
+          <div className="space-y-6">
             {slackIntegrationSummary ? (
               <SlackIntegrationSummaryCard slug={slug} integration={slackIntegrationSummary} />
             ) : null}
@@ -120,6 +133,16 @@ export function SettingsPageContent({
             ) : null}
             {kbGithubRemoteSummary ? (
               <KbGithubRemoteSummaryCard slug={slug} integration={kbGithubRemoteSummary} />
+            ) : null}
+
+            {mcpAvailable ? (
+              <McpSettingsPanel
+                mcpEnabled={mcpEnabled}
+                mcpConfigError={mcpConfigError}
+                canManageMcp={canManageMcp}
+                mcpBaseUrl={mcpBaseUrl}
+                personalAccessTokens={personalAccessTokens}
+              />
             ) : null}
           </div>
         )
