@@ -25,6 +25,11 @@ const SINGLE_INSTANCE_CONNECTOR_LABELS = {
   zendesk: 'Zendesk',
   ahrefs: 'Ahrefs',
   umami: 'Umami',
+  google_gmail: 'Gmail',
+  google_drive: 'Google Drive',
+  google_calendar: 'Google Calendar',
+  google_chat: 'Google Chat',
+  google_people: 'People API',
 } as const satisfies Record<Exclude<ConnectorType, 'custom'>, string>
 
 export function buildAgentConnectorCapabilityOptions(entries: Array<{

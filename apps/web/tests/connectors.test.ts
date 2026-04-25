@@ -60,7 +60,10 @@ describe('connectors/crypto', () => {
 
 describe('connectors/types', () => {
   it('CONNECTOR_TYPES contains expected values', () => {
-    expect(CONNECTOR_TYPES).toEqual(['linear', 'notion', 'zendesk', 'ahrefs', 'umami', 'custom'])
+    expect(CONNECTOR_TYPES).toEqual([
+      'linear', 'notion', 'zendesk', 'ahrefs', 'umami', 'custom',
+      'google_gmail', 'google_drive', 'google_calendar', 'google_chat', 'google_people',
+    ])
   })
 })
 

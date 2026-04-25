@@ -20,6 +20,8 @@ const originalNotionClientId = process.env.ARCHE_CONNECTOR_NOTION_CLIENT_ID
 const originalNotionClientSecret = process.env.ARCHE_CONNECTOR_NOTION_CLIENT_SECRET
 const originalNotionMcpUrl = process.env.ARCHE_CONNECTOR_NOTION_MCP_URL
 const originalLinearMcpUrl = process.env.ARCHE_CONNECTOR_LINEAR_MCP_URL
+const originalGoogleClientId = process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_ID
+const originalGoogleClientSecret = process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_SECRET
 describe('connectors oauth state', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -56,6 +58,16 @@ describe('connectors oauth state', () => {
       delete process.env.ARCHE_CONNECTOR_LINEAR_MCP_URL
     } else {
       process.env.ARCHE_CONNECTOR_LINEAR_MCP_URL = originalLinearMcpUrl
+    }
+    if (originalGoogleClientId === undefined) {
+      delete process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_ID
+    } else {
+      process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_ID = originalGoogleClientId
+    }
+    if (originalGoogleClientSecret === undefined) {
+      delete process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_SECRET
+    } else {
+      process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_SECRET = originalGoogleClientSecret
     }
   })
 
@@ -506,6 +518,73 @@ describe('connectors oauth state', () => {
 
     const state = verifyConnectorOAuthState(prepared.state)
     expect(state.clientId).toBe('notion-dynamic-client')
+  })
+
+  it('requires Google static OAuth credentials', async () => {
+    delete process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_ID
+    delete process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_SECRET
+
+    await expect(
+      prepareConnectorOAuthAuthorization({
+        connectorId: 'gmail-1',
+        slug: 'alice',
+        userId: 'user-1',
+        connectorType: 'google_gmail',
+        redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
+      })
+    ).rejects.toThrow('missing_google_oauth_client_credentials')
+  })
+
+  it('uses Google credentials from connector config over env when provided', async () => {
+    process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_ID = 'env-client-id'
+    process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_SECRET = 'env-client-secret'
+
+    const prepared = await prepareConnectorOAuthAuthorization({
+      connectorId: 'gmail-1',
+      slug: 'alice',
+      userId: 'user-1',
+      connectorType: 'google_gmail',
+      redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
+      connectorConfig: {
+        clientId: 'dashboard-client-id',
+        clientSecret: 'dashboard-client-secret',
+      },
+    })
+
+    const authorizeUrl = new URL(prepared.authorizeUrl)
+    expect(authorizeUrl.searchParams.get('client_id')).toBe('dashboard-client-id')
+
+    const state = verifyConnectorOAuthState(prepared.state)
+    expect(state.clientId).toBe('dashboard-client-id')
+    expect(state.clientSecret).toBe('dashboard-client-secret')
+  })
+
+  it('prepares Google OAuth with official endpoints, scopes, and offline access', async () => {
+    process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_ID = 'google-client-id'
+    process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_SECRET = 'google-client-secret'
+
+    const prepared = await prepareConnectorOAuthAuthorization({
+      connectorId: 'gmail-1',
+      slug: 'alice',
+      userId: 'user-1',
+      connectorType: 'google_gmail',
+      redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
+    })
+
+    const authorizeUrl = new URL(prepared.authorizeUrl)
+    expect(`${authorizeUrl.origin}${authorizeUrl.pathname}`).toBe('https://accounts.google.com/o/oauth2/v2/auth')
+    expect(authorizeUrl.searchParams.get('client_id')).toBe('google-client-id')
+    expect(authorizeUrl.searchParams.get('scope')).toBe(
+      'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose'
+    )
+    expect(authorizeUrl.searchParams.get('access_type')).toBe('offline')
+    expect(authorizeUrl.searchParams.get('prompt')).toBe('consent')
+
+    const state = verifyConnectorOAuthState(prepared.state)
+    expect(state.clientId).toBe('google-client-id')
+    expect(state.clientSecret).toBe('google-client-secret')
+    expect(state.tokenEndpoint).toBe('https://oauth2.googleapis.com/token')
+    expect(state.mcpServerUrl).toBe('https://gmailmcp.googleapis.com/mcp/v1')
   })
 
   it('discovers token endpoint during Linear OAuth refresh when missing', async () => {

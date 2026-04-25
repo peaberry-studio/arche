@@ -1,13 +1,13 @@
-export const CONNECTOR_TYPES = ['linear', 'notion', 'zendesk', 'ahrefs', 'umami', 'custom'] as const
+export const CONNECTOR_TYPES = ['linear', 'notion', 'zendesk', 'ahrefs', 'umami', 'custom', 'google_gmail', 'google_drive', 'google_calendar', 'google_chat', 'google_people'] as const
 export type ConnectorType = (typeof CONNECTOR_TYPES)[number]
 
-export const SINGLE_INSTANCE_CONNECTOR_TYPES = ['linear', 'notion', 'zendesk', 'ahrefs', 'umami'] as const satisfies readonly ConnectorType[]
+export const SINGLE_INSTANCE_CONNECTOR_TYPES = ['linear', 'notion', 'zendesk', 'ahrefs', 'umami', 'google_gmail', 'google_drive', 'google_calendar', 'google_chat', 'google_people'] as const satisfies readonly ConnectorType[]
 
 export function isSingleInstanceConnectorType(type: ConnectorType): boolean {
   return SINGLE_INSTANCE_CONNECTOR_TYPES.includes(type as (typeof SINGLE_INSTANCE_CONNECTOR_TYPES)[number])
 }
 
-export const OAUTH_CONNECTOR_TYPES = ['linear', 'notion', 'custom'] as const
+export const OAUTH_CONNECTOR_TYPES = ['linear', 'notion', 'custom', 'google_gmail', 'google_drive', 'google_calendar', 'google_chat', 'google_people'] as const
 export type OAuthConnectorType = (typeof OAUTH_CONNECTOR_TYPES)[number]
 
 export type ConnectorAuthType = 'manual' | 'oauth'

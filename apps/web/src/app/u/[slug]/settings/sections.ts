@@ -16,6 +16,7 @@ type SettingsSectionAvailability = {
   isAdmin: boolean
   passwordChangeEnabled: boolean
   slackIntegrationEnabled: boolean
+  googleWorkspaceIntegrationEnabled: boolean
   twoFactorEnabled: boolean
 }
 
@@ -23,11 +24,12 @@ export function getAvailableSettingsSections({
   isAdmin,
   passwordChangeEnabled,
   slackIntegrationEnabled,
+  googleWorkspaceIntegrationEnabled,
   twoFactorEnabled,
 }: SettingsSectionAvailability): SettingsSection[] {
   const sections: SettingsSection[] = ['general']
 
-  if (slackIntegrationEnabled && isAdmin) {
+  if (isAdmin && (slackIntegrationEnabled || googleWorkspaceIntegrationEnabled)) {
     sections.push('integrations')
   }
 

@@ -11,6 +11,7 @@ const mockValidateDesktopToken = vi.fn(() => true)
 const mockValidateSameOrigin = vi.fn(() => ({ ok: true }))
 const mockFindByIdAndUserIdSelect = vi.fn()
 const mockFindIdBySlug = vi.fn()
+const mockGetResolvedCredentials = vi.fn()
 
 function session(slug: string, role: 'USER' | 'ADMIN' = 'USER') {
   return {
@@ -69,6 +70,9 @@ async function loadRoute() {
     userService: {
       findIdBySlug: (...args: unknown[]) => mockFindIdBySlug(...args),
     },
+    googleWorkspaceService: {
+      getResolvedCredentials: (...args: unknown[]) => mockGetResolvedCredentials(...args),
+    },
   }))
 
   return import('@/app/api/u/[slug]/connectors/[id]/oauth/start/route')
@@ -101,6 +105,7 @@ describe('POST /api/u/[slug]/connectors/[id]/oauth/start', () => {
       type: 'linear',
       config: 'encrypted-config',
     })
+    mockGetResolvedCredentials.mockResolvedValue(null)
     mockDecryptConfig.mockReturnValue({
       authType: 'oauth',
       oauthActor: 'app',
@@ -166,6 +171,70 @@ describe('POST /api/u/[slug]/connectors/[id]/oauth/start', () => {
     expect(response.status).toBe(400)
     await expect(response.json()).resolves.toEqual({
       error: 'missing_linear_oauth_client_credentials',
+    })
+  })
+
+  it('loads global Google Workspace config and passes it for google_gmail OAuth', async () => {
+    mockFindByIdAndUserIdSelect.mockResolvedValue({
+      id: 'conn-google-1',
+      type: 'google_gmail',
+      config: 'encrypted-config',
+    })
+    mockDecryptConfig.mockReturnValue({})
+    mockGetResolvedCredentials.mockResolvedValue({
+      clientId: 'dashboard-google-id',
+      clientSecret: 'dashboard-google-secret',
+    })
+    mockPrepareConnectorOAuthAuthorization.mockResolvedValue({
+      authorizeUrl: 'https://accounts.google.com/o/oauth2/v2/auth?client_id=dashboard-google-id',
+      state: 'state-token',
+    })
+
+    const { POST } = await loadRoute()
+    const request = {
+      headers: new Headers({ host: 'localhost', origin: 'http://localhost' }),
+      nextUrl: new URL('http://localhost/api/u/alice/connectors/conn-google-1/oauth/start'),
+    }
+
+    const response = await POST(request as never, {
+      params: Promise.resolve({ slug: 'alice', id: 'conn-google-1' }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(mockGetResolvedCredentials).toHaveBeenCalled()
+    expect(mockPrepareConnectorOAuthAuthorization).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectorConfig: expect.objectContaining({
+          clientId: 'dashboard-google-id',
+          clientSecret: 'dashboard-google-secret',
+        }),
+      })
+    )
+  })
+
+  it('returns missing_google_oauth_client_credentials when no dashboard config or env is set', async () => {
+    mockFindByIdAndUserIdSelect.mockResolvedValue({
+      id: 'conn-google-1',
+      type: 'google_gmail',
+      config: 'encrypted-config',
+    })
+    mockDecryptConfig.mockReturnValue({})
+    mockGetResolvedCredentials.mockResolvedValue(null)
+    mockPrepareConnectorOAuthAuthorization.mockRejectedValue(new Error('missing_google_oauth_client_credentials'))
+
+    const { POST } = await loadRoute()
+    const request = {
+      headers: new Headers({ host: 'localhost', origin: 'http://localhost' }),
+      nextUrl: new URL('http://localhost/api/u/alice/connectors/conn-google-1/oauth/start'),
+    }
+
+    const response = await POST(request as never, {
+      params: Promise.resolve({ slug: 'alice', id: 'conn-google-1' }),
+    })
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: 'missing_google_oauth_client_credentials',
     })
   })
 })

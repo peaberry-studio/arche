@@ -9,7 +9,7 @@ import {
 } from '@/lib/opencode/session-execution'
 import { loadSlackAgentOptions } from '@/lib/slack/agents'
 import { buildSlackContext } from '@/lib/slack/context'
-import { decryptSlackToken } from '@/lib/slack/crypto'
+
 import { buildSlackPrompt } from '@/lib/slack/prompt'
 import { ensureSlackServiceUser } from '@/lib/slack/service-user'
 import { slackService } from '@/lib/services'
@@ -127,8 +127,8 @@ async function performSlackSocketSync(forceReconnect: boolean): Promise<void> {
   try {
     await teardownCurrentApp()
 
-    const botToken = decryptSlackToken(integration.botTokenSecret)
-    const appToken = decryptSlackToken(integration.appTokenSecret)
+    const botToken = integration.botTokenSecret
+    const appToken = integration.appTokenSecret
     nextApp = createSlackApp({
       appToken,
       botToken,

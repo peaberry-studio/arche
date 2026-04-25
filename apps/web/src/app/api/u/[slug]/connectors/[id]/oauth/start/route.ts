@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
 import { decryptConfig } from '@/lib/connectors/crypto'
+import { isGoogleWorkspaceConnectorType } from '@/lib/connectors/google-workspace'
 import {
   isOAuthConnectorType,
   normalizeConnectorOAuthReturnTo,
@@ -12,7 +13,7 @@ import { validateConnectorType } from '@/lib/connectors/validators'
 import { getPublicBaseUrl } from '@/lib/http'
 import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
-import { connectorService, userService } from '@/lib/services'
+import { connectorService, googleWorkspaceService, userService } from '@/lib/services'
 
 type StartOAuthResponse = {
   authorizeUrl: string
@@ -20,6 +21,39 @@ type StartOAuthResponse = {
 
 function requiresConnectorConfig(type: OAuthConnectorType): boolean {
   return type === 'linear' || type === 'custom'
+}
+
+type ResolveOAuthStartConnectorConfigResult =
+  | { ok: true; config: Record<string, unknown> | undefined }
+  | { ok: false; error: 'config_corrupted' }
+
+async function resolveOAuthStartConnectorConfig(
+  type: OAuthConnectorType,
+  encryptedConfig: string,
+): Promise<ResolveOAuthStartConnectorConfigResult> {
+  let config: Record<string, unknown> | undefined
+
+  if (requiresConnectorConfig(type)) {
+    try {
+      config = decryptConfig(encryptedConfig)
+    } catch {
+      return { ok: false, error: 'config_corrupted' }
+    }
+  }
+
+  // Admin-managed Google Workspace credentials intentionally override any per-connector values.
+  if (isGoogleWorkspaceConnectorType(type)) {
+    const googleCredentials = await googleWorkspaceService.getResolvedCredentials()
+    if (googleCredentials) {
+      config = {
+        ...config,
+        clientId: googleCredentials.clientId,
+        clientSecret: googleCredentials.clientSecret,
+      }
+    }
+  }
+
+  return { ok: true, config }
 }
 
 export const POST = withAuth<
@@ -52,17 +86,14 @@ export const POST = withAuth<
   const redirectUri = `${baseUrl}/api/connectors/oauth/callback`
   const returnTo = normalizeConnectorOAuthReturnTo(request.nextUrl.searchParams.get('returnTo'))
 
-  let connectorConfig: Record<string, unknown> | undefined
-  if (requiresConnectorConfig(connector.type)) {
-    try {
-      connectorConfig = decryptConfig(connector.config)
-    } catch {
-      return NextResponse.json(
-        { error: 'config_corrupted', message: 'Failed to decrypt connector configuration' },
-        { status: 500 }
-      )
-    }
+  const resolved = await resolveOAuthStartConnectorConfig(connector.type, connector.config)
+  if (!resolved.ok) {
+    return NextResponse.json(
+      { error: resolved.error, message: 'Failed to decrypt connector configuration' },
+      { status: 500 },
+    )
   }
+  const connectorConfig = resolved.config
 
   let authorizeUrl: string
   try {
@@ -81,6 +112,7 @@ export const POST = withAuth<
     if (
       message === 'missing_endpoint'
       || message === 'missing_linear_oauth_client_credentials'
+      || message === 'missing_google_oauth_client_credentials'
       || message === 'invalid_endpoint'
       || message === 'blocked_endpoint'
       || message === 'oauth_state_too_large'

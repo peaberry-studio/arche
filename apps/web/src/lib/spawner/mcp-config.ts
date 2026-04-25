@@ -2,6 +2,7 @@ import { parseAhrefsConnectorConfig } from '@/lib/connectors/ahrefs'
 import { decryptConfig } from '@/lib/connectors/crypto'
 import { getConnectorGatewayBaseUrl } from '@/lib/connectors/gateway-config'
 import { issueConnectorGatewayToken } from '@/lib/connectors/gateway-tokens'
+import { getGoogleWorkspaceMcpServerUrl, isGoogleWorkspaceConnectorType } from '@/lib/connectors/google-workspace'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
 import { parseUmamiConnectorConfig } from '@/lib/connectors/umami'
 import { parseZendeskConnectorConfig } from '@/lib/connectors/zendesk'
@@ -67,6 +68,40 @@ export function buildMcpServerKey(type: ConnectorType, id: string): string {
   return `arche_${type}_${id}`
 }
 
+function buildOAuthRemoteMcpConfig(input: {
+  connectorId: string
+  connectorType: ConnectorType
+  config: Record<string, unknown>
+  gatewayTargets?: Record<string, GatewayTarget>
+  defaultMcpUrl: string
+}): McpServerConfig | undefined {
+  const gatewayTarget = input.gatewayTargets?.[input.connectorId]
+  if (gatewayTarget) {
+    return {
+      type: 'remote',
+      url: gatewayTarget.url,
+      enabled: true,
+      headers: {
+        Authorization: `Bearer ${gatewayTarget.token}`,
+      },
+      oauth: false,
+    }
+  }
+
+  const oauthToken = getConnectorOAuthConfig(input.connectorType, input.config)?.accessToken
+  if (!oauthToken) return undefined
+
+  return {
+    type: 'remote',
+    url: input.defaultMcpUrl,
+    enabled: true,
+    headers: {
+      Authorization: `Bearer ${oauthToken}`,
+    },
+    oauth: false,
+  }
+}
+
 export function buildMcpConfigFromConnectors(
   connectors: ConnectorRecord[],
   options?: { gatewayTargets?: Record<string, GatewayTarget> },
@@ -92,30 +127,15 @@ export function buildMcpConfigFromConnectors(
     switch (connector.type) {
       case 'notion':
         if (getConnectorAuthType(config) === 'oauth') {
-          const gatewayTarget = options?.gatewayTargets?.[connector.id]
-          if (gatewayTarget) {
-            mcp[key] = {
-              type: 'remote',
-              url: gatewayTarget.url,
-              enabled: true,
-              headers: {
-                Authorization: `Bearer ${gatewayTarget.token}`,
-              },
-              oauth: false,
-            }
-            break
-          }
-
-          const oauthToken = getConnectorOAuthConfig('notion', config)?.accessToken
-          if (!oauthToken) break
-          mcp[key] = {
-            type: 'remote',
-            url: 'https://mcp.notion.com/mcp',
-            enabled: true,
-            headers: {
-              Authorization: `Bearer ${oauthToken}`,
-            },
-            oauth: false,
+          const remoteConfig = buildOAuthRemoteMcpConfig({
+            connectorId: connector.id,
+            connectorType: 'notion',
+            config,
+            gatewayTargets: options?.gatewayTargets,
+            defaultMcpUrl: 'https://mcp.notion.com/mcp',
+          })
+          if (remoteConfig) {
+            mcp[key] = remoteConfig
           }
           break
         }
@@ -134,30 +154,15 @@ export function buildMcpConfigFromConnectors(
 
       case 'linear':
         if (getConnectorAuthType(config) === 'oauth') {
-          const gatewayTarget = options?.gatewayTargets?.[connector.id]
-          if (gatewayTarget) {
-            mcp[key] = {
-              type: 'remote',
-              url: gatewayTarget.url,
-              enabled: true,
-              headers: {
-                Authorization: `Bearer ${gatewayTarget.token}`,
-              },
-              oauth: false,
-            }
-            break
-          }
-
-          const oauthToken = getConnectorOAuthConfig('linear', config)?.accessToken
-          if (!oauthToken) break
-          mcp[key] = {
-            type: 'remote',
-            url: 'https://mcp.linear.app/mcp',
-            enabled: true,
-            headers: {
-              Authorization: `Bearer ${oauthToken}`,
-            },
-            oauth: false,
+          const remoteConfig = buildOAuthRemoteMcpConfig({
+            connectorId: connector.id,
+            connectorType: 'linear',
+            config,
+            gatewayTargets: options?.gatewayTargets,
+            defaultMcpUrl: 'https://mcp.linear.app/mcp',
+          })
+          if (remoteConfig) {
+            mcp[key] = remoteConfig
           }
           break
         }
@@ -250,6 +255,18 @@ export function buildMcpConfigFromConnectors(
       }
 
       default:
+        if (isGoogleWorkspaceConnectorType(connector.type) && getConnectorAuthType(config) === 'oauth') {
+          const remoteConfig = buildOAuthRemoteMcpConfig({
+            connectorId: connector.id,
+            connectorType: connector.type,
+            config,
+            gatewayTargets: options?.gatewayTargets,
+            defaultMcpUrl: getGoogleWorkspaceMcpServerUrl(connector.type),
+          })
+          if (remoteConfig) {
+            mcp[key] = remoteConfig
+          }
+        }
         break
     }
   }

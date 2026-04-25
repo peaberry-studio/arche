@@ -5,6 +5,7 @@ import {
   type ConnectorAuthType,
   type ConnectorType,
 } from '@/lib/connectors/types'
+import { isGoogleWorkspaceConnectorType } from '@/lib/connectors/google-workspace'
 
 export const CONNECTOR_TYPE_OPTIONS: {
   type: ConnectorType
@@ -38,6 +39,31 @@ export const CONNECTOR_TYPE_OPTIONS: {
       'Website analytics from Umami Cloud or self-hosted Umami.',
   },
   {
+    type: 'google_gmail',
+    label: 'Gmail',
+    description: 'Official Google Workspace Gmail MCP integration.',
+  },
+  {
+    type: 'google_drive',
+    label: 'Google Drive',
+    description: 'Official Google Workspace Drive MCP integration.',
+  },
+  {
+    type: 'google_calendar',
+    label: 'Google Calendar',
+    description: 'Official Google Workspace Calendar MCP integration.',
+  },
+  {
+    type: 'google_chat',
+    label: 'Google Chat',
+    description: 'Official Google Workspace Chat MCP integration.',
+  },
+  {
+    type: 'google_people',
+    label: 'People API',
+    description: 'Official Google Workspace People API MCP integration.',
+  },
+  {
     type: 'custom',
     label: 'Custom',
     description: 'Any compatible remote MCP endpoint.',
@@ -59,6 +85,16 @@ export function buildDefaultName(type: ConnectorType): string {
       return 'Ahrefs'
     case 'umami':
       return 'Umami'
+    case 'google_gmail':
+      return 'Gmail'
+    case 'google_drive':
+      return 'Google Drive'
+    case 'google_calendar':
+      return 'Google Calendar'
+    case 'google_chat':
+      return 'Google Chat'
+    case 'google_people':
+      return 'People API'
     case 'custom':
       return 'Custom Connector'
   }
@@ -87,5 +123,5 @@ export function supportsOAuth(type: ConnectorType): boolean {
 }
 
 export function getDefaultAuthType(type: ConnectorType): ConnectorAuthType {
-  return type === 'linear' || type === 'notion' ? 'oauth' : 'manual'
+  return type === 'linear' || type === 'notion' || isGoogleWorkspaceConnectorType(type) ? 'oauth' : 'manual'
 }
