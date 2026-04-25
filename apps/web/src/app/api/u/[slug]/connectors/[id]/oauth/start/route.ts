@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
 import { decryptConfig } from '@/lib/connectors/crypto'
+import { isGoogleWorkspaceConnectorType } from '@/lib/connectors/google-workspace'
 import {
   isOAuthConnectorType,
   normalizeConnectorOAuthReturnTo,
@@ -12,7 +13,7 @@ import { validateConnectorType } from '@/lib/connectors/validators'
 import { getPublicBaseUrl } from '@/lib/http'
 import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
-import { connectorService, userService } from '@/lib/services'
+import { connectorService, googleWorkspaceService, userService } from '@/lib/services'
 
 type StartOAuthResponse = {
   authorizeUrl: string
@@ -64,6 +65,17 @@ export const POST = withAuth<
     }
   }
 
+  if (isGoogleWorkspaceConnectorType(connector.type)) {
+    const googleCredentials = await googleWorkspaceService.getResolvedCredentials()
+    if (googleCredentials) {
+      connectorConfig = {
+        ...connectorConfig,
+        clientId: googleCredentials.clientId,
+        clientSecret: googleCredentials.clientSecret,
+      }
+    }
+  }
+
   let authorizeUrl: string
   try {
     const prepared = await prepareConnectorOAuthAuthorization({
@@ -81,6 +93,7 @@ export const POST = withAuth<
     if (
       message === 'missing_endpoint'
       || message === 'missing_linear_oauth_client_credentials'
+      || message === 'missing_google_oauth_client_credentials'
       || message === 'invalid_endpoint'
       || message === 'blocked_endpoint'
       || message === 'oauth_state_too_large'

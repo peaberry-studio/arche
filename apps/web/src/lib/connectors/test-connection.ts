@@ -45,6 +45,8 @@ function getAccessToken(type: ConnectorType, config: Record<string, unknown>): s
     case 'umami':
     case 'custom':
       return null
+    default:
+      return null
   }
 }
 
@@ -95,7 +97,7 @@ function getRequiredAccessToken(
 }
 
 async function testRemoteMcpConnection(input: {
-  label: 'Linear' | 'Notion' | 'Custom'
+  label: string
   url: string
   token: string
 }): Promise<TestConnectionResult> {
@@ -276,6 +278,101 @@ const CONNECTOR_TEST_HANDLERS: Record<ConnectorType, TestConnectionHandler> = {
     }
 
     return { ok: true, tested: true, message: 'Custom endpoint reachable.' }
+  },
+
+  google_gmail: async (config) => {
+    const pending = getPendingOAuthMessage('google_gmail', config)
+    if (pending) return pending
+
+    const token = getRequiredAccessToken('google_gmail', config, 'Missing OAuth access token')
+    if (!token.ok) return token.result
+
+    const url = getConnectorMcpServerUrl('google_gmail', config)
+    if (!url) {
+      return { ok: false, tested: false, message: 'Missing MCP server URL' }
+    }
+
+    return testRemoteMcpConnection({
+      label: 'Gmail',
+      url,
+      token: token.token,
+    })
+  },
+
+  google_drive: async (config) => {
+    const pending = getPendingOAuthMessage('google_drive', config)
+    if (pending) return pending
+
+    const token = getRequiredAccessToken('google_drive', config, 'Missing OAuth access token')
+    if (!token.ok) return token.result
+
+    const url = getConnectorMcpServerUrl('google_drive', config)
+    if (!url) {
+      return { ok: false, tested: false, message: 'Missing MCP server URL' }
+    }
+
+    return testRemoteMcpConnection({
+      label: 'Google Drive',
+      url,
+      token: token.token,
+    })
+  },
+
+  google_calendar: async (config) => {
+    const pending = getPendingOAuthMessage('google_calendar', config)
+    if (pending) return pending
+
+    const token = getRequiredAccessToken('google_calendar', config, 'Missing OAuth access token')
+    if (!token.ok) return token.result
+
+    const url = getConnectorMcpServerUrl('google_calendar', config)
+    if (!url) {
+      return { ok: false, tested: false, message: 'Missing MCP server URL' }
+    }
+
+    return testRemoteMcpConnection({
+      label: 'Google Calendar',
+      url,
+      token: token.token,
+    })
+  },
+
+  google_chat: async (config) => {
+    const pending = getPendingOAuthMessage('google_chat', config)
+    if (pending) return pending
+
+    const token = getRequiredAccessToken('google_chat', config, 'Missing OAuth access token')
+    if (!token.ok) return token.result
+
+    const url = getConnectorMcpServerUrl('google_chat', config)
+    if (!url) {
+      return { ok: false, tested: false, message: 'Missing MCP server URL' }
+    }
+
+    return testRemoteMcpConnection({
+      label: 'Google Chat',
+      url,
+      token: token.token,
+    })
+  },
+
+  google_people: async (config) => {
+    const pending = getPendingOAuthMessage('google_people', config)
+    if (pending) return pending
+
+    const token = getRequiredAccessToken('google_people', config, 'Missing OAuth access token')
+    if (!token.ok) return token.result
+
+    const url = getConnectorMcpServerUrl('google_people', config)
+    if (!url) {
+      return { ok: false, tested: false, message: 'Missing MCP server URL' }
+    }
+
+    return testRemoteMcpConnection({
+      label: 'People API',
+      url,
+      token: token.token,
+    })
   },
 }
 

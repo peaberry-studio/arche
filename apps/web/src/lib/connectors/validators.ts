@@ -5,6 +5,7 @@ import { validateUmamiConnectorConfig } from '@/lib/connectors/umami-config'
 import type { ConnectorConfigValidationResult } from '@/lib/connectors/config-validation'
 import { validateAhrefsConnectorConfig } from '@/lib/connectors/ahrefs-config'
 import { validateZendeskConnectorConfig } from '@/lib/connectors/zendesk-config'
+import { isGoogleWorkspaceConnectorType } from '@/lib/connectors/google-workspace'
 
 import { CONNECTOR_TYPES, type ConnectorType } from './types'
 
@@ -39,6 +40,11 @@ export const CONNECTOR_SCHEMAS: Record<ConnectorType, ConnectorConfigSchema> = {
       'oauthRegistrationEndpoint',
     ],
   },
+  google_gmail: { required: [] },
+  google_drive: { required: [] },
+  google_calendar: { required: [] },
+  google_chat: { required: [] },
+  google_people: { required: [] },
 }
 
 export function validateConnectorType(type: string): type is ConnectorType {
@@ -113,6 +119,10 @@ export function validateConnectorConfig(
         : { valid: false, missing: ['endpoint'] }
     }
 
+    if (isGoogleWorkspaceConnectorType(type)) {
+      return { valid: true }
+    }
+
     return { valid: true }
   }
 
@@ -138,6 +148,10 @@ export function validateConnectorConfig(
     }
 
     return validateUmamiConnectorConfig(config)
+  }
+
+  if (isGoogleWorkspaceConnectorType(type)) {
+    return { valid: false, message: 'Google Workspace connectors only support OAuth' }
   }
 
   const schema = CONNECTOR_SCHEMAS[type]

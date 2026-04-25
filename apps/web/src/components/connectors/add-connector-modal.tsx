@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { AhrefsSection } from '@/components/connectors/add-connector/ahrefs/section'
 import { CustomSection } from '@/components/connectors/add-connector/custom/section'
+import { GoogleWorkspaceSection } from '@/components/connectors/add-connector/google-workspace/section'
 import { LinearSection } from '@/components/connectors/add-connector/linear/section'
 import { NotionSection } from '@/components/connectors/add-connector/notion/section'
 import {
@@ -61,6 +62,11 @@ export function AddConnectorModal({
   const zendeskRef = useRef<AddConnectorSectionHandle>(null)
   const ahrefsRef = useRef<AddConnectorSectionHandle>(null)
   const umamiRef = useRef<AddConnectorSectionHandle>(null)
+  const googleGmailRef = useRef<AddConnectorSectionHandle>(null)
+  const googleDriveRef = useRef<AddConnectorSectionHandle>(null)
+  const googleCalendarRef = useRef<AddConnectorSectionHandle>(null)
+  const googleChatRef = useRef<AddConnectorSectionHandle>(null)
+  const googlePeopleRef = useRef<AddConnectorSectionHandle>(null)
   const customRef = useRef<AddConnectorSectionHandle>(null)
 
   const handleStateChange = useCallback(() => {
@@ -73,6 +79,11 @@ export function AddConnectorModal({
     zendesk: zendeskRef,
     ahrefs: ahrefsRef,
     umami: umamiRef,
+    google_gmail: googleGmailRef,
+    google_drive: googleDriveRef,
+    google_calendar: googleCalendarRef,
+    google_chat: googleChatRef,
+    google_people: googlePeopleRef,
     custom: customRef,
   } satisfies Record<ConnectorType, typeof linearRef>
 
@@ -225,6 +236,41 @@ export function AddConnectorModal({
             ref={umamiRef}
             onStateChange={handleStateChange}
             isActive={selectedType === 'umami'}
+          />
+          <GoogleWorkspaceSection
+            key={`google_gmail-${sessionKey}`}
+            ref={googleGmailRef}
+            onStateChange={handleStateChange}
+            isActive={selectedType === 'google_gmail'}
+            connectorType="google_gmail"
+          />
+          <GoogleWorkspaceSection
+            key={`google_drive-${sessionKey}`}
+            ref={googleDriveRef}
+            onStateChange={handleStateChange}
+            isActive={selectedType === 'google_drive'}
+            connectorType="google_drive"
+          />
+          <GoogleWorkspaceSection
+            key={`google_calendar-${sessionKey}`}
+            ref={googleCalendarRef}
+            onStateChange={handleStateChange}
+            isActive={selectedType === 'google_calendar'}
+            connectorType="google_calendar"
+          />
+          <GoogleWorkspaceSection
+            key={`google_chat-${sessionKey}`}
+            ref={googleChatRef}
+            onStateChange={handleStateChange}
+            isActive={selectedType === 'google_chat'}
+            connectorType="google_chat"
+          />
+          <GoogleWorkspaceSection
+            key={`google_people-${sessionKey}`}
+            ref={googlePeopleRef}
+            onStateChange={handleStateChange}
+            isActive={selectedType === 'google_people'}
+            connectorType="google_people"
           />
           <CustomSection
             key={`custom-${sessionKey}`}

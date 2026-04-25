@@ -207,7 +207,10 @@ async function resolveOAuthPreparationContext(input: {
   const preferStaticClientRegistration = strategy.preferStaticClientRegistration(input.connectorConfig)
 
   if (preferStaticClientRegistration && !staticClientRegistration) {
-    throw new Error('missing_linear_oauth_client_credentials')
+    const errorCode = input.connectorType.startsWith('google_')
+      ? 'missing_google_oauth_client_credentials'
+      : 'missing_linear_oauth_client_credentials'
+    throw new Error(errorCode)
   }
 
   return {

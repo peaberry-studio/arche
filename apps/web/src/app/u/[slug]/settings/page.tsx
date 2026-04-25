@@ -6,7 +6,7 @@ import { isDesktop } from '@/lib/runtime/mode'
 import { getSession } from '@/lib/runtime/session'
 import { serializeSlackIntegration } from '@/lib/slack/integration'
 import type { SlackIntegrationSummary } from '@/lib/slack/types'
-import { slackService } from '@/lib/services'
+import { slackService, googleWorkspaceService } from '@/lib/services'
 import { get2FAStatus } from './security/actions'
 import { normalizeTwoFactorStatus } from './security/status'
 import { SettingsPageContent } from './settings-page-content'
@@ -31,11 +31,14 @@ export default async function SettingsPage({
   if (!session) redirect('/login')
 
   const caps = getRuntimeCapabilities()
-  const [status, slackIntegrationSummary] = await Promise.all([
+  const [status, slackIntegrationSummary, googleWorkspaceSummary] = await Promise.all([
     caps.twoFactor ? get2FAStatus() : Promise.resolve(null),
     caps.slackIntegration && session.user.role === 'ADMIN'
       ? loadSlackIntegrationSummary()
       : Promise.resolve<SlackIntegrationSummary | null>(null),
+    caps.googleWorkspaceIntegration && session.user.role === 'ADMIN'
+      ? loadGoogleWorkspaceSummary()
+      : Promise.resolve<GoogleWorkspaceIntegrationSummary | null>(null),
   ])
 
   if (caps.twoFactor && (!status || !status.ok)) redirect('/login')
@@ -45,6 +48,7 @@ export default async function SettingsPage({
     isAdmin: session.user.role === 'ADMIN',
     passwordChangeEnabled: caps.auth,
     slackIntegrationEnabled: caps.slackIntegration,
+    googleWorkspaceIntegrationEnabled: caps.googleWorkspaceIntegration,
     twoFactorEnabled: caps.twoFactor,
   })
   const search = await searchParams
@@ -67,11 +71,32 @@ export default async function SettingsPage({
       recoveryCodesRemaining={recoveryCodesRemaining}
       releaseVersion={releaseVersion}
       slackIntegrationSummary={slackIntegrationSummary}
+      googleWorkspaceSummary={googleWorkspaceSummary}
     />
   )
+}
+
+export type GoogleWorkspaceIntegrationSummary = {
+  clientId: string | null
+  configured: boolean
+  hasClientSecret: boolean
+  version: number
+  updatedAt: string | null
 }
 
 async function loadSlackIntegrationSummary(): Promise<SlackIntegrationSummary> {
   const integration = await slackService.findIntegration()
   return serializeSlackIntegration(integration, null)
+}
+
+async function loadGoogleWorkspaceSummary(): Promise<GoogleWorkspaceIntegrationSummary> {
+  const record = await googleWorkspaceService.ensureIntegrationSeededFromEnv()
+  const config = record ? googleWorkspaceService.decryptIntegrationConfig(record) : null
+  return {
+    clientId: config?.clientId ?? null,
+    configured: Boolean(config?.clientId && config?.clientSecret),
+    hasClientSecret: Boolean(config?.clientSecret),
+    version: record?.version ?? 0,
+    updatedAt: record?.updatedAt?.toISOString() ?? null,
+  }
 }

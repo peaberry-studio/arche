@@ -52,6 +52,16 @@ model SlackIntegration {
   @@map("slack_integration")
 }
 
+model GoogleWorkspaceIntegration {
+  singletonKey String   @id @default("default") @map("singleton_key")
+  config       String   // AES-256-GCM encrypted JSON
+  version      Int      @default(1)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("google_workspace_integration")
+}
+
 model SlackThreadBinding {
   id               String   @id @default(cuid())
   channelId        String   @map("channel_id")

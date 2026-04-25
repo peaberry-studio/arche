@@ -18,6 +18,11 @@ describe('buildDefaultName', () => {
     ['zendesk', 'Zendesk'],
     ['ahrefs', 'Ahrefs'],
     ['umami', 'Umami'],
+    ['google_gmail', 'Gmail'],
+    ['google_drive', 'Google Drive'],
+    ['google_calendar', 'Google Calendar'],
+    ['google_chat', 'Google Chat'],
+    ['google_people', 'People API'],
     ['custom', 'Custom Connector'],
   ] as const)('returns default name for %s', (type, expected) => {
     expect(buildDefaultName(type)).toBe(expected)
@@ -65,6 +70,11 @@ describe('supportsOAuth', () => {
     ['linear', true],
     ['notion', true],
     ['custom', true],
+    ['google_gmail', true],
+    ['google_drive', true],
+    ['google_calendar', true],
+    ['google_chat', true],
+    ['google_people', true],
     ['zendesk', false],
     ['ahrefs', false],
     ['umami', false],
@@ -77,6 +87,11 @@ describe('getDefaultAuthType', () => {
   it.each([
     ['linear', 'oauth'],
     ['notion', 'oauth'],
+    ['google_gmail', 'oauth'],
+    ['google_drive', 'oauth'],
+    ['google_calendar', 'oauth'],
+    ['google_chat', 'oauth'],
+    ['google_people', 'oauth'],
     ['zendesk', 'manual'],
     ['ahrefs', 'manual'],
     ['umami', 'manual'],
@@ -262,6 +277,28 @@ describe('buildConnectorConfig', () => {
       password: 'secret',
     })
   })
+
+  it('Google Gmail OAuth config shape', () => {
+    const state: ConnectorFormState = {
+      selectedType: 'google_gmail',
+      authType: 'oauth',
+    }
+    const result = buildConnectorConfig(state)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value).toEqual({ authType: 'oauth' })
+  })
+
+  it('Google Drive OAuth config shape', () => {
+    const state: ConnectorFormState = {
+      selectedType: 'google_drive',
+      authType: 'oauth',
+    }
+    const result = buildConnectorConfig(state)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value).toEqual({ authType: 'oauth' })
+  })
 })
 
 describe('isConnectorConfigurationComplete', () => {
@@ -429,5 +466,37 @@ describe('isConnectorConfigurationComplete', () => {
       umamiPassword: 'p',
     }
     expect(isConnectorConfigurationComplete(complete)).toBe(true)
+  })
+
+  it('google workspace oauth is complete', () => {
+    const gmail: ConnectorFormState = {
+      selectedType: 'google_gmail',
+      authType: 'oauth',
+    }
+    expect(isConnectorConfigurationComplete(gmail)).toBe(true)
+
+    const drive: ConnectorFormState = {
+      selectedType: 'google_drive',
+      authType: 'oauth',
+    }
+    expect(isConnectorConfigurationComplete(drive)).toBe(true)
+
+    const calendar: ConnectorFormState = {
+      selectedType: 'google_calendar',
+      authType: 'oauth',
+    }
+    expect(isConnectorConfigurationComplete(calendar)).toBe(true)
+
+    const chat: ConnectorFormState = {
+      selectedType: 'google_chat',
+      authType: 'oauth',
+    }
+    expect(isConnectorConfigurationComplete(chat)).toBe(true)
+
+    const people: ConnectorFormState = {
+      selectedType: 'google_people',
+      authType: 'oauth',
+    }
+    expect(isConnectorConfigurationComplete(people)).toBe(true)
   })
 })
