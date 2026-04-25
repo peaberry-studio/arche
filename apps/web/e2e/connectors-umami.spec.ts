@@ -140,11 +140,15 @@ test('creates an Umami Cloud connector with an API key', async ({ page }) => {
 
   await expect(dialog).not.toBeVisible()
   await expect(page.getByText('Umami', { exact: true })).toBeVisible()
-  await expect(page.getByText('Working', { exact: true })).toBeVisible()
+  await expect(
+    page.locator('div.rounded-xl').filter({ hasText: 'Umami' }).filter({ hasText: 'Working' }).first()
+  ).toBeVisible()
 
   await page.reload()
   await expect(page.getByText('Umami', { exact: true })).toBeVisible()
-  await expect(page.getByText('Working', { exact: true })).toBeVisible()
+  await expect(
+    page.locator('div.rounded-xl').filter({ hasText: 'Umami' }).filter({ hasText: 'Working' }).first()
+  ).toBeVisible()
 
   const detail = await getUmamiConnectorDetail(page)
   expect(detail.type).toBe('umami')
@@ -173,7 +177,9 @@ test('creates a self-hosted Umami connector with login credentials', async ({ pa
 
   await expect(dialog).not.toBeVisible()
   await expect(page.getByText('Umami', { exact: true })).toBeVisible()
-  await expect(page.getByText('Working', { exact: true })).toBeVisible()
+  await expect(
+    page.locator('div.rounded-xl').filter({ hasText: 'Umami' }).filter({ hasText: 'Working' }).first()
+  ).toBeVisible()
 
   const detail = await getUmamiConnectorDetail(page)
   expect(detail.type).toBe('umami')

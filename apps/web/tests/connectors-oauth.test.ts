@@ -16,6 +16,10 @@ vi.mock('@/lib/security/ssrf', () => ({
 }))
 
 const originalOAuthMaxAuthorizeUrlLength = process.env.ARCHE_CONNECTOR_OAUTH_MAX_AUTHORIZE_URL_LENGTH
+const originalNotionClientId = process.env.ARCHE_CONNECTOR_NOTION_CLIENT_ID
+const originalNotionClientSecret = process.env.ARCHE_CONNECTOR_NOTION_CLIENT_SECRET
+const originalNotionMcpUrl = process.env.ARCHE_CONNECTOR_NOTION_MCP_URL
+const originalLinearMcpUrl = process.env.ARCHE_CONNECTOR_LINEAR_MCP_URL
 describe('connectors oauth state', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -32,6 +36,26 @@ describe('connectors oauth state', () => {
       delete process.env.ARCHE_CONNECTOR_OAUTH_MAX_AUTHORIZE_URL_LENGTH
     } else {
       process.env.ARCHE_CONNECTOR_OAUTH_MAX_AUTHORIZE_URL_LENGTH = originalOAuthMaxAuthorizeUrlLength
+    }
+    if (originalNotionClientId === undefined) {
+      delete process.env.ARCHE_CONNECTOR_NOTION_CLIENT_ID
+    } else {
+      process.env.ARCHE_CONNECTOR_NOTION_CLIENT_ID = originalNotionClientId
+    }
+    if (originalNotionClientSecret === undefined) {
+      delete process.env.ARCHE_CONNECTOR_NOTION_CLIENT_SECRET
+    } else {
+      process.env.ARCHE_CONNECTOR_NOTION_CLIENT_SECRET = originalNotionClientSecret
+    }
+    if (originalNotionMcpUrl === undefined) {
+      delete process.env.ARCHE_CONNECTOR_NOTION_MCP_URL
+    } else {
+      process.env.ARCHE_CONNECTOR_NOTION_MCP_URL = originalNotionMcpUrl
+    }
+    if (originalLinearMcpUrl === undefined) {
+      delete process.env.ARCHE_CONNECTOR_LINEAR_MCP_URL
+    } else {
+      process.env.ARCHE_CONNECTOR_LINEAR_MCP_URL = originalLinearMcpUrl
     }
   })
 
@@ -381,6 +405,185 @@ describe('connectors oauth state', () => {
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
       'https://oauth.example.com/token',
+      expect.objectContaining({ method: 'POST' })
+    )
+  })
+
+  it('discovers Linear user OAuth metadata via fallback when well-known is missing', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('not found', { status: 404 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ client_id: 'linear-user-dynamic' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const prepared = await prepareConnectorOAuthAuthorization({
+      connectorId: 'linear-user',
+      slug: 'alice',
+      userId: 'user-1',
+      connectorType: 'linear',
+      redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
+      connectorConfig: { authType: 'oauth' },
+    })
+
+    const authorizeUrl = new URL(prepared.authorizeUrl)
+    expect(authorizeUrl.origin).toBe('https://mcp.linear.app')
+    expect(authorizeUrl.pathname).toBe('/authorize')
+    expect(authorizeUrl.searchParams.get('client_id')).toBe('linear-user-dynamic')
+    expect(authorizeUrl.searchParams.get('actor')).toBeNull()
+
+    const state = verifyConnectorOAuthState(prepared.state)
+    expect(state.clientId).toBe('linear-user-dynamic')
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://mcp.linear.app/.well-known/oauth-authorization-server')
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('https://mcp.linear.app/register')
+  })
+
+  it('uses Notion static env credentials when registration endpoint is unavailable', async () => {
+    process.env.ARCHE_CONNECTOR_NOTION_CLIENT_ID = 'notion-env-client-id'
+    process.env.ARCHE_CONNECTOR_NOTION_CLIENT_SECRET = 'notion-env-client-secret'
+
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(JSON.stringify({
+        authorization_endpoint: 'https://mcp.notion.com/authorize',
+        token_endpoint: 'https://mcp.notion.com/token',
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const prepared = await prepareConnectorOAuthAuthorization({
+      connectorId: 'notion-1',
+      slug: 'alice',
+      userId: 'user-1',
+      connectorType: 'notion',
+      redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
+    })
+
+    const authorizeUrl = new URL(prepared.authorizeUrl)
+    expect(authorizeUrl.searchParams.get('client_id')).toBe('notion-env-client-id')
+
+    const state = verifyConnectorOAuthState(prepared.state)
+    expect(state.clientId).toBe('notion-env-client-id')
+    expect(state.clientSecret).toBe('notion-env-client-secret')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('falls back to dynamic registration for Notion when env credentials are missing', async () => {
+    delete process.env.ARCHE_CONNECTOR_NOTION_CLIENT_ID
+    delete process.env.ARCHE_CONNECTOR_NOTION_CLIENT_SECRET
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('not found', { status: 404 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ client_id: 'notion-dynamic-client' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const prepared = await prepareConnectorOAuthAuthorization({
+      connectorId: 'notion-1',
+      slug: 'alice',
+      userId: 'user-1',
+      connectorType: 'notion',
+      redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
+    })
+
+    const authorizeUrl = new URL(prepared.authorizeUrl)
+    expect(authorizeUrl.origin).toBe('https://mcp.notion.com')
+    expect(authorizeUrl.pathname).toBe('/authorize')
+    expect(authorizeUrl.searchParams.get('client_id')).toBe('notion-dynamic-client')
+
+    const state = verifyConnectorOAuthState(prepared.state)
+    expect(state.clientId).toBe('notion-dynamic-client')
+  })
+
+  it('discovers token endpoint during Linear OAuth refresh when missing', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          authorization_endpoint: 'https://mcp.linear.app/authorize',
+          token_endpoint: 'https://mcp.linear.app/token',
+        }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ access_token: 'linear-refreshed-token', expires_in: 1200 }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await refreshConnectorOAuthToken({
+      connectorType: 'linear',
+      refreshToken: 'refresh-token',
+      clientId: 'linear-client-id',
+    })
+
+    expect(result.accessToken).toBe('linear-refreshed-token')
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'https://mcp.linear.app/.well-known/oauth-authorization-server',
+      expect.objectContaining({ method: 'GET' })
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'https://mcp.linear.app/token',
+      expect.objectContaining({ method: 'POST' })
+    )
+  })
+
+  it('discovers token endpoint during Notion OAuth refresh when missing', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          authorization_endpoint: 'https://mcp.notion.com/authorize',
+          token_endpoint: 'https://mcp.notion.com/token',
+        }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ access_token: 'notion-refreshed-token', expires_in: 1200 }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await refreshConnectorOAuthToken({
+      connectorType: 'notion',
+      refreshToken: 'refresh-token',
+      clientId: 'notion-client-id',
+    })
+
+    expect(result.accessToken).toBe('notion-refreshed-token')
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'https://mcp.notion.com/.well-known/oauth-authorization-server',
+      expect.objectContaining({ method: 'GET' })
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'https://mcp.notion.com/token',
       expect.objectContaining({ method: 'POST' })
     )
   })
