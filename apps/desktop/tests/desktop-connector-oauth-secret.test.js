@@ -30,6 +30,7 @@ test('uses ARCHE_CONNECTOR_OAUTH_STATE_SECRET from env when valid', () => {
 
     assert.equal(resolved, secret)
     assert.equal(env.ARCHE_CONNECTOR_OAUTH_STATE_SECRET, secret)
+    assert.equal(env.ARCHE_DESKTOP_MANAGED_CONNECTOR_OAUTH_STATE_SECRET, undefined)
   })
 })
 
@@ -52,6 +53,7 @@ test('loads persisted secret when env secret is missing', () => {
 
     assert.equal(resolved, persisted)
     assert.equal(env.ARCHE_CONNECTOR_OAUTH_STATE_SECRET, persisted)
+    assert.equal(env.ARCHE_DESKTOP_MANAGED_CONNECTOR_OAUTH_STATE_SECRET, '1')
   })
 })
 
@@ -69,6 +71,7 @@ test('creates and persists a secret when no env or secret file exists', () => {
     const secretPath = join(dataDir, '.secrets', 'connector-oauth-state-secret.key')
     assert.equal(resolved, generated)
     assert.equal(env.ARCHE_CONNECTOR_OAUTH_STATE_SECRET, generated)
+    assert.equal(env.ARCHE_DESKTOP_MANAGED_CONNECTOR_OAUTH_STATE_SECRET, '1')
     assert.equal(readFileSync(secretPath, 'utf-8').trim(), generated)
   })
 })
@@ -90,6 +93,7 @@ test('replaces an invalid persisted secret', () => {
 
     assert.equal(resolved, generated)
     assert.equal(env.ARCHE_CONNECTOR_OAUTH_STATE_SECRET, generated)
+    assert.equal(env.ARCHE_DESKTOP_MANAGED_CONNECTOR_OAUTH_STATE_SECRET, '1')
     assert.equal(readFileSync(secretPath, 'utf-8').trim(), generated)
   })
 })
@@ -108,6 +112,7 @@ test('falls back to generating a secret when env value is empty whitespace', () 
     const secretPath = join(dataDir, '.secrets', 'connector-oauth-state-secret.key')
     assert.equal(resolved, generated)
     assert.equal(env.ARCHE_CONNECTOR_OAUTH_STATE_SECRET, generated)
+    assert.equal(env.ARCHE_DESKTOP_MANAGED_CONNECTOR_OAUTH_STATE_SECRET, '1')
     assert.equal(readFileSync(secretPath, 'utf-8').trim(), generated)
   })
 })

@@ -30,6 +30,7 @@ test('uses ARCHE_ENCRYPTION_KEY from env when valid', () => {
 
     assert.equal(resolved, key)
     assert.equal(env.ARCHE_ENCRYPTION_KEY, key)
+    assert.equal(env.ARCHE_DESKTOP_MANAGED_ENCRYPTION_KEY, undefined)
   })
 })
 
@@ -52,6 +53,7 @@ test('loads persisted key when env key is missing', () => {
 
     assert.equal(resolved, persisted)
     assert.equal(env.ARCHE_ENCRYPTION_KEY, persisted)
+    assert.equal(env.ARCHE_DESKTOP_MANAGED_ENCRYPTION_KEY, '1')
   })
 })
 
@@ -69,6 +71,7 @@ test('creates and persists a key when no env or key file exists', () => {
     const keyPath = join(dataDir, '.secrets', 'encryption.key')
     assert.equal(resolved, generated)
     assert.equal(env.ARCHE_ENCRYPTION_KEY, generated)
+    assert.equal(env.ARCHE_DESKTOP_MANAGED_ENCRYPTION_KEY, '1')
     assert.equal(readFileSync(keyPath, 'utf-8').trim(), generated)
   })
 })
@@ -90,6 +93,7 @@ test('replaces an invalid persisted key', () => {
 
     assert.equal(resolved, generated)
     assert.equal(env.ARCHE_ENCRYPTION_KEY, generated)
+    assert.equal(env.ARCHE_DESKTOP_MANAGED_ENCRYPTION_KEY, '1')
     assert.equal(readFileSync(keyPath, 'utf-8').trim(), generated)
   })
 })

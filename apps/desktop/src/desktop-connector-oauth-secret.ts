@@ -5,6 +5,7 @@ import { join } from 'path'
 import { getDesktopSecretsDir } from './vault-layout'
 
 const OAUTH_STATE_SECRET_ENV_NAME = 'ARCHE_CONNECTOR_OAUTH_STATE_SECRET'
+const OAUTH_STATE_SECRET_MANAGED_ENV_NAME = 'ARCHE_DESKTOP_MANAGED_CONNECTOR_OAUTH_STATE_SECRET'
 const OAUTH_STATE_SECRET_FILE_NAME = 'connector-oauth-state-secret.key'
 const OAUTH_STATE_SECRET_BYTES = 32
 
@@ -46,6 +47,7 @@ export function ensureDesktopConnectorOAuthStateSecret(
       throw new Error(`${OAUTH_STATE_SECRET_ENV_NAME} must be a non-empty string`)
     }
 
+    delete env[OAUTH_STATE_SECRET_MANAGED_ENV_NAME]
     return configuredSecret
   }
 
@@ -56,6 +58,7 @@ export function ensureDesktopConnectorOAuthStateSecret(
 
   if (persistedSecret) {
     env[OAUTH_STATE_SECRET_ENV_NAME] = persistedSecret
+    env[OAUTH_STATE_SECRET_MANAGED_ENV_NAME] = '1'
     return persistedSecret
   }
 
@@ -68,5 +71,6 @@ export function ensureDesktopConnectorOAuthStateSecret(
   writeFileSync(secretPath, `${generatedSecret}\n`, { encoding: 'utf-8', mode: 0o600 })
 
   env[OAUTH_STATE_SECRET_ENV_NAME] = generatedSecret
+  env[OAUTH_STATE_SECRET_MANAGED_ENV_NAME] = '1'
   return generatedSecret
 }

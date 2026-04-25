@@ -9,6 +9,7 @@ import { dirname, join } from 'path'
 import type { CreateVaultArgs, DesktopApiResult, DesktopVaultSummary } from './desktop-bridge-types'
 import { ensureDesktopConnectorOAuthStateSecret } from './desktop-connector-oauth-secret'
 import { ensureDesktopEncryptionKey } from './desktop-encryption-key'
+import { buildDesktopLaunchEnv } from './desktop-launch-env'
 import { createDesktopSmokeTestHarness } from './desktop-smoke-test'
 import { createDesktopVault } from './create-vault'
 import { getDesktopNextDistDirName } from './desktop-next-dist'
@@ -477,6 +478,7 @@ function launchElectronProcess(nextContext: DesktopLaunchContext): DesktopApiRes
     const args = buildLaunchArgs(process.argv.slice(1), nextContext)
     const child = spawnChildProcess(process.execPath, args, {
       detached: true,
+      env: buildDesktopLaunchEnv(process.env),
       stdio: 'ignore',
     })
     child.unref()
