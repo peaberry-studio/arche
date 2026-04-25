@@ -23,7 +23,7 @@ vi.mock('../security/settings-page-content', () => ({
   SecuritySettingsPanel: () => <div>Security panel</div>,
 }))
 
-vi.mock('../security/mcp-settings-panel', () => ({
+vi.mock('../integrations/mcp-settings-panel', () => ({
   McpSettingsPanel: ({ personalAccessTokens }: { personalAccessTokens: unknown[] }) => (
     <div>MCP settings panel tokens {personalAccessTokens.length}</div>
   ),
