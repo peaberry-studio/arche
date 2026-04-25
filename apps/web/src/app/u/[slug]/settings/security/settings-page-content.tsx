@@ -1,5 +1,4 @@
 import { ChangePasswordForm } from './change-password-form'
-import { McpSettingsPanel, type PersonalAccessTokenItem } from './mcp-settings-panel'
 import { SettingsInfoBox } from '@/components/settings/settings-info-box'
 import { SettingsSection } from '@/components/settings/settings-section'
 import { TotpSetupWizard } from '@/components/totp-setup-wizard'
@@ -12,12 +11,6 @@ type SecuritySettingsPanelProps = {
   enabled: boolean
   verifiedAt: Date | null
   recoveryCodesRemaining: number
-  mcpAvailable?: boolean
-  mcpEnabled?: boolean
-  mcpConfigError?: string | null
-  canManageMcp?: boolean
-  mcpBaseUrl?: string
-  personalAccessTokens?: PersonalAccessTokenItem[]
 }
 
 export function SecuritySettingsPanel({
@@ -26,12 +19,6 @@ export function SecuritySettingsPanel({
   enabled,
   verifiedAt,
   recoveryCodesRemaining,
-  mcpAvailable = false,
-  mcpEnabled = false,
-  mcpConfigError = null,
-  canManageMcp = false,
-  mcpBaseUrl = '',
-  personalAccessTokens = [],
 }: SecuritySettingsPanelProps) {
   return (
     <div className="space-y-6">
@@ -103,15 +90,6 @@ export function SecuritySettingsPanel({
         </SettingsSection>
       ) : null}
 
-      {mcpAvailable ? (
-        <McpSettingsPanel
-          mcpEnabled={mcpEnabled}
-          mcpConfigError={mcpConfigError}
-          canManageMcp={canManageMcp}
-          mcpBaseUrl={mcpBaseUrl}
-          personalAccessTokens={personalAccessTokens}
-        />
-      ) : null}
     </div>
   )
 }
