@@ -12,7 +12,7 @@ vi.mock('@/lib/connectors/crypto', () => ({
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    googleWorkspaceIntegration: {
+    externalIntegration: {
       findUnique: (...args: unknown[]) => mockPrismaFindUnique(...args),
       upsert: (...args: unknown[]) => mockPrismaUpsert(...args),
     },
@@ -66,9 +66,9 @@ describe('googleWorkspaceService', () => {
     })
     expect(mockPrismaUpsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { singletonKey: 'default' },
+        where: { key: 'google_workspace' },
         create: expect.objectContaining({
-          singletonKey: 'default',
+          key: 'google_workspace',
           config: expect.stringContaining('env-client-id'),
         }),
         update: expect.objectContaining({
@@ -94,8 +94,9 @@ describe('googleWorkspaceService', () => {
     process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_SECRET = 'env-client-secret'
 
     mockPrismaFindUnique.mockResolvedValue({
-      singletonKey: 'default',
+      key: 'google_workspace',
       config: 'enc:{"clientId":"persisted-id","clientSecret":"persisted-secret"}',
+      state: null,
       version: 2,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -116,8 +117,9 @@ describe('googleWorkspaceService', () => {
     process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_SECRET = 'env-client-secret'
 
     mockPrismaFindUnique.mockResolvedValue({
-      singletonKey: 'default',
+      key: 'google_workspace',
       config: 'enc:{}',
+      state: null,
       version: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -132,8 +134,9 @@ describe('googleWorkspaceService', () => {
 
   it('preserves existing secret when saving with blank secret', async () => {
     mockPrismaFindUnique.mockResolvedValue({
-      singletonKey: 'default',
+      key: 'google_workspace',
       config: 'enc:{"clientId":"old-id","clientSecret":"old-secret"}',
+      state: null,
       version: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -152,8 +155,9 @@ describe('googleWorkspaceService', () => {
 
   it('saves new secret when provided', async () => {
     mockPrismaFindUnique.mockResolvedValue({
-      singletonKey: 'default',
+      key: 'google_workspace',
       config: 'enc:{"clientId":"old-id","clientSecret":"old-secret"}',
+      state: null,
       version: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -179,7 +183,7 @@ describe('googleWorkspaceService', () => {
     expect(mockPrismaUpsert).toHaveBeenCalledWith(
       expect.objectContaining({
         create: expect.objectContaining({
-          singletonKey: 'default',
+          key: 'google_workspace',
           config: expect.stringContaining('enc:'),
         }),
       })
@@ -195,8 +199,9 @@ describe('googleWorkspaceService', () => {
 
   it('isConfigured returns true when both clientId and clientSecret exist', async () => {
     mockPrismaFindUnique.mockResolvedValue({
-      singletonKey: 'default',
-      config: 'enc:{"clientId":"id","clientSecret":"secret"}',
+      key: 'google_workspace',
+      config: 'enc:{"clientId":"old-id","clientSecret":"old-secret"}',
+      state: null,
       version: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -210,8 +215,9 @@ describe('googleWorkspaceService', () => {
 
   it('isConfigured returns false when config is missing secret', async () => {
     mockPrismaFindUnique.mockResolvedValue({
-      singletonKey: 'default',
+      key: 'google_workspace',
       config: 'enc:{"clientId":"id"}',
+      state: null,
       version: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -243,9 +249,9 @@ describe('googleWorkspaceService', () => {
       expect(result).not.toBeNull()
       expect(mockPrismaUpsert).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { singletonKey: 'default' },
+          where: { key: 'google_workspace' },
           create: expect.objectContaining({
-            singletonKey: 'default',
+            key: 'google_workspace',
             config: expect.stringContaining('env-id'),
           }),
           update: expect.objectContaining({
@@ -260,8 +266,9 @@ describe('googleWorkspaceService', () => {
       process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_SECRET = 'env-secret'
 
       mockPrismaFindUnique.mockResolvedValue({
-        singletonKey: 'default',
+        key: 'google_workspace',
         config: 'enc:{"clientId":"persisted-id","clientSecret":"persisted-secret"}',
+        state: null,
         version: 3,
         createdAt: new Date('2026-04-25T10:00:00Z'),
         updatedAt: new Date('2026-04-25T11:00:00Z'),
@@ -271,7 +278,7 @@ describe('googleWorkspaceService', () => {
       const result = await ensureIntegrationSeededFromEnv()
 
       expect(result).toMatchObject({
-        singletonKey: 'default',
+        singletonKey: 'google_workspace',
         version: 3,
       })
       expect(mockPrismaUpsert).not.toHaveBeenCalled()
@@ -282,8 +289,9 @@ describe('googleWorkspaceService', () => {
       process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_SECRET = 'env-secret'
 
       mockPrismaFindUnique.mockResolvedValue({
-        singletonKey: 'default',
+        key: 'google_workspace',
         config: 'enc:{}',
+        state: null,
         version: 2,
         createdAt: new Date('2026-04-25T10:00:00Z'),
         updatedAt: new Date('2026-04-25T10:00:00Z'),
@@ -293,7 +301,7 @@ describe('googleWorkspaceService', () => {
       const result = await ensureIntegrationSeededFromEnv()
 
       expect(result).toMatchObject({
-        singletonKey: 'default',
+        singletonKey: 'google_workspace',
         version: 2,
       })
       expect(mockPrismaUpsert).not.toHaveBeenCalled()

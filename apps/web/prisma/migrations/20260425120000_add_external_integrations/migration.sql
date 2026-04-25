@@ -1,10 +1,11 @@
 -- CreateTable
-CREATE TABLE "google_workspace_integration" (
-    "singleton_key" TEXT NOT NULL,
+CREATE TABLE "external_integrations" (
+    "key" TEXT NOT NULL,
     "config" TEXT NOT NULL,
+    "state" JSONB,
     "version" INTEGER NOT NULL DEFAULT 1,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMP(3) NOT NULL,
 
-    CONSTRAINT "google_workspace_integration_pkey" PRIMARY KEY ("singleton_key")
+    CONSTRAINT "external_integrations_pkey" PRIMARY KEY ("key")
 );

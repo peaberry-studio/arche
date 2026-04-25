@@ -55,7 +55,7 @@ const mockPrisma = {
   slackEventReceipt: {
     create: vi.fn(),
   },
-  slackIntegration: {
+  externalIntegration: {
     findUnique: vi.fn(),
     updateMany: vi.fn(),
     upsert: vi.fn(),

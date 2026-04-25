@@ -4,7 +4,7 @@ import { auditEvent } from '@/lib/auth'
 import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { loadSlackAgentOptions } from '@/lib/slack/agents'
-import { decryptSlackToken, encryptSlackToken } from '@/lib/slack/crypto'
+
 import {
   isSlackAppToken,
   isSlackBotToken,
@@ -35,14 +35,6 @@ function toErrorResponse(error: string, status: number, message?: string) {
   return NextResponse.json(
     message ? { error, message } : { error },
     { status },
-  )
-}
-
-function toInvalidSavedTokensResponse() {
-  return toErrorResponse(
-    'invalid_saved_tokens',
-    400,
-    'Saved Slack tokens could not be decrypted. Paste fresh credentials and try again.',
   )
 }
 
@@ -185,12 +177,8 @@ export const PUT = withAuth<SlackIntegrationMutateResponse | { error: string; me
     let resolvedAppToken = ''
 
     if (enabled || reconnect) {
-      try {
-        resolvedBotToken = botTokenInput || (existing?.botTokenSecret ? decryptSlackToken(existing.botTokenSecret) : '')
-        resolvedAppToken = appTokenInput || (existing?.appTokenSecret ? decryptSlackToken(existing.appTokenSecret) : '')
-      } catch {
-        return toInvalidSavedTokensResponse()
-      }
+      resolvedBotToken = botTokenInput || existing?.botTokenSecret || ''
+      resolvedAppToken = appTokenInput || existing?.appTokenSecret || ''
     }
 
     if ((enabled || reconnect) && (!resolvedBotToken || !resolvedAppToken)) {
@@ -227,8 +215,8 @@ export const PUT = withAuth<SlackIntegrationMutateResponse | { error: string; me
     }
 
     await slackService.saveIntegrationConfig({
-      appTokenSecret: appTokenInput ? encryptSlackToken(appTokenInput) : undefined,
-      botTokenSecret: botTokenInput ? encryptSlackToken(botTokenInput) : undefined,
+      appTokenSecret: appTokenInput || undefined,
+      botTokenSecret: botTokenInput || undefined,
       clearLastError: true,
       defaultAgentId,
       enabled,

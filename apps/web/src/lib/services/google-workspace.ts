@@ -1,8 +1,9 @@
 import { encryptConfig, decryptConfig } from '@/lib/connectors/crypto'
 import { getGoogleOAuthClientCredentials } from '@/lib/connectors/google-workspace'
-import { prisma } from '@/lib/prisma'
 
-export const GOOGLE_WORKSPACE_INTEGRATION_SINGLETON_KEY = 'default'
+import { findByKey, upsertByKey } from './external-integrations'
+
+export const GOOGLE_WORKSPACE_INTEGRATION_KEY = 'google_workspace'
 
 export type GoogleWorkspaceIntegrationRecord = {
   singletonKey: string
@@ -17,10 +18,16 @@ export type GoogleWorkspaceIntegrationConfig = {
   clientSecret?: string
 }
 
-export function findIntegration(): Promise<GoogleWorkspaceIntegrationRecord | null> {
-  return prisma.googleWorkspaceIntegration.findUnique({
-    where: { singletonKey: GOOGLE_WORKSPACE_INTEGRATION_SINGLETON_KEY },
-  })
+export async function findIntegration(): Promise<GoogleWorkspaceIntegrationRecord | null> {
+  const row = await findByKey(GOOGLE_WORKSPACE_INTEGRATION_KEY)
+  if (!row) return null
+  return {
+    singletonKey: row.key,
+    config: row.config,
+    version: row.version,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  }
 }
 
 export function decryptIntegrationConfig(
@@ -46,16 +53,14 @@ export async function ensureIntegrationSeededFromEnv(): Promise<GoogleWorkspaceI
     return null
   }
 
-  return prisma.googleWorkspaceIntegration.upsert({
-    where: { singletonKey: GOOGLE_WORKSPACE_INTEGRATION_SINGLETON_KEY },
-    create: {
-      singletonKey: GOOGLE_WORKSPACE_INTEGRATION_SINGLETON_KEY,
-      config: encryptConfig(env),
-    },
-    update: {
-      config: encryptConfig(env),
-    },
-  })
+  const row = await upsertByKey(GOOGLE_WORKSPACE_INTEGRATION_KEY, encryptConfig(env))
+  return {
+    singletonKey: row.key,
+    config: row.config,
+    version: row.version,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  }
 }
 
 export async function getResolvedCredentials(): Promise<
@@ -95,31 +100,25 @@ export async function saveIntegrationConfig(args: {
     nextConfig.clientSecret = existingConfig.clientSecret
   }
 
-  return prisma.googleWorkspaceIntegration.upsert({
-    where: { singletonKey: GOOGLE_WORKSPACE_INTEGRATION_SINGLETON_KEY },
-    create: {
-      singletonKey: GOOGLE_WORKSPACE_INTEGRATION_SINGLETON_KEY,
-      config: encryptConfig(nextConfig),
-    },
-    update: {
-      config: encryptConfig(nextConfig),
-      version: { increment: 1 },
-    },
-  })
+  const row = await upsertByKey(GOOGLE_WORKSPACE_INTEGRATION_KEY, encryptConfig(nextConfig))
+  return {
+    singletonKey: row.key,
+    config: row.config,
+    version: row.version,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  }
 }
 
 export async function clearIntegration(): Promise<GoogleWorkspaceIntegrationRecord> {
-  return prisma.googleWorkspaceIntegration.upsert({
-    where: { singletonKey: GOOGLE_WORKSPACE_INTEGRATION_SINGLETON_KEY },
-    create: {
-      singletonKey: GOOGLE_WORKSPACE_INTEGRATION_SINGLETON_KEY,
-      config: encryptConfig({}),
-    },
-    update: {
-      config: encryptConfig({}),
-      version: { increment: 1 },
-    },
-  })
+  const row = await upsertByKey(GOOGLE_WORKSPACE_INTEGRATION_KEY, encryptConfig({}))
+  return {
+    singletonKey: row.key,
+    config: row.config,
+    version: row.version,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  }
 }
 
 export async function isConfigured(): Promise<boolean> {

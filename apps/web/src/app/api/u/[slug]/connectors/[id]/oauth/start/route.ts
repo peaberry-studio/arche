@@ -23,6 +23,38 @@ function requiresConnectorConfig(type: OAuthConnectorType): boolean {
   return type === 'linear' || type === 'custom'
 }
 
+type ResolveOAuthStartConnectorConfigResult =
+  | { ok: true; config: Record<string, unknown> | undefined }
+  | { ok: false; error: 'config_corrupted' }
+
+async function resolveOAuthStartConnectorConfig(
+  type: OAuthConnectorType,
+  encryptedConfig: string,
+): Promise<ResolveOAuthStartConnectorConfigResult> {
+  let config: Record<string, unknown> | undefined
+
+  if (requiresConnectorConfig(type)) {
+    try {
+      config = decryptConfig(encryptedConfig)
+    } catch {
+      return { ok: false, error: 'config_corrupted' }
+    }
+  }
+
+  if (isGoogleWorkspaceConnectorType(type)) {
+    const googleCredentials = await googleWorkspaceService.getResolvedCredentials()
+    if (googleCredentials) {
+      config = {
+        ...config,
+        clientId: googleCredentials.clientId,
+        clientSecret: googleCredentials.clientSecret,
+      }
+    }
+  }
+
+  return { ok: true, config }
+}
+
 export const POST = withAuth<
   StartOAuthResponse | { error: string; message?: string },
   { slug: string; id: string }
@@ -53,28 +85,14 @@ export const POST = withAuth<
   const redirectUri = `${baseUrl}/api/connectors/oauth/callback`
   const returnTo = normalizeConnectorOAuthReturnTo(request.nextUrl.searchParams.get('returnTo'))
 
-  let connectorConfig: Record<string, unknown> | undefined
-  if (requiresConnectorConfig(connector.type)) {
-    try {
-      connectorConfig = decryptConfig(connector.config)
-    } catch {
-      return NextResponse.json(
-        { error: 'config_corrupted', message: 'Failed to decrypt connector configuration' },
-        { status: 500 }
-      )
-    }
+  const resolved = await resolveOAuthStartConnectorConfig(connector.type, connector.config)
+  if (!resolved.ok) {
+    return NextResponse.json(
+      { error: resolved.error, message: 'Failed to decrypt connector configuration' },
+      { status: 500 },
+    )
   }
-
-  if (isGoogleWorkspaceConnectorType(connector.type)) {
-    const googleCredentials = await googleWorkspaceService.getResolvedCredentials()
-    if (googleCredentials) {
-      connectorConfig = {
-        ...connectorConfig,
-        clientId: googleCredentials.clientId,
-        clientSecret: googleCredentials.clientSecret,
-      }
-    }
-  }
+  const connectorConfig = resolved.config
 
   let authorizeUrl: string
   try {

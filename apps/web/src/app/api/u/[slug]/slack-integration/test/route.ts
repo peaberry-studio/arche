@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auditEvent } from '@/lib/auth'
 import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
-import { decryptSlackToken } from '@/lib/slack/crypto'
+
 import { isSlackAppToken, isSlackBotToken, testSlackCredentials } from '@/lib/slack/integration'
 import type { SlackIntegrationTestRequest, SlackIntegrationTestResponse } from '@/lib/slack/types'
 import { slackService } from '@/lib/services'
@@ -12,14 +12,6 @@ function toErrorResponse(error: string, status: number, message?: string) {
   return NextResponse.json(
     message ? { error, message } : { error },
     { status },
-  )
-}
-
-function toInvalidSavedTokensResponse() {
-  return toErrorResponse(
-    'invalid_saved_tokens',
-    400,
-    'Saved Slack tokens could not be decrypted. Paste fresh credentials and try again.',
   )
 }
 
@@ -47,23 +39,12 @@ export const POST = withAuth<SlackIntegrationTestResponse | { error: string; mes
     }
 
     const existing = await slackService.findIntegration()
-    let botToken = ''
-    let appToken = ''
-
-    try {
-      botToken = typeof body?.botToken === 'string' && body.botToken.trim()
-        ? body.botToken.trim()
-        : existing?.botTokenSecret
-          ? decryptSlackToken(existing.botTokenSecret)
-          : ''
-      appToken = typeof body?.appToken === 'string' && body.appToken.trim()
-        ? body.appToken.trim()
-        : existing?.appTokenSecret
-          ? decryptSlackToken(existing.appTokenSecret)
-          : ''
-    } catch {
-      return toInvalidSavedTokensResponse()
-    }
+    const botToken = typeof body?.botToken === 'string' && body.botToken.trim()
+      ? body.botToken.trim()
+      : existing?.botTokenSecret || ''
+    const appToken = typeof body?.appToken === 'string' && body.appToken.trim()
+      ? body.appToken.trim()
+      : existing?.appTokenSecret || ''
 
     if (!botToken || !appToken) {
       return toErrorResponse('missing_tokens', 400)
