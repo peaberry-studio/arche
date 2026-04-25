@@ -1,6 +1,6 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } = require('node:fs')
+const { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } = require('node:fs')
 const { tmpdir } = require('node:os')
 const { join } = require('node:path')
 
@@ -73,6 +73,7 @@ test('creates and persists a secret when no env or secret file exists', () => {
     assert.equal(env.ARCHE_CONNECTOR_OAUTH_STATE_SECRET, generated)
     assert.equal(env.ARCHE_DESKTOP_MANAGED_CONNECTOR_OAUTH_STATE_SECRET, '1')
     assert.equal(readFileSync(secretPath, 'utf-8').trim(), generated)
+    assert.equal(statSync(secretPath).mode & 0o777, 0o600)
   })
 })
 
@@ -82,6 +83,7 @@ test('replaces an invalid persisted secret', () => {
     const secretPath = join(secretDir, 'connector-oauth-state-secret.key')
     mkdirSync(secretDir, { recursive: true })
     writeFileSync(secretPath, '\n', 'utf-8')
+    chmodSync(secretPath, 0o644)
 
     const generated = 'new-generated-oauth-state-secret'
     const env = {}
@@ -95,6 +97,7 @@ test('replaces an invalid persisted secret', () => {
     assert.equal(env.ARCHE_CONNECTOR_OAUTH_STATE_SECRET, generated)
     assert.equal(env.ARCHE_DESKTOP_MANAGED_CONNECTOR_OAUTH_STATE_SECRET, '1')
     assert.equal(readFileSync(secretPath, 'utf-8').trim(), generated)
+    assert.equal(statSync(secretPath).mode & 0o777, 0o600)
   })
 })
 

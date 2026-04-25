@@ -1,5 +1,5 @@
 import { randomBytes } from 'crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 
 import { getDesktopSecretsDir } from './vault-layout'
@@ -73,6 +73,7 @@ export function ensureDesktopEncryptionKey(options: EnsureDesktopEncryptionKeyOp
 
   mkdirSync(keyDir, { recursive: true })
   writeFileSync(keyPath, `${generatedKey}\n`, { encoding: 'utf-8', mode: 0o600 })
+  chmodSync(keyPath, 0o600)
 
   env[ENCRYPTION_KEY_ENV_NAME] = generatedKey
   env[ENCRYPTION_KEY_MANAGED_ENV_NAME] = '1'

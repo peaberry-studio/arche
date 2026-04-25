@@ -81,6 +81,15 @@ describe('desktop prisma context isolation', () => {
     expect(globalClient.adapterUrl).toBe('file:/tmp/active-vault/.arche.db')
   })
 
+  it('prefers the active vault database over DATABASE_URL when both are present', async () => {
+    process.env.DATABASE_URL = 'file:/tmp/external-dev-db.sqlite'
+
+    const { getDesktopPrismaClient } = await import('../prisma-desktop')
+    const client = await getDesktopPrismaClient()
+
+    expect(client.adapterUrl).toBe('file:/tmp/active-vault/.arche.db')
+  })
+
   it('stores contextual init state without mutating the global desktop prisma client', async () => {
     const context = {
       databaseUrl: 'file:/tmp/context-vault/.arche.db',

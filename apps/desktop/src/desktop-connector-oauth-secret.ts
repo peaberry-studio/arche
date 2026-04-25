@@ -1,5 +1,5 @@
 import { randomBytes } from 'crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 
 import { getDesktopSecretsDir } from './vault-layout'
@@ -69,6 +69,7 @@ export function ensureDesktopConnectorOAuthStateSecret(
 
   mkdirSync(secretDir, { recursive: true })
   writeFileSync(secretPath, `${generatedSecret}\n`, { encoding: 'utf-8', mode: 0o600 })
+  chmodSync(secretPath, 0o600)
 
   env[OAUTH_STATE_SECRET_ENV_NAME] = generatedSecret
   env[OAUTH_STATE_SECRET_MANAGED_ENV_NAME] = '1'

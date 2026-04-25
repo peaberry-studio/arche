@@ -19,6 +19,7 @@ const debugDesktopE2E = process.env.ARCHE_E2E_DEBUG === '1'
 const fakeProviderUrl = process.env.ARCHE_E2E_FAKE_PROVIDER_URL
 const fakeProviderApiKey = process.env.ARCHE_E2E_FAKE_PROVIDER_API_KEY ?? 'sk-e2e-fake-provider'
 const DEFAULT_E2E_ENCRYPTION_KEY = 'ZGV2LWluc2VjdXJlLWtleS0zMi1ieXRlcy1sb25nISE='
+const WORKSPACE_READY_TIMEOUT_MS = 120_000
 
 async function hasRequestHeaderTooLargeError(page: Page): Promise<boolean> {
   const content = await page.content().catch(() => '')
@@ -57,7 +58,7 @@ export async function waitForWorkspaceReady(page: Page) {
   // If the page has already fallen into a 431 error state, clear the cookies
   // once and retry. Re-throw other failures so the fixture does not hide them.
   try {
-    await expect(page.getByPlaceholder('Type a message...')).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByPlaceholder('Type a message...')).toBeVisible({ timeout: WORKSPACE_READY_TIMEOUT_MS })
   } catch (error) {
     if (!(await hasRequestHeaderTooLargeError(page))) {
       throw error
@@ -65,7 +66,7 @@ export async function waitForWorkspaceReady(page: Page) {
 
     await page.context().clearCookies()
     await page.reload({ waitUntil: 'domcontentloaded' })
-    await expect(page.getByPlaceholder('Type a message...')).toBeVisible({ timeout: 120_000 })
+    await expect(page.getByPlaceholder('Type a message...')).toBeVisible({ timeout: WORKSPACE_READY_TIMEOUT_MS })
   }
   expect(page.url()).toContain('/w/local')
 }
