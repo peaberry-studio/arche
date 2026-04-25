@@ -41,6 +41,7 @@ async function resolveOAuthStartConnectorConfig(
     }
   }
 
+  // Admin-managed Google Workspace credentials intentionally override any per-connector values.
   if (isGoogleWorkspaceConnectorType(type)) {
     const googleCredentials = await googleWorkspaceService.getResolvedCredentials()
     if (googleCredentials) {

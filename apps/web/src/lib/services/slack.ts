@@ -20,6 +20,7 @@ export type SlackIntegrationRecord = {
   version: number
   createdAt: Date
   updatedAt: Date
+  configCorrupted?: boolean
 }
 
 export type SlackThreadBindingRecord = {
@@ -62,8 +63,18 @@ function parseState(state: unknown): SlackState {
   return {}
 }
 
+function safeDecryptConfig(encryptedConfig: string): { ok: true; config: SlackConfig } | { ok: false } {
+  try {
+    return { ok: true, config: decryptConfig(encryptedConfig) as SlackConfig }
+  } catch (error) {
+    console.error('[slack] Failed to decrypt integration config', error instanceof Error ? error.message : error)
+    return { ok: false }
+  }
+}
+
 function toRecord(row: { key: string; config: string; state: unknown; version: number; createdAt: Date; updatedAt: Date }): SlackIntegrationRecord {
-  const config = decryptConfig(row.config) as SlackConfig
+  const decryptResult = safeDecryptConfig(row.config)
+  const config = decryptResult.ok ? decryptResult.config : {}
   const state = parseState(row.state)
 
   return {
@@ -81,6 +92,7 @@ function toRecord(row: { key: string; config: string; state: unknown; version: n
     version: row.version,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    configCorrupted: !decryptResult.ok,
   }
 }
 
@@ -101,7 +113,8 @@ export async function saveIntegrationConfig(args: {
   clearLastError?: boolean
 }): Promise<SlackIntegrationRecord> {
   const existing = await findByKey(SLACK_INTEGRATION_KEY)
-  const existingConfig = existing ? (decryptConfig(existing.config) as SlackConfig) : {}
+  const existingDecrypt = existing ? safeDecryptConfig(existing.config) : { ok: true, config: {} as SlackConfig }
+  const existingConfig = existingDecrypt.ok ? existingDecrypt.config : {}
   const existingState = existing ? parseState(existing.state) : {}
 
   const nextConfig: SlackConfig = {

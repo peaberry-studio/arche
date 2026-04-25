@@ -17,7 +17,7 @@ function toErrorResponse(error: string, status: number) {
 }
 
 function requireAdmin(user: { id: string; role: string }) {
-  const denied = requireCapability('connectors')
+  const denied = requireCapability('googleWorkspaceIntegration')
   if (denied) {
     return { ok: false as const, response: denied }
   }

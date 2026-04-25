@@ -182,6 +182,9 @@ export const PUT = withAuth<SlackIntegrationMutateResponse | { error: string; me
     }
 
     if ((enabled || reconnect) && (!resolvedBotToken || !resolvedAppToken)) {
+      if (existing?.configCorrupted) {
+        return toErrorResponse('invalid_saved_tokens', 400, 'Saved Slack tokens are corrupted. Re-enter tokens and save.')
+      }
       return toErrorResponse('missing_tokens', 400)
     }
 

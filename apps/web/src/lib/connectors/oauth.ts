@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 
+import { isGoogleWorkspaceConnectorType } from '@/lib/connectors/google-workspace'
 import { discoverOAuthMetadata, getString, sanitizeOAuthMetadata, type OAuthServerMetadata } from '@/lib/connectors/oauth-metadata'
 import { getStrategy } from '@/lib/connectors/oauth-provider-strategies'
 import { OAUTH_CONNECTOR_TYPES, type ConnectorType, type OAuthConnectorType } from '@/lib/connectors/types'
@@ -207,7 +208,7 @@ async function resolveOAuthPreparationContext(input: {
   const preferStaticClientRegistration = strategy.preferStaticClientRegistration(input.connectorConfig)
 
   if (preferStaticClientRegistration && !staticClientRegistration) {
-    const errorCode = input.connectorType.startsWith('google_')
+    const errorCode = isGoogleWorkspaceConnectorType(input.connectorType)
       ? 'missing_google_oauth_client_credentials'
       : 'missing_linear_oauth_client_credentials'
     throw new Error(errorCode)

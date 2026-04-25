@@ -47,6 +47,9 @@ export const POST = withAuth<SlackIntegrationTestResponse | { error: string; mes
       : existing?.appTokenSecret || ''
 
     if (!botToken || !appToken) {
+      if (existing?.configCorrupted) {
+        return toErrorResponse('invalid_saved_tokens', 400, 'Saved Slack tokens are corrupted. Re-enter tokens and save.')
+      }
       return toErrorResponse('missing_tokens', 400)
     }
     if (!isSlackBotToken(botToken)) {

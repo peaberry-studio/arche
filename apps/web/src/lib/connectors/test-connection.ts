@@ -45,8 +45,16 @@ function getAccessToken(type: ConnectorType, config: Record<string, unknown>): s
     case 'umami':
     case 'custom':
       return null
-    default:
+    case 'google_gmail':
+    case 'google_drive':
+    case 'google_calendar':
+    case 'google_chat':
+    case 'google_people':
       return null
+    default: {
+      const _exhaustive: never = type
+      throw new Error(`Unhandled connector type: ${_exhaustive}`)
+    }
   }
 }
 
