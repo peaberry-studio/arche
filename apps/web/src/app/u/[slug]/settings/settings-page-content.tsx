@@ -8,7 +8,7 @@ import { SlackIntegrationSummaryCard } from '@/components/settings/slack-integra
 import type { GoogleWorkspaceIntegrationSummary } from '@/lib/google-workspace/types'
 import type { SlackIntegrationSummary } from '@/lib/slack/types'
 import { cn } from '@/lib/utils'
-import { McpSettingsPanel, type PersonalAccessTokenItem } from './security/mcp-settings-panel'
+import { McpSettingsPanel, type PersonalAccessTokenItem } from './integrations/mcp-settings-panel'
 import { WorkspaceRestartSection } from './security/workspace-restart-section'
 import { SecuritySettingsPanel } from './security/settings-page-content'
 import {
