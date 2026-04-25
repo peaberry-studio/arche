@@ -30,6 +30,7 @@ apps/**/node_modules/
 apps/**/.next/
 apps/**/out/
 apps/**/.pnpm-store/
+apps/**/node-compile-cache/
 apps/**/.env
 apps/**/.env.local
 apps/**/.env.*.local
