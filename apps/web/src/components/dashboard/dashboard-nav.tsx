@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { ArrowUpRight, Menu, X } from 'lucide-react'
 
 const webNavItems = [
   { label: 'Overview', href: '' },
@@ -22,68 +23,6 @@ const desktopNavItems = [
   { label: 'Providers', href: '/w/local?settings=providers' },
   { label: 'Settings', href: '/w/local?settings=appearance' },
 ]
-
-type DashboardIconProps = {
-  className?: string
-}
-
-function ArrowUpRightIcon({ className }: DashboardIconProps) {
-  return (
-    <svg
-      aria-hidden
-      className={className}
-      fill="none"
-      viewBox="0 0 16 16"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M5 11 11 5M6 5h5v5"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.75"
-      />
-    </svg>
-  )
-}
-
-function MenuIcon({ className }: DashboardIconProps) {
-  return (
-    <svg
-      aria-hidden
-      className={className}
-      fill="none"
-      viewBox="0 0 20 20"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M4 6h12M4 10h12M4 14h12"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeWidth="1.75"
-      />
-    </svg>
-  )
-}
-
-function CloseIcon({ className }: DashboardIconProps) {
-  return (
-    <svg
-      aria-hidden
-      className={className}
-      fill="none"
-      viewBox="0 0 20 20"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="m5 5 10 10M15 5 5 15"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeWidth="1.75"
-      />
-    </svg>
-  )
-}
 
 export function DashboardNav({
   slug,
@@ -168,7 +107,7 @@ export function DashboardNav({
             className="hidden items-center gap-1.5 rounded-lg bg-foreground/10 px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-foreground/15 md:inline-flex"
           >
             Open Workspace
-            <ArrowUpRightIcon className="h-3.5 w-3.5" />
+            <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
           </Link>
 
           <button
@@ -178,9 +117,9 @@ export function DashboardNav({
             aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
           >
             {mobileMenuOpen ? (
-              <CloseIcon className="h-5 w-5" />
+              <X className="h-5 w-5" aria-hidden />
             ) : (
-              <MenuIcon className="h-5 w-5" />
+              <Menu className="h-5 w-5" aria-hidden />
             )}
           </button>
         </div>
@@ -218,7 +157,7 @@ export function DashboardNav({
             className="flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-foreground/5"
           >
             Open Workspace
-            <ArrowUpRightIcon className="h-3.5 w-3.5" />
+            <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
           </Link>
         </div>
       )}
