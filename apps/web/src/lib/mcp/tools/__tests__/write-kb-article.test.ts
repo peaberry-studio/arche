@@ -193,4 +193,81 @@ describe('kb write tools', () => {
     expect(result).toEqual({ ok: false, error: 'kb_unavailable' })
     expect(mockCloneRepoToTemp).not.toHaveBeenCalled()
   })
+
+  it('rejects git control file paths before cloning', async () => {
+    const result = await createKbArticle({
+      path: '.git/config',
+      content: 'nope',
+    })
+
+    expect(result).toEqual({ ok: false, error: 'invalid_path' })
+    expect(mockCloneRepoToTemp).not.toHaveBeenCalled()
+  })
+
+  it('rejects paths containing control characters before cloning', async () => {
+    const result = await updateKbArticle({
+      path: 'docs/intro\n.md',
+      content: 'nope',
+    })
+
+    expect(result).toEqual({ ok: false, error: 'invalid_path' })
+    expect(mockCloneRepoToTemp).not.toHaveBeenCalled()
+  })
+
+  it('rejects symlink targets without modifying them', async () => {
+    const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), 'arche-mcp-kb-outside-'))
+    const outsideFile = path.join(outsideDir, 'target.md')
+    await fs.writeFile(outsideFile, 'outside', 'utf-8')
+    await fs.mkdir(path.join(repoDir, 'docs'), { recursive: true })
+    await fs.symlink(outsideFile, path.join(repoDir, 'docs/intro.md'))
+
+    const result = await updateKbArticle({
+      path: 'docs/intro.md',
+      content: 'changed',
+    })
+
+    expect(result).toEqual({ ok: false, error: 'invalid_path' })
+    expect(await fs.readFile(outsideFile, 'utf-8')).toBe('outside')
+    expect(mockRunGit).not.toHaveBeenCalled()
+
+    await fs.rm(outsideDir, { recursive: true, force: true })
+  })
+
+  it('rejects symlink parent directories without following them', async () => {
+    const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), 'arche-mcp-kb-parent-'))
+    await fs.symlink(outsideDir, path.join(repoDir, 'docs'))
+
+    const result = await createKbArticle({
+      path: 'docs/intro.md',
+      content: 'changed',
+    })
+
+    expect(result).toEqual({ ok: false, error: 'invalid_path' })
+    await expect(fs.stat(path.join(outsideDir, 'intro.md'))).rejects.toThrow()
+    expect(mockRunGit).not.toHaveBeenCalled()
+
+    await fs.rm(outsideDir, { recursive: true, force: true })
+  })
+
+  it('maps non-fast-forward push failures to conflict', async () => {
+    const filePath = path.join(repoDir, 'docs/intro.md')
+    await fs.mkdir(path.dirname(filePath), { recursive: true })
+    await fs.writeFile(filePath, '# Old', 'utf-8')
+    mockRunGit.mockImplementation(async (args: string[]) => {
+      if (args[0] === 'push') {
+        return { ok: false, stderr: '! [rejected] HEAD -> main (fetch first)' }
+      }
+      if (args[0] === 'status') {
+        return { ok: true, stdout: 'M  docs/intro.md\n' }
+      }
+      return { ok: true, stdout: '' }
+    })
+
+    const result = await updateKbArticle({
+      path: 'docs/intro.md',
+      content: '# Updated',
+    })
+
+    expect(result).toEqual({ ok: false, error: 'conflict' })
+  })
 })

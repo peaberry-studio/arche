@@ -23,6 +23,8 @@ const mockSearchKb = vi.fn()
 const mockCreateKbArticle = vi.fn()
 const mockUpdateKbArticle = vi.fn()
 const mockDeleteKbArticle = vi.fn()
+const mockListAutopilotTasks = vi.fn()
+const mockRunAutopilotTask = vi.fn()
 
 vi.mock('@/lib/mcp/tools/agents', () => ({
   listAgents: (...args: unknown[]) => mockListAgents(...args),
@@ -57,6 +59,11 @@ vi.mock('@/lib/mcp/tools/write-kb-article', () => ({
   deleteKbArticle: (...args: unknown[]) => mockDeleteKbArticle(...args),
 }))
 
+vi.mock('@/lib/mcp/tools/autopilot', () => ({
+  listAutopilotTasksForMcp: (...args: unknown[]) => mockListAutopilotTasks(...args),
+  runAutopilotTaskForMcp: (...args: unknown[]) => mockRunAutopilotTask(...args),
+}))
+
 describe('createMcpServer', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -67,7 +74,7 @@ describe('createMcpServer', () => {
 
     createMcpServer()
 
-    expect(registerTool).toHaveBeenCalledTimes(12)
+    expect(registerTool).toHaveBeenCalledTimes(14)
     expect(registerTool).toHaveBeenCalledWith(
       'list_kb_articles',
       expect.objectContaining({ description: expect.any(String) }),
@@ -126,6 +133,16 @@ describe('createMcpServer', () => {
     expect(registerTool).toHaveBeenCalledWith(
       'search_kb',
       expect.objectContaining({ description: expect.any(String) }),
+      expect.any(Function)
+    )
+    expect(registerTool).toHaveBeenCalledWith(
+      'list_autopilot_tasks',
+      expect.objectContaining({ description: expect.any(String) }),
+      expect.any(Function)
+    )
+    expect(registerTool).toHaveBeenCalledWith(
+      'run_autopilot_task',
+      expect.objectContaining({ description: expect.any(String), inputSchema: expect.any(Object) }),
       expect.any(Function)
     )
   })
@@ -197,25 +214,17 @@ describe('createMcpServer', () => {
     )
   })
 
-  it('filters prompt registration by PAT scopes', async () => {
+  it('registers agent prompts when agents:read is granted', async () => {
     const { createMcpServer } = await import('../server')
 
     createMcpServer({ scopes: ['agents:read'] })
 
-    expect(registerPrompt).toHaveBeenCalledTimes(1)
+    expect(registerPrompt).toHaveBeenCalledTimes(3)
     expect(registerPrompt).toHaveBeenCalledWith(
       'arche-workspace-context',
       expect.objectContaining({ description: expect.any(String) }),
       expect.any(Function)
     )
-  })
-
-  it('registers task prompts with tasks:run even without agents:read', async () => {
-    const { createMcpServer } = await import('../server')
-
-    createMcpServer({ scopes: ['tasks:run'] })
-
-    expect(registerPrompt).toHaveBeenCalledTimes(2)
     expect(registerPrompt).toHaveBeenCalledWith(
       'use-agent',
       expect.objectContaining({ description: expect.any(String), argsSchema: expect.any(Object) }),
@@ -228,11 +237,40 @@ describe('createMcpServer', () => {
     )
   })
 
-  it('registers task prompts when tasks:run is granted', async () => {
+  it('registers only Autopilot tools for tasks:run without exposing prompts', async () => {
+    const { createMcpServer } = await import('../server')
+
+    createMcpServer({ scopes: ['tasks:run'] })
+
+    expect(registerTool).toHaveBeenCalledTimes(2)
+    expect(registerTool).toHaveBeenCalledWith(
+      'list_autopilot_tasks',
+      expect.objectContaining({ description: expect.any(String) }),
+      expect.any(Function)
+    )
+    expect(registerTool).toHaveBeenCalledWith(
+      'run_autopilot_task',
+      expect.objectContaining({ description: expect.any(String), inputSchema: expect.any(Object) }),
+      expect.any(Function)
+    )
+    expect(registerPrompt).not.toHaveBeenCalled()
+  })
+
+  it('registers agent prompts and Autopilot tools when agents:read and tasks:run are granted', async () => {
     const { createMcpServer } = await import('../server')
 
     createMcpServer({ scopes: ['agents:read', 'tasks:run'] })
 
+    expect(registerTool).toHaveBeenCalledWith(
+      'list_autopilot_tasks',
+      expect.objectContaining({ description: expect.any(String) }),
+      expect.any(Function)
+    )
+    expect(registerTool).toHaveBeenCalledWith(
+      'run_autopilot_task',
+      expect.objectContaining({ description: expect.any(String), inputSchema: expect.any(Object) }),
+      expect.any(Function)
+    )
     expect(registerPrompt).toHaveBeenCalledTimes(3)
     expect(registerPrompt).toHaveBeenCalledWith(
       'arche-workspace-context',
@@ -289,6 +327,8 @@ describe('createMcpServer', () => {
     mockCreateKbArticle.mockResolvedValue({ ok: true, path: 'README.md', hash: 'hash-1' })
     mockUpdateKbArticle.mockResolvedValue({ ok: true, path: 'README.md', hash: 'hash-2' })
     mockDeleteKbArticle.mockResolvedValue({ ok: true, path: 'README.md', hash: 'hash-3' })
+    mockListAutopilotTasks.mockResolvedValue({ ok: true, tasks: [{ id: 'task-1' }] })
+    mockRunAutopilotTask.mockResolvedValue({ ok: true })
     mockReadSkillForMcp.mockResolvedValue({ ok: true, data: { name: 'lint' } })
     mockReadSkillResource.mockResolvedValue({
       ok: true,
@@ -312,6 +352,8 @@ describe('createMcpServer', () => {
     const createHandler = registerTool.mock.calls.find(([name]) => name === 'create_kb_article')?.[2]
     const updateHandler = registerTool.mock.calls.find(([name]) => name === 'update_kb_article')?.[2]
     const deleteHandler = registerTool.mock.calls.find(([name]) => name === 'delete_kb_article')?.[2]
+    const listAutopilotHandler = registerTool.mock.calls.find(([name]) => name === 'list_autopilot_tasks')?.[2]
+    const runAutopilotHandler = registerTool.mock.calls.find(([name]) => name === 'run_autopilot_task')?.[2]
     const listSkillsHandler = registerTool.mock.calls.find(([name]) => name === 'list_skills')?.[2]
     const readAgentHandler = registerTool.mock.calls.find(([name]) => name === 'read_agent')?.[2]
     const readHandler = registerTool.mock.calls.find(([name]) => name === 'read_kb_article')?.[2]
@@ -325,6 +367,8 @@ describe('createMcpServer', () => {
     await createHandler?.({ path: 'README.md', content: '# Created' })
     await updateHandler?.({ path: 'README.md', content: '# Updated' })
     await deleteHandler?.({ path: 'README.md' })
+    await listAutopilotHandler?.({})
+    await runAutopilotHandler?.({ id: 'task-1' })
     await listSkillsHandler?.()
     await readAgentHandler?.({ id: 'assistant' })
     await readHandler?.({ path: 'README.md' })
@@ -340,6 +384,13 @@ describe('createMcpServer', () => {
     expect(mockCreateKbArticle).toHaveBeenCalledWith({ path: 'README.md', content: '# Created' })
     expect(mockUpdateKbArticle).toHaveBeenCalledWith({ path: 'README.md', content: '# Updated' })
     expect(mockDeleteKbArticle).toHaveBeenCalledWith({ path: 'README.md' })
+    expect(mockListAutopilotTasks).toHaveBeenCalledWith({
+      user: { email: 'alice@example.com', id: 'u1', role: 'USER', slug: 'alice' },
+    })
+    expect(mockRunAutopilotTask).toHaveBeenCalledWith({
+      id: 'task-1',
+      user: { email: 'alice@example.com', id: 'u1', role: 'USER', slug: 'alice' },
+    })
     expect(mockListSkillsForMcp).toHaveBeenCalledWith()
     expect(mockReadAgent).toHaveBeenCalledWith('assistant')
     expect(mockReadKbArticle).toHaveBeenCalledWith({ path: 'README.md' })

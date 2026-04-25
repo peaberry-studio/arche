@@ -31,15 +31,6 @@ export async function POST(request: Request): Promise<Response> {
     return buildRateLimitedResponse(preAuthRateLimit.resetAt)
   }
 
-  const mcpSettings = await readMcpSettings()
-  if (!mcpSettings.ok) {
-    return Response.json({ error: 'mcp_unavailable' }, { status: 503 })
-  }
-
-  if (!mcpSettings.enabled) {
-    return Response.json({ error: 'unauthorized' }, { status: 401 })
-  }
-
   const auth = await authenticatePat(request)
   if (!auth.ok) {
     return Response.json({ error: 'unauthorized' }, { status: auth.status })
@@ -48,6 +39,15 @@ export async function POST(request: Request): Promise<Response> {
   const rateLimit = checkRateLimit(`mcp:${auth.tokenId}`, MCP_RATE_LIMIT_MAX, MCP_RATE_LIMIT_WINDOW_MS)
   if (!rateLimit.allowed) {
     return buildRateLimitedResponse(rateLimit.resetAt)
+  }
+
+  const mcpSettings = await readMcpSettings()
+  if (!mcpSettings.ok) {
+    return Response.json({ error: 'mcp_unavailable' }, { status: 503 })
+  }
+
+  if (!mcpSettings.enabled) {
+    return Response.json({ error: 'unauthorized' }, { status: 401 })
   }
 
   const bodyResult = await readRequestBody(request)

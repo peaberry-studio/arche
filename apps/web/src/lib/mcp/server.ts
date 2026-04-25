@@ -14,6 +14,10 @@ import {
   listAgents,
   readAgent,
 } from '@/lib/mcp/tools/agents'
+import {
+  listAutopilotTasksForMcp,
+  runAutopilotTaskForMcp,
+} from '@/lib/mcp/tools/autopilot'
 import { listKbArticles } from '@/lib/mcp/tools/list-kb-articles'
 import { readAgentsGuide } from '@/lib/mcp/tools/read-agents-guide'
 import { readKbArticle } from '@/lib/mcp/tools/read-kb-article'
@@ -239,6 +243,31 @@ function registerTools(
       async ({ name, path, maxLines }) => toToolResult(await readSkillResource({ name, path, maxLines }))
     )
   }
+
+  if (hasMcpScope(scopes, MCP_SCOPE_TASKS_RUN)) {
+    server.registerTool(
+      'list_autopilot_tasks',
+      {
+        description:
+          'List automated Arche Autopilot tasks for this PAT user. Returns scheduling ' +
+          'and latest-run metadata without exposing full task prompts.',
+      },
+      async () => toToolResult(await listAutopilotTasksForMcp({ user }))
+    )
+
+    server.registerTool(
+      'run_autopilot_task',
+      {
+        description:
+          'Trigger one of this PAT user\'s Arche Autopilot tasks to run now. ' +
+          'Returns not_found when the task does not belong to the token user.',
+        inputSchema: {
+          id: z.string().min(1),
+        },
+      },
+      async ({ id }) => toToolResult(await runAutopilotTaskForMcp({ id, user }))
+    )
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -283,7 +312,7 @@ function registerPrompts(
 
   }
 
-  if (hasMcpScope(scopes, MCP_SCOPE_TASKS_RUN)) {
+  if (hasMcpScope(scopes, MCP_SCOPE_AGENTS_READ)) {
     server.registerPrompt(
       'use-agent',
       {

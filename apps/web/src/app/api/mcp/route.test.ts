@@ -87,7 +87,8 @@ describe('POST /api/mcp', () => {
     const response = await POST(makeRequest({ jsonrpc: '2.0' }))
 
     expect(response.status).toBe(401)
-    expect(mockAuthenticatePat).not.toHaveBeenCalled()
+    expect(mockAuthenticatePat).toHaveBeenCalledTimes(1)
+    expect(mockReadMcpSettings).toHaveBeenCalledTimes(1)
   })
 
   it('returns 503 when MCP settings cannot be read', async () => {
@@ -101,16 +102,17 @@ describe('POST /api/mcp', () => {
     const response = await POST(makeRequest({ jsonrpc: '2.0' }))
 
     expect(response.status).toBe(503)
-    expect(mockAuthenticatePat).not.toHaveBeenCalled()
+    expect(mockAuthenticatePat).toHaveBeenCalledTimes(1)
   })
 
-  it('returns 401 when PAT authentication fails', async () => {
+  it('returns 401 when PAT authentication fails without reading MCP settings', async () => {
     mockAuthenticatePat.mockResolvedValue({ ok: false, status: 401 })
 
     const { POST } = await import('./route')
     const response = await POST(makeRequest({ jsonrpc: '2.0' }))
 
     expect(response.status).toBe(401)
+    expect(mockReadMcpSettings).not.toHaveBeenCalled()
     expect(mockTransportConstructor).not.toHaveBeenCalled()
   })
 
@@ -127,10 +129,11 @@ describe('POST /api/mcp', () => {
     expect(response.status).toBe(429)
     expect(response.headers.get('Retry-After')).toBe('3')
     expect(mockAuthenticatePat).not.toHaveBeenCalled()
+    expect(mockReadMcpSettings).not.toHaveBeenCalled()
     expect(mockTransportConstructor).not.toHaveBeenCalled()
   })
 
-  it('returns 429 when the token is rate limited', async () => {
+  it('returns 429 before reading MCP settings when the token is rate limited', async () => {
     mockCheckRateLimit
       .mockReturnValueOnce({
         allowed: true,
@@ -149,6 +152,7 @@ describe('POST /api/mcp', () => {
     expect(response.status).toBe(429)
     expect(response.headers.get('Retry-After')).toBe('5')
     expect(mockAuthenticatePat).toHaveBeenCalledTimes(1)
+    expect(mockReadMcpSettings).not.toHaveBeenCalled()
     expect(mockTransportConstructor).not.toHaveBeenCalled()
   })
 
@@ -166,6 +170,7 @@ describe('POST /api/mcp', () => {
 
     expect(response.status).toBe(413)
     expect(mockAuthenticatePat).not.toHaveBeenCalled()
+    expect(mockReadMcpSettings).not.toHaveBeenCalled()
   })
 
   it('connects the server, forwards the parsed request body to the transport, and audits tool calls', async () => {

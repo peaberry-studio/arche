@@ -33,7 +33,7 @@ export const MCP_SCOPE_OPTIONS: Array<{
     value: MCP_SCOPE_AGENTS_READ,
   },
   {
-    description: 'Run task-oriented MCP prompts such as use-agent and use-skill.',
+    description: 'List and trigger Arche Autopilot tasks.',
     label: 'Tasks run',
     value: MCP_SCOPE_TASKS_RUN,
   },
