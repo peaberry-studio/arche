@@ -2,7 +2,8 @@
 
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { PaperPlaneTilt } from '@phosphor-icons/react'
+import { Send } from 'lucide-react'
+
 import { Button } from '@/components/ui/button'
 import { setWorkspaceStartPrompt } from '@/lib/workspace-start-prompt'
 
@@ -66,7 +67,7 @@ export function DashboardHero({ slug }: DashboardHeroProps) {
             onClick={handleSubmit}
             aria-label="Start working"
           >
-            <PaperPlaneTilt size={16} weight="fill" />
+            <Send className="h-4 w-4" aria-hidden />
           </Button>
         </div>
       </div>

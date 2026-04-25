@@ -14,6 +14,7 @@ const mockRandomBytes = vi.fn()
 const mockMkdir = vi.fn()
 const mockRm = vi.fn()
 const mockWriteFile = vi.fn()
+const mockFindAvailablePort = vi.fn()
 
 vi.mock('crypto', async (importOriginal) => {
   const actual = await importOriginal<typeof import('crypto')>()
@@ -129,6 +130,10 @@ vi.mock('@/lib/skills/skill-store', () => ({
 
 vi.mock('@/lib/spawner/runtime-config-hash', () => ({
   getRuntimeConfigHashForSlug: vi.fn().mockResolvedValue({ ok: true, hash: 'runtime-hash' }),
+}))
+
+vi.mock('@/lib/runtime/desktop/network', () => ({
+  findAvailablePort: (...args: unknown[]) => mockFindAvailablePort(...args),
 }))
 
 const mockFetch = vi.fn()
@@ -257,6 +262,15 @@ describe('desktopWorkspaceHost', () => {
     mockMkdir.mockResolvedValue(undefined)
     mockRm.mockResolvedValue(undefined)
     mockWriteFile.mockResolvedValue(undefined)
+    mockFindAvailablePort.mockImplementation(
+      async (preferredPort: number, excludedPorts: number[] = []) => {
+        if (preferredPort > 0 && !excludedPorts.includes(preferredPort)) {
+          return preferredPort
+        }
+
+        return excludedPorts.includes(4900) ? 4901 : 4900
+      },
+    )
     mockHealthyFetch()
 
     const { instanceService } = await import('@/lib/services')
@@ -907,6 +921,15 @@ describe('binary resolution', () => {
     // @ts-expect-error test isolation
     process.resourcesPath = undefined
     mockExistsSync.mockReturnValue(false)
+    mockFindAvailablePort.mockImplementation(
+      async (preferredPort: number, excludedPorts: number[] = []) => {
+        if (preferredPort > 0 && !excludedPorts.includes(preferredPort)) {
+          return preferredPort
+        }
+
+        return excludedPorts.includes(4900) ? 4901 : 4900
+      },
+    )
   })
 
   afterEach(() => {
@@ -991,9 +1014,10 @@ describe('binary resolution', () => {
     mockHealthyFetch()
 
     const opencodeChild = makeChildProcess()
+    const workspaceAgentChild = makeChildProcess()
     // Reset mockSpawn to clear any unconsumed mockReturnValueOnce from prior tests
     mockSpawn.mockReset()
-    mockSpawn.mockReturnValueOnce(opencodeChild)
+    mockSpawn.mockReturnValueOnce(opencodeChild).mockReturnValueOnce(workspaceAgentChild)
 
     const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
     await desktopWorkspaceHost.start('local', 'user-1')
@@ -1003,6 +1027,7 @@ describe('binary resolution', () => {
     const p2 = desktopWorkspaceHost.stop('local')
 
     opencodeChild.emit('exit', 0, 'SIGTERM')
+    workspaceAgentChild.emit('exit', 0, 'SIGTERM')
 
     const [r1, r2] = await Promise.all([p1, p2])
     expect(r1.ok).toBe(true)
@@ -1035,6 +1060,15 @@ describe('desktop instance reconciliation', () => {
     globalThis.archeDesktopCleanupRegistered = undefined
     mockExistsSync.mockImplementation((target: string) => target === '/mock/bin/workspace-agent')
     mockRandomBytes.mockReturnValue({ toString: () => 'generated-password' })
+    mockFindAvailablePort.mockImplementation(
+      async (preferredPort: number, excludedPorts: number[] = []) => {
+        if (preferredPort > 0 && !excludedPorts.includes(preferredPort)) {
+          return preferredPort
+        }
+
+        return excludedPorts.includes(4900) ? 4901 : 4900
+      },
+    )
     mockHealthyFetch()
   })
 
@@ -1076,12 +1110,6 @@ describe('desktop instance reconciliation', () => {
 
     const { desktopWorkspaceHost } = await import('../workspace-host-desktop')
     await desktopWorkspaceHost.start('local', 'user-1')
-
-    // Stop the first workspace
-    const stopPromise = desktopWorkspaceHost.stop('local')
-    child1.emit('exit', 0, 'SIGTERM')
-    agent1.emit('exit', 0, 'SIGTERM')
-    await stopPromise
 
     // Start a second workspace — reconciliation should NOT run again
     vi.mocked(instanceService.findActiveInstances).mockClear()

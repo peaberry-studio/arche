@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { ArrowUpRight, List, X } from '@phosphor-icons/react'
+import { ArrowUpRight, Menu, X } from 'lucide-react'
 
 const webNavItems = [
   { label: 'Overview', href: '' },
@@ -107,7 +107,7 @@ export function DashboardNav({
             className="hidden items-center gap-1.5 rounded-lg bg-foreground/10 px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-foreground/15 md:inline-flex"
           >
             Open Workspace
-            <ArrowUpRight size={14} weight="bold" />
+            <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
           </Link>
 
           <button
@@ -117,9 +117,9 @@ export function DashboardNav({
             aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
           >
             {mobileMenuOpen ? (
-              <X size={20} weight="bold" />
+              <X className="h-5 w-5" aria-hidden />
             ) : (
-              <List size={20} weight="bold" />
+              <Menu className="h-5 w-5" aria-hidden />
             )}
           </button>
         </div>
@@ -157,7 +157,7 @@ export function DashboardNav({
             className="flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-foreground/5"
           >
             Open Workspace
-            <ArrowUpRight size={14} weight="bold" />
+            <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
           </Link>
         </div>
       )}

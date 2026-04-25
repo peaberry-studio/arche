@@ -101,6 +101,7 @@ describe('service layer', () => {
       expect(services.connectorService).toBeDefined()
       expect(services.providerService).toBeDefined()
       expect(services.sessionService).toBeDefined()
+      expect(services.patService).toBeDefined()
       expect(services.auditService).toBeDefined()
       expect(services.healthService).toBeDefined()
       expect(services.autopilotService).toBeDefined()

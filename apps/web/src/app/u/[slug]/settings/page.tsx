@@ -1,12 +1,15 @@
+import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 
+import { getPublicBaseUrl } from '@/lib/http'
+import { readMcpSettings } from '@/lib/mcp/settings'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { getCurrentDesktopVault, getDesktopWorkspaceHref } from '@/lib/runtime/desktop/current-vault'
 import { isDesktop } from '@/lib/runtime/mode'
 import { getSession } from '@/lib/runtime/session'
 import { serializeSlackIntegration } from '@/lib/slack/integration'
 import type { SlackIntegrationSummary } from '@/lib/slack/types'
-import { slackService } from '@/lib/services'
+import { patService, slackService } from '@/lib/services'
 import { get2FAStatus } from './security/actions'
 import { normalizeTwoFactorStatus } from './security/status'
 import { SettingsPageContent } from './settings-page-content'
@@ -31,11 +34,15 @@ export default async function SettingsPage({
   if (!session) redirect('/login')
 
   const caps = getRuntimeCapabilities()
-  const [status, slackIntegrationSummary] = await Promise.all([
+  const requestHeaders = await headers()
+  const baseUrl = getPublicBaseUrl(new Headers(requestHeaders), 'http://localhost')
+  const [status, slackIntegrationSummary, mcpSettings, personalAccessTokens] = await Promise.all([
     caps.twoFactor ? get2FAStatus() : Promise.resolve(null),
     caps.slackIntegration && session.user.role === 'ADMIN'
       ? loadSlackIntegrationSummary()
       : Promise.resolve<SlackIntegrationSummary | null>(null),
+    caps.mcp ? readMcpSettings() : Promise.resolve(null),
+    caps.mcp ? patService.findManyByUserId(session.user.id) : Promise.resolve([]),
   ])
 
   if (caps.twoFactor && (!status || !status.ok)) redirect('/login')
@@ -43,6 +50,7 @@ export default async function SettingsPage({
   const { enabled, verifiedAt, recoveryCodesRemaining } = normalizeTwoFactorStatus(status)
   const availableSections = getAvailableSettingsSections({
     isAdmin: session.user.role === 'ADMIN',
+    mcpAvailable: caps.mcp,
     passwordChangeEnabled: caps.auth,
     slackIntegrationEnabled: caps.slackIntegration,
     twoFactorEnabled: caps.twoFactor,
@@ -65,6 +73,20 @@ export default async function SettingsPage({
       enabled={enabled}
       verifiedAt={verifiedAt}
       recoveryCodesRemaining={recoveryCodesRemaining}
+      mcpAvailable={caps.mcp}
+      mcpEnabled={mcpSettings?.ok ? mcpSettings.enabled : false}
+      mcpConfigError={mcpSettings && !mcpSettings.ok ? formatMcpConfigError(mcpSettings.error) : null}
+      canManageMcp={session.user.role === 'ADMIN'}
+      mcpBaseUrl={baseUrl}
+      personalAccessTokens={personalAccessTokens.map((token) => ({
+        id: token.id,
+        name: token.name,
+        scopes: token.scopes,
+        createdAt: token.createdAt.toISOString(),
+        expiresAt: token.expiresAt.toISOString(),
+        lastUsedAt: token.lastUsedAt?.toISOString() ?? null,
+        revokedAt: token.revokedAt?.toISOString() ?? null,
+      }))}
       releaseVersion={releaseVersion}
       slackIntegrationSummary={slackIntegrationSummary}
     />
@@ -74,4 +96,17 @@ export default async function SettingsPage({
 async function loadSlackIntegrationSummary(): Promise<SlackIntegrationSummary> {
   const integration = await slackService.findIntegration()
   return serializeSlackIntegration(integration, null)
+}
+
+function formatMcpConfigError(error: string): string {
+  switch (error) {
+    case 'not_found':
+      return 'Knowledge base configuration is not initialized yet.'
+    case 'kb_unavailable':
+      return 'Knowledge base configuration is unavailable.'
+    case 'invalid_config':
+      return 'Knowledge base configuration is invalid.'
+    default:
+      return 'Failed to read MCP settings.'
+  }
 }

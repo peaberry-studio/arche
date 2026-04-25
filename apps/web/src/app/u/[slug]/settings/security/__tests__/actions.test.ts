@@ -24,6 +24,7 @@ const mockGetRuntimeCapabilities = vi.fn(() => ({
   connectors: true,
   kickstart: true,
   autopilot: true,
+  mcp: true,
 }))
 vi.mock('@/lib/runtime/capabilities', () => ({
   getRuntimeCapabilities: () => mockGetRuntimeCapabilities(),
@@ -65,6 +66,7 @@ describe('changePassword', () => {
       connectors: true,
       kickstart: true,
       autopilot: true,
+      mcp: true,
     })
   })
 
