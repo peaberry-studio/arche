@@ -33,7 +33,8 @@ describe('web dev scripts', () => {
 
     expect(composeTemplate).toContain('pnpm prisma generate')
     expect(composeTemplate).toContain('pnpm prisma:generate:desktop')
-    expect(composeTemplate).toContain('pnpm next dev --webpack -H 0.0.0.0 -p 3000')
+    expect(composeTemplate).toContain('pnpm next dev -H 0.0.0.0 -p 3000')
+    expect(composeTemplate).not.toContain('pnpm next dev --webpack')
     expect(composeTemplate).toContain('name: arche')
     expect(composeTemplate).toContain('arche-internal')
   })
