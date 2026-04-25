@@ -14,13 +14,6 @@ type ConnectorListResponse = {
   connectors: ConnectorListItem[]
 }
 
-type ConnectorDetailResponse = {
-  id: string
-  type: string
-  name: string
-  config: Record<string, unknown>
-}
-
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
@@ -48,33 +41,13 @@ function parseConnectorListResponse(value: unknown): ConnectorListResponse {
   return { connectors }
 }
 
-function parseConnectorDetailResponse(value: unknown): ConnectorDetailResponse {
-  if (!isObjectRecord(value)) {
-    throw new Error('Invalid connector detail response')
-  }
-
-  const id = typeof value.id === 'string' ? value.id : null
-  const type = typeof value.type === 'string' ? value.type : null
-  const name = typeof value.name === 'string' ? value.name : null
-  if (!id || !type || !name || !isObjectRecord(value.config)) {
-    throw new Error('Invalid connector detail response')
-  }
-
-  return {
-    id,
-    type,
-    name,
-    config: value.config,
-  }
-}
-
-async function removeAhrefsConnectors(page: Page): Promise<void> {
+async function removeConnectorsByType(page: Page, type: string): Promise<void> {
   const response = await page.request.get(`/api/u/${adminSlug}/connectors`)
   expect(response.ok()).toBeTruthy()
 
   const body = parseConnectorListResponse(await response.json())
   for (const connector of body.connectors) {
-    if (connector.type !== 'ahrefs') {
+    if (connector.type !== type) {
       continue
     }
 
@@ -100,56 +73,55 @@ async function openAddConnectorDialog(page: Page) {
 
   const dialog = page.getByRole('dialog')
   await expect(dialog).toBeVisible()
-  await dialog.getByRole('button', { name: 'Ahrefs' }).click()
   return dialog
 }
 
-async function getAhrefsConnectorDetail(page: Page): Promise<ConnectorDetailResponse> {
-  const response = await page.request.get(`/api/u/${adminSlug}/connectors`)
-  expect(response.ok()).toBeTruthy()
-
-  const list = parseConnectorListResponse(await response.json())
-  const connector = list.connectors.find((item) => item.type === 'ahrefs')
-  if (!connector) {
-    throw new Error('Expected an Ahrefs connector to exist')
-  }
-
-  const detailResponse = await page.request.get(`/api/u/${adminSlug}/connectors/${connector.id}`)
-  expect(detailResponse.ok()).toBeTruthy()
-
-  return parseConnectorDetailResponse(await detailResponse.json())
-}
-
 test.beforeEach(async ({ page }) => {
-  await removeAhrefsConnectors(page)
+  await removeConnectorsByType(page, 'linear')
+  await removeConnectorsByType(page, 'notion')
 })
 
 test.afterEach(async ({ page }) => {
-  await removeAhrefsConnectors(page)
+  await removeConnectorsByType(page, 'linear')
+  await removeConnectorsByType(page, 'notion')
 })
 
-test('creates an Ahrefs connector with an API key', async ({ page }) => {
+test('completes Linear user OAuth through fake provider', async ({ page }) => {
   const dialog = await openAddConnectorDialog(page)
+  await dialog.getByRole('button', { name: 'Linear' }).click()
 
-  await dialog.getByLabel('API Key').fill('ahrefs-api-key-123')
   await dialog.getByRole('button', { name: 'Save connector' }).click()
-
   await expect(dialog).not.toBeVisible()
-  await expect(page.getByText('Ahrefs', { exact: true })).toBeVisible()
-  await expect(
-    page.locator('div.rounded-xl').filter({ hasText: 'Ahrefs' }).filter({ hasText: 'Working' }).first()
-  ).toBeVisible()
 
-  await page.reload()
-  await expect(page.getByText('Ahrefs', { exact: true })).toBeVisible()
-  await expect(
-    page.locator('div.rounded-xl').filter({ hasText: 'Ahrefs' }).filter({ hasText: 'Working' }).first()
-  ).toBeVisible()
+  await expect(page.getByText('Linear', { exact: true })).toBeVisible()
+  await expect(page.getByText('Pending setup', { exact: true })).toBeVisible()
 
-  const detail = await getAhrefsConnectorDetail(page)
-  expect(detail.type).toBe('ahrefs')
-  expect(detail.name).toBe('Ahrefs')
-  expect(detail.config).toMatchObject({
-    apiKey: 'ahrefs-api-key-123',
-  })
+  await page.getByRole('button', { name: 'Connect OAuth' }).click()
+
+  await page.waitForURL(`**/u/${adminSlug}/connectors?oauth=success`)
+
+  await expect(page.getByText('Linear', { exact: true })).toBeVisible()
+  await expect(
+    page.locator('div.rounded-xl').filter({ hasText: 'Linear' }).filter({ hasText: 'Working' }).first()
+  ).toBeVisible()
+})
+
+test('completes Notion OAuth through fake provider', async ({ page }) => {
+  const dialog = await openAddConnectorDialog(page)
+  await dialog.getByRole('button', { name: 'Notion' }).click()
+
+  await dialog.getByRole('button', { name: 'Save connector' }).click()
+  await expect(dialog).not.toBeVisible()
+
+  await expect(page.getByText('Notion', { exact: true })).toBeVisible()
+  await expect(page.getByText('Pending setup', { exact: true })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Connect OAuth' }).click()
+
+  await page.waitForURL(`**/u/${adminSlug}/connectors?oauth=success`)
+
+  await expect(page.getByText('Notion', { exact: true })).toBeVisible()
+  await expect(
+    page.locator('div.rounded-xl').filter({ hasText: 'Notion' }).filter({ hasText: 'Working' }).first()
+  ).toBeVisible()
 })

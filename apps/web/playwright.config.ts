@@ -44,6 +44,14 @@ const fakeProviderEnv = fakeProviderUrl
     }
   : null
 
+const fakeOAuthPort = process.env.ARCHE_E2E_FAKE_OAUTH_PORT ?? '4212'
+const fakeOAuthEnv = {
+  ARCHE_CONNECTOR_LINEAR_MCP_URL: `http://127.0.0.1:${fakeOAuthPort}/mcp`,
+  ARCHE_CONNECTOR_NOTION_MCP_URL: `http://127.0.0.1:${fakeOAuthPort}/mcp`,
+  ARCHE_CONNECTOR_NOTION_CLIENT_ID: process.env.ARCHE_CONNECTOR_NOTION_CLIENT_ID ?? 'fake-notion-client-id',
+  ARCHE_CONNECTOR_NOTION_CLIENT_SECRET: process.env.ARCHE_CONNECTOR_NOTION_CLIENT_SECRET ?? 'fake-notion-client-secret',
+}
+
 export default defineConfig({
   testDir: './e2e',
   outputDir: 'test-results',
@@ -90,12 +98,23 @@ export default defineConfig({
           reuseExistingServer: !process.env.CI,
         },
         {
+          command: 'node ../../scripts/e2e/fake-oauth-server.mjs',
+          cwd: __dirname,
+          env: {
+            ...process.env,
+            ARCHE_E2E_FAKE_OAUTH_PORT: fakeOAuthPort,
+          },
+          url: `http://127.0.0.1:${fakeOAuthPort}/__e2e/health`,
+          reuseExistingServer: !process.env.CI,
+        },
+        {
           command: 'pnpm dev',
           cwd: __dirname,
           env: {
             ...process.env,
             ...commonEnv,
             ...fakeRuntimeEnv,
+            ...fakeOAuthEnv,
           },
           url: 'http://127.0.0.1:3000',
           reuseExistingServer: !process.env.CI,
