@@ -29,7 +29,7 @@ vi.mock('@/components/settings/google-workspace-integration-summary-card', () =>
   ),
 }))
 
-vi.mock('../security/mcp-settings-panel', () => ({
+vi.mock('../integrations/mcp-settings-panel', () => ({
   McpSettingsPanel: ({ personalAccessTokens }: { personalAccessTokens: unknown[] }) => (
     <div>MCP settings panel tokens {personalAccessTokens.length}</div>
   ),

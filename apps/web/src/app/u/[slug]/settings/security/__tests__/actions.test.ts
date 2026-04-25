@@ -499,7 +499,7 @@ describe('createPersonalAccessToken', () => {
       expiresInDays: 30,
     })
 
-    expect(mockCreatePat).toHaveBeenCalledWith(expect.objectContaining({
+    expect(mockPatService.create).toHaveBeenCalledWith(expect.objectContaining({
       scopes: ['agents:read', 'kb:read', 'kb:write', 'tasks:run'],
     }))
   })
