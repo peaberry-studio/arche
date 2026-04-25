@@ -1,0 +1,51 @@
+name: Verify Web Coverage Badges
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coverage-badges-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-web-coverage-badges:
+    name: Verify Web Coverage Badges
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: apps/web
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Refresh coverage reports and badges
+        run: pnpm coverage:refresh
+
+      - name: Verify coverage badges are up to date
+        working-directory: .
+        run: |
+          if ! git diff --quiet -- .github/badges; then
+            echo "::error::Coverage badges are stale. Run 'cd apps/web && pnpm coverage:refresh' and commit the updated badges."
+            exit 1
+          fi

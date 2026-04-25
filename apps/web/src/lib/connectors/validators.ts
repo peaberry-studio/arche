@@ -1,7 +1,9 @@
 import { getConnectorAuthType } from '@/lib/connectors/oauth-config'
 import { getLinearOAuthActor, getLinearOAuthScopeValidationError, isLinearOAuthActor } from '@/lib/connectors/linear'
 import { isOAuthConnectorType } from '@/lib/connectors/oauth'
+import { validateUmamiConnectorConfig } from '@/lib/connectors/umami-config'
 import type { ConnectorConfigValidationResult } from '@/lib/connectors/config-validation'
+import { validateAhrefsConnectorConfig } from '@/lib/connectors/ahrefs-config'
 import { validateZendeskConnectorConfig } from '@/lib/connectors/zendesk-config'
 
 import { CONNECTOR_TYPES, type ConnectorType } from './types'
@@ -22,6 +24,8 @@ export const CONNECTOR_SCHEMAS: Record<ConnectorType, ConnectorConfigSchema> = {
   linear: { required: ['apiKey'], optional: ['oauthActor', 'oauthClientId', 'oauthClientSecret', 'oauthScope'] },
   notion: { required: ['apiKey'] },
   zendesk: { required: ['subdomain', 'email', 'apiToken'] },
+  ahrefs: { required: ['apiKey'] },
+  umami: { required: ['authMethod', 'baseUrl'] },
   custom: {
     required: ['endpoint'],
     optional: [
@@ -118,6 +122,22 @@ export function validateConnectorConfig(
     }
 
     return validateZendeskConnectorConfig(config)
+  }
+
+  if (type === 'ahrefs') {
+    if (getConnectorAuthType(config) === 'oauth') {
+      return { valid: false, message: 'Ahrefs connectors do not support OAuth' }
+    }
+
+    return validateAhrefsConnectorConfig(config)
+  }
+
+  if (type === 'umami') {
+    if (getConnectorAuthType(config) === 'oauth') {
+      return { valid: false, message: 'Umami connectors do not support OAuth' }
+    }
+
+    return validateUmamiConnectorConfig(config)
   }
 
   const schema = CONNECTOR_SCHEMAS[type]

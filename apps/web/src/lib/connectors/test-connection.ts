@@ -1,5 +1,7 @@
+import { parseAhrefsConnectorConfig, testAhrefsConnection } from '@/lib/connectors/ahrefs'
 import { getConnectorMcpServerUrl } from '@/lib/connectors/mcp/server-url'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
+import { parseUmamiConnectorConfig, testUmamiConnection } from '@/lib/connectors/umami'
 import { getZendeskMcpProtocolVersion, parseZendeskConnectorConfig, testZendeskConnection } from '@/lib/connectors/zendesk'
 import type { ConnectorType } from '@/lib/connectors/types'
 
@@ -39,6 +41,8 @@ function getAccessToken(type: ConnectorType, config: Record<string, unknown>): s
     case 'notion':
       return typeof config.apiKey === 'string' ? config.apiKey : null
     case 'zendesk':
+    case 'ahrefs':
+    case 'umami':
     case 'custom':
       return null
   }
@@ -128,9 +132,15 @@ async function testRemoteMcpConnection(input: {
   }
 }
 
-const CONNECTOR_TEST_HANDLERS: Record<ConnectorType, TestConnectionHandler> = {
-  zendesk: async (config) => {
-    const parsed = parseZendeskConnectorConfig(config)
+type EmbeddedConnectorTestConnection<TConfig> = (config: TConfig) => Promise<{ ok: boolean; message?: string }>
+
+function buildEmbeddedConnectorTestHandler<TConfig>(
+  label: string,
+  parseConfig: (config: Record<string, unknown>) => { ok: true; value: TConfig } | { ok: false; missing?: string[]; message?: string },
+  testConnection: EmbeddedConnectorTestConnection<TConfig>
+): TestConnectionHandler {
+  return async (config) => {
+    const parsed = parseConfig(config)
     if (!parsed.ok) {
       return {
         ok: false,
@@ -139,7 +149,7 @@ const CONNECTOR_TEST_HANDLERS: Record<ConnectorType, TestConnectionHandler> = {
       }
     }
 
-    const response = await testZendeskConnection(parsed.value)
+    const response = await testConnection(parsed.value)
     if (!response.ok) {
       return {
         ok: false,
@@ -148,8 +158,28 @@ const CONNECTOR_TEST_HANDLERS: Record<ConnectorType, TestConnectionHandler> = {
       }
     }
 
-    return { ok: true, tested: true, message: 'Zendesk connection verified.' }
-  },
+    return { ok: true, tested: true, message: `${label} connection verified.` }
+  }
+}
+
+const CONNECTOR_TEST_HANDLERS: Record<ConnectorType, TestConnectionHandler> = {
+  ahrefs: buildEmbeddedConnectorTestHandler(
+    'Ahrefs',
+    parseAhrefsConnectorConfig,
+    testAhrefsConnection
+  ),
+
+  zendesk: buildEmbeddedConnectorTestHandler(
+    'Zendesk',
+    parseZendeskConnectorConfig,
+    testZendeskConnection
+  ),
+
+  umami: buildEmbeddedConnectorTestHandler(
+    'Umami',
+    parseUmamiConnectorConfig,
+    testUmamiConnection
+  ),
 
   notion: async (config) => {
     const pending = getPendingOAuthMessage('notion', config)

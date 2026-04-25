@@ -233,4 +233,37 @@ describe('mcp-config', () => {
       },
     })
   })
+
+  it('routes Ahrefs connectors through gateway targets when provided', () => {
+    const connectors = [
+      {
+        id: 'ahrefs-1',
+        type: 'ahrefs',
+        name: 'Ahrefs',
+        enabled: true,
+        config: encryptConfig({
+          apiKey: 'ahrefs-api-key',
+        }),
+      },
+    ]
+
+    const result = buildMcpConfigFromConnectors(connectors, {
+      gatewayTargets: {
+        'ahrefs-1': {
+          url: 'http://web:3000/api/internal/mcp/connectors/ahrefs-1/mcp',
+          token: 'gateway-token-ahrefs',
+        },
+      },
+    })
+
+    expect(result.mcp['arche_ahrefs_ahrefs-1']).toEqual({
+      type: 'remote',
+      url: 'http://web:3000/api/internal/mcp/connectors/ahrefs-1/mcp',
+      enabled: true,
+      oauth: false,
+      headers: {
+        Authorization: 'Bearer gateway-token-ahrefs',
+      },
+    })
+  })
 })

@@ -27,6 +27,14 @@ export function getConnectorMcpServerUrl(type: ConnectorType, config: Record<str
     return null
   }
 
+  if (type === 'ahrefs') {
+    return null
+  }
+
+  if (type === 'umami') {
+    return null
+  }
+
   const endpoint = config.endpoint
   return typeof endpoint === 'string' ? endpoint : null
 }

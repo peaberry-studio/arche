@@ -4,6 +4,22 @@ Arche is an AI agent platform that lets teams deploy specialized assistants — 
 
 Define your company's identity, tone, products, and processes once. Arche's agents use that knowledge to help your team work faster and more consistently.
 
+## Test Coverage
+
+![Web coverage](.github/badges/web-coverage.svg)
+![Web unit coverage](.github/badges/web-unit-coverage.svg)
+![Web integration coverage](.github/badges/web-integration-coverage.svg)
+
+Current line coverage is tracked in `apps/web` with `Vitest`.
+
+- Overall coverage: `cd apps/web && pnpm coverage`
+- Unit coverage: `cd apps/web && pnpm coverage:unit`
+- Integration coverage: `cd apps/web && pnpm coverage:integration`
+- Refresh README badges: `cd apps/web && pnpm coverage:refresh`
+- Badge refresh in CI: automatic on every `push` to `main`
+
+Browser E2E tests in `apps/web/e2e` and `apps/desktop/e2e` still run with `Playwright`, but they do not publish a reliable line-coverage percentage yet. There are also environment-dependent backend E2E tests in `apps/web/src/**/*.e2e.test.ts` and smoke tests in `apps/desktop`.
+
 ## Desktop App
 
 The easiest way to try Arche locally is the desktop app. It runs on your machine with no server or Docker setup required.

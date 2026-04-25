@@ -60,7 +60,7 @@ describe('connectors/crypto', () => {
 
 describe('connectors/types', () => {
   it('CONNECTOR_TYPES contains expected values', () => {
-    expect(CONNECTOR_TYPES).toEqual(['linear', 'notion', 'zendesk', 'custom'])
+    expect(CONNECTOR_TYPES).toEqual(['linear', 'notion', 'zendesk', 'ahrefs', 'umami', 'custom'])
   })
 })
 
@@ -70,6 +70,8 @@ describe('connectors/validators', () => {
       expect(validateConnectorType('linear')).toBe(true)
       expect(validateConnectorType('notion')).toBe(true)
       expect(validateConnectorType('zendesk')).toBe(true)
+      expect(validateConnectorType('ahrefs')).toBe(true)
+      expect(validateConnectorType('umami')).toBe(true)
       expect(validateConnectorType('custom')).toBe(true)
     })
 
@@ -187,6 +189,56 @@ describe('connectors/validators', () => {
       const invalid = validateConnectorConfig('zendesk', {})
       expect(invalid.valid).toBe(false)
       expect(invalid.missing).toEqual(['subdomain', 'email', 'apiToken'])
+    })
+
+    it('validates required fields for ahrefs', () => {
+      expect(validateConnectorConfig('ahrefs', {
+        apiKey: 'ahrefs-key-123',
+      })).toEqual({ valid: true })
+
+      expect(validateConnectorConfig('ahrefs', {})).toEqual({
+        valid: false,
+        missing: ['apiKey'],
+      })
+    })
+
+    it('rejects oauth mode for ahrefs connectors', () => {
+      expect(validateConnectorConfig('ahrefs', {
+        authType: 'oauth',
+        apiKey: 'ahrefs-key-123',
+      })).toEqual({
+        valid: false,
+        message: 'Ahrefs connectors do not support OAuth',
+      })
+    })
+
+    it('validates required fields for umami', () => {
+      expect(validateConnectorConfig('umami', {
+        authMethod: 'api-key',
+        baseUrl: 'https://api.umami.is/v1',
+        apiKey: 'key-123',
+      })).toEqual({ valid: true })
+
+      expect(validateConnectorConfig('umami', {
+        authMethod: 'login',
+        baseUrl: 'https://analytics.example.com',
+        username: 'admin',
+      })).toEqual({
+        valid: false,
+        missing: ['password'],
+      })
+    })
+
+    it('rejects oauth mode for umami connectors', () => {
+      expect(validateConnectorConfig('umami', {
+        authType: 'oauth',
+        authMethod: 'api-key',
+        baseUrl: 'https://api.umami.is/v1',
+        apiKey: 'key-123',
+      })).toEqual({
+        valid: false,
+        message: 'Umami connectors do not support OAuth',
+      })
     })
 
     it('rejects invalid zendesk subdomains', () => {

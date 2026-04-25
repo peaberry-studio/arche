@@ -30,6 +30,15 @@ describe('agent connector capabilities', () => {
 
     expect(options).toEqual([
       {
+        id: 'globalahrefs',
+        type: 'ahrefs',
+        name: 'Ahrefs',
+        enabled: false,
+        scope: 'type',
+        ownerKind: null,
+        ownerSlug: null,
+      },
+      {
         id: 'globallinear',
         type: 'linear',
         name: 'Linear',
@@ -42,6 +51,15 @@ describe('agent connector capabilities', () => {
         id: 'globalnotion',
         type: 'notion',
         name: 'Notion',
+        enabled: false,
+        scope: 'type',
+        ownerKind: null,
+        ownerSlug: null,
+      },
+      {
+        id: 'globalumami',
+        type: 'umami',
+        name: 'Umami',
         enabled: false,
         scope: 'type',
         ownerKind: null,

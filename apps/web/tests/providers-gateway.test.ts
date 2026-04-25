@@ -71,6 +71,7 @@ describe('providers gateway', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.resetModules()
+    vi.unstubAllEnvs()
     vi.stubGlobal('fetch', vi.fn())
     mockGetRuntimeCapabilities.mockReturnValue({
       multiUser: true,
@@ -172,6 +173,69 @@ describe('providers gateway', () => {
     expect(headers.get('authorization')).toBe('Bearer sk-real')
     expect(headers.get('x-custom')).toBe('preserve-me')
     expect(headers.get('accept-encoding')).toBe('identity')
+  })
+
+  it('ignores the fake OpenAI base URL override without the explicit hook flag', async () => {
+    vi.stubEnv('ARCHE_E2E_FAKE_PROVIDER_URL', 'http://127.0.0.1:4211/v1')
+
+    mockGetActiveCredentialForUser.mockResolvedValue({
+      id: 'cred-1',
+      type: 'api',
+      secret: 'encrypted',
+      version: 1,
+    })
+    mockDecryptProviderSecret.mockReturnValue({ apiKey: 'sk-fake' })
+
+    ;(global.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+      new Response('ok', { status: 200 })
+    )
+
+    const response = await callProxy({
+      provider: 'openai',
+      headers: {
+        Authorization: 'Bearer internal-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ input: 'hello' }),
+    })
+
+    expect(response.status).toBe(200)
+    const [url, options] = (global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(url).toBe('https://api.openai.com/v1/chat/completions?foo=bar')
+    const headers = options.headers as Headers
+    expect(headers.get('authorization')).toBe('Bearer sk-fake')
+  })
+
+  it('proxies to the overridden OpenAI base URL only when E2E hooks are explicitly enabled', async () => {
+    vi.stubEnv('ARCHE_ENABLE_E2E_HOOKS', '1')
+    vi.stubEnv('ARCHE_E2E_FAKE_PROVIDER_URL', 'http://127.0.0.1:4211/v1')
+
+    mockGetActiveCredentialForUser.mockResolvedValue({
+      id: 'cred-1',
+      type: 'api',
+      secret: 'encrypted',
+      version: 1,
+    })
+    mockDecryptProviderSecret.mockReturnValue({ apiKey: 'sk-fake' })
+
+    ;(global.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+      new Response('ok', { status: 200 })
+    )
+
+    const response = await callProxy({
+      provider: 'openai',
+      headers: {
+        Authorization: 'Bearer internal-token',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ input: 'hello' }),
+    })
+
+    expect(response.status).toBe(200)
+    const [url, options] = (global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(url).toBe('http://127.0.0.1:4211/v1/chat/completions?foo=bar')
+    const headers = options.headers as Headers
+    expect(headers.get('authorization')).toBe('Bearer sk-fake')
   })
 
   it('normalizes unsupported OpenAI text verbosity for responses API', async () => {

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="112" height="20" role="img" aria-label="web unit: 48.8%">
+  <title>web unit: 48.8%</title>
+  <linearGradient id="smooth" x2="0" y2="100%">
+    <stop offset="0" stop-color="#fff" stop-opacity=".7"/>
+    <stop offset=".1" stop-color="#aaa" stop-opacity=".1"/>
+    <stop offset=".9" stop-opacity=".3"/>
+    <stop offset="1" stop-opacity=".5"/>
+  </linearGradient>
+  <mask id="round">
+    <rect width="112" height="20" rx="3" fill="#fff"/>
+  </mask>
+  <g mask="url(#round)">
+    <rect width="66" height="20" fill="#555"/>
+    <rect x="66" width="46" height="20" fill="#e05d44"/>
+    <rect width="112" height="20" fill="url(#smooth)"/>
+  </g>
+  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="11">
+    <text x="33" y="15" fill="#010101" fill-opacity=".3">web unit</text>
+    <text x="33" y="14">web unit</text>
+    <text x="89" y="15" fill="#010101" fill-opacity=".3">48.8%</text>
+    <text x="89" y="14">48.8%</text>
+  </g>
+</svg>
