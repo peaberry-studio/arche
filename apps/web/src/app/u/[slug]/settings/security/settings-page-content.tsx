@@ -26,12 +26,12 @@ export function SecuritySettingsPanel({
   enabled,
   verifiedAt,
   recoveryCodesRemaining,
-  mcpAvailable,
-  mcpEnabled,
-  mcpConfigError,
-  canManageMcp,
-  mcpBaseUrl,
-  personalAccessTokens,
+  mcpAvailable = false,
+  mcpEnabled = false,
+  mcpConfigError = null,
+  canManageMcp = false,
+  mcpBaseUrl = '',
+  personalAccessTokens = [],
 }: SecuritySettingsPanelProps) {
   return (
     <div className="space-y-6">
