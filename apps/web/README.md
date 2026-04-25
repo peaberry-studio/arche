@@ -86,6 +86,42 @@ curl -i \
 
 This repo uses `pnpm` by default.
 
+## Test Coverage
+
+This app has three practical test layers today:
+
+- Unit tests: mostly `src/**/*.test.ts(x)` outside `src/app/api`
+- Integration tests: `tests/*.test.ts` and `src/app/api/**/*.test.ts`
+- Browser E2E: `e2e/*.spec.ts` with `Playwright`
+
+There is also a smaller backend E2E layer in `src/**/*.e2e.test.ts`. Those tests depend on extra runtime services such as a database or container socket, so they are not included in the default coverage badge flow.
+
+Coverage commands:
+
+```bash
+pnpm coverage
+pnpm coverage:unit
+pnpm coverage:integration
+pnpm coverage:refresh
+```
+
+What each command does:
+
+- `pnpm coverage`: overall `Vitest` line coverage for the web app
+- `pnpm coverage:unit`: line coverage produced only by the unit-test layer
+- `pnpm coverage:integration`: line coverage produced only by the integration-test layer
+- `pnpm coverage:refresh`: regenerates all three coverage reports and updates the SVG badges in `.github/badges/`
+
+The SVG badges are refreshed automatically on every `push` to `main` by `.github/workflows/coverage-badges.yml`.
+
+Current README badges are generated from:
+
+- `coverage/all/coverage-summary.json`
+- `coverage/unit/coverage-summary.json`
+- `coverage/integration/coverage-summary.json`
+
+`Playwright` E2E remains execution-based for now. There is no E2E coverage badge yet because the suite is not instrumented to emit a trustworthy source-level coverage percentage. We can add browser-side instrumentation later, but for a Next.js app it is not a low-friction or fully reliable source of whole-app coverage on its own.
+
 ## Connector OAuth security notes
 
 - Custom connector OAuth state includes encrypted metadata needed for callback completion.

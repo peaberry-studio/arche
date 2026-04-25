@@ -1,0 +1,60 @@
+name: Coverage Badges
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: coverage-badges-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  refresh-web-coverage-badges:
+    name: Refresh Web Coverage Badges
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: apps/web
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Refresh coverage reports and badges
+        run: pnpm coverage:refresh
+
+      - name: Commit updated badges
+        working-directory: .
+        env:
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+        run: |
+          if git diff --quiet -- .github/badges; then
+            exit 0
+          fi
+
+          git add .github/badges
+          git commit -m "chore(web): refresh coverage badges [skip ci]"
+          git pull --rebase origin main
+          git push
