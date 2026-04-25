@@ -472,15 +472,15 @@ function CreateTokenDialog({
               </DialogDescription>
             </DialogHeader>
 
-            <div className="min-w-0 space-y-4">
+            <div className="min-w-0 space-y-5">
               <TokenSecretField
                 token={latestToken.token}
                 copied={copiedKey === 'secret'}
                 onCopy={() => copyText(latestToken.token, 'secret')}
               />
 
-              <div className="space-y-2">
-                <p className="text-sm font-medium text-foreground">Quick connect</p>
+              <div className="flex flex-col gap-3">
+                <Label>Quick connect</Label>
                 <Tabs
                   value={selectedPreset}
                   onValueChange={(value) => setSelectedPreset(value as McpClientPreset)}
@@ -540,7 +540,7 @@ function CreateTokenDialog({
             </DialogHeader>
 
             <div className="min-w-0 space-y-5">
-              <div className="space-y-2">
+              <div className="flex flex-col gap-3">
                 <Label htmlFor="mcp-token-name">Token name</Label>
                 <Input
                   id="mcp-token-name"
@@ -550,12 +550,12 @@ function CreateTokenDialog({
                 />
               </div>
 
-              <div className="space-y-3">
+              <div className="flex flex-col gap-3">
                 <Label>Expires in</Label>
                 <div
                   role="radiogroup"
                   aria-label="Token expiration"
-                  className="inline-flex items-center justify-center gap-1 rounded-md border border-border/60 bg-background/60 p-1"
+                  className="flex w-fit items-center gap-1 rounded-md border border-border/60 bg-background/60 p-1"
                 >
                   {EXPIRATION_OPTIONS.map((option) => {
                     const active = expiresInDays === option.value

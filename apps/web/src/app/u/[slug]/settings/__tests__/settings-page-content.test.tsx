@@ -23,6 +23,12 @@ vi.mock('../security/settings-page-content', () => ({
   SecuritySettingsPanel: () => <div>Security panel</div>,
 }))
 
+vi.mock('../security/mcp-settings-panel', () => ({
+  McpSettingsPanel: ({ personalAccessTokens }: { personalAccessTokens: unknown[] }) => (
+    <div>MCP settings panel tokens {personalAccessTokens.length}</div>
+  ),
+}))
+
 describe('SettingsPageContent', () => {
   afterEach(() => {
     cleanup()
@@ -89,5 +95,41 @@ describe('SettingsPageContent', () => {
     expect(screen.getByText('Theme picker')).toBeTruthy()
     expect(screen.getByText('Workspace restart alice')).toBeTruthy()
     expect(screen.queryByText('Slack integration')).toBeNull()
+  })
+
+  it('renders MCP settings in the integrations section', () => {
+    render(
+      <SettingsPageContent
+        slug="alice"
+        availableSections={['general', 'integrations', 'security']}
+        currentSection="integrations"
+        passwordChangeEnabled={true}
+        twoFactorEnabled={true}
+        enabled={false}
+        verifiedAt={null}
+        recoveryCodesRemaining={0}
+        mcpAvailable={true}
+        mcpEnabled={true}
+        mcpConfigError={null}
+        canManageMcp={true}
+        mcpBaseUrl="https://arche.example.com"
+        personalAccessTokens={[
+          {
+            id: 'pat-1',
+            name: 'Codex',
+            scopes: ['kb:read'],
+            createdAt: '2026-04-25T10:00:00.000Z',
+            expiresAt: '2026-05-25T10:00:00.000Z',
+            lastUsedAt: null,
+            revokedAt: null,
+          },
+        ]}
+        releaseVersion="03"
+        slackIntegrationSummary={null}
+      />,
+    )
+
+    expect(screen.getByText('MCP settings panel tokens 1')).toBeTruthy()
+    expect(screen.queryByText('Security panel')).toBeNull()
   })
 })

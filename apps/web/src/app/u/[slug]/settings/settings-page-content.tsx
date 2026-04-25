@@ -5,6 +5,7 @@ import { SettingsSection } from '@/components/settings/settings-section'
 import { SlackIntegrationSummaryCard } from '@/components/settings/slack-integration-summary-card'
 import type { SlackIntegrationSummary } from '@/lib/slack/types'
 import { cn } from '@/lib/utils'
+import { McpSettingsPanel, type PersonalAccessTokenItem } from './security/mcp-settings-panel'
 import { WorkspaceRestartSection } from './security/workspace-restart-section'
 import { SecuritySettingsPanel } from './security/settings-page-content'
 import {
@@ -21,6 +22,12 @@ type SettingsPageContentProps = {
   enabled: boolean
   verifiedAt: Date | null
   recoveryCodesRemaining: number
+  mcpAvailable: boolean
+  mcpEnabled: boolean
+  mcpConfigError: string | null
+  canManageMcp: boolean
+  mcpBaseUrl: string
+  personalAccessTokens: PersonalAccessTokenItem[]
   releaseVersion: string
   slackIntegrationSummary: SlackIntegrationSummary | null
 }
@@ -34,6 +41,12 @@ export function SettingsPageContent({
   enabled,
   verifiedAt,
   recoveryCodesRemaining,
+  mcpAvailable,
+  mcpEnabled,
+  mcpConfigError,
+  canManageMcp,
+  mcpBaseUrl,
+  personalAccessTokens,
   releaseVersion,
   slackIntegrationSummary,
 }: SettingsPageContentProps) {
@@ -98,9 +111,23 @@ export function SettingsPageContent({
           </div>
         )
       case 'integrations':
-        return slackIntegrationSummary ? (
-          <SlackIntegrationSummaryCard slug={slug} integration={slackIntegrationSummary} />
-        ) : null
+        return (
+          <div className="space-y-6">
+            {slackIntegrationSummary ? (
+              <SlackIntegrationSummaryCard slug={slug} integration={slackIntegrationSummary} />
+            ) : null}
+
+            {mcpAvailable ? (
+              <McpSettingsPanel
+                mcpEnabled={mcpEnabled}
+                mcpConfigError={mcpConfigError}
+                canManageMcp={canManageMcp}
+                mcpBaseUrl={mcpBaseUrl}
+                personalAccessTokens={personalAccessTokens}
+              />
+            ) : null}
+          </div>
+        )
       case 'security':
         return (
           <SecuritySettingsPanel
