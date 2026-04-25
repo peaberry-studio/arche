@@ -7,6 +7,7 @@ import { getSession } from '@/lib/runtime/session'
 import { serializeSlackIntegration } from '@/lib/slack/integration'
 import type { SlackIntegrationSummary } from '@/lib/slack/types'
 import { slackService, googleWorkspaceService } from '@/lib/services'
+import type { GoogleWorkspaceIntegrationSummary } from '@/lib/google-workspace/types'
 import { get2FAStatus } from './security/actions'
 import { normalizeTwoFactorStatus } from './security/status'
 import { SettingsPageContent } from './settings-page-content'
@@ -74,14 +75,6 @@ export default async function SettingsPage({
       googleWorkspaceSummary={googleWorkspaceSummary}
     />
   )
-}
-
-export type GoogleWorkspaceIntegrationSummary = {
-  clientId: string | null
-  configured: boolean
-  hasClientSecret: boolean
-  version: number
-  updatedAt: string | null
 }
 
 async function loadSlackIntegrationSummary(): Promise<SlackIntegrationSummary> {

@@ -1,26 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
-import { decryptIntegrationConfig, ensureIntegrationSeededFromEnv, findIntegration, getResolvedCredentials, saveIntegrationConfig, clearIntegration } from '@/lib/services/google-workspace'
+import type {
+  GoogleWorkspaceIntegrationGetResponse,
+  GoogleWorkspaceIntegrationMutateRequest,
+  GoogleWorkspaceIntegrationMutateResponse,
+} from '@/lib/google-workspace/types'
+import { googleWorkspaceService } from '@/lib/services'
 import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
 
 type JsonObject = Record<string, unknown>
-
-export type GoogleWorkspaceIntegrationGetResponse = {
-  clientId: string | null
-  configured: boolean
-  hasClientSecret: boolean
-  version: number
-  updatedAt: string | null
-}
-
-export type GoogleWorkspaceIntegrationMutateRequest = {
-  clientId?: string
-  clientSecret?: string
-}
-
-export type GoogleWorkspaceIntegrationMutateResponse = GoogleWorkspaceIntegrationGetResponse
 
 function toErrorResponse(error: string, status: number) {
   return NextResponse.json({ error }, { status })
@@ -92,8 +82,8 @@ export const GET = withAuth<GoogleWorkspaceIntegrationGetResponse | { error: str
       return admin.response
     }
 
-    const record = await ensureIntegrationSeededFromEnv()
-    const config = record ? decryptIntegrationConfig(record) : null
+    const record = await googleWorkspaceService.ensureIntegrationSeededFromEnv()
+    const config = record ? googleWorkspaceService.decryptIntegrationConfig(record) : null
 
     return NextResponse.json(serializeResponse(record, config))
   },
@@ -116,8 +106,8 @@ export const PUT = withAuth<GoogleWorkspaceIntegrationMutateResponse | { error: 
     const clientId = typeof body.clientId === 'string' ? body.clientId.trim() : ''
     const clientSecret = typeof body.clientSecret === 'string' ? body.clientSecret.trim() : ''
 
-    const existing = await findIntegration()
-    const existingConfig = existing ? decryptIntegrationConfig(existing) : null
+    const existing = await googleWorkspaceService.findIntegration()
+    const existingConfig = existing ? googleWorkspaceService.decryptIntegrationConfig(existing) : null
 
     const hasExistingSecret = Boolean(existingConfig?.clientSecret)
 
@@ -129,7 +119,7 @@ export const PUT = withAuth<GoogleWorkspaceIntegrationMutateResponse | { error: 
       return toErrorResponse('missing_client_secret', 400)
     }
 
-    const record = await saveIntegrationConfig({
+    const record = await googleWorkspaceService.saveIntegrationConfig({
       clientId,
       clientSecret: clientSecret || null,
     })
@@ -140,7 +130,7 @@ export const PUT = withAuth<GoogleWorkspaceIntegrationMutateResponse | { error: 
       metadata: { configured: Boolean(clientId && (clientSecret || hasExistingSecret)) },
     })
 
-    const resolved = await getResolvedCredentials()
+    const resolved = await googleWorkspaceService.getResolvedCredentials()
     return NextResponse.json(serializeResponse(record, resolved))
   },
 )
@@ -153,7 +143,7 @@ export const DELETE = withAuth<GoogleWorkspaceIntegrationMutateResponse | { erro
       return admin.response
     }
 
-    const record = await clearIntegration()
+    const record = await googleWorkspaceService.clearIntegration()
 
     await auditEvent({
       actorUserId: user.id,

@@ -4,6 +4,7 @@ import { ThemePicker } from '@/components/dashboard/theme-picker'
 import { GoogleWorkspaceIntegrationSummaryCard } from '@/components/settings/google-workspace-integration-summary-card'
 import { SettingsSection } from '@/components/settings/settings-section'
 import { SlackIntegrationSummaryCard } from '@/components/settings/slack-integration-summary-card'
+import type { GoogleWorkspaceIntegrationSummary } from '@/lib/google-workspace/types'
 import type { SlackIntegrationSummary } from '@/lib/slack/types'
 import { cn } from '@/lib/utils'
 import { WorkspaceRestartSection } from './security/workspace-restart-section'
@@ -12,7 +13,6 @@ import {
   SETTINGS_SECTION_LABELS,
   type SettingsSection as SettingsSectionName,
 } from './sections'
-import type { GoogleWorkspaceIntegrationSummary } from './page'
 
 type SettingsPageContentProps = {
   slug: string

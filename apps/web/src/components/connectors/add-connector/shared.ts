@@ -5,6 +5,7 @@ import {
   type ConnectorAuthType,
   type ConnectorType,
 } from '@/lib/connectors/types'
+import { isGoogleWorkspaceConnectorType } from '@/lib/connectors/google-workspace'
 
 export const CONNECTOR_TYPE_OPTIONS: {
   type: ConnectorType
@@ -122,5 +123,5 @@ export function supportsOAuth(type: ConnectorType): boolean {
 }
 
 export function getDefaultAuthType(type: ConnectorType): ConnectorAuthType {
-  return type === 'linear' || type === 'notion' || type.startsWith('google_') ? 'oauth' : 'manual'
+  return type === 'linear' || type === 'notion' || isGoogleWorkspaceConnectorType(type) ? 'oauth' : 'manual'
 }

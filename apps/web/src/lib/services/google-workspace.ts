@@ -1,4 +1,5 @@
 import { encryptConfig, decryptConfig } from '@/lib/connectors/crypto'
+import { getGoogleOAuthClientCredentials } from '@/lib/connectors/google-workspace'
 import { prisma } from '@/lib/prisma'
 
 export const GOOGLE_WORKSPACE_INTEGRATION_SINGLETON_KEY = 'default'
@@ -16,16 +17,6 @@ export type GoogleWorkspaceIntegrationConfig = {
   clientSecret?: string
 }
 
-function envCredentials(): { clientId: string; clientSecret: string } | null {
-  const clientId = process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_ID
-  const clientSecret = process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_SECRET
-  if (!clientId || !clientId.trim() || !clientSecret || !clientSecret.trim()) return null
-  return {
-    clientId: clientId.trim(),
-    clientSecret: clientSecret.trim(),
-  }
-}
-
 export function findIntegration(): Promise<GoogleWorkspaceIntegrationRecord | null> {
   return prisma.googleWorkspaceIntegration.findUnique({
     where: { singletonKey: GOOGLE_WORKSPACE_INTEGRATION_SINGLETON_KEY },
@@ -38,7 +29,8 @@ export function decryptIntegrationConfig(
   if (!record) return null
   try {
     return decryptConfig(record.config) as GoogleWorkspaceIntegrationConfig
-  } catch {
+  } catch (error) {
+    console.error('[google-workspace] Failed to decrypt integration config:', error)
     return null
   }
 }
@@ -49,7 +41,7 @@ export async function ensureIntegrationSeededFromEnv(): Promise<GoogleWorkspaceI
     return record
   }
 
-  const env = envCredentials()
+  const env = getGoogleOAuthClientCredentials(null)
   if (!env) {
     return null
   }

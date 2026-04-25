@@ -4,7 +4,7 @@ import Link from 'next/link'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import type { GoogleWorkspaceIntegrationSummary } from '@/app/u/[slug]/settings/page'
+import type { GoogleWorkspaceIntegrationSummary } from '@/lib/google-workspace/types'
 
 type GoogleWorkspaceIntegrationSummaryCardProps = {
   slug: string

@@ -1,6 +1,6 @@
 'use client'
 
-import { forwardRef, useImperativeHandle, useState } from 'react'
+import { forwardRef, useImperativeHandle } from 'react'
 
 import {
   type AddConnectorSectionHandle,
@@ -27,10 +27,8 @@ export const GoogleWorkspaceSection = forwardRef<
   AddConnectorSectionHandle,
   GoogleWorkspaceSectionProps
 >(function GoogleWorkspaceSection({ onStateChange, isActive, connectorType }, ref) {
-  const [authType, setAuthType] = useState<'oauth' | 'manual'>('oauth')
-
   useNotifyStateChange(onStateChange, {
-    authType,
+    authType: 'oauth',
   })
 
   useImperativeHandle(ref, () => ({
@@ -72,19 +70,10 @@ export const GoogleWorkspaceSection = forwardRef<
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="connector-auth-mode" className="text-foreground">
-          Authentication
-        </Label>
-        <select
-          id="connector-auth-mode"
-          className="w-full rounded-lg border border-border/50 bg-background px-3 py-2 text-sm text-foreground"
-          value={authType}
-          onChange={(event) => {
-            setAuthType(event.target.value === 'oauth' ? 'oauth' : 'manual')
-          }}
-        >
-          <option value="oauth">OAuth</option>
-        </select>
+        <Label className="text-foreground">Authentication</Label>
+        <p className="rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-sm text-foreground">
+          OAuth
+        </p>
       </div>
 
       <p className="rounded-lg bg-muted/30 px-3 py-2 text-xs text-muted-foreground">

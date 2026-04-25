@@ -1,7 +1,9 @@
 import Link from 'next/link'
+import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 
 import { GoogleWorkspaceIntegrationPanel } from '@/components/settings/google-workspace-integration-panel'
+import { getPublicBaseUrl } from '@/lib/http'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { isDesktop } from '@/lib/runtime/mode'
 import { getSession } from '@/lib/runtime/session'
@@ -33,6 +35,10 @@ export default async function GoogleWorkspaceIntegrationSettingsPage({
     redirect(`/u/${slug}/settings?section=integrations`)
   }
 
+  const requestHeaders = await headers()
+  const publicBaseUrl = getPublicBaseUrl(requestHeaders, 'http://localhost:3000')
+  const redirectUri = `${publicBaseUrl}/api/connectors/oauth/callback`
+
   return (
     <main className="relative mx-auto max-w-6xl px-6 py-10">
       <div className="space-y-8">
@@ -54,7 +60,7 @@ export default async function GoogleWorkspaceIntegrationSettingsPage({
           </div>
         </div>
 
-        <GoogleWorkspaceIntegrationPanel slug={slug} />
+        <GoogleWorkspaceIntegrationPanel slug={slug} redirectUri={redirectUri} />
       </div>
     </main>
   )

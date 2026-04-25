@@ -34,13 +34,15 @@ vi.mock('@/lib/runtime/with-auth', () => ({
   },
 }))
 
-vi.mock('@/lib/services/google-workspace', () => ({
-  findIntegration: (...args: unknown[]) => findIntegrationMock(...args),
-  decryptIntegrationConfig: (...args: unknown[]) => decryptIntegrationConfigMock(...args),
-  ensureIntegrationSeededFromEnv: (...args: unknown[]) => ensureIntegrationSeededFromEnvMock(...args),
-  getResolvedCredentials: (...args: unknown[]) => getResolvedCredentialsMock(...args),
-  saveIntegrationConfig: (...args: unknown[]) => saveIntegrationConfigMock(...args),
-  clearIntegration: (...args: unknown[]) => clearIntegrationMock(...args),
+vi.mock('@/lib/services', () => ({
+  googleWorkspaceService: {
+    findIntegration: (...args: unknown[]) => findIntegrationMock(...args),
+    decryptIntegrationConfig: (...args: unknown[]) => decryptIntegrationConfigMock(...args),
+    ensureIntegrationSeededFromEnv: (...args: unknown[]) => ensureIntegrationSeededFromEnvMock(...args),
+    getResolvedCredentials: (...args: unknown[]) => getResolvedCredentialsMock(...args),
+    saveIntegrationConfig: (...args: unknown[]) => saveIntegrationConfigMock(...args),
+    clearIntegration: (...args: unknown[]) => clearIntegrationMock(...args),
+  },
 }))
 
 describe('/api/u/[slug]/google-workspace-integration', () => {

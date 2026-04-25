@@ -9,10 +9,11 @@ import { Input } from '@/components/ui/input'
 import type {
   GoogleWorkspaceIntegrationGetResponse,
   GoogleWorkspaceIntegrationMutateResponse,
-} from '@/app/api/u/[slug]/google-workspace-integration/route'
+} from '@/lib/google-workspace/types'
 
 type GoogleWorkspaceIntegrationPanelProps = {
   slug: string
+  redirectUri: string
 }
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -29,7 +30,7 @@ function getErrorMessage(error: string | undefined): string {
   return ERROR_MESSAGES[error] ?? error
 }
 
-export function GoogleWorkspaceIntegrationPanel({ slug }: GoogleWorkspaceIntegrationPanelProps) {
+export function GoogleWorkspaceIntegrationPanel({ slug, redirectUri }: GoogleWorkspaceIntegrationPanelProps) {
   const [clientId, setClientId] = useState('')
   const [clientSecret, setClientSecret] = useState('')
   const [integration, setIntegration] = useState<GoogleWorkspaceIntegrationGetResponse | null>(null)
@@ -156,14 +157,14 @@ export function GoogleWorkspaceIntegrationPanel({ slug }: GoogleWorkspaceIntegra
       {error ? <SettingsInfoBox tone="error">{error}</SettingsInfoBox> : null}
       {success ? <SettingsInfoBox tone="success">Configuration saved.</SettingsInfoBox> : null}
 
-      <div className="space-y-6 pt-2">
+        <div className="space-y-6 pt-2">
         <div className="space-y-3">
           <h3 className="text-sm font-medium text-foreground">Setup instructions</h3>
           <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
             <li>
               Open the{' '}
               <a
-                href="https://developers.google.com/workspace/guides/configure-mcp-servers?hl=es-419"
+                href="https://developers.google.com/workspace/guides/configure-mcp-servers"
                 target="_blank"
                 rel="noreferrer"
                 className="font-medium text-primary hover:underline"
@@ -175,7 +176,7 @@ export function GoogleWorkspaceIntegrationPanel({ slug }: GoogleWorkspaceIntegra
             <li>
               Enable the required Workspace APIs in the{' '}
               <a
-                href="https://console.cloud.google.com/flows/enableapi?apiid=gmail.googleapis.com%2Cdrive.googleapis.com%2Ccalendar-json.googleapis.com%2Cchat.googleapis.com%2Cpeople.googleapis.com&hl=es-419"
+                href="https://console.cloud.google.com/flows/enableapi?apiid=gmail.googleapis.com%2Cdrive.googleapis.com%2Ccalendar-json.googleapis.com%2Cchat.googleapis.com%2Cpeople.googleapis.com"
                 target="_blank"
                 rel="noreferrer"
                 className="font-medium text-primary hover:underline"
@@ -187,7 +188,7 @@ export function GoogleWorkspaceIntegrationPanel({ slug }: GoogleWorkspaceIntegra
             <li>
               Enable the MCP services in the{' '}
               <a
-                href="https://console.cloud.google.com/flows/enableapi?apiid=gmailmcp.googleapis.com%2Cdrivemcp.googleapis.com%2Ccalendarmcp.googleapis.com%2Cchatmcp.googleapis.com%2Cpeople.googleapis.com&hl=es-419"
+                href="https://console.cloud.google.com/flows/enableapi?apiid=gmailmcp.googleapis.com%2Cdrivemcp.googleapis.com%2Ccalendarmcp.googleapis.com%2Cchatmcp.googleapis.com%2Cpeople.googleapis.com"
                 target="_blank"
                 rel="noreferrer"
                 className="font-medium text-primary hover:underline"
@@ -199,7 +200,7 @@ export function GoogleWorkspaceIntegrationPanel({ slug }: GoogleWorkspaceIntegra
             <li>
               Set up the{' '}
               <a
-                href="https://console.cloud.google.com/apis/api/chat.googleapis.com/hangouts-chat?hl=es-419"
+                href="https://console.cloud.google.com/apis/api/chat.googleapis.com/hangouts-chat"
                 target="_blank"
                 rel="noreferrer"
                 className="font-medium text-primary hover:underline"
@@ -211,7 +212,7 @@ export function GoogleWorkspaceIntegrationPanel({ slug }: GoogleWorkspaceIntegra
             <li>
               Configure{' '}
               <a
-                href="https://console.cloud.google.com/auth/branding?hl=es-419"
+                href="https://console.cloud.google.com/auth/branding"
                 target="_blank"
                 rel="noreferrer"
                 className="font-medium text-primary hover:underline"
@@ -220,7 +221,7 @@ export function GoogleWorkspaceIntegrationPanel({ slug }: GoogleWorkspaceIntegra
               </a>
               ,{' '}
               <a
-                href="https://console.cloud.google.com/auth/audience?hl=es-419"
+                href="https://console.cloud.google.com/auth/audience"
                 target="_blank"
                 rel="noreferrer"
                 className="font-medium text-primary hover:underline"
@@ -229,7 +230,7 @@ export function GoogleWorkspaceIntegrationPanel({ slug }: GoogleWorkspaceIntegra
               </a>
               , and{' '}
               <a
-                href="https://console.cloud.google.com/auth/scopes?hl=es-419"
+                href="https://console.cloud.google.com/auth/scopes"
                 target="_blank"
                 rel="noreferrer"
                 className="font-medium text-primary hover:underline"
@@ -241,7 +242,7 @@ export function GoogleWorkspaceIntegrationPanel({ slug }: GoogleWorkspaceIntegra
             <li>
               Create a{' '}
               <a
-                href="https://console.cloud.google.com//apis/credentials/oauthclient?hl=es-419"
+                href="https://console.cloud.google.com//apis/credentials/oauthclient"
                 target="_blank"
                 rel="noreferrer"
                 className="font-medium text-primary hover:underline"
@@ -257,7 +258,7 @@ export function GoogleWorkspaceIntegrationPanel({ slug }: GoogleWorkspaceIntegra
         <div className="rounded-lg bg-muted/40 p-3 text-sm text-muted-foreground">
           <p className="font-medium text-foreground">Required redirect URI</p>
           <p className="mt-1 break-all font-mono text-xs">
-            {'<public base>'}/api/connectors/oauth/callback
+            {redirectUri}
           </p>
           <p className="mt-2">
             The OAuth client must be configured as a <strong>Web application</strong> type and must include this redirect URI.

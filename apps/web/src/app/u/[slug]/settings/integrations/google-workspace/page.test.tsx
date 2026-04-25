@@ -22,9 +22,13 @@ vi.mock('next/navigation', () => ({
   redirect: (path: string) => redirectMock(path),
 }))
 
+vi.mock('next/headers', () => ({
+  headers: () => Promise.resolve(new Headers({ host: 'localhost:3000' })),
+}))
+
 vi.mock('@/components/settings/google-workspace-integration-panel', () => ({
-  GoogleWorkspaceIntegrationPanel: ({ slug }: { slug: string }) => (
-    <div>Google Workspace integration panel {slug}</div>
+  GoogleWorkspaceIntegrationPanel: ({ slug, redirectUri }: { slug: string; redirectUri: string }) => (
+    <div>Google Workspace integration panel {slug} {redirectUri}</div>
   ),
 }))
 
@@ -71,7 +75,7 @@ describe('GoogleWorkspaceIntegrationSettingsPage', () => {
 
     expect(screen.getByRole('heading', { name: 'Google Workspace integration' })).toBeTruthy()
     expect(screen.getByRole('link', { name: /Back to integrations/ }).getAttribute('href')).toBe('/u/alice/settings?section=integrations')
-    expect(screen.getByText('Google Workspace integration panel alice')).toBeTruthy()
+    expect(screen.getByText('Google Workspace integration panel alice http://localhost:3000/api/connectors/oauth/callback')).toBeTruthy()
   })
 
   it('redirects non-admin users back to settings integrations', async () => {
