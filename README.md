@@ -1,8 +1,16 @@
+[![Latest release](https://img.shields.io/github/v/release/peaberry-studio/arche?display_name=tag)](https://github.com/peaberry-studio/arche/releases/latest)
+![Web coverage](.github/badges/web-coverage.svg)
+![Web unit coverage](.github/badges/web-unit-coverage.svg)
+![Web integration coverage](.github/badges/web-integration-coverage.svg)
+
 # Arche
 
-*AI-native expert team for companies. Personal second brain when you want it.*
+*For companies or personal use.*
 
-Arche is an open source AI agent platform built first for teams that want their own stack of specialized experts, grounded in shared company knowledge. It also works well for individuals who want a local AI-native second brain.
+Arche is an open source AI agent platform for companies or personal use.
+
+- 🏢 For companies: build a shared AI-native ecosystem of agents, knowledge, and processes that every member of your team can use.
+- 🧠 For personal use: run Arche solo as a local AI-native second brain for notes, docs, and ideas.
 
 From one place, you can run support, copywriting, SEO, marketing, research, requirements, and ops agents. Instead of starting every prompt from zero, you define your products, tone, processes, docs, and source material once. Each agent gets that shared knowledge plus its own isolated workspace, so your AI team stays consistent and useful.
 
@@ -201,10 +209,6 @@ For step-by-step instructions, see [`infra/compose/README.md`](infra/compose/REA
 | [`infra/workspace-image/README.md`](infra/workspace-image/README.md) | Workspace container image |
 
 ## Test Coverage
-
-![Web coverage](.github/badges/web-coverage.svg)
-![Web unit coverage](.github/badges/web-unit-coverage.svg)
-![Web integration coverage](.github/badges/web-integration-coverage.svg)
 
 Current line coverage is tracked in `apps/web` with `Vitest`.
 
