@@ -144,6 +144,30 @@ describe('Meta Ads connector settings route', () => {
     })
   })
 
+  it('returns ad account lookup errors without failing the settings response', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({
+        error: {
+          code: 190,
+          message: 'Token expired',
+        },
+      }), {
+        status: 400,
+        headers: { 'content-type': 'application/json' },
+      })
+    ))
+
+    const { status, body } = await callGetRoute()
+
+    expect(status).toBe(200)
+    expect(body).toMatchObject({
+      oauthConnected: true,
+      selectedAdAccountIds: ['act_123'],
+      adAccounts: [],
+      adAccountsError: 'Token expired',
+    })
+  })
+
   it('clears OAuth state and selected accounts when app credentials change', async () => {
     const { status, body } = await callPatchRoute({
       appId: 'meta-app-id-2',
@@ -187,5 +211,21 @@ describe('Meta Ads connector settings route', () => {
         selectedAdAccountCount: 0,
       },
     })
+  })
+
+  it('rejects a default ad account outside the selected set', async () => {
+    const { status, body } = await callPatchRoute({
+      selectedAdAccountIds: ['act_123'],
+      defaultAdAccountId: 'act_999',
+    })
+
+    expect(status).toBe(400)
+    expect(body).toEqual({
+      error: 'invalid_default_ad_account',
+      message: 'Default ad account must match one of the selected ad accounts.',
+    })
+    expect(mockEncryptConfig).not.toHaveBeenCalled()
+    expect(mockUpdateManyByIdAndUserId).not.toHaveBeenCalled()
+    expect(mockAuditEvent).not.toHaveBeenCalled()
   })
 })
