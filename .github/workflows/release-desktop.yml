@@ -70,6 +70,9 @@ jobs:
           ARCHE_DESKTOP_WEB_HOST: 127.0.0.1
         run: pnpm build
 
+      - name: Repair standalone pnpm symlinks
+        run: node scripts/repair-next-standalone-pnpm-symlinks.mjs apps/web/.next/standalone
+
       - name: Compile Electron TypeScript
         working-directory: apps/desktop
         run: pnpm build

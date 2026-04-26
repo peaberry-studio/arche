@@ -17,6 +17,7 @@ SKIP_VALIDATION=0
 TAG_CREATED=0
 TAG_PUSHED=0
 NODE_VERSION_FILE="$ROOT_DIR/.node-version"
+REPAIR_STANDALONE_SCRIPT="$ROOT_DIR/scripts/repair-next-standalone-pnpm-symlinks.mjs"
 
 usage() {
   cat <<'EOF'
@@ -338,6 +339,11 @@ build_web_for_arch() {
   )
 }
 
+repair_web_standalone_symlinks() {
+  printf '==> Repairing standalone pnpm symlinks\n'
+  node "$REPAIR_STANDALONE_SCRIPT" "$WEB_DIR/.next/standalone"
+}
+
 sync_desktop_dependencies_for_arch() {
   local arch="$1"
 
@@ -374,6 +380,7 @@ build_arch() {
   prepare_runtime_binaries_for_arch "$arch" "$runtime_platform" "$goarch"
   sync_web_dependencies_for_arch "$arch"
   build_web_for_arch "$arch"
+  repair_web_standalone_symlinks
   sync_desktop_dependencies_for_arch "$arch"
 
   sign_runtime_binaries
