@@ -1,28 +1,48 @@
 # Arche
 
-Arche is an AI agent platform that lets teams deploy specialized assistants — for support, copywriting, SEO, marketing, and more — each with access to a shared knowledge base and its own isolated workspace.
+*AI-native second brain for individuals. Shared knowledge layer for teams.*
 
-Define your company's identity, tone, products, and processes once. Arche's agents use that knowledge to help your team work faster and more consistently.
+Arche is an open source AI agent platform for teams and individuals who want an AI-native way to manage knowledge and run specialized assistants.
 
-## Test Coverage
+Whether you are building a personal second brain or a shared company knowledge base, Arche helps you keep context in one place and make it actually useful to AI. Instead of starting every prompt from zero, you define your notes, products, tone, processes, and source material once. Each agent gets that shared knowledge plus its own isolated workspace.
 
-![Web coverage](.github/badges/web-coverage.svg)
-![Web unit coverage](.github/badges/web-unit-coverage.svg)
-![Web integration coverage](.github/badges/web-integration-coverage.svg)
+## See Arche
 
-Current line coverage is tracked in `apps/web` with `Vitest`.
+![Arche Desktop screenshot](resources/arche_desktop.jpeg)
 
-- Overall coverage: `cd apps/web && pnpm coverage`
-- Unit coverage: `cd apps/web && pnpm coverage:unit`
-- Integration coverage: `cd apps/web && pnpm coverage:integration`
-- Refresh README badges: `cd apps/web && pnpm coverage:refresh`
-- Badge refresh in CI: automatic on every `push` to `main`
+Arche usually fits one of these two flows:
 
-Browser E2E tests in `apps/web/e2e` and `apps/desktop/e2e` still run with `Playwright`, but they do not publish a reliable line-coverage percentage yet. There are also environment-dependent backend E2E tests in `apps/web/src/**/*.e2e.test.ts` and smoke tests in `apps/desktop`.
+## What People Use Arche For
+
+- 🧠 Individuals: run an AI-native second brain so your notes, docs, and ideas stay structured and accessible to AI.
+- 🏢 Teams: give support, copywriting, SEO, research, requirements, and ops agents the same shared context.
+- 🔌 Connect tools like Linear, Notion, Zendesk, Ahrefs, Umami, and Google Workspace.
+- 💻 Choose a local desktop app for one machine or self-host Arche for a whole team.
+
+## How Arche Works
+
+1. Choose a template and the agents you want to run.
+2. Add your personal or company knowledge, tone, and working context once.
+3. Let each agent work in its own isolated workspace without losing the shared context.
+
+## Principles
+
+- 🤖 AI-native: your knowledge base is meant to be usable by AI from day one, not bolted on later.
+- 🧠 Context-first: notes, docs, processes, and operating knowledge live in one place.
+- 🧩 Specialized agents: different assistants can share context without sharing runtime state.
+- 💻 Local or self-hosted: start on one machine with Desktop or run Arche for a full team.
+
+## Start Here
+
+| I want to... | Best option |
+|--------------|-------------|
+| 🧠 Try Arche locally or build a personal second brain | [Desktop App](#desktop-app) |
+| 🏢 Run Arche for a team | [Self-Hosting](#self-hosting) |
+| 🛠️ Work on the codebase | [Local Development](#local-development) |
 
 ## Desktop App
 
-The easiest way to try Arche locally is the desktop app. It runs on your machine with no server or Docker setup required.
+If you want the fastest path, start with the desktop app. It runs on your machine with no server or Docker setup required.
 
 Desktop vault behavior:
 
@@ -71,7 +91,7 @@ For more details, see [`apps/desktop/README.md`](apps/desktop/README.md).
 
 ## Self-Hosting
 
-Arche can be deployed to your own server so your entire team can use it.
+If you want Arche for a team, self-host it on your own infrastructure.
 
 ### One-Click DigitalOcean Install
 
@@ -149,7 +169,7 @@ See the full guide: [`infra/coolify/README.md`](infra/coolify/README.md)
 
 ## Local Development
 
-Set up the full development stack locally with hot reload:
+If you want to work on Arche itself, set up the full development stack locally with hot reload:
 
 ```bash
 # Prerequisites: Node.js 24+, pnpm 10+, Podman (or Docker) with Compose
@@ -175,6 +195,22 @@ For step-by-step instructions, see [`infra/compose/README.md`](infra/compose/REA
 | [`infra/coolify/README.md`](infra/coolify/README.md) | Coolify deployment guide |
 | [`infra/compose/README.md`](infra/compose/README.md) | Local Podman Compose stack |
 | [`infra/workspace-image/README.md`](infra/workspace-image/README.md) | Workspace container image |
+
+## Test Coverage
+
+![Web coverage](.github/badges/web-coverage.svg)
+![Web unit coverage](.github/badges/web-unit-coverage.svg)
+![Web integration coverage](.github/badges/web-integration-coverage.svg)
+
+Current line coverage is tracked in `apps/web` with `Vitest`.
+
+- Overall coverage: `cd apps/web && pnpm coverage`
+- Unit coverage: `cd apps/web && pnpm coverage:unit`
+- Integration coverage: `cd apps/web && pnpm coverage:integration`
+- Refresh README badges: `cd apps/web && pnpm coverage:refresh`
+- Badge refresh in CI: automatic on every `push` to `main`
+
+Browser E2E tests in `apps/web/e2e` and `apps/desktop/e2e` still run with `Playwright`, but they do not publish a reliable line-coverage percentage yet. There are also environment-dependent backend E2E tests in `apps/web/src/**/*.e2e.test.ts` and smoke tests in `apps/desktop`.
 
 ## License
 
