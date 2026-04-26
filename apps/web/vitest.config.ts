@@ -5,7 +5,7 @@ export const sharedTestExclude = [...configDefaults.exclude, '.next/**', 'e2e/**
 
 export const sharedCoverageConfig = {
   all: true,
-  exclude: ['**/*.d.ts', '**/*.test.*', '**/*.spec.*', '**/__tests__/**', 'coverage/**', 'e2e/**'],
+  exclude: ['**/*.d.ts', '**/*.test.*', '**/*.spec.*', '**/__tests__/**', 'coverage/**', 'e2e/**', 'src/generated/**'],
   include: ['src/**/*.{ts,tsx}'],
   provider: 'v8' as const,
   reporter: ['text', 'json-summary', 'html', 'lcov'],
