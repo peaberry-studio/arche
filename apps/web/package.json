@@ -13,7 +13,6 @@
     "start:reaper": "tsx src/reaper-daemon.ts",
     "lint": "eslint",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",
     "coverage:unit": "vitest run --config vitest.unit.config.ts --coverage",
