@@ -1,7 +1,7 @@
 import { configDefaults, defineConfig } from 'vitest/config'
 import path from 'path'
 
-export const sharedTestExclude = [...configDefaults.exclude, 'e2e/**']
+export const sharedTestExclude = [...configDefaults.exclude, '.next/**', 'e2e/**']
 
 export const sharedCoverageConfig = {
   all: true,
