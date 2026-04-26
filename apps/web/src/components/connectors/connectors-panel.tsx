@@ -12,7 +12,6 @@ import type {
   ConnectorTestResult,
   ConnectorTestState,
 } from '@/components/connectors/types'
-import { isConnectorType, type ConnectorType } from '@/lib/connectors/types'
 import { notifyWorkspaceConfigChanged } from '@/lib/runtime/config-status-events'
 
 export type ConnectorsPanelHandle = {
@@ -27,22 +26,17 @@ type ConnectorsPanelProps = {
 
 function toConnectorsPayload(value: unknown): {
   connectors: ConnectorListItem[]
-  availableConnectorTypes: ConnectorType[]
 } {
   if (!value || typeof value !== 'object') {
-    return { connectors: [], availableConnectorTypes: [] }
+    return { connectors: [] }
   }
 
   const data = value as {
     connectors?: ConnectorListItem[]
-    availableConnectorTypes?: string[]
   }
 
   return {
     connectors: Array.isArray(data.connectors) ? data.connectors : [],
-    availableConnectorTypes: Array.isArray(data.availableConnectorTypes)
-      ? data.availableConnectorTypes.filter(isConnectorType)
-      : [],
   }
 }
 
@@ -70,7 +64,6 @@ export function ConnectorsPanel({ slug, oauthReturnTo, ref }: ConnectorsPanelPro
   const [testStates, setTestStates] = useState<Record<string, ConnectorTestState>>({})
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [settingsConnector, setSettingsConnector] = useState<ConnectorListItem | null>(null)
-  const [availableConnectorTypes, setAvailableConnectorTypes] = useState<ConnectorType[]>([])
 
   useImperativeHandle(
     ref,
@@ -106,7 +99,6 @@ export function ConnectorsPanel({ slug, oauthReturnTo, ref }: ConnectorsPanelPro
 
       const payload = toConnectorsPayload(data)
       setConnectors(payload.connectors)
-      setAvailableConnectorTypes(payload.availableConnectorTypes)
       setActionError(null)
     } catch {
       setLoadError(getConnectorErrorMessage(null, 'network_error'))
@@ -306,8 +298,6 @@ export function ConnectorsPanel({ slug, oauthReturnTo, ref }: ConnectorsPanelPro
         <AddConnectorModal
           slug={slug}
           existingConnectors={connectors}
-          availableConnectorTypes={availableConnectorTypes}
-          isLoadingAvailableConnectorTypes={isLoading && availableConnectorTypes.length === 0}
           open={isModalOpen}
           onOpenChange={setIsModalOpen}
           onSaved={() => {

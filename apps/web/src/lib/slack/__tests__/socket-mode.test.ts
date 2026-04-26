@@ -27,7 +27,6 @@ const buildSlackContextMock = vi.fn()
 const buildSlackPromptMock = vi.fn()
 const captureSessionMessageCursorMock = vi.fn()
 const createInstanceClientMock = vi.fn()
-const decryptSlackTokenMock = vi.fn()
 const ensureSlackServiceUserMock = vi.fn()
 const ensureWorkspaceRunningForExecutionMock = vi.fn()
 const findIntegrationMock = vi.fn()
@@ -86,10 +85,6 @@ vi.mock('../context', () => ({
   buildSlackContext: (...args: unknown[]) => buildSlackContextMock(...args),
 }))
 
-vi.mock('../crypto', () => ({
-  decryptSlackToken: (...args: unknown[]) => decryptSlackTokenMock(...args),
-}))
-
 vi.mock('../prompt', () => ({
   buildSlackPrompt: (...args: unknown[]) => buildSlackPromptMock(...args),
 }))
@@ -120,7 +115,6 @@ describe('slack socket manager', () => {
     recordedEventIds.clear()
     const { stopSlackSocketManager } = await import('../socket-mode')
     stopSlackSocketManager()
-    decryptSlackTokenMock.mockImplementation((value: string) => value)
     findIntegrationMock.mockResolvedValue({
       appTokenSecret: 'xapp-1',
       botTokenSecret: 'xoxb-1',
@@ -690,19 +684,19 @@ describe('slack socket manager', () => {
     stopSlackSocketManager()
   })
 
-  it('records a sync error and tears down the current app when token decryption fails', async () => {
+  it('records a sync error and tears down the current app when app start fails', async () => {
     const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
 
     await syncSlackSocketManager()
 
-    decryptSlackTokenMock.mockImplementation(() => {
-      throw new Error('invalid_secret')
-    })
+    nextAppStartImplementation = async () => {
+      throw new Error('start_failed')
+    }
 
-    await expect(syncSlackSocketManager(true)).rejects.toThrow('invalid_secret')
+    await expect(syncSlackSocketManager(true)).rejects.toThrow('start_failed')
 
     expect(appInstances[0].stop).toHaveBeenCalledTimes(1)
-    expect(markLastErrorMock).toHaveBeenCalledWith('invalid_secret')
+    expect(markLastErrorMock).toHaveBeenCalledWith('start_failed')
 
     stopSlackSocketManager()
   })

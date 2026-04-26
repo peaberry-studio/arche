@@ -72,6 +72,13 @@ const SINGLE_INSTANCE_AGENT_CONNECTOR_CAPABILITY_IDS = {
   'meta-ads': 'globalmetaads',
   notion: 'globalnotion',
   zendesk: 'globalzendesk',
+  ahrefs: 'globalahrefs',
+  umami: 'globalumami',
+  google_gmail: 'globalgooglegmail',
+  google_drive: 'globalgoogledrive',
+  google_calendar: 'globalgooglecalendar',
+  google_chat: 'globalgooglechat',
+  google_people: 'globalgooglepeople',
 } as const satisfies Record<Exclude<ConnectorType, 'custom'>, string>
 
 const TOOL_SET = new Set<string>(OPENCODE_AGENT_TOOLS)

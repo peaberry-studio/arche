@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
-import { requireAvailableConnectorType } from '@/lib/connectors/availability-response'
 import { decryptConfig, encryptConfig } from '@/lib/connectors/crypto'
 import {
   clearConnectorOAuthConfig,
@@ -107,14 +106,12 @@ export const GET = withAuth<
     return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })
   }
 
-  const unavailable = requireAvailableConnectorType(connector.type)
-  if (unavailable) {
-    return unavailable
-  }
-
   if (connector.type !== 'meta-ads') {
     return NextResponse.json({ error: 'unsupported_connector' }, { status: 400 })
   }
+
+  const metaDenied = requireCapability('metaAdsConnector')
+  if (metaDenied) return metaDenied
 
   let config: Record<string, unknown>
   try {
@@ -151,14 +148,12 @@ export const PATCH = withAuth<
     return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })
   }
 
-  const unavailable = requireAvailableConnectorType(connector.type)
-  if (unavailable) {
-    return unavailable
-  }
-
   if (connector.type !== 'meta-ads') {
     return NextResponse.json({ error: 'unsupported_connector' }, { status: 400 })
   }
+
+  const patchDenied = requireCapability('metaAdsConnector')
+  if (patchDenied) return patchDenied
 
   let body: UpdateMetaAdsConnectorSettingsRequest
   try {

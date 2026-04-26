@@ -23,6 +23,12 @@ vi.mock('../security/settings-page-content', () => ({
   SecuritySettingsPanel: () => <div>Security panel</div>,
 }))
 
+vi.mock('@/components/settings/google-workspace-integration-summary-card', () => ({
+  GoogleWorkspaceIntegrationSummaryCard: ({ integration }: { integration: { configured: boolean } }) => (
+    <div>Google Workspace integration {integration.configured ? 'Configured' : 'Not configured'}</div>
+  ),
+}))
+
 describe('SettingsPageContent', () => {
   afterEach(() => {
     cleanup()
@@ -57,6 +63,13 @@ describe('SettingsPageContent', () => {
           updatedAt: '2026-04-16T20:00:00.000Z',
           version: 3,
         }}
+        googleWorkspaceSummary={{
+          clientId: 'g-id',
+          configured: true,
+          hasClientSecret: true,
+          version: 1,
+          updatedAt: '2026-04-25T10:00:00.000Z',
+        }}
       />,
     )
 
@@ -66,6 +79,7 @@ describe('SettingsPageContent', () => {
     expect(screen.getByText('Slack integration')).toBeTruthy()
     expect(screen.getByText('Connected')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Setup' }).getAttribute('href')).toBe('/u/alice/settings/integrations/slack')
+    expect(screen.getByText('Google Workspace integration Configured')).toBeTruthy()
     expect(screen.getByText(/Arche 03/)).toBeTruthy()
   })
 
@@ -82,6 +96,7 @@ describe('SettingsPageContent', () => {
         recoveryCodesRemaining={0}
         releaseVersion="03"
         slackIntegrationSummary={null}
+        googleWorkspaceSummary={null}
       />,
     )
 
@@ -89,5 +104,34 @@ describe('SettingsPageContent', () => {
     expect(screen.getByText('Theme picker')).toBeTruthy()
     expect(screen.getByText('Workspace restart alice')).toBeTruthy()
     expect(screen.queryByText('Slack integration')).toBeNull()
+    expect(screen.queryByText('Google Workspace integration')).toBeNull()
+  })
+
+  it('shows Google Workspace card when Slack is unavailable', () => {
+    render(
+      <SettingsPageContent
+        slug="alice"
+        availableSections={['general', 'integrations', 'security']}
+        currentSection="integrations"
+        passwordChangeEnabled={true}
+        twoFactorEnabled={true}
+        enabled={false}
+        verifiedAt={null}
+        recoveryCodesRemaining={0}
+        releaseVersion="03"
+        slackIntegrationSummary={null}
+        googleWorkspaceSummary={{
+          clientId: 'g-id',
+          configured: true,
+          hasClientSecret: true,
+          version: 1,
+          updatedAt: '2026-04-25T10:00:00.000Z',
+        }}
+      />,
+    )
+
+    expect(screen.getByRole('link', { name: 'Integrations' })).toBeTruthy()
+    expect(screen.queryByText('Slack integration')).toBeNull()
+    expect(screen.getByText('Google Workspace integration Configured')).toBeTruthy()
   })
 })

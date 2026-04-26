@@ -86,6 +86,42 @@ curl -i \
 
 This repo uses `pnpm` by default.
 
+## Test Coverage
+
+This app has three practical test layers today:
+
+- Unit tests: mostly `src/**/*.test.ts(x)` outside `src/app/api`
+- Integration tests: `tests/*.test.ts` and `src/app/api/**/*.test.ts`
+- Browser E2E: `e2e/*.spec.ts` with `Playwright`
+
+There is also a smaller backend E2E layer in `src/**/*.e2e.test.ts`. Those tests depend on extra runtime services such as a database or container socket, so they are not included in the default coverage badge flow.
+
+Coverage commands:
+
+```bash
+pnpm coverage
+pnpm coverage:unit
+pnpm coverage:integration
+pnpm coverage:refresh
+```
+
+What each command does:
+
+- `pnpm coverage`: overall `Vitest` line coverage for the web app
+- `pnpm coverage:unit`: line coverage produced only by the unit-test layer
+- `pnpm coverage:integration`: line coverage produced only by the integration-test layer
+- `pnpm coverage:refresh`: regenerates all three coverage reports and updates the SVG badges in `.github/badges/`
+
+The SVG badges are refreshed automatically on every `push` to `main` by `.github/workflows/coverage-badges.yml`.
+
+Current README badges are generated from:
+
+- `coverage/all/coverage-summary.json`
+- `coverage/unit/coverage-summary.json`
+- `coverage/integration/coverage-summary.json`
+
+`Playwright` E2E remains execution-based for now. There is no E2E coverage badge yet because the suite is not instrumented to emit a trustworthy source-level coverage percentage. We can add browser-side instrumentation later, but for a Next.js app it is not a low-friction or fully reliable source of whole-app coverage on its own.
+
 ## Connector OAuth security notes
 
 - Custom connector OAuth state includes encrypted metadata needed for callback completion.
@@ -93,6 +129,26 @@ This repo uses `pnpm` by default.
 - The OAuth `state` travels in the authorization URL query string, so avoid logging full callback or authorization URLs in reverse proxies and access logs.
 - Custom connector endpoints are SSRF-validated (HTTPS only, DNS/IP checks), but a DNS rebinding window still exists between validation and outbound fetch.
 - Keep outbound egress controls in place (network policy, firewall, allowlists) for defense in depth.
+
+## Linear app actor mode
+
+- Linear connectors support standard user OAuth and app actor OAuth.
+- App actor mode adds `actor=app` to the Linear authorization URL, so actions appear in Linear as the OAuth application instead of as the user who completed consent.
+- The visible author name and icon come from the Linear OAuth application configuration.
+- In app actor mode, you paste the Linear app `client_id` and `client_secret` directly into the connector modal. User OAuth keeps using dynamic client registration.
+- Arche does not currently set Linear's optional `createAsUser` or `displayIconUrl` fields, so app actor changes appear as the OAuth application itself.
+
+## Umami connector
+
+- Supported authentication:
+  - Umami Cloud via `https://api.umami.is/v1` plus `x-umami-api-key`
+  - Self-hosted Umami via a public HTTPS base URL plus username/password login
+- Required access: the configured Umami user must be able to read the target websites.
+- Supported reads: website listing, summary stats, pageview series, ranked metrics, recent sessions, recent events, and realtime activity.
+- Limits:
+  - The connector is read-only.
+  - Umami Cloud API keys are limited to 50 requests every 15 seconds.
+  - Self-hosted base URLs are validated as public HTTPS endpoints before Arche connects.
 
 ## UI
 

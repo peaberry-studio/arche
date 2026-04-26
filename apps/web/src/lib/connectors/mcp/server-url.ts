@@ -1,4 +1,5 @@
 import { getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
+import { getGoogleWorkspaceMcpServerUrl, isGoogleWorkspaceConnectorType } from '@/lib/connectors/google-workspace'
 import type { ConnectorType } from '@/lib/connectors/types'
 
 const MCP_SERVER_URLS = {
@@ -8,6 +9,7 @@ const MCP_SERVER_URLS = {
 
 export function getConnectorMcpServerUrl(type: 'linear' | 'notion', config: Record<string, unknown>): string
 export function getConnectorMcpServerUrl(type: 'custom', config: Record<string, unknown>): string | null
+export function getConnectorMcpServerUrl(type: 'google_gmail' | 'google_drive' | 'google_calendar' | 'google_chat' | 'google_people', config: Record<string, unknown>): string
 export function getConnectorMcpServerUrl(type: ConnectorType, config: Record<string, unknown>): string | null
 export function getConnectorMcpServerUrl(type: ConnectorType, config: Record<string, unknown>): string | null {
   const oauth = getConnectorOAuthConfig(type, config)
@@ -23,11 +25,23 @@ export function getConnectorMcpServerUrl(type: ConnectorType, config: Record<str
     return process.env.ARCHE_CONNECTOR_NOTION_MCP_URL || MCP_SERVER_URLS.notion
   }
 
+  if (isGoogleWorkspaceConnectorType(type)) {
+    return getGoogleWorkspaceMcpServerUrl(type)
+  }
+
   if (type === 'zendesk') {
     return null
   }
 
   if (type === 'meta-ads') {
+    return null
+  }
+
+  if (type === 'ahrefs') {
+    return null
+  }
+
+  if (type === 'umami') {
     return null
   }
 

@@ -1,10 +1,11 @@
 import { randomBytes } from 'crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 
 import { getDesktopSecretsDir } from './vault-layout'
 
 const ENCRYPTION_KEY_ENV_NAME = 'ARCHE_ENCRYPTION_KEY'
+const ENCRYPTION_KEY_MANAGED_ENV_NAME = 'ARCHE_DESKTOP_MANAGED_ENCRYPTION_KEY'
 const ENCRYPTION_KEY_FILE_NAME = 'encryption.key'
 const ENCRYPTION_KEY_BYTES = 32
 
@@ -50,6 +51,7 @@ export function ensureDesktopEncryptionKey(options: EnsureDesktopEncryptionKeyOp
       throw new Error(`${ENCRYPTION_KEY_ENV_NAME} must decode from base64 to exactly 32 bytes`)
     }
 
+    delete env[ENCRYPTION_KEY_MANAGED_ENV_NAME]
     return configuredKey
   }
 
@@ -60,6 +62,7 @@ export function ensureDesktopEncryptionKey(options: EnsureDesktopEncryptionKeyOp
 
   if (persistedKey) {
     env[ENCRYPTION_KEY_ENV_NAME] = persistedKey
+    env[ENCRYPTION_KEY_MANAGED_ENV_NAME] = '1'
     return persistedKey
   }
 
@@ -70,7 +73,9 @@ export function ensureDesktopEncryptionKey(options: EnsureDesktopEncryptionKeyOp
 
   mkdirSync(keyDir, { recursive: true })
   writeFileSync(keyPath, `${generatedKey}\n`, { encoding: 'utf-8', mode: 0o600 })
+  chmodSync(keyPath, 0o600)
 
   env[ENCRYPTION_KEY_ENV_NAME] = generatedKey
+  env[ENCRYPTION_KEY_MANAGED_ENV_NAME] = '1'
   return generatedKey
 }

@@ -33,23 +33,15 @@ model User {
   @@map("users")
 }
 
-model SlackIntegration {
-  singletonKey         String    @id @default("default") @map("singleton_key")
-  enabled              Boolean   @default(false)
-  botTokenSecret       String?   @map("bot_token_secret")
-  appTokenSecret       String?   @map("app_token_secret")
-  slackTeamId          String?   @map("slack_team_id")
-  slackAppId           String?   @map("slack_app_id")
-  slackBotUserId       String?   @map("slack_bot_user_id")
-  defaultAgentId       String?   @map("default_agent_id")
-  lastError            String?   @map("last_error")
-  lastSocketConnectedAt DateTime? @map("last_socket_connected_at")
-  lastEventAt          DateTime? @map("last_event_at")
-  version              Int       @default(1)
-  createdAt            DateTime  @default(now()) @map("created_at")
-  updatedAt            DateTime  @updatedAt @map("updated_at")
+model ExternalIntegration {
+  key       String   @id @map("key")
+  config    String   // AES-256-GCM encrypted JSON
+  state     String?  @default("{}")
+  version   Int      @default(1)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  @@map("slack_integration")
+  @@map("external_integrations")
 }
 
 model SlackThreadBinding {

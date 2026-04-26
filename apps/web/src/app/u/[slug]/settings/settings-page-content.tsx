@@ -1,8 +1,10 @@
 import Link from 'next/link'
 
 import { ThemePicker } from '@/components/dashboard/theme-picker'
+import { GoogleWorkspaceIntegrationSummaryCard } from '@/components/settings/google-workspace-integration-summary-card'
 import { SettingsSection } from '@/components/settings/settings-section'
 import { SlackIntegrationSummaryCard } from '@/components/settings/slack-integration-summary-card'
+import type { GoogleWorkspaceIntegrationSummary } from '@/lib/google-workspace/types'
 import type { SlackIntegrationSummary } from '@/lib/slack/types'
 import { cn } from '@/lib/utils'
 import { WorkspaceRestartSection } from './security/workspace-restart-section'
@@ -23,6 +25,7 @@ type SettingsPageContentProps = {
   recoveryCodesRemaining: number
   releaseVersion: string
   slackIntegrationSummary: SlackIntegrationSummary | null
+  googleWorkspaceSummary: GoogleWorkspaceIntegrationSummary | null
 }
 
 export function SettingsPageContent({
@@ -36,6 +39,7 @@ export function SettingsPageContent({
   recoveryCodesRemaining,
   releaseVersion,
   slackIntegrationSummary,
+  googleWorkspaceSummary,
 }: SettingsPageContentProps) {
   return (
     <main className="relative mx-auto max-w-6xl px-6 py-10">
@@ -98,9 +102,16 @@ export function SettingsPageContent({
           </div>
         )
       case 'integrations':
-        return slackIntegrationSummary ? (
-          <SlackIntegrationSummaryCard slug={slug} integration={slackIntegrationSummary} />
-        ) : null
+        return (
+          <div className="space-y-5">
+            {slackIntegrationSummary ? (
+              <SlackIntegrationSummaryCard slug={slug} integration={slackIntegrationSummary} />
+            ) : null}
+            {googleWorkspaceSummary ? (
+              <GoogleWorkspaceIntegrationSummaryCard slug={slug} integration={googleWorkspaceSummary} />
+            ) : null}
+          </div>
+        )
       case 'security':
         return (
           <SecuritySettingsPanel

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { requireAvailableConnectorType } from '@/lib/connectors/availability-response'
 import { decryptConfig } from '@/lib/connectors/crypto'
 import { getConnectorAuthType } from '@/lib/connectors/oauth-config'
 import { refreshConnectorOAuthConfigIfNeeded } from '@/lib/connectors/oauth-refresh'
@@ -51,9 +50,9 @@ export const POST = withAuth<TestConnectionResult | { error: string }, { slug: s
       return NextResponse.json({ error: 'unsupported_connector_type' }, { status: 400 })
     }
 
-    const unavailable = requireAvailableConnectorType(connector.type)
-    if (unavailable) {
-      return unavailable
+    if (connector.type === 'meta-ads') {
+      const denied = requireCapability('metaAdsConnector')
+      if (denied) return denied
     }
 
     const refreshedConfig = await refreshConnectorOAuthConfigIfNeeded({

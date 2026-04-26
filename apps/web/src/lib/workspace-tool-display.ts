@@ -4,8 +4,15 @@ const CONNECTOR_TYPE_LABELS: Record<ConnectorType, string> = {
   linear: 'Linear',
   notion: 'Notion',
   zendesk: 'Zendesk',
+  ahrefs: 'Ahrefs',
+  umami: 'Umami',
   'meta-ads': 'Meta Ads',
   custom: 'Custom Connector',
+  google_gmail: 'Gmail',
+  google_drive: 'Google Drive',
+  google_calendar: 'Google Calendar',
+  google_chat: 'Google Chat',
+  google_people: 'People API',
 }
 
 const CONNECTOR_TYPE_PATTERN = CONNECTOR_TYPES.join('|')

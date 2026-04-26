@@ -1,12 +1,17 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { encryptConfig, decryptConfig } from '@/lib/connectors/crypto'
 import {
-  DEFAULT_META_ADS_CONNECTOR_PERMISSIONS,
-} from '@/lib/connectors/meta-ads-types'
+  buildLinearOAuthScope,
+  getLinearOAuthActor,
+  getLinearOAuthModeLabel,
+  parseLinearOptionalOAuthScopes,
+  resolveLinearOAuthActor,
+} from '@/lib/connectors/linear'
 import {
   parseMetaAdsConnectorConfig,
   parseMetaAdsConnectorPermissions,
 } from '@/lib/connectors/meta-ads'
+import { DEFAULT_META_ADS_CONNECTOR_PERMISSIONS } from '@/lib/connectors/meta-ads-types'
 import { CONNECTOR_TYPES } from '@/lib/connectors/types'
 import {
   parseZendeskConnectorConfig,
@@ -60,61 +65,10 @@ describe('connectors/crypto', () => {
 
 describe('connectors/types', () => {
   it('CONNECTOR_TYPES contains expected values', () => {
-    expect(CONNECTOR_TYPES).toEqual(['linear', 'notion', 'zendesk', 'custom', 'meta-ads'])
-  })
-})
-
-describe('connectors/availability', () => {
-  const originalEnv = process.env
-
-  beforeEach(() => {
-    vi.resetModules()
-    process.env = { ...originalEnv }
-  })
-
-  afterEach(() => {
-    process.env = originalEnv
-  })
-
-  it('keeps Meta Ads available in web runtime', async () => {
-    delete process.env.ARCHE_RUNTIME_MODE
-
-    const {
-      getAvailableConnectorTypes,
-      getConnectorTypeAvailabilityMessage,
-      isConnectorTypeAvailable,
-    } = await import('@/lib/connectors/availability')
-
-    expect(isConnectorTypeAvailable('meta-ads')).toBe(true)
-    expect(getConnectorTypeAvailabilityMessage('meta-ads')).toBeNull()
-    expect(getAvailableConnectorTypes()).toContain('meta-ads')
-  })
-
-  it('hides Meta Ads in desktop runtime and exposes a consistent error message', async () => {
-    process.env.ARCHE_RUNTIME_MODE = 'desktop'
-    process.env.ARCHE_DESKTOP_PLATFORM = 'darwin'
-    process.env.ARCHE_DESKTOP_WEB_HOST = '127.0.0.1'
-
-    const {
-      getAvailableConnectorTypes,
-      getConnectorTypeAvailabilityMessage,
-      isConnectorTypeAvailable,
-    } = await import('@/lib/connectors/availability')
-    const { requireAvailableConnectorType } = await import('@/lib/connectors/availability-response')
-
-    expect(isConnectorTypeAvailable('meta-ads')).toBe(false)
-    expect(getAvailableConnectorTypes()).not.toContain('meta-ads')
-    expect(getConnectorTypeAvailabilityMessage('meta-ads')).toBe(
-      'Meta Ads connectors are only available in the VPS runtime.'
-    )
-
-    const response = requireAvailableConnectorType('meta-ads')
-    expect(response).not.toBeNull()
-    expect(response!.status).toBe(403)
-    await expect(response!.json()).resolves.toEqual({
-      error: 'connector_not_available',
-      message: 'Meta Ads connectors are only available in the VPS runtime.',
-    })
+    expect(CONNECTOR_TYPES).toEqual([
+      'linear', 'notion', 'zendesk', 'ahrefs', 'umami', 'custom', 'meta-ads',
+      'google_gmail', 'google_drive', 'google_calendar', 'google_chat', 'google_people',
+    ])
   })
 })
 
@@ -124,6 +78,8 @@ describe('connectors/validators', () => {
       expect(validateConnectorType('linear')).toBe(true)
       expect(validateConnectorType('notion')).toBe(true)
       expect(validateConnectorType('zendesk')).toBe(true)
+      expect(validateConnectorType('ahrefs')).toBe(true)
+      expect(validateConnectorType('umami')).toBe(true)
       expect(validateConnectorType('custom')).toBe(true)
     })
 
@@ -142,6 +98,74 @@ describe('connectors/validators', () => {
       const invalid = validateConnectorConfig('linear', {})
       expect(invalid.valid).toBe(false)
       expect(invalid.missing).toContain('apiKey')
+    })
+
+    it('validates optional Linear OAuth actor mode', () => {
+      expect(validateConnectorConfig('linear', { authType: 'oauth', oauthActor: 'app' })).toEqual({
+        valid: false,
+        message: 'Linear app actor OAuth requires both client ID and client secret',
+      })
+
+      expect(validateConnectorConfig('linear', {
+        authType: 'oauth',
+        oauthActor: 'app',
+        oauthClientId: 'client-123',
+        oauthClientSecret: 'secret-123',
+        oauthScope: 'read,write,app:mentionable',
+      })).toEqual({
+        valid: true,
+      })
+
+      expect(validateConnectorConfig('linear', {
+        authType: 'oauth',
+        oauthScope: 'read,app:mentionable',
+      })).toEqual({
+        valid: false,
+        message: 'Linear user OAuth cannot request app-only permissions',
+      })
+
+      expect(validateConnectorConfig('linear', {
+        authType: 'oauth',
+        oauthActor: 'app',
+        oauthClientId: 'client-123',
+        oauthClientSecret: 'secret-123',
+        oauthScope: 'read,admin',
+      })).toEqual({
+        valid: false,
+        message: 'Linear app actor OAuth cannot request admin scope',
+      })
+
+      expect(validateConnectorConfig('linear', { authType: 'oauth', oauthActor: 'robot' })).toEqual({
+        valid: false,
+        message: 'Linear OAuth actor must be user or app',
+      })
+
+      expect(validateConnectorConfig('linear', {
+        authType: 'oauth',
+        oauthActor: 'app',
+        oauthClientSecret: 'secret-123',
+      })).toEqual({
+        valid: false,
+        message: 'Linear app actor OAuth requires both client ID and client secret',
+      })
+
+      expect(validateConnectorConfig('linear', {
+        authType: 'oauth',
+        oauthActor: 'app',
+        oauthClientId: 'client-123',
+      })).toEqual({
+        valid: false,
+        message: 'Linear app actor OAuth requires both client ID and client secret',
+      })
+
+      expect(validateConnectorConfig('linear', {
+        authType: 'oauth',
+        oauthActor: 'app',
+        oauthClientId: '   ',
+      })).toEqual({
+        valid: false,
+        message: 'Linear OAuth client ID must be a non-empty string',
+      })
     })
 
     it('validates required fields for notion', () => {
@@ -175,27 +199,145 @@ describe('connectors/validators', () => {
       expect(invalid.missing).toEqual(['subdomain', 'email', 'apiToken'])
     })
 
-    it('validates required fields for meta-ads', () => {
-      const valid = validateConnectorConfig('meta-ads', {
-        authType: 'oauth',
-        appId: 'app-123',
-        appSecret: 'secret-123',
-      })
-      expect(valid).toEqual({ valid: true })
+    it('validates required fields for ahrefs', () => {
+      expect(validateConnectorConfig('ahrefs', {
+        apiKey: 'ahrefs-key-123',
+      })).toEqual({ valid: true })
 
-      const invalid = validateConnectorConfig('meta-ads', { authType: 'oauth' })
-      expect(invalid.valid).toBe(false)
-      expect(invalid.missing).toEqual(['appId', 'appSecret'])
+      expect(validateConnectorConfig('ahrefs', {})).toEqual({
+        valid: false,
+        missing: ['apiKey'],
+      })
     })
 
-    it('rejects manual mode for meta-ads connectors', () => {
-      expect(validateConnectorConfig('meta-ads', {
-        authType: 'manual',
-        appId: 'app-123',
-        appSecret: 'secret-123',
+    it('rejects oauth mode for ahrefs connectors', () => {
+      expect(validateConnectorConfig('ahrefs', {
+        authType: 'oauth',
+        apiKey: 'ahrefs-key-123',
       })).toEqual({
         valid: false,
+        message: 'Ahrefs connectors do not support OAuth',
+      })
+    })
+
+    it('validates required fields for umami', () => {
+      expect(validateConnectorConfig('umami', {
+        authMethod: 'api-key',
+        baseUrl: 'https://api.umami.is/v1',
+        apiKey: 'key-123',
+      })).toEqual({ valid: true })
+
+      expect(validateConnectorConfig('umami', {
+        authMethod: 'login',
+        baseUrl: 'https://analytics.example.com',
+        username: 'admin',
+      })).toEqual({
+        valid: false,
+        missing: ['password'],
+      })
+    })
+
+    it('rejects oauth mode for umami connectors', () => {
+      expect(validateConnectorConfig('umami', {
+        authType: 'oauth',
+        authMethod: 'api-key',
+        baseUrl: 'https://api.umami.is/v1',
+        apiKey: 'key-123',
+      })).toEqual({
+        valid: false,
+        message: 'Umami connectors do not support OAuth',
+      })
+    })
+
+    it('validates required fields for meta-ads', () => {
+      expect(validateConnectorConfig('meta-ads', {
+        authType: 'oauth',
+        appId: 'meta-app-id',
+        appSecret: 'meta-app-secret',
+      })).toEqual({ valid: true })
+
+      expect(validateConnectorConfig('meta-ads', {})).toEqual({
+        valid: false,
         message: 'Meta Ads connectors require OAuth',
+      })
+    })
+
+    it('rejects invalid meta-ads app id or secret', () => {
+      expect(validateConnectorConfig('meta-ads', {
+        authType: 'oauth',
+        appId: '',
+        appSecret: 'secret',
+      })).toEqual({
+        valid: false,
+        missing: ['appId'],
+      })
+
+      expect(validateConnectorConfig('meta-ads', {
+        authType: 'oauth',
+        appId: 'app-id',
+        appSecret: '',
+      })).toEqual({
+        valid: false,
+        missing: ['appSecret'],
+      })
+    })
+
+    it('rejects invalid meta-ads permissions', () => {
+      expect(validateConnectorConfig('meta-ads', {
+        authType: 'oauth',
+        appId: 'app-id',
+        appSecret: 'secret',
+        permissions: { allowRead: 'yes' },
+      })).toEqual({
+        valid: false,
+        message: 'allowRead must be a boolean',
+      })
+    })
+
+    it('rejects invalid meta-ads ad account ids', () => {
+      expect(validateConnectorConfig('meta-ads', {
+        authType: 'oauth',
+        appId: 'app-id',
+        appSecret: 'secret',
+        selectedAdAccountIds: ['not-an-id'],
+      })).toEqual({
+        valid: false,
+        message: 'Invalid ad account id: not-an-id',
+      })
+    })
+
+    it('rejects invalid meta-ads default ad account', () => {
+      expect(validateConnectorConfig('meta-ads', {
+        authType: 'oauth',
+        appId: 'app-id',
+        appSecret: 'secret',
+        selectedAdAccountIds: ['act_123'],
+        defaultAdAccountId: 'act_999',
+      })).toEqual({
+        valid: false,
+        message: 'defaultAdAccountId must match one of the selected ad accounts',
+      })
+    })
+
+    it('rejects invalid meta-ads selected ad account ids type', () => {
+      expect(validateConnectorConfig('meta-ads', {
+        authType: 'oauth',
+        appId: '123',
+        appSecret: 'secret',
+        selectedAdAccountIds: 'not-an-array',
+      })).toEqual({
+        valid: false,
+        message: 'selectedAdAccountIds must be an array',
+      })
+    })
+
+    it('rejects oauth mode for ahrefs connectors', () => {
+      expect(validateConnectorConfig('ahrefs', {
+        authType: 'oauth',
+        apiKey: 'ahrefs-key-123',
+      })).toEqual({
+        valid: false,
+        message: 'Ahrefs connectors do not support OAuth',
       })
     })
 
@@ -392,6 +534,38 @@ describe('connectors/zendesk-config', () => {
   })
 })
 
+describe('connectors/linear', () => {
+  it('defaults missing actor mode to user', () => {
+    expect(getLinearOAuthActor({ authType: 'oauth' })).toBe('user')
+  })
+
+  it('reads app actor mode from connector config', () => {
+    expect(getLinearOAuthActor({ authType: 'oauth', oauthActor: 'app' })).toBe('app')
+  })
+
+  it('builds and parses Linear OAuth scopes', () => {
+    expect(buildLinearOAuthScope(['write', 'app:mentionable'])).toBe('read,write,app:mentionable')
+    expect(parseLinearOptionalOAuthScopes('read,write,app:mentionable,write')).toEqual([
+      'write',
+      'app:mentionable',
+    ])
+  })
+
+  it('resolves actor only for linear oauth connectors', () => {
+    expect(resolveLinearOAuthActor('linear', 'oauth', { authType: 'oauth', oauthActor: 'app' })).toBe('app')
+    expect(resolveLinearOAuthActor('linear', 'oauth', { authType: 'oauth' })).toBe('user')
+    expect(resolveLinearOAuthActor('linear', 'manual', { authType: 'manual' })).toBeUndefined()
+    expect(resolveLinearOAuthActor('notion', 'oauth', { authType: 'oauth' })).toBeUndefined()
+  })
+
+  it('returns mode label only for linear oauth connectors', () => {
+    expect(getLinearOAuthModeLabel({ type: 'linear', authType: 'oauth', oauthActor: 'app' })).toBe('App actor OAuth')
+    expect(getLinearOAuthModeLabel({ type: 'linear', authType: 'oauth', oauthActor: 'user' })).toBe('User OAuth')
+    expect(getLinearOAuthModeLabel({ type: 'linear', authType: 'manual' })).toBeNull()
+    expect(getLinearOAuthModeLabel({ type: 'notion', authType: 'oauth' })).toBeNull()
+  })
+})
+
 describe('connectors/meta-ads-config', () => {
   it('defaults missing Meta Ads permissions to read-only', () => {
     expect(parseMetaAdsConnectorPermissions(undefined)).toEqual({
@@ -400,22 +574,29 @@ describe('connectors/meta-ads-config', () => {
     })
   })
 
-  it('normalizes selected ad account ids and validates default account membership', () => {
+  it('parses partial Meta Ads permissions while keeping safe defaults', () => {
+    expect(parseMetaAdsConnectorPermissions({ allowRead: false })).toEqual({
+      ok: true,
+      value: {
+        ...DEFAULT_META_ADS_CONNECTOR_PERMISSIONS,
+        allowRead: false,
+      },
+    })
+  })
+
+  it('normalizes parsed Meta Ads config with default permissions and empty selected accounts', () => {
     expect(parseMetaAdsConnectorConfig({
       authType: 'oauth',
-      appId: 'app-123',
-      appSecret: 'secret-123',
-      selectedAdAccountIds: ['123', 'act_456', '123'],
-      defaultAdAccountId: '456',
+      appId: '123',
+      appSecret: 'secret',
     })).toEqual({
       ok: true,
       value: {
         authType: 'oauth',
-        appId: 'app-123',
-        appSecret: 'secret-123',
+        appId: '123',
+        appSecret: 'secret',
         permissions: DEFAULT_META_ADS_CONNECTOR_PERMISSIONS,
-        selectedAdAccountIds: ['act_123', 'act_456'],
-        defaultAdAccountId: 'act_456',
+        selectedAdAccountIds: [],
       },
     })
   })

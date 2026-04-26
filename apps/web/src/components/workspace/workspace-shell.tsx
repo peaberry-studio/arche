@@ -1376,7 +1376,10 @@ export function WorkspaceShell({
       }
       sessions={rootSessions}
       activeSessionId={activeRootSessionId}
+      hasMoreSessions={workspace.hasMoreSessions}
+      isLoadingMoreSessions={workspace.isLoadingMoreSessions}
       unseenCompletedSessions={workspace.unseenCompletedSessions}
+      onLoadMoreSessions={workspace.loadMoreSessions}
       onSelectSession={handleSelectSession}
       onMarkAutopilotRunSeen={workspace.markAutopilotRunSeen}
       onCreateSession={handleCreateSession}

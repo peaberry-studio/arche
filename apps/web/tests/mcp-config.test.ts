@@ -156,42 +156,6 @@ describe('mcp-config', () => {
     })
   })
 
-  it('skips Meta Ads connectors in desktop runtime', () => {
-    const connectors = [
-      {
-        id: 'm1',
-        type: 'meta-ads',
-        name: 'Meta Ads',
-        enabled: true,
-        config: encryptConfig({
-          authType: 'oauth',
-          appId: 'meta-app-id',
-          appSecret: 'meta-app-secret',
-          permissions: {
-            allowRead: true,
-            allowWriteCampaigns: false,
-            allowWriteAdSets: false,
-            allowWriteAds: false,
-          },
-          selectedAdAccountIds: ['act_123'],
-          oauth: { provider: 'meta-ads', clientId: 'meta-app-id', accessToken: 'meta-token' },
-        }),
-      },
-    ]
-
-    const result = buildMcpConfigFromConnectors(connectors, {
-      gatewayTargets: {
-        m1: {
-          url: 'http://web:3000/api/internal/mcp/connectors/m1/mcp',
-          token: 'gateway-token-m1',
-        },
-      },
-      runtimeMode: 'desktop',
-    })
-
-    expect(result.mcp['arche_meta-ads_m1']).toBeUndefined()
-  })
-
   it('skips connectors when required fields are not strings', () => {
     const connectors = [
       {
@@ -299,6 +263,39 @@ describe('mcp-config', () => {
       headers: {
         'X-Tenant': 'acme',
         Authorization: 'Bearer gateway-token',
+      },
+    })
+  })
+
+  it('routes Ahrefs connectors through gateway targets when provided', () => {
+    const connectors = [
+      {
+        id: 'ahrefs-1',
+        type: 'ahrefs',
+        name: 'Ahrefs',
+        enabled: true,
+        config: encryptConfig({
+          apiKey: 'ahrefs-api-key',
+        }),
+      },
+    ]
+
+    const result = buildMcpConfigFromConnectors(connectors, {
+      gatewayTargets: {
+        'ahrefs-1': {
+          url: 'http://web:3000/api/internal/mcp/connectors/ahrefs-1/mcp',
+          token: 'gateway-token-ahrefs',
+        },
+      },
+    })
+
+    expect(result.mcp['arche_ahrefs_ahrefs-1']).toEqual({
+      type: 'remote',
+      url: 'http://web:3000/api/internal/mcp/connectors/ahrefs-1/mcp',
+      enabled: true,
+      oauth: false,
+      headers: {
+        Authorization: 'Bearer gateway-token-ahrefs',
       },
     })
   })

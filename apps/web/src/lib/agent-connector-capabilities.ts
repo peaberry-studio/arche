@@ -1,14 +1,13 @@
 import type { UserKind } from '@prisma/client'
 
 import { getConnectorCapabilityId, type ConnectorCapabilityRecord } from '@/lib/agent-capabilities'
-import { isConnectorTypeAvailable } from '@/lib/connectors/availability'
 import {
   isSingleInstanceConnectorType,
   SINGLE_INSTANCE_CONNECTOR_TYPES,
   type ConnectorType,
 } from '@/lib/connectors/types'
 import { validateConnectorType } from '@/lib/connectors/validators'
-import { getRuntimeMode, type RuntimeMode } from '@/lib/runtime/mode'
+import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { connectorService } from '@/lib/services'
 
 export type AgentConnectorCapabilityOption = {
@@ -26,7 +25,21 @@ const SINGLE_INSTANCE_CONNECTOR_LABELS = {
   'meta-ads': 'Meta Ads',
   notion: 'Notion',
   zendesk: 'Zendesk',
+  ahrefs: 'Ahrefs',
+  umami: 'Umami',
+  google_gmail: 'Gmail',
+  google_drive: 'Google Drive',
+  google_calendar: 'Google Calendar',
+  google_chat: 'Google Chat',
+  google_people: 'People API',
 } as const satisfies Record<Exclude<ConnectorType, 'custom'>, string>
+
+function isConnectorCapabilityAvailable(type: ConnectorType): boolean {
+  if (type === 'meta-ads') {
+    return getRuntimeCapabilities().metaAdsConnector
+  }
+  return true
+}
 
 export function buildAgentConnectorCapabilityOptions(entries: Array<{
   id: string
@@ -34,11 +47,11 @@ export function buildAgentConnectorCapabilityOptions(entries: Array<{
   name: string
   enabled: boolean
   user: { kind: UserKind; slug: string }
-}>, runtimeMode: RuntimeMode = getRuntimeMode()): AgentConnectorCapabilityOption[] {
+}>): AgentConnectorCapabilityOption[] {
   const options = new Map<string, AgentConnectorCapabilityOption>()
 
   for (const type of SINGLE_INSTANCE_CONNECTOR_TYPES) {
-    if (!isConnectorTypeAvailable(type, runtimeMode)) {
+    if (!isConnectorCapabilityAvailable(type)) {
       continue
     }
 
@@ -55,7 +68,7 @@ export function buildAgentConnectorCapabilityOptions(entries: Array<{
 
   for (const entry of entries) {
     if (!validateConnectorType(entry.type)) continue
-    if (!isConnectorTypeAvailable(entry.type, runtimeMode)) continue
+    if (!isConnectorCapabilityAvailable(entry.type)) continue
 
     if (isSingleInstanceConnectorType(entry.type)) {
       const id = getConnectorCapabilityId(entry.type, entry.id)

@@ -1,13 +1,15 @@
-import { isConnectorTypeAvailable } from '@/lib/connectors/availability'
+import { parseAhrefsConnectorConfig } from '@/lib/connectors/ahrefs'
 import { decryptConfig } from '@/lib/connectors/crypto'
 import { getConnectorGatewayBaseUrl } from '@/lib/connectors/gateway-config'
 import { issueConnectorGatewayToken } from '@/lib/connectors/gateway-tokens'
+import { getGoogleWorkspaceMcpServerUrl, isGoogleWorkspaceConnectorType } from '@/lib/connectors/google-workspace'
 import { isMetaAdsConnectorReady, parseMetaAdsConnectorConfig } from '@/lib/connectors/meta-ads'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
+import { parseUmamiConnectorConfig } from '@/lib/connectors/umami'
 import { parseZendeskConnectorConfig } from '@/lib/connectors/zendesk'
 import type { ConnectorType } from '@/lib/connectors/types'
 import { validateConnectorConfig, validateConnectorType } from '@/lib/connectors/validators'
-import { getRuntimeMode, type RuntimeMode } from '@/lib/runtime/mode'
+import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 
 const OPENCODE_CONFIG_SCHEMA = 'https://opencode.ai/config.json'
 
@@ -39,6 +41,14 @@ type GatewayTarget = {
   token: string
 }
 
+type EmbeddedConnectorParser = (config: Record<string, unknown>) => { ok: boolean }
+
+const EMBEDDED_CONNECTOR_PARSERS: Partial<Record<ConnectorType, EmbeddedConnectorParser>> = {
+  zendesk: parseZendeskConnectorConfig,
+  ahrefs: parseAhrefsConnectorConfig,
+  umami: parseUmamiConnectorConfig,
+}
+
 function getString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
@@ -52,20 +62,57 @@ function toStringRecord(value: unknown): Record<string, string> | undefined {
   return Object.keys(record).length ? record : undefined
 }
 
+function getEmbeddedConnectorParser(type: ConnectorType) {
+  return EMBEDDED_CONNECTOR_PARSERS[type]
+}
+
 export function buildMcpServerKey(type: ConnectorType, id: string): string {
   return `arche_${type}_${id}`
 }
 
+function buildOAuthRemoteMcpConfig(input: {
+  connectorId: string
+  connectorType: ConnectorType
+  config: Record<string, unknown>
+  gatewayTargets?: Record<string, GatewayTarget>
+  defaultMcpUrl: string
+}): McpServerConfig | undefined {
+  const gatewayTarget = input.gatewayTargets?.[input.connectorId]
+  if (gatewayTarget) {
+    return {
+      type: 'remote',
+      url: gatewayTarget.url,
+      enabled: true,
+      headers: {
+        Authorization: `Bearer ${gatewayTarget.token}`,
+      },
+      oauth: false,
+    }
+  }
+
+  const oauthToken = getConnectorOAuthConfig(input.connectorType, input.config)?.accessToken
+  if (!oauthToken) return undefined
+
+  return {
+    type: 'remote',
+    url: input.defaultMcpUrl,
+    enabled: true,
+    headers: {
+      Authorization: `Bearer ${oauthToken}`,
+    },
+    oauth: false,
+  }
+}
+
 export function buildMcpConfigFromConnectors(
   connectors: ConnectorRecord[],
-  options?: { gatewayTargets?: Record<string, GatewayTarget>; runtimeMode?: RuntimeMode },
+  options?: { gatewayTargets?: Record<string, GatewayTarget> },
 ): McpConfig {
   const mcp: Record<string, McpServerConfig> = {}
-  const runtimeMode = options?.runtimeMode ?? getRuntimeMode()
 
   for (const connector of connectors) {
     if (!connector.enabled) continue
-    if (!validateConnectorType(connector.type) || !isConnectorTypeAvailable(connector.type, runtimeMode)) continue
+    if (!validateConnectorType(connector.type)) continue
 
     let config: Record<string, unknown>
     try {
@@ -82,30 +129,15 @@ export function buildMcpConfigFromConnectors(
     switch (connector.type) {
       case 'notion':
         if (getConnectorAuthType(config) === 'oauth') {
-          const gatewayTarget = options?.gatewayTargets?.[connector.id]
-          if (gatewayTarget) {
-            mcp[key] = {
-              type: 'remote',
-              url: gatewayTarget.url,
-              enabled: true,
-              headers: {
-                Authorization: `Bearer ${gatewayTarget.token}`,
-              },
-              oauth: false,
-            }
-            break
-          }
-
-          const oauthToken = getConnectorOAuthConfig('notion', config)?.accessToken
-          if (!oauthToken) break
-          mcp[key] = {
-            type: 'remote',
-            url: 'https://mcp.notion.com/mcp',
-            enabled: true,
-            headers: {
-              Authorization: `Bearer ${oauthToken}`,
-            },
-            oauth: false,
+          const remoteConfig = buildOAuthRemoteMcpConfig({
+            connectorId: connector.id,
+            connectorType: 'notion',
+            config,
+            gatewayTargets: options?.gatewayTargets,
+            defaultMcpUrl: 'https://mcp.notion.com/mcp',
+          })
+          if (remoteConfig) {
+            mcp[key] = remoteConfig
           }
           break
         }
@@ -124,30 +156,15 @@ export function buildMcpConfigFromConnectors(
 
       case 'linear':
         if (getConnectorAuthType(config) === 'oauth') {
-          const gatewayTarget = options?.gatewayTargets?.[connector.id]
-          if (gatewayTarget) {
-            mcp[key] = {
-              type: 'remote',
-              url: gatewayTarget.url,
-              enabled: true,
-              headers: {
-                Authorization: `Bearer ${gatewayTarget.token}`,
-              },
-              oauth: false,
-            }
-            break
-          }
-
-          const oauthToken = getConnectorOAuthConfig('linear', config)?.accessToken
-          if (!oauthToken) break
-          mcp[key] = {
-            type: 'remote',
-            url: 'https://mcp.linear.app/mcp',
-            enabled: true,
-            headers: {
-              Authorization: `Bearer ${oauthToken}`,
-            },
-            oauth: false,
+          const remoteConfig = buildOAuthRemoteMcpConfig({
+            connectorId: connector.id,
+            connectorType: 'linear',
+            config,
+            gatewayTargets: options?.gatewayTargets,
+            defaultMcpUrl: 'https://mcp.linear.app/mcp',
+          })
+          if (remoteConfig) {
+            mcp[key] = remoteConfig
           }
           break
         }
@@ -219,10 +236,13 @@ export function buildMcpConfigFromConnectors(
         break
       }
 
-      case 'zendesk': {
-        const parsed = parseZendeskConnectorConfig(config)
+      case 'zendesk':
+      case 'ahrefs':
+      case 'umami': {
+        const parser = getEmbeddedConnectorParser(connector.type)
+        const parsed = parser?.(config)
         const gatewayTarget = options?.gatewayTargets?.[connector.id]
-        if (!parsed.ok || !gatewayTarget) break
+        if (!parsed?.ok || !gatewayTarget) break
 
         mcp[key] = {
           type: 'remote',
@@ -239,10 +259,7 @@ export function buildMcpConfigFromConnectors(
       case 'meta-ads': {
         const parsed = parseMetaAdsConnectorConfig(config)
         const gatewayTarget = options?.gatewayTargets?.[connector.id]
-        const oauthToken = getConnectorOAuthConfig('meta-ads', config)?.accessToken
-        if (!parsed.ok || !gatewayTarget || !oauthToken || !isMetaAdsConnectorReady(config)) {
-          break
-        }
+        if (!parsed.ok || !gatewayTarget) break
 
         mcp[key] = {
           type: 'remote',
@@ -257,6 +274,18 @@ export function buildMcpConfigFromConnectors(
       }
 
       default:
+        if (isGoogleWorkspaceConnectorType(connector.type) && getConnectorAuthType(config) === 'oauth') {
+          const remoteConfig = buildOAuthRemoteMcpConfig({
+            connectorId: connector.id,
+            connectorType: connector.type,
+            config,
+            gatewayTargets: options?.gatewayTargets,
+            defaultMcpUrl: getGoogleWorkspaceMcpServerUrl(connector.type),
+          })
+          if (remoteConfig) {
+            mcp[key] = remoteConfig
+          }
+        }
         break
     }
   }
@@ -276,7 +305,11 @@ export async function buildMcpConfigForSlug(slug: string): Promise<McpConfig | n
   const gatewayBase = getConnectorGatewayBaseUrl()
 
   for (const connector of connectors) {
-    if (!validateConnectorType(connector.type) || !isConnectorTypeAvailable(connector.type)) continue
+    if (!validateConnectorType(connector.type)) continue
+
+    if (connector.type === 'meta-ads' && !getRuntimeCapabilities().metaAdsConnector) {
+      continue
+    }
 
     let config: Record<string, unknown>
     try {
@@ -285,8 +318,9 @@ export async function buildMcpConfigForSlug(slug: string): Promise<McpConfig | n
       continue
     }
 
-    if (connector.type === 'zendesk') {
-      const parsed = parseZendeskConnectorConfig(config)
+    const parser = getEmbeddedConnectorParser(connector.type)
+    if (parser) {
+      const parsed = parser(config)
       if (!parsed.ok) continue
 
       gatewayTargets[connector.id] = {

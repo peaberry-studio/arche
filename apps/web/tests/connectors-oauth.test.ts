@@ -16,7 +16,12 @@ vi.mock('@/lib/security/ssrf', () => ({
 }))
 
 const originalOAuthMaxAuthorizeUrlLength = process.env.ARCHE_CONNECTOR_OAUTH_MAX_AUTHORIZE_URL_LENGTH
-
+const originalNotionClientId = process.env.ARCHE_CONNECTOR_NOTION_CLIENT_ID
+const originalNotionClientSecret = process.env.ARCHE_CONNECTOR_NOTION_CLIENT_SECRET
+const originalNotionMcpUrl = process.env.ARCHE_CONNECTOR_NOTION_MCP_URL
+const originalLinearMcpUrl = process.env.ARCHE_CONNECTOR_LINEAR_MCP_URL
+const originalGoogleClientId = process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_ID
+const originalGoogleClientSecret = process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_SECRET
 describe('connectors oauth state', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -31,10 +36,39 @@ describe('connectors oauth state', () => {
     vi.unstubAllGlobals()
     if (originalOAuthMaxAuthorizeUrlLength === undefined) {
       delete process.env.ARCHE_CONNECTOR_OAUTH_MAX_AUTHORIZE_URL_LENGTH
-      return
+    } else {
+      process.env.ARCHE_CONNECTOR_OAUTH_MAX_AUTHORIZE_URL_LENGTH = originalOAuthMaxAuthorizeUrlLength
     }
-
-    process.env.ARCHE_CONNECTOR_OAUTH_MAX_AUTHORIZE_URL_LENGTH = originalOAuthMaxAuthorizeUrlLength
+    if (originalNotionClientId === undefined) {
+      delete process.env.ARCHE_CONNECTOR_NOTION_CLIENT_ID
+    } else {
+      process.env.ARCHE_CONNECTOR_NOTION_CLIENT_ID = originalNotionClientId
+    }
+    if (originalNotionClientSecret === undefined) {
+      delete process.env.ARCHE_CONNECTOR_NOTION_CLIENT_SECRET
+    } else {
+      process.env.ARCHE_CONNECTOR_NOTION_CLIENT_SECRET = originalNotionClientSecret
+    }
+    if (originalNotionMcpUrl === undefined) {
+      delete process.env.ARCHE_CONNECTOR_NOTION_MCP_URL
+    } else {
+      process.env.ARCHE_CONNECTOR_NOTION_MCP_URL = originalNotionMcpUrl
+    }
+    if (originalLinearMcpUrl === undefined) {
+      delete process.env.ARCHE_CONNECTOR_LINEAR_MCP_URL
+    } else {
+      process.env.ARCHE_CONNECTOR_LINEAR_MCP_URL = originalLinearMcpUrl
+    }
+    if (originalGoogleClientId === undefined) {
+      delete process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_ID
+    } else {
+      process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_ID = originalGoogleClientId
+    }
+    if (originalGoogleClientSecret === undefined) {
+      delete process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_SECRET
+    } else {
+      process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_SECRET = originalGoogleClientSecret
+    }
   })
 
   it('issues and verifies state token', () => {
@@ -184,6 +218,108 @@ describe('connectors oauth state', () => {
     expect(state.returnTo).toBe('/u/alice/settings/integrations/slack')
   })
 
+  it('adds actor=app only for Linear app actor OAuth', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          authorization_endpoint: 'https://mcp.linear.app/authorize',
+          token_endpoint: 'https://mcp.linear.app/token',
+          registration_endpoint: 'https://mcp.linear.app/register',
+        }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ client_id: 'dynamic-user-client' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const userPrepared = await prepareConnectorOAuthAuthorization({
+      connectorId: 'linear-user',
+      slug: 'alice',
+      userId: 'user-1',
+      connectorType: 'linear',
+      redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
+      connectorConfig: { authType: 'oauth', oauthScope: 'read,write' },
+    })
+
+    const appPrepared = await prepareConnectorOAuthAuthorization({
+      connectorId: 'linear-app',
+      slug: 'alice',
+      userId: 'user-1',
+      connectorType: 'linear',
+      redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
+      connectorConfig: {
+        authType: 'oauth',
+        oauthActor: 'app',
+        oauthClientId: 'linear-app-client-id',
+        oauthClientSecret: 'linear-app-client-secret',
+        oauthScope: 'read,write,app:mentionable',
+      },
+    })
+
+    const userAuthorizeUrl = new URL(userPrepared.authorizeUrl)
+    const appAuthorizeUrl = new URL(appPrepared.authorizeUrl)
+
+    expect(`${userAuthorizeUrl.origin}${userAuthorizeUrl.pathname}`).toBe('https://mcp.linear.app/authorize')
+    expect(`${appAuthorizeUrl.origin}${appAuthorizeUrl.pathname}`).toBe('https://linear.app/oauth/authorize')
+    expect(userAuthorizeUrl.searchParams.get('scope')).toBe('read,write')
+    expect(appAuthorizeUrl.searchParams.get('scope')).toBe('read,write,app:mentionable')
+    expect(userAuthorizeUrl.searchParams.get('actor')).toBeNull()
+    expect(appAuthorizeUrl.searchParams.get('actor')).toBe('app')
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://mcp.linear.app/.well-known/oauth-authorization-server')
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('https://mcp.linear.app/register')
+  })
+
+  it('requires Linear app actor client credentials', async () => {
+    await expect(prepareConnectorOAuthAuthorization({
+      connectorId: 'linear-app',
+      slug: 'alice',
+      userId: 'user-1',
+      connectorType: 'linear',
+      redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
+      connectorConfig: {
+        authType: 'oauth',
+        oauthActor: 'app',
+      },
+    })).rejects.toThrow('missing_linear_oauth_client_credentials')
+  })
+
+  it('uses Linear app actor client credentials from connector config before dynamic registration', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const prepared = await prepareConnectorOAuthAuthorization({
+      connectorId: 'linear-app',
+      slug: 'alice',
+      userId: 'user-1',
+      connectorType: 'linear',
+      redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
+      connectorConfig: {
+        authType: 'oauth',
+        oauthActor: 'app',
+        oauthClientId: 'connector-client-id',
+        oauthClientSecret: 'connector-client-secret',
+      },
+    })
+
+    const authorizeUrl = new URL(prepared.authorizeUrl)
+    expect(authorizeUrl.searchParams.get('client_id')).toBe('connector-client-id')
+    expect(authorizeUrl.searchParams.get('actor')).toBe('app')
+
+    const state = verifyConnectorOAuthState(prepared.state)
+    expect(state.clientId).toBe('connector-client-id')
+    expect(state.clientSecret).toBe('connector-client-secret')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('falls back to static custom OAuth client when dynamic registration fails', async () => {
     vi.stubGlobal(
       'fetch',
@@ -285,6 +421,252 @@ describe('connectors oauth state', () => {
     )
   })
 
+  it('discovers Linear user OAuth metadata via fallback when well-known is missing', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('not found', { status: 404 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ client_id: 'linear-user-dynamic' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const prepared = await prepareConnectorOAuthAuthorization({
+      connectorId: 'linear-user',
+      slug: 'alice',
+      userId: 'user-1',
+      connectorType: 'linear',
+      redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
+      connectorConfig: { authType: 'oauth' },
+    })
+
+    const authorizeUrl = new URL(prepared.authorizeUrl)
+    expect(authorizeUrl.origin).toBe('https://mcp.linear.app')
+    expect(authorizeUrl.pathname).toBe('/authorize')
+    expect(authorizeUrl.searchParams.get('client_id')).toBe('linear-user-dynamic')
+    expect(authorizeUrl.searchParams.get('actor')).toBeNull()
+
+    const state = verifyConnectorOAuthState(prepared.state)
+    expect(state.clientId).toBe('linear-user-dynamic')
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://mcp.linear.app/.well-known/oauth-authorization-server')
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('https://mcp.linear.app/register')
+  })
+
+  it('uses Notion static env credentials when registration endpoint is unavailable', async () => {
+    process.env.ARCHE_CONNECTOR_NOTION_CLIENT_ID = 'notion-env-client-id'
+    process.env.ARCHE_CONNECTOR_NOTION_CLIENT_SECRET = 'notion-env-client-secret'
+
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(JSON.stringify({
+        authorization_endpoint: 'https://mcp.notion.com/authorize',
+        token_endpoint: 'https://mcp.notion.com/token',
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const prepared = await prepareConnectorOAuthAuthorization({
+      connectorId: 'notion-1',
+      slug: 'alice',
+      userId: 'user-1',
+      connectorType: 'notion',
+      redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
+    })
+
+    const authorizeUrl = new URL(prepared.authorizeUrl)
+    expect(authorizeUrl.searchParams.get('client_id')).toBe('notion-env-client-id')
+
+    const state = verifyConnectorOAuthState(prepared.state)
+    expect(state.clientId).toBe('notion-env-client-id')
+    expect(state.clientSecret).toBe('notion-env-client-secret')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('falls back to dynamic registration for Notion when env credentials are missing', async () => {
+    delete process.env.ARCHE_CONNECTOR_NOTION_CLIENT_ID
+    delete process.env.ARCHE_CONNECTOR_NOTION_CLIENT_SECRET
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('not found', { status: 404 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ client_id: 'notion-dynamic-client' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const prepared = await prepareConnectorOAuthAuthorization({
+      connectorId: 'notion-1',
+      slug: 'alice',
+      userId: 'user-1',
+      connectorType: 'notion',
+      redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
+    })
+
+    const authorizeUrl = new URL(prepared.authorizeUrl)
+    expect(authorizeUrl.origin).toBe('https://mcp.notion.com')
+    expect(authorizeUrl.pathname).toBe('/authorize')
+    expect(authorizeUrl.searchParams.get('client_id')).toBe('notion-dynamic-client')
+
+    const state = verifyConnectorOAuthState(prepared.state)
+    expect(state.clientId).toBe('notion-dynamic-client')
+  })
+
+  it('requires Google static OAuth credentials', async () => {
+    delete process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_ID
+    delete process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_SECRET
+
+    await expect(
+      prepareConnectorOAuthAuthorization({
+        connectorId: 'gmail-1',
+        slug: 'alice',
+        userId: 'user-1',
+        connectorType: 'google_gmail',
+        redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
+      })
+    ).rejects.toThrow('missing_google_oauth_client_credentials')
+  })
+
+  it('uses Google credentials from connector config over env when provided', async () => {
+    process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_ID = 'env-client-id'
+    process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_SECRET = 'env-client-secret'
+
+    const prepared = await prepareConnectorOAuthAuthorization({
+      connectorId: 'gmail-1',
+      slug: 'alice',
+      userId: 'user-1',
+      connectorType: 'google_gmail',
+      redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
+      connectorConfig: {
+        clientId: 'dashboard-client-id',
+        clientSecret: 'dashboard-client-secret',
+      },
+    })
+
+    const authorizeUrl = new URL(prepared.authorizeUrl)
+    expect(authorizeUrl.searchParams.get('client_id')).toBe('dashboard-client-id')
+
+    const state = verifyConnectorOAuthState(prepared.state)
+    expect(state.clientId).toBe('dashboard-client-id')
+    expect(state.clientSecret).toBe('dashboard-client-secret')
+  })
+
+  it('prepares Google OAuth with official endpoints, scopes, and offline access', async () => {
+    process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_ID = 'google-client-id'
+    process.env.ARCHE_CONNECTOR_GOOGLE_CLIENT_SECRET = 'google-client-secret'
+
+    const prepared = await prepareConnectorOAuthAuthorization({
+      connectorId: 'gmail-1',
+      slug: 'alice',
+      userId: 'user-1',
+      connectorType: 'google_gmail',
+      redirectUri: 'https://arche.example.com/api/connectors/oauth/callback',
+    })
+
+    const authorizeUrl = new URL(prepared.authorizeUrl)
+    expect(`${authorizeUrl.origin}${authorizeUrl.pathname}`).toBe('https://accounts.google.com/o/oauth2/v2/auth')
+    expect(authorizeUrl.searchParams.get('client_id')).toBe('google-client-id')
+    expect(authorizeUrl.searchParams.get('scope')).toBe(
+      'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose'
+    )
+    expect(authorizeUrl.searchParams.get('access_type')).toBe('offline')
+    expect(authorizeUrl.searchParams.get('prompt')).toBe('consent')
+
+    const state = verifyConnectorOAuthState(prepared.state)
+    expect(state.clientId).toBe('google-client-id')
+    expect(state.clientSecret).toBe('google-client-secret')
+    expect(state.tokenEndpoint).toBe('https://oauth2.googleapis.com/token')
+    expect(state.mcpServerUrl).toBe('https://gmailmcp.googleapis.com/mcp/v1')
+  })
+
+  it('discovers token endpoint during Linear OAuth refresh when missing', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          authorization_endpoint: 'https://mcp.linear.app/authorize',
+          token_endpoint: 'https://mcp.linear.app/token',
+        }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ access_token: 'linear-refreshed-token', expires_in: 1200 }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await refreshConnectorOAuthToken({
+      connectorType: 'linear',
+      refreshToken: 'refresh-token',
+      clientId: 'linear-client-id',
+    })
+
+    expect(result.accessToken).toBe('linear-refreshed-token')
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'https://mcp.linear.app/.well-known/oauth-authorization-server',
+      expect.objectContaining({ method: 'GET' })
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'https://mcp.linear.app/token',
+      expect.objectContaining({ method: 'POST' })
+    )
+  })
+
+  it('discovers token endpoint during Notion OAuth refresh when missing', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          authorization_endpoint: 'https://mcp.notion.com/authorize',
+          token_endpoint: 'https://mcp.notion.com/token',
+        }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ access_token: 'notion-refreshed-token', expires_in: 1200 }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await refreshConnectorOAuthToken({
+      connectorType: 'notion',
+      refreshToken: 'refresh-token',
+      clientId: 'notion-client-id',
+    })
+
+    expect(result.accessToken).toBe('notion-refreshed-token')
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'https://mcp.notion.com/.well-known/oauth-authorization-server',
+      expect.objectContaining({ method: 'GET' })
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'https://mcp.notion.com/token',
+      expect.objectContaining({ method: 'POST' })
+    )
+  })
+
   it('prepares Meta Ads OAuth without PKCE using connector credentials', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
@@ -367,11 +749,6 @@ describe('connectors oauth config', () => {
     expect(validateConnectorConfig('custom', { authType: 'oauth', endpoint: 'https://api.example.com/mcp' })).toEqual({
       valid: true,
     })
-    expect(validateConnectorConfig('meta-ads', {
-      authType: 'oauth',
-      appId: 'meta-app-id',
-      appSecret: 'meta-app-secret',
-    })).toEqual({ valid: true })
     expect(validateConnectorConfig('custom', { authType: 'oauth' })).toEqual({
       valid: false,
       missing: ['endpoint'],
@@ -381,7 +758,7 @@ describe('connectors oauth config', () => {
   it('builds and parses oauth config', () => {
     const config = buildConfigWithOAuth({
       connectorType: 'linear',
-      currentConfig: { org: 'acme' },
+      currentConfig: { org: 'acme', oauthActor: 'app' },
       oauth: {
         clientId: 'client-123',
         accessToken: 'token123',
@@ -391,6 +768,7 @@ describe('connectors oauth config', () => {
     })
 
     expect(getConnectorAuthType(config)).toBe('oauth')
+    expect(config.oauthActor).toBe('app')
     const oauth = getConnectorOAuthConfig('linear', config)
     expect(oauth?.clientId).toBe('client-123')
     expect(oauth?.accessToken).toBe('token123')
@@ -407,23 +785,6 @@ describe('connectors oauth config', () => {
     const customOauth = getConnectorOAuthConfig('custom', customConfig)
     expect(customOauth?.provider).toBe('custom')
     expect(customOauth?.accessToken).toBe('custom-token')
-
-    const metaConfig = buildConfigWithOAuth({
-      connectorType: 'meta-ads',
-      currentConfig: {
-        authType: 'oauth',
-        appId: 'meta-app-id',
-        appSecret: 'meta-app-secret',
-      },
-      oauth: {
-        clientId: 'meta-app-id',
-        clientSecret: 'meta-app-secret',
-        accessToken: 'meta-token',
-      },
-    })
-    const metaOauth = getConnectorOAuthConfig('meta-ads', metaConfig)
-    expect(metaOauth?.provider).toBe('meta-ads')
-    expect(metaOauth?.accessToken).toBe('meta-token')
   })
 
   it('detects token expiring soon', () => {

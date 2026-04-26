@@ -1,6 +1,6 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } = require('node:fs')
+const { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } = require('node:fs')
 const { tmpdir } = require('node:os')
 const { join } = require('node:path')
 
@@ -30,6 +30,7 @@ test('uses ARCHE_ENCRYPTION_KEY from env when valid', () => {
 
     assert.equal(resolved, key)
     assert.equal(env.ARCHE_ENCRYPTION_KEY, key)
+    assert.equal(env.ARCHE_DESKTOP_MANAGED_ENCRYPTION_KEY, undefined)
   })
 })
 
@@ -52,6 +53,7 @@ test('loads persisted key when env key is missing', () => {
 
     assert.equal(resolved, persisted)
     assert.equal(env.ARCHE_ENCRYPTION_KEY, persisted)
+    assert.equal(env.ARCHE_DESKTOP_MANAGED_ENCRYPTION_KEY, '1')
   })
 })
 
@@ -69,7 +71,9 @@ test('creates and persists a key when no env or key file exists', () => {
     const keyPath = join(dataDir, '.secrets', 'encryption.key')
     assert.equal(resolved, generated)
     assert.equal(env.ARCHE_ENCRYPTION_KEY, generated)
+    assert.equal(env.ARCHE_DESKTOP_MANAGED_ENCRYPTION_KEY, '1')
     assert.equal(readFileSync(keyPath, 'utf-8').trim(), generated)
+    assert.equal(statSync(keyPath).mode & 0o777, 0o600)
   })
 })
 
@@ -79,6 +83,7 @@ test('replaces an invalid persisted key', () => {
     const keyPath = join(keyDir, 'encryption.key')
     mkdirSync(keyDir, { recursive: true })
     writeFileSync(keyPath, 'invalid-key\n', 'utf-8')
+    chmodSync(keyPath, 0o644)
 
     const generated = Buffer.alloc(32, 31).toString('base64')
     const env = {}
@@ -90,7 +95,9 @@ test('replaces an invalid persisted key', () => {
 
     assert.equal(resolved, generated)
     assert.equal(env.ARCHE_ENCRYPTION_KEY, generated)
+    assert.equal(env.ARCHE_DESKTOP_MANAGED_ENCRYPTION_KEY, '1')
     assert.equal(readFileSync(keyPath, 'utf-8').trim(), generated)
+    assert.equal(statSync(keyPath).mode & 0o777, 0o600)
   })
 })
 

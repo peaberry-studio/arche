@@ -20,6 +20,7 @@ describe('requireCapability', () => {
     expect(requireCapability('connectors')).toBeNull()
     expect(requireCapability('twoFactor')).toBeNull()
     expect(requireCapability('autopilot')).toBeNull()
+    expect(requireCapability('googleWorkspaceIntegration')).toBeNull()
   })
 
   it('returns 403 when capability is disabled (desktop mode)', async () => {
@@ -73,6 +74,17 @@ describe('requireCapability', () => {
     const { requireCapability } = await import('../require-capability')
 
     const res = requireCapability('autopilot')
+    expect(res).not.toBeNull()
+    expect(res!.status).toBe(403)
+  })
+
+  it('blocks googleWorkspaceIntegration in desktop mode', async () => {
+    process.env.ARCHE_RUNTIME_MODE = 'desktop'
+    process.env.ARCHE_DESKTOP_PLATFORM = 'darwin'
+    process.env.ARCHE_DESKTOP_WEB_HOST = '127.0.0.1'
+    const { requireCapability } = await import('../require-capability')
+
+    const res = requireCapability('googleWorkspaceIntegration')
     expect(res).not.toBeNull()
     expect(res!.status).toBe(403)
   })

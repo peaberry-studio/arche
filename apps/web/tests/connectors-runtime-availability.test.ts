@@ -107,8 +107,7 @@ describe('desktop connector availability routes', () => {
 
     expect(response.status).toBe(403)
     await expect(response.json()).resolves.toEqual({
-      error: 'connector_not_available',
-      message: 'Meta Ads connectors are only available in the VPS runtime.',
+      error: 'metaAdsConnector is not available in this runtime mode',
     })
     expect(mockCreate).not.toHaveBeenCalled()
   })
@@ -124,8 +123,7 @@ describe('desktop connector availability routes', () => {
 
     expect(response.status).toBe(403)
     await expect(response.json()).resolves.toEqual({
-      error: 'connector_not_available',
-      message: 'Meta Ads connectors are only available in the VPS runtime.',
+      error: 'metaAdsConnector is not available in this runtime mode',
     })
     expect(mockDecryptConfig).not.toHaveBeenCalled()
   })
@@ -141,8 +139,7 @@ describe('desktop connector availability routes', () => {
 
     expect(response.status).toBe(403)
     await expect(response.json()).resolves.toEqual({
-      error: 'connector_not_available',
-      message: 'Meta Ads connectors are only available in the VPS runtime.',
+      error: 'metaAdsConnector is not available in this runtime mode',
     })
     expect(mockRefreshConnectorOAuthConfigIfNeeded).not.toHaveBeenCalled()
   })
@@ -158,8 +155,7 @@ describe('desktop connector availability routes', () => {
 
     expect(response.status).toBe(403)
     await expect(response.json()).resolves.toEqual({
-      error: 'connector_not_available',
-      message: 'Meta Ads connectors are only available in the VPS runtime.',
+      error: 'metaAdsConnector is not available in this runtime mode',
     })
     expect(mockDecryptConfig).not.toHaveBeenCalled()
     expect(mockAuditEvent).not.toHaveBeenCalled()

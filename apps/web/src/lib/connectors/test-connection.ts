@@ -1,6 +1,8 @@
+import { parseAhrefsConnectorConfig, testAhrefsConnection } from '@/lib/connectors/ahrefs'
 import { getConnectorMcpServerUrl } from '@/lib/connectors/mcp/server-url'
 import { testMetaAdsConnection } from '@/lib/connectors/meta-ads'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
+import { parseUmamiConnectorConfig, testUmamiConnection } from '@/lib/connectors/umami'
 import { getZendeskMcpProtocolVersion, parseZendeskConnectorConfig, testZendeskConnection } from '@/lib/connectors/zendesk'
 import type { ConnectorType } from '@/lib/connectors/types'
 
@@ -41,8 +43,20 @@ function getAccessToken(type: ConnectorType, config: Record<string, unknown>): s
       return typeof config.apiKey === 'string' ? config.apiKey : null
     case 'zendesk':
     case 'meta-ads':
+    case 'ahrefs':
+    case 'umami':
     case 'custom':
       return null
+    case 'google_gmail':
+    case 'google_drive':
+    case 'google_calendar':
+    case 'google_chat':
+    case 'google_people':
+      return null
+    default: {
+      const _exhaustive: never = type
+      throw new Error(`Unhandled connector type: ${_exhaustive}`)
+    }
   }
 }
 
@@ -93,7 +107,7 @@ function getRequiredAccessToken(
 }
 
 async function testRemoteMcpConnection(input: {
-  label: 'Linear' | 'Notion' | 'Custom'
+  label: string
   url: string
   token: string
 }): Promise<TestConnectionResult> {
@@ -130,9 +144,15 @@ async function testRemoteMcpConnection(input: {
   }
 }
 
-const CONNECTOR_TEST_HANDLERS: Record<ConnectorType, TestConnectionHandler> = {
-  zendesk: async (config) => {
-    const parsed = parseZendeskConnectorConfig(config)
+type EmbeddedConnectorTestConnection<TConfig> = (config: TConfig) => Promise<{ ok: boolean; message?: string }>
+
+function buildEmbeddedConnectorTestHandler<TConfig>(
+  label: string,
+  parseConfig: (config: Record<string, unknown>) => { ok: true; value: TConfig } | { ok: false; missing?: string[]; message?: string },
+  testConnection: EmbeddedConnectorTestConnection<TConfig>
+): TestConnectionHandler {
+  return async (config) => {
+    const parsed = parseConfig(config)
     if (!parsed.ok) {
       return {
         ok: false,
@@ -141,7 +161,7 @@ const CONNECTOR_TEST_HANDLERS: Record<ConnectorType, TestConnectionHandler> = {
       }
     }
 
-    const response = await testZendeskConnection(parsed.value)
+    const response = await testConnection(parsed.value)
     if (!response.ok) {
       return {
         ok: false,
@@ -150,8 +170,28 @@ const CONNECTOR_TEST_HANDLERS: Record<ConnectorType, TestConnectionHandler> = {
       }
     }
 
-    return { ok: true, tested: true, message: 'Zendesk connection verified.' }
-  },
+    return { ok: true, tested: true, message: `${label} connection verified.` }
+  }
+}
+
+const CONNECTOR_TEST_HANDLERS: Record<ConnectorType, TestConnectionHandler> = {
+  ahrefs: buildEmbeddedConnectorTestHandler(
+    'Ahrefs',
+    parseAhrefsConnectorConfig,
+    testAhrefsConnection
+  ),
+
+  zendesk: buildEmbeddedConnectorTestHandler(
+    'Zendesk',
+    parseZendeskConnectorConfig,
+    testZendeskConnection
+  ),
+
+  umami: buildEmbeddedConnectorTestHandler(
+    'Umami',
+    parseUmamiConnectorConfig,
+    testUmamiConnection
+  ),
 
   'meta-ads': async (config) => {
     const pending = getPendingOAuthMessage('meta-ads', config)
@@ -260,6 +300,101 @@ const CONNECTOR_TEST_HANDLERS: Record<ConnectorType, TestConnectionHandler> = {
     }
 
     return { ok: true, tested: true, message: 'Custom endpoint reachable.' }
+  },
+
+  google_gmail: async (config) => {
+    const pending = getPendingOAuthMessage('google_gmail', config)
+    if (pending) return pending
+
+    const token = getRequiredAccessToken('google_gmail', config, 'Missing OAuth access token')
+    if (!token.ok) return token.result
+
+    const url = getConnectorMcpServerUrl('google_gmail', config)
+    if (!url) {
+      return { ok: false, tested: false, message: 'Missing MCP server URL' }
+    }
+
+    return testRemoteMcpConnection({
+      label: 'Gmail',
+      url,
+      token: token.token,
+    })
+  },
+
+  google_drive: async (config) => {
+    const pending = getPendingOAuthMessage('google_drive', config)
+    if (pending) return pending
+
+    const token = getRequiredAccessToken('google_drive', config, 'Missing OAuth access token')
+    if (!token.ok) return token.result
+
+    const url = getConnectorMcpServerUrl('google_drive', config)
+    if (!url) {
+      return { ok: false, tested: false, message: 'Missing MCP server URL' }
+    }
+
+    return testRemoteMcpConnection({
+      label: 'Google Drive',
+      url,
+      token: token.token,
+    })
+  },
+
+  google_calendar: async (config) => {
+    const pending = getPendingOAuthMessage('google_calendar', config)
+    if (pending) return pending
+
+    const token = getRequiredAccessToken('google_calendar', config, 'Missing OAuth access token')
+    if (!token.ok) return token.result
+
+    const url = getConnectorMcpServerUrl('google_calendar', config)
+    if (!url) {
+      return { ok: false, tested: false, message: 'Missing MCP server URL' }
+    }
+
+    return testRemoteMcpConnection({
+      label: 'Google Calendar',
+      url,
+      token: token.token,
+    })
+  },
+
+  google_chat: async (config) => {
+    const pending = getPendingOAuthMessage('google_chat', config)
+    if (pending) return pending
+
+    const token = getRequiredAccessToken('google_chat', config, 'Missing OAuth access token')
+    if (!token.ok) return token.result
+
+    const url = getConnectorMcpServerUrl('google_chat', config)
+    if (!url) {
+      return { ok: false, tested: false, message: 'Missing MCP server URL' }
+    }
+
+    return testRemoteMcpConnection({
+      label: 'Google Chat',
+      url,
+      token: token.token,
+    })
+  },
+
+  google_people: async (config) => {
+    const pending = getPendingOAuthMessage('google_people', config)
+    if (pending) return pending
+
+    const token = getRequiredAccessToken('google_people', config, 'Missing OAuth access token')
+    if (!token.ok) return token.result
+
+    const url = getConnectorMcpServerUrl('google_people', config)
+    if (!url) {
+      return { ok: false, tested: false, message: 'Missing MCP server URL' }
+    }
+
+    return testRemoteMcpConnection({
+      label: 'People API',
+      url,
+      token: token.token,
+    })
   },
 }
 

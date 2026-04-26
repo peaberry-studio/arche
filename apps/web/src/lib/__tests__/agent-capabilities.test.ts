@@ -40,12 +40,13 @@ describe('agent-capabilities', () => {
       {
         skillIds: ['pdf-processing'],
         tools: ['document_inspect', 'presentation_inspect', 'read', 'grep'],
-        mcpConnectorIds: ['globallinear', 'globalzendesk'],
+        mcpConnectorIds: ['globallinear', 'globalumami', 'globalzendesk'],
       },
       [
         { id: 'globallinear', type: 'linear' },
         { id: 'globalmetaads', type: 'meta-ads' },
         { id: 'globalnotion', type: 'notion' },
+        { id: 'globalumami', type: 'umami' },
         { id: 'globalzendesk', type: 'zendesk' },
       ]
     )
@@ -59,6 +60,7 @@ describe('agent-capabilities', () => {
     expect(config['arche_*']).toBe(false)
     expect(config['arche_linear_globallinear_*']).toBe(true)
     expect(config['arche_meta-ads_globalmetaads_*']).toBeUndefined()
+    expect(config['arche_umami_globalumami_*']).toBe(true)
     expect(config['arche_zendesk_globalzendesk_*']).toBe(true)
     expect(config['arche_notion_globalnotion_*']).toBeUndefined()
   })
@@ -73,6 +75,7 @@ describe('agent-capabilities', () => {
         write: false,
         'arche_*': false,
         'arche_custom_conn123_*': true,
+        'arche_umami_conn999_*': true,
         'arche_zendesk_conn456_*': true,
       },
       {
@@ -86,7 +89,7 @@ describe('agent-capabilities', () => {
     expect(capabilities).toEqual({
       skillIds: ['pdf-processing'],
       tools: ['document_inspect', 'grep', 'read'],
-      mcpConnectorIds: ['conn123', 'globalzendesk'],
+      mcpConnectorIds: ['conn123', 'globalumami', 'globalzendesk'],
     })
   })
 

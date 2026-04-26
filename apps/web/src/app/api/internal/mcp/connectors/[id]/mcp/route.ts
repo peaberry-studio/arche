@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { requireAvailableConnectorType } from '@/lib/connectors/availability-response'
 import { decryptConfig } from '@/lib/connectors/crypto'
 import { verifyConnectorGatewayToken } from '@/lib/connectors/gateway-tokens'
+import { handleAhrefsMcpRequest } from '@/lib/connectors/mcp/ahrefs-handler'
 import { handleMetaAdsMcpRequest } from '@/lib/connectors/mcp/meta-ads-handler'
 import { proxyConnectorMcpRequest } from '@/lib/connectors/mcp/remote-proxy'
+import { handleUmamiMcpRequest } from '@/lib/connectors/mcp/umami-handler'
 import { handleZendeskMcpRequest } from '@/lib/connectors/mcp/zendesk-handler'
 import { isOAuthConnectorType } from '@/lib/connectors/oauth'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
 import { refreshConnectorOAuthConfigIfNeeded } from '@/lib/connectors/oauth-refresh'
+import { requireCapability } from '@/lib/runtime/require-capability'
 import { validateConnectorType } from '@/lib/connectors/validators'
 import { connectorService } from '@/lib/services'
 
@@ -58,9 +60,9 @@ async function handleProxy(
     return NextResponse.json({ error: 'unsupported_connector' }, { status: 400 })
   }
 
-  const unavailable = requireAvailableConnectorType(connector.type)
-  if (unavailable) {
-    return unavailable
+  if (connector.type === 'meta-ads') {
+    const denied = requireCapability('metaAdsConnector')
+    if (denied) return denied
   }
 
   const refreshedConfig = await refreshConnectorOAuthConfigIfNeeded(connector)
@@ -75,6 +77,14 @@ async function handleProxy(
 
   if (connector.type === 'zendesk') {
     return handleZendeskMcpRequest(request, decryptedConfig)
+  }
+
+  if (connector.type === 'ahrefs') {
+    return handleAhrefsMcpRequest(request, decryptedConfig)
+  }
+
+  if (connector.type === 'umami') {
+    return handleUmamiMcpRequest(request, decryptedConfig)
   }
 
   if (connector.type === 'meta-ads') {

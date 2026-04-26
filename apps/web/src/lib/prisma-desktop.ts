@@ -230,16 +230,16 @@ function getDesktopDatabasePath(): string {
     return contextDatabaseUrl.replace(/^file:/, '')
   }
 
+  const vaultRoot = process.env.ARCHE_DATA_DIR?.trim()
+  if (vaultRoot) {
+    return join(vaultRoot, DESKTOP_DATABASE_FILE_NAME)
+  }
+
   if (process.env.DATABASE_URL) {
     return process.env.DATABASE_URL.replace(/^file:/, '')
   }
 
-  const vaultRoot = process.env.ARCHE_DATA_DIR?.trim()
-  if (!vaultRoot) {
-    throw new Error('Desktop database access requires ARCHE_DATA_DIR to point at the active vault')
-  }
-
-  return join(vaultRoot, DESKTOP_DATABASE_FILE_NAME)
+  throw new Error('Desktop database access requires ARCHE_DATA_DIR to point at the active vault')
 }
 
 function ensureDirectoryExists(filePath: string): void {

@@ -1,8 +1,9 @@
-import type { Prisma } from '@prisma/client'
-
+import { encryptConfig, decryptConfig } from '@/lib/connectors/crypto'
 import { prisma } from '@/lib/prisma'
 
-export const SLACK_INTEGRATION_SINGLETON_KEY = 'default'
+import { findByKey, updateStateByKey, upsertByKey } from './external-integrations'
+
+export const SLACK_INTEGRATION_KEY = 'slack'
 
 export type SlackIntegrationRecord = {
   singletonKey: string
@@ -19,6 +20,7 @@ export type SlackIntegrationRecord = {
   version: number
   createdAt: Date
   updatedAt: Date
+  configCorrupted?: boolean
 }
 
 export type SlackThreadBindingRecord = {
@@ -31,13 +33,76 @@ export type SlackThreadBindingRecord = {
   updatedAt: Date
 }
 
-export function findIntegration(): Promise<SlackIntegrationRecord | null> {
-  return prisma.slackIntegration.findUnique({
-    where: { singletonKey: SLACK_INTEGRATION_SINGLETON_KEY },
-  })
+type SlackConfig = {
+  enabled?: boolean
+  botTokenSecret?: string | null
+  appTokenSecret?: string | null
+  defaultAgentId?: string | null
 }
 
-export function saveIntegrationConfig(args: {
+type SlackState = {
+  slackTeamId?: string | null
+  slackAppId?: string | null
+  slackBotUserId?: string | null
+  lastError?: string | null
+  lastSocketConnectedAt?: string | null
+  lastEventAt?: string | null
+}
+
+function parseState(state: unknown): SlackState {
+  if (typeof state === 'string') {
+    try {
+      return JSON.parse(state) as SlackState
+    } catch {
+      return {}
+    }
+  }
+  if (state && typeof state === 'object') {
+    return state as SlackState
+  }
+  return {}
+}
+
+function safeDecryptConfig(encryptedConfig: string): { ok: true; config: SlackConfig } | { ok: false } {
+  try {
+    return { ok: true, config: decryptConfig(encryptedConfig) as SlackConfig }
+  } catch (error) {
+    console.error('[slack] Failed to decrypt integration config', error instanceof Error ? error.message : error)
+    return { ok: false }
+  }
+}
+
+function toRecord(row: { key: string; config: string; state: unknown; version: number; createdAt: Date; updatedAt: Date }): SlackIntegrationRecord {
+  const decryptResult = safeDecryptConfig(row.config)
+  const config = decryptResult.ok ? decryptResult.config : {}
+  const state = parseState(row.state)
+
+  return {
+    singletonKey: row.key,
+    enabled: config.enabled ?? false,
+    botTokenSecret: config.botTokenSecret ?? null,
+    appTokenSecret: config.appTokenSecret ?? null,
+    slackTeamId: state.slackTeamId ?? null,
+    slackAppId: state.slackAppId ?? null,
+    slackBotUserId: state.slackBotUserId ?? null,
+    defaultAgentId: config.defaultAgentId ?? null,
+    lastError: state.lastError ?? null,
+    lastSocketConnectedAt: state.lastSocketConnectedAt ? new Date(state.lastSocketConnectedAt) : null,
+    lastEventAt: state.lastEventAt ? new Date(state.lastEventAt) : null,
+    version: row.version,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    configCorrupted: !decryptResult.ok,
+  }
+}
+
+export async function findIntegration(): Promise<SlackIntegrationRecord | null> {
+  const row = await findByKey(SLACK_INTEGRATION_KEY)
+  if (!row) return null
+  return toRecord(row)
+}
+
+export async function saveIntegrationConfig(args: {
   enabled: boolean
   botTokenSecret?: string | null
   appTokenSecret?: string | null
@@ -47,102 +112,63 @@ export function saveIntegrationConfig(args: {
   defaultAgentId?: string | null
   clearLastError?: boolean
 }): Promise<SlackIntegrationRecord> {
-  const updateData: Prisma.SlackIntegrationUpdateInput = {
+  const existing = await findByKey(SLACK_INTEGRATION_KEY)
+  const existingDecrypt = existing ? safeDecryptConfig(existing.config) : { ok: true, config: {} as SlackConfig }
+  const existingConfig = existingDecrypt.ok ? existingDecrypt.config : {}
+  const existingState = existing ? parseState(existing.state) : {}
+
+  const nextConfig: SlackConfig = {
     enabled: args.enabled,
-    version: { increment: 1 },
+    botTokenSecret: args.botTokenSecret !== undefined ? args.botTokenSecret : existingConfig.botTokenSecret,
+    appTokenSecret: args.appTokenSecret !== undefined ? args.appTokenSecret : existingConfig.appTokenSecret,
+    defaultAgentId: args.defaultAgentId !== undefined ? args.defaultAgentId : existingConfig.defaultAgentId,
   }
 
-  if (args.botTokenSecret !== undefined) {
-    updateData.botTokenSecret = args.botTokenSecret
-  }
-  if (args.appTokenSecret !== undefined) {
-    updateData.appTokenSecret = args.appTokenSecret
-  }
-  if (args.slackTeamId !== undefined) {
-    updateData.slackTeamId = args.slackTeamId
-  }
-  if (args.slackAppId !== undefined) {
-    updateData.slackAppId = args.slackAppId
-  }
-  if (args.slackBotUserId !== undefined) {
-    updateData.slackBotUserId = args.slackBotUserId
-  }
-  if (args.defaultAgentId !== undefined) {
-    updateData.defaultAgentId = args.defaultAgentId
-  }
-  if (args.clearLastError) {
-    updateData.lastError = null
+  const nextState: SlackState = {
+    slackTeamId: args.slackTeamId !== undefined ? args.slackTeamId : existingState.slackTeamId,
+    slackAppId: args.slackAppId !== undefined ? args.slackAppId : existingState.slackAppId,
+    slackBotUserId: args.slackBotUserId !== undefined ? args.slackBotUserId : existingState.slackBotUserId,
+    lastError: args.clearLastError ? null : existingState.lastError,
+    lastSocketConnectedAt: existingState.lastSocketConnectedAt,
+    lastEventAt: existingState.lastEventAt,
   }
 
-  return prisma.slackIntegration.upsert({
-    where: { singletonKey: SLACK_INTEGRATION_SINGLETON_KEY },
-    create: {
-      singletonKey: SLACK_INTEGRATION_SINGLETON_KEY,
-      enabled: args.enabled,
-      botTokenSecret: args.botTokenSecret ?? null,
-      appTokenSecret: args.appTokenSecret ?? null,
-      slackTeamId: args.slackTeamId ?? null,
-      slackAppId: args.slackAppId ?? null,
-      slackBotUserId: args.slackBotUserId ?? null,
-      defaultAgentId: args.defaultAgentId ?? null,
-      lastError: args.clearLastError ? null : undefined,
-    },
-    update: updateData,
-  })
+  const row = await upsertByKey(SLACK_INTEGRATION_KEY, encryptConfig(nextConfig), nextState)
+  return toRecord(row)
 }
 
-export function clearIntegration(): Promise<SlackIntegrationRecord> {
-  return prisma.slackIntegration.upsert({
-    where: { singletonKey: SLACK_INTEGRATION_SINGLETON_KEY },
-    create: {
-      singletonKey: SLACK_INTEGRATION_SINGLETON_KEY,
-      enabled: false,
-      botTokenSecret: null,
-      appTokenSecret: null,
-      slackTeamId: null,
-      slackAppId: null,
-      slackBotUserId: null,
-      defaultAgentId: null,
-      lastError: null,
-    },
-    update: {
-      enabled: false,
-      botTokenSecret: null,
-      appTokenSecret: null,
-      slackTeamId: null,
-      slackAppId: null,
-      slackBotUserId: null,
-      defaultAgentId: null,
-      lastError: null,
-      lastSocketConnectedAt: null,
-      lastEventAt: null,
-      version: { increment: 1 },
-    },
-  })
+export async function clearIntegration(): Promise<SlackIntegrationRecord> {
+  const row = await upsertByKey(
+    SLACK_INTEGRATION_KEY,
+    encryptConfig({ enabled: false }),
+    {},
+  )
+  return toRecord(row)
 }
 
-export function markSocketConnected(connectedAt: Date) {
-  return prisma.slackIntegration.updateMany({
-    where: { singletonKey: SLACK_INTEGRATION_SINGLETON_KEY },
-    data: {
-      lastSocketConnectedAt: connectedAt,
-      lastError: null,
-    },
-  })
+export async function markSocketConnected(connectedAt: Date) {
+  const existing = await findByKey(SLACK_INTEGRATION_KEY)
+  const state = existing ? parseState(existing.state) : {}
+  state.lastSocketConnectedAt = connectedAt.toISOString()
+  state.lastError = null
+
+  await updateStateByKey(SLACK_INTEGRATION_KEY, state)
 }
 
-export function markEventReceived(receivedAt: Date) {
-  return prisma.slackIntegration.updateMany({
-    where: { singletonKey: SLACK_INTEGRATION_SINGLETON_KEY },
-    data: { lastEventAt: receivedAt },
-  })
+export async function markEventReceived(receivedAt: Date) {
+  const existing = await findByKey(SLACK_INTEGRATION_KEY)
+  const state = existing ? parseState(existing.state) : {}
+  state.lastEventAt = receivedAt.toISOString()
+
+  await updateStateByKey(SLACK_INTEGRATION_KEY, state)
 }
 
-export function markLastError(lastError: string | null) {
-  return prisma.slackIntegration.updateMany({
-    where: { singletonKey: SLACK_INTEGRATION_SINGLETON_KEY },
-    data: { lastError },
-  })
+export async function markLastError(lastError: string | null) {
+  const existing = await findByKey(SLACK_INTEGRATION_KEY)
+  const state = existing ? parseState(existing.state) : {}
+  state.lastError = lastError
+
+  await updateStateByKey(SLACK_INTEGRATION_KEY, state)
 }
 
 export async function hasEventReceipt(eventId: string): Promise<boolean> {

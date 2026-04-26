@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { BarChart3, BookText, Boxes, Globe, Ticket, Trash2 } from 'lucide-react'
+import { Trash2 } from 'lucide-react'
 
+import { ConnectorTypeIcon } from '@/components/connectors/connector-type-icon'
 import type { ConnectorListItem, ConnectorTestState } from '@/components/connectors/types'
+import { getLinearOAuthModeLabel } from '@/lib/connectors/linear'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
@@ -16,23 +18,6 @@ type ConnectorCardProps = {
   onToggleEnabled: (id: string, enabled: boolean) => void
   onTestConnection: (id: string) => void
   onConnectOAuth: (id: string) => void
-}
-
-function getTypeIcon(type: ConnectorListItem['type']) {
-  switch (type) {
-    case 'linear':
-      return <Boxes className="h-4 w-4" />
-    case 'notion':
-      return <BookText className="h-4 w-4" />
-    case 'zendesk':
-      return <Ticket className="h-4 w-4" />
-    case 'meta-ads':
-      return <BarChart3 className="h-4 w-4" />
-    case 'custom':
-      return <Globe className="h-4 w-4" />
-    default:
-      return <Globe className="h-4 w-4" />
-  }
 }
 
 function getStatusMeta(connector: ConnectorListItem): {
@@ -60,6 +45,7 @@ export function ConnectorCard({
 }: ConnectorCardProps) {
   const usesOAuth = connector.authType === 'oauth'
   const statusMeta = getStatusMeta(connector)
+  const linearOAuthModeLabel = getLinearOAuthModeLabel(connector)
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const popoverRef = useRef<HTMLDivElement>(null)
@@ -93,13 +79,14 @@ export function ConnectorCard({
           {/* Left: icon + name + status */}
           <div className="flex items-center gap-3 min-w-0">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted/70 text-muted-foreground">
-              {getTypeIcon(connector.type)}
+              <ConnectorTypeIcon type={connector.type} className="h-4 w-4" />
             </div>
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold">{connector.name}</p>
-              <Badge variant={statusMeta.variant} className="mt-1">
-                {statusMeta.label}
-              </Badge>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <Badge variant={statusMeta.variant}>{statusMeta.label}</Badge>
+                {linearOAuthModeLabel ? <Badge variant="outline">{linearOAuthModeLabel}</Badge> : null}
+              </div>
             </div>
           </div>
 
