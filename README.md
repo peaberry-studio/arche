@@ -1,43 +1,47 @@
 # Arche
 
-*AI-native second brain for individuals. Shared knowledge layer for teams.*
+*AI-native expert team for companies. Personal second brain when you want it.*
 
-Arche is an open source AI agent platform for teams and individuals who want an AI-native way to manage knowledge and run specialized assistants.
+Arche is an open source AI agent platform built first for teams that want their own stack of specialized experts, grounded in shared company knowledge. It also works well for individuals who want a local AI-native second brain.
 
-Whether you are building a personal second brain or a shared company knowledge base, Arche helps you keep context in one place and make it actually useful to AI. Instead of starting every prompt from zero, you define your notes, products, tone, processes, and source material once. Each agent gets that shared knowledge plus its own isolated workspace.
+From one place, you can run support, copywriting, SEO, marketing, research, requirements, and ops agents. Instead of starting every prompt from zero, you define your products, tone, processes, docs, and source material once. Each agent gets that shared knowledge plus its own isolated workspace, so your AI team stays consistent and useful.
+
+Arche also works with the tools you already use. With dozens of integrations, including Slack, Google Workspace, Linear, Notion, Zendesk, Ahrefs, and Umami, plus support for any compatible remote MCP server, Arche becomes a shared entry point into your digital stack, not just another AI editor.
 
 ## See Arche
 
 ![Arche Desktop screenshot](resources/arche_desktop.jpeg)
 
-Arche usually fits one of these two flows:
+Arche usually fits one of these patterns:
 
-## What People Use Arche For
+## What Arche Is For
 
-- 🧠 Individuals: run an AI-native second brain so your notes, docs, and ideas stay structured and accessible to AI.
-- 🏢 Teams: give support, copywriting, SEO, research, requirements, and ops agents the same shared context.
-- 🔌 Connect tools like Linear, Notion, Zendesk, Ahrefs, Umami, and Google Workspace.
-- 💻 Choose a local desktop app for one machine or self-host Arche for a whole team.
+- 🏢 Teams: run a shared crew of experts for support, copywriting, SEO, marketing, research, requirements, and ops.
+- 🔌 Connected stack: plug Arche into Slack, Google Workspace, Linear, Notion, Zendesk, Ahrefs, Umami, and any compatible remote MCP server.
+- 🧠 Individuals: use the same system as an AI-native second brain for notes, docs, and ideas.
+- 💻 Deployment choice: start on one machine with Desktop or self-host Arche for your whole team.
 
 ## How Arche Works
 
 1. Choose a template and the agents you want to run.
-2. Add your personal or company knowledge, tone, and working context once.
-3. Let each agent work in its own isolated workspace without losing the shared context.
+2. Add your company or personal knowledge, tone, and working context once.
+3. Connect the tools you already use.
+4. Let each agent work in its own isolated workspace without losing the shared context.
 
 ## Principles
 
 - 🤖 AI-native: your knowledge base is meant to be usable by AI from day one, not bolted on later.
-- 🧠 Context-first: notes, docs, processes, and operating knowledge live in one place.
-- 🧩 Specialized agents: different assistants can share context without sharing runtime state.
-- 💻 Local or self-hosted: start on one machine with Desktop or run Arche for a full team.
+- 🏢 Team-first: Arche is designed around shared context, reusable experts, and repeatable work across a company.
+- 🔌 Connected stack: built-in integrations and compatible remote MCP servers let Arche work with the tools you already use.
+- 🧩 Specialized agents: support, copywriting, SEO, marketing, research, requirements, and ops can share knowledge without sharing runtime state.
+- 🧠 Individual-friendly: the same model also works as a personal second brain on one machine.
 
 ## Start Here
 
 | I want to... | Best option |
 |--------------|-------------|
-| 🧠 Try Arche locally or build a personal second brain | [Desktop App](#desktop-app) |
 | 🏢 Run Arche for a team | [Self-Hosting](#self-hosting) |
+| 🧠 Use Arche locally or build a personal second brain | [Desktop App](#desktop-app) |
 | 🛠️ Work on the codebase | [Local Development](#local-development) |
 
 ## Desktop App
