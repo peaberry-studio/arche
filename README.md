@@ -5,9 +5,9 @@
 
 # Arche
 
-*For companies or personal use.*
+*An AI-native system where your knowledge, tools, processes, and expert agents work together.*
 
-Arche is an open source AI agent platform for companies or personal use.
+Arche is an open source AI agent platform for companies or individuals who want to build a shared ecosystem of agents, knowledge, and workflows for their team, or use the same system as a personal second brain.
 
 - 🏢 For companies: build a shared AI-native ecosystem of agents, knowledge, and processes that every member of your team can use.
 - 🧠 For personal use: run Arche solo as a local AI-native second brain for notes, docs, and ideas.
