@@ -43,6 +43,11 @@ function getBadgeColor(percentage) {
   return '#e05d44'
 }
 
+export function formatBadgePercentage(percentage) {
+  const [wholePart, fractionalPart] = percentage.toFixed(2).split('.')
+  return `${wholePart}.${fractionalPart.slice(0, 1)}%`
+}
+
 function renderBadge(label, value, color) {
   const labelWidth = Math.max(50, label.length * 7 + 10)
   const valueWidth = Math.max(46, value.length * 7 + 10)
@@ -85,10 +90,9 @@ async function getBadgeData(summaryPath) {
     if (!Number.isFinite(percentage)) {
       throw new Error(`Invalid coverage percentage in ${summaryPath}`)
     }
-
     return {
       color: getBadgeColor(percentage),
-      value: `${percentage.toFixed(1)}%`,
+      value: formatBadgePercentage(percentage),
     }
   } catch {
     return {
@@ -109,4 +113,6 @@ async function main() {
   }
 }
 
-await main()
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await main()
+}
