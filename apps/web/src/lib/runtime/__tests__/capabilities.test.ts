@@ -30,6 +30,7 @@ describe('runtime capabilities', () => {
     expect(caps.autopilot).toBe(true)
     expect(caps.slackIntegration).toBe(true)
     expect(caps.googleWorkspaceIntegration).toBe(true)
+    expect(caps.kbGithubSync).toBe(true)
   })
 
   it('returns restricted capabilities in desktop mode', async () => {
@@ -52,6 +53,7 @@ describe('runtime capabilities', () => {
     expect(caps.autopilot).toBe(false)
     expect(caps.slackIntegration).toBe(false)
     expect(caps.googleWorkspaceIntegration).toBe(false)
+    expect(caps.kbGithubSync).toBe(true)
   })
 
   it('always returns a valid object (no undefined fields)', async () => {
