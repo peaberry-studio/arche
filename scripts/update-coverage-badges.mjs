@@ -44,8 +44,7 @@ function getBadgeColor(percentage) {
 }
 
 export function formatBadgePercentage(percentage) {
-  const [wholePart, fractionalPart] = percentage.toFixed(2).split('.')
-  return `${wholePart}.${fractionalPart.slice(0, 1)}%`
+  return `${Math.floor(percentage)}%`
 }
 
 function renderBadge(label, value, color) {

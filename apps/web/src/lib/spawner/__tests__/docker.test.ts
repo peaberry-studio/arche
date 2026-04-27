@@ -48,6 +48,7 @@ import {
   startContainer,
   stopContainer,
   removeContainer,
+  removeManagedContainerForSlug,
   inspectContainer,
   isContainerRunning,
 } from '../docker'
@@ -299,6 +300,50 @@ describe('docker', () => {
     it('removes a container with force option', async () => {
       await removeContainer('container-123')
       expect(mockContainer.remove).toHaveBeenCalledWith({ force: true })
+    })
+  })
+
+  describe('removeManagedContainerForSlug', () => {
+    it('removes a managed container matching the slug', async () => {
+      mockContainer.inspect.mockResolvedValue({
+        Config: {
+          Labels: {
+            'arche.managed': 'true',
+            'arche.user.slug': 'user-slug',
+          },
+        },
+      })
+
+      const removed = await removeManagedContainerForSlug('user-slug')
+
+      expect(removed).toBe(true)
+      expect(mockDockerInstance.getContainer).toHaveBeenCalledWith('opencode-user-slug')
+      expect(mockContainer.remove).toHaveBeenCalledWith({ force: true })
+    })
+
+    it('does not remove an unmanaged container using the same name', async () => {
+      mockContainer.inspect.mockResolvedValue({
+        Config: {
+          Labels: {
+            'arche.managed': 'false',
+            'arche.user.slug': 'user-slug',
+          },
+        },
+      })
+
+      const removed = await removeManagedContainerForSlug('user-slug')
+
+      expect(removed).toBe(false)
+      expect(mockContainer.remove).not.toHaveBeenCalled()
+    })
+
+    it('returns false when no matching container exists', async () => {
+      mockContainer.inspect.mockRejectedValue(new Error('not found'))
+
+      const removed = await removeManagedContainerForSlug('user-slug')
+
+      expect(removed).toBe(false)
+      expect(mockContainer.remove).not.toHaveBeenCalled()
     })
   })
 

@@ -29,15 +29,26 @@ function getErrorDetail(err: unknown): string | undefined {
   return error.json?.message ?? error.message ?? error.reason
 }
 
+function isStartingStillFresh(instance: { status: string; startedAt: Date | null }): boolean {
+  if (instance.status !== 'starting' || !instance.startedAt) return false
+
+  return Date.now() - instance.startedAt.getTime() <= getStartTimeoutMs() * 2
+}
+
 export async function startInstance(slug: string, userId: string): Promise<StartResult> {
   const existing = await instanceService.findBySlug(slug)
 
-  if (existing?.status === 'running') {
+  if (existing?.status === 'running' || (existing && isStartingStillFresh(existing))) {
     return { ok: false, error: 'already_running' }
   }
 
   const password = generatePassword()
   const encryptedPassword = encryptPassword(password)
+
+  if (existing?.containerId) {
+    await docker.removeContainer(existing.containerId).catch(() => {})
+  }
+  await docker.removeManagedContainerForSlug(slug)
 
   await instanceService.upsertStarting(slug, encryptedPassword)
 
