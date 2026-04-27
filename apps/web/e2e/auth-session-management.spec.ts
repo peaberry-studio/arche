@@ -9,15 +9,20 @@ async function signIn(page: Page, email: string, password: string, slug: string)
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('Password').fill(password)
   await page.getByRole('button', { name: 'Sign in' }).click()
-  await page.waitForURL(`**/u/${slug}`)
+  await expect(page).toHaveURL(new RegExp(`/u/${slug}$`))
+  await expect(page.getByRole('heading', { name: 'What do you want to work on today?' })).toBeVisible()
 }
 
-test('logs out from the dashboard navigation', async ({ page }) => {
-  await signIn(page, adminEmail, adminPassword, adminSlug)
+test('logs out from settings', async ({ page }) => {
+  const response = await page.request.post('/auth/login', {
+    data: { email: adminEmail, password: adminPassword },
+  })
+  expect(response.ok()).toBeTruthy()
 
-  await page.getByLabel('Log out').click()
+  await page.goto(`/u/${adminSlug}/settings`)
+  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
+  await page.getByRole('button', { name: 'Log out' }).click()
 
-  await page.waitForURL('**/login')
   await expect(page).toHaveURL(/\/login$/)
 
   await page.goto(`/u/${adminSlug}`)
@@ -50,7 +55,7 @@ test('admin resets a team member password and revokes existing sessions', async 
   await expect(page.getByText('Password reset. Share the new password securely.')).toBeVisible()
 
   await memberPage.goto(`/u/${userSlug}`)
-  await memberPage.waitForURL('**/login')
+  await expect(memberPage).toHaveURL(/\/login$/)
   await memberContext.close()
 
   const loginContext = await browser.newContext({ storageState: { cookies: [], origins: [] } })
