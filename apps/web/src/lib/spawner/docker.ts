@@ -187,6 +187,26 @@ export async function removeContainer(containerId: string): Promise<void> {
   await container.remove({ force: true });
 }
 
+export async function removeManagedContainerForSlug(slug: string): Promise<boolean> {
+  const docker = await getContainerClient();
+  const container = docker.getContainer(`opencode-${slug}`);
+
+  try {
+    const info = await container.inspect();
+    const labels = info.Config?.Labels ?? {};
+
+    if (labels["arche.managed"] !== "true" || labels["arche.user.slug"] !== slug) {
+      console.warn('[docker] Refusing to remove unmanaged container name conflict:', { slug });
+      return false;
+    }
+
+    await container.remove({ force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function inspectContainer(containerId: string) {
   const docker = await getContainerClient();
   const container = docker.getContainer(containerId);

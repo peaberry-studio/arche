@@ -32,12 +32,17 @@ function getErrorDetail(err: unknown): string | undefined {
 export async function startInstance(slug: string, userId: string): Promise<StartResult> {
   const existing = await instanceService.findBySlug(slug)
 
-  if (existing?.status === 'running') {
+  if (existing?.status === 'running' || existing?.status === 'starting') {
     return { ok: false, error: 'already_running' }
   }
 
   const password = generatePassword()
   const encryptedPassword = encryptPassword(password)
+
+  if (existing?.containerId) {
+    await docker.removeContainer(existing.containerId).catch(() => {})
+  }
+  await docker.removeManagedContainerForSlug(slug).catch(() => {})
 
   await instanceService.upsertStarting(slug, encryptedPassword)
 

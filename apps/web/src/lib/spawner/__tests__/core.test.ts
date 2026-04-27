@@ -97,6 +97,7 @@ vi.mock('../docker', () => ({
   startContainer: vi.fn(),
   stopContainer: vi.fn(),
   removeContainer: vi.fn(),
+  removeManagedContainerForSlug: vi.fn().mockResolvedValue(false),
   isContainerRunning: vi.fn(),
 }))
 
@@ -182,6 +183,22 @@ describe('startInstance', () => {
     expect(mockDocker.createContainer).not.toHaveBeenCalled()
   })
 
+  it('returns already_running if instance is already starting', async () => {
+    mockInstance.findBySlug.mockResolvedValue({
+      id: '1', slug: 'alice', status: 'starting',
+      containerId: 'abc', serverPassword: 'enc',
+      createdAt: new Date(), startedAt: new Date(),
+      stoppedAt: null, lastActivityAt: null,
+      appliedConfigSha: null,
+    })
+
+    const result = await startInstance('alice', 'user-1')
+
+    expect(result).toEqual({ ok: false, error: 'already_running' })
+    expect(mockInstance.upsertStarting).not.toHaveBeenCalled()
+    expect(mockDocker.createContainer).not.toHaveBeenCalled()
+  })
+
   it('creates container and starts it when no existing instance', async () => {
     mockBuildMcpConfigForSlug.mockResolvedValue({
       $schema: 'https://opencode.ai/config.json',
@@ -208,6 +225,7 @@ describe('startInstance', () => {
     expect(skills).toEqual([])
     expect(gitAuthor).toEqual({ name: 'alice', email: 'alice@example.com' })
     expect(mockDocker.startContainer).toHaveBeenCalledWith('container-123')
+    expect(mockDocker.removeManagedContainerForSlug).toHaveBeenCalledWith('alice')
     expect(mockSync).toHaveBeenCalledWith({
       instance: { baseUrl: expect.any(String), authHeader: expect.any(String) },
       slug: 'alice',
@@ -218,6 +236,29 @@ describe('startInstance', () => {
       action: 'instance.started',
       metadata: { slug: 'alice' },
     })
+  })
+
+  it('removes stale tracked container before starting again', async () => {
+    mockInstance.findBySlug.mockResolvedValue({
+      id: '1', slug: 'alice', status: 'error',
+      containerId: 'stale-container', serverPassword: 'enc',
+      createdAt: new Date(), startedAt: new Date(),
+      stoppedAt: null, lastActivityAt: null,
+      appliedConfigSha: null,
+    })
+    mockInstance.upsertStarting.mockResolvedValue({} as never)
+    mockInstance.setContainerId.mockResolvedValue({} as never)
+    mockInstance.setRunning.mockResolvedValue({} as never)
+    mockDocker.removeContainer.mockResolvedValue(undefined)
+    mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
+    mockDocker.startContainer.mockResolvedValue(undefined)
+    mockDocker.isContainerRunning.mockResolvedValue(true)
+
+    const result = await startInstance('alice', 'user-1')
+
+    expect(result).toEqual({ ok: true, status: 'running' })
+    expect(mockDocker.removeContainer).toHaveBeenCalledWith('stale-container')
+    expect(mockDocker.removeManagedContainerForSlug).toHaveBeenCalledWith('alice')
   })
 
   it('syncs providers before marking instance as running', async () => {
