@@ -2,9 +2,15 @@ import { NextResponse } from 'next/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockGetAuthenticatedUser = vi.fn()
+const mockAuditEvent = vi.fn()
 vi.mock('@/lib/auth', () => ({
   getAuthenticatedUser: (...args: unknown[]) => mockGetAuthenticatedUser(...args),
-  auditEvent: vi.fn(),
+  auditEvent: (...args: unknown[]) => mockAuditEvent(...args),
+}))
+
+const mockHashArgon2 = vi.fn()
+vi.mock('@/lib/argon2', () => ({
+  hashArgon2: (...args: unknown[]) => mockHashArgon2(...args),
 }))
 
 const mockRequireCapability = vi.fn()
@@ -15,12 +21,18 @@ vi.mock('@/lib/runtime/require-capability', () => ({
 const mockUserFindMany = vi.fn()
 const mockUserFindFirst = vi.fn()
 const mockUserFindUnique = vi.fn()
+const mockUserUpdate = vi.fn()
+const mockSessionUpdateMany = vi.fn()
 vi.mock('@/lib/prisma', () => ({
   prisma: {
+    session: {
+      updateMany: (...args: unknown[]) => mockSessionUpdateMany(...args),
+    },
     user: {
       findFirst: (...args: unknown[]) => mockUserFindFirst(...args),
       findMany: (...args: unknown[]) => mockUserFindMany(...args),
       findUnique: (...args: unknown[]) => mockUserFindUnique(...args),
+      update: (...args: unknown[]) => mockUserUpdate(...args),
     },
   },
 }))
@@ -40,6 +52,23 @@ async function callGetTeam(slug = 'alice') {
   })
 
   const res = await GET(req as never, { params: Promise.resolve({ slug }) })
+  return { status: res.status, body: await res.json() }
+}
+
+async function callResetPassword(slug = 'alice', id = 'user-2', password = 'temporary-password') {
+  const { POST } = await import('@/app/api/u/[slug]/team/[id]/password/route')
+
+  const req = new Request(`http://localhost/api/u/${slug}/team/${id}/password`, {
+    method: 'POST',
+    headers: {
+      host: 'localhost',
+      origin: 'http://localhost',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ password }),
+  })
+
+  const res = await POST(req as never, { params: Promise.resolve({ slug, id }) })
   return { status: res.status, body: await res.json() }
 }
 
@@ -131,5 +160,54 @@ describe('GET /api/u/[slug]/team', () => {
     expect(status).toBe(200)
     expect(body.users).toEqual([])
     expect(mockUserFindMany).not.toHaveBeenCalled()
+  })
+})
+
+describe('POST /api/u/[slug]/team/[id]/password', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.resetModules()
+
+    mockGetAuthenticatedUser.mockResolvedValue(session('alice', 'ADMIN'))
+    mockRequireCapability.mockReturnValue(null)
+    mockUserFindFirst.mockResolvedValue({
+      id: 'user-2',
+      email: 'bob@example.com',
+      slug: 'bob',
+      role: 'USER',
+      createdAt: new Date('2026-01-02T00:00:00.000Z'),
+    })
+    mockHashArgon2.mockResolvedValue('$hashed-password$')
+    mockUserUpdate.mockResolvedValue({ id: 'user-2' })
+    mockSessionUpdateMany.mockResolvedValue({ count: 2 })
+  })
+
+  it('updates the password hash and revokes active sessions for the target user', async () => {
+    const { status, body } = await callResetPassword('alice', 'user-2')
+
+    expect(status).toBe(200)
+    expect(body).toEqual({ ok: true })
+    expect(mockHashArgon2).toHaveBeenCalledWith('temporary-password')
+    expect(mockUserUpdate).toHaveBeenCalledWith({
+      where: { id: 'user-2' },
+      data: { passwordHash: '$hashed-password$' },
+    })
+    expect(mockSessionUpdateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-2', revokedAt: null },
+      data: { revokedAt: expect.any(Date) },
+    })
+    expect(mockAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'user.password_reset' }),
+    )
+  })
+
+  it('returns forbidden for non-admin users', async () => {
+    mockGetAuthenticatedUser.mockResolvedValue(session('alice', 'USER'))
+
+    const { status, body } = await callResetPassword('alice', 'user-2')
+
+    expect(status).toBe(403)
+    expect(body.error).toBe('forbidden')
+    expect(mockUserUpdate).not.toHaveBeenCalled()
   })
 })

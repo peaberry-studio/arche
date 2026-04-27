@@ -954,6 +954,12 @@ export function WorkspaceShell({
     router.push(`/u/${slug}/autopilot`);
   }, [router, slug]);
 
+  const handleLogout = useCallback(async () => {
+    await fetch('/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
+    router.push('/login')
+    router.refresh()
+  }, [router])
+
   const handleCreateKnowledgeFile = useCallback(
     async (path: string) => {
       if (!workspaceAgentEnabled) {
@@ -1374,6 +1380,7 @@ export function WorkspaceShell({
           currentVault ? getDesktopWorkspaceHref(slug, 'providers') : `/u/${slug}/settings`,
         )
       }
+      onLogout={currentVault ? undefined : handleLogout}
       sessions={rootSessions}
       activeSessionId={activeRootSessionId}
       hasMoreSessions={workspace.hasMoreSessions}

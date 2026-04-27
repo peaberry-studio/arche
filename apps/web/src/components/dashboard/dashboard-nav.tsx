@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
-import { ArrowUpRight, List, X } from '@phosphor-icons/react'
+import { usePathname, useRouter } from 'next/navigation'
+import { ArrowUpRight, List, SignOut, X } from '@phosphor-icons/react'
 
 const webNavItems = [
   { label: 'Overview', href: '' },
@@ -33,10 +33,12 @@ export function DashboardNav({
   desktopMode?: boolean
   displayLabel?: string
 }) {
+  const router = useRouter()
   const pathname = usePathname()
   const base = `/u/${slug}`
   const workspaceHref = `/w/${slug}`
   const navItems = desktopMode ? desktopNavItems : webNavItems
+  const [isLoggingOut, setIsLoggingOut] = useState(false)
   const [menuState, setMenuState] = useState<{ open: boolean; pathname: string }>({
     open: false,
     pathname,
@@ -60,6 +62,18 @@ export function DashboardNav({
       document.removeEventListener('mousedown', handleClickOutside)
     }
   }, [mobileMenuOpen])
+
+  async function handleLogout() {
+    if (isLoggingOut) return
+
+    setIsLoggingOut(true)
+    try {
+      await fetch('/auth/logout', { method: 'POST', credentials: 'include' })
+    } finally {
+      router.push('/login')
+      router.refresh()
+    }
+  }
 
   return (
     <div ref={menuRef} className="relative">
@@ -110,6 +124,18 @@ export function DashboardNav({
             <ArrowUpRight size={14} weight="bold" />
           </Link>
 
+          {!desktopMode ? (
+            <button
+              type="button"
+              onClick={handleLogout}
+              disabled={isLoggingOut}
+              className="hidden h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground disabled:pointer-events-none disabled:opacity-60 md:flex"
+              aria-label="Log out"
+            >
+              <SignOut size={17} weight="bold" />
+            </button>
+          ) : null}
+
           <button
             type="button"
             onClick={() => setMenuState({ open: !mobileMenuOpen, pathname })}
@@ -159,6 +185,18 @@ export function DashboardNav({
             Open Workspace
             <ArrowUpRight size={14} weight="bold" />
           </Link>
+
+          {!desktopMode ? (
+            <button
+              type="button"
+              onClick={handleLogout}
+              disabled={isLoggingOut}
+              className="flex w-full items-center gap-1.5 rounded-lg px-4 py-2.5 text-left text-sm font-medium text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground disabled:pointer-events-none disabled:opacity-60"
+            >
+              <SignOut size={14} weight="bold" />
+              {isLoggingOut ? 'Logging out...' : 'Log out'}
+            </button>
+          ) : null}
         </div>
       )}
     </div>

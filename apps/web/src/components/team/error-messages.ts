@@ -10,6 +10,8 @@ export function getTeamErrorMessage(error: string): string {
       return 'Enter a valid slug.'
     case 'invalid_password':
       return 'Password is required.'
+    case 'password_reset_failed':
+      return 'Password reset failed. Please try again.'
     case 'invalid_role':
       return 'Select a valid role.'
     case 'last_admin':

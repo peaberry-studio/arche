@@ -14,6 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
 type EditUserDialogProps = {
@@ -37,7 +38,10 @@ export function EditUserDialog({
 }: EditUserDialogProps) {
   const [role, setRole] = useState<TeamUserRole>('USER')
   const [isSavingRole, setIsSavingRole] = useState(false)
+  const [isResettingPassword, setIsResettingPassword] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [newPassword, setNewPassword] = useState('')
+  const [passwordResetMessage, setPasswordResetMessage] = useState<string | null>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
 
@@ -45,6 +49,8 @@ export function EditUserDialog({
     if (!open || !user) return
 
     setRole(user.role)
+    setNewPassword('')
+    setPasswordResetMessage(null)
     setActionError(null)
     setShowDeleteConfirm(false)
   }, [open, user])
@@ -77,6 +83,37 @@ export function EditUserDialog({
       setActionError(getTeamErrorMessage('network_error'))
     } finally {
       setIsSavingRole(false)
+    }
+  }
+
+  async function handleResetPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!user || isResettingPassword) return
+
+    setActionError(null)
+    setPasswordResetMessage(null)
+    setIsResettingPassword(true)
+
+    try {
+      const response = await fetch(`/api/u/${slug}/team/${user.id}/password`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ password: newPassword }),
+      })
+
+      const data = (await response.json().catch(() => null)) as { error?: string } | null
+
+      if (!response.ok) {
+        setActionError(getTeamErrorMessage(data?.error ?? 'password_reset_failed'))
+        return
+      }
+
+      setNewPassword('')
+      setPasswordResetMessage('Password reset. Share the new password securely.')
+    } catch {
+      setActionError(getTeamErrorMessage('network_error'))
+    } finally {
+      setIsResettingPassword(false)
     }
   }
 
@@ -150,6 +187,45 @@ export function EditUserDialog({
                       {isSavingRole ? 'Saving...' : 'Save role'}
                     </Button>
                   </div>
+                </form>
+
+                <div className="h-px bg-border" />
+
+                <form className="space-y-4" onSubmit={handleResetPassword}>
+                  <div className="space-y-1">
+                    <h3 className="text-sm font-semibold text-foreground">Reset password</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Set a temporary password. Existing sessions for this user will be signed out.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                    <div className="w-full space-y-1.5 sm:max-w-xs">
+                      <Label htmlFor="reset-user-password">New password</Label>
+                      <Input
+                        id="reset-user-password"
+                        type="password"
+                        autoComplete="new-password"
+                        value={newPassword}
+                        onChange={(event) => {
+                          setNewPassword(event.target.value)
+                          setPasswordResetMessage(null)
+                        }}
+                        placeholder="Set a temporary password"
+                        required
+                      />
+                    </div>
+
+                    <Button type="submit" size="sm" disabled={isResettingPassword || !newPassword}>
+                      {isResettingPassword ? 'Resetting...' : 'Reset password'}
+                    </Button>
+                  </div>
+
+                  {passwordResetMessage ? (
+                    <p className="text-sm text-emerald-700 dark:text-emerald-400">
+                      {passwordResetMessage}
+                    </p>
+                  ) : null}
                 </form>
 
                 <div className="h-px bg-border" />

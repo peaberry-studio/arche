@@ -15,6 +15,7 @@ import {
   findByTokenHash,
   create,
   revokeByTokenHash,
+  revokeByUserId,
   revokeByUserIdExceptSession,
   touchLastSeen,
 } from '../session'
@@ -84,6 +85,17 @@ describe('sessionService', () => {
           revokedAt: null,
           id: { not: 's1' },
         },
+        data: { revokedAt: expect.any(Date) },
+      })
+    })
+  })
+
+  describe('revokeByUserId', () => {
+    it('revokes all active sessions for a user', async () => {
+      mockPrisma.session.updateMany.mockResolvedValue({ count: 2 })
+      await revokeByUserId('u1')
+      expect(mockPrisma.session.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'u1', revokedAt: null },
         data: { revokedAt: expect.any(Date) },
       })
     })

@@ -16,11 +16,12 @@ import {
    Plus,
    Robot,
     ArrowLineLeft,
-    Lightning,
-    SlidersHorizontal,
-    Sun,
-    Warning,
-    X,
+     Lightning,
+     SlidersHorizontal,
+     SignOut,
+     Sun,
+     Warning,
+     X,
 } from "@phosphor-icons/react";
 
 import { DesktopVaultSwitcher } from '@/components/desktop/desktop-vault-switcher'
@@ -154,6 +155,7 @@ type LeftPanelProps = {
   onNavigateSettings: () => void;
   onNavigateConnectors?: () => void;
   onNavigateProviders?: () => void;
+  onLogout?: () => void;
 
   // Sessions
   sessions: WorkspaceSession[];
@@ -272,6 +274,7 @@ function MinifiedLeftPanel({
   onExpandWithSection,
   onSyncComplete,
   onNavigateSettings,
+  onLogout,
 }: {
   slug: string;
   configChangePending?: boolean;
@@ -286,6 +289,7 @@ function MinifiedLeftPanel({
   onExpandWithSection: (section: "chats" | "knowledge" | "experts" | "skills") => void;
   onSyncComplete?: (status: SyncKbResult["status"]) => void;
   onNavigateSettings: () => void;
+  onLogout?: () => void;
 }) {
   const {
     themes,
@@ -529,6 +533,22 @@ function MinifiedLeftPanel({
           </TooltipTrigger>
           <TooltipContent side="right">Settings</TooltipContent>
         </Tooltip>
+
+        {onLogout ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={onLogout}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+                aria-label="Log out"
+              >
+                <SignOut size={16} weight="bold" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Log out</TooltipContent>
+          </Tooltip>
+        ) : null}
       </div>
     </TooltipProvider>
   );
@@ -553,6 +573,7 @@ export function LeftPanel({
   onNavigateSettings,
   onNavigateConnectors,
   onNavigateProviders,
+  onLogout,
   sessions,
   activeSessionId,
   hasMoreSessions,
@@ -604,6 +625,7 @@ export function LeftPanel({
          onExpandWithSection={handleExpandWithSection}
         onSyncComplete={onSyncComplete}
         onNavigateSettings={onNavigateSettings}
+        onLogout={onLogout}
       />
     );
   }
@@ -627,6 +649,7 @@ export function LeftPanel({
       onNavigateSettings={onNavigateSettings}
       onNavigateConnectors={onNavigateConnectors}
       onNavigateProviders={onNavigateProviders}
+      onLogout={onLogout}
       sessions={sessions}
       activeSessionId={activeSessionId}
       hasMoreSessions={hasMoreSessions}
@@ -672,6 +695,7 @@ function ExpandedLeftPanel({
   onNavigateSettings,
   onNavigateConnectors,
   onNavigateProviders,
+  onLogout,
   onRestartConfig,
   sessions,
   activeSessionId,
@@ -1571,6 +1595,22 @@ function ExpandedLeftPanel({
             </TooltipTrigger>
             <TooltipContent side="top">Settings</TooltipContent>
           </Tooltip>
+
+          {onLogout ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={onLogout}
+                  className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+                  aria-label="Log out"
+                >
+                  <SignOut size={14} weight="bold" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top">Log out</TooltipContent>
+            </Tooltip>
+          ) : null}
         </TooltipProvider>
       </div>
 

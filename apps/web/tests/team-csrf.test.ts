@@ -80,6 +80,20 @@ async function callDeleteTeam(slug = 'admin', id = 'user-2') {
   return { status: res.status, body: await res.json() }
 }
 
+async function callResetPassword(slug = 'admin', id = 'user-2') {
+  const { POST } = await import('@/app/api/u/[slug]/team/[id]/password/route')
+  const req = new Request(`http://localhost/api/u/${slug}/team/${id}/password`, {
+    method: 'POST',
+    headers: {
+      host: 'localhost',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ password: 'temporary-password' }),
+  })
+  const res = await POST(req as never, { params: Promise.resolve({ slug, id }) })
+  return { status: res.status, body: await res.json() }
+}
+
 describe('CSRF guard for team routes', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -103,6 +117,12 @@ describe('CSRF guard for team routes', () => {
 
   it('DELETE /api/u/[slug]/team/[id] returns 403 when Origin is missing', async () => {
     const { status, body } = await callDeleteTeam('admin', 'user-2')
+    expect(status).toBe(403)
+    expect(body.error).toBe('forbidden')
+  })
+
+  it('POST /api/u/[slug]/team/[id]/password returns 403 when Origin is missing', async () => {
+    const { status, body } = await callResetPassword('admin', 'user-2')
     expect(status).toBe(403)
     expect(body.error).toBe('forbidden')
   })

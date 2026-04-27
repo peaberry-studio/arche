@@ -9,8 +9,10 @@ const {
   mockValidateDesktopToken,
   mockRequireCapability,
   mockAuditEvent,
+  mockHashArgon2,
   mockStopWorkspace,
   mockUserService,
+  mockSessionService,
   mockInstanceService,
 } = vi.hoisted(() => ({
   mockGetRuntimeCapabilities: vi.fn(),
@@ -20,12 +22,18 @@ const {
   mockValidateDesktopToken: vi.fn(),
   mockRequireCapability: vi.fn(),
   mockAuditEvent: vi.fn(),
+  mockHashArgon2: vi.fn(),
   mockStopWorkspace: vi.fn(),
   mockUserService: {
     findTeamMemberById: vi.fn(),
     countAdmins: vi.fn(),
     updateRole: vi.fn(),
+    updatePasswordHash: vi.fn(),
     deleteById: vi.fn(),
+  },
+  mockSessionService: {
+    revokeByUserId: vi.fn(),
+    revokeByUserIdExceptSession: vi.fn(),
   },
   mockInstanceService: {
     deleteBySlug: vi.fn(),
@@ -42,13 +50,16 @@ vi.mock('@/lib/runtime/desktop/token', () => ({
 }))
 vi.mock('@/lib/runtime/require-capability', () => ({ requireCapability: mockRequireCapability }))
 vi.mock('@/lib/auth', () => ({ auditEvent: mockAuditEvent }))
+vi.mock('@/lib/argon2', () => ({ hashArgon2: mockHashArgon2 }))
 vi.mock('@/lib/runtime/workspace-host', () => ({ stopWorkspace: mockStopWorkspace }))
 vi.mock('@/lib/services', () => ({
   userService: mockUserService,
+  sessionService: mockSessionService,
   instanceService: mockInstanceService,
 }))
 
 import { PATCH, DELETE } from '../route'
+import { POST as RESET_PASSWORD } from '../password/route'
 
 const TEST_SESSION = {
   user: { id: 'admin-1', email: 'admin@test.com', slug: 'admin', role: 'ADMIN' },
@@ -67,6 +78,14 @@ function makeDeleteRequest() {
   return new NextRequest('http://localhost/api/u/admin/team/u2', {
     method: 'DELETE',
     headers: { Origin: 'http://localhost' },
+  })
+}
+
+function makeResetPasswordRequest(body: unknown) {
+  return new NextRequest('http://localhost/api/u/admin/team/u2/password', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    headers: { 'Content-Type': 'application/json', Origin: 'http://localhost' },
   })
 }
 
@@ -256,5 +275,93 @@ describe('DELETE /api/u/[slug]/team/[id]', () => {
       params: Promise.resolve({ slug: 'admin', id: 'u2' }),
     })
     expect(res.status).toBe(200)
+  })
+})
+
+describe('POST /api/u/[slug]/team/[id]/password', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetRuntimeCapabilities.mockReturnValue({ csrf: false, teamManagement: true })
+    mockIsDesktop.mockReturnValue(false)
+    mockGetSession.mockResolvedValue(TEST_SESSION)
+    mockValidateSameOrigin.mockReturnValue({ ok: true })
+    mockRequireCapability.mockReturnValue(null)
+    mockUserService.findTeamMemberById.mockResolvedValue({ ...TARGET_USER })
+    mockHashArgon2.mockResolvedValue('$hashed-password$')
+    mockUserService.updatePasswordHash.mockResolvedValue({ ...TARGET_USER })
+    mockSessionService.revokeByUserId.mockResolvedValue({ count: 2 })
+    mockSessionService.revokeByUserIdExceptSession.mockResolvedValue({ count: 1 })
+  })
+
+  it('resets password, revokes target sessions, and audits', async () => {
+    const res = await RESET_PASSWORD(makeResetPasswordRequest({ password: 'temporary-password' }), {
+      params: Promise.resolve({ slug: 'admin', id: 'u2' }),
+    })
+    const body = await res.json()
+
+    expect(body).toEqual({ ok: true })
+    expect(mockHashArgon2).toHaveBeenCalledWith('temporary-password')
+    expect(mockUserService.updatePasswordHash).toHaveBeenCalledWith('u2', '$hashed-password$')
+    expect(mockSessionService.revokeByUserId).toHaveBeenCalledWith('u2')
+    expect(mockAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'user.password_reset' }),
+    )
+  })
+
+  it('keeps the current session when an admin resets their own password', async () => {
+    mockUserService.findTeamMemberById.mockResolvedValue({ ...TARGET_USER, id: 'admin-1' })
+
+    const res = await RESET_PASSWORD(makeResetPasswordRequest({ password: 'temporary-password' }), {
+      params: Promise.resolve({ slug: 'admin', id: 'admin-1' }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(mockSessionService.revokeByUserIdExceptSession).toHaveBeenCalledWith('admin-1', 's1')
+    expect(mockSessionService.revokeByUserId).not.toHaveBeenCalled()
+  })
+
+  it('rejects non-admin', async () => {
+    mockGetSession.mockResolvedValue({
+      ...TEST_SESSION,
+      user: { ...TEST_SESSION.user, role: 'USER' },
+    })
+
+    const res = await RESET_PASSWORD(makeResetPasswordRequest({ password: 'temporary-password' }), {
+      params: Promise.resolve({ slug: 'admin', id: 'u2' }),
+    })
+
+    expect(res.status).toBe(403)
+  })
+
+  it('rejects missing password', async () => {
+    const res = await RESET_PASSWORD(makeResetPasswordRequest({ password: '' }), {
+      params: Promise.resolve({ slug: 'admin', id: 'u2' }),
+    })
+    const body = await res.json()
+
+    expect(res.status).toBe(400)
+    expect(body.error).toBe('invalid_password')
+  })
+
+  it('returns 404 for missing user', async () => {
+    mockUserService.findTeamMemberById.mockResolvedValue(null)
+
+    const res = await RESET_PASSWORD(makeResetPasswordRequest({ password: 'temporary-password' }), {
+      params: Promise.resolve({ slug: 'admin', id: 'u2' }),
+    })
+
+    expect(res.status).toBe(404)
+  })
+
+  it('rejects invalid JSON', async () => {
+    const req = new NextRequest('http://localhost/api/u/admin/team/u2/password', {
+      method: 'POST',
+      body: 'bad json',
+      headers: { 'Content-Type': 'application/json', Origin: 'http://localhost' },
+    })
+
+    const res = await RESET_PASSWORD(req, { params: Promise.resolve({ slug: 'admin', id: 'u2' }) })
+
+    expect(res.status).toBe(400)
   })
 })
