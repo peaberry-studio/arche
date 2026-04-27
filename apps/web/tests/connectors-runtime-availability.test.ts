@@ -17,24 +17,18 @@ vi.mock('@/lib/connectors/crypto', () => ({
   encryptConfig: (...args: unknown[]) => mockEncryptConfig(...args),
 }))
 
-const mockRefreshConnectorOAuthConfigIfNeeded = vi.fn()
-vi.mock('@/lib/connectors/oauth-refresh', () => ({
-  refreshConnectorOAuthConfigIfNeeded: (...args: unknown[]) =>
-    mockRefreshConnectorOAuthConfigIfNeeded(...args),
-}))
-
 const mockFindIdBySlug = vi.fn()
 const mockCreate = vi.fn()
-const mockFindByIdAndUserId = vi.fn()
-const mockFindByIdAndUserIdSelect = vi.fn()
+const mockFindFirstByUserIdAndType = vi.fn()
+const mockFindManyByUserId = vi.fn()
 vi.mock('@/lib/services', () => ({
   userService: {
     findIdBySlug: (...args: unknown[]) => mockFindIdBySlug(...args),
   },
   connectorService: {
     create: (...args: unknown[]) => mockCreate(...args),
-    findByIdAndUserId: (...args: unknown[]) => mockFindByIdAndUserId(...args),
-    findByIdAndUserIdSelect: (...args: unknown[]) => mockFindByIdAndUserIdSelect(...args),
+    findFirstByUserIdAndType: (...args: unknown[]) => mockFindFirstByUserIdAndType(...args),
+    findManyByUserId: (...args: unknown[]) => mockFindManyByUserId(...args),
   },
 }))
 
@@ -65,33 +59,59 @@ describe('desktop connector availability routes', () => {
       sessionId: 'desktop-session',
     })
     mockFindIdBySlug.mockResolvedValue({ id: 'local' })
-    mockCreate.mockResolvedValue(null)
-    mockFindByIdAndUserId.mockResolvedValue({
+    mockFindFirstByUserIdAndType.mockResolvedValue(null)
+    mockEncryptConfig.mockReturnValue('encrypted-config')
+    mockCreate.mockResolvedValue({
       id: 'conn-meta-1',
       type: 'meta-ads',
-      config: 'encrypted-config',
+      name: 'Meta Ads',
       enabled: true,
-      userId: 'local',
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
     })
-    mockFindByIdAndUserIdSelect.mockResolvedValue({
-      id: 'conn-meta-1',
-      type: 'meta-ads',
-      config: 'encrypted-config',
-    })
-    mockRefreshConnectorOAuthConfigIfNeeded.mockResolvedValue(null)
   })
 
   afterEach(() => {
     process.env = originalEnv
   })
 
-  it('blocks creating Meta Ads connectors in desktop mode', async () => {
+  it('lists Meta Ads connectors in desktop mode', async () => {
+    mockFindManyByUserId.mockResolvedValue([
+      {
+        id: 'conn-meta-1',
+        type: 'meta-ads',
+        name: 'Meta Ads',
+        enabled: true,
+        config: 'encrypted-config',
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      },
+    ])
+    mockDecryptConfig.mockReturnValue({
+      authType: 'oauth',
+      appId: 'meta-app-id',
+      appSecret: 'meta-app-secret',
+      selectedAdAccountIds: ['act_123'],
+      permissions: { allowRead: true },
+      oauth: { provider: 'meta-ads', accessToken: 'meta-token' },
+    })
+
+    const { GET } = await import('@/app/api/u/[slug]/connectors/route')
+    const request = new Request('http://localhost/api/u/local/connectors', {
+      headers: desktopHeaders(),
+    })
+
+    const response = await GET(request as never, { params: Promise.resolve({ slug: 'local' }) })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      connectors: [{ id: 'conn-meta-1', type: 'meta-ads' }],
+    })
+  })
+
+  it('allows creating Meta Ads connectors in desktop mode', async () => {
     const { POST } = await import('@/app/api/u/[slug]/connectors/route')
     const request = new Request('http://localhost/api/u/local/connectors', {
       method: 'POST',
-      headers: {
-        ...desktopHeaders({ 'content-type': 'application/json' }),
-      },
+      headers: desktopHeaders({ 'content-type': 'application/json' }),
       body: JSON.stringify({
         type: 'meta-ads',
         name: 'Meta Ads',
@@ -105,59 +125,13 @@ describe('desktop connector availability routes', () => {
 
     const response = await POST(request as never, { params: Promise.resolve({ slug: 'local' }) })
 
-    expect(response.status).toBe(403)
-    await expect(response.json()).resolves.toEqual({
-      error: 'metaAdsConnector is not available in this runtime mode',
+    expect(response.status).toBe(201)
+    expect(mockCreate).toHaveBeenCalledWith({
+      userId: 'local',
+      type: 'meta-ads',
+      name: 'Meta Ads',
+      config: 'encrypted-config',
+      enabled: true,
     })
-    expect(mockCreate).not.toHaveBeenCalled()
-  })
-
-  it('blocks Meta Ads settings routes in desktop mode before decrypting config', async () => {
-    const { GET } = await import('@/app/api/u/[slug]/connectors/[id]/meta-ads-settings/route')
-    const request = new Request('http://localhost/api/u/local/connectors/conn-meta-1/meta-ads-settings', {
-      method: 'GET',
-      headers: desktopHeaders(),
-    })
-
-    const response = await GET(request as never, { params: Promise.resolve({ slug: 'local', id: 'conn-meta-1' }) })
-
-    expect(response.status).toBe(403)
-    await expect(response.json()).resolves.toEqual({
-      error: 'metaAdsConnector is not available in this runtime mode',
-    })
-    expect(mockDecryptConfig).not.toHaveBeenCalled()
-  })
-
-  it('blocks testing Meta Ads connectors in desktop mode before refreshing OAuth', async () => {
-    const { POST } = await import('@/app/api/u/[slug]/connectors/[id]/test/route')
-    const request = new Request('http://localhost/api/u/local/connectors/conn-meta-1/test', {
-      method: 'POST',
-      headers: desktopHeaders(),
-    })
-
-    const response = await POST(request as never, { params: Promise.resolve({ slug: 'local', id: 'conn-meta-1' }) })
-
-    expect(response.status).toBe(403)
-    await expect(response.json()).resolves.toEqual({
-      error: 'metaAdsConnector is not available in this runtime mode',
-    })
-    expect(mockRefreshConnectorOAuthConfigIfNeeded).not.toHaveBeenCalled()
-  })
-
-  it('blocks starting Meta Ads OAuth in desktop mode before decrypting config', async () => {
-    const { POST } = await import('@/app/api/u/[slug]/connectors/[id]/oauth/start/route')
-    const request = {
-      headers: new Headers(desktopHeaders()),
-      nextUrl: new URL('http://localhost/api/u/local/connectors/conn-meta-1/oauth/start'),
-    }
-
-    const response = await POST(request as never, { params: Promise.resolve({ slug: 'local', id: 'conn-meta-1' }) })
-
-    expect(response.status).toBe(403)
-    await expect(response.json()).resolves.toEqual({
-      error: 'metaAdsConnector is not available in this runtime mode',
-    })
-    expect(mockDecryptConfig).not.toHaveBeenCalled()
-    expect(mockAuditEvent).not.toHaveBeenCalled()
   })
 })

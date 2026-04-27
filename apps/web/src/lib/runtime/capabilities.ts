@@ -48,7 +48,7 @@ const DESKTOP_CAPABILITIES: RuntimeCapabilities = {
   autopilot: false,
   slackIntegration: false,
   googleWorkspaceIntegration: false,
-  metaAdsConnector: false,
+  metaAdsConnector: true,
 }
 
 const CAPABILITIES_BY_MODE: Record<RuntimeMode, RuntimeCapabilities> = {

@@ -10,7 +10,6 @@ import { handleZendeskMcpRequest } from '@/lib/connectors/mcp/zendesk-handler'
 import { isOAuthConnectorType } from '@/lib/connectors/oauth'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
 import { refreshConnectorOAuthConfigIfNeeded } from '@/lib/connectors/oauth-refresh'
-import { requireCapability } from '@/lib/runtime/require-capability'
 import { validateConnectorType } from '@/lib/connectors/validators'
 import { connectorService } from '@/lib/services'
 
@@ -60,11 +59,6 @@ async function handleProxy(
     return NextResponse.json({ error: 'unsupported_connector' }, { status: 400 })
   }
 
-  if (connector.type === 'meta-ads') {
-    const denied = requireCapability('metaAdsConnector')
-    if (denied) return denied
-  }
-
   const refreshedConfig = await refreshConnectorOAuthConfigIfNeeded(connector)
   const encryptedConfig = refreshedConfig ?? connector.config
 
@@ -75,20 +69,15 @@ async function handleProxy(
     return NextResponse.json({ error: 'invalid_credentials' }, { status: 500 })
   }
 
-  if (connector.type === 'zendesk') {
-    return handleZendeskMcpRequest(request, decryptedConfig)
-  }
-
-  if (connector.type === 'ahrefs') {
-    return handleAhrefsMcpRequest(request, decryptedConfig)
-  }
-
-  if (connector.type === 'umami') {
-    return handleUmamiMcpRequest(request, decryptedConfig)
-  }
-
-  if (connector.type === 'meta-ads') {
-    return handleMetaAdsMcpRequest(request, decryptedConfig)
+  switch (connector.type) {
+    case 'zendesk':
+      return handleZendeskMcpRequest(request, decryptedConfig)
+    case 'ahrefs':
+      return handleAhrefsMcpRequest(request, decryptedConfig)
+    case 'umami':
+      return handleUmamiMcpRequest(request, decryptedConfig)
+    case 'meta-ads':
+      return handleMetaAdsMcpRequest(request, decryptedConfig)
   }
 
   if (!isOAuthConnectorType(connector.type)) {
