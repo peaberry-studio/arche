@@ -101,10 +101,10 @@ export function EditUserDialog({
         body: JSON.stringify({ password: newPassword }),
       })
 
-      const data = (await response.json().catch(() => null)) as { error?: string } | null
+      const data = (await response.json().catch(() => null)) as { error?: string; message?: string } | null
 
       if (!response.ok) {
-        setActionError(getTeamErrorMessage(data?.error ?? 'password_reset_failed'))
+        setActionError(data?.message ?? getTeamErrorMessage(data?.error ?? 'password_reset_failed'))
         return
       }
 

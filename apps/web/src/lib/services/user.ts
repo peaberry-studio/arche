@@ -173,6 +173,26 @@ export function updatePasswordHash(id: string, passwordHash: string) {
   })
 }
 
+export function updatePasswordHashAndRevokeSessions(id: string, passwordHash: string, keepSessionId?: string) {
+  const revokedAt = new Date()
+
+  return prisma.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id },
+      data: { passwordHash },
+    })
+
+    await tx.session.updateMany({
+      where: {
+        userId: id,
+        revokedAt: null,
+        ...(keepSessionId ? { id: { not: keepSessionId } } : {}),
+      },
+      data: { revokedAt },
+    })
+  })
+}
+
 export function updateTotpLastUsedAt(id: string, totpLastUsedAt: Date) {
   return prisma.user.update({
     where: { id },

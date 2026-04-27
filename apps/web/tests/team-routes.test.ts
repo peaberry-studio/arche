@@ -23,8 +23,10 @@ const mockUserFindFirst = vi.fn()
 const mockUserFindUnique = vi.fn()
 const mockUserUpdate = vi.fn()
 const mockSessionUpdateMany = vi.fn()
+const mockTransaction = vi.fn()
 vi.mock('@/lib/prisma', () => ({
   prisma: {
+    $transaction: (...args: unknown[]) => mockTransaction(...args),
     session: {
       updateMany: (...args: unknown[]) => mockSessionUpdateMany(...args),
     },
@@ -180,6 +182,15 @@ describe('POST /api/u/[slug]/team/[id]/password', () => {
     mockHashArgon2.mockResolvedValue('$hashed-password$')
     mockUserUpdate.mockResolvedValue({ id: 'user-2' })
     mockSessionUpdateMany.mockResolvedValue({ count: 2 })
+    mockTransaction.mockImplementation(async (callback: (tx: {
+      user: { update: typeof mockUserUpdate }
+      session: { updateMany: typeof mockSessionUpdateMany }
+    }) => unknown) =>
+      callback({
+        user: { update: mockUserUpdate },
+        session: { updateMany: mockSessionUpdateMany },
+      })
+    )
   })
 
   it('updates the password hash and revokes active sessions for the target user', async () => {
@@ -188,6 +199,7 @@ describe('POST /api/u/[slug]/team/[id]/password', () => {
     expect(status).toBe(200)
     expect(body).toEqual({ ok: true })
     expect(mockHashArgon2).toHaveBeenCalledWith('temporary-password')
+    expect(mockTransaction).toHaveBeenCalledTimes(1)
     expect(mockUserUpdate).toHaveBeenCalledWith({
       where: { id: 'user-2' },
       data: { passwordHash: '$hashed-password$' },
@@ -199,6 +211,15 @@ describe('POST /api/u/[slug]/team/[id]/password', () => {
     expect(mockAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'user.password_reset' }),
     )
+  })
+
+  it('rejects short passwords before hashing', async () => {
+    const { status, body } = await callResetPassword('alice', 'user-2', 'short')
+
+    expect(status).toBe(400)
+    expect(body).toEqual({ error: 'invalid_password', message: 'Password must be at least 8 characters.' })
+    expect(mockHashArgon2).not.toHaveBeenCalled()
+    expect(mockTransaction).not.toHaveBeenCalled()
   })
 
   it('returns forbidden for non-admin users', async () => {

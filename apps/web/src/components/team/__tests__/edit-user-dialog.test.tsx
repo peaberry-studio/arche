@@ -83,6 +83,25 @@ describe('EditUserDialog password reset', () => {
     expect(await screen.findByText('Password is required.')).toBeTruthy()
   })
 
+  it('shows server validation messages when present', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: false,
+      json: () => Promise.resolve({
+        error: 'invalid_password',
+        message: 'Password must be at least 8 characters.',
+      }),
+    } as Response)
+
+    renderDialog()
+
+    fireEvent.change(screen.getByLabelText('New password'), {
+      target: { value: 'short' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Reset password' }))
+
+    expect(await screen.findByText('Password must be at least 8 characters.')).toBeTruthy()
+  })
+
   it('hides password reset controls when user management is unavailable', () => {
     renderDialog({ canManageUsers: false })
 

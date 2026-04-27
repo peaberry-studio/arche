@@ -10,6 +10,9 @@ const mockPrisma = vi.hoisted(() => ({
     update: vi.fn(),
     deleteMany: vi.fn(),
   },
+  session: {
+    updateMany: vi.fn(),
+  },
   twoFactorRecovery: {
     count: vi.fn(),
     update: vi.fn(),
@@ -35,6 +38,7 @@ import {
   create,
   updateRole,
   updatePasswordHash,
+  updatePasswordHashAndRevokeSessions,
   updateTotpLastUsedAt,
   updateTotpSecret,
   deleteById,
@@ -209,6 +213,31 @@ describe('userService', () => {
       expect(mockPrisma.user.update).toHaveBeenCalledWith({
         where: { id: 'u1' },
         data: { passwordHash: 'new-hash' },
+      })
+    })
+  })
+
+  describe('updatePasswordHashAndRevokeSessions', () => {
+    it('sets the password hash and revokes sessions in one transaction', async () => {
+      const txClient = {
+        user: { update: vi.fn().mockResolvedValue({}) },
+        session: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      }
+      mockPrisma.$transaction.mockImplementation(async (cb: (tx: typeof txClient) => unknown) => cb(txClient))
+
+      await updatePasswordHashAndRevokeSessions('u1', 'new-hash', 's1')
+
+      expect(txClient.user.update).toHaveBeenCalledWith({
+        where: { id: 'u1' },
+        data: { passwordHash: 'new-hash' },
+      })
+      expect(txClient.session.updateMany).toHaveBeenCalledWith({
+        where: {
+          userId: 'u1',
+          revokedAt: null,
+          id: { not: 's1' },
+        },
+        data: { revokedAt: expect.any(Date) },
       })
     })
   })

@@ -132,7 +132,7 @@ describe('POST /api/u/[slug]/team', () => {
     mockUserService.create.mockResolvedValue(created)
 
     const res = await POST(
-      makeRequest('POST', { email: 'new@test.com', slug: 'newuser', password: 'pass123', role: 'USER' }),
+      makeRequest('POST', { email: 'new@test.com', slug: 'newuser', password: 'temporary-password', role: 'USER' }),
       { params: Promise.resolve({ slug: 'admin' }) },
     )
     const body = await res.json()
@@ -180,12 +180,25 @@ describe('POST /api/u/[slug]/team', () => {
       makeRequest('POST', { email: 'a@b.com', slug: 'newuser', password: '', role: 'USER' }),
       { params: Promise.resolve({ slug: 'admin' }) },
     )
+    const body = await res.json()
     expect(res.status).toBe(400)
+    expect(body).toEqual({ error: 'invalid_password', message: 'Password is required.' })
+  })
+
+  it('rejects short password', async () => {
+    const res = await POST(
+      makeRequest('POST', { email: 'a@b.com', slug: 'newuser', password: 'short', role: 'USER' }),
+      { params: Promise.resolve({ slug: 'admin' }) },
+    )
+    const body = await res.json()
+
+    expect(res.status).toBe(400)
+    expect(body).toEqual({ error: 'invalid_password', message: 'Password must be at least 8 characters.' })
   })
 
   it('rejects invalid role', async () => {
     const res = await POST(
-      makeRequest('POST', { email: 'a@b.com', slug: 'newuser', password: 'p', role: 'SUPERADMIN' }),
+      makeRequest('POST', { email: 'a@b.com', slug: 'newuser', password: 'temporary-password', role: 'SUPERADMIN' }),
       { params: Promise.resolve({ slug: 'admin' }) },
     )
     expect(res.status).toBe(400)
@@ -194,7 +207,7 @@ describe('POST /api/u/[slug]/team', () => {
   it('rejects duplicate email', async () => {
     mockUserService.findExistingByEmailOrSlug.mockResolvedValue({ email: 'a@b.com' })
     const res = await POST(
-      makeRequest('POST', { email: 'a@b.com', slug: 'newuser', password: 'p', role: 'USER' }),
+      makeRequest('POST', { email: 'a@b.com', slug: 'newuser', password: 'temporary-password', role: 'USER' }),
       { params: Promise.resolve({ slug: 'admin' }) },
     )
     const body = await res.json()
@@ -205,7 +218,7 @@ describe('POST /api/u/[slug]/team', () => {
   it('rejects duplicate slug', async () => {
     mockUserService.findExistingByEmailOrSlug.mockResolvedValue({ email: 'other@b.com', slug: 'newuser' })
     const res = await POST(
-      makeRequest('POST', { email: 'a@b.com', slug: 'newuser', password: 'p', role: 'USER' }),
+      makeRequest('POST', { email: 'a@b.com', slug: 'newuser', password: 'temporary-password', role: 'USER' }),
       { params: Promise.resolve({ slug: 'admin' }) },
     )
     const body = await res.json()
@@ -216,7 +229,7 @@ describe('POST /api/u/[slug]/team', () => {
   it('handles P2002 from create', async () => {
     mockUserService.create.mockRejectedValue({ code: 'P2002' })
     const res = await POST(
-      makeRequest('POST', { email: 'a@b.com', slug: 'newuser', password: 'p', role: 'USER' }),
+      makeRequest('POST', { email: 'a@b.com', slug: 'newuser', password: 'temporary-password', role: 'USER' }),
       { params: Promise.resolve({ slug: 'admin' }) },
     )
     expect(res.status).toBe(409)

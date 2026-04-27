@@ -62,11 +62,11 @@ export function CreateUserDialog({ open, slug, onOpenChange, onUserCreated }: Cr
       })
 
       const data = (await response.json().catch(() => null)) as
-        | { user?: TeamUser; error?: string }
+        | { user?: TeamUser; error?: string; message?: string }
         | null
 
       if (!response.ok || !data?.user) {
-        setError(getTeamErrorMessage(data?.error ?? 'create_failed'))
+        setError(data?.message ?? getTeamErrorMessage(data?.error ?? 'create_failed'))
         return
       }
 

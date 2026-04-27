@@ -29,6 +29,7 @@ const {
     countAdmins: vi.fn(),
     updateRole: vi.fn(),
     updatePasswordHash: vi.fn(),
+    updatePasswordHashAndRevokeSessions: vi.fn(),
     deleteById: vi.fn(),
   },
   mockSessionService: {
@@ -289,6 +290,7 @@ describe('POST /api/u/[slug]/team/[id]/password', () => {
     mockUserService.findTeamMemberById.mockResolvedValue({ ...TARGET_USER })
     mockHashArgon2.mockResolvedValue('$hashed-password$')
     mockUserService.updatePasswordHash.mockResolvedValue({ ...TARGET_USER })
+    mockUserService.updatePasswordHashAndRevokeSessions.mockResolvedValue(undefined)
     mockSessionService.revokeByUserId.mockResolvedValue({ count: 2 })
     mockSessionService.revokeByUserIdExceptSession.mockResolvedValue({ count: 1 })
   })
@@ -301,8 +303,7 @@ describe('POST /api/u/[slug]/team/[id]/password', () => {
 
     expect(body).toEqual({ ok: true })
     expect(mockHashArgon2).toHaveBeenCalledWith('temporary-password')
-    expect(mockUserService.updatePasswordHash).toHaveBeenCalledWith('u2', '$hashed-password$')
-    expect(mockSessionService.revokeByUserId).toHaveBeenCalledWith('u2')
+    expect(mockUserService.updatePasswordHashAndRevokeSessions).toHaveBeenCalledWith('u2', '$hashed-password$', undefined)
     expect(mockAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'user.password_reset' }),
     )
@@ -316,8 +317,11 @@ describe('POST /api/u/[slug]/team/[id]/password', () => {
     })
 
     expect(res.status).toBe(200)
-    expect(mockSessionService.revokeByUserIdExceptSession).toHaveBeenCalledWith('admin-1', 's1')
-    expect(mockSessionService.revokeByUserId).not.toHaveBeenCalled()
+    expect(mockUserService.updatePasswordHashAndRevokeSessions).toHaveBeenCalledWith(
+      'admin-1',
+      '$hashed-password$',
+      's1'
+    )
   })
 
   it('rejects non-admin', async () => {
@@ -341,6 +345,19 @@ describe('POST /api/u/[slug]/team/[id]/password', () => {
 
     expect(res.status).toBe(400)
     expect(body.error).toBe('invalid_password')
+    expect(body.message).toBe('Password is required.')
+  })
+
+  it('rejects short password', async () => {
+    const res = await RESET_PASSWORD(makeResetPasswordRequest({ password: 'short' }), {
+      params: Promise.resolve({ slug: 'admin', id: 'u2' }),
+    })
+    const body = await res.json()
+
+    expect(res.status).toBe(400)
+    expect(body.error).toBe('invalid_password')
+    expect(body.message).toBe('Password must be at least 8 characters.')
+    expect(mockHashArgon2).not.toHaveBeenCalled()
   })
 
   it('returns 404 for missing user', async () => {

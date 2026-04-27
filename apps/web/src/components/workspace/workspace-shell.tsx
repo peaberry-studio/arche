@@ -216,7 +216,9 @@ export function WorkspaceShell({
   const routerRef = useRef(router);
   routerRef.current = router;
   const containerRef = useRef<HTMLDivElement>(null);
+  const isLoggingOutRef = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const resolvedPersistenceScope = persistenceScope ?? slug;
   const layoutCookieName = getWorkspaceLayoutCookieName(resolvedPersistenceScope);
@@ -955,10 +957,18 @@ export function WorkspaceShell({
   }, [router, slug]);
 
   const handleLogout = useCallback(async () => {
-    await fetch('/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
-    router.push('/login')
-    router.refresh()
-  }, [router])
+    if (isLoggingOut || isLoggingOutRef.current) return
+
+    isLoggingOutRef.current = true
+    setIsLoggingOut(true)
+
+    try {
+      await fetch('/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
+    } finally {
+      router.push('/login')
+      router.refresh()
+    }
+  }, [isLoggingOut, router])
 
   const handleCreateKnowledgeFile = useCallback(
     async (path: string) => {
