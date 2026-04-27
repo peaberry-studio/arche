@@ -218,4 +218,171 @@ describe('MCP integration actions', () => {
     expect(result).toEqual({ ok: true })
     expect(mockRevokePat).toHaveBeenCalledWith('tok-1', 'user-1')
   })
+
+  it('returns error when revoking a nonexistent token', async () => {
+    mockRevokePat.mockResolvedValue({ count: 0 })
+
+    const result = await revokePersonalAccessToken('tok-missing')
+
+    expect(result).toEqual({ ok: false, error: 'Token not found' })
+  })
+
+  it('rejects revoking when not authenticated', async () => {
+    mockGetSession.mockResolvedValue(null)
+
+    const result = await revokePersonalAccessToken('tok-1')
+
+    expect(result).toEqual({ ok: false, error: 'Not authenticated' })
+    expect(mockRevokePat).not.toHaveBeenCalled()
+  })
+
+  it('rejects revoking when MCP capability is disabled', async () => {
+    mockGetRuntimeCapabilities.mockReturnValue({ mcp: false })
+
+    const result = await revokePersonalAccessToken('tok-1')
+
+    expect(result).toMatchObject({ ok: false })
+    expect(mockRevokePat).not.toHaveBeenCalled()
+  })
+
+  it('audits on successful revoke', async () => {
+    await revokePersonalAccessToken('tok-1')
+
+    expect(mockAuditEvent).toHaveBeenCalledWith({
+      actorUserId: 'user-1',
+      action: 'mcp.pat_revoked',
+      metadata: { tokenId: 'tok-1' },
+    })
+  })
+
+  it('rejects setMcpEnabled for non-admin users', async () => {
+    const result = await setMcpEnabled(true)
+
+    expect(result).toEqual({ ok: false, error: 'Only administrators can change MCP settings' })
+    expect(mockWriteMcpSettings).not.toHaveBeenCalled()
+  })
+
+  it('rejects setMcpEnabled when not authenticated', async () => {
+    mockGetSession.mockResolvedValue(null)
+
+    const result = await setMcpEnabled(true)
+
+    expect(result).toEqual({ ok: false, error: 'Not authenticated' })
+  })
+
+  it('rejects setMcpEnabled when MCP capability is disabled', async () => {
+    mockGetRuntimeCapabilities.mockReturnValue({ mcp: false })
+
+    const result = await setMcpEnabled(true)
+
+    expect(result).toMatchObject({ ok: false })
+  })
+
+  it('propagates writeMcpSettings conflict error', async () => {
+    mockGetSession.mockResolvedValue({
+      user: { id: 'admin-1', email: 'admin@example.com', slug: 'admin', role: 'ADMIN' },
+      sessionId: 'session-1',
+    })
+    mockWriteMcpSettings.mockResolvedValue({ ok: false, error: 'conflict' })
+
+    const result = await setMcpEnabled(true)
+
+    expect(result).toEqual({ ok: false, error: 'MCP settings changed elsewhere. Please retry.' })
+  })
+
+  it('rejects token creation when not authenticated', async () => {
+    mockGetSession.mockResolvedValue(null)
+
+    const result = await createPersonalAccessToken({
+      name: 'Laptop',
+      expiresInDays: 30,
+      scopes: ['agents:read'],
+    })
+
+    expect(result).toEqual({ ok: false, error: 'Not authenticated' })
+  })
+
+  it('rejects token with empty name', async () => {
+    const result = await createPersonalAccessToken({
+      name: '   ',
+      expiresInDays: 30,
+      scopes: ['agents:read'],
+    })
+
+    expect(result).toEqual({ ok: false, error: 'Token name is required' })
+  })
+
+  it('rejects token with expiration exceeding 90 days', async () => {
+    const result = await createPersonalAccessToken({
+      name: 'Laptop',
+      expiresInDays: 91,
+      scopes: ['agents:read'],
+    })
+
+    expect(result).toMatchObject({ ok: false, error: expect.stringContaining('90') })
+  })
+
+  it('rejects token with zero day expiration', async () => {
+    const result = await createPersonalAccessToken({
+      name: 'Laptop',
+      expiresInDays: 0,
+      scopes: ['agents:read'],
+    })
+
+    expect(result).toMatchObject({ ok: false })
+  })
+
+  it('rejects token when MCP capability is disabled', async () => {
+    mockGetRuntimeCapabilities.mockReturnValue({ mcp: false })
+
+    const result = await createPersonalAccessToken({
+      name: 'Laptop',
+      expiresInDays: 30,
+      scopes: ['agents:read'],
+    })
+
+    expect(result).toMatchObject({ ok: false })
+  })
+
+  it('rejects token when MCP settings read fails', async () => {
+    mockReadMcpSettings.mockResolvedValue({ ok: false, error: 'kb_unavailable' })
+
+    const result = await createPersonalAccessToken({
+      name: 'Laptop',
+      expiresInDays: 30,
+      scopes: ['agents:read'],
+    })
+
+    expect(result).toEqual({ ok: false, error: 'Knowledge base configuration is unavailable.' })
+  })
+
+  it('deduplicates scopes', async () => {
+    await createPersonalAccessToken({
+      name: 'Dup',
+      expiresInDays: 7,
+      scopes: ['kb:read', 'kb:read', 'kb:write'],
+    })
+
+    expect(mockCreatePat).toHaveBeenCalledWith(expect.objectContaining({
+      scopes: ['kb:read', 'kb:write'],
+    }))
+  })
+
+  it('audits on successful token creation', async () => {
+    await createPersonalAccessToken({
+      name: 'Laptop',
+      expiresInDays: 30,
+      scopes: ['agents:read'],
+    })
+
+    expect(mockAuditEvent).toHaveBeenCalledWith({
+      actorUserId: 'user-1',
+      action: 'mcp.pat_created',
+      metadata: {
+        tokenId: 'tok-1',
+        name: 'Laptop',
+        expiresAt: '2026-05-12T10:00:00.000Z',
+      },
+    })
+  })
 })

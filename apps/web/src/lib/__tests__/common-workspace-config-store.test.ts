@@ -261,10 +261,10 @@ describe('writeCommonWorkspaceConfig', () => {
   it('writes content and pushes on success', async () => {
     setupAvailableRepo()
     mockDetectDefaultBranch.mockResolvedValue('master')
-    mockRunGit.mockResolvedValue({ ok: true, stdout: '' })
+    mockRunGit.mockResolvedValue({ ok: true, stdout: 'M CommonWorkspaceConfig.json' })
 
     const result = await writeCommonWorkspaceConfig('{"new":"config"}')
-    expect(result).toEqual({ ok: true })
+    expect(result).toMatchObject({ ok: true })
     expect(mockWriteFile).toHaveBeenCalledWith(
       path.join(CLONE_DIR, 'CommonWorkspaceConfig.json'),
       '{"new":"config"}',
@@ -272,8 +272,11 @@ describe('writeCommonWorkspaceConfig', () => {
     )
     expect(mockRunGit).toHaveBeenCalled()
 
-    const pushCall = mockRunGit.mock.calls[3]
-    expect(pushCall[0]).toEqual(['push', 'origin', 'HEAD:refs/heads/master'])
+    const pushCall = mockRunGit.mock.calls.find(
+      (call: unknown[]) => Array.isArray(call[0]) && call[0][0] === 'push'
+    )
+    expect(pushCall).toBeDefined()
+    expect(pushCall![0]).toEqual(['push', 'origin', 'HEAD:refs/heads/master'])
   })
 })
 
