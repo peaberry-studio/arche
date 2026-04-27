@@ -3,15 +3,18 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auditEvent } from '@/lib/auth'
 import { decryptConfig, encryptConfig } from '@/lib/connectors/crypto'
 import { resolveLinearOAuthActor, type LinearOAuthActor } from '@/lib/connectors/linear'
-import { isMetaAdsConnectorReady } from '@/lib/connectors/meta-ads'
+import { getConnectorListStatus } from '@/lib/connectors/list-status'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
+import {
+  isConnectorCapabilityAvailable,
+  requireConnectorCapability,
+} from '@/lib/connectors/require-connector-capability'
 import { isSingleInstanceConnectorType } from '@/lib/connectors/types'
 import {
   validateConnectorType,
   validateConnectorConfig,
   validateConnectorName,
 } from '@/lib/connectors/validators'
-import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { connectorService, userService } from '@/lib/services'
@@ -55,27 +58,25 @@ export const GET = withAuth<{ connectors: ConnectorListItem[] } | { error: strin
     }
 
     const connectors = await connectorService.findManyByUserId(user.id)
-    const caps = getRuntimeCapabilities()
 
     return NextResponse.json({
       connectors: connectors
         .filter((c) => validateConnectorType(c.type))
-        .filter((c) => c.type !== 'meta-ads' || caps.metaAdsConnector)
+        .filter((c) => isConnectorCapabilityAvailable(c.type))
         .map((c) => {
           let authType: 'manual' | 'oauth' = 'manual'
           let oauthActor: LinearOAuthActor | undefined
           let oauthConnected = false
           let oauthExpiresAt: string | undefined
-          let metaAdsReady = false
+          let config: Record<string, unknown> = {}
 
           try {
-            const config = decryptConfig(c.config)
+            config = decryptConfig(c.config)
             authType = getConnectorAuthType(config)
             oauthActor = resolveLinearOAuthActor(c.type, authType, config)
             const oauth = validateConnectorType(c.type) ? getConnectorOAuthConfig(c.type, config) : null
             oauthConnected = Boolean(oauth?.accessToken)
             oauthExpiresAt = oauth?.expiresAt
-            metaAdsReady = c.type === 'meta-ads' ? isMetaAdsConnectorReady(config) : false
           } catch {
             authType = 'manual'
           }
@@ -85,15 +86,13 @@ export const GET = withAuth<{ connectors: ConnectorListItem[] } | { error: strin
             type: c.type,
             name: c.name,
             enabled: c.enabled,
-            status: !c.enabled
-              ? 'disabled'
-              : c.type === 'meta-ads'
-                ? authType === 'oauth' && oauthConnected && metaAdsReady
-                  ? 'ready'
-                  : 'pending'
-                : authType === 'oauth' && !oauthConnected
-                  ? 'pending'
-                  : 'ready',
+            status: getConnectorListStatus({
+              type: c.type,
+              enabled: c.enabled,
+              authType,
+              oauthConnected,
+              config,
+            }),
             authType,
             oauthActor,
             oauthConnected,
@@ -194,10 +193,8 @@ export const POST = withAuth<ConnectorResponse | { error: string; message?: stri
       )
     }
 
-    if (type === 'meta-ads') {
-      const denied = requireCapability('metaAdsConnector')
-      if (denied) return denied
-    }
+    const connectorDenied = requireConnectorCapability(type)
+    if (connectorDenied) return connectorDenied
 
     const configValidation = validateConnectorConfig(type, config)
     if (!configValidation.valid) {

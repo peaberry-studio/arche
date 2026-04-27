@@ -9,6 +9,7 @@ import {
   getConnectorOAuthConfig,
   mergeConnectorConfigWithPreservedOAuth,
 } from '@/lib/connectors/oauth-config'
+import { requireConnectorCapability } from '@/lib/connectors/require-connector-capability'
 import type { ConnectorType } from '@/lib/connectors/types'
 import {
   validateConnectorConfig,
@@ -116,10 +117,8 @@ export const GET = withAuth<ConnectorDetail | { error: string }, { slug: string;
       return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })
     }
 
-    if (connector.type === 'meta-ads') {
-      const denied = requireCapability('metaAdsConnector')
-      if (denied) return denied
-    }
+    const connectorDenied = requireConnectorCapability(connector.type)
+    if (connectorDenied) return connectorDenied
 
     let config: Record<string, unknown>
     try {
@@ -191,10 +190,8 @@ export const PATCH = withAuth<
     return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })
   }
 
-  if (existingConnector.type === 'meta-ads') {
-    const denied = requireCapability('metaAdsConnector')
-    if (denied) return denied
-  }
+  const connectorDenied = requireConnectorCapability(existingConnector.type)
+  if (connectorDenied) return connectorDenied
 
   // Parse request body
   let body: UpdateConnectorRequest
