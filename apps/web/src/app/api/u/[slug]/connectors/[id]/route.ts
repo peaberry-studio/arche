@@ -3,13 +3,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auditEvent } from '@/lib/auth'
 import { decryptConfig, encryptConfig } from '@/lib/connectors/crypto'
 import { resolveLinearOAuthActor, type LinearOAuthActor } from '@/lib/connectors/linear'
-import { parseMetaAdsConnectorConfig } from '@/lib/connectors/meta-ads'
 import {
   getConnectorAuthType,
   getConnectorOAuthConfig,
   mergeConnectorConfigWithPreservedOAuth,
 } from '@/lib/connectors/oauth-config'
 import { requireConnectorCapability } from '@/lib/connectors/require-connector-capability'
+import { sanitizeConnectorConfigForResponse } from '@/lib/connectors/response-config'
 import type { ConnectorType } from '@/lib/connectors/types'
 import {
   validateConnectorConfig,
@@ -32,58 +32,6 @@ export interface ConnectorDetail {
   oauthExpiresAt?: string
   createdAt: string
   updatedAt: string
-}
-
-function isObjectRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
-
-function sanitizeConfigForResponse(type: ConnectorType, config: Record<string, unknown>): Record<string, unknown> {
-  if (type === 'meta-ads') {
-    const parsed = parseMetaAdsConnectorConfig(config)
-    if (!parsed.ok) {
-      const sanitizedConfig = { ...config }
-      delete sanitizedConfig.appSecret
-      return sanitizedConfig
-    }
-
-    return {
-      ...parsed.value,
-      appSecret: undefined,
-      hasAppSecret: true,
-    }
-  }
-
-  if (getConnectorAuthType(config) !== 'oauth') return config
-
-  const sanitizedConfig = { ...config }
-  if (type === 'custom' || type === 'linear') {
-    delete sanitizedConfig.oauthClientSecret
-  }
-
-  if (isObjectRecord(sanitizedConfig.oauth)) {
-    const oauthSanitized = { ...sanitizedConfig.oauth }
-    delete oauthSanitized.accessToken
-    delete oauthSanitized.refreshToken
-    delete oauthSanitized.clientSecret
-    sanitizedConfig.oauth = oauthSanitized
-  }
-
-  const oauth = getConnectorOAuthConfig(type, config)
-  if (!oauth) return sanitizedConfig
-
-  const oauthResponse = {
-    provider: oauth.provider,
-    connected: true,
-    expiresAt: oauth.expiresAt,
-    connectedAt: oauth.connectedAt,
-    scope: oauth.scope,
-  }
-
-  return {
-    ...sanitizedConfig,
-    oauth: oauthResponse,
-  }
 }
 
 /**
@@ -134,7 +82,7 @@ export const GET = withAuth<ConnectorDetail | { error: string }, { slug: string;
       id: connector.id,
       type: connector.type,
       name: connector.name,
-      config: validateConnectorType(connector.type) ? sanitizeConfigForResponse(connector.type, config) : config,
+      config: validateConnectorType(connector.type) ? sanitizeConnectorConfigForResponse(connector.type, config) : config,
       enabled: connector.enabled,
       authType: getConnectorAuthType(config),
       oauthActor: resolveLinearOAuthActor(connector.type, getConnectorAuthType(config), config),
@@ -337,7 +285,7 @@ export const PATCH = withAuth<
     id: connector.id,
     type: connector.type,
     name: connector.name,
-    config: connectorType ? sanitizeConfigForResponse(connectorType, resolvedResponseConfig) : resolvedResponseConfig,
+    config: connectorType ? sanitizeConnectorConfigForResponse(connectorType, resolvedResponseConfig) : resolvedResponseConfig,
     enabled: connector.enabled,
     authType,
     oauthActor: connectorType ? resolveLinearOAuthActor(connectorType, authType, resolvedResponseConfig) : undefined,
