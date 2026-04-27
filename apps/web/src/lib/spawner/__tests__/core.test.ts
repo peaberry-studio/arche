@@ -199,6 +199,37 @@ describe('startInstance', () => {
     expect(mockDocker.createContainer).not.toHaveBeenCalled()
   })
 
+  it('recovers a stale starting instance by recreating its container', async () => {
+    vi.stubEnv('ARCHE_START_TIMEOUT_MS', '1000')
+
+    try {
+      mockInstance.findBySlug.mockResolvedValue({
+        id: '1', slug: 'alice', status: 'starting',
+        containerId: 'stale-container', serverPassword: 'enc',
+        createdAt: new Date(), startedAt: new Date(Date.now() - 2_001),
+        stoppedAt: null, lastActivityAt: null,
+        appliedConfigSha: null,
+      })
+      mockInstance.upsertStarting.mockResolvedValue({} as never)
+      mockInstance.setContainerId.mockResolvedValue({} as never)
+      mockInstance.setRunning.mockResolvedValue({} as never)
+      mockUser.findIdentityBySlug.mockResolvedValue(null)
+      mockDocker.removeContainer.mockResolvedValue(undefined)
+      mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
+      mockDocker.startContainer.mockResolvedValue(undefined)
+      mockDocker.isContainerRunning.mockResolvedValue(true)
+      mockHealth.mockResolvedValue(true)
+
+      const result = await startInstance('alice', 'user-1')
+
+      expect(result).toEqual({ ok: true, status: 'running' })
+      expect(mockDocker.removeContainer).toHaveBeenCalledWith('stale-container')
+      expect(mockDocker.createContainer).toHaveBeenCalled()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('creates container and starts it when no existing instance', async () => {
     mockBuildMcpConfigForSlug.mockResolvedValue({
       $schema: 'https://opencode.ai/config.json',
@@ -225,7 +256,6 @@ describe('startInstance', () => {
     expect(skills).toEqual([])
     expect(gitAuthor).toEqual({ name: 'alice', email: 'alice@example.com' })
     expect(mockDocker.startContainer).toHaveBeenCalledWith('container-123')
-    expect(mockDocker.removeManagedContainerForSlug).toHaveBeenCalledWith('alice')
     expect(mockSync).toHaveBeenCalledWith({
       instance: { baseUrl: expect.any(String), authHeader: expect.any(String) },
       slug: 'alice',
@@ -259,6 +289,45 @@ describe('startInstance', () => {
     expect(result).toEqual({ ok: true, status: 'running' })
     expect(mockDocker.removeContainer).toHaveBeenCalledWith('stale-container')
     expect(mockDocker.removeManagedContainerForSlug).toHaveBeenCalledWith('alice')
+  })
+
+  it('checks for stale managed container names before creating a container', async () => {
+    mockInstance.findBySlug.mockResolvedValue(null)
+    mockInstance.upsertStarting.mockResolvedValue({} as never)
+    mockInstance.setContainerId.mockResolvedValue({} as never)
+    mockInstance.setRunning.mockResolvedValue({} as never)
+    mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
+    mockDocker.startContainer.mockResolvedValue(undefined)
+    mockDocker.isContainerRunning.mockResolvedValue(true)
+
+    await startInstance('alice', 'user-1')
+
+    expect(mockDocker.removeManagedContainerForSlug).toHaveBeenCalledWith('alice')
+    expect(mockDocker.removeManagedContainerForSlug.mock.invocationCallOrder[0]).toBeLessThan(
+      mockDocker.createContainer.mock.invocationCallOrder[0]
+    )
+  })
+
+  it('continues startup when stale tracked container cleanup fails', async () => {
+    mockInstance.findBySlug.mockResolvedValue({
+      id: '1', slug: 'alice', status: 'error',
+      containerId: 'missing-container', serverPassword: 'enc',
+      createdAt: new Date(), startedAt: new Date(),
+      stoppedAt: null, lastActivityAt: null,
+      appliedConfigSha: null,
+    })
+    mockInstance.upsertStarting.mockResolvedValue({} as never)
+    mockInstance.setContainerId.mockResolvedValue({} as never)
+    mockInstance.setRunning.mockResolvedValue({} as never)
+    mockDocker.removeContainer.mockRejectedValueOnce(new Error('not found'))
+    mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
+    mockDocker.startContainer.mockResolvedValue(undefined)
+    mockDocker.isContainerRunning.mockResolvedValue(true)
+
+    const result = await startInstance('alice', 'user-1')
+
+    expect(result).toEqual({ ok: true, status: 'running' })
+    expect(mockDocker.createContainer).toHaveBeenCalled()
   })
 
   it('syncs providers before marking instance as running', async () => {
