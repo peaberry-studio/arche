@@ -1,5 +1,5 @@
-import { getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
 import { getGoogleWorkspaceMcpServerUrl, isGoogleWorkspaceConnectorType } from '@/lib/connectors/google-workspace'
+import { getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
 import type { ConnectorType } from '@/lib/connectors/types'
 
 const MCP_SERVER_URLS = {
@@ -17,34 +17,23 @@ export function getConnectorMcpServerUrl(type: ConnectorType, config: Record<str
     return oauth.mcpServerUrl
   }
 
-  if (type === 'linear') {
-    return process.env.ARCHE_CONNECTOR_LINEAR_MCP_URL || MCP_SERVER_URLS.linear
-  }
-
-  if (type === 'notion') {
-    return process.env.ARCHE_CONNECTOR_NOTION_MCP_URL || MCP_SERVER_URLS.notion
-  }
-
   if (isGoogleWorkspaceConnectorType(type)) {
     return getGoogleWorkspaceMcpServerUrl(type)
   }
 
-  if (type === 'zendesk') {
-    return null
+  switch (type) {
+    case 'linear':
+      return process.env.ARCHE_CONNECTOR_LINEAR_MCP_URL || MCP_SERVER_URLS.linear
+    case 'notion':
+      return process.env.ARCHE_CONNECTOR_NOTION_MCP_URL || MCP_SERVER_URLS.notion
+    case 'custom': {
+      const endpoint = config.endpoint
+      return typeof endpoint === 'string' ? endpoint : null
+    }
+    case 'zendesk':
+    case 'meta-ads':
+    case 'ahrefs':
+    case 'umami':
+      return null
   }
-
-  if (type === 'meta-ads') {
-    return null
-  }
-
-  if (type === 'ahrefs') {
-    return null
-  }
-
-  if (type === 'umami') {
-    return null
-  }
-
-  const endpoint = config.endpoint
-  return typeof endpoint === 'string' ? endpoint : null
 }
