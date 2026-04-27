@@ -8,6 +8,7 @@ import {
   googlePeopleStrategy,
 } from '@/lib/connectors/oauth-provider-strategies/google-workspace'
 import { linearStrategy } from '@/lib/connectors/oauth-provider-strategies/linear'
+import { metaAdsStrategy } from '@/lib/connectors/oauth-provider-strategies/meta-ads'
 import { notionStrategy } from '@/lib/connectors/oauth-provider-strategies/notion'
 import type { OAuthProviderStrategy } from '@/lib/connectors/oauth-provider-strategies/types'
 
@@ -17,6 +18,7 @@ export const strategies: Record<OAuthConnectorType, OAuthProviderStrategy> = {
   linear: linearStrategy,
   notion: notionStrategy,
   custom: customStrategy,
+  'meta-ads': metaAdsStrategy,
   google_gmail: googleGmailStrategy,
   google_drive: googleDriveStrategy,
   google_calendar: googleCalendarStrategy,

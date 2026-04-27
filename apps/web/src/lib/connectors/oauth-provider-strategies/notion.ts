@@ -40,6 +40,9 @@ export const notionStrategy: OAuthProviderStrategy = {
   decorateAuthorizeUrl(): void {
     // No notion-specific URL decorations
   },
+  usesPkce(): boolean {
+    return true
+  },
   async resolveTokenEndpoint(tokenEndpoint: string): Promise<string> {
     return tokenEndpoint
   },

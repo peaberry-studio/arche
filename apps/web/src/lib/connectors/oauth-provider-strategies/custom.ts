@@ -44,6 +44,9 @@ export const customStrategy: OAuthProviderStrategy = {
   decorateAuthorizeUrl(): void {
     // No custom-specific URL decorations
   },
+  usesPkce(): boolean {
+    return true
+  },
   async resolveTokenEndpoint(tokenEndpoint: string): Promise<string> {
     return validateConnectorUrl(tokenEndpoint)
   },

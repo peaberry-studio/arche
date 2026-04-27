@@ -17,6 +17,7 @@ export type OAuthProviderStrategy = {
   getMetadataOverrides(connectorConfig?: Record<string, unknown>): Promise<OAuthMetadataOverrides>
   shouldValidateMetadataEndpoints(): boolean
   decorateAuthorizeUrl(url: URL, connectorConfig?: Record<string, unknown>): void
+  usesPkce(): boolean
   resolveTokenEndpoint(tokenEndpoint: string): Promise<string>
   resolveRefreshTokenEndpoint(input: {
     tokenEndpoint?: string

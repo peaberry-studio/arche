@@ -69,6 +69,7 @@ export type ConnectorCapabilityRecord = {
 
 const SINGLE_INSTANCE_AGENT_CONNECTOR_CAPABILITY_IDS = {
   linear: 'globallinear',
+  'meta-ads': 'globalmetaads',
   notion: 'globalnotion',
   zendesk: 'globalzendesk',
   ahrefs: 'globalahrefs',

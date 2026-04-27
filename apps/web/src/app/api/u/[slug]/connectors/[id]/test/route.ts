@@ -46,6 +46,15 @@ export const POST = withAuth<TestConnectionResult | { error: string }, { slug: s
       return NextResponse.json({ error: 'connector_disabled' }, { status: 409 })
     }
 
+    if (!validateConnectorType(connector.type)) {
+      return NextResponse.json({ error: 'unsupported_connector_type' }, { status: 400 })
+    }
+
+    if (connector.type === 'meta-ads') {
+      const denied = requireCapability('metaAdsConnector')
+      if (denied) return denied
+    }
+
     const refreshedConfig = await refreshConnectorOAuthConfigIfNeeded({
       id: connector.id,
       type: connector.type,
@@ -60,10 +69,6 @@ export const POST = withAuth<TestConnectionResult | { error: string }, { slug: s
         { error: 'config_corrupted', message: 'Failed to decrypt connector configuration' },
         { status: 500 }
       )
-    }
-
-    if (!validateConnectorType(connector.type)) {
-      return NextResponse.json({ error: 'unsupported_connector_type' }, { status: 400 })
     }
 
     let customEndpointUrl: URL | undefined

@@ -93,6 +93,15 @@ describe('agent connector capabilities', () => {
         ownerSlug: null,
       },
       {
+        id: 'globalmetaads',
+        type: 'meta-ads',
+        name: 'Meta Ads',
+        enabled: false,
+        scope: 'type',
+        ownerKind: null,
+        ownerSlug: null,
+      },
+      {
         id: 'globalnotion',
         type: 'notion',
         name: 'Notion',

@@ -8,6 +8,8 @@ import {
   getConnectorOAuthConfig,
   mergeConnectorConfigWithPreservedOAuth,
 } from '@/lib/connectors/oauth-config'
+import { requireConnectorCapability } from '@/lib/connectors/require-connector-capability'
+import { sanitizeConnectorConfigForResponse } from '@/lib/connectors/response-config'
 import type { ConnectorType } from '@/lib/connectors/types'
 import {
   validateConnectorConfig,
@@ -30,43 +32,6 @@ export interface ConnectorDetail {
   oauthExpiresAt?: string
   createdAt: string
   updatedAt: string
-}
-
-function isObjectRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
-
-function sanitizeConfigForResponse(type: ConnectorType, config: Record<string, unknown>): Record<string, unknown> {
-  if (getConnectorAuthType(config) !== 'oauth') return config
-
-  const sanitizedConfig = { ...config }
-  if (type === 'custom' || type === 'linear') {
-    delete sanitizedConfig.oauthClientSecret
-  }
-
-  if (isObjectRecord(sanitizedConfig.oauth)) {
-    const oauthSanitized = { ...sanitizedConfig.oauth }
-    delete oauthSanitized.accessToken
-    delete oauthSanitized.refreshToken
-    delete oauthSanitized.clientSecret
-    sanitizedConfig.oauth = oauthSanitized
-  }
-
-  const oauth = getConnectorOAuthConfig(type, config)
-  if (!oauth) return sanitizedConfig
-
-  const oauthResponse = {
-    provider: oauth.provider,
-    connected: true,
-    expiresAt: oauth.expiresAt,
-    connectedAt: oauth.connectedAt,
-    scope: oauth.scope,
-  }
-
-  return {
-    ...sanitizedConfig,
-    oauth: oauthResponse,
-  }
 }
 
 /**
@@ -100,6 +65,9 @@ export const GET = withAuth<ConnectorDetail | { error: string }, { slug: string;
       return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })
     }
 
+    const connectorDenied = requireConnectorCapability(connector.type)
+    if (connectorDenied) return connectorDenied
+
     let config: Record<string, unknown>
     try {
       config = decryptConfig(connector.config)
@@ -114,7 +82,7 @@ export const GET = withAuth<ConnectorDetail | { error: string }, { slug: string;
       id: connector.id,
       type: connector.type,
       name: connector.name,
-      config: validateConnectorType(connector.type) ? sanitizeConfigForResponse(connector.type, config) : config,
+      config: validateConnectorType(connector.type) ? sanitizeConnectorConfigForResponse(connector.type, config) : config,
       enabled: connector.enabled,
       authType: getConnectorAuthType(config),
       oauthActor: resolveLinearOAuthActor(connector.type, getConnectorAuthType(config), config),
@@ -169,6 +137,9 @@ export const PATCH = withAuth<
   if (!existingConnector) {
     return NextResponse.json({ error: 'connector_not_found' }, { status: 404 })
   }
+
+  const connectorDenied = requireConnectorCapability(existingConnector.type)
+  if (connectorDenied) return connectorDenied
 
   // Parse request body
   let body: UpdateConnectorRequest
@@ -314,7 +285,7 @@ export const PATCH = withAuth<
     id: connector.id,
     type: connector.type,
     name: connector.name,
-    config: connectorType ? sanitizeConfigForResponse(connectorType, resolvedResponseConfig) : resolvedResponseConfig,
+    config: connectorType ? sanitizeConnectorConfigForResponse(connectorType, resolvedResponseConfig) : resolvedResponseConfig,
     enabled: connector.enabled,
     authType,
     oauthActor: connectorType ? resolveLinearOAuthActor(connectorType, authType, resolvedResponseConfig) : undefined,

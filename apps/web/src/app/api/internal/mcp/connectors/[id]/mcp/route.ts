@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { decryptConfig } from '@/lib/connectors/crypto'
 import { verifyConnectorGatewayToken } from '@/lib/connectors/gateway-tokens'
 import { handleAhrefsMcpRequest } from '@/lib/connectors/mcp/ahrefs-handler'
+import { handleMetaAdsMcpRequest } from '@/lib/connectors/mcp/meta-ads-handler'
 import { proxyConnectorMcpRequest } from '@/lib/connectors/mcp/remote-proxy'
 import { handleUmamiMcpRequest } from '@/lib/connectors/mcp/umami-handler'
 import { handleZendeskMcpRequest } from '@/lib/connectors/mcp/zendesk-handler'
@@ -68,16 +69,15 @@ async function handleProxy(
     return NextResponse.json({ error: 'invalid_credentials' }, { status: 500 })
   }
 
-  if (connector.type === 'zendesk') {
-    return handleZendeskMcpRequest(request, decryptedConfig)
-  }
-
-  if (connector.type === 'ahrefs') {
-    return handleAhrefsMcpRequest(request, decryptedConfig)
-  }
-
-  if (connector.type === 'umami') {
-    return handleUmamiMcpRequest(request, decryptedConfig)
+  switch (connector.type) {
+    case 'zendesk':
+      return handleZendeskMcpRequest(request, decryptedConfig)
+    case 'ahrefs':
+      return handleAhrefsMcpRequest(request, decryptedConfig)
+    case 'umami':
+      return handleUmamiMcpRequest(request, decryptedConfig)
+    case 'meta-ads':
+      return handleMetaAdsMcpRequest(request, decryptedConfig)
   }
 
   if (!isOAuthConnectorType(connector.type)) {

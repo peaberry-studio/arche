@@ -7,6 +7,7 @@ import {
   type ConnectorType,
 } from '@/lib/connectors/types'
 import { validateConnectorType } from '@/lib/connectors/validators'
+import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { connectorService } from '@/lib/services'
 
 export type AgentConnectorCapabilityOption = {
@@ -21,6 +22,7 @@ export type AgentConnectorCapabilityOption = {
 
 const SINGLE_INSTANCE_CONNECTOR_LABELS = {
   linear: 'Linear',
+  'meta-ads': 'Meta Ads',
   notion: 'Notion',
   zendesk: 'Zendesk',
   ahrefs: 'Ahrefs',
@@ -32,6 +34,13 @@ const SINGLE_INSTANCE_CONNECTOR_LABELS = {
   google_people: 'People API',
 } as const satisfies Record<Exclude<ConnectorType, 'custom'>, string>
 
+function isConnectorCapabilityAvailable(type: ConnectorType): boolean {
+  if (type === 'meta-ads') {
+    return getRuntimeCapabilities().metaAdsConnector
+  }
+  return true
+}
+
 export function buildAgentConnectorCapabilityOptions(entries: Array<{
   id: string
   type: string
@@ -42,6 +51,10 @@ export function buildAgentConnectorCapabilityOptions(entries: Array<{
   const options = new Map<string, AgentConnectorCapabilityOption>()
 
   for (const type of SINGLE_INSTANCE_CONNECTOR_TYPES) {
+    if (!isConnectorCapabilityAvailable(type)) {
+      continue
+    }
+
     options.set(getConnectorCapabilityId(type, type), {
       id: getConnectorCapabilityId(type, type),
       type,
@@ -55,6 +68,7 @@ export function buildAgentConnectorCapabilityOptions(entries: Array<{
 
   for (const entry of entries) {
     if (!validateConnectorType(entry.type)) continue
+    if (!isConnectorCapabilityAvailable(entry.type)) continue
 
     if (isSingleInstanceConnectorType(entry.type)) {
       const id = getConnectorCapabilityId(entry.type, entry.id)

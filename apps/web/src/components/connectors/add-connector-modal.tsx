@@ -6,6 +6,7 @@ import { AhrefsSection } from '@/components/connectors/add-connector/ahrefs/sect
 import { CustomSection } from '@/components/connectors/add-connector/custom/section'
 import { GoogleWorkspaceSection } from '@/components/connectors/add-connector/google-workspace/section'
 import { LinearSection } from '@/components/connectors/add-connector/linear/section'
+import { MetaAdsSection } from '@/components/connectors/add-connector/meta-ads/section'
 import { NotionSection } from '@/components/connectors/add-connector/notion/section'
 import {
   CONNECTOR_TYPE_OPTIONS,
@@ -62,6 +63,7 @@ export function AddConnectorModal({
   const zendeskRef = useRef<AddConnectorSectionHandle>(null)
   const ahrefsRef = useRef<AddConnectorSectionHandle>(null)
   const umamiRef = useRef<AddConnectorSectionHandle>(null)
+  const metaAdsRef = useRef<AddConnectorSectionHandle>(null)
   const googleGmailRef = useRef<AddConnectorSectionHandle>(null)
   const googleDriveRef = useRef<AddConnectorSectionHandle>(null)
   const googleCalendarRef = useRef<AddConnectorSectionHandle>(null)
@@ -79,6 +81,7 @@ export function AddConnectorModal({
     zendesk: zendeskRef,
     ahrefs: ahrefsRef,
     umami: umamiRef,
+    'meta-ads': metaAdsRef,
     google_gmail: googleGmailRef,
     google_drive: googleDriveRef,
     google_calendar: googleCalendarRef,
@@ -236,6 +239,12 @@ export function AddConnectorModal({
             ref={umamiRef}
             onStateChange={handleStateChange}
             isActive={selectedType === 'umami'}
+          />
+          <MetaAdsSection
+            key={`meta-ads-${sessionKey}`}
+            ref={metaAdsRef}
+            onStateChange={handleStateChange}
+            isActive={selectedType === 'meta-ads'}
           />
           <GoogleWorkspaceSection
             key={`google_gmail-${sessionKey}`}

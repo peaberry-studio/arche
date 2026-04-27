@@ -3,7 +3,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { auditEvent } from '@/lib/auth'
 import { decryptConfig, encryptConfig } from '@/lib/connectors/crypto'
 import { resolveLinearOAuthActor, type LinearOAuthActor } from '@/lib/connectors/linear'
+import { getConnectorListStatus } from '@/lib/connectors/list-status'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
+import {
+  isConnectorCapabilityAvailable,
+  requireConnectorCapability,
+} from '@/lib/connectors/require-connector-capability'
 import { isSingleInstanceConnectorType } from '@/lib/connectors/types'
 import {
   validateConnectorType,
@@ -55,36 +60,46 @@ export const GET = withAuth<{ connectors: ConnectorListItem[] } | { error: strin
     const connectors = await connectorService.findManyByUserId(user.id)
 
     return NextResponse.json({
-      connectors: connectors.filter((c) => validateConnectorType(c.type)).map((c) => {
-        let authType: 'manual' | 'oauth' = 'manual'
-        let oauthActor: LinearOAuthActor | undefined
-        let oauthConnected = false
-        let oauthExpiresAt: string | undefined
+      connectors: connectors
+        .filter((c) => validateConnectorType(c.type))
+        .filter((c) => isConnectorCapabilityAvailable(c.type))
+        .map((c) => {
+          let authType: 'manual' | 'oauth' = 'manual'
+          let oauthActor: LinearOAuthActor | undefined
+          let oauthConnected = false
+          let oauthExpiresAt: string | undefined
+          let config: Record<string, unknown> = {}
 
-        try {
-          const config = decryptConfig(c.config)
-          authType = getConnectorAuthType(config)
-          oauthActor = resolveLinearOAuthActor(c.type, authType, config)
-          const oauth = validateConnectorType(c.type) ? getConnectorOAuthConfig(c.type, config) : null
-          oauthConnected = Boolean(oauth?.accessToken)
-          oauthExpiresAt = oauth?.expiresAt
-        } catch {
-          authType = 'manual'
-        }
+          try {
+            config = decryptConfig(c.config)
+            authType = getConnectorAuthType(config)
+            oauthActor = resolveLinearOAuthActor(c.type, authType, config)
+            const oauth = validateConnectorType(c.type) ? getConnectorOAuthConfig(c.type, config) : null
+            oauthConnected = Boolean(oauth?.accessToken)
+            oauthExpiresAt = oauth?.expiresAt
+          } catch {
+            authType = 'manual'
+          }
 
-        return {
-          id: c.id,
-          type: c.type,
-          name: c.name,
-          enabled: c.enabled,
-          status: !c.enabled ? 'disabled' : authType === 'oauth' && !oauthConnected ? 'pending' : 'ready',
-          authType,
-          oauthActor,
-          oauthConnected,
-          oauthExpiresAt,
-          createdAt: c.createdAt.toISOString(),
-        }
-      }),
+          return {
+            id: c.id,
+            type: c.type,
+            name: c.name,
+            enabled: c.enabled,
+            status: getConnectorListStatus({
+              type: c.type,
+              enabled: c.enabled,
+              authType,
+              oauthConnected,
+              config,
+            }),
+            authType,
+            oauthActor,
+            oauthConnected,
+            oauthExpiresAt,
+            createdAt: c.createdAt.toISOString(),
+          }
+        }),
     })
   },
 )
@@ -177,6 +192,9 @@ export const POST = withAuth<ConnectorResponse | { error: string; message?: stri
         { status: 400 }
       )
     }
+
+    const connectorDenied = requireConnectorCapability(type)
+    if (connectorDenied) return connectorDenied
 
     const configValidation = validateConnectorConfig(type, config)
     if (!configValidation.valid) {

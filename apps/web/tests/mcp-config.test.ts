@@ -59,6 +59,25 @@ describe('mcp-config', () => {
           apiToken: 'zendesk-token',
         }),
       },
+      {
+        id: 'm1',
+        type: 'meta-ads',
+        name: 'Meta Ads',
+        enabled: true,
+        config: encryptConfig({
+          authType: 'oauth',
+          appId: 'meta-app-id',
+          appSecret: 'meta-app-secret',
+          permissions: {
+            allowRead: true,
+            allowWriteCampaigns: false,
+            allowWriteAdSets: false,
+            allowWriteAds: false,
+          },
+          selectedAdAccountIds: ['act_123'],
+          oauth: { provider: 'meta-ads', clientId: 'meta-app-id', accessToken: 'meta-token' },
+        }),
+      },
     ]
 
     const result = buildMcpConfigFromConnectors(connectors, {
@@ -66,6 +85,10 @@ describe('mcp-config', () => {
         z1: {
           url: 'http://web:3000/api/internal/mcp/connectors/z1/mcp',
           token: 'gateway-token-z1',
+        },
+        m1: {
+          url: 'http://web:3000/api/internal/mcp/connectors/m1/mcp',
+          token: 'gateway-token-m1',
         },
       },
     })
@@ -118,6 +141,16 @@ describe('mcp-config', () => {
       enabled: true,
       headers: {
         Authorization: 'Bearer gateway-token-z1',
+      },
+      oauth: false,
+    })
+
+    expect(result.mcp['arche_meta-ads_m1']).toEqual({
+      type: 'remote',
+      url: 'http://web:3000/api/internal/mcp/connectors/m1/mcp',
+      enabled: true,
+      headers: {
+        Authorization: 'Bearer gateway-token-m1',
       },
       oauth: false,
     })

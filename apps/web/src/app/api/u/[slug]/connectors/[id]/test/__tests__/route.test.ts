@@ -82,6 +82,7 @@ describe('POST /api/u/[slug]/connectors/[id]/test', () => {
     mocks.decryptConfig.mockReturnValue({ apiKey: 'key' })
     mocks.testConnectorConnection.mockResolvedValue({ ok: true, tested: true, message: 'OK' })
     mocks.getConnectorAuthType.mockReturnValue('manual')
+    mocks.validateConnectorType.mockReturnValue(true)
   })
 
   it('tests connection and returns result', async () => {

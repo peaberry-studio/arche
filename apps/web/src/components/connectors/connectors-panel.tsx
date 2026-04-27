@@ -5,6 +5,7 @@ import { useCallback, useEffect, useImperativeHandle, useState, type Ref } from 
 import { AddConnectorModal } from '@/components/connectors/add-connector-modal'
 import { ConnectorList } from '@/components/connectors/connector-list'
 import { getConnectorErrorMessage } from '@/components/connectors/error-messages'
+import { MetaAdsConnectorSettingsDialog } from '@/components/connectors/meta-ads-connector-settings-dialog'
 import { ZendeskConnectorSettingsDialog } from '@/components/connectors/zendesk-connector-settings-dialog'
 import type {
   ConnectorListItem,
@@ -23,10 +24,20 @@ type ConnectorsPanelProps = {
   ref?: Ref<ConnectorsPanelHandle>
 }
 
-function toConnectorListItemArray(value: unknown): ConnectorListItem[] {
-  if (!value || typeof value !== 'object' || !('connectors' in value)) return []
-  const data = value as { connectors?: ConnectorListItem[] }
-  return Array.isArray(data.connectors) ? data.connectors : []
+function toConnectorsPayload(value: unknown): {
+  connectors: ConnectorListItem[]
+} {
+  if (!value || typeof value !== 'object') {
+    return { connectors: [] }
+  }
+
+  const data = value as {
+    connectors?: ConnectorListItem[]
+  }
+
+  return {
+    connectors: Array.isArray(data.connectors) ? data.connectors : [],
+  }
 }
 
 function formatTestResult(result: ConnectorTestResult): ConnectorTestState {
@@ -86,7 +97,8 @@ export function ConnectorsPanel({ slug, oauthReturnTo, ref }: ConnectorsPanelPro
         return
       }
 
-      setConnectors(toConnectorListItemArray(data))
+      const payload = toConnectorsPayload(data)
+      setConnectors(payload.connectors)
       setActionError(null)
     } catch {
       setLoadError(getConnectorErrorMessage(null, 'network_error'))
@@ -283,19 +295,31 @@ export function ConnectorsPanel({ slug, oauthReturnTo, ref }: ConnectorsPanelPro
         onConnectOAuth={handleConnectOAuth}
       />
 
-      <AddConnectorModal
-        slug={slug}
-        existingConnectors={connectors}
-        open={isModalOpen}
-        onOpenChange={setIsModalOpen}
-        onSaved={() => {
+        <AddConnectorModal
+          slug={slug}
+          existingConnectors={connectors}
+          open={isModalOpen}
+          onOpenChange={setIsModalOpen}
+          onSaved={() => {
           notifyWorkspaceConfigChanged()
           void loadConnectors()
         }}
       />
 
       <ZendeskConnectorSettingsDialog
-        open={Boolean(settingsConnector)}
+        open={settingsConnector?.type === 'zendesk'}
+        slug={slug}
+        connectorId={settingsConnector?.id ?? null}
+        connectorName={settingsConnector?.name ?? null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSettingsConnector(null)
+          }
+        }}
+      />
+
+      <MetaAdsConnectorSettingsDialog
+        open={settingsConnector?.type === 'meta-ads'}
         slug={slug}
         connectorId={settingsConnector?.id ?? null}
         connectorName={settingsConnector?.name ?? null}

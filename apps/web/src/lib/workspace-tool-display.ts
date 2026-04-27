@@ -6,6 +6,7 @@ const CONNECTOR_TYPE_LABELS: Record<ConnectorType, string> = {
   zendesk: 'Zendesk',
   ahrefs: 'Ahrefs',
   umami: 'Umami',
+  'meta-ads': 'Meta Ads',
   custom: 'Custom Connector',
   google_gmail: 'Gmail',
   google_drive: 'Google Drive',

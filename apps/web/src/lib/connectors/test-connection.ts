@@ -1,5 +1,6 @@
 import { parseAhrefsConnectorConfig, testAhrefsConnection } from '@/lib/connectors/ahrefs'
 import { getConnectorMcpServerUrl } from '@/lib/connectors/mcp/server-url'
+import { testMetaAdsConnection } from '@/lib/connectors/meta-ads'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
 import { parseUmamiConnectorConfig, testUmamiConnection } from '@/lib/connectors/umami'
 import { getZendeskMcpProtocolVersion, parseZendeskConnectorConfig, testZendeskConnection } from '@/lib/connectors/zendesk'
@@ -41,6 +42,7 @@ function getAccessToken(type: ConnectorType, config: Record<string, unknown>): s
     case 'notion':
       return typeof config.apiKey === 'string' ? config.apiKey : null
     case 'zendesk':
+    case 'meta-ads':
     case 'ahrefs':
     case 'umami':
     case 'custom':
@@ -190,6 +192,18 @@ const CONNECTOR_TEST_HANDLERS: Record<ConnectorType, TestConnectionHandler> = {
     parseUmamiConnectorConfig,
     testUmamiConnection
   ),
+
+  'meta-ads': async (config) => {
+    const pending = getPendingOAuthMessage('meta-ads', config)
+    if (pending) return pending
+
+    const response = await testMetaAdsConnection(config)
+    return {
+      ok: response.ok,
+      tested: true,
+      message: response.message,
+    }
+  },
 
   notion: async (config) => {
     const pending = getPendingOAuthMessage('notion', config)

@@ -337,4 +337,49 @@ describe('POST /api/u/[slug]/connectors/[id]/test OAuth MCP checks', () => {
       })
     )
   })
+
+  it('tests Meta Ads OAuth using the Graph API ad accounts endpoint', async () => {
+    mockConnectorFindFirst.mockResolvedValueOnce({
+      id: 'conn-meta-1',
+      userId: 'user-1',
+      type: 'meta-ads',
+      enabled: true,
+      config: 'encrypted-config',
+    })
+    mockDecryptConfig.mockReturnValueOnce({
+      authType: 'oauth',
+      appId: 'meta-app-id',
+      appSecret: 'meta-app-secret',
+      selectedAdAccountIds: ['act_123'],
+      oauth: {
+        provider: 'meta-ads',
+        accessToken: 'meta-oauth-token',
+        clientId: 'meta-app-id',
+      },
+    })
+
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: [{ id: 'act_123', account_id: '123', name: 'Main account' }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { status, body } = await callTestRoute('alice', 'conn-meta-1')
+
+    expect(status).toBe(200)
+    expect(body).toEqual({
+      ok: true,
+      tested: true,
+      message:
+        'Meta Ads connection verified. Accessible ad accounts: 1. Restart the workspace to apply the updated connector credentials. If it is still unavailable in chat, enable this connector in Agent capabilities.',
+    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/me/adaccounts'),
+      expect.objectContaining({
+        method: 'GET',
+      })
+    )
+  })
 })

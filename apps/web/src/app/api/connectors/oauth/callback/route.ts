@@ -108,7 +108,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const redirectUri = parsedState.redirectUri || `${baseUrl}/api/connectors/oauth/callback`
   try {
-    if (!parsedState.clientId || !parsedState.codeVerifier || !parsedState.tokenEndpoint) {
+    if (!parsedState.clientId || !parsedState.tokenEndpoint) {
+      return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'error', 'invalid_state', parsedState.returnTo))
+    }
+
+    if (parsedState.connectorType !== 'meta-ads' && !parsedState.codeVerifier) {
       return NextResponse.redirect(buildRedirect(baseUrl, parsedState.slug, 'error', 'invalid_state', parsedState.returnTo))
     }
 

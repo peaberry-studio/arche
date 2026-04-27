@@ -307,12 +307,15 @@ describe('buildAgentToolsConfigFromCapabilities', () => {
       },
       [
         { id: 'globallinear', type: 'linear' },
+        { id: 'globalmetaads', type: 'meta-ads' },
+        { id: 'globalnotion', type: 'notion' },
         { id: 'globalumami', type: 'umami' },
         { id: 'globalzendesk', type: 'zendesk' },
       ]
     )
 
     expect(config['arche_linear_globallinear_*']).toBe(true)
+    expect(config['arche_meta-ads_globalmetaads_*']).toBeUndefined()
     expect(config['arche_umami_globalumami_*']).toBe(true)
     expect(config['arche_zendesk_globalzendesk_*']).toBe(true)
   })

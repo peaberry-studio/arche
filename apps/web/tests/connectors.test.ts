@@ -7,6 +7,11 @@ import {
   parseLinearOptionalOAuthScopes,
   resolveLinearOAuthActor,
 } from '@/lib/connectors/linear'
+import {
+  parseMetaAdsConnectorConfig,
+  parseMetaAdsConnectorPermissions,
+} from '@/lib/connectors/meta-ads'
+import { DEFAULT_META_ADS_CONNECTOR_PERMISSIONS } from '@/lib/connectors/meta-ads-types'
 import { CONNECTOR_TYPES } from '@/lib/connectors/types'
 import {
   parseZendeskConnectorConfig,
@@ -61,7 +66,7 @@ describe('connectors/crypto', () => {
 describe('connectors/types', () => {
   it('CONNECTOR_TYPES contains expected values', () => {
     expect(CONNECTOR_TYPES).toEqual([
-      'linear', 'notion', 'zendesk', 'ahrefs', 'umami', 'custom',
+      'linear', 'notion', 'zendesk', 'ahrefs', 'umami', 'custom', 'meta-ads',
       'google_gmail', 'google_drive', 'google_calendar', 'google_chat', 'google_people',
     ])
   })
@@ -241,6 +246,98 @@ describe('connectors/validators', () => {
       })).toEqual({
         valid: false,
         message: 'Umami connectors do not support OAuth',
+      })
+    })
+
+    it('validates required fields for meta-ads', () => {
+      expect(validateConnectorConfig('meta-ads', {
+        authType: 'oauth',
+        appId: 'meta-app-id',
+        appSecret: 'meta-app-secret',
+      })).toEqual({ valid: true })
+
+      expect(validateConnectorConfig('meta-ads', {})).toEqual({
+        valid: false,
+        message: 'Meta Ads connectors require OAuth',
+      })
+    })
+
+    it('rejects invalid meta-ads app id or secret', () => {
+      expect(validateConnectorConfig('meta-ads', {
+        authType: 'oauth',
+        appId: '',
+        appSecret: 'secret',
+      })).toEqual({
+        valid: false,
+        missing: ['appId'],
+      })
+
+      expect(validateConnectorConfig('meta-ads', {
+        authType: 'oauth',
+        appId: 'app-id',
+        appSecret: '',
+      })).toEqual({
+        valid: false,
+        missing: ['appSecret'],
+      })
+    })
+
+    it('rejects invalid meta-ads permissions', () => {
+      expect(validateConnectorConfig('meta-ads', {
+        authType: 'oauth',
+        appId: 'app-id',
+        appSecret: 'secret',
+        permissions: { allowRead: 'yes' },
+      })).toEqual({
+        valid: false,
+        message: 'allowRead must be a boolean',
+      })
+    })
+
+    it('rejects invalid meta-ads ad account ids', () => {
+      expect(validateConnectorConfig('meta-ads', {
+        authType: 'oauth',
+        appId: 'app-id',
+        appSecret: 'secret',
+        selectedAdAccountIds: ['not-an-id'],
+      })).toEqual({
+        valid: false,
+        message: 'Invalid ad account id: not-an-id',
+      })
+    })
+
+    it('rejects invalid meta-ads default ad account', () => {
+      expect(validateConnectorConfig('meta-ads', {
+        authType: 'oauth',
+        appId: 'app-id',
+        appSecret: 'secret',
+        selectedAdAccountIds: ['act_123'],
+        defaultAdAccountId: 'act_999',
+      })).toEqual({
+        valid: false,
+        message: 'defaultAdAccountId must match one of the selected ad accounts',
+      })
+    })
+
+    it('rejects invalid meta-ads selected ad account ids type', () => {
+      expect(validateConnectorConfig('meta-ads', {
+        authType: 'oauth',
+        appId: '123',
+        appSecret: 'secret',
+        selectedAdAccountIds: 'not-an-array',
+      })).toEqual({
+        valid: false,
+        message: 'selectedAdAccountIds must be an array',
+      })
+    })
+
+    it('rejects oauth mode for ahrefs connectors', () => {
+      expect(validateConnectorConfig('ahrefs', {
+        authType: 'oauth',
+        apiKey: 'ahrefs-key-123',
+      })).toEqual({
+        valid: false,
+        message: 'Ahrefs connectors do not support OAuth',
       })
     })
 
@@ -466,5 +563,41 @@ describe('connectors/linear', () => {
     expect(getLinearOAuthModeLabel({ type: 'linear', authType: 'oauth', oauthActor: 'user' })).toBe('User OAuth')
     expect(getLinearOAuthModeLabel({ type: 'linear', authType: 'manual' })).toBeNull()
     expect(getLinearOAuthModeLabel({ type: 'notion', authType: 'oauth' })).toBeNull()
+  })
+})
+
+describe('connectors/meta-ads-config', () => {
+  it('defaults missing Meta Ads permissions to read-only', () => {
+    expect(parseMetaAdsConnectorPermissions(undefined)).toEqual({
+      ok: true,
+      value: DEFAULT_META_ADS_CONNECTOR_PERMISSIONS,
+    })
+  })
+
+  it('parses partial Meta Ads permissions while keeping safe defaults', () => {
+    expect(parseMetaAdsConnectorPermissions({ allowRead: false })).toEqual({
+      ok: true,
+      value: {
+        ...DEFAULT_META_ADS_CONNECTOR_PERMISSIONS,
+        allowRead: false,
+      },
+    })
+  })
+
+  it('normalizes parsed Meta Ads config with default permissions and empty selected accounts', () => {
+    expect(parseMetaAdsConnectorConfig({
+      authType: 'oauth',
+      appId: '123',
+      appSecret: 'secret',
+    })).toEqual({
+      ok: true,
+      value: {
+        authType: 'oauth',
+        appId: '123',
+        appSecret: 'secret',
+        permissions: DEFAULT_META_ADS_CONNECTOR_PERMISSIONS,
+        selectedAdAccountIds: [],
+      },
+    })
   })
 })

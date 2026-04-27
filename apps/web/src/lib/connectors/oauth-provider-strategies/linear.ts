@@ -43,6 +43,9 @@ export const linearStrategy: OAuthProviderStrategy = {
       url.searchParams.set('actor', 'app')
     }
   },
+  usesPkce(): boolean {
+    return true
+  },
   async resolveTokenEndpoint(tokenEndpoint: string): Promise<string> {
     return tokenEndpoint
   },

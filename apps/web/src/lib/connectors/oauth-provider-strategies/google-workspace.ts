@@ -36,6 +36,9 @@ function createGoogleWorkspaceStrategy(type: GoogleWorkspaceConnectorType): OAut
       url.searchParams.set('access_type', 'offline')
       url.searchParams.set('prompt', 'consent')
     },
+    usesPkce(): boolean {
+      return true
+    },
     async resolveTokenEndpoint(tokenEndpoint: string): Promise<string> {
       return tokenEndpoint
     },

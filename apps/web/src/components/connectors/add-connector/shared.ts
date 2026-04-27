@@ -39,6 +39,11 @@ export const CONNECTOR_TYPE_OPTIONS: {
       'Website analytics from Umami Cloud or self-hosted Umami.',
   },
   {
+    type: 'meta-ads',
+    label: 'Meta Ads',
+    description: 'Meta Marketing API insights via Arche MCP.',
+  },
+  {
     type: 'google_gmail',
     label: 'Gmail',
     description: 'Official Google Workspace Gmail MCP integration.',
@@ -85,6 +90,8 @@ export function buildDefaultName(type: ConnectorType): string {
       return 'Ahrefs'
     case 'umami':
       return 'Umami'
+    case 'meta-ads':
+      return 'Meta Ads'
     case 'google_gmail':
       return 'Gmail'
     case 'google_drive':
@@ -123,5 +130,5 @@ export function supportsOAuth(type: ConnectorType): boolean {
 }
 
 export function getDefaultAuthType(type: ConnectorType): ConnectorAuthType {
-  return type === 'linear' || type === 'notion' || isGoogleWorkspaceConnectorType(type) ? 'oauth' : 'manual'
+  return type === 'linear' || type === 'notion' || type === 'meta-ads' || isGoogleWorkspaceConnectorType(type) ? 'oauth' : 'manual'
 }

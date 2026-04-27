@@ -1,6 +1,7 @@
 import { getConnectorAuthType } from '@/lib/connectors/oauth-config'
 import { getLinearOAuthActor, getLinearOAuthScopeValidationError, isLinearOAuthActor } from '@/lib/connectors/linear'
 import { isOAuthConnectorType } from '@/lib/connectors/oauth'
+import { validateMetaAdsConnectorConfig } from '@/lib/connectors/meta-ads-config'
 import { validateUmamiConnectorConfig } from '@/lib/connectors/umami-config'
 import type { ConnectorConfigValidationResult } from '@/lib/connectors/config-validation'
 import { validateAhrefsConnectorConfig } from '@/lib/connectors/ahrefs-config'
@@ -27,6 +28,10 @@ export const CONNECTOR_SCHEMAS: Record<ConnectorType, ConnectorConfigSchema> = {
   zendesk: { required: ['subdomain', 'email', 'apiToken'] },
   ahrefs: { required: ['apiKey'] },
   umami: { required: ['authMethod', 'baseUrl'] },
+  'meta-ads': {
+    required: ['authType', 'appId', 'appSecret'],
+    optional: ['permissions', 'selectedAdAccountIds', 'defaultAdAccountId', 'oauth'],
+  },
   custom: {
     required: ['endpoint'],
     optional: [
@@ -85,6 +90,10 @@ export function validateConnectorConfig(
   type: ConnectorType,
   config: Record<string, unknown>
 ): ConnectorConfigValidationResult {
+  if (type === 'meta-ads') {
+    return validateMetaAdsConnectorConfig(config)
+  }
+
   if (getConnectorAuthType(config) === 'oauth' && isOAuthConnectorType(type)) {
     if (type === 'linear' && config.oauthActor !== undefined && !isLinearOAuthActor(config.oauthActor)) {
       return { valid: false, message: 'Linear OAuth actor must be user or app' }

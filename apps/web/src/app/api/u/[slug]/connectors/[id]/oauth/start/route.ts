@@ -20,7 +20,7 @@ type StartOAuthResponse = {
 }
 
 function requiresConnectorConfig(type: OAuthConnectorType): boolean {
-  return type === 'linear' || type === 'custom'
+  return type === 'linear' || type === 'custom' || type === 'meta-ads'
 }
 
 type ResolveOAuthStartConnectorConfigResult =
@@ -82,6 +82,11 @@ export const POST = withAuth<
     return NextResponse.json({ error: 'oauth_not_supported' }, { status: 400 })
   }
 
+  if (connector.type === 'meta-ads') {
+    const denied = requireCapability('metaAdsConnector')
+    if (denied) return denied
+  }
+
   const baseUrl = getPublicBaseUrl(request.headers, request.nextUrl.origin)
   const redirectUri = `${baseUrl}/api/connectors/oauth/callback`
   const returnTo = normalizeConnectorOAuthReturnTo(request.nextUrl.searchParams.get('returnTo'))
@@ -116,8 +121,19 @@ export const POST = withAuth<
       || message === 'invalid_endpoint'
       || message === 'blocked_endpoint'
       || message === 'oauth_state_too_large'
+      || message === 'meta_ads_missing_app_id'
+      || message === 'meta_ads_missing_app_secret'
     ) {
-      return NextResponse.json({ error: message }, { status: 400 })
+      const errorPayload = message.startsWith('meta_ads_missing_')
+        ? {
+            error: message,
+            message: message === 'meta_ads_missing_app_id'
+              ? 'Meta Ads App ID is required before connecting OAuth.'
+              : 'Meta Ads App Secret is required before connecting OAuth.',
+          }
+        : { error: message }
+
+      return NextResponse.json(errorPayload, { status: 400 })
     }
 
     if (message.startsWith('oauth_discovery_failed')) {

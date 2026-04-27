@@ -197,11 +197,43 @@ async function postForm(
   return data
 }
 
+async function getJson(endpoint: string, errorPrefix: string): Promise<Record<string, unknown>> {
+  const response = await fetch(endpoint, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+    },
+    cache: 'no-store',
+  })
+
+  const data = (await response.json().catch(() => null)) as Record<string, unknown> | null
+  if (!response.ok || !data) {
+    throw new Error(errorPrefix)
+  }
+  if (typeof data.error === 'string' && data.error.trim()) {
+    const description = getString(data.error_description)
+    throw new Error(description ? `${errorPrefix}:${data.error}:${description}` : `${errorPrefix}:${data.error}`)
+  }
+
+  return data
+}
+
 async function resolveOAuthPreparationContext(input: {
   connectorType: OAuthConnectorType
   connectorConfig?: Record<string, unknown>
 }): Promise<OAuthPreparationContext> {
   const strategy = getStrategy(input.connectorType)
+
+  if (input.connectorType === 'meta-ads') {
+    const client = strategy.getStaticClientRegistration(input.connectorConfig)
+    if (!client?.clientId) {
+      throw new Error('meta_ads_missing_app_id')
+    }
+    if (!client.clientSecret) {
+      throw new Error('meta_ads_missing_app_secret')
+    }
+  }
+
   const mcpServerUrl = await strategy.getMcpServerUrl(input.connectorConfig)
   const scope = strategy.getScope(input.connectorConfig)
   const staticClientRegistration = strategy.getStaticClientRegistration(input.connectorConfig)
@@ -392,8 +424,10 @@ export async function prepareConnectorOAuthAuthorization(input: {
     context.preferStaticClientRegistration,
   )
 
-  const codeVerifier = createPkceCodeVerifier()
-  const codeChallenge = createPkceCodeChallenge(codeVerifier)
+  const strategy = getStrategy(input.connectorType)
+  const usePkce = strategy.usesPkce()
+  const codeVerifier = usePkce ? createPkceCodeVerifier() : undefined
+  const codeChallenge = codeVerifier ? createPkceCodeChallenge(codeVerifier) : undefined
 
   const state = issueConnectorOAuthState({
     connectorId: input.connectorId,
@@ -417,15 +451,16 @@ export async function prepareConnectorOAuthAuthorization(input: {
   authorizeUrl.searchParams.set('client_id', client.clientId)
   authorizeUrl.searchParams.set('redirect_uri', input.redirectUri)
   authorizeUrl.searchParams.set('state', state)
-  authorizeUrl.searchParams.set('code_challenge', codeChallenge)
-  authorizeUrl.searchParams.set('code_challenge_method', 'S256')
+  if (codeChallenge) {
+    authorizeUrl.searchParams.set('code_challenge', codeChallenge)
+    authorizeUrl.searchParams.set('code_challenge_method', 'S256')
+  }
 
   const scope = context.scope
   if (scope) {
     authorizeUrl.searchParams.set('scope', scope)
   }
 
-  const strategy = getStrategy(input.connectorType)
   strategy.decorateAuthorizeUrl(authorizeUrl, input.connectorConfig)
 
   const authorizeUrlString = authorizeUrl.toString()
@@ -441,6 +476,35 @@ export async function exchangeConnectorOAuthCode(input: {
   redirectUri: string
   state: OAuthStatePayload
 }): Promise<OAuthTokenResult> {
+  if (input.state.connectorType === 'meta-ads') {
+    if (!input.state.clientId || !input.state.clientSecret || !input.state.tokenEndpoint) {
+      throw new Error('invalid_state')
+    }
+
+    const shortLivedUrl = new URL(input.state.tokenEndpoint)
+    shortLivedUrl.searchParams.set('client_id', input.state.clientId)
+    shortLivedUrl.searchParams.set('redirect_uri', input.redirectUri)
+    shortLivedUrl.searchParams.set('client_secret', input.state.clientSecret)
+    shortLivedUrl.searchParams.set('code', input.code)
+
+    const shortLived = mapTokenResponse(await getJson(shortLivedUrl.toString(), 'oauth_exchange_failed'))
+
+    const longLivedUrl = new URL(input.state.tokenEndpoint)
+    longLivedUrl.searchParams.set('grant_type', 'fb_exchange_token')
+    longLivedUrl.searchParams.set('client_id', input.state.clientId)
+    longLivedUrl.searchParams.set('client_secret', input.state.clientSecret)
+    longLivedUrl.searchParams.set('fb_exchange_token', shortLived.accessToken)
+
+    const longLived = mapTokenResponse(await getJson(longLivedUrl.toString(), 'oauth_exchange_failed'))
+
+    return {
+      accessToken: longLived.accessToken,
+      tokenType: longLived.tokenType ?? shortLived.tokenType,
+      scope: longLived.scope ?? shortLived.scope,
+      expiresAt: longLived.expiresAt ?? shortLived.expiresAt,
+    }
+  }
+
   if (!input.state.clientId || !input.state.codeVerifier || !input.state.tokenEndpoint) {
     throw new Error('invalid_state')
   }
