@@ -216,9 +216,7 @@ export function WorkspaceShell({
   const routerRef = useRef(router);
   routerRef.current = router;
   const containerRef = useRef<HTMLDivElement>(null);
-  const isLoggingOutRef = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const resolvedPersistenceScope = persistenceScope ?? slug;
   const layoutCookieName = getWorkspaceLayoutCookieName(resolvedPersistenceScope);
@@ -956,20 +954,6 @@ export function WorkspaceShell({
     router.push(`/u/${slug}/autopilot`);
   }, [router, slug]);
 
-  const handleLogout = useCallback(async () => {
-    if (isLoggingOut || isLoggingOutRef.current) return
-
-    isLoggingOutRef.current = true
-    setIsLoggingOut(true)
-
-    try {
-      await fetch('/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
-    } finally {
-      router.push('/login')
-      router.refresh()
-    }
-  }, [isLoggingOut, router])
-
   const handleCreateKnowledgeFile = useCallback(
     async (path: string) => {
       if (!workspaceAgentEnabled) {
@@ -1390,7 +1374,6 @@ export function WorkspaceShell({
           currentVault ? getDesktopWorkspaceHref(slug, 'providers') : `/u/${slug}/settings`,
         )
       }
-      onLogout={currentVault ? undefined : handleLogout}
       sessions={rootSessions}
       activeSessionId={activeRootSessionId}
       hasMoreSessions={workspace.hasMoreSessions}

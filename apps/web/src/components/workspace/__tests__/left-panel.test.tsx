@@ -368,26 +368,6 @@ describe("LeftPanel", () => {
     expect(onCreateSession).toHaveBeenCalledTimes(1);
   });
 
-  it("calls onLogout from the expanded panel", () => {
-    const onLogout = vi.fn();
-
-    renderLeftPanel({ onLogout });
-
-    fireEvent.click(screen.getByRole("button", { name: "Log out" }));
-
-    expect(onLogout).toHaveBeenCalledTimes(1);
-  });
-
-  it("calls onLogout from the minified panel", () => {
-    const onLogout = vi.fn();
-
-    renderLeftPanel({ leftCollapsed: true, onLogout });
-
-    fireEvent.click(screen.getByRole("button", { name: "Log out" }));
-
-    expect(onLogout).toHaveBeenCalledTimes(1);
-  });
-
   it("does not show the desktop status indicator next to the vault switcher", () => {
     const { container } = renderLeftPanel({
       currentVault: {

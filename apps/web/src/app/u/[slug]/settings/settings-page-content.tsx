@@ -2,6 +2,7 @@ import Link from 'next/link'
 
 import { ThemePicker } from '@/components/dashboard/theme-picker'
 import { GoogleWorkspaceIntegrationSummaryCard } from '@/components/settings/google-workspace-integration-summary-card'
+import { SettingsLogoutButton } from '@/components/settings/settings-logout-button'
 import { SettingsSection } from '@/components/settings/settings-section'
 import { SlackIntegrationSummaryCard } from '@/components/settings/slack-integration-summary-card'
 import type { GoogleWorkspaceIntegrationSummary } from '@/lib/google-workspace/types'
@@ -69,6 +70,9 @@ export function SettingsPageContent({
                 </Link>
               ))}
             </nav>
+            <div className="mt-3 border-t border-border/60 pt-3">
+              <SettingsLogoutButton />
+            </div>
           </div>
         </aside>
 

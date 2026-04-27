@@ -23,6 +23,10 @@ vi.mock('../security/settings-page-content', () => ({
   SecuritySettingsPanel: () => <div>Security panel</div>,
 }))
 
+vi.mock('@/components/settings/settings-logout-button', () => ({
+  SettingsLogoutButton: () => <button type="button">Log out</button>,
+}))
+
 vi.mock('@/components/settings/google-workspace-integration-summary-card', () => ({
   GoogleWorkspaceIntegrationSummaryCard: ({ integration }: { integration: { configured: boolean } }) => (
     <div>Google Workspace integration {integration.configured ? 'Configured' : 'Not configured'}</div>
@@ -76,6 +80,7 @@ describe('SettingsPageContent', () => {
     expect(screen.getByRole('heading', { name: 'Settings' })).toBeTruthy()
     expect(screen.getByRole('link', { name: 'General' }).getAttribute('href')).toBe('/u/alice/settings')
     expect(screen.getByRole('link', { name: 'Security' }).getAttribute('href')).toBe('/u/alice/settings?section=security')
+    expect(screen.getByRole('button', { name: 'Log out' })).toBeTruthy()
     expect(screen.getByText('Slack integration')).toBeTruthy()
     expect(screen.getByText('Connected')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Setup' }).getAttribute('href')).toBe('/u/alice/settings/integrations/slack')

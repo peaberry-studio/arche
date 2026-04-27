@@ -1,47 +1,32 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { DashboardNav } from '@/components/dashboard/dashboard-nav'
 
-const pushMock = vi.fn()
-const refreshMock = vi.fn()
-
 vi.mock('next/navigation', () => ({
   usePathname: () => '/u/admin',
-  useRouter: () => ({ push: pushMock, refresh: refreshMock }),
 }))
 
-describe('DashboardNav logout', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }))
-  })
-
+describe('DashboardNav', () => {
   afterEach(() => {
     cleanup()
-    vi.unstubAllGlobals()
   })
 
-  it('posts to logout and redirects to login', async () => {
+  it('keeps logout out of the dashboard nav', () => {
     render(<DashboardNav slug="admin" />)
 
-    fireEvent.click(screen.getByLabelText('Log out'))
-
-    await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith('/auth/logout', {
-        method: 'POST',
-        credentials: 'include',
-      })
-    })
-    expect(pushMock).toHaveBeenCalledWith('/login')
-    expect(refreshMock).toHaveBeenCalled()
+    expect(screen.getByRole('link', { name: /open workspace/i }).getAttribute('href')).toBe('/w/admin')
+    expect(screen.queryByRole('button', { name: 'Log out' })).toBeNull()
   })
 
-  it('does not show logout in desktop mode', () => {
-    render(<DashboardNav slug="local" desktopMode />)
+  it('keeps logout out of the mobile menu', () => {
+    render(<DashboardNav slug="admin" />)
 
-    expect(screen.queryByLabelText('Log out')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Open menu' }))
+
+    expect(screen.getAllByRole('link', { name: 'Settings' })).toHaveLength(2)
+    expect(screen.queryByRole('button', { name: 'Log out' })).toBeNull()
   })
 })
