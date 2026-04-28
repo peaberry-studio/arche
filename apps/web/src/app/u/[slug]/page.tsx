@@ -1,9 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
-import { ConnectorsWidget } from '@/components/dashboard/connectors-widget'
 import { DashboardHero } from '@/components/dashboard/dashboard-hero'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { getSession } from '@/lib/runtime/session'
 import {
@@ -14,14 +12,8 @@ import { getKickstartStatus } from '@/kickstart/status'
 import type { KickstartStatus } from '@/kickstart/types'
 import { getAgentSummaries, parseCommonWorkspaceConfig } from '@/lib/workspace-config'
 import { getCurrentDesktopVault } from '@/lib/runtime/desktop/current-vault'
-import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { isDesktop } from '@/lib/runtime/mode'
-
-function formatCommitTime(value: string): string {
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return value
-  return parsed.toLocaleString()
-}
+import { listSkills } from '@/lib/skills/skill-store'
 
 function getSetupNotice(setupParam: string | undefined): {
   text: string
@@ -94,8 +86,8 @@ export default async function WorkspacePage({
 
   if (isSetupBlocked(kickstartStatus)) {
     return (
-      <main className="relative mx-auto max-w-5xl px-6 py-8">
-        <section className="relative overflow-hidden rounded-3xl border border-border/60 bg-gradient-to-br from-card via-card to-primary/10 p-8 sm:p-10">
+      <main className="relative px-6 py-8">
+        <section className="relative mx-auto max-w-5xl overflow-hidden rounded-3xl border border-border/60 bg-gradient-to-br from-card via-card to-primary/10 p-8 sm:p-10">
           <div className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-primary/20 blur-3xl" />
           <div className="pointer-events-none absolute -bottom-24 left-10 h-44 w-44 rounded-full bg-foreground/10 blur-3xl" />
 
@@ -144,137 +136,61 @@ export default async function WorkspacePage({
     )
   }
 
-  const configResult = await readCommonWorkspaceConfig()
+  const [configResult, recentUpdatesResult, skillsResult] = await Promise.all([
+    readCommonWorkspaceConfig(),
+    listRecentKbFileUpdates(10),
+    listSkills(),
+  ])
+
   const parsedConfig = configResult.ok ? parseCommonWorkspaceConfig(configResult.content) : null
   const agents = parsedConfig?.ok
     ? getAgentSummaries(parsedConfig.config)
-      .sort((a, b) => {
-        if (a.isPrimary && !b.isPrimary) return -1
-        if (!a.isPrimary && b.isPrimary) return 1
-        return a.displayName.localeCompare(b.displayName)
-      })
-      .slice(0, 4)
+        .sort((a, b) => {
+          if (a.isPrimary && !b.isPrimary) return -1
+          if (!a.isPrimary && b.isPrimary) return 1
+          return a.displayName.localeCompare(b.displayName)
+        })
+        .map((agent) => ({
+          id: agent.id,
+          displayName: agent.displayName,
+          description: agent.description,
+          isPrimary: agent.isPrimary,
+        }))
     : []
 
-  const recentUpdatesResult = await listRecentKbFileUpdates(10)
-  const recentUpdates = recentUpdatesResult.ok ? recentUpdatesResult.updates : []
-  const caps = getRuntimeCapabilities()
+  const recentUpdates = recentUpdatesResult.ok
+    ? recentUpdatesResult.updates.map((update) => ({
+        fileName: update.fileName,
+        filePath: update.filePath,
+      }))
+    : []
+
+  const skills = skillsResult.ok
+    ? skillsResult.data.map((skill) => ({ name: skill.name, description: skill.description }))
+    : []
 
   return (
-    <main className="relative mx-auto max-w-6xl overflow-hidden px-6 py-6">
-      {setupNotice && (
-        <section
-          className={
-            setupNotice.tone === 'success'
-              ? 'mb-6 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-800'
-              : 'mb-6 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning-foreground'
-          }
-        >
-          {setupNotice.text}
-        </section>
-      )}
-
-      {/* Hero */}
-      <DashboardHero slug={slug} />
-
-      {/* Sections grid */}
-      <div className="grid gap-8 md:grid-cols-2">
-        {/* Recent Activity */}
-        <section>
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm font-medium text-muted-foreground">
-              Recent Activity
-            </h2>
-          </div>
-
-          <div className="glass-panel rounded-xl">
-            {recentUpdates.length === 0 ? (
-              <div className="px-5 py-8 text-sm text-muted-foreground">
-                No file activity available yet.
-              </div>
-            ) : (
-              <div className="divide-y divide-border/50">
-                {recentUpdates.map((item) => (
-                  <div key={`${item.filePath}-${item.committedAt}`} className="px-5 py-3">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-foreground">{item.fileName}</p>
-                        <p className="truncate text-xs text-muted-foreground">{item.filePath}</p>
-                      </div>
-                      <div className="shrink-0 text-right">
-                        <p className="text-xs text-foreground">{item.author}</p>
-                        <p className="text-xs text-muted-foreground">{formatCommitTime(item.committedAt)}</p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* Agents & Connectors */}
-        <div className="space-y-8">
-          <section>
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-sm font-medium text-muted-foreground">Agents</h2>
-              <Link
-                href={`/u/${slug}/agents`}
-                className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-              >
-                View all
-              </Link>
-            </div>
-            <div className="space-y-2">
-              {agents.length === 0 ? (
-                <div className="glass-panel rounded-lg px-4 py-3 text-sm text-muted-foreground">
-                  No agents configured.
-                </div>
-              ) : (
-                agents.map((agent) => (
-                  <div
-                    key={agent.id}
-                    className="glass-panel flex min-w-0 items-center justify-between gap-3 rounded-lg px-4 py-3"
-                  >
-                    <span className="min-w-0 truncate text-sm text-foreground">{agent.displayName}</span>
-                    <Badge className="shrink-0" variant={agent.isPrimary ? "default" : "secondary"}>
-                      {agent.isPrimary ? 'Primary' : 'Secondary'}
-                    </Badge>
-                  </div>
-                ))
-              )}
-            </div>
+    <main className="relative flex min-h-[calc(100dvh-6rem)] flex-col px-6 py-8">
+      <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col">
+        {setupNotice && (
+          <section
+            className={
+              setupNotice.tone === 'success'
+                ? 'mb-6 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-800'
+                : 'mb-6 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning-foreground'
+            }
+          >
+            {setupNotice.text}
           </section>
+        )}
 
-          <section>
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-sm font-medium text-muted-foreground">Connectors</h2>
-              <Link
-                href={`/u/${slug}/connectors`}
-                className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-              >
-                View all
-              </Link>
-            </div>
-            <ConnectorsWidget slug={slug} />
-          </section>
-
-          {caps.autopilot ? (
-            <section>
-              <div className="mb-4 flex items-center justify-between">
-                <h2 className="text-sm font-medium text-muted-foreground">Autopilot</h2>
-                <Link
-                  href={`/u/${slug}/autopilot`}
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  Open
-                </Link>
-              </div>
-              <div className="glass-panel rounded-lg px-4 py-4 text-sm text-muted-foreground">
-                Schedule recurring prompts that run in the background with cron and timezone-aware execution.
-              </div>
-            </section>
-          ) : null}
+        <div className="flex flex-1 items-center justify-center">
+          <DashboardHero
+            slug={slug}
+            agents={agents}
+            recentUpdates={recentUpdates}
+            skills={skills}
+          />
         </div>
       </div>
     </main>
