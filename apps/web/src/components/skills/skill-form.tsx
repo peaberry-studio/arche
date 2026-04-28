@@ -218,7 +218,7 @@ export function SkillForm({
     }
   }
 
-  if (isLoading || isLoadingAgents) {
+  if (isLoading) {
     return (
       <div className="flex min-h-[320px] items-center justify-center">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -298,7 +298,12 @@ export function SkillForm({
           Choose which agents can use this skill by default.
         </p>
 
-        {sortedAgents.length === 0 ? (
+        {isLoadingAgents ? (
+          <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-card/50 p-3 text-sm text-muted-foreground">
+            <SpinnerGap size={14} className="animate-spin" />
+            Loading agents...
+          </div>
+        ) : sortedAgents.length === 0 ? (
           <div className="rounded-lg border border-border/60 bg-card/50 p-3 text-sm text-muted-foreground">
             No agents available.
           </div>
