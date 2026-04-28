@@ -19,7 +19,7 @@ export function DashboardThemeShell({ children }: DashboardThemeShellProps) {
       {/* Subtle dot-grid overlay — fades out towards center */}
       <div
         aria-hidden
-        className="pointer-events-none fixed inset-0 z-0"
+        className="pointer-events-none fixed inset-0 z-0 opacity-30"
         style={{
           backgroundImage:
             'radial-gradient(circle, var(--grid-line) 0.8px, transparent 0.8px)',

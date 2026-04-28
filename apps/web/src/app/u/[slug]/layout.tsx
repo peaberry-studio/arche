@@ -87,10 +87,13 @@ export default async function DashboardLayout({
             slug={slug}
             desktopMode={Boolean(desktopVault)}
             displayLabel={desktopVault?.vaultName}
+            hasWindowInset={macDesktopWindowInset}
           />
         </div>
 
-        {children}
+        <div className="transition-[margin] duration-200 md:ml-[var(--dashboard-nav-offset,5rem)]">
+          {children}
+        </div>
       </DashboardThemeShell>
     </WorkspaceThemeProvider>
   )
