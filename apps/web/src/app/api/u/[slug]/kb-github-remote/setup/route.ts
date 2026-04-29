@@ -59,7 +59,7 @@ export const GET = withAuth<{ error: string }>(
     })
 
     return NextResponse.redirect(
-      new URL(`/u/${slug}/settings/integrations/kb-github-remote?app_created=true`, request.url),
+      new URL(`/api/u/${slug}/kb-github-remote/install`, request.url),
     )
   },
 )
