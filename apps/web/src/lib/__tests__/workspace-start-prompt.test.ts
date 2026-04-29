@@ -21,7 +21,10 @@ describe('workspace start prompt storage', () => {
     const ok = setWorkspaceStartPrompt(storage, 'alice', '  hello world  ')
 
     expect(ok).toBe(true)
-    expect(takeWorkspaceStartPrompt(storage, 'alice')).toBe('hello world')
+    expect(takeWorkspaceStartPrompt(storage, 'alice')).toEqual({
+      text: 'hello world',
+      contextPaths: [],
+    })
   })
 
   it('setWorkspaceStartPrompt returns false for empty/whitespace prompt', () => {
@@ -39,7 +42,10 @@ describe('workspace start prompt storage', () => {
     const storage = createMemoryStorage()
     setWorkspaceStartPrompt(storage, 'alice', 'hello')
 
-    expect(takeWorkspaceStartPrompt(storage, 'alice')).toBe('hello')
+    expect(takeWorkspaceStartPrompt(storage, 'alice')).toEqual({
+      text: 'hello',
+      contextPaths: [],
+    })
     expect(takeWorkspaceStartPrompt(storage, 'alice')).toBeNull()
   })
 
@@ -48,7 +54,34 @@ describe('workspace start prompt storage', () => {
     setWorkspaceStartPrompt(storage, 'alice', 'hello')
 
     expect(takeWorkspaceStartPrompt(storage, 'bob')).toBeNull()
-    expect(takeWorkspaceStartPrompt(storage, 'alice')).toBe('hello')
+    expect(takeWorkspaceStartPrompt(storage, 'alice')).toEqual({
+      text: 'hello',
+      contextPaths: [],
+    })
+  })
+
+  it('stores selected context paths with the prompt', () => {
+    const storage = createMemoryStorage()
+    const ok = setWorkspaceStartPrompt(storage, 'alice', {
+      text: 'Review this',
+      contextPaths: ['docs/plan.md', ' docs/plan.md ', 'notes/research.md'],
+    })
+
+    expect(ok).toBe(true)
+    expect(takeWorkspaceStartPrompt(storage, 'alice')).toEqual({
+      text: 'Review this',
+      contextPaths: ['docs/plan.md', 'notes/research.md'],
+    })
+  })
+
+  it('reads legacy plain text prompts', () => {
+    const storage = createMemoryStorage()
+    storage.setItem('arche.workspaceStartPrompt.v1:alice', 'legacy prompt')
+
+    expect(takeWorkspaceStartPrompt(storage, 'alice')).toEqual({
+      text: 'legacy prompt',
+      contextPaths: [],
+    })
   })
 
 })

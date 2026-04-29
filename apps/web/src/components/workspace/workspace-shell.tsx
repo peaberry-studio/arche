@@ -24,7 +24,10 @@ import {
   readWorkspacePanelState,
   type StoredLayoutState,
 } from "@/lib/workspace-panel-state";
-import { takeWorkspaceStartPrompt } from "@/lib/workspace-start-prompt";
+import {
+  takeWorkspaceStartPrompt,
+  type WorkspaceStartPrompt,
+} from "@/lib/workspace-start-prompt";
 import { cn } from "@/lib/utils";
 
 import { useConfigStatus } from "@/hooks/use-config-status";
@@ -405,17 +408,20 @@ export function WorkspaceShell({
   useEffect(() => {
     if (!workspace.isConnected || hasAutoStartedPrompt.current) return;
 
-    let prompt: string | null = null;
-      try {
-        prompt = takeWorkspaceStartPrompt(window.sessionStorage, resolvedPersistenceScope);
-      } catch {
-        prompt = null;
-      }
+    let prompt: WorkspaceStartPrompt | null = null;
+    try {
+      prompt = takeWorkspaceStartPrompt(window.sessionStorage, resolvedPersistenceScope);
+    } catch {
+      prompt = null;
+    }
 
     hasAutoStartedPrompt.current = true;
     if (!prompt) return;
 
-    void workspace.sendMessage(prompt, undefined, { forceNewSession: true });
+    void workspace.sendMessage(prompt.text, undefined, {
+      forceNewSession: true,
+      contextPaths: prompt.contextPaths,
+    });
   }, [resolvedPersistenceScope, workspace, workspace.isConnected]);
 
   // Layout state

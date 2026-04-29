@@ -5,12 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { stubBrowserStorage } from "@/__tests__/storage";
 import { WorkspaceShell } from "@/components/workspace/workspace-shell";
+import { setWorkspaceStartPrompt } from "@/lib/workspace-start-prompt";
 
 const { ensureInstanceRunningActionMock } = vi.hoisted(() => ({
   ensureInstanceRunningActionMock: vi.fn().mockResolvedValue({ status: "running" }),
 }));
 
 const createSessionMock = vi.fn().mockResolvedValue(undefined);
+const sendMessageMock = vi.fn().mockResolvedValue(true);
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
@@ -63,7 +65,7 @@ vi.mock("@/hooks/use-workspace", () => ({
     ],
     fileTree: [],
     isStartingNewSession: false,
-    sendMessage: vi.fn(),
+    sendMessage: sendMessageMock,
     abortSession: vi.fn(),
     isSending: false,
     models: [],
@@ -177,6 +179,8 @@ describe("WorkspaceShell", () => {
     stubBrowserStorage();
     setViewportWidth(1440);
     createSessionMock.mockClear();
+    sendMessageMock.mockClear();
+    sendMessageMock.mockResolvedValue(true);
     ensureInstanceRunningActionMock.mockReset();
     ensureInstanceRunningActionMock.mockResolvedValue({ status: "running" });
     window.localStorage.clear();
@@ -234,6 +238,22 @@ describe("WorkspaceShell", () => {
 
     await waitFor(() => {
       expect(createSessionMock).toHaveBeenCalledWith();
+    });
+  });
+
+  it("auto-starts a dashboard prompt with selected context paths", async () => {
+    setWorkspaceStartPrompt(window.sessionStorage, "alice", {
+      text: "Review the plan",
+      contextPaths: ["docs/plan.md"],
+    });
+
+    render(<WorkspaceShell slug="alice" />);
+
+    await waitFor(() => {
+      expect(sendMessageMock).toHaveBeenCalledWith("Review the plan", undefined, {
+        forceNewSession: true,
+        contextPaths: ["docs/plan.md"],
+      });
     });
   });
 

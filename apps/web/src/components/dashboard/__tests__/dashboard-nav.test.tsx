@@ -12,6 +12,7 @@ vi.mock('next/navigation', () => ({
 describe('DashboardNav', () => {
   afterEach(() => {
     cleanup()
+    document.documentElement.style.removeProperty('--dashboard-nav-offset')
   })
 
   it('keeps logout out of the dashboard nav', () => {
@@ -28,5 +29,20 @@ describe('DashboardNav', () => {
 
     expect(screen.getAllByRole('link', { name: 'Settings' })).toHaveLength(2)
     expect(screen.queryByRole('button', { name: 'Log out' })).toBeNull()
+  })
+
+  it('updates and cleans the dashboard nav offset', () => {
+    const { unmount } = render(<DashboardNav slug="admin" />)
+
+    expect(document.documentElement.style.getPropertyValue('--dashboard-nav-offset')).toBe('5rem')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand navigation' }))
+
+    expect(document.documentElement.style.getPropertyValue('--dashboard-nav-offset')).toBe('13.5rem')
+    expect(screen.getByRole('button', { name: 'Collapse navigation' })).toBeTruthy()
+
+    unmount()
+
+    expect(document.documentElement.style.getPropertyValue('--dashboard-nav-offset')).toBe('')
   })
 })

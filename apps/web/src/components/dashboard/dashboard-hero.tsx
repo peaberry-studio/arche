@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   BookOpenText,
@@ -8,11 +8,9 @@ import {
   Lightning,
   PaperPlaneTilt,
   Robot,
-  SpinnerGap,
 } from '@phosphor-icons/react'
 
 import { Button } from '@/components/ui/button'
-import { useSkillsCatalog } from '@/hooks/use-skills-catalog'
 import { cn } from '@/lib/utils'
 import { setWorkspaceStartPrompt } from '@/lib/workspace-start-prompt'
 
@@ -46,7 +44,7 @@ export function DashboardHero({
   slug,
   agents,
   recentUpdates,
-  skills: initialSkills,
+  skills = [],
 }: DashboardHeroProps) {
   const router = useRouter()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -57,14 +55,6 @@ export function DashboardHero({
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(() => new Set())
   const [selectedExpert, setSelectedExpert] = useState<string | null>(null)
   const [selectedSkills, setSelectedSkills] = useState<Set<string>>(() => new Set())
-
-  // Skills: prefer pre-loaded server prop; fall back to client hook for freshness.
-  const { skills: clientSkills, isLoading: isLoadingClientSkills } = useSkillsCatalog(slug)
-  const skills: SkillItem[] = useMemo(() => {
-    if (initialSkills) return initialSkills
-    return clientSkills.map((entry) => ({ name: entry.name, description: entry.description }))
-  }, [initialSkills, clientSkills])
-  const isLoadingSkills = !initialSkills && isLoadingClientSkills
 
   // Close any open toggle on outside click and on Escape.
   useEffect(() => {
@@ -115,7 +105,10 @@ export function DashboardHero({
     if (!prompt) return
 
     try {
-      setWorkspaceStartPrompt(window.sessionStorage, slug, prompt)
+      setWorkspaceStartPrompt(window.sessionStorage, slug, {
+        text: prompt,
+        contextPaths: Array.from(selectedFiles),
+      })
     } catch {
       // ignore — if storage is unavailable, fallback is just navigation
     }
@@ -217,7 +210,6 @@ export function DashboardHero({
               panel={
                 <SkillsPanel
                   skills={skills}
-                  isLoading={isLoadingSkills}
                   selected={selectedSkills}
                   onToggle={toggleSkill}
                 />
@@ -453,23 +445,13 @@ function ExpertsPanel({
 
 function SkillsPanel({
   skills,
-  isLoading,
   selected,
   onToggle,
 }: {
   skills: SkillItem[]
-  isLoading: boolean
   selected: Set<string>
   onToggle: (name: string) => void
 }) {
-  if (isLoading) {
-    return (
-      <div className="flex items-center gap-2 px-3 py-4 text-sm text-muted-foreground">
-        <SpinnerGap size={14} className="animate-spin" />
-        Loading skills...
-      </div>
-    )
-  }
   if (skills.length === 0) {
     return <PanelEmpty>No skills available yet.</PanelEmpty>
   }

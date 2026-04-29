@@ -36,6 +36,12 @@ type DashboardNavItem = {
   icon: Icon
 }
 
+const DASHBOARD_NAV_OFFSET_PROPERTY = '--dashboard-nav-offset'
+const DASHBOARD_NAV_COLLAPSED_OFFSET = '5rem'
+const DASHBOARD_NAV_EXPANDED_OFFSET = '13.5rem'
+const DASHBOARD_NAV_COLLAPSED_WIDTH_CLASS = 'w-10'
+const DASHBOARD_NAV_EXPANDED_WIDTH_CLASS = 'w-44'
+
 function getWebNavItems(slug: string): DashboardNavItem[] {
   const base = `/u/${slug}`
 
@@ -93,10 +99,17 @@ export function DashboardNav({
   const mobileMenuOpen = menuState.open && menuState.pathname === pathname
 
   useEffect(() => {
-    document.documentElement.style.setProperty(
-      '--dashboard-nav-offset',
-      isExpanded ? '13.5rem' : '5rem',
+    const root = document.documentElement
+
+    // Consumed by md+ dashboard layouts; mobile ignores the offset in CSS.
+    root.style.setProperty(
+      DASHBOARD_NAV_OFFSET_PROPERTY,
+      isExpanded ? DASHBOARD_NAV_EXPANDED_OFFSET : DASHBOARD_NAV_COLLAPSED_OFFSET,
     )
+
+    return () => {
+      root.style.removeProperty(DASHBOARD_NAV_OFFSET_PROPERTY)
+    }
   }, [isExpanded])
 
   useEffect(() => {
@@ -126,7 +139,7 @@ export function DashboardNav({
           className={cn(
             'fixed bottom-6 left-5 z-40 hidden flex-col text-card-foreground transition-[width] duration-200 md:flex',
             hasWindowInset ? 'top-10' : 'top-6',
-            isExpanded ? 'w-44' : 'w-10',
+            isExpanded ? DASHBOARD_NAV_EXPANDED_WIDTH_CLASS : DASHBOARD_NAV_COLLAPSED_WIDTH_CLASS,
           )}
         >
           <div className="flex flex-col items-start gap-2">
@@ -227,7 +240,7 @@ function DashboardNavToggle({
       onClick={onToggle}
       className={cn(
         'flex h-10 items-center rounded-xl text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground',
-        isExpanded ? 'w-full gap-3 px-3' : 'w-10 justify-center',
+        isExpanded ? 'w-full gap-3 px-3' : `${DASHBOARD_NAV_COLLAPSED_WIDTH_CLASS} justify-center`,
       )}
       aria-label={isExpanded ? 'Collapse navigation' : 'Expand navigation'}
       aria-expanded={isExpanded}
