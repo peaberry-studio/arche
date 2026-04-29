@@ -120,7 +120,7 @@ services:
       - ${KB_CONFIG_HOST_PATH:-/opt/arche/kb-config}:/kb-config
       - ${ARCHE_USERS_PATH:-/tmp/arche-users}:${ARCHE_USERS_PATH:-/tmp/arche-users}
       - arche_web_node_modules:/app/node_modules
-    command: sh -lc "apt-get update -y && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/* && corepack enable && pnpm install && pnpm prisma generate && pnpm dev"
+    command: sh -lc "apt-get update -y && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/* && corepack enable && pnpm install && pnpm prisma generate && pnpm dev"
     labels:
       - traefik.enable=true
       - traefik.docker.network=arche_default
