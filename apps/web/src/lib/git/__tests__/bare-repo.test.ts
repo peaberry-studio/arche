@@ -46,15 +46,15 @@ describe('runGit', () => {
   })
 
   it('returns stdout on success', async () => {
-    mockExecFile.mockResolvedValue({ stdout: 'output\n' })
+    mockExecFile.mockResolvedValue({ stdout: 'output\n', stderr: '' })
     const result = await runGit(['status'])
-    expect(result).toEqual({ ok: true, stdout: 'output\n' })
+    expect(result).toEqual({ ok: true, stdout: 'output\n', stderr: '' })
   })
 
   it('returns empty stdout when null', async () => {
-    mockExecFile.mockResolvedValue({ stdout: null })
+    mockExecFile.mockResolvedValue({ stdout: null, stderr: null })
     const result = await runGit(['status'])
-    expect(result).toEqual({ ok: true, stdout: '' })
+    expect(result).toEqual({ ok: true, stdout: '', stderr: '' })
   })
 
   it('returns stderr on error with stderr property', async () => {
