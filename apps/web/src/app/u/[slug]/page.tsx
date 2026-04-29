@@ -170,7 +170,7 @@ export default async function WorkspacePage({
     : []
 
   return (
-    <main className="relative flex min-h-[calc(100dvh-6rem)] flex-col px-6 py-8">
+    <main className="relative flex min-h-[calc(100dvh-6rem)] flex-col px-4 py-6 sm:px-6 sm:py-8">
       <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col">
         {setupNotice && (
           <section

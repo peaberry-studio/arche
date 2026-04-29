@@ -150,13 +150,13 @@ export function DashboardHero({
 
   return (
     <section className="w-full max-w-3xl">
-      <h1 className="type-serif mb-10 text-center text-3xl italic text-foreground/90 sm:text-4xl md:text-5xl">
+      <h1 className="type-serif mb-7 text-center text-3xl leading-tight italic text-foreground/90 sm:mb-10 sm:text-4xl md:text-5xl">
         What do you want to work on today?
       </h1>
 
       <div
         ref={containerRef}
-        className="rounded-3xl border border-border/60 bg-card/70 px-5 pb-5 pt-4 shadow-subtle backdrop-blur-md transition-shadow focus-within:border-border/80 focus-within:shadow-md"
+        className="relative rounded-3xl border border-border/60 bg-card/70 px-4 pb-4 pt-3.5 shadow-subtle backdrop-blur-md transition-shadow focus-within:border-border/80 focus-within:shadow-md sm:px-5 sm:pb-5 sm:pt-4"
       >
         <textarea
           ref={textareaRef}
@@ -164,12 +164,12 @@ export function DashboardHero({
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
           rows={1}
-          className="block min-h-[44px] w-full resize-none bg-transparent text-lg leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/60"
+          className="block min-h-[38px] w-full resize-none bg-transparent pr-12 text-base leading-6 text-foreground outline-none placeholder:text-muted-foreground/60 sm:min-h-[44px] sm:pr-0 sm:text-lg sm:leading-relaxed"
           placeholder="Describe what you want to work on..."
         />
 
-        <div className="mt-2 flex flex-wrap items-end gap-2">
-          <div className="flex flex-wrap items-end gap-1.5">
+        <div className="mt-3 flex items-center gap-2 sm:mt-2 sm:items-end">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 sm:items-end">
             <ComposerToggle
               id="knowledge"
               icon={<BookOpenText size={14} weight="regular" />}
@@ -217,7 +217,7 @@ export function DashboardHero({
             />
           </div>
 
-          <div className="ml-auto">
+          <div className="absolute right-4 top-3.5 shrink-0 sm:static sm:ml-auto">
             <Button
               size="icon"
               className="h-10 w-10 rounded-lg"

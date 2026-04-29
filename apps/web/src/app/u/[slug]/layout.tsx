@@ -78,7 +78,7 @@ export default async function DashboardLayout({
         )}
         <div
           className={cn(
-            'mx-auto max-w-6xl px-6',
+            'mx-auto max-w-6xl px-4 sm:px-6',
             macDesktopWindowInset ? 'pt-10' : 'pt-6',
             macDesktopWindowInset && 'desktop-no-select',
           )}
