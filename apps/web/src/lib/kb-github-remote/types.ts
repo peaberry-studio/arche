@@ -16,14 +16,6 @@ export type KbGithubRemoteIntegrationSummary = {
 
 export type KbGithubRemoteIntegrationGetResponse = KbGithubRemoteIntegrationSummary
 
-export type KbGithubRemoteIntegrationMutateRequest = {
-  appId?: string
-  privateKey?: string
-  appSlug?: string
-}
-
-export type KbGithubRemoteIntegrationMutateResponse = KbGithubRemoteIntegrationGetResponse
-
 export type KbGithubRemoteRepo = {
   fullName: string
   cloneUrl: string

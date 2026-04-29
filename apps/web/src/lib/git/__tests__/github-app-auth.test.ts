@@ -216,4 +216,82 @@ describe('github-app-auth', () => {
       expect(result).toEqual({ ok: false, message: 'timeout' })
     })
   })
+
+  describe('exchangeManifestCode', () => {
+    it('returns app credentials on success', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          id: 12345,
+          slug: 'arche-kb-sync',
+          pem: '-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----',
+          client_id: 'Iv1.abc123',
+          webhook_secret: 'wh_secret',
+          owner: { login: 'my-org' },
+        }),
+      })
+
+      const { exchangeManifestCode } = await import('../github-app-auth')
+      const result = await exchangeManifestCode('test_code')
+
+      expect(result).toEqual({
+        ok: true,
+        appId: 12345,
+        slug: 'arche-kb-sync',
+        pem: '-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----',
+        clientId: 'Iv1.abc123',
+        webhookSecret: 'wh_secret',
+        owner: 'my-org',
+      })
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.github.com/app-manifests/test_code/conversions',
+        expect.objectContaining({ method: 'POST' }),
+      )
+    })
+
+    it('returns error on expired code (404)', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 404,
+        text: async () => 'Not Found',
+      })
+
+      const { exchangeManifestCode } = await import('../github-app-auth')
+      const result = await exchangeManifestCode('expired_code')
+
+      expect(result).toEqual({
+        ok: false,
+        message: 'Invalid or expired manifest code',
+      })
+    })
+
+    it('returns error on already-used code (422)', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 422,
+        text: async () => 'Unprocessable Entity',
+      })
+
+      const { exchangeManifestCode } = await import('../github-app-auth')
+      const result = await exchangeManifestCode('used_code')
+
+      expect(result).toEqual({
+        ok: false,
+        message: 'Manifest code has already been used',
+      })
+    })
+
+    it('returns error on network failure', async () => {
+      mockFetch.mockRejectedValue(new Error('connection refused'))
+
+      const { exchangeManifestCode } = await import('../github-app-auth')
+      const result = await exchangeManifestCode('any_code')
+
+      expect(result).toEqual({
+        ok: false,
+        message: 'connection refused',
+      })
+    })
+  })
 })

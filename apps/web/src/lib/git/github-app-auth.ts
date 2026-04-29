@@ -120,6 +120,57 @@ export async function getInstallationRepos(
   }
 }
 
+export type ManifestExchangeResult =
+  | { ok: true; appId: number; slug: string; pem: string; clientId: string; webhookSecret: string; owner: string }
+  | { ok: false; message: string }
+
+export async function exchangeManifestCode(code: string): Promise<ManifestExchangeResult> {
+  try {
+    const response = await fetch(`${GITHUB_API_BASE}/app-manifests/${code}/conversions`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    })
+
+    if (response.status === 404) {
+      return { ok: false, message: 'Invalid or expired manifest code' }
+    }
+    if (response.status === 422) {
+      return { ok: false, message: 'Manifest code has already been used' }
+    }
+    if (!response.ok) {
+      const text = await response.text().catch(() => '')
+      return { ok: false, message: `GitHub API returned ${response.status}: ${text}` }
+    }
+
+    const data = (await response.json()) as {
+      id: number
+      slug: string
+      pem: string
+      client_id: string
+      webhook_secret: string
+      owner: { login: string }
+    }
+
+    return {
+      ok: true,
+      appId: data.id,
+      slug: data.slug,
+      pem: data.pem,
+      clientId: data.client_id,
+      webhookSecret: data.webhook_secret,
+      owner: data.owner.login,
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : 'Failed to exchange manifest code',
+    }
+  }
+}
+
 export async function verifyInstallation(
   appId: string,
   privateKey: string,
