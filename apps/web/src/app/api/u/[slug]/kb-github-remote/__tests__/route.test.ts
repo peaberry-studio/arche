@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const findIntegrationMock = vi.fn()
 const decryptIntegrationConfigMock = vi.fn()
-const saveIntegrationConfigMock = vi.fn()
 const clearIntegrationMock = vi.fn()
 const auditEventMock = vi.fn()
 
@@ -36,7 +35,6 @@ vi.mock('@/lib/services', () => ({
   kbGithubRemoteService: {
     findIntegration: (...args: unknown[]) => findIntegrationMock(...args),
     decryptIntegrationConfig: (...args: unknown[]) => decryptIntegrationConfigMock(...args),
-    saveIntegrationConfig: (...args: unknown[]) => saveIntegrationConfigMock(...args),
     clearIntegration: (...args: unknown[]) => clearIntegrationMock(...args),
   },
 }))
@@ -70,7 +68,6 @@ describe('/api/u/[slug]/kb-github-remote', () => {
     auditEventMock.mockResolvedValue(undefined)
     findIntegrationMock.mockResolvedValue(null)
     decryptIntegrationConfigMock.mockReturnValue(null)
-    saveIntegrationConfigMock.mockResolvedValue(makeRecord())
     clearIntegrationMock.mockResolvedValue(makeRecord())
   })
 
@@ -142,101 +139,6 @@ describe('/api/u/[slug]/kb-github-remote', () => {
       )
 
       expect(response.status).toBe(403)
-    })
-  })
-
-  describe('PUT', () => {
-    it('saves new app credentials', async () => {
-      decryptIntegrationConfigMock.mockReturnValue({
-        appId: '12345',
-        privateKey: 'pem-data',
-        appSlug: 'my-app',
-      })
-
-      const { PUT } = await import('../route')
-      const response = await PUT(
-        new Request('http://localhost/api/u/alice/kb-github-remote', {
-          body: JSON.stringify({
-            appId: '12345',
-            privateKey: 'new-pem',
-            appSlug: 'my-app',
-          }),
-          headers: { 'content-type': 'application/json' },
-          method: 'PUT',
-        }) as never,
-        { params: Promise.resolve({ slug: 'alice' }) },
-      )
-
-      expect(response.status).toBe(200)
-      expect(saveIntegrationConfigMock).toHaveBeenCalledWith({
-        appId: '12345',
-        privateKey: 'new-pem',
-        appSlug: 'my-app',
-      })
-      expect(auditEventMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          action: 'kb_github_remote.updated',
-        }),
-      )
-    })
-
-    it('rejects missing app ID', async () => {
-      const { PUT } = await import('../route')
-      const response = await PUT(
-        new Request('http://localhost/api/u/alice/kb-github-remote', {
-          body: JSON.stringify({ privateKey: 'pem-data' }),
-          headers: { 'content-type': 'application/json' },
-          method: 'PUT',
-        }) as never,
-        { params: Promise.resolve({ slug: 'alice' }) },
-      )
-
-      expect(response.status).toBe(400)
-      await expect(response.json()).resolves.toEqual({ error: 'missing_app_id' })
-    })
-
-    it('rejects missing private key on first save', async () => {
-      findIntegrationMock.mockResolvedValue(null)
-      decryptIntegrationConfigMock.mockReturnValue(null)
-
-      const { PUT } = await import('../route')
-      const response = await PUT(
-        new Request('http://localhost/api/u/alice/kb-github-remote', {
-          body: JSON.stringify({ appId: '12345' }),
-          headers: { 'content-type': 'application/json' },
-          method: 'PUT',
-        }) as never,
-        { params: Promise.resolve({ slug: 'alice' }) },
-      )
-
-      expect(response.status).toBe(400)
-      await expect(response.json()).resolves.toEqual({ error: 'missing_private_key' })
-    })
-
-    it('allows blank private key when existing key is saved', async () => {
-      findIntegrationMock.mockResolvedValue(makeRecord())
-      decryptIntegrationConfigMock.mockReturnValue({
-        appId: '12345',
-        privateKey: 'existing-pem',
-        appSlug: 'my-app',
-      })
-
-      const { PUT } = await import('../route')
-      const response = await PUT(
-        new Request('http://localhost/api/u/alice/kb-github-remote', {
-          body: JSON.stringify({ appId: '12345', appSlug: 'new-slug' }),
-          headers: { 'content-type': 'application/json' },
-          method: 'PUT',
-        }) as never,
-        { params: Promise.resolve({ slug: 'alice' }) },
-      )
-
-      expect(response.status).toBe(200)
-      expect(saveIntegrationConfigMock).toHaveBeenCalledWith({
-        appId: '12345',
-        privateKey: null,
-        appSlug: 'new-slug',
-      })
     })
   })
 

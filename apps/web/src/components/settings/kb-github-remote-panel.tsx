@@ -1,15 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowsClockwise, SpinnerGap } from '@phosphor-icons/react'
 
 import { SettingsInfoBox } from '@/components/settings/settings-info-box'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import type {
   KbGithubRemoteIntegrationGetResponse,
-  KbGithubRemoteIntegrationMutateResponse,
   KbGithubRemoteRepo,
 } from '@/lib/kb-github-remote/types'
 
@@ -19,14 +17,14 @@ type KbGithubRemotePanelProps = {
 
 const ERROR_MESSAGES: Record<string, string> = {
   forbidden: 'Only admins can manage the GitHub KB Backup integration.',
-  invalid_body: 'The request body was invalid.',
-  invalid_json: 'The request body was invalid JSON.',
-  missing_app_id: 'App ID is required.',
-  missing_private_key: 'A private key is required when saving for the first time.',
-  missing_app_slug: 'App slug is required to install the GitHub App.',
-  not_configured: 'GitHub App is not configured. Save credentials first.',
+  missing_code: 'GitHub did not return an authorization code.',
+  exchange_failed: 'Failed to create the GitHub App. The code may have expired — try again.',
+  missing_installation_id: 'GitHub did not return an installation ID.',
+  invalid_installation_id: 'The installation ID from GitHub was invalid.',
+  not_configured: 'GitHub App is not configured.',
   not_installed: 'GitHub App is not installed. Click "Install on GitHub" first.',
   not_ready: 'No repository selected. Select a repository first.',
+  verification_failed: 'Could not verify the GitHub App installation.',
   invalid_direction: 'Invalid sync direction.',
   network_error: 'Could not reach the server.',
 }
@@ -36,22 +34,38 @@ function getErrorMessage(error: string | undefined): string {
   return ERROR_MESSAGES[error] ?? error
 }
 
-type BusyAction = 'save' | 'clear' | 'test' | 'push' | 'pull' | 'repos' | null
+type BusyAction = 'clear' | 'test' | 'push' | 'pull' | 'repos' | null
 
 export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
-  const [appId, setAppId] = useState('')
-  const [privateKey, setPrivateKey] = useState('')
-  const [appSlug, setAppSlug] = useState('')
   const [integration, setIntegration] = useState<KbGithubRemoteIntegrationGetResponse | null>(null)
   const [repos, setRepos] = useState<KbGithubRemoteRepo[] | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [busyAction, setBusyAction] = useState<BusyAction>(null)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const formRef = useRef<HTMLFormElement>(null)
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const errorParam = params.get('error')
+    const appCreated = params.get('app_created')
+    const installed = params.get('installed')
+
+    if (errorParam) {
+      setError(getErrorMessage(errorParam))
+    } else if (appCreated === 'true') {
+      setSuccess('GitHub App created successfully. Now install it on your account.')
+    } else if (installed === 'true') {
+      setSuccess('GitHub App installed. Select a repository to complete setup.')
+    }
+
+    if (errorParam || appCreated || installed) {
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+  }, [])
 
   const loadIntegration = useCallback(async () => {
     setIsLoading(true)
-    setError(null)
 
     try {
       const response = await fetch(`/api/u/${slug}/kb-github-remote`, { cache: 'no-store' })
@@ -66,8 +80,6 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
       }
 
       setIntegration(data)
-      setAppId(data.appId ?? '')
-      setAppSlug(data.appSlug ?? '')
     } catch {
       setError(getErrorMessage('network_error'))
     } finally {
@@ -79,45 +91,29 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
     void loadIntegration()
   }, [loadIntegration])
 
-  async function handleSave() {
-    setBusyAction('save')
-    setError(null)
-    setSuccess(null)
+  function handleConnectGithub() {
+    const origin = window.location.origin
+    const manifest = {
+      name: 'Arche KB Sync',
+      url: origin,
+      redirect_url: `${origin}/api/u/${slug}/kb-github-remote/setup`,
+      setup_url: `${origin}/api/u/${slug}/kb-github-remote/callback`,
+      public: false,
+      default_permissions: {
+        contents: 'write',
+        metadata: 'read',
+      },
+      default_events: [],
+    }
 
-    try {
-      const response = await fetch(`/api/u/${slug}/kb-github-remote`, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          appId: appId.trim(),
-          privateKey: privateKey.trim() || undefined,
-          appSlug: appSlug.trim() || undefined,
-        }),
-      })
-      const data = (await response.json().catch(() => null)) as
-        | (KbGithubRemoteIntegrationMutateResponse & { error?: string })
-        | { error?: string }
-        | null
-
-      if (!response.ok || !data || !('appConfigured' in data)) {
-        setError(getErrorMessage(data?.error))
-        return
-      }
-
-      setIntegration(data)
-      setAppId(data.appId ?? '')
-      setAppSlug(data.appSlug ?? '')
-      setPrivateKey('')
-      setSuccess('Configuration saved.')
-      window.setTimeout(() => setSuccess(null), 3000)
-    } catch {
-      setError(getErrorMessage('network_error'))
-    } finally {
-      setBusyAction(null)
+    const input = formRef.current?.querySelector<HTMLInputElement>('input[name="manifest"]')
+    if (input) {
+      input.value = JSON.stringify(manifest)
+      formRef.current?.submit()
     }
   }
 
-  async function handleClear() {
+  async function handleDisconnect() {
     setBusyAction('clear')
     setError(null)
     setSuccess(null)
@@ -127,7 +123,7 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
         method: 'DELETE',
       })
       const data = (await response.json().catch(() => null)) as
-        | (KbGithubRemoteIntegrationMutateResponse & { error?: string })
+        | (KbGithubRemoteIntegrationGetResponse & { error?: string })
         | { error?: string }
         | null
 
@@ -137,11 +133,8 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
       }
 
       setIntegration(data)
-      setAppId('')
-      setAppSlug('')
-      setPrivateKey('')
       setRepos(null)
-      setSuccess('Configuration cleared.')
+      setSuccess('Disconnected from GitHub.')
       window.setTimeout(() => setSuccess(null), 3000)
     } catch {
       setError(getErrorMessage('network_error'))
@@ -292,6 +285,7 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
     </span>
   ) : null
 
+  const showConnectButton = !integration?.appConfigured
   const showInstallButton = integration?.appConfigured && !integration.installationId
   const showRepoPicker = integration?.appConfigured && integration.installationId && !integration.repoFullName
   const showSyncControls = integration?.ready
@@ -312,125 +306,62 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
       {success ? <SettingsInfoBox tone="success">{success}</SettingsInfoBox> : null}
 
       <div className="space-y-6 pt-2">
-        <div className="space-y-3">
-          <h3 className="text-sm font-medium text-foreground">Setup instructions</h3>
-          <ol className="list-decimal space-y-1 pl-5 text-sm text-muted-foreground">
-            <li>
-              Create a{' '}
-              <a
-                href="https://github.com/settings/apps/new"
-                target="_blank"
-                rel="noreferrer"
-                className="font-medium text-primary hover:underline"
-              >
-                GitHub App
-              </a>{' '}
-              with <strong>Contents: Read &amp; Write</strong> permission. Disable webhooks.
-            </li>
-            <li>
-              Set the Setup URL to:{' '}
-              <code className="rounded bg-muted px-1 text-xs">
-                {typeof window !== 'undefined' ? window.location.origin : ''}/api/u/{slug}/kb-github-remote/callback
-              </code>
-            </li>
-            <li>Enter the App ID, app slug, and private key below, then save.</li>
-            <li>Click &ldquo;Install on GitHub&rdquo; to install the app on your repository.</li>
-            <li>Select the repository to sync with.</li>
-          </ol>
-        </div>
-
-        <div className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <label htmlFor="kb-app-id" className="text-sm font-medium text-foreground">
-                App ID
-              </label>
-              <Input
-                id="kb-app-id"
-                type="text"
-                placeholder="123456"
-                value={appId}
-                onChange={(event) => setAppId(event.target.value)}
-                disabled={busyAction !== null}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label htmlFor="kb-app-slug" className="text-sm font-medium text-foreground">
-                App slug
-              </label>
-              <Input
-                id="kb-app-slug"
-                type="text"
-                placeholder="my-arche-kb-backup"
-                value={appSlug}
-                onChange={(event) => setAppSlug(event.target.value)}
-                disabled={busyAction !== null}
-              />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <label htmlFor="kb-private-key" className="text-sm font-medium text-foreground">
-              Private key (PEM)
-            </label>
-            <textarea
-              id="kb-private-key"
-              className="flex min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-              placeholder={integration?.hasPrivateKey ? 'Saved. Leave blank to keep existing.' : '-----BEGIN RSA PRIVATE KEY-----\n...'}
-              value={privateKey}
-              onChange={(event) => setPrivateKey(event.target.value)}
-              disabled={busyAction !== null}
-            />
-            {integration?.hasPrivateKey ? (
-              <p className="text-xs text-muted-foreground">Leave blank to preserve the existing saved key.</p>
-            ) : null}
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              disabled={busyAction !== null}
-              onClick={() => void handleSave()}
+        {showConnectButton ? (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Click below to create and register a GitHub App for this deployment. You will be redirected to GitHub to approve the app.
+            </p>
+            <form
+              ref={formRef}
+              action="https://github.com/settings/apps/new"
+              method="post"
             >
-              {busyAction === 'save' ? 'Saving...' : 'Save'}
-            </Button>
-            {integration?.appConfigured ? (
-              <>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  size="sm"
-                  disabled={busyAction !== null}
-                  onClick={() => void handleClear()}
-                >
-                  {busyAction === 'clear' ? 'Clearing...' : 'Clear credentials'}
-                </Button>
-              </>
-            ) : null}
+              <input type="hidden" name="manifest" value="" />
+              <Button
+                type="button"
+                disabled={busyAction !== null}
+                onClick={handleConnectGithub}
+              >
+                Connect to GitHub
+              </Button>
+            </form>
           </div>
-        </div>
+        ) : null}
 
         {showInstallButton ? (
-          <div className="space-y-3 border-t border-border/60 pt-4">
-            <h3 className="text-sm font-medium text-foreground">Install the GitHub App</h3>
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-sm font-medium text-foreground">Install the GitHub App</h3>
+              <Badge variant="default">App created</Badge>
+            </div>
             <p className="text-sm text-muted-foreground">
               Install the app on a GitHub account or organization to grant repository access.
             </p>
-            <Button
-              type="button"
-              variant="outline"
-              asChild
-            >
-              <a href={`/api/u/${slug}/kb-github-remote/install`}>
-                Install on GitHub
-              </a>
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                asChild
+              >
+                <a href={`/api/u/${slug}/kb-github-remote/install`}>
+                  Install on GitHub
+                </a>
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                disabled={busyAction !== null}
+                onClick={() => void handleDisconnect()}
+              >
+                {busyAction === 'clear' ? 'Disconnecting...' : 'Disconnect'}
+              </Button>
+            </div>
           </div>
         ) : null}
 
         {showRepoPicker ? (
-          <div className="space-y-3 border-t border-border/60 pt-4">
+          <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-sm font-medium text-foreground">Select a repository</h3>
               <Badge variant="default">Installed</Badge>
@@ -468,11 +399,21 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
                 ))}
               </div>
             )}
+
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              disabled={busyAction !== null}
+              onClick={() => void handleDisconnect()}
+            >
+              {busyAction === 'clear' ? 'Disconnecting...' : 'Disconnect'}
+            </Button>
           </div>
         ) : null}
 
         {integration?.installationId && integration.repoFullName ? (
-          <div className="space-y-3 border-t border-border/60 pt-4">
+          <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-sm font-medium text-foreground">Connected repository</h3>
               <Badge variant="default">{integration.repoFullName}</Badge>
@@ -531,6 +472,15 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
                   >
                     <ArrowsClockwise size={14} className={busyAction === 'pull' ? 'animate-spin' : ''} />
                     {busyAction === 'pull' ? 'Pulling...' : 'Pull from GitHub'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    disabled={busyAction !== null}
+                    onClick={() => void handleDisconnect()}
+                  >
+                    {busyAction === 'clear' ? 'Disconnecting...' : 'Disconnect'}
                   </Button>
                 </div>
               </>
