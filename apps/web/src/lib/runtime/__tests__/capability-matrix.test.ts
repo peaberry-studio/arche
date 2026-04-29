@@ -64,6 +64,7 @@ describe('capability enforcement matrix', () => {
     { capability: 'slackIntegration', web: true, desktop: false },
     { capability: 'googleWorkspaceIntegration', web: true, desktop: false },
     { capability: 'metaAdsConnector', web: true, desktop: true },
+    { capability: 'kbGithubSync', web: true, desktop: true },
   ]
 
   describe.each([webMode, desktopMode])('$name mode', (mode) => {
