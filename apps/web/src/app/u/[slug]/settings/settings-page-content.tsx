@@ -2,10 +2,12 @@ import Link from 'next/link'
 
 import { ThemePicker } from '@/components/dashboard/theme-picker'
 import { GoogleWorkspaceIntegrationSummaryCard } from '@/components/settings/google-workspace-integration-summary-card'
+import { KbGithubRemoteSummaryCard } from '@/components/settings/kb-github-remote-summary-card'
 import { SettingsLogoutButton } from '@/components/settings/settings-logout-button'
 import { SettingsSection } from '@/components/settings/settings-section'
 import { SlackIntegrationSummaryCard } from '@/components/settings/slack-integration-summary-card'
 import type { GoogleWorkspaceIntegrationSummary } from '@/lib/google-workspace/types'
+import type { KbGithubRemoteIntegrationSummary } from '@/lib/kb-github-remote/types'
 import type { SlackIntegrationSummary } from '@/lib/slack/types'
 import { cn } from '@/lib/utils'
 import { WorkspaceRestartSection } from './security/workspace-restart-section'
@@ -27,6 +29,7 @@ type SettingsPageContentProps = {
   releaseVersion: string
   slackIntegrationSummary: SlackIntegrationSummary | null
   googleWorkspaceSummary: GoogleWorkspaceIntegrationSummary | null
+  kbGithubRemoteSummary: KbGithubRemoteIntegrationSummary | null
 }
 
 export function SettingsPageContent({
@@ -41,6 +44,7 @@ export function SettingsPageContent({
   releaseVersion,
   slackIntegrationSummary,
   googleWorkspaceSummary,
+  kbGithubRemoteSummary,
 }: SettingsPageContentProps) {
   return (
     <main className="relative mx-auto max-w-6xl px-6 py-10">
@@ -113,6 +117,9 @@ export function SettingsPageContent({
             ) : null}
             {googleWorkspaceSummary ? (
               <GoogleWorkspaceIntegrationSummaryCard slug={slug} integration={googleWorkspaceSummary} />
+            ) : null}
+            {kbGithubRemoteSummary ? (
+              <KbGithubRemoteSummaryCard slug={slug} integration={kbGithubRemoteSummary} />
             ) : null}
           </div>
         )
