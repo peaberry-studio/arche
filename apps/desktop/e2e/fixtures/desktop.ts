@@ -19,11 +19,22 @@ const debugDesktopE2E = process.env.ARCHE_E2E_DEBUG === '1'
 const fakeProviderUrl = process.env.ARCHE_E2E_FAKE_PROVIDER_URL
 const fakeProviderApiKey = process.env.ARCHE_E2E_FAKE_PROVIDER_API_KEY ?? 'sk-e2e-fake-provider'
 const DEFAULT_E2E_ENCRYPTION_KEY = 'ZGV2LWluc2VjdXJlLWtleS0zMi1ieXRlcy1sb25nISE='
+const FIRST_WINDOW_TIMEOUT_MS = 90_000
 const WORKSPACE_READY_TIMEOUT_MS = 120_000
 
 async function hasRequestHeaderTooLargeError(page: Page): Promise<boolean> {
   const content = await page.content().catch(() => '')
   return /Request Header Fields Too Large|\b431\b/i.test(content)
+}
+
+async function recoverRequestHeaderTooLargeError(page: Page): Promise<boolean> {
+  if (!(await hasRequestHeaderTooLargeError(page))) {
+    return false
+  }
+
+  await page.context().clearCookies()
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  return true
 }
 
 type DesktopFixtures = {
@@ -57,15 +68,15 @@ export async function waitForWorkspaceReady(page: Page) {
   // Wait for the stable UI signal instead of an early strict navigation.
   // If the page has already fallen into a 431 error state, clear the cookies
   // once and retry. Re-throw other failures so the fixture does not hide them.
+  await recoverRequestHeaderTooLargeError(page)
+
   try {
     await expect(page.getByPlaceholder('Type a message...')).toBeVisible({ timeout: WORKSPACE_READY_TIMEOUT_MS })
   } catch (error) {
-    if (!(await hasRequestHeaderTooLargeError(page))) {
+    if (!(await recoverRequestHeaderTooLargeError(page))) {
       throw error
     }
 
-    await page.context().clearCookies()
-    await page.reload({ waitUntil: 'domcontentloaded' })
     await expect(page.getByPlaceholder('Type a message...')).toBeVisible({ timeout: WORKSPACE_READY_TIMEOUT_MS })
   }
   expect(page.url()).toContain('/w/local')
@@ -99,6 +110,10 @@ export const test = base.extend<DesktopFixtures>({
       },
     })
 
+    await app.evaluate(async ({ session }) => {
+      await session.defaultSession.clearStorageData({ storages: ['cookies'] })
+    })
+
     if (debugDesktopE2E) {
       const mainProcess = app.process()
       mainProcess.stdout?.on('data', (data) => {
@@ -117,7 +132,7 @@ export const test = base.extend<DesktopFixtures>({
   },
 
   page: async ({ app }, use) => {
-    const page = await app.firstWindow()
+    const page = await app.firstWindow({ timeout: FIRST_WINDOW_TIMEOUT_MS })
     await page.waitForLoadState('domcontentloaded')
     await use(page)
   },
