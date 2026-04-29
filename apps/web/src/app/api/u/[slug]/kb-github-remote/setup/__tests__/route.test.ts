@@ -73,8 +73,7 @@ describe('/api/u/[slug]/kb-github-remote/setup', () => {
 
     expect(response.status).toBe(307)
     const location = response.headers.get('location')
-    expect(location).toContain('/u/alice/settings/integrations/kb-github-remote')
-    expect(location).toContain('app_created=true')
+    expect(location).toContain('/api/u/alice/kb-github-remote/install')
 
     expect(exchangeManifestCodeMock).toHaveBeenCalledWith('test_code_123')
     expect(saveIntegrationConfigMock).toHaveBeenCalledWith({
