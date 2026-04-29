@@ -158,6 +158,18 @@ function renderLeftPanel(overrides?: Partial<typeof defaultProps>) {
   );
 }
 
+function getSectionToggle(label: string): HTMLButtonElement {
+  const toggle = screen.getAllByRole("button").find(
+    (button) => button.getAttribute("aria-expanded") !== null && button.textContent?.includes(label)
+  );
+
+  if (!(toggle instanceof HTMLButtonElement)) {
+    throw new Error(`Could not find ${label} section toggle`);
+  }
+
+  return toggle;
+}
+
 beforeEach(() => {
   vi.stubGlobal("localStorage", localStorageMock);
   localStorage.clear();
@@ -334,14 +346,7 @@ describe("LeftPanel", () => {
     renderLeftPanel();
 
     // The persist effect runs on mount with default state
-    const knowledgeToggleBtn = screen.getAllByRole("button").find(
-      (btn) => btn.querySelector("span")?.textContent?.includes("Knowledge") ||
-               btn.textContent?.trim().startsWith("Knowledge")
-    );
-
-    if (!knowledgeToggleBtn) {
-      throw new Error("Could not find Knowledge toggle button");
-    }
+    const knowledgeToggleBtn = getSectionToggle("Knowledge");
 
     fireEvent.click(knowledgeToggleBtn);
 
@@ -350,6 +355,26 @@ describe("LeftPanel", () => {
     const parsed = JSON.parse(stored!);
     expect(parsed.collapsed.chats).toBe(false);
     expect(parsed.collapsed.knowledge).toBe(true);
+  });
+
+  it("expands one section at a time in single section mode", () => {
+    renderLeftPanel({ singleSectionMode: true });
+
+    const knowledgeToggle = getSectionToggle("Knowledge");
+    expect(knowledgeToggle.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(knowledgeToggle);
+
+    expect(getSectionToggle("Chats").getAttribute("aria-expanded")).toBe("false");
+    expect(getSectionToggle("Knowledge").getAttribute("aria-expanded")).toBe("true");
+    expect(getSectionToggle("Experts").getAttribute("aria-expanded")).toBe("false");
+    expect(getSectionToggle("Skills").getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(getSectionToggle("Experts"));
+
+    expect(getSectionToggle("Knowledge").getAttribute("aria-expanded")).toBe("false");
+    expect(getSectionToggle("Experts").getAttribute("aria-expanded")).toBe("true");
+    expect(screen.queryAllByRole("separator")).toHaveLength(0);
   });
 
   it("shows a new chat button when the left panel is collapsed", () => {

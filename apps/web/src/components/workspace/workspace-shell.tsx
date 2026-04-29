@@ -1404,6 +1404,7 @@ export function WorkspaceShell({
       canCreateKnowledgeFile={workspaceAgentEnabled}
       initialPanelState={initialLeftPanelState}
       searchInputRef={searchInputRef}
+      singleSectionMode={isCompactLayout}
     />
   );
 

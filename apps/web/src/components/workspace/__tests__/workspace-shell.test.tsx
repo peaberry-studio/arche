@@ -113,10 +113,22 @@ vi.mock("@/components/workspace/inspector-panel", () => ({
   ),
 }));
 
+type MockLeftPanelProps = {
+  leftCollapsed: boolean;
+  onToggleLeft: () => void;
+  onSelectAgent: (agent: { id: string; displayName: string; isPrimary: boolean }) => void;
+  singleSectionMode?: boolean;
+};
+
 vi.mock("@/components/workspace/left-panel", () => ({
-  LeftPanel: ({ leftCollapsed, onToggleLeft, onSelectAgent }: { leftCollapsed: boolean; onToggleLeft: () => void; onSelectAgent: (agent: { id: string; displayName: string; isPrimary: boolean }) => void }) => (
+  LeftPanel: ({ leftCollapsed, onToggleLeft, onSelectAgent, singleSectionMode }: MockLeftPanelProps) => (
     <div>
-      <button type="button" data-collapsed={String(leftCollapsed)} onClick={onToggleLeft}>
+      <button
+        type="button"
+        data-collapsed={String(leftCollapsed)}
+        data-single-section-mode={String(singleSectionMode)}
+        onClick={onToggleLeft}
+      >
         Left Panel
       </button>
       <button
@@ -278,6 +290,7 @@ describe("WorkspaceShell", () => {
 
     const leftPanelButton = await screen.findByRole("button", { name: "Left Panel" });
     expect(leftPanelButton.dataset.collapsed).toBe("false");
+    expect(leftPanelButton.dataset.singleSectionMode).toBe("false");
 
     window.dispatchEvent(
       new KeyboardEvent("keydown", {
@@ -457,6 +470,8 @@ describe("WorkspaceShell", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Left Panel" })).toBeTruthy();
     });
+
+    expect(screen.getByRole("button", { name: "Left Panel" }).dataset.singleSectionMode).toBe("true");
 
     fireEvent.click(screen.getByRole("button", { name: "Show chat" }));
 

@@ -187,6 +187,7 @@ type LeftPanelProps = {
   hideCollapseButton?: boolean;
   initialPanelState?: NormalizedLeftPanelState | null;
   searchInputRef: RefObject<HTMLInputElement | null>;
+  singleSectionMode?: boolean;
 };
 
 type DirectoryOption = {
@@ -218,6 +219,7 @@ function collectDirectoryOptions(nodes: WorkspaceFileNode[], depth = 0): Directo
 function SectionHeader({
   icon: Icon,
   label,
+  isExpanded,
   onToggle,
   onAction,
   actionIcon: ActionIcon,
@@ -225,6 +227,7 @@ function SectionHeader({
 }: {
   icon: typeof ChatCircle;
   label: string;
+  isExpanded: boolean;
   onToggle: () => void;
   onAction?: () => void;
   actionIcon?: typeof Plus;
@@ -234,6 +237,7 @@ function SectionHeader({
     <button
       type="button"
       onClick={onToggle}
+      aria-expanded={isExpanded}
       className="flex h-8 w-full shrink-0 items-center gap-1.5 px-3 transition-colors hover:bg-foreground/5"
     >
       <Icon size={14} weight="bold" className="text-muted-foreground" />
@@ -578,7 +582,7 @@ export function LeftPanel({
   hideCollapseButton = false,
   initialPanelState,
   searchInputRef,
-
+  singleSectionMode = false,
 }: LeftPanelProps) {
   const pendingSectionRef = useRef<"chats" | "knowledge" | "experts" | "skills" | null>(null);
 
@@ -652,6 +656,7 @@ export function LeftPanel({
       hideCollapseButton={hideCollapseButton}
       initialPanelState={initialPanelState}
       searchInputRef={searchInputRef}
+      singleSectionMode={singleSectionMode}
       pendingSectionRef={pendingSectionRef}
     />
   );
@@ -698,6 +703,7 @@ function ExpandedLeftPanel({
   hideCollapseButton = false,
   initialPanelState,
   searchInputRef,
+  singleSectionMode = false,
   pendingSectionRef,
 }: LeftPanelProps & { pendingSectionRef?: RefObject<"chats" | "knowledge" | "experts" | "skills" | null> }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -728,6 +734,7 @@ function ExpandedLeftPanel({
     ...resolvedInitialPanelState.collapsed,
     chats: false,
   });
+  const [activeSingleSection, setActiveSingleSection] = useState<LeftPanelSectionId>("chats");
   const manualSessions = useMemo(
     () => sessions.filter((session) => !session.autopilot),
     [sessions]
@@ -761,12 +768,19 @@ function ExpandedLeftPanel({
     const section = pendingSectionRef?.current;
     if (!section) return;
     pendingSectionRef.current = null;
+    if (singleSectionMode) {
+      setActiveSingleSection(section);
+      if (section === "chats") {
+        setSessionListMode("chats");
+      }
+      return;
+    }
     if (section === "chats") {
       setSessionListMode("chats");
       return;
     }
     setCollapsedSections((current) => ({ ...current, [section]: false }));
-  }, [pendingSectionRef]);
+  }, [pendingSectionRef, singleSectionMode]);
 
   const directoryOptions = useMemo(
     () => collectDirectoryOptions(fileNodes),
@@ -1057,6 +1071,24 @@ function ExpandedLeftPanel({
     minHeight: 0,
   });
 
+  const isSectionCollapsed = (section: { collapsible?: boolean; id: LeftPanelSectionId }) => {
+    if (singleSectionMode) return activeSingleSection !== section.id;
+    return section.collapsible === false ? false : collapsedSections[section.id];
+  };
+
+  const handleSectionToggle = (section: { collapsible?: boolean; id: LeftPanelSectionId }) => {
+    if (singleSectionMode) {
+      setActiveSingleSection(section.id);
+      if (section.id === "chats") {
+        setSessionListMode("chats");
+      }
+      return;
+    }
+
+    if (section.collapsible === false) return;
+    setCollapsedSections((current) => ({ ...current, [section.id]: !current[section.id] }));
+  };
+
   const sectionItems: Array<{
     actionIcon?: typeof Plus
     actionLabel?: string
@@ -1269,7 +1301,20 @@ function ExpandedLeftPanel({
 
       {sectionItems.map((section, index) => {
         const nextSection = sectionItems[index + 1]
-        const isCollapsed = section.collapsible === false ? false : collapsedSections[section.id]
+        const isCollapsed = isSectionCollapsed(section)
+        const header = section.customHeader && (!singleSectionMode || !isCollapsed)
+          ? section.customHeader
+          : (
+              <SectionHeader
+                icon={section.icon}
+                label={section.label}
+                isExpanded={!isCollapsed}
+                onToggle={() => handleSectionToggle(section)}
+                onAction={section.onAction}
+                actionIcon={section.actionIcon}
+                actionLabel={section.actionLabel}
+              />
+            )
 
         return (
           <div key={section.id} className="contents">
@@ -1277,16 +1322,7 @@ function ExpandedLeftPanel({
               style={sectionStyle(isCollapsed, effectiveRatios[section.id])}
               className="flex min-h-0 flex-col overflow-hidden rounded-xl bg-foreground/[0.03]"
             >
-              {section.customHeader ?? (
-                <SectionHeader
-                  icon={section.icon}
-                  label={section.label}
-                  onToggle={() => setCollapsedSections((current) => ({ ...current, [section.id]: !current[section.id] }))}
-                  onAction={section.onAction}
-                  actionIcon={section.actionIcon}
-                  actionLabel={section.actionLabel}
-                />
-              )}
+              {header}
               <div className="min-h-0 flex-1" style={contentStyle(isCollapsed)}>
                 <div className="flex flex-col overflow-hidden" style={{ minHeight: 0 }}>
                   {section.content}
@@ -1294,7 +1330,7 @@ function ExpandedLeftPanel({
               </div>
             </div>
 
-            {nextSection && !isCollapsed && !(nextSection.collapsible === false ? false : collapsedSections[nextSection.id]) ? (
+            {!singleSectionMode && nextSection && !isCollapsed && !(nextSection.collapsible === false ? false : collapsedSections[nextSection.id]) ? (
               <div
                 className="group relative h-0 w-full shrink-0 cursor-row-resize"
                 onPointerDown={(event) => handleResize(section.id, nextSection.id, event)}

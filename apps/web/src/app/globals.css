@@ -540,12 +540,28 @@
   * {
     @apply border-border;
   }
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
   body {
     @apply bg-background text-foreground antialiased;
     --font-display: var(--font-space-grotesk);
     --font-serif: var(--font-instrument-serif);
     --font-chat-serif: var(--font-libre-baskerville);
     font-family: var(--font-geist-sans), system-ui, sans-serif;
+  }
+}
+
+@media (max-width: 767px) {
+  html {
+    font-size: 106.25%;
+  }
+
+  input:not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea,
+  select {
+    font-size: 1rem;
   }
 }
 
