@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { ArrowsClockwise, SpinnerGap } from '@phosphor-icons/react'
 
 import { SettingsInfoBox } from '@/components/settings/settings-info-box'
@@ -43,8 +43,6 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
   const [busyAction, setBusyAction] = useState<BusyAction>(null)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
-  const formRef = useRef<HTMLFormElement>(null)
-
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const errorParam = params.get('error')
@@ -106,11 +104,17 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
       default_events: [],
     }
 
-    const input = formRef.current?.querySelector<HTMLInputElement>('input[name="manifest"]')
-    if (input) {
-      input.value = JSON.stringify(manifest)
-      formRef.current?.submit()
-    }
+    const form = document.createElement('form')
+    form.method = 'post'
+    form.action = 'https://github.com/settings/apps/new'
+    const input = document.createElement('input')
+    input.type = 'hidden'
+    input.name = 'manifest'
+    input.value = JSON.stringify(manifest)
+    form.appendChild(input)
+    document.body.appendChild(form)
+    form.submit()
+    form.remove()
   }
 
   async function handleDisconnect() {
@@ -311,20 +315,13 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
             <p className="text-sm text-muted-foreground">
               Click below to create and register a GitHub App for this deployment. You will be redirected to GitHub to approve the app.
             </p>
-            <form
-              ref={formRef}
-              action="https://github.com/settings/apps/new"
-              method="post"
+            <Button
+              type="button"
+              disabled={busyAction !== null}
+              onClick={handleConnectGithub}
             >
-              <input type="hidden" name="manifest" value="" />
-              <Button
-                type="button"
-                disabled={busyAction !== null}
-                onClick={handleConnectGithub}
-              >
-                Connect to GitHub
-              </Button>
-            </form>
+              Connect to GitHub
+            </Button>
           </div>
         ) : null}
 
