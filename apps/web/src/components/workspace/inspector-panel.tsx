@@ -39,6 +39,7 @@ type WorkspaceFile = {
 type InspectorPanelProps = {
   slug: string;
   activeTab: "preview" | "review";
+  panelMode?: "combined" | "files" | "review";
   workspaceAgentEnabled?: boolean;
   onTabChange: (tab: "preview" | "review") => void;
   rightCollapsed: boolean;
@@ -71,10 +72,12 @@ type InspectorPanelProps = {
 function MinifiedInspectorPanel({
   onToggleRight,
   onTabChange,
+  panelMode = "combined",
   pendingDiffsForBadge = 0,
 }: {
   onToggleRight: () => void;
   onTabChange: (tab: "preview" | "review") => void;
+  panelMode?: "combined" | "files" | "review";
   pendingDiffsForBadge?: number;
 }) {
   const badgeLabel = pendingDiffsForBadge > 99 ? "99+" : String(pendingDiffsForBadge);
@@ -99,40 +102,42 @@ function MinifiedInspectorPanel({
 
         <div className="my-2 h-px w-6 bg-border/40" />
 
-        {/* Files */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={() => { onToggleRight(); onTabChange("preview"); }}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-              aria-label="Files"
-            >
-              <File size={16} weight="bold" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="left">Files</TooltipContent>
-        </Tooltip>
+        {panelMode !== "review" ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => { onToggleRight(); onTabChange("preview"); }}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+                aria-label="Files"
+              >
+                <File size={16} weight="bold" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="left">Files</TooltipContent>
+          </Tooltip>
+        ) : null}
 
-        {/* Review with badge */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={() => { onToggleRight(); onTabChange("review"); }}
-              className="relative flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-              aria-label="Review"
-            >
-              <GitDiff size={16} weight="bold" />
-              {pendingDiffsForBadge > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
-                  {badgeLabel}
-                </span>
-              )}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="left">Review{pendingDiffsForBadge > 0 ? ` (${pendingDiffsForBadge})` : ""}</TooltipContent>
-        </Tooltip>
+        {panelMode !== "files" ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => { onToggleRight(); onTabChange("review"); }}
+                className="relative flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+                aria-label="Review"
+              >
+                <GitDiff size={16} weight="bold" />
+                {pendingDiffsForBadge > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+                    {badgeLabel}
+                  </span>
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="left">Review{pendingDiffsForBadge > 0 ? ` (${pendingDiffsForBadge})` : ""}</TooltipContent>
+          </Tooltip>
+        ) : null}
       </div>
     </TooltipProvider>
   );
@@ -143,6 +148,7 @@ function MinifiedInspectorPanel({
 export function InspectorPanel({
   slug,
   activeTab,
+  panelMode = "combined",
   workspaceAgentEnabled = true,
   onTabChange,
   rightCollapsed,
@@ -170,6 +176,7 @@ export function InspectorPanel({
       <MinifiedInspectorPanel
         onToggleRight={onToggleRight}
         onTabChange={onTabChange}
+        panelMode={panelMode}
         pendingDiffsForBadge={pendingDiffsForBadge}
       />
     );
@@ -180,6 +187,7 @@ export function InspectorPanel({
     <ExpandedInspectorPanel
       slug={slug}
       activeTab={activeTab}
+      panelMode={panelMode}
       workspaceAgentEnabled={workspaceAgentEnabled}
       onTabChange={onTabChange}
       onToggleRight={onToggleRight}
@@ -206,6 +214,7 @@ export function InspectorPanel({
 function ExpandedInspectorPanel({
   slug,
   activeTab,
+  panelMode = "combined",
   workspaceAgentEnabled = true,
   onTabChange,
   onToggleRight,
@@ -226,6 +235,7 @@ function ExpandedInspectorPanel({
   hideCollapseButton = false,
 }: Omit<InspectorPanelProps, "rightCollapsed" | "onOpenReview">) {
   const pendingDiffs = diffs.length;
+  const effectiveActiveTab = panelMode === "files" ? "preview" : panelMode === "review" ? "review" : activeTab;
   const activeFile = openFiles.find((f) => f.path === activeFilePath) ?? null;
   const tabsRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -306,77 +316,96 @@ function ExpandedInspectorPanel({
     });
   };
 
-  const isReviewActive = activeTab === "review";
+  const isReviewActive = effectiveActiveTab === "review";
+
+  const showHeader = panelMode !== "files";
 
   return (
     <TooltipProvider delayDuration={200}>
       <div className="flex h-full flex-col pr-0 text-card-foreground">
-      {/* Floating header — outside the main container */}
-      <div className="flex shrink-0 items-center gap-2 pb-3">
-        {workspaceAgentEnabled ? (
-          <div className="flex flex-1 justify-start">
-            <div className="inline-flex h-8 items-center rounded-lg bg-foreground/[0.06] p-0.5">
-              {/* Files segment */}
-              <button
-                type="button"
-                onClick={() => onTabChange("preview")}
-                className={cn(
-                  "relative flex h-7 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-all",
-                  !isReviewActive
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-                aria-pressed={!isReviewActive}
-              >
-                <File size={13} weight={!isReviewActive ? "fill" : "bold"} />
-                Files
-              </button>
+      {/* Main container — header now lives inside */}
+      <div className="flex flex-1 min-h-0 flex-col overflow-hidden rounded-xl border border-border/40 bg-foreground/[0.03]">
 
-              {/* Review segment */}
-              <button
-                type="button"
-                onClick={() => onTabChange("review")}
-                className={cn(
-                  "relative flex h-7 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition-all",
-                  isReviewActive
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-                aria-pressed={isReviewActive}
-              >
-                <GitDiff size={13} weight={isReviewActive ? "fill" : "bold"} />
-                Review
-                {pendingDiffs > 0 && !isReviewActive ? (
-                  <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+      {/* In-container header (combined: tabs; review: label + collapse) */}
+      {showHeader ? (
+        <div className="flex shrink-0 items-center gap-2 border-b border-border/30 px-2 py-2">
+          {workspaceAgentEnabled && panelMode === "combined" ? (
+            <div className="flex flex-1 justify-start">
+              <div className="inline-flex h-8 items-center rounded-lg bg-foreground/[0.05] p-0.5 text-[11px]">
+                {/* Inspect segment */}
+                <button
+                  type="button"
+                  onClick={() => onTabChange("preview")}
+                  className={cn(
+                    "relative flex h-7 items-center gap-1.5 rounded-md px-2.5 font-medium transition-colors",
+                    !isReviewActive
+                      ? "bg-background text-foreground/85"
+                      : "text-muted-foreground hover:text-foreground/80"
+                  )}
+                  aria-pressed={!isReviewActive}
+                >
+                  <File size={12} weight={!isReviewActive ? "fill" : "bold"} />
+                  Inspect
+                </button>
+
+                {/* Review segment */}
+                <button
+                  type="button"
+                  onClick={() => onTabChange("review")}
+                  className={cn(
+                    "relative flex h-7 items-center gap-1.5 rounded-md px-2.5 font-medium transition-colors",
+                    isReviewActive
+                      ? "bg-background text-foreground/85"
+                      : "text-muted-foreground hover:text-foreground/80"
+                  )}
+                  aria-pressed={isReviewActive}
+                >
+                  <GitDiff size={12} weight={isReviewActive ? "fill" : "bold"} />
+                  Review
+                  {pendingDiffs > 0 ? (
+                    <span
+                      className={cn(
+                        "flex h-[15px] min-w-[15px] items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-none",
+                        isReviewActive
+                          ? "bg-foreground/10 text-foreground/85"
+                          : "bg-primary text-primary-foreground"
+                      )}
+                    >
+                      {pendingDiffs > 99 ? "99+" : pendingDiffs}
+                    </span>
+                  ) : null}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex h-8 min-w-0 flex-1 items-center pl-1">
+              <p className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                <span>{panelMode === "review" ? "Review" : "Inspect"}</span>
+                {panelMode === "review" && pendingDiffs > 0 ? (
+                  <span className="inline-flex h-[15px] min-w-[15px] items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-none text-primary-foreground">
                     {pendingDiffs > 99 ? "99+" : pendingDiffs}
                   </span>
                 ) : null}
-              </button>
+              </p>
             </div>
-          </div>
-        ) : (
-          <div className="min-w-0 flex-1 pl-2">
-            <p className="text-sm font-medium text-foreground">Files</p>
-          </div>
-        )}
+          )}
 
-        {/* Collapse panel */}
-        {!hideCollapseButton && (
-          <button
-            type="button"
-            onClick={onToggleRight}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
-            aria-label="Collapse panel"
-          >
-            <ArrowLineRight size={14} weight="bold" />
-          </button>
-        )}
-      </div>
-
-      {/* Main container */}
-      <div className="flex flex-1 min-h-0 flex-col overflow-hidden rounded-xl border border-border/40 bg-foreground/[0.03]">
+          {/* Collapse panel */}
+          {!hideCollapseButton && (
+            <button
+              type="button"
+              onClick={onToggleRight}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/80 transition-colors hover:bg-foreground/5 hover:text-foreground"
+              aria-label="Collapse panel"
+              title="Collapse panel"
+            >
+              <ArrowLineRight size={13} weight="bold" />
+            </button>
+          )}
+        </div>
+      ) : null}
       {/* File tabs row — only in Files mode with open files */}
-      {activeTab === "preview" && openFiles.length > 0 && (
+      {effectiveActiveTab === "preview" && openFiles.length > 0 && (
         <div className="flex min-h-9 shrink-0 items-center pt-2">
           <div className="flex min-w-0 flex-1 items-center">
             {canScrollLeft && (
@@ -450,7 +479,7 @@ function ExpandedInspectorPanel({
       )}
 
       {/* Divider between tabs and content */}
-      {activeTab === "preview" && openFiles.length > 0 ? (
+      {effectiveActiveTab === "preview" && openFiles.length > 0 ? (
         <div className="px-3 pt-2 pb-1">
           <div className="h-px bg-border/40" />
         </div>
@@ -459,8 +488,8 @@ function ExpandedInspectorPanel({
       {/* Content area */}
       <div className="relative flex-1 min-h-0">
         <div
-          className={cn("absolute inset-0", activeTab !== "preview" && "hidden")}
-          aria-hidden={activeTab !== "preview"}
+          className={cn("absolute inset-0", effectiveActiveTab !== "preview" && "hidden")}
+          aria-hidden={effectiveActiveTab !== "preview"}
         >
           {openFiles.length > 0 ? (
             <div className="flex h-full min-h-0 flex-col">
@@ -514,7 +543,7 @@ function ExpandedInspectorPanel({
           <div
             className={cn(
               "absolute inset-0 overflow-y-auto scrollbar-none p-5",
-              activeTab !== "review" && "hidden"
+              effectiveActiveTab !== "review" && "hidden"
             )}
           >
             <ReviewPanel

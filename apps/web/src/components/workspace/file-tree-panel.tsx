@@ -85,7 +85,12 @@ export function FileTreePanel({
         </div>
       )}
 
-      <div className="flex flex-1 flex-col overflow-y-auto px-2.5 pb-4 scrollbar-none">
+      <div
+        className={cn(
+          "flex flex-1 flex-col overflow-y-auto scrollbar-none",
+          hideHeader ? "px-2 py-2" : "px-2.5 pb-4"
+        )}
+      >
         {nodes.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
             <File size={24} weight="bold" className="text-muted-foreground/50" />

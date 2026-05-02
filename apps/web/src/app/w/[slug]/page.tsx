@@ -4,6 +4,8 @@ import { redirect } from 'next/navigation'
 import { DesktopSettingsDialog } from '@/components/desktop/desktop-settings-dialog'
 import { WorkspaceShell } from '@/components/workspace/workspace-shell'
 import { ensureAutopilotSchedulerStarted } from '@/lib/autopilot/scheduler-bootstrap'
+import { readCommonWorkspaceConfig } from '@/lib/common-workspace-config-store'
+import type { KnowledgeGraphAgentSource } from '@/lib/kb-graph'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import {
   getCurrentDesktopVault,
@@ -20,14 +22,29 @@ import {
   parseStoredLeftPanelState,
   parseWorkspaceLayoutState,
 } from '@/lib/workspace-panel-state'
+import { getAgentSummaries, parseCommonWorkspaceConfig } from '@/lib/workspace-config'
 import { getKickstartStatus } from '@/kickstart/status'
+
+async function loadKnowledgeAgentSources(): Promise<KnowledgeGraphAgentSource[]> {
+  const configResult = await readCommonWorkspaceConfig()
+  if (!configResult.ok) return []
+
+  const parsedConfig = parseCommonWorkspaceConfig(configResult.content)
+  if (!parsedConfig.ok) return []
+
+  return getAgentSummaries(parsedConfig.config).map((agent) => ({
+    id: agent.id,
+    displayName: agent.displayName,
+    prompt: agent.prompt,
+  }))
+}
 
 export default async function WorkspaceHostPage({
   params,
   searchParams,
 }: {
   params: Promise<{ slug: string }>
-  searchParams?: Promise<{ path?: string; session?: string; settings?: string }>
+  searchParams?: Promise<{ mode?: string; path?: string; session?: string; settings?: string }>
 }) {
   const { slug } = await params
   const search = await searchParams
@@ -70,6 +87,12 @@ export default async function WorkspaceHostPage({
   const initialSettingsSection = desktopVault && isDesktopSettingsSection(search?.settings)
     ? search.settings
     : null
+  const initialWorkspaceMode = search?.mode === 'knowledge'
+    ? 'knowledge'
+    : search?.mode === 'autopilot'
+      ? 'autopilot'
+      : 'chat'
+  const knowledgeAgentSources = await loadKnowledgeAgentSources()
 
   return (
     <>
@@ -79,6 +102,8 @@ export default async function WorkspaceHostPage({
         currentVault={desktopVault ? { id: desktopVault.vaultId, name: desktopVault.vaultName, path: desktopVault.vaultPath } : null}
         initialFilePath={search?.path ?? null}
         initialSessionId={search?.session ?? null}
+        initialWorkspaceMode={initialWorkspaceMode}
+        knowledgeAgentSources={knowledgeAgentSources}
         initialLayoutState={initialLayoutState}
         initialLeftPanelState={initialLeftPanelState}
         macDesktopWindowInset={macDesktopWindowInset}

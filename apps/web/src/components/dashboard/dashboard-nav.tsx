@@ -8,6 +8,7 @@ import {
   ArrowLineRight,
   ChatCircle,
   Cpu,
+  Database,
   GearSix,
   Lightning,
   List,
@@ -47,6 +48,7 @@ function getWebNavItems(slug: string): DashboardNavItem[] {
 
   return [
     { label: 'New Chat', href: base, activeHref: base, exact: true, icon: ChatCircle },
+    { label: 'Knowledge', href: `/w/${slug}?mode=knowledge`, icon: Database },
     { label: 'Agents', href: `${base}/agents`, icon: Robot },
     { label: 'Skills', href: `${base}/skills`, icon: Lightning },
     { label: 'Autopilot', href: `${base}/autopilot`, icon: Sparkle },
@@ -59,6 +61,7 @@ function getWebNavItems(slug: string): DashboardNavItem[] {
 function getDesktopNavItems(slug: string): DashboardNavItem[] {
   return [
     { label: 'Workspace', href: `/w/${slug}`, activeHref: `/w/${slug}`, exact: true, icon: SquaresFour },
+    { label: 'Knowledge', href: `/w/${slug}?mode=knowledge`, icon: Database },
     { label: 'Agents', href: `/u/${slug}/agents`, icon: Robot },
     { label: 'Skills', href: `/w/${slug}?settings=skills`, icon: Lightning },
     { label: 'Connectors', href: `/w/${slug}?settings=connectors`, icon: Plugs },

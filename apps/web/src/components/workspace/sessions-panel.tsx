@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import { ChatCircle, Circle, Plus, SpinnerGap } from "@phosphor-icons/react";
+import { ChatCircle, CheckSquare, Circle, Plus, SpinnerGap } from "@phosphor-icons/react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -93,10 +93,11 @@ export function SessionsPanel({
   }, [hasMore, isLoadingMore, onLoadMore]);
 
   if (sessions.length === 0) {
+    const EmptyIcon = kind === "tasks" ? CheckSquare : ChatCircle;
     return (
       <div className="flex flex-1 items-center justify-center px-4">
         <div className="flex flex-col items-center justify-center gap-2 text-center">
-          <ChatCircle size={24} weight="bold" className="text-muted-foreground/50" />
+          <EmptyIcon size={24} weight="bold" className="text-muted-foreground/50" />
           <p className="text-xs text-muted-foreground">{emptyLabel}</p>
           {kind === "chats" ? (
             <Button size="sm" className="h-7 px-2 text-xs" onClick={onCreateSession}>
@@ -110,6 +111,7 @@ export function SessionsPanel({
   }
 
   if (filteredSessions.length === 0) {
+    const EmptySearchIcon = kind === "tasks" ? CheckSquare : ChatCircle;
     return (
       <div className="flex flex-1 flex-col">
         {kind === "chats" ? (
@@ -118,7 +120,7 @@ export function SessionsPanel({
           </div>
         ) : null}
         <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
-          <ChatCircle size={24} weight="bold" className="text-muted-foreground/50" />
+          <EmptySearchIcon size={24} weight="bold" className="text-muted-foreground/50" />
           <p className="text-xs text-muted-foreground">{emptySearchLabel}</p>
         </div>
       </div>

@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { createRef } from "react";
+import { createRef, type ComponentProps } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -150,7 +150,7 @@ function clearCookies() {
   });
 }
 
-function renderLeftPanel(overrides?: Partial<typeof defaultProps>) {
+function renderLeftPanel(overrides?: Partial<ComponentProps<typeof LeftPanel>>) {
   return render(
     <WorkspaceThemeProvider storageScope="alice">
       <LeftPanel {...defaultProps} {...overrides} />
@@ -256,6 +256,39 @@ describe("LeftPanel", () => {
     expect(screen.queryByRole("button", { name: /tasks/i })).toBeNull();
     expect(screen.getByRole("button", { name: "New chat" })).toBeTruthy();
     expect(screen.getByLabelText("Search chats, knowledge, experts, and skills")).toBeTruthy();
+  });
+
+  it("shows the workspace mode selector below search while keeping the panel header", () => {
+    const onWorkspaceModeChange = vi.fn();
+
+    renderLeftPanel({
+      workspaceMode: "chat",
+      onWorkspaceModeChange,
+      visibleSections: ["chats"],
+      fixedSessionListMode: "chats",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Autopilot" }));
+
+    expect(onWorkspaceModeChange).toHaveBeenCalledWith("autopilot");
+    expect(screen.getByText("Archē")).toBeTruthy();
+    expect(screen.getByText("alice")).toBeTruthy();
+  });
+
+  it("shows only task sessions when the session list is fixed to autopilot", () => {
+    renderLeftPanel({
+      workspaceMode: "autopilot",
+      onWorkspaceModeChange: vi.fn(),
+      visibleSections: ["chats"],
+      fixedSessionListMode: "tasks",
+    });
+
+    expect(screen.getAllByText("Autopilot").length).toBeGreaterThan(0);
+    expect(screen.getByText("Daily brief")).toBeTruthy();
+    expect(screen.queryByText("Alpha chat")).toBeNull();
+    expect(screen.queryByRole("button", { name: /tasks/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: "New chat" })).toBeNull();
+    expect(screen.getByLabelText("Search autopilot")).toBeTruthy();
   });
 
   it("creates a markdown file in the selected directory", async () => {

@@ -79,6 +79,7 @@ import { FileTreePanel } from "./file-tree-panel";
 import { SessionsPanel } from "./sessions-panel";
 import { SkillsPanel } from './skills-panel'
 import { SyncKbButton } from "./sync-kb-button";
+import { WorkspaceModeToggle, type WorkspaceMode } from './workspace-mode-toggle'
 
 const MIN_SECTION_PX = 60;
 const SECTION_GAP = 12; // matches gap-3 between main panels
@@ -188,6 +189,10 @@ type LeftPanelProps = {
   initialPanelState?: NormalizedLeftPanelState | null;
   searchInputRef: RefObject<HTMLInputElement | null>;
   singleSectionMode?: boolean;
+  visibleSections?: ReadonlyArray<LeftPanelSectionId>;
+  workspaceMode?: WorkspaceMode;
+  onWorkspaceModeChange?: (mode: WorkspaceMode) => void;
+  fixedSessionListMode?: "chats" | "tasks";
 };
 
 type DirectoryOption = {
@@ -276,6 +281,8 @@ function MinifiedLeftPanel({
   onExpandWithSection,
   onSyncComplete,
   onNavigateSettings,
+  visibleSections,
+  fixedSessionListMode,
 }: {
   slug: string;
   configChangePending?: boolean;
@@ -290,6 +297,8 @@ function MinifiedLeftPanel({
   onExpandWithSection: (section: "chats" | "knowledge" | "experts" | "skills") => void;
   onSyncComplete?: (status: SyncKbResult["status"]) => void;
   onNavigateSettings: () => void;
+  visibleSections?: ReadonlyArray<LeftPanelSectionId>;
+  fixedSessionListMode?: "chats" | "tasks";
 }) {
   const {
     themes,
@@ -310,6 +319,9 @@ function MinifiedLeftPanel({
   const restartTooltipLabel = configRestartError
     ? `Restart failed: ${configRestartError}`
     : getConfigChangeMessage(configChangeReason ?? null);
+  const visibleSectionSet = new Set<LeftPanelSectionId>(visibleSections ?? LEFT_PANEL_SECTION_IDS);
+  const sessionSectionLabel = fixedSessionListMode === "tasks" ? "Autopilot" : "Chats";
+  const SessionSectionIcon = fixedSessionListMode === "tasks" ? Lightning : ChatCircle;
 
   return (
     <TooltipProvider delayDuration={400}>
@@ -332,75 +344,87 @@ function MinifiedLeftPanel({
         <div className="my-2 h-px w-6 bg-border/40" />
 
         {/* Section shortcuts — click expands panel and opens section */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={onCreateSession}
-              className="mb-1 flex h-8 w-8 items-center justify-center rounded-lg bg-primary/12 text-primary transition-colors hover:bg-primary/18"
-              aria-label="New chat"
-            >
-              <Plus size={16} weight="bold" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right">New chat</TooltipContent>
-        </Tooltip>
+        {visibleSectionSet.has("chats") ? (
+          <>
+            {fixedSessionListMode !== "tasks" ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={onCreateSession}
+                    className="mb-1 flex h-8 w-8 items-center justify-center rounded-lg bg-primary/12 text-primary transition-colors hover:bg-primary/18"
+                    aria-label="New chat"
+                  >
+                    <Plus size={16} weight="bold" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right">New chat</TooltipContent>
+              </Tooltip>
+            ) : null}
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={() => onExpandWithSection("chats")}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-              aria-label="Chats"
-            >
-              <ChatCircle size={16} weight="bold" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right">Chats</TooltipContent>
-        </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => onExpandWithSection("chats")}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+                  aria-label={sessionSectionLabel}
+                >
+                  <SessionSectionIcon size={16} weight="bold" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">{sessionSectionLabel}</TooltipContent>
+            </Tooltip>
+          </>
+        ) : null}
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={() => onExpandWithSection("knowledge")}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-              aria-label="Knowledge"
-            >
-              <Database size={16} weight="bold" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right">Knowledge</TooltipContent>
-        </Tooltip>
+        {visibleSectionSet.has("knowledge") ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => onExpandWithSection("knowledge")}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+                aria-label="Knowledge"
+              >
+                <Database size={16} weight="bold" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Knowledge</TooltipContent>
+          </Tooltip>
+        ) : null}
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={() => onExpandWithSection("experts")}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-              aria-label="Experts"
-            >
-              <Robot size={16} weight="bold" />
-            </button>
-          </TooltipTrigger>
-           <TooltipContent side="right">Experts</TooltipContent>
-         </Tooltip>
+        {visibleSectionSet.has("experts") ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => onExpandWithSection("experts")}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+                aria-label="Experts"
+              >
+                <Robot size={16} weight="bold" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Experts</TooltipContent>
+          </Tooltip>
+        ) : null}
 
-         <Tooltip>
-           <TooltipTrigger asChild>
-             <button
-               type="button"
-               onClick={() => onExpandWithSection("skills")}
-               className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-               aria-label="Skills"
-             >
-               <Lightning size={16} weight="bold" />
-             </button>
-           </TooltipTrigger>
-           <TooltipContent side="right">Skills</TooltipContent>
-         </Tooltip>
+        {visibleSectionSet.has("skills") ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => onExpandWithSection("skills")}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+                aria-label="Skills"
+              >
+                <Lightning size={16} weight="bold" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Skills</TooltipContent>
+          </Tooltip>
+        ) : null}
 
         {/* Spacer */}
         <div className="flex-1" />
@@ -583,6 +607,10 @@ export function LeftPanel({
   initialPanelState,
   searchInputRef,
   singleSectionMode = false,
+  visibleSections,
+  workspaceMode,
+  onWorkspaceModeChange,
+  fixedSessionListMode,
 }: LeftPanelProps) {
   const pendingSectionRef = useRef<"chats" | "knowledge" | "experts" | "skills" | null>(null);
 
@@ -608,6 +636,8 @@ export function LeftPanel({
          onExpandWithSection={handleExpandWithSection}
         onSyncComplete={onSyncComplete}
         onNavigateSettings={onNavigateSettings}
+        visibleSections={visibleSections}
+        fixedSessionListMode={fixedSessionListMode}
       />
     );
   }
@@ -657,6 +687,10 @@ export function LeftPanel({
       initialPanelState={initialPanelState}
       searchInputRef={searchInputRef}
       singleSectionMode={singleSectionMode}
+      visibleSections={visibleSections}
+      workspaceMode={workspaceMode}
+      onWorkspaceModeChange={onWorkspaceModeChange}
+      fixedSessionListMode={fixedSessionListMode}
       pendingSectionRef={pendingSectionRef}
     />
   );
@@ -704,6 +738,10 @@ function ExpandedLeftPanel({
   initialPanelState,
   searchInputRef,
   singleSectionMode = false,
+  visibleSections,
+  workspaceMode,
+  onWorkspaceModeChange,
+  fixedSessionListMode,
   pendingSectionRef,
 }: LeftPanelProps & { pendingSectionRef?: RefObject<"chats" | "knowledge" | "experts" | "skills" | null> }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -727,14 +765,18 @@ function ExpandedLeftPanel({
   );
   const supportsAutopilotTasks = !currentVault;
   const showRestartNotice = Boolean(currentVault && (configChangePending || configRestartError) && onRestartConfig);
+  const sectionOrder = useMemo(
+    () => visibleSections && visibleSections.length > 0 ? visibleSections : [...LEFT_PANEL_SECTION_IDS],
+    [visibleSections]
+  );
+  const firstVisibleSection = sectionOrder[0] ?? "chats";
 
-  const sectionOrder = LEFT_PANEL_SECTION_IDS;
   const [ratios, setRatios] = useState(resolvedInitialPanelState.ratios);
   const [collapsedSections, setCollapsedSections] = useState<Record<LeftPanelSectionId, boolean>>({
     ...resolvedInitialPanelState.collapsed,
     chats: false,
   });
-  const [activeSingleSection, setActiveSingleSection] = useState<LeftPanelSectionId>("chats");
+  const [activeSingleSection, setActiveSingleSection] = useState<LeftPanelSectionId>(firstVisibleSection);
   const manualSessions = useMemo(
     () => sessions.filter((session) => !session.autopilot),
     [sessions]
@@ -747,9 +789,11 @@ function ExpandedLeftPanel({
     () => taskSessions.filter((session) => session.autopilot?.hasUnseenResult).length,
     [taskSessions]
   );
-  const visibleSessions = supportsAutopilotTasks && sessionListMode === "tasks" ? taskSessions : manualSessions;
+  const effectiveSessionListMode = fixedSessionListMode ?? sessionListMode;
+  const visibleSessions = effectiveSessionListMode === "tasks" ? taskSessions : manualSessions;
 
   useEffect(() => {
+    if (fixedSessionListMode) return;
     if (!supportsAutopilotTasks || autoSwitchedToTasksRef.current || sessionListMode === "tasks" || !activeSessionId) {
       return;
     }
@@ -761,7 +805,12 @@ function ExpandedLeftPanel({
 
     autoSwitchedToTasksRef.current = true;
     setSessionListMode("tasks");
-  }, [activeSessionId, sessionListMode, sessions, supportsAutopilotTasks]);
+  }, [activeSessionId, fixedSessionListMode, sessionListMode, sessions, supportsAutopilotTasks]);
+
+  useEffect(() => {
+    if (sectionOrder.includes(activeSingleSection)) return;
+    setActiveSingleSection(firstVisibleSection);
+  }, [activeSingleSection, firstVisibleSection, sectionOrder]);
 
   // Expand the requested section when coming from a minified panel click
   useEffect(() => {
@@ -1072,11 +1121,13 @@ function ExpandedLeftPanel({
   });
 
   const isSectionCollapsed = (section: { collapsible?: boolean; id: LeftPanelSectionId }) => {
+    if (sectionOrder.length === 1) return false;
     if (singleSectionMode) return activeSingleSection !== section.id;
     return section.collapsible === false ? false : collapsedSections[section.id];
   };
 
   const handleSectionToggle = (section: { collapsible?: boolean; id: LeftPanelSectionId }) => {
+    if (sectionOrder.length === 1) return;
     if (singleSectionMode) {
       setActiveSingleSection(section.id);
       if (section.id === "chats") {
@@ -1088,6 +1139,9 @@ function ExpandedLeftPanel({
     if (section.collapsible === false) return;
     setCollapsedSections((current) => ({ ...current, [section.id]: !current[section.id] }));
   };
+  const sessionSectionLabel = effectiveSessionListMode === "tasks" ? "Autopilot" : "Chats";
+  const SessionSectionIcon = effectiveSessionListMode === "tasks" ? Lightning : ChatCircle;
+  const showSessionModeSwitcher = supportsAutopilotTasks && !fixedSessionListMode;
 
   const sectionItems: Array<{
     actionIcon?: typeof Plus
@@ -1107,7 +1161,7 @@ function ExpandedLeftPanel({
       collapsible: false,
       customHeader: (
         <div className="flex shrink-0 items-center justify-between gap-2 px-3 pt-2.5 pb-1">
-          {supportsAutopilotTasks ? (
+          {showSessionModeSwitcher ? (
             <div className="inline-flex h-8 items-center rounded-lg bg-foreground/[0.06] p-0.5">
               <button
                 type="button"
@@ -1143,14 +1197,14 @@ function ExpandedLeftPanel({
             </div>
           ) : (
             <div className="flex min-w-0 items-center gap-1.5 px-0.5">
-              <ChatCircle size={14} weight="bold" className="text-muted-foreground" />
+              <SessionSectionIcon size={14} weight="bold" className="text-muted-foreground" />
               <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Chats
+                {sessionSectionLabel}
               </span>
             </div>
           )}
 
-          {supportsAutopilotTasks && sessionListMode === "tasks" && onOpenAutopilotSettings ? (
+          {effectiveSessionListMode === "tasks" && onOpenAutopilotSettings ? (
             <button
               type="button"
               onClick={onOpenAutopilotSettings}
@@ -1159,7 +1213,7 @@ function ExpandedLeftPanel({
             >
               <SlidersHorizontal size={14} weight="bold" />
             </button>
-          ) : (
+          ) : effectiveSessionListMode === "chats" ? (
             <button
               type="button"
               onClick={onCreateSession}
@@ -1168,12 +1222,12 @@ function ExpandedLeftPanel({
             >
               <Plus size={14} weight="bold" />
             </button>
-          )}
+          ) : null}
         </div>
       ),
       content: (
         <SessionsPanel
-          kind={sessionListMode}
+          kind={effectiveSessionListMode}
           sessions={visibleSessions}
           activeSessionId={activeSessionId}
           hasMore={hasMoreSessions}
@@ -1223,6 +1277,16 @@ function ExpandedLeftPanel({
       content: <SkillsPanel skills={skills} onSelectSkill={onSelectSkill} query={searchQuery} />,
     },
   ];
+  const visibleSectionItems = sectionItems.filter((section) => sectionOrder.includes(section.id));
+  const searchLabel = sectionOrder.length === 1
+    ? sectionOrder[0] === "knowledge"
+      ? "Search knowledge"
+      : effectiveSessionListMode === "tasks"
+        ? "Search autopilot"
+        : "Search chats"
+    : supportsAutopilotTasks
+      ? "Search chats, tasks, knowledge, experts, and skills"
+      : "Search chats, knowledge, experts, and skills";
 
   return (
     <div
@@ -1230,7 +1294,7 @@ function ExpandedLeftPanel({
       className="flex h-full flex-col text-card-foreground"
       style={{ gap: SECTION_GAP }}
     >
-      {/* Panel header — logo, slug, status, toggle (no container) */}
+      {/* Panel header - logo, slug, and collapse toggle */}
       <div className="flex h-10 shrink-0 items-center gap-2 pl-1 pr-3">
         {currentVault ? (
           <div className="flex min-w-0 items-center gap-2">
@@ -1263,8 +1327,9 @@ function ExpandedLeftPanel({
         )}
       </div>
 
-      {/* Search bar (no container) */}
-      <label className="mt-0.5 mb-1.5 flex shrink-0 items-center gap-2 rounded-xl bg-foreground/[0.03] px-3 py-2 transition-colors hover:bg-foreground/5 focus-within:bg-foreground/5">
+      <div className="shrink-0 space-y-2">
+        {/* Search bar */}
+        <label className="flex items-center gap-2 rounded-xl bg-foreground/[0.03] px-3 py-2 transition-colors hover:bg-foreground/5 focus-within:bg-foreground/5">
           <MagnifyingGlass size={14} className="shrink-0 text-muted-foreground/50" />
           <input
             ref={searchInputRef}
@@ -1272,11 +1337,7 @@ function ExpandedLeftPanel({
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
             placeholder="Search..."
-            aria-label={
-              supportsAutopilotTasks
-                ? "Search chats, tasks, knowledge, experts, and skills"
-                : "Search chats, knowledge, experts, and skills"
-            }
+            aria-label={searchLabel}
             className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/40"
           />
           {searchQuery.trim().length > 0 ? (
@@ -1297,10 +1358,15 @@ function ExpandedLeftPanel({
               &#8984;K
             </span>
           )}
-      </label>
+        </label>
 
-      {sectionItems.map((section, index) => {
-        const nextSection = sectionItems[index + 1]
+        {workspaceMode && onWorkspaceModeChange ? (
+          <WorkspaceModeToggle mode={workspaceMode} onModeChange={onWorkspaceModeChange} />
+        ) : null}
+      </div>
+
+      {visibleSectionItems.map((section, index) => {
+        const nextSection = visibleSectionItems[index + 1]
         const isCollapsed = isSectionCollapsed(section)
         const header = section.customHeader && (!singleSectionMode || !isCollapsed)
           ? section.customHeader

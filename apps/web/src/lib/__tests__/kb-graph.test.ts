@@ -1,0 +1,62 @@
+import { describe, expect, it } from 'vitest'
+
+import { buildKnowledgeGraph } from '@/lib/kb-graph'
+
+describe('buildKnowledgeGraph', () => {
+  it('builds file edges from Obsidian links', () => {
+    const graph = buildKnowledgeGraph({
+      files: [
+        { path: 'docs/a.md', content: 'See [[docs/b.md|B]]' },
+        { path: 'docs/b.md', content: '' },
+      ],
+    })
+
+    expect(graph.nodes.map((node) => node.id)).toEqual(['file:docs/a.md', 'file:docs/b.md'])
+    expect(graph.edges).toEqual([
+      {
+        id: 'file-link:file:docs/a.md->file:docs/b.md',
+        kind: 'file-link',
+        source: 'file:docs/a.md',
+        target: 'file:docs/b.md',
+      },
+    ])
+  })
+
+  it('adds agent nodes only when prompts reference knowledge files', () => {
+    const graph = buildKnowledgeGraph({
+      agents: [
+        {
+          id: 'strategist',
+          displayName: 'Strategist',
+          prompt: 'Use [[docs/plan.md]] and docs/research.md when planning.',
+        },
+        {
+          id: 'writer',
+          displayName: 'Writer',
+          prompt: 'No explicit knowledge reference.',
+        },
+      ],
+      files: [
+        { path: 'docs/plan.md', content: '' },
+        { path: 'docs/research.md', content: '' },
+      ],
+    })
+
+    expect(graph.nodes.some((node) => node.id === 'agent:strategist')).toBe(true)
+    expect(graph.nodes.some((node) => node.id === 'agent:writer')).toBe(false)
+    expect(graph.edges).toEqual([
+      {
+        id: 'agent-reference:agent:strategist->file:docs/plan.md',
+        kind: 'agent-reference',
+        source: 'agent:strategist',
+        target: 'file:docs/plan.md',
+      },
+      {
+        id: 'agent-reference:agent:strategist->file:docs/research.md',
+        kind: 'agent-reference',
+        source: 'agent:strategist',
+        target: 'file:docs/research.md',
+      },
+    ])
+  })
+})

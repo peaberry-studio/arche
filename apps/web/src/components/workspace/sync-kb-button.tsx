@@ -18,11 +18,12 @@ type SyncKbButtonProps = {
   disabled?: boolean
   onComplete?: (status: SyncKbResult['status']) => void
   variant?: 'default' | 'muted'
+  renderAs?: 'icon' | 'row'
 }
 
 type SyncState = 'idle' | 'syncing' | 'synced' | 'conflicts' | 'error'
 
-export function SyncKbButton({ slug, disabled, onComplete, variant = 'default' }: SyncKbButtonProps) {
+export function SyncKbButton({ slug, disabled, onComplete, variant = 'default', renderAs = 'icon' }: SyncKbButtonProps) {
   const [state, setState] = useState<SyncState>('idle')
   const [conflicts, setConflicts] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -106,31 +107,62 @@ export function SyncKbButton({ slug, disabled, onComplete, variant = 'default' }
   const Icon = config.icon
   const tooltipLabel = error || (conflicts.length > 0 ? `${conflicts.length} files with conflicts` : 'Sync knowledge base')
 
+  const rowLabel =
+    state === 'syncing'
+      ? 'Syncing knowledge base…'
+      : state === 'synced'
+        ? 'Knowledge base synced'
+        : state === 'conflicts'
+          ? `Conflicts detected${conflicts.length ? ` (${conflicts.length})` : ''}`
+          : state === 'error'
+            ? 'Sync failed'
+            : 'Sync knowledge base'
+
   return (
     <div className="relative">
-      <TooltipProvider delayDuration={2000}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              size="icon"
-              variant="ghost"
-              className={cn("h-7 w-7", variant === 'muted' && "text-muted-foreground hover:text-foreground")}
-              onClick={handleSync}
-              disabled={disabled || state === 'syncing'}
-            >
-              <Icon
-                size={14}
-                weight={config.weight}
-                className={cn(config.className)}
-              />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">{tooltipLabel}</TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+      {renderAs === 'row' ? (
+        <button
+          type="button"
+          onClick={handleSync}
+          disabled={disabled || state === 'syncing'}
+          className={cn(
+            'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm transition-colors',
+            'text-foreground hover:bg-foreground/5',
+            'disabled:cursor-not-allowed disabled:opacity-50'
+          )}
+        >
+          <Icon
+            size={15}
+            weight={config.weight}
+            className={cn('shrink-0 text-muted-foreground', config.className)}
+          />
+          <span className="min-w-0 truncate">{rowLabel}</span>
+        </button>
+      ) : (
+        <TooltipProvider delayDuration={2000}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                className={cn("h-7 w-7", variant === 'muted' && "text-muted-foreground hover:text-foreground")}
+                onClick={handleSync}
+                disabled={disabled || state === 'syncing'}
+              >
+                <Icon
+                  size={14}
+                  weight={config.weight}
+                  className={cn(config.className)}
+                />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{tooltipLabel}</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
 
-      {/* Popover para mostrar conflictos o errores */}
-      {(state === 'conflicts' || state === 'error') && (
+      {/* Popover para mostrar conflictos o errores (solo en modo icon) */}
+      {renderAs === 'icon' && (state === 'conflicts' || state === 'error') && (
         <div className="absolute right-0 top-full z-50 -mt-px w-64 rounded-md border border-border bg-popover p-3 shadow-md">
           <div className="flex items-start justify-between gap-2">
             <div className="flex-1 min-w-0">
