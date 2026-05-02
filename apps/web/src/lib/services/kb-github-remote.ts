@@ -162,3 +162,24 @@ export async function getSyncState(): Promise<KbGithubRemoteSyncState> {
   const record = await findIntegration()
   return record ? record.state : { ...DEFAULT_STATE }
 }
+
+export type KbGithubRemoteSyncCredentials = {
+  appId: string
+  privateKey: string
+  installationId: number
+  repoCloneUrl: string
+}
+
+export async function getSyncCredentials(): Promise<KbGithubRemoteSyncCredentials | null> {
+  const record = await findIntegration()
+  if (!record) return null
+  const config = decryptIntegrationConfig(record)
+  if (!config?.appId || !config.privateKey) return null
+  if (!record.state.installationId || !record.state.repoCloneUrl) return null
+  return {
+    appId: config.appId,
+    privateKey: config.privateKey,
+    installationId: record.state.installationId,
+    repoCloneUrl: record.state.repoCloneUrl,
+  }
+}

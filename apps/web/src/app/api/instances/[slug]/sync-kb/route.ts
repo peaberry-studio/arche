@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server'
 
+import { pullFromGithub } from '@/lib/git/kb-github-sync'
 import { isWorkspaceReachable } from '@/lib/runtime/workspace-host'
 import { withAuth } from '@/lib/runtime/with-auth'
+import { kbGithubRemoteService } from '@/lib/services'
 import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 
 export interface SyncKbResult {
@@ -11,22 +13,28 @@ export interface SyncKbResult {
   conflicts?: string[]
 }
 
-/**
- * POST /api/instances/[slug]/sync-kb
- * 
- * Syncs the Knowledge Base in the user's workspace.
- * Runs git fetch + git merge from the `kb` remote.
- * 
- * Responses:
- * - 200 { ok: true, status: 'synced' } - Sync succeeded with no conflicts
- * - 200 { ok: true, status: 'conflicts', conflicts: [...] } - Conflicts need resolution
- * - 200 { ok: false, status: 'no_remote' } - `kb` remote does not exist
- * - 200 { ok: false, status: 'error', message: '...' } - Error during sync
- * - 401 - Not authenticated
- * - 403 - Not authorized for this instance
- * - 404 - Instance not found
- * - 409 - Instance is not running
- */
+async function pullFromGithubBestEffort(): Promise<void> {
+  try {
+    const creds = await kbGithubRemoteService.getSyncCredentials()
+    if (!creds) return
+
+    const result = await pullFromGithub(creds)
+
+    const now = new Date().toISOString()
+    await kbGithubRemoteService.updateSyncState({
+      lastSyncAt: now,
+      lastPullAt: now,
+      lastSyncStatus: result.ok ? 'success' : (
+        !result.ok && result.status === 'conflicts' ? 'conflicts' : 'error'
+      ),
+      lastError: result.ok ? null : result.message,
+      remoteBranch: result.ok && 'branch' in result ? result.branch : undefined,
+    })
+  } catch {
+    // Best-effort: don't block workspace sync if GitHub is unreachable
+  }
+}
+
 export const POST = withAuth<SyncKbResult | { error: string }>(
   { csrf: true },
   async (_request, { slug }) => {
@@ -37,6 +45,8 @@ export const POST = withAuth<SyncKbResult | { error: string }>(
     }
 
     try {
+      await pullFromGithubBestEffort()
+
       const agent = await createWorkspaceAgentClient(slug)
       if (!agent) {
         return NextResponse.json({ error: 'instance_unavailable' }, { status: 409 })
