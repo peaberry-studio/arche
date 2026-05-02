@@ -12,13 +12,13 @@ import {
 } from './bare-repo'
 
 export type KbGithubPushResult =
-  | { ok: true; status: 'pushed'; commitHash: string }
-  | { ok: true; status: 'up_to_date' }
+  | { ok: true; status: 'pushed'; commitHash: string; branch: string }
+  | { ok: true; status: 'up_to_date'; branch: string }
   | { ok: false; status: 'not_configured' | 'kb_unavailable' | 'auth_failed' | 'push_rejected' | 'error'; message: string }
 
 export type KbGithubPullResult =
-  | { ok: true; status: 'pulled'; commitHash: string }
-  | { ok: true; status: 'up_to_date' }
+  | { ok: true; status: 'pulled'; commitHash: string; branch: string }
+  | { ok: true; status: 'up_to_date'; branch: string }
   | { ok: false; status: 'not_configured' | 'kb_unavailable' | 'auth_failed' | 'conflicts' | 'error'; message: string; conflictingFiles?: string[] }
 
 export type KbGithubSyncCredentials = {
@@ -125,10 +125,10 @@ export async function pushToGithub(creds: KbGithubSyncCredentials): Promise<KbGi
     const commitHash = head.ok ? head.stdout.trim() : 'unknown'
 
     if (push.stderr.includes('Everything up-to-date')) {
-      return { ok: true, status: 'up_to_date' }
+      return { ok: true, status: 'up_to_date', branch }
     }
 
-    return { ok: true, status: 'pushed', commitHash }
+    return { ok: true, status: 'pushed', commitHash, branch }
   } catch (error) {
     return { ok: false, status: 'error', message: error instanceof Error ? error.message : 'Unknown error' }
   } finally {
@@ -190,7 +190,7 @@ export async function pullFromGithub(creds: KbGithubSyncCredentials): Promise<Kb
       { cwd: clone.dir, env: clone.gitEnv },
     )
     if (hasDiff.ok) {
-      return { ok: true, status: 'up_to_date' }
+      return { ok: true, status: 'up_to_date', branch }
     }
 
     const merge = await runGit(
@@ -228,7 +228,7 @@ export async function pullFromGithub(creds: KbGithubSyncCredentials): Promise<Kb
     const head = await runGit(['rev-parse', 'HEAD'], { cwd: clone.dir, env: clone.gitEnv })
     const commitHash = head.ok ? head.stdout.trim() : 'unknown'
 
-    return { ok: true, status: 'pulled', commitHash }
+    return { ok: true, status: 'pulled', commitHash, branch }
   } catch (error) {
     return { ok: false, status: 'error', message: error instanceof Error ? error.message : 'Unknown error' }
   } finally {

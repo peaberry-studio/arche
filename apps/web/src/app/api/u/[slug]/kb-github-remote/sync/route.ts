@@ -78,6 +78,7 @@ export const POST = withAuth(
         !result.ok && 'status' in result && result.status === 'conflicts' ? 'conflicts' : 'error'
       ),
       lastError: result.ok ? null : ('message' in result ? result.message : null),
+      remoteBranch: result.ok && 'branch' in result ? result.branch : undefined,
     }
 
     if (direction === 'push') {

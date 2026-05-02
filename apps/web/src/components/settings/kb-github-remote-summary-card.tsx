@@ -23,9 +23,13 @@ export function KbGithubRemoteSummaryCard({
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-lg font-medium text-foreground">GitHub KB Backup</h2>
-            <Badge variant={integration.ready ? 'default' : integration.appConfigured ? 'secondary' : 'secondary'}>
-              {integration.ready ? 'Ready' : integration.appConfigured ? 'Partially configured' : 'Not configured'}
-            </Badge>
+            {integration.ready ? (
+              <Badge variant="default">Connected</Badge>
+            ) : integration.appConfigured ? (
+              <Badge variant="secondary">Setup incomplete</Badge>
+            ) : (
+              <Badge variant="secondary">Not configured</Badge>
+            )}
             {integration.lastSyncStatus === 'error' ? (
               <Badge variant="destructive">Sync error</Badge>
             ) : null}
@@ -36,7 +40,9 @@ export function KbGithubRemoteSummaryCard({
             ) : null}
           </div>
           <p className="text-sm text-muted-foreground">
-            Back up and sync your knowledge base with a GitHub repository.
+            {integration.repoFullName
+              ? `Syncing with ${integration.repoFullName}`
+              : 'Back up and sync your knowledge base with a GitHub repository.'}
           </p>
           {integration.lastSyncAt ? (
             <p className="text-xs text-muted-foreground">
@@ -45,8 +51,8 @@ export function KbGithubRemoteSummaryCard({
           ) : null}
         </div>
 
-        <Button asChild size="sm">
-          <Link href={href}>Setup</Link>
+        <Button asChild size="sm" variant={integration.ready ? 'outline' : 'default'}>
+          <Link href={href}>{integration.ready ? 'Manage' : 'Setup'}</Link>
         </Button>
       </div>
     </section>

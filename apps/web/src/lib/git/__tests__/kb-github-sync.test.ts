@@ -99,7 +99,7 @@ describe('kb-github-sync', () => {
       const { pushToGithub } = await import('../kb-github-sync')
       const result = await pushToGithub(CREDS)
 
-      expect(result).toEqual({ ok: true, status: 'pushed', commitHash: 'abc123' })
+      expect(result).toEqual({ ok: true, status: 'pushed', commitHash: 'abc123', branch: 'main' })
       expect(mockGetInstallationToken).toHaveBeenCalledWith('12345', CREDS.privateKey, 99)
       expect(mockRunGit).toHaveBeenCalledWith(
         ['remote', 'add', 'github', expect.stringContaining('x-access-token')],
@@ -117,7 +117,7 @@ describe('kb-github-sync', () => {
       const { pushToGithub } = await import('../kb-github-sync')
       const result = await pushToGithub(CREDS)
 
-      expect(result).toEqual({ ok: true, status: 'up_to_date' })
+      expect(result).toEqual({ ok: true, status: 'up_to_date', branch: 'main' })
     })
 
     it('returns push_rejected on non-fast-forward', async () => {
@@ -203,7 +203,7 @@ describe('kb-github-sync', () => {
       const { pullFromGithub } = await import('../kb-github-sync')
       const result = await pullFromGithub(CREDS)
 
-      expect(result).toEqual({ ok: true, status: 'pulled', commitHash: 'def456' })
+      expect(result).toEqual({ ok: true, status: 'pulled', commitHash: 'def456', branch: 'main' })
       expect(mockGetInstallationToken).toHaveBeenCalledWith('12345', CREDS.privateKey, 99)
       expect(mockCleanupClone).toHaveBeenCalled()
     })
@@ -217,7 +217,7 @@ describe('kb-github-sync', () => {
       const { pullFromGithub } = await import('../kb-github-sync')
       const result = await pullFromGithub(CREDS)
 
-      expect(result).toEqual({ ok: true, status: 'up_to_date' })
+      expect(result).toEqual({ ok: true, status: 'up_to_date', branch: 'main' })
     })
 
     it('returns conflicts with file list on merge failure', async () => {
