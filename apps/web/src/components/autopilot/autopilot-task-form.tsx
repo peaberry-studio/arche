@@ -215,130 +215,122 @@ export function AutopilotTaskForm({ slug, mode, taskId }: AutopilotTaskFormProps
   }
 
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>{mode === 'create' ? 'New autopilot task' : 'Task settings'}</CardTitle>
-          <CardDescription>
-            Configure a recurring prompt, target agent, cron schedule and timezone.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid gap-5 md:grid-cols-2">
-            <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="autopilot-name">Task name</Label>
-              <Input
-                id="autopilot-name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Daily KPI summary"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="autopilot-agent">Target agent</Label>
-              <div className="relative">
-                <select
-                  id="autopilot-agent"
-                  value={targetAgentId}
-                  onChange={(event) => setTargetAgentId(event.target.value)}
-                  className="flex h-10 w-full appearance-none rounded-lg border border-border bg-background px-3 py-2 pr-8 text-sm text-foreground"
-                >
-                  <option value="">Primary agent</option>
-                  {agents.map((agent) => (
-                    <option key={agent.id} value={agent.id}>
-                      {agent.displayName}
-                    </option>
-                  ))}
-                </select>
-                <span className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-muted-foreground">
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </span>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="autopilot-timezone">Timezone</Label>
-              <Input
-                id="autopilot-timezone"
-                list="autopilot-timezones"
-                value={timezone}
-                onChange={(event) => setTimezone(event.target.value)}
-                placeholder="Europe/Madrid"
-              />
-              <datalist id="autopilot-timezones">
-                {timezoneOptions.map((option) => (
-                  <option key={option} value={option} />
-                ))}
-              </datalist>
-            </div>
-          </div>
-
-          <AutopilotScheduleBuilder
-            preview={schedulePreview}
-            schedule={schedule}
-            timezone={timezone}
-            onChange={setSchedule}
-          />
-
-          <div className="space-y-2">
-            <Label htmlFor="autopilot-prompt">Prompt</Label>
-            <textarea
-              id="autopilot-prompt"
-              value={prompt}
-              onChange={(event) => setPrompt(event.target.value)}
-              rows={8}
-              className="min-h-[180px] w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-              placeholder="Summarize the most important updates from the knowledge base and propose the next actions."
+    <div className="space-y-8">
+      <div className="space-y-6">
+        <div className="grid gap-5 md:grid-cols-2">
+          <div className="space-y-2 md:col-span-2">
+            <Label htmlFor="autopilot-name">Task name</Label>
+            <Input
+              id="autopilot-name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Daily KPI summary"
             />
           </div>
 
-          <div className="flex items-center justify-between rounded-xl border border-border/60 bg-card/30 px-4 py-3">
-            <div>
-              <p className="text-sm font-medium text-foreground">Enabled</p>
-              <p className="text-xs text-muted-foreground">
-                Disabled tasks stay saved but will not execute on schedule.
-              </p>
+          <div className="space-y-2">
+            <Label htmlFor="autopilot-agent">Target agent</Label>
+            <div className="relative">
+              <select
+                id="autopilot-agent"
+                value={targetAgentId}
+                onChange={(event) => setTargetAgentId(event.target.value)}
+                className="flex h-10 w-full appearance-none rounded-lg border border-border bg-background px-3 py-2 pr-8 text-sm text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              >
+                <option value="">Primary agent</option>
+                {agents.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.displayName}
+                  </option>
+                ))}
+              </select>
+              <span className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-muted-foreground">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </span>
             </div>
-            <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="Enable autopilot task" />
           </div>
 
-          {formError ? (
-            <p className="text-sm text-destructive">{formError}</p>
-          ) : null}
+          <div className="space-y-2">
+            <Label htmlFor="autopilot-timezone">Timezone</Label>
+            <Input
+              id="autopilot-timezone"
+              list="autopilot-timezones"
+              value={timezone}
+              onChange={(event) => setTimezone(event.target.value)}
+              placeholder="Europe/Madrid"
+            />
+            <datalist id="autopilot-timezones">
+              {timezoneOptions.map((option) => (
+                <option key={option} value={option} />
+              ))}
+            </datalist>
+          </div>
+        </div>
 
-          <div className="flex items-center justify-between border-t border-border/40 pt-5">
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={() => void handleSave()} disabled={isSaving || !isScheduleValid}>
-                {isSaving ? 'Saving...' : mode === 'create' ? 'Create task' : 'Save changes'}
-              </Button>
+        <AutopilotScheduleBuilder
+          preview={schedulePreview}
+          schedule={schedule}
+          timezone={timezone}
+          onChange={setSchedule}
+        />
 
-              {mode === 'edit' && taskId ? (
-                <Button variant="outline" onClick={() => void handleRunNow()} disabled={isRunningNow}>
-                  {isRunningNow ? 'Running...' : 'Run now'}
-                </Button>
-              ) : null}
+        <div className="space-y-2">
+          <Label htmlFor="autopilot-prompt">Prompt</Label>
+          <textarea
+            id="autopilot-prompt"
+            value={prompt}
+            onChange={(event) => setPrompt(event.target.value)}
+            rows={8}
+            className="min-h-[180px] w-full rounded-lg border border-border/60 bg-card/40 px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/30"
+            placeholder="Summarize the most important updates from the knowledge base and propose the next actions."
+          />
+        </div>
 
-              <Button variant="outline" asChild>
-                <Link href={`/u/${slug}/autopilot`}>Back to list</Link>
-              </Button>
-            </div>
+        <div className="flex items-center justify-between rounded-xl border border-border/60 bg-card/40 px-4 py-3">
+          <div>
+            <p className="text-sm font-medium text-foreground">Enabled</p>
+            <p className="text-xs text-muted-foreground">
+              Disabled tasks stay saved but will not execute on schedule.
+            </p>
+          </div>
+          <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="Enable autopilot task" />
+        </div>
+
+        {formError ? (
+          <p className="text-sm text-destructive">{formError}</p>
+        ) : null}
+
+        <div className="flex items-center justify-between border-t border-border/40 pt-5">
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => void handleSave()} disabled={isSaving || !isScheduleValid}>
+              {isSaving ? 'Saving...' : mode === 'create' ? 'Create task' : 'Save changes'}
+            </Button>
 
             {mode === 'edit' && taskId ? (
-              <button
-                type="button"
-                onClick={() => void handleDelete()}
-                disabled={isDeleting}
-                className="text-sm text-destructive underline-offset-2 hover:underline disabled:opacity-50"
-              >
-                {isDeleting ? 'Deleting...' : 'Delete task'}
-              </button>
+              <Button variant="outline" onClick={() => void handleRunNow()} disabled={isRunningNow}>
+                {isRunningNow ? 'Running...' : 'Run now'}
+              </Button>
             ) : null}
+
+            <Button variant="outline" asChild>
+              <Link href={`/u/${slug}/autopilot`}>Back to list</Link>
+            </Button>
           </div>
-        </CardContent>
-      </Card>
+
+          {mode === 'edit' && taskId ? (
+            <button
+              type="button"
+              onClick={() => void handleDelete()}
+              disabled={isDeleting}
+              className="text-sm text-destructive underline-offset-2 hover:underline disabled:opacity-50"
+            >
+              {isDeleting ? 'Deleting...' : 'Delete task'}
+            </button>
+          ) : null}
+        </div>
+      </div>
 
       {mode === 'edit' && task ? <AutopilotRunHistory slug={slug} task={task} /> : null}
     </div>

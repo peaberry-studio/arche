@@ -1,7 +1,16 @@
 'use client'
 
-import type { Dispatch, SetStateAction } from 'react'
+import type { ComponentType, Dispatch, SetStateAction } from 'react'
 import { useCallback } from 'react'
+import {
+  Calendar,
+  CalendarBlank,
+  Code,
+  Clock,
+  Sun,
+  Timer,
+  type IconProps,
+} from '@phosphor-icons/react'
 
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -23,13 +32,20 @@ type AutopilotScheduleBuilderProps = {
   onChange: Dispatch<SetStateAction<AutopilotScheduleFormState>>
 }
 
-const SCHEDULE_MODES: AutopilotScheduleBuilderMode[] = [
-  'minutes',
-  'hourly',
-  'daily',
-  'weekly',
-  'monthly',
-  'custom',
+type ScheduleOption = {
+  mode: AutopilotScheduleBuilderMode
+  label: string
+  hint: string
+  icon: ComponentType<IconProps>
+}
+
+const SCHEDULE_OPTIONS: ScheduleOption[] = [
+  { mode: 'minutes', label: 'Minutes', hint: 'Every N minutes', icon: Timer },
+  { mode: 'hourly', label: 'Hourly', hint: 'Every N hours', icon: Clock },
+  { mode: 'daily', label: 'Daily', hint: 'Every N days at HH:MM', icon: Sun },
+  { mode: 'weekly', label: 'Weekly', hint: 'On selected weekdays', icon: CalendarBlank },
+  { mode: 'monthly', label: 'Monthly', hint: 'On day of month', icon: Calendar },
+  { mode: 'custom', label: 'Custom', hint: 'Raw cron expression', icon: Code },
 ]
 
 export function AutopilotScheduleBuilder({
@@ -56,27 +72,44 @@ export function AutopilotScheduleBuilder({
     }))
   }, [updateSchedule])
 
+  const activeOption = SCHEDULE_OPTIONS.find((option) => option.mode === schedule.mode)
+
   return (
-    <div className="rounded-xl border border-border/60 bg-card/30 p-5">
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <Label>Schedule</Label>
-          <div className="flex flex-wrap gap-2">
-            {SCHEDULE_MODES.map((entry) => (
-              <button
-                key={entry}
-                type="button"
-                onClick={() => setScheduleMode(entry)}
-                className={cn(
-                  'rounded-full border px-3 py-1.5 text-sm capitalize transition-colors',
-                  schedule.mode === entry
-                    ? 'border-primary bg-primary/10 text-primary'
-                    : 'border-border text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {entry}
-              </button>
-            ))}
+    <div className="rounded-xl border border-border/60 bg-card/40 p-5">
+      <div className="space-y-5">
+        <div className="space-y-2.5">
+          <div className="flex items-baseline justify-between">
+            <Label>Schedule</Label>
+            {activeOption ? (
+              <span className="text-xs text-muted-foreground">{activeOption.hint}</span>
+            ) : null}
+          </div>
+          <div
+            role="tablist"
+            aria-label="Schedule frequency"
+            className="grid grid-cols-3 gap-1 rounded-lg border border-border/60 bg-background/40 p-1.5 sm:grid-cols-6"
+          >
+            {SCHEDULE_OPTIONS.map(({ mode, label, icon: Icon }) => {
+              const active = schedule.mode === mode
+              return (
+                <button
+                  key={mode}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setScheduleMode(mode)}
+                  className={cn(
+                    'flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-all',
+                    active
+                      ? 'bg-primary/10 text-primary shadow-sm ring-1 ring-primary/30'
+                      : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground',
+                  )}
+                >
+                  <Icon size={13} weight={active ? 'fill' : 'regular'} />
+                  <span>{label}</span>
+                </button>
+              )
+            })}
           </div>
         </div>
 
@@ -311,6 +344,7 @@ export function AutopilotScheduleBuilder({
                 customCronExpression: event.target.value,
               }))}
               placeholder="0 9 * * 1-5"
+              className="font-mono"
             />
             <p className="text-xs text-muted-foreground">
               Use standard 5-field cron format: minute hour day-of-month month day-of-week.
@@ -321,7 +355,7 @@ export function AutopilotScheduleBuilder({
         <div className="border-t border-border/40 pt-4">
           <div className="flex items-center justify-between gap-3">
             <p className="text-xs font-medium text-muted-foreground">Resolved cron</p>
-            <code className="rounded-md bg-background/80 px-2.5 py-1 font-mono text-xs text-foreground">
+            <code className="rounded-md border border-border/60 bg-background/60 px-2.5 py-1 font-mono text-xs text-foreground">
               {preview.cronExpression}
             </code>
           </div>
