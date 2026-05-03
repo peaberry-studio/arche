@@ -32,7 +32,7 @@ import {
 import { AgentMentionAutocomplete } from "@/components/workspace/chat-panel/agent-mention-autocomplete";
 import { ChatPanelMessages } from "@/components/workspace/chat-panel/messages";
 import { ChatPanelSessionHeader } from "@/components/workspace/chat-panel/session-header";
-import type { ContextMode, SessionTabInfo } from "@/components/workspace/chat-panel/types";
+import type { SessionTabInfo } from "@/components/workspace/chat-panel/types";
 import { StatusIndicator } from "@/components/workspace/bitmap-status-indicator";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,7 +40,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -241,8 +240,9 @@ export function ChatPanel({
   const [attachmentSearch, setAttachmentSearch] = useState("");
   const [selectedAttachmentPaths, setSelectedAttachmentPaths] = useState<string[]>([]);
   const [isMutatingAttachments, setIsMutatingAttachments] = useState(false);
-  const [contextMode, setContextMode] = useState<ContextMode>("auto");
   const [manualContextPaths, setManualContextPaths] = useState<string[]>([]);
+  const [contextSearch, setContextSearch] = useState("");
+  const contextSearchInputRef = useRef<HTMLInputElement>(null);
   const [connectorNamesById, setConnectorNamesById] = useState<Record<string, string>>({});
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
@@ -262,11 +262,6 @@ export function ChatPanel({
         .filter((attachment): attachment is WorkspaceAttachment => Boolean(attachment));
     },
     [attachments, attachmentsEnabled, selectedAttachmentPaths]
-  );
-
-  const contextModeStorageKey = useMemo(
-    () => `arche.workspace.${slug}.context-mode`,
-    [slug]
   );
 
   const normalizedOpenFilePaths = useMemo(() => {
@@ -429,37 +424,39 @@ export function ChatPanel({
     };
   }, [isModelMenuOpen]);
 
-  const effectiveContextPaths = useMemo(() => {
-    if (contextMode === "off") return [];
-    if (contextMode === "manual") {
-      return manualContextPaths.filter((path) => openFilePathSet.has(path));
+  useEffect(() => {
+    if (!isAttachmentMenuOpen) {
+      setContextSearch("");
+      return;
     }
-    return normalizedOpenFilePaths;
-  }, [contextMode, manualContextPaths, normalizedOpenFilePaths, openFilePathSet]);
+
+    const frameId = requestAnimationFrame(() => {
+      contextSearchInputRef.current?.focus();
+    });
+
+    return () => {
+      cancelAnimationFrame(frameId);
+    };
+  }, [isAttachmentMenuOpen]);
+
+  const effectiveContextPaths = useMemo(
+    () => manualContextPaths.filter((path) => openFilePathSet.has(path)),
+    [manualContextPaths, openFilePathSet]
+  );
+
+  const filteredContextPaths = useMemo(() => {
+    const query = contextSearch.trim().toLowerCase();
+    if (!query) return normalizedOpenFilePaths;
+    return normalizedOpenFilePaths.filter((path) => path.toLowerCase().includes(query));
+  }, [contextSearch, normalizedOpenFilePaths]);
 
   const contextPathsToSend = useMemo(
     () => effectiveContextPaths.slice(0, MAX_CONTEXT_PATHS_PER_MESSAGE),
     [effectiveContextPaths]
   );
 
-  useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(contextModeStorageKey);
-      if (stored === "auto" || stored === "manual" || stored === "off") {
-        setContextMode(stored);
-      }
-    } catch {
-      // Ignore storage access errors
-    }
-  }, [contextModeStorageKey]);
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(contextModeStorageKey, contextMode);
-    } catch {
-      // Ignore storage access errors
-    }
-  }, [contextMode, contextModeStorageKey]);
+  const attachTotalSelectedCount =
+    selectedAttachmentPaths.length + effectiveContextPaths.length;
 
   useEffect(() => {
     let cancelled = false;
@@ -503,19 +500,10 @@ export function ChatPanel({
     );
   }, [openFilePathSet]);
 
-  const handleContextModeChange = useCallback(
-    (nextMode: ContextMode) => {
-      setContextMode(nextMode);
-      if (nextMode !== "manual") return;
-
-      setManualContextPaths((previous) => {
-        const filtered = previous.filter((path) => openFilePathSet.has(path));
-        if (filtered.length > 0) return filtered;
-        return normalizedOpenFilePaths;
-      });
-    },
-    [normalizedOpenFilePaths, openFilePathSet]
-  );
+  const clearAllAttachSelections = useCallback(() => {
+    setManualContextPaths([]);
+    setSelectedAttachmentPaths([]);
+  }, []);
 
   const toggleManualContextPath = useCallback((path: string) => {
     setManualContextPaths((previous) => {
@@ -847,10 +835,13 @@ export function ChatPanel({
     [slug]
   );
 
-  const recentAttachments = useMemo(
-    () => attachments.slice(0, 5),
-    [attachments]
-  );
+  const recentAttachments = useMemo(() => {
+    const query = contextSearch.trim().toLowerCase();
+    if (!query) return attachments.slice(0, 5);
+    return attachments.filter((attachment) =>
+      attachment.name.toLowerCase().includes(query)
+    );
+  }, [attachments, contextSearch]);
 
   const filteredAttachments = useMemo(() => {
     const query = attachmentSearch.trim().toLowerCase();
@@ -1153,175 +1144,142 @@ export function ChatPanel({
           />
           <div className="mt-3 flex items-center gap-2 sm:mt-2 sm:items-end">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 sm:items-end">
-              {attachmentsEnabled ? (
-                <DropdownMenu
-                  open={isAttachmentMenuOpen}
-                  onOpenChange={(open) => {
-                    setIsAttachmentMenuOpen(open);
-                    if (open) {
-                      void refreshAttachments();
-                    }
-                  }}
-                >
-                  <DropdownMenuTrigger asChild>
-                    <button
-                      type="button"
-                      className={cn(
-                        "inline-flex items-center gap-1.5 rounded-lg border px-2 py-0.5 text-[11px] font-medium transition-colors",
-                        selectedAttachmentPaths.length > 0
-                          ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
-                          : "border-border/60 bg-foreground/5 text-foreground/80 hover:bg-foreground/10 hover:text-foreground"
-                      )}
-                      aria-label="Manage attachments"
-                      disabled={isSending || isStartingNewSession || !onSendMessage}
-                    >
-                      {isUploadingAttachment ? <SpinnerGap size={14} className="animate-spin" /> : <Plus size={14} weight="bold" />}
-                      Attach
-                      {selectedAttachmentPaths.length > 0 ? <span className="text-[11px] font-semibold">{selectedAttachmentPaths.length}</span> : null}
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" side="top" sideOffset={8} className="w-72 rounded-lg p-1.5">
-                    {isLoadingAttachments ? (
+              <DropdownMenu
+                open={isAttachmentMenuOpen}
+                onOpenChange={(open) => {
+                  setIsAttachmentMenuOpen(open);
+                  if (open && attachmentsEnabled) {
+                    void refreshAttachments();
+                  }
+                }}
+              >
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-lg border px-2 py-0.5 text-[11px] font-medium transition-colors",
+                      attachTotalSelectedCount > 0
+                        ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
+                        : "border-border/60 bg-foreground/5 text-foreground/80 hover:bg-foreground/10 hover:text-foreground"
+                    )}
+                    aria-label="Attach files"
+                    disabled={isSending || isStartingNewSession || !onSendMessage}
+                  >
+                    {isUploadingAttachment ? <SpinnerGap size={14} className="animate-spin" /> : <Plus size={14} weight="bold" />}
+                    Attach
+                    {attachTotalSelectedCount > 0 ? <span className="text-[11px] font-semibold">{attachTotalSelectedCount}</span> : null}
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" side="top" sideOffset={8} className="w-80 rounded-lg p-0">
+                  <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+                    <MagnifyingGlass size={14} className="shrink-0 text-muted-foreground" />
+                    <input
+                      ref={contextSearchInputRef}
+                      type="text"
+                      placeholder="Search files..."
+                      value={contextSearch}
+                      onChange={(event) => setContextSearch(event.target.value)}
+                      onKeyDown={(event) => event.stopPropagation()}
+                      className="w-full bg-transparent text-xs text-foreground placeholder:text-muted-foreground focus:outline-none"
+                    />
+                  </div>
+                  <div className="scrollbar-custom max-h-64 overflow-y-auto p-1.5">
+                    {attachmentsEnabled && isLoadingAttachments && recentAttachments.length === 0 && filteredContextPaths.length === 0 ? (
                       <div className="flex items-center gap-2 px-2.5 py-3 text-xs text-muted-foreground">
                         <SpinnerGap size={12} className="animate-spin" />
                         Loading files...
                       </div>
-                    ) : recentAttachments.length === 0 ? (
-                      <div className="px-2.5 py-3 text-center text-xs text-muted-foreground">No uploaded files yet</div>
+                    ) : recentAttachments.length === 0 && filteredContextPaths.length === 0 ? (
+                      <p className="px-2.5 py-3 text-center text-xs text-muted-foreground">
+                        {contextSearch.trim() ? "No matches" : "No files available"}
+                      </p>
                     ) : (
                       <>
-                        <DropdownMenuLabel className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">
+                        <DropdownMenuLabel className="px-2.5 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">
                           Recent files
                         </DropdownMenuLabel>
                         {recentAttachments.map((attachment) => {
                           const isSelected = selectedAttachmentPaths.includes(attachment.path);
                           return (
                             <DropdownMenuItem
-                              key={attachment.path}
+                              key={`attachment:${attachment.path}`}
                               onSelect={(event) => {
                                 event.preventDefault();
                                 toggleAttachmentSelection(attachment.path);
                               }}
-                              className={cn("gap-2.5 rounded-md px-2.5 py-2", isSelected && "bg-primary/10")}
+                              className={cn("mb-0.5 gap-2 rounded-md px-2.5 py-2 last:mb-0", isSelected && "bg-primary/10 text-primary")}
                             >
-                              <div className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded", isSelected ? "text-primary" : "text-muted-foreground")}>
-                                {isSelected ? <CheckCircle size={16} weight="fill" /> : <File size={14} />}
-                              </div>
+                              <File size={14} className="shrink-0 text-muted-foreground" />
                               <span className="min-w-0 flex-1 truncate text-xs">{attachment.name}</span>
                               <span className="shrink-0 text-[10px] text-muted-foreground/60">{formatAttachmentSize(attachment.size)}</span>
+                              {isSelected ? <CheckCircle size={14} weight="fill" className="shrink-0" /> : null}
+                            </DropdownMenuItem>
+                          );
+                        })}
+                        {filteredContextPaths.map((path) => {
+                          const isSelected = manualContextPaths.includes(path);
+                          return (
+                            <DropdownMenuItem
+                              key={`kb:${path}`}
+                              onSelect={(event) => {
+                                event.preventDefault();
+                                toggleManualContextPath(path);
+                              }}
+                              className={cn("mb-0.5 gap-2 rounded-md px-2.5 py-2 last:mb-0", isSelected && "bg-primary/10 text-primary")}
+                            >
+                              <BookOpenText size={14} className="shrink-0 text-muted-foreground" />
+                              <span className="min-w-0 flex-1 truncate text-xs">{path}</span>
+                              {isSelected ? <CheckCircle size={14} weight="fill" className="shrink-0" /> : null}
                             </DropdownMenuItem>
                           );
                         })}
                       </>
                     )}
-                    <DropdownMenuSeparator className="my-1.5" />
-                    <DropdownMenuItem
-                      disabled={isUploadingAttachment || isMutatingAttachments}
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        attachmentInputRef.current?.click();
-                      }}
-                      className="gap-2.5 rounded-md px-2.5 py-2"
-                    >
-                      <UploadSimple size={14} className="text-muted-foreground" />
-                      <span className="text-xs">Upload file</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      disabled={isMutatingAttachments}
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        setAttachmentSearch("");
-                        setIsAttachmentMenuOpen(false);
-                        setIsManageAttachmentsOpen(true);
-                      }}
-                      className="gap-2.5 rounded-md px-2.5 py-2"
-                    >
-                      <FolderOpen size={14} className="text-muted-foreground" />
-                      <span className="text-xs">Manage attachments</span>
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              ) : null}
-
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-lg border px-2 py-0.5 text-[11px] font-medium transition-colors",
-                      contextMode !== "off" && contextPathsToSend.length > 0
-                        ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
-                        : "border-border/60 bg-foreground/5 text-foreground/80 hover:bg-foreground/10 hover:text-foreground"
-                    )}
-                  >
-                    <BookOpenText size={14} weight="regular" />
-                    Knowledge
-                    {contextMode !== "off" && contextPathsToSend.length > 0 ? <span className="text-[11px] font-semibold">{contextPathsToSend.length}</span> : null}
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" side="top" sideOffset={8} className="w-80 rounded-lg p-1.5">
-                  <DropdownMenuLabel className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">
-                    Knowledge context
-                  </DropdownMenuLabel>
-                  <DropdownMenuItem
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      handleContextModeChange("auto");
-                    }}
-                    className={cn("justify-between rounded-md px-2.5 py-2 text-xs", contextMode === "auto" && "bg-primary/10 text-primary")}
-                  >
-                    <span>Use available files</span>
-                    {contextMode === "auto" && <CheckCircle size={14} weight="fill" />}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      handleContextModeChange("manual");
-                    }}
-                    className={cn("justify-between rounded-md px-2.5 py-2 text-xs", contextMode === "manual" && "bg-primary/10 text-primary")}
-                  >
-                    <span>Choose files manually</span>
-                    {contextMode === "manual" && <CheckCircle size={14} weight="fill" />}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      handleContextModeChange("off");
-                    }}
-                    className={cn("justify-between rounded-md px-2.5 py-2 text-xs", contextMode === "off" && "bg-primary/10 text-primary")}
-                  >
-                    <span>Disable context</span>
-                    {contextMode === "off" && <CheckCircle size={14} weight="fill" />}
-                  </DropdownMenuItem>
-                  {contextMode === "manual" ? (
-                    <>
-                      <DropdownMenuSeparator className="my-1.5" />
-                      <div className="flex items-center justify-between px-2.5 py-1 text-[11px] text-muted-foreground">
-                        <span>Files</span>
-                        <span>{effectiveContextPaths.length}/{normalizedOpenFilePaths.length} selected</span>
-                      </div>
-                      <div className="scrollbar-custom max-h-44 overflow-y-auto px-0.5 pb-0.5">
-                        {normalizedOpenFilePaths.map((path) => {
-                          const isSelected = manualContextPaths.includes(path);
-                          return (
-                            <DropdownMenuItem
-                              key={path}
-                              onSelect={(event) => {
-                                event.preventDefault();
-                                toggleManualContextPath(path);
-                              }}
-                              className={cn("justify-between gap-2 rounded-md px-2.5 py-2", isSelected && "bg-primary/10 text-primary")}
-                            >
-                              <span className="min-w-0 flex-1 truncate text-xs">{path}</span>
-                              {isSelected && <CheckCircle size={14} weight="fill" className="shrink-0" />}
-                            </DropdownMenuItem>
-                          );
-                        })}
-                      </div>
-                    </>
+                  </div>
+                  {attachmentsEnabled || attachTotalSelectedCount > 0 ? (
+                    <div className="space-y-0.5 border-t border-border p-1.5">
+                      {attachmentsEnabled ? (
+                        <>
+                          <DropdownMenuItem
+                            disabled={isUploadingAttachment || isMutatingAttachments}
+                            onSelect={(event) => {
+                              event.preventDefault();
+                              attachmentInputRef.current?.click();
+                            }}
+                            className="gap-2 rounded-md px-2.5 py-2"
+                          >
+                            <UploadSimple size={14} className="text-muted-foreground" />
+                            <span className="text-xs">Upload file</span>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            disabled={isMutatingAttachments}
+                            onSelect={(event) => {
+                              event.preventDefault();
+                              setAttachmentSearch("");
+                              setIsAttachmentMenuOpen(false);
+                              setIsManageAttachmentsOpen(true);
+                            }}
+                            className="gap-2 rounded-md px-2.5 py-2"
+                          >
+                            <FolderOpen size={14} className="text-muted-foreground" />
+                            <span className="text-xs">Manage attachments</span>
+                          </DropdownMenuItem>
+                        </>
+                      ) : null}
+                      {attachTotalSelectedCount > 0 ? (
+                        <DropdownMenuItem
+                          onSelect={(event) => {
+                            event.preventDefault();
+                            clearAllAttachSelections();
+                          }}
+                          className="gap-2 rounded-md px-2.5 py-2 text-xs text-muted-foreground focus:text-foreground"
+                        >
+                          <X size={13} weight="bold" />
+                          <span className="text-xs">Clear selection</span>
+                        </DropdownMenuItem>
+                      ) : null}
+                    </div>
                   ) : null}
-                  <DropdownMenuSeparator className="my-1.5" />
-                  <p className="px-2.5 pb-1 text-[11px] text-muted-foreground">References only; file contents are not uploaded as attachments.</p>
                 </DropdownMenuContent>
               </DropdownMenu>
 

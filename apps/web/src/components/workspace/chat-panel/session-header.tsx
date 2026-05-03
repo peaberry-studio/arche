@@ -6,13 +6,11 @@ import type {
   RefObject,
 } from "react";
 import {
-  DotsThree,
+  CaretDown,
   DownloadSimple,
-  PencilSimple,
   X,
 } from "@phosphor-icons/react";
 
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -87,70 +85,77 @@ export function ChatPanelSessionHeader({
   );
 
   return (
-    <div className="flex min-h-11 shrink-0 items-center gap-2 px-3 py-1">
+    <div className="flex min-h-12 shrink-0 items-center gap-2 pl-4 pr-2 py-2">
       <div className="min-w-0 flex-1">
         {isEditingActiveSessionTitle ? (
           renderTitleInput(cn(titleInputClassName, "w-full"))
         ) : (
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium text-foreground">
-              {activeSession?.title ?? "No active session"}
-            </p>
+          <>
+            <div className="flex min-w-0 items-center gap-0.5">
+              {canRenameSession && activeSession ? (
+                <button
+                  type="button"
+                  onClick={onStartSessionRename}
+                  className="-ml-1.5 flex min-w-0 items-center rounded-md px-1.5 py-0.5 text-left transition-colors hover:bg-foreground/5"
+                  aria-label={`Rename session ${activeSession.title}`}
+                >
+                  <span className="truncate text-sm font-medium text-foreground">
+                    {activeSession.title}
+                  </span>
+                </button>
+              ) : (
+                <p className="truncate text-sm font-medium text-foreground">
+                  {activeSession?.title ?? "No active session"}
+                </p>
+              )}
+              {activeSession ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-foreground/5 hover:text-foreground"
+                      aria-label={`Session options for ${activeSession.title}`}
+                    >
+                      <CaretDown size={11} weight="bold" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="start"
+                    sideOffset={4}
+                    onCloseAutoFocus={(event) => {
+                      if (!preventSessionMenuAutoFocusRef.current) return;
+
+                      event.preventDefault();
+                      preventSessionMenuAutoFocusRef.current = false;
+                    }}
+                  >
+                    <DropdownMenuItem onSelect={onExportSessionMarkdown}>
+                      <DownloadSimple size={14} />
+                      Export to MD
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onSelect={() => onCloseSession(activeSession.id)}
+                      className="text-destructive focus:text-destructive"
+                    >
+                      <X size={14} />
+                      Close session
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : null}
+            </div>
             {activeSession?.autopilot ? (
               <p className="truncate text-xs text-muted-foreground">
                 Autopilot run for {activeSession.autopilot.taskName}
               </p>
             ) : null}
-          </div>
+          </>
         )}
       </div>
 
       {renameError ? (
         <span className="chat-text-note shrink-0 text-destructive">Rename failed</span>
-      ) : null}
-
-      {activeSession ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-7 w-7 shrink-0"
-              aria-label={`Session options for ${activeSession.title}`}
-            >
-              <DotsThree size={16} weight="bold" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="end"
-            sideOffset={4}
-            onCloseAutoFocus={(event) => {
-              if (!preventSessionMenuAutoFocusRef.current) return;
-
-              event.preventDefault();
-              preventSessionMenuAutoFocusRef.current = false;
-            }}
-          >
-            {canRenameSession ? (
-              <DropdownMenuItem onSelect={onStartSessionRename}>
-                <PencilSimple size={14} />
-                Rename session
-              </DropdownMenuItem>
-            ) : null}
-            <DropdownMenuItem onSelect={onExportSessionMarkdown}>
-              <DownloadSimple size={14} />
-              Export to MD
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onSelect={() => onCloseSession(activeSession.id)}
-              className="text-destructive focus:text-destructive"
-            >
-              <X size={14} />
-              Close session
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
       ) : null}
     </div>
   );

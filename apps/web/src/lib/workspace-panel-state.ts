@@ -12,6 +12,10 @@ export type StoredLayoutState = {
   rightWidth?: number
   leftCollapsed?: boolean
   rightCollapsed?: boolean
+  leftCollapsedByMode?: Record<string, boolean>
+  rightCollapsedByMode?: Record<string, boolean>
+  leftWidthByMode?: Record<string, number>
+  rightWidthByMode?: Record<string, number>
   rightTab?: 'preview' | 'review'
 }
 

@@ -58,7 +58,7 @@ describe("ChatPanel interactions", () => {
     vi.restoreAllMocks();
   });
 
-  it("renames the active session inline from the session menu", async () => {
+  it("renames the active session inline by clicking the title", async () => {
     const renameSessionSpy = vi.fn(async (id: string, title: string) => {
       return { id, title };
     });
@@ -93,8 +93,7 @@ describe("ChatPanel interactions", () => {
 
     render(<Harness />);
 
-    openSessionMenu();
-    fireEvent.click(await screen.findByRole("menuitem", { name: /rename session/i }));
+    fireEvent.click(screen.getByRole("button", { name: /rename session planning/i }));
 
     const input = screen.getByRole("textbox", { name: /session title/i });
 

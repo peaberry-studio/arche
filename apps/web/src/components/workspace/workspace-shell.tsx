@@ -39,6 +39,7 @@ import { ConfigChangeBanner } from "./config-change-banner";
 import { CosmicLoader } from "./cosmic-loader";
 import { InspectorPanel } from "./inspector-panel";
 import { KnowledgeNavigationPanel, type KnowledgeNavigationView } from "./knowledge-navigation-panel";
+import { TasksEmptyState } from "./tasks-empty-state";
 import { WorkspaceSessionsSidebar } from "./workspace-sessions-sidebar";
 import { WorkspaceTopNav } from "./workspace-top-nav";
 import type { WorkspaceMode } from "./workspace-mode-toggle";
@@ -234,6 +235,10 @@ export function WorkspaceShell({
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(initialWorkspaceMode);
   const isKnowledgeMode = workspaceMode === "knowledge";
   const isTasksMode = workspaceMode === "tasks";
+  const lastSessionByModeRef = useRef<{ chat: string | null; tasks: string | null }>({
+    chat: null,
+    tasks: null,
+  });
 
   useEffect(() => {
     setWorkspaceMode(initialWorkspaceMode);
@@ -361,6 +366,16 @@ export function WorkspaceShell({
     [workspace.activeSessionId, sessionsById]
   );
 
+  // Track last active session per chat/tasks mode so switching restores it
+  useEffect(() => {
+    const id = workspace.activeSessionId;
+    if (!id) return;
+    const session = sessionsById.get(id);
+    if (!session) return;
+    const sessionMode: "chat" | "tasks" = session.autopilot ? "tasks" : "chat";
+    lastSessionByModeRef.current[sessionMode] = id;
+  }, [workspace.activeSessionId, sessionsById]);
+
   const activeSessionTabs = useMemo(() => {
     if (!activeRootSessionId) return [];
 
@@ -444,12 +459,92 @@ export function WorkspaceShell({
   }, [resolvedPersistenceScope, workspace, workspace.isConnected]);
 
   // Layout state
-  const [leftWidth, setLeftWidth] = useState(initialLayoutState?.leftWidth ?? MIN_LEFT_PX);
-  const [rightWidth, setRightWidth] = useState(initialLayoutState?.rightWidth ?? MIN_RIGHT_PX);
   const [minCenterWidth, setMinCenterWidth] = useState(MIN_CENTER_PX);
-  const [leftCollapsed, setLeftCollapsed] = useState(initialLayoutState?.leftCollapsed ?? false);
+  const buildInitialCollapseByMode = useCallback(
+    (legacy?: boolean, byMode?: Record<string, boolean>): Record<WorkspaceMode, boolean> => {
+      const fallback = legacy ?? false;
+      return {
+        chat: byMode?.chat ?? fallback,
+        tasks: byMode?.tasks ?? fallback,
+        knowledge: byMode?.knowledge ?? fallback,
+      };
+    },
+    []
+  );
+  const buildInitialWidthByMode = useCallback(
+    (legacy: number | undefined, byMode: Record<string, number> | undefined, fallback: number): Record<WorkspaceMode, number> => {
+      const baseline = typeof legacy === "number" && Number.isFinite(legacy) && legacy > 0 ? legacy : fallback;
+      const pickMode = (mode: WorkspaceMode) => {
+        const candidate = byMode?.[mode];
+        return typeof candidate === "number" && Number.isFinite(candidate) && candidate > 0
+          ? candidate
+          : baseline;
+      };
+      return {
+        chat: pickMode("chat"),
+        tasks: pickMode("tasks"),
+        knowledge: pickMode("knowledge"),
+      };
+    },
+    []
+  );
+  const [leftCollapsedByMode, setLeftCollapsedByMode] = useState<Record<WorkspaceMode, boolean>>(() =>
+    buildInitialCollapseByMode(initialLayoutState?.leftCollapsed, initialLayoutState?.leftCollapsedByMode)
+  );
+  const [rightCollapsedByMode, setRightCollapsedByMode] = useState<Record<WorkspaceMode, boolean>>(() =>
+    buildInitialCollapseByMode(initialLayoutState?.rightCollapsed, initialLayoutState?.rightCollapsedByMode)
+  );
+  const [leftWidthByMode, setLeftWidthByMode] = useState<Record<WorkspaceMode, number>>(() =>
+    buildInitialWidthByMode(initialLayoutState?.leftWidth, initialLayoutState?.leftWidthByMode, MIN_LEFT_PX)
+  );
+  const [rightWidthByMode, setRightWidthByMode] = useState<Record<WorkspaceMode, number>>(() =>
+    buildInitialWidthByMode(initialLayoutState?.rightWidth, initialLayoutState?.rightWidthByMode, MIN_RIGHT_PX)
+  );
+  const leftCollapsed = leftCollapsedByMode[workspaceMode];
+  const rightCollapsed = rightCollapsedByMode[workspaceMode];
+  const leftWidth = leftWidthByMode[workspaceMode];
+  const rightWidth = rightWidthByMode[workspaceMode];
+  const workspaceModeRef = useRef(workspaceMode);
+  useEffect(() => {
+    workspaceModeRef.current = workspaceMode;
+  }, [workspaceMode]);
+  const setLeftWidth = useCallback((value: number) => {
+    const mode = workspaceModeRef.current;
+    setLeftWidthByMode((prev) => {
+      if (prev[mode] === value) return prev;
+      return { ...prev, [mode]: value };
+    });
+  }, []);
+  const setRightWidth = useCallback((value: number) => {
+    const mode = workspaceModeRef.current;
+    setRightWidthByMode((prev) => {
+      if (prev[mode] === value) return prev;
+      return { ...prev, [mode]: value };
+    });
+  }, []);
+  const setLeftCollapsedForMode = useCallback(
+    (mode: WorkspaceMode, updater: boolean | ((prev: boolean) => boolean)) => {
+      setLeftCollapsedByMode((prev) => {
+        const nextValue =
+          typeof updater === "function" ? updater(prev[mode]) : updater;
+        if (prev[mode] === nextValue) return prev;
+        return { ...prev, [mode]: nextValue };
+      });
+    },
+    []
+  );
+  const setRightCollapsedForMode = useCallback(
+    (mode: WorkspaceMode, updater: boolean | ((prev: boolean) => boolean)) => {
+      setRightCollapsedByMode((prev) => {
+        const nextValue =
+          typeof updater === "function" ? updater(prev[mode]) : updater;
+        if (prev[mode] === nextValue) return prev;
+        return { ...prev, [mode]: nextValue };
+      });
+    },
+    []
+  );
   const [knowledgeNavView, setKnowledgeNavView] = useState<KnowledgeNavigationView>("tree");
-  const [rightCollapsed, setRightCollapsed] = useState(initialLayoutState?.rightCollapsed ?? false);
   const [hydratedLayoutKey, setHydratedLayoutKey] = useState<string | null>(null);
   const [viewportWidth, setViewportWidth] = useState(() =>
     typeof window === "undefined" ? MIN_LEFT_PX + MIN_RIGHT_PX + MIN_CENTER_PX : window.innerWidth
@@ -487,8 +582,8 @@ export function WorkspaceShell({
       return;
     }
 
-    setLeftCollapsed((prev) => !prev);
-  }, [isCompactLayout]);
+    setLeftCollapsedForMode(workspaceMode, (prev) => !prev);
+  }, [isCompactLayout, setLeftCollapsedForMode, workspaceMode]);
 
   const toggleRightPanel = useCallback(() => {
     if (isCompactLayout) {
@@ -496,7 +591,7 @@ export function WorkspaceShell({
       return;
     }
 
-    setRightCollapsed((previous) => {
+    setRightCollapsedForMode(workspaceMode, (previous) => {
       if (!previous) {
         return true;
       }
@@ -524,7 +619,7 @@ export function WorkspaceShell({
 
       return false;
     });
-  }, [isCompactLayout, leftCollapsed, leftWidth]);
+  }, [isCompactLayout, leftCollapsed, leftWidth, setRightCollapsedForMode, workspaceMode]);
 
   const handleToggleRight = useCallback(() => {
     toggleRightPanel();
@@ -540,7 +635,32 @@ export function WorkspaceShell({
 
   const handleWorkspaceModeChange = useCallback(
     (nextMode: WorkspaceMode) => {
+      const prevMode = workspaceMode;
       setWorkspaceMode(nextMode);
+
+      if (prevMode !== nextMode) {
+        const currentActiveId = workspace.activeSessionId;
+        const currentSession = currentActiveId
+          ? sessionsById.get(currentActiveId) ?? null
+          : null;
+        const currentIsAutopilot = Boolean(currentSession?.autopilot);
+
+        if (nextMode === "chat" && currentIsAutopilot) {
+          const targetId = lastSessionByModeRef.current.chat;
+          if (targetId !== currentActiveId) {
+            workspace.selectSession(targetId);
+          }
+        } else if (nextMode === "tasks" && !currentIsAutopilot) {
+          // Only switch the active session if we have a remembered task to
+          // restore. If not, leave the session as-is so the workspace hook
+          // does not auto-reselect a chat session in the background — the UI
+          // renders an autopilot empty state regardless of what's active.
+          const targetId = lastSessionByModeRef.current.tasks;
+          if (targetId && targetId !== currentActiveId) {
+            workspace.selectSession(targetId);
+          }
+        }
+      }
 
       if (isCompactLayout) {
         setMobileView("chat");
@@ -560,21 +680,21 @@ export function WorkspaceShell({
       const query = params.toString();
       routerRef.current.replace(query ? `/w/${slug}?${query}` : `/w/${slug}`);
     },
-    [isCompactLayout, slug]
+    [isCompactLayout, sessionsById, slug, workspace, workspaceMode]
   );
 
   const focusSearchInput = useCallback(() => {
     if (isCompactLayout) {
       setMobileView("left");
     } else if (leftCollapsed) {
-      setLeftCollapsed(false);
+      setLeftCollapsedForMode(workspaceMode, false);
     }
 
     requestAnimationFrame(() => {
       searchInputRef.current?.focus();
       searchInputRef.current?.select();
     });
-  }, [isCompactLayout, leftCollapsed]);
+  }, [isCompactLayout, leftCollapsed, setLeftCollapsedForMode, workspaceMode]);
 
   const handleCreateSession = useCallback(async () => {
     switchToChatOnMobile();
@@ -601,7 +721,7 @@ export function WorkspaceShell({
         if (isCompactLayout) {
           setMobileView((prev) => (prev === "left" ? "chat" : "left"));
         } else {
-          setLeftCollapsed((prev) => !prev);
+          setLeftCollapsedForMode(workspaceMode, (prev) => !prev);
         }
         return;
       }
@@ -624,7 +744,7 @@ export function WorkspaceShell({
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [focusSearchInput, handleCreateSession, isCompactLayout, toggleRightPanel]);
+  }, [focusSearchInput, handleCreateSession, isCompactLayout, setLeftCollapsedForMode, toggleRightPanel, workspaceMode]);
 
   // File viewing state
   const safeInitialFilePath = useMemo(() => {
@@ -907,19 +1027,53 @@ export function WorkspaceShell({
   useEffect(() => {
     const stored = loadStoredLayout(layoutStorageKey, layoutCookieName) ?? initialLayoutState;
     const containerWidth = getContainerWidth(containerRef.current);
-    let leftCandidate = containerWidth * DEFAULT_LEFT_RATIO;
-    let rightCandidate = containerWidth * DEFAULT_RIGHT_RATIO;
+    const defaultLeft = containerWidth * DEFAULT_LEFT_RATIO;
+    const defaultRight = containerWidth * DEFAULT_RIGHT_RATIO;
 
-    if (stored?.leftWidth) leftCandidate = stored.leftWidth;
-    if (stored?.rightWidth) rightCandidate = stored.rightWidth;
+    const initialLeftByMode = buildInitialWidthByMode(
+      stored?.leftWidth ?? defaultLeft,
+      stored?.leftWidthByMode,
+      defaultLeft
+    );
+    const initialRightByMode = buildInitialWidthByMode(
+      stored?.rightWidth ?? defaultRight,
+      stored?.rightWidthByMode,
+      defaultRight
+    );
 
-    const fitted = fitWidths(containerWidth, leftCandidate, rightCandidate);
-    setLeftWidth(fitted.left);
-    setRightWidth(fitted.right);
-    setMinCenterWidth(fitted.minCenter);
+    const fittedLeftByMode: Record<WorkspaceMode, number> = { ...initialLeftByMode };
+    const fittedRightByMode: Record<WorkspaceMode, number> = { ...initialRightByMode };
+    const modes: WorkspaceMode[] = ["chat", "tasks", "knowledge"];
+    let activeFitted = fitWidths(containerWidth, initialLeftByMode[workspaceMode], initialRightByMode[workspaceMode]);
+    for (const mode of modes) {
+      const fitted = fitWidths(containerWidth, initialLeftByMode[mode], initialRightByMode[mode]);
+      fittedLeftByMode[mode] = fitted.left;
+      fittedRightByMode[mode] = fitted.right;
+      if (mode === workspaceMode) {
+        activeFitted = fitted;
+      }
+    }
 
-    if (typeof stored?.leftCollapsed === "boolean") setLeftCollapsed(stored.leftCollapsed);
-    if (typeof stored?.rightCollapsed === "boolean") setRightCollapsed(stored.rightCollapsed);
+    setLeftWidthByMode(fittedLeftByMode);
+    setRightWidthByMode(fittedRightByMode);
+    setMinCenterWidth(activeFitted.minCenter);
+
+    if (
+      typeof stored?.leftCollapsed === "boolean" ||
+      stored?.leftCollapsedByMode
+    ) {
+      setLeftCollapsedByMode(
+        buildInitialCollapseByMode(stored?.leftCollapsed, stored?.leftCollapsedByMode)
+      );
+    }
+    if (
+      typeof stored?.rightCollapsed === "boolean" ||
+      stored?.rightCollapsedByMode
+    ) {
+      setRightCollapsedByMode(
+        buildInitialCollapseByMode(stored?.rightCollapsed, stored?.rightCollapsedByMode)
+      );
+    }
     if (
       stored?.rightTab === "preview" ||
       (workspaceAgentEnabled && stored?.rightTab === "review")
@@ -928,7 +1082,28 @@ export function WorkspaceShell({
     }
 
     setHydratedLayoutKey(layoutStorageKey);
-  }, [initialLayoutState, layoutCookieName, layoutStorageKey, workspaceAgentEnabled]);
+  }, [buildInitialCollapseByMode, buildInitialWidthByMode, initialLayoutState, layoutCookieName, layoutStorageKey, workspaceAgentEnabled, workspaceMode]);
+
+  // Re-fit the active mode's widths on mode switch so a previously-stored
+  // width does not overflow if the container is now narrower.
+  useEffect(() => {
+    if (hydratedLayoutKey !== layoutStorageKey) return;
+    const containerWidth = getContainerWidth(containerRef.current);
+    const fitted = fitWidths(
+      containerWidth,
+      leftWidthByMode[workspaceMode],
+      rightWidthByMode[workspaceMode]
+    );
+    setLeftWidthByMode((prev) =>
+      prev[workspaceMode] === fitted.left ? prev : { ...prev, [workspaceMode]: fitted.left }
+    );
+    setRightWidthByMode((prev) =>
+      prev[workspaceMode] === fitted.right ? prev : { ...prev, [workspaceMode]: fitted.right }
+    );
+    setMinCenterWidth(fitted.minCenter);
+    // Intentionally exclude width state from deps so we only refit on mode changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydratedLayoutKey, layoutStorageKey, workspaceMode]);
 
   // Persist layout
   useEffect(() => {
@@ -938,9 +1113,26 @@ export function WorkspaceShell({
       rightWidth,
       leftCollapsed,
       rightCollapsed,
+      leftCollapsedByMode,
+      rightCollapsedByMode,
+      leftWidthByMode,
+      rightWidthByMode,
       rightTab: effectiveRightTab,
     });
-  }, [effectiveRightTab, hydratedLayoutKey, layoutCookieName, layoutStorageKey, leftCollapsed, leftWidth, rightCollapsed, rightWidth]);
+  }, [
+    effectiveRightTab,
+    hydratedLayoutKey,
+    layoutCookieName,
+    layoutStorageKey,
+    leftCollapsed,
+    leftCollapsedByMode,
+    leftWidth,
+    leftWidthByMode,
+    rightCollapsed,
+    rightCollapsedByMode,
+    rightWidth,
+    rightWidthByMode,
+  ]);
 
   // Map workspace sessions to UI format
   const uiSessions = useMemo(() => {
@@ -1012,7 +1204,7 @@ export function WorkspaceShell({
     setOpenFilePaths(prev => prev.includes(normalizedPath) ? prev : [...prev, normalizedPath]);
     setActiveFilePath(normalizedPath);
     setRightTab("preview");
-    setRightCollapsed(false);
+    setRightCollapsedForMode(workspaceMode, false);
     if (isCompactLayout) {
       setMobileView("right");
     }
@@ -1045,7 +1237,7 @@ export function WorkspaceShell({
           }));
         }
       }
-    }, [isCompactLayout, resolveFilePath, workspace]);
+    }, [isCompactLayout, resolveFilePath, setRightCollapsedForMode, workspace, workspaceMode]);
 
   const handleSelectFile = useCallback((path: string) => {
     setActiveFilePath(path);
@@ -1091,12 +1283,12 @@ export function WorkspaceShell({
   );
 
   const handleShowContext = useCallback(() => {
-    setRightCollapsed(false);
+    setRightCollapsedForMode(workspaceMode, false);
     setRightTab("preview");
     if (isCompactLayout) {
       setMobileView("right");
     }
-  }, [isCompactLayout]);
+  }, [isCompactLayout, setRightCollapsedForMode, workspaceMode]);
 
   // Resize handlers - now work via the gap area between panels
   const handleResizeLeft = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
@@ -1372,7 +1564,7 @@ export function WorkspaceShell({
             type="button"
             onClick={() => {
               setKnowledgeNavView("tree");
-              setLeftCollapsed(false);
+              setLeftCollapsedForMode(workspaceMode, false);
             }}
             className={cn(
               "flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-foreground/5 hover:text-foreground",
@@ -1387,7 +1579,7 @@ export function WorkspaceShell({
             type="button"
             onClick={() => {
               setKnowledgeNavView("graph");
-              setLeftCollapsed(false);
+              setLeftCollapsedForMode(workspaceMode, false);
             }}
             className={cn(
               "mt-0.5 flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-foreground/5 hover:text-foreground",
@@ -1503,7 +1695,16 @@ export function WorkspaceShell({
     />
   );
 
-  const centerPanelElement = isKnowledgeMode ? fileEditorPanelElement : chatPanelElement;
+  const activeSessionRecord = workspace.activeSessionId
+    ? sessionsById.get(workspace.activeSessionId) ?? null
+    : null;
+  const isViewingAutopilotSession = Boolean(activeSessionRecord?.autopilot);
+  const showTasksEmptyState = isTasksMode && !isViewingAutopilotSession;
+  const centerPanelElement = isKnowledgeMode
+    ? fileEditorPanelElement
+    : showTasksEmptyState
+      ? <TasksEmptyState />
+      : chatPanelElement;
   const hasRightPanel = isKnowledgeMode;
 
   const isLeftPanelActive = mobileView === "left";

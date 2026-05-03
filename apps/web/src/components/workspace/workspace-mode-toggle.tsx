@@ -111,7 +111,7 @@ export function WorkspaceModeToggle({
     <div
       ref={containerRef}
       className={cn(
-        'relative inline-flex h-9 items-center gap-0.5 rounded-full border border-border/30 bg-black/[0.12] px-[3px] py-1 dark:bg-black/30',
+        'relative inline-flex h-9 items-center gap-0.5 rounded-full border border-border/30 bg-black/[0.05] px-[3px] py-1 dark:bg-black/30',
         className
       )}
     >

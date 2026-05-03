@@ -60,13 +60,13 @@ export function KnowledgeNavigationPanel({
             onClick={() => setView('tree')}
             aria-pressed={view === 'tree'}
             className={cn(
-              'flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium transition-colors',
+              'flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium transition-colors',
               view === 'tree'
                 ? 'text-foreground'
                 : 'text-muted-foreground hover:text-foreground/80'
             )}
           >
-            <TreeStructure size={12} weight={view === 'tree' ? 'fill' : 'bold'} />
+            <TreeStructure size={13} weight={view === 'tree' ? 'fill' : 'bold'} />
             Tree
           </button>
           <button
@@ -74,13 +74,13 @@ export function KnowledgeNavigationPanel({
             onClick={() => setView('graph')}
             aria-pressed={view === 'graph'}
             className={cn(
-              'flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium transition-colors',
+              'flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium transition-colors',
               view === 'graph'
                 ? 'text-foreground'
                 : 'text-muted-foreground hover:text-foreground/80'
             )}
           >
-            <Graph size={12} weight={view === 'graph' ? 'fill' : 'bold'} />
+            <Graph size={13} weight={view === 'graph' ? 'fill' : 'bold'} />
             Graph
           </button>
         </div>
