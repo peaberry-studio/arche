@@ -18,6 +18,7 @@ type WorkspaceModeToggleProps = {
   mode: WorkspaceMode
   onModeChange: (mode: WorkspaceMode) => void
   knowledgePendingCount?: number
+  hideTasks?: boolean
   className?: string
 }
 
@@ -73,6 +74,7 @@ export function WorkspaceModeToggle({
   mode,
   onModeChange,
   knowledgePendingCount = 0,
+  hideTasks = false,
   className,
 }: WorkspaceModeToggleProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -131,13 +133,15 @@ export function WorkspaceModeToggle({
         label="Sessions"
         onClick={() => onModeChange('chat')}
       />
-      <ModeButton
-        active={mode === 'tasks'}
-        buttonRef={tasksRef}
-        icon={Lightning}
-        label="Tasks"
-        onClick={() => onModeChange('tasks')}
-      />
+      {hideTasks ? null : (
+        <ModeButton
+          active={mode === 'tasks'}
+          buttonRef={tasksRef}
+          icon={Lightning}
+          label="Tasks"
+          onClick={() => onModeChange('tasks')}
+        />
+      )}
       <ModeButton
         active={mode === 'knowledge'}
         badgeCount={knowledgePendingCount}

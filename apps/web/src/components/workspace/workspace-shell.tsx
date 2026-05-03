@@ -37,7 +37,9 @@ import { useSkillsCatalog } from '@/hooks/use-skills-catalog'
 import { ChatPanel } from "./chat-panel";
 import { ConfigChangeBanner } from "./config-change-banner";
 import { CosmicLoader } from "./cosmic-loader";
+import { FilePreviewPanel } from "./file-preview-panel";
 import { InspectorPanel } from "./inspector-panel";
+import { KnowledgeEmptyState } from "./knowledge-empty-state";
 import { KnowledgeNavigationPanel, type KnowledgeNavigationView } from "./knowledge-navigation-panel";
 import { TasksEmptyState } from "./tasks-empty-state";
 import { WorkspaceSessionsSidebar } from "./workspace-sessions-sidebar";
@@ -640,6 +642,10 @@ export function WorkspaceShell({
       const prevMode = workspaceMode;
       setWorkspaceMode(nextMode);
 
+      if (nextMode === "knowledge") {
+        setPreviewFilePath(null);
+      }
+
       if (prevMode !== nextMode) {
         const currentActiveId = workspace.activeSessionId;
         const currentSession = currentActiveId
@@ -762,6 +768,9 @@ export function WorkspaceShell({
   const [activeFilePath, setActiveFilePath] = useState<string | null>(
     safeInitialFilePath
   );
+  const [previewFilePath, setPreviewFilePath] = useState<string | null>(null);
+  const [previewExpanded, setPreviewExpanded] = useState(false);
+  const previewCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [fileCache, setFileCache] = useState<FileContentCache>({});
   const fileCacheRef = useRef(fileCache);
 
@@ -1202,18 +1211,23 @@ export function WorkspaceShell({
       return;
     }
 
-    // Add to open files if not already open
-    setOpenFilePaths(prev => prev.includes(normalizedPath) ? prev : [...prev, normalizedPath]);
-    setActiveFilePath(normalizedPath);
-    setRightTab("preview");
-    // In knowledge mode the file renders in the center panel, so don't force
-    // the right (review) panel open. In chat mode the right panel hosts the
-    // preview, so it must be expanded.
-    if (!isKnowledgeMode) {
+    if (isKnowledgeMode) {
+      setOpenFilePaths(prev => prev.includes(normalizedPath) ? prev : [...prev, normalizedPath]);
+      setActiveFilePath(normalizedPath);
+      setRightTab("preview");
+      if (isCompactLayout) {
+        setMobileView("chat");
+      }
+    } else {
+      if (previewCloseTimerRef.current) {
+        clearTimeout(previewCloseTimerRef.current);
+        previewCloseTimerRef.current = null;
+      }
+      setPreviewFilePath(normalizedPath);
       setRightCollapsedForMode(workspaceMode, false);
-    }
-    if (isCompactLayout) {
-      setMobileView(isKnowledgeMode ? "chat" : "right");
+      if (isCompactLayout) {
+        setMobileView("right");
+      }
     }
 
     // Load file content if not cached
@@ -1245,6 +1259,50 @@ export function WorkspaceShell({
         }
       }
     }, [isCompactLayout, isKnowledgeMode, resolveFilePath, setRightCollapsedForMode, workspace, workspaceMode]);
+
+  const handleClosePreview = useCallback(() => {
+    setPreviewExpanded(false);
+    if (previewCloseTimerRef.current) {
+      clearTimeout(previewCloseTimerRef.current);
+    }
+    previewCloseTimerRef.current = setTimeout(() => {
+      setPreviewFilePath(null);
+      previewCloseTimerRef.current = null;
+      if (isCompactLayout) {
+        setMobileView("chat");
+      }
+    }, 220);
+  }, [isCompactLayout]);
+
+  const handleEditFromPreview = useCallback(() => {
+    if (!previewFilePath) return;
+    const path = previewFilePath;
+    if (previewCloseTimerRef.current) {
+      clearTimeout(previewCloseTimerRef.current);
+      previewCloseTimerRef.current = null;
+    }
+    setOpenFilePaths((prev) => (prev.includes(path) ? prev : [...prev, path]));
+    setActiveFilePath(path);
+    setRightTab("preview");
+    setPreviewExpanded(false);
+    setPreviewFilePath(null);
+    handleWorkspaceModeChange("knowledge");
+  }, [handleWorkspaceModeChange, previewFilePath]);
+
+  useEffect(() => {
+    if (!previewFilePath) {
+      setPreviewExpanded(false);
+      return;
+    }
+    const id = requestAnimationFrame(() => setPreviewExpanded(true));
+    return () => cancelAnimationFrame(id);
+  }, [previewFilePath]);
+
+  useEffect(() => () => {
+    if (previewCloseTimerRef.current) {
+      clearTimeout(previewCloseTimerRef.current);
+    }
+  }, []);
 
   const handleSelectFile = useCallback((path: string) => {
     setActiveFilePath(path);
@@ -1727,12 +1785,27 @@ export function WorkspaceShell({
     : null;
   const isViewingAutopilotSession = Boolean(activeSessionRecord?.autopilot);
   const showTasksEmptyState = isTasksMode && !isViewingAutopilotSession;
+  const showKnowledgeEmptyState = isKnowledgeMode && openFilePaths.length === 0;
   const centerPanelElement = isKnowledgeMode
-    ? fileEditorPanelElement
+    ? showKnowledgeEmptyState
+      ? <KnowledgeEmptyState />
+      : fileEditorPanelElement
     : showTasksEmptyState
       ? <TasksEmptyState />
       : chatPanelElement;
-  const hasRightPanel = isKnowledgeMode;
+  const previewCacheEntry = previewFilePath ? fileCache[previewFilePath] : null;
+  const previewPanelElement = previewFilePath ? (
+    <FilePreviewPanel
+      path={previewFilePath}
+      content={previewCacheEntry?.content ?? ''}
+      isLoading={!previewCacheEntry}
+      onClose={handleClosePreview}
+      onEdit={handleEditFromPreview}
+    />
+  ) : null;
+  const hasPreviewPanel = !isKnowledgeMode && previewFilePath !== null;
+  const hasRightPanel = isKnowledgeMode || hasPreviewPanel;
+  const rightPanelContent = hasPreviewPanel ? previewPanelElement : reviewPanelElement;
 
   const isLeftPanelActive = mobileView === "left";
   const isChatActive = mobileView === "chat";
@@ -1758,6 +1831,7 @@ export function WorkspaceShell({
         status="active"
         knowledgePendingCount={workspace.diffs.length}
         macDesktopWindowInset={macDesktopWindowInset}
+        hideTasksMode={Boolean(currentVault)}
         onModeChange={handleWorkspaceModeChange}
         onNavigateConnectors={navigateConnectors}
         onNavigateProviders={navigateProviders}
@@ -1809,7 +1883,7 @@ export function WorkspaceShell({
                   hidden={!isRightPanelActive}
                   aria-hidden={!isRightPanelActive}
                 >
-                  {reviewPanelElement}
+                  {rightPanelContent}
                 </div>
               ) : null}
             </div>
@@ -1941,13 +2015,17 @@ export function WorkspaceShell({
               <div
                 className="shrink-0 overflow-hidden box-border"
                 style={{
-                  width: rightCollapsed ? COLLAPSED_PANEL_PX : rightWidth,
-                  minWidth: rightCollapsed ? COLLAPSED_PANEL_PX : MIN_RIGHT_PX,
+                  width: hasPreviewPanel
+                    ? (previewExpanded ? rightWidth : 0)
+                    : (rightCollapsed ? COLLAPSED_PANEL_PX : rightWidth),
+                  minWidth: hasPreviewPanel
+                    ? (previewExpanded ? MIN_RIGHT_PX : 0)
+                    : (rightCollapsed ? COLLAPSED_PANEL_PX : MIN_RIGHT_PX),
                   opacity: 1,
                   transition: isDragging ? "none" : PANEL_TRANSITION,
                 }}
               >
-                {reviewPanelElement}
+                {rightPanelContent}
               </div>
             ) : null}
           </div>

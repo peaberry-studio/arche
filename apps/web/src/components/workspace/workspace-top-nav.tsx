@@ -52,6 +52,7 @@ type WorkspaceTopNavProps = {
   status: 'active' | 'provisioning' | 'offline'
   knowledgePendingCount?: number
   macDesktopWindowInset?: boolean
+  hideTasksMode?: boolean
   onModeChange: (mode: WorkspaceMode) => void
   onNavigateConnectors?: () => void
   onNavigateProviders?: () => void
@@ -71,6 +72,7 @@ export function WorkspaceTopNav({
   status,
   knowledgePendingCount = 0,
   macDesktopWindowInset = false,
+  hideTasksMode = false,
   onModeChange,
   onNavigateConnectors,
   onNavigateProviders,
@@ -154,6 +156,7 @@ export function WorkspaceTopNav({
         mode={mode}
         onModeChange={onModeChange}
         knowledgePendingCount={knowledgePendingCount}
+        hideTasks={hideTasksMode}
         className={cn(macDesktopWindowInset && 'desktop-titlebar-no-drag')}
       />
 

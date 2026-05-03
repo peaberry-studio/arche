@@ -361,7 +361,7 @@ function ExpandedInspectorPanel({
 
       {/* In-container header (combined: tabs; review: collapse + label + publish) */}
       {showHeader ? (
-        <div className="flex shrink-0 items-center gap-2 px-2 py-2">
+        <div className="flex shrink-0 items-center gap-2 pl-2 pr-3 py-2">
           {/* Collapse panel — placed on the side opposite to where the panel docks */}
           {!hideCollapseButton && (
             <button

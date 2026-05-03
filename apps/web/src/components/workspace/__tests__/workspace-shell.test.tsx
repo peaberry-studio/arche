@@ -371,6 +371,7 @@ describe("WorkspaceShell", () => {
       <WorkspaceShell
         slug="alice"
         initialWorkspaceMode="knowledge"
+        initialFilePath="docs/plan.md"
         knowledgeAgentSources={[{ id: "strategist", displayName: "Strategist", prompt: "[[docs/plan.md]]" }]}
       />
     );
@@ -561,7 +562,13 @@ describe("WorkspaceShell", () => {
 
   it("opens and closes full-screen review panel in compact knowledge layout", async () => {
     setViewportWidth(720);
-    render(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" />);
+    render(
+      <WorkspaceShell
+        slug="alice"
+        initialWorkspaceMode="knowledge"
+        initialFilePath="docs/plan.md"
+      />
+    );
 
     fireEvent.click(await screen.findByRole("button", { name: "Open review panel" }));
 
