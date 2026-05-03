@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLineLeft, ArrowLineRight, ChatCircle, Circle, Compass, Database, File, Graph, Lightning, TreeStructure } from "@phosphor-icons/react";
+import { ArrowLineLeft, ArrowLineRight, ChatCircle, Circle, Compass, Database, File, Graph, SlidersHorizontal, TreeStructure } from "@phosphor-icons/react";
 
 import { ensureInstanceRunningAction } from "@/actions/spawner";
 import type { SyncKbResult } from "@/app/api/instances/[slug]/sync-kb/route";
@@ -41,6 +41,7 @@ import { InspectorPanel } from "./inspector-panel";
 import { KnowledgeNavigationPanel, type KnowledgeNavigationView } from "./knowledge-navigation-panel";
 import { TasksEmptyState } from "./tasks-empty-state";
 import { WorkspaceSessionsSidebar } from "./workspace-sessions-sidebar";
+import { WorkspaceSessionsRail } from "./workspace-sessions-rail";
 import { WorkspaceTopNav } from "./workspace-top-nav";
 import type { WorkspaceMode } from "./workspace-mode-toggle";
 
@@ -500,7 +501,7 @@ export function WorkspaceShell({
   const [rightWidthByMode, setRightWidthByMode] = useState<Record<WorkspaceMode, number>>(() =>
     buildInitialWidthByMode(initialLayoutState?.rightWidth, initialLayoutState?.rightWidthByMode, MIN_RIGHT_PX)
   );
-  const leftCollapsed = leftCollapsedByMode[workspaceMode];
+  const leftCollapsed = isTasksMode ? false : leftCollapsedByMode[workspaceMode];
   const rightCollapsed = rightCollapsedByMode[workspaceMode];
   const leftWidth = leftWidthByMode[workspaceMode];
   const rightWidth = rightWidthByMode[workspaceMode];
@@ -582,6 +583,7 @@ export function WorkspaceShell({
       return;
     }
 
+    if (workspaceMode === "tasks") return;
     setLeftCollapsedForMode(workspaceMode, (prev) => !prev);
   }, [isCompactLayout, setLeftCollapsedForMode, workspaceMode]);
 
@@ -720,7 +722,7 @@ export function WorkspaceShell({
 
         if (isCompactLayout) {
           setMobileView((prev) => (prev === "left" ? "chat" : "left"));
-        } else {
+        } else if (workspaceMode !== "tasks") {
           setLeftCollapsedForMode(workspaceMode, (prev) => !prev);
         }
         return;
@@ -1506,9 +1508,8 @@ export function WorkspaceShell({
   };
 
   const leftPanelModeLabel = isKnowledgeMode ? "knowledge" : isTasksMode ? "tasks" : "sessions";
-  const LeftPanelIcon = isKnowledgeMode ? Database : isTasksMode ? Lightning : ChatCircle;
 
-  const collapseLeftButton = !isCompactLayout ? (
+  const collapseLeftButton = !isCompactLayout && !isTasksMode ? (
     <button
       type="button"
       onClick={handleToggleLeft}
@@ -1520,12 +1521,26 @@ export function WorkspaceShell({
     </button>
   ) : null;
 
+  const tasksSettingsButton = !isCompactLayout && isTasksMode ? (
+    <button
+      type="button"
+      onClick={() => router.push(`/u/${slug}/autopilot`)}
+      className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground/80 transition-colors hover:bg-foreground/5 hover:text-foreground"
+      aria-label="Manage autopilot tasks"
+      title="Manage tasks"
+    >
+      <SlidersHorizontal size={13} weight="bold" />
+    </button>
+  ) : null;
+
+  const leftPanelHeaderActions = collapseLeftButton ?? tasksSettingsButton;
+
   const leftPanelCoreElement = isKnowledgeMode ? (
     <KnowledgeNavigationPanel
       activeFilePath={activeFilePath}
       agentSources={knowledgeAgentSources}
       fileNodes={workspace.fileTree}
-      headerActions={collapseLeftButton}
+      headerActions={leftPanelHeaderActions}
       onDownloadFile={handleDownloadFile}
       onOpenFile={handleOpenFile}
       openFiles={openFiles}
@@ -1543,7 +1558,7 @@ export function WorkspaceShell({
       hasMoreSessions={workspace.hasMoreSessions}
       isLoadingMoreSessions={workspace.isLoadingMoreSessions}
       unseenCompletedSessions={workspace.unseenCompletedSessions}
-      headerActions={collapseLeftButton}
+      headerActions={leftPanelHeaderActions}
       onCreateSession={handleCreateSession}
       onLoadMoreSessions={workspace.loadMoreSessions}
       onMarkAutopilotRunSeen={workspace.markAutopilotRunSeen}
@@ -1597,7 +1612,14 @@ export function WorkspaceShell({
           </button>
         </>
       ) : (
-        <LeftPanelIcon size={14} weight="bold" className="text-muted-foreground" />
+        <WorkspaceSessionsRail
+          kind={isTasksMode ? "tasks" : "chats"}
+          sessions={rootSessions}
+          activeSessionId={activeRootSessionId}
+          unseenCompletedSessions={workspace.unseenCompletedSessions}
+          onSelectSession={handleSelectSession}
+          onMarkAutopilotRunSeen={workspace.markAutopilotRunSeen}
+        />
       )}
     </div>
   ) : (
