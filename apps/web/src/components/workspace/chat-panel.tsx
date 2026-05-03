@@ -1133,7 +1133,7 @@ export function ChatPanel({
             onPaste={handleTextareaPaste}
             onSelect={handleTextareaSelectionChange}
             onKeyUp={handleTextareaKeyUp}
-            className="block min-h-[32px] w-full max-h-[180px] resize-none bg-transparent pr-12 text-sm leading-5 text-foreground outline-none placeholder:text-muted-foreground/60 sm:min-h-[36px] sm:pr-0 sm:text-base sm:leading-6"
+            className="block min-h-[24px] w-full max-h-[180px] resize-none bg-transparent pl-1 pr-12 text-sm leading-5 text-foreground outline-none placeholder:text-muted-foreground/60 sm:min-h-[28px] sm:pr-0 sm:text-base sm:leading-6"
             placeholder="Type a message..."
             disabled={isStartingNewSession || !onSendMessage}
             rows={1}

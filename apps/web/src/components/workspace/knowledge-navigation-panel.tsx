@@ -54,19 +54,19 @@ export function KnowledgeNavigationPanel({
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-none text-card-foreground">
       <div className="flex shrink-0 items-center justify-between gap-2 pl-1.5 pr-1.5 py-2">
-        <div className="flex items-center gap-0.5">
+        <div className="inline-flex items-center gap-0.5 rounded-md border border-border/30 bg-foreground/[0.04] p-[2px]">
           <button
             type="button"
             onClick={() => setView('tree')}
             aria-pressed={view === 'tree'}
             className={cn(
-              'flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium transition-colors',
+              'flex h-6 items-center gap-1 rounded px-2 text-[11px] font-medium transition-colors',
               view === 'tree'
-                ? 'text-foreground'
-                : 'text-muted-foreground hover:text-foreground/80'
+                ? 'bg-background text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.05)]'
+                : 'text-muted-foreground hover:text-foreground'
             )}
           >
-            <TreeStructure size={13} weight={view === 'tree' ? 'fill' : 'bold'} />
+            <TreeStructure size={11} weight={view === 'tree' ? 'fill' : 'bold'} />
             Tree
           </button>
           <button
@@ -74,13 +74,13 @@ export function KnowledgeNavigationPanel({
             onClick={() => setView('graph')}
             aria-pressed={view === 'graph'}
             className={cn(
-              'flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium transition-colors',
+              'flex h-6 items-center gap-1 rounded px-2 text-[11px] font-medium transition-colors',
               view === 'graph'
-                ? 'text-foreground'
-                : 'text-muted-foreground hover:text-foreground/80'
+                ? 'bg-background text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.05)]'
+                : 'text-muted-foreground hover:text-foreground'
             )}
           >
-            <Graph size={13} weight={view === 'graph' ? 'fill' : 'bold'} />
+            <Graph size={11} weight={view === 'graph' ? 'fill' : 'bold'} />
             Graph
           </button>
         </div>

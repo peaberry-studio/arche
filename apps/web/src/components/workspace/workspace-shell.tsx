@@ -1204,9 +1204,14 @@ export function WorkspaceShell({
     setOpenFilePaths(prev => prev.includes(normalizedPath) ? prev : [...prev, normalizedPath]);
     setActiveFilePath(normalizedPath);
     setRightTab("preview");
-    setRightCollapsedForMode(workspaceMode, false);
+    // In knowledge mode the file renders in the center panel, so don't force
+    // the right (review) panel open. In chat mode the right panel hosts the
+    // preview, so it must be expanded.
+    if (!isKnowledgeMode) {
+      setRightCollapsedForMode(workspaceMode, false);
+    }
     if (isCompactLayout) {
-      setMobileView("right");
+      setMobileView(isKnowledgeMode ? "chat" : "right");
     }
 
     // Load file content if not cached
@@ -1237,7 +1242,7 @@ export function WorkspaceShell({
           }));
         }
       }
-    }, [isCompactLayout, resolveFilePath, setRightCollapsedForMode, workspace, workspaceMode]);
+    }, [isCompactLayout, isKnowledgeMode, resolveFilePath, setRightCollapsedForMode, workspace, workspaceMode]);
 
   const handleSelectFile = useCallback((path: string) => {
     setActiveFilePath(path);

@@ -83,6 +83,40 @@ function MinifiedInspectorPanel({
 }) {
   const badgeLabel = pendingDiffsForBadge > 99 ? "99+" : String(pendingDiffsForBadge);
 
+  if (panelMode === "review") {
+    return (
+      <TooltipProvider delayDuration={400}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={onToggleRight}
+              aria-label="Expand review panel"
+              className="group flex h-full w-full cursor-pointer flex-col items-center gap-3 py-4 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+            >
+              {pendingDiffsForBadge > 0 ? (
+                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-semibold leading-none text-primary-foreground">
+                  {badgeLabel}
+                </span>
+              ) : (
+                <span className="h-5" aria-hidden />
+              )}
+              <span
+                className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground/80 transition-colors group-hover:text-foreground"
+                style={{ writingMode: "vertical-rl" }}
+              >
+                Review
+              </span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="left">
+            Expand review{pendingDiffsForBadge > 0 ? ` (${pendingDiffsForBadge})` : ""}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
+
   return (
     <TooltipProvider delayDuration={400}>
       <div className="flex h-full w-full flex-col items-center py-2 text-card-foreground">
@@ -103,23 +137,21 @@ function MinifiedInspectorPanel({
 
         <div className="my-2 h-px w-6 bg-border/40" />
 
-        {panelMode !== "review" ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => { onToggleRight(); onTabChange("preview"); }}
-                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-                aria-label="Files"
-              >
-                <File size={13} weight="bold" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="left">Files</TooltipContent>
-          </Tooltip>
-        ) : null}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => { onToggleRight(); onTabChange("preview"); }}
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+              aria-label="Files"
+            >
+              <File size={13} weight="bold" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="left">Files</TooltipContent>
+        </Tooltip>
 
-        {panelMode !== "files" ? (
+        {panelMode === "combined" ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -421,7 +453,7 @@ function ExpandedInspectorPanel({
       ) : null}
       {/* File tabs row — only in Files mode with open files */}
       {effectiveActiveTab === "preview" && openFiles.length > 0 && (
-        <div className="flex min-h-9 shrink-0 items-center pt-2">
+        <div className="flex min-h-9 shrink-0 items-center border-b border-border/30 py-2">
           <div className="flex min-w-0 flex-1 items-center">
             {canScrollLeft && (
               <Button
@@ -437,7 +469,7 @@ function ExpandedInspectorPanel({
 
             <div
               ref={tabsRef}
-              className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto pl-3 pr-2 py-1 scrollbar-none"
+              className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto px-3 py-1 scrollbar-none"
               style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
             >
               {openFiles.map((file) => (
@@ -536,14 +568,7 @@ function ExpandedInspectorPanel({
                 </div>
               ) : null}
             </div>
-          ) : (
-            <div className="flex h-full flex-col items-center justify-center gap-3 p-4 text-center">
-              <File size={32} className="text-muted-foreground/30" />
-              <p className="max-w-[240px] text-sm text-muted-foreground">
-                Select a file
-              </p>
-            </div>
-          )}
+          ) : null}
         </div>
 
         {workspaceAgentEnabled && (

@@ -139,7 +139,7 @@ export function ChatPanelSessionHeader({
                       className="text-destructive focus:text-destructive"
                     >
                       <X size={14} />
-                      Close session
+                      Delete session
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
