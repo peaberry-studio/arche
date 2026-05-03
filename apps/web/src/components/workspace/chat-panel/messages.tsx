@@ -1265,13 +1265,16 @@ export function ChatPanelMessages({
               </div>
             </div>
           ) : messages.length === 0 ? (
-            <div className="grid h-full place-items-center text-center">
-              <div className="flex flex-col items-center gap-3">
-                <ChatCircle size={32} className="text-muted-foreground/30" />
-                <p className="max-w-[240px] text-sm text-muted-foreground">
-                  Describe what you need and the agent will start working.
-                </p>
+            <div className="flex h-full flex-col items-center justify-center px-6 text-center text-card-foreground">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-foreground/[0.04] text-muted-foreground/50">
+                <ChatCircle size={22} weight="regular" />
               </div>
+              <p className="mt-4 max-w-[280px] text-sm font-medium text-foreground/80">
+                Start a new conversation
+              </p>
+              <p className="mt-1 max-w-[320px] text-xs leading-relaxed text-muted-foreground">
+                Describe what you need and the agent will start working, or pick a previous session from the sidebar.
+              </p>
             </div>
           ) : (
             <div className="space-y-6">
