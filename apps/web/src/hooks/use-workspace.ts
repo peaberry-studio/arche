@@ -462,7 +462,6 @@ export type UseWorkspaceReturn = {
   selectedModel: AvailableModel | null;
   hasManualModelSelection: boolean;
   setSelectedModel: (model: AvailableModel | null) => void;
-  activeAgentName: string | null;
 
   // Agents
   agentCatalog: AgentCatalogItem[];
@@ -602,12 +601,6 @@ export function useWorkspace({
   const currentSessionSelection =
     sessionSelectionState[getSessionSelectionKey(activeSessionId)] ??
     createDefaultSessionSelectionState(primaryAgentId);
-  const activeCatalogAgent = currentSessionSelection.activeAgentId
-    ? findAgentInCatalog(agentCatalog, currentSessionSelection.activeAgentId)
-    : undefined;
-  const activeAgentName = currentSessionSelection.activeAgentId
-    ? activeCatalogAgent?.displayName ?? null
-    : null;
   const agentDefaultModel = (() => {
     const primaryModel = parseModelString(primaryAgent?.model);
     if (!primaryModel) return null;
@@ -2458,7 +2451,6 @@ export function useWorkspace({
     selectedModel,
     hasManualModelSelection,
     setSelectedModel: updateSelectedModel,
-    activeAgentName,
     agentCatalog,
   };
 }

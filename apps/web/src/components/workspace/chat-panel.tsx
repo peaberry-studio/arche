@@ -88,8 +88,6 @@ type ChatPanelProps = {
   onRenameSession?: (id: string, title: string) => Promise<boolean>;
   onSelectSessionTab?: (id: string) => void;
   onOpenFile: (path: string) => void;
-  onShowContext?: () => void;
-  // New props for real functionality
   onSendMessage?: (
     text: string,
     model?: { providerId: string; modelId: string },
@@ -103,11 +101,8 @@ type ChatPanelProps = {
   selectedModel?: AvailableModel | null;
   hasManualModelSelection?: boolean;
   onSelectModel?: (model: AvailableModel | null) => void;
-  activeAgentName?: string | null;
   isReadOnly?: boolean;
   onReturnToMainConversation?: () => void;
-  pendingInsert?: string | null;
-  onPendingInsertConsumed?: () => void;
   workspaceRoot?: string;
 };
 
@@ -193,8 +188,6 @@ export function ChatPanel({
   onSelectModel,
   isReadOnly = false,
   onReturnToMainConversation,
-  pendingInsert,
-  onPendingInsertConsumed,
   workspaceRoot,
 }: ChatPanelProps) {
   const { chatFontFamily, chatFontSize } = useWorkspaceTheme();
@@ -293,7 +286,6 @@ export function ChatPanel({
     handleTextareaBlur,
     handleTextareaKeyUp,
     handleTextareaSelectionChange,
-    insertComposerText,
     onAgentMentionSelect,
   } = useAgentMentionAutocomplete({
     agents,
@@ -850,18 +842,6 @@ export function ChatPanel({
       attachment.name.toLowerCase().includes(query)
     );
   }, [attachmentSearch, attachments]);
-
-  // Handle agent mention insertion from left panel
-  useEffect(() => {
-    if (!pendingInsert) return;
-    const frameId = requestAnimationFrame(() => {
-      insertComposerText(pendingInsert);
-      onPendingInsertConsumed?.();
-    });
-    return () => {
-      cancelAnimationFrame(frameId);
-    };
-  }, [insertComposerText, onPendingInsertConsumed, pendingInsert]);
 
   // --- Smart auto-scroll: only scroll when the user is "stuck" to the bottom ---
   const SCROLL_BOTTOM_THRESHOLD = 60;

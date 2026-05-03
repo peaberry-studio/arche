@@ -235,7 +235,11 @@ export function WorkspaceShell({
   const resolvedPersistenceScope = persistenceScope ?? slug;
   const layoutCookieName = getWorkspaceLayoutCookieName(resolvedPersistenceScope);
   const layoutStorageKey = getWorkspaceLayoutStorageKey(resolvedPersistenceScope);
-  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(initialWorkspaceMode);
+  const hasDesktopVault = Boolean(currentVault);
+  const availableInitialWorkspaceMode = hasDesktopVault && initialWorkspaceMode === "tasks"
+    ? "chat"
+    : initialWorkspaceMode;
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(availableInitialWorkspaceMode);
   const isKnowledgeMode = workspaceMode === "knowledge";
   const isTasksMode = workspaceMode === "tasks";
   const lastSessionByModeRef = useRef<{ chat: string | null; tasks: string | null }>({
@@ -244,8 +248,8 @@ export function WorkspaceShell({
   });
 
   useEffect(() => {
-    setWorkspaceMode(initialWorkspaceMode);
-  }, [initialWorkspaceMode]);
+    setWorkspaceMode(availableInitialWorkspaceMode);
+  }, [availableInitialWorkspaceMode]);
 
   // Instance startup state
   const [instanceStatus, setInstanceStatus] = useState<'starting' | 'running' | 'error' | null>(null);
@@ -639,26 +643,27 @@ export function WorkspaceShell({
 
   const handleWorkspaceModeChange = useCallback(
     (nextMode: WorkspaceMode) => {
+      const resolvedNextMode = hasDesktopVault && nextMode === "tasks" ? "chat" : nextMode;
       const prevMode = workspaceMode;
-      setWorkspaceMode(nextMode);
+      setWorkspaceMode(resolvedNextMode);
 
-      if (nextMode === "knowledge") {
+      if (resolvedNextMode === "knowledge") {
         setPreviewFilePath(null);
       }
 
-      if (prevMode !== nextMode) {
+      if (prevMode !== resolvedNextMode) {
         const currentActiveId = workspace.activeSessionId;
         const currentSession = currentActiveId
           ? sessionsById.get(currentActiveId) ?? null
           : null;
         const currentIsAutopilot = Boolean(currentSession?.autopilot);
 
-        if (nextMode === "chat" && currentIsAutopilot) {
+        if (resolvedNextMode === "chat" && currentIsAutopilot) {
           const targetId = lastSessionByModeRef.current.chat;
           if (targetId !== currentActiveId) {
             workspace.selectSession(targetId);
           }
-        } else if (nextMode === "tasks" && !currentIsAutopilot) {
+        } else if (resolvedNextMode === "tasks" && !currentIsAutopilot) {
           // Only switch the active session if we have a remembered task to
           // restore. If not, leave the session as-is so the workspace hook
           // does not auto-reselect a chat session in the background — the UI
@@ -677,9 +682,9 @@ export function WorkspaceShell({
       if (typeof window === "undefined") return;
 
       const params = new URLSearchParams(window.location.search);
-      if (nextMode === "knowledge") {
+      if (resolvedNextMode === "knowledge") {
         params.set("mode", "knowledge");
-      } else if (nextMode === "tasks") {
+      } else if (resolvedNextMode === "tasks") {
         params.set("mode", "tasks");
       } else {
         params.delete("mode");
@@ -688,7 +693,7 @@ export function WorkspaceShell({
       const query = params.toString();
       routerRef.current.replace(query ? `/w/${slug}?${query}` : `/w/${slug}`);
     },
-    [isCompactLayout, sessionsById, slug, workspace, workspaceMode]
+    [hasDesktopVault, isCompactLayout, sessionsById, slug, workspace, workspaceMode]
   );
 
   const focusSearchInput = useCallback(() => {
@@ -1347,14 +1352,6 @@ export function WorkspaceShell({
     [slug]
   );
 
-  const handleShowContext = useCallback(() => {
-    setRightCollapsedForMode(workspaceMode, false);
-    setRightTab("preview");
-    if (isCompactLayout) {
-      setMobileView("right");
-    }
-  }, [isCompactLayout, setRightCollapsedForMode, workspaceMode]);
-
   // Resize handlers - now work via the gap area between panels
   const handleResizeLeft = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -1704,7 +1701,6 @@ export function WorkspaceShell({
       onRenameSession={handleRenameSession}
       onSelectSessionTab={handleSelectSessionTab}
       onOpenFile={handleOpenFile}
-      onShowContext={handleShowContext}
       onSendMessage={workspace.sendMessage}
       onAbortMessage={workspace.abortSession}
       isSending={workspace.isSending}
@@ -1713,7 +1709,6 @@ export function WorkspaceShell({
       selectedModel={workspace.selectedModel}
       hasManualModelSelection={workspace.hasManualModelSelection}
       onSelectModel={workspace.setSelectedModel}
-      activeAgentName={workspace.activeAgentName}
       isReadOnly={isInspectingSubagentSession}
       onReturnToMainConversation={
         activeRootSessionId
@@ -1831,7 +1826,7 @@ export function WorkspaceShell({
         status="active"
         knowledgePendingCount={workspace.diffs.length}
         macDesktopWindowInset={macDesktopWindowInset}
-        hideTasksMode={Boolean(currentVault)}
+        hideTasksMode={hasDesktopVault}
         onModeChange={handleWorkspaceModeChange}
         onNavigateConnectors={navigateConnectors}
         onNavigateProviders={navigateProviders}

@@ -403,6 +403,7 @@ export function KnowledgeGraphPanel({
                       }}
                       data-node="true"
                       role={isFile ? 'button' : undefined}
+                      aria-label={isFile ? node.path : undefined}
                       tabIndex={isFile ? 0 : undefined}
                       onMouseEnter={() => setHoverNodeId(node.id)}
                       onMouseLeave={() =>

@@ -198,7 +198,6 @@ describe("useWorkspace", () => {
       expect(result.current.selectedModel?.modelId).toBe("gpt-5.2");
     });
 
-    expect(result.current.activeAgentName).toBe("Assistant");
     expect(result.current.agentDefaultModel?.modelId).toBe("gpt-5.4");
     expect(result.current.hasManualModelSelection).toBe(false);
 
@@ -208,7 +207,6 @@ describe("useWorkspace", () => {
 
     expect(result.current.activeSessionId).toBe("s2");
     expect(result.current.selectedModel?.modelId).toBe("gpt-5.4");
-    expect(result.current.activeAgentName).toBe("Assistant");
     expect(result.current.hasManualModelSelection).toBe(false);
   });
 

@@ -12,6 +12,7 @@ const { ensureInstanceRunningActionMock } = vi.hoisted(() => ({
 }));
 
 const createSessionMock = vi.fn().mockResolvedValue(undefined);
+const readFileMock = vi.fn();
 const sendMessageMock = vi.fn().mockResolvedValue(true);
 
 vi.mock("next/navigation", () => ({
@@ -64,7 +65,7 @@ vi.mock("@/hooks/use-workspace", () => ({
     connection: { status: "connected", error: null },
     refreshDiffs: vi.fn(),
     refreshFiles: vi.fn(),
-    readFile: vi.fn(),
+    readFile: readFileMock,
     writeFile: vi.fn(),
     discardFileChanges: vi.fn(),
     createSession: createSessionMock,
@@ -86,7 +87,6 @@ vi.mock("@/hooks/use-workspace", () => ({
     selectedModel: null,
     hasManualModelSelection: false,
     setSelectedModel: vi.fn(),
-    activeAgentName: null,
     hasMoreSessions: false,
     isLoadingMoreSessions: false,
     loadMoreSessions: vi.fn(),
@@ -107,12 +107,11 @@ vi.mock('@/hooks/use-skills-catalog', () => ({
 }))
 
 vi.mock("@/components/workspace/chat-panel", () => ({
-  ChatPanel: ({ onShowContext, pendingInsert }: { onShowContext?: () => void; pendingInsert?: string | null }) => (
+  ChatPanel: ({ onOpenFile }: { onOpenFile: (path: string) => void }) => (
     <div>
       <span>Chat Panel</span>
-      <span>{pendingInsert ?? "No pending insert"}</span>
-      <button type="button" onClick={() => onShowContext?.()}>
-        Show Context
+      <button type="button" onClick={() => onOpenFile("docs/plan.md")}>
+        Open plan preview
       </button>
     </div>
   ),
@@ -204,6 +203,8 @@ describe("WorkspaceShell", () => {
     stubBrowserStorage();
     setViewportWidth(1440);
     createSessionMock.mockClear();
+    readFileMock.mockReset();
+    readFileMock.mockResolvedValue({ content: "# Plan", type: "raw", hash: "hash-plan" });
     sendMessageMock.mockClear();
     sendMessageMock.mockResolvedValue(true);
     ensureInstanceRunningActionMock.mockReset();
@@ -345,6 +346,39 @@ describe("WorkspaceShell", () => {
     expect(await screen.findByText("1/2 working")).toBeTruthy();
     expect(await screen.findByText("1 active")).toBeTruthy();
     expect(screen.getByText("Appearance")).toBeTruthy();
+  });
+
+  it("clamps hidden desktop tasks mode to chat", async () => {
+    render(
+      <WorkspaceShell
+        slug="alice"
+        currentVault={{ id: "vault-1", name: "Vault", path: "/tmp/vault" }}
+        initialWorkspaceMode="tasks"
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Sessions" }).getAttribute("aria-pressed")).toBe("true");
+    });
+
+    expect(screen.queryByRole("button", { name: "Tasks" })).toBeNull();
+    expect(screen.getByText("Chat Panel")).toBeTruthy();
+  });
+
+  it("promotes a quickview file into knowledge editing", async () => {
+    render(<WorkspaceShell slug="alice" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open plan preview" }));
+
+    expect(await screen.findByText("Quickview")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Edit file" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Knowledge" }).getAttribute("aria-pressed")).toBe("true");
+    });
+
+    expect(screen.getByRole("button", { name: "Files Panel" }).dataset.panelMode).toBe("files");
+    expect(readFileMock).toHaveBeenCalledWith("docs/plan.md");
   });
 
   it("toggles the left panel with Command+B", async () => {

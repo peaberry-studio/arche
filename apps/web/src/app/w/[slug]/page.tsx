@@ -87,11 +87,14 @@ export default async function WorkspaceHostPage({
   const initialSettingsSection = desktopVault && isDesktopSettingsSection(search?.settings)
     ? search.settings
     : null
-  const initialWorkspaceMode = search?.mode === 'knowledge'
+  const requestedWorkspaceMode = search?.mode === 'knowledge'
     ? 'knowledge'
     : search?.mode === 'tasks'
       ? 'tasks'
       : 'chat'
+  const initialWorkspaceMode = desktopVault && requestedWorkspaceMode === 'tasks'
+    ? 'chat'
+    : requestedWorkspaceMode
   const knowledgeAgentSources = await loadKnowledgeAgentSources()
 
   return (

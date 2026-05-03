@@ -211,18 +211,25 @@ function mapMessageInfo(message) {
 }
 
 function mapMessageToSdk(message) {
+  const parts = message.parts ?? [
+    {
+      id: `part-${message.id}`,
+      sessionID: message.sessionId,
+      messageID: message.id,
+      type: 'text',
+      text: message.text ?? '',
+    },
+  ]
+
   return {
     info: mapMessageInfo(message),
-    parts: [
-      {
-        id: `part-${message.id}`,
-        sessionID: message.sessionId,
-        messageID: message.id,
-        type: 'text',
-        text: message.text ?? '',
-      },
-    ],
+    parts,
   }
+}
+
+function extractE2eReadFilePath(prompt) {
+  const match = prompt.match(/E2E_READ_FILE:([^\s]+)/)
+  return match?.[1]?.replace(/^\/+/, '')
 }
 
 function listSdkFilesAtPath(pathValue) {
@@ -305,7 +312,12 @@ function listSessionsForSdk(url) {
 }
 
 function createPromptResponse(session, prompt) {
-  const reply = prompt.includes(PDF_TOKEN) ? `PDF_OK: ${PDF_TOKEN}` : `E2E_OK: ${prompt}`
+  const readFilePath = extractE2eReadFilePath(prompt)
+  const reply = prompt.includes(PDF_TOKEN)
+    ? `PDF_OK: ${PDF_TOKEN}`
+    : readFilePath
+      ? `E2E_FILE_READY: ${readFilePath}`
+      : `E2E_OK: ${prompt}`
   const userMessageId = `message-${state.nextMessageId++}`
   const assistantMessageId = `message-${state.nextMessageId++}`
   const assistantPartId = `part-${state.nextPartId++}`
@@ -326,6 +338,31 @@ function createPromptResponse(session, prompt) {
     sessionId: session.id,
     parentID: userMessageId,
     text: reply,
+    parts: readFilePath
+      ? [
+          {
+            id: `tool-${assistantMessageId}`,
+            sessionID: session.id,
+            messageID: assistantMessageId,
+            type: 'tool',
+            tool: 'read',
+            callID: `call-${assistantMessageId}`,
+            state: {
+              status: 'completed',
+              input: { filePath: `${DEFAULT_DIRECTORY}/${readFilePath}` },
+              output: state.files.get(readFilePath)?.content.toString('utf8') ?? '',
+              title: `Read ${readFilePath}`,
+            },
+          },
+          {
+            id: `part-${assistantMessageId}`,
+            sessionID: session.id,
+            messageID: assistantMessageId,
+            type: 'text',
+            text: reply,
+          },
+        ]
+      : undefined,
     createdAt: now(),
   }
 
@@ -506,6 +543,32 @@ async function handleFilesUpload(request, response, url) {
   state.files.set(filePath, {
     path: filePath,
     mime,
+    content,
+    modifiedAt: now(),
+    hash: createHash('sha256').update(content).digest('hex'),
+  })
+
+  sendJson(response, 200, {
+    ok: true,
+    path: filePath,
+    hash: state.files.get(filePath).hash,
+    size: content.length,
+    modifiedAt: state.files.get(filePath).modifiedAt,
+  })
+}
+
+async function handleFilesWrite(request, response) {
+  const body = JSON.parse((await readBody(request)).toString('utf8') || '{}')
+  const filePath = typeof body.path === 'string' ? body.path.replace(/^\/+/, '') : ''
+  const rawContent = typeof body.content === 'string' ? body.content : ''
+  const content = body.encoding === 'base64'
+    ? Buffer.from(rawContent, 'base64')
+    : Buffer.from(rawContent, 'utf8')
+  const existing = state.files.get(filePath)
+
+  state.files.set(filePath, {
+    path: filePath,
+    mime: existing?.mime ?? (filePath.toLowerCase().endsWith('.md') ? 'text/markdown' : 'text/plain'),
     content,
     modifiedAt: now(),
     hash: createHash('sha256').update(content).digest('hex'),
@@ -848,6 +911,11 @@ const server = createServer(async (request, response) => {
 
     if (method === 'POST' && pathname === '/files/upload') {
       await handleFilesUpload(request, response, url)
+      return
+    }
+
+    if (method === 'POST' && pathname === '/files/write') {
+      await handleFilesWrite(request, response)
       return
     }
 
