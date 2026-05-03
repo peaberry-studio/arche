@@ -1747,20 +1747,17 @@ export function WorkspaceShell({
     <div
       className={cn(
         'flex h-dvh flex-col overflow-hidden bg-background text-foreground',
-        macDesktopWindowInset && 'pt-8',
         macDesktopWindowInset && 'desktop-no-select',
         darkModeClasses,
         themeClassName,
       )}
     >
-      {macDesktopWindowInset && (
-        <div className="desktop-titlebar-drag absolute inset-x-0 top-0 z-50 h-8" />
-      )}
       <WorkspaceTopNav
         slug={slug}
         mode={workspaceMode}
         status="active"
         knowledgePendingCount={workspace.diffs.length}
+        macDesktopWindowInset={macDesktopWindowInset}
         onModeChange={handleWorkspaceModeChange}
         onNavigateConnectors={navigateConnectors}
         onNavigateProviders={navigateProviders}

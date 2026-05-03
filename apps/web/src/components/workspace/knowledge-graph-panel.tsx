@@ -473,14 +473,14 @@ export function KnowledgeGraphPanel({
         ) : null}
 
         {markdownPaths.length > 0 ? (
-          <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2">
-            <div className="flex items-center gap-3 rounded-full border border-border/40 bg-background/85 px-3 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur">
+          <div className="pointer-events-none absolute bottom-3 left-1/2 max-w-[calc(100%-1.5rem)] -translate-x-1/2">
+            <div className="flex items-center gap-2.5 whitespace-nowrap rounded-full border border-border/40 bg-background/85 px-3 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur">
               <span className="flex items-center gap-1.5">
-                <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
                 {fileCount} {fileCount === 1 ? 'file' : 'files'}
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
                 {agentCount} {agentCount === 1 ? 'agent' : 'agents'}
               </span>
               <span className="opacity-40">·</span>

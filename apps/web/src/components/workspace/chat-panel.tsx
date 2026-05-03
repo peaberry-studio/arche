@@ -1052,7 +1052,7 @@ export function ChatPanel({
       />
 
       {/* Input area */}
-      <div className="mx-auto w-full max-w-3xl px-5 pb-4 pt-2">
+      <div className="mx-auto w-full max-w-[800px] px-5 pb-4 pt-2">
         {currentStatus ? (
           <div className="mb-3 flex items-center gap-3">
             <StatusIndicator currentStatus={currentStatus} connectorNamesById={connectorNamesById} />

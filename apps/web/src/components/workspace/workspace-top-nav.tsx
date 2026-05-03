@@ -51,6 +51,7 @@ type WorkspaceTopNavProps = {
   mode: WorkspaceMode
   status: 'active' | 'provisioning' | 'offline'
   knowledgePendingCount?: number
+  macDesktopWindowInset?: boolean
   onModeChange: (mode: WorkspaceMode) => void
   onNavigateConnectors?: () => void
   onNavigateProviders?: () => void
@@ -69,6 +70,7 @@ export function WorkspaceTopNav({
   mode,
   status,
   knowledgePendingCount = 0,
+  macDesktopWindowInset = false,
   onModeChange,
   onNavigateConnectors,
   onNavigateProviders,
@@ -132,15 +134,27 @@ export function WorkspaceTopNav({
   const activeProviders = providers.filter((provider) => provider.status === 'enabled')
 
   return (
-    <header className="relative z-30 grid h-14 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-3 border-b border-border/30 bg-background px-4">
-      <div className="flex min-w-0 items-center">
-        <span className="type-display truncate text-base font-semibold tracking-tight">Archē</span>
-      </div>
+    <header
+      className={cn(
+        'relative z-30 grid shrink-0 items-center gap-3 border-b border-border/30 bg-background px-4',
+        macDesktopWindowInset
+          ? 'desktop-titlebar-drag h-[52px] grid-cols-[1fr_auto_1fr] pl-[88px] pt-1.5'
+          : 'h-14 grid-cols-[auto_1fr] sm:grid-cols-[1fr_auto_1fr]'
+      )}
+    >
+      {macDesktopWindowInset ? (
+        <div className="flex min-w-0 items-center" />
+      ) : (
+        <div className="hidden min-w-0 items-center sm:flex">
+          <span className="type-display truncate text-base font-semibold tracking-tight">Archē</span>
+        </div>
+      )}
 
       <WorkspaceModeToggle
         mode={mode}
         onModeChange={onModeChange}
         knowledgePendingCount={knowledgePendingCount}
+        className={cn(macDesktopWindowInset && 'desktop-titlebar-no-drag')}
       />
 
       <div className="flex min-w-0 justify-end">
@@ -148,10 +162,13 @@ export function WorkspaceTopNav({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="flex min-w-0 items-center gap-1.5 rounded-xl px-3 py-2 text-sm text-foreground transition-colors hover:bg-foreground/5"
+              className={cn(
+                'flex min-w-0 items-center gap-1.5 rounded-xl px-3 py-2 text-sm text-foreground transition-colors hover:bg-foreground/5',
+                macDesktopWindowInset && 'desktop-titlebar-no-drag'
+              )}
               aria-label="Workspace account menu"
             >
-              <span className="truncate font-medium">{slug}</span>
+              <span className="max-w-[6rem] truncate font-medium sm:max-w-none">{slug}</span>
               <CaretDown size={13} weight="bold" className="shrink-0 text-muted-foreground" />
             </button>
           </DropdownMenuTrigger>

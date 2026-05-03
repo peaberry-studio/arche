@@ -400,7 +400,7 @@ function createWindow(): void {
     backgroundColor: '#f7f4ef',
     show: smokeTest.shouldShowWindow(),
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : undefined,
-    trafficLightPosition: process.platform === 'darwin' ? { x: 12, y: 12 } : undefined,
+    trafficLightPosition: process.platform === 'darwin' ? { x: 14, y: 19 } : undefined,
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,
