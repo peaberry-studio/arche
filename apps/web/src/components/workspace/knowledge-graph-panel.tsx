@@ -1,11 +1,25 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import { FileText, Robot, SpinnerGap } from '@phosphor-icons/react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { FileText, SpinnerGap } from '@phosphor-icons/react'
+import { drag as d3drag } from 'd3-drag'
+import {
+  forceCenter,
+  forceCollide,
+  forceLink,
+  forceManyBody,
+  forceSimulation,
+  type Simulation,
+  type SimulationLinkDatum,
+  type SimulationNodeDatum,
+} from 'd3-force'
+import { select } from 'd3-selection'
+import { zoom as d3zoom, zoomIdentity, type ZoomTransform } from 'd3-zoom'
 
 import {
   buildKnowledgeGraph,
   type KnowledgeGraphAgentSource,
+  type KnowledgeGraphEdge,
   type KnowledgeGraphNode,
 } from '@/lib/kb-graph'
 import type { WorkspaceFileNode } from '@/lib/opencode/types'
@@ -26,17 +40,17 @@ type KnowledgeGraphPanelProps = {
   reloadKey: number
 }
 
-type PositionedKnowledgeGraphNode = KnowledgeGraphNode & {
-  x: number
-  y: number
+type SimNode = SimulationNodeDatum & KnowledgeGraphNode
+type SimEdge = SimulationLinkDatum<SimNode> & {
+  id: string
+  kind: KnowledgeGraphEdge['kind']
 }
 
-const VIEWBOX_WIDTH = 1000
-const VIEWBOX_HEIGHT = 640
-const FILE_RADIUS_X = 345
-const FILE_RADIUS_Y = 215
-const FILE_CENTER_X = 500
-const FILE_CENTER_Y = 355
+const NODE_RADIUS_FILE = 5
+const NODE_RADIUS_AGENT = 6
+const ACTIVE_BOOST = 2.5
+const LABEL_BASE_OPACITY = 0.25
+const LABEL_FULL_ZOOM = 1.4
 
 function flattenMarkdownFilePaths(nodes: WorkspaceFileNode[]): string[] {
   const paths: string[] = []
@@ -57,37 +71,8 @@ function flattenMarkdownFilePaths(nodes: WorkspaceFileNode[]): string[] {
   return Array.from(new Set(paths)).sort((left, right) => left.localeCompare(right))
 }
 
-function layoutGraphNodes(nodes: KnowledgeGraphNode[]): PositionedKnowledgeGraphNode[] {
-  const agents = nodes.filter((node) => node.kind === 'agent')
-  const files = nodes.filter((node) => node.kind === 'file')
-  const positioned: PositionedKnowledgeGraphNode[] = []
-
-  files.forEach((node, index) => {
-    const angle = files.length <= 1
-      ? -Math.PI / 2
-      : (index / files.length) * Math.PI * 2 - Math.PI / 2
-
-    positioned.push({
-      ...node,
-      x: files.length <= 1 ? FILE_CENTER_X : FILE_CENTER_X + Math.cos(angle) * FILE_RADIUS_X,
-      y: files.length <= 1 ? FILE_CENTER_Y : FILE_CENTER_Y + Math.sin(angle) * FILE_RADIUS_Y,
-    })
-  })
-
-  agents.forEach((node, index) => {
-    const gap = VIEWBOX_WIDTH / (agents.length + 1)
-    positioned.push({
-      ...node,
-      x: gap * (index + 1),
-      y: 92,
-    })
-  })
-
-  return positioned
-}
-
-function getNodeShortLabel(label: string): string {
-  return label.length > 24 ? `${label.slice(0, 21)}...` : label
+function shortenLabel(label: string): string {
+  return label.length > 30 ? `${label.slice(0, 27)}...` : label
 }
 
 export function KnowledgeGraphPanel({
@@ -148,14 +133,184 @@ export function KnowledgeGraphPanel({
     }),
     [agentSources, contentByPath, markdownPaths, openFileContentByPath]
   )
-  const positionedNodes = useMemo(() => layoutGraphNodes(graph.nodes), [graph.nodes])
-  const nodeById = useMemo(
-    () => new Map(positionedNodes.map((node) => [node.id, node])),
-    [positionedNodes]
-  )
+
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const svgRef = useRef<SVGSVGElement | null>(null)
+  const zoomLayerRef = useRef<SVGGElement | null>(null)
+  const nodeElsRef = useRef<Map<string, SVGGElement>>(new Map())
+  const edgeElsRef = useRef<Map<string, SVGLineElement>>(new Map())
+  const simulationRef = useRef<Simulation<SimNode, SimEdge> | null>(null)
+  const simNodesRef = useRef<SimNode[]>([])
+  const simEdgesRef = useRef<SimEdge[]>([])
+
+  const [size, setSize] = useState({ width: 0, height: 0 })
+  const [transform, setTransform] = useState<ZoomTransform>(zoomIdentity)
+  const [hoverNodeId, setHoverNodeId] = useState<string | null>(null)
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+
+    setSize({ width: el.clientWidth, height: el.clientHeight })
+    const observer = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect
+      if (!rect) return
+      setSize({ width: rect.width, height: rect.height })
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    if (!size.width || !size.height) return
+
+    const previous = new Map(simNodesRef.current.map((node) => [node.id, node]))
+    const nextNodes: SimNode[] = graph.nodes.map((node) => {
+      const existing = previous.get(node.id)
+      if (existing) {
+        return Object.assign(existing, node)
+      }
+      return {
+        ...node,
+        x: size.width / 2 + (Math.random() - 0.5) * 80,
+        y: size.height / 2 + (Math.random() - 0.5) * 80,
+      }
+    })
+    const nextEdges: SimEdge[] = graph.edges.map((edge) => ({
+      id: edge.id,
+      kind: edge.kind,
+      source: edge.source,
+      target: edge.target,
+    }))
+
+    simNodesRef.current = nextNodes
+    simEdgesRef.current = nextEdges
+
+    simulationRef.current?.stop()
+    const simulation = forceSimulation<SimNode, SimEdge>(nextNodes)
+      .force(
+        'link',
+        forceLink<SimNode, SimEdge>(nextEdges)
+          .id((d) => d.id)
+          .distance(70)
+          .strength(0.45)
+      )
+      .force('charge', forceManyBody<SimNode>().strength(-220))
+      .force(
+        'center',
+        forceCenter<SimNode>(size.width / 2, size.height / 2).strength(0.05)
+      )
+      .force('collide', forceCollide<SimNode>(NODE_RADIUS_AGENT + 6))
+      .alpha(1)
+      .alphaDecay(0.03)
+      .on('tick', () => {
+        for (const node of nextNodes) {
+          const el = nodeElsRef.current.get(node.id)
+          if (el) {
+            el.setAttribute(
+              'transform',
+              `translate(${node.x ?? 0}, ${node.y ?? 0})`
+            )
+          }
+        }
+        for (const edge of nextEdges) {
+          const el = edgeElsRef.current.get(edge.id)
+          if (!el) continue
+          const source = edge.source as SimNode
+          const target = edge.target as SimNode
+          if (typeof source !== 'object' || typeof target !== 'object') continue
+          el.setAttribute('x1', String(source.x ?? 0))
+          el.setAttribute('y1', String(source.y ?? 0))
+          el.setAttribute('x2', String(target.x ?? 0))
+          el.setAttribute('y2', String(target.y ?? 0))
+        }
+      })
+
+    simulationRef.current = simulation
+
+    return () => {
+      simulation.stop()
+    }
+  }, [graph, size.width, size.height])
+
+  useEffect(() => {
+    const svgEl = svgRef.current
+    if (!svgEl) return
+
+    const zoomBehavior = d3zoom<SVGSVGElement, unknown>()
+      .scaleExtent([0.2, 4])
+      .filter((event: Event) => {
+        const target = event.target as Element | null
+        if (target?.closest('[data-node="true"]')) return false
+        if (event.type === 'mousedown') {
+          return !(event as MouseEvent).button
+        }
+        return !(event as MouseEvent).ctrlKey
+      })
+      .on('zoom', (event) => setTransform(event.transform))
+
+    select(svgEl).call(zoomBehavior).on('dblclick.zoom', null)
+
+    return () => {
+      select(svgEl).on('.zoom', null)
+    }
+  }, [])
+
+  useEffect(() => {
+    const simulation = simulationRef.current
+    if (!simulation) return
+
+    const dragBehavior = d3drag<SVGGElement, SimNode>()
+      .clickDistance(4)
+      .on('start', (event, datum) => {
+        if (!event.active) simulation.alphaTarget(0.3).restart()
+        datum.fx = datum.x
+        datum.fy = datum.y
+      })
+      .on('drag', (event, datum) => {
+        datum.fx = event.x
+        datum.fy = event.y
+      })
+      .on('end', (event, datum) => {
+        if (!event.active) simulation.alphaTarget(0)
+        datum.fx = null
+        datum.fy = null
+      })
+
+    const elements = nodeElsRef.current
+    const attached: SVGGElement[] = []
+    for (const node of simNodesRef.current) {
+      const el = elements.get(node.id)
+      if (el) {
+        select<SVGGElement, SimNode>(el).datum(node).call(dragBehavior)
+        attached.push(el)
+      }
+    }
+
+    return () => {
+      for (const el of attached) {
+        select(el).on('.drag', null)
+      }
+    }
+  }, [graph, size.width, size.height])
 
   const fileCount = graph.nodes.filter((node) => node.kind === 'file').length
   const agentCount = graph.nodes.filter((node) => node.kind === 'agent').length
+
+  const labelOpacity = Math.max(
+    LABEL_BASE_OPACITY,
+    Math.min(1, (transform.k - 0.6) / (LABEL_FULL_ZOOM - 0.6))
+  )
+
+  const connectedIds = useMemo(() => {
+    if (!hoverNodeId) return new Set<string>()
+    const set = new Set<string>([hoverNodeId])
+    for (const edge of graph.edges) {
+      if (edge.source === hoverNodeId) set.add(edge.target)
+      if (edge.target === hoverNodeId) set.add(edge.source)
+    }
+    return set
+  }, [graph.edges, hoverNodeId])
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden text-card-foreground">
@@ -169,7 +324,7 @@ export function KnowledgeGraphPanel({
         </p>
       </div>
 
-      <div className="relative min-h-0 flex-1 overflow-hidden">
+      <div ref={containerRef} className="relative min-h-0 flex-1 overflow-hidden">
         {markdownPaths.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
             <FileText size={34} className="text-muted-foreground/30" />
@@ -179,103 +334,126 @@ export function KnowledgeGraphPanel({
           </div>
         ) : (
           <svg
+            ref={svgRef}
             role="img"
             aria-label="Knowledge graph"
-            className="h-full w-full"
-            viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`}
+            className="h-full w-full cursor-grab touch-none active:cursor-grabbing"
+            width={size.width || undefined}
+            height={size.height || undefined}
           >
-            <defs>
-              <filter id="knowledge-node-shadow" x="-30%" y="-30%" width="160%" height="160%">
-                <feDropShadow dx="0" dy="8" stdDeviation="10" floodOpacity="0.16" />
-              </filter>
-            </defs>
+            <g
+              ref={zoomLayerRef}
+              transform={transform.toString()}
+            >
+              <g className="links">
+                {graph.edges.map((edge) => {
+                  const isHovered =
+                    hoverNodeId !== null &&
+                    (edge.source === hoverNodeId || edge.target === hoverNodeId)
+                  const dim = hoverNodeId !== null && !isHovered
 
-            {graph.edges.map((edge) => {
-              const source = nodeById.get(edge.source)
-              const target = nodeById.get(edge.target)
-              if (!source || !target) return null
-
-              return (
-                <line
-                  key={edge.id}
-                  x1={source.x}
-                  y1={source.y}
-                  x2={target.x}
-                  y2={target.y}
-                  className={cn(
-                    edge.kind === 'agent-reference'
-                      ? 'stroke-amber-500/45'
-                      : 'stroke-primary/35'
-                  )}
-                  strokeWidth={edge.kind === 'agent-reference' ? 2.25 : 1.7}
-                  strokeLinecap="round"
-                />
-              )
-            })}
-
-            {positionedNodes.map((node) => {
-              const isFile = node.kind === 'file'
-              const isActive = isFile && node.path === activeFilePath
-              const radius = isFile ? 33 : 29
-
-              return (
-                <g
-                  key={node.id}
-                  role={isFile ? 'button' : undefined}
-                  tabIndex={isFile ? 0 : undefined}
-                  onClick={() => {
-                    if (node.path) onOpenFile(node.path)
-                  }}
-                  onKeyDown={(event) => {
-                    if (!node.path || (event.key !== 'Enter' && event.key !== ' ')) return
-                    event.preventDefault()
-                    onOpenFile(node.path)
-                  }}
-                  className={cn(isFile && 'cursor-pointer')}
-                >
-                  <circle
-                    cx={node.x}
-                    cy={node.y}
-                    r={radius}
-                    filter="url(#knowledge-node-shadow)"
-                    className={cn(
-                      isFile
-                        ? isActive
-                          ? 'fill-primary stroke-primary'
-                          : 'fill-background stroke-primary/45'
-                        : 'fill-amber-500/15 stroke-amber-500/55'
-                    )}
-                    strokeWidth={isActive ? 4 : 2}
-                  />
-                  <foreignObject x={node.x - 11} y={node.y - 11} width="22" height="22">
-                    <div className="flex h-full w-full items-center justify-center">
-                      {isFile ? (
-                        <FileText
-                          size={19}
-                          weight="bold"
-                          className={isActive ? 'text-primary-foreground' : 'text-primary'}
-                        />
-                      ) : (
-                        <Robot size={18} weight="bold" className="text-amber-500" />
+                  return (
+                    <line
+                      key={edge.id}
+                      ref={(el) => {
+                        if (el) edgeElsRef.current.set(edge.id, el)
+                        else edgeElsRef.current.delete(edge.id)
+                      }}
+                      className={cn(
+                        isHovered
+                          ? edge.kind === 'agent-reference'
+                            ? 'stroke-amber-500/85'
+                            : 'stroke-primary/80'
+                          : edge.kind === 'agent-reference'
+                            ? 'stroke-amber-500/35'
+                            : 'stroke-foreground/15',
+                        dim && 'opacity-40'
                       )}
-                    </div>
-                  </foreignObject>
-                  <text
-                    x={node.x}
-                    y={node.y + radius + 20}
-                    textAnchor="middle"
-                    className="fill-foreground text-[20px] font-medium"
-                  >
-                    {getNodeShortLabel(node.label)}
-                  </text>
-                  {node.path ? (
-                    <title>{node.path}</title>
-                  ) : (
-                    <title>{node.label}</title>
-                  )}
-                </g>
-              )
-            })}
+                      strokeWidth={isHovered ? 1.5 : 1}
+                      strokeLinecap="round"
+                    />
+                  )
+                })}
+              </g>
+
+              <g className="nodes">
+                {graph.nodes.map((node) => {
+                  const isFile = node.kind === 'file'
+                  const isActive = isFile && node.path === activeFilePath
+                  const isHovered = hoverNodeId === node.id
+                  const isConnected = connectedIds.has(node.id)
+                  const dim = hoverNodeId !== null && !isConnected
+                  const baseRadius = isFile ? NODE_RADIUS_FILE : NODE_RADIUS_AGENT
+                  const radius =
+                    baseRadius + (isActive ? ACTIVE_BOOST : 0) + (isHovered ? 1.5 : 0)
+
+                  return (
+                    <g
+                      key={node.id}
+                      ref={(el) => {
+                        if (el) nodeElsRef.current.set(node.id, el)
+                        else nodeElsRef.current.delete(node.id)
+                      }}
+                      data-node="true"
+                      role={isFile ? 'button' : undefined}
+                      tabIndex={isFile ? 0 : undefined}
+                      onMouseEnter={() => setHoverNodeId(node.id)}
+                      onMouseLeave={() =>
+                        setHoverNodeId((current) => (current === node.id ? null : current))
+                      }
+                      onClick={(event) => {
+                        if (!node.path) return
+                        event.stopPropagation()
+                        onOpenFile(node.path)
+                      }}
+                      onKeyDown={(event) => {
+                        if (!node.path || (event.key !== 'Enter' && event.key !== ' ')) return
+                        event.preventDefault()
+                        onOpenFile(node.path)
+                      }}
+                      className={cn(
+                        isFile ? 'cursor-pointer' : 'cursor-grab',
+                        dim && 'opacity-35'
+                      )}
+                    >
+                      {isActive || isHovered ? (
+                        <circle
+                          r={radius + 6}
+                          className={cn(
+                            isFile ? 'fill-primary/20' : 'fill-amber-500/20'
+                          )}
+                        />
+                      ) : null}
+                      <circle
+                        r={radius}
+                        className={cn(
+                          isFile
+                            ? isActive
+                              ? 'fill-primary'
+                              : 'fill-primary/85'
+                            : 'fill-amber-500'
+                        )}
+                      />
+                      <text
+                        y={radius + 11}
+                        textAnchor="middle"
+                        style={{
+                          opacity: isHovered || isActive ? 1 : labelOpacity,
+                        }}
+                        className="pointer-events-none fill-muted-foreground text-[10px] font-medium"
+                      >
+                        {shortenLabel(node.label)}
+                      </text>
+                      {node.path ? (
+                        <title>{node.path}</title>
+                      ) : (
+                        <title>{node.label}</title>
+                      )}
+                    </g>
+                  )
+                })}
+              </g>
+            </g>
           </svg>
         )}
 
