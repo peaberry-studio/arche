@@ -69,7 +69,7 @@ describe("WorkspaceSessionsSidebar", () => {
       />
     );
 
-    fireEvent.pointerDown(await screen.findByRole("button", { name: "Run" }), {
+    fireEvent.pointerDown(await screen.findByRole("button", { name: "Run task" }), {
       button: 0,
       ctrlKey: false,
     });

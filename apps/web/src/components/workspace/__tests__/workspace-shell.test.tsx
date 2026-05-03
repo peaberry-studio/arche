@@ -330,11 +330,11 @@ describe("WorkspaceShell", () => {
     render(<WorkspaceShell slug="alice" />);
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Chat" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Sessions" })).toBeTruthy();
     });
 
     expect(screen.getByRole("button", { name: "Knowledge" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Autopilot" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Tasks" })).toBeTruthy();
 
     fireEvent.pointerDown(screen.getByRole("button", { name: "Workspace account menu" }), {
       button: 0,
@@ -350,7 +350,7 @@ describe("WorkspaceShell", () => {
   it("toggles the left panel with Command+B", async () => {
     render(<WorkspaceShell slug="alice" />);
 
-    expect(await screen.findByRole("button", { name: "Collapse chats panel" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Collapse sessions panel" })).toBeTruthy();
 
     window.dispatchEvent(
       new KeyboardEvent("keydown", {
@@ -362,7 +362,7 @@ describe("WorkspaceShell", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Expand chats panel" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Expand sessions panel" })).toBeTruthy();
     });
   });
 
@@ -431,7 +431,7 @@ describe("WorkspaceShell", () => {
       findSizedPanelContainer(screen.getByRole("button", { name: "Review Panel" }))?.style.width ?? "0"
     );
 
-    const expectedRightWidth = (1440 - leftPanelWidth - 24) / 2;
+    const expectedRightWidth = (1440 - leftPanelWidth) / 2;
     expect(rightPanelWidth).toBeCloseTo(expectedRightWidth, 0);
   });
 
@@ -463,7 +463,7 @@ describe("WorkspaceShell", () => {
       screen.getByRole("button", { name: "Review Panel" }).parentElement?.style.width ?? "0"
     );
 
-    const expectedRightWidth = (1440 - 48 - 24) / 2;
+    const expectedRightWidth = (1440 - 48) / 2;
     expect(rightPanelWidth).toBeCloseTo(expectedRightWidth, 0);
   });
 
@@ -516,10 +516,10 @@ describe("WorkspaceShell", () => {
     render(<WorkspaceShell slug="alice" />);
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Collapse chats panel" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Collapse sessions panel" })).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Collapse chats panel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sessions panel" }));
 
     await waitFor(() => {
       expect(window.localStorage.getItem("arche.workspace.alice.layout")).toContain('"leftCollapsed":true');

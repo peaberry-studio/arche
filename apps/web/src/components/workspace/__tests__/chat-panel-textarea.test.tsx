@@ -346,7 +346,7 @@ describe("ChatPanel textarea", () => {
 
     renderChatPanel();
 
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Manage attachments" }));
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Attach files" }));
     await screen.findByText("Upload file");
     fireEvent.click(screen.getByText("Manage attachments"));
 

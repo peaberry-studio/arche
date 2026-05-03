@@ -268,9 +268,9 @@ describe("LeftPanel", () => {
       fixedSessionListMode: "chats",
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Autopilot" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tasks" }));
 
-    expect(onWorkspaceModeChange).toHaveBeenCalledWith("autopilot");
+    expect(onWorkspaceModeChange).toHaveBeenCalledWith("tasks");
     expect(screen.getByText("Archē")).toBeTruthy();
     expect(screen.getByText("alice")).toBeTruthy();
   });
@@ -286,7 +286,7 @@ describe("LeftPanel", () => {
     expect(screen.getAllByText("Autopilot").length).toBeGreaterThan(0);
     expect(screen.getByText("Daily brief")).toBeTruthy();
     expect(screen.queryByText("Alpha chat")).toBeNull();
-    expect(screen.queryByRole("button", { name: /tasks/i })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Tasks" })).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "New chat" })).toBeNull();
     expect(screen.getByLabelText("Search autopilot")).toBeTruthy();
   });

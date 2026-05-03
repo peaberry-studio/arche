@@ -621,7 +621,7 @@ export function WorkspaceShell({
 
       return false;
     });
-  }, [isCompactLayout, leftCollapsed, leftWidth, setRightCollapsedForMode, workspaceMode]);
+  }, [isCompactLayout, leftCollapsed, leftWidth, setLeftWidth, setRightCollapsedForMode, setRightWidth, workspaceMode]);
 
   const handleToggleRight = useCallback(() => {
     toggleRightPanel();
@@ -1330,7 +1330,7 @@ export function WorkspaceShell({
 
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
-  }, [rightCollapsed, rightWidth]);
+  }, [rightCollapsed, rightWidth, setLeftWidth]);
 
   const handleResizeRight = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -1364,7 +1364,7 @@ export function WorkspaceShell({
 
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
-  }, [leftCollapsed, leftWidth]);
+  }, [leftCollapsed, leftWidth, setRightWidth]);
 
   // Get theme from context
   const { themeId, isDark } = useWorkspaceTheme();

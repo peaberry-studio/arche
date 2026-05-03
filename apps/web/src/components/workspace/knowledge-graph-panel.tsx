@@ -9,6 +9,8 @@ import {
   forceLink,
   forceManyBody,
   forceSimulation,
+  forceX,
+  forceY,
   type Simulation,
   type SimulationLinkDatum,
   type SimulationNodeDatum,
@@ -186,21 +188,36 @@ export function KnowledgeGraphPanel({
     simNodesRef.current = nextNodes
     simEdgesRef.current = nextEdges
 
+    const degreeById = new Map<string, number>()
+    for (const edge of graph.edges) {
+      degreeById.set(edge.source, (degreeById.get(edge.source) ?? 0) + 1)
+      degreeById.set(edge.target, (degreeById.get(edge.target) ?? 0) + 1)
+    }
+    const positionStrength = (node: SimNode) =>
+      (degreeById.get(node.id) ?? 0) === 0 ? 0.18 : 0.04
+
     simulationRef.current?.stop()
     const simulation = forceSimulation<SimNode, SimEdge>(nextNodes)
       .force(
         'link',
         forceLink<SimNode, SimEdge>(nextEdges)
           .id((d) => d.id)
-          .distance(70)
-          .strength(0.45)
+          .distance(130)
+          .strength(0.4)
       )
-      .force('charge', forceManyBody<SimNode>().strength(-220))
+      .force(
+        'charge',
+        forceManyBody<SimNode>().strength((node) =>
+          (degreeById.get(node.id) ?? 0) === 0 ? -180 : -380
+        )
+      )
       .force(
         'center',
         forceCenter<SimNode>(size.width / 2, size.height / 2).strength(0.05)
       )
-      .force('collide', forceCollide<SimNode>(NODE_RADIUS_AGENT + 6))
+      .force('x', forceX<SimNode>(size.width / 2).strength(positionStrength))
+      .force('y', forceY<SimNode>(size.height / 2).strength(positionStrength))
+      .force('collide', forceCollide<SimNode>(32))
       .alpha(1)
       .alphaDecay(0.03)
       .on('tick', () => {
@@ -314,16 +331,6 @@ export function KnowledgeGraphPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden text-card-foreground">
-      <div className="flex shrink-0 items-center gap-2 px-3 py-2">
-        <p className="truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-          {fileCount} {fileCount === 1 ? 'file' : 'files'}
-          <span className="px-1.5 opacity-50">·</span>
-          {graph.edges.length} {graph.edges.length === 1 ? 'link' : 'links'}
-          <span className="px-1.5 opacity-50">·</span>
-          {agentCount} {agentCount === 1 ? 'agent' : 'agents'}
-        </p>
-      </div>
-
       <div ref={containerRef} className="relative min-h-0 flex-1 overflow-hidden">
         {markdownPaths.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
@@ -337,7 +344,7 @@ export function KnowledgeGraphPanel({
             ref={svgRef}
             role="img"
             aria-label="Knowledge graph"
-            className="h-full w-full cursor-grab touch-none active:cursor-grabbing"
+            className="h-full w-full cursor-grab touch-none outline-none focus:outline-none active:cursor-grabbing"
             width={size.width || undefined}
             height={size.height || undefined}
           >
@@ -412,6 +419,7 @@ export function KnowledgeGraphPanel({
                         onOpenFile(node.path)
                       }}
                       className={cn(
+                        'outline-none focus:outline-none focus-visible:outline-none',
                         isFile ? 'cursor-pointer' : 'cursor-grab',
                         dim && 'opacity-35'
                       )}
@@ -435,12 +443,12 @@ export function KnowledgeGraphPanel({
                         )}
                       />
                       <text
-                        y={radius + 11}
+                        y={radius + 10}
                         textAnchor="middle"
                         style={{
                           opacity: isHovered || isActive ? 1 : labelOpacity,
                         }}
-                        className="pointer-events-none fill-muted-foreground text-[10px] font-medium"
+                        className="pointer-events-none fill-muted-foreground text-[9px] font-medium"
                       >
                         {shortenLabel(node.label)}
                       </text>
@@ -469,11 +477,15 @@ export function KnowledgeGraphPanel({
             <div className="flex items-center gap-3 rounded-full border border-border/40 bg-background/85 px-3 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur">
               <span className="flex items-center gap-1.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                Files
+                {fileCount} {fileCount === 1 ? 'file' : 'files'}
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                Agents
+                {agentCount} {agentCount === 1 ? 'agent' : 'agents'}
+              </span>
+              <span className="opacity-40">·</span>
+              <span>
+                {graph.edges.length} {graph.edges.length === 1 ? 'link' : 'links'}
               </span>
             </div>
           </div>

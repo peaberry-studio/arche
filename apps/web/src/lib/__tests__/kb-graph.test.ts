@@ -22,7 +22,7 @@ describe('buildKnowledgeGraph', () => {
     ])
   })
 
-  it('adds agent nodes only when prompts reference knowledge files', () => {
+  it('always adds agent nodes and edges them to referenced files', () => {
     const graph = buildKnowledgeGraph({
       agents: [
         {
@@ -43,7 +43,7 @@ describe('buildKnowledgeGraph', () => {
     })
 
     expect(graph.nodes.some((node) => node.id === 'agent:strategist')).toBe(true)
-    expect(graph.nodes.some((node) => node.id === 'agent:writer')).toBe(false)
+    expect(graph.nodes.some((node) => node.id === 'agent:writer')).toBe(true)
     expect(graph.edges).toEqual([
       {
         id: 'agent-reference:agent:strategist->file:docs/plan.md',
@@ -58,5 +58,25 @@ describe('buildKnowledgeGraph', () => {
         target: 'file:docs/research.md',
       },
     ])
+  })
+
+  it('detects markdown-style links from agent prompts', () => {
+    const graph = buildKnowledgeGraph({
+      agents: [
+        {
+          id: 'researcher',
+          displayName: 'Researcher',
+          prompt: 'Refer to [the plan](docs/plan.md) before acting.',
+        },
+      ],
+      files: [{ path: 'docs/plan.md', content: '' }],
+    })
+
+    expect(graph.edges).toContainEqual({
+      id: 'agent-reference:agent:researcher->file:docs/plan.md',
+      kind: 'agent-reference',
+      source: 'agent:researcher',
+      target: 'file:docs/plan.md',
+    })
   })
 })

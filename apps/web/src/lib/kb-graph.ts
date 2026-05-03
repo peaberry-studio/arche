@@ -86,6 +86,19 @@ function collectRawPathReferences(content: string, availablePaths: string[]): st
   return availablePaths.filter((path) => normalizedContent.includes(path))
 }
 
+const MARKDOWN_LINK_REGEX = /\[[^\]\n]*\]\(([^)\s]+)\)/g
+
+function collectMarkdownLinkReferences(content: string, availablePaths: string[]): string[] {
+  const references = new Set<string>()
+  for (const match of content.matchAll(MARKDOWN_LINK_REGEX)) {
+    const target = match[1]?.split('#')[0]?.trim()
+    if (!target) continue
+    const resolved = resolveObsidianLinkTarget(target, availablePaths)
+    if (resolved) references.add(normalizePath(resolved))
+  }
+  return Array.from(references)
+}
+
 export function buildKnowledgeGraph({
   agents = [],
   files,
@@ -116,7 +129,10 @@ export function buildKnowledgeGraph({
 
   for (const sourcePath of filePaths) {
     const content = fileContentByPath.get(sourcePath) ?? ''
-    const references = collectWikilinkReferences(content, filePaths)
+    const references = new Set([
+      ...collectWikilinkReferences(content, filePaths),
+      ...collectMarkdownLinkReferences(content, filePaths),
+    ])
     for (const targetPath of references) {
       addEdge('file-link', fileNodeId(sourcePath), fileNodeId(targetPath))
     }
@@ -126,10 +142,9 @@ export function buildKnowledgeGraph({
     const prompt = agent.prompt ?? ''
     const references = new Set([
       ...collectWikilinkReferences(prompt, filePaths),
+      ...collectMarkdownLinkReferences(prompt, filePaths),
       ...collectRawPathReferences(prompt, filePaths),
     ])
-
-    if (references.size === 0) continue
 
     const source = agentNodeId(agent.id)
     nodes.push({
