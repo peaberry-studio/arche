@@ -159,7 +159,7 @@ export function KnowledgeGraphPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden text-card-foreground">
-      <div className="flex shrink-0 items-center gap-2 border-b border-border/30 px-3 py-2">
+      <div className="flex shrink-0 items-center gap-2 px-3 py-2">
         <p className="truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
           {fileCount} {fileCount === 1 ? 'file' : 'files'}
           <span className="px-1.5 opacity-50">·</span>

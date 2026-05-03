@@ -582,10 +582,11 @@
   }
   .scrollbar-custom::-webkit-scrollbar {
     width: 6px;
+    height: 6px;
   }
   .scrollbar-custom::-webkit-scrollbar-track {
     background: transparent;
-    margin: 4px 0;
+    margin: 4px;
   }
   .scrollbar-custom::-webkit-scrollbar-thumb {
     background: hsl(var(--foreground) / 0.15);

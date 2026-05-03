@@ -89,8 +89,8 @@ export default async function WorkspaceHostPage({
     : null
   const initialWorkspaceMode = search?.mode === 'knowledge'
     ? 'knowledge'
-    : search?.mode === 'autopilot'
-      ? 'autopilot'
+    : search?.mode === 'tasks'
+      ? 'tasks'
       : 'chat'
   const knowledgeAgentSources = await loadKnowledgeAgentSources()
 

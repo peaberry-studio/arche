@@ -385,18 +385,6 @@ describe("WorkspaceShell", () => {
     expect(screen.queryByText("Chat Panel")).toBeNull();
   });
 
-  it("starts in autopilot mode with tasks navigation and chat center", async () => {
-    render(<WorkspaceShell slug="alice" initialWorkspaceMode="autopilot" />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Chat Panel")).toBeTruthy();
-    });
-
-    expect(screen.getByRole("button", { name: "Run" })).toBeTruthy();
-    expect(screen.getByText("No tasks yet")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "New chat" })).toBeNull();
-  });
-
   it("toggles the right panel with Alt+Command+B", async () => {
     render(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" />);
 

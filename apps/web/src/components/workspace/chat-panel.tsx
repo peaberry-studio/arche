@@ -997,7 +997,7 @@ export function ChatPanel({
     }
 
     textarea.style.height = "auto";
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 180)}px`;
   }, [inputValue]);
 
   // Get the current status from the last pending message (if any).
@@ -1121,7 +1121,7 @@ export function ChatPanel({
           </div>
         )}
         
-        <div className="relative rounded-3xl border border-border/60 bg-card/70 px-4 pb-4 pt-3.5 shadow-subtle backdrop-blur-md transition-shadow focus-within:border-border/80 focus-within:shadow-md sm:px-5 sm:pb-5 sm:pt-4">
+        <div className="relative rounded-2xl border-[0.5px] border-border/30 bg-card/70 px-2.5 pb-3 pt-2.5 shadow-subtle backdrop-blur-md transition-shadow focus-within:border-border/50 focus-within:shadow-md sm:px-3 sm:pb-3.5 sm:pt-3">
           {attachmentsEnabled && (
             <input
               ref={attachmentInputRef}
@@ -1142,7 +1142,7 @@ export function ChatPanel({
             onPaste={handleTextareaPaste}
             onSelect={handleTextareaSelectionChange}
             onKeyUp={handleTextareaKeyUp}
-            className="block min-h-[38px] w-full max-h-[200px] resize-none bg-transparent pr-12 text-base leading-6 text-foreground outline-none placeholder:text-muted-foreground/60 sm:min-h-[44px] sm:pr-0 sm:text-lg sm:leading-relaxed"
+            className="block min-h-[32px] w-full max-h-[180px] resize-none bg-transparent pr-12 text-sm leading-5 text-foreground outline-none placeholder:text-muted-foreground/60 sm:min-h-[36px] sm:pr-0 sm:text-base sm:leading-6"
             placeholder="Type a message..."
             disabled={isStartingNewSession || !onSendMessage}
             rows={1}
@@ -1167,7 +1167,7 @@ export function ChatPanel({
                     <button
                       type="button"
                       className={cn(
-                        "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors",
+                        "inline-flex items-center gap-1.5 rounded-lg border px-2 py-0.5 text-[11px] font-medium transition-colors",
                         selectedAttachmentPaths.length > 0
                           ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
                           : "border-border/60 bg-foreground/5 text-foreground/80 hover:bg-foreground/10 hover:text-foreground"
@@ -1248,7 +1248,7 @@ export function ChatPanel({
                   <button
                     type="button"
                     className={cn(
-                      "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors",
+                      "inline-flex items-center gap-1.5 rounded-lg border px-2 py-0.5 text-[11px] font-medium transition-colors",
                       contextMode !== "off" && contextPathsToSend.length > 0
                         ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
                         : "border-border/60 bg-foreground/5 text-foreground/80 hover:bg-foreground/10 hover:text-foreground"
@@ -1330,7 +1330,7 @@ export function ChatPanel({
                   <button
                     type="button"
                     className={cn(
-                      "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors",
+                      "inline-flex items-center gap-1.5 rounded-lg border px-2 py-0.5 text-[11px] font-medium transition-colors",
                       selectedExpertId
                         ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
                         : "border-border/60 bg-foreground/5 text-foreground/80 hover:bg-foreground/10 hover:text-foreground"
@@ -1368,7 +1368,7 @@ export function ChatPanel({
                   <button
                     type="button"
                     className={cn(
-                      "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors",
+                      "inline-flex items-center gap-1.5 rounded-lg border px-2 py-0.5 text-[11px] font-medium transition-colors",
                       selectedSkillNames.size > 0
                         ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
                         : "border-border/60 bg-foreground/5 text-foreground/80 hover:bg-foreground/10 hover:text-foreground"
@@ -1459,7 +1459,7 @@ export function ChatPanel({
               ) : null}
               <Button
                 size="icon"
-                className={cn("h-10 w-10 rounded-lg", isSending && "bg-foreground/8 text-foreground hover:bg-foreground/12")}
+                className={cn("h-8 w-8 rounded-lg", isSending && "bg-foreground/8 text-foreground hover:bg-foreground/12")}
                 disabled={
                   isStartingNewSession
                     ? true

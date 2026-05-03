@@ -1,10 +1,9 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { CaretDown, CaretRight, File, GitDiff, Minus, Plus, Trash } from "@phosphor-icons/react";
+import { CaretDown, CaretRight, GitDiff, Trash } from "@phosphor-icons/react";
 
 import { ConflictResolverDialog } from "./conflict-resolver-dialog";
-import { PublishKbButton } from "./publish-kb-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DiffViewer } from "@/components/ui/diff-viewer";
@@ -26,7 +25,6 @@ type ReviewPanelProps = {
   error?: string;
   onOpenFile: (path: string) => void;
   onDiscardFileChanges?: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;
-  onPublish?: () => void;
   onResolveConflict?: (path: string, content: string) => void;
 };
 
@@ -39,7 +37,6 @@ export function ReviewPanel({
   error,
   onOpenFile,
   onDiscardFileChanges,
-  onPublish,
   onResolveConflict,
 }: ReviewPanelProps) {
   const [expandedDiffs, setExpandedDiffs] = useState<Record<string, boolean>>({});
@@ -49,17 +46,6 @@ export function ReviewPanel({
   const [discardOpen, setDiscardOpen] = useState(false);
   const [isDiscarding, setIsDiscarding] = useState(false);
   const [discardError, setDiscardError] = useState<string | null>(null);
-
-  const totals = useMemo(() => {
-    return diffs.reduce(
-      (acc, diff) => {
-        acc.additions += diff.additions;
-        acc.deletions += diff.deletions;
-        return acc;
-      },
-      { additions: 0, deletions: 0 }
-    );
-  }, [diffs]);
 
   const conflictCount = useMemo(() => diffs.filter((diff) => diff.conflicted).length, [diffs]);
   const hasConflicts = conflictCount > 0;
@@ -121,36 +107,14 @@ export function ReviewPanel({
   }
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between gap-2 rounded-lg border border-border/40 bg-background/50 px-3 py-2">
-        <div className="flex items-center gap-3 text-xs">
-          <span className="text-muted-foreground">
-            {diffs.length} file{diffs.length !== 1 ? "s" : ""}
-          </span>
-          <span className="flex items-center gap-0.5 text-emerald-600">
-            <Plus size={10} weight="bold" />
-            {totals.additions}
-          </span>
-          <span className="flex items-center gap-0.5 text-red-500">
-            <Minus size={10} weight="bold" />
-            {totals.deletions}
-          </span>
-        </div>
-        <PublishKbButton
-          slug={slug}
-          onComplete={onPublish}
-          disabled={hasConflicts}
-          disabledReason={hasConflicts ? "Resolve conflicts before publishing" : undefined}
-        />
-      </div>
-
+    <div className="space-y-2">
       {hasConflicts ? (
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+        <div className="rounded-md border-[0.5px] border-amber-500/25 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-700 dark:text-amber-300">
           Detected {conflictCount} conflict{conflictCount !== 1 ? "s" : ""}. Resolve the files before publishing.
         </div>
       ) : null}
 
-      <div className="space-y-2">
+      <div className="space-y-3">
         {diffs.map((diff) => {
           const hasDiff = diff.diff.trim().length > 0;
           const diffLineCount = hasDiff ? diff.diff.split("\n").length : 0;
@@ -159,26 +123,13 @@ export function ReviewPanel({
           const isCollapsed = isLong && !isExpanded;
 
           return (
-            <div key={diff.path} className="overflow-hidden rounded-lg border border-border/40 bg-background/50">
-              <div className="flex items-center gap-2 px-3 py-2">
+            <div key={diff.path} className="overflow-hidden rounded-md border-[0.5px] border-border/20 bg-foreground/[0.015]">
+              <div className="flex items-center gap-1.5 px-2 py-1.5">
                 <button
                   type="button"
                   onClick={() => onOpenFile(diff.path)}
                   className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-muted/30"
                 >
-                  <File
-                    size={14}
-                    weight="bold"
-                    className={cn(
-                      diff.conflicted
-                        ? "text-amber-500"
-                        : diff.status === "added"
-                          ? "text-emerald-500"
-                          : diff.status === "deleted"
-                            ? "text-red-500"
-                            : "text-amber-500"
-                    )}
-                  />
                   <span className="flex-1 truncate text-xs font-medium text-foreground" title={diff.path}>
                     {diff.path}
                   </span>
@@ -196,7 +147,7 @@ export function ReviewPanel({
                   <Button
                     size="icon"
                     variant="ghost"
-                    className="h-7 w-7 shrink-0"
+                    className="h-7 w-7 shrink-0 text-muted-foreground/40 hover:text-muted-foreground"
                     onClick={(event) => {
                       event.stopPropagation();
                       openDiscardConfirm(diff.path);
@@ -204,7 +155,7 @@ export function ReviewPanel({
                     aria-label="Discard changes"
                     title="Discard changes"
                   >
-                    <Trash size={14} weight="bold" />
+                    <Trash size={13} weight="regular" />
                   </Button>
                 ) : null}
                 {diff.conflicted ? (
@@ -234,8 +185,8 @@ export function ReviewPanel({
               </div>
               <div
                 className={cn(
-                  "border-t border-border/40 bg-muted/10",
-                  isCollapsed ? "max-h-56 overflow-y-auto" : "max-h-none"
+                  "border-t border-border/20 bg-foreground/[0.015]",
+                  isCollapsed ? "max-h-56 overflow-y-auto scrollbar-custom" : "max-h-none"
                 )}
               >
                 <DiffViewer

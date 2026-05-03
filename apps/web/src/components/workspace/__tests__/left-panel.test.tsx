@@ -277,7 +277,7 @@ describe("LeftPanel", () => {
 
   it("shows only task sessions when the session list is fixed to autopilot", () => {
     renderLeftPanel({
-      workspaceMode: "autopilot",
+      workspaceMode: "chat",
       onWorkspaceModeChange: vi.fn(),
       visibleSections: ["chats"],
       fixedSessionListMode: "tasks",

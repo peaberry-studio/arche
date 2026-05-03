@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { CaretDown, Lightning, Plus, SpinnerGap } from '@phosphor-icons/react'
+import { Lightning, Plus, SpinnerGap } from '@phosphor-icons/react'
 
 import {
   DropdownMenu,
@@ -12,13 +12,14 @@ import {
 } from '@/components/ui/dropdown-menu'
 import type { AutopilotTaskListItem } from '@/lib/autopilot/types'
 import type { WorkspaceSession } from '@/lib/opencode/types'
-import { cn } from '@/lib/utils'
 
 import { SessionsPanel } from './sessions-panel'
 
+export type SessionsSidebarKind = 'chats' | 'tasks'
+
 type WorkspaceSessionsSidebarProps = {
   slug: string
-  kind: 'chats' | 'tasks'
+  kind: SessionsSidebarKind
   sessions: WorkspaceSession[]
   activeSessionId: string | null
   hasMoreSessions: boolean
@@ -31,13 +32,6 @@ type WorkspaceSessionsSidebarProps = {
   onRunTaskComplete?: () => Promise<void> | void
   onSelectSession: (id: string) => void
 }
-
-const ACTION_BUTTON_CLASSES = cn(
-  'inline-flex items-center gap-1 text-[13px] font-medium text-foreground/70 transition-colors',
-  'hover:text-foreground',
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/20',
-  'disabled:cursor-not-allowed disabled:opacity-60'
-)
 
 export function WorkspaceSessionsSidebar({
   slug,
@@ -129,34 +123,33 @@ export function WorkspaceSessionsSidebar({
   )
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border/40 bg-foreground/[0.03] text-card-foreground">
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/30 px-2 py-2">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-none text-card-foreground">
+      <div className="flex shrink-0 items-center justify-between gap-2 pl-1.5 pr-1.5 py-2">
         {kind === 'chats' ? (
           <button
             type="button"
             onClick={onCreateSession}
-            className={ACTION_BUTTON_CLASSES}
+            className="flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium text-foreground/80 transition-colors hover:bg-foreground/5 hover:text-foreground"
             aria-label="New chat"
           >
-            <Plus size={13} weight="bold" className="text-foreground/60" />
-            <span>New chat</span>
+            <Plus size={13} weight="bold" />
+            New chat
           </button>
         ) : (
           <DropdownMenu onOpenChange={(open) => { if (open) void loadTasks() }}>
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                className={ACTION_BUTTON_CLASSES}
-                aria-label="Run"
+                className="flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium text-foreground/80 transition-colors hover:bg-foreground/5 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
+                aria-label="Run task"
                 disabled={Boolean(runningTaskId)}
               >
-              {runningTaskId ? (
-                <SpinnerGap size={13} className="animate-spin text-foreground/60" />
-              ) : (
-                <Lightning size={13} weight="bold" className="text-foreground/60" />
-              )}
-              <span>Run</span>
-              <CaretDown size={11} weight="bold" className="text-foreground/40" />
+                {runningTaskId ? (
+                  <SpinnerGap size={13} className="animate-spin" />
+                ) : (
+                  <Plus size={13} weight="bold" />
+                )}
+                Run task
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-72 p-1.5">

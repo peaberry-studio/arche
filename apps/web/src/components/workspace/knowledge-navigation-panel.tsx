@@ -15,6 +15,8 @@ type OpenKnowledgeFile = {
   path: string
 }
 
+export type KnowledgeNavigationView = 'tree' | 'graph'
+
 type KnowledgeNavigationPanelProps = {
   activeFilePath: string | null
   agentSources: KnowledgeGraphAgentSource[]
@@ -25,6 +27,8 @@ type KnowledgeNavigationPanelProps = {
   openFiles: OpenKnowledgeFile[]
   readFile: (path: string) => Promise<{ content: string; type: 'patch' | 'raw'; hash?: string } | null>
   reloadKey: number
+  view?: KnowledgeNavigationView
+  onViewChange?: (view: KnowledgeNavigationView) => void
 }
 
 export function KnowledgeNavigationPanel({
@@ -37,23 +41,30 @@ export function KnowledgeNavigationPanel({
   openFiles,
   readFile,
   reloadKey,
+  view: controlledView,
+  onViewChange,
 }: KnowledgeNavigationPanelProps) {
-  const [view, setView] = useState<'tree' | 'graph'>('tree')
+  const [internalView, setInternalView] = useState<KnowledgeNavigationView>('tree')
+  const view = controlledView ?? internalView
+  const setView = (next: KnowledgeNavigationView) => {
+    if (onViewChange) onViewChange(next)
+    else setInternalView(next)
+  }
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border/40 bg-foreground/[0.03] text-card-foreground">
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/30 px-2 py-2">
-        <div className="inline-flex h-8 items-center rounded-lg bg-foreground/[0.05] p-0.5 text-[11px]">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-none text-card-foreground">
+      <div className="flex shrink-0 items-center justify-between gap-2 pl-1.5 pr-1.5 py-2">
+        <div className="flex items-center gap-0.5">
           <button
             type="button"
             onClick={() => setView('tree')}
+            aria-pressed={view === 'tree'}
             className={cn(
-              'flex h-7 items-center gap-1.5 rounded-md px-2.5 font-medium transition-colors',
+              'flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium transition-colors',
               view === 'tree'
-                ? 'bg-background text-foreground/85'
+                ? 'text-foreground'
                 : 'text-muted-foreground hover:text-foreground/80'
             )}
-            aria-pressed={view === 'tree'}
           >
             <TreeStructure size={12} weight={view === 'tree' ? 'fill' : 'bold'} />
             Tree
@@ -61,13 +72,13 @@ export function KnowledgeNavigationPanel({
           <button
             type="button"
             onClick={() => setView('graph')}
+            aria-pressed={view === 'graph'}
             className={cn(
-              'flex h-7 items-center gap-1.5 rounded-md px-2.5 font-medium transition-colors',
+              'flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium transition-colors',
               view === 'graph'
-                ? 'bg-background text-foreground/85'
+                ? 'text-foreground'
                 : 'text-muted-foreground hover:text-foreground/80'
             )}
-            aria-pressed={view === 'graph'}
           >
             <Graph size={12} weight={view === 'graph' ? 'fill' : 'bold'} />
             Graph

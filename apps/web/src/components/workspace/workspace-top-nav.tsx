@@ -132,7 +132,7 @@ export function WorkspaceTopNav({
   const activeProviders = providers.filter((provider) => provider.status === 'enabled')
 
   return (
-    <header className="relative z-30 grid h-14 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-3 bg-background/80 px-4 backdrop-blur-md">
+    <header className="relative z-30 grid h-14 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-3 border-b border-border/30 bg-background px-4">
       <div className="flex min-w-0 items-center">
         <span className="type-display truncate text-base font-semibold tracking-tight">Archē</span>
       </div>

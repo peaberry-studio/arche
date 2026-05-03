@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLineLeft, ArrowLineRight, ChatCircle, Circle, Compass, Database, File, Lightning } from "@phosphor-icons/react";
+import { ArrowLineLeft, ArrowLineRight, ChatCircle, Circle, Compass, Database, File, Graph, Lightning, TreeStructure } from "@phosphor-icons/react";
 
 import { ensureInstanceRunningAction } from "@/actions/spawner";
 import type { SyncKbResult } from "@/app/api/instances/[slug]/sync-kb/route";
@@ -38,7 +38,7 @@ import { ChatPanel } from "./chat-panel";
 import { ConfigChangeBanner } from "./config-change-banner";
 import { CosmicLoader } from "./cosmic-loader";
 import { InspectorPanel } from "./inspector-panel";
-import { KnowledgeNavigationPanel } from "./knowledge-navigation-panel";
+import { KnowledgeNavigationPanel, type KnowledgeNavigationView } from "./knowledge-navigation-panel";
 import { WorkspaceSessionsSidebar } from "./workspace-sessions-sidebar";
 import { WorkspaceTopNav } from "./workspace-top-nav";
 import type { WorkspaceMode } from "./workspace-mode-toggle";
@@ -67,7 +67,7 @@ const MIN_RIGHT_PX = 320;
 const MIN_CENTER_PX = 360;
 const DEFAULT_LEFT_RATIO = 0.15;
 const DEFAULT_RIGHT_RATIO = 0.3;
-const PANEL_GAP = 12; // Gap between floating panels in pixels
+const PANEL_GAP = 0; // Gap between floating panels in pixels
 const COLLAPSED_PANEL_PX = 48; // Width of minified (collapsed) panels
 const MOBILE_LAYOUT_BREAKPOINT =
   MIN_LEFT_PX + MIN_RIGHT_PX + MIN_CENTER_PX + 2 * PANEL_GAP + 48;
@@ -233,7 +233,7 @@ export function WorkspaceShell({
   const layoutStorageKey = getWorkspaceLayoutStorageKey(resolvedPersistenceScope);
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(initialWorkspaceMode);
   const isKnowledgeMode = workspaceMode === "knowledge";
-  const isAutopilotMode = workspaceMode === "autopilot";
+  const isTasksMode = workspaceMode === "tasks";
 
   useEffect(() => {
     setWorkspaceMode(initialWorkspaceMode);
@@ -448,6 +448,7 @@ export function WorkspaceShell({
   const [rightWidth, setRightWidth] = useState(initialLayoutState?.rightWidth ?? MIN_RIGHT_PX);
   const [minCenterWidth, setMinCenterWidth] = useState(MIN_CENTER_PX);
   const [leftCollapsed, setLeftCollapsed] = useState(initialLayoutState?.leftCollapsed ?? false);
+  const [knowledgeNavView, setKnowledgeNavView] = useState<KnowledgeNavigationView>("tree");
   const [rightCollapsed, setRightCollapsed] = useState(initialLayoutState?.rightCollapsed ?? false);
   const [hydratedLayoutKey, setHydratedLayoutKey] = useState<string | null>(null);
   const [viewportWidth, setViewportWidth] = useState(() =>
@@ -539,17 +540,7 @@ export function WorkspaceShell({
 
   const handleWorkspaceModeChange = useCallback(
     (nextMode: WorkspaceMode) => {
-      setWorkspaceMode((prevMode) => {
-        // Switching between chat ↔ autopilot deselects the active session,
-        // since chat sessions and autopilot tasks are unrelated workflows.
-        const crossesChatAutopilot =
-          (prevMode === "chat" && nextMode === "autopilot") ||
-          (prevMode === "autopilot" && nextMode === "chat");
-        if (crossesChatAutopilot) {
-          workspace.selectSession(null);
-        }
-        return nextMode;
-      });
+      setWorkspaceMode(nextMode);
 
       if (isCompactLayout) {
         setMobileView("chat");
@@ -560,8 +551,8 @@ export function WorkspaceShell({
       const params = new URLSearchParams(window.location.search);
       if (nextMode === "knowledge") {
         params.set("mode", "knowledge");
-      } else if (nextMode === "autopilot") {
-        params.set("mode", "autopilot");
+      } else if (nextMode === "tasks") {
+        params.set("mode", "tasks");
       } else {
         params.delete("mode");
       }
@@ -569,7 +560,7 @@ export function WorkspaceShell({
       const query = params.toString();
       routerRef.current.replace(query ? `/w/${slug}?${query}` : `/w/${slug}`);
     },
-    [isCompactLayout, slug, workspace]
+    [isCompactLayout, slug]
   );
 
   const focusSearchInput = useCallback(() => {
@@ -1317,8 +1308,8 @@ export function WorkspaceShell({
     );
   };
 
-  const leftPanelModeLabel = isKnowledgeMode ? "knowledge" : isAutopilotMode ? "autopilot" : "chats";
-  const LeftPanelIcon = isKnowledgeMode ? Database : isAutopilotMode ? Lightning : ChatCircle;
+  const leftPanelModeLabel = isKnowledgeMode ? "knowledge" : isTasksMode ? "tasks" : "sessions";
+  const LeftPanelIcon = isKnowledgeMode ? Database : isTasksMode ? Lightning : ChatCircle;
 
   const collapseLeftButton = !isCompactLayout ? (
     <button
@@ -1343,11 +1334,13 @@ export function WorkspaceShell({
       openFiles={openFiles}
       readFile={workspace.readFile}
       reloadKey={knowledgeGraphReloadKey}
+      view={knowledgeNavView}
+      onViewChange={setKnowledgeNavView}
     />
   ) : (
     <WorkspaceSessionsSidebar
       slug={slug}
-      kind={isAutopilotMode ? "tasks" : "chats"}
+      kind={isTasksMode ? "tasks" : "chats"}
       sessions={rootSessions}
       activeSessionId={activeRootSessionId}
       hasMoreSessions={workspace.hasMoreSessions}
@@ -1367,13 +1360,48 @@ export function WorkspaceShell({
       <button
         type="button"
         onClick={handleToggleLeft}
-        className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+        className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
         aria-label={`Expand ${leftPanelModeLabel} panel`}
       >
-        <ArrowLineRight size={16} weight="bold" />
+        <ArrowLineRight size={13} weight="bold" />
       </button>
       <div className="my-2 h-px w-6 bg-border/40" />
-      <LeftPanelIcon size={18} weight="bold" className="text-muted-foreground" />
+      {isKnowledgeMode ? (
+        <>
+          <button
+            type="button"
+            onClick={() => {
+              setKnowledgeNavView("tree");
+              setLeftCollapsed(false);
+            }}
+            className={cn(
+              "flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-foreground/5 hover:text-foreground",
+              knowledgeNavView === "tree" ? "text-foreground" : "text-muted-foreground"
+            )}
+            aria-label="Show tree view"
+            title="Tree"
+          >
+            <TreeStructure size={13} weight={knowledgeNavView === "tree" ? "fill" : "bold"} />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setKnowledgeNavView("graph");
+              setLeftCollapsed(false);
+            }}
+            className={cn(
+              "mt-0.5 flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-foreground/5 hover:text-foreground",
+              knowledgeNavView === "graph" ? "text-foreground" : "text-muted-foreground"
+            )}
+            aria-label="Show graph view"
+            title="Graph"
+          >
+            <Graph size={13} weight={knowledgeNavView === "graph" ? "fill" : "bold"} />
+          </button>
+        </>
+      ) : (
+        <LeftPanelIcon size={14} weight="bold" className="text-muted-foreground" />
+      )}
     </div>
   ) : (
     <div className="h-full min-h-0">
@@ -1482,7 +1510,7 @@ export function WorkspaceShell({
   const isChatActive = mobileView === "chat";
   const isRightPanelActive = mobileView === "right";
   const rightPanelBadgeLabel = workspace.diffs.length > 99 ? "99+" : String(workspace.diffs.length);
-  const mobileLeftLabel = isKnowledgeMode ? "Tree" : isAutopilotMode ? "Autopilot" : "Chats";
+  const mobileLeftLabel = isKnowledgeMode ? "Tree" : isTasksMode ? "Tasks" : "Sessions";
   const mobileCenterLabel = isKnowledgeMode ? "Files" : "Chat";
   const mobileRightLabel = "Review";
   const mobileCenterAriaLabel = isKnowledgeMode ? "Show files" : "Show chat";
@@ -1520,12 +1548,7 @@ export function WorkspaceShell({
           onRestart={configStatus.restart}
         />
       ) : null}
-      <div
-        className={cn(
-          "flex min-h-0 flex-1 flex-col",
-          !isCompactLayout && (leftCollapsed ? "pl-1" : "pl-3")
-        )}
-      >
+      <div className="flex min-h-0 flex-1 flex-col pl-1">
         {isCompactLayout ? (
           <>
             <div className="relative min-h-0 flex-1">
@@ -1640,16 +1663,9 @@ export function WorkspaceShell({
             </nav>
           </>
         ) : (
-          <div ref={containerRef} className="relative z-10 flex min-h-0 flex-1 gap-3">
+          <div ref={containerRef} className="relative z-10 flex min-h-0 flex-1">
             <div
-              className={cn(
-                "shrink-0 overflow-hidden",
-                leftCollapsed
-                  ? "pb-1 pt-1"
-                  : isKnowledgeMode
-                    ? "pb-4 pt-2"
-                    : "pb-3 pt-2"
-              )}
+              className="shrink-0 overflow-hidden border-r border-border/30"
               style={{
                 width: leftCollapsed ? COLLAPSED_PANEL_PX : leftWidth,
                 minWidth: leftCollapsed ? COLLAPSED_PANEL_PX : MIN_LEFT_PX,
@@ -1678,7 +1694,7 @@ export function WorkspaceShell({
               <div
                 className={cn(
                   "h-full w-full min-w-0 overflow-hidden",
-                  isKnowledgeMode && "pb-4 pt-2"
+                  hasRightPanel && "border-r border-border/30"
                 )}
               >
                 {centerPanelElement}
@@ -1698,10 +1714,7 @@ export function WorkspaceShell({
 
             {hasRightPanel ? (
               <div
-                className={cn(
-                  "shrink-0 overflow-hidden",
-                  rightCollapsed ? "pb-3 pr-3 pt-1" : "box-border pb-4 pl-1 pr-4 pt-2"
-                )}
+                className="shrink-0 overflow-hidden box-border"
                 style={{
                   width: rightCollapsed ? COLLAPSED_PANEL_PX : rightWidth,
                   minWidth: rightCollapsed ? COLLAPSED_PANEL_PX : MIN_RIGHT_PX,

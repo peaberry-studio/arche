@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 
 import { MarkdownPreview } from "./markdown-preview";
 import { MarkdownEditor } from "./markdown-editor";
+import { PublishKbButton } from "./publish-kb-button";
 import { ReviewPanel } from "./review-panel";
 
 type WorkspaceFile = {
@@ -91,10 +92,10 @@ function MinifiedInspectorPanel({
             <button
               type="button"
               onClick={onToggleRight}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
               aria-label="Expand panel"
             >
-              <ArrowLineLeft size={16} weight="bold" />
+              <ArrowLineLeft size={13} weight="bold" />
             </button>
           </TooltipTrigger>
           <TooltipContent side="left">Expand panel</TooltipContent>
@@ -108,10 +109,10 @@ function MinifiedInspectorPanel({
               <button
                 type="button"
                 onClick={() => { onToggleRight(); onTabChange("preview"); }}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
                 aria-label="Files"
               >
-                <File size={16} weight="bold" />
+                <File size={13} weight="bold" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="left">Files</TooltipContent>
@@ -124,10 +125,10 @@ function MinifiedInspectorPanel({
               <button
                 type="button"
                 onClick={() => { onToggleRight(); onTabChange("review"); }}
-                className="relative flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+                className="relative flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
                 aria-label="Review"
               >
-                <GitDiff size={16} weight="bold" />
+                <GitDiff size={13} weight="bold" />
                 {pendingDiffsForBadge > 0 && (
                   <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
                     {badgeLabel}
@@ -324,11 +325,24 @@ function ExpandedInspectorPanel({
     <TooltipProvider delayDuration={200}>
       <div className="flex h-full flex-col pr-0 text-card-foreground">
       {/* Main container — header now lives inside */}
-      <div className="flex flex-1 min-h-0 flex-col overflow-hidden rounded-xl border border-border/40 bg-foreground/[0.03]">
+      <div className="flex flex-1 min-h-0 flex-col overflow-hidden rounded-none">
 
-      {/* In-container header (combined: tabs; review: label + collapse) */}
+      {/* In-container header (combined: tabs; review: collapse + label + publish) */}
       {showHeader ? (
-        <div className="flex shrink-0 items-center gap-2 border-b border-border/30 px-2 py-2">
+        <div className="flex shrink-0 items-center gap-2 px-2 py-2">
+          {/* Collapse panel — placed on the side opposite to where the panel docks */}
+          {!hideCollapseButton && (
+            <button
+              type="button"
+              onClick={onToggleRight}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/80 transition-colors hover:bg-foreground/5 hover:text-foreground"
+              aria-label="Collapse panel"
+              title="Collapse panel"
+            >
+              <ArrowLineRight size={13} weight="bold" />
+            </button>
+          )}
+
           {workspaceAgentEnabled && panelMode === "combined" ? (
             <div className="flex flex-1 justify-start">
               <div className="inline-flex h-8 items-center rounded-lg bg-foreground/[0.05] p-0.5 text-[11px]">
@@ -378,7 +392,7 @@ function ExpandedInspectorPanel({
               </div>
             </div>
           ) : (
-            <div className="flex h-8 min-w-0 flex-1 items-center pl-1">
+            <div className="flex h-8 min-w-0 flex-1 items-center">
               <p className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                 <span>{panelMode === "review" ? "Review" : "Inspect"}</span>
                 {panelMode === "review" && pendingDiffs > 0 ? (
@@ -390,18 +404,19 @@ function ExpandedInspectorPanel({
             </div>
           )}
 
-          {/* Collapse panel */}
-          {!hideCollapseButton && (
-            <button
-              type="button"
-              onClick={onToggleRight}
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/80 transition-colors hover:bg-foreground/5 hover:text-foreground"
-              aria-label="Collapse panel"
-              title="Collapse panel"
-            >
-              <ArrowLineRight size={13} weight="bold" />
-            </button>
-          )}
+          {/* Publish action — review mode only */}
+          {panelMode === "review" && workspaceAgentEnabled ? (
+            <PublishKbButton
+              slug={slug}
+              onComplete={onPublish}
+              disabled={diffs.some((diff) => diff.conflicted)}
+              disabledReason={
+                diffs.some((diff) => diff.conflicted)
+                  ? "Resolve conflicts before publishing"
+                  : undefined
+              }
+            />
+          ) : null}
         </div>
       ) : null}
       {/* File tabs row — only in Files mode with open files */}
@@ -478,13 +493,6 @@ function ExpandedInspectorPanel({
         </div>
       )}
 
-      {/* Divider between tabs and content */}
-      {effectiveActiveTab === "preview" && openFiles.length > 0 ? (
-        <div className="px-3 pt-2 pb-1">
-          <div className="h-px bg-border/40" />
-        </div>
-      ) : null}
-
       {/* Content area */}
       <div className="relative flex-1 min-h-0">
         <div
@@ -520,7 +528,6 @@ function ExpandedInspectorPanel({
                           <span>{activeFile.updatedAt}</span>
                         </div>
                       </div>
-                      <div className="border-t border-white/5" />
                       <div className="px-6 py-6">
                         <MarkdownPreview content={activeFile.content} />
                       </div>
@@ -542,7 +549,7 @@ function ExpandedInspectorPanel({
         {workspaceAgentEnabled && (
           <div
             className={cn(
-              "absolute inset-0 overflow-y-auto scrollbar-none p-5",
+              "absolute inset-0 overflow-y-auto scrollbar-custom px-3 pb-3 pt-1",
               effectiveActiveTab !== "review" && "hidden"
             )}
           >
@@ -553,7 +560,6 @@ function ExpandedInspectorPanel({
               error={diffsError ?? undefined}
               onOpenFile={onOpenFile}
               onDiscardFileChanges={onDiscardFileChanges}
-              onPublish={onPublish}
               onResolveConflict={onResolveConflict}
             />
           </div>

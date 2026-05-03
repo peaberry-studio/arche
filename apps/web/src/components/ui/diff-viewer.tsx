@@ -191,7 +191,7 @@ export function DiffViewer({
 
   return (
     <div className={cn("text-[11px] font-mono leading-relaxed", className)}>
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto scrollbar-custom">
         <div className="min-w-full">
           {visibleLines.map((line, index) => {
             const content =
@@ -234,7 +234,7 @@ export function DiffViewer({
       </div>
 
       {collapsed && hiddenCount > 0 ? (
-        <div className="flex items-center justify-between gap-2 border-t border-border/40 bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
+        <div className="flex items-center justify-between gap-2 border-t border-border/20 bg-foreground/[0.02] px-2.5 py-1.5 text-[11px] text-muted-foreground">
           <span>… {hiddenCount} hidden lines</span>
           {onExpand ? (
             <Button

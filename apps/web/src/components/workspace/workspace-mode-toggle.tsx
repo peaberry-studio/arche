@@ -1,11 +1,18 @@
 'use client'
 
-import type { ComponentType } from 'react'
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ComponentType,
+  type RefObject,
+} from 'react'
 import { ChatCircle, Database, Lightning } from '@phosphor-icons/react'
 
 import { cn } from '@/lib/utils'
 
-export type WorkspaceMode = 'chat' | 'knowledge' | 'autopilot'
+export type WorkspaceMode = 'chat' | 'tasks' | 'knowledge'
 
 type WorkspaceModeToggleProps = {
   mode: WorkspaceMode
@@ -17,25 +24,30 @@ type WorkspaceModeToggleProps = {
 type ModeButtonProps = {
   active: boolean
   badgeCount?: number
+  buttonRef: RefObject<HTMLButtonElement | null>
   icon: ComponentType<{ size?: number; weight?: 'regular' | 'bold' | 'fill' }>
   label: string
   onClick: () => void
 }
 
-function ModeButton({ active, badgeCount, icon: Icon, label, onClick }: ModeButtonProps) {
+const useIsomorphicLayoutEffect =
+  typeof window !== 'undefined' ? useLayoutEffect : useEffect
+
+function ModeButton({ active, badgeCount, buttonRef, icon: Icon, label, onClick }: ModeButtonProps) {
   const showBadge = typeof badgeCount === 'number' && badgeCount > 0
   const badgeLabel = badgeCount && badgeCount > 99 ? '99+' : String(badgeCount ?? 0)
 
   return (
     <button
+      ref={buttonRef}
       type="button"
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        'relative flex h-7 items-center gap-1.5 rounded-full px-4 text-[12px] font-medium transition-colors',
+        'relative z-10 flex h-7 items-center gap-1.5 rounded-full px-4 text-[12px] font-medium transition-colors duration-200',
         active
-          ? 'bg-primary text-primary-foreground shadow-sm'
-          : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'
+          ? 'text-primary-foreground'
+          : 'text-muted-foreground hover:text-foreground'
       )}
     >
       <Icon size={13} weight={active ? 'fill' : 'bold'} />
@@ -63,31 +75,76 @@ export function WorkspaceModeToggle({
   knowledgePendingCount = 0,
   className,
 }: WorkspaceModeToggleProps) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const chatRef = useRef<HTMLButtonElement>(null)
+  const tasksRef = useRef<HTMLButtonElement>(null)
+  const knowledgeRef = useRef<HTMLButtonElement>(null)
+  const refByMode: Record<WorkspaceMode, RefObject<HTMLButtonElement | null>> = {
+    chat: chatRef,
+    tasks: tasksRef,
+    knowledge: knowledgeRef,
+  }
+
+  const [indicator, setIndicator] = useState<{ left: number; width: number } | null>(null)
+  const [hasAnimated, setHasAnimated] = useState(false)
+
+  useIsomorphicLayoutEffect(() => {
+    const button = refByMode[mode].current
+    const container = containerRef.current
+    if (!button || !container) return
+
+    const containerRect = container.getBoundingClientRect()
+    const buttonRect = button.getBoundingClientRect()
+    setIndicator({
+      left: buttonRect.left - containerRect.left,
+      width: buttonRect.width,
+    })
+  }, [mode])
+
+  useEffect(() => {
+    if (!indicator || hasAnimated) return
+    const frame = requestAnimationFrame(() => setHasAnimated(true))
+    return () => cancelAnimationFrame(frame)
+  }, [indicator, hasAnimated])
+
   return (
     <div
+      ref={containerRef}
       className={cn(
-        'inline-flex h-9 items-center gap-0.5 rounded-full border border-border/40 bg-background/70 p-0.5 shadow-sm backdrop-blur-md',
+        'relative inline-flex h-9 items-center gap-0.5 rounded-full border border-border/30 bg-black/[0.12] px-[3px] py-1 dark:bg-black/30',
         className
       )}
     >
+      <span
+        aria-hidden
+        className={cn(
+          'pointer-events-none absolute top-1/2 h-7 -translate-y-1/2 rounded-full bg-primary shadow-sm',
+          indicator ? 'opacity-100' : 'opacity-0',
+          hasAnimated && 'transition-[left,width] duration-300 ease-out'
+        )}
+        style={indicator ? { left: indicator.left, width: indicator.width } : undefined}
+      />
       <ModeButton
         active={mode === 'chat'}
+        buttonRef={chatRef}
         icon={ChatCircle}
-        label="Chat"
+        label="Sessions"
         onClick={() => onModeChange('chat')}
+      />
+      <ModeButton
+        active={mode === 'tasks'}
+        buttonRef={tasksRef}
+        icon={Lightning}
+        label="Tasks"
+        onClick={() => onModeChange('tasks')}
       />
       <ModeButton
         active={mode === 'knowledge'}
         badgeCount={knowledgePendingCount}
+        buttonRef={knowledgeRef}
         icon={Database}
         label="Knowledge"
         onClick={() => onModeChange('knowledge')}
-      />
-      <ModeButton
-        active={mode === 'autopilot'}
-        icon={Lightning}
-        label="Autopilot"
-        onClick={() => onModeChange('autopilot')}
       />
     </div>
   )
