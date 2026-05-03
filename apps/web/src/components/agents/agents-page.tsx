@@ -1,12 +1,12 @@
 'use client'
 
-import { SpinnerGap } from '@phosphor-icons/react'
+import { Robot, SpinnerGap } from '@phosphor-icons/react'
 
 import { AgentCard } from '@/components/agents/agent-card'
+import { DashboardEmptyState } from '@/components/dashboard/dashboard-empty-state'
 import { useAgentsCatalog } from '@/hooks/use-agents-catalog'
 
 type AgentsPageClientProps = {
-  emptyMessage?: string
   includePrimary?: boolean
   slug: string
   isAdmin: boolean
@@ -18,7 +18,6 @@ export function AgentsPageClient({
   isAdmin,
   includePrimary = true,
   loadingLabel = 'Loading agents...',
-  emptyMessage = 'No agents configured yet.',
 }: AgentsPageClientProps) {
   const { agents, isLoading, loadError } = useAgentsCatalog(slug)
 
@@ -41,9 +40,14 @@ export function AgentsPageClient({
       )}
 
       {!isLoading && visibleAgents.length === 0 && !loadError ? (
-        <div className="rounded-xl border border-dashed border-border/60 bg-card/40 p-8 text-center text-sm text-muted-foreground">
-          {emptyMessage}
-        </div>
+        <DashboardEmptyState
+          icon={Robot}
+          title="No agents configured yet"
+          description="Agents are personas with their own model, system prompt, and skills. Create one to handle a specific kind of work."
+          primaryAction={
+            isAdmin ? { label: 'Create your first agent', href: `/u/${slug}/agents/new` } : undefined
+          }
+        />
       ) : null}
 
       <div className="grid gap-4 md:grid-cols-2">

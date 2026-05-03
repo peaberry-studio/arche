@@ -1,5 +1,8 @@
+import { Plugs } from '@phosphor-icons/react'
+
 import { ConnectorCard } from '@/components/connectors/connector-card'
 import type { ConnectorListItem, ConnectorTestState } from '@/components/connectors/types'
+import { DashboardEmptyState } from '@/components/dashboard/dashboard-empty-state'
 import { Button } from '@/components/ui/button'
 
 type ConnectorListProps = {
@@ -60,18 +63,12 @@ export function ConnectorList({
 
   if (connectors.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-border/60 bg-card/40 p-8 text-center">
-        <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-muted/70 text-lg">
-          +
-        </div>
-        <p className="text-base font-medium">No connectors configured</p>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Add integrations to connect external services to your workspace.
-        </p>
-        <div className="mt-5">
-          <Button onClick={onCreateFirst}>Add your first connector</Button>
-        </div>
-      </div>
+      <DashboardEmptyState
+        icon={Plugs}
+        title="No connectors configured"
+        description="Connectors link external services like Gmail, Slack, or Google Drive to your workspace so agents can read and act on real data."
+        primaryAction={{ label: 'Add your first connector', onClick: onCreateFirst }}
+      />
     )
   }
 

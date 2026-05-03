@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
-import { SpinnerGap } from '@phosphor-icons/react'
+import { Lightning, SpinnerGap } from '@phosphor-icons/react'
 
+import { DashboardEmptyState } from '@/components/dashboard/dashboard-empty-state'
 import { ImportSkillDialog } from '@/components/skills/import-skill-dialog'
 import { SkillsList } from '@/components/skills/skills-list'
 import { Button } from '@/components/ui/button'
@@ -66,12 +67,26 @@ export function SkillsPageClient({ slug, isAdmin }: SkillsPageClientProps) {
       ) : null}
 
       {!isLoading && !loadError ? (
-        <SkillsList
-          slug={slug}
-          skills={skills}
-          isAdmin={isAdmin}
-          emptyMessage="No skills configured yet."
-        />
+        skills.length === 0 ? (
+          <DashboardEmptyState
+            icon={Lightning}
+            title="No skills configured yet"
+            description="Skills are reusable instructions and resources you can attach to agents. Create one from scratch or import a bundle to get started."
+            primaryAction={
+              isAdmin ? { label: 'Create your first skill', href: `/u/${slug}/skills/new` } : undefined
+            }
+            secondaryAction={
+              isAdmin ? { label: 'Import skill', onClick: () => setIsImportDialogOpen(true) } : undefined
+            }
+          />
+        ) : (
+          <SkillsList
+            slug={slug}
+            skills={skills}
+            isAdmin={isAdmin}
+            emptyMessage="No skills configured yet."
+          />
+        )
       ) : null}
 
       <ImportSkillDialog

@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { ClockCountdown, Lightning, Pause, Play, Robot, SpinnerGap, Timer } from '@phosphor-icons/react'
 
+import { DashboardEmptyState } from '@/components/dashboard/dashboard-empty-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -33,7 +33,6 @@ function getRunBadgeLabel(task: AutopilotTaskListItem): string {
 }
 
 export function AutopilotPage({ slug }: AutopilotPageProps) {
-  const router = useRouter()
   const [tasks, setTasks] = useState<AutopilotTaskListItem[]>([])
   const [actionError, setActionError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -143,7 +142,7 @@ export function AutopilotPage({ slug }: AutopilotPageProps) {
           </p>
         </div>
 
-        <Button asChild>
+        <Button variant="outline" asChild>
           <Link href={`/u/${slug}/autopilot/new`}>Create task</Link>
         </Button>
       </div>
@@ -181,19 +180,12 @@ export function AutopilotPage({ slug }: AutopilotPageProps) {
       ) : null}
 
       {!isLoading && !loadError && sortedTasks.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border/70 bg-card/30 px-6 py-16 text-center">
-          <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
-            <Robot size={28} weight="duotone" className="text-primary" />
-          </div>
-          <h2 className="text-lg font-semibold text-foreground">No autopilot tasks yet</h2>
-          <p className="mt-2 max-w-md text-sm text-muted-foreground">
-            Autopilot runs recurring prompts in the background on a cron schedule.
-            Use it to automate daily summaries, periodic checks, scheduled reports, and more.
-          </p>
-          <Button className="mt-6" onClick={() => router.push(`/u/${slug}/autopilot/new`)}>
-            Create your first task
-          </Button>
-        </div>
+        <DashboardEmptyState
+          icon={Robot}
+          title="No autopilot tasks yet"
+          description="Autopilot runs recurring prompts in the background on a cron schedule. Use it to automate daily summaries, periodic checks, scheduled reports, and more."
+          primaryAction={{ label: 'Create your first task', href: `/u/${slug}/autopilot/new` }}
+        />
       ) : null}
 
       {!isLoading && !loadError && sortedTasks.length > 0 ? (
