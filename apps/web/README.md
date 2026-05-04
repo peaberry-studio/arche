@@ -108,8 +108,8 @@ pnpm coverage:refresh
 What each command does:
 
 - `pnpm coverage`: overall `Vitest` line coverage for the web app
-- `pnpm coverage:unit`: line coverage produced only by the unit-test layer
-- `pnpm coverage:integration`: line coverage produced only by the integration-test layer
+- `pnpm coverage:unit`: line coverage produced by the unit-test layer, excluding API routes and Next.js runtime entrypoints so it focuses on reusable logic, components, and hooks
+- `pnpm coverage:integration`: API route line coverage produced by the integration-test layer
 - `pnpm coverage:refresh`: regenerates all three coverage reports and updates the SVG badges in `.github/badges/`
 
 The SVG badges are refreshed automatically on every `push` to `main` by `.github/workflows/coverage-badges.yml`.
