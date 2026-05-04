@@ -49,25 +49,27 @@ test('explores Knowledge files through quickview, graph, and table controls', as
 
   await expect(page.getByText(`E2E_FILE_READY: ${planPath}`, { exact: true })).toBeVisible({ timeout: 30_000 })
 
-  await page.getByRole('button', { name: 'Open' }).first().click()
+  await page.getByRole('button', { name: 'Open', exact: true }).first().click()
   await expect(page.getByText('Quickview')).toBeVisible()
 
-  await page.getByRole('button', { name: 'Edit file' }).click()
-  await expect(page.getByRole('button', { name: 'Knowledge' })).toHaveAttribute('aria-pressed', 'true')
-  await expect(page.getByText('E2E Plan')).toBeVisible()
+  await page.getByRole('button', { name: 'Edit file', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Knowledge', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('.workspace-tiptap').getByRole('heading', { name: 'E2E Plan' })).toBeVisible()
 
-  await page.getByRole('button', { name: 'Graph' }).click()
+  await page.getByRole('button', { name: 'Graph', exact: true }).click()
   await expect(page.getByLabel('Knowledge graph')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: researchPath }).press('Enter')
-  await expect(page.getByText('E2E Research')).toBeVisible()
+  await page.getByRole('button', { name: researchPath, exact: true }).press('Enter')
+  await expect(page.locator('.workspace-tiptap').getByRole('heading', { name: 'E2E Research' })).toBeVisible()
 
-  await page.getByRole('button', { name: 'Tree' }).click()
-  await page.getByRole('button', { name: /e2e-plan\.md/i }).click()
-  await expect(page.getByText('Metric')).toBeVisible()
+  await page.getByRole('button', { name: 'Tree', exact: true }).click()
+  await page.getByRole('button', { name: 'e2e-plan.md', exact: true }).first().click()
 
   const headerCell = page.locator('.workspace-tiptap table th').filter({ hasText: 'Metric' }).first()
-  const rows = page.locator('.workspace-tiptap table tr')
+  const table = headerCell.locator('xpath=ancestor::table')
+  const rows = table.locator('tr')
   const firstRowCells = rows.first().locator('th,td')
+
+  await expect(headerCell).toBeVisible()
 
   await headerCell.hover()
   await expect(page.getByRole('button', { name: 'Add row' })).toBeVisible()
