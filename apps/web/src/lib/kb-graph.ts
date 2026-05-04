@@ -65,9 +65,18 @@ function agentNodeId(id: string): string {
 }
 
 function uniqueNormalizedPaths(paths: string[]): string[] {
-  return Array.from(new Set(paths.map(normalizePath).filter(Boolean))).sort((left, right) =>
-    left.localeCompare(right)
+  return Array.from(new Set(paths.map(normalizePath).filter(Boolean))).sort()
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function hasRawPathReference(content: string, path: string): boolean {
+  const pattern = new RegExp(
+    `(^|[^A-Za-z0-9_./-])${escapeRegExp(path)}(?=$|[^A-Za-z0-9_./-])`
   )
+  return pattern.test(content)
 }
 
 function collectWikilinkReferences(content: string, availablePaths: string[]): string[] {
@@ -83,7 +92,7 @@ function collectWikilinkReferences(content: string, availablePaths: string[]): s
 
 function collectRawPathReferences(content: string, availablePaths: string[]): string[] {
   const normalizedContent = content.replace(/\\/g, '/')
-  return availablePaths.filter((path) => normalizedContent.includes(path))
+  return availablePaths.filter((path) => hasRawPathReference(normalizedContent, path))
 }
 
 const MARKDOWN_LINK_REGEX = /\[[^\]\n]*\]\(([^)\s]+)\)/g

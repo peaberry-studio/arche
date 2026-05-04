@@ -79,4 +79,71 @@ describe('buildKnowledgeGraph', () => {
       target: 'file:docs/plan.md',
     })
   })
+
+  it('deduplicates duplicate file references', () => {
+    const graph = buildKnowledgeGraph({
+      files: [
+        { path: 'docs/a.md', content: 'See [[docs/b.md]] and [B](docs/b.md).' },
+        { path: 'docs/b.md', content: '' },
+      ],
+    })
+
+    expect(graph.edges).toEqual([
+      {
+        id: 'file-link:file:docs/a.md->file:docs/b.md',
+        kind: 'file-link',
+        source: 'file:docs/a.md',
+        target: 'file:docs/b.md',
+      },
+    ])
+  })
+
+  it('does not create self-reference edges', () => {
+    const graph = buildKnowledgeGraph({
+      files: [{ path: 'docs/a.md', content: 'See [[docs/a.md]] and [self](docs/a.md#intro).' }],
+    })
+
+    expect(graph.edges).toEqual([])
+  })
+
+  it('strips anchors from markdown links', () => {
+    const graph = buildKnowledgeGraph({
+      files: [
+        { path: 'docs/a.md', content: 'See [the plan](docs/plan.md#section).' },
+        { path: 'docs/plan.md', content: '' },
+      ],
+    })
+
+    expect(graph.edges).toContainEqual({
+      id: 'file-link:file:docs/a.md->file:docs/plan.md',
+      kind: 'file-link',
+      source: 'file:docs/a.md',
+      target: 'file:docs/plan.md',
+    })
+  })
+
+  it('does not match raw file paths as substrings', () => {
+    const graph = buildKnowledgeGraph({
+      agents: [
+        {
+          id: 'assistant',
+          displayName: 'Assistant',
+          prompt: 'Use data.md and para.md for context.',
+        },
+      ],
+      files: [
+        { path: 'a.md', content: '' },
+        { path: 'data.md', content: '' },
+      ],
+    })
+
+    expect(graph.edges).toEqual([
+      {
+        id: 'agent-reference:agent:assistant->file:data.md',
+        kind: 'agent-reference',
+        source: 'agent:assistant',
+        target: 'file:data.md',
+      },
+    ])
+  })
 })

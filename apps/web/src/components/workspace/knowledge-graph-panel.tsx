@@ -87,6 +87,7 @@ export function KnowledgeGraphPanel({
   reloadKey,
 }: KnowledgeGraphPanelProps) {
   const markdownPaths = useMemo(() => flattenMarkdownFilePaths(fileNodes), [fileNodes])
+  const hasMarkdownFiles = markdownPaths.length > 0
   const [contentByPath, setContentByPath] = useState<Record<string, string>>({})
   const [isLoading, setIsLoading] = useState(false)
 
@@ -271,7 +272,7 @@ export function KnowledgeGraphPanel({
     return () => {
       select(svgEl).on('.zoom', null)
     }
-  }, [])
+  }, [hasMarkdownFiles])
 
   useEffect(() => {
     const simulation = simulationRef.current
@@ -332,7 +333,7 @@ export function KnowledgeGraphPanel({
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden text-card-foreground">
       <div ref={containerRef} className="relative min-h-0 flex-1 overflow-hidden">
-        {markdownPaths.length === 0 ? (
+        {!hasMarkdownFiles ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
             <FileText size={34} className="text-muted-foreground/30" />
             <p className="max-w-[260px] text-sm text-muted-foreground">
@@ -402,8 +403,8 @@ export function KnowledgeGraphPanel({
                         else nodeElsRef.current.delete(node.id)
                       }}
                       data-node="true"
-                      role={isFile ? 'button' : undefined}
-                      aria-label={isFile ? node.path : undefined}
+                      role={isFile ? 'button' : 'img'}
+                      aria-label={isFile ? node.path : node.label}
                       tabIndex={isFile ? 0 : undefined}
                       onMouseEnter={() => setHoverNodeId(node.id)}
                       onMouseLeave={() =>
@@ -473,7 +474,7 @@ export function KnowledgeGraphPanel({
           </div>
         ) : null}
 
-        {markdownPaths.length > 0 ? (
+        {hasMarkdownFiles ? (
           <div className="pointer-events-none absolute bottom-3 left-1/2 max-w-[calc(100%-1.5rem)] -translate-x-1/2">
             <div className="flex items-center gap-2.5 whitespace-nowrap rounded-full border border-border/40 bg-background/85 px-3 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur">
               <span className="flex items-center gap-1.5">

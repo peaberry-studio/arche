@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { Graph, TreeStructure } from '@phosphor-icons/react'
 
 import { cn } from '@/lib/utils'
@@ -27,8 +27,8 @@ type KnowledgeNavigationPanelProps = {
   openFiles: OpenKnowledgeFile[]
   readFile: (path: string) => Promise<{ content: string; type: 'patch' | 'raw'; hash?: string } | null>
   reloadKey: number
-  view?: KnowledgeNavigationView
-  onViewChange?: (view: KnowledgeNavigationView) => void
+  view: KnowledgeNavigationView
+  onViewChange: (view: KnowledgeNavigationView) => void
 }
 
 export function KnowledgeNavigationPanel({
@@ -41,14 +41,11 @@ export function KnowledgeNavigationPanel({
   openFiles,
   readFile,
   reloadKey,
-  view: controlledView,
+  view,
   onViewChange,
 }: KnowledgeNavigationPanelProps) {
-  const [internalView, setInternalView] = useState<KnowledgeNavigationView>('tree')
-  const view = controlledView ?? internalView
   const setView = (next: KnowledgeNavigationView) => {
-    if (onViewChange) onViewChange(next)
-    else setInternalView(next)
+    onViewChange(next)
   }
 
   return (

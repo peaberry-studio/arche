@@ -1,9 +1,13 @@
 /** @vitest-environment jsdom */
 
+import { useState } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { KnowledgeNavigationPanel } from "@/components/workspace/knowledge-navigation-panel";
+import {
+  KnowledgeNavigationPanel,
+  type KnowledgeNavigationView,
+} from "@/components/workspace/knowledge-navigation-panel";
 
 vi.mock("@/components/workspace/knowledge-graph-panel", () => ({
   KnowledgeGraphPanel: ({ onOpenFile }: { onOpenFile: (path: string) => void }) => (
@@ -13,6 +17,28 @@ vi.mock("@/components/workspace/knowledge-graph-panel", () => ({
   ),
 }));
 
+function KnowledgeNavigationPanelHarness({
+  onOpenFile,
+}: {
+  onOpenFile: (path: string) => void
+}) {
+  const [view, setView] = useState<KnowledgeNavigationView>("tree");
+
+  return (
+    <KnowledgeNavigationPanel
+      activeFilePath={null}
+      agentSources={[]}
+      fileNodes={[{ id: "docs/plan.md", name: "plan.md", path: "docs/plan.md", type: "file" }]}
+      onOpenFile={onOpenFile}
+      openFiles={[]}
+      readFile={vi.fn()}
+      reloadKey={0}
+      view={view}
+      onViewChange={setView}
+    />
+  );
+}
+
 describe("KnowledgeNavigationPanel", () => {
   afterEach(() => {
     cleanup();
@@ -21,17 +47,7 @@ describe("KnowledgeNavigationPanel", () => {
   it("opens files from both tree and graph views", () => {
     const onOpenFile = vi.fn();
 
-    render(
-      <KnowledgeNavigationPanel
-        activeFilePath={null}
-        agentSources={[]}
-        fileNodes={[{ id: "docs/plan.md", name: "plan.md", path: "docs/plan.md", type: "file" }]}
-        onOpenFile={onOpenFile}
-        openFiles={[]}
-        readFile={vi.fn()}
-        reloadKey={0}
-      />
-    );
+    render(<KnowledgeNavigationPanelHarness onOpenFile={onOpenFile} />);
 
     fireEvent.click(screen.getByRole("button", { name: /plan.md/i }));
     fireEvent.click(screen.getByRole("button", { name: "Graph" }));
