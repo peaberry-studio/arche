@@ -116,4 +116,47 @@ describe('SlackIntegrationSettingsPage', () => {
       'REDIRECT:/u/alice/settings?section=integrations',
     )
   })
+
+  it('redirects desktop users back to settings integrations', async () => {
+    isDesktopMock.mockReturnValue(true)
+
+    const Page = (await import('./page')).default
+
+    await expect(Page({ params: Promise.resolve({ slug: 'alice' }) })).rejects.toThrow(
+      'REDIRECT:/u/alice/settings?section=integrations',
+    )
+  })
+
+  it('redirects unauthenticated users to login', async () => {
+    getSessionMock.mockResolvedValue(null)
+
+    const Page = (await import('./page')).default
+
+    await expect(Page({ params: Promise.resolve({ slug: 'alice' }) })).rejects.toThrow('REDIRECT:/login')
+  })
+
+  it('redirects when 2FA status cannot be loaded', async () => {
+    getRuntimeCapabilitiesMock.mockReturnValue({
+      slackIntegration: true,
+      twoFactor: true,
+    })
+    get2FAStatusMock.mockResolvedValue({ ok: false, error: 'unauthorized' })
+
+    const Page = (await import('./page')).default
+
+    await expect(Page({ params: Promise.resolve({ slug: 'alice' }) })).rejects.toThrow('REDIRECT:/login')
+  })
+
+  it('redirects when Slack integration capability is disabled', async () => {
+    getRuntimeCapabilitiesMock.mockReturnValue({
+      slackIntegration: false,
+      twoFactor: false,
+    })
+
+    const Page = (await import('./page')).default
+
+    await expect(Page({ params: Promise.resolve({ slug: 'alice' }) })).rejects.toThrow(
+      'REDIRECT:/u/alice/settings?section=integrations',
+    )
+  })
 })

@@ -1,12 +1,19 @@
 /** @vitest-environment jsdom */
 
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import ConnectorsPage from '@/app/u/[slug]/connectors/page'
 
+const redirectMock = vi.hoisted(() => vi.fn((path: string) => {
+  throw new Error(`REDIRECT:${path}`)
+}))
+const getCurrentDesktopVaultMock = vi.hoisted(() => vi.fn())
+const getDesktopWorkspaceHrefMock = vi.hoisted(() => vi.fn())
+const isDesktopMock = vi.hoisted(() => vi.fn())
+
 vi.mock('next/navigation', () => ({
-  redirect: vi.fn(),
+  redirect: (path: string) => redirectMock(path),
 }))
 
 vi.mock('@/components/connectors/connectors-page-client', () => ({
@@ -16,19 +23,23 @@ vi.mock('@/components/connectors/connectors-page-client', () => ({
 }))
 
 vi.mock('@/lib/runtime/desktop/current-vault', () => ({
-  getCurrentDesktopVault: vi.fn(),
-  getDesktopWorkspaceHref: vi.fn().mockReturnValue('/desktop/connectors'),
+  getCurrentDesktopVault: () => getCurrentDesktopVaultMock(),
+  getDesktopWorkspaceHref: (...args: unknown[]) => getDesktopWorkspaceHrefMock(...args),
 }))
 
 vi.mock('@/lib/runtime/mode', () => ({
-  isDesktop: vi.fn(),
+  isDesktop: () => isDesktopMock(),
 }))
 
 describe('ConnectorsPage', () => {
-  it('renders ConnectorsPageClient when not in desktop mode', async () => {
-    const { isDesktop } = await import('@/lib/runtime/mode')
-    vi.mocked(isDesktop).mockReturnValue(false)
+  beforeEach(() => {
+    vi.clearAllMocks()
+    isDesktopMock.mockReturnValue(false)
+    getCurrentDesktopVaultMock.mockReturnValue(null)
+    getDesktopWorkspaceHrefMock.mockReturnValue('/desktop/connectors')
+  })
 
+  it('renders ConnectorsPageClient when not in desktop mode', async () => {
     const page = await ConnectorsPage({ params: Promise.resolve({ slug: 'alice' }) })
     render(page)
 
@@ -36,16 +47,20 @@ describe('ConnectorsPage', () => {
   })
 
   it('redirects to desktop workspace href in desktop mode', async () => {
-    const { isDesktop } = await import('@/lib/runtime/mode')
-    vi.mocked(isDesktop).mockReturnValue(true)
+    isDesktopMock.mockReturnValue(true)
+    getCurrentDesktopVaultMock.mockReturnValue({ id: 'vault-1' })
 
-    const { getCurrentDesktopVault } = await import('@/lib/runtime/desktop/current-vault')
-    vi.mocked(getCurrentDesktopVault).mockReturnValue({ id: 'vault-1' })
+    await expect(ConnectorsPage({ params: Promise.resolve({ slug: 'alice' }) })).rejects.toThrow(
+      'REDIRECT:/desktop/connectors',
+    )
 
-    const { redirect } = await import('next/navigation')
+    expect(getDesktopWorkspaceHrefMock).toHaveBeenCalledWith('local', 'connectors')
+  })
 
-    await ConnectorsPage({ params: Promise.resolve({ slug: 'alice' }) })
+  it('redirects desktop users to the launcher when no vault is selected', async () => {
+    isDesktopMock.mockReturnValue(true)
 
-    expect(redirect).toHaveBeenCalledWith('/desktop/connectors')
+    await expect(ConnectorsPage({ params: Promise.resolve({ slug: 'alice' }) })).rejects.toThrow('REDIRECT:/')
+    expect(getDesktopWorkspaceHrefMock).not.toHaveBeenCalled()
   })
 })
