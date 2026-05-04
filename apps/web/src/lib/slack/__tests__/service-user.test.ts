@@ -48,6 +48,36 @@ describe('ensureSlackServiceUser', () => {
     expect(result).toEqual({ ok: false, error: 'service_user_conflict' })
   })
 
+  it('returns a conflict when the existing user has a mismatched email', async () => {
+    findExistingByEmailOrSlugMock.mockResolvedValue({
+      email: 'other@arche.local',
+      id: 'service-1',
+      kind: 'SERVICE',
+      role: 'USER',
+      slug: 'slack-bot',
+    })
+
+    const { ensureSlackServiceUser } = await import('../service-user')
+    const result = await ensureSlackServiceUser()
+
+    expect(result).toEqual({ ok: false, error: 'service_user_conflict' })
+  })
+
+  it('returns a conflict when the existing user has a mismatched slug', async () => {
+    findExistingByEmailOrSlugMock.mockResolvedValue({
+      email: 'slack-bot@arche.local',
+      id: 'service-1',
+      kind: 'SERVICE',
+      role: 'USER',
+      slug: 'other-bot',
+    })
+
+    const { ensureSlackServiceUser } = await import('../service-user')
+    const result = await ensureSlackServiceUser()
+
+    expect(result).toEqual({ ok: false, error: 'service_user_conflict' })
+  })
+
   it('creates the service user when it does not exist yet', async () => {
     findExistingByEmailOrSlugMock.mockResolvedValue(null)
     createMock.mockResolvedValue({
@@ -69,5 +99,36 @@ describe('ensureSlackServiceUser', () => {
       role: 'USER',
       slug: 'slack-bot',
     })
+  })
+
+  it('retries on unique constraint error and returns the existing user', async () => {
+    findExistingByEmailOrSlugMock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        email: 'slack-bot@arche.local',
+        id: 'service-1',
+        kind: 'SERVICE',
+        role: 'USER',
+        slug: 'slack-bot',
+      })
+
+    createMock.mockRejectedValue({ code: 'P2002' })
+
+    const { ensureSlackServiceUser } = await import('../service-user')
+    const result = await ensureSlackServiceUser()
+
+    expect(result).toEqual({ ok: true, user: { id: 'service-1', slug: 'slack-bot' } })
+    expect(createMock).toHaveBeenCalledTimes(1)
+    expect(findExistingByEmailOrSlugMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('returns create_failed on non-unique errors', async () => {
+    findExistingByEmailOrSlugMock.mockResolvedValue(null)
+    createMock.mockRejectedValue(new Error('db down'))
+
+    const { ensureSlackServiceUser } = await import('../service-user')
+    const result = await ensureSlackServiceUser()
+
+    expect(result).toEqual({ ok: false, error: 'service_user_create_failed' })
   })
 })

@@ -125,4 +125,122 @@ describe('/api/u/[slug]/slack-integration/test', () => {
     expect(testSlackCredentialsMock).not.toHaveBeenCalled()
   })
 
+  it('uses body tokens when provided instead of saved tokens', async () => {
+    const { POST } = await import('./route')
+    const response = await POST(
+      new Request('http://localhost/api/u/alice/slack-integration/test', {
+        body: JSON.stringify({ botToken: 'xoxb-body', appToken: 'xapp-body' }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      }) as never,
+      { params: Promise.resolve({ slug: 'alice' }) },
+    )
+
+    expect(response.status).toBe(200)
+    expect(testSlackCredentialsMock).toHaveBeenCalledWith({
+      appToken: 'xapp-body',
+      botToken: 'xoxb-body',
+    })
+  })
+
+  it('returns missing_tokens when no tokens are provided and no integration exists', async () => {
+    findIntegrationMock.mockResolvedValue(null)
+
+    const { POST } = await import('./route')
+    const response = await POST(
+      new Request('http://localhost/api/u/alice/slack-integration/test', {
+        body: JSON.stringify({}),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      }) as never,
+      { params: Promise.resolve({ slug: 'alice' }) },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ error: 'missing_tokens' })
+    expect(testSlackCredentialsMock).not.toHaveBeenCalled()
+  })
+
+  it('returns invalid_saved_tokens when saved tokens are corrupted', async () => {
+    findIntegrationMock.mockResolvedValue({
+      appTokenSecret: '',
+      botTokenSecret: '',
+      configCorrupted: true,
+    })
+
+    const { POST } = await import('./route')
+    const response = await POST(
+      new Request('http://localhost/api/u/alice/slack-integration/test', {
+        body: JSON.stringify({}),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      }) as never,
+      { params: Promise.resolve({ slug: 'alice' }) },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: 'invalid_saved_tokens',
+      message: 'Saved Slack tokens are corrupted. Re-enter tokens and save.',
+    })
+    expect(testSlackCredentialsMock).not.toHaveBeenCalled()
+  })
+
+  it('returns invalid_bot_token for malformed bot token', async () => {
+    const { POST } = await import('./route')
+    const response = await POST(
+      new Request('http://localhost/api/u/alice/slack-integration/test', {
+        body: JSON.stringify({ botToken: 'invalid', appToken: 'xapp-valid' }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      }) as never,
+      { params: Promise.resolve({ slug: 'alice' }) },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: 'invalid_bot_token',
+      message: 'Bot token must start with xoxb-.',
+    })
+    expect(testSlackCredentialsMock).not.toHaveBeenCalled()
+  })
+
+  it('returns invalid_app_token for malformed app token', async () => {
+    const { POST } = await import('./route')
+    const response = await POST(
+      new Request('http://localhost/api/u/alice/slack-integration/test', {
+        body: JSON.stringify({ botToken: 'xoxb-valid', appToken: 'invalid' }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      }) as never,
+      { params: Promise.resolve({ slug: 'alice' }) },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: 'invalid_app_token',
+      message: 'App token must start with xapp-.',
+    })
+    expect(testSlackCredentialsMock).not.toHaveBeenCalled()
+  })
+
+  it('returns slack_test_failed when testSlackCredentials throws', async () => {
+    testSlackCredentialsMock.mockRejectedValue(new Error('network error'))
+
+    const { POST } = await import('./route')
+    const response = await POST(
+      new Request('http://localhost/api/u/alice/slack-integration/test', {
+        body: JSON.stringify({ botToken: 'xoxb-test', appToken: 'xapp-test' }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      }) as never,
+      { params: Promise.resolve({ slug: 'alice' }) },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: 'slack_test_failed',
+      message: 'network error',
+    })
+  })
 })
