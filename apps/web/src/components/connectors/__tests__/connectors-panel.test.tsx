@@ -72,11 +72,21 @@ vi.mock('@/components/connectors/add-connector-modal', () => ({
 }))
 
 vi.mock('@/components/connectors/zendesk-connector-settings-dialog', () => ({
-  ZendeskConnectorSettingsDialog: ({ connectorName, open }: { connectorName: string | null; open: boolean }) => open ? <div>Zendesk settings {connectorName}</div> : null,
+  ZendeskConnectorSettingsDialog: ({ connectorName, onOpenChange, open }: { connectorName: string | null; onOpenChange: (open: boolean) => void; open: boolean }) => open ? (
+    <div>
+      Zendesk settings {connectorName}
+      <button type="button" onClick={() => onOpenChange(false)}>Close Zendesk settings</button>
+    </div>
+  ) : null,
 }))
 
 vi.mock('@/components/connectors/meta-ads-connector-settings-dialog', () => ({
-  MetaAdsConnectorSettingsDialog: ({ connectorName, open }: { connectorName: string | null; open: boolean }) => open ? <div>Meta settings {connectorName}</div> : null,
+  MetaAdsConnectorSettingsDialog: ({ connectorName, onOpenChange, open }: { connectorName: string | null; onOpenChange: (open: boolean) => void; open: boolean }) => open ? (
+    <div>
+      Meta settings {connectorName}
+      <button type="button" onClick={() => onOpenChange(false)}>Close Meta settings</button>
+    </div>
+  ) : null,
 }))
 
 function jsonResponse(body: unknown, init?: ResponseInit) {
@@ -129,8 +139,12 @@ describe('ConnectorsPanel', () => {
     expect(await screen.findByText('count:2')).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: 'Settings Zendesk' }))
     expect(screen.getByText('Zendesk settings Zendesk')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Close Zendesk settings' }))
+    expect(screen.queryByText('Zendesk settings Zendesk')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Settings Meta Ads' }))
     expect(screen.getByText('Meta settings Meta Ads')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Close Meta settings' }))
+    expect(screen.queryByText('Meta settings Meta Ads')).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'Toggle Zendesk' }))
     await waitFor(() => expect(screen.getByText('Zendesk:disabled')).toBeDefined())
@@ -164,5 +178,49 @@ describe('ConnectorsPanel', () => {
     expect(screen.getByTestId('add-modal').textContent).toContain('open')
     fireEvent.click(screen.getByRole('button', { name: 'Save connector' }))
     await waitFor(() => expect(mockNotifyWorkspaceConfigChanged).toHaveBeenCalledTimes(1))
+  })
+
+  it('handles oauth callback state from the URL', async () => {
+    window.history.pushState({}, '', '/u/alice/connectors?oauth=error&message=access_denied')
+    fetchMock.mockResolvedValue(jsonResponse({ error: 'load_failed' }, { status: 500 }))
+
+    render(<ConnectorsPanel slug="alice" />)
+
+    expect(await screen.findByText('The action could not be completed: Authorization was denied by the provider.')).toBeDefined()
+    expect(window.location.search).toBe('')
+  })
+
+  it('handles connector mutation, test, and oauth failures', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ connectors: [connector()] }))
+      .mockResolvedValueOnce(jsonResponse({ error: 'update_failed' }, { status: 400 }))
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce(jsonResponse({ error: 'test_failed' }, { status: 500 }))
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce(jsonResponse({ error: 'oauth_start_failed' }, { status: 400 }))
+      .mockRejectedValueOnce(new Error('offline'))
+
+    render(<ConnectorsPanel oauthReturnTo="/u/alice/connectors" slug="alice" />)
+
+    expect(await screen.findByText('count:1')).toBeDefined()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle Zendesk' }))
+    expect(await screen.findByText('The action could not be completed: Failed to update connector.')).toBeDefined()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle Zendesk' }))
+    expect(await screen.findByText('The action could not be completed: Network error. Please try again.')).toBeDefined()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test Zendesk' }))
+    expect(await screen.findByText('Connection test failed.')).toBeDefined()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test Zendesk' }))
+    expect(await screen.findByText('Network error. Please try again.')).toBeDefined()
+
+    fireEvent.click(screen.getByRole('button', { name: 'OAuth Zendesk' }))
+    expect(await screen.findByText('The action could not be completed: Unable to start OAuth authentication.')).toBeDefined()
+    expect(fetchMock).toHaveBeenCalledWith('/api/u/alice/connectors/zendesk-1/oauth/start?returnTo=%2Fu%2Falice%2Fconnectors', expect.objectContaining({ method: 'POST' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Zendesk' }))
+    expect(await screen.findByText('The action could not be completed: Network error. Please try again.')).toBeDefined()
   })
 })

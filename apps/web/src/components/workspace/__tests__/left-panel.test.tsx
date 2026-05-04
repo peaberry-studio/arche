@@ -311,6 +311,51 @@ describe("LeftPanel", () => {
     });
   });
 
+  it("validates create file names before submitting", () => {
+    const onCreateKnowledgeFile = vi.fn().mockResolvedValue({ ok: true as const });
+
+    renderLeftPanel({ onCreateKnowledgeFile });
+
+    const createFileButtons = screen.getAllByRole("button", { name: "Create file" });
+    fireEvent.click(createFileButtons[createFileButtons.length - 1]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    expect(screen.getByText("File name is required.")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("File name"), {
+      target: { value: "docs/bad" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(screen.getByText("File name cannot contain slashes.")).toBeTruthy();
+    expect(onCreateKnowledgeFile).not.toHaveBeenCalled();
+  });
+
+  it("shows create file errors returned by the workspace", async () => {
+    const onCreateKnowledgeFile = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false as const, error: "file_exists" })
+      .mockResolvedValueOnce({ ok: false as const, error: "write_failed" });
+
+    renderLeftPanel({ onCreateKnowledgeFile });
+
+    const createFileButtons = screen.getAllByRole("button", { name: "Create file" });
+    fireEvent.click(createFileButtons[createFileButtons.length - 1]);
+    fireEvent.change(screen.getByLabelText("File name"), {
+      target: { value: "existing" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(await screen.findByText("A file with that name already exists in that location.")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("File name"), {
+      target: { value: "retry" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(await screen.findByText("Unable to create the file. Please try again.")).toBeTruthy();
+  });
+
   it("hides create file controls when knowledge editing is disabled", () => {
     renderLeftPanel({ canCreateKnowledgeFile: false });
 
@@ -426,6 +471,28 @@ describe("LeftPanel", () => {
     expect(onCreateSession).toHaveBeenCalledTimes(1);
   });
 
+  it("shows autopilot shortcut without new chat when collapsed to task mode", () => {
+    const onToggleLeft = vi.fn();
+
+    renderLeftPanel({
+      leftCollapsed: true,
+      fixedSessionListMode: "tasks",
+      onToggleLeft,
+      currentVault: {
+        id: "vault-1",
+        name: "my-vault",
+        path: "/tmp/my-vault",
+      },
+      configRestartError: "sync failed",
+      onRestartConfig: vi.fn(),
+    });
+
+    expect(screen.queryByRole("button", { name: "New chat" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Autopilot" }));
+    expect(onToggleLeft).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Restart workspace to apply changes" })).toBeTruthy();
+  });
+
   it("does not show the desktop status indicator next to the vault switcher", () => {
     const { container } = renderLeftPanel({
       currentVault: {
@@ -503,4 +570,91 @@ describe("LeftPanel", () => {
       expect(screen.getByRole("button", { name: "Providers" }).textContent).toContain("1")
     })
   })
+
+  it("renders connector and provider status menus with settings actions", async () => {
+    const onNavigateConnectors = vi.fn();
+    const onNavigateProviders = vi.fn();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === "/api/u/alice/connectors") {
+          return {
+            ok: true,
+            json: async () => ({
+              connectors: [
+                { id: "notion", name: "Notion", type: "notion", status: "ready" },
+                { id: "linear", name: "Linear", type: "linear", status: "pending" },
+                { id: "zendesk", name: "Zendesk", type: "zendesk", status: "disabled" },
+              ],
+            }),
+          };
+        }
+
+        if (String(input) === "/api/u/alice/providers") {
+          return {
+            ok: true,
+            json: async () => ({
+              providers: [
+                { providerId: "openai", status: "enabled", type: "api", version: 1 },
+                { providerId: "anthropic", status: "disabled", type: "api" },
+                { providerId: "google-vertex", status: "missing", type: "api" },
+              ],
+            }),
+          };
+        }
+
+        throw new Error(`Unexpected fetch: ${String(input)}`);
+      })
+    );
+
+    renderLeftPanel({ onNavigateConnectors, onNavigateProviders });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Connectors" }).textContent).toContain("1");
+      expect(screen.getByRole("button", { name: "Providers" }).textContent).toContain("1");
+    });
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Connectors" }));
+
+    expect(await screen.findByText("Connector status")).toBeTruthy();
+    expect(screen.getByText("Notion")).toBeTruthy();
+    expect(screen.getByText("Working")).toBeTruthy();
+    expect(screen.getByText("Pending")).toBeTruthy();
+    expect(screen.getByText("Not working")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Connector settings" }));
+    expect(onNavigateConnectors).toHaveBeenCalledTimes(1);
+
+    cleanup();
+    renderLeftPanel({ onNavigateConnectors, onNavigateProviders });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Providers" }).textContent).toContain("1");
+    });
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Providers" }));
+
+    expect(await screen.findByText("Provider status")).toBeTruthy();
+    expect(screen.getByText("OpenAI")).toBeTruthy();
+    expect(screen.getByText("api · v1")).toBeTruthy();
+    expect(screen.getByText("Active")).toBeTruthy();
+    expect(screen.queryByText("Anthropic")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Provider settings" }));
+    expect(onNavigateProviders).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a single visible knowledge section expanded", () => {
+    renderLeftPanel({ visibleSections: ["knowledge"] });
+
+    const searchInput = screen.getByLabelText("Search knowledge");
+    const knowledgeToggle = getSectionToggle("Knowledge");
+
+    expect(searchInput).toBeTruthy();
+    expect(knowledgeToggle.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.queryByText("Alpha chat")).toBeNull();
+
+    fireEvent.click(knowledgeToggle);
+
+    expect(getSectionToggle("Knowledge").getAttribute("aria-expanded")).toBe("true");
+  });
 });

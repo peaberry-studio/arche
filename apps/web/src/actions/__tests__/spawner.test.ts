@@ -50,7 +50,8 @@ import { getSession } from '@/lib/runtime/session'
 import { startWorkspace, stopWorkspace, getWorkspaceStatus, getWorkspaceConnection } from '@/lib/runtime/workspace-host'
 import { prisma } from '@/lib/prisma'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
-import { startInstanceAction, stopInstanceAction, getInstanceStatusAction, ensureInstanceRunningAction } from '../spawner'
+import { listActiveInstances, isSlowStart } from '@/lib/spawner/core'
+import { startInstanceAction, stopInstanceAction, getInstanceStatusAction, ensureInstanceRunningAction, listActiveInstancesAction } from '../spawner'
 
 const mockGetSession = vi.mocked(getSession)
 const mockStart = vi.mocked(startWorkspace)
@@ -59,6 +60,8 @@ const mockStatus = vi.mocked(getWorkspaceStatus)
 const mockPrisma = vi.mocked(prisma)
 const mockGetWorkspaceConnection = vi.mocked(getWorkspaceConnection)
 const mockSync = vi.mocked(syncProviderAccessForInstance)
+const mockIsSlowStart = vi.mocked(isSlowStart)
+const mockListActiveInstances = vi.mocked(listActiveInstances)
 
 const fakeSession = {
   user: { id: 'user-1', email: 'alice@test.com', slug: 'alice', role: 'USER' },
@@ -73,6 +76,7 @@ const adminSession = {
 beforeEach(() => {
   vi.clearAllMocks()
   mockGetKickstartStatus.mockResolvedValue('ready')
+  mockIsSlowStart.mockReturnValue(false)
   mockProviderUpdateMany.mockResolvedValue({ count: 0 })
 })
 
@@ -142,6 +146,15 @@ describe('getInstanceStatusAction', () => {
     expect(result).toBeNull()
   })
 
+  it('returns null when a regular user requests another slug', async () => {
+    mockGetSession.mockResolvedValue(fakeSession)
+
+    const result = await getInstanceStatusAction('bob')
+
+    expect(result).toBeNull()
+    expect(mockStatus).not.toHaveBeenCalled()
+  })
+
   it('returns default stopped when no instance exists', async () => {
     mockGetSession.mockResolvedValue(fakeSession)
     mockStatus.mockResolvedValue(null)
@@ -151,6 +164,7 @@ describe('getInstanceStatusAction', () => {
 
   it('returns instance status with slowStart flag', async () => {
     mockGetSession.mockResolvedValue(fakeSession)
+    mockIsSlowStart.mockReturnValue(true)
     mockStatus.mockResolvedValue({
       status: 'running',
       startedAt: new Date(),
@@ -158,7 +172,59 @@ describe('getInstanceStatusAction', () => {
       lastActivityAt: new Date(),
     })
     const result = await getInstanceStatusAction('alice')
-    expect(result).toMatchObject({ status: 'running', slowStart: false })
+    expect(result).toMatchObject({ status: 'running', slowStart: true })
+  })
+})
+
+describe('listActiveInstancesAction', () => {
+  it('returns an empty list without a session', async () => {
+    mockGetSession.mockResolvedValue(null)
+
+    const result = await listActiveInstancesAction()
+
+    expect(result).toEqual([])
+  })
+
+  it('returns only the regular user running workspace', async () => {
+    const startedAt = new Date('2026-05-01T10:00:00.000Z')
+    const lastActivityAt = new Date('2026-05-01T10:30:00.000Z')
+    mockGetSession.mockResolvedValue(fakeSession)
+    mockStatus.mockResolvedValue({
+      status: 'running',
+      startedAt,
+      lastActivityAt,
+    } as never)
+
+    const result = await listActiveInstancesAction()
+
+    expect(result).toEqual([
+      {
+        slug: 'alice',
+        status: 'running',
+        startedAt,
+        lastActivityAt,
+      },
+    ])
+    expect(mockListActiveInstances).not.toHaveBeenCalled()
+  })
+
+  it('returns an empty list for regular users without an active workspace', async () => {
+    mockGetSession.mockResolvedValue(fakeSession)
+    mockStatus.mockResolvedValue({ status: 'stopped' } as never)
+
+    const result = await listActiveInstancesAction()
+
+    expect(result).toEqual([])
+  })
+
+  it('delegates to the active instance list for admins', async () => {
+    const instances = [{ slug: 'alice', status: 'running' }]
+    mockGetSession.mockResolvedValue(adminSession)
+    mockListActiveInstances.mockResolvedValue(instances as never)
+
+    const result = await listActiveInstancesAction()
+
+    expect(result).toBe(instances)
   })
 })
 
@@ -167,6 +233,15 @@ describe('ensureInstanceRunningAction', () => {
     mockGetSession.mockResolvedValue(null)
     const result = await ensureInstanceRunningAction('alice')
     expect(result).toEqual({ status: 'error', error: 'unauthorized' })
+  })
+
+  it('returns forbidden for another user slug', async () => {
+    mockGetSession.mockResolvedValue(fakeSession)
+
+    const result = await ensureInstanceRunningAction('bob')
+
+    expect(result).toEqual({ status: 'error', error: 'forbidden' })
+    expect(mockStatus).not.toHaveBeenCalled()
   })
 
   it('returns running and syncs providers when instance is already running (own slug)', async () => {
@@ -232,6 +307,34 @@ describe('ensureInstanceRunningAction', () => {
     })
   })
 
+  it('marks a restart as required when a running workspace has no connection', async () => {
+    mockGetSession.mockResolvedValue(fakeSession)
+    mockStatus.mockResolvedValue({ status: 'running' } as never)
+    mockGetWorkspaceConnection.mockResolvedValueOnce(null)
+
+    const result = await ensureInstanceRunningAction('alice')
+
+    expect(result).toEqual({ status: 'running' })
+    expect(mockProviderUpdateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1' },
+      data: { lastError: 'workspace_restart_required' },
+    })
+  })
+
+  it('marks a restart as required when provider sync throws', async () => {
+    mockGetSession.mockResolvedValue(fakeSession)
+    mockStatus.mockResolvedValue({ status: 'running' } as never)
+    mockSync.mockRejectedValueOnce(new Error('sync exploded'))
+
+    const result = await ensureInstanceRunningAction('alice')
+
+    expect(result).toEqual({ status: 'running' })
+    expect(mockProviderUpdateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1' },
+      data: { lastError: 'workspace_restart_required' },
+    })
+  })
+
   it('returns setup_required when kickstart is incomplete', async () => {
     mockGetSession.mockResolvedValue(fakeSession)
     mockGetKickstartStatus.mockResolvedValue('needs_setup')
@@ -260,6 +363,26 @@ describe('ensureInstanceRunningAction', () => {
     const result = await ensureInstanceRunningAction('alice')
 
     expect(result).toEqual({ status: 'starting' })
+  })
+
+  it('returns starting when the workspace is already starting', async () => {
+    mockGetSession.mockResolvedValue(fakeSession)
+    mockStatus.mockResolvedValue({ status: 'starting' } as never)
+
+    const result = await ensureInstanceRunningAction('alice')
+
+    expect(result).toEqual({ status: 'starting' })
+    expect(mockStart).not.toHaveBeenCalled()
+  })
+
+  it('returns the start error detail when startup fails', async () => {
+    mockGetSession.mockResolvedValue(fakeSession)
+    mockStatus.mockResolvedValue({ status: 'stopped' } as never)
+    mockStart.mockResolvedValue({ ok: false, error: 'start_failed', detail: 'podman failed' } as never)
+
+    const result = await ensureInstanceRunningAction('alice')
+
+    expect(result).toEqual({ status: 'error', error: 'podman failed' })
   })
 
   it('returns a structured error when startup checks throw unexpectedly', async () => {

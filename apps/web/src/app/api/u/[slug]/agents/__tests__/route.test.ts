@@ -294,6 +294,14 @@ describe('POST /api/u/[slug]/agents', () => {
     expect(body.error).toBe('invalid_json')
   })
 
+  it('validates body — returns 400 for array JSON body', async () => {
+    const response = await POST(makePostRequest([]), routeParams)
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body.error).toBe('invalid_body')
+  })
+
   it('validates body — returns 400 for missing display name', async () => {
     const response = await POST(
       makePostRequest({ capabilities: { tools: [], skillIds: [], mcpConnectorIds: [] } }),
@@ -303,6 +311,30 @@ describe('POST /api/u/[slug]/agents', () => {
 
     const body = await response.json()
     expect(body.error).toBe('missing_display_name')
+  })
+
+  it.each([
+    [
+      'missing capabilities',
+      { displayName: 'Agent' },
+      'invalid_capabilities',
+    ],
+    [
+      'unknown MCP connector',
+      { displayName: 'Agent', capabilities: { tools: [], skillIds: [], mcpConnectorIds: ['missing-connector'] } },
+      'unknown_mcp_connector',
+    ],
+    [
+      'unknown skill',
+      { displayName: 'Agent', capabilities: { tools: [], skillIds: ['missing-skill'], mcpConnectorIds: [] } },
+      'unknown_skill',
+    ],
+  ])('validates capabilities — rejects %s', async (_label, body, error) => {
+    const response = await POST(makePostRequest(body), routeParams)
+
+    expect(response.status).toBe(400)
+    const json = await response.json()
+    expect(json.error).toBe(error)
   })
 
   it('creates agent successfully', async () => {

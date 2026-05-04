@@ -237,6 +237,93 @@ describe('prepareConnectorOAuthAuthorization', () => {
     expect(discoverOAuthMetadata).not.toHaveBeenCalled()
   })
 
+  it('throws when dynamic registration is required but no registration endpoint exists', async () => {
+    vi.mocked(discoverOAuthMetadata).mockResolvedValue({
+      issuer: 'https://example.com',
+      authorizationEndpoint: 'https://example.com/authorize',
+      tokenEndpoint: 'https://example.com/token',
+    })
+    vi.mocked(sanitizeOAuthMetadata).mockResolvedValue({
+      issuer: 'https://example.com',
+      authorizationEndpoint: 'https://example.com/authorize',
+      tokenEndpoint: 'https://example.com/token',
+    })
+
+    await expect(
+      prepareConnectorOAuthAuthorization({
+        connectorId: 'conn-1',
+        slug: 'workspace-1',
+        userId: 'user-1',
+        connectorType: 'linear',
+        redirectUri: 'http://localhost/callback',
+      })
+    ).rejects.toThrow('oauth_registration_failed:missing_registration_endpoint')
+  })
+
+  it('falls back to static registration when dynamic registration returns no client id', async () => {
+    const fallbackStrategy = {
+      ...linearStrategy,
+      getStaticClientRegistration: vi.fn().mockReturnValue({ clientId: 'static-client' }),
+      preferStaticClientRegistration: vi.fn().mockReturnValue(false),
+    }
+    vi.mocked(getStrategy).mockReturnValue(fallbackStrategy as never)
+    vi.mocked(discoverOAuthMetadata).mockResolvedValue({
+      issuer: 'https://example.com',
+      authorizationEndpoint: 'https://example.com/authorize',
+      tokenEndpoint: 'https://example.com/token',
+      registrationEndpoint: 'https://example.com/register',
+    })
+    vi.mocked(sanitizeOAuthMetadata).mockResolvedValue({
+      issuer: 'https://example.com',
+      authorizationEndpoint: 'https://example.com/authorize',
+      tokenEndpoint: 'https://example.com/token',
+      registrationEndpoint: 'https://example.com/register',
+    })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({}),
+    }))
+
+    const result = await prepareConnectorOAuthAuthorization({
+      connectorId: 'conn-1',
+      slug: 'workspace-1',
+      userId: 'user-1',
+      connectorType: 'linear',
+      redirectUri: 'http://localhost/callback',
+    })
+
+    expect(result.authorizeUrl).toContain('client_id=static-client')
+  })
+
+  it('omits PKCE challenge fields for non-PKCE strategies', async () => {
+    const nonPkceStrategy = {
+      ...linearStrategy,
+      getStaticClientRegistration: vi.fn().mockReturnValue({ clientId: 'static-client' }),
+      preferStaticClientRegistration: vi.fn().mockReturnValue(true),
+      getMetadataOverrides: vi.fn().mockResolvedValue({
+        authorizationEndpoint: 'https://example.com/authorize',
+        tokenEndpoint: 'https://example.com/token',
+      }),
+      shouldValidateMetadataEndpoints: vi.fn().mockReturnValue(false),
+      usesPkce: vi.fn().mockReturnValue(false),
+    }
+    vi.mocked(getStrategy).mockReturnValue(nonPkceStrategy as never)
+
+    const result = await prepareConnectorOAuthAuthorization({
+      connectorId: 'conn-1',
+      slug: 'workspace-1',
+      userId: 'user-1',
+      connectorType: 'linear',
+      redirectUri: 'http://localhost/callback',
+    })
+
+    const authorizeUrl = new URL(result.authorizeUrl)
+    expect(authorizeUrl.searchParams.get('code_challenge')).toBeNull()
+    expect(authorizeUrl.searchParams.get('code_challenge_method')).toBeNull()
+    expect(verifyConnectorOAuthState(result.state).codeVerifier).toBeUndefined()
+  })
+
   it('throws meta_ads_missing_app_id for meta-ads without credentials', async () => {
     const metaStrategy = {
       ...linearStrategy,
@@ -383,6 +470,56 @@ describe('exchangeConnectorOAuthCode', () => {
 
     expect(result.accessToken).toBe('long-lived')
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('throws a detailed exchange error when the token endpoint returns OAuth errors', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ error: 'invalid_grant', error_description: 'Bad code' }),
+    }))
+    vi.mocked(getStrategy).mockReturnValue({
+      resolveTokenEndpoint: vi.fn().mockResolvedValue('https://example.com/token'),
+      resolveRefreshTokenEndpoint: vi.fn(),
+    } as never)
+
+    await expect(
+      exchangeConnectorOAuthCode({
+        code: 'code-123',
+        redirectUri: 'http://localhost/callback',
+        state: {
+          connectorType: 'linear',
+          clientId: 'client-1',
+          codeVerifier: 'verifier',
+          tokenEndpoint: 'https://example.com/token',
+        } as never,
+      })
+    ).rejects.toThrow('oauth_exchange_failed:invalid_grant:Bad code')
+  })
+
+  it('throws when a successful token response is missing access_token', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ refresh_token: 'refresh-only' }),
+    }))
+    vi.mocked(getStrategy).mockReturnValue({
+      resolveTokenEndpoint: vi.fn().mockResolvedValue('https://example.com/token'),
+      resolveRefreshTokenEndpoint: vi.fn(),
+    } as never)
+
+    await expect(
+      exchangeConnectorOAuthCode({
+        code: 'code-123',
+        redirectUri: 'http://localhost/callback',
+        state: {
+          connectorType: 'linear',
+          clientId: 'client-1',
+          codeVerifier: 'verifier',
+          tokenEndpoint: 'https://example.com/token',
+        } as never,
+      })
+    ).rejects.toThrow('oauth_missing_access_token')
   })
 
   it('throws invalid_state when meta-ads state lacks required fields', async () => {

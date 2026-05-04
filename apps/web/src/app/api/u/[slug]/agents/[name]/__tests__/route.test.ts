@@ -468,6 +468,33 @@ describe('PATCH /api/u/[slug]/agents/[name]', () => {
     )
   })
 
+  it.each([
+    [
+      'invalid capabilities',
+      { capabilities: null },
+      'invalid_capabilities',
+    ],
+    [
+      'unknown MCP connector',
+      { capabilities: { tools: [], skillIds: [], mcpConnectorIds: ['missing-connector'] } },
+      'unknown_mcp_connector',
+    ],
+    [
+      'unknown skill',
+      { capabilities: { tools: [], skillIds: ['missing-skill'], mcpConnectorIds: [] } },
+      'unknown_skill',
+    ],
+  ])('validates capability updates — rejects %s', async (_label, patch, error) => {
+    const response = await PATCH(
+      makePatchRequest('researcher', patch),
+      routeParams('researcher'),
+    )
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body.error).toBe(error)
+  })
+
   it('can promote subagent to primary', async () => {
     const response = await PATCH(
       makePatchRequest('researcher', { isPrimary: true }),

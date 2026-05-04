@@ -102,6 +102,86 @@ describe('EditUserDialog password reset', () => {
     expect(await screen.findByText('Password must be at least 8 characters.')).toBeTruthy()
   })
 
+  it('updates the selected user role', async () => {
+    const onUserUpdated = vi.fn()
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ user: { ...user, role: 'ADMIN' } }),
+    } as Response)
+
+    renderDialog({ onUserUpdated })
+
+    fireEvent.change(screen.getByLabelText('Role'), {
+      target: { value: 'ADMIN' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save role' }))
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith('/api/u/admin/team/user-2', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ role: 'ADMIN' }),
+      })
+    })
+    expect(onUserUpdated).toHaveBeenCalledWith({ ...user, role: 'ADMIN' })
+  })
+
+  it('shows role update errors', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: false,
+      json: () => Promise.resolve({ error: 'forbidden' }),
+    } as Response)
+
+    renderDialog()
+
+    fireEvent.change(screen.getByLabelText('Role'), {
+      target: { value: 'ADMIN' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save role' }))
+
+    expect(await screen.findByText('You do not have permission for this action.')).toBeTruthy()
+  })
+
+  it('confirms and deletes users', async () => {
+    const onOpenChange = vi.fn()
+    const onUserDeleted = vi.fn()
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ ok: true }),
+    } as Response)
+
+    renderDialog({ onOpenChange, onUserDeleted })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete user' }))
+    expect(screen.getByText(/Are you sure you want to delete/)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByText(/Are you sure you want to delete/)).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete user' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }))
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith('/api/u/admin/team/user-2', { method: 'DELETE' })
+    })
+    expect(onUserDeleted).toHaveBeenCalledWith('user-2')
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('shows delete failures', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: false,
+      json: () => Promise.resolve({ error: 'last_admin' }),
+    } as Response)
+
+    renderDialog()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete user' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }))
+
+    expect(await screen.findByText('You cannot leave the system without at least one admin.')).toBeTruthy()
+  })
+
   it('hides password reset controls when user management is unavailable', () => {
     renderDialog({ canManageUsers: false })
 

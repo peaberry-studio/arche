@@ -21,7 +21,7 @@ vi.mock('@/lib/providers/tokens', () => ({ verifyGatewayToken: mocks.verifyGatew
 vi.mock('@/lib/rate-limit', () => ({ checkRateLimit: mocks.checkRateLimit }))
 vi.mock('@/lib/runtime/capabilities', () => ({ getRuntimeCapabilities: mocks.getRuntimeCapabilities }))
 
-import { GET, POST } from '../route'
+import { DELETE, GET, PATCH, POST, PUT } from '../route'
 
 let fetchMock: ReturnType<typeof vi.fn>
 
@@ -270,6 +270,26 @@ describe('/api/internal/providers/[provider]/[...path]', () => {
     expect(sentBody.reasoning_effort).toBe('medium')
   })
 
+  it('falls back to the raw request body when OpenAI response normalization cannot parse JSON', async () => {
+    fetchMock.mockResolvedValue(
+      new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }),
+    )
+
+    const res = await POST(
+      makeRequest('POST', 'http://localhost/api/internal/providers/openai/responses', {
+        headers: {
+          authorization: 'Bearer valid-token',
+          'content-type': 'application/json',
+        },
+        body: '{not valid json',
+      }),
+      { params: Promise.resolve({ provider: 'openai', path: ['responses'] }) },
+    )
+
+    expect(res.status).toBe(200)
+    await expect(new Response(fetchMock.mock.calls[0][1].body).text()).resolves.toBe('{not valid json')
+  })
+
   it('successfully proxies a request to Fireworks stripping display_name', async () => {
     mocks.verifyGatewayToken.mockReturnValue({ ...GATEWAY_PAYLOAD, providerId: 'fireworks' })
     mocks.getActiveCredentialForUser.mockResolvedValue({
@@ -349,5 +369,50 @@ describe('/api/internal/providers/[provider]/[...path]', () => {
     expect(res.status).toBe(200)
     const sentHeaders = fetchMock.mock.calls[0][1].headers as Headers
     expect(sentHeaders.get('authorization')).toBeNull()
+  })
+
+  it.each([
+    ['PUT', PUT],
+    ['PATCH', PATCH],
+    ['DELETE', DELETE],
+  ])('successfully proxies %s requests', async (method, handler) => {
+    fetchMock.mockResolvedValue(
+      new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }),
+    )
+
+    const res = await handler(
+      makeRequest(method, 'http://localhost/api/internal/providers/openai/v1/files/file-1', {
+        headers: { authorization: 'Bearer valid-token' },
+      }),
+      { params: Promise.resolve({ provider: 'openai', path: ['v1', 'files', 'file-1'] }) },
+    )
+
+    expect(res.status).toBe(200)
+    expect(fetchMock.mock.calls[0][1].method).toBe(method)
+  })
+
+  it('strips hop-by-hop and connection-nominated headers before proxying upstream', async () => {
+    fetchMock.mockResolvedValue(
+      new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }),
+    )
+
+    const res = await GET(
+      makeRequest('GET', 'http://localhost/api/internal/providers/openai/v1/models', {
+        headers: {
+          authorization: 'Bearer valid-token',
+          connection: 'x-custom, keep-alive',
+          'x-custom': 'strip me',
+          'keep-alive': 'timeout=5',
+        },
+      }),
+      { params: Promise.resolve({ provider: 'openai', path: ['v1', 'models'] }) },
+    )
+
+    expect(res.status).toBe(200)
+    const sentHeaders = fetchMock.mock.calls[0][1].headers as Headers
+    expect(sentHeaders.get('connection')).toBeNull()
+    expect(sentHeaders.get('x-custom')).toBeNull()
+    expect(sentHeaders.get('keep-alive')).toBeNull()
+    expect(sentHeaders.get('accept-encoding')).toBe('identity')
   })
 })

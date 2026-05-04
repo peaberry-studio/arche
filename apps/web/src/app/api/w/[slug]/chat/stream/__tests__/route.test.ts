@@ -100,6 +100,33 @@ vi.mock('@/lib/workspace-attachments', async (importOriginal) => {
 describe('POST /api/w/[slug]/chat/stream', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.getRuntimeCapabilities.mockReturnValue({ csrf: false })
+    mocks.isDesktop.mockReturnValue(false)
+    mocks.validateSameOrigin.mockReturnValue({ ok: true })
+    mocks.validateDesktopToken.mockReturnValue(true)
+    mocks.decryptPassword.mockReturnValue('secret')
+    mocks.getInstanceUrl.mockReturnValue('http://test-slug:3000')
+    mocks.getWorkspaceAgentUrl.mockReturnValue('http://agent:3000')
+    mocks.normalizeProviderId.mockImplementation((id: string) => id)
+    mocks.resolveRuntimeProviderId.mockImplementation((id: string) => id)
+    mocks.extractPdfText.mockReset()
+    mocks.isPdfMime.mockReturnValue(false)
+    mocks.createUpstreamSessionStatusReader.mockReturnValue(vi.fn().mockResolvedValue(null))
+    mocks.getIdleFinalizationOutcome.mockReturnValue('complete')
+    mocks.getSilentStreamOutcome.mockReturnValue('finalize_idle')
+    mocks.workspaceAgentFetch.mockReset()
+    mocks.parseSseChunk.mockImplementation((state, chunk) => ({
+      state,
+      events: [{ event: 'message', data: chunk }],
+    }))
+    mocks.isValidContextReferencePath.mockReturnValue(true)
+    mocks.normalizeAttachmentPath.mockImplementation((p: string) => p)
+    mocks.normalizeWorkspacePath.mockImplementation((p: string) => p)
+    mocks.inferAttachmentMimeType.mockReturnValue('text/plain')
+    mocks.isDocumentMimeType.mockReturnValue(false)
+    mocks.isPresentationMimeType.mockReturnValue(false)
+    mocks.isSpreadsheetMimeType.mockReturnValue(false)
+    mocks.isWorkspaceAttachmentPath.mockReturnValue(true)
     mocks.getSession.mockResolvedValue({
       user: { id: 'u1', email: 'u@test.com', slug: 'alice', role: 'ADMIN' },
       sessionId: 's1',
@@ -120,6 +147,31 @@ describe('POST /api/w/[slug]/chat/stream', () => {
 
   function params(slug = 'alice') {
     return { params: Promise.resolve({ slug }) }
+  }
+
+  function eventStream(events: Array<Record<string, unknown> | string>) {
+    const encoder = new TextEncoder()
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const event of events) {
+          controller.enqueue(encoder.encode(typeof event === 'string' ? event : JSON.stringify(event)))
+        }
+        controller.close()
+      },
+    })
+  }
+
+  function mockOpenCodeFetch(events: Array<Record<string, unknown> | string>) {
+    return vi.fn((url: string | URL, init?: RequestInit) => {
+      const href = String(url)
+      if (href === 'http://test-slug:3000/event') {
+        return Promise.resolve(new Response(eventStream(events), { status: 200 }))
+      }
+      if (href === 'http://test-slug:3000/session/s1/prompt_async') {
+        return Promise.resolve(new Response('', { status: 200 }))
+      }
+      return Promise.reject(new Error(`unexpected fetch ${init?.method ?? 'GET'} ${href}`))
+    })
   }
 
   it('returns 503 when instance not running', async () => {
@@ -174,5 +226,185 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     const { POST } = await import('../route')
     const res = await POST(makePostRequest({ sessionId: 's1', text: 'hi' }), params())
     expect(res.status).toBe(401)
+  })
+
+  it('streams assistant status, parts, metadata, workspace updates, and completion', async () => {
+    const fetchMock = mockOpenCodeFetch([
+      {
+        type: 'session.status',
+        properties: { info: { sessionID: 's1' }, status: { type: 'busy' } },
+      },
+      {
+        type: 'session.status',
+        properties: { info: { sessionID: 's1' }, status: { type: 'retry', message: 'Retrying' } },
+      },
+      {
+        type: 'message.updated',
+        properties: {
+          info: {
+            id: 'm1',
+            role: 'assistant',
+            sessionID: 's1',
+            providerID: 'openai-compatible',
+            modelID: 'gpt-5.2',
+            agent: 'assistant',
+          },
+        },
+      },
+      {
+        type: 'message.part.updated',
+        properties: { part: { id: 'p1', messageID: 'm1', sessionID: 's1', type: 'reasoning' } },
+      },
+      {
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            id: 'p2',
+            messageID: 'm1',
+            sessionID: 's1',
+            type: 'tool',
+            tool: 'bash',
+            state: { status: 'running', title: 'Running command' },
+          },
+        },
+      },
+      {
+        type: 'message.part.updated',
+        properties: {
+          part: {
+            id: 'p3',
+            messageID: 'm1',
+            sessionID: 's1',
+            type: 'tool',
+            tool: 'bash',
+            state: { status: 'error', error: 'failed' },
+          },
+        },
+      },
+      {
+        type: 'message.part.updated',
+        properties: { part: { id: 'p4', messageID: 'm1', sessionID: 's1', type: 'agent', name: 'researcher' } },
+      },
+      {
+        type: 'message.part.updated',
+        properties: { part: { id: 'p5', messageID: 'm1', sessionID: 's1', type: 'subtask', agent: 'reviewer' } },
+      },
+      {
+        type: 'message.part.delta',
+        properties: { messageID: 'm1', partID: 'p6', partType: 'text', value: 'hello' },
+      },
+      { type: 'file.edited', properties: { path: 'Notes/file.md' } },
+      'not json',
+      { type: 'session.idle', properties: { info: { sessionID: 's1' } } },
+    ])
+    vi.stubGlobal('fetch', fetchMock)
+    mocks.normalizeProviderId.mockImplementation((id: string) => `normalized:${id}`)
+    mocks.resolveRuntimeProviderId.mockImplementation((id: string) => `runtime:${id}`)
+    mocks.normalizeWorkspacePath.mockImplementation((path: string) => path.trim())
+    mocks.isValidContextReferencePath.mockImplementation((path: string) => !path.includes('invalid'))
+
+    const { POST } = await import('../route')
+    const res = await POST(makePostRequest({
+      sessionId: 's1',
+      text: 'Hi',
+      model: { providerId: 'openai', modelId: 'gpt-5.2' },
+      contextPaths: [' notes/a.md ', 'notes/a.md', 'invalid/../path'],
+    }), params())
+
+    const text = await res.text()
+
+    expect(text).toContain('event: assistant-meta')
+    expect(text).toContain('"providerID":"normalized:openai-compatible"')
+    expect(text).toContain('event: workspace-updated')
+    expect(text).toContain('"path":"Notes/file.md"')
+    expect(text).toContain('event: agent')
+    expect(text).toContain('"agent":"researcher"')
+    expect(text).toContain('"agent":"reviewer"')
+    expect(text).toContain('event: done')
+    expect(text).toContain('"status":"complete"')
+
+    const promptCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/session/s1/prompt_async'))
+    expect(promptCall).toBeDefined()
+    const promptBody = JSON.parse(String(promptCall?.[1]?.body))
+    expect(promptBody.model).toEqual({ providerID: 'runtime:openai', modelID: 'gpt-5.2' })
+    expect(promptBody.parts).toEqual([
+      { type: 'text', text: 'Hi' },
+      {
+        type: 'text',
+        text: 'Workspace context references (open files):\n@notes/a.md\nThese are references only; inspect files with tools when needed.',
+      },
+    ])
+  })
+
+  it('streams an error when the upstream event subscription fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 500 })))
+
+    const { POST } = await import('../route')
+    const res = await POST(makePostRequest({ sessionId: 's1', text: 'hi' }), params())
+
+    await expect(res.text()).resolves.toContain('Failed to connect to event stream')
+  })
+
+  it('rejects invalid attachment paths after subscribing to upstream events', async () => {
+    const fetchMock = mockOpenCodeFetch([])
+    vi.stubGlobal('fetch', fetchMock)
+    mocks.isWorkspaceAttachmentPath.mockReturnValue(false)
+
+    const { POST } = await import('../route')
+    const res = await POST(makePostRequest({
+      sessionId: 's1',
+      attachments: [{ path: '../secret.txt', filename: 'secret.txt' }],
+    }), params())
+
+    await expect(res.text()).resolves.toContain('invalid_attachment_path')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('builds prompt parts for attachment extraction and tool-hint edge cases', async () => {
+    const fetchMock = mockOpenCodeFetch([{ type: 'session.idle', properties: { info: { sessionID: 's1' } } }])
+    vi.stubGlobal('fetch', fetchMock)
+    mocks.isPdfMime.mockImplementation((mime: string) => mime === 'application/pdf')
+    mocks.isSpreadsheetMimeType.mockImplementation((mime: string) => mime === 'text/csv')
+    mocks.isDocumentMimeType.mockImplementation((mime: string) => mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+    mocks.isPresentationMimeType.mockImplementation((mime: string) => mime === 'application/vnd.openxmlformats-officedocument.presentationml.presentation')
+    mocks.workspaceAgentFetch.mockResolvedValue({ ok: false, data: { ok: false } })
+
+    const { POST } = await import('../route')
+    const res = await POST(makePostRequest({
+      sessionId: 's1',
+      attachments: [
+        { path: '.arche/attachments/report.pdf', filename: 'report.pdf', mime: 'application/pdf' },
+        { path: '.arche/attachments/table.csv', filename: 'table.csv', mime: 'text/csv' },
+        {
+          path: '.arche/attachments/brief.docx',
+          filename: 'brief.docx',
+          mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        },
+        {
+          path: '.arche/attachments/deck.pptx',
+          filename: 'deck.pptx',
+          mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        },
+        { path: '.arche/attachments/image.png', filename: 'image.png', mime: 'image/png' },
+      ],
+    }), params())
+
+    await res.text()
+    const promptCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/session/s1/prompt_async'))
+    expect(promptCall).toBeDefined()
+    const promptBody = JSON.parse(String(promptCall?.[1]?.body))
+    const promptText = promptBody.parts.map((part: { text?: string }) => part.text ?? '').join('\n')
+
+    expect(promptText).toContain('Attached PDF could not be extracted automatically')
+    expect(promptText).toContain('spreadsheet_inspect first')
+    expect(promptText).toContain('Use document_inspect')
+    expect(promptText).toContain('Use presentation_inspect')
+    expect(promptText).toContain('Attached workspace files:')
+    expect(promptBody.parts).toContainEqual({
+      type: 'file',
+      mime: 'image/png',
+      filename: 'image.png',
+      url: 'file:///workspace/.arche/attachments/image.png',
+    })
   })
 })

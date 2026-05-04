@@ -221,4 +221,141 @@ describe("InspectorPanel", () => {
 
     expect(screen.getByText('Editor state: initial')).toBeTruthy()
   })
+
+  it('expands minified review and combined panels', () => {
+    const onToggleRight = vi.fn()
+    const onTabChange = vi.fn()
+    const { rerender } = render(
+      <InspectorPanel
+        {...defaultProps}
+        rightCollapsed
+        panelMode="review"
+        pendingDiffsForBadge={120}
+        onToggleRight={onToggleRight}
+        onTabChange={onTabChange}
+      />
+    )
+
+    expect(screen.getByText('99+')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Expand review panel' }))
+    expect(onToggleRight).toHaveBeenCalledTimes(1)
+
+    rerender(
+      <InspectorPanel
+        {...defaultProps}
+        rightCollapsed
+        pendingDiffsForBadge={3}
+        onToggleRight={onToggleRight}
+        onTabChange={onTabChange}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Files' }))
+    expect(onToggleRight).toHaveBeenCalledTimes(2)
+    expect(onTabChange).toHaveBeenLastCalledWith('preview')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }))
+    expect(onToggleRight).toHaveBeenCalledTimes(3)
+    expect(onTabChange).toHaveBeenLastCalledWith('review')
+  })
+
+  it('handles expanded header tabs, collapse, file tabs, and close buttons', () => {
+    const onCloseFile = vi.fn()
+    const onSelectFile = vi.fn()
+    const onTabChange = vi.fn()
+    const onToggleRight = vi.fn()
+
+    render(
+      <InspectorPanel
+        {...defaultProps}
+        openFiles={[
+          {
+            path: 'first.md',
+            title: 'first.md',
+            content: '# First',
+            updatedAt: 'now',
+            size: '1 KB',
+            kind: 'text' as const,
+          },
+          {
+            path: 'second.md',
+            title: 'second.md',
+            content: '# Second',
+            updatedAt: 'later',
+            size: '2 KB',
+            kind: 'text' as const,
+          },
+        ]}
+        activeFilePath="first.md"
+        diffs={[
+          { path: 'first.md', status: 'modified', additions: 2, deletions: 1, diff: 'diff', conflicted: false },
+          { path: 'second.md', status: 'added', additions: 4, deletions: 0, diff: 'diff', conflicted: false },
+        ]}
+        onCloseFile={onCloseFile}
+        onSelectFile={onSelectFile}
+        onTabChange={onTabChange}
+        onToggleRight={onToggleRight}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse panel' }))
+    expect(onToggleRight).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: /Inspect/ }))
+    expect(onTabChange).toHaveBeenCalledWith('preview')
+
+    fireEvent.click(screen.getByRole('button', { name: /Review/ }))
+    expect(onTabChange).toHaveBeenCalledWith('review')
+
+    fireEvent.click(screen.getByRole('button', { name: 'second.md' }))
+    expect(onSelectFile).toHaveBeenCalledWith('second.md')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close first.md' }))
+    expect(onCloseFile).toHaveBeenCalledWith('first.md')
+  })
+
+  it('renders review-only mode with publish disabled by conflicts', () => {
+    render(
+      <InspectorPanel
+        {...defaultProps}
+        activeTab="review"
+        panelMode="review"
+        diffs={[
+          { path: 'conflict.md', status: 'modified', additions: 1, deletions: 1, diff: 'diff', conflicted: true },
+        ]}
+      />
+    )
+
+    expect(screen.getByText('Review')).toBeTruthy()
+    expect(screen.getByText('1')).toBeTruthy()
+    expect(screen.getByText('Review panel')).toBeTruthy()
+    const publishButton = screen.getByRole('button', { name: 'Publish' })
+    expect(publishButton.hasAttribute('disabled')).toBe(true)
+    expect(publishButton.getAttribute('title')).toBe('Resolve conflicts before publishing')
+  })
+
+  it('renders files-only mode without the combined header', () => {
+    render(
+      <InspectorPanel
+        {...defaultProps}
+        panelMode="files"
+        openFiles={[
+          {
+            path: 'notes.txt',
+            title: 'notes.txt',
+            content: 'Plain text note',
+            updatedAt: 'now',
+            size: '1 KB',
+            kind: 'text' as const,
+          },
+        ]}
+        activeFilePath="notes.txt"
+      />
+    )
+
+    expect(screen.queryByRole('button', { name: 'Collapse panel' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Review/ })).toBeNull()
+    expect(screen.getAllByText('notes.txt').length).toBe(2)
+    expect(screen.getByText('Plain text note')).toBeTruthy()
+  })
 });
