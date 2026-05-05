@@ -173,13 +173,13 @@ export async function pullFromGithub(creds: KbGithubSyncCredentials): Promise<Kb
 
     const branch = await detectDefaultBranch(clone.dir, clone.gitEnv)
 
-    const fetch = await runGit(
+    const fetchResult = await runGit(
       ['fetch', 'github', branch],
       { cwd: clone.dir, env: clone.gitEnv },
     )
-    if (!fetch.ok) {
-      const sanitized = sanitizeGitError(fetch.stderr, token)
-      if (isAuthFailure(fetch.stderr)) {
+    if (!fetchResult.ok) {
+      const sanitized = sanitizeGitError(fetchResult.stderr, token)
+      if (isAuthFailure(fetchResult.stderr)) {
         return { ok: false, status: 'auth_failed', message: sanitized }
       }
       return { ok: false, status: 'error', message: sanitized }
