@@ -336,6 +336,39 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     ])
   })
 
+  it('does not stream untyped deltas as visible text', async () => {
+    const fetchMock = mockOpenCodeFetch([
+      {
+        type: 'message.updated',
+        properties: { info: { id: 'm1', role: 'assistant', sessionID: 's1' } },
+      },
+      {
+        type: 'message.part.delta',
+        properties: { messageID: 'm1', partID: 'r1', value: 'early hidden reasoning' },
+      },
+      {
+        type: 'message.part.updated',
+        properties: { part: { id: 'r1', messageID: 'm1', sessionID: 's1', type: 'reasoning' } },
+      },
+      {
+        type: 'message.part.delta',
+        properties: { messageID: 'm1', partID: 'r1', value: 'later hidden reasoning' },
+      },
+      { type: 'session.idle', properties: { info: { sessionID: 's1' } } },
+    ])
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('../route')
+    const res = await POST(makePostRequest({ sessionId: 's1', text: 'Hi' }), params())
+
+    const text = await res.text()
+
+    expect(text).not.toContain('early hidden reasoning')
+    expect(text).not.toContain('"type":"text"')
+    expect(text).toContain('"type":"reasoning"')
+    expect(text).toContain('later hidden reasoning')
+  })
+
   it('streams an error when the upstream event subscription fails', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 500 })))
 

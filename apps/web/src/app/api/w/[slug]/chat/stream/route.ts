@@ -556,6 +556,7 @@ export const POST = withAuth(
         let currentDetail: string | undefined
         let assistantMessageId: string | null = messageId ?? null
         const messageRoles = new Map<string, string>()
+        const partTypes = new Map<string, string>()
         const seenPartMessageIds = new Set<string>()
         let assistantMessageSeen = typeof assistantMessageId === 'string'
         let assistantPartSeen = false
@@ -582,6 +583,11 @@ export const POST = withAuth(
           currentDetail = detail
           sendEvent('status', { status, toolName, detail })
         }
+
+        const getPartKey = (partMessageId: string, partId: unknown) =>
+          typeof partId === 'string' && partId.trim().length > 0
+            ? `${partMessageId}:${partId}`
+            : null
 
         const finalizeFromIdle = () => {
           if (aborted) return
@@ -782,6 +788,10 @@ export const POST = withAuth(
                     const partMessageId = part.messageID
                     if (typeof partMessageId !== 'string') break
                     seenPartMessageIds.add(partMessageId)
+                    const partKey = getPartKey(partMessageId, part.id)
+                    if (partKey && typeof part.type === 'string') {
+                      partTypes.set(partKey, part.type)
+                    }
                     const knownRole = messageRoles.get(partMessageId)
                     if (!assistantMessageId && knownRole === 'assistant') {
                       assistantMessageId = partMessageId
@@ -889,8 +899,22 @@ export const POST = withAuth(
                         part.id = properties.id
                       }
                     }
-                    if (typeof part.type !== 'string') {
-                      part.type = typeof properties?.partType === 'string' ? properties.partType : 'text'
+
+                    const partKey = getPartKey(partMessageId, part.id)
+                    const partType =
+                      typeof part.type === 'string'
+                        ? part.type
+                        : typeof properties?.partType === 'string'
+                          ? properties.partType
+                          : partKey
+                            ? partTypes.get(partKey)
+                            : undefined
+
+                    if (typeof partType === 'string') {
+                      part.type = partType
+                      if (partKey) {
+                        partTypes.set(partKey, partType)
+                      }
                     }
                     if (typeof part.messageID !== 'string') {
                       part.messageID = partMessageId
@@ -899,17 +923,18 @@ export const POST = withAuth(
                       part.sessionID = eventSessionId
                     }
 
-                    sendEvent('part', { messageId: partMessageId, part, delta })
+                    if (typeof part.type === 'string') {
+                      sendEvent('part', { messageId: partMessageId, part, delta })
+                    }
 
                     if (!isAssistantPart) break
 
                     promptAcknowledged = true
                     assistantPartSeen = true
 
-                    const partType = typeof part.type === 'string' ? part.type : 'text'
-                    if (partType === 'reasoning') {
+                    if (part.type === 'reasoning') {
                       emitStatus('reasoning')
-                    } else if (partType === 'text') {
+                    } else if (part.type === 'text') {
                       emitStatus('writing')
                     } else {
                       emitStatus('thinking')
