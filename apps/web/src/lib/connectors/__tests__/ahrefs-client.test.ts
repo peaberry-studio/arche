@@ -72,6 +72,61 @@ describe('ahrefs-client', () => {
     }
   })
 
+  it('ignores invalid retry-after values and empty search params', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ message: 'try later' }), {
+        status: 429,
+        headers: { 'content-type': 'application/json', 'retry-after': '0' },
+      })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await requestAhrefsJson({
+      config: { apiKey: 'test-key' },
+      path: '/v3/site-explorer/metrics',
+      searchParams: { target: 'example.com', date: '' },
+    })
+
+    const [url] = fetchMock.mock.calls[0] as [URL, RequestInit]
+    expect(url.toString()).toBe('https://api.ahrefs.com/v3/site-explorer/metrics?target=example.com')
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.retryAfter).toBeUndefined()
+      expect(result.message).toBe('Ahrefs request failed (429): try later')
+    }
+  })
+
+  it('uses text response bodies as error details', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response('plain failure', {
+        status: 500,
+        headers: { 'content-type': 'text/plain' },
+      })
+    ))
+
+    const result = await requestAhrefsJson({
+      config: { apiKey: 'test-key' },
+      path: '/v3/site-explorer/metrics',
+    })
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.message).toBe('Ahrefs request failed (500): plain failure')
+      expect(result.data).toBe('plain failure')
+    }
+  })
+
+  it('returns null data for no-content responses', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 204 })))
+
+    const result = await requestAhrefsJson({
+      config: { apiKey: 'test-key' },
+      path: '/v3/site-explorer/metrics',
+    })
+
+    expect(result).toMatchObject({ ok: true, data: null, status: 204 })
+  })
+
   it('handles network errors gracefully', async () => {
     const fetchMock = vi.fn().mockRejectedValue(new Error('Network failure'))
     vi.stubGlobal('fetch', fetchMock)

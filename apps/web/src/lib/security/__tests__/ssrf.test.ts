@@ -77,6 +77,12 @@ describe('validateConnectorTestEndpoint', () => {
     expect(result).toEqual({ ok: false, error: 'blocked_endpoint' })
   })
 
+  it('rejects ipv4-mapped ipv6 hexadecimal notation for private addresses', async () => {
+    const lookupHost = vi.fn()
+    const result = await validateConnectorTestEndpoint('https://[::ffff:0a00:0001]/mcp', { lookupHost })
+    expect(result).toEqual({ ok: false, error: 'blocked_endpoint' })
+  })
+
   it('rejects hostnames that resolve to private addresses via dns', async () => {
     const lookupHost = vi.fn().mockResolvedValue([
       { address: '93.184.216.34', family: 4 },
@@ -84,6 +90,15 @@ describe('validateConnectorTestEndpoint', () => {
     ])
 
     const result = await validateConnectorTestEndpoint('https://mixed.example/mcp', { lookupHost })
+    expect(result).toEqual({ ok: false, error: 'blocked_endpoint' })
+  })
+
+  it('rejects hostnames that resolve to hexadecimal ipv4-mapped ipv6 private addresses', async () => {
+    const lookupHost = vi.fn().mockResolvedValue([
+      { address: '::ffff:0a00:0001', family: 6 },
+    ])
+
+    const result = await validateConnectorTestEndpoint('https://mapped.example/mcp', { lookupHost })
     expect(result).toEqual({ ok: false, error: 'blocked_endpoint' })
   })
 
@@ -122,5 +137,19 @@ describe('validateConnectorTestEndpoint', () => {
     const result = await validateConnectorTestEndpoint('https://api.example.com/mcp', { lookupHost })
     expect(result.ok).toBe(true)
     expect(lookupHost).toHaveBeenCalledWith('api.example.com')
+  })
+
+  it('uses the default dns lookup when no custom lookup is provided', async () => {
+    vi.resetModules()
+    const lookup = vi.fn().mockResolvedValue([{ address: '93.184.216.34', family: 4 }])
+    vi.doMock('node:dns/promises', () => ({ lookup }))
+
+    const { validateConnectorTestEndpoint: validateWithDefaultLookup } = await import('../ssrf')
+
+    const result = await validateWithDefaultLookup('https://default-lookup.example/mcp')
+
+    expect(result.ok).toBe(true)
+    expect(lookup).toHaveBeenCalledWith('default-lookup.example', { all: true, verbatim: true })
+    vi.doUnmock('node:dns/promises')
   })
 })

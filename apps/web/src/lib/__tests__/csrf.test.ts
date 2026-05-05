@@ -66,6 +66,45 @@ describe('csrf validateSameOrigin', () => {
     expect(validateSameOrigin(request)).toEqual({ ok: false })
   })
 
+  it('returns ok=false when Origin is malformed', async () => {
+    const { validateSameOrigin } = await import('@/lib/csrf')
+
+    const request = new Request('http://localhost/api/u/alice/connectors', {
+      method: 'POST',
+      headers: {
+        host: 'localhost',
+        origin: '::::',
+      },
+    })
+
+    expect(validateSameOrigin(request)).toEqual({ ok: false })
+  })
+
+  it('returns ok=false when the request URL is malformed', async () => {
+    const { validateSameOrigin } = await import('@/lib/csrf')
+
+    const request = {
+      headers: new Headers({ origin: 'http://localhost' }),
+      url: 'not a url',
+    } as Request
+
+    expect(validateSameOrigin(request)).toEqual({ ok: false })
+  })
+
+  it('returns ok=false when forwarded origin data cannot form a URL', async () => {
+    const { validateSameOrigin } = await import('@/lib/csrf')
+
+    const request = new Request('http://localhost/api/u/alice/connectors', {
+      method: 'POST',
+      headers: {
+        host: 'bad host',
+        origin: 'http://localhost',
+      },
+    })
+
+    expect(validateSameOrigin(request)).toEqual({ ok: false })
+  })
+
   it('returns ok=false when Origin host does not match expected origin', async () => {
     const { validateSameOrigin } = await import('@/lib/csrf')
 

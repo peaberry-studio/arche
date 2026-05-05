@@ -84,6 +84,29 @@ describe('slackService', () => {
       expect(result!.botTokenSecret).toBe('xoxb-secret')
       expect(result!.slackTeamId).toBe('T1')
     })
+
+    it('handles invalid serialized state and corrupted config', async () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      mockDecryptConfig.mockImplementationOnce(() => { throw new Error('decrypt failed') })
+      mockPrisma.externalIntegration.findUnique.mockResolvedValue({
+        ...makeRow({}, {}),
+        config: 'not-json',
+        state: '{',
+      })
+
+      const result = await findIntegration()
+
+      expect(result).toMatchObject({
+        configCorrupted: true,
+        enabled: false,
+        lastError: null,
+      })
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        '[slack] Failed to decrypt integration config',
+        'decrypt failed',
+      )
+      consoleErrorSpy.mockRestore()
+    })
   })
 
   describe('saveIntegrationConfig', () => {
@@ -144,6 +167,29 @@ describe('slackService', () => {
 
       const result = await saveIntegrationConfig({ enabled: false })
       expect(result.botTokenSecret).toBe('old-bot')
+    })
+
+    it('falls back to empty existing config and state when stored values are invalid', async () => {
+      mockDecryptConfig.mockImplementationOnce(() => { throw new Error('decrypt failed') })
+      mockPrisma.externalIntegration.findUnique.mockResolvedValue({
+        ...makeRow({}, {}),
+        config: 'corrupted',
+        state: null,
+      })
+      mockPrisma.externalIntegration.upsert.mockImplementation(async (args: { update: { config: string; state: unknown } }) => ({
+        key: SLACK_INTEGRATION_KEY,
+        config: args.update.config,
+        state: args.update.state,
+        version: 2,
+        createdAt: NOW,
+        updatedAt: NOW,
+      }))
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+      const result = await saveIntegrationConfig({ enabled: true })
+
+      expect(result.enabled).toBe(true)
+      expect(result.botTokenSecret).toBeNull()
     })
   })
 

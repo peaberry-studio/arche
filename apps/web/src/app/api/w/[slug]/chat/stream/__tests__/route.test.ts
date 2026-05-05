@@ -360,6 +360,36 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  it('emits missing_fields when normalized prompt parts are empty after subscribing', async () => {
+    const fetchMock = mockOpenCodeFetch([])
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('../route')
+    const res = await POST(makePostRequest({ sessionId: 's1', text: '   ' }), params())
+
+    await expect(res.text()).resolves.toContain('missing_fields')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('emits an error when prompt startup fails after event subscription', async () => {
+    const fetchMock = vi.fn((url: string | URL) => {
+      const href = String(url)
+      if (href === 'http://test-slug:3000/event') {
+        return Promise.resolve(new Response(eventStream([]), { status: 200 }))
+      }
+      if (href === 'http://test-slug:3000/session/s1/prompt_async') {
+        return Promise.resolve(new Response('upstream unavailable', { status: 503 }))
+      }
+      return Promise.reject(new Error(`unexpected fetch ${href}`))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('../route')
+    const res = await POST(makePostRequest({ sessionId: 's1', text: 'hi' }), params())
+
+    await expect(res.text()).resolves.toContain('Failed to start message: upstream unavailable')
+  })
+
   it('builds prompt parts for attachment extraction and tool-hint edge cases', async () => {
     const fetchMock = mockOpenCodeFetch([{ type: 'session.idle', properties: { info: { sessionID: 's1' } } }])
     vi.stubGlobal('fetch', fetchMock)
@@ -406,5 +436,96 @@ describe('POST /api/w/[slug]/chat/stream', () => {
       filename: 'image.png',
       url: 'file:///workspace/.arche/attachments/image.png',
     })
+  })
+
+  it('inlines extracted PDF text and readable images when attachment bytes are available', async () => {
+    const fetchMock = mockOpenCodeFetch([{ type: 'session.idle', properties: { info: { sessionID: 's1' } } }])
+    vi.stubGlobal('fetch', fetchMock)
+    mocks.isPdfMime.mockImplementation((mime: string) => mime === 'application/pdf')
+    mocks.workspaceAgentFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          ok: true,
+          content: Buffer.from('pdf bytes').toString('base64'),
+          encoding: 'base64',
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          ok: true,
+          content: 'image bytes',
+          encoding: 'utf-8',
+        },
+      })
+    mocks.extractPdfText.mockResolvedValue({
+      ok: true,
+      text: 'Extracted PDF body',
+      truncated: true,
+    })
+
+    const { POST } = await import('../route')
+    const res = await POST(makePostRequest({
+      sessionId: 's1',
+      attachments: [
+        { path: '.arche/attachments/report.pdf', filename: 'report.pdf', mime: 'application/pdf' },
+        { path: '.arche/attachments/screenshot.png', filename: 'screenshot.png', mime: 'image/png' },
+      ],
+    }), params())
+
+    await res.text()
+    const promptCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/session/s1/prompt_async'))
+    expect(promptCall).toBeDefined()
+    const promptBody = JSON.parse(String(promptCall?.[1]?.body))
+    const promptText = promptBody.parts.map((part: { text?: string }) => part.text ?? '').join('\n')
+
+    expect(promptText).toContain('Extracted text from attached PDF')
+    expect(promptText).toContain('Extracted PDF body')
+    expect(promptText).toContain('truncated to fit the prompt window')
+    expect(promptBody.parts).toContainEqual({
+      type: 'file',
+      mime: 'image/png',
+      filename: 'screenshot.png',
+      url: `data:image/png;base64,${Buffer.from('image bytes').toString('base64')}`,
+    })
+  })
+
+  it('streams resume delta events without sending a new prompt', async () => {
+    const fetchMock = vi.fn((url: string | URL) => {
+      const href = String(url)
+      if (href === 'http://test-slug:3000/event') {
+        return Promise.resolve(new Response(eventStream([
+          {
+            type: 'message.part.delta',
+            properties: {
+              info: { sessionID: 's1' },
+              part: { id: 'part-1', type: 'reasoning' },
+              value: 'resumed reasoning',
+            },
+          },
+          { type: 'session.idle', properties: { info: { sessionID: 's1' } } },
+        ]), { status: 200 }))
+      }
+      return Promise.reject(new Error(`unexpected fetch ${href}`))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('../route')
+    const res = await POST(makePostRequest({
+      sessionId: 's1',
+      resume: true,
+      messageId: 'assistant-1',
+    }), params())
+
+    const text = await res.text()
+    expect(text).toContain('event: part')
+    expect(text).toContain('"messageId":"assistant-1"')
+    expect(text).toContain('"type":"reasoning"')
+    expect(text).toContain('event: done')
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      'http://test-slug:3000/session/s1/prompt_async',
+      expect.anything(),
+    )
   })
 })

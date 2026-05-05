@@ -328,6 +328,14 @@ describe("WorkspaceShell", () => {
 
       return jsonResponse({ ok: true });
     }));
+    Object.defineProperty(HTMLElement.prototype, "setPointerCapture", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    Object.defineProperty(HTMLElement.prototype, "releasePointerCapture", {
+      configurable: true,
+      value: vi.fn(),
+    });
     window.localStorage.clear();
     clearCookies();
     vi.spyOn(HTMLDivElement.prototype, "getBoundingClientRect").mockReturnValue({
@@ -395,6 +403,15 @@ describe("WorkspaceShell", () => {
     await waitFor(() => {
       expect(routerReplaceMock).toHaveBeenCalledWith("/u/alice?setup=required");
     });
+  });
+
+  it("shows raw startup errors that do not need friendly formatting", async () => {
+    ensureInstanceRunningActionMock.mockResolvedValueOnce({ status: "error", error: "container exploded" });
+
+    render(<WorkspaceShell slug="alice" />);
+
+    expect(await screen.findByText("Failed to start")).toBeTruthy();
+    expect(screen.getByText("container exploded")).toBeTruthy();
   });
 
   it("creates a new session with Command+Period", async () => {
@@ -712,6 +729,77 @@ describe("WorkspaceShell", () => {
     expect(screen.getByRole("button", { name: "Collapse knowledge panel" })).toBeTruthy();
   });
 
+  it("resizes both desktop side panels with pointer drags", async () => {
+    render(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" initialFilePath="docs/plan.md" />);
+
+    const leftSeparator = await screen.findByRole("separator", { name: "Resize left panel" });
+    const rightSeparator = screen.getByRole("separator", { name: "Resize right panel" });
+
+    fireEvent.pointerDown(leftSeparator, { clientX: 216, pointerId: 1 });
+    fireEvent.pointerMove(window, { clientX: 520, pointerId: 1 });
+    fireEvent.pointerUp(window, { pointerId: 1 });
+
+    await waitFor(() => {
+      const leftPanelWidth = Number.parseFloat(
+        findSizedPanelContainer(screen.getByRole("button", { name: "Collapse knowledge panel" }))?.style.width ?? "0"
+      );
+      expect(leftPanelWidth).toBeCloseTo(520, 0);
+    });
+
+    fireEvent.pointerDown(rightSeparator, { clientX: 1008, pointerId: 2 });
+    fireEvent.pointerMove(window, { clientX: 900, pointerId: 2 });
+    fireEvent.pointerUp(window, { pointerId: 2 });
+
+    await waitFor(() => {
+      const rightPanelWidth = Number.parseFloat(
+        findSizedPanelContainer(screen.getByRole("button", { name: "Review Panel" }))?.style.width ?? "0"
+      );
+      expect(rightPanelWidth).toBeGreaterThan(430);
+    });
+
+    expect(document.body.style.cursor).toBe("");
+    expect(document.body.style.userSelect).toBe("");
+  });
+
+  it("fits oversized persisted panel widths into a narrow desktop viewport", async () => {
+    vi.mocked(HTMLDivElement.prototype.getBoundingClientRect).mockReturnValue({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      bottom: 900,
+      right: 900,
+      width: 900,
+      height: 900,
+      toJSON: () => ({}),
+    });
+
+    render(
+      <WorkspaceShell
+        slug="alice"
+        initialWorkspaceMode="knowledge"
+        initialFilePath="docs/plan.md"
+        initialLayoutState={{
+          leftCollapsed: false,
+          leftWidth: 800,
+          rightCollapsed: false,
+          rightWidth: 800,
+          rightTab: "review",
+        }}
+      />
+    );
+
+    const leftPanelButton = await screen.findByRole("button", { name: "Collapse knowledge panel" });
+    const leftPanelWidth = Number.parseFloat(findSizedPanelContainer(leftPanelButton)?.style.width ?? "0");
+    const rightPanelWidth = Number.parseFloat(
+      findSizedPanelContainer(screen.getByRole("button", { name: "Review Panel" }))?.style.width ?? "0"
+    );
+
+    expect(leftPanelWidth).toBeLessThan(800);
+    expect(rightPanelWidth).toBeGreaterThanOrEqual(320);
+    expect(leftPanelWidth + rightPanelWidth).toBeLessThan(1600);
+  });
+
   it("restores right panel at 50% of available center area when re-opened", async () => {
     render(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" />);
 
@@ -779,6 +867,47 @@ describe("WorkspaceShell", () => {
     expect(await screen.findByText("Run an autopilot task")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Manage autopilot tasks" }));
     expect(routerPushMock).toHaveBeenCalledWith("/u/alice/autopilot");
+  });
+
+  it("uses the collapsed knowledge rail to switch tree and graph views", async () => {
+    render(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" initialFilePath="docs/plan.md" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Collapse knowledge panel" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Expand knowledge panel" })).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Show graph view" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Collapse knowledge panel" })).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse knowledge panel" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Show tree view" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Tree" })).toBeTruthy();
+    });
+  });
+
+  it("caps the compact review badge label at 99 plus", async () => {
+    setViewportWidth(720);
+    workspaceMockOverrides = {
+      diffs: Array.from({ length: 120 }, (_, index) => ({
+        additions: 1,
+        conflicted: false,
+        deletions: 0,
+        diff: "",
+        path: `note-${index}.md`,
+        status: "modified",
+      })),
+    };
+
+    render(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" initialFilePath="docs/plan.md" />);
+
+    expect(await screen.findAllByText("99+")).toHaveLength(2);
   });
 
   it("re-expands the left panel when focusing search with Command+K", async () => {

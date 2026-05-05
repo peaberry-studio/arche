@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { AutopilotClaimedTask } from '@/lib/services/autopilot'
+
 const getInstanceStatusMock = vi.fn()
 const startInstanceMock = vi.fn()
 const createInstanceClientMock = vi.fn()
@@ -50,6 +52,27 @@ vi.mock('@/lib/services', () => ({
     findByIdSelect: (...args: unknown[]) => findByIdSelectMock(...args),
   },
 }))
+
+function buildClaimedTask(overrides: Partial<AutopilotClaimedTask> = {}): AutopilotClaimedTask {
+  return {
+    id: 'task-1',
+    userId: 'user-1',
+    name: 'Daily summary',
+    prompt: 'Summarize the day',
+    targetAgentId: null,
+    cronExpression: '0 9 * * *',
+    timezone: 'UTC',
+    enabled: true,
+    nextRunAt: new Date('2026-04-13T09:00:00.000Z'),
+    lastRunAt: null,
+    leaseOwner: 'lease-1',
+    leaseExpiresAt: new Date('2026-04-12T09:15:00.000Z'),
+    createdAt: new Date('2026-04-12T08:00:00.000Z'),
+    updatedAt: new Date('2026-04-12T08:00:00.000Z'),
+    scheduledFor: new Date('2026-04-12T09:00:00.000Z'),
+    ...overrides,
+  }
+}
 
 describe('autopilot runner', () => {
   beforeEach(() => {
@@ -190,6 +213,47 @@ describe('autopilot runner', () => {
     )
   })
 
+  it('marks a claimed task as failed when the workspace client is unavailable', async () => {
+    createInstanceClientMock.mockResolvedValue(null)
+
+    const { runClaimedAutopilotTask } = await import('../runner')
+    await runClaimedAutopilotTask(buildClaimedTask(), 'schedule')
+
+    expect(markRunFailedMock).toHaveBeenCalledWith(
+      'run-1',
+      expect.objectContaining({
+        error: 'instance_unavailable',
+        openCodeSessionId: null,
+        sessionTitle: null,
+      })
+    )
+    expect(createAuditEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'autopilot.run_failed',
+        metadata: expect.objectContaining({
+          error: 'instance_unavailable',
+          slug: 'alice',
+        }),
+      })
+    )
+  })
+
+  it('marks a claimed task as failed when OpenCode does not create a session', async () => {
+    createInstanceClientMock.mockResolvedValue({
+      session: {
+        create: vi.fn().mockResolvedValue({ data: null }),
+      },
+    })
+
+    const { runClaimedAutopilotTask } = await import('../runner')
+    await runClaimedAutopilotTask(buildClaimedTask(), 'schedule')
+
+    expect(markRunFailedMock).toHaveBeenCalledWith(
+      'run-1',
+      expect.objectContaining({ error: 'autopilot_session_create_failed' })
+    )
+  })
+
   it('returns task_busy when an immediate run cannot acquire the lease', async () => {
     claimTaskForImmediateRunMock.mockResolvedValue(null)
     findTaskByIdAndUserIdMock.mockResolvedValue({ id: 'task-1' })
@@ -202,6 +266,64 @@ describe('autopilot runner', () => {
     })
 
     expect(result).toEqual({ ok: false, error: 'task_busy' })
+  })
+
+  it('returns not_found when a user-scoped immediate run targets a missing task', async () => {
+    claimTaskForImmediateRunMock.mockResolvedValue(null)
+    findTaskByIdAndUserIdMock.mockResolvedValue(null)
+
+    const { triggerAutopilotTaskNow } = await import('../runner')
+    const result = await triggerAutopilotTaskNow({
+      taskId: 'task-1',
+      trigger: 'manual',
+      userId: 'user-1',
+    })
+
+    expect(result).toEqual({ ok: false, error: 'not_found' })
+  })
+
+  it('returns task_busy for unscoped immediate runs that cannot acquire the lease', async () => {
+    claimTaskForImmediateRunMock.mockResolvedValue(null)
+
+    const { triggerAutopilotTaskNow } = await import('../runner')
+    const result = await triggerAutopilotTaskNow({
+      taskId: 'task-1',
+      trigger: 'manual',
+    })
+
+    expect(result).toEqual({ ok: false, error: 'task_busy' })
+    expect(findTaskByIdAndUserIdMock).not.toHaveBeenCalled()
+  })
+
+  it('starts an immediate run in the background and logs execution failures', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    try {
+      claimTaskForImmediateRunMock.mockResolvedValue(buildClaimedTask())
+      createRunMock.mockRejectedValue(new Error('create failed'))
+
+      const { triggerAutopilotTaskNow } = await import('../runner')
+      const result = await triggerAutopilotTaskNow({
+        taskId: 'task-1',
+        trigger: 'manual',
+        userId: 'user-1',
+      })
+
+      await Promise.resolve()
+      await Promise.resolve()
+
+      expect(result).toEqual({ ok: true })
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        '[autopilot] Failed to execute immediate task run',
+        expect.objectContaining({
+          taskId: 'task-1',
+          trigger: 'manual',
+          error: expect.any(Error),
+        })
+      )
+    } finally {
+      consoleErrorSpy.mockRestore()
+    }
   })
 
   it('keeps polling when the session goes idle but the latest assistant message is still pending', async () => {

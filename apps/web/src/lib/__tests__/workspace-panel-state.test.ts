@@ -7,6 +7,8 @@ import {
   getWorkspaceLayoutCookieName,
   getWorkspaceLayoutStorageKey,
   normalizeLeftPanelState,
+  parseStoredLeftPanelState,
+  parseWorkspaceLayoutState,
   persistWorkspacePanelState,
   readWorkspacePanelState,
 } from '@/lib/workspace-panel-state'
@@ -75,6 +77,48 @@ describe('workspace panel state persistence', () => {
     expect(window.localStorage.getItem(storageKey)).toBe(JSON.stringify({ rightCollapsed: true }))
   })
 
+  it('ignores invalid stored values and malformed cookies', () => {
+    const storageKey = getWorkspaceLayoutStorageKey('alice')
+    const cookieName = getWorkspaceLayoutCookieName('alice')
+
+    window.localStorage.setItem(storageKey, '{')
+    document.cookie = `${cookieName}=%E0%A4%A; Path=/`
+
+    expect(readWorkspacePanelState(storageKey, cookieName, parseJsonValue<{ rightCollapsed: boolean }>)).toBeNull()
+  })
+
+  it('falls back to cookies when localStorage reads throw', () => {
+    const storageKey = getWorkspaceLayoutStorageKey('alice')
+    const cookieName = getWorkspaceLayoutCookieName('alice')
+    document.cookie = `${cookieName}=${encodeURIComponent(JSON.stringify({ leftCollapsed: true }))}; Path=/`
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: vi.fn(() => { throw new Error('blocked') }),
+        setItem: vi.fn(),
+      },
+    })
+
+    expect(readWorkspacePanelState(storageKey, cookieName, parseJsonValue<{ leftCollapsed: boolean }>)).toEqual({
+      leftCollapsed: true,
+    })
+  })
+
+  it('still writes cookies when localStorage writes throw', () => {
+    const storageKey = getWorkspaceLayoutStorageKey('alice')
+    const cookieName = getWorkspaceLayoutCookieName('alice')
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: {
+        setItem: vi.fn(() => { throw new Error('blocked') }),
+      },
+    })
+
+    persistWorkspacePanelState(storageKey, cookieName, { leftCollapsed: true })
+
+    expect(readCookieValue(cookieName)).toBe(JSON.stringify({ leftCollapsed: true }))
+  })
+
   it('persists the value to both localStorage and cookies', () => {
     const storageKey = getWorkspaceLayoutStorageKey('alice')
     const cookieName = getWorkspaceLayoutCookieName('alice')
@@ -114,6 +158,28 @@ describe('workspace panel state persistence', () => {
         skills: true,
       },
     })
+  })
+
+  it('normalizes invalid left panel maps to defaults', () => {
+    expect(normalizeLeftPanelState({ ratios: [], collapsed: [] })).toEqual({
+      ratios: {
+        chats: 0.32,
+        knowledge: 0.32,
+        experts: 0.18,
+        skills: 0.18,
+      },
+      collapsed: {
+        chats: false,
+        knowledge: false,
+        experts: false,
+        skills: false,
+      },
+    })
+  })
+
+  it('returns null for invalid serialized state', () => {
+    expect(parseWorkspaceLayoutState('{')).toBeNull()
+    expect(parseStoredLeftPanelState('{')).toBeNull()
   })
 
   it('migrates the legacy three-section state into the new shape', () => {

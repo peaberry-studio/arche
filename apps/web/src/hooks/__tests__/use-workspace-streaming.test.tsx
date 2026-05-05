@@ -83,6 +83,12 @@ const DEFAULT_AGENTS = [
     model: "openai/gpt-5.4",
     isPrimary: true,
   },
+  {
+    id: "reviewer",
+    displayName: "Reviewer",
+    model: "openai/gpt-5.2",
+    isPrimary: false,
+  },
 ];
 
 function setupDefaultMocks() {
@@ -565,6 +571,138 @@ describe("useWorkspace streaming", () => {
       act(() => {
         sse.close();
       });
+    });
+
+    it("derives runtime metadata and status from non-text streamed parts", async () => {
+      const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+      try {
+        const sse = createSSEStream();
+        stubFetchWithStream(() => sse);
+
+        const result = await renderConnectedHook();
+
+        await act(async () => {
+          await result.current.sendMessage("hello");
+        });
+
+        act(() => {
+          sse.push(sseEvent("message", { id: "assistant-1", role: "assistant" }));
+          sse.push(sseEvent("assistant-meta", {
+            agent: "Reviewer",
+            modelID: "gpt-5.4",
+            providerID: "openai",
+          }));
+          sse.push(sseEvent("agent", { agent: "reviewer" }));
+        });
+
+        await waitFor(() => {
+          expect(result.current.selectedModel?.modelId).toBe("gpt-5.4");
+        });
+
+        act(() => {
+          sse.push(sseEvent("part", {
+            messageId: "assistant-1",
+            part: 42,
+          }));
+          sse.push(sseEvent("part", {
+            messageId: "assistant-1",
+            part: {
+              id: "empty-text",
+              messageID: "assistant-1",
+              text: "",
+              type: "text",
+            },
+          }));
+          sse.push(sseEvent("part", {
+            messageId: "assistant-1",
+            part: {
+              id: "reasoning-1",
+              messageID: "assistant-1",
+              text: "checking",
+              type: "reasoning",
+            },
+          }));
+        });
+
+        await waitFor(() => {
+          const assistant = result.current.messages.find((m) => m.role === "assistant");
+          expect(assistant?.statusInfo?.status).toBe("reasoning");
+        });
+
+        act(() => {
+          sse.push(sseEvent("part", {
+            messageId: "assistant-1",
+            part: {
+              id: "tool-running",
+              messageID: "assistant-1",
+              state: {
+                input: { subagent_type: "explore" },
+                status: "running",
+                title: "Searching",
+              },
+              tool: "task",
+              type: "tool",
+            },
+          }));
+        });
+
+        await waitFor(() => {
+          const assistant = result.current.messages.find((m) => m.role === "assistant");
+          expect(assistant?.statusInfo).toEqual({
+            detail: "to Explore",
+            status: "tool-calling",
+            toolName: "task",
+          });
+        });
+
+        act(() => {
+          sse.push(sseEvent("part", {
+            messageId: "assistant-1",
+            part: {
+              id: "tool-error",
+              messageID: "assistant-1",
+              state: { error: "tool failed", input: {}, status: "error" },
+              tool: "bash",
+              type: "tool",
+            },
+          }));
+        });
+
+        await waitFor(() => {
+          const assistant = result.current.messages.find((m) => m.role === "assistant");
+          expect(assistant?.statusInfo).toEqual({
+            detail: "tool failed",
+            status: "error",
+            toolName: "bash",
+          });
+        });
+
+        act(() => {
+          sse.push(sseEvent("part", {
+            messageId: "assistant-1",
+            part: { id: "step-1", messageID: "assistant-1", type: "step-start" },
+          }));
+          sse.push(sseEvent("part", {
+            messageId: "assistant-1",
+            part: {
+              attempt: 2,
+              error: { data: { message: "retrying" } },
+              id: "retry-1",
+              messageID: "assistant-1",
+              type: "retry",
+            },
+          }));
+          sse.push(sseEvent("done", {}));
+          sse.close();
+        });
+
+        await waitFor(() => {
+          expect(result.current.isSending).toBe(false);
+        });
+      } finally {
+        consoleLogSpy.mockRestore();
+      }
     });
 
   });
