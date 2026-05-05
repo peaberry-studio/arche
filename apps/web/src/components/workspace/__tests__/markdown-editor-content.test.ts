@@ -17,6 +17,12 @@ describe("markdown-editor-content", () => {
     )
   })
 
+  it("encodes leading and trailing blank line runs", () => {
+    expect(encodeMarkdownForEditor("\n\nLine")).toBe("&nbsp;\n\n&nbsp;\n\nLine")
+    expect(encodeMarkdownForEditor("Line\n")).toBe("Line\n")
+    expect(encodeMarkdownForEditor("Line\n\n\n")).toBe("Line\n\n&nbsp;\n\n&nbsp;")
+  })
+
   it("restores repeated blank lines from editor placeholders", () => {
     expect(normalizeMarkdownForKb("Line 1\n\n&nbsp;\n\n&nbsp;\n\nLine 2")).toBe(
       "Line 1\n\n\n\nLine 2"
@@ -25,6 +31,13 @@ describe("markdown-editor-content", () => {
 
   it("leaves fenced code blocks untouched", () => {
     const source = ["```", "line 1", "", "&nbsp;", "", "line 2", "```", "", "After"].join("\n")
+
+    expect(encodeMarkdownForEditor(source)).toBe(source)
+    expect(normalizeMarkdownForKb(source)).toBe(source)
+  })
+
+  it("keeps mismatched fence delimiters inside open code blocks", () => {
+    const source = ["```", "~~~", "inside", "```"].join("\n")
 
     expect(encodeMarkdownForEditor(source)).toBe(source)
     expect(normalizeMarkdownForKb(source)).toBe(source)

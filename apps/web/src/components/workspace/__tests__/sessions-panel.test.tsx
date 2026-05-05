@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SessionsPanel } from "@/components/workspace/sessions-panel";
@@ -125,6 +125,61 @@ describe("SessionsPanel", () => {
 
     expect(screen.getByText("No tasks yet")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "New chat" })).toBeNull();
+  });
+
+  it("offers chat creation in the empty chat state", () => {
+    const onCreateSession = vi.fn();
+
+    render(
+      <SessionsPanel
+        sessions={[]}
+        activeSessionId={null}
+        unseenCompletedSessions={new Set<string>()}
+        onSelectSession={vi.fn()}
+        onCreateSession={onCreateSession}
+      />
+    );
+
+    expect(screen.getByText("No chats yet")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+
+    expect(onCreateSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the chat search empty state with a creation shortcut", () => {
+    const onCreateSession = vi.fn();
+
+    render(
+      <SessionsPanel
+        sessions={sessions}
+        activeSessionId="idle-session"
+        query="missing"
+        unseenCompletedSessions={new Set<string>()}
+        onSelectSession={vi.fn()}
+        onCreateSession={onCreateSession}
+      />
+    );
+
+    expect(screen.getByText("No chats found")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+
+    expect(onCreateSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows task-specific loading copy while fetching more", () => {
+    render(
+      <SessionsPanel
+        sessions={sessions}
+        activeSessionId="idle-session"
+        isLoadingMore
+        kind="tasks"
+        unseenCompletedSessions={new Set<string>()}
+        onSelectSession={vi.fn()}
+        onCreateSession={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("Loading more tasks...")).toBeTruthy();
   });
 
   it("requests more sessions when the load-more sentinel becomes visible", () => {

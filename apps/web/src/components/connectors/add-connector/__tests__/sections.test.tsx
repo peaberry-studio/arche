@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AddConnectorSectionHandle } from '@/components/connectors/add-connector/section-types'
 import { CustomSection } from '@/components/connectors/add-connector/custom/section'
 import { GoogleWorkspaceSection } from '@/components/connectors/add-connector/google-workspace/section'
+import { LinearSection } from '@/components/connectors/add-connector/linear/section'
 import { MetaAdsSection } from '@/components/connectors/add-connector/meta-ads/section'
 import { NotionSection } from '@/components/connectors/add-connector/notion/section'
 import { UmamiSection } from '@/components/connectors/add-connector/umami/section'
@@ -47,19 +48,91 @@ describe('add connector sections', () => {
     render(<CustomSection ref={ref} isActive onStateChange={vi.fn()} />)
 
     expect(getHandle(ref).isComplete()).toBe(false)
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: '   ' } })
+    expect(getHandle(ref).getSubmission()).toEqual({ ok: false, message: 'Name is required.' })
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Custom MCP' } })
     fireEvent.change(screen.getByLabelText('Endpoint'), { target: { value: 'https://mcp.example.com' } })
     fireEvent.change(screen.getByLabelText(/Auth token/), { target: { value: 'secret' } })
     fireEvent.change(screen.getByLabelText(/Headers/), { target: { value: '{"x-test":"1"}' } })
 
     expect(getHandle(ref).isComplete()).toBe(true)
     const result = expectSuccessfulSubmission(ref)
-    expect(result.name).toBe('Custom Connector')
+    expect(result.name).toBe('Custom MCP')
     expect(result.config).toMatchObject({
       authType: 'manual',
       endpoint: 'https://mcp.example.com',
       auth: 'secret',
       headers: { 'x-test': '1' },
     })
+  })
+
+  it('submits custom OAuth connector settings', () => {
+    const ref = createRef<AddConnectorSectionHandle>()
+    render(<CustomSection ref={ref} isActive onStateChange={vi.fn()} />)
+
+    fireEvent.change(screen.getByLabelText('Authentication'), { target: { value: 'oauth' } })
+    fireEvent.change(screen.getByLabelText('MCP endpoint'), { target: { value: 'https://mcp.example.com' } })
+    fireEvent.change(screen.getByLabelText(/OAuth scope/), { target: { value: 'read write' } })
+    fireEvent.change(screen.getByLabelText(/Client ID/), { target: { value: 'client-id' } })
+    fireEvent.change(screen.getByLabelText(/Client secret/), { target: { value: 'client-secret' } })
+    fireEvent.change(screen.getByLabelText(/Authorization endpoint/), { target: { value: 'https://auth.example.com' } })
+    fireEvent.change(screen.getByLabelText(/Token endpoint/), { target: { value: 'https://token.example.com' } })
+    fireEvent.change(screen.getByLabelText(/Registration endpoint/), { target: { value: 'https://register.example.com' } })
+
+    expect(screen.getByText('Connect OAuth')).toBeTruthy()
+    expect(getHandle(ref).isComplete()).toBe(true)
+    expect(expectSuccessfulSubmission(ref).config).toEqual({
+      authType: 'oauth',
+      endpoint: 'https://mcp.example.com',
+      oauthScope: 'read write',
+      oauthClientId: 'client-id',
+      oauthClientSecret: 'client-secret',
+      oauthAuthorizationEndpoint: 'https://auth.example.com',
+      oauthTokenEndpoint: 'https://token.example.com',
+      oauthRegistrationEndpoint: 'https://register.example.com',
+    })
+  })
+
+  it('submits Linear OAuth and manual settings', () => {
+    const ref = createRef<AddConnectorSectionHandle>()
+    render(<LinearSection ref={ref} isActive onStateChange={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /Admin access/ }))
+    expect(expectSuccessfulSubmission(ref).config).toEqual({
+      authType: 'oauth',
+      oauthScope: 'read,admin',
+    })
+
+    fireEvent.change(screen.getByLabelText('OAuth actor'), { target: { value: 'app' } })
+
+    expect(screen.queryByRole('checkbox', { name: /Admin access/ })).toBeNull()
+    expect(getHandle(ref).getSubmission()).toEqual({
+      ok: false,
+      message: 'Linear app actor OAuth requires client ID and client secret.',
+    })
+
+    fireEvent.change(screen.getByLabelText('Client ID'), { target: { value: 'linear-client' } })
+    fireEvent.change(screen.getByLabelText('Client secret'), { target: { value: 'linear-secret' } })
+
+    expect(expectSuccessfulSubmission(ref).config).toEqual({
+      authType: 'oauth',
+      oauthScope: 'read',
+      oauthActor: 'app',
+      oauthClientId: 'linear-client',
+      oauthClientSecret: 'linear-secret',
+    })
+
+    fireEvent.change(screen.getByLabelText('Authentication'), { target: { value: 'manual' } })
+    fireEvent.change(screen.getByLabelText('API Key'), { target: { value: 'linear-key' } })
+
+    expect(expectSuccessfulSubmission(ref).config).toEqual({
+      authType: 'manual',
+      apiKey: 'linear-key',
+    })
+
+    fireEvent.change(screen.getByLabelText('Authentication'), { target: { value: 'oauth' } })
+
+    expect(screen.getByText('Connect OAuth')).toBeTruthy()
   })
 
   it('supports Notion OAuth and manual API-key submissions', () => {

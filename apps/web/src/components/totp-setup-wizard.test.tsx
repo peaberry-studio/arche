@@ -102,6 +102,24 @@ describe('TotpSetupWizard', () => {
     expect(disable2FA).toHaveBeenCalledWith('bad-password')
   })
 
+  it('maps invalid setup verification codes to a friendly error', async () => {
+    vi.mocked(initiate2FASetup).mockResolvedValue({
+      ok: true,
+      qrUri: 'otpauth://totp/arche',
+      secret: 'SECRET123',
+    })
+    vi.mocked(verify2FASetup).mockResolvedValue({ ok: false, error: 'Invalid code' })
+
+    openWizard('setup')
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }))
+    expect(await screen.findByText('Scan the QR code')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.change(screen.getByPlaceholderText('000000'), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
+
+    expect(await screen.findByText('Incorrect code')).toBeTruthy()
+  })
+
   it('regenerates recovery codes after password confirmation', async () => {
     vi.mocked(regenerateRecoveryCodes).mockResolvedValue({
       ok: true,
@@ -114,5 +132,35 @@ describe('TotpSetupWizard', () => {
 
     expect(await screen.findByText('EEEE-FFFF')).toBeTruthy()
     expect(regenerateRecoveryCodes).toHaveBeenCalledWith('current-password')
+  })
+
+  it('opens recovery codes in a popup when clipboard is unavailable', async () => {
+    const write = vi.fn()
+    vi.mocked(regenerateRecoveryCodes).mockResolvedValue({
+      ok: true,
+      recoveryCodes: ['GGGG-HHHH'],
+    })
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: undefined,
+    })
+    Object.defineProperty(window, 'isSecureContext', {
+      configurable: true,
+      value: false,
+    })
+    vi.spyOn(window, 'open').mockReturnValue({
+      document: {
+        write,
+        title: '',
+      },
+    } as unknown as Window)
+
+    openWizard('regenerate')
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'current-password' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Regenerate' }))
+    expect(await screen.findByText('GGGG-HHHH')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Copy codes' }))
+
+    expect(write).toHaveBeenCalledWith('<pre style="font-size:16px;padding:20px">GGGG-HHHH</pre>')
   })
 })

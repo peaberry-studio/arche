@@ -118,4 +118,50 @@ describe("useConfigStatus", () => {
       expect(fetchMock).toHaveBeenCalledTimes(2);
     });
   });
+
+  it("surfaces restart errors from failed responses", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({ error: "restart_unavailable" }),
+    });
+
+    const { result } = renderHook(() => useConfigStatus("alice", false));
+
+    await act(async () => {
+      await result.current.restart();
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/instances/alice/restart", {
+      method: "POST",
+      cache: "no-store",
+    });
+    expect(result.current.restarting).toBe(false);
+    expect(result.current.restartError).toBe("restart_unavailable");
+  });
+
+  it("surfaces network errors during restart", async () => {
+    fetchMock.mockRejectedValueOnce(new Error("offline"));
+
+    const { result } = renderHook(() => useConfigStatus("alice", false));
+
+    await act(async () => {
+      await result.current.restart();
+    });
+
+    expect(result.current.restarting).toBe(false);
+    expect(result.current.restartError).toBe("network_error");
+  });
+
+  it("ignores polling failures", async () => {
+    fetchMock.mockRejectedValueOnce(new Error("network"));
+
+    const { result } = renderHook(() => useConfigStatus("alice", true));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(result.current.pending).toBe(false);
+    expect(result.current.reason).toBeNull();
+  });
 });

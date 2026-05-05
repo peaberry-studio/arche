@@ -71,6 +71,26 @@ function ChatFontSizeSetter({ size }: { size: number }) {
   );
 }
 
+function ChatFontSizeControls() {
+  const {
+    canDecreaseChatFontSize,
+    canIncreaseChatFontSize,
+    chatFontSize,
+    decreaseChatFontSize,
+    increaseChatFontSize,
+  } = useWorkspaceTheme();
+
+  return (
+    <>
+      <div data-testid="chat-font-size">{chatFontSize}</div>
+      <div data-testid="can-decrease">{String(canDecreaseChatFontSize)}</div>
+      <div data-testid="can-increase">{String(canIncreaseChatFontSize)}</div>
+      <button onClick={decreaseChatFontSize}>decrease font size</button>
+      <button onClick={increaseChatFontSize}>increase font size</button>
+    </>
+  );
+}
+
 function ChatFontFamilyDisplay() {
   const { chatFontFamily } = useWorkspaceTheme();
   return <div data-testid="chat-font-family">{chatFontFamily}</div>;
@@ -113,6 +133,12 @@ afterEach(() => {
 });
 
 describe("WorkspaceThemeProvider", () => {
+  it("throws when the theme hook is used outside the provider", () => {
+    expect(() => render(<ThemeDisplay />)).toThrow(
+      "useWorkspaceTheme must be used within a WorkspaceThemeProvider"
+    );
+  });
+
   it("loads theme from scoped storage key", () => {
     localStorage.setItem("arche.workspace.alice.theme", "ocean-mist");
 
@@ -297,6 +323,38 @@ describe("WorkspaceThemeProvider", () => {
     });
 
     expect(screen.getByTestId("is-dark").textContent).toBe("true");
+
+    act(() => {
+      localStorage.setItem("arche.workspace.alice.dark-mode", "false");
+      window.dispatchEvent(
+        new StorageEvent("storage", {
+          key: "arche.workspace.alice.dark-mode",
+          newValue: "false",
+        })
+      );
+    });
+
+    expect(screen.getByTestId("is-dark").textContent).toBe("false");
+  });
+
+  it("ignores invalid storage event values", () => {
+    render(
+      <WorkspaceThemeProvider storageScope="alice">
+        <ThemeDisplay />
+        <ChatFontFamilyDisplay />
+        <ChatFontSizeDisplay />
+      </WorkspaceThemeProvider>
+    );
+
+    act(() => {
+      window.dispatchEvent(new StorageEvent("storage", { key: "arche.workspace.alice.theme", newValue: "invalid" }));
+      window.dispatchEvent(new StorageEvent("storage", { key: "arche.workspace.alice.chat-font-family", newValue: "mono" }));
+      window.dispatchEvent(new StorageEvent("storage", { key: "arche.workspace.alice.chat-font-size", newValue: "99" }));
+    });
+
+    expect(screen.getByTestId("theme-id").textContent).toBe(DEFAULT_THEME_ID);
+    expect(screen.getByTestId("chat-font-family").textContent).toBe(DEFAULT_CHAT_FONT_FAMILY);
+    expect(screen.getByTestId("chat-font-size").textContent).toBe(String(DEFAULT_CHAT_FONT_SIZE));
   });
 
   it("loads chat font size from scoped storage key", () => {
@@ -327,6 +385,31 @@ describe("WorkspaceThemeProvider", () => {
     expect(localStorage.getItem("arche.workspace.bob.chat-font-size")).toBe("18");
     expect(localStorage.getItem("arche.workspace.alice.chat-font-size")).toBeNull();
     expect(document.cookie).toContain("arche-workspace-chat-font-size-bob=18");
+  });
+
+  it("increments and decrements chat font size with capability flags", () => {
+    render(
+      <WorkspaceThemeProvider storageScope="alice" initialChatFontSize={17}>
+        <ChatFontSizeControls />
+      </WorkspaceThemeProvider>
+    );
+
+    expect(screen.getByTestId("chat-font-size").textContent).toBe("17");
+    expect(screen.getByTestId("can-decrease").textContent).toBe("true");
+    expect(screen.getByTestId("can-increase").textContent).toBe("true");
+
+    act(() => {
+      screen.getByRole("button", { name: "increase font size" }).click();
+    });
+
+    expect(screen.getByTestId("chat-font-size").textContent).toBe("18");
+    expect(screen.getByTestId("can-increase").textContent).toBe("false");
+
+    act(() => {
+      screen.getByRole("button", { name: "decrease font size" }).click();
+    });
+
+    expect(screen.getByTestId("chat-font-size").textContent).toBe("17");
   });
 
   it("syncs chat font size across tabs via storage event", () => {

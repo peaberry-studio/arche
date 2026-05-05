@@ -84,6 +84,42 @@ describe('AutopilotScheduleBuilder', () => {
     expect(screen.getByText(/Upcoming runs/)).toBeTruthy()
   })
 
+  it('updates every schedule field for mode-specific forms', () => {
+    render(<ScheduleHarness />)
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Hourly' }))
+    fireEvent.change(screen.getByLabelText('Every N hours'), { target: { value: '3' } })
+    fireEvent.change(screen.getByLabelText('Minute of the hour'), { target: { value: '5' } })
+    expect((screen.getByLabelText('Every N hours') as HTMLInputElement).value).toBe('3')
+    expect((screen.getByLabelText('Minute of the hour') as HTMLInputElement).value).toBe('5')
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Daily' }))
+    fireEvent.change(screen.getByLabelText('Every N days'), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText('Hour'), { target: { value: '6' } })
+    fireEvent.change(screen.getByLabelText('Minute'), { target: { value: '30' } })
+    expect((screen.getByLabelText('Every N days') as HTMLInputElement).value).toBe('2')
+    expect((screen.getByLabelText('Hour') as HTMLInputElement).value).toBe('6')
+    expect((screen.getByLabelText('Minute') as HTMLInputElement).value).toBe('30')
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Weekly' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mon' }))
+    fireEvent.change(screen.getByLabelText('Hour'), { target: { value: '7' } })
+    fireEvent.change(screen.getByLabelText('Minute'), { target: { value: '45' } })
+    expect((screen.getByLabelText('Hour') as HTMLInputElement).value).toBe('7')
+    expect((screen.getByLabelText('Minute') as HTMLInputElement).value).toBe('45')
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Monthly' }))
+    fireEvent.change(screen.getByLabelText('Every N months'), { target: { value: '4' } })
+    fireEvent.change(screen.getByLabelText('Day of month'), { target: { value: '12' } })
+    fireEvent.change(screen.getByLabelText('Hour'), { target: { value: '8' } })
+    fireEvent.change(screen.getByLabelText('Minute'), { target: { value: '15' } })
+
+    expect((screen.getByLabelText('Every N months') as HTMLInputElement).value).toBe('4')
+    expect((screen.getByLabelText('Day of month') as HTMLInputElement).value).toBe('12')
+    expect((screen.getByLabelText('Hour') as HTMLInputElement).value).toBe('8')
+    expect((screen.getByLabelText('Minute') as HTMLInputElement).value).toBe('15')
+  })
+
   it('shows invalid preview feedback when no upcoming runs exist', () => {
     render(
       <ScheduleHarness
