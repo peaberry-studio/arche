@@ -130,6 +130,43 @@ describe('WorkspaceSessionsRail', () => {
     expect(onMarkAutopilotRunSeen).toHaveBeenCalledWith('run-1')
   })
 
+  it('expands nearby row spacing while magnifying dots', () => {
+    render(
+      <WorkspaceSessionsRail
+        kind="chats"
+        sessions={sessions}
+        activeSessionId={null}
+        unseenCompletedSessions={new Set<string>()}
+        onSelectSession={vi.fn()}
+      />
+    )
+
+    const rail = screen.getByLabelText('Chats')
+    Object.defineProperty(rail, 'scrollTop', { configurable: true, value: 0 })
+    rail.getBoundingClientRect = () => ({
+      bottom: 180,
+      height: 180,
+      left: 0,
+      right: 32,
+      top: 0,
+      width: 32,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    })
+
+    const focusedButton = screen.getByRole('button', { name: 'Idle chat' })
+    const distantButton = screen.getByRole('button', { name: 'Done chat' })
+    const baseHeight = parseFloat(focusedButton.style.height)
+
+    fireEvent.mouseMove(rail, { clientY: 11 })
+
+    expect(parseFloat(focusedButton.style.height)).toBeGreaterThan(baseHeight)
+    expect(parseFloat(focusedButton.style.height)).toBeGreaterThan(
+      parseFloat(distantButton.style.height)
+    )
+  })
+
   it('renders nothing when the selected rail kind has no sessions', () => {
     const { container } = render(
       <WorkspaceSessionsRail
