@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLineLeft, ArrowLineRight, ChatCircle, Circle, Compass, Database, File, Graph, SlidersHorizontal, TreeStructure } from "@phosphor-icons/react";
+import { ArrowLineLeft, ArrowLineRight, ChatCircle, Circle, Compass, Database, File, Graph, SlidersHorizontal, TreeStructure, Warning, X } from "@phosphor-icons/react";
 
 import { ensureInstanceRunningAction } from "@/actions/spawner";
 import type { SyncKbResult } from "@/app/api/instances/[slug]/sync-kb/route";
@@ -260,6 +260,9 @@ export function WorkspaceShell({
   // Config change detection
   const configStatus = useConfigStatus(slug, instanceStatus === "running");
 
+  // GitHub sync conflict state (set during auto-sync on spawn)
+  const [githubConflicts, setGithubConflicts] = useState(false);
+
   // Auto-start instance on mount
   useEffect(() => {
     let cancelled = false;
@@ -436,7 +439,11 @@ export function WorkspaceShell({
 
     (async () => {
       try {
-        await fetch(`/api/instances/${slug}/sync-kb`, { method: 'POST' });
+        const res = await fetch(`/api/instances/${slug}/sync-kb`, { method: 'POST' });
+        const data: SyncKbResult | null = await res.json().catch(() => null);
+        if (data?.githubSyncStatus === 'conflicts') {
+          setGithubConflicts(true);
+        }
       } catch {
         // silent — auto-sync is best-effort
       }
@@ -1841,6 +1848,20 @@ export function WorkspaceShell({
           restartError={configStatus.restartError}
           onRestart={configStatus.restart}
         />
+      ) : null}
+      {githubConflicts ? (
+        <div className="flex w-full shrink-0 items-center justify-center gap-3 bg-amber-500 px-4 py-2.5 text-sm font-medium text-white dark:bg-amber-600">
+          <Warning size={16} weight="bold" className="shrink-0" />
+          <span>GitHub sync: merge conflicts detected. Resolve in Settings &gt; Integrations.</span>
+          <button
+            type="button"
+            onClick={() => setGithubConflicts(false)}
+            className="ml-1 inline-flex items-center rounded-md p-1 text-white/80 transition-colors hover:text-white"
+            aria-label="Dismiss"
+          >
+            <X size={14} weight="bold" />
+          </button>
+        </div>
       ) : null}
       <div className="flex min-h-0 flex-1 flex-col pl-1">
         {isCompactLayout ? (

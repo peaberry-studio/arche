@@ -15,7 +15,7 @@ export function proxy(request: NextRequest) {
     "object-src 'none'",
     "frame-ancestors 'none'",
     "base-uri 'self'",
-    "form-action 'self'",
+    "form-action 'self' https://github.com",
   ]
   const contentSecurityPolicy = cspDirectives.join('; ')
 

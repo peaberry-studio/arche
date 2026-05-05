@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 
 import { isWorkspaceReachable } from '@/lib/runtime/workspace-host'
 import { withAuth } from '@/lib/runtime/with-auth'
+import { kbGithubRemoteService } from '@/lib/services'
 import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 
 export interface PublishKbResult {
@@ -44,6 +45,10 @@ export const POST = withAuth<PublishKbResult | { error: string }>(
           status: 'error',
           message: errorText,
         })
+      }
+
+      if (data.ok && data.status === 'published') {
+        await kbGithubRemoteService.pushBestEffort()
       }
 
       return NextResponse.json(data)

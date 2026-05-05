@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 
 export type GitResult =
-  | { ok: true; stdout: string }
+  | { ok: true; stdout: string; stderr: string }
   | { ok: false; stderr: string }
 
 export type CloneResult =
@@ -37,7 +37,7 @@ export async function runGit(
       encoding: 'utf-8',
       env: options?.env ? { ...process.env, ...options.env } : process.env,
     })
-    return { ok: true, stdout: result.stdout ?? '' }
+    return { ok: true, stdout: result.stdout ?? '', stderr: result.stderr ?? '' }
   } catch (error) {
     if (error && typeof error === 'object' && 'stderr' in error) {
       return {

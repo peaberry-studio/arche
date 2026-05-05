@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 
 import { isWorkspaceReachable } from '@/lib/runtime/workspace-host'
 import { withAuth } from '@/lib/runtime/with-auth'
+import { kbGithubRemoteService } from '@/lib/services'
 import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 
 export interface SyncKbResult {
@@ -9,24 +10,9 @@ export interface SyncKbResult {
   status: 'synced' | 'conflicts' | 'no_remote' | 'error'
   message?: string
   conflicts?: string[]
+  githubSyncStatus?: string
 }
 
-/**
- * POST /api/instances/[slug]/sync-kb
- * 
- * Syncs the Knowledge Base in the user's workspace.
- * Runs git fetch + git merge from the `kb` remote.
- * 
- * Responses:
- * - 200 { ok: true, status: 'synced' } - Sync succeeded with no conflicts
- * - 200 { ok: true, status: 'conflicts', conflicts: [...] } - Conflicts need resolution
- * - 200 { ok: false, status: 'no_remote' } - `kb` remote does not exist
- * - 200 { ok: false, status: 'error', message: '...' } - Error during sync
- * - 401 - Not authenticated
- * - 403 - Not authorized for this instance
- * - 404 - Instance not found
- * - 409 - Instance is not running
- */
 export const POST = withAuth<SyncKbResult | { error: string }>(
   { csrf: true },
   async (_request, { slug }) => {
@@ -37,6 +23,8 @@ export const POST = withAuth<SyncKbResult | { error: string }>(
     }
 
     try {
+      const githubResult = await kbGithubRemoteService.pullBestEffort()
+
       const agent = await createWorkspaceAgentClient(slug)
       if (!agent) {
         return NextResponse.json({ error: 'instance_unavailable' }, { status: 409 })
@@ -58,10 +46,14 @@ export const POST = withAuth<SyncKbResult | { error: string }>(
           ok: false,
           status: 'error',
           message: errorText,
+          githubSyncStatus: githubResult.status,
         })
       }
 
-      return NextResponse.json(data)
+      return NextResponse.json({
+        ...data,
+        githubSyncStatus: githubResult.status,
+      })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
       return NextResponse.json({
@@ -73,11 +65,6 @@ export const POST = withAuth<SyncKbResult | { error: string }>(
   }
 )
 
-/**
- * GET /api/instances/[slug]/sync-kb
- * 
- * Gets current sync status (pending conflicts, etc.)
- */
 export const GET = withAuth<{ hasConflicts: boolean; conflicts?: string[] } | { error: string }>(
   { csrf: false },
   async (_request, { slug }) => {
