@@ -68,7 +68,7 @@ describe('kb write tools', () => {
     mockCloneRepoToTemp.mockResolvedValue({
       ok: true,
       dir: repoDir,
-      gitEnv: {},
+      gitEnv: {} as NodeJS.ProcessEnv,
       safeConfigDir,
     })
     mockCleanupClone.mockResolvedValue()

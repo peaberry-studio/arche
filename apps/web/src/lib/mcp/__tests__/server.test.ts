@@ -408,7 +408,7 @@ describe('createMcpServer', () => {
     })
 
     const handler = registerPrompt.mock.calls.find(
-      ([name]: [string]) => name === 'arche-workspace-context'
+      ([name]) => name === 'arche-workspace-context'
     )?.[2]
     const result = await handler?.()
 
@@ -426,7 +426,7 @@ describe('createMcpServer', () => {
     createMcpServer()
 
     const handler = registerPrompt.mock.calls.find(
-      ([name]: [string]) => name === 'arche-workspace-context'
+      ([name]) => name === 'arche-workspace-context'
     )?.[2]
     const result = await handler?.()
 
@@ -456,7 +456,7 @@ describe('createMcpServer', () => {
     createMcpServer()
 
     const handler = registerPrompt.mock.calls.find(
-      ([name]: [string]) => name === 'use-agent'
+      ([name]) => name === 'use-agent'
     )?.[2]
     const result = await handler?.({ agent_id: 'reviewer', task: 'Review the auth module' })
 
@@ -480,7 +480,7 @@ describe('createMcpServer', () => {
     createMcpServer()
 
     const handler = registerPrompt.mock.calls.find(
-      ([name]: [string]) => name === 'use-agent'
+      ([name]) => name === 'use-agent'
     )?.[2]
     const result = await handler?.({ agent_id: 'nope', task: 'anything' })
 
@@ -501,7 +501,7 @@ describe('createMcpServer', () => {
     createMcpServer()
 
     const handler = registerPrompt.mock.calls.find(
-      ([name]: [string]) => name === 'use-skill'
+      ([name]) => name === 'use-skill'
     )?.[2]
     const result = await handler?.({ skill_name: 'code-review', task: 'Review PR #42' })
 
@@ -522,7 +522,7 @@ describe('createMcpServer', () => {
     createMcpServer()
 
     const handler = registerPrompt.mock.calls.find(
-      ([name]: [string]) => name === 'use-skill'
+      ([name]) => name === 'use-skill'
     )?.[2]
     const result = await handler?.({ skill_name: 'nope', task: 'anything' })
 

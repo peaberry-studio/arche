@@ -237,7 +237,7 @@ describe('MCP integration actions', () => {
   })
 
   it('rejects revoking when MCP capability is disabled', async () => {
-    mockGetRuntimeCapabilities.mockReturnValue({ mcp: false })
+    mockGetRuntimeCapabilities.mockReturnValue({ ...mockGetRuntimeCapabilities(), mcp: false })
 
     const result = await revokePersonalAccessToken('tok-1')
 
@@ -271,7 +271,7 @@ describe('MCP integration actions', () => {
   })
 
   it('rejects setMcpEnabled when MCP capability is disabled', async () => {
-    mockGetRuntimeCapabilities.mockReturnValue({ mcp: false })
+    mockGetRuntimeCapabilities.mockReturnValue({ ...mockGetRuntimeCapabilities(), mcp: false })
 
     const result = await setMcpEnabled(true)
 
@@ -333,7 +333,7 @@ describe('MCP integration actions', () => {
   })
 
   it('rejects token when MCP capability is disabled', async () => {
-    mockGetRuntimeCapabilities.mockReturnValue({ mcp: false })
+    mockGetRuntimeCapabilities.mockReturnValue({ ...mockGetRuntimeCapabilities(), mcp: false })
 
     const result = await createPersonalAccessToken({
       name: 'Laptop',

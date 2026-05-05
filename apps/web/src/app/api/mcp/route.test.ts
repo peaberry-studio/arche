@@ -22,15 +22,15 @@ vi.mock('@/lib/services', () => ({
   },
 }))
 
-const mockGetClientIp = vi.fn(() => '127.0.0.1')
+const mockGetClientIp = vi.fn().mockReturnValue('127.0.0.1')
 vi.mock('@/lib/http', () => ({
-  getClientIp: (...args: unknown[]) => mockGetClientIp(...args),
+  getClientIp: (headers: unknown) => mockGetClientIp(headers),
 }))
 
 const mockConnect = vi.fn()
-const mockCreateMcpServer = vi.fn(() => ({ connect: mockConnect }))
+const mockCreateMcpServer = vi.fn().mockReturnValue({ connect: mockConnect })
 vi.mock('@/lib/mcp/server', () => ({
-  createMcpServer: (...args: unknown[]) => mockCreateMcpServer(...args),
+  createMcpServer: (input: unknown) => mockCreateMcpServer(input),
 }))
 
 const mockHandleRequest = vi.fn()

@@ -39,12 +39,15 @@ type CreateMcpServerInput = {
 }
 
 export function createMcpServer(input: CreateMcpServerInput = {}): McpServer {
+  const scopes = input.scopes ?? DEFAULT_MCP_PAT_SCOPES
+  if (scopes.length === 0) {
+    throw new Error('MCP server requires at least one scope')
+  }
+
   const server = new McpServer({
     name: 'arche',
     version: process.env.ARCHE_GIT_SHA || 'dev',
   })
-
-  const scopes = input.scopes ?? DEFAULT_MCP_PAT_SCOPES
 
   registerTools(server, scopes, input.user)
   registerPrompts(server, scopes, input.user)
@@ -82,7 +85,7 @@ function registerTools(
           'Use this to discover available documentation before reading specific articles. ' +
           'Pass a path to scope the listing to a subdirectory.',
         inputSchema: {
-          path: z.string().optional(),
+          path: z.string().max(512).optional(),
         },
       },
       async ({ path }) => toToolResult(await listKbArticles({ path }))
@@ -96,8 +99,8 @@ function registerTools(
           'or size metadata for binary files. Use list_kb_articles or search_kb first to ' +
           'discover available paths.',
         inputSchema: {
-          path: z.string(),
-          maxLines: z.number().int().positive().optional(),
+          path: z.string().max(512),
+          maxLines: z.number().int().positive().max(50_000).optional(),
         },
       },
       async ({ path, maxLines }) => toToolResult(await readKbArticle({ path, maxLines }))
@@ -111,10 +114,10 @@ function registerTools(
           'line numbers, and context snippets. Use this when you need to find information ' +
           'without knowing which article contains it.',
         inputSchema: {
-          query: z.string(),
-          path: z.string().optional(),
+          query: z.string().max(1000),
+          path: z.string().max(512).optional(),
           caseSensitive: z.boolean().optional(),
-          limit: z.number().int().positive().optional(),
+          limit: z.number().int().positive().max(100).optional(),
         },
       },
       async ({ query, path, caseSensitive, limit }) => {
@@ -131,8 +134,8 @@ function registerTools(
           'Create a new knowledge base article by path in the published vault. ' +
           'Fails when the target path already exists.',
         inputSchema: {
-          path: z.string().min(1),
-          content: z.string(),
+          path: z.string().min(1).max(512),
+          content: z.string().max(256_000),
         },
       },
       async ({ path, content }) => toToolResult(await createKbArticle({ path, content }))
@@ -145,8 +148,8 @@ function registerTools(
           'Update an existing knowledge base article by path in the published vault. ' +
           'Fails when the target path does not exist.',
         inputSchema: {
-          path: z.string().min(1),
-          content: z.string(),
+          path: z.string().min(1).max(512),
+          content: z.string().max(256_000),
         },
       },
       async ({ path, content }) => toToolResult(await updateKbArticle({ path, content }))
@@ -158,7 +161,7 @@ function registerTools(
         description:
           'Delete a knowledge base article by path from the published vault.',
         inputSchema: {
-          path: z.string().min(1),
+          path: z.string().min(1).max(512),
         },
       },
       async ({ path }) => toToolResult(await deleteKbArticle({ path }))
@@ -196,7 +199,7 @@ function registerTools(
           'temperature, and capabilities. To work as this agent, adopt its system prompt ' +
           'as your instructions and follow its specified constraints.',
         inputSchema: {
-          id: z.string().min(1),
+          id: z.string().min(1).max(128),
         },
       },
       async ({ id }) => toToolResult(await readAgent(id))
@@ -221,7 +224,7 @@ function registerTools(
           'assigned agents. To use a skill, follow the instructions in its body as your ' +
           'guide. If the skill has resources, use read_skill_resource to access them.',
         inputSchema: {
-          name: z.string().min(1),
+          name: z.string().min(1).max(128),
         },
       },
       async ({ name }) => toToolResult(await readSkillForMcp(name))
@@ -235,9 +238,9 @@ function registerTools(
           'like templates, examples, or reference data. Returns text content for text files ' +
           'or size metadata for binary files.',
         inputSchema: {
-          maxLines: z.number().int().positive().optional(),
-          name: z.string().min(1),
-          path: z.string().min(1),
+          maxLines: z.number().int().positive().max(50_000).optional(),
+          name: z.string().min(1).max(128),
+          path: z.string().min(1).max(512),
         },
       },
       async ({ name, path, maxLines }) => toToolResult(await readSkillResource({ name, path, maxLines }))
@@ -262,7 +265,7 @@ function registerTools(
           'Trigger one of this PAT user\'s Arche Autopilot tasks to run now. ' +
           'Returns not_found when the task does not belong to the token user.',
         inputSchema: {
-          id: z.string().min(1),
+          id: z.string().min(1).max(128),
         },
       },
       async ({ id }) => toToolResult(await runAutopilotTaskForMcp({ id, user }))

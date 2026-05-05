@@ -37,7 +37,7 @@ export function buildMcpClientSetup(
         label: 'Claude Code',
         description: 'Run once in the project where you want Claude Code to use Arche.',
         mode: 'command',
-        value: `claude mcp add-json ${MCP_SERVER_NAME} '${prettyJson}'`,
+        value: `claude mcp add-json ${MCP_SERVER_NAME} ${shellQuote(prettyJson)}`,
       }
     }
 
