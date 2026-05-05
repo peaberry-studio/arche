@@ -466,8 +466,7 @@ describe("WorkspaceShell", () => {
     });
 
     expect(await screen.findByText("Settings")).toBeTruthy();
-    expect(await screen.findByText("1/2 working")).toBeTruthy();
-    expect(await screen.findByText("1 active")).toBeTruthy();
+    expect(await screen.findAllByText("1 active")).toHaveLength(2);
     expect(screen.getByText("Appearance")).toBeTruthy();
   });
 

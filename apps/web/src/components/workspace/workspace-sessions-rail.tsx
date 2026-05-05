@@ -6,11 +6,12 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { cn } from '@/lib/utils'
 import type { WorkspaceSession } from '@/lib/opencode/types'
 
-const ROW_HEIGHT = 18
+const ROW_HEIGHT = 22
 const FADE_END_INDEX = 6
 const FADE_RADIUS_PX = ROW_HEIGHT * FADE_END_INDEX
 const MAX_DOT_SIZE = 8
 const MIN_DOT_SIZE = 3
+const MAX_DOT_SCALE = 2.1
 
 type Kind = 'chats' | 'tasks'
 
@@ -106,6 +107,9 @@ export function WorkspaceSessionsRail({
           const isActive = session.id === activeSessionId
           const distance = Math.abs(anchorY - dotCenterY)
           const f = focusFactor(distance)
+          const hoverFactor = cursorY === null ? 0 : f
+          const easedHoverFactor = hoverFactor * hoverFactor * (3 - 2 * hoverFactor)
+          const scale = 1 + (MAX_DOT_SCALE - 1) * easedHoverFactor
 
           let opacity = f
           let size = MIN_DOT_SIZE + (MAX_DOT_SIZE - MIN_DOT_SIZE) * f
@@ -128,18 +132,18 @@ export function WorkspaceSessionsRail({
                   aria-label={title}
                   aria-current={isActive ? 'true' : undefined}
                   style={{ height: ROW_HEIGHT, opacity }}
-                  className="flex w-full shrink-0 items-center justify-center transition-opacity duration-150 ease-out"
+                  className="flex w-full shrink-0 items-center justify-center transition-opacity duration-200 ease-out"
                 >
                   <span
                     className={cn(
-                      'block rounded-full transition-[width,height] duration-150 ease-out',
+                      'block rounded-full transition-[width,height,transform] duration-200 ease-out will-change-transform',
                       colorCls
                     )}
-                    style={{ width: size, height: size }}
+                    style={{ width: size, height: size, transform: `translateZ(0) scale(${scale})` }}
                   />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="right" className="max-w-[260px] truncate">
+              <TooltipContent side="right" sideOffset={10} className="max-w-[340px] rounded-xl px-3 py-2 text-sm leading-snug shadow-lg">
                 {title}
               </TooltipContent>
             </Tooltip>

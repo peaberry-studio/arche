@@ -24,7 +24,6 @@ import {
 import { Button } from '@/components/ui/button'
 import { useWorkspaceTheme } from '@/contexts/workspace-theme-context'
 import type { SyncKbResult } from '@/app/api/instances/[slug]/sync-kb/route'
-import { getProviderLabel } from '@/lib/providers/catalog'
 import { cn } from '@/lib/utils'
 
 import { SyncKbButton } from './sync-kb-button'
@@ -58,12 +57,6 @@ type WorkspaceTopNavProps = {
   onNavigateProviders?: () => void
   onNavigateSettings: () => void
   onSyncComplete?: (status: SyncKbResult['status']) => void
-}
-
-function connectorStatusInfo(status: ConnectorStatus): { label: string; dotClassName: string } {
-  if (status === 'ready') return { label: 'Working', dotClassName: 'bg-emerald-500' }
-  if (status === 'pending') return { label: 'Pending', dotClassName: 'bg-amber-500' }
-  return { label: 'Not working', dotClassName: 'bg-rose-500' }
 }
 
 export function WorkspaceTopNav({
@@ -133,7 +126,19 @@ export function WorkspaceTopNav({
   }, [loadIntegrations])
 
   const activeConnectors = connectors.filter((connector) => connector.status === 'ready').length
-  const activeProviders = providers.filter((provider) => provider.status === 'enabled')
+  const pendingConnectors = connectors.filter((connector) => connector.status === 'pending').length
+  const activeProviders = providers.filter((provider) => provider.status === 'enabled').length
+
+  const connectorDotClass =
+    connectors.length === 0
+      ? 'bg-muted-foreground/40'
+      : pendingConnectors > 0
+        ? 'bg-amber-500'
+        : activeConnectors === connectors.length
+          ? 'bg-emerald-500'
+          : 'bg-rose-500'
+
+  const providerDotClass = activeProviders > 0 ? 'bg-emerald-500' : 'bg-muted-foreground/40'
 
   return (
     <header
@@ -175,73 +180,42 @@ export function WorkspaceTopNav({
               <CaretDown size={13} weight="bold" className="shrink-0 text-muted-foreground" />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-80 p-2">
-            {/* Connectors */}
-            <DropdownMenuLabel className="px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Connectors
-            </DropdownMenuLabel>
-            <div className="px-2 pb-1 text-xs text-muted-foreground">
-              {isLoadingConnectors ? 'Loading connectors...' : `${activeConnectors}/${connectors.length} working`}
-            </div>
-            {connectors.length === 0 && !isLoadingConnectors ? (
-              <p className="px-2 py-1 text-xs text-muted-foreground">No connectors configured.</p>
-            ) : null}
-            {connectors.slice(0, 5).map((connector) => {
-              const info = connectorStatusInfo(connector.status)
-              return (
-                <div key={connector.id} className="flex items-center justify-between rounded-lg px-2 py-1.5 text-xs">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm text-foreground">{connector.name}</p>
-                    <p className="text-[11px] text-muted-foreground">{connector.type}</p>
-                  </div>
-                  <div className="ml-3 flex items-center gap-1.5 text-muted-foreground">
-                    <span className={cn('h-2 w-2 rounded-full', info.dotClassName)} />
-                    <span>{info.label}</span>
-                  </div>
-                </div>
-              )
-            })}
+          <DropdownMenuContent align="end" className="w-64 p-1.5">
             {onNavigateConnectors ? (
               <DropdownMenuItem onSelect={onNavigateConnectors} className="gap-2 rounded-lg px-2.5 py-2">
                 <Plugs size={15} weight="bold" className="text-muted-foreground" />
-                <span>Connector settings</span>
+                <span className="flex-1 text-sm">Connectors</span>
+                <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  {isLoadingConnectors ? (
+                    <span>…</span>
+                  ) : (
+                    <>
+                      <span className="tabular-nums">{activeConnectors} active</span>
+                      <span className={cn('h-1.5 w-1.5 rounded-full', connectorDotClass)} />
+                    </>
+                  )}
+                </span>
               </DropdownMenuItem>
             ) : null}
 
-            <DropdownMenuSeparator className="my-2" />
-
-            {/* Providers */}
-            <DropdownMenuLabel className="px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Providers
-            </DropdownMenuLabel>
-            <div className="px-2 pb-1 text-xs text-muted-foreground">
-              {isLoadingProviders ? 'Loading providers...' : `${activeProviders.length} active`}
-            </div>
-            {activeProviders.length === 0 && !isLoadingProviders ? (
-              <p className="px-2 py-1 text-xs text-muted-foreground">No active providers.</p>
-            ) : null}
-            {activeProviders.slice(0, 5).map((provider) => (
-              <div key={provider.providerId} className="flex items-center justify-between rounded-lg px-2 py-1.5 text-xs">
-                <div className="min-w-0">
-                  <p className="truncate text-sm text-foreground">{getProviderLabel(provider.providerId)}</p>
-                  <p className="text-[11px] text-muted-foreground">
-                    {provider.type ?? 'api'}{provider.version ? ` · v${provider.version}` : ''}
-                  </p>
-                </div>
-                <div className="ml-3 flex items-center gap-1.5 text-muted-foreground">
-                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                  <span>Active</span>
-                </div>
-              </div>
-            ))}
             {onNavigateProviders ? (
               <DropdownMenuItem onSelect={onNavigateProviders} className="gap-2 rounded-lg px-2.5 py-2">
                 <Cpu size={15} weight="bold" className="text-muted-foreground" />
-                <span>Provider settings</span>
+                <span className="flex-1 text-sm">Providers</span>
+                <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  {isLoadingProviders ? (
+                    <span>…</span>
+                  ) : (
+                    <>
+                      <span className="tabular-nums">{activeProviders} active</span>
+                      <span className={cn('h-1.5 w-1.5 rounded-full', providerDotClass)} />
+                    </>
+                  )}
+                </span>
               </DropdownMenuItem>
             ) : null}
 
-            <DropdownMenuSeparator className="my-2" />
+            <DropdownMenuSeparator className="my-1.5" />
 
             {/* Appearance */}
             <DropdownMenuLabel className="px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
