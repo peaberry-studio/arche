@@ -11,14 +11,21 @@ const { ensureInstanceRunningActionMock } = vi.hoisted(() => ({
   ensureInstanceRunningActionMock: vi.fn().mockResolvedValue({ status: "running" }),
 }));
 
+const routerPushMock = vi.fn();
+const routerReplaceMock = vi.fn();
 const createSessionMock = vi.fn().mockResolvedValue(undefined);
+const discardFileChangesMock = vi.fn();
 const readFileMock = vi.fn();
+const refreshDiffsMock = vi.fn();
+const refreshFilesMock = vi.fn();
 const sendMessageMock = vi.fn().mockResolvedValue(true);
+const writeFileMock = vi.fn();
+let workspaceMockOverrides: Record<string, unknown> = {};
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
-    push: vi.fn(),
-    replace: vi.fn(),
+    push: routerPushMock,
+    replace: routerReplaceMock,
   }),
 }));
 
@@ -63,11 +70,11 @@ vi.mock("@/hooks/use-workspace", () => ({
     unseenCompletedSessions: new Set<string>(),
     isConnected: true,
     connection: { status: "connected", error: null },
-    refreshDiffs: vi.fn(),
-    refreshFiles: vi.fn(),
+    refreshDiffs: refreshDiffsMock,
+    refreshFiles: refreshFilesMock,
     readFile: readFileMock,
-    writeFile: vi.fn(),
-    discardFileChanges: vi.fn(),
+    writeFile: writeFileMock,
+    discardFileChanges: discardFileChangesMock,
     createSession: createSessionMock,
     deleteSession: vi.fn(),
     markAutopilotRunSeen: vi.fn(),
@@ -93,6 +100,7 @@ vi.mock("@/hooks/use-workspace", () => ({
     refreshSessions: vi.fn(),
     isLoadingDiffs: false,
     diffsError: null,
+    ...workspaceMockOverrides,
   }),
 }));
 
@@ -107,12 +115,31 @@ vi.mock('@/hooks/use-skills-catalog', () => ({
 }))
 
 vi.mock("@/components/workspace/chat-panel", () => ({
-  ChatPanel: ({ onOpenFile }: { onOpenFile: (path: string) => void }) => (
-    <div>
+  ChatPanel: ({
+    attachmentsEnabled = true,
+    isReadOnly,
+    onOpenFile,
+    onReturnToMainConversation,
+  }: {
+    attachmentsEnabled?: boolean;
+    isReadOnly?: boolean;
+    onOpenFile: (path: string) => void;
+    onReturnToMainConversation?: () => void;
+  }) => (
+    <div
+      data-testid="chat-panel"
+      data-attachments-enabled={String(attachmentsEnabled)}
+      data-read-only={String(Boolean(isReadOnly))}
+    >
       <span>Chat Panel</span>
       <button type="button" onClick={() => onOpenFile("docs/plan.md")}>
         Open plan preview
       </button>
+      {onReturnToMainConversation ? (
+        <button type="button" onClick={onReturnToMainConversation}>
+          Return to main conversation
+        </button>
+      ) : null}
     </div>
   ),
 }));
@@ -123,22 +150,61 @@ vi.mock("@/components/workspace/cosmic-loader", () => ({
 
 vi.mock("@/components/workspace/inspector-panel", () => ({
   InspectorPanel: ({
+    activeFilePath,
+    onCloseFile,
+    onDiscardFileChanges,
+    onOpenFile,
+    onPublish,
+    onReloadFile,
+    onResolveConflict,
+    onSaveFile,
+    onSelectFile,
     onToggleRight,
+    openFiles = [],
     panelMode = "combined",
     rightCollapsed,
   }: {
+    activeFilePath?: string | null;
+    onCloseFile?: (path: string) => void;
+    onDiscardFileChanges?: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+    onOpenFile?: (path: string) => void;
+    onPublish?: () => void;
+    onReloadFile?: (path: string) => Promise<void>;
+    onResolveConflict?: (path: string, content: string) => void;
+    onSaveFile?: (path: string, content: string, expectedHash?: string) => Promise<{ ok: true; hash?: string } | { ok: false; error: string }>;
+    onSelectFile?: (path: string) => void;
     onToggleRight: () => void;
+    openFiles?: Array<{ path: string }>;
     panelMode?: "combined" | "files" | "review";
     rightCollapsed: boolean;
   }) => (
-    <button
-      type="button"
-      data-collapsed={String(rightCollapsed)}
-      data-panel-mode={panelMode}
-      onClick={onToggleRight}
-    >
-      {panelMode === "files" ? "Files Panel" : panelMode === "review" ? "Review Panel" : "Inspector Panel"}
-    </button>
+    <div>
+      <button
+        type="button"
+        data-collapsed={String(rightCollapsed)}
+        data-can-discard={String(Boolean(onDiscardFileChanges))}
+        data-can-publish={String(Boolean(onPublish))}
+        data-can-resolve={String(Boolean(onResolveConflict))}
+        data-can-save={String(Boolean(onSaveFile))}
+        data-panel-mode={panelMode}
+        data-open-files={openFiles.map((file) => file.path).join(",")}
+        onClick={onToggleRight}
+      >
+        {panelMode === "files" ? "Files Panel" : panelMode === "review" ? "Review Panel" : "Inspector Panel"}
+      </button>
+      {panelMode === "files" && activeFilePath ? (
+        <>
+          <button type="button" onClick={() => onSelectFile?.(activeFilePath)}>Select active file</button>
+          <button type="button" onClick={() => onCloseFile?.(activeFilePath)}>Close active file</button>
+          <button type="button" onClick={() => onOpenFile?.("docs/linked.md")}>Open linked file</button>
+          <button type="button" onClick={() => void onReloadFile?.(activeFilePath)}>Reload active file</button>
+          <button type="button" onClick={() => void onSaveFile?.(activeFilePath, "Updated content", "expected-hash")}>Save active file</button>
+          <button type="button" onClick={() => void onDiscardFileChanges?.(activeFilePath)}>Discard active file</button>
+          <button type="button" onClick={() => onResolveConflict?.(activeFilePath, "Resolved content")}>Resolve active conflict</button>
+          <button type="button" onClick={() => onPublish?.()}>Publish file changes</button>
+        </>
+      ) : null}
+    </div>
   ),
 }));
 
@@ -203,10 +269,19 @@ describe("WorkspaceShell", () => {
     stubBrowserStorage();
     setViewportWidth(1440);
     createSessionMock.mockClear();
+    discardFileChangesMock.mockReset();
+    discardFileChangesMock.mockResolvedValue({ ok: true });
+    routerPushMock.mockClear();
+    routerReplaceMock.mockClear();
     readFileMock.mockReset();
     readFileMock.mockResolvedValue({ content: "# Plan", type: "raw", hash: "hash-plan" });
+    refreshDiffsMock.mockClear();
+    refreshFilesMock.mockClear();
     sendMessageMock.mockClear();
     sendMessageMock.mockResolvedValue(true);
+    workspaceMockOverrides = {};
+    writeFileMock.mockReset();
+    writeFileMock.mockResolvedValue({ ok: true, hash: "hash-updated" });
     ensureInstanceRunningActionMock.mockReset();
     ensureInstanceRunningActionMock.mockResolvedValue({ status: "running" });
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -253,6 +328,14 @@ describe("WorkspaceShell", () => {
 
       return jsonResponse({ ok: true });
     }));
+    Object.defineProperty(HTMLElement.prototype, "setPointerCapture", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    Object.defineProperty(HTMLElement.prototype, "releasePointerCapture", {
+      configurable: true,
+      value: vi.fn(),
+    });
     window.localStorage.clear();
     clearCookies();
     vi.spyOn(HTMLDivElement.prototype, "getBoundingClientRect").mockReturnValue({
@@ -289,6 +372,46 @@ describe("WorkspaceShell", () => {
     expect(
       screen.getByText("Workspace startup timed out. Try restarting again.")
     ).toBeTruthy();
+  });
+
+  it("shows a startup status check error when startup polling rejects", async () => {
+    ensureInstanceRunningActionMock.mockRejectedValueOnce(new Error("boom"));
+
+    render(<WorkspaceShell slug="alice" />);
+
+    expect(await screen.findByText("Failed to start")).toBeTruthy();
+    expect(screen.getByText("Unable to verify workspace startup status.")).toBeTruthy();
+  });
+
+  it("shows an OpenCode connection error after the instance is running", async () => {
+    workspaceMockOverrides = {
+      isConnected: false,
+      connection: { status: "error", error: "socket down" },
+    };
+
+    render(<WorkspaceShell slug="alice" />);
+
+    expect(await screen.findByText("Connecting to OpenCode")).toBeTruthy();
+    expect(screen.getByText("Error: socket down")).toBeTruthy();
+  });
+
+  it("redirects to setup when the instance requires setup", async () => {
+    ensureInstanceRunningActionMock.mockResolvedValueOnce({ status: "error", error: "setup_required" });
+
+    render(<WorkspaceShell slug="alice" />);
+
+    await waitFor(() => {
+      expect(routerReplaceMock).toHaveBeenCalledWith("/u/alice?setup=required");
+    });
+  });
+
+  it("shows raw startup errors that do not need friendly formatting", async () => {
+    ensureInstanceRunningActionMock.mockResolvedValueOnce({ status: "error", error: "container exploded" });
+
+    render(<WorkspaceShell slug="alice" />);
+
+    expect(await screen.findByText("Failed to start")).toBeTruthy();
+    expect(screen.getByText("container exploded")).toBeTruthy();
   });
 
   it("creates a new session with Command+Period", async () => {
@@ -348,6 +471,14 @@ describe("WorkspaceShell", () => {
     expect(screen.getByText("Appearance")).toBeTruthy();
   });
 
+  it("auto-syncs the KB after the workspace connects", async () => {
+    render(<WorkspaceShell slug="alice" />);
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith("/api/instances/alice/sync-kb", { method: "POST" });
+    });
+  });
+
   it("clamps hidden desktop tasks mode to chat", async () => {
     render(
       <WorkspaceShell
@@ -363,6 +494,61 @@ describe("WorkspaceShell", () => {
 
     expect(screen.queryByRole("button", { name: "Tasks" })).toBeNull();
     expect(screen.getByText("Chat Panel")).toBeTruthy();
+  });
+
+  it("passes disabled workspace-agent capabilities into chat and knowledge panels", async () => {
+    const { unmount } = render(<WorkspaceShell slug="alice" workspaceAgentEnabled={false} />);
+
+    expect((await screen.findByTestId("chat-panel")).dataset.attachmentsEnabled).toBe("false");
+
+    unmount();
+
+    render(
+      <WorkspaceShell
+        slug="alice"
+        initialWorkspaceMode="knowledge"
+        initialFilePath="docs/plan.md"
+        workspaceAgentEnabled={false}
+      />
+    );
+
+    const filesPanel = await screen.findByRole("button", { name: "Files Panel" });
+    expect(filesPanel.dataset.canSave).toBe("false");
+    expect(filesPanel.dataset.canDiscard).toBe("false");
+    expect(filesPanel.dataset.canPublish).toBe("false");
+    expect(filesPanel.dataset.canResolve).toBe("false");
+  });
+
+  it("marks subagent sessions read-only and returns to the root session", async () => {
+    const selectSession = vi.fn();
+    workspaceMockOverrides = {
+      sessions: [
+        {
+          id: "root-session",
+          title: "Root session",
+          status: "idle",
+          updatedAt: "now",
+          updatedAtRaw: 1,
+        },
+        {
+          id: "child-session",
+          title: "Child session",
+          status: "idle",
+          updatedAt: "now",
+          updatedAtRaw: 2,
+          parentId: "root-session",
+        },
+      ],
+      activeSessionId: "child-session",
+      selectSession,
+    };
+
+    render(<WorkspaceShell slug="alice" />);
+
+    expect((await screen.findByTestId("chat-panel")).dataset.readOnly).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Return to main conversation" }));
+
+    expect(selectSession).toHaveBeenCalledWith("root-session");
   });
 
   it("promotes a quickview file into knowledge editing", async () => {
@@ -420,6 +606,106 @@ describe("WorkspaceShell", () => {
     expect(screen.queryByText("Chat Panel")).toBeNull();
   });
 
+  it("routes knowledge file actions through workspace handlers", async () => {
+    render(
+      <WorkspaceShell
+        slug="alice"
+        initialWorkspaceMode="knowledge"
+        initialFilePath="docs/plan.md"
+      />
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open linked file" }));
+
+    await waitFor(() => {
+      expect(readFileMock).toHaveBeenCalledWith("docs/linked.md");
+      expect(screen.getByRole("button", { name: "Files Panel" }).dataset.openFiles).toContain("docs/linked.md");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Save active file" }));
+
+    await waitFor(() => {
+      expect(writeFileMock).toHaveBeenCalledWith("docs/linked.md", "Updated content", "expected-hash");
+      expect(refreshDiffsMock).toHaveBeenCalled();
+      expect(refreshFilesMock).toHaveBeenCalled();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Reload active file" }));
+    fireEvent.click(screen.getByRole("button", { name: "Resolve active conflict" }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish file changes" }));
+
+    expect(refreshDiffsMock.mock.calls.length).toBeGreaterThan(1);
+    expect(refreshFilesMock.mock.calls.length).toBeGreaterThan(1);
+
+    readFileMock.mockResolvedValueOnce(null);
+    fireEvent.click(screen.getByRole("button", { name: "Discard active file" }));
+
+    await waitFor(() => {
+      expect(discardFileChangesMock).toHaveBeenCalledWith("docs/linked.md");
+    });
+  });
+
+  it("handles file action failures", async () => {
+    writeFileMock.mockResolvedValueOnce({ ok: false, error: "write_failed" });
+    discardFileChangesMock.mockResolvedValueOnce({ ok: false, error: "discard_failed" });
+
+    render(
+      <WorkspaceShell
+        slug="alice"
+        initialWorkspaceMode="knowledge"
+        initialFilePath="docs/plan.md"
+      />
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Save active file" }));
+    fireEvent.click(screen.getByRole("button", { name: "Discard active file" }));
+
+    await waitFor(() => {
+      expect(writeFileMock).toHaveBeenCalledWith("docs/plan.md", "Updated content", "expected-hash");
+      expect(discardFileChangesMock).toHaveBeenCalledWith("docs/plan.md");
+    });
+  });
+
+  it("ignores protected initial file paths in knowledge mode", async () => {
+    render(
+      <WorkspaceShell
+        slug="alice"
+        initialWorkspaceMode="knowledge"
+        initialFilePath="node_modules/pkg/index.js"
+      />
+    );
+
+    expect(await screen.findByText("Browse your knowledge base")).toBeTruthy();
+    expect(readFileMock).not.toHaveBeenCalledWith("node_modules/pkg/index.js");
+  });
+
+  it("shows fallback quickview content when preview file loading fails", async () => {
+    readFileMock.mockResolvedValueOnce(null);
+
+    render(<WorkspaceShell slug="alice" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open plan preview" }));
+
+    expect(await screen.findByText("Quickview")).toBeTruthy();
+    expect(screen.getByText("Unable to load file.")).toBeTruthy();
+  });
+
+  it("closes the quickview panel after its exit timer", async () => {
+    render(<WorkspaceShell slug="alice" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open plan preview" }));
+    expect(await screen.findByText("Quickview")).toBeTruthy();
+
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+    });
+
+    expect(screen.queryByText("Quickview")).toBeNull();
+  });
+
   it("toggles the right panel with Alt+Command+B", async () => {
     render(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" />);
 
@@ -441,6 +727,77 @@ describe("WorkspaceShell", () => {
     });
 
     expect(screen.getByRole("button", { name: "Collapse knowledge panel" })).toBeTruthy();
+  });
+
+  it("resizes both desktop side panels with pointer drags", async () => {
+    render(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" initialFilePath="docs/plan.md" />);
+
+    const leftSeparator = await screen.findByRole("separator", { name: "Resize left panel" });
+    const rightSeparator = screen.getByRole("separator", { name: "Resize right panel" });
+
+    fireEvent.pointerDown(leftSeparator, { clientX: 216, pointerId: 1 });
+    fireEvent.pointerMove(window, { clientX: 520, pointerId: 1 });
+    fireEvent.pointerUp(window, { pointerId: 1 });
+
+    await waitFor(() => {
+      const leftPanelWidth = Number.parseFloat(
+        findSizedPanelContainer(screen.getByRole("button", { name: "Collapse knowledge panel" }))?.style.width ?? "0"
+      );
+      expect(leftPanelWidth).toBeCloseTo(520, 0);
+    });
+
+    fireEvent.pointerDown(rightSeparator, { clientX: 1008, pointerId: 2 });
+    fireEvent.pointerMove(window, { clientX: 900, pointerId: 2 });
+    fireEvent.pointerUp(window, { pointerId: 2 });
+
+    await waitFor(() => {
+      const rightPanelWidth = Number.parseFloat(
+        findSizedPanelContainer(screen.getByRole("button", { name: "Review Panel" }))?.style.width ?? "0"
+      );
+      expect(rightPanelWidth).toBeGreaterThan(430);
+    });
+
+    expect(document.body.style.cursor).toBe("");
+    expect(document.body.style.userSelect).toBe("");
+  });
+
+  it("fits oversized persisted panel widths into a narrow desktop viewport", async () => {
+    vi.mocked(HTMLDivElement.prototype.getBoundingClientRect).mockReturnValue({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      bottom: 900,
+      right: 900,
+      width: 900,
+      height: 900,
+      toJSON: () => ({}),
+    });
+
+    render(
+      <WorkspaceShell
+        slug="alice"
+        initialWorkspaceMode="knowledge"
+        initialFilePath="docs/plan.md"
+        initialLayoutState={{
+          leftCollapsed: false,
+          leftWidth: 800,
+          rightCollapsed: false,
+          rightWidth: 800,
+          rightTab: "review",
+        }}
+      />
+    );
+
+    const leftPanelButton = await screen.findByRole("button", { name: "Collapse knowledge panel" });
+    const leftPanelWidth = Number.parseFloat(findSizedPanelContainer(leftPanelButton)?.style.width ?? "0");
+    const rightPanelWidth = Number.parseFloat(
+      findSizedPanelContainer(screen.getByRole("button", { name: "Review Panel" }))?.style.width ?? "0"
+    );
+
+    expect(leftPanelWidth).toBeLessThan(800);
+    expect(rightPanelWidth).toBeGreaterThanOrEqual(320);
+    expect(leftPanelWidth + rightPanelWidth).toBeLessThan(1600);
   });
 
   it("restores right panel at 50% of available center area when re-opened", async () => {
@@ -495,11 +852,84 @@ describe("WorkspaceShell", () => {
     });
 
     const rightPanelWidth = Number.parseFloat(
-      screen.getByRole("button", { name: "Review Panel" }).parentElement?.style.width ?? "0"
+      findSizedPanelContainer(screen.getByRole("button", { name: "Review Panel" }))?.style.width ?? "0"
     );
 
     const expectedRightWidth = (1440 - 48) / 2;
     expect(rightPanelWidth).toBeCloseTo(expectedRightWidth, 0);
+  });
+
+  it("shows the tasks empty state and settings action in tasks mode", async () => {
+    render(<WorkspaceShell slug="alice" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Tasks" }));
+
+    expect(await screen.findByText("Run an autopilot task")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Manage autopilot tasks" }));
+    expect(routerPushMock).toHaveBeenCalledWith("/u/alice/autopilot");
+  });
+
+  it("uses the collapsed knowledge rail to switch tree and graph views", async () => {
+    render(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" initialFilePath="docs/plan.md" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Collapse knowledge panel" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Expand knowledge panel" })).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Show graph view" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Collapse knowledge panel" })).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse knowledge panel" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Show tree view" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Tree" })).toBeTruthy();
+    });
+  });
+
+  it("caps the compact review badge label at 99 plus", async () => {
+    setViewportWidth(720);
+    workspaceMockOverrides = {
+      diffs: Array.from({ length: 120 }, (_, index) => ({
+        additions: 1,
+        conflicted: false,
+        deletions: 0,
+        diff: "",
+        path: `note-${index}.md`,
+        status: "modified",
+      })),
+    };
+
+    render(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" initialFilePath="docs/plan.md" />);
+
+    expect(await screen.findAllByText("99+")).toHaveLength(2);
+  });
+
+  it("re-expands the left panel when focusing search with Command+K", async () => {
+    render(<WorkspaceShell slug="alice" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Collapse sessions panel" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Expand sessions panel" })).toBeTruthy();
+    });
+
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "k",
+        metaKey: true,
+        bubbles: true,
+      })
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Collapse sessions panel" })).toBeTruthy();
+    });
   });
 
   it("hydrates layout from the cookie when localStorage is empty", async () => {

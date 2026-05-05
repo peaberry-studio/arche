@@ -177,6 +177,57 @@ describe('slack socket manager', () => {
     stopSlackSocketManager()
   })
 
+  it('coalesces concurrent sync requests', async () => {
+    const integrationDeferred = createDeferred<Awaited<ReturnType<typeof findIntegrationMock>>>()
+    findIntegrationMock.mockReturnValueOnce(integrationDeferred.promise)
+    const { syncSlackSocketManager } = await import('../socket-mode')
+
+    const firstSync = syncSlackSocketManager()
+    const secondSync = syncSlackSocketManager()
+
+    await vi.waitFor(() => expect(findIntegrationMock).toHaveBeenCalledTimes(1))
+    integrationDeferred.resolve(null)
+    await Promise.all([firstSync, secondSync])
+  })
+
+  it('tears down the current app when integration is disabled', async () => {
+    const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
+
+    await syncSlackSocketManager()
+    findIntegrationMock.mockResolvedValueOnce({
+      appTokenSecret: 'xapp-1',
+      botTokenSecret: 'xoxb-1',
+      enabled: false,
+      version: 2,
+    })
+    await syncSlackSocketManager(true)
+
+    expect(appInstances[0].stop).toHaveBeenCalledTimes(1)
+    stopSlackSocketManager()
+  })
+
+  it('logs stop errors when shutting down the current socket app', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
+
+    await syncSlackSocketManager()
+    appInstances[0].stop.mockRejectedValueOnce(new Error('stop failed'))
+    stopSlackSocketManager()
+
+    await vi.waitFor(() => expect(consoleErrorSpy).toHaveBeenCalledWith('[slack] Failed to stop socket app', expect.any(Error)))
+    consoleErrorSpy.mockRestore()
+  })
+
+  it('does not rebuild the socket app when config version is unchanged', async () => {
+    const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
+
+    await syncSlackSocketManager()
+    await syncSlackSocketManager()
+
+    expect(appConstructorMock).toHaveBeenCalledTimes(1)
+    stopSlackSocketManager()
+  })
+
   it('rebuilds the socket app after a runtime error even when the config version is unchanged', async () => {
     const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
 
@@ -471,6 +522,136 @@ describe('slack socket manager', () => {
     expect(recordEventReceiptMock).not.toHaveBeenCalled()
     expect(pruneEventReceiptsMock).not.toHaveBeenCalled()
 
+    stopSlackSocketManager()
+  })
+
+  it('ignores invalid event envelopes and self-authored messages', async () => {
+    const client = {
+      chat: {
+        postMessage: vi.fn().mockResolvedValue({ ts: 'reply-1' }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      conversations: {
+        history: vi.fn().mockResolvedValue({ messages: [] }),
+        replies: vi.fn().mockResolvedValue({ messages: [] }),
+      },
+      users: {
+        info: vi.fn().mockResolvedValue({ user: { profile: { display_name: 'Alice' } } }),
+      },
+    }
+
+    const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
+    await syncSlackSocketManager()
+
+    const mentionHandler = appInstances[0].event.mock.calls.find(([name]) => name === 'app_mention')?.[1]
+    expect(typeof mentionHandler).toBe('function')
+
+    await mentionHandler({
+      body: null,
+      client,
+      event: { channel: 'C123', text: '<@U999> hello', ts: '100.1', user: 'U123' },
+    })
+    await mentionHandler({
+      body: { event_id: 'evt-self-1' },
+      client,
+      event: { channel: 'C123', text: '<@U999> hello', ts: '100.1', user: 'U999' },
+    })
+    await mentionHandler({
+      body: { event_id: 'evt-subtype-1' },
+      client,
+      event: { channel: 'C123', subtype: 'message_changed', text: '<@U999> hello', ts: '100.1', user: 'U123' },
+    })
+
+    expect(recordEventReceiptMock).not.toHaveBeenCalled()
+    expect(client.chat.postMessage).not.toHaveBeenCalled()
+    stopSlackSocketManager()
+  })
+
+  it('posts a final reply when the placeholder message fails', async () => {
+    const client = {
+      chat: {
+        postMessage: vi.fn()
+          .mockRejectedValueOnce(new Error('placeholder failed'))
+          .mockResolvedValueOnce({ ts: 'reply-2' }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      conversations: {
+        history: vi.fn().mockResolvedValue({ messages: [] }),
+        replies: vi.fn().mockResolvedValue({ messages: [] }),
+      },
+      users: {
+        info: vi.fn().mockResolvedValue({ user: { profile: { display_name: 'Alice' } } }),
+      },
+    }
+
+    const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
+    await syncSlackSocketManager()
+
+    const mentionHandler = appInstances[0].event.mock.calls.find(([name]) => name === 'app_mention')?.[1]
+    expect(typeof mentionHandler).toBe('function')
+
+    await mentionHandler({
+      body: { event_id: 'evt-placeholder-failed' },
+      client,
+      event: {
+        channel: 'C123',
+        text: '<@U999> hello',
+        ts: '100.1',
+        user: 'U123',
+      },
+    })
+
+    expect(client.chat.update).not.toHaveBeenCalled()
+    expect(client.chat.postMessage).toHaveBeenLastCalledWith({
+      channel: 'C123',
+      text: 'Final reply',
+      thread_ts: '100.1',
+    })
+    stopSlackSocketManager()
+  })
+
+  it.each([
+    ['autopilot_run_timeout', 'I took too long to reply in Slack. Please try again.'],
+    ['autopilot_no_assistant_message', 'I could not produce a Slack reply for that message.'],
+    ['unexpected_failure', 'I hit an error while preparing the Slack reply. Please try again.'],
+  ])('maps %s failures to Slack replies', async (failure, expectedText) => {
+    const client = {
+      chat: {
+        postMessage: vi.fn().mockResolvedValue({ ts: 'reply-1' }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      conversations: {
+        history: vi.fn().mockResolvedValue({ messages: [] }),
+        replies: vi.fn().mockResolvedValue({ messages: [] }),
+      },
+      users: {
+        info: vi.fn().mockResolvedValue({ user: { profile: { display_name: 'Alice' } } }),
+      },
+    }
+
+    waitForSessionToCompleteMock.mockResolvedValue(failure)
+    const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
+    await syncSlackSocketManager()
+
+    const mentionHandler = appInstances[0].event.mock.calls.find(([name]) => name === 'app_mention')?.[1]
+    expect(typeof mentionHandler).toBe('function')
+
+    await mentionHandler({
+      body: { event_id: `evt-${failure}` },
+      client,
+      event: {
+        channel: 'C123',
+        text: '<@U999> hello',
+        ts: '100.1',
+        user: 'U123',
+      },
+    })
+
+    expect(client.chat.update).toHaveBeenCalledWith({
+      channel: 'C123',
+      text: expectedText,
+      ts: 'reply-1',
+    })
     stopSlackSocketManager()
   })
 

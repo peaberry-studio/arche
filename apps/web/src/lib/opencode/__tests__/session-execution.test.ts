@@ -114,6 +114,35 @@ describe('session execution helpers', () => {
     )).resolves.toBe('Final reply')
   })
 
+  it('skips non-assistant messages while reading the latest assistant text', async () => {
+    const messages = vi.fn().mockResolvedValue({
+      data: [
+        {
+          info: {
+            role: 'assistant',
+            time: { completed: 1 },
+          },
+          parts: [{ id: 'part-1', text: 'Earlier reply', type: 'text' }],
+        },
+        {
+          info: {
+            role: 'event',
+            time: { completed: 2 },
+          },
+          parts: [{ id: 'part-2', text: 'Tool event', type: 'text' }],
+        },
+      ],
+    })
+
+    const { readLatestAssistantText } = await import('../session-execution')
+    await expect(readLatestAssistantText(
+      {
+        session: { messages },
+      } as Parameters<typeof readLatestAssistantText>[0],
+      'session-1',
+    )).resolves.toBe('Earlier reply')
+  })
+
   it('returns provider_auth_missing when the assistant run ends with a provider auth error', async () => {
     const status = vi.fn().mockResolvedValue({
       data: {
@@ -147,6 +176,209 @@ describe('session execution helpers', () => {
       sessionId: 'session-1',
       slug: 'slack-bot',
     })).resolves.toBe('provider_auth_missing')
+  })
+
+  it('detects provider auth failures from the assistant error message', async () => {
+    const status = vi.fn().mockResolvedValue({
+      data: {
+        'session-1': { type: 'idle' },
+      },
+    })
+    const messages = vi.fn().mockResolvedValue({
+      data: [
+        {
+          info: {
+            role: 'assistant',
+            time: { completed: 1 },
+            error: {
+              data: {
+                message: 'Configure the openrouter provider before running this task.',
+              },
+              name: 'RuntimeError',
+            },
+          },
+          parts: [],
+        },
+      ],
+    })
+
+    const { waitForSessionToComplete } = await import('../session-execution')
+
+    await expect(waitForSessionToComplete({
+      client: {
+        session: { messages, status },
+      } as Parameters<typeof waitForSessionToComplete>[0]['client'],
+      sessionId: 'session-1',
+      slug: 'slack-bot',
+    })).resolves.toBe('provider_auth_missing')
+  })
+
+  it('does not treat unrelated assistant errors as provider auth failures', async () => {
+    const status = vi.fn().mockResolvedValue({
+      data: {
+        'session-1': { type: 'idle' },
+      },
+    })
+    const messages = vi.fn().mockResolvedValue({
+      data: [
+        {
+          info: {
+            role: 'assistant',
+            time: { completed: 1 },
+            error: {
+              data: {
+                message: 'Model overloaded',
+              },
+              name: 'RuntimeError',
+            },
+          },
+          parts: [{ id: 'part-1', text: 'Done', type: 'text' }],
+        },
+      ],
+    })
+
+    const { waitForSessionToComplete } = await import('../session-execution')
+
+    await expect(waitForSessionToComplete({
+      client: {
+        session: { messages, status },
+      } as Parameters<typeof waitForSessionToComplete>[0]['client'],
+      sessionId: 'session-1',
+      slug: 'slack-bot',
+    })).resolves.toBeNull()
+  })
+
+  it('reports no assistant message when the idle outcome has only non-assistant messages', async () => {
+    const status = vi.fn().mockResolvedValue({
+      data: {
+        'session-1': { type: 'idle' },
+      },
+    })
+    const messages = vi
+      .fn()
+      .mockResolvedValueOnce({
+        data: [
+          {
+            info: {
+              role: 'assistant',
+              time: { completed: 1 },
+            },
+            parts: [{ id: 'part-1', text: 'Done', type: 'text' }],
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        data: [
+          {
+            info: {
+              role: 'event',
+              time: { completed: 2 },
+            },
+            parts: [],
+          },
+        ],
+      })
+
+    const { waitForSessionToComplete } = await import('../session-execution')
+
+    await expect(waitForSessionToComplete({
+      client: {
+        session: { messages, status },
+      } as Parameters<typeof waitForSessionToComplete>[0]['client'],
+      sessionId: 'session-1',
+      slug: 'slack-bot',
+    })).resolves.toBe('autopilot_no_assistant_message')
+  })
+
+  it('keeps polling while an idle assistant message still has a running tool', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const pendingMessage = {
+        info: {
+          role: 'assistant',
+          time: {},
+        },
+        parts: [
+          {
+            id: 'tool-1',
+            state: { input: {}, status: 'running', title: 'reading' },
+            tool: 'read_file',
+            type: 'tool',
+          },
+        ],
+      }
+      const completedMessage = {
+        info: {
+          role: 'assistant',
+          time: { completed: 1 },
+        },
+        parts: [{ id: 'part-1', text: 'Done', type: 'text' }],
+      }
+      const status = vi.fn().mockResolvedValue({
+        data: {
+          'session-1': { type: 'idle' },
+        },
+      })
+      const messages = vi
+        .fn()
+        .mockResolvedValueOnce({ data: [pendingMessage] })
+        .mockResolvedValueOnce({ data: [pendingMessage] })
+        .mockResolvedValueOnce({ data: [completedMessage] })
+        .mockResolvedValueOnce({ data: [completedMessage] })
+
+      const { waitForSessionToComplete } = await import('../session-execution')
+      const promise = waitForSessionToComplete({
+        client: {
+          session: { messages, status },
+        } as Parameters<typeof waitForSessionToComplete>[0]['client'],
+        sessionId: 'session-1',
+        slug: 'slack-bot',
+      })
+
+      await vi.advanceTimersByTimeAsync(2_000)
+
+      await expect(promise).resolves.toBeNull()
+      expect(messages).toHaveBeenCalledTimes(4)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('returns tool error details from the assistant runtime state', async () => {
+    const status = vi.fn().mockResolvedValue({
+      data: {
+        'session-1': { type: 'idle' },
+      },
+    })
+    const messages = vi.fn().mockResolvedValue({
+      data: [
+        {
+          info: {
+            role: 'assistant',
+            time: {},
+          },
+          parts: [
+            {
+              id: 'tool-1',
+              state: { error: 'permission denied', input: {}, status: 'error' },
+              tool: 'bash',
+              type: 'tool',
+            },
+          ],
+        },
+      ],
+    })
+
+    const { waitForSessionToComplete } = await import('../session-execution')
+
+    await expect(waitForSessionToComplete({
+      client: {
+        session: { messages, status },
+      } as Parameters<typeof waitForSessionToComplete>[0]['client'],
+      sessionId: 'session-1',
+      slug: 'slack-bot',
+    })).resolves.toBe('permission denied')
   })
 
   it('refreshes provider access when execution reuses a running workspace', async () => {
@@ -185,6 +417,26 @@ describe('session execution helpers', () => {
         slug: 'slack-bot',
         userId: 'user-1',
       })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('times out when a workspace never finishes starting', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const { getInstanceStatus } = await import('@/lib/spawner/core')
+
+      vi.mocked(getInstanceStatus).mockResolvedValue({ status: 'starting' } as never)
+
+      const { ensureWorkspaceRunningForExecution } = await import('../session-execution')
+      const promise = ensureWorkspaceRunningForExecution('slack-bot', 'user-1')
+      const expectation = expect(promise).rejects.toThrow('instance_start_timeout')
+
+      await vi.advanceTimersByTimeAsync(30 * 60 * 1000)
+
+      await expectation
     } finally {
       vi.useRealTimers()
     }

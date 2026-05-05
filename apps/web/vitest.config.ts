@@ -3,9 +3,19 @@ import path from 'path'
 
 export const sharedTestExclude = [...configDefaults.exclude, '.next/**', 'e2e/**']
 
+export const sharedCoverageExclude = [
+  '**/*.d.ts',
+  '**/*.test.*',
+  '**/*.spec.*',
+  '**/__tests__/**',
+  'coverage/**',
+  'e2e/**',
+  'src/generated/**',
+]
+
 export const sharedCoverageConfig = {
   all: true,
-  exclude: ['**/*.d.ts', '**/*.test.*', '**/*.spec.*', '**/__tests__/**', 'coverage/**', 'e2e/**', 'src/generated/**'],
+  exclude: sharedCoverageExclude,
   include: ['src/**/*.{ts,tsx}'],
   provider: 'v8' as const,
   reporter: ['text', 'json-summary', 'html', 'lcov'],

@@ -358,6 +358,178 @@ describe("ChatPanel textarea", () => {
     });
   });
 
+  it("filters, selects, renames, and deletes managed attachments", async () => {
+    let attachments: MockAttachment[] = [
+      {
+        id: ".arche/attachments/alpha.pdf",
+        path: ".arche/attachments/alpha.pdf",
+        name: "alpha.pdf",
+        mime: "application/pdf",
+        size: 1200,
+        uploadedAt: 10,
+      },
+      {
+        id: ".arche/attachments/brief.txt",
+        path: ".arche/attachments/brief.txt",
+        name: "brief.txt",
+        mime: "text/plain",
+        size: 300,
+        uploadedAt: 20,
+      },
+    ];
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "/api/w/alice/attachments" && !init?.method) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ attachments }),
+        };
+      }
+
+      if (String(input) === "/api/w/alice/attachments" && init?.method === "PATCH") {
+        const updated = {
+          ...attachments[0],
+          id: ".arche/attachments/renamed.pdf",
+          path: ".arche/attachments/renamed.pdf",
+          name: "renamed.pdf",
+        };
+        attachments = [updated, attachments[1]];
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ attachment: updated }),
+        };
+      }
+
+      if (String(input) === "/api/w/alice/attachments" && init?.method === "DELETE") {
+        const body = JSON.parse(String(init.body));
+        attachments = attachments.filter((attachment) => attachment.path !== body.path);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ ok: true }),
+        };
+      }
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ connectors: [] }),
+      };
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(window, "prompt").mockReturnValue("renamed.pdf");
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    renderChatPanel();
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Attach files" }));
+    fireEvent.click(await screen.findByText("Manage attachments"));
+
+    expect(await screen.findByText("alpha.pdf")).toBeTruthy();
+
+    fireEvent.change(screen.getByPlaceholderText("Search attachments..."), {
+      target: { value: "brief" },
+    });
+    expect(screen.queryByText("alpha.pdf")).toBeNull();
+    expect(screen.getByText("brief.txt")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Select brief.txt" }));
+    expect(screen.getByText("1 file selected")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Attach 1 file" }));
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: /Attach files/ }));
+    fireEvent.click(await screen.findByText("Manage attachments"));
+    fireEvent.change(screen.getByPlaceholderText("Search attachments..."), {
+      target: { value: "" },
+    });
+
+    fireEvent.click(screen.getAllByTitle("Rename")[0]);
+    expect(await screen.findByText("renamed.pdf")).toBeTruthy();
+
+    fireEvent.change(screen.getByPlaceholderText("Search attachments..."), {
+      target: { value: "renamed" },
+    });
+    fireEvent.click(screen.getAllByTitle("Delete")[0]);
+    await waitFor(() => {
+      expect(screen.queryByText("renamed.pdf")).toBeNull();
+    });
+  });
+
+  it("sends selected context paths, experts, and skills", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ attachments: [], connectors: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const onSendMessage = vi.fn().mockResolvedValue(true);
+    renderChatPanel(onSendMessage, {
+      agents: [
+        { id: "assistant", displayName: "Assistant", isPrimary: true },
+        { id: "ads-scripts", displayName: "Ads Scripts", isPrimary: false },
+      ],
+      contextFilePaths: ["docs/a.md", "notes/b.md"],
+      openFilePaths: ["docs/a.md"],
+      skills: [
+        {
+          name: "pdf-processing",
+          description: "Process PDFs",
+          assignedAgentIds: [],
+          hasResources: false,
+          resourcePaths: [],
+        },
+      ],
+    });
+
+    const attachButton = screen.getByRole("button", { name: "Attach files" });
+    fireEvent.pointerDown(attachButton);
+    fireEvent.click(await screen.findByText("docs/a.md"));
+    fireEvent.click(screen.getByText("Clear selection"));
+    fireEvent.click(screen.getByText("docs/a.md"));
+    fireEvent.pointerDown(attachButton);
+
+    await waitFor(() => {
+      expect(screen.queryByRole("menu", { name: "Attach files" })).toBeNull();
+    });
+
+    const expertsButton = screen.getByRole("button", { name: "Experts" });
+    fireEvent.pointerDown(expertsButton);
+    fireEvent.click(await screen.findByText("Ads Scripts"));
+    fireEvent.pointerDown(expertsButton);
+
+    await waitFor(() => {
+      expect(screen.queryByRole("menu", { name: /Experts/ })).toBeNull();
+    });
+
+    const skillsButton = screen.getByRole("button", { name: "Skills" });
+    fireEvent.pointerDown(skillsButton);
+    fireEvent.click(await screen.findByText("pdf-processing"));
+    fireEvent.pointerDown(skillsButton);
+
+    await waitFor(() => {
+      expect(screen.queryByRole("menu", { name: /Skills/ })).toBeNull();
+    });
+
+    fireEvent.change(getTextarea(), { target: { value: "Use the selected context" } });
+    fireEvent.click(getSendButton());
+
+    await waitFor(() => {
+      expect(onSendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    expect(onSendMessage).toHaveBeenCalledWith(
+      "@ads-scripts /pdf-processing\n\nUse the selected context",
+      undefined,
+      {
+        attachments: [],
+        contextPaths: ["docs/a.md"],
+      }
+    );
+  });
+
   it("does not trigger uploads when pasted clipboard data has no images", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

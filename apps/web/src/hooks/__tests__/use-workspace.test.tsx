@@ -51,6 +51,21 @@ function createStorageMock() {
   };
 }
 
+function createThrowingStorageMock() {
+  return {
+    clear: () => undefined,
+    getItem: () => {
+      throw new Error("storage blocked");
+    },
+    removeItem: () => {
+      throw new Error("storage blocked");
+    },
+    setItem: () => {
+      throw new Error("storage blocked");
+    },
+  };
+}
+
 function createPendingStreamBody() {
   let resolveRead: ((value: ReadableStreamReadResult<Uint8Array>) => void) | null = null;
   let closed = false;
@@ -210,6 +225,27 @@ describe("useWorkspace", () => {
     expect(result.current.hasManualModelSelection).toBe(false);
   });
 
+  it("continues when browser storage access throws", async () => {
+    vi.stubGlobal("localStorage", createThrowingStorageMock());
+    vi.stubGlobal("sessionStorage", createThrowingStorageMock());
+
+    const { result } = renderHook(() =>
+      useWorkspace({ slug: "alice", pollInterval: 0 })
+    );
+
+    await waitFor(() => {
+      expect(result.current.activeSessionId).toBe("s1");
+    });
+
+    act(() => {
+      result.current.selectSession(null);
+    });
+
+    await waitFor(() => {
+      expect(result.current.activeSessionId).toBeNull();
+    });
+  });
+
   it("tracks manual model overrides separately from the agent default", async () => {
     const { result } = renderHook(() =>
       useWorkspace({ slug: "alice", pollInterval: 0 })
@@ -356,6 +392,92 @@ describe("useWorkspace", () => {
       providerId: "openai",
       modelId: "gpt-5.4",
     });
+  });
+
+  it("filters attachments and context paths before sending a message", async () => {
+    let requestBody:
+      | {
+          attachments?: Array<{ path: string; filename?: string; mime?: string }>;
+          contextPaths?: string[];
+        }
+      | null = null;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === "/api/u/alice/agents") {
+          return {
+            ok: true,
+            json: async () => ({
+              agents: [
+                {
+                  id: "assistant",
+                  displayName: "Assistant",
+                  model: "openai/gpt-5.4",
+                  isPrimary: true,
+                },
+              ],
+            }),
+          };
+        }
+
+        if (String(input) === "/api/u/alice/providers") {
+          return {
+            ok: true,
+            json: async () => ({
+              providers: [{ providerId: "openai", status: "enabled" }],
+            }),
+          };
+        }
+
+        if (String(input) === "/api/w/alice/chat/stream") {
+          requestBody = JSON.parse(String(init?.body ?? "{}")) as {
+            attachments?: Array<{ path: string; filename?: string; mime?: string }>;
+            contextPaths?: string[];
+          };
+
+          return {
+            ok: true,
+            body: {
+              getReader() {
+                return {
+                  read: async () => ({ done: true, value: undefined }),
+                };
+              },
+            },
+          };
+        }
+
+        throw new Error(`Unexpected fetch: ${String(input)}`);
+      })
+    );
+
+    const { result } = renderHook(() =>
+      useWorkspace({ slug: "alice", pollInterval: 0 })
+    );
+
+    await waitFor(() => {
+      expect(result.current.activeSessionId).toBe("s1");
+    });
+
+    await act(async () => {
+      await result.current.sendMessage("Use context", undefined, {
+        attachments: [
+          { path: "docs/a.md", filename: "a.md", mime: "text/markdown" },
+          { path: "   ", filename: "blank.md", mime: "text/markdown" },
+        ],
+        contextPaths: [" docs/a.md ", "docs/a.md", "", "notes/b.md"],
+      });
+    });
+
+    await waitFor(() => {
+      expect(requestBody).not.toBeNull();
+    });
+
+    expect(requestBody?.attachments).toEqual([
+      { path: "docs/a.md", filename: "a.md", mime: "text/markdown" },
+    ]);
+    expect(requestBody?.contextPaths).toEqual(["docs/a.md", "notes/b.md"]);
   });
 
   it("allows selecting a model before the first session exists", async () => {
@@ -884,6 +1006,24 @@ describe("useWorkspace", () => {
     await waitFor(() => {
       expect(result.current.sessions[0]?.title).toBe("Release plan");
     });
+  });
+
+  it("rejects blank session titles without calling the update action", async () => {
+    const { result } = renderHook(() =>
+      useWorkspace({ slug: "alice", pollInterval: 0 })
+    );
+
+    await waitFor(() => {
+      expect(result.current.activeSessionId).toBe("s1");
+    });
+
+    let renamed = true;
+    await act(async () => {
+      renamed = await result.current.renameSession("s1", "   ");
+    });
+
+    expect(renamed).toBe(false);
+    expect(opencodeMocks.updateSessionAction).not.toHaveBeenCalled();
   });
 
   it("ignores stale session loads that started before a rename mutation", async () => {

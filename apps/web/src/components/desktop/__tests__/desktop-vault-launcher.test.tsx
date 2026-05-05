@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { DesktopVaultLauncher } from '@/components/desktop/desktop-vault-launcher'
@@ -79,6 +79,7 @@ describe('DesktopVaultLauncher', () => {
   })
 
   afterEach(() => {
+    cleanup()
     vi.useRealTimers()
     vi.unstubAllGlobals()
   })
@@ -181,5 +182,71 @@ describe('DesktopVaultLauncher', () => {
     expect(screen.getByText('The selected folder is not a valid Arche vault.')).toBeTruthy()
 
     expect(quitLauncherProcessMock).not.toHaveBeenCalled()
+  })
+
+  it('closes the launcher after opening an existing vault succeeds', async () => {
+    const deferred = createDeferredResult()
+    openExistingVaultMock.mockReturnValue(deferred.promise)
+
+    render(<DesktopVaultLauncher />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /Open existing vault/i }))
+
+    expect(screen.getByRole('heading', { name: 'Opening vault...' })).toBeTruthy()
+
+    vi.useFakeTimers()
+
+    await act(async () => {
+      deferred.resolve({ ok: true })
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(900)
+    })
+
+    expect(quitLauncherProcessMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('opens recent vaults and shows launch failures', async () => {
+    listRecentVaultsMock.mockResolvedValue([
+      { id: 'team', name: 'Team Vault', path: '/Users/inaki/Team Vault' },
+    ])
+    openVaultMock.mockResolvedValue({ ok: false, error: 'vault_launch_failed' })
+
+    render(<DesktopVaultLauncher />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /Team Vault/i }))
+
+    expect(openVaultMock).toHaveBeenCalledWith('/Users/inaki/Team Vault')
+    expect(await screen.findByText('Arche could not launch the selected vault.')).toBeTruthy()
+  })
+
+  it('reports launcher close failures after opening a recent vault', async () => {
+    const deferred = createDeferredResult()
+    listRecentVaultsMock.mockResolvedValue([
+      { id: 'team', name: 'Team Vault', path: '/Users/inaki/Team Vault' },
+    ])
+    openVaultMock.mockReturnValue(deferred.promise)
+    quitLauncherProcessMock.mockResolvedValue({ ok: false, error: 'launcher_not_active' })
+
+    render(<DesktopVaultLauncher />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /Team Vault/i }))
+
+    expect(screen.getByRole('heading', { name: 'Opening vault...' })).toBeTruthy()
+
+    vi.useFakeTimers()
+
+    await act(async () => {
+      deferred.resolve({ ok: true })
+      await Promise.resolve()
+    })
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(900)
+    })
+
+    expect(screen.getByText('The launcher is no longer active in this window.')).toBeTruthy()
   })
 })

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { buildAgentConnectorCapabilityOptions } from '@/lib/agent-connector-capabilities'
 
@@ -178,5 +178,51 @@ describe('agent connector capabilities', () => {
         ownerSlug: null,
       },
     ])
+  })
+
+  it('omits unavailable connector types', async () => {
+    vi.resetModules()
+    vi.doMock('@/lib/runtime/capabilities', () => ({
+      getRuntimeCapabilities: vi.fn(() => ({ metaAdsConnector: false })),
+    }))
+
+    const { buildAgentConnectorCapabilityOptions: buildOptions } = await import('@/lib/agent-connector-capabilities')
+    const options = buildOptions([
+      {
+        id: 'meta-ads-1',
+        type: 'meta-ads',
+        name: 'Meta Ads',
+        enabled: true,
+        user: { kind: 'HUMAN', slug: 'alice' },
+      },
+    ])
+
+    expect(options.some((option) => option.type === 'meta-ads')).toBe(false)
+    vi.doUnmock('@/lib/runtime/capabilities')
+  })
+
+  it('loads available connector capability records from inventory entries', async () => {
+    vi.resetModules()
+    const findCapabilityInventoryEntries = vi.fn().mockResolvedValue([
+      {
+        id: 'custom-user-1',
+        type: 'custom',
+        name: 'Alice MCP',
+        enabled: true,
+        user: { kind: 'HUMAN', slug: 'alice' },
+      },
+    ])
+    vi.doMock('@/lib/services', () => ({
+      connectorService: { findCapabilityInventoryEntries },
+    }))
+
+    const { loadAvailableConnectorCapabilities } = await import('@/lib/agent-connector-capabilities')
+
+    await expect(loadAvailableConnectorCapabilities()).resolves.toContainEqual({
+      id: 'custom-user-1',
+      type: 'custom',
+    })
+    expect(findCapabilityInventoryEntries).toHaveBeenCalledTimes(1)
+    vi.doUnmock('@/lib/services')
   })
 })

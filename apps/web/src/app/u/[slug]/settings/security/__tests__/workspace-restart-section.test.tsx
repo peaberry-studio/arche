@@ -33,6 +33,39 @@ describe('WorkspaceRestartSection', () => {
     expect(await screen.findByText('Restart failed: Unable to restart the workspace.')).toBeTruthy()
   })
 
+  it('disables the action while restarting and maps setup errors', async () => {
+    let resolveResponse: (response: { json: () => Promise<{ error: string }>; ok: false }) => void = () => {}
+    const responsePromise = new Promise<{ json: () => Promise<{ error: string }>; ok: false }>((resolve) => {
+      resolveResponse = resolve
+    })
+    const fetchMock = vi.fn().mockReturnValue(responsePromise)
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<WorkspaceRestartSection slug="alice" />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Restart workspace' }))
+
+    expect(screen.getByRole('button', { name: 'Restarting workspace...' }).getAttribute('disabled')).not.toBeNull()
+
+    resolveResponse({
+      ok: false,
+      json: async () => ({ error: 'setup_required' }),
+    })
+
+    expect(await screen.findByText('Restart failed: Workspace setup is incomplete.')).toBeTruthy()
+  })
+
+  it('shows a network error when the restart request fails before a response', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error('offline'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<WorkspaceRestartSection slug="alice" />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Restart workspace' }))
+
+    expect(await screen.findByText('Restart failed: Network error while requesting the restart.')).toBeTruthy()
+  })
+
   it('can render without the duplicated header block', () => {
     render(<WorkspaceRestartSection slug="alice" showHeader={false} />)
 

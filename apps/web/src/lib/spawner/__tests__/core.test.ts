@@ -115,14 +115,17 @@ vi.mock('../crypto', () => ({
 
 import { isInstanceHealthyWithPassword } from '@/lib/opencode/client'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
-import { auditService, instanceService, userService } from '@/lib/services'
-import { startInstance, stopInstance, getInstanceStatus, isSlowStart } from '../core'
+import { auditService, instanceService, providerService, userService } from '@/lib/services'
+import { startInstance, stopInstance, getInstanceStatus, isSlowStart, listActiveInstances } from '../core'
+import * as crypto from '../crypto'
 import * as docker from '../docker'
 import { buildMcpConfigForSlug } from '../mcp-config'
 
 const mockInstance = vi.mocked(instanceService)
 const mockUser = vi.mocked(userService)
+const mockProvider = vi.mocked(providerService)
 const mockAudit = vi.mocked(auditService)
+const mockCrypto = vi.mocked(crypto)
 const mockDocker = vi.mocked(docker)
 const mockBuildMcpConfigForSlug = vi.mocked(buildMcpConfigForSlug)
 const mockHealth = vi.mocked(isInstanceHealthyWithPassword)
@@ -157,6 +160,7 @@ beforeEach(async () => {
     })
   )
   mockHealth.mockResolvedValue(true)
+  mockSync.mockResolvedValue({ ok: true })
   mockBuildMcpConfigForSlug.mockResolvedValue(null)
 })
 
@@ -368,6 +372,24 @@ describe('startInstance', () => {
     expect(syncCall).not.toHaveProperty('disposeInstance', false)
   })
 
+  it('marks the workspace for restart when provider sync fails', async () => {
+    mockInstance.findBySlug.mockResolvedValue(null)
+    mockInstance.upsertStarting.mockResolvedValue({} as never)
+    mockInstance.setContainerId.mockResolvedValue({} as never)
+    mockInstance.setRunning.mockResolvedValue({} as never)
+    mockUser.findIdentityBySlug.mockResolvedValue({ id: 'owner-1', slug: 'alice', email: 'alice@example.com' })
+    mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
+    mockDocker.startContainer.mockResolvedValue(undefined)
+    mockDocker.isContainerRunning.mockResolvedValue(true)
+    mockSync.mockResolvedValue({ ok: false, error: 'sync_failed' })
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await expect(startInstance('alice', 'user-1')).resolves.toEqual({ ok: true, status: 'running' })
+
+    expect(mockProvider.markWorkspaceRestartRequired).toHaveBeenCalledWith('owner-1')
+    expect(mockProvider.clearWorkspaceRestartRequired).not.toHaveBeenCalled()
+  })
+
   it('returns timeout when container never becomes healthy', async () => {
     mockInstance.findBySlug.mockResolvedValue(null)
     mockInstance.upsertStarting.mockResolvedValue({} as never)
@@ -398,6 +420,24 @@ describe('startInstance', () => {
     const result = await startInstance('alice', 'user-1')
 
     expect(result).toMatchObject({ ok: false, error: 'start_failed' })
+  })
+
+  it('cleans up a created container when startup fails without a detail message', async () => {
+    mockInstance.findBySlug.mockResolvedValue(null)
+    mockInstance.upsertStarting.mockResolvedValue({} as never)
+    mockInstance.setContainerId.mockResolvedValue({} as never)
+    mockInstance.setError.mockResolvedValue({} as never)
+    mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
+    mockDocker.startContainer.mockRejectedValue({})
+    mockDocker.stopContainer.mockResolvedValue(undefined)
+    mockDocker.removeContainer.mockResolvedValue(undefined)
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    const result = await startInstance('alice', 'user-1')
+
+    expect(result).toEqual({ ok: false, error: 'start_failed', detail: undefined })
+    expect(mockDocker.stopContainer).toHaveBeenCalledWith('container-123')
+    expect(mockDocker.removeContainer).toHaveBeenCalledWith('container-123')
   })
 })
 
@@ -447,6 +487,19 @@ describe('stopInstance', () => {
       metadata: { slug: 'alice' },
     })
   })
+
+  it('returns stop_failed when persisting stopped state fails', async () => {
+    mockInstance.findBySlug.mockResolvedValue({
+      id: '1', slug: 'alice', status: 'running',
+      containerId: null, serverPassword: 'enc',
+      createdAt: new Date(), startedAt: new Date(),
+      stoppedAt: null, lastActivityAt: new Date(),
+      appliedConfigSha: null,
+    })
+    mockInstance.setStopped.mockRejectedValue(new Error('db down'))
+
+    await expect(stopInstance('alice', 'user-1')).resolves.toEqual({ ok: false, error: 'stop_failed' })
+  })
 })
 
 describe('getInstanceStatus', () => {
@@ -473,6 +526,85 @@ describe('getInstanceStatus', () => {
     const result = await getInstanceStatus('unknown')
 
     expect(result).toBeNull()
+  })
+
+  it('marks running instances without a container as stopped', async () => {
+    const now = new Date()
+    mockInstance.findStatusBySlug.mockResolvedValue({
+      status: 'running', startedAt: now, stoppedAt: null, lastActivityAt: now, containerId: null,
+      serverPassword: 'enc',
+    })
+    mockInstance.setStoppedNoContainer.mockResolvedValue({} as never)
+
+    await expect(getInstanceStatus('alice')).resolves.toEqual({
+      status: 'stopped', startedAt: now, stoppedAt: null, lastActivityAt: now, containerId: null,
+      serverPassword: 'enc',
+    })
+    expect(mockInstance.setStoppedNoContainer).toHaveBeenCalledWith('alice')
+  })
+
+  it('marks missing containers as stopped', async () => {
+    const now = new Date()
+    mockInstance.findStatusBySlug.mockResolvedValue({
+      status: 'running', startedAt: now, stoppedAt: null, lastActivityAt: now, containerId: 'missing',
+      serverPassword: 'enc',
+    })
+    mockDocker.isContainerRunning.mockResolvedValue(false)
+    mockDocker.removeContainer.mockResolvedValue(undefined)
+    mockInstance.setStopped.mockResolvedValue({} as never)
+
+    await expect(getInstanceStatus('alice')).resolves.toMatchObject({ status: 'stopped', containerId: null })
+    expect(mockDocker.removeContainer).toHaveBeenCalledWith('missing')
+    expect(mockInstance.setStopped).toHaveBeenCalledWith('alice')
+  })
+
+  it('corrects healthy starting instances to running', async () => {
+    const now = new Date()
+    mockInstance.findStatusBySlug.mockResolvedValue({
+      status: 'starting', startedAt: now, stoppedAt: null, lastActivityAt: now, containerId: 'abc',
+      serverPassword: 'enc',
+    })
+    mockDocker.isContainerRunning.mockResolvedValue(true)
+    mockHealth.mockResolvedValue(true)
+    mockInstance.correctToRunning.mockResolvedValue({} as never)
+
+    await expect(getInstanceStatus('alice')).resolves.toMatchObject({ status: 'running', containerId: 'abc' })
+    expect(mockInstance.correctToRunning).toHaveBeenCalledWith('alice')
+  })
+
+  it('keeps running containers in starting state until OpenCode responds', async () => {
+    const now = new Date()
+    mockInstance.findStatusBySlug.mockResolvedValue({
+      status: 'running', startedAt: now, stoppedAt: null, lastActivityAt: now, containerId: 'abc',
+      serverPassword: 'enc',
+    })
+    mockDocker.isContainerRunning.mockResolvedValue(true)
+    mockHealth.mockResolvedValue(false)
+
+    await expect(getInstanceStatus('alice')).resolves.toMatchObject({ status: 'starting', containerId: 'abc' })
+  })
+
+  it('returns the stored status when password decryption fails', async () => {
+    const now = new Date()
+    const instance = {
+      status: 'starting' as const, startedAt: now, stoppedAt: null, lastActivityAt: now, containerId: 'abc',
+      serverPassword: 'bad',
+    }
+    mockInstance.findStatusBySlug.mockResolvedValue(instance)
+    mockDocker.isContainerRunning.mockResolvedValue(true)
+    mockCrypto.decryptPassword.mockImplementationOnce(() => { throw new Error('bad password') })
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await expect(getInstanceStatus('alice')).resolves.toBe(instance)
+  })
+})
+
+describe('listActiveInstances', () => {
+  it('delegates to the instance service', async () => {
+    mockInstance.findActiveInstances.mockResolvedValue([{ slug: 'alice' }] as never)
+
+    await expect(listActiveInstances()).resolves.toEqual([{ slug: 'alice' }])
+    expect(mockInstance.findActiveInstances).toHaveBeenCalledTimes(1)
   })
 })
 

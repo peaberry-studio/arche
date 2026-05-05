@@ -17,18 +17,21 @@ vi.mock('../docker', () => ({
 
 import { instanceService } from '@/lib/services'
 import * as docker from '../docker'
-import { reapIdleInstances, startReaper, stopReaper } from '../reaper'
+import { getReaperStatus, reapIdleInstances, REAPER_INTERVAL_MS, startReaper, stopReaper } from '../reaper'
 
 const mockInstance = vi.mocked(instanceService)
 const mockDocker = vi.mocked(docker)
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.spyOn(console, 'error').mockImplementation(() => {})
+  vi.spyOn(console, 'warn').mockImplementation(() => {})
   vi.useFakeTimers()
 })
 
 afterEach(() => {
   stopReaper()
+  vi.restoreAllMocks()
   vi.useRealTimers()
 })
 
@@ -66,6 +69,31 @@ describe('reapIdleInstances', () => {
     expect(mockDocker.stopContainer).toHaveBeenCalledWith('container-abc')
     expect(mockDocker.removeContainer).toHaveBeenCalledWith('container-abc')
     expect(mockInstance.setStoppedById).toHaveBeenCalledWith('inst-1')
+  })
+
+  it('continues when removing a stopped container fails', async () => {
+    const idleInstance = {
+      id: 'inst-1',
+      slug: 'alice',
+      status: 'running' as const,
+      containerId: 'container-abc',
+      serverPassword: 'enc',
+      createdAt: new Date(),
+      startedAt: new Date(),
+      stoppedAt: null,
+      lastActivityAt: new Date(Date.now() - 60 * 60 * 1000),
+      appliedConfigSha: null,
+    }
+    mockInstance.findIdleInstances.mockResolvedValue([idleInstance])
+    mockDocker.stopContainer.mockResolvedValue(undefined)
+    mockDocker.removeContainer.mockRejectedValue(new Error('remove failed'))
+    mockInstance.setStoppedById.mockResolvedValue({} as never)
+
+    await expect(reapIdleInstances()).resolves.toBe(1)
+    expect(console.warn).toHaveBeenCalledWith(
+      '[reaper] Failed to remove container:',
+      expect.objectContaining({ containerId: 'container-abc', slug: 'alice' }),
+    )
   })
 
   it('continues reaping other instances if one fails', async () => {
@@ -140,5 +168,55 @@ describe('startReaper / stopReaper', () => {
     expect(mockInstance.findIdleInstances).toHaveBeenCalledTimes(1)
 
     stopReaper()
+  })
+
+  it('reports status before start, during execution, and after stop', async () => {
+    mockInstance.findIdleInstances.mockResolvedValue([])
+
+    expect(getReaperStatus()).toMatchObject({ running: false })
+
+    startReaper()
+    expect(getReaperStatus()).toMatchObject({ running: true, lastRunError: null })
+
+    await vi.waitFor(() => expect(getReaperStatus().lastRunFinishedAt).toBeInstanceOf(Date))
+
+    stopReaper()
+    expect(getReaperStatus()).toMatchObject({ running: false })
+  })
+
+  it('runs another cycle on the configured interval', async () => {
+    mockInstance.findIdleInstances.mockResolvedValue([])
+
+    startReaper()
+    vi.clearAllMocks()
+    await vi.advanceTimersByTimeAsync(REAPER_INTERVAL_MS)
+
+    expect(mockInstance.findIdleInstances).toHaveBeenCalledTimes(1)
+  })
+
+  it('logs when a cycle stops idle instances', async () => {
+    mockInstance.findIdleInstances.mockResolvedValue([
+      {
+        id: 'inst-1', slug: 'alice', status: 'running' as const,
+        containerId: null, serverPassword: 'enc',
+        createdAt: new Date(), startedAt: new Date(),
+        stoppedAt: null, lastActivityAt: new Date(Date.now() - 60 * 60 * 1000),
+        appliedConfigSha: null,
+      },
+    ])
+    mockInstance.setStoppedById.mockResolvedValue({} as never)
+
+    startReaper()
+
+    await vi.waitFor(() => expect(console.error).toHaveBeenCalledWith('[reaper] Stopped 1 idle instance(s)'))
+  })
+
+  it('stores and logs cycle errors', async () => {
+    mockInstance.findIdleInstances.mockRejectedValue(new Error('db unavailable'))
+
+    startReaper()
+
+    await vi.waitFor(() => expect(getReaperStatus().lastRunError).toBe('db unavailable'))
+    expect(console.error).toHaveBeenCalledWith('[reaper] Error:', expect.any(Error))
   })
 })

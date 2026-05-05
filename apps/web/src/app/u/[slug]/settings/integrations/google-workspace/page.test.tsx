@@ -95,6 +95,26 @@ describe('GoogleWorkspaceIntegrationSettingsPage', () => {
     )
   })
 
+  it('redirects unauthenticated users to login', async () => {
+    getSessionMock.mockResolvedValue(null)
+
+    const Page = (await import('./page')).default
+
+    await expect(Page({ params: Promise.resolve({ slug: 'alice' }) })).rejects.toThrow('REDIRECT:/login')
+  })
+
+  it('redirects when 2FA status cannot be loaded', async () => {
+    getRuntimeCapabilitiesMock.mockReturnValue({
+      googleWorkspaceIntegration: true,
+      twoFactor: true,
+    })
+    get2FAStatusMock.mockResolvedValue({ ok: false, error: 'unauthorized' })
+
+    const Page = (await import('./page')).default
+
+    await expect(Page({ params: Promise.resolve({ slug: 'alice' }) })).rejects.toThrow('REDIRECT:/login')
+  })
+
   it('redirects when googleWorkspaceIntegration capability is disabled', async () => {
     getRuntimeCapabilitiesMock.mockReturnValue({
       googleWorkspaceIntegration: false,

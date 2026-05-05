@@ -63,4 +63,13 @@ describe('app home page', () => {
 
     await expect(Home()).rejects.toThrow('REDIRECT:/login')
   })
+
+  it('redirects web users with a session to their dashboard', async () => {
+    isDesktopMock.mockReturnValue(false)
+    getSessionMock.mockResolvedValue({ user: { slug: 'alice' } })
+
+    const Home = (await import('../page')).default
+
+    await expect(Home()).rejects.toThrow('REDIRECT:/u/alice')
+  })
 })
