@@ -93,10 +93,10 @@ export type WorkspaceMessage = {
  * Tool invocation state matching OpenCode's ToolState.
  */
 export type ToolState = 
-  | { status: 'pending'; input: Record<string, unknown> }
-  | { status: 'running'; input: Record<string, unknown>; title?: string }
-  | { status: 'completed'; input: Record<string, unknown>; output: string; title: string }
-  | { status: 'error'; input: Record<string, unknown>; error: string }
+  | { status: 'pending'; input: Record<string, unknown>; metadata?: Record<string, unknown> }
+  | { status: 'running'; input: Record<string, unknown>; title?: string; metadata?: Record<string, unknown> }
+  | { status: 'completed'; input: Record<string, unknown>; output: string; title: string; metadata?: Record<string, unknown> }
+  | { status: 'error'; input: Record<string, unknown>; error: string; metadata?: Record<string, unknown> }
 
 /**
  * Message part types we handle in UI.

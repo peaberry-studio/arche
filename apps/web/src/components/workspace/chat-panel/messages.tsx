@@ -381,12 +381,12 @@ function MessageFooter({ message, showTimestamp = true }: { message: ChatMessage
 
   const handleCopy = useCallback(async () => {
     const textToCopy =
-      message.content ||
-      message.parts
-        ?.filter((part) => part.type === "text" || part.type === "reasoning")
-        .map((part) => (part as { text: string }).text)
-        .join("\n") ||
-      "";
+      message.parts && message.parts.length > 0
+        ? message.parts
+            .filter((part): part is Extract<MessagePart, { type: "text" }> => part.type === "text")
+            .map((part) => part.text)
+            .join("\n")
+        : message.content;
 
     try {
       const copiedToClipboard = await copyTextToClipboard(textToCopy);
@@ -622,6 +622,30 @@ function TodoCard({ parts }: { parts: ToolPart[] }) {
   );
 }
 
+function parseTaskSessionIdFromOutput(output: string): string | undefined {
+  return output.match(/^task_id:\s*(\S+)/m)?.[1];
+}
+
+function getToolStateMetadata(state: ToolPart["state"]): Record<string, unknown> | undefined {
+  return state.metadata && typeof state.metadata === "object" && !Array.isArray(state.metadata)
+    ? state.metadata
+    : undefined;
+}
+
+function getDelegationSessionId(part: ToolPart): string | undefined {
+  const metadata = getToolStateMetadata(part.state);
+  const outputSessionId = part.state.status === "completed"
+    ? parseTaskSessionIdFromOutput(part.state.output)
+    : undefined;
+
+  return (
+    getString(metadata?.sessionId) ??
+    getString(metadata?.sessionID) ??
+    getString(part.state.input.task_id) ??
+    outputSessionId
+  );
+}
+
 function DelegationCard({
   parts,
   sessionTabs,
@@ -646,13 +670,20 @@ function DelegationCard({
 
         const isRunning = part.state.status === "running" || part.state.status === "pending";
         const isError = part.state.status === "error";
+        const delegationSessionId = getDelegationSessionId(part);
+        const exactTab = delegationSessionId
+          ? sessionTabs.find((tab) => tab.id === delegationSessionId) ?? null
+          : null;
 
         const matchingTab =
-          sessionTabs.find((tab) => {
-            if (tab.depth === 0) return false;
-            if (!agentLabel) return false;
-            return tab.title.toLowerCase().includes(subagentType!.toLowerCase());
-          }) ?? sessionTabs.find((tab) => tab.depth > 0) ?? null;
+          exactTab ??
+          (delegationSessionId
+            ? null
+            : sessionTabs.find((tab) => {
+                if (tab.depth === 0) return false;
+                if (!agentLabel) return false;
+                return tab.title.toLowerCase().includes(subagentType!.toLowerCase());
+              }) ?? sessionTabs.find((tab) => tab.depth > 0) ?? null);
 
         const canNavigate = Boolean(matchingTab && onSelectSessionTab);
 

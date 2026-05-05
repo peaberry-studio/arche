@@ -108,6 +108,12 @@ export function transformParts(parts: unknown[]): MessagePart[] {
             normalizedInput && typeof normalizedInput === "object" && !Array.isArray(normalizedInput)
               ? (normalizedInput as Record<string, unknown>)
               : {};
+          const normalizedMetadata = normalizeSerializableValue(state?.metadata);
+          const metadata =
+            normalizedMetadata && typeof normalizedMetadata === "object" && !Array.isArray(normalizedMetadata)
+              ? (normalizedMetadata as Record<string, unknown>)
+              : undefined;
+          const metadataProps = metadata ? { metadata } : {};
 
           if (status === "completed") {
             toolState = {
@@ -115,21 +121,24 @@ export function transformParts(parts: unknown[]): MessagePart[] {
               input,
               output: String(state?.output ?? ""),
               title: String(state?.title ?? toolName),
+              ...metadataProps,
             };
           } else if (status === "error") {
             toolState = {
               status: "error",
               input,
               error: String(state?.error ?? "Unknown error"),
+              ...metadataProps,
             };
           } else if (status === "running") {
             toolState = {
               status: "running",
               input,
               title: state?.title ? String(state.title) : undefined,
+              ...metadataProps,
             };
           } else {
-            toolState = { status: "pending", input };
+            toolState = { status: "pending", input, ...metadataProps };
           }
 
           return {

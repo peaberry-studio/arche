@@ -194,6 +194,50 @@ describe("ChatPanelMessages", () => {
     await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining("Subject: Hello")));
   });
 
+  it("opens the exact subagent session for each task delegation", () => {
+    const { onSelectSessionTab } = renderMessages({
+      sessionTabs: [
+        { id: "root", title: "Main", status: "idle", depth: 0 },
+        { id: "sub-latest", title: "Second review (@reviewer subagent)", status: "idle", depth: 1 },
+        { id: "sub-first", title: "First review (@reviewer subagent)", status: "idle", depth: 1 },
+      ],
+      messages: [
+        assistantMessage([
+          {
+            type: "tool",
+            id: "task-first",
+            name: "task",
+            state: {
+              status: "completed",
+              input: { subagent_type: "reviewer", description: "First review" },
+              output: "task_id: sub-first (for resuming to continue this task if needed)\n\n<task_result>ok</task_result>",
+              title: "First review",
+            },
+          },
+          {
+            type: "tool",
+            id: "task-latest",
+            name: "task",
+            state: {
+              status: "completed",
+              input: { subagent_type: "reviewer", description: "Second review" },
+              output: "task_id: sub-latest (for resuming to continue this task if needed)\n\n<task_result>ok</task_result>",
+              title: "Second review",
+            },
+          },
+        ]),
+      ],
+    });
+
+    const viewButtons = screen.getAllByRole("button", { name: /View/ });
+
+    fireEvent.click(viewButtons[0]);
+    expect(onSelectSessionTab).toHaveBeenLastCalledWith("sub-first");
+
+    fireEvent.click(viewButtons[1]);
+    expect(onSelectSessionTab).toHaveBeenLastCalledWith("sub-latest");
+  });
+
   it("renders user and assistant attachments, error notices, and fallback copy", async () => {
     const execCommand = vi.fn(() => true);
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: {} });
@@ -245,11 +289,14 @@ describe("ChatPanelMessages", () => {
   it("toggles reasoning, copies text parts, shows token details, and groups timestamps", async () => {
     const { container } = renderMessages({
       messages: [
-        assistantMessage([
-          { type: "text", id: "text-copy", text: "Visible answer" },
-          { type: "reasoning", id: "reasoning-copy", text: "Hidden **thought**" },
-          { type: "step-finish", id: "finish-copy", reason: "done", cost: 0.01, tokens: { input: 1200, output: 300 } },
-        ]),
+        assistantMessage(
+          [
+            { type: "text", id: "text-copy", text: "Visible answer" },
+            { type: "reasoning", id: "reasoning-copy", text: "Hidden **thought**" },
+            { type: "step-finish", id: "finish-copy", reason: "done", cost: 0.01, tokens: { input: 1200, output: 300 } },
+          ],
+          { content: "Visible answer\nHidden **thought**" }
+        ),
         assistantMessage([], {
           id: "a3",
           content: "Same minute follow-up",
@@ -271,7 +318,7 @@ describe("ChatPanelMessages", () => {
     expect(renderedMarkdown.tagName).toBe("STRONG");
 
     fireEvent.click(screen.getAllByTitle("Copy message")[0]);
-    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("Visible answer\nHidden **thought**"));
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("Visible answer"));
 
     const infoButton = screen.getAllByTitle("Copy message")[0].parentElement?.querySelector("div.relative button");
     expect(infoButton).toBeTruthy();

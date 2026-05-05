@@ -148,6 +148,36 @@ describe('transformParts', () => {
     })
   })
 
+  it('preserves tool metadata for subagent session links', () => {
+    const result = transformParts([{
+      type: 'tool',
+      callID: 'call1',
+      tool: 'task',
+      state: {
+        status: 'running',
+        input: { subagent_type: 'reviewer' },
+        metadata: {
+          count: BigInt(2),
+          sessionId: 'sub-1',
+        },
+      },
+    }])
+
+    expect(result[0]).toEqual({
+      type: 'tool',
+      id: 'call1',
+      name: 'task',
+      state: {
+        status: 'running',
+        input: { subagent_type: 'reviewer' },
+        metadata: {
+          count: '2',
+          sessionId: 'sub-1',
+        },
+      },
+    })
+  })
+
   it('transforms tool with pending state', () => {
     const result = transformParts([{
       type: 'tool',
