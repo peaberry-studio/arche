@@ -14,9 +14,8 @@ vi.mock('next/headers', () => ({
 vi.mock('next/font/google', () => ({
   Geist: () => ({ variable: 'font-geist-sans' }),
   Geist_Mono: () => ({ variable: 'font-geist-mono' }),
-  Instrument_Serif: () => ({ variable: 'font-instrument-serif' }),
-  Libre_Baskerville: () => ({ variable: 'font-libre-baskerville' }),
   Space_Grotesk: () => ({ variable: 'font-space-grotesk' }),
+  Tinos: () => ({ variable: 'font-tinos' }),
 }))
 
 function getElementProps<TProps>(element: ReactNode): TProps {
@@ -56,7 +55,7 @@ describe('RootLayout', () => {
     expect(htmlProps.lang).toBe('en')
     expect(htmlProps.suppressHydrationWarning).toBe(true)
     expect(bodyProps.className).toContain('font-geist-sans')
-    expect(bodyProps.className).toContain('font-libre-baskerville')
+    expect(bodyProps.className).toContain('font-tinos')
     expect(bodyProps.children).toEqual(<span>Layout child</span>)
   })
 })

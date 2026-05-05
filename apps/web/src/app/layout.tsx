@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
-import { Geist, Geist_Mono, Instrument_Serif, Libre_Baskerville, Space_Grotesk } from "next/font/google";
+import { Geist, Geist_Mono, Space_Grotesk, Tinos } from "next/font/google";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -19,17 +19,11 @@ const spaceGrotesk = Space_Grotesk({
   weight: ["400", "500", "600", "700"],
 });
 
-const instrumentSerif = Instrument_Serif({
-  variable: "--font-instrument-serif",
-  subsets: ["latin"],
-  weight: "400",
-  style: "italic",
-});
-
-const libreBaskerville = Libre_Baskerville({
-  variable: "--font-libre-baskerville",
+const tinos = Tinos({
+  variable: "--font-tinos",
   subsets: ["latin"],
   weight: ["400", "700"],
+  style: ["normal", "italic"],
 });
 
 export const metadata: Metadata = {
@@ -79,7 +73,7 @@ export default async function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} ${spaceGrotesk.variable} ${instrumentSerif.variable} ${libreBaskerville.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} ${spaceGrotesk.variable} ${tinos.variable} antialiased`}
       >
         {children}
       </body>
