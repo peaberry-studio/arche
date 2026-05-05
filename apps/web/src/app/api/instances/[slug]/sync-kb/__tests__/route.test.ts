@@ -33,6 +33,11 @@ vi.mock('@/lib/runtime/workspace-host', () => ({
 vi.mock('@/lib/workspace-agent/client', () => ({
   createWorkspaceAgentClient: mockCreateWorkspaceAgentClient,
 }))
+vi.mock('@/lib/services', () => ({
+  kbGithubRemoteService: {
+    pullBestEffort: vi.fn().mockResolvedValue({ status: 'skipped' }),
+  },
+}))
 
 import { GET, POST } from '../route'
 
@@ -72,7 +77,7 @@ describe('POST /api/instances/[slug]/sync-kb', () => {
     const spy = mockFetch({ ok: true, status: 'synced' })
     const res = await POST(makeRequest('POST'), { params: Promise.resolve({ slug: 'alice' }) })
     const body = await res.json()
-    expect(body).toEqual({ ok: true, status: 'synced' })
+    expect(body).toEqual({ ok: true, status: 'synced', githubSyncStatus: 'skipped' })
     spy.mockRestore()
   })
 
@@ -82,6 +87,7 @@ describe('POST /api/instances/[slug]/sync-kb', () => {
     const body = await res.json()
     expect(body.status).toBe('conflicts')
     expect(body.conflicts).toEqual(['file.txt'])
+    expect(body.githubSyncStatus).toBe('skipped')
     spy.mockRestore()
   })
 
@@ -103,6 +109,7 @@ describe('POST /api/instances/[slug]/sync-kb', () => {
     const body = await res.json()
     expect(body.ok).toBe(false)
     expect(body.status).toBe('error')
+    expect(body.githubSyncStatus).toBe('skipped')
     spy.mockRestore()
   })
 
@@ -113,6 +120,7 @@ describe('POST /api/instances/[slug]/sync-kb', () => {
     const res = await POST(makeRequest('POST'), { params: Promise.resolve({ slug: 'alice' }) })
     const body = await res.json()
     expect(body.ok).toBe(false)
+    expect(body.githubSyncStatus).toBe('skipped')
     spy.mockRestore()
   })
 

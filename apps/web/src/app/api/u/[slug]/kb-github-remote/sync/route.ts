@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
-import { pushToGithub, pullFromGithub } from '@/lib/git/kb-github-sync'
+import { pushToGithub, pullFromGithub, type ConflictStrategy } from '@/lib/git/kb-github-sync'
 import type { KbGithubRemoteSyncState } from '@/lib/services/kb-github-remote'
 import { kbGithubRemoteService } from '@/lib/services'
 import { withAuth } from '@/lib/runtime/with-auth'
@@ -31,6 +31,12 @@ export const POST = withAuth(
       return NextResponse.json({ error: 'invalid_direction' }, { status: 400 })
     }
 
+    const strategyRaw = body && typeof body === 'object' && 'strategy' in body
+      ? (body as { strategy: unknown }).strategy
+      : undefined
+    const strategy: ConflictStrategy | undefined =
+      strategyRaw === 'local_wins' || strategyRaw === 'remote_wins' ? strategyRaw : undefined
+
     const record = await kbGithubRemoteService.findIntegration()
     if (!record) {
       return NextResponse.json({ error: 'not_configured' }, { status: 400 })
@@ -55,7 +61,7 @@ export const POST = withAuth(
     const now = new Date().toISOString()
     const result = direction === 'push'
       ? await pushToGithub(creds)
-      : await pullFromGithub(creds)
+      : await pullFromGithub(creds, strategy)
 
     const stateUpdate: Partial<KbGithubRemoteSyncState> = {
       lastSyncAt: now,

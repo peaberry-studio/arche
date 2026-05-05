@@ -7,7 +7,7 @@ import { SettingsInfoBox } from '@/components/settings/settings-info-box'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import type {
-  KbGithubRemoteIntegrationGetResponse,
+  KbGithubRemoteIntegrationSummary,
   KbGithubRemoteRepo,
 } from '@/lib/kb-github-remote/types'
 
@@ -34,15 +34,18 @@ function getErrorMessage(error: string | undefined): string {
   return ERROR_MESSAGES[error] ?? error
 }
 
-type BusyAction = 'clear' | 'test' | 'push' | 'pull' | 'repos' | null
+type ConflictStrategy = 'local_wins' | 'remote_wins'
+type BusyAction = 'clear' | 'test' | 'push' | 'pull' | 'resolve' | 'repos' | null
 
 export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
-  const [integration, setIntegration] = useState<KbGithubRemoteIntegrationGetResponse | null>(null)
+  const [integration, setIntegration] = useState<KbGithubRemoteIntegrationSummary | null>(null)
   const [repos, setRepos] = useState<KbGithubRemoteRepo[] | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [busyAction, setBusyAction] = useState<BusyAction>(null)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [hasConflicts, setHasConflicts] = useState(false)
+  const [conflictFiles, setConflictFiles] = useState<string[]>([])
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const errorParam = params.get('error')
@@ -68,7 +71,7 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
     try {
       const response = await fetch(`/api/u/${slug}/kb-github-remote`, { cache: 'no-store' })
       const data = (await response.json().catch(() => null)) as
-        | (KbGithubRemoteIntegrationGetResponse & { error?: string })
+        | (KbGithubRemoteIntegrationSummary & { error?: string })
         | { error?: string }
         | null
 
@@ -127,7 +130,7 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
         method: 'DELETE',
       })
       const data = (await response.json().catch(() => null)) as
-        | (KbGithubRemoteIntegrationGetResponse & { error?: string })
+        | (KbGithubRemoteIntegrationSummary & { error?: string })
         | { error?: string }
         | null
 
@@ -236,8 +239,8 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
     }
   }
 
-  async function handleSync(direction: 'push' | 'pull') {
-    setBusyAction(direction)
+  async function handleSync(direction: 'push' | 'pull', strategy?: ConflictStrategy) {
+    setBusyAction(strategy ? 'resolve' : direction)
     setError(null)
     setSuccess(null)
 
@@ -245,7 +248,7 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
       const response = await fetch(`/api/u/${slug}/kb-github-remote/sync`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ direction }),
+        body: JSON.stringify({ direction, ...(strategy ? { strategy } : {}) }),
       })
       const data = (await response.json().catch(() => null)) as {
         ok?: boolean
@@ -261,12 +264,19 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
       }
 
       if (data.ok) {
-        const label = direction === 'push' ? 'Pushed' : 'Pulled'
-        const detail = data.status === 'up_to_date' ? 'Already up to date.' : `${label} successfully.`
+        setHasConflicts(false)
+        setConflictFiles([])
+        const detail = data.status === 'up_to_date'
+          ? 'Already up to date.'
+          : data.status === 'resolved'
+            ? 'Conflicts resolved successfully.'
+            : `${direction === 'push' ? 'Pushed' : 'Pulled'} successfully.`
         setSuccess(detail)
         void loadIntegration()
         window.setTimeout(() => setSuccess(null), 5000)
       } else if (data.status === 'conflicts') {
+        setHasConflicts(true)
+        setConflictFiles(data.conflictingFiles ?? [])
         setError(
           `Merge conflicts detected in ${data.conflictingFiles?.length ?? 0} file(s): ${data.conflictingFiles?.join(', ') ?? 'unknown'}`,
         )
@@ -423,7 +433,7 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
                     <Badge variant="default">Last sync successful</Badge>
                   ) : null}
                   {integration.lastSyncStatus === 'error' ? (
-                    <Badge variant="destructive">Last sync failed</Badge>
+                    <Badge variant="secondary" className="border-red-500/50 text-red-600 dark:text-red-400">Last sync failed</Badge>
                   ) : null}
                   {integration.lastSyncStatus === 'conflicts' ? (
                     <Badge variant="secondary" className="border-amber-500/50 text-amber-600 dark:text-amber-400">
@@ -441,6 +451,37 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
 
                 {integration.lastError ? (
                   <p className="text-xs text-red-600 dark:text-red-400">{integration.lastError}</p>
+                ) : null}
+
+                {hasConflicts ? (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-foreground">
+                      Resolve conflicts
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Conflicting files: {conflictFiles.join(', ') || 'unknown'}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={busyAction !== null}
+                        onClick={() => void handleSync('pull', 'local_wins')}
+                      >
+                        <ArrowsClockwise size={14} className={busyAction === 'resolve' ? 'animate-spin' : ''} />
+                        {busyAction === 'resolve' ? 'Resolving...' : 'Keep local version'}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={busyAction !== null}
+                        onClick={() => void handleSync('pull', 'remote_wins')}
+                      >
+                        <ArrowsClockwise size={14} className={busyAction === 'resolve' ? 'animate-spin' : ''} />
+                        {busyAction === 'resolve' ? 'Resolving...' : 'Keep GitHub version'}
+                      </Button>
+                    </div>
+                  </div>
                 ) : null}
 
                 <div className="flex flex-wrap gap-2">

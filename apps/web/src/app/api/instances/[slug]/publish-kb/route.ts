@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
 
-import { pushToGithub } from '@/lib/git/kb-github-sync'
 import { isWorkspaceReachable } from '@/lib/runtime/workspace-host'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { kbGithubRemoteService } from '@/lib/services'
@@ -12,26 +11,6 @@ export interface PublishKbResult {
   commitHash?: string
   files?: string[]
   message?: string
-}
-
-async function pushToGithubBestEffort(): Promise<void> {
-  try {
-    const creds = await kbGithubRemoteService.getSyncCredentials()
-    if (!creds) return
-
-    const result = await pushToGithub(creds)
-
-    const now = new Date().toISOString()
-    await kbGithubRemoteService.updateSyncState({
-      lastSyncAt: now,
-      lastPushAt: now,
-      lastSyncStatus: result.ok ? 'success' : 'error',
-      lastError: result.ok ? null : result.message,
-      remoteBranch: result.ok && 'branch' in result ? result.branch : undefined,
-    })
-  } catch {
-    // Best-effort: don't block publish response if GitHub is unreachable
-  }
 }
 
 export const POST = withAuth<PublishKbResult | { error: string }>(
@@ -69,7 +48,7 @@ export const POST = withAuth<PublishKbResult | { error: string }>(
       }
 
       if (data.ok && data.status === 'published') {
-        await pushToGithubBestEffort()
+        await kbGithubRemoteService.pushBestEffort()
       }
 
       return NextResponse.json(data)

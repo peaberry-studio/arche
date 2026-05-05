@@ -17,9 +17,11 @@ export type KbGithubPushResult =
   | { ok: false; status: 'not_configured' | 'kb_unavailable' | 'auth_failed' | 'push_rejected' | 'error'; message: string }
 
 export type KbGithubPullResult =
-  | { ok: true; status: 'pulled'; commitHash: string; branch: string }
+  | { ok: true; status: 'pulled' | 'resolved'; commitHash: string; branch: string }
   | { ok: true; status: 'up_to_date'; branch: string }
   | { ok: false; status: 'not_configured' | 'kb_unavailable' | 'auth_failed' | 'conflicts' | 'error'; message: string; conflictingFiles?: string[] }
+
+export type ConflictStrategy = 'local_wins' | 'remote_wins'
 
 export type KbGithubSyncCredentials = {
   appId: string
@@ -70,41 +72,59 @@ async function acquireToken(
   return { ok: true, token: result.token }
 }
 
-export async function pushToGithub(creds: KbGithubSyncCredentials): Promise<KbGithubPushResult> {
+type SyncWorkspace = {
+  clone: CloneResult & { ok: true }
+  branch: string
+  token: string
+}
+
+type PrepareResult =
+  | { ok: true; workspace: SyncWorkspace }
+  | { ok: false; result: { ok: false; status: 'kb_unavailable' | 'auth_failed' | 'error'; message: string } }
+
+async function prepareSyncWorkspace(creds: KbGithubSyncCredentials): Promise<PrepareResult> {
   const kbContentRoot = getKbContentRoot()
 
   if (!await isGitAvailable()) {
-    return { ok: false, status: 'kb_unavailable', message: 'Git is not available' }
+    return { ok: false, result: { ok: false, status: 'kb_unavailable', message: 'Git is not available' } }
   }
   if (!await hasBareRepoLayout(kbContentRoot)) {
-    return { ok: false, status: 'kb_unavailable', message: 'KB content repository not found' }
+    return { ok: false, result: { ok: false, status: 'kb_unavailable', message: 'KB content repository not found' } }
   }
 
   const tokenResult = await acquireToken(creds)
   if (!tokenResult.ok) {
-    return { ok: false, status: tokenResult.status, message: tokenResult.message }
+    return { ok: false, result: { ok: false, status: tokenResult.status, message: tokenResult.message } }
   }
   const { token } = tokenResult
 
-  let clone: CloneResult | null = null
+  const clone = await cloneRepoToTemp(kbContentRoot)
+  if (!clone.ok) {
+    return { ok: false, result: { ok: false, status: 'kb_unavailable', message: 'Failed to clone KB content repository' } }
+  }
+
+  const authenticatedUrl = buildAuthenticatedUrl(creds.repoCloneUrl, token)
+
+  const addRemote = await runGit(
+    ['remote', 'add', 'github', authenticatedUrl],
+    { cwd: clone.dir, env: clone.gitEnv },
+  )
+  if (!addRemote.ok) {
+    await cleanupClone(clone)
+    return { ok: false, result: { ok: false, status: 'error', message: sanitizeGitError(addRemote.stderr, token) } }
+  }
+
+  const branch = await detectDefaultBranch(clone.dir, clone.gitEnv)
+
+  return { ok: true, workspace: { clone, branch, token } }
+}
+
+export async function pushToGithub(creds: KbGithubSyncCredentials): Promise<KbGithubPushResult> {
+  const prepared = await prepareSyncWorkspace(creds)
+  if (!prepared.ok) return prepared.result
+
+  const { clone, branch, token } = prepared.workspace
   try {
-    clone = await cloneRepoToTemp(kbContentRoot)
-    if (!clone.ok) {
-      return { ok: false, status: 'kb_unavailable', message: 'Failed to clone KB content repository' }
-    }
-
-    const authenticatedUrl = buildAuthenticatedUrl(creds.repoCloneUrl, token)
-
-    const addRemote = await runGit(
-      ['remote', 'add', 'github', authenticatedUrl],
-      { cwd: clone.dir, env: clone.gitEnv },
-    )
-    if (!addRemote.ok) {
-      return { ok: false, status: 'error', message: sanitizeGitError(addRemote.stderr, token) }
-    }
-
-    const branch = await detectDefaultBranch(clone.dir, clone.gitEnv)
-
     const push = await runGit(
       ['push', 'github', `HEAD:refs/heads/${branch}`],
       { cwd: clone.dir, env: clone.gitEnv },
@@ -132,47 +152,19 @@ export async function pushToGithub(creds: KbGithubSyncCredentials): Promise<KbGi
   } catch (error) {
     return { ok: false, status: 'error', message: error instanceof Error ? error.message : 'Unknown error' }
   } finally {
-    if (clone && clone.ok) {
-      await cleanupClone(clone)
-    }
+    await cleanupClone(clone)
   }
 }
 
-export async function pullFromGithub(creds: KbGithubSyncCredentials): Promise<KbGithubPullResult> {
-  const kbContentRoot = getKbContentRoot()
+export async function pullFromGithub(
+  creds: KbGithubSyncCredentials,
+  strategy?: ConflictStrategy,
+): Promise<KbGithubPullResult> {
+  const prepared = await prepareSyncWorkspace(creds)
+  if (!prepared.ok) return prepared.result
 
-  if (!await isGitAvailable()) {
-    return { ok: false, status: 'kb_unavailable', message: 'Git is not available' }
-  }
-  if (!await hasBareRepoLayout(kbContentRoot)) {
-    return { ok: false, status: 'kb_unavailable', message: 'KB content repository not found' }
-  }
-
-  const tokenResult = await acquireToken(creds)
-  if (!tokenResult.ok) {
-    return { ok: false, status: tokenResult.status, message: tokenResult.message }
-  }
-  const { token } = tokenResult
-
-  let clone: CloneResult | null = null
+  const { clone, branch, token } = prepared.workspace
   try {
-    clone = await cloneRepoToTemp(kbContentRoot)
-    if (!clone.ok) {
-      return { ok: false, status: 'kb_unavailable', message: 'Failed to clone KB content repository' }
-    }
-
-    const authenticatedUrl = buildAuthenticatedUrl(creds.repoCloneUrl, token)
-
-    const addRemote = await runGit(
-      ['remote', 'add', 'github', authenticatedUrl],
-      { cwd: clone.dir, env: clone.gitEnv },
-    )
-    if (!addRemote.ok) {
-      return { ok: false, status: 'error', message: sanitizeGitError(addRemote.stderr, token) }
-    }
-
-    const branch = await detectDefaultBranch(clone.dir, clone.gitEnv)
-
     const fetchResult = await runGit(
       ['fetch', 'github', branch],
       { cwd: clone.dir, env: clone.gitEnv },
@@ -199,22 +191,32 @@ export async function pullFromGithub(creds: KbGithubSyncCredentials): Promise<Kb
     )
 
     if (!merge.ok) {
-      const conflictFiles = await runGit(
-        ['diff', '--name-only', '--diff-filter=U'],
+      if (!strategy) {
+        const conflictFiles = await runGit(
+          ['diff', '--name-only', '--diff-filter=U'],
+          { cwd: clone.dir, env: clone.gitEnv },
+        )
+        const files = conflictFiles.ok
+          ? conflictFiles.stdout.trim().split('\n').filter(Boolean)
+          : []
+
+        await runGit(['merge', '--abort'], { cwd: clone.dir, env: clone.gitEnv })
+
+        return {
+          ok: false,
+          status: 'conflicts',
+          message: `Merge conflicts in ${files.length} file(s)`,
+          conflictingFiles: files,
+        }
+      }
+
+      const checkoutFlag = strategy === 'local_wins' ? '--ours' : '--theirs'
+      await runGit(['checkout', checkoutFlag, '.'], { cwd: clone.dir, env: clone.gitEnv })
+      await runGit(['add', '.'], { cwd: clone.dir, env: clone.gitEnv })
+      await runGit(
+        ['commit', '--no-edit', '-m', `Resolve conflicts: ${strategy === 'local_wins' ? 'keep local' : 'keep remote'}`],
         { cwd: clone.dir, env: clone.gitEnv },
       )
-      const files = conflictFiles.ok
-        ? conflictFiles.stdout.trim().split('\n').filter(Boolean)
-        : []
-
-      await runGit(['merge', '--abort'], { cwd: clone.dir, env: clone.gitEnv })
-
-      return {
-        ok: false,
-        status: 'conflicts',
-        message: `Merge conflicts in ${files.length} file(s)`,
-        conflictingFiles: files,
-      }
     }
 
     const pushBack = await runGit(
@@ -228,12 +230,10 @@ export async function pullFromGithub(creds: KbGithubSyncCredentials): Promise<Kb
     const head = await runGit(['rev-parse', 'HEAD'], { cwd: clone.dir, env: clone.gitEnv })
     const commitHash = head.ok ? head.stdout.trim() : 'unknown'
 
-    return { ok: true, status: 'pulled', commitHash, branch }
+    return { ok: true, status: strategy ? 'resolved' : 'pulled', commitHash, branch }
   } catch (error) {
     return { ok: false, status: 'error', message: error instanceof Error ? error.message : 'Unknown error' }
   } finally {
-    if (clone && clone.ok) {
-      await cleanupClone(clone)
-    }
+    await cleanupClone(clone)
   }
 }

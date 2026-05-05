@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const findIntegrationMock = vi.fn()
 const decryptIntegrationConfigMock = vi.fn()
 const clearIntegrationMock = vi.fn()
+const toSummaryMock = vi.fn()
 const auditEventMock = vi.fn()
 
 const authState = {
@@ -36,6 +37,7 @@ vi.mock('@/lib/services', () => ({
     findIntegration: (...args: unknown[]) => findIntegrationMock(...args),
     decryptIntegrationConfig: (...args: unknown[]) => decryptIntegrationConfigMock(...args),
     clearIntegration: (...args: unknown[]) => clearIntegrationMock(...args),
+    toSummary: (...args: unknown[]) => toSummaryMock(...args),
   },
 }))
 
@@ -69,6 +71,24 @@ describe('/api/u/[slug]/kb-github-remote', () => {
     findIntegrationMock.mockResolvedValue(null)
     decryptIntegrationConfigMock.mockReturnValue(null)
     clearIntegrationMock.mockResolvedValue(makeRecord())
+    toSummaryMock.mockImplementation((record: ReturnType<typeof makeRecord> | null, config: Record<string, unknown> | null) => {
+      const state = record?.state
+      return {
+        appId: config?.appId ?? null,
+        appSlug: config?.appSlug ?? null,
+        appConfigured: Boolean(config?.appId && config?.privateKey),
+        hasPrivateKey: Boolean(config?.privateKey),
+        installationId: state?.installationId ?? null,
+        repoFullName: state?.repoFullName ?? null,
+        ready: Boolean(config?.appId && config?.privateKey && state?.installationId && state?.repoCloneUrl),
+        lastSyncAt: state?.lastSyncAt ?? null,
+        lastSyncStatus: state?.lastSyncStatus ?? null,
+        lastError: state?.lastError ?? null,
+        remoteBranch: state?.remoteBranch ?? null,
+        version: record?.version ?? 0,
+        updatedAt: record?.updatedAt?.toISOString() ?? null,
+      }
+    })
   })
 
   describe('GET', () => {

@@ -14,8 +14,6 @@ export type KbGithubRemoteIntegrationSummary = {
   updatedAt: string | null
 }
 
-export type KbGithubRemoteIntegrationGetResponse = KbGithubRemoteIntegrationSummary
-
 export type KbGithubRemoteRepo = {
   fullName: string
   cloneUrl: string

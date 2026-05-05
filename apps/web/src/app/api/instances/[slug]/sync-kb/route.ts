@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
 
-import { pullFromGithub } from '@/lib/git/kb-github-sync'
 import { isWorkspaceReachable } from '@/lib/runtime/workspace-host'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { kbGithubRemoteService } from '@/lib/services'
@@ -11,28 +10,7 @@ export interface SyncKbResult {
   status: 'synced' | 'conflicts' | 'no_remote' | 'error'
   message?: string
   conflicts?: string[]
-}
-
-async function pullFromGithubBestEffort(): Promise<void> {
-  try {
-    const creds = await kbGithubRemoteService.getSyncCredentials()
-    if (!creds) return
-
-    const result = await pullFromGithub(creds)
-
-    const now = new Date().toISOString()
-    await kbGithubRemoteService.updateSyncState({
-      lastSyncAt: now,
-      lastPullAt: now,
-      lastSyncStatus: result.ok ? 'success' : (
-        !result.ok && result.status === 'conflicts' ? 'conflicts' : 'error'
-      ),
-      lastError: result.ok ? null : result.message,
-      remoteBranch: result.ok && 'branch' in result ? result.branch : undefined,
-    })
-  } catch {
-    // Best-effort: don't block workspace sync if GitHub is unreachable
-  }
+  githubSyncStatus?: string
 }
 
 export const POST = withAuth<SyncKbResult | { error: string }>(
@@ -45,7 +23,7 @@ export const POST = withAuth<SyncKbResult | { error: string }>(
     }
 
     try {
-      await pullFromGithubBestEffort()
+      const githubResult = await kbGithubRemoteService.pullBestEffort()
 
       const agent = await createWorkspaceAgentClient(slug)
       if (!agent) {
@@ -68,10 +46,14 @@ export const POST = withAuth<SyncKbResult | { error: string }>(
           ok: false,
           status: 'error',
           message: errorText,
+          githubSyncStatus: githubResult.status,
         })
       }
 
-      return NextResponse.json(data)
+      return NextResponse.json({
+        ...data,
+        githubSyncStatus: githubResult.status,
+      })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
       return NextResponse.json({
@@ -83,11 +65,6 @@ export const POST = withAuth<SyncKbResult | { error: string }>(
   }
 )
 
-/**
- * GET /api/instances/[slug]/sync-kb
- * 
- * Gets current sync status (pending conflicts, etc.)
- */
 export const GET = withAuth<{ hasConflicts: boolean; conflicts?: string[] } | { error: string }>(
   { csrf: false },
   async (_request, { slug }) => {
