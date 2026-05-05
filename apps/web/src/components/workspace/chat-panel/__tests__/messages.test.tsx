@@ -162,6 +162,8 @@ describe("ChatPanelMessages", () => {
     });
 
     expect(screen.getByText("Here is the answer")).toBeTruthy();
+    expect(screen.queryByText("Thinking through the answer")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Reasoning" }));
     expect(screen.getByText("Thinking through the answer")).toBeTruthy();
     expect(screen.getByText("Reading file")).toBeTruthy();
     expect(screen.getByText(/src\/app\.ts/)).toBeTruthy();
@@ -245,7 +247,7 @@ describe("ChatPanelMessages", () => {
       messages: [
         assistantMessage([
           { type: "text", id: "text-copy", text: "Visible answer" },
-          { type: "reasoning", id: "reasoning-copy", text: "Hidden thought" },
+          { type: "reasoning", id: "reasoning-copy", text: "Hidden **thought**" },
           { type: "step-finish", id: "finish-copy", reason: "done", cost: 0.01, tokens: { input: 1200, output: 300 } },
         ]),
         assistantMessage([], {
@@ -263,12 +265,13 @@ describe("ChatPanelMessages", () => {
       ],
     });
 
-    expect(screen.queryByText("Hidden thought")).toBeNull();
+    expect(screen.queryByText("Hidden **thought**")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Reasoning" }));
-    expect(screen.getByText("Hidden thought")).toBeTruthy();
+    const renderedMarkdown = screen.getByText("thought");
+    expect(renderedMarkdown.tagName).toBe("STRONG");
 
     fireEvent.click(screen.getAllByTitle("Copy message")[0]);
-    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("Visible answer\nHidden thought"));
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("Visible answer\nHidden **thought**"));
 
     const infoButton = screen.getAllByTitle("Copy message")[0].parentElement?.querySelector("div.relative button");
     expect(infoButton).toBeTruthy();

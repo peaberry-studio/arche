@@ -504,9 +504,8 @@ function AssistantErrorNotice({ detail }: { detail?: string }) {
   );
 }
 
-function ReasoningBlock({ text, isPending }: { text: string; isPending: boolean }) {
+function ReasoningBlock({ text }: { text: string }) {
   const [isOpen, setIsOpen] = useState(false);
-  const displayedOpen = isPending ? true : isOpen;
 
   return (
     <div className="my-1">
@@ -515,12 +514,14 @@ function ReasoningBlock({ text, isPending }: { text: string; isPending: boolean 
         onClick={() => setIsOpen((previous) => !previous)}
         className="flex items-center gap-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
       >
-        <CaretDown size={10} className={cn("transition-transform", displayedOpen && "rotate-180")} />
+        <CaretDown size={10} className={cn("transition-transform", isOpen && "rotate-180")} />
         <span>Reasoning</span>
       </button>
-      {displayedOpen ? (
-        <div className="ml-4 border-l border-border/40 pl-3 pt-1">
-          <p className="whitespace-pre-wrap text-xs text-muted-foreground">{text}</p>
+      {isOpen ? (
+        <div className="markdown-content ml-4 border-l border-border/40 pl-3 pt-1 text-muted-foreground">
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={workspaceMarkdownComponents}>
+            {text}
+          </ReactMarkdown>
         </div>
       ) : null}
     </div>
@@ -1097,7 +1098,6 @@ function groupMessageParts(parts: MessagePart[]): PartGroup[] {
 
 function MessagePartRenderer({
   connectorNamesById,
-  isPending,
   onOpenFile,
   onSelectSessionTab,
   part,
@@ -1105,7 +1105,6 @@ function MessagePartRenderer({
   workspaceRoot,
 }: {
   connectorNamesById: Record<string, string>;
-  isPending: boolean;
   onOpenFile: (path: string) => void;
   onSelectSessionTab?: (id: string) => void;
   part: MessagePart;
@@ -1123,7 +1122,7 @@ function MessagePartRenderer({
       );
 
     case "reasoning":
-      return <ReasoningBlock text={part.text} isPending={isPending} />;
+      return <ReasoningBlock text={part.text} />;
 
     case "tool":
       return (
@@ -1330,7 +1329,6 @@ export function ChatPanelMessages({
                                   connectorNamesById={connectorNamesById}
                                   part={group.part}
                                   onOpenFile={onOpenFile}
-                                  isPending={Boolean(message.pending)}
                                   sessionTabs={sessionTabs}
                                   onSelectSessionTab={onSelectSessionTab}
                                   workspaceRoot={workspaceRoot}
