@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_DIR="{{ app_dir }}"
+COMPOSE_FILE="$APP_DIR/compose.yml"
+ENV_FILE="$APP_DIR/.env"
+PROJECT="arche"
+
+compose() {
+  if podman compose version >/dev/null 2>&1; then
+    podman compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" -p "$PROJECT" "$@"
+    return
+  fi
+
+  podman-compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" -p "$PROJECT" "$@"
+}
+
+start_container_if_needed() {
+  local container_id="$1"
+
+  if [ -z "$container_id" ]; then
+    return 0
+  fi
+
+  if [ -n "$(podman ps -q --filter id="$container_id")" ]; then
+    return 0
+  fi
+
+  podman start "$container_id"
+}
+
+current_web_container_ids() {
+  local current_version=""
+
+  if [ -s "$APP_DIR/.current-version" ]; then
+    current_version="$(tr -d '[:space:]' < "$APP_DIR/.current-version")"
+  fi
+
+  if [ -n "$current_version" ]; then
+    podman ps -a -q --filter label=arche.role=web --filter label="arche.version=$current_version"
+    return
+  fi
+
+  podman ps -a -q --filter label=arche.role=web
+}
+
+compose up -d postgres traefik docker-socket-proxy{% if deploy_mode == 'remote' %} reaper{% endif %}
+
+# Web and workspace containers are managed outside compose.
+while IFS= read -r container_id; do
+  start_container_if_needed "$container_id"
+done < <(
+  {
+    current_web_container_ids
+    podman ps -a -q --filter label=arche.managed=true
+  } | sort -u
+)

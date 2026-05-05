@@ -7,7 +7,7 @@ name: arche
 services:
   traefik:
     image: docker.io/traefik:v3.6.7
-    restart: unless-stopped
+    restart: "on-failure:5"
     command:
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
@@ -51,7 +51,7 @@ services:
   
   docker-socket-proxy:
     image: ghcr.io/tecnativa/docker-socket-proxy:latest
-    restart: unless-stopped
+    restart: "on-failure:5"
 {% if deploy_mode == 'local-dev' %}
     user: root
     security_opt:
@@ -76,7 +76,7 @@ services:
 
   postgres:
     image: docker.io/postgres:16
-    restart: unless-stopped
+    restart: "on-failure:5"
     environment:
       POSTGRES_DB: arche
       POSTGRES_USER: postgres
@@ -117,7 +117,7 @@ services:
 {% if deploy_mode == 'remote' %}
   reaper:
     image: {{ web_image }}
-    restart: unless-stopped
+    restart: "on-failure:5"
     command:
       - pnpm
       - run
@@ -142,7 +142,7 @@ services:
   web:
     image: node:24-bookworm-slim
     working_dir: /app
-    restart: unless-stopped
+    restart: "on-failure:5"
     env_file:
       - {{ env_file_name | default('.env') }}
     ports:

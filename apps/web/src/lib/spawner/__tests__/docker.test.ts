@@ -148,7 +148,7 @@ describe('docker', () => {
         ]),
         HostConfig: {
           NetworkMode: 'test-network',
-          RestartPolicy: { Name: 'unless-stopped' },
+          RestartPolicy: { Name: 'on-failure', MaximumRetryCount: 5 },
           Binds: [
             'arche-workspace-user-slug:/workspace',
             'arche-opencode-share-user-slug:/home/workspace/.local/share/opencode',

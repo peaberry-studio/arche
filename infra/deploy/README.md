@@ -215,6 +215,9 @@ cd /opt/arche && podman compose logs -f
 # Restart
 podman compose restart
 
+# Check reboot autostart (bounded to 5 service retries)
+systemctl status arche-autostart.service
+
 # Re-deploy (from local machine)
 ./deploy.sh --ip <IP> --domain <DOMAIN> --ssh-key <KEY> --acme-email <EMAIL> [--skip-ensure-dns-record]
 ```

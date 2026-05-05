@@ -149,6 +149,31 @@
     mode: "0600"
   no_log: true
 
+- name: Install Arche autostart script
+  ansible.builtin.template:
+    src: arche-autostart.sh.j2
+    dest: /usr/local/bin/arche-autostart
+    owner: root
+    group: root
+    mode: "0755"
+  when: deploy_mode == 'remote'
+
+- name: Install Arche autostart service
+  ansible.builtin.template:
+    src: arche-autostart.service.j2
+    dest: /etc/systemd/system/arche-autostart.service
+    owner: root
+    group: root
+    mode: "0644"
+  when: deploy_mode == 'remote'
+
+- name: Enable Arche autostart service
+  ansible.builtin.systemd:
+    name: arche-autostart.service
+    enabled: true
+    daemon_reload: true
+  when: deploy_mode == 'remote'
+
 - name: Ensure arche-internal network exists
   ansible.builtin.command:
     cmd: podman network create arche-internal
@@ -327,7 +352,7 @@
       --label traefik.docker.network={{ compose_default_network }} \
       --label arche.role=web \
       --label arche.version={{ web_version }} \
-      --restart unless-stopped \
+      --restart on-failure:5 \
       {{ web_image }}
   changed_when: true
   no_log: true

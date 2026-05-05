@@ -159,7 +159,7 @@ export async function createContainer(
     Env: env,
     HostConfig: {
       NetworkMode: getOpencodeNetwork(),
-      RestartPolicy: { Name: "unless-stopped" },
+      RestartPolicy: { Name: "on-failure", MaximumRetryCount: 5 },
       Binds: binds,
     },
     Labels: {

@@ -226,7 +226,7 @@ if [[ -n "$ROLLBACK_VERSION" ]]; then
     --network "$COMPOSE_NETWORK" \
     "${VOLUME_ARGS[@]}" \
     "${TRAEFIK_LABELS[@]}" \
-    --restart unless-stopped \
+    --restart on-failure:5 \
     "${IMAGE_PREFIX}web:${ROLLBACK_VERSION}"
 
   # Wait for health check

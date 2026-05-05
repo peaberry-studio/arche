@@ -1,0 +1,17 @@
+[Unit]
+Description=Start Arche containers after boot
+Wants=network-online.target podman.socket
+After=network-online.target podman.socket
+StartLimitIntervalSec=10min
+StartLimitBurst=5
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/arche-autostart
+Restart=on-failure
+RestartSec=20s
+TimeoutStartSec=180s
+
+[Install]
+WantedBy=multi-user.target
