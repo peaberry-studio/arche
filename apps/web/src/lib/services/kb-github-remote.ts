@@ -1,4 +1,6 @@
 import { encryptConfig, decryptConfig } from '@/lib/connectors/crypto'
+import { pushToGithub, pullFromGithub, type KbGithubSyncCredentials, type ConflictStrategy } from '@/lib/git/kb-github-sync'
+import type { KbGithubRemoteIntegrationSummary } from '@/lib/kb-github-remote/types'
 
 import { findByKey, upsertByKey, updateStateByKey } from './external-integrations'
 
@@ -163,14 +165,7 @@ export async function getSyncState(): Promise<KbGithubRemoteSyncState> {
   return record ? record.state : { ...DEFAULT_STATE }
 }
 
-export type KbGithubRemoteSyncCredentials = {
-  appId: string
-  privateKey: string
-  installationId: number
-  repoCloneUrl: string
-}
-
-export async function getSyncCredentials(): Promise<KbGithubRemoteSyncCredentials | null> {
+export async function getSyncCredentials(): Promise<KbGithubSyncCredentials | null> {
   const record = await findIntegration()
   if (!record) return null
   const config = decryptIntegrationConfig(record)
@@ -181,5 +176,75 @@ export async function getSyncCredentials(): Promise<KbGithubRemoteSyncCredential
     privateKey: config.privateKey,
     installationId: record.state.installationId,
     repoCloneUrl: record.state.repoCloneUrl,
+  }
+}
+
+export function toSummary(
+  record: KbGithubRemoteIntegrationRecord | null,
+  config: KbGithubRemoteConfig | null,
+): KbGithubRemoteIntegrationSummary {
+  const state = record?.state
+  return {
+    appId: config?.appId ?? null,
+    appSlug: config?.appSlug ?? null,
+    appConfigured: Boolean(config?.appId && config?.privateKey),
+    hasPrivateKey: Boolean(config?.privateKey),
+    installationId: state?.installationId ?? null,
+    repoFullName: state?.repoFullName ?? null,
+    ready: record ? isFullyReady(config ?? null, record.state) : false,
+    lastSyncAt: state?.lastSyncAt ?? null,
+    lastSyncStatus: state?.lastSyncStatus ?? null,
+    lastError: state?.lastError ?? null,
+    remoteBranch: state?.remoteBranch ?? null,
+    version: record?.version ?? 0,
+    updatedAt: record?.updatedAt?.toISOString() ?? null,
+  }
+}
+
+export type PullBestEffortResult = {
+  status: 'pulled' | 'resolved' | 'up_to_date' | 'conflicts' | 'error' | 'skipped'
+}
+
+export async function pullBestEffort(strategy?: ConflictStrategy): Promise<PullBestEffortResult> {
+  try {
+    const creds = await getSyncCredentials()
+    if (!creds) return { status: 'skipped' }
+
+    const result = await pullFromGithub(creds, strategy)
+
+    const now = new Date().toISOString()
+    await updateSyncState({
+      lastSyncAt: now,
+      lastPullAt: now,
+      lastSyncStatus: result.ok ? 'success' : (
+        !result.ok && result.status === 'conflicts' ? 'conflicts' : 'error'
+      ),
+      lastError: result.ok ? null : result.message,
+      remoteBranch: result.ok && 'branch' in result ? result.branch : undefined,
+    })
+
+    return { status: result.ok ? result.status : result.status === 'conflicts' ? 'conflicts' : 'error' }
+  } catch {
+    return { status: 'error' }
+  }
+}
+
+export async function pushBestEffort(): Promise<void> {
+  try {
+    const creds = await getSyncCredentials()
+    if (!creds) return
+
+    const result = await pushToGithub(creds)
+
+    const now = new Date().toISOString()
+    await updateSyncState({
+      lastSyncAt: now,
+      lastPushAt: now,
+      lastSyncStatus: result.ok ? 'success' : 'error',
+      lastError: result.ok ? null : result.message,
+      remoteBranch: result.ok && 'branch' in result ? result.branch : undefined,
+    })
+  } catch {
+    // Best-effort: don't block if GitHub is unreachable
   }
 }

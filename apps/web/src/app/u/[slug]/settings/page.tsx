@@ -103,20 +103,5 @@ async function loadGoogleWorkspaceSummary(): Promise<GoogleWorkspaceIntegrationS
 async function loadKbGithubRemoteSummary(): Promise<KbGithubRemoteIntegrationSummary> {
   const record = await kbGithubRemoteService.findIntegration()
   const config = record ? kbGithubRemoteService.decryptIntegrationConfig(record) : null
-  const appConfigured = Boolean(config?.appId && config?.privateKey)
-  return {
-    appId: config?.appId ?? null,
-    appSlug: config?.appSlug ?? null,
-    appConfigured,
-    hasPrivateKey: Boolean(config?.privateKey),
-    installationId: record?.state.installationId ?? null,
-    repoFullName: record?.state.repoFullName ?? null,
-    ready: record ? kbGithubRemoteService.isFullyReady(config ?? null, record.state) : false,
-    lastSyncAt: record?.state.lastSyncAt ?? null,
-    lastSyncStatus: record?.state.lastSyncStatus ?? null,
-    lastError: record?.state.lastError ?? null,
-    remoteBranch: record?.state.remoteBranch ?? null,
-    version: record?.version ?? 0,
-    updatedAt: record?.updatedAt?.toISOString() ?? null,
-  }
+  return kbGithubRemoteService.toSummary(record, config)
 }

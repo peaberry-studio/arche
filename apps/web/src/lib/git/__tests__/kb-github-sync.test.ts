@@ -296,5 +296,187 @@ describe('kb-github-sync', () => {
 
       expect(mockCleanupClone).toHaveBeenCalledWith(CLONE_RESULT)
     })
+
+    it('returns error when pushBack fails after merge', async () => {
+      mockRunGit
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // remote add
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // fetch
+        .mockResolvedValueOnce({ ok: false, stderr: '' }) // diff --quiet
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // merge
+        .mockResolvedValueOnce({ ok: false, stderr: 'push failed' }) // push back
+
+      const { pullFromGithub } = await import('../kb-github-sync')
+      const result = await pullFromGithub(CREDS)
+
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.status).toBe('error')
+        expect(result.message).toContain('failed to update local repository')
+      }
+    })
+
+    it('returns error on unexpected exception', async () => {
+      mockRunGit
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // remote add
+        .mockRejectedValueOnce(new Error('unexpected git crash'))
+
+      const { pullFromGithub } = await import('../kb-github-sync')
+      const result = await pullFromGithub(CREDS)
+
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.status).toBe('error')
+        expect(result.message).toBe('unexpected git crash')
+      }
+      expect(mockCleanupClone).toHaveBeenCalled()
+    })
+
+    it('returns error on non-auth fetch failure', async () => {
+      mockRunGit
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // remote add
+        .mockResolvedValueOnce({ ok: false, stderr: 'fatal: could not read from remote repository' })
+
+      const { pullFromGithub } = await import('../kb-github-sync')
+      const result = await pullFromGithub(CREDS)
+
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.status).toBe('error')
+      }
+    })
+
+    it('resolves conflicts with local_wins strategy', async () => {
+      mockRunGit
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // remote add
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // fetch
+        .mockResolvedValueOnce({ ok: false, stderr: '' }) // diff --quiet
+        .mockResolvedValueOnce({ ok: false, stderr: 'CONFLICT' }) // merge
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // checkout --ours
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // git add
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // commit
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // push back
+        .mockResolvedValueOnce({ ok: true, stdout: 'abc123\n' }) // rev-parse
+
+      const { pullFromGithub } = await import('../kb-github-sync')
+      const result = await pullFromGithub(CREDS, 'local_wins')
+
+      expect(result).toEqual({ ok: true, status: 'resolved', commitHash: 'abc123', branch: 'main' })
+      expect(mockRunGit).toHaveBeenCalledWith(
+        ['checkout', '--ours', '.'],
+        expect.any(Object),
+      )
+    })
+
+    it('resolves conflicts with remote_wins strategy', async () => {
+      mockRunGit
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // remote add
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // fetch
+        .mockResolvedValueOnce({ ok: false, stderr: '' }) // diff --quiet
+        .mockResolvedValueOnce({ ok: false, stderr: 'CONFLICT' }) // merge
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // checkout --theirs
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // git add
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // commit
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // push back
+        .mockResolvedValueOnce({ ok: true, stdout: 'def456\n' }) // rev-parse
+
+      const { pullFromGithub } = await import('../kb-github-sync')
+      const result = await pullFromGithub(CREDS, 'remote_wins')
+
+      expect(result).toEqual({ ok: true, status: 'resolved', commitHash: 'def456', branch: 'main' })
+      expect(mockRunGit).toHaveBeenCalledWith(
+        ['checkout', '--theirs', '.'],
+        expect.any(Object),
+      )
+    })
+  })
+
+  describe('prepareSyncWorkspace (via pushToGithub)', () => {
+    it('returns kb_unavailable when git is not available', async () => {
+      mockIsGitAvailable.mockResolvedValue(false)
+
+      const { pushToGithub } = await import('../kb-github-sync')
+      const result = await pushToGithub(CREDS)
+
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.status).toBe('kb_unavailable')
+        expect(result.message).toContain('Git is not available')
+      }
+    })
+
+    it('returns kb_unavailable when clone fails', async () => {
+      mockCloneRepoToTemp.mockResolvedValue({ ok: false })
+
+      const { pushToGithub } = await import('../kb-github-sync')
+      const result = await pushToGithub(CREDS)
+
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.status).toBe('kb_unavailable')
+        expect(result.message).toContain('Failed to clone')
+      }
+    })
+
+    it('returns error and cleans up when addRemote fails', async () => {
+      mockRunGit.mockResolvedValueOnce({ ok: false, stderr: 'remote already exists' })
+
+      const { pushToGithub } = await import('../kb-github-sync')
+      const result = await pushToGithub(CREDS)
+
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.status).toBe('error')
+      }
+      expect(mockCleanupClone).toHaveBeenCalledWith(CLONE_RESULT)
+    })
+
+    it('maps non-auth token failure to error status', async () => {
+      mockGetInstallationToken.mockResolvedValue({
+        ok: false,
+        status: 'not_found',
+        message: 'Installation not found',
+      })
+
+      const { pushToGithub } = await import('../kb-github-sync')
+      const result = await pushToGithub(CREDS)
+
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.status).toBe('error')
+        expect(result.message).toBe('Installation not found')
+      }
+    })
+  })
+
+  describe('pushToGithub edge cases', () => {
+    it('returns error on unexpected exception', async () => {
+      mockRunGit
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // remote add
+        .mockRejectedValueOnce(new Error('disk full'))
+
+      const { pushToGithub } = await import('../kb-github-sync')
+      const result = await pushToGithub(CREDS)
+
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.status).toBe('error')
+        expect(result.message).toBe('disk full')
+      }
+      expect(mockCleanupClone).toHaveBeenCalled()
+    })
+
+    it('returns generic error on push failure (not auth, not rejected)', async () => {
+      mockRunGit
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // remote add
+        .mockResolvedValueOnce({ ok: false, stderr: 'fatal: unexpected error' })
+
+      const { pushToGithub } = await import('../kb-github-sync')
+      const result = await pushToGithub(CREDS)
+
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.status).toBe('error')
+      }
+    })
   })
 })

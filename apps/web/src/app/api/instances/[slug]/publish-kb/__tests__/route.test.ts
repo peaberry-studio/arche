@@ -25,6 +25,11 @@ vi.mock('@/lib/runtime/workspace-host', () => ({
 vi.mock('@/lib/workspace-agent/client', () => ({
   createWorkspaceAgentClient: mocks.createWorkspaceAgentClient,
 }))
+vi.mock('@/lib/services', () => ({
+  kbGithubRemoteService: {
+    pushBestEffort: vi.fn().mockResolvedValue(undefined),
+  },
+}))
 
 import { POST } from '../route'
 

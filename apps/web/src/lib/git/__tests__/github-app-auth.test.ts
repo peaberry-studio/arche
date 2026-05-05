@@ -217,6 +217,66 @@ describe('github-app-auth', () => {
     })
   })
 
+  describe('getInstallationToken edge cases', () => {
+    it('returns error on generic non-401/404 HTTP status', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 500,
+        text: async () => 'Internal Server Error',
+      })
+
+      const { getInstallationToken } = await import('../github-app-auth')
+      const result = await getInstallationToken('12345', VALID_RSA_KEY, 99)
+
+      expect(result).toEqual({
+        ok: false,
+        status: 'error',
+        message: 'GitHub API returned 500: Internal Server Error',
+      })
+    })
+  })
+
+  describe('getInstallationRepos edge cases', () => {
+    it('returns error on non-ok repos API response', async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ token: 'ghs_token', expires_at: '2026-04-27T11:00:00Z' }),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 403,
+        })
+
+      const { getInstallationRepos } = await import('../github-app-auth')
+      const result = await getInstallationRepos('12345', VALID_RSA_KEY, 99)
+
+      expect(result).toEqual({
+        ok: false,
+        message: 'GitHub API returned 403',
+      })
+    })
+
+    it('returns error on network failure during repos fetch', async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          json: async () => ({ token: 'ghs_token', expires_at: '2026-04-27T11:00:00Z' }),
+        })
+        .mockRejectedValueOnce(new Error('ECONNRESET'))
+
+      const { getInstallationRepos } = await import('../github-app-auth')
+      const result = await getInstallationRepos('12345', VALID_RSA_KEY, 99)
+
+      expect(result).toEqual({
+        ok: false,
+        message: 'ECONNRESET',
+      })
+    })
+  })
+
   describe('exchangeManifestCode', () => {
     it('returns app credentials on success', async () => {
       mockFetch.mockResolvedValue({
@@ -279,6 +339,22 @@ describe('github-app-auth', () => {
       expect(result).toEqual({
         ok: false,
         message: 'Manifest code has already been used',
+      })
+    })
+
+    it('returns error on generic HTTP error (not 404/422)', async () => {
+      mockFetch.mockResolvedValue({
+        ok: false,
+        status: 500,
+        text: async () => 'Internal Server Error',
+      })
+
+      const { exchangeManifestCode } = await import('../github-app-auth')
+      const result = await exchangeManifestCode('any_code')
+
+      expect(result).toEqual({
+        ok: false,
+        message: 'GitHub API returned 500: Internal Server Error',
       })
     })
 
