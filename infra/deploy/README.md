@@ -217,6 +217,11 @@ podman compose restart
 
 # Check reboot autostart (bounded to 5 service retries)
 systemctl status arche-autostart.service
+journalctl -u arche-autostart.service -n 100 --no-pager
+
+# Check current web and workspace containers
+podman ps -a --filter label=arche.role=web
+podman ps -a --filter label=arche.managed=true
 
 # Re-deploy (from local machine)
 ./deploy.sh --ip <IP> --domain <DOMAIN> --ssh-key <KEY> --acme-email <EMAIL> [--skip-ensure-dns-record]
@@ -229,5 +234,7 @@ systemctl status arche-autostart.service
 **ACME certificate not issued**: Check Traefik logs (`podman compose logs traefik`). Verify domain A/AAAA records point to the VPS and ports `80/443` are reachable.
 
 **Web service unhealthy**: Check web logs (`podman compose logs web`). Ensure `DATABASE_URL` is correct and Postgres is running.
+
+**Container stays stopped after repeated failures**: Arche containers use `on-failure:5`. After five crash restarts, Podman stops retrying until manual intervention or the next reboot autostart. Check `podman ps -a`, `journalctl -u arche-autostart.service`, and the container logs before starting it again.
 
 **Migrations fail**: Ensure the container image includes the `prisma/` directory. The Containerfile should have `COPY --from=build /app/prisma ./prisma`.

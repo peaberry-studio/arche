@@ -1,7 +1,7 @@
 [Unit]
 Description=Start Arche containers after boot
-Wants=network-online.target podman.socket
-After=network-online.target podman.socket
+Wants=network-online.target
+After=network-online.target
 StartLimitIntervalSec=10min
 StartLimitBurst=5
 
