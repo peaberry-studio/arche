@@ -15,6 +15,21 @@ const nodeBuiltins = Object.fromEntries(
     ]
   }),
 );
+const watchpackIgnored = [
+  "**/.e2e/**",
+  "**/.next/**",
+  "**/__tests__/**",
+  "**/coverage/**",
+  "**/coverage-out/**",
+  "**/e2e/**",
+  "**/node-compile-cache/**",
+  "**/node_modules/**",
+  "**/playwright-report/**",
+  "**/src/generated/**",
+  "**/test-results/**",
+  "**/*.spec.*",
+  "**/*.test.*",
+]
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: ["arche.lvh.me", "127.0.0.1", "localhost"],
@@ -24,6 +39,21 @@ const nextConfig: NextConfig = {
     proxyClientMaxBodySize: "110mb",
   },
   webpack: (config, { isServer }) => {
+    const existingIgnored = config.watchOptions?.ignored
+    const existingIgnoredGlobs = Array.isArray(existingIgnored)
+      ? existingIgnored.filter((ignored) => typeof ignored === "string")
+      : typeof existingIgnored === "string"
+        ? [existingIgnored]
+        : []
+
+    config.watchOptions = {
+      ...config.watchOptions,
+      ignored: [
+        ...existingIgnoredGlobs,
+        ...watchpackIgnored,
+      ],
+    }
+
     if (isServer) {
       config.externals = [
         ...(Array.isArray(config.externals) ? config.externals : []),

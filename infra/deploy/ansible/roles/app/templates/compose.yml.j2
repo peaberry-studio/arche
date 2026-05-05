@@ -136,13 +136,14 @@ services:
 
 {% if deploy_mode == 'local-dev' %}
   # In local-dev mode, web runs in compose with source mounts and
-  # `next dev --webpack` for hot reload.
+  # `next dev --webpack` for hot reload. Runtime caches stay outside
+  # /app so Watchpack does not scan generated files on the bind mount.
   # In remote mode, web is managed outside compose via podman run for
   # true blue-green zero-downtime deployments.
   web:
     image: node:24-bookworm-slim
     working_dir: /app
-    restart: "on-failure:5"
+    restart: "unless-stopped"
     env_file:
       - {{ env_file_name | default('.env') }}
     ports:
@@ -151,6 +152,7 @@ services:
       ARCHE_GATEWAY_TOKEN_SECRET: "${ARCHE_GATEWAY_TOKEN_SECRET}"
       ARCHE_GATEWAY_TOKEN_TTL_SECONDS: "${ARCHE_GATEWAY_TOKEN_TTL_SECONDS}"
       ARCHE_GATEWAY_BASE_URL: "${ARCHE_GATEWAY_BASE_URL}"
+      NODE_COMPILE_CACHE: "/tmp/node-compile-cache"
       WATCHPACK_POLLING: "true"
     networks:
       - default
@@ -171,7 +173,7 @@ services:
       - {{ users_path | default('/opt/arche/users') }}:{{ users_path | default('/opt/arche/users') }}
       - {{ kb_content_host_path | default('/opt/arche/kb-content') }}:/kb-content
       - {{ kb_config_host_path | default('/opt/arche/kb-config') }}:/kb-config
-    command: sh -lc "apt-get update -y && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/* && corepack enable && pnpm config set store-dir /pnpm/store >/dev/null 2>&1 || true && pnpm install --prefer-offline --force && pnpm prisma generate && pnpm prisma:generate:desktop && WATCHPACK_POLLING=true pnpm next dev --webpack -H 0.0.0.0 -p 3000"
+    command: sh -lc "rm -rf /app/node-compile-cache && apt-get update -y && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/* && corepack enable && pnpm config set store-dir /pnpm/store >/dev/null 2>&1 || true && pnpm install --prefer-offline --force && pnpm prisma generate && pnpm prisma:generate:desktop && WATCHPACK_POLLING=true pnpm next dev --webpack -H 0.0.0.0 -p 3000"
 {% endif %}
 
 networks:

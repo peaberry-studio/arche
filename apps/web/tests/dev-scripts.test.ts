@@ -34,8 +34,18 @@ describe('web dev scripts', () => {
     expect(composeTemplate).toContain('pnpm prisma generate')
     expect(composeTemplate).toContain('pnpm prisma:generate:desktop')
     expect(composeTemplate).toContain('pnpm next dev --webpack -H 0.0.0.0 -p 3000')
+    expect(composeTemplate).toContain('NODE_COMPILE_CACHE: "/tmp/node-compile-cache"')
+    expect(composeTemplate).toContain('restart: "unless-stopped"')
     expect(composeTemplate).toContain('name: arche')
     expect(composeTemplate).toContain('arche-internal')
+  })
+
+  it('keeps webpack watch ignores compatible with the webpack schema', () => {
+    const nextConfigPath = resolve(process.cwd(), 'next.config.ts')
+    const nextConfigSource = readFileSync(nextConfigPath, 'utf8')
+
+    expect(nextConfigSource).toContain('"**/node-compile-cache/**"')
+    expect(nextConfigSource).toContain('existingIgnored.filter((ignored) => typeof ignored === "string")')
   })
 
   it('keeps local-dev env generation pinned to the shared workspace network', () => {

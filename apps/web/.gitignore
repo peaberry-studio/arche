@@ -22,6 +22,7 @@
 /.next/
 /.next-desktop/
 /.next-desktop*/
+/node-compile-cache/
 /out/
 
 # production
