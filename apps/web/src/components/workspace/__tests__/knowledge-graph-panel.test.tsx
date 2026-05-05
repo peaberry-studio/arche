@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { forceManyBody } from 'd3-force'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { KnowledgeGraphPanel } from '@/components/workspace/knowledge-graph-panel'
@@ -10,6 +11,7 @@ const stopSimulationMock = vi.fn()
 
 function chainableForce() {
   const force = {
+    distanceMax: vi.fn(() => force),
     distance: vi.fn(() => force),
     id: vi.fn(() => force),
     strength: vi.fn(() => force),
@@ -96,8 +98,8 @@ class ResizeObserverMock {
 }
 
 beforeEach(() => {
+  vi.clearAllMocks()
   vi.stubGlobal('ResizeObserver', ResizeObserverMock)
-  stopSimulationMock.mockClear()
 })
 
 afterEach(() => {
@@ -173,5 +175,47 @@ describe('KnowledgeGraphPanel', () => {
 
     expect(onOpenFile).toHaveBeenCalledWith('Notes/A.md')
     expect(onOpenFile).toHaveBeenCalledWith('Notes/B.md')
+  })
+
+  it('limits charge range so disconnected graph groups stay closer together', async () => {
+    const readFile = vi.fn(async (path: string) => ({
+      content: path.endsWith('A.md') ? 'See [[Notes/B.md]]' : path.endsWith('C.md') ? 'See [[Notes/D.md]]' : '',
+      type: 'raw' as const,
+    }))
+    const fileNodes: WorkspaceFileNode[] = [
+      {
+        id: 'notes',
+        name: 'Notes',
+        path: 'Notes',
+        type: 'directory',
+        children: [
+          { id: 'a', name: 'A.md', path: 'Notes/A.md', type: 'file' },
+          { id: 'b', name: 'B.md', path: 'Notes/B.md', type: 'file' },
+          { id: 'c', name: 'C.md', path: 'Notes/C.md', type: 'file' },
+          { id: 'd', name: 'D.md', path: 'Notes/D.md', type: 'file' },
+        ],
+      },
+    ]
+
+    render(
+      <KnowledgeGraphPanel
+        activeFilePath={null}
+        agentSources={[]}
+        fileNodes={fileNodes}
+        onOpenFile={vi.fn()}
+        openFiles={[]}
+        readFile={readFile}
+        reloadKey={0}
+      />
+    )
+
+    expect(await screen.findByRole('img', { name: 'Knowledge graph' })).toBeDefined()
+    await waitFor(() => expect(readFile).toHaveBeenCalledTimes(4))
+
+    const forceManyBodyMock = vi.mocked(forceManyBody)
+    const results = forceManyBodyMock.mock.results
+    const force = results[results.length - 1]?.value
+
+    expect(force?.distanceMax).toHaveBeenCalledWith(240)
   })
 })

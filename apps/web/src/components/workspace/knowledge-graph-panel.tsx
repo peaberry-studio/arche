@@ -53,6 +53,7 @@ const NODE_RADIUS_AGENT = 6
 const ACTIVE_BOOST = 2.5
 const LABEL_BASE_OPACITY = 0.25
 const LABEL_FULL_ZOOM = 1.4
+const CHARGE_DISTANCE_MAX = 240
 
 function flattenMarkdownFilePaths(nodes: WorkspaceFileNode[]): string[] {
   const paths: string[] = []
@@ -208,9 +209,11 @@ export function KnowledgeGraphPanel({
       )
       .force(
         'charge',
-        forceManyBody<SimNode>().strength((node) =>
-          (degreeById.get(node.id) ?? 0) === 0 ? -180 : -380
-        )
+        forceManyBody<SimNode>()
+          .strength((node) =>
+            (degreeById.get(node.id) ?? 0) === 0 ? -180 : -380
+          )
+          .distanceMax(CHARGE_DISTANCE_MAX)
       )
       .force(
         'center',
