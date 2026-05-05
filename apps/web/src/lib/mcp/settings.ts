@@ -1,14 +1,10 @@
+import { writeCommonWorkspaceConfig } from '@/lib/common-workspace-config-store'
 import {
-  readCommonWorkspaceConfig,
-  writeCommonWorkspaceConfig,
-} from '@/lib/common-workspace-config-store'
-import {
-  parseCommonWorkspaceConfig,
-  type CommonWorkspaceConfig,
-  validateCommonWorkspaceConfig,
-} from '@/lib/workspace-config'
+  readValidatedWorkspaceConfig,
+  type WorkspaceConfigError,
+} from '@/lib/mcp/validated-config'
+import type { CommonWorkspaceConfig } from '@/lib/workspace-config'
 
-type ReadConfigError = 'invalid_config' | 'kb_unavailable' | 'not_found' | 'read_failed'
 type WriteConfigError = 'conflict' | 'invalid_config' | 'kb_unavailable' | 'not_found' | 'write_failed'
 
 export function getMcpEnabledFromConfig(config: CommonWorkspaceConfig): boolean {
@@ -30,9 +26,9 @@ export function setMcpEnabledInConfig(
 
 export async function readMcpSettings(): Promise<
   | { ok: true; enabled: boolean; hash: string }
-  | { ok: false; enabled: false; error: ReadConfigError }
+  | { ok: false; enabled: false; error: WorkspaceConfigError }
 > {
-  const configResult = await readValidatedConfig()
+  const configResult = await readValidatedWorkspaceConfig()
   if (!configResult.ok) {
     return {
       ok: false,
@@ -55,7 +51,7 @@ export async function writeMcpSettings(
   | { ok: true; enabled: boolean; hash: string }
   | { ok: false; error: WriteConfigError }
 > {
-  const configResult = await readValidatedConfig()
+  const configResult = await readValidatedWorkspaceConfig()
   if (!configResult.ok) {
     return { ok: false, error: mapReadErrorToWriteError(configResult.error) }
   }
@@ -77,37 +73,26 @@ export async function writeMcpSettings(
   }
 }
 
-async function readValidatedConfig(): Promise<
-  | { ok: true; config: CommonWorkspaceConfig; hash: string }
-  | { ok: false; error: ReadConfigError }
-> {
-  const configResult = await readCommonWorkspaceConfig()
-  if (!configResult.ok) {
-    return { ok: false, error: configResult.error }
-  }
-
-  const parsed = parseCommonWorkspaceConfig(configResult.content)
-  if (!parsed.ok) {
-    return { ok: false, error: 'invalid_config' }
-  }
-
-  const validation = validateCommonWorkspaceConfig(parsed.config)
-  if (!validation.ok) {
-    return { ok: false, error: 'invalid_config' }
-  }
-
-  return {
-    ok: true,
-    config: parsed.config,
-    hash: configResult.hash,
-  }
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
 }
 
-function mapReadErrorToWriteError(error: ReadConfigError): WriteConfigError {
+export function formatMcpConfigError(error: string): string {
+  switch (error) {
+    case 'conflict':
+      return 'MCP settings changed elsewhere. Please retry.'
+    case 'not_found':
+      return 'Knowledge base configuration is not initialized yet.'
+    case 'kb_unavailable':
+      return 'Knowledge base configuration is unavailable.'
+    case 'invalid_config':
+      return 'Knowledge base configuration is invalid.'
+    default:
+      return 'Failed to load MCP settings.'
+  }
+}
+
+function mapReadErrorToWriteError(error: WorkspaceConfigError): WriteConfigError {
   switch (error) {
     case 'read_failed':
       return 'write_failed'

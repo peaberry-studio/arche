@@ -62,19 +62,7 @@ export function buildMcpClientSetup(
         description:
           'Save as ~/.cursor/mcp.json (all projects) or .cursor/mcp.json in your project. Cursor reloads servers automatically.',
         mode: 'config',
-        value: `${JSON.stringify(
-          {
-            mcpServers: {
-              [MCP_SERVER_NAME]: {
-                type: 'http',
-                url,
-                headers: { Authorization: `Bearer ${token}` },
-              },
-            },
-          },
-          null,
-          2,
-        )}\n`,
+        value: buildMcpServerJson(url, token),
       }
 
     case 'config':
@@ -83,21 +71,25 @@ export function buildMcpClientSetup(
         label: 'Manual',
         description: 'Fallback JSON for any MCP client that accepts manual HTTP server configuration.',
         mode: 'config',
-        value: `${JSON.stringify(
-          {
-            mcpServers: {
-              [MCP_SERVER_NAME]: {
-                type: 'http',
-                url,
-                headers: { Authorization: `Bearer ${token}` },
-              },
-            },
-          },
-          null,
-          2,
-        )}\n`,
+        value: buildMcpServerJson(url, token),
       }
   }
+}
+
+function buildMcpServerJson(url: string, token: string): string {
+  return `${JSON.stringify(
+    {
+      mcpServers: {
+        [MCP_SERVER_NAME]: {
+          type: 'http',
+          url,
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      },
+    },
+    null,
+    2,
+  )}\n`
 }
 
 function shellQuote(value: string): string {

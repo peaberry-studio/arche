@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { isPathSafe, normalizeKbPath, normalizeKbWritePath } from '../path'
+import { normalizeKbPath, normalizeKbWritePath } from '../path'
 
 describe('normalizeKbPath', () => {
   it('normalizes relative paths', () => {
@@ -43,14 +43,3 @@ describe('normalizeKbWritePath', () => {
   })
 })
 
-describe('isPathSafe', () => {
-  it('allows simple relative paths', () => {
-    expect(isPathSafe('docs/intro.md')).toBe(true)
-    expect(isPathSafe('README.md')).toBe(true)
-  })
-
-  it('rejects invalid paths', () => {
-    expect(isPathSafe('../etc/passwd')).toBe(false)
-    expect(isPathSafe('/etc/passwd')).toBe(false)
-  })
-})

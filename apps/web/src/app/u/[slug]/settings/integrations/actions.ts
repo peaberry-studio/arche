@@ -12,7 +12,7 @@ import {
   isMcpScope,
   type McpScope,
 } from '@/lib/mcp/scopes'
-import { readMcpSettings, writeMcpSettings } from '@/lib/mcp/settings'
+import { formatMcpConfigError, readMcpSettings, writeMcpSettings } from '@/lib/mcp/settings'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { getSession } from '@/lib/runtime/session'
 import { patService } from '@/lib/services'
@@ -208,17 +208,3 @@ function parsePatScopes(
   }
 }
 
-function formatMcpConfigError(error: string): string {
-  switch (error) {
-    case 'conflict':
-      return 'MCP settings changed elsewhere. Please retry.'
-    case 'not_found':
-      return 'Knowledge base configuration is not initialized yet.'
-    case 'kb_unavailable':
-      return 'Knowledge base configuration is unavailable.'
-    case 'invalid_config':
-      return 'Knowledge base configuration is invalid.'
-    default:
-      return 'Failed to update MCP settings'
-  }
-}

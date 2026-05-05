@@ -79,7 +79,7 @@ function isTextExtension(filePath: string): boolean {
   return TEXT_EXTENSIONS.has(path.extname(filePath).toLowerCase())
 }
 
-function toDisplayLines(content: string): string[] {
+export function toDisplayLines(content: string): string[] {
   const lines = content.split('\n')
   if (lines[lines.length - 1] === '') {
     lines.pop()

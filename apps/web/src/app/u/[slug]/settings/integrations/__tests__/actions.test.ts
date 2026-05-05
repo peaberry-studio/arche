@@ -41,7 +41,8 @@ vi.mock('@/lib/mcp/pat', () => ({
 
 const mockReadMcpSettings = vi.fn()
 const mockWriteMcpSettings = vi.fn()
-vi.mock('@/lib/mcp/settings', () => ({
+vi.mock('@/lib/mcp/settings', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/mcp/settings')>()),
   readMcpSettings: () => mockReadMcpSettings(),
   writeMcpSettings: (enabled: boolean, expectedHash?: string) => mockWriteMcpSettings(enabled, expectedHash),
 }))

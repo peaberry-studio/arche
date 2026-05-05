@@ -1,6 +1,7 @@
 import path from 'node:path'
 
 import { normalizeKbPath } from '@/lib/mcp/tools/path'
+import { toDisplayLines } from '@/lib/mcp/tools/read-kb-article'
 import {
   listSkills,
   readSkill,
@@ -113,12 +114,4 @@ function decodeText(content: Uint8Array): string | null {
   } catch {
     return null
   }
-}
-
-function toDisplayLines(content: string): string[] {
-  const lines = content.split('\n')
-  if (lines[lines.length - 1] === '') {
-    lines.pop()
-  }
-  return lines
 }

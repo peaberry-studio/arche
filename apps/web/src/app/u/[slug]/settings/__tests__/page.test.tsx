@@ -50,7 +50,8 @@ vi.mock('@/lib/http', () => ({
   getPublicBaseUrl: (...args: unknown[]) => getPublicBaseUrlMock(...args),
 }))
 
-vi.mock('@/lib/mcp/settings', () => ({
+vi.mock('@/lib/mcp/settings', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/mcp/settings')>()),
   readMcpSettings: () => readMcpSettingsMock(),
 }))
 

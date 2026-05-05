@@ -32,10 +32,6 @@ export function normalizeKbPath(value: string): string | null {
   return normalized
 }
 
-export function isPathSafe(value: string): boolean {
-  return normalizeKbPath(value) !== null
-}
-
 export function normalizeKbWritePath(value: string): string | null {
   const normalizedSlashes = value.trim().replace(/\\/g, '/')
   if (normalizedSlashes.endsWith('/')) {

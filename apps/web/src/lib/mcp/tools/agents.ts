@@ -1,11 +1,9 @@
-import { readCommonWorkspaceConfig } from '@/lib/common-workspace-config-store'
 import type { AgentCapabilities } from '@/lib/agent-capabilities'
+import { readValidatedWorkspaceConfig } from '@/lib/mcp/validated-config'
 import {
   type CommonAgentSummary,
   type CommonWorkspaceConfig,
   getAgentSummaries,
-  parseCommonWorkspaceConfig,
-  validateCommonWorkspaceConfig,
 } from '@/lib/workspace-config'
 
 export type McpAgentSummary = {
@@ -32,7 +30,7 @@ export type ReadAgentResult =
   | { ok: false; error: 'invalid_config' | 'kb_unavailable' | 'not_found' | 'read_failed' }
 
 export async function listAgents(): Promise<ListAgentsResult> {
-  const configResult = await loadCommonConfig()
+  const configResult = await readValidatedWorkspaceConfig()
   if (!configResult.ok) {
     return configResult
   }
@@ -45,7 +43,7 @@ export async function listAgents(): Promise<ListAgentsResult> {
 }
 
 export async function readAgent(id: string): Promise<ReadAgentResult> {
-  const configResult = await loadCommonConfig()
+  const configResult = await readValidatedWorkspaceConfig()
   if (!configResult.ok) {
     return configResult
   }
@@ -63,32 +61,6 @@ export async function readAgent(id: string): Promise<ReadAgentResult> {
       prompt: agent.prompt,
     },
     hash: configResult.hash,
-  }
-}
-
-async function loadCommonConfig(): Promise<
-  | { ok: true; config: CommonWorkspaceConfig; hash: string }
-  | { ok: false; error: 'invalid_config' | 'kb_unavailable' | 'not_found' | 'read_failed' }
-> {
-  const result = await readCommonWorkspaceConfig()
-  if (!result.ok) {
-    return result
-  }
-
-  const parsed = parseCommonWorkspaceConfig(result.content)
-  if (!parsed.ok) {
-    return { ok: false, error: 'invalid_config' }
-  }
-
-  const validation = validateCommonWorkspaceConfig(parsed.config)
-  if (!validation.ok) {
-    return { ok: false, error: 'invalid_config' }
-  }
-
-  return {
-    ok: true,
-    config: parsed.config,
-    hash: result.hash,
   }
 }
 

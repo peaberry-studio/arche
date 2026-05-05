@@ -2,7 +2,7 @@ import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 
 import { getPublicBaseUrl } from '@/lib/http'
-import { readMcpSettings } from '@/lib/mcp/settings'
+import { formatMcpConfigError, readMcpSettings } from '@/lib/mcp/settings'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { getCurrentDesktopVault, getDesktopWorkspaceHref } from '@/lib/runtime/desktop/current-vault'
 import { isDesktop } from '@/lib/runtime/mode'
@@ -116,15 +116,3 @@ async function loadGoogleWorkspaceSummary(): Promise<GoogleWorkspaceIntegrationS
   }
 }
 
-function formatMcpConfigError(error: string): string {
-  switch (error) {
-    case 'not_found':
-      return 'Knowledge base configuration is not initialized yet.'
-    case 'kb_unavailable':
-      return 'Knowledge base configuration is unavailable.'
-    case 'invalid_config':
-      return 'Knowledge base configuration is invalid.'
-    default:
-      return 'Failed to read MCP settings.'
-  }
-}
