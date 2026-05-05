@@ -4,6 +4,7 @@ import { CONNECTOR_TYPES, isSingleInstanceConnectorType, type ConnectorType } fr
 const CONNECTOR_TYPE_PATTERN = CONNECTOR_TYPES.join('|')
 const MCP_SERVER_KEY_PATTERN = new RegExp(`^arche_(${CONNECTOR_TYPE_PATTERN})_([a-z0-9]+)$`)
 const ALWAYS_ENABLED_TOOLS = ['email_draft'] as const
+const MCP_OPERATING_MODE_HEADING = '## MCP operating mode'
 
 function isToolMap(value: unknown): value is Record<string, boolean> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -46,6 +47,59 @@ export function injectAlwaysOnAgentTools(
     }
 
     nextAgents[agentId] = agent
+  }
+
+  if (!changed) return config
+  return { ...config, agent: nextAgents }
+}
+
+export function injectProactiveMcpPromptGuidance(
+  config: Record<string, unknown>,
+): Record<string, unknown> {
+  const agents = config.agent as Record<string, Record<string, unknown>> | undefined
+  if (!agents || typeof agents !== 'object') return config
+
+  const nextAgents: Record<string, Record<string, unknown>> = {}
+  let changed = false
+
+  for (const [agentId, agent] of Object.entries(agents)) {
+    if (!agent || typeof agent !== 'object') {
+      nextAgents[agentId] = agent
+      continue
+    }
+
+    if (!isToolMap(agent.tools)) {
+      nextAgents[agentId] = agent
+      continue
+    }
+
+    const hasEnabledMcpTool = Object.entries(agent.tools).some(
+      ([toolName, enabled]) => enabled === true && MCP_TOOL_PATTERN.test(toolName)
+    )
+
+    if (!hasEnabledMcpTool) {
+      nextAgents[agentId] = agent
+      continue
+    }
+
+    const existingPrompt = typeof agent.prompt === 'string' ? agent.prompt : ''
+    if (existingPrompt.includes(MCP_OPERATING_MODE_HEADING)) {
+      nextAgents[agentId] = agent
+      continue
+    }
+
+    const guidance = [
+      '',
+      MCP_OPERATING_MODE_HEADING,
+      'Use connected MCP tools proactively instead of waiting for an explicit request.',
+      'At the start of each new task, decide whether an enabled connector may hold relevant context, deadlines, owners, project state, or supporting documents.',
+      'If a connector is plausibly relevant, check it before answering and weave the result into your response naturally.',
+      'Do not announce routine MCP checks unless the user needs to understand the action or approve a side effect.',
+      'Start with lightweight discovery calls and drill down only when the first result indicates it is useful.',
+    ].join('\n')
+
+    nextAgents[agentId] = { ...agent, prompt: existingPrompt + guidance }
+    changed = true
   }
 
   if (!changed) return config

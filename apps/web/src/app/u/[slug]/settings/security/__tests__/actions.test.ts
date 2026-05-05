@@ -8,12 +8,19 @@ const {
   mockGetSession,
   mockUserService,
   mockSessionService,
+  mockPatService,
   mockGenerateSecret,
   mockEncryptSecret,
   mockDecryptSecret,
   mockGenerateTotpUri,
   mockVerifyTotp,
   mockGenerateRecoveryCodes,
+  mockGeneratePat,
+  mockGeneratePatSalt,
+  mockHashPat,
+  mockHashPatLookup,
+  mockReadMcpSettings,
+  mockWriteMcpSettings,
 } = vi.hoisted(() => ({
   mockHash: vi.fn(),
   mockAuditEvent: vi.fn(),
@@ -32,12 +39,21 @@ const {
   mockSessionService: {
     revokeByUserIdExceptSession: vi.fn(),
   },
+  mockPatService: {
+    create: vi.fn(),
+  },
   mockGenerateSecret: vi.fn(),
   mockEncryptSecret: vi.fn(),
   mockDecryptSecret: vi.fn(),
   mockGenerateTotpUri: vi.fn(),
   mockVerifyTotp: vi.fn(),
   mockGenerateRecoveryCodes: vi.fn(),
+  mockGeneratePat: vi.fn(),
+  mockGeneratePatSalt: vi.fn(),
+  mockHashPat: vi.fn(),
+  mockHashPatLookup: vi.fn(),
+  mockReadMcpSettings: vi.fn(),
+  mockWriteMcpSettings: vi.fn(),
 }))
 
 vi.mock('@/lib/argon2', () => ({ hashArgon2: mockHash }))
@@ -47,6 +63,7 @@ vi.mock('@/lib/runtime/session', () => ({ getSession: mockGetSession }))
 vi.mock('@/lib/services', () => ({
   sessionService: mockSessionService,
   userService: mockUserService,
+  patService: mockPatService,
 }))
 vi.mock('@/lib/totp', () => ({
   generateSecret: mockGenerateSecret,
@@ -55,6 +72,16 @@ vi.mock('@/lib/totp', () => ({
   generateTotpUri: mockGenerateTotpUri,
   verifyTotp: mockVerifyTotp,
   generateRecoveryCodes: mockGenerateRecoveryCodes,
+}))
+vi.mock('@/lib/mcp/pat', () => ({
+  generatePat: mockGeneratePat,
+  generatePatSalt: mockGeneratePatSalt,
+  hashPat: mockHashPat,
+  hashPatLookup: mockHashPatLookup,
+}))
+vi.mock('@/lib/mcp/settings', () => ({
+  readMcpSettings: mockReadMcpSettings,
+  writeMcpSettings: mockWriteMcpSettings,
 }))
 
 import {
@@ -66,7 +93,7 @@ import {
   get2FAStatus,
 } from '../actions'
 
-const CAPS_ALL = { auth: true, twoFactor: true }
+const CAPS_ALL = { auth: true, twoFactor: true, mcp: true }
 const TEST_USER = {
   id: 'user-1',
   email: 'alice@example.com',
@@ -408,3 +435,4 @@ describe('get2FAStatus', () => {
     expect(result.ok).toBe(false)
   })
 })
+

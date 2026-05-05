@@ -15,6 +15,7 @@ export type RuntimeCapabilities = {
   slackIntegration: boolean
   googleWorkspaceIntegration: boolean
   metaAdsConnector: boolean
+  mcp: boolean
 }
 
 const WEB_CAPABILITIES: RuntimeCapabilities = {
@@ -32,6 +33,7 @@ const WEB_CAPABILITIES: RuntimeCapabilities = {
   slackIntegration: true,
   googleWorkspaceIntegration: true,
   metaAdsConnector: true,
+  mcp: true,
 }
 
 const DESKTOP_CAPABILITIES: RuntimeCapabilities = {
@@ -49,6 +51,7 @@ const DESKTOP_CAPABILITIES: RuntimeCapabilities = {
   slackIntegration: false,
   googleWorkspaceIntegration: false,
   metaAdsConnector: true,
+  mcp: false,
 }
 
 const CAPABILITIES_BY_MODE: Record<RuntimeMode, RuntimeCapabilities> = {

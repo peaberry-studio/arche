@@ -50,6 +50,23 @@ describe('SecuritySettingsPanel', () => {
     expect(screen.queryByText('Two-factor authentication')).toBeNull()
   })
 
+  it('does not render MCP settings from the security panel', () => {
+    render(
+      <SecuritySettingsPanel
+        passwordChangeEnabled={true}
+        twoFactorEnabled={true}
+        enabled={false}
+        verifiedAt={null}
+        recoveryCodesRemaining={0}
+      />,
+    )
+
+    expect(screen.getByRole('heading', { name: 'Change password' })).toBeTruthy()
+    expect(screen.getByText('Two-factor authentication')).toBeTruthy()
+    expect(screen.getByText('Set up 2FA')).toBeTruthy()
+    expect(screen.queryByText('MCP access')).toBeNull()
+  })
+
   it('renders enabled 2FA status with management actions', () => {
     render(
       <SecuritySettingsPanel

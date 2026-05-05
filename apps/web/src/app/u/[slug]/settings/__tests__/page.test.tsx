@@ -32,10 +32,27 @@ const serializeSlackIntegrationMock = vi.hoisted(() => vi.fn())
 const findSlackIntegrationMock = vi.hoisted(() => vi.fn())
 const decryptGoogleWorkspaceConfigMock = vi.hoisted(() => vi.fn())
 const ensureGoogleWorkspaceSeededMock = vi.hoisted(() => vi.fn())
+const headersMock = vi.hoisted(() => vi.fn(() => Promise.resolve(new Headers())))
+const getPublicBaseUrlMock = vi.hoisted(() => vi.fn(() => 'http://localhost'))
+const readMcpSettingsMock = vi.hoisted(() => vi.fn())
+const findManyPatByUserIdMock = vi.hoisted(() => vi.fn(() => Promise.resolve([])))
 const settingsPageProps = vi.hoisted(() => ({ current: null as CapturedSettingsPageProps | null }))
 
 vi.mock('next/navigation', () => ({
   redirect: (path: string) => redirectMock(path),
+}))
+
+vi.mock('next/headers', () => ({
+  headers: () => headersMock(),
+}))
+
+vi.mock('@/lib/http', () => ({
+  getPublicBaseUrl: (...args: unknown[]) => getPublicBaseUrlMock(...args),
+}))
+
+vi.mock('@/lib/mcp/settings', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/mcp/settings')>()),
+  readMcpSettings: () => readMcpSettingsMock(),
 }))
 
 vi.mock('@/app/u/[slug]/settings/security/actions', () => ({
@@ -73,6 +90,9 @@ vi.mock('@/lib/services', () => ({
   },
   slackService: {
     findIntegration: () => findSlackIntegrationMock(),
+  },
+  patService: {
+    findManyByUserId: (...args: unknown[]) => findManyPatByUserIdMock(...args),
   },
 }))
 
