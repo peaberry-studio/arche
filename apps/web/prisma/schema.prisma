@@ -218,7 +218,7 @@ model Connector {
   userId    String   @map("user_id")
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  type      String   // "linear" | "notion" | "slack" | "github" | "custom"
+  type      String   // ConnectorType from src/lib/connectors/types.ts
   name      String
   config    String   // AES-256-GCM encrypted JSON
   enabled   Boolean  @default(true)

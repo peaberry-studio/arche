@@ -173,6 +173,11 @@ ENVIRONMENT VARIABLES (via .env or exported):
   ARCHE_GATEWAY_TOKEN_SECRET Gateway token signing secret
   ARCHE_GATEWAY_TOKEN_TTL_SECONDS Gateway token TTL (seconds, optional)
   ARCHE_GATEWAY_BASE_URL    Gateway base URL (optional)
+  ARCHE_PUBLIC_BASE_URL     Public callback base URL (optional)
+  ARCHE_SESSION_TTL_DAYS    Session TTL in days (optional)
+  ARCHE_CONNECTOR_GATEWAY_BASE_URL Connector gateway base URL (optional)
+  ARCHE_CONNECTOR_GATEWAY_TOKEN_SECRET Connector gateway token secret (optional)
+  ARCHE_CONNECTOR_*         Connector-specific OAuth/MCP overrides (optional)
   ARCHE_SEED_ADMIN_EMAIL    Seed admin email
   ARCHE_SEED_ADMIN_PASSWORD Seed admin password
   ARCHE_SEED_ADMIN_SLUG     Seed admin URL slug
@@ -521,6 +526,26 @@ vars = {
     "arche_gateway_token_secret": os.environ["ARCHE_GATEWAY_TOKEN_SECRET"],
     "arche_gateway_token_ttl_seconds": os.environ.get("ARCHE_GATEWAY_TOKEN_TTL_SECONDS", ""),
     "arche_gateway_base_url": os.environ.get("ARCHE_GATEWAY_BASE_URL", ""),
+    "arche_public_base_url": os.environ.get("ARCHE_PUBLIC_BASE_URL", ""),
+    "arche_session_ttl_days": os.environ.get("ARCHE_SESSION_TTL_DAYS", ""),
+    "arche_connector_gateway_base_url": os.environ.get("ARCHE_CONNECTOR_GATEWAY_BASE_URL", ""),
+    "arche_connector_gateway_token_secret": os.environ.get("ARCHE_CONNECTOR_GATEWAY_TOKEN_SECRET", ""),
+    "arche_connector_oauth_state_ttl_seconds": os.environ.get("ARCHE_CONNECTOR_OAUTH_STATE_TTL_SECONDS", ""),
+    "arche_connector_oauth_max_authorize_url_length": os.environ.get("ARCHE_CONNECTOR_OAUTH_MAX_AUTHORIZE_URL_LENGTH", ""),
+    "arche_connector_linear_mcp_url": os.environ.get("ARCHE_CONNECTOR_LINEAR_MCP_URL", ""),
+    "arche_connector_notion_mcp_url": os.environ.get("ARCHE_CONNECTOR_NOTION_MCP_URL", ""),
+    "arche_connector_linear_scope": os.environ.get("ARCHE_CONNECTOR_LINEAR_SCOPE", ""),
+    "arche_connector_notion_scope": os.environ.get("ARCHE_CONNECTOR_NOTION_SCOPE", ""),
+    "arche_connector_notion_client_id": os.environ.get("ARCHE_CONNECTOR_NOTION_CLIENT_ID", ""),
+    "arche_connector_notion_client_secret": os.environ.get("ARCHE_CONNECTOR_NOTION_CLIENT_SECRET", ""),
+    "arche_connector_google_client_id": os.environ.get("ARCHE_CONNECTOR_GOOGLE_CLIENT_ID", ""),
+    "arche_connector_google_client_secret": os.environ.get("ARCHE_CONNECTOR_GOOGLE_CLIENT_SECRET", ""),
+    "arche_connector_google_gmail_mcp_url": os.environ.get("ARCHE_CONNECTOR_GOOGLE_GMAIL_MCP_URL", ""),
+    "arche_connector_google_drive_mcp_url": os.environ.get("ARCHE_CONNECTOR_GOOGLE_DRIVE_MCP_URL", ""),
+    "arche_connector_google_calendar_mcp_url": os.environ.get("ARCHE_CONNECTOR_GOOGLE_CALENDAR_MCP_URL", ""),
+    "arche_connector_google_chat_mcp_url": os.environ.get("ARCHE_CONNECTOR_GOOGLE_CHAT_MCP_URL", ""),
+    "arche_connector_google_people_mcp_url": os.environ.get("ARCHE_CONNECTOR_GOOGLE_PEOPLE_MCP_URL", ""),
+    "arche_connector_meta_ads_graph_api_version": os.environ.get("ARCHE_CONNECTOR_META_ADS_GRAPH_API_VERSION", ""),
     "arche_seed_admin_email": os.environ["ARCHE_SEED_ADMIN_EMAIL"],
     "arche_seed_admin_password": os.environ["ARCHE_SEED_ADMIN_PASSWORD"],
     "arche_seed_admin_slug": os.environ["ARCHE_SEED_ADMIN_SLUG"],
@@ -528,6 +553,7 @@ vars = {
     "arche_seed_test_slug": os.environ.get("ARCHE_SEED_TEST_SLUG", ""),
     "kb_content_host_path": os.environ.get("KB_CONTENT_HOST_PATH", "/opt/arche/kb-content"),
     "kb_config_host_path": os.environ.get("KB_CONFIG_HOST_PATH", "/opt/arche/kb-config"),
+    "users_path": os.environ.get("ARCHE_USERS_PATH", "/opt/arche/users"),
     "ghcr_token": os.environ.get("GHCR_TOKEN", ""),
 }
 json.dump(vars, open(sys.argv[1], "w"))
@@ -681,6 +707,26 @@ vars = {
     "arche_gateway_token_secret": os.environ["ARCHE_GATEWAY_TOKEN_SECRET"],
     "arche_gateway_token_ttl_seconds": os.environ.get("ARCHE_GATEWAY_TOKEN_TTL_SECONDS", ""),
     "arche_gateway_base_url": os.environ.get("ARCHE_GATEWAY_BASE_URL", ""),
+    "arche_public_base_url": os.environ.get("ARCHE_PUBLIC_BASE_URL", ""),
+    "arche_session_ttl_days": os.environ.get("ARCHE_SESSION_TTL_DAYS", ""),
+    "arche_connector_gateway_base_url": os.environ.get("ARCHE_CONNECTOR_GATEWAY_BASE_URL", ""),
+    "arche_connector_gateway_token_secret": os.environ.get("ARCHE_CONNECTOR_GATEWAY_TOKEN_SECRET", ""),
+    "arche_connector_oauth_state_ttl_seconds": os.environ.get("ARCHE_CONNECTOR_OAUTH_STATE_TTL_SECONDS", ""),
+    "arche_connector_oauth_max_authorize_url_length": os.environ.get("ARCHE_CONNECTOR_OAUTH_MAX_AUTHORIZE_URL_LENGTH", ""),
+    "arche_connector_linear_mcp_url": os.environ.get("ARCHE_CONNECTOR_LINEAR_MCP_URL", ""),
+    "arche_connector_notion_mcp_url": os.environ.get("ARCHE_CONNECTOR_NOTION_MCP_URL", ""),
+    "arche_connector_linear_scope": os.environ.get("ARCHE_CONNECTOR_LINEAR_SCOPE", ""),
+    "arche_connector_notion_scope": os.environ.get("ARCHE_CONNECTOR_NOTION_SCOPE", ""),
+    "arche_connector_notion_client_id": os.environ.get("ARCHE_CONNECTOR_NOTION_CLIENT_ID", ""),
+    "arche_connector_notion_client_secret": os.environ.get("ARCHE_CONNECTOR_NOTION_CLIENT_SECRET", ""),
+    "arche_connector_google_client_id": os.environ.get("ARCHE_CONNECTOR_GOOGLE_CLIENT_ID", ""),
+    "arche_connector_google_client_secret": os.environ.get("ARCHE_CONNECTOR_GOOGLE_CLIENT_SECRET", ""),
+    "arche_connector_google_gmail_mcp_url": os.environ.get("ARCHE_CONNECTOR_GOOGLE_GMAIL_MCP_URL", ""),
+    "arche_connector_google_drive_mcp_url": os.environ.get("ARCHE_CONNECTOR_GOOGLE_DRIVE_MCP_URL", ""),
+    "arche_connector_google_calendar_mcp_url": os.environ.get("ARCHE_CONNECTOR_GOOGLE_CALENDAR_MCP_URL", ""),
+    "arche_connector_google_chat_mcp_url": os.environ.get("ARCHE_CONNECTOR_GOOGLE_CHAT_MCP_URL", ""),
+    "arche_connector_google_people_mcp_url": os.environ.get("ARCHE_CONNECTOR_GOOGLE_PEOPLE_MCP_URL", ""),
+    "arche_connector_meta_ads_graph_api_version": os.environ.get("ARCHE_CONNECTOR_META_ADS_GRAPH_API_VERSION", ""),
     "arche_seed_admin_email": os.environ["ARCHE_SEED_ADMIN_EMAIL"],
     "arche_seed_admin_password": os.environ["ARCHE_SEED_ADMIN_PASSWORD"],
     "arche_seed_admin_slug": os.environ["ARCHE_SEED_ADMIN_SLUG"],

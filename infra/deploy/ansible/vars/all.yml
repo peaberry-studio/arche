@@ -33,6 +33,28 @@ arche_connector_oauth_state_secret: "{{ lookup('env', 'ARCHE_CONNECTOR_OAUTH_STA
 arche_gateway_token_secret: "{{ lookup('env', 'ARCHE_GATEWAY_TOKEN_SECRET') | default('', true) }}"
 arche_gateway_token_ttl_seconds: "{{ lookup('env', 'ARCHE_GATEWAY_TOKEN_TTL_SECONDS') | default('', true) }}"
 arche_gateway_base_url: "{{ lookup('env', 'ARCHE_GATEWAY_BASE_URL') | default('', true) }}"
+arche_public_base_url: "{{ lookup('env', 'ARCHE_PUBLIC_BASE_URL') | default('', true) }}"
+arche_session_ttl_days: "{{ lookup('env', 'ARCHE_SESSION_TTL_DAYS') | default('', true) }}"
+
+# Connector overrides
+arche_connector_gateway_base_url: "{{ lookup('env', 'ARCHE_CONNECTOR_GATEWAY_BASE_URL') | default('', true) }}"
+arche_connector_gateway_token_secret: "{{ lookup('env', 'ARCHE_CONNECTOR_GATEWAY_TOKEN_SECRET') | default('', true) }}"
+arche_connector_oauth_state_ttl_seconds: "{{ lookup('env', 'ARCHE_CONNECTOR_OAUTH_STATE_TTL_SECONDS') | default('', true) }}"
+arche_connector_oauth_max_authorize_url_length: "{{ lookup('env', 'ARCHE_CONNECTOR_OAUTH_MAX_AUTHORIZE_URL_LENGTH') | default('', true) }}"
+arche_connector_linear_mcp_url: "{{ lookup('env', 'ARCHE_CONNECTOR_LINEAR_MCP_URL') | default('', true) }}"
+arche_connector_notion_mcp_url: "{{ lookup('env', 'ARCHE_CONNECTOR_NOTION_MCP_URL') | default('', true) }}"
+arche_connector_linear_scope: "{{ lookup('env', 'ARCHE_CONNECTOR_LINEAR_SCOPE') | default('', true) }}"
+arche_connector_notion_scope: "{{ lookup('env', 'ARCHE_CONNECTOR_NOTION_SCOPE') | default('', true) }}"
+arche_connector_notion_client_id: "{{ lookup('env', 'ARCHE_CONNECTOR_NOTION_CLIENT_ID') | default('', true) }}"
+arche_connector_notion_client_secret: "{{ lookup('env', 'ARCHE_CONNECTOR_NOTION_CLIENT_SECRET') | default('', true) }}"
+arche_connector_google_client_id: "{{ lookup('env', 'ARCHE_CONNECTOR_GOOGLE_CLIENT_ID') | default('', true) }}"
+arche_connector_google_client_secret: "{{ lookup('env', 'ARCHE_CONNECTOR_GOOGLE_CLIENT_SECRET') | default('', true) }}"
+arche_connector_google_gmail_mcp_url: "{{ lookup('env', 'ARCHE_CONNECTOR_GOOGLE_GMAIL_MCP_URL') | default('', true) }}"
+arche_connector_google_drive_mcp_url: "{{ lookup('env', 'ARCHE_CONNECTOR_GOOGLE_DRIVE_MCP_URL') | default('', true) }}"
+arche_connector_google_calendar_mcp_url: "{{ lookup('env', 'ARCHE_CONNECTOR_GOOGLE_CALENDAR_MCP_URL') | default('', true) }}"
+arche_connector_google_chat_mcp_url: "{{ lookup('env', 'ARCHE_CONNECTOR_GOOGLE_CHAT_MCP_URL') | default('', true) }}"
+arche_connector_google_people_mcp_url: "{{ lookup('env', 'ARCHE_CONNECTOR_GOOGLE_PEOPLE_MCP_URL') | default('', true) }}"
+arche_connector_meta_ads_graph_api_version: "{{ lookup('env', 'ARCHE_CONNECTOR_META_ADS_GRAPH_API_VERSION') | default('', true) }}"
 
 # Seed admin
 arche_seed_admin_email: "{{ lookup('env', 'ARCHE_SEED_ADMIN_EMAIL') | default('admin@example.com', true) }}"

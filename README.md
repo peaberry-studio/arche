@@ -14,7 +14,7 @@ Arche is an open source AI agent platform for companies or individuals who want 
 
 From one place, you can run support, copywriting, SEO, marketing, research, requirements, and ops agents. Instead of starting every prompt from zero, you define your products, tone, processes, docs, and source material once. Each agent gets that shared knowledge plus its own isolated workspace, so your AI team stays consistent and useful.
 
-Arche also works with the tools you already use. With dozens of integrations, including Slack, Google Workspace, Linear, Notion, Zendesk, Ahrefs, and Umami, plus support for any compatible remote MCP server, Arche becomes a shared entry point into your digital stack, not just another AI editor.
+Arche also works with the tools you already use. Built-in connectors cover Google Workspace, Linear, Notion, Zendesk, Ahrefs, Umami, and Meta Ads; Slack is available as an admin-managed integration; and compatible remote MCP servers let you extend the stack further. Arche becomes a shared entry point into your digital stack, not just another AI editor.
 
 ## See Arche
 
@@ -25,7 +25,7 @@ Arche usually fits one of these patterns:
 ## What Arche Is For
 
 - 🏢 Teams: run a shared crew of experts for support, copywriting, SEO, marketing, research, requirements, and ops.
-- 🔌 Connected stack: plug Arche into Slack, Google Workspace, Linear, Notion, Zendesk, Ahrefs, Umami, and any compatible remote MCP server.
+- 🔌 Connected stack: plug Arche into Google Workspace, Linear, Notion, Zendesk, Ahrefs, Umami, Meta Ads, Slack, and compatible remote MCP servers.
 - 🧠 Individuals: use the same system as an AI-native second brain for notes, docs, and ideas.
 - 💻 Deployment choice: start on one machine with Desktop or self-host Arche for your whole team.
 
@@ -110,13 +110,13 @@ If you want Arche for a team, self-host it on your own infrastructure.
 For the narrow-path setup, there is now a one-click installer that creates a fresh DigitalOcean Droplet, configures Docker, deploys the latest Arche images, auto-generates secrets, and exposes the app on a `nip.io` hostname.
 
 ```bash
-curl -fsSL https://arche.peaberry.studio/install | bash
+curl -fsSL https://thearcheproject.com/install | bash
 ```
 
 You can also pass inputs up front:
 
 ```bash
-curl -fsSL https://arche.peaberry.studio/install | bash -s -- --token "$DIGITALOCEAN_TOKEN" --email admin@example.com --version v1.2.3
+curl -fsSL https://thearcheproject.com/install | bash -s -- --token "$DIGITALOCEAN_TOKEN" --email admin@example.com --version v2.0.0
 ```
 
 The installer prompts for:
@@ -129,8 +129,8 @@ You do not provide server, database, or admin passwords. The Go deployer generat
 The shim installs `archectl` into `/usr/local/bin` when that directory is writable, otherwise into `~/.local/bin`. After installation, use the same binary for lifecycle commands:
 
 ```bash
-archectl install --token "$DIGITALOCEAN_TOKEN" --email admin@example.com --version v1.2.3
-archectl update --token "$DIGITALOCEAN_TOKEN" --version v1.2.4
+archectl install --token "$DIGITALOCEAN_TOKEN" --email admin@example.com --version v2.0.0
+archectl update --token "$DIGITALOCEAN_TOKEN" --version v2.0.0
 archectl destroy --token "$DIGITALOCEAN_TOKEN"
 ```
 
@@ -139,7 +139,7 @@ By default, `archectl` keeps output minimal and shows only lifecycle steps plus 
 If the local state file is missing, recovery flags are available:
 
 ```bash
-archectl update --token "$DIGITALOCEAN_TOKEN" --version v1.2.4 --ip 203.0.113.10 --ssh-key ~/.arche/deployments/arche-20260410-120000-ssh.pem
+archectl update --token "$DIGITALOCEAN_TOKEN" --version v2.0.0 --ip 203.0.113.10 --ssh-key ~/.arche/deployments/arche-20260410-120000-ssh.pem
 archectl destroy --token "$DIGITALOCEAN_TOKEN" --droplet-id 123456789 --firewall-id firewall-id --yes
 ```
 
@@ -149,7 +149,7 @@ Assumptions:
 
 - DigitalOcean only
 - The shell entrypoint downloads `https://github.com/peaberry-studio/arche/releases/latest/download/archectl_<os>_<arch>` for macOS/Linux on amd64/arm64
-- Image tags are derived from `--version`: `latest` by default, or a pinned tag such as `v1.2.3`
+- Image tags are derived from `--version`: `latest` by default, or a pinned tag such as `v2.0.0`
 - Public URL is derived automatically as `https://arche-<droplet-ip>.nip.io`
 - Local deployment state is stored at `~/.arche/deployments/current.json`
 

@@ -102,6 +102,7 @@ cp .env.example .env
 | `--domain` | Yes | Production domain |
 | `--ssh-key` | Yes | Path to SSH private key |
 | `--acme-email` | Yes | Let's Encrypt ACME email |
+| `--version` | No | Web image tag to deploy (default: `latest`) |
 | `--user` | No | SSH user (default: `root`) |
 | `--skip-ensure-dns-record` | No | Skip `ensure_dns_record` verification before running Ansible |
 | `--dry-run` | No | Show what would be done |
@@ -156,10 +157,22 @@ No DNS provider token is required. Traefik uses ACME HTTP challenge on entrypoin
 | `WEB_IMAGE` | `<IMAGE_PREFIX>web:<WEB_VERSION>` |
 | `OPENCODE_IMAGE` | `arche-workspace:latest` |
 | `PODMAN_SOCKET_PATH` | Auto-detected (see below) |
+| `ARCHE_PUBLIC_BASE_URL` | Derived from request origin unless set |
+| `ARCHE_SESSION_TTL_DAYS` | `7` |
+| `ARCHE_USERS_PATH` | `/opt/arche/users` remote, `~/.arche/users` local-dev |
+| `KB_CONTENT_HOST_PATH` | `/opt/arche/kb-content` remote, `~/.arche/kb-content` local-dev |
+| `KB_CONFIG_HOST_PATH` | `/opt/arche/kb-config` remote, `~/.arche/kb-config` local-dev |
+| `ARCHE_CONNECTOR_GATEWAY_BASE_URL` | `http://web:3000/api/internal/mcp/connectors` |
+| `ARCHE_CONNECTOR_GATEWAY_TOKEN_SECRET` | Falls back to `ARCHE_GATEWAY_TOKEN_SECRET` |
+| `ARCHE_CONNECTOR_GOOGLE_CLIENT_ID` | Empty |
+| `ARCHE_CONNECTOR_GOOGLE_CLIENT_SECRET` | Empty |
+| `ARCHE_CONNECTOR_META_ADS_GRAPH_API_VERSION` | `v25.0` |
 
 To build the web image directly on the VPS, set `WEB_IMAGE=arche-web:latest`.
 To build the workspace image directly on the VPS, set `OPENCODE_IMAGE=arche-workspace:latest`.
 Published GHCR tags stay amd64 by default. If you need arm64, use the matching `-arm64` tag explicitly, for example `WEB_IMAGE=ghcr.io/peaberry-studio/arche/web:latest-arm64` and `OPENCODE_IMAGE=ghcr.io/peaberry-studio/arche/workspace:latest-arm64`.
+
+Connector-specific OAuth and MCP overrides are optional and documented in `.env.example` and `apps/web/.env.example`.
 
 ## Podman Socket
 

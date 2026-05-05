@@ -65,4 +65,32 @@ describe('web dev scripts', () => {
 
     expect(envTemplate).toContain('OPENCODE_NETWORK=arche-internal')
   })
+
+  it('keeps deploy templates propagating connector and persistence overrides', () => {
+    const repoRoot = resolve(process.cwd(), '..', '..')
+    const envTemplate = readFileSync(
+      resolve(repoRoot, 'infra', 'deploy', 'ansible', 'roles', 'app', 'templates', '.env.j2'),
+      'utf8',
+    )
+    const deployScript = readFileSync(resolve(repoRoot, 'infra', 'deploy', 'deploy.sh'), 'utf8')
+    const coolifyCompose = readFileSync(resolve(repoRoot, 'infra', 'coolify', 'docker-compose.yml'), 'utf8')
+
+    for (const variable of [
+      'ARCHE_PUBLIC_BASE_URL',
+      'ARCHE_CONNECTOR_GATEWAY_BASE_URL',
+      'ARCHE_CONNECTOR_GATEWAY_TOKEN_SECRET',
+      'ARCHE_CONNECTOR_GOOGLE_CLIENT_ID',
+      'ARCHE_CONNECTOR_GOOGLE_GMAIL_MCP_URL',
+      'ARCHE_CONNECTOR_META_ADS_GRAPH_API_VERSION',
+      'ARCHE_USERS_PATH',
+    ]) {
+      expect(envTemplate).toContain(variable)
+      expect(coolifyCompose).toContain(variable)
+    }
+
+    expect(deployScript).toContain('arche_connector_gateway_base_url')
+    expect(deployScript).toContain('ARCHE_CONNECTOR_GOOGLE_CLIENT_ID')
+    expect(deployScript).toContain('ARCHE_CONNECTOR_META_ADS_GRAPH_API_VERSION')
+    expect(deployScript).toContain('ARCHE_USERS_PATH')
+  })
 })

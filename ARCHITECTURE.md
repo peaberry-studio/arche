@@ -64,7 +64,13 @@ arche/
 | `User` | Accounts (email, slug, role, Argon2 hash, TOTP fields) |
 | `Session` | Sessions with token hash, expiration, IP, and user agent |
 | `Instance` | Containerized workspace (status, containerId, encrypted password, configSha) |
-| `Connector` | External integrations (Linear, Notion, Slack, GitHub) with encrypted config |
+| `Connector` | Per-user connector records with encrypted config. Supported connector types are defined in `apps/web/src/lib/connectors/types.ts`: Linear, Notion, Zendesk, Ahrefs, Umami, custom MCP, Meta Ads, and Google Workspace products (Gmail, Drive, Calendar, Chat, People) |
+| `ProviderCredential` | Per-user model provider credentials for providers such as OpenAI, Anthropic, Fireworks, OpenRouter, and OpenCode |
+| `ExternalIntegration` | Admin-managed integrations stored once for the deployment, such as Slack |
+| `SlackThreadBinding` | Mapping between Slack channel threads and OpenCode sessions |
+| `SlackEventReceipt` | Slack event deduplication receipts |
+| `AutopilotTask` | Scheduled autopilot task definition, target agent, schedule, and lease state |
+| `AutopilotRun` | Autopilot execution history, status, trigger, session binding, and seen state |
 | `AuditEvent` | Action log (actor, action, metadata) |
 | `TwoFactorRecovery` | One-time 2FA recovery codes |
 
@@ -144,16 +150,28 @@ Breaking desktop storage change:
 |----------|-------------|
 | `DATABASE_URL` | PostgreSQL connection string |
 | `ARCHE_DOMAIN` | Main domain (e.g. `arche.lvh.me`) |
+| `ARCHE_PUBLIC_BASE_URL` | Public base URL used for OAuth callbacks behind proxies |
 | `ARCHE_SESSION_PEPPER` | Pepper for session hashing |
-| `ARCHE_CONNECTOR_OAUTH_STATE_SECRET` | Secret used to protect connector OAuth state (required in production for OAuth flows) |
+| `ARCHE_SESSION_TTL_DAYS` | Configurable session lifetime in days |
 | `ARCHE_ENCRYPTION_KEY` | AES-256-GCM key (base64, 32 bytes) |
+| `ARCHE_INTERNAL_TOKEN` | Internal token required by deploy/runtime internal calls |
+| `ARCHE_GATEWAY_TOKEN_SECRET` | Secret used to sign provider gateway tokens |
+| `ARCHE_GATEWAY_TOKEN_TTL_SECONDS` | Optional provider gateway token TTL |
+| `ARCHE_GATEWAY_BASE_URL` | Optional provider gateway base URL override |
+| `ARCHE_CONNECTOR_OAUTH_STATE_SECRET` | Secret used to protect connector OAuth state (required in production for OAuth flows) |
+| `ARCHE_CONNECTOR_GATEWAY_BASE_URL` | Internal MCP connector gateway base URL override |
+| `ARCHE_CONNECTOR_GATEWAY_TOKEN_SECRET` | Optional dedicated secret for connector gateway tokens. Falls back to `ARCHE_GATEWAY_TOKEN_SECRET` |
 | `CONTAINER_PROXY_HOST` | docker-socket-proxy host |
 | `OPENCODE_IMAGE` | Workspace image |
 | `OPENCODE_NETWORK` | Internal container network |
+| `ARCHE_USERS_PATH` | Host path for persisted per-user runtime data |
 | `KB_CONTENT_HOST_PATH` | Path to KB content bare repo |
 | `KB_CONFIG_HOST_PATH` | Path to config bare repo |
+| `ARCHE_SEED_ADMIN_EMAIL` | Initial admin seed email |
+| `ARCHE_SEED_ADMIN_PASSWORD` | Initial admin seed password |
+| `ARCHE_SEED_ADMIN_SLUG` | Initial admin seed slug |
 
-See `apps/web/.env.example` for the complete reference.
+See `apps/web/.env.example` for the complete app reference and connector-specific overrides.
 
 ## Session History Note
 

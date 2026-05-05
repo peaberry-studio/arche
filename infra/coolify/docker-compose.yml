@@ -61,6 +61,10 @@ services:
       ARCHE_CONNECTOR_OAUTH_STATE_SECRET: ${ARCHE_CONNECTOR_OAUTH_STATE_SECRET:?}
       ARCHE_GATEWAY_TOKEN_TTL_SECONDS: ${ARCHE_GATEWAY_TOKEN_TTL_SECONDS:-86400}
       ARCHE_GATEWAY_BASE_URL: ${ARCHE_GATEWAY_BASE_URL:-http://web:3000}
+      ARCHE_PUBLIC_BASE_URL: ${ARCHE_PUBLIC_BASE_URL:-}
+      ARCHE_SESSION_TTL_DAYS: ${ARCHE_SESSION_TTL_DAYS:-7}
+      ARCHE_CONNECTOR_GATEWAY_BASE_URL: ${ARCHE_CONNECTOR_GATEWAY_BASE_URL:-}
+      ARCHE_CONNECTOR_GATEWAY_TOKEN_SECRET: ${ARCHE_CONNECTOR_GATEWAY_TOKEN_SECRET:-}
 
       # Cookies
       ARCHE_COOKIE_SECURE: ${ARCHE_COOKIE_SECURE:-true}
@@ -76,8 +80,20 @@ services:
       OPENCODE_IMAGE: ${OPENCODE_IMAGE:-ghcr.io/peaberry-studio/arche/workspace:latest}
       OPENCODE_NETWORK: arche_internal
 
-      # Knowledge Base (optional)
-      KB_HOST_PATH: ${KB_HOST_PATH:-}
+      # Connector OAuth/MCP overrides (optional)
+      ARCHE_CONNECTOR_GOOGLE_CLIENT_ID: ${ARCHE_CONNECTOR_GOOGLE_CLIENT_ID:-}
+      ARCHE_CONNECTOR_GOOGLE_CLIENT_SECRET: ${ARCHE_CONNECTOR_GOOGLE_CLIENT_SECRET:-}
+      ARCHE_CONNECTOR_GOOGLE_GMAIL_MCP_URL: ${ARCHE_CONNECTOR_GOOGLE_GMAIL_MCP_URL:-}
+      ARCHE_CONNECTOR_GOOGLE_DRIVE_MCP_URL: ${ARCHE_CONNECTOR_GOOGLE_DRIVE_MCP_URL:-}
+      ARCHE_CONNECTOR_GOOGLE_CALENDAR_MCP_URL: ${ARCHE_CONNECTOR_GOOGLE_CALENDAR_MCP_URL:-}
+      ARCHE_CONNECTOR_GOOGLE_CHAT_MCP_URL: ${ARCHE_CONNECTOR_GOOGLE_CHAT_MCP_URL:-}
+      ARCHE_CONNECTOR_GOOGLE_PEOPLE_MCP_URL: ${ARCHE_CONNECTOR_GOOGLE_PEOPLE_MCP_URL:-}
+      ARCHE_CONNECTOR_META_ADS_GRAPH_API_VERSION: ${ARCHE_CONNECTOR_META_ADS_GRAPH_API_VERSION:-}
+
+      # Persistence paths
+      ARCHE_USERS_PATH: ${ARCHE_USERS_PATH:-/opt/arche/users}
+      KB_CONTENT_HOST_PATH: ${KB_CONTENT_HOST_PATH:-/opt/arche/kb-content}
+      KB_CONFIG_HOST_PATH: ${KB_CONFIG_HOST_PATH:-/opt/arche/kb-config}
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r=>{if(!r.ok)throw 1}).catch(()=>process.exit(1))"]
       interval: 10s
@@ -90,6 +106,7 @@ services:
     volumes:
       - ${KB_CONTENT_HOST_PATH:-/opt/arche/kb-content}:/kb-content
       - ${KB_CONFIG_HOST_PATH:-/opt/arche/kb-config}:/kb-config
+      - ${ARCHE_USERS_PATH:-/opt/arche/users}:${ARCHE_USERS_PATH:-/opt/arche/users}
     depends_on:
       postgres:
         condition: service_healthy
