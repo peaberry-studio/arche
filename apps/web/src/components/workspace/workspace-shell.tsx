@@ -135,6 +135,17 @@ const persistLayout = (storageKey: string, cookieName: string, state: StoredLayo
   persistWorkspacePanelState(storageKey, cookieName, state);
 };
 
+function getWorkspaceModeFromSearch(search: string, hasDesktopVault: boolean): WorkspaceMode {
+  const params = new URLSearchParams(search);
+  const requestedMode = params.get("mode") === "knowledge"
+    ? "knowledge"
+    : params.get("mode") === "tasks"
+      ? "tasks"
+      : "chat";
+
+  return hasDesktopVault && requestedMode === "tasks" ? "chat" : requestedMode;
+}
+
 function resolveRootSessionId(
   sessionId: string | null,
   sessionsById: Map<string, WorkspaceSession>
@@ -248,8 +259,13 @@ export function WorkspaceShell({
   });
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const urlMode = getWorkspaceModeFromSearch(window.location.search, hasDesktopVault);
+      if (availableInitialWorkspaceMode !== urlMode) return;
+    }
+
     setWorkspaceMode(availableInitialWorkspaceMode);
-  }, [availableInitialWorkspaceMode]);
+  }, [availableInitialWorkspaceMode, hasDesktopVault]);
 
   // Instance startup state
   const [instanceStatus, setInstanceStatus] = useState<'starting' | 'running' | 'error' | null>(null);
@@ -691,7 +707,7 @@ export function WorkspaceShell({
       }
 
       const query = params.toString();
-      routerRef.current.replace(query ? `/w/${slug}?${query}` : `/w/${slug}`);
+      window.history.replaceState(window.history.state, "", query ? `/w/${slug}?${query}` : `/w/${slug}`);
     },
     [hasDesktopVault, isCompactLayout, sessionsById, slug, workspace, workspaceMode]
   );
