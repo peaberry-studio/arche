@@ -1,13 +1,27 @@
 /** @vitest-environment jsdom */
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { forceManyBody } from 'd3-force'
+import { forceCollide, forceLink, forceManyBody } from 'd3-force'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { KnowledgeGraphPanel } from '@/components/workspace/knowledge-graph-panel'
 import type { WorkspaceFileNode } from '@/lib/opencode/types'
 
 const stopSimulationMock = vi.fn()
+
+type ForceNode = {
+  id: string
+  kind: 'agent' | 'file'
+  label: string
+  path?: string
+}
+
+type ForceEdge = {
+  id: string
+  kind: 'agent-reference' | 'file-link'
+  source: ForceNode | string
+  target: ForceNode | string
+}
 
 function chainableForce() {
   const force = {
@@ -97,6 +111,30 @@ class ResizeObserverMock {
   unobserve() {}
 }
 
+function createMarkdownFileNodes(paths: string[]): WorkspaceFileNode[] {
+  return [
+    {
+      id: 'notes',
+      name: 'Notes',
+      path: 'Notes',
+      type: 'directory',
+      children: paths.map((path) => ({
+        id: path,
+        name: path.split('/').pop() ?? path,
+        path,
+        type: 'file',
+      })),
+    },
+  ]
+}
+
+function getRenderedNodeRadius(path: string): number {
+  const node = screen.getByRole('button', { name: path })
+  const circle = node.querySelector('circle')
+  if (!circle) throw new Error(`Missing circle for ${path}`)
+  return Number(circle.getAttribute('r'))
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   vi.stubGlobal('ResizeObserver', ResizeObserverMock)
@@ -175,6 +213,146 @@ describe('KnowledgeGraphPanel', () => {
 
     expect(onOpenFile).toHaveBeenCalledWith('Notes/A.md')
     expect(onOpenFile).toHaveBeenCalledWith('Notes/B.md')
+  })
+
+  it('renders larger file nodes for higher connection counts', async () => {
+    const contentByPath: Record<string, string> = {
+      'Notes/A.md': '[[Notes/B.md]] [[Notes/C.md]] [[Notes/D.md]] [[Notes/E.md]]',
+    }
+    const readFile = vi.fn(async (path: string) => ({
+      content: contentByPath[path] ?? '',
+      type: 'raw' as const,
+    }))
+    const fileNodes = createMarkdownFileNodes([
+      'Notes/A.md',
+      'Notes/B.md',
+      'Notes/C.md',
+      'Notes/D.md',
+      'Notes/E.md',
+      'Notes/F.md',
+    ])
+
+    render(
+      <KnowledgeGraphPanel
+        activeFilePath={null}
+        agentSources={[]}
+        fileNodes={fileNodes}
+        onOpenFile={vi.fn()}
+        openFiles={[]}
+        readFile={readFile}
+        reloadKey={0}
+      />
+    )
+
+    expect(await screen.findByRole('img', { name: 'Knowledge graph' })).toBeDefined()
+    await waitFor(() => expect(readFile).toHaveBeenCalledTimes(6))
+
+    await waitFor(() => expect(getRenderedNodeRadius('Notes/A.md')).toBe(9))
+    expect(getRenderedNodeRadius('Notes/B.md')).toBe(7)
+    expect(getRenderedNodeRadius('Notes/F.md')).toBe(5)
+  })
+
+  it('uses node degree to configure link, charge, and collision forces', async () => {
+    const contentByPath: Record<string, string> = {
+      'Notes/A.md': '[[Notes/B.md]] [[Notes/C.md]] [[Notes/D.md]] [[Notes/E.md]]',
+    }
+    const readFile = vi.fn(async (path: string) => ({
+      content: contentByPath[path] ?? '',
+      type: 'raw' as const,
+    }))
+    const fileNodes = createMarkdownFileNodes([
+      'Notes/A.md',
+      'Notes/B.md',
+      'Notes/C.md',
+      'Notes/D.md',
+      'Notes/E.md',
+      'Notes/F.md',
+    ])
+
+    render(
+      <KnowledgeGraphPanel
+        activeFilePath={null}
+        agentSources={[]}
+        fileNodes={fileNodes}
+        onOpenFile={vi.fn()}
+        openFiles={[]}
+        readFile={readFile}
+        reloadKey={0}
+      />
+    )
+
+    expect(await screen.findByRole('img', { name: 'Knowledge graph' })).toBeDefined()
+    await waitFor(() => expect(readFile).toHaveBeenCalledTimes(6))
+    await waitFor(() => expect(screen.getByText('4 links')).toBeDefined())
+
+    const forceLinkMock = vi.mocked(forceLink)
+    const forceLinkResult = forceLinkMock.mock.results[
+      forceLinkMock.mock.results.length - 1
+    ]?.value
+    if (!forceLinkResult) throw new Error('Missing link force')
+
+    const distanceMock = vi.mocked(forceLinkResult.distance)
+    const strengthMock = vi.mocked(forceLinkResult.strength)
+    const distance = distanceMock.mock.calls[0]?.[0] as
+      | ((edge: ForceEdge) => number)
+      | undefined
+    const strength = strengthMock.mock.calls[0]?.[0] as
+      | ((edge: ForceEdge) => number)
+      | undefined
+    if (!distance || !strength) throw new Error('Missing link force callbacks')
+
+    const hub: ForceNode = {
+      id: 'file:Notes/A.md',
+      kind: 'file',
+      label: 'A',
+      path: 'Notes/A.md',
+    }
+    const leaf: ForceNode = {
+      id: 'file:Notes/B.md',
+      kind: 'file',
+      label: 'B',
+      path: 'Notes/B.md',
+    }
+    const isolated: ForceNode = {
+      id: 'file:Notes/F.md',
+      kind: 'file',
+      label: 'F',
+      path: 'Notes/F.md',
+    }
+
+    expect(distance({ id: 'hub-link', kind: 'file-link', source: hub, target: leaf })).toBe(
+      100
+    )
+    expect(strength({ id: 'hub-link', kind: 'file-link', source: hub, target: leaf })).toBe(
+      0.4
+    )
+    expect(
+      distance({ id: 'low-link', kind: 'file-link', source: leaf.id, target: isolated.id })
+    ).toBe(120)
+
+    const forceManyBodyMock = vi.mocked(forceManyBody)
+    const chargeForce = forceManyBodyMock.mock.results[
+      forceManyBodyMock.mock.results.length - 1
+    ]?.value
+    if (!chargeForce) throw new Error('Missing charge force')
+
+    const chargeStrengthMock = vi.mocked(chargeForce.strength)
+    const chargeStrength = chargeStrengthMock.mock.calls[0]?.[0] as
+      | ((node: ForceNode) => number)
+      | undefined
+    if (!chargeStrength) throw new Error('Missing charge strength callback')
+
+    expect(chargeStrength(hub)).toBe(-292)
+    expect(chargeStrength(isolated)).toBe(-90)
+
+    const forceCollideMock = vi.mocked(forceCollide)
+    const collideRadius = forceCollideMock.mock.calls[
+      forceCollideMock.mock.calls.length - 1
+    ]?.[0] as ((node: ForceNode) => number) | undefined
+    if (!collideRadius) throw new Error('Missing collide radius callback')
+
+    expect(collideRadius(hub)).toBe(19)
+    expect(collideRadius(isolated)).toBe(15)
   })
 
   it('limits charge range so disconnected graph groups stay closer together', async () => {
