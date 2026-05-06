@@ -247,9 +247,9 @@ describe('KnowledgeGraphPanel', () => {
     expect(await screen.findByRole('img', { name: 'Knowledge graph' })).toBeDefined()
     await waitFor(() => expect(readFile).toHaveBeenCalledTimes(6))
 
-    await waitFor(() => expect(getRenderedNodeRadius('Notes/A.md')).toBe(9))
-    expect(getRenderedNodeRadius('Notes/B.md')).toBe(7)
-    expect(getRenderedNodeRadius('Notes/F.md')).toBe(5)
+    await waitFor(() => expect(getRenderedNodeRadius('Notes/A.md')).toBe(7.2))
+    expect(getRenderedNodeRadius('Notes/B.md')).toBe(5.6)
+    expect(getRenderedNodeRadius('Notes/F.md')).toBe(4)
   })
 
   it('uses node degree to configure link, charge, and collision forces', async () => {
@@ -321,14 +321,14 @@ describe('KnowledgeGraphPanel', () => {
     }
 
     expect(distance({ id: 'hub-link', kind: 'file-link', source: hub, target: leaf })).toBe(
-      100
+      78
     )
     expect(strength({ id: 'hub-link', kind: 'file-link', source: hub, target: leaf })).toBe(
-      0.4
+      0.36
     )
     expect(
       distance({ id: 'low-link', kind: 'file-link', source: leaf.id, target: isolated.id })
-    ).toBe(120)
+    ).toBe(96)
 
     const forceManyBodyMock = vi.mocked(forceManyBody)
     const chargeForce = forceManyBodyMock.mock.results[
@@ -342,8 +342,8 @@ describe('KnowledgeGraphPanel', () => {
       | undefined
     if (!chargeStrength) throw new Error('Missing charge strength callback')
 
-    expect(chargeStrength(hub)).toBe(-292)
-    expect(chargeStrength(isolated)).toBe(-90)
+    expect(chargeStrength(hub)).toBe(-178)
+    expect(chargeStrength(isolated)).toBe(-35)
 
     const forceCollideMock = vi.mocked(forceCollide)
     const collideRadius = forceCollideMock.mock.calls[
@@ -351,8 +351,8 @@ describe('KnowledgeGraphPanel', () => {
     ]?.[0] as ((node: ForceNode) => number) | undefined
     if (!collideRadius) throw new Error('Missing collide radius callback')
 
-    expect(collideRadius(hub)).toBe(19)
-    expect(collideRadius(isolated)).toBe(15)
+    expect(collideRadius(hub)).toBe(13.2)
+    expect(collideRadius(isolated)).toBe(10)
   })
 
   it('limits charge range so disconnected graph groups stay closer together', async () => {
@@ -394,6 +394,6 @@ describe('KnowledgeGraphPanel', () => {
     const results = forceManyBodyMock.mock.results
     const force = results[results.length - 1]?.value
 
-    expect(force?.distanceMax).toHaveBeenCalledWith(240)
+    expect(force?.distanceMax).toHaveBeenCalledWith(180)
   })
 })

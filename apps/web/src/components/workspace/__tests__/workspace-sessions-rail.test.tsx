@@ -130,7 +130,7 @@ describe('WorkspaceSessionsRail', () => {
     expect(onMarkAutopilotRunSeen).toHaveBeenCalledWith('run-1')
   })
 
-  it('expands nearby row spacing while magnifying dots', () => {
+  it('magnifies and accents the dot under the cursor without shifting rows', () => {
     render(
       <WorkspaceSessionsRail
         kind="chats"
@@ -155,16 +155,17 @@ describe('WorkspaceSessionsRail', () => {
       toJSON: () => ({}),
     })
 
-    const focusedButton = screen.getByRole('button', { name: 'Idle chat' })
-    const distantButton = screen.getByRole('button', { name: 'Done chat' })
-    const baseHeight = parseFloat(focusedButton.style.height)
+    const focusedButton = screen.getByRole('button', { name: 'Busy chat' })
+    const focusedDot = dotFor('Busy chat')
+    const previousDot = dotFor('Idle chat')
 
-    fireEvent.mouseMove(rail, { clientY: 11 })
+    fireEvent.mouseMove(rail, { clientY: 33 })
 
-    expect(parseFloat(focusedButton.style.height)).toBeGreaterThan(baseHeight)
-    expect(parseFloat(focusedButton.style.height)).toBeGreaterThan(
-      parseFloat(distantButton.style.height)
-    )
+    expect(previousDot.className).not.toContain('bg-primary')
+    expect(focusedDot.className).toContain('bg-primary')
+    expect(focusedDot.style.transform).toBe('translateZ(0) scale(2.1)')
+    expect(focusedButton.style.height).toBe('22px')
+    expect(focusedButton.style.opacity).toBe('1')
   })
 
   it('renders nothing when the selected rail kind has no sessions', () => {

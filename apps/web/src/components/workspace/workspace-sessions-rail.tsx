@@ -12,7 +12,6 @@ const FADE_RADIUS_PX = ROW_HEIGHT * FADE_END_INDEX
 const MAX_DOT_SIZE = 8
 const MIN_DOT_SIZE = 3
 const MAX_DOT_SCALE = 2.1
-const MAX_ROW_EXTRA_HEIGHT = 12
 
 type Kind = 'chats' | 'tasks'
 
@@ -89,7 +88,10 @@ export function WorkspaceSessionsRail({
 
   const anchorY =
     cursorY !== null
-      ? cursorY
+      ? Math.max(
+          0,
+          Math.min(visibleSessions.length - 1, Math.floor(cursorY / ROW_HEIGHT))
+        ) * ROW_HEIGHT + ROW_HEIGHT / 2
       : activeIndex >= 0
         ? activeIndex * ROW_HEIGHT + ROW_HEIGHT / 2
         : ROW_HEIGHT / 2
@@ -108,10 +110,10 @@ export function WorkspaceSessionsRail({
           const isActive = session.id === activeSessionId
           const distance = Math.abs(anchorY - dotCenterY)
           const f = focusFactor(distance)
+          const isHovered = cursorY !== null && distance === 0
           const hoverFactor = cursorY === null ? 0 : f
           const easedHoverFactor = hoverFactor * hoverFactor * (3 - 2 * hoverFactor)
           const scale = 1 + (MAX_DOT_SCALE - 1) * easedHoverFactor
-          const rowHeight = ROW_HEIGHT + MAX_ROW_EXTRA_HEIGHT * easedHoverFactor
 
           let opacity = f
           let size = MIN_DOT_SIZE + (MAX_DOT_SIZE - MIN_DOT_SIZE) * f
@@ -121,7 +123,7 @@ export function WorkspaceSessionsRail({
             size = MAX_DOT_SIZE
           }
 
-          const colorCls = isActive ? 'bg-primary' : dotColorClass(session, unseenCompletedSessions)
+          const colorCls = isHovered || isActive ? 'bg-primary' : dotColorClass(session, unseenCompletedSessions)
           const title =
             kind === 'tasks' && session.autopilot ? session.autopilot.taskName : session.title
 
@@ -133,8 +135,8 @@ export function WorkspaceSessionsRail({
                   onClick={() => handleSelect(session)}
                   aria-label={title}
                   aria-current={isActive ? 'true' : undefined}
-                  style={{ height: rowHeight, opacity }}
-                  className="flex w-full shrink-0 items-center justify-center transition-[height,opacity] duration-200 ease-out"
+                  style={{ height: ROW_HEIGHT, opacity }}
+                  className="flex w-full shrink-0 items-center justify-center transition-opacity duration-200 ease-out"
                 >
                   <span
                     className={cn(
