@@ -1718,6 +1718,7 @@ export function WorkspaceShell({
       onSelectSessionTab={handleSelectSessionTab}
       onOpenFile={handleOpenFile}
       onSendMessage={workspace.sendMessage}
+      onAnswerPermission={workspace.answerPermission}
       onAbortMessage={workspace.abortSession}
       isSending={workspace.isSending}
       models={workspace.models}

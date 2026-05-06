@@ -153,6 +153,16 @@ describe('oauth-config', () => {
       expect(result).toEqual({ authType: 'manual' })
     })
 
+    it('preserves connector tool permissions when replacing config', async () => {
+      const { mergeConnectorConfigWithPreservedOAuth } = await import('@/lib/connectors/oauth-config')
+      const result = mergeConnectorConfigWithPreservedOAuth({
+        connectorType: 'zendesk',
+        currentConfig: { mcpToolPermissions: { search_tickets: 'ask' } },
+        nextConfig: { subdomain: 'acme', email: 'a@example.com', apiToken: 'token' },
+      })
+      expect(result.mcpToolPermissions).toEqual({ search_tickets: 'ask' })
+    })
+
     it('returns next config when type is not OAuth', async () => {
       mockIsOAuthConnectorType.mockReturnValue(false)
       const { mergeConnectorConfigWithPreservedOAuth } = await import('@/lib/connectors/oauth-config')

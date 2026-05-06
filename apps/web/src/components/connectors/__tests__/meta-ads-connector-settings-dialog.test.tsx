@@ -85,6 +85,24 @@ describe('MetaAdsConnectorSettingsDialog', () => {
     vi.unstubAllGlobals()
   })
 
+  it('does not load settings while closed', () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <MetaAdsConnectorSettingsDialog
+        open={false}
+        slug="alice"
+        connectorId="conn-meta-1"
+        connectorName="Meta Ads"
+        onOpenChange={vi.fn()}
+      />
+    )
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(screen.queryByText('Meta Ads settings')).toBeNull()
+  })
+
   it('does not submit default values when the initial load fails', async () => {
     let resolveFetch: ((value: { ok: boolean; json: () => Promise<null> }) => void) | undefined
     const fetchMock = vi.fn().mockReturnValueOnce(
@@ -127,6 +145,99 @@ describe('MetaAdsConnectorSettingsDialog', () => {
     })
   })
 
+  it('shows network errors when the initial load throws', async () => {
+    const fetchMock = vi.fn().mockRejectedValueOnce(new Error('offline'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <MetaAdsConnectorSettingsDialog
+        open
+        slug="alice"
+        connectorId="conn-meta-1"
+        connectorName="Meta Ads"
+        onOpenChange={vi.fn()}
+      />
+    )
+
+    expect(await screen.findByText('Network error. Please try again.')).toBeTruthy()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows empty-account and save errors without closing', async () => {
+    const onOpenChange = vi.fn()
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => buildSettingsResponse({
+          adAccounts: [],
+          selectedAdAccountIds: [],
+          defaultAdAccountId: undefined,
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          tools: [],
+          policyConfigured: false,
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({ error: 'save_failed' }),
+      })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <MetaAdsConnectorSettingsDialog
+        open
+        slug="alice"
+        connectorId="conn-meta-1"
+        connectorName="Meta Ads"
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    expect(await screen.findByText('No accessible Meta ad accounts were returned for this OAuth connection.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+
+    expect(await screen.findByText('Failed to save connector changes.')).toBeTruthy()
+    expect(onOpenChange).not.toHaveBeenCalled()
+  })
+
+  it('shows ad account loading errors', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => buildSettingsResponse({
+          adAccounts: [],
+          adAccountsError: 'Meta API unavailable',
+          selectedAdAccountIds: [],
+          defaultAdAccountId: undefined,
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          tools: [],
+          policyConfigured: false,
+        }),
+      })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <MetaAdsConnectorSettingsDialog
+        open
+        slug="alice"
+        connectorId="conn-meta-1"
+        connectorName="Meta Ads"
+        onOpenChange={vi.fn()}
+      />
+    )
+
+    expect(await screen.findByText('Could not load ad accounts: Meta API unavailable')).toBeTruthy()
+    expect(screen.queryByText('No accessible Meta ad accounts were returned for this OAuth connection.')).toBeNull()
+  })
+
   it('keeps ad account switches disabled until OAuth is connected', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce({
       ok: true,
@@ -135,6 +246,12 @@ describe('MetaAdsConnectorSettingsDialog', () => {
         oauthExpiresAt: undefined,
         selectedAdAccountIds: [],
         defaultAdAccountId: undefined,
+      }),
+    }).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        tools: [],
+        policyConfigured: false,
       }),
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -150,7 +267,7 @@ describe('MetaAdsConnectorSettingsDialog', () => {
     )
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(fetchMock).toHaveBeenCalledTimes(2)
     })
 
     expect(screen.getByText('Connect OAuth from the connector card before selecting ad accounts.')).toBeTruthy()
@@ -165,6 +282,13 @@ describe('MetaAdsConnectorSettingsDialog', () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => buildSettingsResponse(),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          tools: [],
+          policyConfigured: false,
+        }),
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -186,7 +310,7 @@ describe('MetaAdsConnectorSettingsDialog', () => {
     )
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(fetchMock).toHaveBeenCalledTimes(2)
     })
 
     const defaultSelect = await screen.findByLabelText('Default ad account') as HTMLSelectElement
@@ -201,10 +325,10 @@ describe('MetaAdsConnectorSettingsDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(fetchMock).toHaveBeenCalledTimes(3)
     })
 
-    const [, patchRequest] = fetchMock.mock.calls[1] as [string, RequestInit]
+    const [, patchRequest] = fetchMock.mock.calls[2] as [string, RequestInit]
     expect(patchRequest.method).toBe('PATCH')
     expect(JSON.parse(String(patchRequest.body))).toEqual({
       appId: 'meta-app-id',

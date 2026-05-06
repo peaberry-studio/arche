@@ -27,6 +27,24 @@ describe('ZendeskConnectorSettingsDialog', () => {
     vi.unstubAllGlobals()
   })
 
+  it('does not load settings while closed', () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <ZendeskConnectorSettingsDialog
+        open={false}
+        slug="alice"
+        connectorId="conn-zendesk-1"
+        connectorName="Zendesk"
+        onOpenChange={vi.fn()}
+      />
+    )
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(screen.queryByText('Zendesk settings')).toBeNull()
+  })
+
   it('does not submit default permissions when the initial load fails', async () => {
     let resolveFetch: ((value: { ok: boolean; json: () => Promise<null> }) => void) | undefined
     const fetchMock = vi.fn().mockReturnValueOnce(
@@ -85,6 +103,12 @@ describe('ZendeskConnectorSettingsDialog', () => {
           allowInternalComments: false,
         },
       }),
+    }).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        tools: [],
+        policyConfigured: false,
+      }),
     })
 
     vi.stubGlobal('fetch', fetchMock)
@@ -100,7 +124,7 @@ describe('ZendeskConnectorSettingsDialog', () => {
     )
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(fetchMock).toHaveBeenCalledTimes(2)
     })
 
     expect(screen.getByText('Enable public comments or internal notes before allowing ticket creation.')).toBeTruthy()
@@ -122,5 +146,125 @@ describe('ZendeskConnectorSettingsDialog', () => {
         'Ticket creation needs at least one comment option. Disable ticket creation first to turn off the last enabled comment type.'
       )
     ).toBeTruthy()
+  })
+
+  it('saves loaded permissions and closes the dialog', async () => {
+    const onOpenChange = vi.fn()
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          permissions: {
+            allowRead: true,
+            allowCreateTickets: false,
+            allowUpdateTickets: true,
+            allowPublicComments: true,
+            allowInternalComments: false,
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          tools: [],
+          policyConfigured: false,
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          permissions: {
+            allowRead: false,
+            allowCreateTickets: false,
+            allowUpdateTickets: true,
+            allowPublicComments: true,
+            allowInternalComments: false,
+          },
+        }),
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <ZendeskConnectorSettingsDialog
+        open
+        slug="alice"
+        connectorId="conn-zendesk-1"
+        connectorName="Zendesk"
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
+
+    fireEvent.click(getPermissionSwitch('Read tickets'))
+    fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(3)
+    })
+    const [, patchRequest] = fetchMock.mock.calls[2] as [string, RequestInit]
+    expect(patchRequest.method).toBe('PATCH')
+    expect(JSON.parse(String(patchRequest.body))).toEqual({
+      permissions: {
+        allowRead: false,
+        allowCreateTickets: false,
+        allowUpdateTickets: true,
+        allowPublicComments: true,
+        allowInternalComments: false,
+      },
+    })
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('shows save errors without closing the dialog', async () => {
+    const onOpenChange = vi.fn()
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          permissions: {
+            allowRead: true,
+            allowCreateTickets: false,
+            allowUpdateTickets: true,
+            allowPublicComments: true,
+            allowInternalComments: false,
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          tools: [],
+          policyConfigured: false,
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({ error: 'save_failed' }),
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <ZendeskConnectorSettingsDialog
+        open
+        slug="alice"
+        connectorId="conn-zendesk-1"
+        connectorName="Zendesk"
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save settings' }))
+
+    expect(await screen.findByText('Failed to save connector changes.')).toBeTruthy()
+    expect(onOpenChange).not.toHaveBeenCalled()
   })
 })

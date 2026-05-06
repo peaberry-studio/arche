@@ -26,10 +26,8 @@ type ConnectorStatusMeta = {
   variant: 'success' | 'warning' | 'outline'
 }
 
-const CONFIGURABLE_CONNECTOR_TYPES = new Set<ConnectorType>(['zendesk', 'meta-ads'])
-
 function hasConnectorSettings(type: ConnectorType): boolean {
-  return CONFIGURABLE_CONNECTOR_TYPES.has(type)
+  return Boolean(type)
 }
 
 function getStatusMeta(connector: ConnectorListItem): ConnectorStatusMeta {

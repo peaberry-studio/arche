@@ -270,6 +270,26 @@ describe('mcp-config', () => {
         })
       })
 
+      it('returns stored connector tool permissions with the MCP server key', () => {
+        passGates({
+          apiKey: 'lin_key_123',
+          mcpToolPermissions: {
+            list_issues: 'allow',
+            create_issue: 'ask',
+          },
+        })
+        const connector = makeConnector({ type: 'linear', id: 'l1' })
+
+        const result = buildMcpConfigFromConnectors([connector])
+
+        expect(result.connectorToolPermissions).toEqual({
+          arche_linear_l1: {
+            list_issues: 'allow',
+            create_issue: 'ask',
+          },
+        })
+      })
+
       it('skips linear manual connector when apiKey is missing', () => {
         passGates({ apiKey: '' })
         const connector = makeConnector({ type: 'linear', id: 'l1' })

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useImperativeHandle, useState, type Ref } from 
 
 import { AddConnectorModal } from '@/components/connectors/add-connector-modal'
 import { ConnectorList } from '@/components/connectors/connector-list'
+import { ConnectorToolPermissionsDialog } from '@/components/connectors/connector-tool-permissions-dialog'
 import { getConnectorErrorMessage } from '@/components/connectors/error-messages'
 import { MetaAdsConnectorSettingsDialog } from '@/components/connectors/meta-ads-connector-settings-dialog'
 import { ZendeskConnectorSettingsDialog } from '@/components/connectors/zendesk-connector-settings-dialog'
@@ -320,6 +321,18 @@ export function ConnectorsPanel({ slug, oauthReturnTo, ref }: ConnectorsPanelPro
 
       <MetaAdsConnectorSettingsDialog
         open={settingsConnector?.type === 'meta-ads'}
+        slug={slug}
+        connectorId={settingsConnector?.id ?? null}
+        connectorName={settingsConnector?.name ?? null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSettingsConnector(null)
+          }
+        }}
+      />
+
+      <ConnectorToolPermissionsDialog
+        open={Boolean(settingsConnector && settingsConnector.type !== 'zendesk' && settingsConnector.type !== 'meta-ads')}
         slug={slug}
         connectorId={settingsConnector?.id ?? null}
         connectorName={settingsConnector?.name ?? null}

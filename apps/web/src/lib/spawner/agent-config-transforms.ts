@@ -1,4 +1,5 @@
 import { MCP_TOOL_PATTERN } from '@/lib/agent-capabilities'
+import type { ConnectorToolPermissionMap } from '@/lib/connectors/tool-permissions'
 import { CONNECTOR_TYPES, isSingleInstanceConnectorType, type ConnectorType } from '@/lib/connectors/types'
 
 const CONNECTOR_TYPE_PATTERN = CONNECTOR_TYPES.join('|')
@@ -7,6 +8,22 @@ const ALWAYS_ENABLED_TOOLS = ['email_draft'] as const
 
 function isToolMap(value: unknown): value is Record<string, boolean> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function buildExactConnectorToolName(serverKey: string, toolName: string): string {
+  return `${serverKey}_${toolName}`
+}
+
+function toPermissionMap(value: unknown): Record<string, unknown> {
+  if (typeof value === 'string') {
+    return { '*': value }
+  }
+
+  return isRecord(value) ? { ...value } : {}
 }
 
 export function injectAlwaysOnAgentTools(
@@ -102,6 +119,7 @@ export function injectSelfDelegationGuards(
 export function remapAgentConnectorTools(
   config: Record<string, unknown>,
   userMcpKeys: Set<string>,
+  connectorToolPermissions?: Record<string, ConnectorToolPermissionMap>,
 ): Record<string, unknown> {
   const agents = config.agent as Record<string, Record<string, unknown>> | undefined
   if (!agents || typeof agents !== 'object') return config
@@ -132,7 +150,28 @@ export function remapAgentConnectorTools(
     }
 
     const nextTools: Record<string, boolean> = {}
+    let nextPermission: Record<string, unknown> | undefined
     let toolsChanged = false
+    let permissionChanged = false
+
+    const applyConnectorToolPolicy = (serverKey: string, enabled: boolean) => {
+      const toolPermissions = connectorToolPermissions?.[serverKey]
+      if (!toolPermissions) {
+        nextTools[`${serverKey}_*`] = enabled
+        return
+      }
+
+      toolsChanged = true
+      nextPermission ??= toPermissionMap(agent.permission)
+
+      for (const [toolName, permission] of Object.entries(toolPermissions)) {
+        const exactToolName = buildExactConnectorToolName(serverKey, toolName)
+        nextTools[exactToolName] = enabled
+        nextPermission[exactToolName] = permission
+      }
+
+      permissionChanged = true
+    }
 
     for (const [toolKey, enabled] of Object.entries(tools)) {
       const match = toolKey.match(MCP_TOOL_PATTERN)
@@ -144,7 +183,13 @@ export function remapAgentConnectorTools(
       const [, type, adminId] = match
 
       if (!isSingleInstanceConnectorType(type as ConnectorType)) {
-        if (userMcpKeys.has(`arche_${type}_${adminId}`)) {
+        const serverKey = `arche_${type}_${adminId}`
+        if (userMcpKeys.has(serverKey)) {
+          if (connectorToolPermissions?.[serverKey]) {
+            applyConnectorToolPolicy(serverKey, enabled)
+            continue
+          }
+
           nextTools[toolKey] = enabled
           continue
         }
@@ -161,18 +206,27 @@ export function remapAgentConnectorTools(
       }
 
       if (userIds.length === 1 && userIds[0] === adminId) {
-        nextTools[toolKey] = enabled
+        const serverKey = `arche_${type}_${adminId}`
+        if (connectorToolPermissions?.[serverKey]) {
+          applyConnectorToolPolicy(serverKey, enabled)
+        } else {
+          nextTools[toolKey] = enabled
+        }
         continue
       }
 
       toolsChanged = true
       for (const userId of userIds) {
-        nextTools[`arche_${type}_${userId}_*`] = enabled
+        applyConnectorToolPolicy(`arche_${type}_${userId}`, enabled)
       }
     }
 
-    if (toolsChanged) {
-      nextAgents[agentId] = { ...agent, tools: nextTools }
+    if (toolsChanged || permissionChanged) {
+      nextAgents[agentId] = {
+        ...agent,
+        tools: nextTools,
+        ...(nextPermission ? { permission: nextPermission } : {}),
+      }
       changed = true
     } else {
       nextAgents[agentId] = agent

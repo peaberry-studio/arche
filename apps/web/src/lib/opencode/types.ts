@@ -98,6 +98,10 @@ export type ToolState =
   | { status: 'completed'; input: Record<string, unknown>; output: string; title: string; metadata?: Record<string, unknown> }
   | { status: 'error'; input: Record<string, unknown>; error: string; metadata?: Record<string, unknown> }
 
+export type PermissionResponse = 'once' | 'always' | 'reject'
+
+export type PermissionState = 'pending' | 'approved' | 'rejected'
+
 /**
  * Message part types we handle in UI.
  * Maps to OpenCode's Part types with UI-friendly structure.
@@ -111,6 +115,18 @@ export type MessagePart =
   
   // Tool parts
   | { type: 'tool'; id: string; name: string; state: ToolState }
+  | {
+      type: 'permission'
+      id: string
+      permissionId: string
+      sessionId: string
+      title: string
+      state: PermissionState
+      callId?: string
+      pattern?: string
+      permissionType?: string
+      metadata?: Record<string, unknown>
+    }
   
   // Step parts (for showing progress)
   | { type: 'step-start'; id: string; snapshot?: string }

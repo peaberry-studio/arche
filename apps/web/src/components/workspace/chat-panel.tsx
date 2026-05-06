@@ -53,7 +53,7 @@ import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { useAgentMentionAutocomplete } from "@/hooks/use-agent-mention-autocomplete";
 import type { SkillListItem } from "@/hooks/use-skills-catalog";
 import type { AgentCatalogItem } from "@/hooks/use-workspace";
-import type { AvailableModel } from "@/lib/opencode/types";
+import type { AvailableModel, PermissionResponse } from "@/lib/opencode/types";
 import { getDesktopPlatform, getOptionalDesktopBridge } from "@/lib/runtime/desktop/client";
 import {
   buildWorkspaceSessionMarkdown,
@@ -92,6 +92,11 @@ type ChatPanelProps = {
     text: string,
     model?: { providerId: string; modelId: string },
     options?: { attachments?: MessageAttachmentInput[]; contextPaths?: string[] }
+  ) => Promise<boolean>;
+  onAnswerPermission?: (
+    sessionId: string,
+    permissionId: string,
+    response: PermissionResponse
   ) => Promise<boolean>;
   onAbortMessage?: () => Promise<void> | void;
   isSending?: boolean;
@@ -178,6 +183,7 @@ export function ChatPanel({
   onSelectSessionTab,
   onOpenFile,
   onSendMessage,
+  onAnswerPermission,
   onAbortMessage,
   isSending = false,
   isStartingNewSession = false,
@@ -1024,6 +1030,7 @@ export function ChatPanel({
         messages={messages}
         messagesEndRef={messagesEndRef}
         onOpenFile={onOpenFile}
+        onAnswerPermission={onAnswerPermission}
         onScrollContainer={handleScrollContainer}
         onSelectSessionTab={onSelectSessionTab}
         scrollContainerRef={scrollContainerRef}
