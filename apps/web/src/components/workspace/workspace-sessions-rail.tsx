@@ -12,6 +12,7 @@ const FADE_RADIUS_PX = ROW_HEIGHT * FADE_END_INDEX
 const MAX_DOT_SIZE = 8
 const MIN_DOT_SIZE = 3
 const MAX_DOT_SCALE = 2.1
+const MAX_DOT_SPACING_SHIFT = 10
 
 type Kind = 'chats' | 'tasks'
 
@@ -88,13 +89,14 @@ export function WorkspaceSessionsRail({
 
   const anchorY =
     cursorY !== null
-      ? Math.max(
-          0,
-          Math.min(visibleSessions.length - 1, Math.floor(cursorY / ROW_HEIGHT))
-        ) * ROW_HEIGHT + ROW_HEIGHT / 2
+      ? cursorY
       : activeIndex >= 0
         ? activeIndex * ROW_HEIGHT + ROW_HEIGHT / 2
         : ROW_HEIGHT / 2
+  const hoveredIndex =
+    cursorY !== null
+      ? Math.max(0, Math.min(visibleSessions.length - 1, Math.floor(cursorY / ROW_HEIGHT)))
+      : -1
 
   return (
     <TooltipProvider delayDuration={150}>
@@ -110,10 +112,14 @@ export function WorkspaceSessionsRail({
           const isActive = session.id === activeSessionId
           const distance = Math.abs(anchorY - dotCenterY)
           const f = focusFactor(distance)
-          const isHovered = cursorY !== null && distance === 0
+          const isHovered = index === hoveredIndex
           const hoverFactor = cursorY === null ? 0 : f
           const easedHoverFactor = hoverFactor * hoverFactor * (3 - 2 * hoverFactor)
           const scale = 1 + (MAX_DOT_SCALE - 1) * easedHoverFactor
+          const offsetY =
+            cursorY === null
+              ? 0
+              : Math.sign(dotCenterY - anchorY) * MAX_DOT_SPACING_SHIFT * easedHoverFactor
 
           let opacity = f
           let size = MIN_DOT_SIZE + (MAX_DOT_SIZE - MIN_DOT_SIZE) * f
@@ -123,7 +129,9 @@ export function WorkspaceSessionsRail({
             size = MAX_DOT_SIZE
           }
 
-          const colorCls = isHovered || isActive ? 'bg-primary' : dotColorClass(session, unseenCompletedSessions)
+          const colorCls = isHovered || isActive
+            ? 'bg-primary'
+            : dotColorClass(session, unseenCompletedSessions)
           const title =
             kind === 'tasks' && session.autopilot ? session.autopilot.taskName : session.title
 
@@ -143,7 +151,11 @@ export function WorkspaceSessionsRail({
                       'block rounded-full transition-[width,height,transform] duration-200 ease-out will-change-transform',
                       colorCls
                     )}
-                    style={{ width: size, height: size, transform: `translateZ(0) scale(${scale})` }}
+                    style={{
+                      width: size,
+                      height: size,
+                      transform: `translate3d(0, ${offsetY}px, 0) scale(${scale})`,
+                    }}
                   />
                 </button>
               </TooltipTrigger>

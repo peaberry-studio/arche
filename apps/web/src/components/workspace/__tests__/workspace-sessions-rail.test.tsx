@@ -130,7 +130,7 @@ describe('WorkspaceSessionsRail', () => {
     expect(onMarkAutopilotRunSeen).toHaveBeenCalledWith('run-1')
   })
 
-  it('magnifies and accents the dot under the cursor without shifting rows', () => {
+  it('magnifies, accents, and spaces dots around the cursor smoothly', () => {
     render(
       <WorkspaceSessionsRail
         kind="chats"
@@ -163,7 +163,8 @@ describe('WorkspaceSessionsRail', () => {
 
     expect(previousDot.className).not.toContain('bg-primary')
     expect(focusedDot.className).toContain('bg-primary')
-    expect(focusedDot.style.transform).toBe('translateZ(0) scale(2.1)')
+    expect(focusedDot.style.transform).toBe('translate3d(0, 0px, 0) scale(2.1)')
+    expect(previousDot.style.transform).toContain('translate3d(0, -')
     expect(focusedButton.style.height).toBe('22px')
     expect(focusedButton.style.opacity).toBe('1')
   })
