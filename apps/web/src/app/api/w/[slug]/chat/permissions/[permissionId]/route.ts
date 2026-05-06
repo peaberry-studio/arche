@@ -61,7 +61,7 @@ export const POST = withAuth<
   )
 
   if (!response.ok) {
-    return jsonErrorResponse(response.status === 404 ? 404 : 502, 'permission_reply_failed')
+    return jsonErrorResponse(response.status >= 400 && response.status < 500 ? response.status : 502, 'permission_reply_failed')
   }
 
   return NextResponse.json({ ok: true })

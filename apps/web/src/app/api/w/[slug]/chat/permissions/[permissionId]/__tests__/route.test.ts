@@ -122,4 +122,14 @@ describe('POST /api/w/[slug]/chat/permissions/[permissionId]', () => {
     expect(res.status).toBe(502)
     expect(body.error).toBe('permission_reply_failed')
   })
+
+  it('preserves OpenCode client error statuses', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 403 })))
+
+    const res = await POST(makeRequest({ sessionId: 's1', response: 'once' }), params())
+    const body = await res.json()
+
+    expect(res.status).toBe(403)
+    expect(body.error).toBe('permission_reply_failed')
+  })
 })

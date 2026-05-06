@@ -261,7 +261,10 @@ describe("ChatPanelMessages", () => {
     expect(screen.getByText("Tool approval required")).toBeTruthy();
     expect(screen.getByText("Create Linear issue")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Permitir" }));
+    expect(screen.getByRole("button", { name: "Reject" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Always allow for this session" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Allow" }));
 
     await waitFor(() => {
       expect(onAnswerPermission).toHaveBeenCalledWith("s1", "perm-1", "once");

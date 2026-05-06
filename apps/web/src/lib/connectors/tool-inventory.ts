@@ -74,7 +74,7 @@ function buildRemoteHeaders(
   }
 
   const apiKey = getString(config.apiKey)
-  if ((type === 'linear' || type === 'notion') && apiKey) {
+  if (apiKey) {
     headers.Authorization = `Bearer ${apiKey}`
     return headers
   }

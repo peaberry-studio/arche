@@ -308,6 +308,33 @@ describe('remapAgentConnectorTools', () => {
     expect(permission['arche_linear_user123_create_issue']).toBe('ask')
   })
 
+  it('keeps exact connector permissions after string catch-all permissions', () => {
+    const config = {
+      agent: {
+        linear: {
+          tools: {
+            'arche_linear_admin123_*': true,
+          },
+          permission: 'deny',
+        },
+      },
+    }
+
+    const result = remapAgentConnectorTools(
+      config,
+      new Set(['arche_linear_user123']),
+      { arche_linear_user123: { list_issues: 'allow' } },
+    )
+    const agent = (result.agent as Record<string, Record<string, unknown>>).linear
+    const permission = agent.permission as Record<string, unknown>
+
+    expect(Object.keys(permission)).toEqual(['*', 'arche_linear_user123_list_issues'])
+    expect(permission).toEqual({
+      '*': 'deny',
+      arche_linear_user123_list_issues: 'allow',
+    })
+  })
+
   it('expands exact custom connector wildcard when tool permissions exist', () => {
     const config = {
       agent: {

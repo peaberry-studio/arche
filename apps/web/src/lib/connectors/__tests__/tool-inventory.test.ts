@@ -176,6 +176,30 @@ describe('loadConnectorToolInventory', () => {
     )
   })
 
+  it('uses API key auth for any remote connector inventory', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ result: { tools: [{ name: 'list_messages' }] } }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await loadConnectorToolInventory({
+      type: 'google_gmail',
+      config: { apiKey: 'remote-key' },
+    })
+
+    expect(result).toEqual({
+      ok: true,
+      tools: [{ name: 'list_messages', title: 'List messages', description: undefined }],
+    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://mcp.example/rpc',
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer remote-key' }),
+      }),
+    )
+  })
+
   it('loads remote tools with OAuth access tokens', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

@@ -1146,7 +1146,7 @@ function PermissionCard({
             onClick={() => void handleAnswer("once")}
             className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-opacity disabled:opacity-50"
           >
-            {submittingResponse === "once" ? "Enviando..." : "Permitir"}
+            {submittingResponse === "once" ? "Sending..." : "Allow"}
           </button>
           <button
             type="button"
@@ -1154,7 +1154,7 @@ function PermissionCard({
             onClick={() => void handleAnswer("reject")}
             className="rounded-md border border-destructive/30 px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
           >
-            {submittingResponse === "reject" ? "Enviando..." : "Rechazar"}
+            {submittingResponse === "reject" ? "Sending..." : "Reject"}
           </button>
           <button
             type="button"
@@ -1162,7 +1162,7 @@ function PermissionCard({
             onClick={() => void handleAnswer("always")}
             className="rounded-md border border-border/60 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
           >
-            {submittingResponse === "always" ? "Enviando..." : "Permitir siempre durante esta sesión"}
+            {submittingResponse === "always" ? "Sending..." : "Always allow for this session"}
           </button>
         </div>
       ) : null}
