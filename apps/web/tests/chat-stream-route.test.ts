@@ -260,7 +260,8 @@ describe('POST /api/w/[slug]/chat/stream', () => {
 
     expect(eventSignal).toBeInstanceOf(AbortSignal)
     expect(eventSignal).not.toBe(abortController.signal)
-    expect(promptSignal).toBeUndefined()
+    expect(promptSignal).toBeInstanceOf(AbortSignal)
+    expect(promptSignal).not.toBe(abortController.signal)
   })
 
   it('keeps the prompt request running when the client disconnects during startup', async () => {
@@ -330,7 +331,9 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     abortController.abort()
 
     expect(upstreamAborted).toBe(true)
-    expect(promptSignal).toBeUndefined()
+    expect(promptSignal).toBeInstanceOf(AbortSignal)
+    expect(promptSignal).not.toBe(abortController.signal)
+    expect(promptSignal?.aborted).toBe(false)
 
     const resolvePrompt = promptResolve
     if (!resolvePrompt) {
@@ -338,14 +341,67 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     }
     resolvePrompt(new Response('', { status: 200 }))
 
-    const result = await Promise.race([
-      responseTextPromise.then(() => 'closed'),
-      new Promise<string>((resolve) => {
-        setTimeout(() => resolve('timeout'), 100)
-      }),
-    ])
+    await responseTextPromise
+  })
 
-    expect(result).toBe('closed')
+  it('fails prompt startup when the detached prompt request times out', async () => {
+    const timeoutController = new AbortController()
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, 'timeout')
+      .mockReturnValue(timeoutController.signal)
+
+    try {
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+
+        if (url.endsWith('/event')) {
+          return new Response(
+            new ReadableStream<Uint8Array>(),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'text/event-stream' },
+            },
+          )
+        }
+
+        if (url.includes('/prompt_async')) {
+          return new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              'abort',
+              () => reject(new DOMException('Timed out', 'AbortError')),
+              { once: true },
+            )
+          })
+        }
+
+        throw new Error(`Unexpected fetch url: ${url}`)
+      })
+      vi.stubGlobal('fetch', fetchMock)
+
+      const { POST } = await loadRoute()
+      const response = await POST(
+        createRequest(
+          'alice',
+          JSON.stringify({ sessionId: 'session-1', text: 'Hello' }),
+        ) as never,
+        {
+          params: Promise.resolve({ slug: 'alice' }),
+        },
+      )
+
+      expect(response.status).toBe(200)
+
+      const responseTextPromise = response.text()
+      await vi.waitFor(() => {
+        expect(timeoutSpy).toHaveBeenCalledWith(60_000)
+      })
+
+      timeoutController.abort()
+
+      await expect(responseTextPromise).resolves.toContain('prompt_start_timeout')
+    } finally {
+      timeoutSpy.mockRestore()
+    }
   })
 
   it('aborts the upstream event stream and closes the SSE response when the client disconnects', async () => {

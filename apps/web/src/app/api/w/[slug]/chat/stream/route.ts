@@ -49,6 +49,7 @@ const MAX_CONTEXT_REFERENCES_PER_MESSAGE = 20
 const STREAM_RELEVANT_EVENT_TICK_MS = 1000
 const SEND_STREAM_RELEVANT_EVENT_TIMEOUT_MS = 20_000
 const RESUME_STREAM_RELEVANT_EVENT_TIMEOUT_MS = 12_000
+const PROMPT_START_TIMEOUT_MS = 60_000
 
 function jsonErrorResponse(status: number, error: string) {
   return NextResponse.json({ error }, { status })
@@ -56,6 +57,10 @@ function jsonErrorResponse(status: number, error: string) {
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError'
+}
+
+function isTimeoutError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'TimeoutError'
 }
 
 function normalizeContextPaths(value: unknown): string[] {
@@ -542,14 +547,26 @@ export const POST = withAuth(
 
           const promptUrl = `${baseUrl}/session/${sessionId}/prompt_async`
 
-          const promptResponse = await fetch(promptUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': authHeader
-            },
-            body: JSON.stringify(promptBody),
-          })
+          const promptStartSignal = AbortSignal.timeout(PROMPT_START_TIMEOUT_MS)
+          let promptResponse: Response
+          try {
+            promptResponse = await fetch(promptUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': authHeader
+              },
+              body: JSON.stringify(promptBody),
+              signal: promptStartSignal,
+            })
+          } catch (error) {
+            if (isTimeoutError(error) || (promptStartSignal.aborted && isAbortError(error))) {
+              sendEvent('error', { error: 'prompt_start_timeout' })
+              await cancelReader()
+              return
+            }
+            throw error
+          }
 
           if (!promptResponse.ok) {
             const errorText = await promptResponse.text()
