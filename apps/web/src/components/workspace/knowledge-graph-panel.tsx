@@ -53,7 +53,15 @@ const NODE_RADIUS_AGENT = 6
 const ACTIVE_BOOST = 2.5
 const LABEL_BASE_OPACITY = 0.25
 const LABEL_FULL_ZOOM = 1.4
+const LABEL_SCREEN_FONT_SIZE = 8
+const LABEL_SCREEN_GAP = 7
 const CHARGE_DISTANCE_MAX = 240
+
+type LayoutTarget = {
+  strength: number
+  x: number
+  y: number
+}
 
 function flattenMarkdownFilePaths(nodes: WorkspaceFileNode[]): string[] {
   const paths: string[] = []
@@ -76,6 +84,142 @@ function flattenMarkdownFilePaths(nodes: WorkspaceFileNode[]): string[] {
 
 function shortenLabel(label: string): string {
   return label.length > 30 ? `${label.slice(0, 27)}...` : label
+}
+
+function buildLayoutTargets(
+  nodes: SimNode[],
+  edges: KnowledgeGraphEdge[],
+  width: number,
+  height: number
+): Map<string, LayoutTarget> {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]))
+  const neighborsById = new Map<string, string[]>()
+  for (const node of nodes) {
+    neighborsById.set(node.id, [])
+  }
+
+  for (const edge of edges) {
+    if (!nodeById.has(edge.source) || !nodeById.has(edge.target)) continue
+    neighborsById.get(edge.source)?.push(edge.target)
+    neighborsById.get(edge.target)?.push(edge.source)
+  }
+
+  const visited = new Set<string>()
+  const components: SimNode[][] = []
+
+  for (const node of nodes) {
+    if (visited.has(node.id)) continue
+
+    const component: SimNode[] = []
+    const stack = [node.id]
+    visited.add(node.id)
+
+    while (stack.length > 0) {
+      const id = stack.pop()
+      if (!id) continue
+
+      const current = nodeById.get(id)
+      if (!current) continue
+
+      component.push(current)
+
+      for (const neighborId of neighborsById.get(id) ?? []) {
+        if (visited.has(neighborId)) continue
+        visited.add(neighborId)
+        stack.push(neighborId)
+      }
+    }
+
+    components.push(component)
+  }
+
+  components.sort(
+    (left, right) =>
+      right.length - left.length ||
+      (left[0]?.label ?? '').localeCompare(right[0]?.label ?? '')
+  )
+
+  const targets = new Map<string, LayoutTarget>()
+  const componentCount = Math.max(components.length, 1)
+  const aspectRatio = width / Math.max(height, 1)
+  const columns = Math.min(
+    componentCount,
+    Math.max(1, Math.ceil(Math.sqrt(componentCount * aspectRatio)))
+  )
+  const rows = Math.max(1, Math.ceil(componentCount / columns))
+  const paddingX = Math.min(88, Math.max(32, width * 0.1))
+  const paddingY = Math.min(76, Math.max(28, height * 0.12))
+  const usableWidth = Math.max(width - paddingX * 2, width * 0.55)
+  const usableHeight = Math.max(height - paddingY * 2, height * 0.55)
+  const originX = (width - usableWidth) / 2
+  const originY = (height - usableHeight) / 2
+  const cellWidth = usableWidth / columns
+  const cellHeight = usableHeight / rows
+
+  const slots = Array.from({ length: componentCount }, (_, index) => {
+    const column = index % columns
+    const row = Math.floor(index / columns)
+    const x = originX + column * cellWidth + cellWidth / 2
+    const y = originY + row * cellHeight + cellHeight / 2
+    return {
+      index,
+      x,
+      y,
+      distanceFromCenter: (x - width / 2) ** 2 + (y - height / 2) ** 2,
+    }
+  }).sort(
+    (left, right) =>
+      left.distanceFromCenter - right.distanceFromCenter || left.index - right.index
+  )
+
+  const degreeById = new Map(nodes.map((node) => [node.id, 0]))
+  for (const edge of edges) {
+    degreeById.set(edge.source, (degreeById.get(edge.source) ?? 0) + 1)
+    degreeById.set(edge.target, (degreeById.get(edge.target) ?? 0) + 1)
+  }
+
+  components.forEach((component, componentIndex) => {
+    const slot = slots[componentIndex]
+    if (!slot) return
+
+    const componentNodes = [...component].sort(
+      (left, right) =>
+        (degreeById.get(right.id) ?? 0) - (degreeById.get(left.id) ?? 0) ||
+        left.kind.localeCompare(right.kind) ||
+        left.label.localeCompare(right.label)
+    )
+    const localColumns = Math.max(1, Math.ceil(Math.sqrt(componentNodes.length)))
+    const localRows = Math.max(1, Math.ceil(componentNodes.length / localColumns))
+    const localSpacingX = Math.min(84, cellWidth / Math.max(localColumns, 1))
+    const localSpacingY = Math.min(68, cellHeight / Math.max(localRows, 1))
+    const localSlots = Array.from({ length: componentNodes.length }, (_, index) => {
+      const column = index % localColumns
+      const row = Math.floor(index / localColumns)
+      const x = slot.x + (column - (localColumns - 1) / 2) * localSpacingX
+      const y = slot.y + (row - (localRows - 1) / 2) * localSpacingY
+      return {
+        index,
+        x,
+        y,
+        distanceFromCenter: (x - slot.x) ** 2 + (y - slot.y) ** 2,
+      }
+    }).sort(
+      (left, right) =>
+        left.distanceFromCenter - right.distanceFromCenter || left.index - right.index
+    )
+
+    componentNodes.forEach((node, index) => {
+      const localSlot = localSlots[index]
+      if (!localSlot) return
+      targets.set(node.id, {
+        strength: component.length === 1 ? 0.28 : 0.08,
+        x: localSlot.x,
+        y: localSlot.y,
+      })
+    })
+  })
+
+  return targets
 }
 
 export function KnowledgeGraphPanel({
@@ -174,11 +318,7 @@ export function KnowledgeGraphPanel({
       if (existing) {
         return Object.assign(existing, node)
       }
-      return {
-        ...node,
-        x: size.width / 2 + (Math.random() - 0.5) * 80,
-        y: size.height / 2 + (Math.random() - 0.5) * 80,
-      }
+      return { ...node }
     })
     const nextEdges: SimEdge[] = graph.edges.map((edge) => ({
       id: edge.id,
@@ -186,6 +326,19 @@ export function KnowledgeGraphPanel({
       source: edge.source,
       target: edge.target,
     }))
+    const layoutTargets = buildLayoutTargets(
+      nextNodes,
+      graph.edges,
+      size.width,
+      size.height
+    )
+
+    for (const node of nextNodes) {
+      const target = layoutTargets.get(node.id)
+      if (!target || (typeof node.x === 'number' && typeof node.y === 'number')) continue
+      node.x = target.x
+      node.y = target.y
+    }
 
     simNodesRef.current = nextNodes
     simEdgesRef.current = nextEdges
@@ -196,7 +349,7 @@ export function KnowledgeGraphPanel({
       degreeById.set(edge.target, (degreeById.get(edge.target) ?? 0) + 1)
     }
     const positionStrength = (node: SimNode) =>
-      (degreeById.get(node.id) ?? 0) === 0 ? 0.18 : 0.04
+      layoutTargets.get(node.id)?.strength ?? 0.08
 
     simulationRef.current?.stop()
     const simulation = forceSimulation<SimNode, SimEdge>(nextNodes)
@@ -204,8 +357,8 @@ export function KnowledgeGraphPanel({
         'link',
         forceLink<SimNode, SimEdge>(nextEdges)
           .id((d) => d.id)
-          .distance(130)
-          .strength(0.4)
+          .distance((edge) => (edge.kind === 'agent-reference' ? 150 : 120))
+          .strength(0.34)
       )
       .force(
         'charge',
@@ -219,9 +372,19 @@ export function KnowledgeGraphPanel({
         'center',
         forceCenter<SimNode>(size.width / 2, size.height / 2).strength(0.05)
       )
-      .force('x', forceX<SimNode>(size.width / 2).strength(positionStrength))
-      .force('y', forceY<SimNode>(size.height / 2).strength(positionStrength))
-      .force('collide', forceCollide<SimNode>(32))
+      .force(
+        'x',
+        forceX<SimNode>((node) =>
+          layoutTargets.get(node.id)?.x ?? size.width / 2
+        ).strength(positionStrength)
+      )
+      .force(
+        'y',
+        forceY<SimNode>((node) =>
+          layoutTargets.get(node.id)?.y ?? size.height / 2
+        ).strength(positionStrength)
+      )
+      .force('collide', forceCollide<SimNode>(38).strength(0.85))
       .alpha(1)
       .alphaDecay(0.03)
       .on('tick', () => {
@@ -322,6 +485,7 @@ export function KnowledgeGraphPanel({
     LABEL_BASE_OPACITY,
     Math.min(1, (transform.k - 0.6) / (LABEL_FULL_ZOOM - 0.6))
   )
+  const labelZoomScale = Math.max(1, transform.k)
 
   const connectedIds = useMemo(() => {
     if (!hoverNodeId) return new Set<string>()
@@ -448,12 +612,13 @@ export function KnowledgeGraphPanel({
                         )}
                       />
                       <text
-                        y={radius + 10}
+                        y={radius + LABEL_SCREEN_GAP / labelZoomScale}
                         textAnchor="middle"
                         style={{
+                          fontSize: `${LABEL_SCREEN_FONT_SIZE / labelZoomScale}px`,
                           opacity: isHovered || isActive ? 1 : labelOpacity,
                         }}
-                        className="pointer-events-none fill-muted-foreground text-[9px] font-medium"
+                        className="pointer-events-none fill-muted-foreground font-medium"
                       >
                         {shortenLabel(node.label)}
                       </text>
