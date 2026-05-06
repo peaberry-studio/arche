@@ -9,8 +9,9 @@ import type { WorkspaceSession } from '@/lib/opencode/types'
 const ROW_HEIGHT = 22
 const FADE_END_INDEX = 6
 const FADE_RADIUS_PX = ROW_HEIGHT * FADE_END_INDEX
+const DOT_RENDER_SIZE = 18
 const MAX_DOT_SIZE = 8
-const MIN_DOT_SCALE = 0.38
+const MIN_DOT_SIZE = 3
 const MAX_DOT_SCALE = 2.1
 const MAX_DOT_GAP_EXTRA = 5
 
@@ -70,6 +71,7 @@ export function WorkspaceSessionsRail({
   const cursorYRef = useRef<number | null>(null)
   const dotElsRef = useRef<Map<string, HTMLSpanElement>>(new Map())
   const frameRef = useRef<number | null>(null)
+  const pointerStrengthRef = useRef(0)
   const [hoveredIndex, setHoveredIndex] = useState(-1)
 
   const visibleSessions = useMemo(
@@ -97,16 +99,16 @@ export function WorkspaceSessionsRail({
   )
 
   const applyRailStyles = useCallback(
-    (anchorY: number, isPointerActive: boolean) => {
+    (anchorY: number, pointerStrength: number) => {
       visibleSessions.forEach((session, index) => {
         const dotCenterY = index * ROW_HEIGHT + ROW_HEIGHT / 2
         const distance = Math.abs(anchorY - dotCenterY)
         const f = focusFactor(distance)
-        const hoverFactor = isPointerActive ? f : 0
+        const hoverFactor = f * pointerStrength
         const easedHoverFactor = easeFocusFactor(hoverFactor)
-        const baseScale = MIN_DOT_SCALE + (1 - MIN_DOT_SCALE) * f
-        const scale = baseScale * (1 + (MAX_DOT_SCALE - 1) * easedHoverFactor)
-        const offsetY = isPointerActive ? getDotSpacingOffset(anchorY, index) : 0
+        const baseSize = MIN_DOT_SIZE + (MAX_DOT_SIZE - MIN_DOT_SIZE) * f
+        const scale = (baseSize * (1 + (MAX_DOT_SCALE - 1) * easedHoverFactor)) / DOT_RENDER_SIZE
+        const offsetY = getDotSpacingOffset(anchorY, index) * pointerStrength
         const opacity = session.id === activeSessionId ? 1 : f
 
         const buttonEl = buttonElsRef.current.get(session.id)
@@ -124,18 +126,29 @@ export function WorkspaceSessionsRail({
       cursorYRef.current = nextCursorY
       if (frameRef.current !== null) return
 
-      frameRef.current = requestAnimationFrame(() => {
+      const updateFrame = () => {
         frameRef.current = null
         const cursorY = cursorYRef.current
-        const isPointerActive = cursorY !== null
-        const anchorY = isPointerActive ? cursorY : getRailAnchorY(activeIndex)
-        const nextHoveredIndex = isPointerActive
+        const targetStrength = cursorY === null ? 0 : 1
+        const nextStrength = pointerStrengthRef.current + (targetStrength - pointerStrengthRef.current) * 0.28
+        const pointerStrength = Math.abs(nextStrength - targetStrength) < 0.01 ? targetStrength : nextStrength
+        const restAnchorY = getRailAnchorY(activeIndex)
+        const pointerAnchorY = cursorY ?? restAnchorY
+        const anchorY = restAnchorY + (pointerAnchorY - restAnchorY) * pointerStrength
+        const nextHoveredIndex = cursorY !== null && pointerStrength > 0.2
           ? Math.max(0, Math.min(visibleSessions.length - 1, Math.floor(cursorY / ROW_HEIGHT)))
           : -1
 
-        applyRailStyles(anchorY, isPointerActive)
+        pointerStrengthRef.current = pointerStrength
+        applyRailStyles(anchorY, pointerStrength)
         setHoveredIndex((current) => (current === nextHoveredIndex ? current : nextHoveredIndex))
-      })
+
+        if (pointerStrength !== targetStrength) {
+          frameRef.current = requestAnimationFrame(updateFrame)
+        }
+      }
+
+      frameRef.current = requestAnimationFrame(updateFrame)
     },
     [activeIndex, applyRailStyles, visibleSessions.length]
   )
@@ -152,7 +165,7 @@ export function WorkspaceSessionsRail({
   }, [scheduleRailUpdate])
 
   useLayoutEffect(() => {
-    applyRailStyles(getRailAnchorY(activeIndex), false)
+    applyRailStyles(getRailAnchorY(activeIndex), 0)
   }, [activeIndex, applyRailStyles])
 
   useLayoutEffect(() => {
@@ -203,13 +216,13 @@ export function WorkspaceSessionsRail({
                       else dotElsRef.current.delete(session.id)
                     }}
                     className={cn(
-                      'block rounded-full will-change-transform',
+                      'block rounded-full transform-gpu transition-colors duration-150 ease-out will-change-transform',
                       hoveredIndex < 0 && 'transition-transform duration-200 ease-out',
                       colorCls
                     )}
                     style={{
-                      width: MAX_DOT_SIZE,
-                      height: MAX_DOT_SIZE,
+                      width: DOT_RENDER_SIZE,
+                      height: DOT_RENDER_SIZE,
                     }}
                   />
                 </button>
