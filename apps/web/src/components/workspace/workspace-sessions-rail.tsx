@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
@@ -10,9 +10,9 @@ const ROW_HEIGHT = 22
 const FADE_END_INDEX = 6
 const FADE_RADIUS_PX = ROW_HEIGHT * FADE_END_INDEX
 const MAX_DOT_SIZE = 8
-const MIN_DOT_SIZE = 3
+const MIN_DOT_SCALE = 0.38
 const MAX_DOT_SCALE = 2.1
-const MAX_DOT_SPACING_SHIFT = 10
+const MAX_DOT_GAP_EXTRA = 5
 
 type Kind = 'chats' | 'tasks'
 
@@ -39,6 +39,24 @@ function focusFactor(distancePx: number): number {
   return 1 - distancePx / FADE_RADIUS_PX
 }
 
+function easeFocusFactor(factor: number): number {
+  return factor * factor * (3 - 2 * factor)
+}
+
+function getDotSpacingOffset(anchorY: number, index: number): number {
+  const dotCenterY = index * ROW_HEIGHT + ROW_HEIGHT / 2
+  const distance = dotCenterY - anchorY
+  const normalizedDistance = Math.min(Math.abs(distance) / FADE_RADIUS_PX, 1)
+  const offsetMagnitude =
+    (MAX_DOT_GAP_EXTRA * FADE_END_INDEX * (1 - (1 - normalizedDistance) ** 3)) / 3
+
+  return Math.sign(distance) * offsetMagnitude
+}
+
+function getRailAnchorY(activeIndex: number): number {
+  return activeIndex >= 0 ? activeIndex * ROW_HEIGHT + ROW_HEIGHT / 2 : ROW_HEIGHT / 2
+}
+
 export function WorkspaceSessionsRail({
   kind,
   sessions,
@@ -48,7 +66,11 @@ export function WorkspaceSessionsRail({
   onMarkAutopilotRunSeen,
 }: WorkspaceSessionsRailProps) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const [cursorY, setCursorY] = useState<number | null>(null)
+  const buttonElsRef = useRef<Map<string, HTMLButtonElement>>(new Map())
+  const cursorYRef = useRef<number | null>(null)
+  const dotElsRef = useRef<Map<string, HTMLSpanElement>>(new Map())
+  const frameRef = useRef<number | null>(null)
+  const [hoveredIndex, setHoveredIndex] = useState(-1)
 
   const visibleSessions = useMemo(
     () =>
@@ -63,17 +85,6 @@ export function WorkspaceSessionsRail({
     return visibleSessions.findIndex((session) => session.id === activeSessionId)
   }, [activeSessionId, visibleSessions])
 
-  const handleMouseMove = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-    const node = containerRef.current
-    if (!node) return
-    const rect = node.getBoundingClientRect()
-    setCursorY(event.clientY - rect.top + node.scrollTop)
-  }, [])
-
-  const handleMouseLeave = useCallback(() => {
-    setCursorY(null)
-  }, [])
-
   const handleSelect = useCallback(
     (session: WorkspaceSession) => {
       onSelectSession(session.id)
@@ -85,18 +96,72 @@ export function WorkspaceSessionsRail({
     [onMarkAutopilotRunSeen, onSelectSession]
   )
 
-  if (visibleSessions.length === 0) return null
+  const applyRailStyles = useCallback(
+    (anchorY: number, isPointerActive: boolean) => {
+      visibleSessions.forEach((session, index) => {
+        const dotCenterY = index * ROW_HEIGHT + ROW_HEIGHT / 2
+        const distance = Math.abs(anchorY - dotCenterY)
+        const f = focusFactor(distance)
+        const hoverFactor = isPointerActive ? f : 0
+        const easedHoverFactor = easeFocusFactor(hoverFactor)
+        const baseScale = MIN_DOT_SCALE + (1 - MIN_DOT_SCALE) * f
+        const scale = baseScale * (1 + (MAX_DOT_SCALE - 1) * easedHoverFactor)
+        const offsetY = isPointerActive ? getDotSpacingOffset(anchorY, index) : 0
+        const opacity = session.id === activeSessionId ? 1 : f
 
-  const anchorY =
-    cursorY !== null
-      ? cursorY
-      : activeIndex >= 0
-        ? activeIndex * ROW_HEIGHT + ROW_HEIGHT / 2
-        : ROW_HEIGHT / 2
-  const hoveredIndex =
-    cursorY !== null
-      ? Math.max(0, Math.min(visibleSessions.length - 1, Math.floor(cursorY / ROW_HEIGHT)))
-      : -1
+        const buttonEl = buttonElsRef.current.get(session.id)
+        if (buttonEl) buttonEl.style.opacity = String(opacity)
+
+        const dotEl = dotElsRef.current.get(session.id)
+        if (dotEl) dotEl.style.transform = `translate3d(0, ${offsetY}px, 0) scale(${scale})`
+      })
+    },
+    [activeSessionId, visibleSessions]
+  )
+
+  const scheduleRailUpdate = useCallback(
+    (nextCursorY: number | null) => {
+      cursorYRef.current = nextCursorY
+      if (frameRef.current !== null) return
+
+      frameRef.current = requestAnimationFrame(() => {
+        frameRef.current = null
+        const cursorY = cursorYRef.current
+        const isPointerActive = cursorY !== null
+        const anchorY = isPointerActive ? cursorY : getRailAnchorY(activeIndex)
+        const nextHoveredIndex = isPointerActive
+          ? Math.max(0, Math.min(visibleSessions.length - 1, Math.floor(cursorY / ROW_HEIGHT)))
+          : -1
+
+        applyRailStyles(anchorY, isPointerActive)
+        setHoveredIndex((current) => (current === nextHoveredIndex ? current : nextHoveredIndex))
+      })
+    },
+    [activeIndex, applyRailStyles, visibleSessions.length]
+  )
+
+  const handleMouseMove = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    const node = containerRef.current
+    if (!node) return
+    const rect = node.getBoundingClientRect()
+    scheduleRailUpdate(event.clientY - rect.top + node.scrollTop)
+  }, [scheduleRailUpdate])
+
+  const handleMouseLeave = useCallback(() => {
+    scheduleRailUpdate(null)
+  }, [scheduleRailUpdate])
+
+  useLayoutEffect(() => {
+    applyRailStyles(getRailAnchorY(activeIndex), false)
+  }, [activeIndex, applyRailStyles])
+
+  useLayoutEffect(() => {
+    return () => {
+      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current)
+    }
+  }, [])
+
+  if (visibleSessions.length === 0) return null
 
   return (
     <TooltipProvider delayDuration={150}>
@@ -108,26 +173,8 @@ export function WorkspaceSessionsRail({
         aria-label={kind === 'tasks' ? 'Tasks' : 'Chats'}
       >
         {visibleSessions.map((session, index) => {
-          const dotCenterY = index * ROW_HEIGHT + ROW_HEIGHT / 2
           const isActive = session.id === activeSessionId
-          const distance = Math.abs(anchorY - dotCenterY)
-          const f = focusFactor(distance)
           const isHovered = index === hoveredIndex
-          const hoverFactor = cursorY === null ? 0 : f
-          const easedHoverFactor = hoverFactor * hoverFactor * (3 - 2 * hoverFactor)
-          const scale = 1 + (MAX_DOT_SCALE - 1) * easedHoverFactor
-          const offsetY =
-            cursorY === null
-              ? 0
-              : Math.sign(dotCenterY - anchorY) * MAX_DOT_SPACING_SHIFT * easedHoverFactor
-
-          let opacity = f
-          let size = MIN_DOT_SIZE + (MAX_DOT_SIZE - MIN_DOT_SIZE) * f
-
-          if (isActive) {
-            opacity = 1
-            size = MAX_DOT_SIZE
-          }
 
           const colorCls = isHovered || isActive
             ? 'bg-primary'
@@ -140,21 +187,29 @@ export function WorkspaceSessionsRail({
               <TooltipTrigger asChild>
                 <button
                   type="button"
+                  ref={(el) => {
+                    if (el) buttonElsRef.current.set(session.id, el)
+                    else buttonElsRef.current.delete(session.id)
+                  }}
                   onClick={() => handleSelect(session)}
                   aria-label={title}
                   aria-current={isActive ? 'true' : undefined}
-                  style={{ height: ROW_HEIGHT, opacity }}
+                  style={{ height: ROW_HEIGHT }}
                   className="flex w-full shrink-0 items-center justify-center transition-opacity duration-200 ease-out"
                 >
                   <span
+                    ref={(el) => {
+                      if (el) dotElsRef.current.set(session.id, el)
+                      else dotElsRef.current.delete(session.id)
+                    }}
                     className={cn(
-                      'block rounded-full transition-[width,height,transform] duration-200 ease-out will-change-transform',
+                      'block rounded-full will-change-transform',
+                      hoveredIndex < 0 && 'transition-transform duration-200 ease-out',
                       colorCls
                     )}
                     style={{
-                      width: size,
-                      height: size,
-                      transform: `translate3d(0, ${offsetY}px, 0) scale(${scale})`,
+                      width: MAX_DOT_SIZE,
+                      height: MAX_DOT_SIZE,
                     }}
                   />
                 </button>

@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { WorkspaceSessionsRail } from '@/components/workspace/workspace-sessions-rail'
@@ -130,7 +130,7 @@ describe('WorkspaceSessionsRail', () => {
     expect(onMarkAutopilotRunSeen).toHaveBeenCalledWith('run-1')
   })
 
-  it('magnifies, accents, and spaces dots around the cursor smoothly', () => {
+  it('magnifies, accents, and spaces dots around the cursor smoothly', async () => {
     render(
       <WorkspaceSessionsRail
         kind="chats"
@@ -161,8 +161,9 @@ describe('WorkspaceSessionsRail', () => {
 
     fireEvent.mouseMove(rail, { clientY: 33 })
 
+    await waitFor(() => expect(focusedDot.className).toContain('bg-primary'))
+
     expect(previousDot.className).not.toContain('bg-primary')
-    expect(focusedDot.className).toContain('bg-primary')
     expect(focusedDot.style.transform).toBe('translate3d(0, 0px, 0) scale(2.1)')
     expect(previousDot.style.transform).toContain('translate3d(0, -')
     expect(focusedButton.style.height).toBe('22px')

@@ -162,7 +162,7 @@ export function WorkspaceTopNav({
         onModeChange={onModeChange}
         knowledgePendingCount={knowledgePendingCount}
         hideTasks={hideTasksMode}
-        className={cn(macDesktopWindowInset && 'desktop-titlebar-no-drag')}
+        className={cn(macDesktopWindowInset && 'desktop-titlebar-no-drag mb-2')}
       />
 
       <div className="flex min-w-0 justify-end">
