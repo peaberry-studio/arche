@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { WorkspaceSessionsRail } from '@/components/workspace/workspace-sessions-rail'
@@ -130,7 +130,7 @@ describe('WorkspaceSessionsRail', () => {
     expect(onMarkAutopilotRunSeen).toHaveBeenCalledWith('run-1')
   })
 
-  it('expands nearby row spacing while magnifying dots', () => {
+  it('magnifies, accents, and spaces dots around the cursor smoothly', async () => {
     render(
       <WorkspaceSessionsRail
         kind="chats"
@@ -155,16 +155,19 @@ describe('WorkspaceSessionsRail', () => {
       toJSON: () => ({}),
     })
 
-    const focusedButton = screen.getByRole('button', { name: 'Idle chat' })
-    const distantButton = screen.getByRole('button', { name: 'Done chat' })
-    const baseHeight = parseFloat(focusedButton.style.height)
+    const focusedButton = screen.getByRole('button', { name: 'Busy chat' })
+    const focusedDot = dotFor('Busy chat')
+    const previousDot = dotFor('Idle chat')
 
-    fireEvent.mouseMove(rail, { clientY: 11 })
+    fireEvent.mouseMove(rail, { clientY: 33 })
 
-    expect(parseFloat(focusedButton.style.height)).toBeGreaterThan(baseHeight)
-    expect(parseFloat(focusedButton.style.height)).toBeGreaterThan(
-      parseFloat(distantButton.style.height)
-    )
+    await waitFor(() => expect(focusedDot.className).toContain('bg-primary'))
+    await waitFor(() => expect(previousDot.style.transform).toContain('translate3d(0, -'))
+
+    expect(previousDot.className).not.toContain('bg-primary')
+    expect(focusedDot.style.transform).toContain('translate3d(0,')
+    expect(focusedButton.style.height).toBe('22px')
+    expect(Number(focusedButton.style.opacity)).toBeGreaterThan(0)
   })
 
   it('renders nothing when the selected rail kind has no sessions', () => {
