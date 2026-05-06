@@ -86,6 +86,18 @@ describe('getConnectorMcpServerUrl', () => {
     expect(getConnectorMcpServerUrl('umami', { baseUrl: 'https://api.umami.is/v1' })).toBeNull()
   })
 
+  it('does not let stored OAuth MCP URLs influence hosted connector URLs except Linear and Notion', () => {
+    expect(getConnectorMcpServerUrl('google_gmail', {
+      authType: 'oauth',
+      oauth: {
+        provider: 'google_gmail',
+        accessToken: 'token',
+        clientId: 'client-1',
+        mcpServerUrl: 'https://attacker.example/mcp',
+      },
+    })).toBe('https://gmailmcp.googleapis.com/mcp/v1')
+  })
+
   it('returns official Google Workspace MCP URLs by default', () => {
     expect(getConnectorMcpServerUrl('google_gmail', {})).toBe('https://gmailmcp.googleapis.com/mcp/v1')
     expect(getConnectorMcpServerUrl('google_drive', {})).toBe('https://drivemcp.googleapis.com/mcp/v1')

@@ -2,6 +2,10 @@ import { decryptConfig } from '@/lib/connectors/crypto'
 import { getConnectorGatewayBaseUrl } from '@/lib/connectors/gateway-config'
 import { issueConnectorGatewayToken } from '@/lib/connectors/gateway-tokens'
 import { isConnectorCapabilityAvailable } from '@/lib/connectors/require-connector-capability'
+import {
+  getStoredConnectorToolPermissions,
+  type ConnectorToolPermissionMap,
+} from '@/lib/connectors/tool-permissions'
 import type { ConnectorType } from '@/lib/connectors/types'
 import { validateConnectorConfig, validateConnectorType } from '@/lib/connectors/validators'
 import {
@@ -24,6 +28,7 @@ export type McpServerConfig = {
 export type McpConfig = {
   $schema: string
   mcp: Record<string, McpServerConfig>
+  connectorToolPermissions?: Record<string, ConnectorToolPermissionMap>
 }
 
 export type ConnectorRecord = {
@@ -48,6 +53,7 @@ export function buildMcpConfigFromConnectors(
   options?: { gatewayTargets?: Record<string, GatewayTarget> },
 ): McpConfig {
   const mcp: Record<string, McpServerConfig> = {}
+  const connectorToolPermissions: Record<string, ConnectorToolPermissionMap> = {}
 
   for (const connector of connectors) {
     if (!connector.enabled) continue
@@ -70,11 +76,21 @@ export function buildMcpConfigFromConnectors(
       gatewayTargets: options?.gatewayTargets,
     })
     if (serverConfig) {
-      mcp[buildMcpServerKey(connector.type, connector.id)] = serverConfig
+      const serverKey = buildMcpServerKey(connector.type, connector.id)
+      mcp[serverKey] = serverConfig
+
+      const toolPermissions = getStoredConnectorToolPermissions(config)
+      if (toolPermissions) {
+        connectorToolPermissions[serverKey] = toolPermissions
+      }
     }
   }
 
-  return { $schema: OPENCODE_CONFIG_SCHEMA, mcp }
+  return {
+    $schema: OPENCODE_CONFIG_SCHEMA,
+    mcp,
+    ...(Object.keys(connectorToolPermissions).length > 0 ? { connectorToolPermissions } : {}),
+  }
 }
 
 export async function buildMcpConfigForSlug(slug: string): Promise<McpConfig | null> {

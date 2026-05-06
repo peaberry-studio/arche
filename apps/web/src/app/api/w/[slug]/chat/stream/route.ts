@@ -55,6 +55,14 @@ function jsonErrorResponse(status: number, error: string) {
   return NextResponse.json({ error }, { status })
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function getString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError'
 }
@@ -592,6 +600,7 @@ export const POST = withAuth(
         const messageRoles = new Map<string, string>()
         const partTypes = new Map<string, string>()
         const seenPartMessageIds = new Set<string>()
+        const pendingPermissionIds = new Set<string>()
         let assistantMessageSeen = typeof assistantMessageId === 'string'
         let assistantPartSeen = false
         let lastRelevantEventAt = Date.now()
@@ -626,6 +635,11 @@ export const POST = withAuth(
         const finalizeFromIdle = () => {
           if (aborted) return
 
+          if (pendingPermissionIds.size > 0) {
+            markWatchdogCheck()
+            return
+          }
+
           const outcome = getIdleFinalizationOutcome({
             resume: Boolean(resume),
             assistantMessageSeen,
@@ -658,6 +672,11 @@ export const POST = withAuth(
 
             if (readResult.type === 'tick') {
               if (Date.now() - lastRelevantEventAt > relevantEventTimeoutMs) {
+                if (pendingPermissionIds.size > 0) {
+                  markWatchdogCheck()
+                  continue
+                }
+
                 const watchdogOutcome = getSilentStreamOutcome(
                   {
                     upstreamStatus: await readUpstreamSessionStatus(),
@@ -716,6 +735,7 @@ export const POST = withAuth(
 
                 // Get sessionID from event
                 const eventSessionId =
+                  event.properties?.permission?.sessionID ||
                   event.properties?.sessionID ||
                   event.properties?.info?.sessionID ||
                   event.properties?.part?.sessionID
@@ -730,7 +750,9 @@ export const POST = withAuth(
                 const isSessionScopedEvent =
                   eventType === 'session.status' ||
                   eventType === 'session.idle' ||
-                  eventType === 'session.error'
+                  eventType === 'session.error' ||
+                  eventType === 'permission.updated' ||
+                  eventType === 'permission.replied'
 
                 // Filter events for our session only
                 if (!isWorkspaceEvent) {
@@ -760,6 +782,9 @@ export const POST = withAuth(
                       if (!promptSent || !promptAcknowledged) {
                         break
                       }
+                      if (pendingPermissionIds.size > 0) {
+                        break
+                      }
                       finalizeFromIdle()
                     }
                     break
@@ -768,6 +793,9 @@ export const POST = withAuth(
                   case 'session.idle': {
                     markRelevantEvent()
                     if (!promptSent || !promptAcknowledged) {
+                      break
+                    }
+                    if (pendingPermissionIds.size > 0) {
                       break
                     }
                     finalizeFromIdle()
@@ -782,6 +810,80 @@ export const POST = withAuth(
                     emitStatus('error', undefined, errorMessage)
                     sendEvent('error', { error: errorMessage })
                     aborted = true
+                    break
+                  }
+
+                  case 'permission.updated': {
+                    markRelevantEvent()
+                    promptAcknowledged = true
+
+                    const permission = isRecord(event.properties?.permission)
+                      ? event.properties.permission
+                      : isRecord(event.properties?.info)
+                        ? event.properties.info
+                        : isRecord(event.properties)
+                          ? event.properties
+                          : null
+                    const permissionId =
+                      getString(permission?.id) ??
+                      getString(event.properties?.permissionID) ??
+                      getString(event.properties?.permissionId)
+
+                    if (!permissionId) break
+
+                    pendingPermissionIds.add(permissionId)
+
+                    const metadata = isRecord(permission?.metadata)
+                      ? permission.metadata
+                      : undefined
+                    const permissionMessageId =
+                      getString(permission?.messageID) ??
+                      getString(permission?.messageId) ??
+                      assistantMessageId ??
+                      undefined
+                    const toolName =
+                      getString(metadata?.tool) ??
+                      getString(metadata?.toolName) ??
+                      getString(permission?.pattern)
+
+                    emitStatus('tool-calling', toolName, 'permission_required')
+                    sendEvent('permission', {
+                      id: permissionId,
+                      sessionId: getString(permission?.sessionID) ?? eventSessionId ?? sessionId,
+                      messageId: permissionMessageId,
+                      callId: getString(permission?.callID) ?? getString(permission?.callId),
+                      type: getString(permission?.type),
+                      pattern: getString(permission?.pattern),
+                      title: getString(permission?.title) ?? getString(permission?.pattern) ?? 'Tool approval required',
+                      metadata,
+                      state: 'pending',
+                    })
+                    break
+                  }
+
+                  case 'permission.replied': {
+                    markRelevantEvent()
+
+                    const permission = isRecord(event.properties?.permission)
+                      ? event.properties.permission
+                      : isRecord(event.properties?.info)
+                        ? event.properties.info
+                        : isRecord(event.properties)
+                          ? event.properties
+                          : null
+                    const permissionId =
+                      getString(permission?.id) ??
+                      getString(event.properties?.permissionID) ??
+                      getString(event.properties?.permissionId)
+
+                    if (!permissionId) break
+
+                    pendingPermissionIds.delete(permissionId)
+                    sendEvent('permission-replied', {
+                      id: permissionId,
+                      sessionId: getString(permission?.sessionID) ?? eventSessionId ?? sessionId,
+                      response: getString(event.properties?.response) ?? getString(permission?.response),
+                    })
                     break
                   }
 

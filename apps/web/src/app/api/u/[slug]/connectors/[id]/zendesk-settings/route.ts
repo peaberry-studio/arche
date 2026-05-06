@@ -148,6 +148,7 @@ export const PATCH = withAuth<
   }
 
   const updatedConfig = {
+    ...config,
     ...parsedConfig.value,
     permissions: parsedPermissions.value,
   }

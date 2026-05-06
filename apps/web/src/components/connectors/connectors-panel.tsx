@@ -4,6 +4,7 @@ import { useCallback, useEffect, useImperativeHandle, useState, type Ref } from 
 
 import { AddConnectorModal } from '@/components/connectors/add-connector-modal'
 import { ConnectorList } from '@/components/connectors/connector-list'
+import { ConnectorToolPermissionsDialog } from '@/components/connectors/connector-tool-permissions-dialog'
 import { getConnectorErrorMessage } from '@/components/connectors/error-messages'
 import { MetaAdsConnectorSettingsDialog } from '@/components/connectors/meta-ads-connector-settings-dialog'
 import { ZendeskConnectorSettingsDialog } from '@/components/connectors/zendesk-connector-settings-dialog'
@@ -13,6 +14,8 @@ import type {
   ConnectorTestState,
 } from '@/components/connectors/types'
 import { notifyWorkspaceConfigChanged } from '@/lib/runtime/config-status-events'
+
+type SettingsDialogVariant = 'generic' | 'meta-ads' | 'zendesk'
 
 export type ConnectorsPanelHandle = {
   openAddModal: () => void
@@ -55,6 +58,19 @@ function formatTestResult(result: ConnectorTestResult): ConnectorTestState {
   return { status: 'error', message: result.message ?? 'Connection test failed.' }
 }
 
+function getSettingsDialogVariant(connector: ConnectorListItem | null): SettingsDialogVariant | null {
+  switch (connector?.type) {
+    case 'zendesk':
+      return 'zendesk'
+    case 'meta-ads':
+      return 'meta-ads'
+    case undefined:
+      return null
+    default:
+      return 'generic'
+  }
+}
+
 export function ConnectorsPanel({ slug, oauthReturnTo, ref }: ConnectorsPanelProps) {
   const [connectors, setConnectors] = useState<ConnectorListItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -64,6 +80,7 @@ export function ConnectorsPanel({ slug, oauthReturnTo, ref }: ConnectorsPanelPro
   const [testStates, setTestStates] = useState<Record<string, ConnectorTestState>>({})
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [settingsConnector, setSettingsConnector] = useState<ConnectorListItem | null>(null)
+  const settingsDialogVariant = getSettingsDialogVariant(settingsConnector)
 
   useImperativeHandle(
     ref,
@@ -307,7 +324,7 @@ export function ConnectorsPanel({ slug, oauthReturnTo, ref }: ConnectorsPanelPro
       />
 
       <ZendeskConnectorSettingsDialog
-        open={settingsConnector?.type === 'zendesk'}
+        open={settingsDialogVariant === 'zendesk'}
         slug={slug}
         connectorId={settingsConnector?.id ?? null}
         connectorName={settingsConnector?.name ?? null}
@@ -319,7 +336,19 @@ export function ConnectorsPanel({ slug, oauthReturnTo, ref }: ConnectorsPanelPro
       />
 
       <MetaAdsConnectorSettingsDialog
-        open={settingsConnector?.type === 'meta-ads'}
+        open={settingsDialogVariant === 'meta-ads'}
+        slug={slug}
+        connectorId={settingsConnector?.id ?? null}
+        connectorName={settingsConnector?.name ?? null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSettingsConnector(null)
+          }
+        }}
+      />
+
+      <ConnectorToolPermissionsDialog
+        open={settingsDialogVariant === 'generic'}
         slug={slug}
         connectorId={settingsConnector?.id ?? null}
         connectorName={settingsConnector?.name ?? null}

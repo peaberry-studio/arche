@@ -1,4 +1,5 @@
 import { isOAuthConnectorType } from '@/lib/connectors/oauth'
+import { CONNECTOR_TOOL_PERMISSIONS_CONFIG_KEY } from '@/lib/connectors/tool-permissions'
 import type { ConnectorType, OAuthConnectorType } from '@/lib/connectors/types'
 
 export type ConnectorOAuthConfig = {
@@ -98,6 +99,13 @@ export function mergeConnectorConfigWithPreservedOAuth(input: {
   nextConfig: ConnectorConfigRecord
 }): ConnectorConfigRecord {
   const next = { ...input.nextConfig }
+
+  if (
+    next[CONNECTOR_TOOL_PERMISSIONS_CONFIG_KEY] === undefined &&
+    input.currentConfig[CONNECTOR_TOOL_PERMISSIONS_CONFIG_KEY] !== undefined
+  ) {
+    next[CONNECTOR_TOOL_PERMISSIONS_CONFIG_KEY] = input.currentConfig[CONNECTOR_TOOL_PERMISSIONS_CONFIG_KEY]
+  }
 
   if (getConnectorAuthType(next) !== 'oauth' || !isOAuthConnectorType(input.connectorType)) {
     return next
