@@ -47,7 +47,7 @@ export function getStartTimeoutMs(): number {
 export function getIdleTimeoutMinutes(): number {
   const raw = process.env.ARCHE_IDLE_TIMEOUT_MINUTES
   const parsed = raw ? Number(raw) : NaN
-  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 30
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 120
 }
 
 export function getKbContentHostPath(): string {
@@ -57,5 +57,4 @@ export function getKbContentHostPath(): string {
   }
   return value
 }
-
 

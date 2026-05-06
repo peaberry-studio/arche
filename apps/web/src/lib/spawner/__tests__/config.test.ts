@@ -179,12 +179,12 @@ describe('config', () => {
   })
 
   describe('getIdleTimeoutMinutes', () => {
-    it('returns default 30 when not set', async () => {
+    it('returns default 120 when not set', async () => {
       delete process.env.ARCHE_IDLE_TIMEOUT_MINUTES
 
       const { getIdleTimeoutMinutes } = await import('../config')
 
-      expect(getIdleTimeoutMinutes()).toBe(30)
+      expect(getIdleTimeoutMinutes()).toBe(120)
     })
 
     it('parses custom value from env', async () => {

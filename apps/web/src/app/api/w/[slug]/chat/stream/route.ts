@@ -296,6 +296,7 @@ export const POST = withAuth(
       let aborted = false
       let promptSent = Boolean(resume)
       let promptAcknowledged = Boolean(resume)
+      const upstreamEventsController = new AbortController()
 
       // Shared reference so the abort path and finally block can always
       // clean up the active reader when it exists.
@@ -304,16 +305,16 @@ export const POST = withAuth(
       const handleAbort = () => {
         clientGone = true
         aborted = true
+        upstreamEventsController.abort()
         void eventReader?.cancel().catch(() => undefined)
         try { controller.close() } catch { /* already closed/errored */ }
       }
 
       if (request.signal.aborted) {
         handleAbort()
-        return
+      } else {
+        request.signal.addEventListener('abort', handleAbort, { once: true })
       }
-
-      request.signal.addEventListener('abort', handleAbort, { once: true })
 
       const sendEvent = (event: string, data: unknown) => {
         if (clientGone) return
@@ -335,28 +336,41 @@ export const POST = withAuth(
           // Subscribe first so we don't miss fast session events.
           const eventsUrl = `${baseUrl}/event`
 
-        const eventsResponse = await fetch(eventsUrl, {
-          method: 'GET',
-          headers: {
-            'Authorization': authHeader,
-            'Accept': 'text/event-stream',
-            'Cache-Control': 'no-cache'
-          },
-          signal: request.signal,
-        })
+        let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
+        if (!clientGone) {
+          try {
+            const eventsResponse = await fetch(eventsUrl, {
+              method: 'GET',
+              headers: {
+                'Authorization': authHeader,
+                'Accept': 'text/event-stream',
+                'Cache-Control': 'no-cache'
+              },
+              signal: upstreamEventsController.signal,
+            })
 
-        if (!eventsResponse.ok || !eventsResponse.body) {
-          sendEvent('error', { error: 'Failed to connect to event stream' })
-          return
+            if (!eventsResponse.ok || !eventsResponse.body) {
+              sendEvent('error', { error: 'Failed to connect to event stream' })
+              return
+            }
+
+            reader = eventsResponse.body.getReader()
+            eventReader = reader
+          } catch (error) {
+            if (!clientGone && !isAbortError(error)) {
+              sendEvent('error', {
+                error: error instanceof Error ? error.message : 'Unknown error'
+              })
+              return
+            }
+          }
         }
 
-        const reader = eventsResponse.body.getReader()
-        eventReader = reader
         const decoder = new TextDecoder()
         let parseState = INITIAL_SSE_PARSE_STATE
 
         const cancelReader = async () => {
-          await reader.cancel().catch(() => undefined)
+          await reader?.cancel().catch(() => undefined)
         }
 
         if (!resume) {
@@ -535,7 +549,6 @@ export const POST = withAuth(
               'Authorization': authHeader
             },
             body: JSON.stringify(promptBody),
-            signal: request.signal,
           })
 
           if (!promptResponse.ok) {
@@ -549,6 +562,10 @@ export const POST = withAuth(
         }
 
         sendEvent('status', { status: 'thinking' })
+
+        if (!reader || clientGone || aborted) {
+          return
+        }
 
         // Track state for the assistant response
         let currentStatus: string | null = null
@@ -983,6 +1000,7 @@ export const POST = withAuth(
         }
       } finally {
         request.signal.removeEventListener('abort', handleAbort)
+        upstreamEventsController.abort()
         if (eventReader) {
           await eventReader.cancel().catch(() => undefined)
         }

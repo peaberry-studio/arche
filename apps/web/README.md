@@ -217,7 +217,7 @@ The spawner can connect to the container runtime in two ways:
 | `OPENCODE_NETWORK` | Internal container network | `arche-internal` |
 | `ARCHE_ENCRYPTION_KEY` | AES-256 key (base64, 32 bytes) | See `.env.example` |
 | `ARCHE_START_TIMEOUT_MS` | Startup timeout | `120000` |
-| `ARCHE_IDLE_TIMEOUT_MINUTES` | Idle time before stop | `30` |
+| `ARCHE_IDLE_TIMEOUT_MINUTES` | Idle time before stop | `120` |
 | `KB_CONTENT_HOST_PATH` | Path to KB content bare repo | `~/.arche/kb-content` |
 | `KB_CONFIG_HOST_PATH` | Path to config bare repo | `~/.arche/kb-config` |
 
