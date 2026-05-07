@@ -93,6 +93,13 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
     void loadIntegration()
   }, [loadIntegration])
 
+  const shouldAutoLoadRepos = integration?.appConfigured && integration.installationId && !integration.repoFullName
+  useEffect(() => {
+    if (shouldAutoLoadRepos && repos === null && busyAction === null) {
+      void handleLoadRepos()
+    }
+  }, [shouldAutoLoadRepos]) // eslint-disable-line react-hooks/exhaustive-deps
+
   function handleConnectGithub() {
     const origin = window.location.origin
     const manifest = {
@@ -200,6 +207,10 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
         return
       }
 
+      if (data.repos.length === 1) {
+        void handleSelectRepo(data.repos[0])
+        return
+      }
       setRepos(data.repos)
     } catch {
       setError(getErrorMessage('network_error'))
@@ -379,14 +390,10 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
             </p>
 
             {repos === null ? (
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busyAction !== null}
-                onClick={() => void handleLoadRepos()}
-              >
-                {busyAction === 'repos' ? 'Loading...' : 'Load repositories'}
-              </Button>
+              <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+                <SpinnerGap size={14} className="animate-spin" />
+                Loading repositories…
+              </span>
             ) : repos.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 No repositories found. Check that the app is installed on at least one repository.
@@ -431,7 +438,7 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
               <>
                 <div className="flex flex-wrap items-center gap-2">
                   {integration.lastSyncStatus === 'success' ? (
-                    <Badge variant="default">Last sync successful</Badge>
+                    <Badge variant="success">Last sync successful</Badge>
                   ) : null}
                   {integration.lastSyncStatus === 'error' ? (
                     <Badge variant="secondary" className="border-red-500/50 text-red-600 dark:text-red-400">Last sync failed</Badge>

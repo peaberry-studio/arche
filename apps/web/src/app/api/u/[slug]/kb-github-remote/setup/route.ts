@@ -43,8 +43,7 @@ export const GET = withAuth<{ error: string }>(
       metadata: { appId: result.appId, appSlug: result.slug, owner: result.owner },
     })
 
-    return NextResponse.redirect(
-      new URL(`/api/u/${slug}/kb-github-remote/install`, request.url),
-    )
+    const installUrl = `https://github.com/apps/${encodeURIComponent(result.slug)}/installations/new`
+    return NextResponse.redirect(installUrl)
   },
 )

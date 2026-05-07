@@ -73,7 +73,7 @@ describe('/api/u/[slug]/kb-github-remote/setup', () => {
 
     expect(response.status).toBe(307)
     const location = response.headers.get('location')
-    expect(location).toContain('/api/u/alice/kb-github-remote/install')
+    expect(location).toBe('https://github.com/apps/arche-kb-sync/installations/new')
 
     expect(exchangeManifestCodeMock).toHaveBeenCalledWith('test_code_123')
     expect(saveIntegrationConfigMock).toHaveBeenCalledWith({

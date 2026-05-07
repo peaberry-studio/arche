@@ -5,10 +5,7 @@ const decryptIntegrationConfigMock = vi.fn()
 const updateSyncStateMock = vi.fn()
 const verifyInstallationMock = vi.fn()
 const auditEventMock = vi.fn()
-
-const authState = {
-  user: { id: 'admin-1', role: 'ADMIN', slug: 'alice' },
-}
+const getSessionMock = vi.fn()
 
 vi.mock('@/lib/auth', () => ({
   auditEvent: (...args: unknown[]) => auditEventMock(...args),
@@ -18,18 +15,8 @@ vi.mock('@/lib/runtime/require-capability', () => ({
   requireCapability: () => null,
 }))
 
-vi.mock('@/lib/runtime/with-auth', () => ({
-  withAuth: (_options: unknown, handler: (request: Request, context: unknown) => Promise<Response>) => {
-    return async (request: Request, { params }: { params: Promise<{ slug: string }> }) => {
-      const resolvedParams = await params
-      return handler(request, {
-        params: resolvedParams,
-        sessionId: 'session-1',
-        slug: resolvedParams.slug,
-        user: authState.user,
-      })
-    }
-  },
+vi.mock('@/lib/runtime/session', () => ({
+  getSession: (...args: unknown[]) => getSessionMock(...args),
 }))
 
 vi.mock('@/lib/services', () => ({
@@ -68,7 +55,6 @@ function makeRecord() {
 describe('/api/u/[slug]/kb-github-remote/callback', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    authState.user = { id: 'admin-1', role: 'ADMIN', slug: 'alice' }
     auditEventMock.mockResolvedValue(undefined)
     updateSyncStateMock.mockResolvedValue(undefined)
     findIntegrationMock.mockResolvedValue(makeRecord())
@@ -78,6 +64,10 @@ describe('/api/u/[slug]/kb-github-remote/callback', () => {
       appSlug: 'my-app',
     })
     verifyInstallationMock.mockResolvedValue({ ok: true, account: 'my-org' })
+    getSessionMock.mockResolvedValue({
+      user: { id: 'admin-1', role: 'ADMIN', slug: 'alice' },
+      sessionId: 'session-1',
+    })
   })
 
   it('stores installation ID and redirects on success', async () => {
@@ -99,6 +89,19 @@ describe('/api/u/[slug]/kb-github-remote/callback', () => {
         metadata: expect.objectContaining({ installationId: 99, account: 'my-org' }),
       }),
     )
+  })
+
+  it('redirects with error when session is missing', async () => {
+    getSessionMock.mockResolvedValue(null)
+
+    const { GET } = await import('../route')
+    const response = await GET(
+      new Request('http://localhost/api/u/alice/kb-github-remote/callback?installation_id=99') as never,
+      { params: Promise.resolve({ slug: 'alice' }) },
+    )
+
+    expect(response.status).toBe(307)
+    expect(response.headers.get('location')).toContain('error=unauthorized')
   })
 
   it('redirects with error when installation_id is missing', async () => {
@@ -200,8 +203,11 @@ describe('/api/u/[slug]/kb-github-remote/callback', () => {
     expect(response.headers.get('location')).toContain('error=verification_failed')
   })
 
-  it('returns 403 for non-admin users', async () => {
-    authState.user = { id: 'user-1', role: 'USER', slug: 'alice' }
+  it('redirects with error for non-admin users', async () => {
+    getSessionMock.mockResolvedValue({
+      user: { id: 'user-1', role: 'USER', slug: 'alice' },
+      sessionId: 'session-1',
+    })
 
     const { GET } = await import('../route')
     const response = await GET(
@@ -209,6 +215,7 @@ describe('/api/u/[slug]/kb-github-remote/callback', () => {
       { params: Promise.resolve({ slug: 'alice' }) },
     )
 
-    expect(response.status).toBe(403)
+    expect(response.status).toBe(307)
+    expect(response.headers.get('location')).toContain('error=forbidden')
   })
 })

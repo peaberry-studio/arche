@@ -338,29 +338,43 @@ describe('KbGithubRemotePanel', () => {
   })
 
   describe('repo picker', () => {
-    it('shows load repos button when installed but no repo selected', async () => {
-      fetchMock.mockResolvedValueOnce(jsonResponse(installedSummary))
-
-      await renderPanel()
-
-      await waitFor(() => expect(screen.getByText('Load repositories')).toBeTruthy())
-      expect(screen.getByText('Installed')).toBeTruthy()
-    })
-
-    it('loads and displays repos', async () => {
+    it('shows loading indicator and auto-loads repos when installed', async () => {
       fetchMock
         .mockResolvedValueOnce(jsonResponse(installedSummary))
         .mockResolvedValueOnce(jsonResponse({ repos }))
 
       await renderPanel()
-      await waitFor(() => expect(screen.getByText('Load repositories')).toBeTruthy())
 
-      fireEvent.click(screen.getByText('Load repositories'))
+      await waitFor(() => expect(screen.getByText('Installed')).toBeTruthy())
+      await waitFor(() => expect(screen.getByText('owner/repo1')).toBeTruthy())
+    })
+
+    it('auto-loads and displays repos', async () => {
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse(installedSummary))
+        .mockResolvedValueOnce(jsonResponse({ repos }))
+
+      await renderPanel()
 
       await waitFor(() => expect(screen.getByText('owner/repo1')).toBeTruthy())
       expect(screen.getByText('owner/repo2')).toBeTruthy()
       expect(screen.getByText('Public')).toBeTruthy()
       expect(screen.getByText('Private')).toBeTruthy()
+    })
+
+    it('auto-selects when only one repo is available', async () => {
+      const singleRepo = [repos[0]]
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse(installedSummary))
+        .mockResolvedValueOnce(jsonResponse({ repos: singleRepo }))
+        .mockResolvedValueOnce(jsonResponse({ ok: true }))
+        .mockResolvedValueOnce(jsonResponse(readySummary))
+
+      await renderPanel()
+
+      await waitFor(() =>
+        expect(screen.getByText('Repository "owner/repo1" selected.')).toBeTruthy(),
+      )
     })
 
     it('shows empty state when no repos found', async () => {
@@ -369,9 +383,6 @@ describe('KbGithubRemotePanel', () => {
         .mockResolvedValueOnce(jsonResponse({ repos: [] }))
 
       await renderPanel()
-      await waitFor(() => expect(screen.getByText('Load repositories')).toBeTruthy())
-
-      fireEvent.click(screen.getByText('Load repositories'))
 
       await waitFor(() =>
         expect(screen.getByText(/No repositories found/)).toBeTruthy(),
@@ -384,9 +395,6 @@ describe('KbGithubRemotePanel', () => {
         .mockResolvedValueOnce(jsonResponse({ error: 'not_installed' }, { status: 400 }))
 
       await renderPanel()
-      await waitFor(() => expect(screen.getByText('Load repositories')).toBeTruthy())
-
-      fireEvent.click(screen.getByText('Load repositories'))
 
       await waitFor(() =>
         expect(screen.getByText(/not installed/)).toBeTruthy(),
@@ -399,9 +407,6 @@ describe('KbGithubRemotePanel', () => {
         .mockRejectedValueOnce(new Error('offline'))
 
       await renderPanel()
-      await waitFor(() => expect(screen.getByText('Load repositories')).toBeTruthy())
-
-      fireEvent.click(screen.getByText('Load repositories'))
 
       await waitFor(() =>
         expect(screen.getByText('Could not reach the server.')).toBeTruthy(),
@@ -416,8 +421,6 @@ describe('KbGithubRemotePanel', () => {
         .mockResolvedValueOnce(jsonResponse(readySummary))
 
       await renderPanel()
-      await waitFor(() => expect(screen.getByText('Load repositories')).toBeTruthy())
-      fireEvent.click(screen.getByText('Load repositories'))
       await waitFor(() => expect(screen.getByText('owner/repo1')).toBeTruthy())
 
       fireEvent.click(screen.getByText('owner/repo1'))
@@ -439,8 +442,6 @@ describe('KbGithubRemotePanel', () => {
         .mockResolvedValueOnce(jsonResponse({ error: 'forbidden' }, { status: 403 }))
 
       await renderPanel()
-      await waitFor(() => expect(screen.getByText('Load repositories')).toBeTruthy())
-      fireEvent.click(screen.getByText('Load repositories'))
       await waitFor(() => expect(screen.getByText('owner/repo1')).toBeTruthy())
 
       fireEvent.click(screen.getByText('owner/repo1'))
@@ -457,8 +458,6 @@ describe('KbGithubRemotePanel', () => {
         .mockRejectedValueOnce(new Error('offline'))
 
       await renderPanel()
-      await waitFor(() => expect(screen.getByText('Load repositories')).toBeTruthy())
-      fireEvent.click(screen.getByText('Load repositories'))
       await waitFor(() => expect(screen.getByText('owner/repo1')).toBeTruthy())
 
       fireEvent.click(screen.getByText('owner/repo1'))
