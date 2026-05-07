@@ -379,7 +379,7 @@ export function WorkspaceCommandPalette({
                     }}
                     onClick={() => void closeAndRun(item.run)}
                     className={cn(
-                      "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors",
+                      "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left",
                       index === boundedActiveIndex
                         ? "bg-primary text-primary-foreground"
                         : !isKeyboardNavigating && "hover:bg-muted"
