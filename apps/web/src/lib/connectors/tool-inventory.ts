@@ -2,6 +2,7 @@ import { getAhrefsMcpTools, parseAhrefsConnectorConfig } from '@/lib/connectors/
 import { getMetaAdsMcpTools, parseMetaAdsConnectorConfig } from '@/lib/connectors/meta-ads'
 import { getConnectorMcpServerUrl } from '@/lib/connectors/mcp/server-url'
 import { getConnectorAuthType, getConnectorOAuthConfig } from '@/lib/connectors/oauth-config'
+import { isRecord } from '@/lib/records'
 import { validateConnectorTestEndpoint } from '@/lib/security/ssrf'
 import { getUmamiMcpTools, parseUmamiConnectorConfig } from '@/lib/connectors/umami'
 import type { ConnectorType } from '@/lib/connectors/types'
@@ -33,10 +34,6 @@ function toInventoryItem(tool: {
     title: toToolTitle(tool.name),
     description: tool.description,
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function getString(value: unknown): string | undefined {

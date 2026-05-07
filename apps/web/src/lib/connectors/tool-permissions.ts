@@ -1,3 +1,5 @@
+import { isRecord } from '@/lib/records'
+
 export const CONNECTOR_TOOL_PERMISSIONS_CONFIG_KEY = 'mcpToolPermissions'
 
 export const CONNECTOR_TOOL_PERMISSION_ACTIONS = ['deny', 'ask', 'allow'] as const
@@ -18,10 +20,6 @@ export type ParsedConnectorToolPermissions =
 
 export function isConnectorToolPermission(value: unknown): value is ConnectorToolPermission {
   return CONNECTOR_TOOL_PERMISSION_ACTIONS.includes(value as ConnectorToolPermission)
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function normalizeToolName(value: string): string | null {

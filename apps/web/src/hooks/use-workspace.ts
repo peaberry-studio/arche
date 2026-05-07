@@ -25,6 +25,7 @@ import type {
 import { extractTextContent, transformParts } from "@/lib/opencode/transform";
 import { isProviderId, normalizeProviderId } from "@/lib/providers/catalog";
 import type { ProviderId } from "@/lib/providers/types";
+import { isRecord } from "@/lib/records";
 import { INITIAL_SSE_PARSE_STATE, parseSseChunk } from "@/lib/sse-parser";
 import {
   canAutoResume,
@@ -118,10 +119,6 @@ function extractPartDeltaText(delta: unknown): string | null {
 
   const maybeText = (delta as { text?: unknown }).text;
   return typeof maybeText === "string" ? maybeText : null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function getString(value: unknown): string | undefined {

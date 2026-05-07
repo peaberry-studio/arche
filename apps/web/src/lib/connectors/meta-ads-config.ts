@@ -5,6 +5,7 @@ import {
   type MetaAdsConnectorConfig,
   type MetaAdsConnectorPermissions,
 } from '@/lib/connectors/meta-ads-types'
+import { isRecord } from '@/lib/records'
 
 type ParsedMetaAdsConnectorPermissions =
   | { ok: true; value: MetaAdsConnectorPermissions }
@@ -17,10 +18,6 @@ type ParsedMetaAdsAccountIds =
 type ParsedMetaAdsConnectorConfig =
   | { ok: true; value: MetaAdsConnectorConfig }
   | { ok: false; missing?: string[]; message?: string }
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
 
 function getBoolean(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined
