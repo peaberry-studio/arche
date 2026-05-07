@@ -1,12 +1,13 @@
 /** @vitest-environment jsdom */
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AgentsSettingsPanel } from '@/components/settings/agents-settings-panel'
 
 const reloadMock = vi.fn()
 const useAgentsCatalogMock = vi.fn()
+const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
 
 vi.mock('@/hooks/use-agents-catalog', () => ({
   useAgentsCatalog: (...args: unknown[]) => useAgentsCatalogMock(...args),
@@ -36,10 +37,28 @@ vi.mock('@/components/agents/agent-form', () => ({
   },
 }))
 
+vi.mock('@/lib/runtime/config-status-events', () => ({
+  notifyWorkspaceConfigChanged: vi.fn(),
+}))
+
+function jsonResponse(body: unknown, init?: ResponseInit) {
+  return new Response(JSON.stringify(body), {
+    headers: { 'content-type': 'application/json' },
+    ...init,
+  })
+}
+
 describe('AgentsSettingsPanel', () => {
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     reloadMock.mockResolvedValue(undefined)
+    fetchMock.mockResolvedValue(jsonResponse({ models: [{ id: 'openai/gpt-5.5', label: 'GPT 5.5' }] }))
+    vi.stubGlobal('fetch', fetchMock)
     useAgentsCatalogMock.mockReturnValue({
       agents: [
         {
@@ -57,6 +76,8 @@ describe('AgentsSettingsPanel', () => {
           isPrimary: false,
         },
       ],
+      defaultModel: 'openai/gpt-5.5',
+      hash: 'hash-1',
       isLoading: false,
       loadError: null,
       reload: reloadMock,
@@ -86,5 +107,31 @@ describe('AgentsSettingsPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel form' }))
     expect(screen.getByRole('heading', { name: 'Experts' })).toBeTruthy()
+  })
+
+  it('renders and saves the workspace default model', async () => {
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/agents/models')) return jsonResponse({ models: [] })
+      if (url.endsWith('/agents/default-model') && init?.method === 'PATCH') {
+        return jsonResponse({ defaultModel: 'openai/gpt-6', hash: 'hash-2' })
+      }
+      return jsonResponse({})
+    })
+
+    render(<AgentsSettingsPanel slug="local" />)
+
+    fireEvent.change(screen.getByLabelText('Default model'), { target: { value: 'openai/gpt-6' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save default model' }))
+
+    await waitFor(() => expect(reloadMock).toHaveBeenCalled())
+    const patchCall = fetchMock.mock.calls.find(([input, init]) =>
+      String(input) === '/api/u/local/agents/default-model' && init?.method === 'PATCH'
+    )
+    expect(JSON.parse(String(patchCall?.[1]?.body))).toEqual({
+      defaultModel: 'openai/gpt-6',
+      expectedHash: 'hash-1',
+    })
+    expect(screen.getByText('Default model saved.')).toBeTruthy()
   })
 })

@@ -1,12 +1,15 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { SpinnerGap } from '@phosphor-icons/react'
 
 import { AgentCard } from '@/components/agents/agent-card'
 import { AgentForm } from '@/components/agents/agent-form'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { useAgentsCatalog } from '@/hooks/use-agents-catalog'
+import { notifyWorkspaceConfigChanged } from '@/lib/runtime/config-status-events'
 
 type AgentsSettingsPanelProps = {
   slug: string
@@ -16,9 +19,19 @@ type EditorState =
   | { mode: 'create' }
   | { agentId: string; mode: 'edit' }
 
+type ModelOption = {
+  id: string
+  label: string
+}
+
 export function AgentsSettingsPanel({ slug }: AgentsSettingsPanelProps) {
-  const { agents, isLoading, loadError, reload } = useAgentsCatalog(slug)
+  const { agents, defaultModel, hash, isLoading, loadError, reload } = useAgentsCatalog(slug)
   const [editorState, setEditorState] = useState<EditorState | null>(null)
+  const [defaultModelInput, setDefaultModelInput] = useState('')
+  const [modelOptions, setModelOptions] = useState<ModelOption[]>([])
+  const [isSavingDefaultModel, setIsSavingDefaultModel] = useState(false)
+  const [defaultModelMessage, setDefaultModelMessage] = useState<string | null>(null)
+  const [defaultModelError, setDefaultModelError] = useState<string | null>(null)
 
   const primaryAgent = agents.find((agent) => agent.isPrimary) ?? null
   const experts = agents.filter((agent) => !agent.isPrimary)
@@ -27,9 +40,61 @@ export function AgentsSettingsPanel({ slug }: AgentsSettingsPanelProps) {
       ? agents.find((agent) => agent.id === editorState.agentId) ?? null
       : null
 
+  useEffect(() => {
+    setDefaultModelInput(defaultModel ?? '')
+  }, [defaultModel])
+
+  useEffect(() => {
+    let cancelled = false
+
+    fetch(`/api/u/${slug}/agents/models`, { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) return
+        const data = (await response.json().catch(() => null)) as { models?: ModelOption[] } | null
+        if (!cancelled) setModelOptions(data?.models ?? [])
+      })
+      .catch(() => {})
+
+    return () => {
+      cancelled = true
+    }
+  }, [slug])
+
   async function handleEditorFinished() {
     await reload()
     setEditorState(null)
+  }
+
+  async function handleSaveDefaultModel() {
+    if (isSavingDefaultModel) return
+
+    setIsSavingDefaultModel(true)
+    setDefaultModelMessage(null)
+    setDefaultModelError(null)
+
+    try {
+      const response = await fetch(`/api/u/${slug}/agents/default-model`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          defaultModel: defaultModelInput.trim() || null,
+          expectedHash: hash,
+        }),
+      })
+      const data = (await response.json().catch(() => null)) as { error?: string } | null
+      if (!response.ok) {
+        setDefaultModelError(data?.error ?? 'save_failed')
+        return
+      }
+
+      setDefaultModelMessage('Default model saved.')
+      notifyWorkspaceConfigChanged()
+      await reload()
+    } catch {
+      setDefaultModelError('network_error')
+    } finally {
+      setIsSavingDefaultModel(false)
+    }
   }
 
   if (editorState) {
@@ -89,6 +154,36 @@ export function AgentsSettingsPanel({ slug }: AgentsSettingsPanelProps) {
 
       {!isLoading && !loadError ? (
         <>
+          <div className="rounded-xl border border-border/60 bg-card/40 p-5">
+            <div className="flex flex-col gap-3 md:flex-row md:items-end">
+              <div className="min-w-0 flex-1 space-y-2">
+                <Label htmlFor="desktop-workspace-default-model">Default model</Label>
+                <Input
+                  id="desktop-workspace-default-model"
+                  list="desktop-workspace-default-model-options"
+                  value={defaultModelInput}
+                  onChange={(event) => setDefaultModelInput(event.target.value)}
+                  placeholder="Select or type a model"
+                />
+                <datalist id="desktop-workspace-default-model-options">
+                  {modelOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </datalist>
+                <p className="text-xs text-muted-foreground">
+                  Agents without an override inherit this workspace model.
+                </p>
+              </div>
+              <Button type="button" onClick={handleSaveDefaultModel} disabled={isSavingDefaultModel}>
+                {isSavingDefaultModel ? 'Saving...' : 'Save default model'}
+              </Button>
+            </div>
+            {defaultModelMessage ? <p className="mt-3 text-sm text-muted-foreground">{defaultModelMessage}</p> : null}
+            {defaultModelError ? <p className="mt-3 text-sm text-destructive">Error: {defaultModelError}</p> : null}
+          </div>
+
           <div className="space-y-4 rounded-xl border border-border/60 bg-card/40 p-5">
             <div className="space-y-1">
               <h3 className="text-sm font-medium text-foreground">Primary agent</h3>
