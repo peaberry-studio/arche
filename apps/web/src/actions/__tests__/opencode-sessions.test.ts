@@ -193,4 +193,45 @@ describe("session listing actions", () => {
       expect.objectContaining({ id: "desktop-root", title: "Desktop root" }),
     ]);
   });
+
+  it("searches up to 100 recent root sessions by title and task name", async () => {
+    mockSessionList.mockResolvedValue({
+      data: [
+        {
+          id: "root",
+          parentID: undefined,
+          time: { created: 100, updated: 200 },
+          title: "Unrelated title",
+          version: "1",
+        },
+        {
+          id: "manual",
+          parentID: undefined,
+          time: { created: 120, updated: 220 },
+          title: "Daily chat",
+          version: "1",
+        },
+      ],
+    });
+
+    const result = await listSessionsAction("alice", {
+      limit: 500,
+      query: "daily",
+      rootsOnly: true,
+    });
+
+    expect(mockSessionList).toHaveBeenCalledWith({
+      limit: 100,
+      roots: true,
+      start: undefined,
+    });
+    expect(result).toEqual({
+      ok: true,
+      hasMore: false,
+      sessions: [
+        expect.objectContaining({ id: "root", autopilot: expect.objectContaining({ taskName: "Daily brief" }) }),
+        expect.objectContaining({ id: "manual", title: "Daily chat" }),
+      ],
+    });
+  });
 });

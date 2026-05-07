@@ -42,6 +42,7 @@ import { InspectorPanel } from "./inspector-panel";
 import { KnowledgeEmptyState } from "./knowledge-empty-state";
 import { KnowledgeNavigationPanel, type KnowledgeNavigationView } from "./knowledge-navigation-panel";
 import { TasksEmptyState } from "./tasks-empty-state";
+import { WorkspaceCommandPalette } from "./workspace-command-palette";
 import { WorkspaceSessionsSidebar } from "./workspace-sessions-sidebar";
 import { WorkspaceSessionsRail } from "./workspace-sessions-rail";
 import { WorkspaceTopNav } from "./workspace-top-nav";
@@ -242,7 +243,7 @@ export function WorkspaceShell({
   routerRef.current = router;
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const resolvedPersistenceScope = persistenceScope ?? slug;
   const layoutCookieName = getWorkspaceLayoutCookieName(resolvedPersistenceScope);
   const layoutStorageKey = getWorkspaceLayoutStorageKey(resolvedPersistenceScope);
@@ -712,19 +713,6 @@ export function WorkspaceShell({
     [hasDesktopVault, isCompactLayout, sessionsById, slug, workspace, workspaceMode]
   );
 
-  const focusSearchInput = useCallback(() => {
-    if (isCompactLayout) {
-      setMobileView("left");
-    } else if (leftCollapsed) {
-      setLeftCollapsedForMode(workspaceMode, false);
-    }
-
-    requestAnimationFrame(() => {
-      searchInputRef.current?.focus();
-      searchInputRef.current?.select();
-    });
-  }, [isCompactLayout, leftCollapsed, setLeftCollapsedForMode, workspaceMode]);
-
   const handleCreateSession = useCallback(async () => {
     switchToChatOnMobile();
     await workspace.createSession();
@@ -766,14 +754,14 @@ export function WorkspaceShell({
       if (key !== "k") return;
 
       event.preventDefault();
-      focusSearchInput();
+      setCommandPaletteOpen(true);
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [focusSearchInput, handleCreateSession, isCompactLayout, setLeftCollapsedForMode, toggleRightPanel, workspaceMode]);
+  }, [handleCreateSession, isCompactLayout, setLeftCollapsedForMode, toggleRightPanel, workspaceMode]);
 
   // File viewing state
   const safeInitialFilePath = useMemo(() => {
@@ -1346,6 +1334,15 @@ export function WorkspaceShell({
     workspace.selectSession(sessionId);
   }, [switchToChatOnMobile, workspace]);
 
+  const handleCommandPaletteSelectSession = useCallback(
+    (sessionId: string, mode: WorkspaceMode) => {
+      handleWorkspaceModeChange(mode);
+      switchToChatOnMobile();
+      workspace.selectSession(sessionId);
+    },
+    [handleWorkspaceModeChange, switchToChatOnMobile, workspace]
+  );
+
   const handleSelectSessionTab = useCallback((sessionId: string) => {
     workspace.selectSession(sessionId);
   }, [workspace]);
@@ -1836,6 +1833,21 @@ export function WorkspaceShell({
         themeClassName,
       )}
     >
+      <WorkspaceCommandPalette
+        slug={slug}
+        open={commandPaletteOpen}
+        hideTasks={hasDesktopVault}
+        onOpenChange={setCommandPaletteOpen}
+        onCreateSession={handleCreateSession}
+        onModeChange={handleWorkspaceModeChange}
+        onNavigateConnectors={navigateConnectors}
+        onNavigateProviders={navigateProviders}
+        onNavigateSettings={navigateSettings}
+        onRefreshSessions={workspace.refreshSessions}
+        onSelectSession={handleCommandPaletteSelectSession}
+        onToggleLeftPanel={handleToggleLeft}
+        onToggleRightPanel={handleToggleRight}
+      />
       <WorkspaceTopNav
         slug={slug}
         mode={workspaceMode}

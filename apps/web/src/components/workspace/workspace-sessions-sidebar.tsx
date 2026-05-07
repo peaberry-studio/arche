@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, type ReactNode } from 'react'
 import { Lightning, Plus, SpinnerGap } from '@phosphor-icons/react'
 
 import {
@@ -10,7 +10,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import type { AutopilotTaskListItem } from '@/lib/autopilot/types'
+import { useAutopilotTaskRunner } from '@/hooks/use-autopilot-task-runner'
 import type { WorkspaceSession } from '@/lib/opencode/types'
 
 import { SessionsPanel } from './sessions-panel'
@@ -48,35 +48,19 @@ export function WorkspaceSessionsSidebar({
   onRunTaskComplete,
   onSelectSession,
 }: WorkspaceSessionsSidebarProps) {
-  const [tasks, setTasks] = useState<AutopilotTaskListItem[]>([])
-  const [isLoadingTasks, setIsLoadingTasks] = useState(false)
-  const [runningTaskId, setRunningTaskId] = useState<string | null>(null)
-  const [runError, setRunError] = useState<string | null>(null)
+  const {
+    tasks,
+    isLoadingTasks,
+    runningTaskId,
+    runError,
+    loadTasks,
+    runTask,
+  } = useAutopilotTaskRunner({ slug, onRunTaskComplete })
 
   const visibleSessions = useMemo(
     () => sessions.filter((session) => kind === 'tasks' ? Boolean(session.autopilot) : !session.autopilot),
     [kind, sessions]
   )
-
-  const loadTasks = useCallback(async () => {
-    setIsLoadingTasks(true)
-    setRunError(null)
-
-    try {
-      const response = await fetch(`/api/u/${slug}/autopilot`, { cache: 'no-store' })
-      const data = (await response.json().catch(() => null)) as { tasks?: AutopilotTaskListItem[]; error?: string } | null
-      if (!response.ok || !data?.tasks) {
-        setRunError(data?.error ?? 'load_failed')
-        return
-      }
-
-      setTasks(data.tasks)
-    } catch {
-      setRunError('network_error')
-    } finally {
-      setIsLoadingTasks(false)
-    }
-  }, [slug])
 
   useEffect(() => {
     if (kind !== 'tasks') return
@@ -93,33 +77,6 @@ export function WorkspaceSessionsSidebar({
       }
     },
     [onMarkAutopilotRunSeen, onSelectSession, sessions]
-  )
-
-  const handleRunTask = useCallback(
-    async (taskId: string) => {
-      setRunningTaskId(taskId)
-      setRunError(null)
-
-      try {
-        const response = await fetch(`/api/u/${slug}/autopilot/${taskId}/run`, {
-          method: 'POST',
-        })
-
-        if (!response.ok) {
-          const data = (await response.json().catch(() => null)) as { error?: string } | null
-          setRunError(data?.error ?? 'run_failed')
-          return
-        }
-
-        await onRunTaskComplete?.()
-        await loadTasks()
-      } catch {
-        setRunError('network_error')
-      } finally {
-        setRunningTaskId(null)
-      }
-    },
-    [loadTasks, onRunTaskComplete, slug]
   )
 
   return (
@@ -169,7 +126,7 @@ export function WorkspaceSessionsSidebar({
                   disabled={Boolean(runningTaskId)}
                   onSelect={(event) => {
                     event.preventDefault()
-                    void handleRunTask(task.id)
+                    void runTask(task.id)
                   }}
                   className="items-start gap-2 rounded-lg px-2.5 py-2"
                 >

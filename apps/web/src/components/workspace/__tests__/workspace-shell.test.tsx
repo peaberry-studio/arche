@@ -935,14 +935,8 @@ describe("WorkspaceShell", () => {
     expect(await screen.findAllByText("99+")).toHaveLength(2);
   });
 
-  it("re-expands the left panel when focusing search with Command+K", async () => {
+  it("opens the command palette with Command+K", async () => {
     render(<WorkspaceShell slug="alice" />);
-
-    fireEvent.click(await screen.findByRole("button", { name: "Collapse sessions panel" }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Expand sessions panel" })).toBeTruthy();
-    });
 
     window.dispatchEvent(
       new KeyboardEvent("keydown", {
@@ -953,7 +947,7 @@ describe("WorkspaceShell", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Collapse sessions panel" })).toBeTruthy();
+      expect(screen.getByRole("dialog", { name: "Workspace command palette" })).toBeTruthy();
     });
   });
 
