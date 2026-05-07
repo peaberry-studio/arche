@@ -691,6 +691,23 @@ describe('PATCH /api/u/[slug]/agents/default-model', () => {
     })
   })
 
+  it('bootstraps default model when config does not exist', async () => {
+    mockReadCommonWorkspaceConfig.mockResolvedValue({ ok: false, error: 'not_found' })
+
+    const response = await PATCH_DEFAULT_MODEL(
+      makePatchDefaultModelRequest({ defaultModel: 'openai/gpt-5.5' }),
+      routeParams,
+    )
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.defaultModel).toBe('openai/gpt-5.5')
+
+    const [content, expectedHash] = mockWriteCommonWorkspaceConfig.mock.calls[0]
+    expect(JSON.parse(content).default_model).toBe('openai/gpt-5.5')
+    expect(expectedHash).toBeUndefined()
+  })
+
   it('returns 409 on hash conflict', async () => {
     mockWriteCommonWorkspaceConfig.mockResolvedValue({ ok: false, error: 'conflict' })
 

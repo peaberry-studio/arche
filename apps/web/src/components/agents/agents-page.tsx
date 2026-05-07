@@ -59,7 +59,7 @@ export function AgentsPageClient({
   }, [slug])
 
   const handleSaveDefaultModel = async () => {
-    if (!hash || isSavingDefaultModel) return
+    if (isSavingDefaultModel) return
 
     setIsSavingDefaultModel(true)
     setDefaultModelMessage(null)
@@ -147,7 +147,7 @@ export function AgentsPageClient({
               </p>
             </div>
             {isAdmin ? (
-              <Button type="button" onClick={handleSaveDefaultModel} disabled={!hash || isSavingDefaultModel}>
+              <Button type="button" onClick={handleSaveDefaultModel} disabled={isSavingDefaultModel}>
                 {isSavingDefaultModel ? 'Saving...' : 'Save default model'}
               </Button>
             ) : null}

@@ -48,6 +48,23 @@ describe('applyDefaultAgentModel', () => {
     const result = applyDefaultAgentModel(config)
     expect(result).toBe(config)
   })
+
+  it('preserves non-record agent entries', () => {
+    const config = {
+      default_model: 'openai/gpt-5.5',
+      agent: {
+        assistant: null,
+        helper: { mode: 'subagent' },
+      },
+    }
+
+    const result = applyDefaultAgentModel(config)
+    const agents = result.agent as Record<string, Record<string, unknown> | null>
+
+    expect(agents.assistant).toBeNull()
+    expect(agents.helper?.model).toBe('openai/gpt-5.5')
+    expect(result.default_model).toBeUndefined()
+  })
 })
 
 describe('injectAlwaysOnAgentTools', () => {

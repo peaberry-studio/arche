@@ -28,7 +28,7 @@ export function applyDefaultAgentModel(
   if (!agents || typeof agents !== 'object') return configWithoutDefaultModel
 
   const nextAgents: Record<string, Record<string, unknown>> = {}
-  let changed = true
+  let changed = false
 
   for (const [agentId, agent] of Object.entries(agents)) {
     if (!isRecord(agent)) {

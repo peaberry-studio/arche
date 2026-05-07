@@ -69,10 +69,6 @@ export const PATCH = withAuth<DefaultModelResponse | { error: string }>(
       return NextResponse.json({ error: 'invalid_default_model' }, { status: 400 })
     }
 
-    if (typeof body.expectedHash !== 'string' || !body.expectedHash) {
-      return NextResponse.json({ error: 'invalid_expected_hash' }, { status: 400 })
-    }
-
     const loadedConfig = await loadCommonConfig()
     const configResult = loadedConfig.ok
       ? loadedConfig
@@ -89,6 +85,10 @@ export const PATCH = withAuth<DefaultModelResponse | { error: string }>(
       return NextResponse.json({ error: configResult.error }, { status })
     }
 
+    if (configResult.hash && (typeof body.expectedHash !== 'string' || !body.expectedHash)) {
+      return NextResponse.json({ error: 'invalid_expected_hash' }, { status: 400 })
+    }
+
     const nextConfig = setDefaultModel(configResult.config, body.defaultModel)
     const validation = validateCommonWorkspaceConfig(nextConfig)
     if (!validation.ok) {
@@ -97,7 +97,7 @@ export const PATCH = withAuth<DefaultModelResponse | { error: string }>(
 
     const writeResult = await writeCommonWorkspaceConfig(
       JSON.stringify(nextConfig, null, 2),
-      body.expectedHash,
+      configResult.hash ? body.expectedHash : undefined,
     )
     if (!writeResult.ok) {
       const status = writeResult.error === 'conflict' ? 409 : 500

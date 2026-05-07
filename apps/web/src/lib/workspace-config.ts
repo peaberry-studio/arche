@@ -175,7 +175,7 @@ export function getAgentSummaries(config: CommonWorkspaceConfig): CommonAgentSum
       ? agent.display_name.trim()
       : id,
     description: typeof agent?.description === 'string' ? agent.description : undefined,
-    model: typeof agent?.model === 'string' ? agent.model : undefined,
+    model: typeof agent?.model === 'string' && agent.model.trim() ? agent.model.trim() : undefined,
     temperature: typeof agent?.temperature === 'number' ? agent.temperature : undefined,
     prompt: typeof agent?.prompt === 'string' ? agent.prompt : undefined,
     mode: typeof agent?.mode === 'string' ? agent.mode : undefined,
