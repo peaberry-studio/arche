@@ -544,16 +544,19 @@ describe('desktopWorkspaceHost', () => {
 
     const { buildMcpConfigForSlug } = await import('@/lib/spawner/mcp-config')
     vi.mocked(buildMcpConfigForSlug).mockResolvedValue({
-      $schema: 'https://opencode.ai/config.json',
-      mcp: {
-        arche_linear_user999: {
-          type: 'remote',
-          url: 'https://mcp.linear.app/mcp',
-          enabled: true,
-          headers: { Authorization: 'Bearer tok' },
-          oauth: false,
+      mcpConfig: {
+        $schema: 'https://opencode.ai/config.json',
+        mcp: {
+          arche_linear_user999: {
+            type: 'remote',
+            url: 'https://mcp.linear.app/mcp',
+            enabled: true,
+            headers: { Authorization: 'Bearer tok' },
+            oauth: false,
+          },
         },
       },
+      connectorToolPermissions: {},
     })
 
     const { desktopWorkspaceHost } = await import('../workspace-host-desktop')

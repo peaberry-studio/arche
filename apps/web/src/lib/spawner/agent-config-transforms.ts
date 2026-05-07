@@ -26,6 +26,27 @@ function toPermissionMap(value: unknown): Record<string, unknown> {
   return isRecord(value) ? { ...value } : {}
 }
 
+function expandConnectorToolPolicy(input: {
+  serverKey: string
+  enabled: boolean
+  permissions: ConnectorToolPermissionMap
+  currentPermission: unknown
+}): {
+  tools: Record<string, boolean>
+  permission: Record<string, unknown>
+} {
+  const tools: Record<string, boolean> = {}
+  const permission = toPermissionMap(input.currentPermission)
+
+  for (const [toolName, action] of Object.entries(input.permissions)) {
+    const exactToolName = buildExactConnectorToolName(input.serverKey, toolName)
+    tools[exactToolName] = input.enabled
+    permission[exactToolName] = action
+  }
+
+  return { tools, permission }
+}
+
 export function injectAlwaysOnAgentTools(
   config: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -162,13 +183,14 @@ export function remapAgentConnectorTools(
       }
 
       toolsChanged = true
-      nextPermission ??= toPermissionMap(agent.permission)
-
-      for (const [toolName, permission] of Object.entries(toolPermissions)) {
-        const exactToolName = buildExactConnectorToolName(serverKey, toolName)
-        nextTools[exactToolName] = enabled
-        nextPermission[exactToolName] = permission
-      }
+      const expanded = expandConnectorToolPolicy({
+        serverKey,
+        enabled,
+        permissions: toolPermissions,
+        currentPermission: nextPermission ?? agent.permission,
+      })
+      Object.assign(nextTools, expanded.tools)
+      nextPermission = expanded.permission
 
       permissionChanged = true
     }

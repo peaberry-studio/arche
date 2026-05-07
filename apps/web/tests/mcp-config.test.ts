@@ -93,7 +93,7 @@ describe('mcp-config', () => {
       },
     })
 
-    expect(result.mcp.arche_linear_c1).toEqual({
+    expect(result.mcpConfig.mcp.arche_linear_c1).toEqual({
       type: 'remote',
       url: 'https://mcp.linear.app/mcp',
       enabled: true,
@@ -103,7 +103,7 @@ describe('mcp-config', () => {
       oauth: false,
     })
 
-    expect(result.mcp.arche_notion_c2).toEqual({
+    expect(result.mcpConfig.mcp.arche_notion_c2).toEqual({
       type: 'remote',
       url: 'https://mcp.notion.com/mcp',
       enabled: true,
@@ -113,7 +113,7 @@ describe('mcp-config', () => {
       oauth: false,
     })
 
-    expect(result.mcp.arche_custom_c3).toEqual({
+    expect(result.mcpConfig.mcp.arche_custom_c3).toEqual({
       type: 'remote',
       url: 'https://api.example.com/mcp',
       enabled: true,
@@ -124,7 +124,7 @@ describe('mcp-config', () => {
       },
     })
 
-    expect(result.mcp.arche_custom_c4).toEqual({
+    expect(result.mcpConfig.mcp.arche_custom_c4).toEqual({
       type: 'remote',
       url: 'https://oauth.example.com/mcp',
       enabled: true,
@@ -135,7 +135,7 @@ describe('mcp-config', () => {
       },
     })
 
-    expect(result.mcp.arche_zendesk_z1).toEqual({
+    expect(result.mcpConfig.mcp.arche_zendesk_z1).toEqual({
       type: 'remote',
       url: 'http://web:3000/api/internal/mcp/connectors/z1/mcp',
       enabled: true,
@@ -145,7 +145,7 @@ describe('mcp-config', () => {
       oauth: false,
     })
 
-    expect(result.mcp['arche_meta-ads_m1']).toEqual({
+    expect(result.mcpConfig.mcp['arche_meta-ads_m1']).toEqual({
       type: 'remote',
       url: 'http://web:3000/api/internal/mcp/connectors/m1/mcp',
       enabled: true,
@@ -186,7 +186,7 @@ describe('mcp-config', () => {
 
     const result = buildMcpConfigFromConnectors(connectors)
 
-    expect(result.mcp.arche_linear_ok1).toEqual({
+    expect(result.mcpConfig.mcp.arche_linear_ok1).toEqual({
       type: 'remote',
       url: 'https://mcp.linear.app/mcp',
       enabled: true,
@@ -196,8 +196,8 @@ describe('mcp-config', () => {
       oauth: false,
     })
 
-    expect(result.mcp.arche_linear_bad1).toBeUndefined()
-    expect(result.mcp.arche_custom_bad2).toBeUndefined()
+    expect(result.mcpConfig.mcp.arche_linear_bad1).toBeUndefined()
+    expect(result.mcpConfig.mcp.arche_custom_bad2).toBeUndefined()
   })
 
   it('uses full connector id in MCP keys to avoid collisions', () => {
@@ -225,7 +225,7 @@ describe('mcp-config', () => {
     ]
 
     const result = buildMcpConfigFromConnectors(connectors)
-    const keys = Object.keys(result.mcp).sort()
+    const keys = Object.keys(result.mcpConfig.mcp).sort()
 
     expect(keys).toEqual(['arche_linear_abcdef12-1111', 'arche_linear_abcdef12-2222'])
   })
@@ -255,7 +255,7 @@ describe('mcp-config', () => {
       },
     })
 
-    expect(result.mcp['arche_custom_custom-oauth-1']).toEqual({
+    expect(result.mcpConfig.mcp['arche_custom_custom-oauth-1']).toEqual({
       type: 'remote',
       url: 'http://web:3000/api/internal/mcp/connectors/custom-oauth-1/mcp',
       enabled: true,
@@ -289,7 +289,7 @@ describe('mcp-config', () => {
       },
     })
 
-    expect(result.mcp['arche_ahrefs_ahrefs-1']).toEqual({
+    expect(result.mcpConfig.mcp['arche_ahrefs_ahrefs-1']).toEqual({
       type: 'remote',
       url: 'http://web:3000/api/internal/mcp/connectors/ahrefs-1/mcp',
       enabled: true,

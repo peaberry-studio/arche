@@ -97,6 +97,23 @@ export function setConnectorToolPermissions(
   }
 }
 
+export function preserveConnectorToolPermissions(
+  currentConfig: Record<string, unknown>,
+  nextConfig: Record<string, unknown>,
+): Record<string, unknown> {
+  if (
+    nextConfig[CONNECTOR_TOOL_PERMISSIONS_CONFIG_KEY] !== undefined ||
+    currentConfig[CONNECTOR_TOOL_PERMISSIONS_CONFIG_KEY] === undefined
+  ) {
+    return nextConfig
+  }
+
+  return {
+    ...nextConfig,
+    [CONNECTOR_TOOL_PERMISSIONS_CONFIG_KEY]: currentConfig[CONNECTOR_TOOL_PERMISSIONS_CONFIG_KEY],
+  }
+}
+
 export function toConnectorToolPermissionEntries(
   tools: Array<{ name: string; title?: string; description?: string }>,
   permissions: ConnectorToolPermissionMap,

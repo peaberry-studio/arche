@@ -161,15 +161,15 @@ async function buildBaseWorkspaceConfig(
   }
 
   try {
-    const mcpConfig = await buildMcpConfigForSlug(slug)
-    if (mcpConfig?.mcp && Object.keys(mcpConfig.mcp).length > 0) {
-      const userMcpKeys = new Set(Object.keys(mcpConfig.mcp))
+    const mcpResult = await buildMcpConfigForSlug(slug)
+    if (mcpResult && Object.keys(mcpResult.mcpConfig.mcp).length > 0) {
+      const userMcpKeys = new Set(Object.keys(mcpResult.mcpConfig.mcp))
       baseConfig = remapAgentConnectorTools(
         baseConfig,
         userMcpKeys,
-        mcpConfig.connectorToolPermissions,
+        mcpResult.connectorToolPermissions,
       )
-      baseConfig = { ...baseConfig, mcp: mcpConfig.mcp }
+      baseConfig = { ...baseConfig, mcp: mcpResult.mcpConfig.mcp }
     } else {
       baseConfig = remapAgentConnectorTools(baseConfig, new Set())
     }

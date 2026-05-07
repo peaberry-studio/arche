@@ -7,6 +7,7 @@ import {
   hasStoredConnectorToolPermissions,
   isConnectorToolPermission,
   parseConnectorToolPermissions,
+  preserveConnectorToolPermissions,
   setConnectorToolPermissions,
   toConnectorToolPermissionEntries,
 } from '@/lib/connectors/tool-permissions'
@@ -47,6 +48,24 @@ describe('connector tool permissions', () => {
     expect(config[CONNECTOR_TOOL_PERMISSIONS_CONFIG_KEY]).toEqual({ search: 'ask' })
     expect(hasStoredConnectorToolPermissions(config)).toBe(true)
     expect(getStoredConnectorToolPermissions(config)).toEqual({ search: 'ask' })
+  })
+
+  it('preserves connector tool permissions when replacing config', () => {
+    const result = preserveConnectorToolPermissions(
+      { mcpToolPermissions: { search_tickets: 'ask' } },
+      { subdomain: 'acme', email: 'a@example.com', apiToken: 'token' },
+    )
+
+    expect(result.mcpToolPermissions).toEqual({ search_tickets: 'ask' })
+  })
+
+  it('does not overwrite connector tool permissions already present in next config', () => {
+    const result = preserveConnectorToolPermissions(
+      { mcpToolPermissions: { search_tickets: 'ask' } },
+      { mcpToolPermissions: { create_ticket: 'deny' } },
+    )
+
+    expect(result.mcpToolPermissions).toEqual({ create_ticket: 'deny' })
   })
 
   it('defaults missing tool permissions to allow for displayed tools', () => {

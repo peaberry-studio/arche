@@ -655,16 +655,19 @@ describe('startInstance - agent config transforms', () => {
     )
 
     mockBuildMcpConfigForSlug.mockResolvedValue({
-      $schema: 'https://opencode.ai/config.json',
-      mcp: {
-        arche_linear_user999: {
-          type: 'remote',
-          url: 'https://mcp.linear.app/mcp',
-          enabled: true,
-          headers: { Authorization: 'Bearer tok' },
-          oauth: false,
+      mcpConfig: {
+        $schema: 'https://opencode.ai/config.json',
+        mcp: {
+          arche_linear_user999: {
+            type: 'remote',
+            url: 'https://mcp.linear.app/mcp',
+            enabled: true,
+            headers: { Authorization: 'Bearer tok' },
+            oauth: false,
+          },
         },
       },
+      connectorToolPermissions: {},
     })
 
     mockInstance.findBySlug.mockResolvedValue(null)

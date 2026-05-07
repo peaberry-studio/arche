@@ -28,7 +28,11 @@ export type McpServerConfig = {
 export type McpConfig = {
   $schema: string
   mcp: Record<string, McpServerConfig>
-  connectorToolPermissions?: Record<string, ConnectorToolPermissionMap>
+}
+
+export type McpConfigBuildResult = {
+  mcpConfig: McpConfig
+  connectorToolPermissions: Record<string, ConnectorToolPermissionMap>
 }
 
 export type ConnectorRecord = {
@@ -51,7 +55,7 @@ export function buildMcpServerKey(type: ConnectorType, id: string): string {
 export function buildMcpConfigFromConnectors(
   connectors: ConnectorRecord[],
   options?: { gatewayTargets?: Record<string, GatewayTarget> },
-): McpConfig {
+): McpConfigBuildResult {
   const mcp: Record<string, McpServerConfig> = {}
   const connectorToolPermissions: Record<string, ConnectorToolPermissionMap> = {}
 
@@ -87,13 +91,15 @@ export function buildMcpConfigFromConnectors(
   }
 
   return {
-    $schema: OPENCODE_CONFIG_SCHEMA,
-    mcp,
-    ...(Object.keys(connectorToolPermissions).length > 0 ? { connectorToolPermissions } : {}),
+    mcpConfig: {
+      $schema: OPENCODE_CONFIG_SCHEMA,
+      mcp,
+    },
+    connectorToolPermissions,
   }
 }
 
-export async function buildMcpConfigForSlug(slug: string): Promise<McpConfig | null> {
+export async function buildMcpConfigForSlug(slug: string): Promise<McpConfigBuildResult | null> {
   const { userService, connectorService } = await import('@/lib/services')
 
   const user = await userService.findIdBySlug(slug)
@@ -127,8 +133,8 @@ export async function buildMcpConfigForSlug(slug: string): Promise<McpConfig | n
     }
   }
 
-  const config = buildMcpConfigFromConnectors(connectors, {
+  const result = buildMcpConfigFromConnectors(connectors, {
     gatewayTargets,
   })
-  return Object.keys(config.mcp).length ? config : null
+  return Object.keys(result.mcpConfig.mcp).length ? result : null
 }
