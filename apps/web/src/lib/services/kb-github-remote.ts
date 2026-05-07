@@ -113,7 +113,8 @@ export async function saveIntegrationConfig(args: {
     nextConfig.appSlug = existingConfig.appSlug
   }
 
-  const state = existing ? existing.state : DEFAULT_STATE
+  const appIdChanged = existingConfig?.appId && existingConfig.appId !== args.appId.trim()
+  const state = !existing || appIdChanged ? DEFAULT_STATE : existing.state
   const row = await upsertByKey(KB_GITHUB_REMOTE_INTEGRATION_KEY, encryptConfig(nextConfig), state)
   return {
     singletonKey: row.key,
@@ -224,7 +225,13 @@ export async function pullBestEffort(strategy?: ConflictStrategy): Promise<PullB
     })
 
     return { status: result.ok ? result.status : result.status === 'conflicts' ? 'conflicts' : 'error' }
-  } catch {
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error during pull'
+    await updateSyncState({
+      lastSyncAt: new Date().toISOString(),
+      lastSyncStatus: 'error',
+      lastError: errorMessage,
+    }).catch(() => {})
     return { status: 'error' }
   }
 }
@@ -244,7 +251,12 @@ export async function pushBestEffort(): Promise<void> {
       lastError: result.ok ? null : result.message,
       remoteBranch: result.ok && 'branch' in result ? result.branch : undefined,
     })
-  } catch {
-    // Best-effort: don't block if GitHub is unreachable
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error during push'
+    await updateSyncState({
+      lastSyncAt: new Date().toISOString(),
+      lastSyncStatus: 'error',
+      lastError: errorMessage,
+    }).catch(() => {})
   }
 }

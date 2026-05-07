@@ -57,25 +57,46 @@ export const PUT = withAuth<{ ok: boolean; repoFullName: string } | { error: str
     const repoFullName = body && typeof body === 'object' && 'repoFullName' in body
       ? String((body as { repoFullName: unknown }).repoFullName)
       : null
-    const repoCloneUrl = body && typeof body === 'object' && 'repoCloneUrl' in body
-      ? String((body as { repoCloneUrl: unknown }).repoCloneUrl)
-      : null
 
-    if (!repoFullName || !repoCloneUrl) {
+    if (!repoFullName) {
       return NextResponse.json({ error: 'missing_repo' }, { status: 400 })
     }
 
+    const record = await kbGithubRemoteService.findIntegration()
+    if (!record) {
+      return NextResponse.json({ error: 'not_configured' }, { status: 400 })
+    }
+
+    const config = kbGithubRemoteService.decryptIntegrationConfig(record)
+    if (!config?.appId || !config?.privateKey) {
+      return NextResponse.json({ error: 'not_configured' }, { status: 400 })
+    }
+
+    if (!record.state.installationId) {
+      return NextResponse.json({ error: 'not_installed' }, { status: 400 })
+    }
+
+    const reposResult = await getInstallationRepos(config.appId, config.privateKey, record.state.installationId)
+    if (!reposResult.ok) {
+      return NextResponse.json({ error: reposResult.message }, { status: 502 })
+    }
+
+    const matchedRepo = reposResult.repos.find((r) => r.fullName === repoFullName)
+    if (!matchedRepo) {
+      return NextResponse.json({ error: 'repo_not_found' }, { status: 400 })
+    }
+
     await kbGithubRemoteService.updateSyncState({
-      repoFullName,
-      repoCloneUrl,
+      repoFullName: matchedRepo.fullName,
+      repoCloneUrl: matchedRepo.cloneUrl,
     })
 
     await auditEvent({
       actorUserId: user.id,
       action: 'kb_github_remote.repo_selected',
-      metadata: { repoFullName },
+      metadata: { repoFullName: matchedRepo.fullName },
     })
 
-    return NextResponse.json({ ok: true, repoFullName })
+    return NextResponse.json({ ok: true, repoFullName: matchedRepo.fullName })
   },
 )

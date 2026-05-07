@@ -26,6 +26,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   not_ready: 'No repository selected. Select a repository first.',
   verification_failed: 'Could not verify the GitHub App installation.',
   invalid_direction: 'Invalid sync direction.',
+  repo_not_found: 'The selected repository was not found in the GitHub App installation.',
   network_error: 'Could not reach the server.',
 }
 
@@ -216,7 +217,7 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
       const response = await fetch(`/api/u/${slug}/kb-github-remote/repos`, {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ repoFullName: repo.fullName, repoCloneUrl: repo.cloneUrl }),
+        body: JSON.stringify({ repoFullName: repo.fullName }),
       })
       const data = (await response.json().catch(() => null)) as {
         ok?: boolean

@@ -191,6 +191,13 @@ export async function pullFromGithub(
     )
 
     if (!merge.ok) {
+      const isConflict = merge.stderr.toLowerCase().includes('conflict')
+
+      if (!isConflict) {
+        await runGit(['merge', '--abort'], { cwd: clone.dir, env: clone.gitEnv })
+        return { ok: false, status: 'error', message: sanitizeGitError(`Merge failed: ${merge.stderr}`, token) }
+      }
+
       if (!strategy) {
         const conflictFiles = await runGit(
           ['diff', '--name-only', '--diff-filter=U'],
@@ -211,12 +218,26 @@ export async function pullFromGithub(
       }
 
       const checkoutFlag = strategy === 'local_wins' ? '--ours' : '--theirs'
-      await runGit(['checkout', checkoutFlag, '.'], { cwd: clone.dir, env: clone.gitEnv })
-      await runGit(['add', '.'], { cwd: clone.dir, env: clone.gitEnv })
-      await runGit(
+      const checkout = await runGit(['checkout', checkoutFlag, '.'], { cwd: clone.dir, env: clone.gitEnv })
+      if (!checkout.ok) {
+        await runGit(['merge', '--abort'], { cwd: clone.dir, env: clone.gitEnv })
+        return { ok: false, status: 'error', message: `Failed to apply ${strategy} strategy: ${sanitizeGitError(checkout.stderr, token)}` }
+      }
+
+      const add = await runGit(['add', '.'], { cwd: clone.dir, env: clone.gitEnv })
+      if (!add.ok) {
+        await runGit(['merge', '--abort'], { cwd: clone.dir, env: clone.gitEnv })
+        return { ok: false, status: 'error', message: `Failed to stage resolved files: ${sanitizeGitError(add.stderr, token)}` }
+      }
+
+      const commit = await runGit(
         ['commit', '--no-edit', '-m', `Resolve conflicts: ${strategy === 'local_wins' ? 'keep local' : 'keep remote'}`],
         { cwd: clone.dir, env: clone.gitEnv },
       )
+      if (!commit.ok) {
+        await runGit(['merge', '--abort'], { cwd: clone.dir, env: clone.gitEnv })
+        return { ok: false, status: 'error', message: `Failed to commit resolution: ${sanitizeGitError(commit.stderr, token)}` }
+      }
     }
 
     const pushBack = await runGit(

@@ -429,7 +429,6 @@ describe('KbGithubRemotePanel', () => {
       expect(putCall[1]).toEqual(expect.objectContaining({ method: 'PUT' }))
       expect(JSON.parse(String(putCall[1]?.body))).toEqual({
         repoFullName: 'owner/repo1',
-        repoCloneUrl: 'https://github.com/owner/repo1.git',
       })
     })
 
@@ -879,7 +878,7 @@ describe('KbGithubRemotePanel', () => {
       const knownCodes = [
         'forbidden', 'missing_code', 'exchange_failed', 'missing_installation_id',
         'invalid_installation_id', 'not_configured', 'not_installed', 'not_ready',
-        'verification_failed', 'invalid_direction', 'network_error',
+        'verification_failed', 'invalid_direction', 'repo_not_found', 'network_error',
       ]
 
       for (const code of knownCodes) {

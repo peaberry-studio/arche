@@ -172,6 +172,70 @@ describe('kbGithubRemoteService', () => {
     )
   })
 
+  it('saveIntegrationConfig resets state when appId changes', async () => {
+    mockPrismaFindUnique.mockResolvedValue(
+      makeRow('enc:{"appId":"12345","privateKey":"old-pem","appSlug":"old-app"}', {
+        installationId: 99,
+        repoFullName: 'owner/repo',
+        repoCloneUrl: 'https://github.com/owner/repo.git',
+        lastSyncAt: '2026-04-27T10:00:00Z',
+        lastSyncStatus: 'success',
+        lastError: null,
+        remoteBranch: 'main',
+        lastPushAt: '2026-04-27T10:00:00Z',
+        lastPullAt: '2026-04-27T10:00:00Z',
+      }),
+    )
+
+    const { saveIntegrationConfig } = await import('../kb-github-remote')
+    await saveIntegrationConfig({ appId: '99999', privateKey: 'new-pem', appSlug: 'new-app' })
+
+    expect(mockPrismaUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({
+          state: expect.objectContaining({
+            installationId: null,
+            repoFullName: null,
+            repoCloneUrl: null,
+            lastSyncAt: null,
+            lastSyncStatus: null,
+          }),
+        }),
+      }),
+    )
+  })
+
+  it('saveIntegrationConfig preserves state when appId is unchanged', async () => {
+    mockPrismaFindUnique.mockResolvedValue(
+      makeRow('enc:{"appId":"12345","privateKey":"old-pem"}', {
+        installationId: 99,
+        repoFullName: 'owner/repo',
+        repoCloneUrl: 'https://github.com/owner/repo.git',
+        lastSyncAt: '2026-04-27T10:00:00Z',
+        lastSyncStatus: 'success',
+        lastError: null,
+        remoteBranch: 'main',
+        lastPushAt: null,
+        lastPullAt: null,
+      }),
+    )
+
+    const { saveIntegrationConfig } = await import('../kb-github-remote')
+    await saveIntegrationConfig({ appId: '12345', privateKey: 'new-pem' })
+
+    expect(mockPrismaUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({
+          state: expect.objectContaining({
+            installationId: 99,
+            repoFullName: 'owner/repo',
+            repoCloneUrl: 'https://github.com/owner/repo.git',
+          }),
+        }),
+      }),
+    )
+  })
+
   it('saveIntegrationConfig preserves existing appSlug when not provided', async () => {
     mockPrismaFindUnique.mockResolvedValue(
       makeRow('enc:{"appId":"12345","privateKey":"pem","appSlug":"my-app"}'),
@@ -482,7 +546,7 @@ describe('kbGithubRemoteService', () => {
       expect(result).toEqual({ status: 'conflicts' })
     })
 
-    it('returns error on unexpected exception', async () => {
+    it('persists error state on unexpected exception', async () => {
       mockPrismaFindUnique.mockResolvedValue(
         makeRow('enc:{"appId":"12345","privateKey":"pem"}', {
           installationId: 99,
@@ -495,6 +559,16 @@ describe('kbGithubRemoteService', () => {
       const result = await pullBestEffort()
 
       expect(result).toEqual({ status: 'error' })
+      expect(mockPrismaUpdateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            state: expect.objectContaining({
+              lastSyncStatus: 'error',
+              lastError: 'network timeout',
+            }),
+          }),
+        }),
+      )
     })
 
     it('passes strategy to pullFromGithub', async () => {
@@ -555,7 +629,7 @@ describe('kbGithubRemoteService', () => {
       expect(mockPrismaUpdateMany).toHaveBeenCalled()
     })
 
-    it('silently catches exceptions', async () => {
+    it('persists error state on exception', async () => {
       mockPrismaFindUnique.mockResolvedValue(
         makeRow('enc:{"appId":"12345","privateKey":"pem"}', {
           installationId: 99,
@@ -566,6 +640,17 @@ describe('kbGithubRemoteService', () => {
 
       const { pushBestEffort } = await import('../kb-github-remote')
       await expect(pushBestEffort()).resolves.toBeUndefined()
+
+      expect(mockPrismaUpdateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            state: expect.objectContaining({
+              lastSyncStatus: 'error',
+              lastError: 'network down',
+            }),
+          }),
+        }),
+      )
     })
   })
 

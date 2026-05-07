@@ -140,14 +140,11 @@ describe('/api/u/[slug]/kb-github-remote/repos', () => {
   })
 
   describe('PUT', () => {
-    it('selects a repo and stores in state', async () => {
+    it('resolves clone URL server-side and stores in state', async () => {
       const { PUT } = await import('../route')
       const response = await PUT(
         new Request('http://localhost/api/u/alice/kb-github-remote/repos', {
-          body: JSON.stringify({
-            repoFullName: 'owner/repo1',
-            repoCloneUrl: 'https://github.com/owner/repo1.git',
-          }),
+          body: JSON.stringify({ repoFullName: 'owner/repo1' }),
           headers: { 'content-type': 'application/json' },
           method: 'PUT',
         }) as never,
@@ -161,6 +158,7 @@ describe('/api/u/[slug]/kb-github-remote/repos', () => {
         repoFullName: 'owner/repo1',
         repoCloneUrl: 'https://github.com/owner/repo1.git',
       })
+      expect(getInstallationReposMock).toHaveBeenCalledWith('12345', 'pem-data', 99)
       expect(auditEventMock).toHaveBeenCalledWith(
         expect.objectContaining({
           action: 'kb_github_remote.repo_selected',
@@ -168,7 +166,39 @@ describe('/api/u/[slug]/kb-github-remote/repos', () => {
       )
     })
 
-    it('rejects missing repo data', async () => {
+    it('rejects missing repoFullName', async () => {
+      const { PUT } = await import('../route')
+      const response = await PUT(
+        new Request('http://localhost/api/u/alice/kb-github-remote/repos', {
+          body: JSON.stringify({}),
+          headers: { 'content-type': 'application/json' },
+          method: 'PUT',
+        }) as never,
+        { params: Promise.resolve({ slug: 'alice' }) },
+      )
+
+      expect(response.status).toBe(400)
+      await expect(response.json()).resolves.toEqual({ error: 'missing_repo' })
+    })
+
+    it('returns 400 when repo not found in installation', async () => {
+      const { PUT } = await import('../route')
+      const response = await PUT(
+        new Request('http://localhost/api/u/alice/kb-github-remote/repos', {
+          body: JSON.stringify({ repoFullName: 'owner/nonexistent' }),
+          headers: { 'content-type': 'application/json' },
+          method: 'PUT',
+        }) as never,
+        { params: Promise.resolve({ slug: 'alice' }) },
+      )
+
+      expect(response.status).toBe(400)
+      await expect(response.json()).resolves.toEqual({ error: 'repo_not_found' })
+    })
+
+    it('returns 400 when not configured', async () => {
+      findIntegrationMock.mockResolvedValue(null)
+
       const { PUT } = await import('../route')
       const response = await PUT(
         new Request('http://localhost/api/u/alice/kb-github-remote/repos', {
@@ -180,7 +210,23 @@ describe('/api/u/[slug]/kb-github-remote/repos', () => {
       )
 
       expect(response.status).toBe(400)
-      await expect(response.json()).resolves.toEqual({ error: 'missing_repo' })
+      await expect(response.json()).resolves.toEqual({ error: 'not_configured' })
+    })
+
+    it('returns 502 when GitHub API fails during repo lookup', async () => {
+      getInstallationReposMock.mockResolvedValue({ ok: false, message: 'API error' })
+
+      const { PUT } = await import('../route')
+      const response = await PUT(
+        new Request('http://localhost/api/u/alice/kb-github-remote/repos', {
+          body: JSON.stringify({ repoFullName: 'owner/repo1' }),
+          headers: { 'content-type': 'application/json' },
+          method: 'PUT',
+        }) as never,
+        { params: Promise.resolve({ slug: 'alice' }) },
+      )
+
+      expect(response.status).toBe(502)
     })
 
     it('returns 403 for non-admin users', async () => {
@@ -189,10 +235,7 @@ describe('/api/u/[slug]/kb-github-remote/repos', () => {
       const { PUT } = await import('../route')
       const response = await PUT(
         new Request('http://localhost/api/u/alice/kb-github-remote/repos', {
-          body: JSON.stringify({
-            repoFullName: 'owner/repo1',
-            repoCloneUrl: 'https://github.com/owner/repo1.git',
-          }),
+          body: JSON.stringify({ repoFullName: 'owner/repo1' }),
           headers: { 'content-type': 'application/json' },
           method: 'PUT',
         }) as never,

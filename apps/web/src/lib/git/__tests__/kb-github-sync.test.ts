@@ -479,4 +479,103 @@ describe('kb-github-sync', () => {
       }
     })
   })
+
+  describe('pullFromGithub merge handling', () => {
+    it('returns error for non-conflict merge failure', async () => {
+      mockRunGit
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // remote add
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // fetch
+        .mockResolvedValueOnce({ ok: false, stderr: '' }) // diff --quiet
+        .mockResolvedValueOnce({ ok: false, stderr: 'fatal: refusing to merge unrelated histories' }) // merge (no conflict)
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // merge --abort
+
+      const { pullFromGithub } = await import('../kb-github-sync')
+      const result = await pullFromGithub(CREDS)
+
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.status).toBe('error')
+        expect(result.message).toContain('Merge failed')
+        expect(result.status).not.toBe('conflicts')
+      }
+    })
+
+    it('returns error when checkout --ours fails during resolution', async () => {
+      mockRunGit
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // remote add
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // fetch
+        .mockResolvedValueOnce({ ok: false, stderr: '' }) // diff --quiet
+        .mockResolvedValueOnce({ ok: false, stderr: 'CONFLICT (content)' }) // merge
+        .mockResolvedValueOnce({ ok: false, stderr: 'error: path not found' }) // checkout --ours fails
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // merge --abort
+
+      const { pullFromGithub } = await import('../kb-github-sync')
+      const result = await pullFromGithub(CREDS, 'local_wins')
+
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.status).toBe('error')
+        expect(result.message).toContain('Failed to apply local_wins strategy')
+      }
+    })
+
+    it('returns error when git add fails during resolution', async () => {
+      mockRunGit
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // remote add
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // fetch
+        .mockResolvedValueOnce({ ok: false, stderr: '' }) // diff --quiet
+        .mockResolvedValueOnce({ ok: false, stderr: 'CONFLICT (content)' }) // merge
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // checkout --theirs
+        .mockResolvedValueOnce({ ok: false, stderr: 'fatal: unable to stage' }) // git add fails
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // merge --abort
+
+      const { pullFromGithub } = await import('../kb-github-sync')
+      const result = await pullFromGithub(CREDS, 'remote_wins')
+
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.status).toBe('error')
+        expect(result.message).toContain('Failed to stage resolved files')
+      }
+    })
+
+    it('returns error when commit fails during resolution', async () => {
+      mockRunGit
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // remote add
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // fetch
+        .mockResolvedValueOnce({ ok: false, stderr: '' }) // diff --quiet
+        .mockResolvedValueOnce({ ok: false, stderr: 'CONFLICT (content)' }) // merge
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // checkout --ours
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // git add
+        .mockResolvedValueOnce({ ok: false, stderr: 'fatal: cannot commit' }) // commit fails
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // merge --abort
+
+      const { pullFromGithub } = await import('../kb-github-sync')
+      const result = await pullFromGithub(CREDS, 'local_wins')
+
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.status).toBe('error')
+        expect(result.message).toContain('Failed to commit resolution')
+      }
+    })
+
+    it('returns error for non-conflict merge failure with strategy', async () => {
+      mockRunGit
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // remote add
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // fetch
+        .mockResolvedValueOnce({ ok: false, stderr: '' }) // diff --quiet
+        .mockResolvedValueOnce({ ok: false, stderr: 'fatal: not possible to fast-forward' }) // merge (not conflict)
+        .mockResolvedValueOnce({ ok: true, stdout: '' }) // merge --abort
+
+      const { pullFromGithub } = await import('../kb-github-sync')
+      const result = await pullFromGithub(CREDS, 'local_wins')
+
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.status).toBe('error')
+        expect(result.message).toContain('Merge failed')
+      }
+    })
+  })
 })

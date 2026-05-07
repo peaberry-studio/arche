@@ -42,8 +42,19 @@ export const GET = withAuth<{ error: string }>(
       return NextResponse.redirect(new URL(`/u/${slug}/settings/integrations/kb-github-remote?error=verification_failed`, request.url))
     }
 
+    const installationChanged = record.state.installationId !== null && record.state.installationId !== installationId
     await kbGithubRemoteService.updateSyncState({
       installationId,
+      ...(installationChanged ? {
+        repoFullName: null,
+        repoCloneUrl: null,
+        lastSyncAt: null,
+        lastSyncStatus: null,
+        lastError: null,
+        remoteBranch: null,
+        lastPushAt: null,
+        lastPullAt: null,
+      } : {}),
     })
 
     await auditEvent({
