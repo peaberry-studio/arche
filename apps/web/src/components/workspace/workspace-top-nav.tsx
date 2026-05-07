@@ -145,7 +145,7 @@ export function WorkspaceTopNav({
       className={cn(
         'relative z-30 grid shrink-0 items-center gap-3 border-b border-border/30 bg-background px-4',
         macDesktopWindowInset
-          ? 'desktop-titlebar-drag h-[52px] grid-cols-[1fr_auto_1fr] pl-[88px] pt-1.5'
+          ? 'desktop-titlebar-drag h-[56px] grid-cols-[1fr_auto_1fr] pl-[88px]'
           : 'h-14 grid-cols-[auto_1fr] sm:grid-cols-[1fr_auto_1fr]'
       )}
     >

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FileText, SpinnerGap } from '@phosphor-icons/react'
 import { drag as d3drag } from 'd3-drag'
 import {
@@ -16,7 +16,7 @@ import {
   type SimulationNodeDatum,
 } from 'd3-force'
 import { select } from 'd3-selection'
-import { zoom as d3zoom, zoomIdentity, type ZoomTransform } from 'd3-zoom'
+import { zoom as d3zoom } from 'd3-zoom'
 
 import {
   buildKnowledgeGraph,
@@ -48,12 +48,24 @@ type SimEdge = SimulationLinkDatum<SimNode> & {
   kind: KnowledgeGraphEdge['kind']
 }
 
-const NODE_RADIUS_FILE = 5
-const NODE_RADIUS_AGENT = 6
-const ACTIVE_BOOST = 2.5
-const LABEL_BASE_OPACITY = 0.25
-const LABEL_FULL_ZOOM = 1.4
-const CHARGE_DISTANCE_MAX = 240
+const MIN_RADIUS_FILE = 4
+const MAX_RADIUS_FILE = 15
+const MIN_RADIUS_AGENT = 5
+const MAX_RADIUS_AGENT = 16
+const ACTIVE_BOOST = 2
+const LABEL_BASE_OPACITY = 0
+const LABEL_VISIBLE_ZOOM = 0.72
+const LABEL_FULL_ZOOM = 1.75
+const LABEL_SCREEN_FONT_SIZE = 8
+const LABEL_SCREEN_GAP = 7
+const CHARGE_DISTANCE_MAX = 180
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5))
+
+type LayoutTarget = {
+  strength: number
+  x: number
+  y: number
+}
 
 function flattenMarkdownFilePaths(nodes: WorkspaceFileNode[]): string[] {
   const paths: string[] = []
@@ -76,6 +88,202 @@ function flattenMarkdownFilePaths(nodes: WorkspaceFileNode[]): string[] {
 
 function shortenLabel(label: string): string {
   return label.length > 30 ? `${label.slice(0, 27)}...` : label
+}
+
+function buildDegreeById(edges: KnowledgeGraphEdge[]): Map<string, number> {
+  const degreeById = new Map<string, number>()
+  for (const edge of edges) {
+    degreeById.set(edge.source, (degreeById.get(edge.source) ?? 0) + 1)
+    degreeById.set(edge.target, (degreeById.get(edge.target) ?? 0) + 1)
+  }
+  return degreeById
+}
+
+function getMaxNodeRadius(node: KnowledgeGraphNode): number {
+  return node.kind === 'file' ? MAX_RADIUS_FILE : MAX_RADIUS_AGENT
+}
+
+function getNodeRadius(
+  node: KnowledgeGraphNode,
+  degreeById: Map<string, number>
+): number {
+  const degree = degreeById.get(node.id) ?? 0
+  const minRadius = node.kind === 'file' ? MIN_RADIUS_FILE : MIN_RADIUS_AGENT
+  const radius = minRadius + Math.sqrt(degree) * 1.6
+  return Math.min(getMaxNodeRadius(node), Math.max(minRadius, radius))
+}
+
+function getLinkEndpointId(endpoint: SimEdge['source']): string {
+  return typeof endpoint === 'object' ? endpoint.id : String(endpoint)
+}
+
+function getLinkEndpointDegree(
+  endpoint: SimEdge['source'],
+  degreeById: Map<string, number>
+): number {
+  return degreeById.get(getLinkEndpointId(endpoint)) ?? 0
+}
+
+function buildLayoutTargets(
+  nodes: SimNode[],
+  edges: KnowledgeGraphEdge[],
+  degreeById: Map<string, number>,
+  width: number,
+  height: number
+): Map<string, LayoutTarget> {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]))
+  const neighborsById = new Map<string, string[]>()
+  for (const node of nodes) {
+    neighborsById.set(node.id, [])
+  }
+
+  for (const edge of edges) {
+    if (!nodeById.has(edge.source) || !nodeById.has(edge.target)) continue
+    neighborsById.get(edge.source)?.push(edge.target)
+    neighborsById.get(edge.target)?.push(edge.source)
+  }
+
+  const visited = new Set<string>()
+  const components: SimNode[][] = []
+
+  for (const node of nodes) {
+    if (visited.has(node.id)) continue
+
+    const component: SimNode[] = []
+    const stack = [node.id]
+    visited.add(node.id)
+
+    while (stack.length > 0) {
+      const id = stack.pop()
+      if (!id) continue
+
+      const current = nodeById.get(id)
+      if (!current) continue
+
+      component.push(current)
+
+      for (const neighborId of neighborsById.get(id) ?? []) {
+        if (visited.has(neighborId)) continue
+        visited.add(neighborId)
+        stack.push(neighborId)
+      }
+    }
+
+    components.push(component)
+  }
+
+  components.sort(
+    (left, right) =>
+      right.length - left.length ||
+      (left[0]?.label ?? '').localeCompare(right[0]?.label ?? '')
+  )
+
+  const targets = new Map<string, LayoutTarget>()
+  const connectedComponents = components.filter((component) =>
+    component.some((node) => (degreeById.get(node.id) ?? 0) > 0)
+  )
+
+  if (connectedComponents.length > 0) {
+    const componentCount = connectedComponents.length
+    const aspectRatio = width / Math.max(height, 1)
+    const columns = Math.min(
+      componentCount,
+      Math.max(1, Math.ceil(Math.sqrt(componentCount * aspectRatio)))
+    )
+    const rows = Math.max(1, Math.ceil(componentCount / columns))
+    const paddingX = Math.min(88, Math.max(32, width * 0.1))
+    const paddingY = Math.min(76, Math.max(28, height * 0.12))
+    const usableWidth = Math.max(width - paddingX * 2, width * 0.55)
+    const usableHeight = Math.max(height - paddingY * 2, height * 0.55)
+    const originX = (width - usableWidth) / 2
+    const originY = (height - usableHeight) / 2
+    const cellWidth = usableWidth / columns
+    const cellHeight = usableHeight / rows
+
+    const slots = Array.from({ length: componentCount }, (_, index) => {
+      const column = index % columns
+      const row = Math.floor(index / columns)
+      const x = originX + column * cellWidth + cellWidth / 2
+      const y = originY + row * cellHeight + cellHeight / 2
+      return {
+        index,
+        x,
+        y,
+        distanceFromCenter: (x - width / 2) ** 2 + (y - height / 2) ** 2,
+      }
+    }).sort(
+      (left, right) =>
+        left.distanceFromCenter - right.distanceFromCenter || left.index - right.index
+    )
+
+    connectedComponents.forEach((component, componentIndex) => {
+      const slot = slots[componentIndex]
+      if (!slot) return
+
+      const componentNodes = [...component].sort(
+        (left, right) =>
+          (degreeById.get(right.id) ?? 0) - (degreeById.get(left.id) ?? 0) ||
+          left.kind.localeCompare(right.kind) ||
+          left.label.localeCompare(right.label)
+      )
+      const localColumns = Math.max(1, Math.ceil(Math.sqrt(componentNodes.length)))
+      const localRows = Math.max(1, Math.ceil(componentNodes.length / localColumns))
+      const localSpacingX = Math.min(84, cellWidth / Math.max(localColumns, 1))
+      const localSpacingY = Math.min(68, cellHeight / Math.max(localRows, 1))
+      const localSlots = Array.from({ length: componentNodes.length }, (_, index) => {
+        const column = index % localColumns
+        const row = Math.floor(index / localColumns)
+        const x = slot.x + (column - (localColumns - 1) / 2) * localSpacingX
+        const y = slot.y + (row - (localRows - 1) / 2) * localSpacingY
+        return {
+          index,
+          x,
+          y,
+          distanceFromCenter: (x - slot.x) ** 2 + (y - slot.y) ** 2,
+        }
+      }).sort(
+        (left, right) =>
+          left.distanceFromCenter - right.distanceFromCenter || left.index - right.index
+      )
+
+      componentNodes.forEach((node, index) => {
+        const localSlot = localSlots[index]
+        if (!localSlot) return
+
+        const degree = degreeById.get(node.id) ?? 0
+        targets.set(node.id, {
+          strength: Math.min(0.18, 0.07 + Math.sqrt(degree) * 0.025),
+          x: localSlot.x,
+          y: localSlot.y,
+        })
+      })
+    })
+  }
+
+  const isolatedNodes = components
+    .filter((component) =>
+      component.every((node) => (degreeById.get(node.id) ?? 0) === 0)
+    )
+    .flat()
+    .sort(
+      (left, right) =>
+        left.kind.localeCompare(right.kind) || left.label.localeCompare(right.label)
+    )
+
+  const isolatedCount = isolatedNodes.length
+  const isolatedRadiusX = Math.max(24, Math.min(width / 2 - 24, width * 0.46))
+  const isolatedRadiusY = Math.max(24, Math.min(height / 2 - 24, height * 0.46))
+  isolatedNodes.forEach((node, index) => {
+    const radiusRatio = Math.sqrt((index + 0.5) / isolatedCount)
+    const angle = -Math.PI / 2 + index * GOLDEN_ANGLE
+    targets.set(node.id, {
+      strength: 0.14,
+      x: width / 2 + Math.cos(angle) * isolatedRadiusX * radiusRatio,
+      y: height / 2 + Math.sin(angle) * isolatedRadiusY * radiusRatio,
+    })
+  })
+
+  return targets
 }
 
 export function KnowledgeGraphPanel({
@@ -137,19 +345,57 @@ export function KnowledgeGraphPanel({
     }),
     [agentSources, contentByPath, markdownPaths, openFileContentByPath]
   )
+  const degreeById = useMemo(() => buildDegreeById(graph.edges), [graph.edges])
 
   const containerRef = useRef<HTMLDivElement | null>(null)
   const svgRef = useRef<SVGSVGElement | null>(null)
   const zoomLayerRef = useRef<SVGGElement | null>(null)
   const nodeElsRef = useRef<Map<string, SVGGElement>>(new Map())
   const edgeElsRef = useRef<Map<string, SVGLineElement>>(new Map())
+  const nodeCircleElsRef = useRef<Map<string, SVGCircleElement>>(new Map())
+  const nodeHaloElsRef = useRef<Map<string, SVGCircleElement>>(new Map())
+  const labelElsRef = useRef<Map<string, SVGTextElement>>(new Map())
   const simulationRef = useRef<Simulation<SimNode, SimEdge> | null>(null)
   const simNodesRef = useRef<SimNode[]>([])
   const simEdgesRef = useRef<SimEdge[]>([])
+  const zoomScaleRef = useRef(1)
 
   const [size, setSize] = useState({ width: 0, height: 0 })
-  const [transform, setTransform] = useState<ZoomTransform>(zoomIdentity)
   const [hoverNodeId, setHoverNodeId] = useState<string | null>(null)
+
+  const updateZoomScaledElements = useCallback((scale: number) => {
+    const labelOpacity = Math.max(
+      LABEL_BASE_OPACITY,
+      Math.min(1, (scale - LABEL_VISIBLE_ZOOM) / (LABEL_FULL_ZOOM - LABEL_VISIBLE_ZOOM))
+    )
+    const labelZoomScale = Math.max(1, scale) ** 0.72
+    const nodeZoomScale = Math.max(1, scale) ** 0.68
+    const edgeZoomScale = Math.max(1, scale) ** 0.72
+
+    for (const labelEl of labelElsRef.current.values()) {
+      labelEl.setAttribute(
+        'y',
+        String(Number(labelEl.dataset.radius ?? 0) + LABEL_SCREEN_GAP / labelZoomScale)
+      )
+      labelEl.style.fontSize = `${LABEL_SCREEN_FONT_SIZE / labelZoomScale}px`
+      labelEl.style.opacity = labelEl.dataset.emphasized === 'true' ? '1' : String(labelOpacity)
+    }
+
+    for (const circleEl of nodeCircleElsRef.current.values()) {
+      circleEl.setAttribute('r', String(Number(circleEl.dataset.radius ?? 0) / nodeZoomScale))
+    }
+
+    for (const circleEl of nodeHaloElsRef.current.values()) {
+      circleEl.setAttribute('r', String(Number(circleEl.dataset.radius ?? 0) / nodeZoomScale))
+    }
+
+    for (const edgeEl of edgeElsRef.current.values()) {
+      edgeEl.setAttribute(
+        'stroke-width',
+        String(Number(edgeEl.dataset.strokeWidth ?? 1) / edgeZoomScale)
+      )
+    }
+  }, [])
 
   useEffect(() => {
     const el = containerRef.current
@@ -174,11 +420,7 @@ export function KnowledgeGraphPanel({
       if (existing) {
         return Object.assign(existing, node)
       }
-      return {
-        ...node,
-        x: size.width / 2 + (Math.random() - 0.5) * 80,
-        y: size.height / 2 + (Math.random() - 0.5) * 80,
-      }
+      return { ...node }
     })
     const nextEdges: SimEdge[] = graph.edges.map((edge) => ({
       id: edge.id,
@@ -186,17 +428,26 @@ export function KnowledgeGraphPanel({
       source: edge.source,
       target: edge.target,
     }))
+    const layoutTargets = buildLayoutTargets(
+      nextNodes,
+      graph.edges,
+      degreeById,
+      size.width,
+      size.height
+    )
+
+    for (const node of nextNodes) {
+      const target = layoutTargets.get(node.id)
+      if (!target || (typeof node.x === 'number' && typeof node.y === 'number')) continue
+      node.x = target.x
+      node.y = target.y
+    }
 
     simNodesRef.current = nextNodes
     simEdgesRef.current = nextEdges
 
-    const degreeById = new Map<string, number>()
-    for (const edge of graph.edges) {
-      degreeById.set(edge.source, (degreeById.get(edge.source) ?? 0) + 1)
-      degreeById.set(edge.target, (degreeById.get(edge.target) ?? 0) + 1)
-    }
     const positionStrength = (node: SimNode) =>
-      (degreeById.get(node.id) ?? 0) === 0 ? 0.18 : 0.04
+      layoutTargets.get(node.id)?.strength ?? 0.08
 
     simulationRef.current?.stop()
     const simulation = forceSimulation<SimNode, SimEdge>(nextNodes)
@@ -204,14 +455,27 @@ export function KnowledgeGraphPanel({
         'link',
         forceLink<SimNode, SimEdge>(nextEdges)
           .id((d) => d.id)
-          .distance(130)
-          .strength(0.4)
+          .distance((edge) => {
+            const sourceDegree = getLinkEndpointDegree(edge.source, degreeById)
+            const targetDegree = getLinkEndpointDegree(edge.target, degreeById)
+            const avgDegree = (sourceDegree + targetDegree) / 2
+            const baseDistance = avgDegree > 5 ? 58 : avgDegree > 2 ? 78 : 96
+            return edge.kind === 'agent-reference' ? baseDistance + 14 : baseDistance
+          })
+          .strength((edge) => {
+            const sourceDegree = getLinkEndpointDegree(edge.source, degreeById)
+            const targetDegree = getLinkEndpointDegree(edge.target, degreeById)
+            const avgDegree = (sourceDegree + targetDegree) / 2
+            return avgDegree > 5 ? 0.5 : avgDegree > 2 ? 0.36 : 0.24
+          })
       )
       .force(
         'charge',
         forceManyBody<SimNode>()
           .strength((node) =>
-            (degreeById.get(node.id) ?? 0) === 0 ? -180 : -380
+            (degreeById.get(node.id) ?? 0) === 0
+              ? -35
+              : -130 - Math.min(degreeById.get(node.id) ?? 0, 12) * 12
           )
           .distanceMax(CHARGE_DISTANCE_MAX)
       )
@@ -219,11 +483,24 @@ export function KnowledgeGraphPanel({
         'center',
         forceCenter<SimNode>(size.width / 2, size.height / 2).strength(0.05)
       )
-      .force('x', forceX<SimNode>(size.width / 2).strength(positionStrength))
-      .force('y', forceY<SimNode>(size.height / 2).strength(positionStrength))
-      .force('collide', forceCollide<SimNode>(32))
+      .force(
+        'x',
+        forceX<SimNode>((node) =>
+          layoutTargets.get(node.id)?.x ?? size.width / 2
+        ).strength(positionStrength)
+      )
+      .force(
+        'y',
+        forceY<SimNode>((node) =>
+          layoutTargets.get(node.id)?.y ?? size.height / 2
+        ).strength(positionStrength)
+      )
+      .force(
+        'collide',
+        forceCollide<SimNode>((node) => getNodeRadius(node, degreeById) + 6).strength(0.8)
+      )
       .alpha(1)
-      .alphaDecay(0.03)
+      .alphaDecay(0.06)
       .on('tick', () => {
         for (const node of nextNodes) {
           const el = nodeElsRef.current.get(node.id)
@@ -252,7 +529,7 @@ export function KnowledgeGraphPanel({
     return () => {
       simulation.stop()
     }
-  }, [graph, size.width, size.height])
+  }, [degreeById, graph, size.width, size.height])
 
   useEffect(() => {
     const svgEl = svgRef.current
@@ -268,14 +545,22 @@ export function KnowledgeGraphPanel({
         }
         return !(event as MouseEvent).ctrlKey
       })
-      .on('zoom', (event) => setTransform(event.transform))
+      .on('zoom', (event) => {
+        zoomScaleRef.current = event.transform.k
+        zoomLayerRef.current?.setAttribute('transform', event.transform.toString())
+        updateZoomScaledElements(event.transform.k)
+      })
 
     select(svgEl).call(zoomBehavior).on('dblclick.zoom', null)
 
     return () => {
       select(svgEl).on('.zoom', null)
     }
-  }, [hasMarkdownFiles])
+  }, [hasMarkdownFiles, updateZoomScaledElements])
+
+  useEffect(() => {
+    updateZoomScaledElements(zoomScaleRef.current)
+  }, [activeFilePath, graph.edges, graph.nodes, hoverNodeId, updateZoomScaledElements])
 
   useEffect(() => {
     const simulation = simulationRef.current
@@ -318,11 +603,6 @@ export function KnowledgeGraphPanel({
   const fileCount = graph.nodes.filter((node) => node.kind === 'file').length
   const agentCount = graph.nodes.filter((node) => node.kind === 'agent').length
 
-  const labelOpacity = Math.max(
-    LABEL_BASE_OPACITY,
-    Math.min(1, (transform.k - 0.6) / (LABEL_FULL_ZOOM - 0.6))
-  )
-
   const connectedIds = useMemo(() => {
     if (!hoverNodeId) return new Set<string>()
     const set = new Set<string>([hoverNodeId])
@@ -352,10 +632,7 @@ export function KnowledgeGraphPanel({
             width={size.width || undefined}
             height={size.height || undefined}
           >
-            <g
-              ref={zoomLayerRef}
-              transform={transform.toString()}
-            >
+            <g ref={zoomLayerRef}>
               <g className="links">
                 {graph.edges.map((edge) => {
                   const isHovered =
@@ -373,15 +650,17 @@ export function KnowledgeGraphPanel({
                       className={cn(
                         isHovered
                           ? edge.kind === 'agent-reference'
-                            ? 'stroke-amber-500/85'
-                            : 'stroke-primary/80'
+                            ? 'stroke-amber-600/90'
+                            : 'stroke-foreground/70'
                           : edge.kind === 'agent-reference'
-                            ? 'stroke-amber-500/35'
-                            : 'stroke-foreground/15',
-                        dim && 'opacity-40'
+                            ? 'stroke-amber-500/25'
+                            : 'stroke-foreground/12',
+                        dim && 'opacity-10'
                       )}
                       strokeWidth={isHovered ? 1.5 : 1}
+                      data-stroke-width={isHovered ? 1.5 : 1}
                       strokeLinecap="round"
+                      style={{ transition: 'opacity 160ms ease, stroke 160ms ease' }}
                     />
                   )
                 })}
@@ -394,9 +673,21 @@ export function KnowledgeGraphPanel({
                   const isHovered = hoverNodeId === node.id
                   const isConnected = connectedIds.has(node.id)
                   const dim = hoverNodeId !== null && !isConnected
-                  const baseRadius = isFile ? NODE_RADIUS_FILE : NODE_RADIUS_AGENT
-                  const radius =
+                  const isHoverNeighbor = hoverNodeId !== null && isConnected && !isHovered
+                  const baseRadius = getNodeRadius(node, degreeById)
+                  const radius = Math.min(
+                    getMaxNodeRadius(node),
                     baseRadius + (isActive ? ACTIVE_BOOST : 0) + (isHovered ? 1.5 : 0)
+                  )
+                  const nodeFillClass = isHovered
+                    ? 'fill-orange-500'
+                    : isHoverNeighbor
+                      ? 'fill-foreground/75'
+                      : isFile
+                        ? isActive
+                          ? 'fill-primary'
+                          : 'fill-primary/85'
+                        : 'fill-amber-500'
 
                   return (
                     <g
@@ -426,34 +717,51 @@ export function KnowledgeGraphPanel({
                       className={cn(
                         'outline-none focus:outline-none focus-visible:outline-none',
                         isFile ? 'cursor-pointer' : 'cursor-grab',
-                        dim && 'opacity-35'
+                        'transition-opacity duration-200 ease-out',
+                        dim && 'opacity-10'
                       )}
                     >
                       {isActive || isHovered ? (
                         <circle
+                          ref={(el) => {
+                            if (el) nodeHaloElsRef.current.set(node.id, el)
+                            else nodeHaloElsRef.current.delete(node.id)
+                          }}
                           r={radius + 6}
+                          data-radius={radius + 6}
                           className={cn(
-                            isFile ? 'fill-primary/20' : 'fill-amber-500/20'
+                            'transition-colors duration-200 ease-out',
+                            isHovered
+                              ? 'fill-orange-500/20'
+                              : isFile
+                                ? 'fill-primary/20'
+                                : 'fill-amber-500/20'
                           )}
                         />
                       ) : null}
                       <circle
+                        ref={(el) => {
+                          if (el) nodeCircleElsRef.current.set(node.id, el)
+                          else nodeCircleElsRef.current.delete(node.id)
+                        }}
                         r={radius}
-                        className={cn(
-                          isFile
-                            ? isActive
-                              ? 'fill-primary'
-                              : 'fill-primary/85'
-                            : 'fill-amber-500'
-                        )}
+                        data-radius={radius}
+                        className={cn('transition-colors duration-200 ease-out', nodeFillClass)}
                       />
                       <text
-                        y={radius + 10}
-                        textAnchor="middle"
-                        style={{
-                          opacity: isHovered || isActive ? 1 : labelOpacity,
+                        ref={(el) => {
+                          if (el) labelElsRef.current.set(node.id, el)
+                          else labelElsRef.current.delete(node.id)
                         }}
-                        className="pointer-events-none fill-muted-foreground text-[9px] font-medium"
+                        y={radius + LABEL_SCREEN_GAP}
+                        textAnchor="middle"
+                        data-emphasized={isHovered || isActive ? 'true' : 'false'}
+                        data-radius={radius}
+                        style={{
+                          fontSize: `${LABEL_SCREEN_FONT_SIZE}px`,
+                          opacity: isHovered || isActive ? 1 : LABEL_BASE_OPACITY,
+                        }}
+                        className="pointer-events-none fill-muted-foreground font-medium"
                       >
                         {shortenLabel(node.label)}
                       </text>
