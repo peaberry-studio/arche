@@ -58,3 +58,6 @@ archectl_*
 # Infrastructure secrets (never commit .env or .env.local*)
 infra/**/.env
 infra/**/.env.local*
+
+# Claude AI local config
+.claude/
