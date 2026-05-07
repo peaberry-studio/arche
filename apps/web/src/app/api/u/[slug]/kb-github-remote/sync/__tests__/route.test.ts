@@ -236,6 +236,102 @@ describe('/api/u/[slug]/kb-github-remote/sync', () => {
       )
     })
 
+    it('returns 400 on invalid JSON body', async () => {
+      const { POST } = await import('../route')
+      const response = await POST(
+        new Request('http://localhost/api/u/alice/kb-github-remote/sync', {
+          body: 'not json',
+          headers: { 'content-type': 'application/json' },
+          method: 'POST',
+        }) as never,
+        { params: Promise.resolve({ slug: 'alice' }) },
+      )
+
+      expect(response.status).toBe(400)
+      await expect(response.json()).resolves.toEqual({ error: 'invalid_json' })
+    })
+
+    it('returns 403 for non-admin users', async () => {
+      authState.user = { id: 'user-1', role: 'USER', slug: 'alice' }
+
+      const { POST } = await import('../route')
+      const response = await POST(
+        new Request('http://localhost/api/u/alice/kb-github-remote/sync', {
+          body: JSON.stringify({ direction: 'push' }),
+          headers: { 'content-type': 'application/json' },
+          method: 'POST',
+        }) as never,
+        { params: Promise.resolve({ slug: 'alice' }) },
+      )
+
+      expect(response.status).toBe(403)
+    })
+
+    it('returns 400 when config is missing appId/privateKey', async () => {
+      decryptIntegrationConfigMock.mockReturnValue({ appId: null, privateKey: null })
+
+      const { POST } = await import('../route')
+      const response = await POST(
+        new Request('http://localhost/api/u/alice/kb-github-remote/sync', {
+          body: JSON.stringify({ direction: 'push' }),
+          headers: { 'content-type': 'application/json' },
+          method: 'POST',
+        }) as never,
+        { params: Promise.resolve({ slug: 'alice' }) },
+      )
+
+      expect(response.status).toBe(400)
+      await expect(response.json()).resolves.toEqual({ error: 'not_configured' })
+    })
+
+    it('passes strategy to pullFromGithub', async () => {
+      pullFromGithubMock.mockResolvedValue({
+        ok: true,
+        status: 'resolved',
+        commitHash: 'ghi789',
+        branch: 'main',
+      })
+
+      const { POST } = await import('../route')
+      const response = await POST(
+        new Request('http://localhost/api/u/alice/kb-github-remote/sync', {
+          body: JSON.stringify({ direction: 'pull', strategy: 'local_wins' }),
+          headers: { 'content-type': 'application/json' },
+          method: 'POST',
+        }) as never,
+        { params: Promise.resolve({ slug: 'alice' }) },
+      )
+
+      expect(response.status).toBe(200)
+      expect(pullFromGithubMock).toHaveBeenCalledWith(
+        expect.objectContaining({ appId: '12345' }),
+        'local_wins',
+      )
+    })
+
+    it('ignores invalid strategy values', async () => {
+      pullFromGithubMock.mockResolvedValue({
+        ok: true,
+        status: 'pulled',
+        commitHash: 'jkl012',
+      })
+
+      const { POST } = await import('../route')
+      await POST(
+        new Request('http://localhost/api/u/alice/kb-github-remote/sync', {
+          body: JSON.stringify({ direction: 'pull', strategy: 'invalid_strategy' }),
+          headers: { 'content-type': 'application/json' },
+          method: 'POST',
+        }) as never,
+        { params: Promise.resolve({ slug: 'alice' }) },
+      )
+
+      expect(pullFromGithubMock).toHaveBeenCalledWith(
+        expect.objectContaining({ appId: '12345' }),
+        undefined,
+      )
+    })
+
     it('records conflicts state on merge conflict', async () => {
       pullFromGithubMock.mockResolvedValue({
         ok: false,

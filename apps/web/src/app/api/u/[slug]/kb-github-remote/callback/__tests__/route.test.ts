@@ -136,6 +136,57 @@ describe('/api/u/[slug]/kb-github-remote/callback', () => {
     expect(response.headers.get('location')).toContain('error=not_configured')
   })
 
+  it('redirects with error when config is missing credentials', async () => {
+    decryptIntegrationConfigMock.mockReturnValue({ appId: null, privateKey: null })
+
+    const { GET } = await import('../route')
+    const response = await GET(
+      new Request('http://localhost/api/u/alice/kb-github-remote/callback?installation_id=99') as never,
+      { params: Promise.resolve({ slug: 'alice' }) },
+    )
+
+    expect(response.status).toBe(307)
+    expect(response.headers.get('location')).toContain('error=not_configured')
+  })
+
+  it('resets repo state when installation ID changes', async () => {
+    findIntegrationMock.mockResolvedValue({
+      ...makeRecord(),
+      state: {
+        ...makeRecord().state,
+        installationId: 50,
+        repoFullName: 'owner/old-repo',
+        repoCloneUrl: 'https://github.com/owner/old-repo.git',
+        lastSyncAt: '2026-04-27T10:00:00Z',
+        lastSyncStatus: 'success',
+        lastError: null,
+        remoteBranch: 'main',
+        lastPushAt: '2026-04-27T10:00:00Z',
+        lastPullAt: '2026-04-27T10:00:00Z',
+      },
+    })
+
+    const { GET } = await import('../route')
+    const response = await GET(
+      new Request('http://localhost/api/u/alice/kb-github-remote/callback?installation_id=99') as never,
+      { params: Promise.resolve({ slug: 'alice' }) },
+    )
+
+    expect(response.status).toBe(307)
+    expect(response.headers.get('location')).toContain('installed=true')
+    expect(updateSyncStateMock).toHaveBeenCalledWith({
+      installationId: 99,
+      repoFullName: null,
+      repoCloneUrl: null,
+      lastSyncAt: null,
+      lastSyncStatus: null,
+      lastError: null,
+      remoteBranch: null,
+      lastPushAt: null,
+      lastPullAt: null,
+    })
+  })
+
   it('redirects with error when verification fails', async () => {
     verifyInstallationMock.mockResolvedValue({ ok: false, message: 'API error' })
 

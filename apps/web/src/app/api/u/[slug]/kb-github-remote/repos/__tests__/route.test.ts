@@ -113,6 +113,31 @@ describe('/api/u/[slug]/kb-github-remote/repos', () => {
       expect(response.status).toBe(400)
     })
 
+    it('returns 400 when config is missing credentials', async () => {
+      decryptIntegrationConfigMock.mockReturnValue({ appId: null, privateKey: null })
+
+      const { GET } = await import('../route')
+      const response = await GET(
+        new Request('http://localhost/api/u/alice/kb-github-remote/repos') as never,
+        { params: Promise.resolve({ slug: 'alice' }) },
+      )
+
+      expect(response.status).toBe(400)
+      await expect(response.json()).resolves.toEqual({ error: 'not_configured' })
+    })
+
+    it('returns 403 for non-admin users', async () => {
+      authState.user = { id: 'user-1', role: 'USER', slug: 'alice' }
+
+      const { GET } = await import('../route')
+      const response = await GET(
+        new Request('http://localhost/api/u/alice/kb-github-remote/repos') as never,
+        { params: Promise.resolve({ slug: 'alice' }) },
+      )
+
+      expect(response.status).toBe(403)
+    })
+
     it('returns 400 when not installed', async () => {
       findIntegrationMock.mockResolvedValue(makeRecord({ state: { installationId: null } }))
 
@@ -164,6 +189,55 @@ describe('/api/u/[slug]/kb-github-remote/repos', () => {
           action: 'kb_github_remote.repo_selected',
         }),
       )
+    })
+
+    it('returns 400 on invalid JSON body', async () => {
+      const { PUT } = await import('../route')
+      const response = await PUT(
+        new Request('http://localhost/api/u/alice/kb-github-remote/repos', {
+          body: 'not json',
+          headers: { 'content-type': 'application/json' },
+          method: 'PUT',
+        }) as never,
+        { params: Promise.resolve({ slug: 'alice' }) },
+      )
+
+      expect(response.status).toBe(400)
+      await expect(response.json()).resolves.toEqual({ error: 'invalid_json' })
+    })
+
+    it('returns 400 when config is missing credentials for PUT', async () => {
+      decryptIntegrationConfigMock.mockReturnValue({ appId: null, privateKey: null })
+
+      const { PUT } = await import('../route')
+      const response = await PUT(
+        new Request('http://localhost/api/u/alice/kb-github-remote/repos', {
+          body: JSON.stringify({ repoFullName: 'owner/repo1' }),
+          headers: { 'content-type': 'application/json' },
+          method: 'PUT',
+        }) as never,
+        { params: Promise.resolve({ slug: 'alice' }) },
+      )
+
+      expect(response.status).toBe(400)
+      await expect(response.json()).resolves.toEqual({ error: 'not_configured' })
+    })
+
+    it('returns 400 when not installed for PUT', async () => {
+      findIntegrationMock.mockResolvedValue(makeRecord({ state: { installationId: null } }))
+
+      const { PUT } = await import('../route')
+      const response = await PUT(
+        new Request('http://localhost/api/u/alice/kb-github-remote/repos', {
+          body: JSON.stringify({ repoFullName: 'owner/repo1' }),
+          headers: { 'content-type': 'application/json' },
+          method: 'PUT',
+        }) as never,
+        { params: Promise.resolve({ slug: 'alice' }) },
+      )
+
+      expect(response.status).toBe(400)
+      await expect(response.json()).resolves.toEqual({ error: 'not_installed' })
     })
 
     it('rejects missing repoFullName', async () => {
