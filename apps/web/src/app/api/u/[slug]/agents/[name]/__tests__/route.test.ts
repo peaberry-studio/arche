@@ -244,6 +244,37 @@ describe('GET /api/u/[slug]/agents/[name]', () => {
     expect(body.agent.isPrimary).toBe(false)
   })
 
+  it('returns default model inheritance metadata', async () => {
+    mockReadCommonWorkspaceConfig.mockResolvedValue({
+      ok: true,
+      content: JSON.stringify({
+        default_agent: 'assistant',
+        default_model: 'openai/gpt-5.5',
+        agent: {
+          assistant: { display_name: 'Assistant', mode: 'primary' },
+          researcher: { display_name: 'Researcher', mode: 'subagent', model: 'anthropic/claude-sonnet-4' },
+        },
+      }),
+      hash: 'hash-default',
+    })
+
+    const inheritedResponse = await GET(makeGetRequest('assistant'), routeParams('assistant'))
+    const inheritedBody = await inheritedResponse.json()
+    expect(inheritedBody.agent).toMatchObject({
+      defaultModel: 'openai/gpt-5.5',
+      resolvedModel: 'openai/gpt-5.5',
+      usesDefaultModel: true,
+    })
+
+    const overrideResponse = await GET(makeGetRequest('researcher'), routeParams('researcher'))
+    const overrideBody = await overrideResponse.json()
+    expect(overrideBody.agent).toMatchObject({
+      model: 'anthropic/claude-sonnet-4',
+      resolvedModel: 'anthropic/claude-sonnet-4',
+      usesDefaultModel: false,
+    })
+  })
+
   it('returns 401 when session is null', async () => {
     mockGetSession.mockResolvedValue(null)
 

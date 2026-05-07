@@ -19,6 +19,7 @@ export type CommonAgentConfig = {
 export type CommonWorkspaceConfig = {
   $schema?: string
   default_agent?: string
+  default_model?: string
   agent?: Record<string, CommonAgentConfig>
   [key: string]: unknown
 }
@@ -133,6 +134,34 @@ export function ensurePrimaryAgent(config: CommonWorkspaceConfig, agentId: strin
     default_agent: agentId,
     agent: nextAgents
   }
+}
+
+export function getDefaultModel(config: CommonWorkspaceConfig): string | undefined {
+  return typeof config.default_model === 'string' && config.default_model.trim()
+    ? config.default_model.trim()
+    : undefined
+}
+
+export function getResolvedAgentModel(
+  config: CommonWorkspaceConfig,
+  agent: CommonAgentConfig,
+): string | undefined {
+  return typeof agent.model === 'string' && agent.model.trim()
+    ? agent.model.trim()
+    : getDefaultModel(config)
+}
+
+export function setDefaultModel(config: CommonWorkspaceConfig, model: string | null): CommonWorkspaceConfig {
+  const nextConfig: CommonWorkspaceConfig = { ...config }
+  const nextModel = typeof model === 'string' ? model.trim() : ''
+
+  if (nextModel) {
+    nextConfig.default_model = nextModel
+  } else {
+    delete nextConfig.default_model
+  }
+
+  return nextConfig
 }
 
 export function getAgentSummaries(config: CommonWorkspaceConfig): CommonAgentSummary[] {

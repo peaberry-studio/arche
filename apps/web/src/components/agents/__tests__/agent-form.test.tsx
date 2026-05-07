@@ -100,7 +100,8 @@ describe('AgentForm', () => {
     expect(screen.getByText('seo-audit')).toBeDefined()
 
     fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Research Agent' } })
-    fireEvent.change(screen.getByLabelText('Default model'), { target: { value: 'openai/gpt-4.1' } })
+    fireEvent.click(screen.getByLabelText('Use workspace default model'))
+    fireEvent.change(screen.getByLabelText('Model override'), { target: { value: 'openai/gpt-4.1' } })
     fireEvent.change(screen.getByLabelText('Temperature'), { target: { value: '0.4' } })
     fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Research specialist' } })
     fireEvent.change(screen.getByLabelText('Prompt'), { target: { value: 'Investigate carefully.' } })
@@ -138,6 +139,34 @@ describe('AgentForm', () => {
 
     expect(screen.getByText('Error: Display name is required.')).toBeDefined()
     expect(fetchMock.mock.calls.some(([_input, init]) => init?.method === 'POST')).toBe(false)
+  })
+
+  it('creates an agent using the workspace default model', async () => {
+    const onSaved = vi.fn()
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/agents/models')) return jsonResponse({ models: [] })
+      if (url.endsWith('/agents/connectors')) return jsonResponse({ connectors: [] })
+      if (url.endsWith('/skills')) return jsonResponse({ skills: [] })
+      if (url.endsWith('/agents') && !init?.method) {
+        return jsonResponse({ defaultModel: 'openai/gpt-5.5', hash: 'hash-agents' })
+      }
+      if (url.endsWith('/agents') && init?.method === 'POST') {
+        return jsonResponse({ agent: { id: 'default-agent' }, hash: 'hash-created' })
+      }
+      return jsonResponse({})
+    })
+
+    render(<AgentForm slug="alice" mode="create" onSaved={onSaved} />)
+
+    expect(await screen.findByText('Using openai/gpt-5.5')).toBeDefined()
+    expect((screen.getByLabelText('Use workspace default model') as HTMLInputElement).checked).toBe(true)
+
+    fireEvent.change(screen.getByLabelText('Display name'), { target: { value: 'Default Agent' } })
+    submitForm('Create agent')
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ agentId: 'default-agent', mode: 'create' }))
+    expect(requestBodyFor('POST', '/api/u/alice/agents').model).toBeNull()
   })
 
   it('loads and updates an existing secondary agent', async () => {
@@ -227,6 +256,62 @@ describe('AgentForm', () => {
       expectedHash: 'hash-existing',
     }))
     expect(mockNotifyWorkspaceConfigChanged).toHaveBeenCalledTimes(1)
+  })
+
+  it('updates an existing agent to use the workspace default model', async () => {
+    const onSaved = vi.fn()
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/agents/models')) return jsonResponse({ models: [] })
+      if (url.endsWith('/agents/connectors')) return jsonResponse({ connectors: [] })
+      if (url.endsWith('/skills')) return jsonResponse({ skills: [] })
+      if (url.endsWith('/agents/agent-1') && init?.method === 'PATCH') return jsonResponse({ hash: 'hash-updated' })
+      if (url.endsWith('/agents/agent-1')) {
+        return jsonResponse({
+          hash: 'hash-existing',
+          agent: {
+            id: 'agent-1',
+            displayName: 'Support Agent',
+            defaultModel: 'openai/gpt-5.5',
+            model: 'anthropic/claude-sonnet-4',
+            resolvedModel: 'anthropic/claude-sonnet-4',
+            usesDefaultModel: false,
+            isPrimary: false,
+          },
+        })
+      }
+      return jsonResponse({})
+    })
+
+    render(<AgentForm slug="alice" mode="edit" agentId="agent-1" onSaved={onSaved} />)
+
+    expect(await screen.findByDisplayValue('anthropic/claude-sonnet-4')).toBeDefined()
+    fireEvent.click(screen.getByLabelText('Use workspace default model'))
+    expect(screen.getByText('Using openai/gpt-5.5')).toBeDefined()
+    submitForm('Save changes')
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ agentId: 'agent-1', mode: 'edit' }))
+    expect(requestBodyFor('PATCH', '/api/u/alice/agents/agent-1').model).toBeNull()
+  })
+
+  it('warns when default model is enabled without workspace default', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input)
+      if (url.endsWith('/agents/models')) return jsonResponse({ models: [] })
+      if (url.endsWith('/agents/connectors')) return jsonResponse({ connectors: [] })
+      if (url.endsWith('/skills')) return jsonResponse({ skills: [] })
+      if (url.endsWith('/agents/agent-1')) {
+        return jsonResponse({
+          hash: 'hash-existing',
+          agent: { id: 'agent-1', displayName: 'Support Agent', usesDefaultModel: true, isPrimary: false },
+        })
+      }
+      return jsonResponse({})
+    })
+
+    render(<AgentForm slug="alice" mode="edit" agentId="agent-1" />)
+
+    expect(await screen.findByText('No workspace default model is configured.')).toBeDefined()
   })
 
   it('deletes an existing secondary agent after confirmation', async () => {

@@ -21,6 +21,7 @@ import {
   ensurePrimaryAgent,
   generateAgentId,
   getAgentSummaries,
+  getDefaultModel,
   parseCommonWorkspaceConfig,
   validateCommonWorkspaceConfig,
 } from '@/lib/workspace-config'
@@ -29,14 +30,18 @@ export type AgentListItem = {
   id: string
   displayName: string
   description?: string
+  defaultModel?: string
   model?: string
+  resolvedModel?: string
   temperature?: number
+  usesDefaultModel: boolean
   isPrimary: boolean
   capabilities: AgentCapabilities
 }
 
 type AgentsListResponse = {
   agents: AgentListItem[]
+  defaultModel?: string
   hash?: string
 }
 
@@ -57,7 +62,7 @@ type CreateAgentRequest = {
   }
 }
 
-const RESERVED_AGENT_IDS = new Set(['connectors', 'models'])
+const RESERVED_AGENT_IDS = new Set(['connectors', 'default-model', 'models'])
 
 async function loadCommonConfig() {
   const result = await readCommonWorkspaceConfig()
@@ -147,13 +152,17 @@ export const GET = withAuth<AgentsListResponse | { error: string }>(
       return NextResponse.json({ error: configResult.error }, { status })
     }
 
+    const defaultModel = getDefaultModel(configResult.config)
     const agents = getAgentSummaries(configResult.config)
       .map((agent) => ({
         id: agent.id,
         displayName: agent.displayName,
         description: agent.description,
+        defaultModel,
         model: agent.model,
+        resolvedModel: agent.model ?? defaultModel,
         temperature: agent.temperature,
+        usesDefaultModel: !agent.model,
         isPrimary: agent.isPrimary,
         capabilities: agent.capabilities,
       }))
@@ -163,7 +172,7 @@ export const GET = withAuth<AgentsListResponse | { error: string }>(
         return a.displayName.localeCompare(b.displayName)
       })
 
-    return NextResponse.json({ agents, hash: configResult.hash })
+    return NextResponse.json({ agents, defaultModel, hash: configResult.hash })
   }
 )
 
@@ -304,14 +313,19 @@ export const POST = withAuth<{ agent: AgentListItem; hash?: string } | { error: 
       return NextResponse.json({ error: 'agent_create_failed' }, { status: 500 })
     }
 
+    const defaultModel = getDefaultModel(withPrimary)
+
     return NextResponse.json(
       {
         agent: {
           id: createdAgent.id,
           displayName: createdAgent.displayName,
           description: createdAgent.description,
+          defaultModel,
           model: createdAgent.model,
+          resolvedModel: createdAgent.model ?? defaultModel,
           temperature: createdAgent.temperature,
+          usesDefaultModel: !createdAgent.model,
           isPrimary: createdAgent.isPrimary,
           capabilities: createdAgent.capabilities,
         },

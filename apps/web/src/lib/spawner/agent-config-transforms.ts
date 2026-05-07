@@ -5,8 +5,48 @@ const CONNECTOR_TYPE_PATTERN = CONNECTOR_TYPES.join('|')
 const MCP_SERVER_KEY_PATTERN = new RegExp(`^arche_(${CONNECTOR_TYPE_PATTERN})_([a-z0-9]+)$`)
 const ALWAYS_ENABLED_TOOLS = ['email_draft'] as const
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
 function isToolMap(value: unknown): value is Record<string, boolean> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+export function applyDefaultAgentModel(
+  config: Record<string, unknown>,
+): Record<string, unknown> {
+  const defaultModel = typeof config.default_model === 'string' && config.default_model.trim()
+    ? config.default_model.trim()
+    : undefined
+  if (!defaultModel) return config
+
+  const configWithoutDefaultModel = { ...config }
+  delete configWithoutDefaultModel.default_model
+
+  const agents = config.agent as Record<string, Record<string, unknown>> | undefined
+  if (!agents || typeof agents !== 'object') return configWithoutDefaultModel
+
+  const nextAgents: Record<string, Record<string, unknown>> = {}
+  let changed = true
+
+  for (const [agentId, agent] of Object.entries(agents)) {
+    if (!isRecord(agent)) {
+      nextAgents[agentId] = agent
+      continue
+    }
+
+    if (typeof agent.model === 'string' && agent.model.trim()) {
+      nextAgents[agentId] = agent
+      continue
+    }
+
+    nextAgents[agentId] = { ...agent, model: defaultModel }
+    changed = true
+  }
+
+  if (!changed) return configWithoutDefaultModel
+  return { ...configWithoutDefaultModel, agent: nextAgents }
 }
 
 export function injectAlwaysOnAgentTools(

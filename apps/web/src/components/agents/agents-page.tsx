@@ -1,10 +1,15 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { Robot, SpinnerGap } from '@phosphor-icons/react'
 
 import { AgentCard } from '@/components/agents/agent-card'
 import { DashboardEmptyState } from '@/components/dashboard/dashboard-empty-state'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { useAgentsCatalog } from '@/hooks/use-agents-catalog'
+import { notifyWorkspaceConfigChanged } from '@/lib/runtime/config-status-events'
 
 type AgentsPageClientProps = {
   includePrimary?: boolean
@@ -13,15 +18,77 @@ type AgentsPageClientProps = {
   loadingLabel?: string
 }
 
+type ModelOption = {
+  id: string
+  label: string
+}
+
 export function AgentsPageClient({
   slug,
   isAdmin,
   includePrimary = true,
   loadingLabel = 'Loading agents...',
 }: AgentsPageClientProps) {
-  const { agents, isLoading, loadError } = useAgentsCatalog(slug)
+  const { agents, defaultModel, hash, isLoading, loadError, reload } = useAgentsCatalog(slug)
+  const [defaultModelInput, setDefaultModelInput] = useState('')
+  const [modelOptions, setModelOptions] = useState<ModelOption[]>([])
+  const [isSavingDefaultModel, setIsSavingDefaultModel] = useState(false)
+  const [defaultModelMessage, setDefaultModelMessage] = useState<string | null>(null)
+  const [defaultModelError, setDefaultModelError] = useState<string | null>(null)
 
   const visibleAgents = includePrimary ? agents : agents.filter((agent) => !agent.isPrimary)
+
+  useEffect(() => {
+    setDefaultModelInput(defaultModel ?? '')
+  }, [defaultModel])
+
+  useEffect(() => {
+    let cancelled = false
+
+    fetch(`/api/u/${slug}/agents/models`, { cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) return
+        const data = (await response.json().catch(() => null)) as { models?: ModelOption[] } | null
+        if (!cancelled) setModelOptions(data?.models ?? [])
+      })
+      .catch(() => {})
+
+    return () => {
+      cancelled = true
+    }
+  }, [slug])
+
+  const handleSaveDefaultModel = async () => {
+    if (!hash || isSavingDefaultModel) return
+
+    setIsSavingDefaultModel(true)
+    setDefaultModelMessage(null)
+    setDefaultModelError(null)
+
+    try {
+      const response = await fetch(`/api/u/${slug}/agents/default-model`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          defaultModel: defaultModelInput.trim() || null,
+          expectedHash: hash,
+        }),
+      })
+      const data = (await response.json().catch(() => null)) as { error?: string } | null
+      if (!response.ok) {
+        setDefaultModelError(data?.error ?? 'save_failed')
+        return
+      }
+
+      setDefaultModelMessage('Default model saved.')
+      notifyWorkspaceConfigChanged()
+      await reload()
+    } catch {
+      setDefaultModelError('network_error')
+    } finally {
+      setIsSavingDefaultModel(false)
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -50,6 +117,46 @@ export function AgentsPageClient({
         />
       ) : null}
 
+      {!isLoading && !loadError ? (
+        <div className="rounded-xl border border-border/60 bg-card/40 p-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-end">
+            <div className="min-w-0 flex-1 space-y-2">
+              <Label htmlFor="workspace-default-model">Default model</Label>
+              {isAdmin ? (
+                <>
+                  <Input
+                    id="workspace-default-model"
+                    list="workspace-default-model-options"
+                    value={defaultModelInput}
+                    onChange={(event) => setDefaultModelInput(event.target.value)}
+                    placeholder="Select or type a model"
+                  />
+                  <datalist id="workspace-default-model-options">
+                    {modelOptions.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </datalist>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">{defaultModel ?? 'No default model configured.'}</p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Agents without an override inherit this workspace model.
+              </p>
+            </div>
+            {isAdmin ? (
+              <Button type="button" onClick={handleSaveDefaultModel} disabled={!hash || isSavingDefaultModel}>
+                {isSavingDefaultModel ? 'Saving...' : 'Save default model'}
+              </Button>
+            ) : null}
+          </div>
+          {defaultModelMessage ? <p className="mt-3 text-sm text-muted-foreground">{defaultModelMessage}</p> : null}
+          {defaultModelError ? <p className="mt-3 text-sm text-destructive">Error: {defaultModelError}</p> : null}
+        </div>
+      ) : null}
+
       <div className="grid gap-4 md:grid-cols-2">
         {visibleAgents.map((agent) => (
           <AgentCard
@@ -58,6 +165,8 @@ export function AgentsPageClient({
             agentId={agent.id}
             description={agent.description}
             model={agent.model}
+            resolvedModel={agent.resolvedModel}
+            usesDefaultModel={agent.usesDefaultModel}
             isPrimary={agent.isPrimary}
             isAdmin={isAdmin}
             editHref={`/u/${slug}/agents/${agent.id}`}

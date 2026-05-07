@@ -1,11 +1,12 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AgentsPageClient } from '@/components/agents/agents-page'
 
 const useAgentsCatalogMock = vi.fn()
+const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
 
 vi.mock('@phosphor-icons/react', () => ({
   Robot: () => <svg data-testid="robot-icon" />,
@@ -13,7 +14,16 @@ vi.mock('@phosphor-icons/react', () => ({
 }))
 
 vi.mock('@/components/agents/agent-card', () => ({
-  AgentCard: ({ displayName }: { displayName: string }) => <div data-testid="agent-card">{displayName}</div>,
+  AgentCard: ({ displayName, resolvedModel, usesDefaultModel }: {
+    displayName: string
+    resolvedModel?: string
+    usesDefaultModel?: boolean
+  }) => (
+    <div data-testid="agent-card">
+      {displayName}
+      {resolvedModel ? ` ${resolvedModel} ${usesDefaultModel ? 'default' : 'override'}` : ''}
+    </div>
+  ),
 }))
 
 vi.mock('@/components/dashboard/dashboard-empty-state', () => ({
@@ -24,17 +34,31 @@ vi.mock('@/hooks/use-agents-catalog', () => ({
   useAgentsCatalog: (slug: string) => useAgentsCatalogMock(slug),
 }))
 
+vi.mock('@/lib/runtime/config-status-events', () => ({
+  notifyWorkspaceConfigChanged: vi.fn(),
+}))
+
+function jsonResponse(body: unknown, init?: ResponseInit) {
+  return new Response(JSON.stringify(body), {
+    headers: { 'content-type': 'application/json' },
+    ...init,
+  })
+}
+
 describe('AgentsPageClient', () => {
   afterEach(() => {
     cleanup()
+    vi.unstubAllGlobals()
   })
 
   beforeEach(() => {
     vi.clearAllMocks()
+    fetchMock.mockResolvedValue(jsonResponse({ models: [{ id: 'openai/gpt-5.5', label: 'GPT 5.5' }] }))
+    vi.stubGlobal('fetch', fetchMock)
   })
 
   it('shows loading state', () => {
-    useAgentsCatalogMock.mockReturnValue({ agents: [], isLoading: true, loadError: null })
+    useAgentsCatalogMock.mockReturnValue({ agents: [], isLoading: true, loadError: null, reload: vi.fn() })
 
     render(<AgentsPageClient slug="alice" isAdmin={true} />)
 
@@ -43,7 +67,7 @@ describe('AgentsPageClient', () => {
   })
 
   it('shows custom loading label', () => {
-    useAgentsCatalogMock.mockReturnValue({ agents: [], isLoading: true, loadError: null })
+    useAgentsCatalogMock.mockReturnValue({ agents: [], isLoading: true, loadError: null, reload: vi.fn() })
 
     render(<AgentsPageClient slug="alice" isAdmin={true} loadingLabel="Fetching..." />)
 
@@ -51,7 +75,7 @@ describe('AgentsPageClient', () => {
   })
 
   it('shows error state', () => {
-    useAgentsCatalogMock.mockReturnValue({ agents: [], isLoading: false, loadError: 'network_error' })
+    useAgentsCatalogMock.mockReturnValue({ agents: [], isLoading: false, loadError: 'network_error', reload: vi.fn() })
 
     render(<AgentsPageClient slug="alice" isAdmin={true} />)
 
@@ -59,7 +83,7 @@ describe('AgentsPageClient', () => {
   })
 
   it('shows empty state for admin with primary action', () => {
-    useAgentsCatalogMock.mockReturnValue({ agents: [], isLoading: false, loadError: null })
+    useAgentsCatalogMock.mockReturnValue({ agents: [], isLoading: false, loadError: null, reload: vi.fn() })
 
     render(<AgentsPageClient slug="alice" isAdmin={true} />)
 
@@ -67,7 +91,7 @@ describe('AgentsPageClient', () => {
   })
 
   it('shows empty state for non-admin without primary action', () => {
-    useAgentsCatalogMock.mockReturnValue({ agents: [], isLoading: false, loadError: null })
+    useAgentsCatalogMock.mockReturnValue({ agents: [], isLoading: false, loadError: null, reload: vi.fn() })
 
     render(<AgentsPageClient slug="alice" isAdmin={false} />)
 
@@ -77,18 +101,59 @@ describe('AgentsPageClient', () => {
   it('renders agent cards', () => {
     useAgentsCatalogMock.mockReturnValue({
       agents: [
-        { id: 'agent-1', displayName: 'Agent One', description: 'First agent', model: 'gpt-4', isPrimary: true },
-        { id: 'agent-2', displayName: 'Agent Two', description: 'Second agent', model: 'claude', isPrimary: false },
+        { id: 'agent-1', displayName: 'Agent One', description: 'First agent', resolvedModel: 'gpt-4', usesDefaultModel: true, isPrimary: true },
+        { id: 'agent-2', displayName: 'Agent Two', description: 'Second agent', resolvedModel: 'claude', usesDefaultModel: false, isPrimary: false },
       ],
+      defaultModel: 'gpt-4',
+      hash: 'hash-1',
       isLoading: false,
       loadError: null,
+      reload: vi.fn(),
     })
 
     render(<AgentsPageClient slug="alice" isAdmin={true} />)
 
-    expect(screen.getAllByTestId('agent-card')).toHaveLength(2)
-    expect(screen.getByText('Agent One')).toBeTruthy()
-    expect(screen.getByText('Agent Two')).toBeTruthy()
+    const cards = screen.getAllByTestId('agent-card')
+    expect(cards).toHaveLength(2)
+    expect(cards[0].textContent).toContain('Agent One')
+    expect(cards[1].textContent).toContain('Agent Two')
+    expect(screen.getByText(/gpt-4 default/)).toBeTruthy()
+    expect(screen.getByText(/claude override/)).toBeTruthy()
+  })
+
+  it('renders and saves workspace default model for admins', async () => {
+    const reload = vi.fn()
+    useAgentsCatalogMock.mockReturnValue({
+      agents: [],
+      defaultModel: 'openai/gpt-5.5',
+      hash: 'hash-1',
+      isLoading: false,
+      loadError: null,
+      reload,
+    })
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/agents/models')) return jsonResponse({ models: [] })
+      if (url.endsWith('/agents/default-model') && init?.method === 'PATCH') {
+        return jsonResponse({ defaultModel: 'openai/gpt-6', hash: 'hash-2' })
+      }
+      return jsonResponse({})
+    })
+
+    render(<AgentsPageClient slug="alice" isAdmin={true} />)
+
+    fireEvent.change(screen.getByLabelText('Default model'), { target: { value: 'openai/gpt-6' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save default model' }))
+
+    await waitFor(() => expect(reload).toHaveBeenCalled())
+    const patchCall = fetchMock.mock.calls.find(([input, init]) =>
+      String(input) === '/api/u/alice/agents/default-model' && init?.method === 'PATCH'
+    )
+    expect(JSON.parse(String(patchCall?.[1]?.body))).toEqual({
+      defaultModel: 'openai/gpt-6',
+      expectedHash: 'hash-1',
+    })
+    expect(screen.getByText('Default model saved.')).toBeTruthy()
   })
 
   it('filters out primary agents when includePrimary is false', () => {
@@ -99,6 +164,7 @@ describe('AgentsPageClient', () => {
       ],
       isLoading: false,
       loadError: null,
+      reload: vi.fn(),
     })
 
     render(<AgentsPageClient slug="alice" isAdmin={true} includePrimary={false} />)

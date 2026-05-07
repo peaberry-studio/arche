@@ -103,6 +103,8 @@ export function AgentsSettingsPanel({ slug }: AgentsSettingsPanelProps) {
                 displayName={primaryAgent.displayName}
                 description={primaryAgent.description}
                 model={primaryAgent.model}
+                resolvedModel={primaryAgent.resolvedModel}
+                usesDefaultModel={primaryAgent.usesDefaultModel}
                 isPrimary
                 isAdmin
                 editLabel="Edit primary agent"
@@ -142,6 +144,8 @@ export function AgentsSettingsPanel({ slug }: AgentsSettingsPanelProps) {
                     displayName={agent.displayName}
                     description={agent.description}
                     model={agent.model}
+                    resolvedModel={agent.resolvedModel}
+                    usesDefaultModel={agent.usesDefaultModel}
                     isPrimary={false}
                     isAdmin
                     editLabel={`Edit ${agent.displayName}`}

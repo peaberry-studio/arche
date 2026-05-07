@@ -2,10 +2,53 @@ import { describe, it, expect } from 'vitest'
 
 
 import {
+  applyDefaultAgentModel,
   injectAlwaysOnAgentTools,
   injectSelfDelegationGuards,
   remapAgentConnectorTools,
 } from '../agent-config-transforms'
+
+describe('applyDefaultAgentModel', () => {
+  it('injects default_model into agents without model', () => {
+    const config = {
+      default_model: 'openai/gpt-5.5',
+      agent: {
+        assistant: { mode: 'primary' },
+      },
+    }
+
+    const result = applyDefaultAgentModel(config)
+    const agents = result.agent as Record<string, Record<string, unknown>>
+
+    expect(agents.assistant.model).toBe('openai/gpt-5.5')
+    expect(result.default_model).toBeUndefined()
+  })
+
+  it('preserves explicit agent model overrides', () => {
+    const config = {
+      default_model: 'openai/gpt-5.5',
+      agent: {
+        assistant: { mode: 'primary', model: 'anthropic/claude-sonnet-4' },
+      },
+    }
+
+    const result = applyDefaultAgentModel(config)
+    const agents = result.agent as Record<string, Record<string, unknown>>
+    expect(agents.assistant.model).toBe('anthropic/claude-sonnet-4')
+    expect(result.default_model).toBeUndefined()
+  })
+
+  it('returns config unchanged without default_model', () => {
+    const config = {
+      agent: {
+        assistant: { mode: 'primary' },
+      },
+    }
+
+    const result = applyDefaultAgentModel(config)
+    expect(result).toBe(config)
+  })
+})
 
 describe('injectAlwaysOnAgentTools', () => {
   it('enables email_draft for every configured agent', () => {

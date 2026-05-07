@@ -9,6 +9,7 @@ import { readSkillBundlesFromRepoDir } from '@/lib/skills/skill-store'
 import type { SkillBundle } from '@/lib/skills/types'
 import { userService } from '@/lib/services'
 import {
+  applyDefaultAgentModel,
   injectAlwaysOnAgentTools,
   injectSelfDelegationGuards,
   remapAgentConnectorTools,
@@ -175,6 +176,7 @@ async function buildBaseWorkspaceConfig(
   }
 
   baseConfig = injectAlwaysOnAgentTools(baseConfig)
+  baseConfig = applyDefaultAgentModel(baseConfig)
   return injectSelfDelegationGuards(baseConfig)
 }
 

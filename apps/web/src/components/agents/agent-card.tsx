@@ -9,6 +9,8 @@ type AgentCardProps = {
   description?: string
   editLabel?: string
   model?: string
+  resolvedModel?: string
+  usesDefaultModel?: boolean
   onEdit?: () => void
   isPrimary: boolean
   isAdmin: boolean
@@ -21,6 +23,8 @@ export function AgentCard({
   description,
   editLabel = 'Edit agent',
   model,
+  resolvedModel,
+  usesDefaultModel = false,
   onEdit,
   isPrimary,
   isAdmin,
@@ -70,9 +74,9 @@ export function AgentCard({
           <Badge variant={isPrimary ? 'default' : 'secondary'}>
             {isPrimary ? 'Primary' : 'Secondary'}
           </Badge>
-          {model && (
+          {(resolvedModel ?? model) && (
             <span className="text-xs text-muted-foreground">
-              {model}
+              {resolvedModel ?? model} · {usesDefaultModel ? 'default' : 'override'}
             </span>
           )}
         </div>

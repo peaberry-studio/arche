@@ -18,6 +18,7 @@ import {
   type CommonWorkspaceConfig,
   ensurePrimaryAgent,
   getAgentSummaries,
+  getDefaultModel,
   parseCommonWorkspaceConfig,
   validateCommonWorkspaceConfig,
 } from '@/lib/workspace-config'
@@ -27,9 +28,12 @@ type AgentDetailResponse = {
     id: string
     displayName: string
     description?: string
+    defaultModel?: string
     model?: string
+    resolvedModel?: string
     temperature?: number
     prompt?: string
+    usesDefaultModel: boolean
     isPrimary: boolean
     capabilities: AgentCapabilities
   }
@@ -144,14 +148,19 @@ export const GET = withAuth<AgentDetailResponse | { error: string }, AgentRouteP
       return NextResponse.json({ error: 'not_found' }, { status: 404 })
     }
 
+    const defaultModel = getDefaultModel(configResult.config)
+
     return NextResponse.json({
       agent: {
         id: agent.id,
         displayName: agent.displayName,
         description: agent.description,
+        defaultModel,
         model: agent.model,
+        resolvedModel: agent.model ?? defaultModel,
         temperature: agent.temperature,
         prompt: agent.prompt,
+        usesDefaultModel: !agent.model,
         isPrimary: agent.isPrimary,
         capabilities: agent.capabilities,
       },
@@ -318,14 +327,19 @@ export const PATCH = withAuth<AgentDetailResponse | { error: string; message?: s
       return NextResponse.json({ error: 'not_found' }, { status: 404 })
     }
 
+    const defaultModel = getDefaultModel(nextConfig)
+
     return NextResponse.json({
       agent: {
         id: agent.id,
         displayName: agent.displayName,
         description: agent.description,
+        defaultModel,
         model: agent.model,
+        resolvedModel: agent.model ?? defaultModel,
         temperature: agent.temperature,
         prompt: agent.prompt,
+        usesDefaultModel: !agent.model,
         isPrimary: agent.isPrimary,
         capabilities: agent.capabilities,
       },

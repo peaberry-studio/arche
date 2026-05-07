@@ -52,6 +52,8 @@ export function AgentForm({
   const [displayName, setDisplayName] = useState('')
   const [description, setDescription] = useState('')
   const [model, setModel] = useState('')
+  const [defaultModel, setDefaultModel] = useState<string | undefined>()
+  const [usesDefaultModel, setUsesDefaultModel] = useState(true)
   const [temperature, setTemperature] = useState('')
   const [prompt, setPrompt] = useState('')
   const [isPrimary, setIsPrimary] = useState(false)
@@ -131,9 +133,12 @@ export function AgentForm({
                   id: string
                   displayName?: string
                   description?: string
+                  defaultModel?: string
                   model?: string
+                  resolvedModel?: string
                   temperature?: number
                   prompt?: string
+                  usesDefaultModel?: boolean
                   isPrimary: boolean
                   capabilities?: AgentCapabilities
                 }
@@ -150,7 +155,9 @@ export function AgentForm({
           setId(data.agent.id)
           setDisplayName(data.agent.displayName ?? data.agent.id)
           setDescription(data.agent.description ?? '')
-          setModel(data.agent.model ?? '')
+          setDefaultModel(data.agent.defaultModel)
+          setUsesDefaultModel(data.agent.usesDefaultModel ?? !data.agent.model)
+          setModel(data.agent.model ?? data.agent.resolvedModel ?? data.agent.defaultModel ?? '')
           setTemperature(typeof data.agent.temperature === 'number' ? String(data.agent.temperature) : '')
           setPrompt(data.agent.prompt ?? '')
           setIsPrimary(data.agent.isPrimary)
@@ -167,9 +174,16 @@ export function AgentForm({
     if (mode === 'create') {
       fetch(`/api/u/${slug}/agents`, { cache: 'no-store' })
         .then(async (response) => {
-          const data = (await response.json().catch(() => null)) as { hash?: string } | null
+          const data = (await response.json().catch(() => null)) as {
+            defaultModel?: string
+            hash?: string
+          } | null
           if (response.ok && data?.hash) {
             setHash(data.hash)
+          }
+          if (response.ok) {
+            setDefaultModel(data?.defaultModel)
+            setModel(data?.defaultModel ?? '')
           }
         })
         .catch(() => {})
@@ -253,6 +267,13 @@ export function AgentForm({
     )
   }
 
+  const handleUsesDefaultModelChange = (checked: boolean) => {
+    setUsesDefaultModel(checked)
+    if (!checked && !model.trim() && defaultModel) {
+      setModel(defaultModel)
+    }
+  }
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (isSaving) return
@@ -277,7 +298,7 @@ export function AgentForm({
         const payload = {
           displayName: displayName.trim(),
           description: description.trim() || undefined,
-          model: model.trim() || undefined,
+          model: usesDefaultModel ? null : model.trim() || null,
           temperature: temperature.trim() ? Number(temperature) : undefined,
           prompt,
           isPrimary,
@@ -310,7 +331,7 @@ export function AgentForm({
       const payload = {
         displayName: displayName.trim() ? displayName.trim() : null,
         description: description.trim() ? description.trim() : null,
-        model: model.trim() ? model.trim() : null,
+        model: usesDefaultModel ? null : model.trim() || null,
         temperature: temperature.trim() ? Number(temperature) : null,
         prompt,
         expectedHash: hash,
@@ -391,14 +412,31 @@ export function AgentForm({
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
-          <Label htmlFor="agent-model">Default model</Label>
+          <div className="flex items-center justify-between gap-3">
+            <Label htmlFor="agent-model">Model override</Label>
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={usesDefaultModel}
+                onChange={(event) => handleUsesDefaultModelChange(event.target.checked)}
+                className={checkboxClassName}
+              />
+              Use workspace default model
+            </label>
+          </div>
           <Input
             id="agent-model"
             list="agent-models"
             value={model}
             onChange={(event) => setModel(event.target.value)}
             placeholder="Select or type a model"
+            disabled={usesDefaultModel}
           />
+          {usesDefaultModel ? (
+            <p className="text-xs text-muted-foreground">
+              {defaultModel ? `Using ${defaultModel}` : 'No workspace default model is configured.'}
+            </p>
+          ) : null}
           <datalist id="agent-models">
             {modelOptions.map((option) => (
               <option key={option.id} value={option.id}>
