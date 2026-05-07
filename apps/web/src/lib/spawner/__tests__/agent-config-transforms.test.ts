@@ -271,6 +271,95 @@ describe('remapAgentConnectorTools', () => {
     expect(tools['arche_*']).toBe(false)
   })
 
+  it('expands remapped connector wildcard to exact tools when tool permissions exist', () => {
+    const config = {
+      agent: {
+        linear: {
+          tools: {
+            task: true,
+            'arche_*': false,
+            'arche_linear_admin123_*': true,
+          },
+          permission: { bash: 'deny' },
+        },
+      },
+    }
+    const result = remapAgentConnectorTools(
+      config,
+      new Set(['arche_linear_user123']),
+      {
+        arche_linear_user123: {
+          list_issues: 'allow',
+          create_issue: 'ask',
+        },
+      },
+    )
+    const agent = (result.agent as Record<string, Record<string, unknown>>).linear
+    const tools = agent.tools as Record<string, boolean>
+    const permission = agent.permission as Record<string, unknown>
+
+    expect(tools['arche_linear_user123_*']).toBeUndefined()
+    expect(tools['arche_linear_user123_list_issues']).toBe(true)
+    expect(tools['arche_linear_user123_create_issue']).toBe(true)
+    expect(tools['arche_*']).toBe(false)
+    expect(tools.task).toBe(true)
+    expect(permission.bash).toBe('deny')
+    expect(permission['arche_linear_user123_list_issues']).toBe('allow')
+    expect(permission['arche_linear_user123_create_issue']).toBe('ask')
+  })
+
+  it('keeps exact connector permissions after string catch-all permissions', () => {
+    const config = {
+      agent: {
+        linear: {
+          tools: {
+            'arche_linear_admin123_*': true,
+          },
+          permission: 'deny',
+        },
+      },
+    }
+
+    const result = remapAgentConnectorTools(
+      config,
+      new Set(['arche_linear_user123']),
+      { arche_linear_user123: { list_issues: 'allow' } },
+    )
+    const agent = (result.agent as Record<string, Record<string, unknown>>).linear
+    const permission = agent.permission as Record<string, unknown>
+
+    expect(Object.keys(permission)).toEqual(['*', 'arche_linear_user123_list_issues'])
+    expect(permission).toEqual({
+      '*': 'deny',
+      arche_linear_user123_list_issues: 'allow',
+    })
+  })
+
+  it('expands exact custom connector wildcard when tool permissions exist', () => {
+    const config = {
+      agent: {
+        worker: {
+          tools: {
+            'arche_custom_sameconnector_*': true,
+          },
+        },
+      },
+    }
+
+    const result = remapAgentConnectorTools(
+      config,
+      new Set(['arche_custom_sameconnector']),
+      { arche_custom_sameconnector: { sync: 'deny' } },
+    )
+    const agent = (result.agent as Record<string, Record<string, unknown>>).worker
+    const tools = agent.tools as Record<string, boolean>
+    const permission = agent.permission as Record<string, unknown>
+
+    expect(tools['arche_custom_sameconnector_*']).toBeUndefined()
+    expect(tools['arche_custom_sameconnector_sync']).toBe(true)
+    expect(permission['arche_custom_sameconnector_sync']).toBe('deny')
+  })
+
   it('preserves non-MCP tools', () => {
     const config = {
       agent: {

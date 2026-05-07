@@ -183,7 +183,7 @@ export function WorkspaceSessionsRail({
         ref={containerRef}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
-        className="flex w-8 min-h-0 flex-1 flex-col items-center overflow-hidden"
+        className="flex w-full min-h-0 flex-1 flex-col items-center overflow-hidden"
         style={{ paddingBottom: RAIL_EDGE_PADDING_PX, paddingTop: RAIL_EDGE_PADDING_PX }}
         aria-label={kind === 'tasks' ? 'Tasks' : 'Chats'}
       >

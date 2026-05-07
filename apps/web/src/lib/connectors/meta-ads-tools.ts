@@ -13,6 +13,7 @@ import type {
   MetaAdsMcpTool,
   MetaAdsMcpToolResult,
 } from '@/lib/connectors/meta-ads-types'
+import { isRecord } from '@/lib/records'
 
 const MAX_LIST_LIMIT = 100
 const MAX_INSIGHTS_LIMIT = 100
@@ -166,10 +167,6 @@ const META_ADS_MCP_TOOLS: MetaAdsMcpTool[] = [
     },
   },
 ]
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
 
 function getString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined

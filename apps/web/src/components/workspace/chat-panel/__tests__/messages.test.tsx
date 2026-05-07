@@ -238,6 +238,39 @@ describe("ChatPanelMessages", () => {
     expect(onSelectSessionTab).toHaveBeenLastCalledWith("sub-latest");
   });
 
+  it("renders permission approval controls and submits responses", async () => {
+    const onAnswerPermission = vi.fn().mockResolvedValue(true);
+    renderMessages({
+      onAnswerPermission,
+      messages: [
+        assistantMessage([
+          {
+            type: "permission",
+            id: "permission:perm-1",
+            permissionId: "perm-1",
+            sessionId: "s1",
+            title: "Create Linear issue",
+            state: "pending",
+            pattern: "arche_linear_conn_create_issue",
+            metadata: { tool: "arche_linear_conn_create_issue" },
+          },
+        ]),
+      ],
+    });
+
+    expect(screen.getByText("Tool approval required")).toBeTruthy();
+    expect(screen.getByText("Create Linear issue")).toBeTruthy();
+
+    expect(screen.getByRole("button", { name: "Reject" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Always allow for this session" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+
+    await waitFor(() => {
+      expect(onAnswerPermission).toHaveBeenCalledWith("s1", "perm-1", "once");
+    });
+  });
+
   it("renders user and assistant attachments, error notices, and fallback copy", async () => {
     const execCommand = vi.fn(() => true);
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: {} });

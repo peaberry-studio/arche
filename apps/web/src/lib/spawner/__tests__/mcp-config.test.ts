@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
-import type { ConnectorRecord, McpConfig } from '../mcp-config'
+import type { ConnectorRecord } from '../mcp-config'
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks
@@ -125,14 +125,14 @@ describe('mcp-config', () => {
   describe('buildMcpConfigFromConnectors', () => {
     it('returns an empty mcp map with correct $schema when no connectors are provided', () => {
       const result = buildMcpConfigFromConnectors([])
-      expect(result.$schema).toBe('https://opencode.ai/config.json')
-      expect(result.mcp).toEqual({})
+      expect(result.mcpConfig.$schema).toBe('https://opencode.ai/config.json')
+      expect(result.mcpConfig.mcp).toEqual({})
     })
 
     it('skips disabled connectors', () => {
       const connector = makeConnector({ enabled: false })
       const result = buildMcpConfigFromConnectors([connector])
-      expect(result.mcp).toEqual({})
+      expect(result.mcpConfig.mcp).toEqual({})
       expect(connectorMocks.decryptConfig).not.toHaveBeenCalled()
     })
 
@@ -140,7 +140,7 @@ describe('mcp-config', () => {
       connectorMocks.validateConnectorType.mockReturnValue(false)
       const connector = makeConnector({ type: 'invalid' })
       const result = buildMcpConfigFromConnectors([connector])
-      expect(result.mcp).toEqual({})
+      expect(result.mcpConfig.mcp).toEqual({})
     })
 
     it('skips connectors when decryptConfig throws', () => {
@@ -150,7 +150,7 @@ describe('mcp-config', () => {
       })
       const connector = makeConnector()
       const result = buildMcpConfigFromConnectors([connector])
-      expect(result.mcp).toEqual({})
+      expect(result.mcpConfig.mcp).toEqual({})
     })
 
     it('skips connectors when config validation fails', () => {
@@ -159,7 +159,7 @@ describe('mcp-config', () => {
       connectorMocks.validateConnectorConfig.mockReturnValue({ valid: false, missing: ['apiKey'] })
       const connector = makeConnector()
       const result = buildMcpConfigFromConnectors([connector])
-      expect(result.mcp).toEqual({})
+      expect(result.mcpConfig.mcp).toEqual({})
     })
 
     // -----------------------------------------------------------------------
@@ -173,7 +173,7 @@ describe('mcp-config', () => {
 
         const result = buildMcpConfigFromConnectors([connector])
 
-        expect(result.mcp['arche_notion_n1']).toEqual({
+        expect(result.mcpConfig.mcp['arche_notion_n1']).toEqual({
           type: 'local',
           command: ['npx', '-y', '@suekou/mcp-notion-server'],
           enabled: true,
@@ -185,14 +185,14 @@ describe('mcp-config', () => {
         passGates({ apiKey: '  ' })
         const connector = makeConnector({ type: 'notion', id: 'n1' })
         const result = buildMcpConfigFromConnectors([connector])
-        expect(result.mcp).toEqual({})
+        expect(result.mcpConfig.mcp).toEqual({})
       })
 
       it('skips notion manual connector when apiKey is not a string', () => {
         passGates({ apiKey: 42 })
         const connector = makeConnector({ type: 'notion', id: 'n1' })
         const result = buildMcpConfigFromConnectors([connector])
-        expect(result.mcp).toEqual({})
+        expect(result.mcpConfig.mcp).toEqual({})
       })
 
       it('builds remote MCP config with OAuth access token', () => {
@@ -208,7 +208,7 @@ describe('mcp-config', () => {
 
         const result = buildMcpConfigFromConnectors([connector])
 
-        expect(result.mcp['arche_notion_n1']).toEqual({
+        expect(result.mcpConfig.mcp['arche_notion_n1']).toEqual({
           type: 'remote',
           url: 'https://mcp.notion.com/mcp',
           enabled: true,
@@ -224,7 +224,7 @@ describe('mcp-config', () => {
         const connector = makeConnector({ type: 'notion', id: 'n1' })
 
         const result = buildMcpConfigFromConnectors([connector])
-        expect(result.mcp).toEqual({})
+        expect(result.mcpConfig.mcp).toEqual({})
       })
 
       it('uses gateway target for notion OAuth when available', () => {
@@ -238,7 +238,7 @@ describe('mcp-config', () => {
           },
         })
 
-        expect(result.mcp['arche_notion_n1']).toEqual({
+        expect(result.mcpConfig.mcp['arche_notion_n1']).toEqual({
           type: 'remote',
           url: 'http://gateway/n1/mcp',
           enabled: true,
@@ -261,7 +261,7 @@ describe('mcp-config', () => {
 
         const result = buildMcpConfigFromConnectors([connector])
 
-        expect(result.mcp['arche_linear_l1']).toEqual({
+        expect(result.mcpConfig.mcp['arche_linear_l1']).toEqual({
           type: 'remote',
           url: 'https://mcp.linear.app/mcp',
           enabled: true,
@@ -270,11 +270,31 @@ describe('mcp-config', () => {
         })
       })
 
+      it('returns stored connector tool permissions with the MCP server key', () => {
+        passGates({
+          apiKey: 'lin_key_123',
+          mcpToolPermissions: {
+            list_issues: 'allow',
+            create_issue: 'ask',
+          },
+        })
+        const connector = makeConnector({ type: 'linear', id: 'l1' })
+
+        const result = buildMcpConfigFromConnectors([connector])
+
+        expect(result.connectorToolPermissions).toEqual({
+          arche_linear_l1: {
+            list_issues: 'allow',
+            create_issue: 'ask',
+          },
+        })
+      })
+
       it('skips linear manual connector when apiKey is missing', () => {
         passGates({ apiKey: '' })
         const connector = makeConnector({ type: 'linear', id: 'l1' })
         const result = buildMcpConfigFromConnectors([connector])
-        expect(result.mcp).toEqual({})
+        expect(result.mcpConfig.mcp).toEqual({})
       })
 
       it('builds remote MCP config with OAuth access token', () => {
@@ -290,7 +310,7 @@ describe('mcp-config', () => {
 
         const result = buildMcpConfigFromConnectors([connector])
 
-        expect(result.mcp['arche_linear_l1']).toEqual({
+        expect(result.mcpConfig.mcp['arche_linear_l1']).toEqual({
           type: 'remote',
           url: 'https://mcp.linear.app/mcp',
           enabled: true,
@@ -306,7 +326,7 @@ describe('mcp-config', () => {
         const connector = makeConnector({ type: 'linear', id: 'l1' })
 
         const result = buildMcpConfigFromConnectors([connector])
-        expect(result.mcp).toEqual({})
+        expect(result.mcpConfig.mcp).toEqual({})
       })
 
       it('uses gateway target for linear OAuth when available', () => {
@@ -320,7 +340,7 @@ describe('mcp-config', () => {
           },
         })
 
-        expect(result.mcp['arche_linear_l1']).toEqual({
+        expect(result.mcpConfig.mcp['arche_linear_l1']).toEqual({
           type: 'remote',
           url: 'http://gateway/l1/mcp',
           enabled: true,
@@ -341,7 +361,7 @@ describe('mcp-config', () => {
 
         const result = buildMcpConfigFromConnectors([connector])
 
-        expect(result.mcp['arche_custom_c1']).toEqual({
+        expect(result.mcpConfig.mcp['arche_custom_c1']).toEqual({
           type: 'remote',
           url: 'https://my-server.example.com/mcp',
           enabled: true,
@@ -355,7 +375,7 @@ describe('mcp-config', () => {
         const connector = makeConnector({ type: 'custom', id: 'c1' })
 
         const result = buildMcpConfigFromConnectors([connector])
-        expect(result.mcp).toEqual({})
+        expect(result.mcpConfig.mcp).toEqual({})
       })
 
       it('includes auth header when auth is provided', () => {
@@ -364,10 +384,10 @@ describe('mcp-config', () => {
 
         const result = buildMcpConfigFromConnectors([connector])
 
-        expect(result.mcp['arche_custom_c1']!.headers).toEqual({
+        expect(result.mcpConfig.mcp['arche_custom_c1']!.headers).toEqual({
           Authorization: 'Bearer my-bearer-token',
         })
-        expect(result.mcp['arche_custom_c1']!.oauth).toBe(false)
+        expect(result.mcpConfig.mcp['arche_custom_c1']!.oauth).toBe(false)
       })
 
       it('includes custom headers', () => {
@@ -379,7 +399,7 @@ describe('mcp-config', () => {
 
         const result = buildMcpConfigFromConnectors([connector])
 
-        expect(result.mcp['arche_custom_c1']!.headers).toEqual({
+        expect(result.mcpConfig.mcp['arche_custom_c1']!.headers).toEqual({
           'X-Custom': 'val',
           'X-Other': 'val2',
         })
@@ -395,7 +415,7 @@ describe('mcp-config', () => {
 
         const result = buildMcpConfigFromConnectors([connector])
 
-        expect(result.mcp['arche_custom_c1']!.headers!.Authorization).toBe('Bearer existing')
+        expect(result.mcpConfig.mcp['arche_custom_c1']!.headers!.Authorization).toBe('Bearer existing')
       })
 
       it('ignores non-string header values', () => {
@@ -407,7 +427,7 @@ describe('mcp-config', () => {
 
         const result = buildMcpConfigFromConnectors([connector])
 
-        expect(result.mcp['arche_custom_c1']!.headers).toEqual({ 'X-Good': 'ok' })
+        expect(result.mcpConfig.mcp['arche_custom_c1']!.headers).toEqual({ 'X-Good': 'ok' })
       })
 
       it('ignores headers when it is not an object', () => {
@@ -416,7 +436,7 @@ describe('mcp-config', () => {
 
         const result = buildMcpConfigFromConnectors([connector])
 
-        expect(result.mcp['arche_custom_c1']!.headers).toBeUndefined()
+        expect(result.mcpConfig.mcp['arche_custom_c1']!.headers).toBeUndefined()
       })
 
       it('ignores headers when it is an array', () => {
@@ -425,7 +445,7 @@ describe('mcp-config', () => {
 
         const result = buildMcpConfigFromConnectors([connector])
 
-        expect(result.mcp['arche_custom_c1']!.headers).toBeUndefined()
+        expect(result.mcpConfig.mcp['arche_custom_c1']!.headers).toBeUndefined()
       })
 
       it('builds remote MCP config with OAuth access token', () => {
@@ -442,7 +462,7 @@ describe('mcp-config', () => {
 
         const result = buildMcpConfigFromConnectors([connector])
 
-        expect(result.mcp['arche_custom_c1']).toEqual({
+        expect(result.mcpConfig.mcp['arche_custom_c1']).toEqual({
           type: 'remote',
           url: 'https://example.com/mcp',
           enabled: true,
@@ -465,7 +485,7 @@ describe('mcp-config', () => {
 
         const result = buildMcpConfigFromConnectors([connector])
 
-        expect(result.mcp['arche_custom_c1']!.url).toBe('https://mcp-override.com/mcp')
+        expect(result.mcpConfig.mcp['arche_custom_c1']!.url).toBe('https://mcp-override.com/mcp')
       })
 
       it('skips custom OAuth connector when accessToken is missing', () => {
@@ -475,7 +495,7 @@ describe('mcp-config', () => {
         const connector = makeConnector({ type: 'custom', id: 'c1' })
 
         const result = buildMcpConfigFromConnectors([connector])
-        expect(result.mcp).toEqual({})
+        expect(result.mcpConfig.mcp).toEqual({})
       })
 
       it('skips custom OAuth connector when no endpoint and no mcpServerUrl', () => {
@@ -491,7 +511,7 @@ describe('mcp-config', () => {
         const connector = makeConnector({ type: 'custom', id: 'c1' })
 
         const result = buildMcpConfigFromConnectors([connector])
-        expect(result.mcp).toEqual({})
+        expect(result.mcpConfig.mcp).toEqual({})
       })
 
       it('uses gateway target for custom OAuth when available', () => {
@@ -512,7 +532,7 @@ describe('mcp-config', () => {
           },
         })
 
-        expect(result.mcp['arche_custom_c1']).toEqual({
+        expect(result.mcpConfig.mcp['arche_custom_c1']).toEqual({
           type: 'remote',
           url: 'http://gateway/c1/mcp',
           enabled: true,
@@ -549,7 +569,7 @@ describe('mcp-config', () => {
               },
             })
 
-            expect(result.mcp[`arche_${type}_${type}-1`]).toEqual({
+            expect(result.mcpConfig.mcp[`arche_${type}_${type}-1`]).toEqual({
               type: 'remote',
               url: `http://gateway/${type}-1/mcp`,
               enabled: true,
@@ -569,7 +589,7 @@ describe('mcp-config', () => {
               },
             })
 
-            expect(result.mcp).toEqual({})
+            expect(result.mcpConfig.mcp).toEqual({})
           })
 
           it('skips when no gateway target is provided', () => {
@@ -578,7 +598,7 @@ describe('mcp-config', () => {
             const connector = makeConnector({ type, id: `${type}-1` })
 
             const result = buildMcpConfigFromConnectors([connector])
-            expect(result.mcp).toEqual({})
+            expect(result.mcpConfig.mcp).toEqual({})
           })
         })
       }
@@ -595,7 +615,7 @@ describe('mcp-config', () => {
         const connector = makeConnector({ type: 'future-type' as string, id: 'f1' })
 
         const result = buildMcpConfigFromConnectors([connector])
-        expect(result.mcp).toEqual({})
+        expect(result.mcpConfig.mcp).toEqual({})
       })
     })
 
@@ -625,11 +645,11 @@ describe('mcp-config', () => {
 
         const result = buildMcpConfigFromConnectors(connectors)
 
-        expect(Object.keys(result.mcp)).toHaveLength(2)
-        expect(result.mcp['arche_notion_n1']).toBeDefined()
-        expect(result.mcp['arche_linear_l2']).toBeDefined()
+        expect(Object.keys(result.mcpConfig.mcp)).toHaveLength(2)
+        expect(result.mcpConfig.mcp['arche_notion_n1']).toBeDefined()
+        expect(result.mcpConfig.mcp['arche_linear_l2']).toBeDefined()
         // The second connector (l1) should have been skipped due to decrypt error
-        expect(result.mcp['arche_linear_l1']).toBeUndefined()
+        expect(result.mcpConfig.mcp['arche_linear_l1']).toBeUndefined()
       })
     })
   })
@@ -686,7 +706,7 @@ describe('mcp-config', () => {
       })
 
       expect(result).not.toBeNull()
-      expect(result!.mcp['arche_zendesk_z1']).toEqual({
+      expect(result!.mcpConfig.mcp['arche_zendesk_z1']).toEqual({
         type: 'remote',
         url: 'http://gateway/z1/mcp',
         enabled: true,
@@ -723,7 +743,7 @@ describe('mcp-config', () => {
       })
 
       expect(result).not.toBeNull()
-      expect(result!.mcp['arche_notion_n1']!.url).toBe('http://gateway/n1/mcp')
+      expect(result!.mcpConfig.mcp['arche_notion_n1']!.url).toBe('http://gateway/n1/mcp')
     })
 
     it('skips invalid connector types during gateway target building', async () => {
@@ -784,7 +804,7 @@ describe('mcp-config', () => {
         mcpServerUrl: undefined,
       })
 
-      const result = await buildMcpConfigForSlug('my-slug')
+      await buildMcpConfigForSlug('my-slug')
 
       expect(connectorMocks.issueConnectorGatewayToken).not.toHaveBeenCalled()
     })
@@ -806,7 +826,7 @@ describe('mcp-config', () => {
       })
       connectorMocks.validateConnectorConfig.mockReturnValue({ valid: true })
 
-      const result = await buildMcpConfigForSlug('my-slug')
+      await buildMcpConfigForSlug('my-slug')
 
       expect(connectorMocks.issueConnectorGatewayToken).toHaveBeenCalledWith({
         userId: 'user-1',
@@ -846,7 +866,7 @@ describe('mcp-config', () => {
       expect(connectorMocks.issueConnectorGatewayToken).not.toHaveBeenCalled()
       // But should still produce a local config
       expect(result).not.toBeNull()
-      expect(result!.mcp['arche_notion_n1']!.type).toBe('local')
+      expect(result!.mcpConfig.mcp['arche_notion_n1']!.type).toBe('local')
     })
   })
 })

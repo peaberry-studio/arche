@@ -8,7 +8,6 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Switch } from '@/components/ui/switch'
 import { getLinearOAuthModeLabel } from '@/lib/connectors/linear'
-import type { ConnectorType } from '@/lib/connectors/types'
 
 type ConnectorCardProps = {
   connector: ConnectorListItem
@@ -24,12 +23,6 @@ type ConnectorCardProps = {
 type ConnectorStatusMeta = {
   label: string
   variant: 'success' | 'warning' | 'outline'
-}
-
-const CONFIGURABLE_CONNECTOR_TYPES = new Set<ConnectorType>(['zendesk', 'meta-ads'])
-
-function hasConnectorSettings(type: ConnectorType): boolean {
-  return CONFIGURABLE_CONNECTOR_TYPES.has(type)
 }
 
 function getStatusMeta(connector: ConnectorListItem): ConnectorStatusMeta {
@@ -133,16 +126,14 @@ function ConnectorActions({
         </button>
       ) : null}
 
-      {hasConnectorSettings(connector.type) ? (
-        <button
-          type="button"
-          className="text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
-          onClick={() => onOpenSettings(connector)}
-          disabled={isBusy}
-        >
-          Settings
-        </button>
-      ) : null}
+      <button
+        type="button"
+        className="text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
+        onClick={() => onOpenSettings(connector)}
+        disabled={isBusy}
+      >
+        Settings
+      </button>
 
       <div className="relative ml-auto">{deleteAction}</div>
     </div>

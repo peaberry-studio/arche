@@ -5,6 +5,7 @@ import * as path from 'node:path'
 import { readConfigRepoSnapshot } from '@/lib/config-repo-store'
 import { readCommonWorkspaceConfig, readConfigRepoFile } from '@/lib/common-workspace-config-store'
 import { getConnectorGatewayBaseUrl } from '@/lib/connectors/gateway-config'
+import { isRecord } from '@/lib/records'
 import { readSkillBundlesFromRepoDir } from '@/lib/skills/skill-store'
 import type { SkillBundle } from '@/lib/skills/types'
 import { userService } from '@/lib/services'
@@ -44,10 +45,6 @@ export type WorkspaceRuntimeArtifacts = {
 }
 
 const COMMON_WORKSPACE_CONFIG_FILE = 'CommonWorkspaceConfig.json'
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
 
 function normalizeRuntimeConfigForHash(configContent: string): string {
   try {
@@ -161,11 +158,15 @@ async function buildBaseWorkspaceConfig(
   }
 
   try {
-    const mcpConfig = await buildMcpConfigForSlug(slug)
-    if (mcpConfig?.mcp && Object.keys(mcpConfig.mcp).length > 0) {
-      const userMcpKeys = new Set(Object.keys(mcpConfig.mcp))
-      baseConfig = remapAgentConnectorTools(baseConfig, userMcpKeys)
-      baseConfig = { ...baseConfig, mcp: mcpConfig.mcp }
+    const mcpResult = await buildMcpConfigForSlug(slug)
+    if (mcpResult && Object.keys(mcpResult.mcpConfig.mcp).length > 0) {
+      const userMcpKeys = new Set(Object.keys(mcpResult.mcpConfig.mcp))
+      baseConfig = remapAgentConnectorTools(
+        baseConfig,
+        userMcpKeys,
+        mcpResult.connectorToolPermissions,
+      )
+      baseConfig = { ...baseConfig, mcp: mcpResult.mcpConfig.mcp }
     } else {
       baseConfig = remapAgentConnectorTools(baseConfig, new Set())
     }
