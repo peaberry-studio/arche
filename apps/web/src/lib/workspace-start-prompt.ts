@@ -1,3 +1,5 @@
+import { isRecord } from '@/lib/records'
+
 type WorkspaceStartPromptStorage = {
   getItem: (key: string) => string | null
   setItem: (key: string, value: string) => void
@@ -53,10 +55,6 @@ function normalizePrompt(prompt: WorkspaceStartPromptInput): WorkspaceStartPromp
     text,
     contextPaths: typeof prompt === 'string' ? [] : normalizeContextPaths(prompt.contextPaths),
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
 }
 
 function parseStoredPrompt(value: string): WorkspaceStartPrompt | null {

@@ -369,6 +369,50 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     expect(text).toContain('later hidden reasoning')
   })
 
+  it('forwards OpenCode permission approval events', async () => {
+    const fetchMock = mockOpenCodeFetch([
+      {
+        type: 'message.updated',
+        properties: { info: { id: 'm1', role: 'assistant', sessionID: 's1' } },
+      },
+      {
+        type: 'permission.updated',
+        properties: {
+          permission: {
+            id: 'perm-1',
+            type: 'tool',
+            sessionID: 's1',
+            messageID: 'm1',
+            callID: 'call-1',
+            pattern: 'arche_linear_conn_create_issue',
+            title: 'Create Linear issue',
+            metadata: { tool: 'arche_linear_conn_create_issue' },
+          },
+        },
+      },
+      {
+        type: 'permission.replied',
+        properties: {
+          permission: { id: 'perm-1', sessionID: 's1' },
+          response: 'once',
+        },
+      },
+      { type: 'session.idle', properties: { info: { sessionID: 's1' } } },
+    ])
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('../route')
+    const res = await POST(makePostRequest({ sessionId: 's1', text: 'Hi' }), params())
+
+    const text = await res.text()
+
+    expect(text).toContain('event: permission')
+    expect(text).toContain('"id":"perm-1"')
+    expect(text).toContain('"title":"Create Linear issue"')
+    expect(text).toContain('event: permission-replied')
+    expect(text).toContain('"response":"once"')
+  })
+
   it('streams an error when the upstream event subscription fails', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 500 })))
 

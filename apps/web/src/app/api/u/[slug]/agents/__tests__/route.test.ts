@@ -149,6 +149,17 @@ function makePatchDefaultModelRequest(body: unknown) {
   })
 }
 
+function makePatchDefaultModelRequestRaw(rawBody: string) {
+  return new NextRequest('http://localhost/api/u/alice/agents/default-model', {
+    method: 'PATCH',
+    body: rawBody,
+    headers: {
+      'Content-Type': 'application/json',
+      Origin: 'http://localhost',
+    },
+  })
+}
+
 const routeParams = { params: Promise.resolve({ slug: 'alice' }) }
 
 // ---------------------------------------------------------------------------
@@ -747,5 +758,81 @@ describe('PATCH /api/u/[slug]/agents/default-model', () => {
     expect(response.status).toBe(400)
     const body = await response.json()
     expect(body.error).toBe('invalid_default_model')
+  })
+
+  it('returns 400 for invalid JSON', async () => {
+    const response = await PATCH_DEFAULT_MODEL(
+      makePatchDefaultModelRequestRaw('not valid json{{{'),
+      routeParams,
+    )
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body.error).toBe('invalid_json')
+  })
+
+  it('returns 400 for invalid body shape', async () => {
+    const response = await PATCH_DEFAULT_MODEL(
+      makePatchDefaultModelRequest([]),
+      routeParams,
+    )
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body.error).toBe('invalid_body')
+  })
+
+  it('requires expected hash when config exists', async () => {
+    const response = await PATCH_DEFAULT_MODEL(
+      makePatchDefaultModelRequest({ defaultModel: 'openai/gpt-5.5' }),
+      routeParams,
+    )
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(body.error).toBe('invalid_expected_hash')
+  })
+
+  it('returns 503 when config repo is unavailable', async () => {
+    mockReadCommonWorkspaceConfig.mockResolvedValue({ ok: false, error: 'kb_unavailable' })
+
+    const response = await PATCH_DEFAULT_MODEL(
+      makePatchDefaultModelRequest({ defaultModel: 'openai/gpt-5.5', expectedHash: 'hash-1' }),
+      routeParams,
+    )
+
+    expect(response.status).toBe(503)
+    const body = await response.json()
+    expect(body.error).toBe('kb_unavailable')
+  })
+
+  it('returns 400 when updated config is invalid', async () => {
+    mockReadCommonWorkspaceConfig.mockResolvedValue({
+      ok: true,
+      content: JSON.stringify({ default_agent: 'assistant', agent: { other: {} } }),
+      hash: 'hash-1',
+    })
+
+    const response = await PATCH_DEFAULT_MODEL(
+      makePatchDefaultModelRequest({ defaultModel: 'openai/gpt-5.5', expectedHash: 'hash-1' }),
+      routeParams,
+    )
+
+    expect(response.status).toBe(500)
+    const body = await response.json()
+    expect(body.error).toBe('default_agent_not_found')
+  })
+
+  it('returns 500 when write fails without a specific error', async () => {
+    mockWriteCommonWorkspaceConfig.mockResolvedValue({ ok: false })
+
+    const response = await PATCH_DEFAULT_MODEL(
+      makePatchDefaultModelRequest({ defaultModel: 'openai/gpt-5.5', expectedHash: 'hash-1' }),
+      routeParams,
+    )
+
+    expect(response.status).toBe(500)
+    const body = await response.json()
+    expect(body.error).toBe('write_failed')
   })
 })

@@ -3,6 +3,7 @@ import {
   isSingleInstanceConnectorType,
   type ConnectorType,
 } from '@/lib/connectors/types'
+import { isRecord } from '@/lib/records'
 import { SKILL_NAME_PATTERN } from '@/lib/skills/types'
 
 export const OPENCODE_AGENT_TOOLS = [
@@ -101,10 +102,6 @@ export function getConnectorCapabilityId(type: ConnectorType, id: string): strin
 
 function uniqueSorted(values: string[]): string[] {
   return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b))
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function isPermissionValue(value: unknown): value is 'allow' | 'ask' | 'deny' {

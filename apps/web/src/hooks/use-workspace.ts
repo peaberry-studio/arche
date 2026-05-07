@@ -20,10 +20,12 @@ import type {
   AvailableModel,
   MessageStatus,
   MessagePart,
+  PermissionResponse,
 } from "@/lib/opencode/types";
 import { extractTextContent, transformParts } from "@/lib/opencode/transform";
 import { isProviderId, normalizeProviderId } from "@/lib/providers/catalog";
 import type { ProviderId } from "@/lib/providers/types";
+import { isRecord } from "@/lib/records";
 import { INITIAL_SSE_PARSE_STATE, parseSseChunk } from "@/lib/sse-parser";
 import {
   canAutoResume,
@@ -117,6 +119,34 @@ function extractPartDeltaText(delta: unknown): string | null {
 
   const maybeText = (delta as { text?: unknown }).text;
   return typeof maybeText === "string" ? maybeText : null;
+}
+
+function getString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function toPermissionPart(data: unknown): MessagePart | null {
+  if (!isRecord(data)) return null;
+
+  const permissionId = getString(data.id);
+  const sessionId = getString(data.sessionId);
+  if (!permissionId || !sessionId) return null;
+
+  const metadata = isRecord(data.metadata) ? data.metadata : undefined;
+  const state = data.state === "approved" || data.state === "rejected" ? data.state : "pending";
+
+  return {
+    type: "permission",
+    id: `permission:${permissionId}`,
+    permissionId,
+    sessionId,
+    title: getString(data.title) ?? getString(data.pattern) ?? "Tool approval required",
+    state,
+    callId: getString(data.callId),
+    pattern: getString(data.pattern),
+    permissionType: getString(data.type),
+    metadata,
+  };
 }
 
 function applyDeltaToPart(
@@ -446,6 +476,11 @@ export type UseWorkspaceReturn = {
       attachments?: MessageAttachmentInput[];
       contextPaths?: string[];
     }
+  ) => Promise<boolean>;
+  answerPermission: (
+    sessionId: string,
+    permissionId: string,
+    response: PermissionResponse
   ) => Promise<boolean>;
   abortSession: () => Promise<void>;
   refreshMessages: () => Promise<void>;
@@ -1557,6 +1592,37 @@ export function useWorkspace({
         bufferedParts.set(messageId, existing);
       };
 
+      const handlePermissionUpdate = (data: unknown) => {
+        const part = toPermissionPart(data);
+        if (!part) return;
+
+        receivedAssistantPart = true;
+        upsertMessagePart(sessionId, targetMessageId, part);
+      };
+
+      const handlePermissionReply = (data: unknown) => {
+        if (!isRecord(data)) return;
+
+        const permissionId = getString(data.id);
+        if (!permissionId) return;
+
+        const state = data.response === "reject" ? "rejected" : "approved";
+        updateSessionMessages(sessionId, (prev) =>
+          prev.map((message) => {
+            if (message.id !== targetMessageId) return message;
+
+            return {
+              ...message,
+              parts: message.parts.map((part) =>
+                part.type === "permission" && part.permissionId === permissionId
+                  ? { ...part, state }
+                  : part
+              ),
+            };
+          })
+        );
+      };
+
       const updateStatus = (
         status: MessageStatus,
         toolName?: string,
@@ -1685,6 +1751,16 @@ export function useWorkspace({
                   if (!data.part) break;
                   const messageId = data.messageId ?? data.part?.messageID;
                   handlePartUpdate(data.part, data.delta, messageId);
+                  break;
+                }
+
+                case "permission": {
+                  handlePermissionUpdate(data);
+                  break;
+                }
+
+                case "permission-replied": {
+                  handlePermissionReply(data);
                   break;
                 }
 
@@ -2081,6 +2157,43 @@ export function useWorkspace({
     ]
   );
 
+  const answerPermission = useCallback(
+    async (
+      permissionSessionId: string,
+      permissionId: string,
+      response: PermissionResponse
+    ) => {
+      try {
+        const reply = await fetch(
+          `/api/w/${slug}/chat/permissions/${encodeURIComponent(permissionId)}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sessionId: permissionSessionId, response }),
+          }
+        );
+
+        if (!reply.ok) return false;
+
+        updateSessionMessages(permissionSessionId, (prev) =>
+          prev.map((message) => ({
+            ...message,
+            parts: message.parts.map((part) =>
+              part.type === "permission" && part.permissionId === permissionId
+                ? { ...part, state: response === "reject" ? "rejected" : "approved" }
+                : part
+            ),
+          }))
+        );
+
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [slug, updateSessionMessages]
+  );
+
   // --- Abort ---
 
   const abortSession = useCallback(async () => {
@@ -2440,6 +2553,7 @@ export function useWorkspace({
     isSending,
     isStartingNewSession,
     sendMessage,
+    answerPermission,
     abortSession,
     refreshMessages,
     diffs: diffsHook.diffs,

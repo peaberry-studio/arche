@@ -1,9 +1,6 @@
 import { buildProviderGatewayConfig } from '@/lib/providers/catalog'
+import { isRecord } from '@/lib/records'
 import { withWorkspacePermissionGuards } from '@/lib/spawner/runtime-config-utils'
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
 
 export function parseRuntimeConfigContent(content: string): Record<string, unknown> {
   const parsed: unknown = JSON.parse(content)

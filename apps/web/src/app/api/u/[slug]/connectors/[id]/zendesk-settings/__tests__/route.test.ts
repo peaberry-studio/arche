@@ -192,4 +192,39 @@ describe('PATCH /api/u/[slug]/connectors/[id]/zendesk-settings', () => {
     const res = await PATCH(makePatchRequest({ permissions: {} }), params())
     expect(res.status).toBe(400)
   })
+
+  it('returns 404 when user is not found', async () => {
+    mocks.userService.findIdBySlug.mockResolvedValue(null)
+    const res = await PATCH(makePatchRequest({ permissions: {} }), params())
+    expect(res.status).toBe(404)
+  })
+
+  it('returns 404 when connector is not found', async () => {
+    mocks.connectorService.findByIdAndUserId.mockResolvedValue(null)
+    const res = await PATCH(makePatchRequest({ permissions: {} }), params())
+    expect(res.status).toBe(404)
+  })
+
+  it('returns 400 when connector is not zendesk', async () => {
+    mocks.connectorService.findByIdAndUserId.mockResolvedValue({ ...CONNECTOR, type: 'linear' })
+    const res = await PATCH(makePatchRequest({ permissions: {} }), params())
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 400 when body is not an object', async () => {
+    const res = await PATCH(makePatchRequest(null), params())
+    expect(res.status).toBe(400)
+  })
+
+  it('returns 500 when decryption fails', async () => {
+    mocks.decryptConfig.mockImplementation(() => { throw new Error('bad') })
+    const res = await PATCH(makePatchRequest({ permissions: {} }), params())
+    expect(res.status).toBe(500)
+  })
+
+  it('returns 500 when existing config parsing fails', async () => {
+    mocks.parseZendeskConnectorConfig.mockReturnValue({ ok: false, message: 'invalid config' })
+    const res = await PATCH(makePatchRequest({ permissions: {} }), params())
+    expect(res.status).toBe(500)
+  })
 })

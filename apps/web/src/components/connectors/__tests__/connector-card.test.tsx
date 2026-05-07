@@ -86,7 +86,7 @@ describe('ConnectorCard', () => {
 
     expect(screen.getByText('Pending setup')).toBeDefined()
     expect(screen.getByRole('button', { name: 'Test connection' }).hasAttribute('disabled')).toBe(true)
-    expect(screen.queryByRole('button', { name: 'Settings' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Settings' })).toBeDefined()
 
     fireEvent.click(screen.getByRole('button', { name: 'Connect OAuth' }))
     expect(onConnectOAuth).toHaveBeenCalledWith('conn-1')

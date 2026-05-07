@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { SpinnerGap } from '@phosphor-icons/react'
 
+import { ConnectorToolPermissionsSection } from '@/components/connectors/connector-tool-permissions-section'
 import { getConnectorErrorMessage } from '@/components/connectors/error-messages'
 import { Button } from '@/components/ui/button'
 import {
@@ -381,6 +382,8 @@ export function MetaAdsConnectorSettingsDialog({
               </div>
             ) : null}
           </section>
+
+          <ConnectorToolPermissionsSection connectorId={connectorId} enabled={open && hasLoadedSettings} slug={slug} />
 
           <div className="flex justify-end gap-2">
             <Button disabled={isSaving} variant="ghost" onClick={() => onOpenChange(false)}>

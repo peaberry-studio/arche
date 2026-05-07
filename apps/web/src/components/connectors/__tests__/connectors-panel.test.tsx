@@ -190,6 +190,25 @@ describe('ConnectorsPanel', () => {
     expect(window.location.search).toBe('')
   })
 
+  it('handles successful oauth callback state and oauth start', async () => {
+    window.history.pushState({}, '', '/u/alice/connectors?oauth=success')
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ connectors: [connector({ authType: 'oauth', id: 'linear-1', name: 'Linear', type: 'linear' })] }))
+      .mockResolvedValueOnce(jsonResponse({ connectors: [connector({ authType: 'oauth', id: 'linear-1', name: 'Linear', type: 'linear' })] }))
+      .mockResolvedValueOnce(jsonResponse({ authorizeUrl: '#oauth-start' }))
+
+    render(<ConnectorsPanel slug="alice" />)
+
+    expect(await screen.findByText('count:1')).toBeDefined()
+    expect(window.location.search).toBe('')
+
+    fireEvent.click(screen.getByRole('button', { name: 'OAuth Linear' }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/u/alice/connectors/linear-1/oauth/start', expect.objectContaining({ method: 'POST' }))
+    })
+  })
+
   it('handles connector mutation, test, and oauth failures', async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ connectors: [connector()] }))
@@ -222,5 +241,30 @@ describe('ConnectorsPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete Zendesk' }))
     expect(await screen.findByText('The action could not be completed: Network error. Please try again.')).toBeDefined()
+  })
+
+  it('opens generic tool settings for connectors without a dedicated settings dialog', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({
+        connectors: [connector({ id: 'linear-1', name: 'Linear', type: 'linear' })],
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        tools: [],
+        policyConfigured: false,
+      }))
+
+    render(<ConnectorsPanel slug="alice" />)
+
+    expect(await screen.findByText('count:1')).toBeDefined()
+    fireEvent.click(screen.getByRole('button', { name: 'Settings Linear' }))
+
+    expect(await screen.findByText('Connector settings')).toBeDefined()
+    expect(screen.getByText('No MCP tools are available for this connector yet.')).toBeDefined()
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/u/alice/connectors/linear-1/tool-permissions', {
+      cache: 'no-store',
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    await waitFor(() => expect(screen.queryByText('Connector settings')).toBeNull())
   })
 })

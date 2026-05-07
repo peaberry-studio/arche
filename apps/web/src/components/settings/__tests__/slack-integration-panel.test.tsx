@@ -143,7 +143,7 @@ describe('SlackIntegrationPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Copy manifest' }))
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))
     expect(String(writeText.mock.calls[0][0])).toContain('display_information')
-    expect(screen.getByRole('button', { name: 'Copied' })).toBeTruthy()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Copied' })).toBeTruthy())
 
     fireEvent.click(screen.getByRole('button', { name: 'JSON' }))
     fireEvent.click(screen.getByRole('button', { name: 'Copy manifest' }))

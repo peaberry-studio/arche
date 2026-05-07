@@ -10,6 +10,7 @@ import {
 } from '@/lib/connectors/oauth-config'
 import { requireConnectorCapability } from '@/lib/connectors/require-connector-capability'
 import { sanitizeConnectorConfigForResponse } from '@/lib/connectors/response-config'
+import { preserveConnectorToolPermissions } from '@/lib/connectors/tool-permissions'
 import type { ConnectorType } from '@/lib/connectors/types'
 import {
   validateConnectorConfig,
@@ -213,10 +214,11 @@ export const PATCH = withAuth<
       )
     }
     const connectorType = existingConnector.type as ConnectorType
+    const configWithToolPermissions = preserveConnectorToolPermissions(existingDecryptedConfig, config)
     const mergedConfig = mergeConnectorConfigWithPreservedOAuth({
       connectorType,
       currentConfig: existingDecryptedConfig,
-      nextConfig: config,
+      nextConfig: configWithToolPermissions,
     })
     const configValidation = validateConnectorConfig(connectorType, mergedConfig)
     if (!configValidation.valid) {

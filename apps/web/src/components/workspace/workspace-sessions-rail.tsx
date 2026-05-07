@@ -14,6 +14,7 @@ const MAX_DOT_SIZE = 8
 const MIN_DOT_SIZE = 3
 const MAX_DOT_SCALE = 2.1
 const MAX_DOT_GAP_EXTRA = 5
+const RAIL_EDGE_PADDING_PX = 10
 
 type Kind = 'chats' | 'tasks'
 
@@ -157,7 +158,7 @@ export function WorkspaceSessionsRail({
     const node = containerRef.current
     if (!node) return
     const rect = node.getBoundingClientRect()
-    scheduleRailUpdate(event.clientY - rect.top + node.scrollTop)
+    scheduleRailUpdate(event.clientY - rect.top + node.scrollTop - RAIL_EDGE_PADDING_PX)
   }, [scheduleRailUpdate])
 
   const handleMouseLeave = useCallback(() => {
@@ -182,7 +183,8 @@ export function WorkspaceSessionsRail({
         ref={containerRef}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
-        className="flex w-8 min-h-0 flex-1 flex-col items-center overflow-hidden"
+        className="flex w-full min-h-0 flex-1 flex-col items-center overflow-hidden"
+        style={{ paddingBottom: RAIL_EDGE_PADDING_PX, paddingTop: RAIL_EDGE_PADDING_PX }}
         aria-label={kind === 'tasks' ? 'Tasks' : 'Chats'}
       >
         {visibleSessions.map((session, index) => {

@@ -133,7 +133,7 @@ describe('AgentsPageClient', () => {
     })
     fetchMock.mockImplementation(async (input, init) => {
       const url = String(input)
-      if (url.endsWith('/agents/models')) return jsonResponse({ models: [] })
+      if (url.endsWith('/agents/models')) return jsonResponse({ models: [{ id: 'openai/gpt-5.5', label: 'GPT 5.5' }] })
       if (url.endsWith('/agents/default-model') && init?.method === 'PATCH') {
         return jsonResponse({ defaultModel: 'openai/gpt-6', hash: 'hash-2' })
       }
@@ -141,6 +141,8 @@ describe('AgentsPageClient', () => {
     })
 
     render(<AgentsPageClient slug="alice" isAdmin={true} />)
+
+    await waitFor(() => expect(screen.getByText('GPT 5.5')).toBeTruthy())
 
     fireEvent.change(screen.getByLabelText('Default model'), { target: { value: 'openai/gpt-6' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save default model' }))
@@ -154,6 +156,70 @@ describe('AgentsPageClient', () => {
       expectedHash: 'hash-1',
     })
     expect(screen.getByText('Default model saved.')).toBeTruthy()
+  })
+
+  it('shows default model errors for admins', async () => {
+    useAgentsCatalogMock.mockReturnValue({
+      agents: [],
+      defaultModel: 'openai/gpt-5.5',
+      hash: 'hash-1',
+      isLoading: false,
+      loadError: null,
+      reload: vi.fn(),
+    })
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/agents/models')) return jsonResponse({ models: [] })
+      if (url.endsWith('/agents/default-model') && init?.method === 'PATCH') {
+        return jsonResponse({ error: 'hash_conflict' }, { status: 409 })
+      }
+      return jsonResponse({})
+    })
+
+    render(<AgentsPageClient slug="alice" isAdmin={true} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save default model' }))
+
+    await waitFor(() => expect(screen.getByText('Error: hash_conflict')).toBeTruthy())
+  })
+
+  it('shows a network error when saving the default model fails', async () => {
+    useAgentsCatalogMock.mockReturnValue({
+      agents: [],
+      defaultModel: 'openai/gpt-5.5',
+      hash: 'hash-1',
+      isLoading: false,
+      loadError: null,
+      reload: vi.fn(),
+    })
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/agents/models')) return jsonResponse({ models: [] })
+      if (url.endsWith('/agents/default-model') && init?.method === 'PATCH') throw new Error('offline')
+      return jsonResponse({})
+    })
+
+    render(<AgentsPageClient slug="alice" isAdmin={true} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save default model' }))
+
+    await waitFor(() => expect(screen.getByText('Error: network_error')).toBeTruthy())
+  })
+
+  it('renders default model as read-only for non-admins', () => {
+    useAgentsCatalogMock.mockReturnValue({
+      agents: [],
+      defaultModel: null,
+      hash: 'hash-1',
+      isLoading: false,
+      loadError: null,
+      reload: vi.fn(),
+    })
+
+    render(<AgentsPageClient slug="alice" isAdmin={false} />)
+
+    expect(screen.getByText('No default model configured.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Save default model' })).toBeNull()
   })
 
   it('filters out primary agents when includePrimary is false', () => {

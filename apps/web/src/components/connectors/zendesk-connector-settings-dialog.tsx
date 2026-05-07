@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { SpinnerGap } from '@phosphor-icons/react'
 
 import { getConnectorErrorMessage } from '@/components/connectors/error-messages'
+import { ConnectorToolPermissionsSection } from '@/components/connectors/connector-tool-permissions-section'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -171,7 +172,7 @@ export function ZendeskConnectorSettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Zendesk settings</DialogTitle>
           <DialogDescription>
@@ -269,6 +270,8 @@ export function ZendeskConnectorSettingsDialog({
               ) : null}
             </div>
           </section>
+
+          <ConnectorToolPermissionsSection connectorId={connectorId} enabled={open && hasLoadedSettings} slug={slug} />
 
           <div className="flex justify-end gap-2">
             <Button disabled={isSaving} variant="ghost" onClick={() => onOpenChange(false)}>

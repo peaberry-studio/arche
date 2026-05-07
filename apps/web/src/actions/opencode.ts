@@ -350,6 +350,7 @@ type WorkspaceSessionListEntry = {
 
 type ListWorkspaceSessionsOptions = {
   limit?: number;
+  query?: string;
   rootsOnly?: boolean;
   start?: number;
 };
@@ -457,6 +458,7 @@ async function listWorkspaceSessionsFromApi(
   client: NonNullable<Awaited<ReturnType<typeof createInstanceClient>>>,
   options: ListWorkspaceSessionsOptions,
 ): Promise<ListWorkspaceSessionsResult> {
+  const query = options.query?.trim().toLowerCase();
   const requestedLimit =
     typeof options.limit === "number" && Number.isFinite(options.limit)
       ? Math.max(1, Math.trunc(options.limit))
@@ -466,17 +468,32 @@ async function listWorkspaceSessionsFromApi(
       ? Math.trunc(options.start)
       : undefined;
   const result = await client.session.list({
-    limit: requestedLimit,
+    limit: query ? Math.min(requestedLimit ?? 100, 100) : requestedLimit,
     roots: options.rootsOnly ? true : undefined,
     start: requestedStart,
   });
   const sessions = (result.data ?? []).map(mapApiSession);
   const metadata = await getWorkspaceSessionMetadata(slug, client, sessions.map((session) => session.id));
+  const workspaceSessions = toWorkspaceSessions(sessions, metadata.statuses, metadata.autopilotBySessionId);
+
+  if (query) {
+    const filteredSessions = workspaceSessions.filter((session) => {
+      const title = session.title.toLowerCase();
+      const taskName = session.autopilot?.taskName.toLowerCase() ?? "";
+      return title.includes(query) || taskName.includes(query);
+    });
+
+    return {
+      ok: true,
+      hasMore: false,
+      sessions: filteredSessions.slice(0, 20),
+    };
+  }
 
   return {
     ok: true,
     hasMore: requestedLimit ? sessions.length >= requestedLimit : false,
-    sessions: toWorkspaceSessions(sessions, metadata.statuses, metadata.autopilotBySessionId),
+    sessions: workspaceSessions,
   };
 }
 

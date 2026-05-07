@@ -96,6 +96,9 @@ describe("MarkdownTableControls", () => {
       expect(screen.getByRole("button", { name: "Add row" })).toBeTruthy();
     });
 
+    fireEvent.pointerMove(cells[0], { clientX: 80, clientY: 70 });
+    expect(screen.getByRole("button", { name: "Add row" })).toBeTruthy();
+
     fireEvent.click(screen.getByRole("button", { name: "Add row" }));
     fireEvent.click(screen.getByRole("button", { name: "Add column" }));
     fireEvent.click(screen.getByRole("button", { name: "Delete row" }));
@@ -221,5 +224,85 @@ describe("MarkdownTableControls", () => {
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "Add row" })).toBeNull();
     });
+  });
+
+  it("falls back to the last row and column when hovering table whitespace", async () => {
+    const editor = {
+      chain: () => chain,
+      view: {
+        posAtDOM: vi.fn(() => 7),
+      },
+    } as unknown as TiptapEditor;
+
+    render(<TableControlsHarness editor={editor} />);
+
+    const container = screen.getByTestId("table-container");
+    const table = container.querySelector("table");
+    const rows = Array.from(container.querySelectorAll("tr"));
+    const cells = Array.from(container.querySelectorAll("td"));
+
+    if (!table || rows.length !== 2 || cells.length !== 4) {
+      throw new Error("Expected a 2x2 table");
+    }
+
+    stubRect(container, 0, 0, 320, 320);
+    stubRect(table, 40, 40, 200, 100);
+    stubRect(rows[0], 40, 40, 200, 50);
+    stubRect(rows[1], 40, 90, 200, 50);
+    stubRect(cells[0], 40, 40, 100, 50);
+    stubRect(cells[1], 140, 40, 100, 50);
+    stubRect(cells[2], 40, 90, 100, 50);
+    stubRect(cells[3], 140, 90, 100, 50);
+
+    fireEvent.pointerMove(table, { clientX: 260, clientY: 160 });
+
+    expect(await screen.findByRole("button", { name: "Add row" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add column" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Delete row" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete column" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add row" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add column" }));
+
+    expect(chain.addRowAfter).toHaveBeenCalledTimes(1);
+    expect(chain.addColumnAfter).toHaveBeenCalledTimes(1);
+    expect(chain.setTextSelection).toHaveBeenCalledWith(8);
+  });
+
+  it("keeps controls stable over controls, halo, and safety zones", async () => {
+    render(<TableControlsHarness editor={null} />);
+
+    const container = screen.getByTestId("table-container");
+    const table = container.querySelector("table");
+    const rows = Array.from(container.querySelectorAll("tr"));
+    const cells = Array.from(container.querySelectorAll("td"));
+
+    if (!table || rows.length !== 2 || cells.length !== 4) {
+      throw new Error("Expected a 2x2 table");
+    }
+
+    stubRect(container, 0, 0, 320, 320);
+    stubRect(table, 40, 40, 200, 100);
+    stubRect(rows[0], 40, 40, 200, 50);
+    stubRect(rows[1], 40, 90, 200, 50);
+    stubRect(cells[0], 40, 40, 100, 50);
+    stubRect(cells[1], 140, 40, 100, 50);
+    stubRect(cells[2], 40, 90, 100, 50);
+    stubRect(cells[3], 140, 90, 100, 50);
+
+    fireEvent.pointerMove(cells[0], { clientX: 70, clientY: 65 });
+    const addRowButton = await screen.findByRole("button", { name: "Add row" });
+
+    fireEvent.pointerMove(addRowButton, { clientX: 90, clientY: 90 });
+    expect(screen.getByRole("button", { name: "Add row" })).toBeTruthy();
+
+    fireEvent.pointerMove(container, { clientX: 50, clientY: 50 });
+    expect(screen.getByRole("button", { name: "Add row" })).toBeTruthy();
+
+    fireEvent.pointerMove(cells[1], { clientX: 90, clientY: 90 });
+    expect(screen.getByRole("button", { name: "Add row" })).toBeTruthy();
+
+    fireEvent.pointerLeave(container, { relatedTarget: addRowButton });
+    expect(screen.getByRole("button", { name: "Add row" })).toBeTruthy();
   });
 });

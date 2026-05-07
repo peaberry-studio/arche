@@ -6,16 +6,13 @@ import type {
   MetaAdsApiResponse,
   MetaAdsListResult,
 } from '@/lib/connectors/meta-ads-types'
+import { isRecord } from '@/lib/records'
 
 type MetaAdsInsightsRequest = {
   datePreset?: string
   since?: string
   until?: string
   limit?: number
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function getString(value: unknown): string | undefined {

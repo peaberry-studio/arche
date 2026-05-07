@@ -96,4 +96,97 @@ describe("workspace file download route", () => {
       'attachment; filename="notes.md"'
     )
   })
+
+  it("returns 503 when the workspace agent is unavailable", async () => {
+    mockGetAuthenticatedUser.mockResolvedValue(session("alice"))
+    mockCreateWorkspaceAgentClient.mockResolvedValue(null)
+
+    const response = await callDownload("notes.md")
+
+    expect(response.status).toBe(503)
+    expect(JSON.parse(response.text)).toEqual({ error: "instance_unavailable" })
+  })
+
+  it("returns 404 when the workspace agent cannot find the file", async () => {
+    mockGetAuthenticatedUser.mockResolvedValue(session("alice"))
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ ok: false, error: "not_found" }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+    )
+
+    const response = await callDownload("missing.md")
+
+    expect(response.status).toBe(404)
+    expect(JSON.parse(response.text)).toEqual({ error: "not_found" })
+  })
+
+  it("returns 502 for invalid workspace agent file content", async () => {
+    mockGetAuthenticatedUser.mockResolvedValue(session("alice"))
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ ok: true, encoding: "utf-8" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+    )
+
+    const response = await callDownload("broken.txt")
+
+    expect(response.status).toBe(502)
+    expect(JSON.parse(response.text)).toEqual({ error: "invalid_file_content" })
+  })
+
+  it("returns 502 for unsupported workspace agent file encoding", async () => {
+    mockGetAuthenticatedUser.mockResolvedValue(session("alice"))
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ ok: true, content: "plain text", encoding: "latin1" }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }
+        )
+      )
+    )
+
+    const response = await callDownload("broken.txt")
+
+    expect(response.status).toBe(502)
+    expect(JSON.parse(response.text)).toEqual({ error: "invalid_file_content" })
+  })
+
+  it("downloads utf-8 file content with a sanitized fallback filename", async () => {
+    mockGetAuthenticatedUser.mockResolvedValue(session("alice"))
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ ok: true, content: "plain text", encoding: "utf-8" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+    )
+
+    const response = await callDownload("docs/report final.txt")
+
+    expect(response.status).toBe(200)
+    expect(response.text).toBe("plain text")
+    expect(response.headers.get("Content-Type")).toBe("text/plain")
+    expect(response.headers.get("Content-Disposition")).toContain(
+      'filename="report-final.txt"'
+    )
+  })
 })

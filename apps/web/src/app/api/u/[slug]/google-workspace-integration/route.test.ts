@@ -7,6 +7,7 @@ const getResolvedCredentialsMock = vi.fn()
 const saveIntegrationConfigMock = vi.fn()
 const clearIntegrationMock = vi.fn()
 const auditEventMock = vi.fn()
+const requireCapabilityMock = vi.fn()
 
 const authState = {
   user: { id: 'admin-1', role: 'ADMIN', slug: 'alice' },
@@ -17,7 +18,7 @@ vi.mock('@/lib/auth', () => ({
 }))
 
 vi.mock('@/lib/runtime/require-capability', () => ({
-  requireCapability: () => null,
+  requireCapability: (...args: unknown[]) => requireCapabilityMock(...args),
 }))
 
 vi.mock('@/lib/runtime/with-auth', () => ({
@@ -49,6 +50,7 @@ describe('/api/u/[slug]/google-workspace-integration', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     authState.user = { id: 'admin-1', role: 'ADMIN', slug: 'alice' }
+    requireCapabilityMock.mockReturnValue(null)
     auditEventMock.mockResolvedValue(undefined)
     findIntegrationMock.mockResolvedValue(null)
     decryptIntegrationConfigMock.mockReturnValue(null)
@@ -234,6 +236,52 @@ describe('/api/u/[slug]/google-workspace-integration', () => {
     })
   })
 
+  it('rejects invalid JSON on PUT', async () => {
+    const { PUT } = await import('./route')
+    const response = await PUT(
+      new Request('http://localhost/api/u/alice/google-workspace-integration', {
+        body: 'bad json',
+        headers: { 'content-type': 'application/json' },
+        method: 'PUT',
+      }) as never,
+      { params: Promise.resolve({ slug: 'alice' }) },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ error: 'invalid_json' })
+  })
+
+  it('rejects non-object bodies on PUT', async () => {
+    const { PUT } = await import('./route')
+    const response = await PUT(
+      new Request('http://localhost/api/u/alice/google-workspace-integration', {
+        body: JSON.stringify([]),
+        headers: { 'content-type': 'application/json' },
+        method: 'PUT',
+      }) as never,
+      { params: Promise.resolve({ slug: 'alice' }) },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ error: 'invalid_body' })
+  })
+
+  it('rethrows unexpected JSON parsing errors on PUT', async () => {
+    const { PUT } = await import('./route')
+    const request = new Request('http://localhost/api/u/alice/google-workspace-integration', {
+      body: JSON.stringify({ clientId: 'id', clientSecret: 'secret' }),
+      headers: { 'content-type': 'application/json' },
+      method: 'PUT',
+    })
+    Object.defineProperty(request, 'json', {
+      value: vi.fn().mockRejectedValue(new TypeError('stream failed')),
+    })
+
+    await expect(
+      PUT(request as never, { params: Promise.resolve({ slug: 'alice' }) })
+    ).rejects.toThrow('stream failed')
+  })
+
   it('clears integration on DELETE', async () => {
     const { DELETE } = await import('./route')
     const response = await DELETE(
@@ -261,5 +309,38 @@ describe('/api/u/[slug]/google-workspace-integration', () => {
     })
 
     expect(response.status).toBe(403)
+  })
+
+  it('returns capability denial before admin checks', async () => {
+    requireCapabilityMock.mockReturnValue(new Response(JSON.stringify({ error: 'disabled' }), { status: 404 }))
+
+    const { GET } = await import('./route')
+    const response = await GET(new Request('http://localhost/api/u/alice/google-workspace-integration') as never, {
+      params: Promise.resolve({ slug: 'alice' }),
+    })
+
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toEqual({ error: 'disabled' })
+  })
+
+  it('rejects non-admin users for PUT and DELETE', async () => {
+    authState.user = { id: 'user-1', role: 'USER', slug: 'alice' }
+    const { DELETE, PUT } = await import('./route')
+
+    const putResponse = await PUT(
+      new Request('http://localhost/api/u/alice/google-workspace-integration', {
+        body: JSON.stringify({ clientId: 'id', clientSecret: 'secret' }),
+        headers: { 'content-type': 'application/json' },
+        method: 'PUT',
+      }) as never,
+      { params: Promise.resolve({ slug: 'alice' }) },
+    )
+    const deleteResponse = await DELETE(
+      new Request('http://localhost/api/u/alice/google-workspace-integration', { method: 'DELETE' }) as never,
+      { params: Promise.resolve({ slug: 'alice' }) },
+    )
+
+    expect(putResponse.status).toBe(403)
+    expect(deleteResponse.status).toBe(403)
   })
 })
