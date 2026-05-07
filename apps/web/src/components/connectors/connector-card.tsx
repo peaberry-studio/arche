@@ -223,7 +223,7 @@ export function ConnectorCard({
     <Card className="border-border/60 bg-card/70 transition-colors hover:border-border">
       <ConnectorCardHeader connector={connector} isBusy={isBusy} onToggleEnabled={onToggleEnabled} />
 
-      <CardContent className="space-y-3 pt-0">
+      <CardContent className="space-y-3 pb-4 pt-0">
         <ConnectorTestResult testState={testState} />
         <div ref={popoverRef}>
           <ConnectorActions

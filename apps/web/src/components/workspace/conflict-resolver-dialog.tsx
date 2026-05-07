@@ -175,7 +175,7 @@ export function ConflictResolverDialog({
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                     Local version
                   </p>
-                  <pre className="max-h-48 max-w-full overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/40 bg-muted/20 px-3 py-2 text-[11px] font-mono leading-relaxed text-foreground/80">
+                  <pre className="scrollbar-custom max-h-48 max-w-full overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/40 bg-muted/20 px-3 py-2 text-[11px] font-mono leading-relaxed text-foreground/80">
                     {conflict?.ours || "(empty)"}
                   </pre>
                 </div>
@@ -183,7 +183,7 @@ export function ConflictResolverDialog({
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                     KB version
                   </p>
-                  <pre className="max-h-48 max-w-full overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/40 bg-muted/20 px-3 py-2 text-[11px] font-mono leading-relaxed text-foreground/80">
+                  <pre className="scrollbar-custom max-h-48 max-w-full overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/40 bg-muted/20 px-3 py-2 text-[11px] font-mono leading-relaxed text-foreground/80">
                     {conflict?.theirs || "(empty)"}
                   </pre>
                 </div>

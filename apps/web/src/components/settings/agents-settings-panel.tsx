@@ -154,34 +154,38 @@ export function AgentsSettingsPanel({ slug }: AgentsSettingsPanelProps) {
 
       {!isLoading && !loadError ? (
         <>
-          <div className="rounded-xl border border-border/60 bg-card/40 p-5">
-            <div className="flex flex-col gap-3 md:flex-row md:items-end">
-              <div className="min-w-0 flex-1 space-y-2">
-                <Label htmlFor="desktop-workspace-default-model">Default model</Label>
-                <Input
-                  id="desktop-workspace-default-model"
-                  list="desktop-workspace-default-model-options"
-                  value={defaultModelInput}
-                  onChange={(event) => setDefaultModelInput(event.target.value)}
-                  placeholder="Select or type a model"
-                />
-                <datalist id="desktop-workspace-default-model-options">
-                  {modelOptions.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.label}
-                    </option>
-                  ))}
-                </datalist>
-                <p className="text-xs text-muted-foreground">
-                  Agents without an override inherit this workspace model.
-                </p>
-              </div>
-              <Button type="button" onClick={handleSaveDefaultModel} disabled={isSavingDefaultModel}>
+          <div className="space-y-2 rounded-xl border border-border/60 bg-card/60 p-5">
+            <Label htmlFor="desktop-workspace-default-model">Default model</Label>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <Input
+                id="desktop-workspace-default-model"
+                list="desktop-workspace-default-model-options"
+                value={defaultModelInput}
+                onChange={(event) => setDefaultModelInput(event.target.value)}
+                placeholder="Select or type a model"
+                className="sm:flex-1"
+              />
+              <Button
+                type="button"
+                onClick={handleSaveDefaultModel}
+                disabled={isSavingDefaultModel}
+                className="sm:shrink-0"
+              >
                 {isSavingDefaultModel ? 'Saving...' : 'Save default model'}
               </Button>
             </div>
-            {defaultModelMessage ? <p className="mt-3 text-sm text-muted-foreground">{defaultModelMessage}</p> : null}
-            {defaultModelError ? <p className="mt-3 text-sm text-destructive">Error: {defaultModelError}</p> : null}
+            <datalist id="desktop-workspace-default-model-options">
+              {modelOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </datalist>
+            <p className="text-xs text-muted-foreground">
+              Agents without an override inherit this workspace model.
+            </p>
+            {defaultModelMessage ? <p className="text-sm text-muted-foreground">{defaultModelMessage}</p> : null}
+            {defaultModelError ? <p className="text-sm text-destructive">Error: {defaultModelError}</p> : null}
           </div>
 
           <div className="space-y-4 rounded-xl border border-border/60 bg-card/40 p-5">

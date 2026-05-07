@@ -357,7 +357,7 @@ export function WorkspaceCommandPalette({
             className="h-11 border-0 bg-muted/40 text-base focus-visible:ring-0 focus-visible:ring-offset-0"
           />
         </div>
-        <div className="max-h-[min(28rem,60vh)] overflow-y-auto p-2">
+        <div className="scrollbar-custom max-h-[min(28rem,60vh)] overflow-y-auto p-2">
           {visibleItems.length === 0 ? (
             <div className="px-4 py-8 text-center text-sm text-muted-foreground">
               {isSearchingSessions ? "Searching sessions..." : "No commands or sessions found."}

@@ -138,7 +138,7 @@ export function DesktopSettingsDialog({ slug, currentSection }: DesktopSettingsD
               </nav>
             </aside>
 
-            <div className="min-h-0 overflow-y-auto p-6">{renderSection(currentSection)}</div>
+            <div className="scrollbar-custom min-h-0 overflow-y-auto p-6">{renderSection(currentSection)}</div>
           </div>
         </div>
       </DialogContent>
