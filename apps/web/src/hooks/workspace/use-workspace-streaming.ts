@@ -36,6 +36,7 @@ type UseWorkspaceStreamingOptions = {
   refreshFiles: () => Promise<void>;
   getActiveSessionId: () => string | null;
   getSessions: () => WorkspaceSession[];
+  onBackgroundStreamCompleted: (sessionId: string) => void;
   resumeFailureStateRef: MutableRefObject<Map<string, ResumeFailureState>>;
 };
 
@@ -205,6 +206,7 @@ export function useWorkspaceStreaming({
   refreshFiles,
   getActiveSessionId,
   getSessions,
+  onBackgroundStreamCompleted,
   resumeFailureStateRef,
 }: UseWorkspaceStreamingOptions) {
   const [sessionStreamStatus, setSessionStreamStatus] = useState<
@@ -240,7 +242,7 @@ export function useWorkspaceStreaming({
 
           const wasStreaming = prev[sessionId] === "submitted" || prev[sessionId] === "streaming";
           if (wasStreaming && sessionId !== activeSessionIdGetterRef.current()) {
-            // unseen completed is handled by parent hook
+            onBackgroundStreamCompleted(sessionId);
           }
 
           const next = { ...prev };
@@ -256,7 +258,7 @@ export function useWorkspaceStreaming({
         return next;
       });
     },
-    []
+    [onBackgroundStreamCompleted]
   );
 
   const abortSessionStream = useCallback(

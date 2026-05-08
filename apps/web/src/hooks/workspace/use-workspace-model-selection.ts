@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState, type SetStateAction } from "react";
 
 import { listModelsAction } from "@/actions/opencode";
 import type { WorkspaceMessage, AvailableModel } from "@/lib/opencode/types";
@@ -31,9 +31,15 @@ export function useWorkspaceModelSelection({ slug, getActiveSessionId }: UseWork
   >({});
   const sessionSelectionStateRef = useRef(sessionSelectionState);
 
-  useEffect(() => {
-    sessionSelectionStateRef.current = sessionSelectionState;
-  }, [sessionSelectionState]);
+  const updateSessionSelectionState = useCallback(
+    (updater: SetStateAction<Record<string, SessionSelectionState>>) => {
+      const current = sessionSelectionStateRef.current;
+      const next = typeof updater === "function" ? updater(current) : updater;
+      sessionSelectionStateRef.current = next;
+      setSessionSelectionState(next);
+    },
+    []
+  );
 
   const primaryAgent = useMemo(() => getPrimaryAgent(agentCatalog), [agentCatalog]);
   const primaryAgentId = primaryAgent?.id ?? null;
@@ -54,7 +60,7 @@ export function useWorkspaceModelSelection({ slug, getActiveSessionId }: UseWork
       sessionId: string,
       updater: (current: SessionSelectionState) => SessionSelectionState
     ) => {
-      setSessionSelectionState((prev) => {
+      updateSessionSelectionState((prev) => {
         const current = prev[sessionId] ?? createDefaultSessionSelectionState(primaryAgentId);
         const next = updater(current);
         if (
@@ -71,12 +77,12 @@ export function useWorkspaceModelSelection({ slug, getActiveSessionId }: UseWork
         };
       });
     },
-    [primaryAgentId]
+    [primaryAgentId, updateSessionSelectionState]
   );
 
   const clearSessionSelectionState = useCallback(
     (sessionId: string) => {
-      setSessionSelectionState((prev) => {
+      updateSessionSelectionState((prev) => {
         if (!(sessionId in prev)) return prev;
 
         const next = { ...prev };
@@ -84,7 +90,7 @@ export function useWorkspaceModelSelection({ slug, getActiveSessionId }: UseWork
         return next;
       });
     },
-    []
+    [updateSessionSelectionState]
   );
 
   const initializeSessionSelectionState = useCallback(
@@ -221,7 +227,7 @@ export function useWorkspaceModelSelection({ slug, getActiveSessionId }: UseWork
 
     setModels(nextModels);
 
-    setSessionSelectionState((prev) => {
+    updateSessionSelectionState((prev) => {
       let changed = false;
       const next: Record<string, SessionSelectionState> = {};
 
@@ -259,7 +265,7 @@ export function useWorkspaceModelSelection({ slug, getActiveSessionId }: UseWork
 
       return changed ? next : prev;
     });
-  }, [slug]);
+  }, [slug, updateSessionSelectionState]);
 
   const loadAgentCatalog = useCallback(async () => {
     try {
@@ -274,7 +280,7 @@ export function useWorkspaceModelSelection({ slug, getActiveSessionId }: UseWork
       const primary = agents.find((agent) => agent.isPrimary);
 
       setAgentCatalog(agents);
-      setSessionSelectionState((prev) => {
+      updateSessionSelectionState((prev) => {
         let changed = false;
         const next: Record<string, SessionSelectionState> = {};
 
@@ -298,7 +304,7 @@ export function useWorkspaceModelSelection({ slug, getActiveSessionId }: UseWork
     } catch {
       // keep defaults when catalog is unavailable
     }
-  }, [slug]);
+  }, [slug, updateSessionSelectionState]);
 
   return {
     models,

@@ -106,6 +106,7 @@ export function useWorkspaceSessions({
           preferredSessionId &&
           sessionStoreRef.current.loadedFamilySessionIds.has(preferredSessionId)
         ) {
+          // Keep the previously loaded family visible if the refresh races or fails.
           familySessions = [...sessionStoreRef.current.loadedFamilySessionIds]
             .map((id) => sessionStoreRef.current.sessionsById[id])
             .filter((session): session is WorkspaceSession => Boolean(session));
@@ -275,6 +276,13 @@ export function useWorkspaceSessions({
     [ensureSessionFamilyLoaded]
   );
 
+  const markSessionCompleted = useCallback((sessionId: string) => {
+    setUnseenCompletedSessions((prev) => {
+      if (prev.has(sessionId)) return prev;
+      return new Set(prev).add(sessionId);
+    });
+  }, []);
+
   const markAutopilotRunSeen = useCallback(
     async (runId: string) => {
       let touched = false;
@@ -393,6 +401,7 @@ export function useWorkspaceSessions({
     loadMoreSessions,
     ensureSessionFamilyLoaded,
     selectSession,
+    markSessionCompleted,
     markAutopilotRunSeen,
     createSession,
     deleteSession,

@@ -80,10 +80,10 @@ export function useWorkspaceMessages({
   const refreshMessages = useCallback(async (sessionIdOverride?: string) => {
     const targetSessionId = sessionIdOverride ?? getActiveSessionId();
 
-      if (!targetSessionId) return;
+    if (!targetSessionId) return;
 
-      const executor = getSessionExecutor(targetSessionId);
-      await executor.run(async () => {
+    const executor = getSessionExecutor(targetSessionId);
+    await executor.run(async () => {
       setSessionLoading(targetSessionId, true);
       try {
         const result = await listMessagesAction(slug, targetSessionId);

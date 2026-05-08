@@ -21,6 +21,7 @@ import { useWorkspaceStreaming } from "@/hooks/workspace/use-workspace-streaming
 import {
   getSessionSelectionKey,
   PRE_SESSION_SELECTION_KEY,
+  STALE_PENDING_ASSISTANT_MS,
   type UseWorkspaceOptions,
   type UseWorkspaceReturn,
 } from "@/hooks/workspace/workspace-types";
@@ -130,6 +131,7 @@ export function useWorkspace({
     refreshFiles: files.refreshFiles,
     getActiveSessionId,
     getSessions,
+    onBackgroundStreamCompleted: sessionsHook.markSessionCompleted,
     resumeFailureStateRef: messagesHook.resumeFailureStateRef,
   });
 
@@ -527,7 +529,7 @@ export function useWorkspace({
       if (m.role !== "assistant" || !m.pending) return false;
       if (m.parts.length > 0) return false;
       if (typeof m.timestampRaw !== "number") return false;
-      return now - m.timestampRaw >= 5000;
+      return now - m.timestampRaw >= STALE_PENDING_ASSISTANT_MS;
     });
 
     if (stalePendingWithoutParts && !sessionBusy) {
@@ -649,6 +651,7 @@ export function useWorkspace({
   ]);
 
   // Auto-mark autopilot run seen
+  const autoMarkedAutopilotRunIdRef = useRef<string | null>(null);
   useEffect(() => {
     const runId = activeSession?.autopilot?.hasUnseenResult
       ? activeSession.autopilot.runId
@@ -656,7 +659,11 @@ export function useWorkspace({
     if (!runId) {
       return;
     }
+    if (autoMarkedAutopilotRunIdRef.current === runId) {
+      return;
+    }
 
+    autoMarkedAutopilotRunIdRef.current = runId;
     void markAutopilotRunSeen(runId);
   }, [activeSession, markAutopilotRunSeen]);
 

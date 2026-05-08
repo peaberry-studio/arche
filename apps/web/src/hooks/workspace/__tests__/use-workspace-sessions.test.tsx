@@ -52,6 +52,7 @@ const childSession: WorkspaceSession = {
 describe("useWorkspaceSessions", () => {
   beforeEach(() => {
     vi.stubGlobal("localStorage", createStorageMock());
+    vi.stubGlobal("sessionStorage", createStorageMock());
     vi.mocked(opencodeMocks.listSessionsAction).mockResolvedValue({
       ok: true,
       sessions: [rootSession],
@@ -122,5 +123,22 @@ describe("useWorkspaceSessions", () => {
 
     expect(result.current.activeSessionId).toBe("root");
     expect(result.current.activeSessionIdRef.current).toBe("root");
+  });
+
+  it("prefers sessionStorage over localStorage for the stored active session", async () => {
+    const { result } = renderHook(() =>
+      useWorkspaceSessions({ slug: "alice", isConnected: true })
+    );
+
+    localStorage.setItem("arche.workspace.alice.active-session", "root");
+    sessionStorage.setItem("arche.workspace.alice.active-session", "child");
+
+    await act(async () => {
+      await result.current.loadSessions();
+    });
+
+    await waitFor(() => {
+      expect(result.current.activeSessionId).toBe("child");
+    });
   });
 });

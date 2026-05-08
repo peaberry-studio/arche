@@ -229,6 +229,43 @@ describe("useWorkspace streaming", () => {
       });
     });
 
+    it("marks background streams as unseen when they complete", async () => {
+      const sse = createSSEStream();
+      stubFetchWithStream(() => sse);
+
+      const result = await renderConnectedHook();
+
+      await act(async () => {
+        const accepted = await result.current.sendMessage("background work", undefined, {
+          forceNewSession: true,
+        });
+        expect(accepted).toBe(true);
+      });
+
+      await waitFor(() => {
+        expect(result.current.activeSessionId).toBe("s2");
+        expect(result.current.isSending).toBe(true);
+      });
+
+      act(() => {
+        result.current.selectSession("s1");
+      });
+
+      await waitFor(() => {
+        expect(result.current.activeSessionId).toBe("s1");
+      });
+
+      act(() => {
+        sse.push(sseEvent("done", {}));
+        sse.close();
+      });
+
+      await waitFor(() => {
+        expect(result.current.isSending).toBe(false);
+        expect(result.current.unseenCompletedSessions.has("s2")).toBe(true);
+      });
+    });
+
     it("releases isSending after done even if the final refresh hangs", async () => {
       const sse = createSSEStream();
       stubFetchWithStream(() => sse);

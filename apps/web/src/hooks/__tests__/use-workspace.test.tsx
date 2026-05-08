@@ -303,6 +303,42 @@ describe("useWorkspace", () => {
     });
   });
 
+  it("marks each autopilot run seen only once while backend state is stale", async () => {
+    opencodeMocks.listSessionsAction.mockResolvedValue({
+      ok: true,
+      sessions: [
+        {
+          id: "task-1-session",
+          title: "Autopilot | Daily brief | Apr 12",
+          status: "idle",
+          updatedAt: "now",
+          autopilot: {
+            runId: "run-1",
+            taskId: "task-1",
+            taskName: "Daily brief",
+            trigger: "schedule",
+            hasUnseenResult: true,
+          },
+        },
+      ],
+    });
+
+    const { result } = renderHook(() =>
+      useWorkspace({ slug: "alice", pollInterval: 20, initialSessionId: "task-1-session" })
+    );
+
+    await waitFor(() => {
+      expect(result.current.activeSessionId).toBe("task-1-session");
+      expect(opencodeMocks.markAutopilotRunSeenAction).toHaveBeenCalledTimes(1);
+    });
+
+    await waitFor(() => {
+      expect(opencodeMocks.listSessionsAction.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+
+    expect(opencodeMocks.markAutopilotRunSeenAction).toHaveBeenCalledTimes(1);
+  });
+
   it("sends the primary agent model when there is no manual selection", async () => {
     let requestBody:
       | {
