@@ -27,6 +27,7 @@ export function useWorkspaceMessages({
   >({});
   const [loadingMessageSessionIds, setLoadingMessageSessionIds] = useState<string[]>([]);
 
+  // Source of truth for message state; setState only notifies React after sync ref updates.
   const messagesBySessionRef = useRef<Record<string, WorkspaceMessage[]>>({});
   const sessionExecutorsRef = useRef(new Map<string, SerialJobExecutor>());
   const resumeFailureStateRef = useRef<Map<string, ResumeFailureState>>(new Map());
