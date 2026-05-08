@@ -1813,6 +1813,149 @@ describe("useWorkspace", () => {
     });
   });
 
+  it("answers permission requests and updates the active message state", async () => {
+    let permissionBody: { sessionId?: string; response?: string } | null = null;
+
+    opencodeMocks.listMessagesAction.mockResolvedValue({
+      ok: true,
+      messages: [
+        {
+          id: "assistant-permission",
+          sessionId: "s1",
+          role: "assistant",
+          content: "Need approval",
+          timestamp: "now",
+          parts: [
+            {
+              type: "permission",
+              id: "permission:perm-1",
+              permissionId: "perm-1",
+              sessionId: "s1",
+              title: "Run command",
+              state: "pending",
+            },
+          ],
+          pending: true,
+        },
+      ],
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === "/api/u/alice/agents") {
+          return {
+            ok: true,
+            json: async () => ({ agents: [] }),
+          };
+        }
+
+        if (String(input) === "/api/u/alice/providers") {
+          return {
+            ok: true,
+            json: async () => ({ providers: [] }),
+          };
+        }
+
+        if (String(input) === "/api/w/alice/chat/permissions/perm-1") {
+          permissionBody = JSON.parse(String(init?.body ?? "{}")) as {
+            sessionId?: string;
+            response?: string;
+          };
+          return { ok: true };
+        }
+
+        throw new Error(`Unexpected fetch: ${String(input)}`);
+      })
+    );
+
+    const { result } = renderHook(() =>
+      useWorkspace({ slug: "alice", pollInterval: 0 })
+    );
+
+    await waitFor(() => {
+      expect(result.current.messages[0]?.parts[0]).toMatchObject({
+        type: "permission",
+        state: "pending",
+      });
+    });
+
+    let accepted = false;
+    await act(async () => {
+      accepted = await result.current.answerPermission("s1", "perm-1", "approve");
+    });
+
+    expect(accepted).toBe(true);
+    expect(permissionBody).toEqual({ sessionId: "s1", response: "approve" });
+    expect(result.current.messages[0]?.parts[0]).toMatchObject({
+      type: "permission",
+      state: "approved",
+    });
+  });
+
+  it("cleans messages and model selection state for deleted session families", async () => {
+    opencodeMocks.listSessionsAction.mockResolvedValue({
+      ok: true,
+      sessions: [{ id: "root", title: "Root", status: "idle", updatedAt: "now" }],
+      hasMore: false,
+    });
+    opencodeMocks.listSessionFamilyAction.mockResolvedValue({
+      ok: true,
+      rootSessionId: "root",
+      sessions: [
+        { id: "root", title: "Root", status: "idle", updatedAt: "now" },
+        {
+          id: "child",
+          title: "Child",
+          status: "idle",
+          updatedAt: "now",
+          parentId: "root",
+        },
+      ],
+    });
+    opencodeMocks.listMessagesAction.mockResolvedValue({
+      ok: true,
+      messages: [
+        {
+          id: "child-message",
+          sessionId: "child",
+          role: "assistant",
+          content: "Child response",
+          timestamp: "now",
+          parts: [{ type: "text", text: "Child response" }],
+          pending: false,
+        },
+      ],
+    });
+
+    const { result } = renderHook(() =>
+      useWorkspace({ slug: "alice", initialSessionId: "child", pollInterval: 0 })
+    );
+
+    await waitFor(() => {
+      expect(result.current.activeSessionId).toBe("child");
+      expect(result.current.messages[0]?.id).toBe("child-message");
+    });
+
+    act(() => {
+      result.current.setSelectedModel({
+        providerId: "openai",
+        modelId: "gpt-5.4",
+      });
+    });
+
+    expect(result.current.hasManualModelSelection).toBe(true);
+
+    await act(async () => {
+      await result.current.deleteSession("root");
+    });
+
+    expect(result.current.sessions).toEqual([]);
+    expect(result.current.activeSessionId).toBeNull();
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.hasManualModelSelection).toBe(false);
+  });
+
   describe("idle polling optimization", () => {
     it("does not poll diffs when all sessions are idle", async () => {
       opencodeMocks.listSessionsAction.mockResolvedValue({

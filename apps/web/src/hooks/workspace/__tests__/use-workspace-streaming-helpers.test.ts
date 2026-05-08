@@ -50,9 +50,39 @@ describe("workspace streaming helpers", () => {
     expect(listMessagesAction).toHaveBeenCalledTimes(2);
   });
 
+  it("does not retry resume reconciliation", async () => {
+    vi.mocked(listMessagesAction).mockResolvedValue({ ok: true, messages: [] });
+
+    await expect(
+      loadLatestMessagesWithRetry({
+        slug: "alice",
+        sessionId: "s1",
+        mode: "resume",
+        assistantMessageId: "assistant-1",
+      })
+    ).resolves.toEqual({ ok: true, messages: [] });
+
+    expect(listMessagesAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops retrying when message hydration fails", async () => {
+    vi.mocked(listMessagesAction).mockResolvedValue({ ok: false, error: "offline" });
+
+    await expect(
+      loadLatestMessagesWithRetry({
+        slug: "alice",
+        sessionId: "s1",
+        mode: "send",
+        assistantMessageId: "assistant-1",
+      })
+    ).resolves.toEqual({ ok: false, error: "offline" });
+
+    expect(listMessagesAction).toHaveBeenCalledTimes(1);
+  });
+
   it("marks suppressed resume messages as exhausted during hydration", () => {
     const resumeFailureState = new Map([
-      ["assistant-1", { attempts: 3, lastFailureAt: 1, suppressed: true }],
+      ["assistant-1", { failures: 3, lastFailureAt: 1, suppressed: true }],
     ]);
 
     const result = reconcileStreamMessages({
@@ -95,6 +125,79 @@ describe("workspace streaming helpers", () => {
       messageId: "temp-assistant",
       detail: "provider_down",
     });
+  });
+
+  it("keeps streamed assistant parts when final hydration fails", () => {
+    const result = reconcileStreamMessages({
+      mode: "send",
+      assistantMessageId: "assistant-1",
+      targetMessageId: "assistant-1",
+      receivedAssistantPart: true,
+      receivedStreamData: true,
+      terminalErrorDetail: null,
+      result: { ok: false, error: "offline" },
+      resumeFailureState: new Map(),
+    });
+
+    expect(result).toEqual({ action: "none" });
+  });
+
+  it("marks failed streams as incomplete when hydration fails without assistant parts", () => {
+    const result = reconcileStreamMessages({
+      mode: "send",
+      assistantMessageId: "assistant-1",
+      targetMessageId: "assistant-1",
+      receivedAssistantPart: false,
+      receivedStreamData: true,
+      terminalErrorDetail: "provider_down",
+      result: { ok: false, error: "offline" },
+      resumeFailureState: new Map(),
+    });
+
+    expect(result).toEqual({
+      action: "stream-incomplete",
+      detail: "provider_down",
+    });
+  });
+
+  it("returns a fallback error when no stream data and no hydrated messages exist", () => {
+    const result = reconcileStreamMessages({
+      mode: "send",
+      assistantMessageId: "assistant-1",
+      targetMessageId: "temp-assistant",
+      receivedAssistantPart: false,
+      receivedStreamData: false,
+      terminalErrorDetail: "provider_down",
+      result: { ok: true, messages: [] },
+      resumeFailureState: new Map(),
+    });
+
+    expect(result).toEqual({
+      action: "fallback-error",
+      messageId: "assistant-1",
+      detail: "provider_down",
+    });
+  });
+
+  it("removes resume failures once messages are no longer pending", () => {
+    const resumeFailureState = new Map([
+      ["assistant-1", { failures: 1, lastFailureAt: 1, suppressed: false }],
+      ["stale", { failures: 1, lastFailureAt: 1, suppressed: false }],
+    ]);
+
+    const result = reconcileStreamMessages({
+      mode: "resume",
+      assistantMessageId: "assistant-1",
+      targetMessageId: "assistant-1",
+      receivedAssistantPart: false,
+      receivedStreamData: true,
+      terminalErrorDetail: null,
+      result: { ok: true, messages: [assistantMessage] },
+      resumeFailureState,
+    });
+
+    expect(result).toEqual({ action: "hydrate", messages: [assistantMessage] });
+    expect(resumeFailureState.size).toBe(0);
   });
 
   it("flags empty completed assistant messages as incomplete", () => {
