@@ -38,7 +38,7 @@ export function useWorkspaceModelSelection({ slug, getActiveSessionId }: UseWork
   const primaryAgent = useMemo(() => getPrimaryAgent(agentCatalog), [agentCatalog]);
   const primaryAgentId = primaryAgent?.id ?? null;
 
-  const agentDefaultModel = (() => {
+  const agentDefaultModel = useMemo(() => {
     const primaryModel = parseModelString(primaryAgent?.model);
     if (!primaryModel) return null;
 
@@ -47,7 +47,7 @@ export function useWorkspaceModelSelection({ slug, getActiveSessionId }: UseWork
       primaryModel.modelId,
       models
     );
-  })();
+  }, [models, primaryAgent?.model]);
 
   const updateSessionSelection = useCallback(
     (
@@ -317,8 +317,5 @@ export function useWorkspaceModelSelection({ slug, getActiveSessionId }: UseWork
     initializeSessionSelectionState,
     loadModels,
     loadAgentCatalog,
-    setModels,
-    setAgentCatalog,
-    setSessionSelectionState,
   };
 }

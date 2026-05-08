@@ -88,7 +88,6 @@ export function useWorkspaceSessions({
     const preferredSessionId =
       currentSessionId ?? requestedSessionId ?? storedSessionId ?? null;
 
-    console.log("[useWorkspace] loadSessions: loading...");
     setIsLoadingSessions(true);
     try {
       const rootSessionLimit = Math.max(
@@ -100,12 +99,6 @@ export function useWorkspaceSessions({
         limit: rootSessionLimit,
         rootsOnly: true,
       });
-      console.log(
-        "[useWorkspace] loadSessions result:",
-        result.ok,
-        "sessions:",
-        result.sessions?.length
-      );
       if (result.ok && result.sessions) {
         let familySessions: WorkspaceSession[] = [];
         let familyRootId: string | null = null;
@@ -180,11 +173,6 @@ export function useWorkspaceSessions({
         initialSessionIdRef.current = null;
 
         if (nextActiveSessionId !== currentSessionId) {
-          console.log(
-            "[useWorkspace] Selecting session after load:",
-            nextActiveSessionId
-          );
-          activeSessionIdRef.current = nextActiveSessionId;
           setActiveSessionId(nextActiveSessionId);
         }
       }
@@ -271,7 +259,6 @@ export function useWorkspaceSessions({
   const selectSession = useCallback(
     (id: string | null) => {
       setActiveSessionId(id);
-      activeSessionIdRef.current = id;
 
       if (id === null) return;
 
@@ -324,7 +311,6 @@ export function useWorkspaceSessions({
         markSessionsMutated();
         setSessionStore((prev) => prependSession(prev, result.session!));
         setActiveSessionId(result.session.id);
-        activeSessionIdRef.current = result.session.id;
         onSessionCreated?.(result.session);
         return result.session;
       }
@@ -350,7 +336,6 @@ export function useWorkspaceSessions({
         const nextActiveSessionId = activeSessionIdRef.current && sessionIdsToRemove.has(activeSessionIdRef.current)
           ? nextVisibleSessions[0]?.id ?? null
           : activeSessionIdRef.current;
-        activeSessionIdRef.current = nextActiveSessionId;
         setActiveSessionId(nextActiveSessionId);
         return true;
       }
@@ -404,11 +389,6 @@ export function useWorkspaceSessions({
     isLoadingMoreSessions,
     hasMoreSessions,
     unseenCompletedSessions,
-    setUnseenCompletedSessions,
-    setActiveSessionId,
-    rootSessionLimitRef,
-    sessionMutationVersionRef,
-    markSessionsMutated,
     loadSessions,
     loadMoreSessions,
     ensureSessionFamilyLoaded,
@@ -417,8 +397,5 @@ export function useWorkspaceSessions({
     createSession,
     deleteSession,
     renameSession,
-    updateVisibleSessions,
-    initialSessionIdRef,
-    setSessionStore,
   };
 }

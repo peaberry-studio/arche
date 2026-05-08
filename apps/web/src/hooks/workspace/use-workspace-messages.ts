@@ -8,9 +8,8 @@ import { SerialJobExecutor } from "@/lib/serial-job-executor";
 import type { ResumeFailureState } from "@/lib/workspace-resume-policy";
 import {
   areMessageListsEqual,
+  EMPTY_WORKSPACE_MESSAGES,
 } from "@/hooks/workspace/workspace-types";
-
-const EMPTY_WORKSPACE_MESSAGES: WorkspaceMessage[] = [];
 
 type UseWorkspaceMessagesOptions = {
   slug: string;
@@ -81,29 +80,14 @@ export function useWorkspaceMessages({
   const refreshMessages = useCallback(async (sessionIdOverride?: string) => {
     const targetSessionId = sessionIdOverride ?? getActiveSessionId();
 
-    if (!targetSessionId) {
-      console.log(
-        "[useWorkspace] refreshMessages: no activeSessionId, skipping"
-      );
-      return;
-    }
+      if (!targetSessionId) return;
 
-    const executor = getSessionExecutor(targetSessionId);
-    await executor.run(async () => {
-      console.log(
-        "[useWorkspace] refreshMessages: loading for session",
-        targetSessionId
-      );
+      const executor = getSessionExecutor(targetSessionId);
+      await executor.run(async () => {
       setSessionLoading(targetSessionId, true);
       try {
         const result = await listMessagesAction(slug, targetSessionId);
 
-        console.log(
-          "[useWorkspace] refreshMessages result:",
-          result.ok,
-          "messages:",
-          result.messages?.length
-        );
         if (result.ok && result.messages) {
           const pendingIds = new Set(
             result.messages.filter((message) => message.pending).map((message) => message.id)
@@ -149,6 +133,28 @@ export function useWorkspaceMessages({
     onHydrated,
   ]);
 
+  const removeSessions = useCallback((sessionIds: Set<string>) => {
+    setMessagesBySession((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const sessionId of sessionIds) {
+        if (!(sessionId in next)) continue;
+        delete next[sessionId];
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+
+    setLoadingMessageSessionIds((prev) =>
+      prev.filter((sessionId) => !sessionIds.has(sessionId))
+    );
+
+    for (const sessionId of sessionIds) {
+      resumeFailureStateRef.current.delete(sessionId);
+      sessionExecutorsRef.current.delete(sessionId);
+    }
+  }, []);
+
   const activeSessionId = getActiveSessionId();
   const messages = activeSessionId ? messagesBySession[activeSessionId] ?? EMPTY_WORKSPACE_MESSAGES : EMPTY_WORKSPACE_MESSAGES;
   const isLoadingMessages = activeSessionId
@@ -156,16 +162,11 @@ export function useWorkspaceMessages({
     : false;
 
   return {
-    messagesBySession,
     messages,
     isLoadingMessages,
-    loadingMessageSessionIds,
     updateSessionMessages,
-    setSessionLoading,
-    getSessionExecutor,
     refreshMessages,
     resumeFailureStateRef,
-    setMessagesBySession,
-    setLoadingMessageSessionIds,
+    removeSessions,
   };
 }

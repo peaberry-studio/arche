@@ -806,6 +806,23 @@ describe('PATCH /api/u/[slug]/agents/default-model', () => {
     expect(body.error).toBe('kb_unavailable')
   })
 
+  it('returns 500 when persisted config cannot be parsed', async () => {
+    mockReadCommonWorkspaceConfig.mockResolvedValue({
+      ok: true,
+      content: '{not json',
+      hash: 'hash-1',
+    })
+
+    const response = await PATCH_DEFAULT_MODEL(
+      makePatchDefaultModelRequest({ defaultModel: 'openai/gpt-5.5', expectedHash: 'hash-1' }),
+      routeParams,
+    )
+
+    expect(response.status).toBe(500)
+    const body = await response.json()
+    expect(body.error).toBe('invalid_json')
+  })
+
   it('returns 400 when updated config is invalid', async () => {
     mockReadCommonWorkspaceConfig.mockResolvedValue({
       ok: true,

@@ -39,6 +39,162 @@ type UseWorkspaceStreamingOptions = {
   resumeFailureStateRef: MutableRefObject<Map<string, ResumeFailureState>>;
 };
 
+type ListMessagesResult = Awaited<ReturnType<typeof listMessagesAction>>;
+
+export type StreamReconciliationInput = {
+  mode: "send" | "resume";
+  assistantMessageId: string | null;
+  targetMessageId: string;
+  receivedAssistantPart: boolean;
+  receivedStreamData: boolean;
+  terminalErrorDetail: string | null;
+  result: ListMessagesResult;
+  resumeFailureState: Map<string, ResumeFailureState>;
+};
+
+export type StreamReconciliationResult =
+  | { action: "hydrate"; messages: WorkspaceMessage[] }
+  | { action: "fallback-error"; messageId: string; detail: string }
+  | { action: "stream-incomplete"; detail: string }
+  | { action: "none" };
+
+const STREAM_RECONCILIATION_DELAY_MS = 250;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function loadLatestMessagesWithRetry({
+  slug,
+  sessionId,
+  mode,
+  assistantMessageId,
+}: {
+  slug: string;
+  sessionId: string;
+  mode: "send" | "resume";
+  assistantMessageId: string | null;
+}): Promise<ListMessagesResult> {
+  const maxAttempts = mode === "send" && assistantMessageId ? 5 : 1;
+  let latestResult = await listMessagesAction(slug, sessionId);
+
+  for (let attempt = 1; attempt < maxAttempts; attempt += 1) {
+    if (!latestResult.ok || !latestResult.messages) {
+      return latestResult;
+    }
+
+    const assistant = latestResult.messages.find(
+      (message) =>
+        message.id === assistantMessageId && message.role === "assistant"
+    );
+
+    if (assistant) {
+      return latestResult;
+    }
+
+    await delay(250 * Math.pow(2, attempt - 1));
+    latestResult = await listMessagesAction(slug, sessionId);
+  }
+
+  return latestResult;
+}
+
+export function reconcileStreamMessages({
+  mode,
+  assistantMessageId,
+  targetMessageId,
+  receivedAssistantPart,
+  receivedStreamData,
+  terminalErrorDetail,
+  result,
+  resumeFailureState,
+}: StreamReconciliationInput): StreamReconciliationResult {
+  if (!result.ok || !result.messages) {
+    if (!terminalErrorDetail && receivedAssistantPart) return { action: "none" };
+    return {
+      action: "stream-incomplete",
+      detail: terminalErrorDetail ?? "stream_incomplete",
+    };
+  }
+
+  const pendingIds = new Set(
+    result.messages.filter((message) => message.pending).map((message) => message.id)
+  );
+  for (const [messageId] of resumeFailureState) {
+    if (!pendingIds.has(messageId)) {
+      resumeFailureState.delete(messageId);
+    }
+  }
+
+  let hydratedMessages: WorkspaceMessage[] = result.messages.map(
+    (message): WorkspaceMessage => {
+      const resumeState = resumeFailureState.get(message.id);
+      if (
+        message.role === "assistant" &&
+        message.pending &&
+        resumeState?.suppressed
+      ) {
+        return {
+          ...message,
+          pending: false,
+          statusInfo: { status: "error", detail: "resume_exhausted" },
+        };
+      }
+
+      return message;
+    }
+  );
+
+  if (mode === "send" && assistantMessageId && !receivedAssistantPart) {
+    const assistantMessage = hydratedMessages.find(
+      (message) =>
+        message.id === assistantMessageId && message.role === "assistant"
+    );
+
+    if (
+      assistantMessage &&
+      !assistantMessage.pending &&
+      assistantMessage.parts.length === 0 &&
+      assistantMessage.content.trim().length === 0
+    ) {
+      hydratedMessages = hydratedMessages.map((message) => {
+        if (message.id !== assistantMessageId) return message;
+        return {
+          ...message,
+          pending: false,
+          statusInfo: {
+            status: "error",
+            detail: terminalErrorDetail ?? "stream_incomplete",
+          },
+        };
+      });
+    }
+  }
+
+  if (
+    mode === "send" &&
+    !receivedStreamData &&
+    terminalErrorDetail &&
+    hydratedMessages.length === 0
+  ) {
+    return {
+      action: "fallback-error",
+      messageId: assistantMessageId ?? targetMessageId,
+      detail: terminalErrorDetail,
+    };
+  }
+
+  if (mode === "send" && terminalErrorDetail && !assistantMessageId) {
+    return {
+      action: "fallback-error",
+      messageId: targetMessageId,
+      detail: terminalErrorDetail,
+    };
+  }
+
+  return { action: "hydrate", messages: hydratedMessages };
+}
+
 export function useWorkspaceStreaming({
   slug,
   updateSessionMessages,
@@ -129,6 +285,16 @@ export function useWorkspaceStreaming({
     activeStreamsRef.current.clear();
     streamCounterRef.current += 1;
   }, [setSessionStreamStatusTo]);
+
+  const resetSessions = useCallback(
+    (sessionIds: Set<string>) => {
+      for (const sessionId of sessionIds) {
+        abortSessionStream(sessionId);
+        setSessionStreamStatusTo(sessionId, "ready");
+      }
+    },
+    [abortSessionStream, setSessionStreamStatusTo]
+  );
 
   const scheduleWorkspaceRefresh = useCallback(() => {
     if (workspaceRefreshTimeoutRef.current) return;
@@ -597,152 +763,52 @@ export function useWorkspaceStreaming({
         }
 
         if (isLatestStream() && isMountedRef.current) {
-          await new Promise((resolve) => setTimeout(resolve, 250));
+          await delay(STREAM_RECONCILIATION_DELAY_MS);
           if (!isMountedRef.current || !isLatestStream()) {
             return;
           }
 
-          const loadLatestMessages = async () => {
-            const MAX_ATTEMPTS =
-              mode === "send" && assistantMessageId ? 5 : 1;
-            let latestResult = await listMessagesAction(slug, sessionId);
-
-            for (let attempt = 1; attempt < MAX_ATTEMPTS; attempt += 1) {
-              if (!latestResult.ok || !latestResult.messages) {
-                return latestResult;
-              }
-
-              const assistant = latestResult.messages.find(
-                (message) =>
-                  message.id === assistantMessageId &&
-                  message.role === "assistant"
-              );
-
-              if (assistant) {
-                return latestResult;
-              }
-
-              // Exponential backoff: 250ms, 500ms, 1000ms, 2000ms
-              const delay = 250 * Math.pow(2, attempt - 1);
-              await new Promise((resolve) => setTimeout(resolve, delay));
-              latestResult = await listMessagesAction(slug, sessionId);
-            }
-
-            return latestResult;
-          };
-
-          const result = await loadLatestMessages();
+          const result = await loadLatestMessagesWithRetry({
+            slug,
+            sessionId,
+            mode,
+            assistantMessageId,
+          });
           if (!isMountedRef.current || !isLatestStream()) {
             return;
           }
 
-          if (result?.ok && result.messages) {
-            const pendingIds = new Set(
-              result.messages.filter((message) => message.pending).map((message) => message.id)
+          const reconciliation = reconcileStreamMessages({
+            mode,
+            assistantMessageId,
+            targetMessageId,
+            receivedAssistantPart,
+            receivedStreamData,
+            terminalErrorDetail,
+            result,
+            resumeFailureState: resumeFailureStateRef.current,
+          });
+
+          if (reconciliation.action === "hydrate") {
+            updateSessionMessages(sessionId, reconciliation.messages);
+            syncRuntimeMetadataForSession(sessionId, reconciliation.messages);
+          } else if (reconciliation.action === "fallback-error") {
+            updateSessionMessages(sessionId, (prev) =>
+              prev.map((message) => {
+                if (message.id !== reconciliation.messageId) return message;
+                return {
+                  ...message,
+                  pending: false,
+                  statusInfo: { status: "error", detail: reconciliation.detail },
+                };
+              })
             );
-            for (const [messageId] of resumeFailureStateRef.current) {
-              if (!pendingIds.has(messageId)) {
-                resumeFailureStateRef.current.delete(messageId);
-              }
-            }
-
-            let hydratedMessages: WorkspaceMessage[] = result.messages.map(
-              (message): WorkspaceMessage => {
-                const resumeState = resumeFailureStateRef.current.get(message.id);
-                if (
-                  message.role === "assistant" &&
-                  message.pending &&
-                  resumeState?.suppressed
-                ) {
-                  return {
-                    ...message,
-                    pending: false,
-                    statusInfo: { status: "error", detail: "resume_exhausted" },
-                  };
-                }
-
-                return message;
-              }
-            );
-
-            if (mode === "send" && assistantMessageId && !receivedAssistantPart) {
-              const assistantMessage = hydratedMessages.find(
-                (message) =>
-                  message.id === assistantMessageId &&
-                  message.role === "assistant"
-              );
-
-              if (
-                assistantMessage &&
-                !assistantMessage.pending &&
-                assistantMessage.parts.length === 0 &&
-                assistantMessage.content.trim().length === 0
-              ) {
-                hydratedMessages = hydratedMessages.map((message) => {
-                  if (message.id !== assistantMessageId) return message;
-                  return {
-                    ...message,
-                    pending: false,
-                    statusInfo: {
-                      status: "error",
-                      detail: terminalErrorDetail ?? "stream_incomplete",
-                    },
-                  };
-                });
-              }
-            }
-
-            if (
-              mode === "send" &&
-              !receivedStreamData &&
-              terminalErrorDetail &&
-              hydratedMessages.length === 0
-            ) {
-              const fallbackTerminalErrorDetail = terminalErrorDetail;
-              const idToUpdate = assistantMessageId ?? targetMessageId;
-
-              updateSessionMessages(sessionId, (prev) =>
-                prev.map((message) => {
-                  if (message.id !== idToUpdate) return message;
-                  return {
-                    ...message,
-                    pending: false,
-                    statusInfo: { status: "error", detail: fallbackTerminalErrorDetail },
-                  };
-                })
-              );
-            } else if (
-              mode === "send" &&
-              terminalErrorDetail &&
-              !assistantMessageId
-            ) {
-              // Stream received initial events (e.g. "thinking" status) but
-              // the prompt failed before creating an assistant message on the
-              // server. Preserve temp messages and show error.
-              const fallbackDetail = terminalErrorDetail;
-
-              updateSessionMessages(sessionId, (prev) =>
-                prev.map((message) => {
-                  if (message.id !== targetMessageId) return message;
-                  return {
-                    ...message,
-                    pending: false,
-                    statusInfo: { status: "error", detail: fallbackDetail },
-                  };
-                })
-              );
-            } else {
-              updateSessionMessages(sessionId, hydratedMessages);
-              syncRuntimeMetadataForSession(sessionId, hydratedMessages);
-            }
-          } else {
-            if (!streamCompleted && !receivedAssistantPart) {
-              updateStatus(
-                "error",
-                undefined,
-                terminalErrorDetail ?? "stream_incomplete"
-              );
-            }
+          } else if (
+            reconciliation.action === "stream-incomplete" &&
+            !streamCompleted &&
+            !receivedAssistantPart
+          ) {
+            updateStatus("error", undefined, reconciliation.detail);
           }
           scheduleWorkspaceRefresh();
         }
@@ -781,13 +847,8 @@ export function useWorkspaceStreaming({
     streamChat,
     abortSessionStream,
     abortAllStreams,
-    setSessionStreamStatusTo,
-    upsertMessagePart,
-    deriveStatusInfoFromPart,
-    scheduleWorkspaceRefresh,
+    resetSessions,
     activeStreamsRef,
-    streamCounterRef,
-    latestStreamTokensRef,
     isMountedRef,
     workspaceRefreshTimeoutRef,
   };

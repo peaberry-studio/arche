@@ -66,4 +66,19 @@ describe('desktop kickstart catalog route', () => {
     expect(body.agents).toEqual([])
     expect(body.models).toEqual([])
   })
+
+  it('returns an empty models list when the catalog cannot be loaded', async () => {
+    mockFetchModelsCatalog.mockResolvedValue({ ok: false, error: 'unavailable' })
+
+    const { GET } = await import('@/app/api/internal/desktop/kickstart/catalog/route')
+    const response = await GET(new Request('http://localhost/api/internal/desktop/kickstart/catalog', {
+      headers: {
+        'x-arche-desktop-token': 'desktop-token',
+      },
+    }) as never)
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.models).toEqual([])
+  })
 })
