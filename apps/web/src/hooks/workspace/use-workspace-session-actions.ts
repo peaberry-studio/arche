@@ -7,10 +7,11 @@ import {
   PRE_SESSION_SELECTION_KEY,
   type SessionSelectionState,
 } from "@/hooks/workspace/workspace-types";
+import type { DeleteWorkspaceSessionResult } from "@/hooks/workspace/use-workspace-sessions";
 
 type UseWorkspaceSessionActionsOptions = {
   createWorkspaceSession: (title?: string) => Promise<WorkspaceSession | null>;
-  deleteWorkspaceSession: (id: string) => Promise<boolean>;
+  deleteWorkspaceSession: (id: string) => Promise<DeleteWorkspaceSessionResult | null>;
   resetSessions: (sessionIds: Set<string>) => void;
   clearSessionSelectionState: (sessionId: string) => void;
   initializeSessionSelectionState: (
@@ -71,12 +72,17 @@ export function useWorkspaceSessionActions({
   );
 
   const deleteSession = useCallback(
-    async (id: string) => deleteWorkspaceSession(id),
-    [deleteWorkspaceSession]
+    async (id: string) => {
+      const result = await deleteWorkspaceSession(id);
+      if (!result) return false;
+
+      cleanupDeletedSessions(result.deletedSessionIds);
+      return true;
+    },
+    [cleanupDeletedSessions, deleteWorkspaceSession]
   );
 
   return {
-    cleanupDeletedSessions,
     createSession,
     deleteSession,
   };

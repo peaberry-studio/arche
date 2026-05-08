@@ -15,7 +15,7 @@ export type UseWorkspaceConnectionReturn = {
 
 /**
  * Manages workspace connection state: initial check with exponential-backoff
- * retry, and fires an `onConnected` callback once the connection succeeds.
+ * retry, and optionally fires an `onConnected` callback once the connection succeeds.
  *
  * The `onConnected` callback is stored in a ref so identity changes do not
  * restart the init effect.
@@ -23,7 +23,7 @@ export type UseWorkspaceConnectionReturn = {
 export function useWorkspaceConnection(
   slug: string,
   enabled: boolean,
-  onConnected: () => Promise<void> | void,
+  onConnected?: () => Promise<void> | void,
 ): UseWorkspaceConnectionReturn {
   const [connection, setConnection] = useState<WorkspaceConnectionState>({
     status: "connecting",
@@ -60,7 +60,7 @@ export function useWorkspaceConnection(
 
       if (connected) {
         retryCount = 0;
-        await onConnectedRef.current();
+        await onConnectedRef.current?.();
       } else if (retryCount < MAX_RETRIES) {
         retryCount++;
         const delay = Math.min(

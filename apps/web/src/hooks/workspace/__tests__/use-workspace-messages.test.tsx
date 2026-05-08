@@ -68,7 +68,12 @@ describe("useWorkspaceMessages", () => {
 
     act(() => {
       result.current.updateSessionMessages("s1", [pendingMessage]);
-      result.current.resumeFailureStateRef.current.set("s1", {
+      result.current.resumeFailureStateRef.current.set("assistant-1", {
+        attempts: 1,
+        lastFailureAt: 1,
+        suppressed: false,
+      });
+      result.current.resumeFailureStateRef.current.set("other-message", {
         attempts: 1,
         lastFailureAt: 1,
         suppressed: false,
@@ -84,6 +89,7 @@ describe("useWorkspaceMessages", () => {
     });
 
     expect(result.current.messages).toEqual([]);
-    expect(result.current.resumeFailureStateRef.current.has("s1")).toBe(false);
+    expect(result.current.resumeFailureStateRef.current.has("assistant-1")).toBe(false);
+    expect(result.current.resumeFailureStateRef.current.has("other-message")).toBe(true);
   });
 });

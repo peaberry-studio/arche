@@ -78,14 +78,12 @@ describe("useWorkspaceSessions", () => {
     vi.unstubAllGlobals();
   });
 
-  it("reports the loaded family IDs through onSessionDeleted", async () => {
-    const onSessionDeleted = vi.fn();
+  it("returns the deleted loaded family IDs", async () => {
     const { result } = renderHook(() =>
       useWorkspaceSessions({
         slug: "alice",
         initialSessionId: "child",
         isConnected: true,
-        onSessionDeleted,
       })
     );
 
@@ -100,12 +98,13 @@ describe("useWorkspaceSessions", () => {
       ]);
     });
 
+    let deleteResult: Awaited<ReturnType<typeof result.current.deleteSession>>;
     await act(async () => {
-      await result.current.deleteSession("root");
+      deleteResult = await result.current.deleteSession("root");
     });
 
-    expect(onSessionDeleted).toHaveBeenCalledTimes(1);
-    expect([...onSessionDeleted.mock.calls[0][0]].sort()).toEqual([
+    if (!deleteResult) throw new Error("Expected deleteSession to succeed");
+    expect([...deleteResult.deletedSessionIds].sort()).toEqual([
       "child",
       "root",
     ]);

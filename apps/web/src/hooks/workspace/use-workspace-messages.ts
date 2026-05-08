@@ -27,6 +27,7 @@ export function useWorkspaceMessages({
   >({});
   const [loadingMessageSessionIds, setLoadingMessageSessionIds] = useState<string[]>([]);
 
+  const messagesBySessionRef = useRef<Record<string, WorkspaceMessage[]>>({});
   const sessionExecutorsRef = useRef(new Map<string, SerialJobExecutor>());
   const resumeFailureStateRef = useRef<Map<string, ResumeFailureState>>(new Map());
 
@@ -35,25 +36,25 @@ export function useWorkspaceMessages({
       sessionId: string,
       updater: SetStateAction<WorkspaceMessage[]>
     ) => {
-      setMessagesBySession((prev) => {
-        const previousMessages = prev[sessionId] ?? EMPTY_WORKSPACE_MESSAGES;
-        const nextMessages =
-          typeof updater === "function"
-            ? updater(previousMessages)
-            : updater;
+      const previousMessages = messagesBySessionRef.current[sessionId] ?? EMPTY_WORKSPACE_MESSAGES;
+      const nextMessages =
+        typeof updater === "function"
+          ? updater(previousMessages)
+          : updater;
 
-        if (
-          nextMessages === previousMessages ||
-          areMessageListsEqual(previousMessages, nextMessages)
-        ) {
-          return prev;
-        }
+      if (
+        nextMessages === previousMessages ||
+        areMessageListsEqual(previousMessages, nextMessages)
+      ) {
+        return;
+      }
 
-        return {
-          ...prev,
-          [sessionId]: nextMessages,
-        };
-      });
+      const nextMessagesBySession = {
+        ...messagesBySessionRef.current,
+        [sessionId]: nextMessages,
+      };
+      messagesBySessionRef.current = nextMessagesBySession;
+      setMessagesBySession(nextMessagesBySession);
     },
     []
   );
@@ -134,23 +135,36 @@ export function useWorkspaceMessages({
   ]);
 
   const removeSessions = useCallback((sessionIds: Set<string>) => {
-    setMessagesBySession((prev) => {
-      const next = { ...prev };
-      let changed = false;
-      for (const sessionId of sessionIds) {
-        if (!(sessionId in next)) continue;
-        delete next[sessionId];
-        changed = true;
+    const nextMessagesBySession = { ...messagesBySessionRef.current };
+    const removedMessageIds = new Set<string>();
+    let changed = false;
+
+    for (const sessionId of sessionIds) {
+      const messages = nextMessagesBySession[sessionId];
+      if (!messages) continue;
+
+      for (const message of messages) {
+        removedMessageIds.add(message.id);
       }
-      return changed ? next : prev;
-    });
+
+      delete nextMessagesBySession[sessionId];
+      changed = true;
+    }
+
+    if (changed) {
+      messagesBySessionRef.current = nextMessagesBySession;
+      setMessagesBySession(nextMessagesBySession);
+    }
 
     setLoadingMessageSessionIds((prev) =>
       prev.filter((sessionId) => !sessionIds.has(sessionId))
     );
 
+    for (const messageId of removedMessageIds) {
+      resumeFailureStateRef.current.delete(messageId);
+    }
+
     for (const sessionId of sessionIds) {
-      resumeFailureStateRef.current.delete(sessionId);
       sessionExecutorsRef.current.delete(sessionId);
     }
   }, []);

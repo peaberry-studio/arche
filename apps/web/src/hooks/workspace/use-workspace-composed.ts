@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback } from "react";
 
 import type { WorkspaceMessage } from "@/lib/opencode/types";
 import { useInstanceHeartbeat } from "@/hooks/use-instance-heartbeat";
@@ -46,14 +46,7 @@ export function useWorkspace({
   reaperEnabled = true,
 }: UseWorkspaceOptions): UseWorkspaceReturn {
   // --- Sub-hooks ---
-  const onConnectedRef = useRef<() => Promise<void>>(() => Promise.resolve());
-  const cleanupDeletedSessionsRef = useRef<(sessionIds: Set<string>) => void>(() => undefined);
-
-  const { connection, isConnected } = useWorkspaceConnection(
-    slug,
-    enabled,
-    () => onConnectedRef.current(),
-  );
+  const { connection, isConnected } = useWorkspaceConnection(slug, enabled);
 
   const files = useWorkspaceFiles(slug, workspaceAgentEnabled);
   const diffsHook = useWorkspaceDiffs(
@@ -69,7 +62,6 @@ export function useWorkspace({
     storageScope,
     initialSessionId,
     isConnected: enabled && isConnected,
-    onSessionDeleted: (sessionIds) => cleanupDeletedSessionsRef.current(sessionIds),
   });
 
   const getActiveSessionId = useCallback(
@@ -162,21 +154,16 @@ export function useWorkspace({
   } = streamingHook;
   const { refreshDiffs } = diffsHook;
 
-  const { cleanupDeletedSessions, createSession, deleteSession } =
-    useWorkspaceSessionActions({
-      createWorkspaceSession,
-      deleteWorkspaceSession,
-      resetSessions,
-      clearSessionSelectionState,
-      initializeSessionSelectionState,
-      removeSessions,
-      sessionSelectionStateRef,
-      updateSessionMessages,
-    });
-
-  useEffect(() => {
-    cleanupDeletedSessionsRef.current = cleanupDeletedSessions;
-  }, [cleanupDeletedSessions]);
+  const { createSession, deleteSession } = useWorkspaceSessionActions({
+    createWorkspaceSession,
+    deleteWorkspaceSession,
+    resetSessions,
+    clearSessionSelectionState,
+    initializeSessionSelectionState,
+    removeSessions,
+    sessionSelectionStateRef,
+    updateSessionMessages,
+  });
 
   const {
     activeSession,
@@ -213,7 +200,8 @@ export function useWorkspace({
     });
 
   useWorkspaceInitialRefreshEffect({
-    onConnectedRef,
+    enabled,
+    isConnected,
     refreshFiles: files.refreshFiles,
     loadSessions,
     loadModels,

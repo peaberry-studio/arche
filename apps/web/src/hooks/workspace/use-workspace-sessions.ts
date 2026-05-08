@@ -18,6 +18,7 @@ import {
   collectLoadedFamilyIds,
   createSessionStore,
   deriveVisibleSessions,
+  getActiveSessionStorageKey,
   loadStoredActiveSessionId,
   mergeSessionFamily,
   persistActiveSessionId,
@@ -33,8 +34,10 @@ type UseWorkspaceSessionsOptions = {
   storageScope?: string;
   initialSessionId?: string | null;
   isConnected: boolean;
-  onSessionCreated?: (session: WorkspaceSession) => void;
-  onSessionDeleted?: (sessionIds: Set<string>) => void;
+};
+
+export type DeleteWorkspaceSessionResult = {
+  deletedSessionIds: Set<string>;
 };
 
 export function useWorkspaceSessions({
@@ -42,10 +45,8 @@ export function useWorkspaceSessions({
   storageScope,
   initialSessionId = null,
   isConnected,
-  onSessionCreated,
-  onSessionDeleted,
 }: UseWorkspaceSessionsOptions) {
-  const activeSessionStorageKey = `arche.workspace.${storageScope ?? slug}.active-session`;
+  const activeSessionStorageKey = getActiveSessionStorageKey(storageScope ?? slug);
   const initialSessionIdRef = useRef(initialSessionId);
 
   const [sessionStore, setSessionStore] = useState<WorkspaceSessionStore>(() => createSessionStore());
@@ -319,24 +320,21 @@ export function useWorkspaceSessions({
         markSessionsMutated();
         setSessionStore((prev) => prependSession(prev, result.session!));
         setActiveSessionId(result.session.id);
-        onSessionCreated?.(result.session);
         return result.session;
       }
       return null;
     },
-    [markSessionsMutated, onSessionCreated, slug]
+    [markSessionsMutated, slug]
   );
 
   const deleteSession = useCallback(
-    async (id: string) => {
+    async (id: string): Promise<DeleteWorkspaceSessionResult | null> => {
       const result = await deleteSessionAction(slug, id);
       if (result.ok) {
         markSessionsMutated();
         const sessionIdsToRemove = collectLoadedFamilyIds(sessionStoreRef.current, id);
         const nextStore = removeSessionFamily(sessionStoreRef.current, id);
         const nextVisibleSessions = deriveVisibleSessions(nextStore);
-
-        onSessionDeleted?.(sessionIdsToRemove);
 
         setSessionStore(nextStore);
         sessionStoreRef.current = nextStore;
@@ -345,11 +343,11 @@ export function useWorkspaceSessions({
           ? nextVisibleSessions[0]?.id ?? null
           : activeSessionIdRef.current;
         setActiveSessionId(nextActiveSessionId);
-        return true;
+        return { deletedSessionIds: sessionIdsToRemove };
       }
-      return false;
+      return null;
     },
-    [markSessionsMutated, onSessionDeleted, slug]
+    [markSessionsMutated, slug]
   );
 
   const renameSession = useCallback(
