@@ -61,8 +61,10 @@ describe('WorkspaceModeToggle', () => {
 
   it('remeasures the active indicator when the knowledge badge disappears', () => {
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
-      const width = this instanceof HTMLButtonElement && this.textContent?.includes('Knowledge')
-        ? this.textContent.includes('3') ? 120 : 96
+      const isActiveButton = this instanceof HTMLButtonElement && this.getAttribute('aria-pressed') === 'true'
+      const hasPendingBadge = this instanceof HTMLButtonElement && this.querySelector('[aria-label="3 pending"]') !== null
+      const width = isActiveButton
+        ? hasPendingBadge ? 120 : 96
         : 240
 
       return {

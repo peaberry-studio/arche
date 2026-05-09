@@ -82,12 +82,13 @@ export function WorkspaceModeToggle({
   const chatRef = useRef<HTMLButtonElement>(null)
   const tasksRef = useRef<HTMLButtonElement>(null)
   const knowledgeRef = useRef<HTMLButtonElement>(null)
+  const activeButtonRef = mode === 'chat' ? chatRef : mode === 'tasks' ? tasksRef : knowledgeRef
 
   const [indicator, setIndicator] = useState<{ left: number; width: number } | null>(null)
   const [hasAnimated, setHasAnimated] = useState(false)
 
   const updateIndicator = useCallback(() => {
-    const button = (mode === 'chat' ? chatRef : mode === 'tasks' ? tasksRef : knowledgeRef).current
+    const button = activeButtonRef.current
     const container = containerRef.current
     if (!button || !container) return
 
@@ -97,14 +98,14 @@ export function WorkspaceModeToggle({
       left: buttonRect.left - containerRect.left,
       width: buttonRect.width,
     })
-  }, [mode])
+  }, [activeButtonRef])
 
   useIsomorphicLayoutEffect(() => {
     updateIndicator()
   }, [hideTasks, knowledgePendingCount, updateIndicator])
 
   useEffect(() => {
-    const button = (mode === 'chat' ? chatRef : mode === 'tasks' ? tasksRef : knowledgeRef).current
+    const button = activeButtonRef.current
     const container = containerRef.current
     if (!button || !container || typeof ResizeObserver === 'undefined') return
 
@@ -112,7 +113,7 @@ export function WorkspaceModeToggle({
     observer.observe(button)
     observer.observe(container)
     return () => observer.disconnect()
-  }, [mode, updateIndicator])
+  }, [activeButtonRef, updateIndicator])
 
   useEffect(() => {
     if (!indicator || hasAnimated) return

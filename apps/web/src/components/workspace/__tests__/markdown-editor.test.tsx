@@ -201,9 +201,13 @@ describe("MarkdownEditor", () => {
     );
 
     const scroller = document.querySelector(".workspace-tiptap") as HTMLElement;
+    const toolbar = screen.getByTestId("markdown-editor-toolbar");
     const toolbarButton = screen.getByRole("button", { name: "Headings" });
     const propertiesButton = screen.getByRole("button", { name: /Properties/ });
 
+    expect(toolbar.className).toContain("border-b");
+    expect(toolbar.className).not.toContain("rounded");
+    expect(toolbar.className).not.toContain("bg-foreground");
     expect(scroller.contains(toolbarButton)).toBe(false);
     expect(scroller.contains(propertiesButton)).toBe(true);
     expect(scroller.textContent).toContain("Editor Content");

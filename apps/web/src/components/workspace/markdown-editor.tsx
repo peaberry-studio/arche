@@ -508,7 +508,10 @@ export function MarkdownEditor({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="mx-4 mb-1 flex items-center justify-between gap-3 rounded-lg border border-border/40 bg-foreground/[0.02] px-3 py-1.5">
+      <div
+        data-testid="markdown-editor-toolbar"
+        className="flex shrink-0 items-center justify-between gap-3 border-b border-border/30 px-4 py-2"
+      >
         <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto scrollbar-none"  style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -688,7 +691,7 @@ export function MarkdownEditor({
 
       <div
         ref={editorScrollRef}
-        className="workspace-tiptap relative flex-1 overflow-y-auto pt-2 pb-5 scrollbar-none"
+        className="workspace-tiptap relative flex-1 overflow-y-auto pb-5 scrollbar-none"
         onMouseLeave={scheduleHoveredLinkHide}
         onMouseMove={handleWorkspaceMouseMove}
       >

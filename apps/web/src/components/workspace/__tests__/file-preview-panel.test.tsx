@@ -52,7 +52,7 @@ describe('FilePreviewPanel', () => {
   })
 
   it('keeps markdown properties inside the scrollable preview content', () => {
-    const { container } = render(
+    render(
       <FilePreviewPanel
         path="Notes/Plan.md"
         content={['---', 'owner: Ops', '---', '# Plan'].join('\n')}
@@ -61,7 +61,7 @@ describe('FilePreviewPanel', () => {
       />
     )
 
-    const scroller = container.querySelector('.overflow-y-auto') as HTMLElement
+    const scroller = screen.getByTestId('file-preview-scroller')
     const header = screen.getByText('Quickview').closest('div') as HTMLElement
 
     expect(scroller.textContent).toContain('owner')

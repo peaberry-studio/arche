@@ -27,12 +27,18 @@ type WorkspaceSessionsRailProps = {
   onMarkAutopilotRunSeen?: (runId: string) => Promise<void> | void
 }
 
+function isIdleSession(session: WorkspaceSession, unseen: ReadonlySet<string>): boolean {
+  return session.status !== 'busy'
+    && session.status !== 'error'
+    && !session.autopilot?.hasUnseenResult
+    && !unseen.has(session.id)
+}
+
 function dotColorClass(session: WorkspaceSession, unseen: ReadonlySet<string>): string {
+  if (isIdleSession(session, unseen)) return 'bg-muted-foreground'
   if (session.status === 'busy') return 'bg-amber-400'
   if (session.status === 'error') return 'bg-red-400'
-  if (session.autopilot?.hasUnseenResult) return 'bg-green-400'
-  if (unseen.has(session.id)) return 'bg-green-400'
-  return 'bg-muted-foreground'
+  return 'bg-green-400'
 }
 
 function focusFactor(distancePx: number): number {
@@ -139,9 +145,7 @@ export function WorkspaceSessionsRail({
         const nextHoveredIndex = cursorY !== null && pointerStrength > 0.2
           ? Math.max(0, Math.min(visibleSessions.length - 1, Math.floor(cursorY / ROW_HEIGHT)))
           : -1
-        const nextHoveredSessionId = nextHoveredIndex >= 0
-          ? visibleSessions[nextHoveredIndex]?.id ?? null
-          : null
+        const nextHoveredSessionId = visibleSessions[nextHoveredIndex]?.id ?? null
 
         pointerStrengthRef.current = pointerStrength
         applyRailStyles(anchorY, pointerStrength)
@@ -199,9 +203,10 @@ export function WorkspaceSessionsRail({
         {visibleSessions.map((session) => {
           const isActive = session.id === activeSessionId
           const isHovered = session.id === hoveredSessionId
+          const isIdle = isIdleSession(session, unseenCompletedSessions)
           const statusColorCls = dotColorClass(session, unseenCompletedSessions)
 
-          const colorCls = (isHovered || isActive) && statusColorCls === 'bg-muted-foreground'
+          const colorCls = (isHovered || isActive) && isIdle
             ? 'bg-primary'
             : statusColorCls
           const title =
