@@ -73,7 +73,7 @@ export function WorkspaceSessionsRail({
   const dotElsRef = useRef<Map<string, HTMLSpanElement>>(new Map())
   const frameRef = useRef<number | null>(null)
   const pointerStrengthRef = useRef(0)
-  const [hoveredIndex, setHoveredIndex] = useState(-1)
+  const [hoveredSessionId, setHoveredSessionId] = useState<string | null>(null)
 
   const visibleSessions = useMemo(
     () =>
@@ -139,10 +139,13 @@ export function WorkspaceSessionsRail({
         const nextHoveredIndex = cursorY !== null && pointerStrength > 0.2
           ? Math.max(0, Math.min(visibleSessions.length - 1, Math.floor(cursorY / ROW_HEIGHT)))
           : -1
+        const nextHoveredSessionId = nextHoveredIndex >= 0
+          ? visibleSessions[nextHoveredIndex]?.id ?? null
+          : null
 
         pointerStrengthRef.current = pointerStrength
         applyRailStyles(anchorY, pointerStrength)
-        setHoveredIndex((current) => (current === nextHoveredIndex ? current : nextHoveredIndex))
+        setHoveredSessionId((current) => (current === nextHoveredSessionId ? current : nextHoveredSessionId))
 
         if (pointerStrength !== targetStrength) {
           frameRef.current = requestAnimationFrame(updateFrame)
@@ -151,7 +154,7 @@ export function WorkspaceSessionsRail({
 
       frameRef.current = requestAnimationFrame(updateFrame)
     },
-    [activeIndex, applyRailStyles, visibleSessions.length]
+    [activeIndex, applyRailStyles, visibleSessions]
   )
 
   const handleMouseMove = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
@@ -166,8 +169,14 @@ export function WorkspaceSessionsRail({
   }, [scheduleRailUpdate])
 
   useLayoutEffect(() => {
-    applyRailStyles(getRailAnchorY(activeIndex), 0)
-  }, [activeIndex, applyRailStyles])
+    const cursorY = cursorYRef.current
+    const pointerStrength = cursorY === null ? 0 : pointerStrengthRef.current
+    const restAnchorY = getRailAnchorY(activeIndex)
+    const anchorY = cursorY === null
+      ? restAnchorY
+      : restAnchorY + (cursorY - restAnchorY) * pointerStrength
+    applyRailStyles(anchorY, pointerStrength)
+  }, [activeIndex, applyRailStyles, visibleSessions.length])
 
   useLayoutEffect(() => {
     return () => {
@@ -187,13 +196,14 @@ export function WorkspaceSessionsRail({
         style={{ paddingBottom: RAIL_EDGE_PADDING_PX, paddingTop: RAIL_EDGE_PADDING_PX }}
         aria-label={kind === 'tasks' ? 'Tasks' : 'Chats'}
       >
-        {visibleSessions.map((session, index) => {
+        {visibleSessions.map((session) => {
           const isActive = session.id === activeSessionId
-          const isHovered = index === hoveredIndex
+          const isHovered = session.id === hoveredSessionId
+          const statusColorCls = dotColorClass(session, unseenCompletedSessions)
 
-          const colorCls = isHovered || isActive
+          const colorCls = (isHovered || isActive) && statusColorCls === 'bg-muted-foreground'
             ? 'bg-primary'
-            : dotColorClass(session, unseenCompletedSessions)
+            : statusColorCls
           const title =
             kind === 'tasks' && session.autopilot ? session.autopilot.taskName : session.title
 
@@ -219,7 +229,7 @@ export function WorkspaceSessionsRail({
                     }}
                     className={cn(
                       'block rounded-full transform-gpu transition-colors duration-150 ease-out will-change-transform',
-                      hoveredIndex < 0 && 'transition-transform duration-200 ease-out',
+                      hoveredSessionId === null && 'transition-transform duration-200 ease-out',
                       colorCls
                     )}
                     style={{

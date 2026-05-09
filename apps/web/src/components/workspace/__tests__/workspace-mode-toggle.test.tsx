@@ -16,6 +16,7 @@ describe('WorkspaceModeToggle', () => {
 
   afterEach(() => {
     cleanup()
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
 
@@ -56,5 +57,46 @@ describe('WorkspaceModeToggle', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sessions' }))
 
     expect(onModeChange).toHaveBeenCalledWith('chat')
+  })
+
+  it('remeasures the active indicator when the knowledge badge disappears', () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      const width = this instanceof HTMLButtonElement && this.textContent?.includes('Knowledge')
+        ? this.textContent.includes('3') ? 120 : 96
+        : 240
+
+      return {
+        bottom: 32,
+        height: 32,
+        left: 0,
+        right: width,
+        top: 0,
+        width,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }
+    })
+
+    const { container, rerender } = render(
+      <WorkspaceModeToggle
+        mode="knowledge"
+        knowledgePendingCount={3}
+        onModeChange={vi.fn()}
+      />
+    )
+    const indicator = container.querySelector('[aria-hidden="true"]') as HTMLElement
+
+    expect(indicator.style.width).toBe('120px')
+
+    rerender(
+      <WorkspaceModeToggle
+        mode="knowledge"
+        knowledgePendingCount={0}
+        onModeChange={vi.fn()}
+      />
+    )
+
+    expect(indicator.style.width).toBe('96px')
   })
 })

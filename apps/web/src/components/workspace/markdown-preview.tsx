@@ -11,11 +11,17 @@ type MarkdownPreviewProps = {
 
 export function MarkdownPreview({ content }: MarkdownPreviewProps) {
   const frontmatter = parseMarkdownFrontmatter(content);
+  const showProperties = frontmatter.mode !== "none";
 
   return (
     <div>
       <MarkdownFrontmatterPanel frontmatter={frontmatter} />
-      <div className="markdown-content pt-4">
+      {showProperties ? (
+        <div className="mx-4 pt-2 pb-4">
+          <div className="h-px bg-border/40" />
+        </div>
+      ) : null}
+      <div className="markdown-content px-6 pt-1 pb-6">
         <ReactMarkdown remarkPlugins={[remarkGfm]} components={workspaceMarkdownComponents}>
           {frontmatter.body}
         </ReactMarkdown>

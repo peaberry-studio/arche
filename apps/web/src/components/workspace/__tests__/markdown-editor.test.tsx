@@ -191,6 +191,25 @@ describe("MarkdownEditor", () => {
     expect(onChange).toHaveBeenCalledWith(["---", "title: Beta", "---", "# Body"].join("\n"));
   });
 
+  it("keeps the toolbar fixed above properties and editor content", () => {
+    render(
+      <MarkdownEditor
+        value={["---", "title: Alpha", "---", "# Body"].join("\n")}
+        onChange={vi.fn()}
+        saveState="saved"
+      />
+    );
+
+    const scroller = document.querySelector(".workspace-tiptap") as HTMLElement;
+    const toolbarButton = screen.getByRole("button", { name: "Headings" });
+    const propertiesButton = screen.getByRole("button", { name: /Properties/ });
+
+    expect(scroller.contains(toolbarButton)).toBe(false);
+    expect(scroller.contains(propertiesButton)).toBe(true);
+    expect(scroller.textContent).toContain("Editor Content");
+    expect(toolbarButton.compareDocumentPosition(propertiesButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("does not coerce cleared numeric properties to zero while typing", () => {
     const onChange = vi.fn();
 

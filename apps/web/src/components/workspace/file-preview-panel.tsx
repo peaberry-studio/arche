@@ -118,9 +118,7 @@ export function FilePreviewPanel({
             Loading…
           </div>
         ) : isMarkdown ? (
-          <div className="px-6 pb-6 [&_.markdown-content]:pt-0">
-            <MarkdownPreview content={content} />
-          </div>
+          <MarkdownPreview content={content} />
         ) : (
           <pre className="whitespace-pre-wrap break-words px-6 pb-6 pt-1 font-mono text-xs text-muted-foreground">
             {content}

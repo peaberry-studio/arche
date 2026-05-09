@@ -161,13 +161,59 @@ describe('WorkspaceSessionsRail', () => {
 
     fireEvent.mouseMove(rail, { clientY: 33 })
 
-    await waitFor(() => expect(focusedDot.className).toContain('bg-primary'))
+    await waitFor(() => expect(focusedDot.style.transform).toContain('translate3d(0,'))
     await waitFor(() => expect(previousDot.style.transform).toContain('translate3d(0, -'))
 
     expect(previousDot.className).not.toContain('bg-primary')
+    expect(focusedDot.className).toContain('bg-amber-400')
+    expect(focusedDot.className).not.toContain('bg-primary')
     expect(focusedDot.style.transform).toContain('translate3d(0,')
     expect(focusedButton.style.height).toBe('22px')
     expect(Number(focusedButton.style.opacity)).toBeGreaterThan(0)
+  })
+
+  it('preserves cursor magnification when sessions refresh while hovering', async () => {
+    const { rerender } = render(
+      <WorkspaceSessionsRail
+        kind="chats"
+        sessions={sessions}
+        activeSessionId={null}
+        unseenCompletedSessions={new Set<string>()}
+        onSelectSession={vi.fn()}
+      />
+    )
+
+    const rail = screen.getByLabelText('Chats')
+    Object.defineProperty(rail, 'scrollTop', { configurable: true, value: 0 })
+    rail.getBoundingClientRect = () => ({
+      bottom: 180,
+      height: 180,
+      left: 0,
+      right: 48,
+      top: 0,
+      width: 48,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    })
+
+    const previousDot = dotFor('Idle chat')
+    fireEvent.mouseMove(rail, { clientY: 33 })
+
+    await waitFor(() => expect(previousDot.style.transform).toContain('translate3d(0, -'))
+    const hoveringTransform = previousDot.style.transform
+
+    rerender(
+      <WorkspaceSessionsRail
+        kind="chats"
+        sessions={sessions.map((session) => ({ ...session }))}
+        activeSessionId={null}
+        unseenCompletedSessions={new Set<string>()}
+        onSelectSession={vi.fn()}
+      />
+    )
+
+    expect(previousDot.style.transform).toBe(hoveringTransform)
   })
 
   it('renders nothing when the selected rail kind has no sessions', () => {

@@ -1,6 +1,7 @@
 'use client'
 
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -81,17 +82,12 @@ export function WorkspaceModeToggle({
   const chatRef = useRef<HTMLButtonElement>(null)
   const tasksRef = useRef<HTMLButtonElement>(null)
   const knowledgeRef = useRef<HTMLButtonElement>(null)
-  const refByMode: Record<WorkspaceMode, RefObject<HTMLButtonElement | null>> = {
-    chat: chatRef,
-    tasks: tasksRef,
-    knowledge: knowledgeRef,
-  }
 
   const [indicator, setIndicator] = useState<{ left: number; width: number } | null>(null)
   const [hasAnimated, setHasAnimated] = useState(false)
 
-  useIsomorphicLayoutEffect(() => {
-    const button = refByMode[mode].current
+  const updateIndicator = useCallback(() => {
+    const button = (mode === 'chat' ? chatRef : mode === 'tasks' ? tasksRef : knowledgeRef).current
     const container = containerRef.current
     if (!button || !container) return
 
@@ -102,6 +98,21 @@ export function WorkspaceModeToggle({
       width: buttonRect.width,
     })
   }, [mode])
+
+  useIsomorphicLayoutEffect(() => {
+    updateIndicator()
+  }, [hideTasks, knowledgePendingCount, updateIndicator])
+
+  useEffect(() => {
+    const button = (mode === 'chat' ? chatRef : mode === 'tasks' ? tasksRef : knowledgeRef).current
+    const container = containerRef.current
+    if (!button || !container || typeof ResizeObserver === 'undefined') return
+
+    const observer = new ResizeObserver(() => updateIndicator())
+    observer.observe(button)
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [mode, updateIndicator])
 
   useEffect(() => {
     if (!indicator || hasAnimated) return

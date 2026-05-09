@@ -508,17 +508,6 @@ export function MarkdownEditor({
 
   return (
     <div className="flex h-full flex-col">
-      <MarkdownFrontmatterPanel
-        editable
-        frontmatter={frontmatter}
-        onPropertiesChange={handlePropertiesChange}
-        onRawChange={handleRawFrontmatterChange}
-      />
-
-      <div className="mx-4 pt-2 pb-4">
-        <div className="h-px bg-border/40" />
-      </div>
-
       <div className="mx-4 mb-1 flex items-center justify-between gap-3 rounded-lg border border-border/40 bg-foreground/[0.02] px-3 py-1.5">
         <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto scrollbar-none"  style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
           <DropdownMenu>
@@ -699,11 +688,24 @@ export function MarkdownEditor({
 
       <div
         ref={editorScrollRef}
-        className="workspace-tiptap relative flex-1 overflow-y-auto px-6 pt-2 pb-5 scrollbar-none"
+        className="workspace-tiptap relative flex-1 overflow-y-auto pt-2 pb-5 scrollbar-none"
         onMouseLeave={scheduleHoveredLinkHide}
         onMouseMove={handleWorkspaceMouseMove}
       >
-        <EditorContent editor={editor} />
+        <MarkdownFrontmatterPanel
+          editable
+          frontmatter={frontmatter}
+          onPropertiesChange={handlePropertiesChange}
+          onRawChange={handleRawFrontmatterChange}
+        />
+
+        <div className="mx-4 pt-2 pb-4">
+          <div className="h-px bg-border/40" />
+        </div>
+
+        <div className="px-6">
+          <EditorContent editor={editor} />
+        </div>
         <MarkdownTableControls containerRef={editorScrollRef} editor={editor} />
         {hoveredLink ? (
           <div

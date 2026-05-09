@@ -51,6 +51,24 @@ describe('FilePreviewPanel', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
+  it('keeps markdown properties inside the scrollable preview content', () => {
+    const { container } = render(
+      <FilePreviewPanel
+        path="Notes/Plan.md"
+        content={['---', 'owner: Ops', '---', '# Plan'].join('\n')}
+        onClose={vi.fn()}
+        onEdit={vi.fn()}
+      />
+    )
+
+    const scroller = container.querySelector('.overflow-y-auto') as HTMLElement
+    const header = screen.getByText('Quickview').closest('div') as HTMLElement
+
+    expect(scroller.textContent).toContain('owner')
+    expect(scroller.textContent).toContain('Ops')
+    expect(header.textContent).not.toContain('owner')
+  })
+
   it('copies with navigator clipboard when available', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     vi.stubGlobal('navigator', { clipboard: { writeText } })
