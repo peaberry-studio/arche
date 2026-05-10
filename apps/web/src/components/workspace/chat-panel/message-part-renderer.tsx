@@ -22,6 +22,16 @@ import {
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
+import { ChartCard } from '@/components/workspace/chat-panel/chart-card'
+import {
+  parseChartOutput,
+  type ChartOutput,
+} from '@/components/workspace/chat-panel/chart-output'
+import { DiagramCard } from '@/components/workspace/chat-panel/diagram-card'
+import {
+  parseDiagramOutput,
+  type DiagramOutput,
+} from '@/components/workspace/chat-panel/diagram-output'
 import {
   parseEmailDraftOutput,
   type EmailDraftOutput,
@@ -72,6 +82,8 @@ const TOOL_LABELS: Record<string, string> = {
   bash: 'Running command',
   task: 'Delegating',
   email_draft: 'Drafting email',
+  chart_create: 'Creating chart',
+  diagram_create: 'Creating diagram',
   todowrite: 'Planning',
   todoread: 'Reviewing plan',
 }
@@ -226,6 +238,22 @@ function getToolDisplay(
         summary: taskDescription || agentLabel || fallbackTitle,
         label: agentLabel || fallbackTitle,
         meta: agentLabel && taskDescription ? taskDescription : undefined,
+      }
+    }
+    case 'chart_create': {
+      const title = getString(input?.title)
+      const type = getString(input?.type)
+      return {
+        summary: [title, type].filter(Boolean).join(' · ') || fallbackTitle,
+        label: title || fallbackTitle,
+        meta: type,
+      }
+    }
+    case 'diagram_create': {
+      const title = getString(input?.title)
+      return {
+        summary: title || fallbackTitle,
+        label: title || fallbackTitle,
       }
     }
     default:
@@ -608,6 +636,44 @@ export function ToolGroup({
 
     if (latestDraft) {
       return <EmailDraftCard draft={latestDraft} isRunning={isRunning} />
+    }
+  }
+
+  if (tool === 'chart_create') {
+    let latestChart: ChartOutput | null = null
+
+    for (let index = parts.length - 1; index >= 0; index -= 1) {
+      const part = parts[index]
+      if (part.state.status !== 'completed') continue
+
+      const parsedChart = parseChartOutput(part.state.output)
+      if (!parsedChart) continue
+
+      latestChart = parsedChart
+      break
+    }
+
+    if (latestChart) {
+      return <ChartCard chart={latestChart} isRunning={isRunning} />
+    }
+  }
+
+  if (tool === 'diagram_create') {
+    let latestDiagram: DiagramOutput | null = null
+
+    for (let index = parts.length - 1; index >= 0; index -= 1) {
+      const part = parts[index]
+      if (part.state.status !== 'completed') continue
+
+      const parsedDiagram = parseDiagramOutput(part.state.output)
+      if (!parsedDiagram) continue
+
+      latestDiagram = parsedDiagram
+      break
+    }
+
+    if (latestDiagram) {
+      return <DiagramCard diagram={latestDiagram} isRunning={isRunning} />
     }
   }
 

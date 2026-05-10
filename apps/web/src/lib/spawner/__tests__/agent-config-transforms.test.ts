@@ -68,7 +68,7 @@ describe('applyDefaultAgentModel', () => {
 })
 
 describe('injectAlwaysOnAgentTools', () => {
-  it('enables email_draft for every configured agent', () => {
+  it('enables always-on tools for every configured agent', () => {
     const config = {
       agent: {
         assistant: { mode: 'primary', tools: { task: true, email_draft: false } },
@@ -82,7 +82,11 @@ describe('injectAlwaysOnAgentTools', () => {
     const supportTools = agents.support.tools as Record<string, boolean>
 
     expect(assistantTools.email_draft).toBe(true)
+    expect(assistantTools.chart_create).toBe(true)
+    expect(assistantTools.diagram_create).toBe(true)
     expect(supportTools.email_draft).toBe(true)
+    expect(supportTools.chart_create).toBe(true)
+    expect(supportTools.diagram_create).toBe(true)
   })
 
   it('skips agents that do not define explicit tools', () => {
@@ -96,10 +100,13 @@ describe('injectAlwaysOnAgentTools', () => {
     expect(result).toBe(config)
   })
 
-  it('returns the original object when all agents already have email_draft enabled', () => {
+  it('returns the original object when all agents already have always-on tools enabled', () => {
     const config = {
       agent: {
-        assistant: { mode: 'primary', tools: { email_draft: true } },
+        assistant: {
+          mode: 'primary',
+          tools: { email_draft: true, chart_create: true, diagram_create: true },
+        },
       },
     }
 

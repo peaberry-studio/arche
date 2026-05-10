@@ -5,7 +5,7 @@ import { isRecord } from '@/lib/records'
 
 const CONNECTOR_TYPE_PATTERN = CONNECTOR_TYPES.join('|')
 const MCP_SERVER_KEY_PATTERN = new RegExp(`^arche_(${CONNECTOR_TYPE_PATTERN})_([a-z0-9]+)$`)
-const ALWAYS_ENABLED_TOOLS = ['email_draft'] as const
+const ALWAYS_ENABLED_TOOLS = ['email_draft', 'chart_create', 'diagram_create'] as const
 
 function isToolMap(value: unknown): value is Record<string, boolean> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
