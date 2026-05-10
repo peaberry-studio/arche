@@ -10,6 +10,7 @@ import {
 describe('autopilot retry policy', () => {
   afterEach(() => {
     vi.unstubAllEnvs()
+    vi.restoreAllMocks()
   })
 
   it('classifies transient pre-prompt infrastructure failures as retryable', () => {
@@ -45,6 +46,25 @@ describe('autopilot retry policy', () => {
       nextRetryAttempt: 2,
       retryAt: new Date('2026-04-12T09:00:05.000Z'),
     })
+  })
+
+  it('warns when configured backoffs contain invalid entries', () => {
+    vi.stubEnv('ARCHE_AUTOPILOT_RETRY_BACKOFF_MS', '1000, nope, -1')
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    expect(getAutopilotRetryBackoffMs()).toEqual([1000])
+    expect(warnSpy).toHaveBeenCalledWith('[autopilot] Invalid retry backoff configuration entries ignored', {
+      env: 'ARCHE_AUTOPILOT_RETRY_BACKOFF_MS',
+      invalidValues: ['nope', '-1'],
+      value: '1000, nope, -1',
+    })
+  })
+
+  it('falls back to default backoffs when every configured entry is invalid', () => {
+    vi.stubEnv('ARCHE_AUTOPILOT_RETRY_BACKOFF_MS', 'nope,0')
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    expect(getAutopilotRetryBackoffMs()).toEqual([120_000, 300_000, 900_000])
   })
 
   it('rejects retries for manual, post-prompt, non-retryable, and exhausted failures', () => {

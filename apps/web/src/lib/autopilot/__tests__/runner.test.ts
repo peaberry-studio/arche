@@ -209,9 +209,9 @@ describe('autopilot runner', () => {
     )
     expect(scheduleTaskRetryMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        id: 'task-1',
         retryAttempt: 1,
         retryScheduledFor: task.scheduledFor,
+        taskId: 'task-1',
       })
     )
   })
@@ -244,11 +244,11 @@ describe('autopilot runner', () => {
       await runClaimedAutopilotTask(task, 'schedule')
 
       expect(scheduleTaskRetryMock).toHaveBeenCalledWith({
-        id: 'task-1',
         leaseOwner: 'lease-1',
         retryAttempt: 1,
         retryAt: new Date('2026-04-12T09:02:30.000Z'),
         retryScheduledFor: task.scheduledFor,
+        taskId: 'task-1',
       })
       expect(createAuditEventMock).toHaveBeenCalledWith(
         expect.objectContaining({

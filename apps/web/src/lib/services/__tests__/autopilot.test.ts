@@ -524,11 +524,11 @@ describe('autopilotService', () => {
 
       const { scheduleTaskRetry } = await import('../autopilot')
       await scheduleTaskRetry({
-        id: 'task-1',
         leaseOwner: 'worker-1',
         retryAttempt: 1,
         retryAt,
         retryScheduledFor,
+        taskId: 'task-1',
       })
 
       expect(mockPrisma.autopilotTask.updateMany).toHaveBeenCalledWith({
@@ -761,7 +761,7 @@ describe('autopilotService', () => {
       mockPrisma.autopilotRun.findMany.mockResolvedValue([
         {
           id: 'run-1',
-          trigger: AutopilotRunTrigger.scheduled,
+          trigger: AutopilotRunTrigger.schedule,
           openCodeSessionId: 'oc-session-1',
           resultSeenAt: null,
           status: AutopilotRunStatus.succeeded,
@@ -775,7 +775,7 @@ describe('autopilotService', () => {
       expect(result).toEqual([
         {
           openCodeSessionId: 'oc-session-1',
-          trigger: AutopilotRunTrigger.scheduled,
+          trigger: AutopilotRunTrigger.schedule,
           taskId: 'task-1',
           taskName: 'Daily report',
           runId: 'run-1',
@@ -788,7 +788,7 @@ describe('autopilotService', () => {
       mockPrisma.autopilotRun.findMany.mockResolvedValue([
         {
           id: 'run-1',
-          trigger: AutopilotRunTrigger.scheduled,
+          trigger: AutopilotRunTrigger.schedule,
           openCodeSessionId: null,
           resultSeenAt: null,
           status: AutopilotRunStatus.succeeded,
@@ -824,7 +824,7 @@ describe('autopilotService', () => {
       mockPrisma.autopilotRun.findMany.mockResolvedValue([
         {
           id: 'run-1',
-          trigger: AutopilotRunTrigger.scheduled,
+          trigger: AutopilotRunTrigger.schedule,
           openCodeSessionId: 'oc-session-1',
           resultSeenAt: new Date('2026-04-20T10:00:00Z'),
           status: AutopilotRunStatus.succeeded,

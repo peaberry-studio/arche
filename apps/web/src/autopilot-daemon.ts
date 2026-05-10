@@ -1,7 +1,3 @@
-declare global {
-  var archeAutopilotCleanupRegistered: boolean | undefined
-}
-
 import { prisma } from '@/lib/prisma'
 import {
   AUTOPILOT_SCHEDULER_INTERVAL_MS,
@@ -11,8 +7,12 @@ import {
   stopAutopilotScheduler,
 } from '@/lib/autopilot/scheduler'
 
+declare global {
+  var archeAutopilotCleanupRegistered: boolean | undefined
+}
+
 const AUTOPILOT_WATCHDOG_INTERVAL_MS = 60_000
-export const AUTOPILOT_WATCHDOG_TIMEOUT_MS = AUTOPILOT_SCHEDULER_INTERVAL_MS * 2 + 60_000
+export const AUTOPILOT_WATCHDOG_TIMEOUT_MS = AUTOPILOT_SCHEDULER_INTERVAL_MS * 4 + 120_000
 
 function getHealthyAutopilotHeartbeat(): Date | null {
   const status = getAutopilotSchedulerStatus()
@@ -39,7 +39,10 @@ function startAutopilotWatchdog(): NodeJS.Timeout {
       return
     }
 
-    console.error('[autopilot-daemon] Watchdog detected an unhealthy scheduler state', getAutopilotSchedulerStatus())
+    console.error('[autopilot-daemon] Watchdog detected an unhealthy scheduler state', {
+      ...getAutopilotSchedulerStatus(),
+      watchdogTimeoutMs: AUTOPILOT_WATCHDOG_TIMEOUT_MS,
+    })
     process.exit(1)
   }, AUTOPILOT_WATCHDOG_INTERVAL_MS)
 }
@@ -83,8 +86,9 @@ function registerShutdownHooks(watchdog: NodeJS.Timeout): void {
 }
 
 export async function startAutopilotDaemon(): Promise<void> {
-  if (getAutopilotSchedulerMode() === 'off') {
-    console.log('[autopilot-daemon] Autopilot scheduler disabled')
+  const mode = getAutopilotSchedulerMode()
+  if (mode !== 'daemon') {
+    console.log('[autopilot-daemon] Autopilot daemon not started for scheduler mode', { mode })
     await prisma.$disconnect()
     return
   }
@@ -96,7 +100,7 @@ export async function startAutopilotDaemon(): Promise<void> {
   const watchdog = startAutopilotWatchdog()
   registerShutdownHooks(watchdog)
 
-  console.log('[autopilot-daemon] Autopilot daemon started')
+  console.log('[autopilot-daemon] Autopilot daemon started', { mode })
 }
 
 if (!process.env.VITEST) {

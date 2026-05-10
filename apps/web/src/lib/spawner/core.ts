@@ -25,6 +25,8 @@ type ContainerNetworkInspect = {
   }
 }
 
+type StartupHealthResult = InstanceHealthResult & { baseUrl?: string }
+
 function getErrorDetail(err: unknown): string | undefined {
   if (!err || typeof err !== 'object') return undefined
   const error = err as {
@@ -100,7 +102,7 @@ export async function startInstance(slug: string, userId: string): Promise<Start
     const syncUserId = owner?.id ?? userId
     const syncResult = await syncProviderAccessForInstance({
       instance: {
-        baseUrl: getInstanceUrl(slug),
+        baseUrl: healthy.baseUrl ?? getInstanceUrl(slug),
         authHeader: `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`,
       },
       slug,
@@ -264,7 +266,7 @@ async function getContainerHealthBaseUrl(containerId: string): Promise<string | 
   }
 }
 
-async function waitForHealthy(containerId: string, slug: string, password: string): Promise<InstanceHealthResult> {
+async function waitForHealthy(containerId: string, slug: string, password: string): Promise<StartupHealthResult> {
   const timeout = getStartTimeoutMs()
   const start = Date.now()
   let directBaseUrl: string | null | undefined
@@ -305,7 +307,27 @@ async function waitForHealthy(containerId: string, slug: string, password: strin
     if (health.ok) return health
     lastHealth = health
 
+    if (directHealthy) {
+      console.warn('[spawner] DNS healthcheck unavailable after direct IP success; continuing startup', {
+        containerId,
+        detail: health.detail,
+        directBaseUrl,
+        message: health.message,
+        slug,
+      })
+      return { ok: true, baseUrl: directBaseUrl ?? undefined }
+    }
+
     await new Promise(r => setTimeout(r, 1000))
+  }
+
+  if (directHealthy) {
+    console.warn('[spawner] DNS healthcheck timed out after direct IP success; continuing startup', {
+      containerId,
+      directBaseUrl,
+      slug,
+    })
+    return { ok: true, baseUrl: directBaseUrl ?? undefined }
   }
 
   return lastHealth.ok ? { ok: false, detail: 'healthcheck timeout' } : lastHealth

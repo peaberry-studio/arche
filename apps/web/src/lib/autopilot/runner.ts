@@ -80,11 +80,11 @@ export async function runClaimedAutopilotTask(
 
     if (retryPlan.ok) {
       await autopilotService.scheduleTaskRetry({
-        id: task.id,
         leaseOwner: task.leaseOwner ?? '',
         retryAttempt: retryPlan.nextRetryAttempt,
         retryAt: retryPlan.retryAt,
         retryScheduledFor: originalScheduledFor,
+        taskId: task.id,
       })
 
       console.warn('[autopilot] Retry scheduled', {

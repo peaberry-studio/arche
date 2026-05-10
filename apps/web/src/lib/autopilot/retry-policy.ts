@@ -1,7 +1,10 @@
 const DEFAULT_MAX_START_RETRIES = 3
 const DEFAULT_RETRY_BACKOFF_MS = [120_000, 300_000, 900_000]
+const AUTOPILOT_RETRY_BACKOFF_ENV = 'ARCHE_AUTOPILOT_RETRY_BACKOFF_MS'
 
 type AutopilotRetryTrigger = 'on_create' | 'schedule' | 'manual'
+
+let warnedInvalidRetryBackoffValue: string | null = null
 
 export type AutopilotRetryPlan =
   | {
@@ -28,15 +31,31 @@ export function getAutopilotMaxStartRetries(): number {
 }
 
 export function getAutopilotRetryBackoffMs(): number[] {
-  const raw = process.env.ARCHE_AUTOPILOT_RETRY_BACKOFF_MS
+  const raw = process.env[AUTOPILOT_RETRY_BACKOFF_ENV]
   if (!raw) {
     return DEFAULT_RETRY_BACKOFF_MS
   }
 
-  const values = raw
-    .split(',')
-    .map((value) => Number(value.trim()))
-    .filter((value) => Number.isFinite(value) && value > 0)
+  const invalidValues: string[] = []
+  const values = raw.split(',').flatMap((value) => {
+    const trimmed = value.trim()
+    const parsed = Number(trimmed)
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return [parsed]
+    }
+
+    invalidValues.push(trimmed)
+    return []
+  })
+
+  if (invalidValues.length > 0 && warnedInvalidRetryBackoffValue !== raw) {
+    warnedInvalidRetryBackoffValue = raw
+    console.warn('[autopilot] Invalid retry backoff configuration entries ignored', {
+      env: AUTOPILOT_RETRY_BACKOFF_ENV,
+      invalidValues,
+      value: raw,
+    })
+  }
 
   return values.length > 0 ? values : DEFAULT_RETRY_BACKOFF_MS
 }

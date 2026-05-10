@@ -7,6 +7,7 @@ import { autopilotService } from '@/lib/services'
 
 export const AUTOPILOT_SCHEDULER_INTERVAL_MS = 30_000
 const AUTOPILOT_SCHEDULER_BATCH_LIMIT = 4
+const AUTOPILOT_SCHEDULER_MODE_ENV = 'ARCHE_AUTOPILOT_SCHEDULER_MODE'
 
 export type AutopilotSchedulerMode = 'daemon' | 'inline' | 'off'
 
@@ -15,18 +16,42 @@ let dispatchPromise: Promise<number> | null = null
 let lastDispatchStartedAt: Date | null = null
 let lastDispatchFinishedAt: Date | null = null
 let lastDispatchError: string | null = null
+let loggedSchedulerMode: AutopilotSchedulerMode | null = null
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
 export function getAutopilotSchedulerMode(): AutopilotSchedulerMode {
-  const mode = process.env.ARCHE_AUTOPILOT_SCHEDULER_MODE
+  const mode = process.env[AUTOPILOT_SCHEDULER_MODE_ENV]
   if (mode === 'daemon' || mode === 'inline' || mode === 'off') {
+    logResolvedSchedulerMode(mode)
     return mode
   }
 
+  if (process.env.NODE_ENV === 'production') {
+    const detail = mode ? `invalid value "${mode}"` : 'missing value'
+    throw new Error(`${AUTOPILOT_SCHEDULER_MODE_ENV} is required in production (${detail})`)
+  }
+
+  if (mode) {
+    console.warn('[autopilot] Invalid scheduler mode; falling back to inline', {
+      env: AUTOPILOT_SCHEDULER_MODE_ENV,
+      mode,
+    })
+  }
+
+  logResolvedSchedulerMode('inline')
   return 'inline'
+}
+
+function logResolvedSchedulerMode(mode: AutopilotSchedulerMode): void {
+  if (loggedSchedulerMode === mode) {
+    return
+  }
+
+  loggedSchedulerMode = mode
+  console.log('[autopilot] Scheduler mode resolved', { mode })
 }
 
 export function shouldStartInlineAutopilotScheduler(): boolean {

@@ -137,7 +137,7 @@ services:
 
   autopilot:
     image: {{ web_image }}
-    restart: "on-failure:5"
+    restart: "unless-stopped"
     command:
       - pnpm
       - run

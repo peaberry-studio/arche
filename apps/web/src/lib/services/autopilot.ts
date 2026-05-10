@@ -327,7 +327,7 @@ export function createRun(data: {
 }
 
 export function scheduleTaskRetry(data: {
-  id: string
+  taskId: string
   leaseOwner: string
   retryAttempt: number
   retryAt: Date
@@ -335,7 +335,7 @@ export function scheduleTaskRetry(data: {
 }) {
   return prisma.autopilotTask.updateMany({
     where: {
-      id: data.id,
+      id: data.taskId,
       leaseOwner: data.leaseOwner,
     },
     data: {

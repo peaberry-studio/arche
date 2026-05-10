@@ -380,6 +380,43 @@ describe('startInstance', () => {
     expect(syncCall).not.toHaveProperty('disposeInstance', false)
   })
 
+  it('continues startup through direct container IP when DNS healthcheck stays unavailable', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    try {
+      mockInstance.findBySlug.mockResolvedValue(null)
+      mockInstance.upsertStarting.mockResolvedValue({} as never)
+      mockInstance.setContainerId.mockResolvedValue({} as never)
+      mockInstance.setRunning.mockResolvedValue({} as never)
+      mockUser.findIdentityBySlug.mockResolvedValue(null)
+      mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
+      mockDocker.startContainer.mockResolvedValue(undefined)
+      mockDocker.isContainerRunning.mockResolvedValue(true)
+      mockHealth.mockImplementation(async (_slug, _password, baseUrl) => {
+        if (baseUrl === 'http://10.88.0.12:4096') {
+          return { ok: true }
+        }
+
+        return { ok: false, detail: 'dns_resolution_error' }
+      })
+
+      await expect(startInstance('alice', 'user-1')).resolves.toEqual({ ok: true, status: 'running' })
+      expect(mockSync).toHaveBeenCalledWith({
+        instance: { baseUrl: 'http://10.88.0.12:4096', authHeader: expect.any(String) },
+        slug: 'alice',
+        userId: 'user-1',
+      })
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[spawner] DNS healthcheck unavailable after direct IP success; continuing startup',
+        expect.objectContaining({ detail: 'dns_resolution_error', directBaseUrl: 'http://10.88.0.12:4096' }),
+      )
+    } finally {
+      logSpy.mockRestore()
+      warnSpy.mockRestore()
+    }
+  })
+
   it('marks the workspace for restart when provider sync fails', async () => {
     mockInstance.findBySlug.mockResolvedValue(null)
     mockInstance.upsertStarting.mockResolvedValue({} as never)
