@@ -8,8 +8,40 @@ import { autopilotService } from '@/lib/services'
 export const AUTOPILOT_SCHEDULER_INTERVAL_MS = 30_000
 const AUTOPILOT_SCHEDULER_BATCH_LIMIT = 4
 
+export type AutopilotSchedulerMode = 'daemon' | 'inline' | 'off'
+
 let schedulerInterval: NodeJS.Timeout | null = null
 let dispatchPromise: Promise<number> | null = null
+let lastDispatchStartedAt: Date | null = null
+let lastDispatchFinishedAt: Date | null = null
+let lastDispatchError: string | null = null
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+export function getAutopilotSchedulerMode(): AutopilotSchedulerMode {
+  const mode = process.env.ARCHE_AUTOPILOT_SCHEDULER_MODE
+  if (mode === 'daemon' || mode === 'inline' || mode === 'off') {
+    return mode
+  }
+
+  return 'inline'
+}
+
+export function shouldStartInlineAutopilotScheduler(): boolean {
+  return getAutopilotSchedulerMode() === 'inline'
+}
+
+export function getAutopilotSchedulerStatus() {
+  return {
+    dispatching: dispatchPromise !== null,
+    lastDispatchError,
+    lastDispatchFinishedAt,
+    lastDispatchStartedAt,
+    running: schedulerInterval !== null,
+  }
+}
 
 function importRuntimeModule<T>(specifier: string): Promise<T> {
   if (process.env.VITEST) {
@@ -25,31 +57,40 @@ async function createLeaseOwner(): Promise<string> {
 }
 
 export async function dispatchDueAutopilotTasks(limit = AUTOPILOT_SCHEDULER_BATCH_LIMIT): Promise<number> {
+  lastDispatchStartedAt = new Date()
   let claimedCount = 0
 
-  while (claimedCount < limit) {
-    const now = new Date()
-    const claimed = await autopilotService.claimNextDueTask({
-      leaseMs: AUTOPILOT_TASK_LEASE_MS,
-      leaseOwner: await createLeaseOwner(),
-      now,
-      resolveNextRunAt: (task) => getNextAutopilotRunAt(task.cronExpression, task.timezone, now),
-    })
+  try {
+    while (claimedCount < limit) {
+      const now = new Date()
+      const claimed = await autopilotService.claimNextDueTask({
+        leaseMs: AUTOPILOT_TASK_LEASE_MS,
+        leaseOwner: await createLeaseOwner(),
+        now,
+        resolveNextRunAt: (task) => getNextAutopilotRunAt(task.cronExpression, task.timezone, now),
+      })
 
-    if (!claimed) {
-      break
+      if (!claimed) {
+        break
+      }
+
+      claimedCount += 1
+      void runClaimedAutopilotTask(claimed, 'schedule').catch((error) => {
+        console.error('[autopilot] Failed to execute scheduled task run', {
+          taskId: claimed.id,
+          error,
+        })
+      })
     }
 
-    claimedCount += 1
-    void runClaimedAutopilotTask(claimed, 'schedule').catch((error) => {
-      console.error('[autopilot] Failed to execute scheduled task run', {
-        taskId: claimed.id,
-        error,
-      })
-    })
+    lastDispatchError = null
+    return claimedCount
+  } catch (error) {
+    lastDispatchError = getErrorMessage(error)
+    throw error
+  } finally {
+    lastDispatchFinishedAt = new Date()
   }
-
-  return claimedCount
 }
 
 function scheduleDispatch(): void {

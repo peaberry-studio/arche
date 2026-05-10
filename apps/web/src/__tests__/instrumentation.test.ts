@@ -25,11 +25,13 @@ function mockProcessOnce() {
 function mockNodeInstrumentationDependencies(options: {
   disconnect?: () => Promise<void>
   isDesktop?: boolean
+  shouldStartInlineAutopilotScheduler?: boolean
   stopAutopilotScheduler?: () => void
   stopReaper?: () => void
   stopSlackSocketManager?: () => void
 } = {}) {
   const initWebPrisma = vi.fn(async () => {})
+  const shouldStartInlineAutopilotScheduler = vi.fn(() => options.shouldStartInlineAutopilotScheduler ?? true)
   const startAutopilotScheduler = vi.fn()
   const startSlackSocketManager = vi.fn()
   const stopAutopilotScheduler = vi.fn(options.stopAutopilotScheduler ?? (() => {}))
@@ -45,6 +47,7 @@ function mockNodeInstrumentationDependencies(options: {
     prisma: { $disconnect: disconnect },
   }))
   vi.doMock('@/lib/autopilot/scheduler', () => ({
+    shouldStartInlineAutopilotScheduler,
     startAutopilotScheduler,
     stopAutopilotScheduler,
   }))
@@ -57,6 +60,7 @@ function mockNodeInstrumentationDependencies(options: {
   return {
     disconnect,
     initWebPrisma,
+    shouldStartInlineAutopilotScheduler,
     startAutopilotScheduler,
     startSlackSocketManager,
     stopAutopilotScheduler,
@@ -130,6 +134,18 @@ describe('Next instrumentation', () => {
 
     expect(deps.initWebPrisma).not.toHaveBeenCalled()
     expect(deps.startSlackSocketManager).not.toHaveBeenCalled()
+  })
+
+  it('does not start inline autopilot scheduler in daemon mode', async () => {
+    process.env.NODE_ENV = 'production'
+    const deps = mockNodeInstrumentationDependencies({ shouldStartInlineAutopilotScheduler: false })
+    const { registerNodeInstrumentation } = await import('@/instrumentation-node')
+
+    await registerNodeInstrumentation()
+
+    expect(deps.shouldStartInlineAutopilotScheduler).toHaveBeenCalled()
+    expect(deps.startAutopilotScheduler).not.toHaveBeenCalled()
+    expect(deps.startSlackSocketManager).toHaveBeenCalled()
   })
 
   it('logs cleanup failures during graceful shutdown', async () => {

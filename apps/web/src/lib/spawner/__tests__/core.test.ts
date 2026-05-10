@@ -98,6 +98,7 @@ vi.mock('../docker', () => ({
   stopContainer: vi.fn(),
   removeContainer: vi.fn(),
   removeManagedContainerForSlug: vi.fn().mockResolvedValue(false),
+  inspectContainer: vi.fn(),
   isContainerRunning: vi.fn(),
 }))
 
@@ -159,7 +160,14 @@ beforeEach(async () => {
       data: await reader({ repoDir: snapshotRepoDir!, hash: 'snapshot-hash' }),
     })
   )
-  mockHealth.mockResolvedValue(true)
+  mockDocker.inspectContainer.mockResolvedValue({
+    NetworkSettings: {
+      Networks: {
+        'arche-internal': { IPAddress: '10.88.0.12' },
+      },
+    },
+  })
+  mockHealth.mockResolvedValue({ ok: true })
   mockSync.mockResolvedValue({ ok: true })
   mockBuildMcpConfigForSlug.mockResolvedValue(null)
 })
@@ -222,7 +230,7 @@ describe('startInstance', () => {
       mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
       mockDocker.startContainer.mockResolvedValue(undefined)
       mockDocker.isContainerRunning.mockResolvedValue(true)
-      mockHealth.mockResolvedValue(true)
+      mockHealth.mockResolvedValue({ ok: true })
 
       const result = await startInstance('alice', 'user-1')
 
@@ -398,7 +406,7 @@ describe('startInstance', () => {
     mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
     mockDocker.startContainer.mockResolvedValue(undefined)
     mockDocker.isContainerRunning.mockResolvedValue(false)
-    mockHealth.mockResolvedValue(false)
+    mockHealth.mockResolvedValue({ ok: false, detail: 'connection_refused', message: 'ECONNREFUSED' })
     mockDocker.stopContainer.mockResolvedValue(undefined)
     mockDocker.removeContainer.mockResolvedValue(undefined)
 
@@ -510,7 +518,7 @@ describe('getInstanceStatus', () => {
       serverPassword: 'enc',
     })
     mockDocker.isContainerRunning.mockResolvedValue(true)
-    mockHealth.mockResolvedValue(true)
+    mockHealth.mockResolvedValue({ ok: true })
 
     const result = await getInstanceStatus('alice')
 
@@ -565,7 +573,7 @@ describe('getInstanceStatus', () => {
       serverPassword: 'enc',
     })
     mockDocker.isContainerRunning.mockResolvedValue(true)
-    mockHealth.mockResolvedValue(true)
+    mockHealth.mockResolvedValue({ ok: true })
     mockInstance.correctToRunning.mockResolvedValue({} as never)
 
     await expect(getInstanceStatus('alice')).resolves.toMatchObject({ status: 'running', containerId: 'abc' })
@@ -579,7 +587,7 @@ describe('getInstanceStatus', () => {
       serverPassword: 'enc',
     })
     mockDocker.isContainerRunning.mockResolvedValue(true)
-    mockHealth.mockResolvedValue(false)
+    mockHealth.mockResolvedValue({ ok: false, detail: 'connection_refused' })
 
     await expect(getInstanceStatus('alice')).resolves.toMatchObject({ status: 'starting', containerId: 'abc' })
   })

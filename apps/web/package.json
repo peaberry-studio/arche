@@ -10,6 +10,7 @@
     "prebuild": "pnpm prisma:generate && pnpm prisma:generate:desktop",
     "build": "next build",
     "start": "next start",
+    "start:autopilot": "tsx src/autopilot-daemon.ts",
     "start:reaper": "tsx src/reaper-daemon.ts",
     "lint": "eslint",
     "test": "vitest run",

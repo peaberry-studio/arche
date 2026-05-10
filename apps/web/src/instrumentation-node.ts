@@ -70,8 +70,10 @@ export async function registerNodeInstrumentation() {
   await initWebPrisma()
 
   if (process.env.NODE_ENV === 'production') {
-    const { startAutopilotScheduler } = await import('@/lib/autopilot/scheduler')
-    startAutopilotScheduler()
+    const { shouldStartInlineAutopilotScheduler, startAutopilotScheduler } = await import('@/lib/autopilot/scheduler')
+    if (shouldStartInlineAutopilotScheduler()) {
+      startAutopilotScheduler()
+    }
   }
 
   const { startSlackSocketManager } = await import('@/lib/slack/socket-mode')

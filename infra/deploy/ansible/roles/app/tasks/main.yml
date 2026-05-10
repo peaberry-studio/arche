@@ -377,6 +377,28 @@
   changed_when: false
   ignore_errors: true
 
+- name: Start daemon services (podman compose)
+  ansible.builtin.shell:
+    cmd: >
+      podman compose -f {{ app_dir }}/compose.yml --env-file {{ app_dir }}/.env
+      -p arche up -d reaper autopilot
+  changed_when: true
+  when:
+    - deploy_mode == 'remote'
+    - podman_compose_check.rc == 0
+    - health_check.rc == 0
+
+- name: Start daemon services (podman-compose fallback)
+  ansible.builtin.shell:
+    cmd: >
+      podman-compose -f {{ app_dir }}/compose.yml --env-file {{ app_dir }}/.env
+      -p arche up -d reaper autopilot
+  changed_when: true
+  when:
+    - deploy_mode == 'remote'
+    - podman_compose_check.rc != 0
+    - health_check.rc == 0
+
 # 5e. On failure: capture logs, remove the new container, keep old running
 - name: "AUTO-ROLLBACK: Capture logs from failed container"
   ansible.builtin.shell:
