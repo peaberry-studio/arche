@@ -5,9 +5,12 @@ import { parseDiagramOutput } from '@/components/workspace/chat-panel/diagram-ou
 
 const chartSpec = {
   $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
+  autosize: { type: 'fit', contains: 'padding' },
   title: 'Revenue',
   data: { values: [{ quarter: 'Q1', revenue: 10 }] },
+  height: 320,
   mark: 'bar',
+  width: 'container',
   encoding: {
     x: { field: 'quarter', type: 'nominal' },
     y: { field: 'revenue', type: 'quantitative' },
@@ -50,6 +53,36 @@ describe('parseChartOutput', () => {
       },
     }))).toBeNull()
   })
+
+  it('rejects unsupported top-level Vega-Lite spec keys', () => {
+    expect(parseChartOutput(JSON.stringify({
+      ok: true,
+      format: 'arche-chart/v1',
+      chart: {
+        title: 'Revenue',
+        spec: {
+          ...chartSpec,
+          transform: [{ filter: 'datum.revenue > 0' }],
+        },
+      },
+    }))).toBeNull()
+  })
+
+  it('rejects invalid allowed Vega-Lite layout fields', () => {
+    for (const spec of [
+      { ...chartSpec, width: 5000 },
+      { ...chartSpec, autosize: { type: 'fit', resize: true } },
+    ]) {
+      expect(parseChartOutput(JSON.stringify({
+        ok: true,
+        format: 'arche-chart/v1',
+        chart: {
+          title: 'Revenue',
+          spec,
+        },
+      }))).toBeNull()
+    }
+  })
 })
 
 describe('parseDiagramOutput', () => {
@@ -68,6 +101,24 @@ describe('parseDiagramOutput', () => {
       syntax: 'mermaid',
       title: 'Support flow',
       source: 'flowchart TD\n  A --> B',
+    })
+  })
+
+  it('accepts a bare mindmap type line without trailing whitespace', () => {
+    const result = parseDiagramOutput(JSON.stringify({
+      ok: true,
+      format: 'arche-diagram/v1',
+      diagram: {
+        syntax: 'mermaid',
+        title: 'Plan',
+        source: '%% comment\nmindmap\n  root((Plan))',
+      },
+    }))
+
+    expect(result).toEqual({
+      syntax: 'mermaid',
+      title: 'Plan',
+      source: '%% comment\nmindmap\n  root((Plan))',
     })
   })
 

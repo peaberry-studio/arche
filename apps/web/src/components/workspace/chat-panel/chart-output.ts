@@ -7,15 +7,37 @@ const MAX_TITLE_CHARS = 160
 const MAX_SOURCE_NOTE_CHARS = 300
 const URL_PATTERN = /\b(?:https?:\/\/|www\.)|\b(?:javascript|data):/i
 const HTML_PATTERN = /[<>]/
+const MAX_DIMENSION = 2000
 const SAFE_MARKS = new Set(['bar', 'line', 'area', 'point', 'arc'])
+const SAFE_AUTOSIZE_CONTAINS = new Set(['content', 'padding'])
+const SAFE_AUTOSIZE_KEYS = new Set(['contains', 'type'])
+const SAFE_AUTOSIZE_TYPES = new Set(['fit', 'none', 'pad'])
+const SAFE_TOP_LEVEL_SPEC_KEYS = new Set([
+  '$schema',
+  'autosize',
+  'data',
+  'encoding',
+  'height',
+  'mark',
+  'title',
+  'width',
+])
 const UNSAFE_SPEC_KEYS = new Set(['href', 'src', 'url'])
+
+type ChartAutosize = {
+  contains?: string
+  type?: string
+}
 
 export type ChartSpec = {
   $schema: typeof CHART_SCHEMA
+  autosize?: ChartAutosize
   data: { values: Record<string, unknown>[] }
   encoding: Record<string, unknown>
+  height?: number | string
   mark: string
-  [key: string]: unknown
+  title?: string
+  width?: number | string
 }
 
 export type ChartOutput = {
@@ -71,6 +93,33 @@ function hasUnsafeSpecValue(value: unknown, key = ''): boolean {
   return Object.entries(value).some(([entryKey, entryValue]) => hasUnsafeSpecValue(entryValue, entryKey))
 }
 
+function hasUnsupportedTopLevelSpecKey(spec: Record<string, unknown>): boolean {
+  return Object.keys(spec).some((key) => !SAFE_TOP_LEVEL_SPEC_KEYS.has(key))
+}
+
+function getSafeDimension(value: unknown): number | string | undefined {
+  if (value === 'container') return value
+  if (typeof value !== 'number') return undefined
+  return Number.isFinite(value) && value > 0 && value <= MAX_DIMENSION ? value : undefined
+}
+
+function getSafeAutosize(value: unknown): ChartAutosize | undefined {
+  if (!isRecord(value)) return undefined
+  if (Object.keys(value).some((key) => !SAFE_AUTOSIZE_KEYS.has(key))) return undefined
+
+  const autosize: ChartAutosize = {}
+  if (value.type !== undefined) {
+    if (typeof value.type !== 'string' || !SAFE_AUTOSIZE_TYPES.has(value.type)) return undefined
+    autosize.type = value.type
+  }
+  if (value.contains !== undefined) {
+    if (typeof value.contains !== 'string' || !SAFE_AUTOSIZE_CONTAINS.has(value.contains)) return undefined
+    autosize.contains = value.contains
+  }
+
+  return autosize
+}
+
 export function parseChartOutput(rawOutput?: string): ChartOutput | null {
   const source = rawOutput?.trim()
   if (!source) return null
@@ -95,6 +144,7 @@ export function parseChartOutput(rawOutput?: string): ChartOutput | null {
 
   const spec = parsed.chart.spec
   if (!isRecord(spec)) return null
+  if (hasUnsupportedTopLevelSpecKey(spec)) return null
   if (spec.$schema !== CHART_SCHEMA) return null
   if (typeof spec.mark !== 'string' || !SAFE_MARKS.has(spec.mark)) return null
   if (!isRecord(spec.data) || !isRecordArray(spec.data.values)) return null
@@ -103,13 +153,29 @@ export function parseChartOutput(rawOutput?: string): ChartOutput | null {
   if (!isRecord(spec.encoding)) return null
   if (hasUnsafeSpecValue(spec)) return null
 
+  const specTitle = spec.title === undefined ? undefined : getSafeString(spec.title, MAX_TITLE_CHARS)
+  if (spec.title !== undefined && !specTitle) return null
+
+  const width = spec.width === undefined ? undefined : getSafeDimension(spec.width)
+  if (spec.width !== undefined && width === undefined) return null
+
+  const height = spec.height === undefined ? undefined : getSafeDimension(spec.height)
+  if (spec.height !== undefined && height === undefined) return null
+
+  const autosize = spec.autosize === undefined ? undefined : getSafeAutosize(spec.autosize)
+  if (spec.autosize !== undefined && !autosize) return null
+
   const chartSpec: ChartSpec = {
-    ...spec,
     $schema: CHART_SCHEMA,
     data: { values: spec.data.values },
-    mark: spec.mark,
     encoding: spec.encoding,
+    mark: spec.mark,
   }
+
+  if (autosize) chartSpec.autosize = autosize
+  if (height !== undefined) chartSpec.height = height
+  if (specTitle) chartSpec.title = specTitle
+  if (width !== undefined) chartSpec.width = width
 
   return sourceNote ? { title, sourceNote, spec: chartSpec } : { title, spec: chartSpec }
 }

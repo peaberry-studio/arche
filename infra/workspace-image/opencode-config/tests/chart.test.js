@@ -39,15 +39,23 @@ test('chart_create returns a safe Vega-Lite chart payload', async () => {
   ])
   assert.deepEqual(output.chart.spec.encoding.x, { field: 'quarter', type: 'nominal' })
   assert.deepEqual(output.chart.spec.encoding.y, { field: 'revenue', type: 'quantitative' })
+  assert.equal(output.chart.spec.encoding.tooltip, undefined)
 })
 
 test('chart_create creates pie charts with arc encoding', async () => {
-  const output = await createChart({ type: 'pie' })
+  const output = await createChart({
+    type: 'pie',
+    data: [
+      { quarter: 'Q1', revenue: 0 },
+      { quarter: 'Q2', revenue: 20 },
+    ],
+  })
 
   assert.equal(output.ok, true)
   assert.equal(output.chart.spec.mark, 'arc')
   assert.deepEqual(output.chart.spec.encoding.theta, { field: 'revenue', type: 'quantitative' })
   assert.deepEqual(output.chart.spec.encoding.color, { field: 'quarter', type: 'nominal' })
+  assert.equal(output.chart.spec.encoding.tooltip, undefined)
 })
 
 test('chart_create creates scatter charts with numeric x values', async () => {

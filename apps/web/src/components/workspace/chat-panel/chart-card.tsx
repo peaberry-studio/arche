@@ -12,31 +12,11 @@ import {
 import type { VisualizationSpec } from 'vega-embed'
 
 import type { ChartOutput } from '@/components/workspace/chat-panel/chart-output'
+import { copyTextToClipboard } from '@/components/workspace/chat-panel/clipboard'
 
 type ChartCardProps = {
   chart: ChartOutput
   isRunning: boolean
-}
-
-async function copyTextToClipboard(text: string): Promise<boolean> {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text)
-      return true
-    }
-
-    const textarea = document.createElement('textarea')
-    textarea.value = text
-    textarea.style.position = 'fixed'
-    textarea.style.opacity = '0'
-    document.body.appendChild(textarea)
-    textarea.select()
-    document.execCommand('copy')
-    document.body.removeChild(textarea)
-    return true
-  } catch {
-    return false
-  }
 }
 
 function ChartCopyButton({ text }: { text: string }) {
@@ -99,8 +79,9 @@ export function ChartCard({ chart, isRunning }: ChartCardProps) {
 
         finalize = result.finalize
         setIsLoading(false)
-      } catch {
+      } catch (renderError) {
         if (!cancelled) {
+          console.error('Failed to render chart:', renderError)
           setError('Unable to render chart. The chart spec is still available to copy.')
           setIsLoading(false)
         }

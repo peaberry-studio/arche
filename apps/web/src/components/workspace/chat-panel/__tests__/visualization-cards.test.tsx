@@ -44,7 +44,7 @@ const chart: ChartOutput = {
 const diagram: DiagramOutput = {
   syntax: 'mermaid',
   title: 'Support flow',
-  source: 'flowchart TD\n  A --> B',
+  source: 'graph TD\n  A --> B',
 }
 
 describe('visualization cards', () => {
@@ -83,12 +83,12 @@ describe('visualization cards', () => {
   })
 
   it('renders Mermaid diagrams with strict settings and sanitized SVG', async () => {
-    render(<DiagramCard diagram={diagram} isRunning={false} />)
+    const { rerender } = render(<DiagramCard diagram={diagram} isRunning={false} />)
 
     expect(screen.getByText('Diagram')).toBeTruthy()
     expect(screen.getByText('Support flow')).toBeTruthy()
 
-    await waitFor(() => expect(mermaidInitializeMock).toHaveBeenCalled())
+    await waitFor(() => expect(mermaidInitializeMock).toHaveBeenCalledTimes(1))
     expect(mermaidInitializeMock).toHaveBeenCalledWith(expect.objectContaining({
       securityLevel: 'strict',
       flowchart: { htmlLabels: false },
@@ -100,5 +100,28 @@ describe('visualization cards', () => {
 
     fireEvent.click(screen.getByLabelText('Copy diagram source'))
     await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith(diagram.source))
+
+    rerender(<DiagramCard diagram={{ ...diagram, source: 'graph TD\n  A --> C' }} isRunning={false} />)
+    await waitFor(() => expect(mermaidRenderMock).toHaveBeenCalledTimes(2))
+    expect(mermaidInitializeMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('logs render failures while showing safe error copy', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    embedMock.mockRejectedValueOnce(new Error('bad chart'))
+    mermaidRenderMock.mockRejectedValueOnce(new Error('bad diagram'))
+
+    render(
+      <>
+        <ChartCard chart={chart} isRunning={false} />
+        <DiagramCard diagram={diagram} isRunning={false} />
+      </>,
+    )
+
+    expect(await screen.findByText('Unable to render chart. The chart spec is still available to copy.')).toBeTruthy()
+    expect(await screen.findByText('Unable to render diagram. The Mermaid source is still available to copy.')).toBeTruthy()
+    expect(consoleError).toHaveBeenCalledWith('Failed to render chart:', expect.any(Error))
+    expect(consoleError).toHaveBeenCalledWith('Failed to render diagram:', expect.any(Error))
+    consoleError.mockRestore()
   })
 })

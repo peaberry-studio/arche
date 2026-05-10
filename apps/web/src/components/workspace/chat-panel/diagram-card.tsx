@@ -10,6 +10,7 @@ import {
   WarningCircle,
 } from '@phosphor-icons/react'
 
+import { copyTextToClipboard } from '@/components/workspace/chat-panel/clipboard'
 import {
   hasBlockedMermaidSyntax,
   type DiagramOutput,
@@ -20,25 +21,30 @@ type DiagramCardProps = {
   isRunning: boolean
 }
 
-async function copyTextToClipboard(text: string): Promise<boolean> {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text)
-      return true
-    }
+type MermaidApi = typeof import('mermaid')['default']
 
-    const textarea = document.createElement('textarea')
-    textarea.value = text
-    textarea.style.position = 'fixed'
-    textarea.style.opacity = '0'
-    document.body.appendChild(textarea)
-    textarea.select()
-    document.execCommand('copy')
-    document.body.removeChild(textarea)
-    return true
-  } catch {
-    return false
+let mermaidPromise: Promise<MermaidApi> | undefined
+
+function loadMermaid(): Promise<MermaidApi> {
+  if (!mermaidPromise) {
+    mermaidPromise = import('mermaid')
+      .then(({ default: mermaid }) => {
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: 'strict',
+          flowchart: { htmlLabels: false },
+          theme: 'default',
+        })
+
+        return mermaid
+      })
+      .catch((error: unknown) => {
+        mermaidPromise = undefined
+        throw error
+      })
   }
+
+  return mermaidPromise
 }
 
 function DiagramCopyButton({ text }: { text: string }) {
@@ -86,17 +92,10 @@ export function DiagramCard({ diagram, isRunning }: DiagramCardProps) {
       }
 
       try {
-        const [{ default: mermaid }, { default: DOMPurify }] = await Promise.all([
-          import('mermaid'),
+        const [mermaid, { default: DOMPurify }] = await Promise.all([
+          loadMermaid(),
           import('dompurify'),
         ])
-
-        mermaid.initialize({
-          startOnLoad: false,
-          securityLevel: 'strict',
-          flowchart: { htmlLabels: false },
-          theme: 'default',
-        })
 
         const result = await mermaid.render(`arche-diagram-${renderId}`, diagram.source)
         const cleanSvg = DOMPurify.sanitize(result.svg, {
@@ -107,8 +106,9 @@ export function DiagramCard({ diagram, isRunning }: DiagramCardProps) {
           setSvg(cleanSvg)
           setIsLoading(false)
         }
-      } catch {
+      } catch (renderError) {
         if (!cancelled) {
+          console.error('Failed to render diagram:', renderError)
           setError('Unable to render diagram. The Mermaid source is still available to copy.')
           setIsLoading(false)
         }

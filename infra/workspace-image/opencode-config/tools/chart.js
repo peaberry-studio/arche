@@ -102,7 +102,6 @@ function validateChartData(type, rows, xField, yField) {
 }
 
 function buildSpec({ type, title, xField, yField, data }) {
-  const xType = type === 'scatter' ? 'quantitative' : inferFieldType(data, xField)
   const baseSpec = {
     $schema: VEGA_LITE_SCHEMA,
     title,
@@ -119,14 +118,11 @@ function buildSpec({ type, title, xField, yField, data }) {
       encoding: {
         theta: { field: yField, type: 'quantitative' },
         color: { field: xField, type: 'nominal' },
-        tooltip: [
-          { field: xField, type: 'nominal' },
-          { field: yField, type: 'quantitative' },
-        ],
       },
     }
   }
 
+  const xType = type === 'scatter' ? 'quantitative' : inferFieldType(data, xField)
   const mark = type === 'scatter' ? 'point' : type
   return {
     ...baseSpec,
@@ -134,10 +130,6 @@ function buildSpec({ type, title, xField, yField, data }) {
     encoding: {
       x: { field: xField, type: xType },
       y: { field: yField, type: 'quantitative' },
-      tooltip: [
-        { field: xField, type: xType },
-        { field: yField, type: 'quantitative' },
-      ],
     },
   }
 }

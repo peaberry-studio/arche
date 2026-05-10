@@ -13,6 +13,7 @@ import { ChatCircle, CheckCircle, Copy, File, Info, XCircle } from "@phosphor-ic
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { copyTextToClipboard } from "@/components/workspace/chat-panel/clipboard";
 import {
   FileGroup,
   MessagePartRenderer,
@@ -92,27 +93,6 @@ const CHAT_ERROR_MESSAGES: Record<string, { title: string; description?: string 
     description: "Sign in again and retry your message.",
   },
 };
-
-async function copyTextToClipboard(text: string): Promise<boolean> {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-
-    const textarea = document.createElement("textarea");
-    textarea.value = text;
-    textarea.style.position = "fixed";
-    textarea.style.opacity = "0";
-    document.body.appendChild(textarea);
-    textarea.select();
-    document.execCommand("copy");
-    document.body.removeChild(textarea);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function isSameMinute(ts1?: number, ts2?: number): boolean {
   if (!ts1 || !ts2) return false;
