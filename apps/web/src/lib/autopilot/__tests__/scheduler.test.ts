@@ -18,6 +18,7 @@ vi.mock('@/lib/autopilot/runner', () => ({
 
 describe('autopilot scheduler', () => {
   beforeEach(() => {
+    vi.resetModules()
     vi.useFakeTimers()
     vi.clearAllMocks()
     runClaimedAutopilotTaskMock.mockResolvedValue(undefined)

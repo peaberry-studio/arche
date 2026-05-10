@@ -98,6 +98,24 @@ describe('registerNodeInstrumentation', () => {
     processOnceSpy.mockRestore()
   })
 
+  it('logs inline autopilot startup failures and keeps booting', async () => {
+    const error = new Error('missing scheduler mode')
+    shouldStartInlineAutopilotSchedulerMock.mockImplementation(() => { throw error })
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const processOnceSpy = vi.spyOn(process, 'once').mockImplementation(() => process)
+
+    const { registerNodeInstrumentation } = await import('./instrumentation-node')
+    await registerNodeInstrumentation()
+
+    expect(errorSpy).toHaveBeenCalledWith('[autopilot] Failed to start scheduler', error)
+    expect(startAutopilotSchedulerMock).not.toHaveBeenCalled()
+    expect(startSlackSocketManagerMock).toHaveBeenCalledTimes(1)
+    expect(processOnceSpy).toHaveBeenCalledTimes(3)
+
+    errorSpy.mockRestore()
+    processOnceSpy.mockRestore()
+  })
+
   it('returns early in desktop mode', async () => {
     isDesktopMock.mockReturnValue(true)
     const processOnceSpy = vi.spyOn(process, 'once').mockImplementation(() => process)

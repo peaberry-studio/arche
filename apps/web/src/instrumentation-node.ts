@@ -70,9 +70,13 @@ export async function registerNodeInstrumentation() {
   await initWebPrisma()
 
   if (process.env.NODE_ENV === 'production') {
-    const { shouldStartInlineAutopilotScheduler, startAutopilotScheduler } = await import('@/lib/autopilot/scheduler')
-    if (shouldStartInlineAutopilotScheduler()) {
-      startAutopilotScheduler()
+    try {
+      const { shouldStartInlineAutopilotScheduler, startAutopilotScheduler } = await import('@/lib/autopilot/scheduler')
+      if (shouldStartInlineAutopilotScheduler()) {
+        startAutopilotScheduler()
+      }
+    } catch (error) {
+      console.error('[autopilot] Failed to start scheduler', error)
     }
   }
 
