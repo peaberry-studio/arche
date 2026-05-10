@@ -202,6 +202,8 @@ describe('autopilotService', () => {
         nextRunAt: new Date('2026-04-20T09:00:00Z'),
         leaseOwner: null,
         leaseExpiresAt: null,
+        retryAttempt: 0,
+        retryScheduledFor: null,
       }
       mockPrisma.autopilotTask.findFirst.mockResolvedValue(task)
       mockPrisma.autopilotTask.updateMany.mockResolvedValue({ count: 1 })
@@ -219,6 +221,46 @@ describe('autopilotService', () => {
       expect(result!.leaseOwner).toBe('worker-1')
       expect(result!.scheduledFor).toEqual(task.nextRunAt)
       expect(resolveNextRunAt).toHaveBeenCalledWith(task)
+      expect(mockPrisma.autopilotTask.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            user: {
+              autopilotTasks: {
+                none: {
+                  leaseExpiresAt: { gt: now },
+                },
+              },
+            },
+          }),
+        }),
+      )
+    })
+
+    it('preserves the original scheduled slot when claiming a retry', async () => {
+      const retryScheduledFor = new Date('2026-04-20T09:00:00Z')
+      const task = {
+        id: 'task-1',
+        userId: 'u1',
+        name: 'Test',
+        enabled: true,
+        nextRunAt: new Date('2026-04-20T09:02:00Z'),
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        retryAttempt: 1,
+        retryScheduledFor,
+      }
+      mockPrisma.autopilotTask.findFirst.mockResolvedValue(task)
+      mockPrisma.autopilotTask.updateMany.mockResolvedValue({ count: 1 })
+
+      const { claimNextDueTask } = await import('../autopilot')
+      const result = await claimNextDueTask({
+        leaseMs: 60_000,
+        leaseOwner: 'worker-1',
+        now,
+        resolveNextRunAt,
+      })
+
+      expect(result!.scheduledFor).toEqual(retryScheduledFor)
     })
 
     it('returns null when no due tasks exist', async () => {
@@ -434,7 +476,7 @@ describe('autopilotService', () => {
       const { createRun } = await import('../autopilot')
       const result = await createRun({
         taskId: 'task-1',
-        trigger: AutopilotRunTrigger.scheduled,
+        trigger: AutopilotRunTrigger.schedule,
         scheduledFor,
       })
 
@@ -443,8 +485,9 @@ describe('autopilotService', () => {
         data: {
           taskId: 'task-1',
           status: AutopilotRunStatus.running,
-          trigger: AutopilotRunTrigger.scheduled,
+          trigger: AutopilotRunTrigger.schedule,
           scheduledFor,
+          attempt: 1,
           startedAt: undefined,
         },
       })
@@ -469,6 +512,47 @@ describe('autopilotService', () => {
           status: AutopilotRunStatus.succeeded,
           startedAt,
         }),
+      })
+    })
+  })
+
+  describe('retry state', () => {
+    it('schedules a retry while preserving the original scheduled slot', async () => {
+      const retryAt = new Date('2026-04-20T10:02:00Z')
+      const retryScheduledFor = new Date('2026-04-20T10:00:00Z')
+      mockPrisma.autopilotTask.updateMany.mockResolvedValue({ count: 1 })
+
+      const { scheduleTaskRetry } = await import('../autopilot')
+      await scheduleTaskRetry({
+        leaseOwner: 'worker-1',
+        retryAttempt: 1,
+        retryAt,
+        retryScheduledFor,
+        taskId: 'task-1',
+      })
+
+      expect(mockPrisma.autopilotTask.updateMany).toHaveBeenCalledWith({
+        where: { id: 'task-1', leaseOwner: 'worker-1' },
+        data: {
+          nextRunAt: retryAt,
+          retryAttempt: 1,
+          retryScheduledFor,
+        },
+      })
+    })
+
+    it('clears retry state for the owned task lease', async () => {
+      mockPrisma.autopilotTask.updateMany.mockResolvedValue({ count: 1 })
+
+      const { clearTaskRetryState } = await import('../autopilot')
+      await clearTaskRetryState('task-1', 'worker-1')
+
+      expect(mockPrisma.autopilotTask.updateMany).toHaveBeenCalledWith({
+        where: { id: 'task-1', leaseOwner: 'worker-1' },
+        data: {
+          retryAttempt: 0,
+          retryScheduledFor: null,
+        },
       })
     })
   })
@@ -677,7 +761,7 @@ describe('autopilotService', () => {
       mockPrisma.autopilotRun.findMany.mockResolvedValue([
         {
           id: 'run-1',
-          trigger: AutopilotRunTrigger.scheduled,
+          trigger: AutopilotRunTrigger.schedule,
           openCodeSessionId: 'oc-session-1',
           resultSeenAt: null,
           status: AutopilotRunStatus.succeeded,
@@ -691,7 +775,7 @@ describe('autopilotService', () => {
       expect(result).toEqual([
         {
           openCodeSessionId: 'oc-session-1',
-          trigger: AutopilotRunTrigger.scheduled,
+          trigger: AutopilotRunTrigger.schedule,
           taskId: 'task-1',
           taskName: 'Daily report',
           runId: 'run-1',
@@ -704,7 +788,7 @@ describe('autopilotService', () => {
       mockPrisma.autopilotRun.findMany.mockResolvedValue([
         {
           id: 'run-1',
-          trigger: AutopilotRunTrigger.scheduled,
+          trigger: AutopilotRunTrigger.schedule,
           openCodeSessionId: null,
           resultSeenAt: null,
           status: AutopilotRunStatus.succeeded,
@@ -740,7 +824,7 @@ describe('autopilotService', () => {
       mockPrisma.autopilotRun.findMany.mockResolvedValue([
         {
           id: 'run-1',
-          trigger: AutopilotRunTrigger.scheduled,
+          trigger: AutopilotRunTrigger.schedule,
           openCodeSessionId: 'oc-session-1',
           resultSeenAt: new Date('2026-04-20T10:00:00Z'),
           status: AutopilotRunStatus.succeeded,

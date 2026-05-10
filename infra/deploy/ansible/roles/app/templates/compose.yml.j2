@@ -132,6 +132,28 @@ services:
         condition: service_healthy
       docker-socket-proxy:
         condition: service_healthy
+    healthcheck:
+      disable: true
+
+  autopilot:
+    image: {{ web_image }}
+    restart: "unless-stopped"
+    command:
+      - pnpm
+      - run
+      - start:autopilot
+    env_file:
+      - {{ env_file_name | default('.env') }}
+    networks:
+      - default
+      - arche-internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      docker-socket-proxy:
+        condition: service_healthy
+    healthcheck:
+      disable: true
 {% endif %}
 
 {% if deploy_mode == 'local-dev' %}

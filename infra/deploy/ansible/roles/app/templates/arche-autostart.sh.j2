@@ -67,7 +67,7 @@ current_web_container_ids() {
 
 wait_for_podman
 
-compose up -d postgres traefik docker-socket-proxy{% if deploy_mode == 'remote' %} reaper{% endif %}
+compose up -d postgres traefik docker-socket-proxy{% if deploy_mode == 'remote' %} reaper autopilot{% endif %}
 
 # Web and workspace containers are managed outside compose.
 web_container_ids="$(current_web_container_ids)"

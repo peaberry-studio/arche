@@ -15,6 +15,60 @@ import {
 
 export { getInstanceBasicAuth, getInstanceUrl } from '@/lib/opencode/connection-resolver'
 
+export type InstanceHealthResult =
+  | { ok: true }
+  | { ok: false; detail: string; message?: string }
+
+function getErrorMessage(error: unknown): string | undefined {
+  if (error instanceof Error) {
+    return error.message
+  }
+
+  return typeof error === 'string' ? error : undefined
+}
+
+function getErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object') {
+    return undefined
+  }
+
+  const record = error as { cause?: unknown; code?: unknown }
+  if (typeof record.code === 'string') {
+    return record.code
+  }
+
+  if (record.cause && typeof record.cause === 'object') {
+    const cause = record.cause as { code?: unknown }
+    if (typeof cause.code === 'string') {
+      return cause.code
+    }
+  }
+
+  return undefined
+}
+
+function describeFetchError(error: unknown): { detail: string; message?: string } {
+  const code = getErrorCode(error)
+  const message = getErrorMessage(error)
+  if (code === 'ENOTFOUND') {
+    return { detail: 'dns_resolution_error', message }
+  }
+
+  if (code === 'ECONNREFUSED') {
+    return { detail: 'connection_refused', message }
+  }
+
+  if (code === 'ETIMEDOUT' || code === 'UND_ERR_CONNECT_TIMEOUT') {
+    return { detail: 'connect_timeout', message }
+  }
+
+  return { detail: code ?? 'fetch_failed', message }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
 /**
  * Create an authenticated OpenCode client for a specific user's instance.
  * Returns null if the instance is not running or credentials are unavailable.
@@ -31,8 +85,12 @@ export async function createInstanceClient(slug: string): Promise<OpencodeClient
 /**
  * Check if an OpenCode instance is healthy using explicit credentials.
  */
-export async function isInstanceHealthyWithPassword(slug: string, password: string): Promise<boolean> {
-  const baseUrl = resolveInstanceUrl(slug)
+export async function isInstanceHealthyWithPassword(
+  slug: string,
+  password: string,
+  overrideBaseUrl?: string,
+): Promise<InstanceHealthResult> {
+  const baseUrl = resolveInstanceUrl(slug, overrideBaseUrl)
   const authHeader = `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`
 
   try {
@@ -44,12 +102,28 @@ export async function isInstanceHealthyWithPassword(slug: string, password: stri
       cache: 'no-store',
     })
 
-    if (!response.ok) return false
+    if (!response.ok) {
+      return {
+        ok: false,
+        detail: `http_status_${response.status}`,
+        ...(response.statusText ? { message: response.statusText } : {}),
+      }
+    }
 
-    const data = await response.json().catch(() => null)
-    return data?.healthy === true
-  } catch {
-    return false
+    let data: unknown
+    try {
+      data = await response.json()
+    } catch (error) {
+      return { ok: false, detail: 'invalid_json', message: getErrorMessage(error) }
+    }
+
+    if (isRecord(data) && data.healthy === true) {
+      return { ok: true }
+    }
+
+    return { ok: false, detail: 'unhealthy_response', message: JSON.stringify(data) }
+  } catch (error) {
+    return { ok: false, ...describeFetchError(error) }
   }
 }
 

@@ -50,6 +50,58 @@ async function getContainerClient(): Promise<DockerClient> {
   });
 }
 
+function getDockerErrorMessage(error: unknown): string | undefined {
+  if (typeof error === 'string') {
+    return error;
+  }
+
+  if (!error || typeof error !== 'object') {
+    return undefined;
+  }
+
+  const record = error as { json?: { message?: unknown }; message?: unknown; reason?: unknown };
+  if (typeof record.json?.message === 'string') {
+    return record.json.message;
+  }
+
+  if (typeof record.message === 'string') {
+    return record.message;
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return typeof record.reason === 'string' ? record.reason : undefined;
+}
+
+function isContainerNameConflict(error: unknown): boolean {
+  const message = getDockerErrorMessage(error)?.toLowerCase() ?? '';
+  return (
+    message.includes('name is already in use') ||
+    (message.includes('container name') && message.includes('already in use'))
+  );
+}
+
+async function removeManagedContainerForSlugWithClient(docker: DockerClient, slug: string): Promise<boolean> {
+  const container = docker.getContainer(`opencode-${slug}`);
+
+  try {
+    const info = await container.inspect();
+    const labels = info.Config?.Labels ?? {};
+
+    if (labels["arche.managed"] !== "true" || labels["arche.user.slug"] !== slug) {
+      console.warn('[docker] Refusing to remove unmanaged container name conflict:', { slug });
+      return false;
+    }
+
+    await container.remove({ force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function createContainer(
   slug: string,
   password: string,
@@ -150,7 +202,7 @@ export async function createContainer(
     `WORKSPACE_GIT_AUTHOR_EMAIL=${gitAuthor?.email ?? `${slug}@arche.local`}`,
   ];
 
-  return docker.createContainer({
+  const options = {
     Image: getOpencodeImage(),
     name: containerName,
     WorkingDir: "/workspace",
@@ -166,7 +218,23 @@ export async function createContainer(
       "arche.managed": "true",
       "arche.user.slug": slug,
     },
-  });
+  };
+
+  try {
+    return await docker.createContainer(options);
+  } catch (error) {
+    if (!isContainerNameConflict(error)) {
+      throw error;
+    }
+
+    const removed = await removeManagedContainerForSlugWithClient(docker, slug);
+    if (!removed) {
+      throw error;
+    }
+
+    console.warn('[docker] Removed managed container after name conflict, retrying create:', { slug });
+    return docker.createContainer(options);
+  }
 }
 
 export async function startContainer(containerId: string): Promise<void> {
@@ -189,22 +257,7 @@ export async function removeContainer(containerId: string): Promise<void> {
 
 export async function removeManagedContainerForSlug(slug: string): Promise<boolean> {
   const docker = await getContainerClient();
-  const container = docker.getContainer(`opencode-${slug}`);
-
-  try {
-    const info = await container.inspect();
-    const labels = info.Config?.Labels ?? {};
-
-    if (labels["arche.managed"] !== "true" || labels["arche.user.slug"] !== slug) {
-      console.warn('[docker] Refusing to remove unmanaged container name conflict:', { slug });
-      return false;
-    }
-
-    await container.remove({ force: true });
-    return true;
-  } catch {
-    return false;
-  }
+  return removeManagedContainerForSlugWithClient(docker, slug);
 }
 
 export async function inspectContainer(containerId: string) {

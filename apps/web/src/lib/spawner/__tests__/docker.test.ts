@@ -280,6 +280,51 @@ describe('docker', () => {
         })
       )
     })
+
+    it('removes a managed container name conflict and retries create once', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      try {
+        mockDockerInstance.createContainer.mockRejectedValueOnce(new Error('container name is already in use'))
+        mockContainer.inspect.mockResolvedValue({
+          Config: {
+            Labels: {
+              'arche.managed': 'true',
+              'arche.user.slug': 'user-slug',
+            },
+          },
+        })
+
+        await expect(createContainer('user-slug', 'secret-password')).resolves.toBe(mockContainer)
+
+        expect(mockDockerInstance.getContainer).toHaveBeenCalledWith('opencode-user-slug')
+        expect(mockContainer.remove).toHaveBeenCalledWith({ force: true })
+        expect(mockDockerInstance.createContainer).toHaveBeenCalledTimes(2)
+      } finally {
+        consoleWarnSpy.mockRestore()
+      }
+    })
+
+    it('does not remove an unmanaged container after a name conflict', async () => {
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      try {
+        mockDockerInstance.createContainer.mockRejectedValueOnce(new Error('container name is already in use'))
+        mockContainer.inspect.mockResolvedValue({
+          Config: {
+            Labels: {
+              'arche.managed': 'false',
+              'arche.user.slug': 'user-slug',
+            },
+          },
+        })
+
+        await expect(createContainer('user-slug', 'secret-password')).rejects.toThrow('container name is already in use')
+
+        expect(mockContainer.remove).not.toHaveBeenCalled()
+        expect(mockDockerInstance.createContainer).toHaveBeenCalledTimes(1)
+      } finally {
+        consoleWarnSpy.mockRestore()
+      }
+    })
   })
 
   describe('startContainer', () => {

@@ -1,5 +1,5 @@
 import { auditService, instanceService, providerService } from '@/lib/services'
-import { getInstanceUrl, isInstanceHealthyWithPassword } from '@/lib/opencode/client'
+import { getInstanceUrl, isInstanceHealthyWithPassword, type InstanceHealthResult } from '@/lib/opencode/client'
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
 import * as docker from './docker'
 import { decryptPassword, generatePassword, encryptPassword } from './crypto'
@@ -17,6 +17,15 @@ export type StartResult =
 export type StopResult =
   | { ok: true; status: 'stopped' }
   | { ok: false; error: 'not_running' | 'stop_failed' }
+
+type ContainerNetworkInspect = {
+  NetworkSettings?: {
+    IPAddress?: string
+    Networks?: Record<string, { IPAddress?: string }>
+  }
+}
+
+type StartupHealthResult = InstanceHealthResult & { baseUrl?: string }
 
 function getErrorDetail(err: unknown): string | undefined {
   if (!err || typeof err !== 'object') return undefined
@@ -70,12 +79,21 @@ export async function startInstance(slug: string, userId: string): Promise<Start
 
     const healthy = await waitForHealthy(container.id, slug, password)
 
-    if (!healthy) {
+    if (!healthy.ok) {
+      const timeoutDetail = healthy.message
+        ? `healthcheck timeout: ${healthy.detail}: ${healthy.message}`
+        : `healthcheck timeout: ${healthy.detail}`
+      console.warn('[spawner] OpenCode healthcheck timed out', {
+        containerId: container.id,
+        detail: healthy.detail,
+        message: healthy.message,
+        slug,
+      })
       await docker.stopContainer(container.id).catch(() => {})
       await docker.removeContainer(container.id).catch(() => {})
       containerId = null
       await instanceService.setError(slug)
-      return { ok: false, error: 'timeout', detail: 'healthcheck timeout' }
+      return { ok: false, error: 'timeout', detail: timeoutDetail }
     }
 
     // Sync providers and clear OpenCode's discovery cache BEFORE marking as
@@ -84,7 +102,7 @@ export async function startInstance(slug: string, userId: string): Promise<Start
     const syncUserId = owner?.id ?? userId
     const syncResult = await syncProviderAccessForInstance({
       instance: {
-        baseUrl: getInstanceUrl(slug),
+        baseUrl: healthy.baseUrl ?? getInstanceUrl(slug),
         authHeader: `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`,
       },
       slug,
@@ -180,9 +198,9 @@ export async function getInstanceStatus(slug: string) {
     // Verify OpenCode is actually responding
     try {
       const password = decryptPassword(instance.serverPassword)
-      const isHealthy = await isInstanceHealthyWithPassword(slug, password)
+      const health = await isInstanceHealthyWithPassword(slug, password)
 
-      if (isHealthy) {
+      if (health.ok) {
         if (instance.status !== 'running') {
           await instanceService.correctToRunning(slug)
         }
@@ -214,9 +232,46 @@ export function isSlowStart(instance: { status: string; startedAt: Date | null }
   return elapsed > getStartExpectedMs()
 }
 
-async function waitForHealthy(containerId: string, slug: string, password: string): Promise<boolean> {
+function getContainerIpAddress(info: ContainerNetworkInspect): string | null {
+  const directIp = info.NetworkSettings?.IPAddress
+  if (directIp) {
+    return directIp
+  }
+
+  const networks = info.NetworkSettings?.Networks
+  if (!networks) {
+    return null
+  }
+
+  for (const network of Object.values(networks)) {
+    if (network.IPAddress) {
+      return network.IPAddress
+    }
+  }
+
+  return null
+}
+
+async function getContainerHealthBaseUrl(containerId: string): Promise<string | null> {
+  try {
+    const info: ContainerNetworkInspect = await docker.inspectContainer(containerId)
+    const ipAddress = getContainerIpAddress(info)
+    return ipAddress ? `http://${ipAddress}:4096` : null
+  } catch (error) {
+    console.warn('[spawner] Failed to inspect container IP for healthcheck', {
+      containerId,
+      error: error instanceof Error ? error.message : error,
+    })
+    return null
+  }
+}
+
+async function waitForHealthy(containerId: string, slug: string, password: string): Promise<StartupHealthResult> {
   const timeout = getStartTimeoutMs()
   const start = Date.now()
+  let directBaseUrl: string | null | undefined
+  let directHealthy = false
+  let lastHealth: InstanceHealthResult = { ok: false, detail: 'container_not_running' }
 
   while (Date.now() - start < timeout) {
     // First check if container is running
@@ -226,12 +281,54 @@ async function waitForHealthy(containerId: string, slug: string, password: strin
       continue
     }
 
+    if (directBaseUrl === undefined) {
+      directBaseUrl = await getContainerHealthBaseUrl(containerId)
+      if (directBaseUrl) {
+        console.log('[spawner] Using direct container IP for initial healthcheck', {
+          baseUrl: directBaseUrl,
+          containerId,
+          slug,
+        })
+      }
+    }
+
+    if (directBaseUrl && !directHealthy) {
+      const directHealth = await isInstanceHealthyWithPassword(slug, password, directBaseUrl)
+      if (directHealth.ok) {
+        directHealthy = true
+        console.log('[spawner] OpenCode responded on direct container IP', { containerId, slug })
+      } else {
+        lastHealth = directHealth
+      }
+    }
+
     // Then verify OpenCode is actually responding
-    const healthy = await isInstanceHealthyWithPassword(slug, password)
-    if (healthy) return true
+    const health = await isInstanceHealthyWithPassword(slug, password)
+    if (health.ok) return health
+    lastHealth = health
+
+    if (directHealthy) {
+      console.warn('[spawner] DNS healthcheck unavailable after direct IP success; continuing startup', {
+        containerId,
+        detail: health.detail,
+        directBaseUrl,
+        message: health.message,
+        slug,
+      })
+      return { ok: true, baseUrl: directBaseUrl ?? undefined }
+    }
 
     await new Promise(r => setTimeout(r, 1000))
   }
 
-  return false
+  if (directHealthy) {
+    console.warn('[spawner] DNS healthcheck timed out after direct IP success; continuing startup', {
+      containerId,
+      directBaseUrl,
+      slug,
+    })
+    return { ok: true, baseUrl: directBaseUrl ?? undefined }
+  }
+
+  return lastHealth.ok ? { ok: false, detail: 'healthcheck timeout' } : lastHealth
 }

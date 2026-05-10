@@ -98,6 +98,7 @@ vi.mock('../docker', () => ({
   stopContainer: vi.fn(),
   removeContainer: vi.fn(),
   removeManagedContainerForSlug: vi.fn().mockResolvedValue(false),
+  inspectContainer: vi.fn(),
   isContainerRunning: vi.fn(),
 }))
 
@@ -159,7 +160,14 @@ beforeEach(async () => {
       data: await reader({ repoDir: snapshotRepoDir!, hash: 'snapshot-hash' }),
     })
   )
-  mockHealth.mockResolvedValue(true)
+  mockDocker.inspectContainer.mockResolvedValue({
+    NetworkSettings: {
+      Networks: {
+        'arche-internal': { IPAddress: '10.88.0.12' },
+      },
+    },
+  })
+  mockHealth.mockResolvedValue({ ok: true })
   mockSync.mockResolvedValue({ ok: true })
   mockBuildMcpConfigForSlug.mockResolvedValue(null)
 })
@@ -222,7 +230,7 @@ describe('startInstance', () => {
       mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
       mockDocker.startContainer.mockResolvedValue(undefined)
       mockDocker.isContainerRunning.mockResolvedValue(true)
-      mockHealth.mockResolvedValue(true)
+      mockHealth.mockResolvedValue({ ok: true })
 
       const result = await startInstance('alice', 'user-1')
 
@@ -372,6 +380,43 @@ describe('startInstance', () => {
     expect(syncCall).not.toHaveProperty('disposeInstance', false)
   })
 
+  it('continues startup through direct container IP when DNS healthcheck stays unavailable', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    try {
+      mockInstance.findBySlug.mockResolvedValue(null)
+      mockInstance.upsertStarting.mockResolvedValue({} as never)
+      mockInstance.setContainerId.mockResolvedValue({} as never)
+      mockInstance.setRunning.mockResolvedValue({} as never)
+      mockUser.findIdentityBySlug.mockResolvedValue(null)
+      mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
+      mockDocker.startContainer.mockResolvedValue(undefined)
+      mockDocker.isContainerRunning.mockResolvedValue(true)
+      mockHealth.mockImplementation(async (_slug, _password, baseUrl) => {
+        if (baseUrl === 'http://10.88.0.12:4096') {
+          return { ok: true }
+        }
+
+        return { ok: false, detail: 'dns_resolution_error' }
+      })
+
+      await expect(startInstance('alice', 'user-1')).resolves.toEqual({ ok: true, status: 'running' })
+      expect(mockSync).toHaveBeenCalledWith({
+        instance: { baseUrl: 'http://10.88.0.12:4096', authHeader: expect.any(String) },
+        slug: 'alice',
+        userId: 'user-1',
+      })
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[spawner] DNS healthcheck unavailable after direct IP success; continuing startup',
+        expect.objectContaining({ detail: 'dns_resolution_error', directBaseUrl: 'http://10.88.0.12:4096' }),
+      )
+    } finally {
+      logSpy.mockRestore()
+      warnSpy.mockRestore()
+    }
+  })
+
   it('marks the workspace for restart when provider sync fails', async () => {
     mockInstance.findBySlug.mockResolvedValue(null)
     mockInstance.upsertStarting.mockResolvedValue({} as never)
@@ -398,7 +443,7 @@ describe('startInstance', () => {
     mockDocker.createContainer.mockResolvedValue({ id: 'container-123' } as never)
     mockDocker.startContainer.mockResolvedValue(undefined)
     mockDocker.isContainerRunning.mockResolvedValue(false)
-    mockHealth.mockResolvedValue(false)
+    mockHealth.mockResolvedValue({ ok: false, detail: 'connection_refused', message: 'ECONNREFUSED' })
     mockDocker.stopContainer.mockResolvedValue(undefined)
     mockDocker.removeContainer.mockResolvedValue(undefined)
 
@@ -510,7 +555,7 @@ describe('getInstanceStatus', () => {
       serverPassword: 'enc',
     })
     mockDocker.isContainerRunning.mockResolvedValue(true)
-    mockHealth.mockResolvedValue(true)
+    mockHealth.mockResolvedValue({ ok: true })
 
     const result = await getInstanceStatus('alice')
 
@@ -565,7 +610,7 @@ describe('getInstanceStatus', () => {
       serverPassword: 'enc',
     })
     mockDocker.isContainerRunning.mockResolvedValue(true)
-    mockHealth.mockResolvedValue(true)
+    mockHealth.mockResolvedValue({ ok: true })
     mockInstance.correctToRunning.mockResolvedValue({} as never)
 
     await expect(getInstanceStatus('alice')).resolves.toMatchObject({ status: 'running', containerId: 'abc' })
@@ -579,7 +624,7 @@ describe('getInstanceStatus', () => {
       serverPassword: 'enc',
     })
     mockDocker.isContainerRunning.mockResolvedValue(true)
-    mockHealth.mockResolvedValue(false)
+    mockHealth.mockResolvedValue({ ok: false, detail: 'connection_refused' })
 
     await expect(getInstanceStatus('alice')).resolves.toMatchObject({ status: 'starting', containerId: 'abc' })
   })

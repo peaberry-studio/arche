@@ -15,6 +15,8 @@ export type AutopilotTaskRecord = {
   lastRunAt: Date | null
   leaseOwner: string | null
   leaseExpiresAt: Date | null
+  retryAttempt: number
+  retryScheduledFor: Date | null
   createdAt: Date
   updatedAt: Date
 }
@@ -25,6 +27,7 @@ export type AutopilotRunRecord = {
   status: AutopilotRunStatus
   trigger: AutopilotRunTrigger
   scheduledFor: Date
+  attempt: number
   startedAt: Date
   finishedAt: Date | null
   error: string | null
@@ -83,6 +86,20 @@ function availableLease(now: Date): LeaseScope[] {
     { leaseExpiresAt: null },
     { leaseExpiresAt: { lt: now } },
   ]
+}
+
+function noActiveUserLease(now: Date) {
+  return {
+    user: {
+      autopilotTasks: {
+        none: {
+          leaseExpiresAt: {
+            gt: now,
+          },
+        },
+      },
+    },
+  }
 }
 
 export async function listTasksByUserId(userId: string): Promise<AutopilotTaskListRecord[]> {
@@ -165,6 +182,7 @@ export async function claimNextDueTask(params: {
         enabled: true,
         nextRunAt: { lte: params.now },
         OR: availableLease(params.now),
+        ...noActiveUserLease(params.now),
       },
       orderBy: [
         { nextRunAt: 'asc' },
@@ -180,6 +198,7 @@ export async function claimNextDueTask(params: {
     // We advance nextRunAt as part of the lease claim, so a process crash after
     // claiming but before execution can skip the current slot instead of replaying it.
     const nextRunAt = params.resolveNextRunAt(task)
+    const scheduledFor = task.retryScheduledFor ?? task.nextRunAt
     const leaseExpiresAt = new Date(params.now.getTime() + params.leaseMs)
     const claimed = await prisma.autopilotTask.updateMany({
       where: {
@@ -187,6 +206,7 @@ export async function claimNextDueTask(params: {
         enabled: true,
         nextRunAt: task.nextRunAt,
         OR: availableLease(params.now),
+        ...noActiveUserLease(params.now),
       },
       data: {
         leaseOwner: params.leaseOwner,
@@ -196,12 +216,19 @@ export async function claimNextDueTask(params: {
     })
 
     if (claimed.count === 1) {
+      console.log('[autopilot] Task claimed', {
+        taskId: task.id,
+        userId: task.userId,
+        scheduledFor: scheduledFor.toISOString(),
+        retryAttempt: task.retryAttempt,
+      })
+
       return {
         ...task,
         leaseOwner: params.leaseOwner,
         leaseExpiresAt,
         nextRunAt,
-        scheduledFor: task.nextRunAt,
+        scheduledFor,
       }
     }
   }
@@ -285,6 +312,7 @@ export function createRun(data: {
   trigger: AutopilotRunTrigger
   scheduledFor: Date
   startedAt?: Date
+  attempt?: number
 }): Promise<AutopilotRunRecord> {
   return prisma.autopilotRun.create({
     data: {
@@ -292,7 +320,41 @@ export function createRun(data: {
       status: data.status ?? AutopilotRunStatus.running,
       trigger: data.trigger,
       scheduledFor: data.scheduledFor,
+      attempt: data.attempt ?? 1,
       startedAt: data.startedAt,
+    },
+  })
+}
+
+export function scheduleTaskRetry(data: {
+  taskId: string
+  leaseOwner: string
+  retryAttempt: number
+  retryAt: Date
+  retryScheduledFor: Date
+}) {
+  return prisma.autopilotTask.updateMany({
+    where: {
+      id: data.taskId,
+      leaseOwner: data.leaseOwner,
+    },
+    data: {
+      nextRunAt: data.retryAt,
+      retryAttempt: data.retryAttempt,
+      retryScheduledFor: data.retryScheduledFor,
+    },
+  })
+}
+
+export function clearTaskRetryState(id: string, leaseOwner: string) {
+  return prisma.autopilotTask.updateMany({
+    where: {
+      id,
+      leaseOwner,
+    },
+    data: {
+      retryAttempt: 0,
+      retryScheduledFor: null,
     },
   })
 }

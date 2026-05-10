@@ -6,7 +6,11 @@ export async function ensureAutopilotSchedulerStarted(): Promise<void> {
   }
 
   try {
-    const { startAutopilotScheduler } = await import('@/lib/autopilot/scheduler')
+    const { shouldStartInlineAutopilotScheduler, startAutopilotScheduler } = await import('@/lib/autopilot/scheduler')
+    if (!shouldStartInlineAutopilotScheduler()) {
+      return
+    }
+
     startAutopilotScheduler()
   } catch (error) {
     console.error('[autopilot] Failed to start scheduler', error)

@@ -2,11 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const initWebPrismaMock = vi.fn()
 const isDesktopMock = vi.fn()
+const shouldStartInlineAutopilotSchedulerMock = vi.fn()
 const startAutopilotSchedulerMock = vi.fn()
 const startReaperMock = vi.fn()
 const startSlackSocketManagerMock = vi.fn()
 
 vi.mock('@/lib/autopilot/scheduler', () => ({
+  shouldStartInlineAutopilotScheduler: (...args: unknown[]) => shouldStartInlineAutopilotSchedulerMock(...args),
   startAutopilotScheduler: (...args: unknown[]) => startAutopilotSchedulerMock(...args),
   stopAutopilotScheduler: vi.fn(),
 }))
@@ -38,6 +40,7 @@ describe('registerNodeInstrumentation', () => {
     vi.resetModules()
     delete globalThis.archeWebCleanupRegistered
     isDesktopMock.mockReturnValue(false)
+    shouldStartInlineAutopilotSchedulerMock.mockReturnValue(true)
     initWebPrismaMock.mockResolvedValue(undefined)
     process.env.NODE_ENV = 'production'
   })
@@ -78,6 +81,38 @@ describe('registerNodeInstrumentation', () => {
     expect(startAutopilotSchedulerMock).not.toHaveBeenCalled()
     expect(processOnceSpy).toHaveBeenCalledTimes(3)
 
+    processOnceSpy.mockRestore()
+  })
+
+  it('skips inline autopilot startup when scheduler mode is daemon', async () => {
+    shouldStartInlineAutopilotSchedulerMock.mockReturnValue(false)
+    const processOnceSpy = vi.spyOn(process, 'once').mockImplementation(() => process)
+
+    const { registerNodeInstrumentation } = await import('./instrumentation-node')
+    await registerNodeInstrumentation()
+
+    expect(shouldStartInlineAutopilotSchedulerMock).toHaveBeenCalledTimes(1)
+    expect(startAutopilotSchedulerMock).not.toHaveBeenCalled()
+    expect(startSlackSocketManagerMock).toHaveBeenCalledTimes(1)
+
+    processOnceSpy.mockRestore()
+  })
+
+  it('logs inline autopilot startup failures and keeps booting', async () => {
+    const error = new Error('missing scheduler mode')
+    shouldStartInlineAutopilotSchedulerMock.mockImplementation(() => { throw error })
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const processOnceSpy = vi.spyOn(process, 'once').mockImplementation(() => process)
+
+    const { registerNodeInstrumentation } = await import('./instrumentation-node')
+    await registerNodeInstrumentation()
+
+    expect(errorSpy).toHaveBeenCalledWith('[autopilot] Failed to start scheduler', error)
+    expect(startAutopilotSchedulerMock).not.toHaveBeenCalled()
+    expect(startSlackSocketManagerMock).toHaveBeenCalledTimes(1)
+    expect(processOnceSpy).toHaveBeenCalledTimes(3)
+
+    errorSpy.mockRestore()
     processOnceSpy.mockRestore()
   })
 

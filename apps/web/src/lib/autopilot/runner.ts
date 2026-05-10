@@ -1,6 +1,7 @@
 import { AutopilotRunTrigger } from '@prisma/client'
 
 import { formatAutopilotRunDate } from '@/lib/autopilot/cron'
+import { planAutopilotRetry } from '@/lib/autopilot/retry-policy'
 import { createInstanceClient } from '@/lib/opencode/client'
 import {
   ensureWorkspaceRunningForExecution,
@@ -33,7 +34,10 @@ export async function runClaimedAutopilotTask(
   task: AutopilotClaimedTask,
   trigger: AutopilotRunTrigger,
 ): Promise<void> {
+  const attempt = task.retryAttempt + 1
+  const originalScheduledFor = task.retryScheduledFor ?? task.scheduledFor
   const run = await autopilotService.createRun({
+    attempt,
     taskId: task.id,
     trigger,
     scheduledFor: task.scheduledFor,
@@ -43,16 +47,82 @@ export async function runClaimedAutopilotTask(
   let sessionId: string | null = null
   let slug: string | null = null
   let sessionTitle: string | null = null
+  let promptSent = false
 
   const buildAuditMetadata = (extra: Record<string, unknown> = {}) => ({
+    attempt,
     runId: run.id,
     sessionId,
+    originalScheduledFor: originalScheduledFor.toISOString(),
+    scheduledFor: task.scheduledFor.toISOString(),
     taskId: task.id,
     trigger,
     userId: task.userId,
     ...(slug ? { slug } : {}),
     ...extra,
   })
+
+  const markFailed = async (detail: string, failedAt: Date) => {
+    const retryPlan = planAutopilotRetry({
+      error: detail,
+      now: failedAt,
+      promptSent,
+      retryAttempt: task.retryAttempt,
+      trigger,
+    })
+
+    await autopilotService.markRunFailed(run.id, {
+      error: detail,
+      finishedAt: failedAt,
+      openCodeSessionId: sessionId,
+      sessionTitle,
+    })
+
+    if (retryPlan.ok) {
+      await autopilotService.scheduleTaskRetry({
+        leaseOwner: task.leaseOwner ?? '',
+        retryAttempt: retryPlan.nextRetryAttempt,
+        retryAt: retryPlan.retryAt,
+        retryScheduledFor: originalScheduledFor,
+        taskId: task.id,
+      })
+
+      console.warn('[autopilot] Retry scheduled', {
+        attempt,
+        error: detail,
+        maxAttempts: retryPlan.maxAttempts,
+        retryAt: retryPlan.retryAt.toISOString(),
+        taskId: task.id,
+      })
+
+      await auditService.createEvent({
+        actorUserId: task.userId,
+        action: 'autopilot.run_failed',
+        metadata: buildAuditMetadata({
+          error: detail,
+          maxAttempts: retryPlan.maxAttempts,
+          retryAt: retryPlan.retryAt.toISOString(),
+          willRetry: true,
+        }),
+      })
+      return
+    }
+
+    if (task.retryAttempt > 0 || task.retryScheduledFor) {
+      await autopilotService.clearTaskRetryState(task.id, task.leaseOwner ?? '').catch(() => undefined)
+    }
+
+    await auditService.createEvent({
+      actorUserId: task.userId,
+      action: 'autopilot.run_failed',
+      metadata: buildAuditMetadata({
+        error: detail,
+        maxAttempts: retryPlan.maxAttempts,
+        retryReason: retryPlan.reason,
+        willRetry: false,
+      }),
+    })
+  }
 
   try {
     const owner = await userService.findByIdSelect(task.userId, { slug: true })
@@ -85,6 +155,7 @@ export async function runClaimedAutopilotTask(
       sessionTitle,
     })
 
+    promptSent = true
     await client.session.promptAsync(
       {
         sessionID: sessionId,
@@ -121,18 +192,12 @@ export async function runClaimedAutopilotTask(
     const completedAt = new Date()
     finishedAt = completedAt
     if (failure) {
-      await autopilotService.markRunFailed(run.id, {
-        error: failure,
-        finishedAt: completedAt,
-        openCodeSessionId: sessionId,
-        sessionTitle,
-      })
-      await auditService.createEvent({
-        actorUserId: task.userId,
-        action: 'autopilot.run_failed',
-        metadata: buildAuditMetadata({ error: failure }),
-      })
+      await markFailed(failure, completedAt)
     } else {
+      if (task.retryAttempt > 0 || task.retryScheduledFor) {
+        await autopilotService.clearTaskRetryState(task.id, task.leaseOwner ?? '').catch(() => undefined)
+      }
+
       await autopilotService.markRunSucceeded(run.id, {
         finishedAt: completedAt,
         openCodeSessionId: sessionId,
@@ -147,17 +212,7 @@ export async function runClaimedAutopilotTask(
   } catch (error) {
     const detail = error instanceof Error ? error.message : 'autopilot_run_failed'
     finishedAt = new Date()
-    await autopilotService.markRunFailed(run.id, {
-      error: detail,
-      finishedAt,
-      openCodeSessionId: sessionId,
-      sessionTitle,
-    }).catch(() => undefined)
-    await auditService.createEvent({
-      actorUserId: task.userId,
-      action: 'autopilot.run_failed',
-      metadata: buildAuditMetadata({ error: detail }),
-    })
+    await markFailed(detail, finishedAt).catch(() => undefined)
   } finally {
     await autopilotService.releaseTaskLease(
       task.id,

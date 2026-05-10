@@ -176,6 +176,8 @@ model AutopilotTask {
   lastRunAt      DateTime?      @map("last_run_at")
   leaseOwner     String?        @map("lease_owner")
   leaseExpiresAt DateTime?      @map("lease_expires_at")
+  retryAttempt   Int            @default(0) @map("retry_attempt")
+  retryScheduledFor DateTime?   @map("retry_scheduled_for")
 
   createdAt      DateTime       @default(now()) @map("created_at")
   updatedAt      DateTime       @updatedAt @map("updated_at")
@@ -186,6 +188,8 @@ model AutopilotTask {
   @@index([userId])
   @@index([enabled, nextRunAt])
   @@index([leaseExpiresAt])
+  @@index([userId, leaseExpiresAt])
+  @@index([retryScheduledFor])
   @@map("autopilot_tasks")
 }
 
@@ -197,6 +201,7 @@ model AutopilotRun {
   status          AutopilotRunStatus
   trigger         AutopilotRunTrigger
   scheduledFor    DateTime           @map("scheduled_for")
+  attempt         Int                @default(1)
   startedAt       DateTime           @default(now()) @map("started_at")
   finishedAt      DateTime?          @map("finished_at")
   error           String?

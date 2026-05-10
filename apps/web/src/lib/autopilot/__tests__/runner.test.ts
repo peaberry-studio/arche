@@ -10,6 +10,8 @@ const attachRunSessionMock = vi.fn()
 const extendTaskLeaseMock = vi.fn()
 const markRunSucceededMock = vi.fn()
 const markRunFailedMock = vi.fn()
+const scheduleTaskRetryMock = vi.fn()
+const clearTaskRetryStateMock = vi.fn()
 const releaseTaskLeaseMock = vi.fn()
 const claimTaskForImmediateRunMock = vi.fn()
 const findTaskByIdAndUserIdMock = vi.fn()
@@ -39,11 +41,13 @@ vi.mock('@/lib/services', () => ({
     attachRunSession: (...args: unknown[]) => attachRunSessionMock(...args),
     claimTaskForImmediateRun: (...args: unknown[]) => claimTaskForImmediateRunMock(...args),
     createRun: (...args: unknown[]) => createRunMock(...args),
+    clearTaskRetryState: (...args: unknown[]) => clearTaskRetryStateMock(...args),
     extendTaskLease: (...args: unknown[]) => extendTaskLeaseMock(...args),
     findTaskByIdAndUserId: (...args: unknown[]) => findTaskByIdAndUserIdMock(...args),
     markRunFailed: (...args: unknown[]) => markRunFailedMock(...args),
     markRunSucceeded: (...args: unknown[]) => markRunSucceededMock(...args),
     releaseTaskLease: (...args: unknown[]) => releaseTaskLeaseMock(...args),
+    scheduleTaskRetry: (...args: unknown[]) => scheduleTaskRetryMock(...args),
   },
   instanceService: {
     touchActivity: (...args: unknown[]) => touchActivityMock(...args),
@@ -67,6 +71,8 @@ function buildClaimedTask(overrides: Partial<AutopilotClaimedTask> = {}): Autopi
     lastRunAt: null,
     leaseOwner: 'lease-1',
     leaseExpiresAt: new Date('2026-04-12T09:15:00.000Z'),
+    retryAttempt: 0,
+    retryScheduledFor: null,
     createdAt: new Date('2026-04-12T08:00:00.000Z'),
     updatedAt: new Date('2026-04-12T08:00:00.000Z'),
     scheduledFor: new Date('2026-04-12T09:00:00.000Z'),
@@ -86,6 +92,8 @@ describe('autopilot runner', () => {
     findTaskByIdAndUserIdMock.mockResolvedValue({ id: 'task-1' })
     markRunSucceededMock.mockResolvedValue(undefined)
     markRunFailedMock.mockResolvedValue(undefined)
+    scheduleTaskRetryMock.mockResolvedValue(undefined)
+    clearTaskRetryStateMock.mockResolvedValue(undefined)
     releaseTaskLeaseMock.mockResolvedValue(undefined)
     touchActivityMock.mockResolvedValue(undefined)
     createAuditEventMock.mockResolvedValue(undefined)
@@ -121,26 +129,7 @@ describe('autopilot runner', () => {
     })
 
     const { runClaimedAutopilotTask } = await import('../runner')
-    await runClaimedAutopilotTask(
-      {
-        id: 'task-1',
-        userId: 'user-1',
-        name: 'Daily summary',
-        prompt: 'Summarize the day',
-        targetAgentId: null,
-        cronExpression: '0 9 * * *',
-        timezone: 'UTC',
-        enabled: true,
-        nextRunAt: new Date('2026-04-13T09:00:00.000Z'),
-        lastRunAt: null,
-        leaseOwner: 'lease-1',
-        leaseExpiresAt: new Date('2026-04-12T09:15:00.000Z'),
-        createdAt: new Date('2026-04-12T08:00:00.000Z'),
-        updatedAt: new Date('2026-04-12T08:00:00.000Z'),
-        scheduledFor: new Date('2026-04-12T09:00:00.000Z'),
-      },
-      'schedule'
-    )
+    await runClaimedAutopilotTask(buildClaimedTask(), 'schedule')
 
     expect(createRunMock).toHaveBeenCalledWith(
       expect.objectContaining({ taskId: 'task-1', trigger: 'schedule' })
@@ -173,26 +162,7 @@ describe('autopilot runner', () => {
     findByIdSelectMock.mockResolvedValue(null)
 
     const { runClaimedAutopilotTask } = await import('../runner')
-    await runClaimedAutopilotTask(
-      {
-        id: 'task-1',
-        userId: 'user-1',
-        name: 'Daily summary',
-        prompt: 'Summarize the day',
-        targetAgentId: null,
-        cronExpression: '0 9 * * *',
-        timezone: 'UTC',
-        enabled: true,
-        nextRunAt: new Date('2026-04-13T09:00:00.000Z'),
-        lastRunAt: null,
-        leaseOwner: 'lease-1',
-        leaseExpiresAt: new Date('2026-04-12T09:15:00.000Z'),
-        createdAt: new Date('2026-04-12T08:00:00.000Z'),
-        updatedAt: new Date('2026-04-12T08:00:00.000Z'),
-        scheduledFor: new Date('2026-04-12T09:00:00.000Z'),
-      },
-      'schedule'
-    )
+    await runClaimedAutopilotTask(buildClaimedTask(), 'schedule')
 
     expect(markRunFailedMock).toHaveBeenCalledWith(
       'run-1',
@@ -217,7 +187,8 @@ describe('autopilot runner', () => {
     createInstanceClientMock.mockResolvedValue(null)
 
     const { runClaimedAutopilotTask } = await import('../runner')
-    await runClaimedAutopilotTask(buildClaimedTask(), 'schedule')
+    const task = buildClaimedTask()
+    await runClaimedAutopilotTask(task, 'schedule')
 
     expect(markRunFailedMock).toHaveBeenCalledWith(
       'run-1',
@@ -236,6 +207,64 @@ describe('autopilot runner', () => {
         }),
       })
     )
+    expect(scheduleTaskRetryMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        retryAttempt: 1,
+        retryScheduledFor: task.scheduledFor,
+        taskId: 'task-1',
+      })
+    )
+  })
+
+  it('does not retry manual runs by default', async () => {
+    createInstanceClientMock.mockResolvedValue(null)
+
+    const { runClaimedAutopilotTask } = await import('../runner')
+    await runClaimedAutopilotTask(buildClaimedTask(), 'manual')
+
+    expect(markRunFailedMock).toHaveBeenCalledWith(
+      'run-1',
+      expect.objectContaining({ error: 'instance_unavailable' })
+    )
+    expect(scheduleTaskRetryMock).not.toHaveBeenCalled()
+  })
+
+  it('uses configured backoff when a scheduled start fails before prompting', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-04-12T09:00:30.000Z'))
+    vi.stubEnv('ARCHE_AUTOPILOT_MAX_START_RETRIES', '3')
+    vi.stubEnv('ARCHE_AUTOPILOT_RETRY_BACKOFF_MS', '120000,300000,900000')
+
+    try {
+      getInstanceStatusMock.mockResolvedValue(null)
+      startInstanceMock.mockResolvedValue({ ok: false, error: 'timeout', detail: 'healthcheck timeout: dns_resolution_error' })
+
+      const task = buildClaimedTask()
+      const { runClaimedAutopilotTask } = await import('../runner')
+      await runClaimedAutopilotTask(task, 'schedule')
+
+      expect(scheduleTaskRetryMock).toHaveBeenCalledWith({
+        leaseOwner: 'lease-1',
+        retryAttempt: 1,
+        retryAt: new Date('2026-04-12T09:02:30.000Z'),
+        retryScheduledFor: task.scheduledFor,
+        taskId: 'task-1',
+      })
+      expect(createAuditEventMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            attempt: 1,
+            error: 'healthcheck timeout: dns_resolution_error',
+            maxAttempts: 4,
+            retryAt: '2026-04-12T09:02:30.000Z',
+            willRetry: true,
+          }),
+        })
+      )
+    } finally {
+      vi.unstubAllEnvs()
+      vi.useRealTimers()
+    }
   })
 
   it('marks a claimed task as failed when OpenCode does not create a session', async () => {
@@ -386,23 +415,7 @@ describe('autopilot runner', () => {
 
       const { runClaimedAutopilotTask } = await import('../runner')
       const runPromise = runClaimedAutopilotTask(
-        {
-          id: 'task-1',
-          userId: 'user-1',
-          name: 'Daily summary',
-          prompt: 'Summarize the day',
-          targetAgentId: null,
-          cronExpression: '0 9 * * *',
-          timezone: 'UTC',
-          enabled: true,
-          nextRunAt: new Date('2026-04-13T09:00:00.000Z'),
-          lastRunAt: null,
-          leaseOwner: 'lease-1',
-          leaseExpiresAt: new Date('2026-04-12T09:15:00.000Z'),
-          createdAt: new Date('2026-04-12T08:00:00.000Z'),
-          updatedAt: new Date('2026-04-12T08:00:00.000Z'),
-          scheduledFor: new Date('2026-04-12T09:00:00.000Z'),
-        },
+        buildClaimedTask(),
         'schedule'
       )
 
@@ -439,23 +452,7 @@ describe('autopilot runner', () => {
 
       const { runClaimedAutopilotTask } = await import('../runner')
       const runPromise = runClaimedAutopilotTask(
-        {
-          id: 'task-1',
-          userId: 'user-1',
-          name: 'Daily summary',
-          prompt: 'Summarize the day',
-          targetAgentId: null,
-          cronExpression: '0 9 * * *',
-          timezone: 'UTC',
-          enabled: true,
-          nextRunAt: new Date('2026-04-13T09:00:00.000Z'),
-          lastRunAt: null,
-          leaseOwner: 'lease-1',
-          leaseExpiresAt: new Date('2026-04-12T09:15:00.000Z'),
-          createdAt: new Date('2026-04-12T08:00:00.000Z'),
-          updatedAt: new Date('2026-04-12T08:00:00.000Z'),
-          scheduledFor: new Date('2026-04-12T09:00:00.000Z'),
-        },
+        buildClaimedTask(),
         'schedule'
       )
 
