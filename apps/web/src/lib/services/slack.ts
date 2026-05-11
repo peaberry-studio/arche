@@ -33,6 +33,61 @@ export type SlackThreadBindingRecord = {
   updatedAt: Date
 }
 
+export type SlackUserLinkRecord = {
+  id: string
+  userId: string
+  slackTeamId: string
+  slackUserId: string
+  slackEmail: string | null
+  displayName: string | null
+  lastSeenAt: Date
+  createdAt: Date
+  updatedAt: Date
+}
+
+export type SlackDmSessionBindingRecord = {
+  id: string
+  slackTeamId: string
+  slackUserId: string
+  channelId: string
+  executionUserId: string
+  openCodeSessionId: string
+  startedAt: Date
+  lastMessageAt: Date
+  createdAt: Date
+  updatedAt: Date
+}
+
+export type SlackPendingDmDecisionRecord = {
+  id: string
+  sourceEventId: string
+  slackTeamId: string
+  slackUserId: string
+  channelId: string
+  sourceTs: string
+  messageText: string
+  previousDmSessionBindingId: string | null
+  expiresAt: Date
+  status: 'pending' | 'continued' | 'started_new' | 'expired'
+  createdAt: Date
+  updatedAt: Date
+}
+
+export type SlackNotificationChannelRecord = {
+  id: string
+  slackTeamId: string
+  channelId: string
+  name: string
+  isPrivate: boolean
+  enabled: boolean
+  createdAt: Date
+  updatedAt: Date
+}
+
+export type SlackNotificationTarget =
+  | { type: 'dm'; userId: string }
+  | { type: 'channel'; channelId: string }
+
 type SlackConfig = {
   enabled?: boolean
   botTokenSecret?: string | null
@@ -70,6 +125,29 @@ function safeDecryptConfig(encryptedConfig: string): { ok: true; config: SlackCo
     console.error('[slack] Failed to decrypt integration config', error instanceof Error ? error.message : error)
     return { ok: false }
   }
+}
+
+async function createSlackAuditEvent(args: {
+  actorUserId?: string | null
+  action: string
+  metadata?: unknown
+}): Promise<void> {
+  try {
+    await prisma.auditEvent.create({
+      data: {
+        actorUserId: args.actorUserId ?? null,
+        action: args.action,
+        metadata: args.metadata ?? undefined,
+      },
+    })
+  } catch (error) {
+    console.warn('[slack] audit event failed:', args.action, error)
+  }
+}
+
+function normalizeOptionalSlackText(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? ''
+  return trimmed ? trimmed : null
 }
 
 function toRecord(row: { key: string; config: string; state: unknown; version: number; createdAt: Date; updatedAt: Date }): SlackIntegrationRecord {
@@ -243,6 +321,350 @@ export function upsertThreadBinding(args: {
       executionUserId: args.executionUserId,
     },
   })
+}
+
+export function findUserLinkBySlackUser(
+  slackTeamId: string,
+  slackUserId: string,
+): Promise<SlackUserLinkRecord | null> {
+  return prisma.slackUserLink.findUnique({
+    where: {
+      slackTeamId_slackUserId: {
+        slackTeamId,
+        slackUserId,
+      },
+    },
+  })
+}
+
+export async function upsertUserLink(data: {
+  userId: string
+  slackTeamId: string
+  slackUserId: string
+  slackEmail: string | null
+  displayName: string | null
+}): Promise<SlackUserLinkRecord> {
+  const slackEmail = normalizeOptionalSlackText(data.slackEmail)
+  const displayName = normalizeOptionalSlackText(data.displayName)
+  const existing = await findUserLinkBySlackUser(data.slackTeamId, data.slackUserId)
+  const lastSeenAt = new Date()
+
+  const link = await prisma.slackUserLink.upsert({
+    where: {
+      slackTeamId_slackUserId: {
+        slackTeamId: data.slackTeamId,
+        slackUserId: data.slackUserId,
+      },
+    },
+    create: {
+      displayName,
+      lastSeenAt,
+      slackEmail,
+      slackTeamId: data.slackTeamId,
+      slackUserId: data.slackUserId,
+      userId: data.userId,
+    },
+    update: {
+      displayName,
+      lastSeenAt,
+      slackEmail,
+      userId: data.userId,
+    },
+  })
+
+  if (!existing || existing.userId !== data.userId) {
+    await createSlackAuditEvent({
+      actorUserId: data.userId,
+      action: 'slack.user_linked',
+      metadata: {
+        slackEmail,
+        slackTeamId: data.slackTeamId,
+        slackUserId: data.slackUserId,
+      },
+    })
+  }
+
+  return link
+}
+
+export async function resolveArcheUserFromSlackUser(
+  slackTeamId: string,
+  slackUserId: string,
+  slackEmail: string | null,
+  displayName: string | null,
+): Promise<{ ok: true; user: { id: string; slug: string } } | { ok: false; error: string }> {
+  const existing = await prisma.slackUserLink.findUnique({
+    where: {
+      slackTeamId_slackUserId: {
+        slackTeamId,
+        slackUserId,
+      },
+    },
+    include: {
+      user: {
+        select: {
+          id: true,
+          kind: true,
+          slug: true,
+        },
+      },
+    },
+  })
+
+  if (existing) {
+    if (existing.user.kind !== 'HUMAN') {
+      return { ok: false, error: 'slack_user_not_linked_to_human' }
+    }
+
+    await prisma.slackUserLink.update({
+      where: { id: existing.id },
+      data: {
+        displayName: normalizeOptionalSlackText(displayName),
+        lastSeenAt: new Date(),
+        slackEmail: normalizeOptionalSlackText(slackEmail),
+      },
+    })
+
+    return {
+      ok: true,
+      user: {
+        id: existing.user.id,
+        slug: existing.user.slug,
+      },
+    }
+  }
+
+  const email = normalizeOptionalSlackText(slackEmail)
+  if (!email) {
+    return { ok: false, error: 'slack_email_missing' }
+  }
+
+  const emailCandidates = Array.from(new Set([email, email.toLowerCase()]))
+  const user = await prisma.user.findFirst({
+    where: {
+      kind: 'HUMAN',
+      OR: emailCandidates.map((candidate) => ({ email: candidate })),
+    },
+    select: {
+      id: true,
+      slug: true,
+    },
+  })
+
+  if (!user) {
+    return { ok: false, error: 'slack_email_not_found' }
+  }
+
+  await upsertUserLink({
+    displayName,
+    slackEmail: email,
+    slackTeamId,
+    slackUserId,
+    userId: user.id,
+  })
+
+  return { ok: true, user }
+}
+
+export function findLatestDmSession(
+  slackTeamId: string,
+  slackUserId: string,
+): Promise<SlackDmSessionBindingRecord | null> {
+  return prisma.slackDmSessionBinding.findFirst({
+    where: {
+      slackTeamId,
+      slackUserId,
+    },
+    orderBy: {
+      lastMessageAt: 'desc',
+    },
+  })
+}
+
+export function findDmSessionBindingById(
+  id: string,
+): Promise<SlackDmSessionBindingRecord | null> {
+  return prisma.slackDmSessionBinding.findUnique({ where: { id } })
+}
+
+export async function createDmSessionBinding(data: {
+  slackTeamId: string
+  slackUserId: string
+  channelId: string
+  executionUserId: string
+  openCodeSessionId: string
+}): Promise<SlackDmSessionBindingRecord> {
+  const binding = await prisma.slackDmSessionBinding.create({
+    data,
+  })
+
+  await createSlackAuditEvent({
+    actorUserId: data.executionUserId,
+    action: 'slack.dm_session_created',
+    metadata: {
+      channelId: data.channelId,
+      openCodeSessionId: data.openCodeSessionId,
+      slackTeamId: data.slackTeamId,
+      slackUserId: data.slackUserId,
+    },
+  })
+
+  return binding
+}
+
+export async function touchDmSessionBinding(
+  bindingId: string,
+  lastMessageAt: Date,
+): Promise<void> {
+  await prisma.slackDmSessionBinding.update({
+    where: { id: bindingId },
+    data: { lastMessageAt },
+  })
+}
+
+export function createPendingDmDecision(data: {
+  sourceEventId: string
+  slackTeamId: string
+  slackUserId: string
+  channelId: string
+  sourceTs: string
+  messageText: string
+  previousDmSessionBindingId: string | null
+  expiresAt: Date
+}): Promise<SlackPendingDmDecisionRecord> {
+  return prisma.slackPendingDmDecision.create({ data })
+}
+
+export function findPendingDmDecision(
+  decisionId: string,
+): Promise<SlackPendingDmDecisionRecord | null> {
+  return prisma.slackPendingDmDecision.findUnique({ where: { id: decisionId } })
+}
+
+export async function markPendingDmDecisionContinued(
+  decisionId: string,
+): Promise<boolean> {
+  const result = await prisma.slackPendingDmDecision.updateMany({
+    where: {
+      expiresAt: { gt: new Date() },
+      id: decisionId,
+      status: 'pending',
+    },
+    data: { status: 'continued' },
+  })
+
+  return result.count === 1
+}
+
+export async function markPendingDmDecisionStartedNew(
+  decisionId: string,
+  _newSessionId: string,
+): Promise<boolean> {
+  const result = await prisma.slackPendingDmDecision.updateMany({
+    where: {
+      expiresAt: { gt: new Date() },
+      id: decisionId,
+      status: 'pending',
+    },
+    data: { status: 'started_new' },
+  })
+
+  return result.count === 1
+}
+
+export async function expirePendingDmDecision(decisionId: string): Promise<void> {
+  await prisma.slackPendingDmDecision.updateMany({
+    where: {
+      id: decisionId,
+      status: 'pending',
+    },
+    data: { status: 'expired' },
+  })
+}
+
+export async function upsertNotificationChannelsFromSlack(
+  slackTeamId: string,
+  channels: Array<{ channelId: string; name: string; isPrivate: boolean }>,
+): Promise<void> {
+  for (const channel of channels) {
+    await prisma.slackNotificationChannel.upsert({
+      where: {
+        slackTeamId_channelId: {
+          channelId: channel.channelId,
+          slackTeamId,
+        },
+      },
+      create: {
+        channelId: channel.channelId,
+        enabled: true,
+        isPrivate: channel.isPrivate,
+        name: channel.name,
+        slackTeamId,
+      },
+      update: {
+        isPrivate: channel.isPrivate,
+        name: channel.name,
+      },
+    })
+  }
+}
+
+export function listNotificationChannels(
+  slackTeamId: string,
+): Promise<SlackNotificationChannelRecord[]> {
+  return prisma.slackNotificationChannel.findMany({
+    where: { slackTeamId },
+    orderBy: [
+      { isPrivate: 'asc' },
+      { name: 'asc' },
+    ],
+  })
+}
+
+export function listEnabledNotificationChannels(
+  slackTeamId: string,
+): Promise<SlackNotificationChannelRecord[]> {
+  return prisma.slackNotificationChannel.findMany({
+    where: {
+      enabled: true,
+      slackTeamId,
+    },
+    orderBy: [
+      { isPrivate: 'asc' },
+      { name: 'asc' },
+    ],
+  })
+}
+
+export async function setNotificationChannelEnabled(
+  channelId: string,
+  enabled: boolean,
+): Promise<void> {
+  await prisma.slackNotificationChannel.updateMany({
+    where: {
+      OR: [
+        { id: channelId },
+        { channelId },
+      ],
+    },
+    data: { enabled },
+  })
+}
+
+export async function isNotificationChannelAllowed(
+  slackTeamId: string,
+  channelId: string,
+): Promise<boolean> {
+  const channel = await prisma.slackNotificationChannel.findFirst({
+    where: {
+      channelId,
+      enabled: true,
+      slackTeamId,
+    },
+    select: { id: true },
+  })
+
+  return Boolean(channel)
 }
 
 function isUniqueConstraintError(error: unknown): error is { code: string } {

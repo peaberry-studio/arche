@@ -106,6 +106,7 @@ export const PATCH = withAuth<{ task: AutopilotTaskDetail } | { error: string },
         timezone: payload.value.timezone,
         enabled: payload.value.enabled,
         nextRunAt,
+        slackNotificationConfig: payload.value.slackNotificationConfig,
       })
 
       if (!updated) {

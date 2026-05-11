@@ -19,6 +19,7 @@ const touchActivityMock = vi.fn()
 const findByIdSelectMock = vi.fn()
 const createAuditEventMock = vi.fn()
 const ensureProviderAccessFreshForExecutionMock = vi.fn()
+const sendSlackNotificationsMock = vi.fn()
 
 vi.mock('@/lib/spawner/core', () => ({
   getInstanceStatus: (...args: unknown[]) => getInstanceStatusMock(...args),
@@ -55,6 +56,10 @@ vi.mock('@/lib/services', () => ({
   userService: {
     findByIdSelect: (...args: unknown[]) => findByIdSelectMock(...args),
   },
+}))
+
+vi.mock('@/lib/slack/notifications', () => ({
+  sendSlackNotifications: (...args: unknown[]) => sendSlackNotificationsMock(...args),
 }))
 
 function buildClaimedTask(overrides: Partial<AutopilotClaimedTask> = {}): AutopilotClaimedTask {
@@ -98,6 +103,7 @@ describe('autopilot runner', () => {
     touchActivityMock.mockResolvedValue(undefined)
     createAuditEventMock.mockResolvedValue(undefined)
     ensureProviderAccessFreshForExecutionMock.mockResolvedValue(undefined)
+    sendSlackNotificationsMock.mockResolvedValue({ ok: true, sent: 1, failed: 0, errors: [] })
   })
 
   it('marks a claimed task as succeeded when the session completes cleanly', async () => {
@@ -156,6 +162,60 @@ describe('autopilot runner', () => {
       })
     )
     expect(releaseTaskLeaseMock).toHaveBeenCalledWith('task-1', 'lease-1', expect.any(Date))
+  })
+
+  it('sends Slack notifications after a successful configured run', async () => {
+    vi.stubEnv('ARCHE_PUBLIC_BASE_URL', 'https://arche.test')
+    createInstanceClientMock.mockResolvedValue({
+      session: {
+        create: vi.fn().mockResolvedValue({
+          data: { id: 'session-1' },
+        }),
+        messages: vi.fn().mockResolvedValue({
+          data: [
+            {
+              info: {
+                role: 'assistant',
+                time: { completed: 1 },
+              },
+              parts: [
+                { id: 'part-1', type: 'text', text: 'Report text' },
+              ],
+            },
+          ],
+        }),
+        promptAsync: vi.fn().mockResolvedValue({ response: { ok: true } }),
+        status: vi.fn().mockResolvedValue({
+          data: {
+            'session-1': { type: 'idle' },
+          },
+        }),
+      },
+    })
+
+    try {
+      const { runClaimedAutopilotTask } = await import('../runner')
+      await runClaimedAutopilotTask(
+        buildClaimedTask({
+          slackNotificationConfig: {
+            enabled: true,
+            includeSessionLink: true,
+            targets: [{ type: 'channel', channelId: 'C123' }],
+          },
+        }),
+        'schedule',
+      )
+
+      expect(sendSlackNotificationsMock).toHaveBeenCalledWith({
+        targets: [{ type: 'channel', channelId: 'C123' }],
+        text: 'Autopilot report: Daily summary\n\nReport text',
+        sessionLink: 'https://arche.test/w/alice?mode=tasks&session=session-1',
+        source: 'autopilot',
+      })
+      expect(markRunSucceededMock).toHaveBeenCalled()
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it('records user-scoped audit metadata when a claimed task fails before loading the owner slug', async () => {

@@ -22,12 +22,24 @@ import {
   inferAutopilotScheduleFormState,
   type AutopilotScheduleFormState,
 } from '@/lib/autopilot/schedule-form'
-import type { AutopilotTaskDetail } from '@/lib/autopilot/types'
+import type { AutopilotSlackNotificationTarget, AutopilotTaskDetail } from '@/lib/autopilot/types'
 
 type AutopilotTaskFormProps = {
   mode: 'create' | 'edit'
   slug: string
   taskId?: string
+}
+
+type SlackTargetUser = {
+  id: string
+  email: string
+  slackLinked: boolean
+}
+
+type SlackTargetChannel = {
+  channelId: string
+  isPrivate: boolean
+  name: string
 }
 
 export function AutopilotTaskForm({ slug, mode, taskId }: AutopilotTaskFormProps) {
@@ -47,6 +59,16 @@ export function AutopilotTaskForm({ slug, mode, taskId }: AutopilotTaskFormProps
   const [timezone, setTimezone] = useState('UTC')
   const [enabled, setEnabled] = useState(true)
   const [schedule, setSchedule] = useState<AutopilotScheduleFormState>(getDefaultAutopilotScheduleFormState())
+  const [slackIntegrationEnabled, setSlackIntegrationEnabled] = useState(false)
+  const [slackNotificationsEnabled, setSlackNotificationsEnabled] = useState(false)
+  const [includeSessionLink, setIncludeSessionLink] = useState(true)
+  const [targetType, setTargetType] = useState<'dm' | 'channel'>('dm')
+  const [selectedDmUser, setSelectedDmUser] = useState('')
+  const [selectedChannel, setSelectedChannel] = useState('')
+  const [notificationTargets, setNotificationTargets] = useState<AutopilotSlackNotificationTarget[]>([])
+  const [teamMembers, setTeamMembers] = useState<SlackTargetUser[]>([])
+  const [slackChannels, setSlackChannels] = useState<SlackTargetChannel[]>([])
+  const [slackNotificationError, setSlackNotificationError] = useState<string | null>(null)
 
   const loadTask = useCallback(async () => {
     if (mode !== 'edit' || !taskId) {
@@ -73,6 +95,11 @@ export function AutopilotTaskForm({ slug, mode, taskId }: AutopilotTaskFormProps
       setTimezone(data.task.timezone)
       setEnabled(data.task.enabled)
       setSchedule(inferAutopilotScheduleFormState(data.task.cronExpression))
+      if (data.task.slackNotificationConfig) {
+        setSlackNotificationsEnabled(data.task.slackNotificationConfig.enabled)
+        setIncludeSessionLink(data.task.slackNotificationConfig.includeSessionLink)
+        setNotificationTargets(data.task.slackNotificationConfig.targets)
+      }
     } catch {
       setLoadError('network_error')
     } finally {
@@ -84,6 +111,34 @@ export function AutopilotTaskForm({ slug, mode, taskId }: AutopilotTaskFormProps
     void loadTask()
   }, [loadTask])
 
+  const loadSlackTargets = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/u/${slug}/autopilot/slack-targets`, { cache: 'no-store' })
+      const data = (await response.json().catch(() => null)) as
+        | {
+            channels?: SlackTargetChannel[]
+            integrationEnabled?: boolean
+            users?: SlackTargetUser[]
+          }
+        | null
+      if (!response.ok || !data) {
+        setSlackIntegrationEnabled(false)
+        return
+      }
+
+      setSlackIntegrationEnabled(data.integrationEnabled === true)
+      setTeamMembers(data.users ?? [])
+      setSlackChannels(data.channels ?? [])
+    } catch (error) {
+      console.error('[autopilot-form] Failed to load Slack targets', error)
+      setSlackIntegrationEnabled(false)
+    }
+  }, [slug])
+
+  useEffect(() => {
+    void loadSlackTargets()
+  }, [loadSlackTargets])
+
   const schedulePreview = useMemo(
     () => getAutopilotSchedulePreview(schedule, timezone),
     [schedule, timezone],
@@ -91,11 +146,69 @@ export function AutopilotTaskForm({ slug, mode, taskId }: AutopilotTaskFormProps
   const cronExpression = schedulePreview.cronExpression
   const isScheduleValid = schedulePreview.isValid
 
+  const canAddTarget = useMemo(() => {
+    if (targetType === 'dm') {
+      return selectedDmUser.length > 0 && !notificationTargets.some((target) => target.type === 'dm' && target.userId === selectedDmUser)
+    }
+
+    return selectedChannel.length > 0 && !notificationTargets.some((target) => target.type === 'channel' && target.channelId === selectedChannel)
+  }, [notificationTargets, selectedChannel, selectedDmUser, targetType])
+
+  const getTargetLabel = useCallback((target: AutopilotSlackNotificationTarget): string => {
+    if (target.type === 'dm') {
+      const member = teamMembers.find((item) => item.id === target.userId)
+      return `DM: ${member?.email ?? target.userId}`
+    }
+
+    const channel = slackChannels.find((item) => item.channelId === target.channelId)
+    return `Channel: ${channel?.name ?? target.channelId}`
+  }, [slackChannels, teamMembers])
+
+  const addNotificationTarget = useCallback(() => {
+    if (!canAddTarget) {
+      return
+    }
+
+    if (targetType === 'dm') {
+      setNotificationTargets((current) => [...current, { type: 'dm', userId: selectedDmUser }])
+      setSelectedDmUser('')
+      return
+    }
+
+    setNotificationTargets((current) => [...current, { type: 'channel', channelId: selectedChannel }])
+    setSelectedChannel('')
+  }, [canAddTarget, selectedChannel, selectedDmUser, targetType])
+
+  const removeNotificationTarget = useCallback((index: number) => {
+    setNotificationTargets((current) => current.filter((_, itemIndex) => itemIndex !== index))
+  }, [])
+
   const handleSave = useCallback(async () => {
     setIsSaving(true)
     setFormError(null)
+    setSlackNotificationError(null)
+
+    if (slackNotificationsEnabled && notificationTargets.length === 0) {
+      setSlackNotificationError('Add at least one Slack notification target.')
+      setIsSaving(false)
+      return
+    }
 
     try {
+      const slackNotificationConfig = slackNotificationsEnabled
+        ? {
+            enabled: true,
+            includeSessionLink,
+            targets: notificationTargets,
+          }
+        : task?.slackNotificationConfig
+          ? {
+              enabled: false,
+              includeSessionLink,
+              targets: [],
+            }
+          : undefined
+
       const response = await fetch(
         mode === 'create' ? `/api/u/${slug}/autopilot` : `/api/u/${slug}/autopilot/${taskId}`,
         {
@@ -106,6 +219,7 @@ export function AutopilotTaskForm({ slug, mode, taskId }: AutopilotTaskFormProps
             enabled,
             name,
             prompt,
+            slackNotificationConfig,
             targetAgentId: targetAgentId || null,
             timezone,
           }),
@@ -133,7 +247,7 @@ export function AutopilotTaskForm({ slug, mode, taskId }: AutopilotTaskFormProps
     } finally {
       setIsSaving(false)
     }
-  }, [cronExpression, enabled, loadTask, mode, name, prompt, router, slug, targetAgentId, taskId, timezone])
+  }, [cronExpression, enabled, includeSessionLink, loadTask, mode, name, notificationTargets, prompt, router, slackNotificationsEnabled, slug, targetAgentId, task, taskId, timezone])
 
   const handleDelete = useCallback(async () => {
     if (mode !== 'edit' || !taskId) {
@@ -275,6 +389,140 @@ export function AutopilotTaskForm({ slug, mode, taskId }: AutopilotTaskFormProps
           timezone={timezone}
           onChange={setSchedule}
         />
+
+        {slackIntegrationEnabled ? (
+          <div className="space-y-3 rounded-xl border border-border/60 bg-card/40 px-4 py-3">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <Label htmlFor="slack-notifications">Slack notifications</Label>
+                <p className="text-xs text-muted-foreground">
+                  Send Autopilot results to Slack DMs or allowlisted channels.
+                </p>
+              </div>
+              <Switch
+                checked={slackNotificationsEnabled}
+                onCheckedChange={setSlackNotificationsEnabled}
+                id="slack-notifications"
+              />
+            </div>
+
+            {slackNotificationsEnabled ? (
+              <div className="space-y-4 border-t border-border/40 pt-3">
+                <div className="flex items-center justify-between gap-4">
+                  <Label htmlFor="include-session-link">Include session link</Label>
+                  <Switch
+                    checked={includeSessionLink}
+                    onCheckedChange={setIncludeSessionLink}
+                    id="include-session-link"
+                  />
+                </div>
+
+                <div className="space-y-3">
+                  <Label>Notification targets</Label>
+                  <div className="space-y-2">
+                    <label htmlFor="target-dm" className="flex items-center gap-2 text-sm text-foreground">
+                      <input
+                        type="radio"
+                        name="target-type"
+                        id="target-dm"
+                        value="dm"
+                        checked={targetType === 'dm'}
+                        onChange={() => setTargetType('dm')}
+                      />
+                      Send to user DM
+                    </label>
+
+                    {targetType === 'dm' ? (
+                      <div className="ml-6">
+                        <select
+                          aria-label="Slack DM target"
+                          value={selectedDmUser}
+                          onChange={(event) => setSelectedDmUser(event.target.value)}
+                          className="flex h-10 w-full appearance-none rounded-lg border border-border bg-background px-3 py-2 pr-8 text-sm text-foreground"
+                        >
+                          <option value="">Select user...</option>
+                          {teamMembers.map((member) => (
+                            <option key={member.id} value={member.id}>
+                              {member.email}{member.slackLinked ? ' (linked)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : null}
+
+                    <label htmlFor="target-channel" className="flex items-center gap-2 text-sm text-foreground">
+                      <input
+                        type="radio"
+                        name="target-type"
+                        id="target-channel"
+                        value="channel"
+                        checked={targetType === 'channel'}
+                        onChange={() => setTargetType('channel')}
+                      />
+                      Send to channel
+                    </label>
+
+                    {targetType === 'channel' ? (
+                      slackChannels.length > 0 ? (
+                        <div className="ml-6">
+                          <select
+                            aria-label="Slack channel target"
+                            value={selectedChannel}
+                            onChange={(event) => setSelectedChannel(event.target.value)}
+                            className="flex h-10 w-full appearance-none rounded-lg border border-border bg-background px-3 py-2 pr-8 text-sm text-foreground"
+                          >
+                            <option value="">Select channel...</option>
+                            {slackChannels.map((channel) => (
+                              <option key={channel.channelId} value={channel.channelId}>
+                                {channel.name}{channel.isPrivate ? ' (private)' : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : (
+                        <p className="ml-6 text-xs text-muted-foreground">
+                          No channels available. Configure notification channels in Slack settings.
+                        </p>
+                      )
+                    ) : null}
+                  </div>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => addNotificationTarget()}
+                    disabled={!canAddTarget}
+                  >
+                    Add target
+                  </Button>
+
+                  {notificationTargets.length > 0 ? (
+                    <div className="space-y-1 pt-1">
+                      <p className="text-xs font-medium text-muted-foreground">Active targets ({notificationTargets.length})</p>
+                      {notificationTargets.map((target, index) => (
+                        <div key={`${target.type}-${index}`} className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-background/60 px-3 py-2 text-sm">
+                          <span>{getTargetLabel(target)}</span>
+                          <button
+                            type="button"
+                            onClick={() => removeNotificationTarget(index)}
+                            className="text-muted-foreground hover:text-destructive"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+
+                {slackNotificationError ? (
+                  <p className="text-sm text-destructive">{slackNotificationError}</p>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="space-y-2">
           <Label htmlFor="autopilot-prompt">Prompt</Label>

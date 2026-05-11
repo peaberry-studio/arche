@@ -167,4 +167,29 @@ describe('serializeAutopilotTaskDetail', () => {
     expect(result.enabled).toBe(true)
     expect(Array.isArray(result.runs)).toBe(true)
   })
+
+  it('serializes Slack notification config when present', () => {
+    const task: AutopilotTaskDetailRecord = {
+      ...createTaskListRecord({
+        slackNotificationConfig: {
+          enabled: true,
+          includeSessionLink: false,
+          targets: [
+            { type: 'dm', userId: 'user-1' },
+            { type: 'channel', channelId: 'C123' },
+          ],
+        },
+      }),
+    }
+    const result = serializeAutopilotTaskDetail(task)
+
+    expect(result.slackNotificationConfig).toEqual({
+      enabled: true,
+      includeSessionLink: false,
+      targets: [
+        { type: 'dm', userId: 'user-1' },
+        { type: 'channel', channelId: 'C123' },
+      ],
+    })
+  })
 })

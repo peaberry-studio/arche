@@ -9,11 +9,12 @@ type SwitchProps = {
   onCheckedChange: (checked: boolean) => void
   disabled?: boolean
   className?: string
-}
+} & Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'checked' | 'onChange'>
 
 const Switch = React.forwardRef<HTMLButtonElement, SwitchProps>(
-  ({ checked, onCheckedChange, disabled, className }, ref) => (
+  ({ checked, onCheckedChange, disabled, className, ...props }, ref) => (
     <button
+      {...props}
       ref={ref}
       role="switch"
       type="button"

@@ -15,6 +15,35 @@ const mockPrisma = vi.hoisted(() => ({
     findUnique: vi.fn(),
     upsert: vi.fn(),
   },
+  slackUserLink: {
+    findFirst: vi.fn(),
+    findUnique: vi.fn(),
+    update: vi.fn(),
+    upsert: vi.fn(),
+  },
+  slackDmSessionBinding: {
+    create: vi.fn(),
+    findFirst: vi.fn(),
+    findUnique: vi.fn(),
+    update: vi.fn(),
+  },
+  slackPendingDmDecision: {
+    create: vi.fn(),
+    findUnique: vi.fn(),
+    updateMany: vi.fn(),
+  },
+  slackNotificationChannel: {
+    findFirst: vi.fn(),
+    findMany: vi.fn(),
+    updateMany: vi.fn(),
+    upsert: vi.fn(),
+  },
+  user: {
+    findFirst: vi.fn(),
+  },
+  auditEvent: {
+    create: vi.fn(),
+  },
 }))
 
 const { mockEncryptConfig, mockDecryptConfig } = vi.hoisted(() => ({
@@ -40,7 +69,13 @@ import {
   recordEventReceipt,
   pruneEventReceipts,
   findThreadBinding,
+  findLatestDmSession,
+  findPendingDmDecision,
+  findUserLinkBySlackUser,
+  resolveArcheUserFromSlackUser,
+  upsertNotificationChannelsFromSlack,
   upsertThreadBinding,
+  upsertUserLink,
 } from '../slack'
 
 const NOW = new Date('2026-04-25T12:00:00Z')
@@ -353,6 +388,130 @@ describe('slackService', () => {
           },
         }),
       )
+    })
+  })
+
+  describe('Slack user links', () => {
+    it('finds a user link by Slack team and user id', async () => {
+      mockPrisma.slackUserLink.findUnique.mockResolvedValue(null)
+      await findUserLinkBySlackUser('T123', 'U123')
+      expect(mockPrisma.slackUserLink.findUnique).toHaveBeenCalledWith({
+        where: {
+          slackTeamId_slackUserId: {
+            slackTeamId: 'T123',
+            slackUserId: 'U123',
+          },
+        },
+      })
+    })
+
+    it('upserts a Slack user link and audits new links', async () => {
+      mockPrisma.slackUserLink.findUnique.mockResolvedValue(null)
+      mockPrisma.slackUserLink.upsert.mockResolvedValue({ id: 'link-1' })
+      mockPrisma.auditEvent.create.mockResolvedValue({})
+
+      await upsertUserLink({
+        displayName: 'Alice',
+        slackEmail: 'alice@test.com',
+        slackTeamId: 'T123',
+        slackUserId: 'U123',
+        userId: 'user-1',
+      })
+
+      expect(mockPrisma.slackUserLink.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({ userId: 'user-1' }),
+          update: expect.objectContaining({ userId: 'user-1' }),
+        }),
+      )
+      expect(mockPrisma.auditEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ action: 'slack.user_linked' }),
+        }),
+      )
+    })
+
+    it('resolves and links an Arche human user by Slack email', async () => {
+      mockPrisma.slackUserLink.findUnique.mockResolvedValue(null)
+      mockPrisma.user.findFirst.mockResolvedValue({ id: 'user-1', slug: 'alice' })
+      mockPrisma.slackUserLink.upsert.mockResolvedValue({ id: 'link-1' })
+      mockPrisma.auditEvent.create.mockResolvedValue({})
+
+      const result = await resolveArcheUserFromSlackUser('T123', 'U123', 'Alice@Test.com', 'Alice')
+
+      expect(result).toEqual({ ok: true, user: { id: 'user-1', slug: 'alice' } })
+      expect(mockPrisma.user.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ kind: 'HUMAN' }),
+        }),
+      )
+    })
+
+    it('returns a helpful error when Slack email has no Arche match', async () => {
+      mockPrisma.slackUserLink.findUnique.mockResolvedValue(null)
+      mockPrisma.user.findFirst.mockResolvedValue(null)
+
+      const result = await resolveArcheUserFromSlackUser('T123', 'U123', 'missing@test.com', 'Missing')
+
+      expect(result).toEqual({ ok: false, error: 'slack_email_not_found' })
+    })
+  })
+
+  describe('DM sessions and pending decisions', () => {
+    it('finds the latest DM session by last message time', async () => {
+      mockPrisma.slackDmSessionBinding.findFirst.mockResolvedValue(null)
+      await findLatestDmSession('T123', 'U123')
+      expect(mockPrisma.slackDmSessionBinding.findFirst).toHaveBeenCalledWith({
+        where: { slackTeamId: 'T123', slackUserId: 'U123' },
+        orderBy: { lastMessageAt: 'desc' },
+      })
+    })
+
+    it('creates and finds pending DM decisions', async () => {
+      const expiresAt = new Date('2026-04-25T12:30:00Z')
+      mockPrisma.slackPendingDmDecision.create.mockResolvedValue({ id: 'decision-1' })
+      mockPrisma.slackPendingDmDecision.findUnique.mockResolvedValue({ id: 'decision-1' })
+
+      await findPendingDmDecision('decision-1')
+      expect(mockPrisma.slackPendingDmDecision.findUnique).toHaveBeenCalledWith({ where: { id: 'decision-1' } })
+
+      const { createPendingDmDecision } = await import('../slack')
+      await createPendingDmDecision({
+        channelId: 'D123',
+        expiresAt,
+        messageText: 'hello',
+        previousDmSessionBindingId: 'binding-1',
+        slackTeamId: 'T123',
+        slackUserId: 'U123',
+        sourceEventId: 'evt-1',
+        sourceTs: '100.1',
+      })
+      expect(mockPrisma.slackPendingDmDecision.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ sourceEventId: 'evt-1' }),
+      })
+    })
+  })
+
+  describe('notification channels', () => {
+    it('upserts notification channels without disabling existing entries', async () => {
+      mockPrisma.slackNotificationChannel.upsert.mockResolvedValue({})
+      await upsertNotificationChannelsFromSlack('T123', [
+        { channelId: 'C1', isPrivate: false, name: 'general' },
+      ])
+
+      expect(mockPrisma.slackNotificationChannel.upsert).toHaveBeenCalledWith({
+        where: {
+          slackTeamId_channelId: {
+            channelId: 'C1',
+            slackTeamId: 'T123',
+          },
+        },
+        create: expect.objectContaining({ enabled: true, name: 'general' }),
+        update: {
+          isPrivate: false,
+          name: 'general',
+        },
+      })
     })
   })
 })

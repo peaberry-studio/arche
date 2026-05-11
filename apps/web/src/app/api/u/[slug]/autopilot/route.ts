@@ -82,6 +82,7 @@ export const POST = withAuth<{ task: AutopilotTaskDetail } | { error: string }>(
           payload.value.timezone ?? 'UTC',
           now,
         ),
+        slackNotificationConfig: payload.value.slackNotificationConfig,
       })
 
       await auditEvent({

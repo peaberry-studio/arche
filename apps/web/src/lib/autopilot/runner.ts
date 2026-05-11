@@ -2,13 +2,16 @@ import { AutopilotRunTrigger } from '@prisma/client'
 
 import { formatAutopilotRunDate } from '@/lib/autopilot/cron'
 import { planAutopilotRetry } from '@/lib/autopilot/retry-policy'
+import { serializeSlackNotificationConfig } from '@/lib/autopilot/serializers'
 import { createInstanceClient } from '@/lib/opencode/client'
 import {
   ensureWorkspaceRunningForExecution,
+  readLatestAssistantText,
   waitForSessionToComplete,
 } from '@/lib/opencode/session-execution'
 import { auditService, autopilotService, instanceService, userService } from '@/lib/services'
 import type { AutopilotClaimedTask } from '@/lib/services/autopilot'
+import { sendSlackNotifications } from '@/lib/slack/notifications'
 
 const LEASE_EXTENSION_INTERVAL_MS = 60_000
 export const AUTOPILOT_TASK_LEASE_MS = 15 * 60 * 1000
@@ -28,6 +31,23 @@ async function createLeaseOwner(): Promise<string> {
 
 function buildAutopilotSessionTitle(task: AutopilotClaimedTask, scheduledFor: Date): string {
   return `Autopilot | ${task.name} | ${formatAutopilotRunDate(scheduledFor, task.timezone)}`
+}
+
+function buildAutopilotSessionLink(slug: string, sessionId: string): string | undefined {
+  const publicBaseUrl = process.env.ARCHE_PUBLIC_BASE_URL?.trim()
+  if (!publicBaseUrl || publicBaseUrl.includes('0.0.0.0') || publicBaseUrl.includes('::')) {
+    return undefined
+  }
+
+  try {
+    const url = new URL(publicBaseUrl)
+    url.pathname = `/w/${slug}`
+    url.searchParams.set('mode', 'tasks')
+    url.searchParams.set('session', sessionId)
+    return url.toString()
+  } catch {
+    return undefined
+  }
 }
 
 export async function runClaimedAutopilotTask(
@@ -208,6 +228,37 @@ export async function runClaimedAutopilotTask(
         action: 'autopilot.run_succeeded',
         metadata: buildAuditMetadata(),
       })
+
+      const slackNotificationConfig = serializeSlackNotificationConfig(task.slackNotificationConfig)
+      if (slackNotificationConfig?.enabled && sessionId && slug) {
+        try {
+          const assistantText = await readLatestAssistantText(client, sessionId)
+          if (!assistantText) {
+            throw new Error('No assistant text to send')
+          }
+
+          const result = await sendSlackNotifications({
+            targets: slackNotificationConfig.targets,
+            text: `Autopilot report: ${task.name}\n\n${assistantText}`,
+            sessionLink: slackNotificationConfig.includeSessionLink
+              ? buildAutopilotSessionLink(slug, sessionId)
+              : undefined,
+            source: 'autopilot',
+          })
+
+          if (!result.ok) {
+            console.error('[autopilot] Failed to send Slack notification', result.error)
+          } else if (result.failed > 0) {
+            console.error('[autopilot] Partial Slack notification failure', {
+              errors: result.errors,
+              failed: result.failed,
+              sent: result.sent,
+            })
+          }
+        } catch (error) {
+          console.error('[autopilot] Error sending Slack notification', error)
+        }
+      }
     }
   } catch (error) {
     const detail = error instanceof Error ? error.message : 'autopilot_run_failed'

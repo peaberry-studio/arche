@@ -46,6 +46,15 @@ function jsonResponse(body: unknown, ok = true) {
   }
 }
 
+function slackTargetsResponse(overrides?: Record<string, unknown>) {
+  return jsonResponse({
+    channels: [],
+    integrationEnabled: false,
+    users: [],
+    ...overrides,
+  })
+}
+
 describe('AutopilotTaskForm', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -66,14 +75,16 @@ describe('AutopilotTaskForm', () => {
   })
 
   it('submits a new task with the builder-generated cron expression', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        task: {
-            ...task(),
-        },
-      }),
-    })
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(slackTargetsResponse())
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          task: {
+              ...task(),
+          },
+        }),
+      })
 
     vi.stubGlobal('fetch', fetchMock)
 
@@ -109,15 +120,17 @@ describe('AutopilotTaskForm', () => {
   })
 
   it('loads an existing task for editing', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
-      task: task({
-        name: 'Weekly report',
-        prompt: 'Prepare the weekly report',
-        targetAgentId: 'researcher',
-        timezone: 'Europe/Madrid',
-        enabled: false,
-      }),
-    })))
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(jsonResponse({
+        task: task({
+          name: 'Weekly report',
+          prompt: 'Prepare the weekly report',
+          targetAgentId: 'researcher',
+          timezone: 'Europe/Madrid',
+          enabled: false,
+        }),
+      }))
+      .mockResolvedValueOnce(slackTargetsResponse()))
 
     render(<AutopilotTaskForm slug="alice" mode="edit" taskId="task-1" />)
 
@@ -136,6 +149,7 @@ describe('AutopilotTaskForm', () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse({ error: 'not_found' }, false))
+      .mockResolvedValueOnce(slackTargetsResponse())
       .mockResolvedValueOnce(jsonResponse({ task: task() }))
     vi.stubGlobal('fetch', fetchMock)
 
@@ -147,11 +161,13 @@ describe('AutopilotTaskForm', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
 
     expect(await screen.findByDisplayValue('Daily summary')).toBeTruthy()
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
   it('submits selected agent and disabled state', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ task: task({ id: 'task-2' }) }))
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(slackTargetsResponse())
+      .mockResolvedValueOnce(jsonResponse({ task: task({ id: 'task-2' }) }))
     vi.stubGlobal('fetch', fetchMock)
 
     render(<AutopilotTaskForm slug="alice" mode="create" />)
@@ -163,16 +179,49 @@ describe('AutopilotTaskForm', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create task' }))
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled())
-    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body))).toEqual(expect.objectContaining({
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1].body))).toEqual(expect.objectContaining({
       enabled: false,
       targetAgentId: 'researcher',
     }))
   })
 
+  it('adds Slack notification targets to the saved payload', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(slackTargetsResponse({
+        integrationEnabled: true,
+        users: [{ id: 'user-1', email: 'alice@test.com', slackLinked: true }],
+        channels: [{ channelId: 'C123', name: 'general', isPrivate: false }],
+      }))
+      .mockResolvedValueOnce(jsonResponse({ task: task({ id: 'task-slack' }) }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<AutopilotTaskForm slug="alice" mode="create" />)
+
+    fireEvent.change(screen.getByLabelText('Task name'), { target: { value: 'Slack task' } })
+    fireEvent.change(screen.getByLabelText('Prompt'), { target: { value: 'Send a report' } })
+    fireEvent.click(await screen.findByLabelText('Slack notifications'))
+    fireEvent.change(screen.getByLabelText('Slack DM target'), { target: { value: 'user-1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add target' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create task' }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1].body))).toEqual(
+      expect.objectContaining({
+        slackNotificationConfig: {
+          enabled: true,
+          includeSessionLink: true,
+          targets: [{ type: 'dm', userId: 'user-1' }],
+        },
+      }),
+    )
+  })
+
   it('shows save fallback and network errors', async () => {
     const fetchMock = vi
       .fn()
+      .mockResolvedValueOnce(slackTargetsResponse())
       .mockResolvedValueOnce({ ok: false, json: async () => { throw new Error('bad json') } })
+      .mockResolvedValueOnce(slackTargetsResponse())
       .mockRejectedValueOnce(new Error('offline'))
     vi.stubGlobal('fetch', fetchMock)
 
@@ -190,6 +239,7 @@ describe('AutopilotTaskForm', () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse({ task: task() }))
+      .mockResolvedValueOnce(slackTargetsResponse())
       .mockResolvedValueOnce(jsonResponse({ task: task({ name: 'Updated' }) }))
       .mockResolvedValueOnce(jsonResponse({ task: task({ name: 'Reloaded' }) }))
     vi.stubGlobal('fetch', fetchMock)
@@ -199,9 +249,9 @@ describe('AutopilotTaskForm', () => {
     await screen.findByDisplayValue('Daily summary')
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
-    expect(fetchMock.mock.calls[1][0]).toBe('/api/u/alice/autopilot/task-1')
-    expect(fetchMock.mock.calls[1][1]).toEqual(expect.objectContaining({ method: 'PATCH' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
+    expect(fetchMock.mock.calls[2][0]).toBe('/api/u/alice/autopilot/task-1')
+    expect(fetchMock.mock.calls[2][1]).toEqual(expect.objectContaining({ method: 'PATCH' }))
     expect(pushMock).not.toHaveBeenCalled()
     expect(screen.getByDisplayValue('Reloaded')).toBeTruthy()
   })
@@ -210,6 +260,7 @@ describe('AutopilotTaskForm', () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse({ task: task() }))
+      .mockResolvedValueOnce(slackTargetsResponse())
       .mockResolvedValueOnce(jsonResponse({}, true))
     vi.stubGlobal('fetch', fetchMock)
 
@@ -223,6 +274,7 @@ describe('AutopilotTaskForm', () => {
     const failingFetchMock = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse({ task: task() }))
+      .mockResolvedValueOnce(slackTargetsResponse())
       .mockResolvedValueOnce({ ok: false, json: async () => { throw new Error('bad json') } })
     vi.stubGlobal('fetch', failingFetchMock)
 
@@ -237,6 +289,7 @@ describe('AutopilotTaskForm', () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse({ task: task() }))
+      .mockResolvedValueOnce(slackTargetsResponse())
       .mockResolvedValueOnce(jsonResponse({}, true))
       .mockResolvedValueOnce(jsonResponse({ task: task({ name: 'After run' }) }))
     vi.stubGlobal('fetch', fetchMock)
@@ -244,14 +297,15 @@ describe('AutopilotTaskForm', () => {
     const { unmount } = render(<AutopilotTaskForm slug="alice" mode="edit" taskId="task-1" />)
     await screen.findByDisplayValue('Daily summary')
     fireEvent.click(screen.getByRole('button', { name: 'Run now' }))
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
-    expect(fetchMock.mock.calls[1]).toEqual(['/api/u/alice/autopilot/task-1/run', { method: 'POST' }])
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
+    expect(fetchMock.mock.calls[2]).toEqual(['/api/u/alice/autopilot/task-1/run', { method: 'POST' }])
     expect(screen.getByDisplayValue('After run')).toBeTruthy()
     unmount()
 
     const failingFetchMock = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse({ task: task() }))
+      .mockResolvedValueOnce(slackTargetsResponse())
       .mockResolvedValueOnce({ ok: false, json: async () => { throw new Error('bad json') } })
     vi.stubGlobal('fetch', failingFetchMock)
 

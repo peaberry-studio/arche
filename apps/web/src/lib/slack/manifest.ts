@@ -11,6 +11,14 @@ const SLACK_MANIFEST = {
       display_name: 'Arche',
       always_online: false,
     },
+    slash_commands: [
+      {
+        command: '/new',
+        description: 'Start a new Arche DM conversation',
+        should_escape: false,
+        usage_hint: '[message]',
+      },
+    ],
   },
   oauth_config: {
     scopes: {
@@ -18,8 +26,14 @@ const SLACK_MANIFEST = {
         'app_mentions:read',
         'chat:write',
         'channels:history',
+        'channels:read',
+        'commands',
         'groups:history',
+        'groups:read',
+        'im:history',
+        'im:write',
         'users:read',
+        'users:read.email',
       ],
     },
   },
@@ -29,10 +43,11 @@ const SLACK_MANIFEST = {
         'app_mention',
         'message.channels',
         'message.groups',
+        'message.im',
       ],
     },
     interactivity: {
-      is_enabled: false,
+      is_enabled: true,
     },
     org_deploy_enabled: false,
     socket_mode_enabled: true,

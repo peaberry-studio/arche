@@ -2,6 +2,16 @@ export type AutopilotRunStatus = 'running' | 'succeeded' | 'failed'
 
 export type AutopilotRunTrigger = 'on_create' | 'schedule' | 'manual'
 
+export type AutopilotSlackNotificationTarget =
+  | { type: 'dm'; userId: string }
+  | { type: 'channel'; channelId: string }
+
+export type AutopilotSlackNotificationConfig = {
+  enabled: boolean
+  includeSessionLink: boolean
+  targets: AutopilotSlackNotificationTarget[]
+}
+
 export type AutopilotSessionMetadata = {
   runId: string
   taskId: string
@@ -34,6 +44,7 @@ export type AutopilotTaskListItem = {
   createdAt: string
   updatedAt: string
   latestRun: AutopilotRunListItem | null
+  slackNotificationConfig?: AutopilotSlackNotificationConfig
 }
 
 export type AutopilotTaskDetail = AutopilotTaskListItem & {
@@ -47,6 +58,7 @@ export type AutopilotTaskPayload = {
   cronExpression: string
   timezone: string
   enabled: boolean
+  slackNotificationConfig?: AutopilotSlackNotificationConfig
 }
 
 export type AutopilotTaskRunRequest = {

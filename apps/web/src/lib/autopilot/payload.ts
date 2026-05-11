@@ -121,6 +121,55 @@ export async function validateAutopilotTaskPayload(
     value.enabled = record.enabled
   }
 
+  if ('slackNotificationConfig' in record) {
+    const config = asRecord(record.slackNotificationConfig)
+    if (!config) {
+      return { ok: false, error: 'invalid_slack_notification_config', status: 400 }
+    }
+
+    const enabled = typeof config.enabled === 'boolean' ? config.enabled : false
+    const includeSessionLink = typeof config.includeSessionLink === 'boolean' ? config.includeSessionLink : true
+    const targetsRaw = Array.isArray(config.targets) ? config.targets : []
+    const targets: NonNullable<AutopilotTaskPayload['slackNotificationConfig']>['targets'] = []
+
+    for (const targetRaw of targetsRaw) {
+      const target = asRecord(targetRaw)
+      if (!target) {
+        return { ok: false, error: 'invalid_slack_notification_target', status: 400 }
+      }
+
+      if (target.type === 'dm') {
+        const userId = typeof target.userId === 'string' ? target.userId.trim() : ''
+        if (!userId) {
+          return { ok: false, error: 'invalid_slack_notification_dm_target', status: 400 }
+        }
+        targets.push({ type: 'dm', userId })
+        continue
+      }
+
+      if (target.type === 'channel') {
+        const channelId = typeof target.channelId === 'string' ? target.channelId.trim() : ''
+        if (!channelId) {
+          return { ok: false, error: 'invalid_slack_notification_channel_target', status: 400 }
+        }
+        targets.push({ type: 'channel', channelId })
+        continue
+      }
+
+      return { ok: false, error: 'invalid_slack_notification_target_type', status: 400 }
+    }
+
+    if (enabled && targets.length === 0) {
+      return { ok: false, error: 'slack_notification_targets_required', status: 400 }
+    }
+
+    value.slackNotificationConfig = {
+      enabled,
+      includeSessionLink,
+      targets,
+    }
+  }
+
   if ('cronExpression' in value && !('timezone' in value) && !options.fallbackTimezone) {
     return { ok: false, error: 'invalid_timezone', status: 400 }
   }

@@ -1,5 +1,7 @@
 import { AutopilotRunStatus, AutopilotRunTrigger } from '@prisma/client'
+import type { Prisma } from '@prisma/client'
 
+import type { AutopilotSlackNotificationConfig } from '@/lib/autopilot/types'
 import { prisma } from '@/lib/prisma'
 
 export type AutopilotTaskRecord = {
@@ -17,6 +19,7 @@ export type AutopilotTaskRecord = {
   leaseExpiresAt: Date | null
   retryAttempt: number
   retryScheduledFor: Date | null
+  slackNotificationConfig?: Prisma.JsonValue | null
   createdAt: Date
   updatedAt: Date
 }
@@ -81,6 +84,28 @@ const TASK_DETAIL_INCLUDE = {
   },
 }
 
+function slackNotificationConfigToJson(
+  config: AutopilotSlackNotificationConfig,
+): Prisma.InputJsonObject {
+  return {
+    enabled: config.enabled,
+    includeSessionLink: config.includeSessionLink,
+    targets: config.targets.map((target) => {
+      if (target.type === 'dm') {
+        return {
+          type: 'dm',
+          userId: target.userId,
+        }
+      }
+
+      return {
+        type: 'channel',
+        channelId: target.channelId,
+      }
+    }),
+  }
+}
+
 function availableLease(now: Date): LeaseScope[] {
   return [
     { leaseExpiresAt: null },
@@ -130,6 +155,7 @@ export async function createTask(data: {
   timezone: string
   enabled: boolean
   nextRunAt: Date
+  slackNotificationConfig?: AutopilotSlackNotificationConfig
 }): Promise<AutopilotTaskRecord> {
   return prisma.autopilotTask.create({
     data: {
@@ -141,6 +167,9 @@ export async function createTask(data: {
       timezone: data.timezone,
       enabled: data.enabled,
       nextRunAt: data.nextRunAt,
+      ...(data.slackNotificationConfig
+        ? { slackNotificationConfig: slackNotificationConfigToJson(data.slackNotificationConfig) }
+        : {}),
     },
   })
 }
@@ -156,11 +185,18 @@ export async function updateTaskByIdAndUserId(
     timezone?: string
     enabled?: boolean
     nextRunAt?: Date
+    slackNotificationConfig?: AutopilotSlackNotificationConfig
   },
 ): Promise<AutopilotTaskRecord | null> {
+  const { slackNotificationConfig, ...taskData } = data
   const result = await prisma.autopilotTask.updateMany({
     where: { id, userId },
-    data,
+    data: {
+      ...taskData,
+      ...(slackNotificationConfig
+        ? { slackNotificationConfig: slackNotificationConfigToJson(slackNotificationConfig) }
+        : {}),
+    },
   })
   if (result.count === 0) return null
   return prisma.autopilotTask.findFirst({ where: { id, userId } })
