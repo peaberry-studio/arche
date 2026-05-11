@@ -49,6 +49,8 @@ type WorkspaceTopNavProps = {
   slug: string
   mode: WorkspaceMode
   status: 'active' | 'provisioning' | 'offline'
+  sessionsUnreadCount?: number
+  tasksUnreadCount?: number
   knowledgePendingCount?: number
   macDesktopWindowInset?: boolean
   hideTasksMode?: boolean
@@ -63,6 +65,8 @@ export function WorkspaceTopNav({
   slug,
   mode,
   status,
+  sessionsUnreadCount = 0,
+  tasksUnreadCount = 0,
   knowledgePendingCount = 0,
   macDesktopWindowInset = false,
   hideTasksMode = false,
@@ -160,6 +164,8 @@ export function WorkspaceTopNav({
       <WorkspaceModeToggle
         mode={mode}
         onModeChange={onModeChange}
+        sessionsUnreadCount={sessionsUnreadCount}
+        tasksUnreadCount={tasksUnreadCount}
         knowledgePendingCount={knowledgePendingCount}
         hideTasks={hideTasksMode}
         className={cn(macDesktopWindowInset && 'desktop-titlebar-no-drag')}

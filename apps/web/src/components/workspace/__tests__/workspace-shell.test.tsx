@@ -471,6 +471,56 @@ describe("WorkspaceShell", () => {
     expect(screen.getByText("Appearance")).toBeTruthy();
   });
 
+  it("shows unread badges for sessions, tasks, and knowledge modes", async () => {
+    workspaceMockOverrides = {
+      sessions: [
+        {
+          id: "root-session",
+          title: "Root session",
+          status: "idle",
+          updatedAt: "now",
+          updatedAtRaw: 1,
+        },
+        {
+          id: "unread-session-1",
+          title: "Unread session 1",
+          status: "idle",
+          updatedAt: "now",
+          updatedAtRaw: 2,
+        },
+        {
+          id: "unread-session-2",
+          title: "Unread session 2",
+          status: "idle",
+          updatedAt: "now",
+          updatedAtRaw: 3,
+        },
+        {
+          id: "task-session",
+          title: "Autopilot | Daily brief",
+          status: "idle",
+          updatedAt: "now",
+          updatedAtRaw: 4,
+          autopilot: {
+            runId: "run-1",
+            taskId: "task-1",
+            taskName: "Daily brief",
+            trigger: "manual",
+            hasUnseenResult: true,
+          },
+        },
+      ],
+      unseenCompletedSessions: new Set(["unread-session-1", "unread-session-2", "task-session"]),
+      diffs: [{ path: "docs/a.md" }, { path: "docs/b.md" }, { path: "docs/c.md" }],
+    };
+
+    render(<WorkspaceShell slug="alice" />);
+
+    expect(await screen.findByRole("button", { name: /Sessions.*2 unread/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Tasks.*1 unread/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Knowledge.*3 pending/ })).toBeTruthy();
+  });
+
   it("auto-syncs the KB after the workspace connects", async () => {
     render(<WorkspaceShell slug="alice" />);
 
@@ -549,6 +599,33 @@ describe("WorkspaceShell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Return to main conversation" }));
 
     expect(selectSession).toHaveBeenCalledWith("root-session");
+  });
+
+  it("marks busy autopilot sessions read-only", async () => {
+    workspaceMockOverrides = {
+      sessions: [
+        {
+          id: "task-session",
+          title: "Autopilot | Daily brief",
+          status: "busy",
+          updatedAt: "now",
+          updatedAtRaw: 1,
+          autopilot: {
+            runId: "run-1",
+            taskId: "task-1",
+            taskName: "Daily brief",
+            trigger: "manual",
+            hasUnseenResult: false,
+          },
+        },
+      ],
+      activeSessionId: "task-session",
+    };
+
+    render(<WorkspaceShell slug="alice" />);
+
+    expect((await screen.findByTestId("chat-panel")).dataset.readOnly).toBe("true");
+    expect(screen.queryByRole("button", { name: "Return to main conversation" })).toBeNull();
   });
 
   it("promotes a quickview file into knowledge editing", async () => {

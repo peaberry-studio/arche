@@ -107,6 +107,7 @@ type ChatPanelProps = {
   hasManualModelSelection?: boolean;
   onSelectModel?: (model: AvailableModel | null) => void;
   isReadOnly?: boolean;
+  readOnlyNotice?: string;
   onReturnToMainConversation?: () => void;
   workspaceRoot?: string;
 };
@@ -193,6 +194,7 @@ export function ChatPanel({
   hasManualModelSelection = false,
   onSelectModel,
   isReadOnly = false,
+  readOnlyNotice,
   onReturnToMainConversation,
   workspaceRoot,
 }: ChatPanelProps) {
@@ -1001,7 +1003,8 @@ export function ChatPanel({
     <div className="desktop-select-enabled flex h-full min-h-0 flex-col text-card-foreground">
       <ChatPanelSessionHeader
         activeSession={activeSession}
-        canRenameSession={Boolean(onRenameSession)}
+        canDeleteSession={!isReadOnly}
+        canRenameSession={Boolean(onRenameSession) && !isReadOnly}
         draftTitle={draftTitle}
         editingSessionId={editingSessionId}
         ignoreNextTitleBlurRef={ignoreNextTitleBlurRef}
@@ -1030,7 +1033,7 @@ export function ChatPanel({
         messages={messages}
         messagesEndRef={messagesEndRef}
         onOpenFile={onOpenFile}
-        onAnswerPermission={onAnswerPermission}
+        onAnswerPermission={isReadOnly ? undefined : onAnswerPermission}
         onScrollContainer={handleScrollContainer}
         onSelectSessionTab={onSelectSessionTab}
         scrollContainerRef={scrollContainerRef}
@@ -1050,7 +1053,7 @@ export function ChatPanel({
           <div className="flex items-center justify-between gap-3 rounded-xl border border-warning/20 bg-warning/10 px-4 py-3 text-sm text-warning-foreground">
             <div className="flex items-center gap-2 text-warning-foreground">
               <Info size={16} weight="fill" className="text-warning" />
-              <span>Subagent sessions are read-only. Return to the main conversation to continue chatting.</span>
+              <span>{readOnlyNotice ?? "Subagent sessions are read-only. Return to the main conversation to continue chatting."}</span>
             </div>
             {onReturnToMainConversation ? (
               <Button

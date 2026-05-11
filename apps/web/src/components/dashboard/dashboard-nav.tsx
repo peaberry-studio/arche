@@ -28,6 +28,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { getWorkspaceHref } from '@/lib/workspace-hrefs'
 
 type DashboardNavItem = {
   label: string
@@ -48,7 +49,7 @@ function getWebNavItems(slug: string): DashboardNavItem[] {
 
   return [
     { label: 'New Chat', href: base, activeHref: base, exact: true, icon: ChatCircle },
-    { label: 'Knowledge', href: `/w/${slug}?mode=knowledge`, icon: Database },
+    { label: 'Knowledge', href: getWorkspaceHref(slug, { mode: 'knowledge' }), icon: Database },
     { label: 'Agents', href: `${base}/agents`, icon: Robot },
     { label: 'Skills', href: `${base}/skills`, icon: Lightning },
     { label: 'Autopilot', href: `${base}/autopilot`, icon: Sparkle },
@@ -60,13 +61,13 @@ function getWebNavItems(slug: string): DashboardNavItem[] {
 
 function getDesktopNavItems(slug: string): DashboardNavItem[] {
   return [
-    { label: 'Workspace', href: `/w/${slug}`, activeHref: `/w/${slug}`, exact: true, icon: SquaresFour },
-    { label: 'Knowledge', href: `/w/${slug}?mode=knowledge`, icon: Database },
+    { label: 'Workspace', href: getWorkspaceHref(slug), activeHref: getWorkspaceHref(slug), exact: true, icon: SquaresFour },
+    { label: 'Knowledge', href: getWorkspaceHref(slug, { mode: 'knowledge' }), icon: Database },
     { label: 'Agents', href: `/u/${slug}/agents`, icon: Robot },
-    { label: 'Skills', href: `/w/${slug}?settings=skills`, icon: Lightning },
-    { label: 'Connectors', href: `/w/${slug}?settings=connectors`, icon: Plugs },
-    { label: 'Providers', href: `/w/${slug}?settings=providers`, icon: Cpu },
-    { label: 'Settings', href: `/w/${slug}?settings=appearance`, icon: GearSix },
+    { label: 'Skills', href: getWorkspaceHref(slug, { settings: 'skills' }), icon: Lightning },
+    { label: 'Connectors', href: getWorkspaceHref(slug, { settings: 'connectors' }), icon: Plugs },
+    { label: 'Providers', href: getWorkspaceHref(slug, { settings: 'providers' }), icon: Cpu },
+    { label: 'Settings', href: getWorkspaceHref(slug, { settings: 'appearance' }), icon: GearSix },
   ]
 }
 
@@ -90,7 +91,7 @@ export function DashboardNav({
   hasWindowInset?: boolean
 }) {
   const pathname = usePathname()
-  const workspaceHref = `/w/${slug}`
+  const workspaceHref = getWorkspaceHref(slug)
   const navItems = desktopMode ? getDesktopNavItems(slug) : getWebNavItems(slug)
   const [isExpanded, setIsExpanded] = useState(false)
   const [menuState, setMenuState] = useState<{ open: boolean; pathname: string }>({

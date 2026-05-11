@@ -23,6 +23,7 @@ import type { ChatSession } from "@/types/workspace";
 
 type ChatPanelSessionHeaderProps = {
   activeSession: ChatSession | undefined;
+  canDeleteSession: boolean;
   canRenameSession: boolean;
   draftTitle: string;
   editingSessionId: string | null;
@@ -42,6 +43,7 @@ type ChatPanelSessionHeaderProps = {
 
 export function ChatPanelSessionHeader({
   activeSession,
+  canDeleteSession,
   canRenameSession,
   draftTitle,
   editingSessionId,
@@ -133,14 +135,18 @@ export function ChatPanelSessionHeader({
                       <DownloadSimple size={14} />
                       Export to MD
                     </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onSelect={() => onCloseSession(activeSession.id)}
-                      className="text-destructive focus:text-destructive"
-                    >
-                      <X size={14} />
-                      Delete session
-                    </DropdownMenuItem>
+                    {canDeleteSession ? (
+                      <>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onSelect={() => onCloseSession(activeSession.id)}
+                          className="text-destructive focus:text-destructive"
+                        >
+                          <X size={14} />
+                          Delete session
+                        </DropdownMenuItem>
+                      </>
+                    ) : null}
                   </DropdownMenuContent>
                 </DropdownMenu>
               ) : null}

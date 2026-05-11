@@ -339,6 +339,114 @@ describe("useWorkspace", () => {
     expect(opencodeMocks.markAutopilotRunSeenAction).toHaveBeenCalledTimes(1);
   });
 
+  it("does not resume or abort a busy autopilot session opened by deep link", async () => {
+    const pendingAutopilotMessage: WorkspaceMessage = {
+      id: "assistant-pending",
+      sessionId: "task-session",
+      role: "assistant",
+      content: "",
+      timestamp: "now",
+      timestampRaw: Date.now(),
+      parts: [],
+      pending: true,
+    };
+    const taskSession = {
+      id: "task-session",
+      title: "Autopilot | Daily brief | Apr 12",
+      status: "busy" as const,
+      updatedAt: "now",
+      autopilot: {
+        runId: "run-1",
+        taskId: "task-1",
+        taskName: "Daily brief",
+        trigger: "manual" as const,
+        hasUnseenResult: false,
+      },
+    };
+    const chatStreamRequests: Array<{ resume?: boolean; messageId?: string }> = [];
+
+    opencodeMocks.listSessionsAction.mockResolvedValue({
+      ok: true,
+      sessions: [taskSession],
+      hasMore: false,
+    });
+    opencodeMocks.listSessionFamilyAction.mockResolvedValue({
+      ok: true,
+      rootSessionId: "task-session",
+      sessions: [taskSession],
+    });
+    opencodeMocks.listMessagesAction.mockResolvedValue({
+      ok: true,
+      messages: [pendingAutopilotMessage],
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === "/api/u/alice/agents") {
+          return {
+            ok: true,
+            json: async () => ({
+              agents: [
+                {
+                  id: "assistant",
+                  displayName: "Assistant",
+                  model: "openai/gpt-5.4",
+                  isPrimary: true,
+                },
+              ],
+            }),
+          };
+        }
+
+        if (String(input) === "/api/u/alice/providers") {
+          return {
+            ok: true,
+            json: async () => ({
+              providers: [{ providerId: "openai", status: "enabled" }],
+            }),
+          };
+        }
+
+        if (String(input) === "/api/w/alice/chat/stream") {
+          chatStreamRequests.push(JSON.parse(String(init?.body ?? "{}")) as {
+            resume?: boolean;
+            messageId?: string;
+          });
+          return {
+            ok: true,
+            body: {
+              getReader() {
+                return {
+                  read: async () => ({ done: true, value: undefined }),
+                };
+              },
+            },
+          };
+        }
+
+        throw new Error(`Unexpected fetch: ${String(input)}`);
+      })
+    );
+
+    const { result } = renderHook(() =>
+      useWorkspace({ slug: "alice", pollInterval: 0, initialSessionId: "task-session" })
+    );
+
+    await waitFor(() => {
+      expect(result.current.activeSessionId).toBe("task-session");
+      expect(result.current.messages[0]?.id).toBe("assistant-pending");
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(chatStreamRequests).toEqual([]);
+    expect(opencodeMocks.abortSessionAction).not.toHaveBeenCalled();
+    expect(result.current.activeSessionId).toBe("task-session");
+  });
+
   it("sends the primary agent model when there is no manual selection", async () => {
     let requestBody:
       | {

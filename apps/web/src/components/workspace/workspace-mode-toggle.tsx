@@ -18,6 +18,8 @@ export type WorkspaceMode = 'chat' | 'tasks' | 'knowledge'
 type WorkspaceModeToggleProps = {
   mode: WorkspaceMode
   onModeChange: (mode: WorkspaceMode) => void
+  sessionsUnreadCount?: number
+  tasksUnreadCount?: number
   knowledgePendingCount?: number
   hideTasks?: boolean
   className?: string
@@ -25,6 +27,7 @@ type WorkspaceModeToggleProps = {
 
 type ModeButtonProps = {
   active: boolean
+  badgeDescription?: 'pending' | 'unread'
   badgeCount?: number
   buttonRef: RefObject<HTMLButtonElement | null>
   icon: ComponentType<{ size?: number; weight?: 'regular' | 'bold' | 'fill' }>
@@ -35,7 +38,15 @@ type ModeButtonProps = {
 const useIsomorphicLayoutEffect =
   typeof window !== 'undefined' ? useLayoutEffect : useEffect
 
-function ModeButton({ active, badgeCount, buttonRef, icon: Icon, label, onClick }: ModeButtonProps) {
+function ModeButton({
+  active,
+  badgeDescription = 'pending',
+  badgeCount,
+  buttonRef,
+  icon: Icon,
+  label,
+  onClick,
+}: ModeButtonProps) {
   const showBadge = typeof badgeCount === 'number' && badgeCount > 0
   const badgeLabel = badgeCount && badgeCount > 99 ? '99+' : String(badgeCount ?? 0)
 
@@ -56,7 +67,7 @@ function ModeButton({ active, badgeCount, buttonRef, icon: Icon, label, onClick 
       <span className="leading-none">{label}</span>
       {showBadge ? (
         <span
-          aria-label={`${badgeCount} pending`}
+          aria-label={`${badgeCount} ${badgeDescription}`}
           className={cn(
             '-mr-1 flex h-[15px] min-w-[15px] items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-none',
             active
@@ -74,6 +85,8 @@ function ModeButton({ active, badgeCount, buttonRef, icon: Icon, label, onClick 
 export function WorkspaceModeToggle({
   mode,
   onModeChange,
+  sessionsUnreadCount = 0,
+  tasksUnreadCount = 0,
   knowledgePendingCount = 0,
   hideTasks = false,
   className,
@@ -102,7 +115,7 @@ export function WorkspaceModeToggle({
 
   useIsomorphicLayoutEffect(() => {
     updateIndicator()
-  }, [hideTasks, knowledgePendingCount, updateIndicator])
+  }, [hideTasks, knowledgePendingCount, sessionsUnreadCount, tasksUnreadCount, updateIndicator])
 
   useEffect(() => {
     const button = activeButtonRef.current
@@ -140,6 +153,8 @@ export function WorkspaceModeToggle({
       />
       <ModeButton
         active={mode === 'chat'}
+        badgeCount={sessionsUnreadCount}
+        badgeDescription="unread"
         buttonRef={chatRef}
         icon={ChatCircle}
         label="Sessions"
@@ -148,6 +163,8 @@ export function WorkspaceModeToggle({
       {hideTasks ? null : (
         <ModeButton
           active={mode === 'tasks'}
+          badgeCount={tasksUnreadCount}
+          badgeDescription="unread"
           buttonRef={tasksRef}
           icon={Lightning}
           label="Tasks"
@@ -156,6 +173,7 @@ export function WorkspaceModeToggle({
       )}
       <ModeButton
         active={mode === 'knowledge'}
+        badgeDescription="pending"
         badgeCount={knowledgePendingCount}
         buttonRef={knowledgeRef}
         icon={Database}

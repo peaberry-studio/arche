@@ -1,4 +1,5 @@
 import { isDesktop } from '@/lib/runtime/mode'
+import { getWorkspaceHref } from '@/lib/workspace-hrefs'
 
 export const DESKTOP_SETTINGS_SECTIONS = [
   'providers',
@@ -55,10 +56,5 @@ export function getDesktopWorkspaceHref(
   slug: string,
   section?: DesktopSettingsSection | null,
 ): string {
-  const basePath = `/w/${slug}`
-  if (!section) {
-    return basePath
-  }
-
-  return `${basePath}?settings=${section}`
+  return getWorkspaceHref(slug, { settings: section })
 }

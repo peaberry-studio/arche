@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { formatAutopilotRunDate } from '@/lib/autopilot/cron'
 import type { AutopilotTaskDetail } from '@/lib/autopilot/types'
+import { getWorkspaceHref } from '@/lib/workspace-hrefs'
 
 type AutopilotRunHistoryProps = {
   slug: string
@@ -60,7 +61,7 @@ export function AutopilotRunHistory({ slug, task }: AutopilotRunHistoryProps) {
 
                   {run.openCodeSessionId ? (
                     <Button variant="outline" asChild>
-                      <Link href={`/w/${slug}?session=${encodeURIComponent(run.openCodeSessionId)}`}>
+                      <Link href={getWorkspaceHref(slug, { mode: 'tasks', sessionId: run.openCodeSessionId })}>
                         Open session
                       </Link>
                     </Button>

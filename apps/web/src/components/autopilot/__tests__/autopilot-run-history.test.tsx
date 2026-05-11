@@ -83,6 +83,6 @@ describe('AutopilotRunHistory', () => {
     expect(screen.getByText('Failed')).toBeTruthy()
     expect(screen.getByText('Running')).toBeTruthy()
     expect(screen.getByText('Workspace unavailable')).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Open session' }).getAttribute('href')).toBe('/w/alice?session=session-1')
+    expect(screen.getByRole('link', { name: 'Open session' }).getAttribute('href')).toBe('/w/alice?mode=tasks&session=session-1')
   })
 })

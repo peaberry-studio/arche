@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, type MutableRefObject } from "react";
 
 import type { WorkspaceMessage, WorkspaceSession } from "@/lib/opencode/types";
+import { canAutoResumeWorkspaceSession } from "@/lib/workspace-session-utils";
 import {
   canAutoResume,
   type ResumeFailureState,
@@ -48,6 +49,7 @@ export function useWorkspaceResumeEffect({
   }, [messages]);
 
   const messagesRef = useRef(messages);
+  const canResumeActiveSession = canAutoResumeWorkspaceSession(activeSession);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -55,6 +57,8 @@ export function useWorkspaceResumeEffect({
 
   useEffect(() => {
     if (!activeSessionId || !enabled || !isConnected) return;
+    if (!canResumeActiveSession) return;
+
     const resumeStatus = sessionStreamStatusRef.current[activeSessionId];
     if (resumeStatus === "submitted" || resumeStatus === "streaming") return;
 
@@ -118,6 +122,7 @@ export function useWorkspaceResumeEffect({
     enabled,
     isConnected,
     pendingAssistantKey,
+    canResumeActiveSession,
     activeStreamsRef,
     resumeFailureStateRef,
     sessionStreamStatusRef,

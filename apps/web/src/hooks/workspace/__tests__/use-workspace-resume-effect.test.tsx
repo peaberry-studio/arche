@@ -25,6 +25,17 @@ const busySession: WorkspaceSession = {
   updatedAt: "now",
 };
 
+const autopilotBusySession: WorkspaceSession = {
+  ...busySession,
+  autopilot: {
+    runId: "run-1",
+    taskId: "task-1",
+    taskName: "Daily brief",
+    trigger: "manual",
+    hasUnseenResult: false,
+  },
+};
+
 const idleSession: WorkspaceSession = {
   ...busySession,
   status: "idle",
@@ -94,6 +105,14 @@ describe("useWorkspaceResumeEffect", () => {
   it("does not resume when an active stream exists", () => {
     const { streamChat } = renderResumeEffect({
       activeStreams: new Map([["s1", {}]]),
+    });
+
+    expect(streamChat).not.toHaveBeenCalled();
+  });
+
+  it("does not resume autopilot-owned sessions", () => {
+    const { streamChat } = renderResumeEffect({
+      activeSession: autopilotBusySession,
     });
 
     expect(streamChat).not.toHaveBeenCalled();

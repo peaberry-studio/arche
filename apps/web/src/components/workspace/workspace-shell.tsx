@@ -15,11 +15,16 @@ import {
   isProtectedWorkspacePath,
   normalizeWorkspacePath,
 } from "@/lib/workspace-paths";
+import {
+  getWorkspaceSessionMode,
+  getWorkspaceUnreadCounts,
+  isAutopilotSession,
+  isBusyAutopilotWorkspaceSession,
+} from "@/lib/workspace-session-utils";
 import { downloadWorkspaceFile } from "@/lib/workspace-file-download";
 import {
   getWorkspaceLayoutCookieName,
   getWorkspaceLayoutStorageKey,
-  type NormalizedLeftPanelState,
   persistWorkspacePanelState,
   parseWorkspaceLayoutState,
   readWorkspacePanelState,
@@ -61,7 +66,6 @@ type WorkspaceShellProps = {
   initialWorkspaceMode?: WorkspaceMode;
   knowledgeAgentSources?: KnowledgeGraphAgentSource[];
   initialLayoutState?: StoredLayoutState | null;
-  initialLeftPanelState?: NormalizedLeftPanelState | null;
   macDesktopWindowInset?: boolean;
   workspaceAgentEnabled?: boolean;
   reaperEnabled?: boolean;
@@ -233,7 +237,6 @@ export function WorkspaceShell({
   initialWorkspaceMode = "chat",
   knowledgeAgentSources = [],
   initialLayoutState = null,
-  initialLeftPanelState: _initialLeftPanelState = null,
   macDesktopWindowInset = false,
   workspaceAgentEnabled = true,
   reaperEnabled = true,
@@ -385,6 +388,11 @@ export function WorkspaceShell({
     });
   }, [workspace.sessions, sessionsById]);
 
+  const { sessionsUnreadCount, tasksUnreadCount } = useMemo(
+    () => getWorkspaceUnreadCounts(workspace.sessions, workspace.unseenCompletedSessions),
+    [workspace.sessions, workspace.unseenCompletedSessions]
+  );
+
   const activeRootSessionId = useMemo(
     () => resolveRootSessionId(workspace.activeSessionId, sessionsById),
     [workspace.activeSessionId, sessionsById]
@@ -396,7 +404,7 @@ export function WorkspaceShell({
     if (!id) return;
     const session = sessionsById.get(id);
     if (!session) return;
-    const sessionMode: "chat" | "tasks" = session.autopilot ? "tasks" : "chat";
+    const sessionMode = getWorkspaceSessionMode(session);
     lastSessionByModeRef.current[sessionMode] = id;
   }, [workspace.activeSessionId, sessionsById]);
 
@@ -673,7 +681,7 @@ export function WorkspaceShell({
         const currentSession = currentActiveId
           ? sessionsById.get(currentActiveId) ?? null
           : null;
-        const currentIsAutopilot = Boolean(currentSession?.autopilot);
+        const currentIsAutopilot = isAutopilotSession(currentSession);
 
         if (resolvedNextMode === "chat" && currentIsAutopilot) {
           const targetId = lastSessionByModeRef.current.chat;
@@ -1696,6 +1704,12 @@ export function WorkspaceShell({
     </div>
   );
 
+  const activeSessionRecord = workspace.activeSessionId
+    ? sessionsById.get(workspace.activeSessionId) ?? null
+    : null;
+  const isBusyAutopilotSession = isBusyAutopilotWorkspaceSession(activeSessionRecord);
+  const isReadOnlyChatSession = isInspectingSubagentSession || isBusyAutopilotSession;
+
   const chatPanelElement = (
     <ChatPanel
       key={workspace.activeSessionId ?? "no-session"}
@@ -1723,9 +1737,14 @@ export function WorkspaceShell({
       selectedModel={workspace.selectedModel}
       hasManualModelSelection={workspace.hasManualModelSelection}
       onSelectModel={workspace.setSelectedModel}
-      isReadOnly={isInspectingSubagentSession}
+      isReadOnly={isReadOnlyChatSession}
+      readOnlyNotice={
+        isBusyAutopilotSession
+          ? "This task run is still in progress. It is read-only until Autopilot finishes."
+          : undefined
+      }
       onReturnToMainConversation={
-        activeRootSessionId
+        isInspectingSubagentSession && activeRootSessionId
           ? () => workspace.selectSession(activeRootSessionId)
           : undefined
       }
@@ -1789,10 +1808,7 @@ export function WorkspaceShell({
     />
   );
 
-  const activeSessionRecord = workspace.activeSessionId
-    ? sessionsById.get(workspace.activeSessionId) ?? null
-    : null;
-  const isViewingAutopilotSession = Boolean(activeSessionRecord?.autopilot);
+  const isViewingAutopilotSession = isAutopilotSession(activeSessionRecord);
   const showTasksEmptyState = isTasksMode && !isViewingAutopilotSession;
   const showKnowledgeEmptyState = isKnowledgeMode && openFilePaths.length === 0;
   const centerPanelElement = isKnowledgeMode
@@ -1853,6 +1869,8 @@ export function WorkspaceShell({
         slug={slug}
         mode={workspaceMode}
         status="active"
+        sessionsUnreadCount={sessionsUnreadCount}
+        tasksUnreadCount={tasksUnreadCount}
         knowledgePendingCount={workspace.diffs.length}
         macDesktopWindowInset={macDesktopWindowInset}
         hideTasksMode={hasDesktopVault}

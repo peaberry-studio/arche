@@ -114,6 +114,58 @@ describe("ChatPanel interactions", () => {
     });
   });
 
+  it("withholds session mutation actions in read-only mode", async () => {
+    const onCloseSession = vi.fn();
+    const onRenameSession = vi.fn(async () => true);
+
+    renderChatPanel({
+      isReadOnly: true,
+      onCloseSession,
+      onRenameSession,
+    });
+
+    expect(screen.queryByRole("button", { name: /rename session planning/i })).toBeNull();
+
+    openSessionMenu();
+    expect(await screen.findByRole("menuitem", { name: /export to md/i })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: /delete session/i })).toBeNull();
+  });
+
+  it("disables permission responses in read-only mode", () => {
+    const onAnswerPermission = vi.fn().mockResolvedValue(true);
+    const messages: ChatMessage[] = [
+      {
+        id: "m1",
+        sessionId: "s1",
+        role: "assistant",
+        content: "",
+        timestamp: "now",
+        parts: [
+          {
+            type: "permission",
+            id: "permission:perm-1",
+            permissionId: "perm-1",
+            sessionId: "s1",
+            title: "Run shell command",
+            state: "pending",
+          },
+        ],
+      },
+    ];
+
+    renderChatPanel({
+      isReadOnly: true,
+      messages,
+      onAnswerPermission,
+    });
+
+    const allowButton = screen.getByRole("button", { name: "Allow" }) as HTMLButtonElement;
+
+    expect(allowButton.disabled).toBe(true);
+    fireEvent.click(allowButton);
+    expect(onAnswerPermission).not.toHaveBeenCalled();
+  });
+
   it("exports the active conversation to markdown", async () => {
     const createObjectURL = vi.fn(() => "blob:session-export");
     const revokeObjectURL = vi.fn();
