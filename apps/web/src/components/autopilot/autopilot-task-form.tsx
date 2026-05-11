@@ -201,12 +201,8 @@ export function AutopilotTaskForm({ slug, mode, taskId }: AutopilotTaskFormProps
             includeSessionLink,
             targets: notificationTargets,
           }
-        : task?.slackNotificationConfig
-          ? {
-              enabled: false,
-              includeSessionLink,
-              targets: [],
-            }
+        : mode === 'edit' && task?.slackNotificationConfig
+          ? null
           : undefined
 
       const response = await fetch(

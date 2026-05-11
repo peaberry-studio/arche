@@ -37,8 +37,6 @@ const DM_CONTINUE_THRESHOLD_MS = 2 * 60 * 60 * 1000
 const DM_NEW_SESSION_THRESHOLD_MS = 8 * 60 * 60 * 1000
 const PENDING_DECISION_EXPIRY_MS = 30 * 60 * 1000
 
-type PendingSlackDmDecision = SlackPendingDmDecisionRecord & { status: 'pending' }
-
 export async function handleSlackDmEvent(args: {
   body: unknown
   client: SlackChatClient
@@ -55,7 +53,7 @@ export async function handleSlackDmEvent(args: {
   try {
     const slackTeamId = await resolveSlackTeamId(args.body)
     if (!slackTeamId) {
-      await postSlackDmMessage(args.client, channel, 'No pude identificar el workspace de Slack para vincular tu cuenta.')
+      await postSlackDmMessage(args.client, channel, 'I could not identify the Slack workspace to link your account.')
       return
     }
 
@@ -115,7 +113,7 @@ export async function handleSlackDmEvent(args: {
     await startNewSlackDmConversation({
       channel,
       client: args.client,
-      messagePrefix: 'Han pasado más de 8 horas, así que he empezado una nueva conversación.',
+      messagePrefix: 'More than 8 hours have passed, so I started a new conversation.',
       messageText: text,
       profile,
       slackTeamId,
@@ -126,6 +124,7 @@ export async function handleSlackDmEvent(args: {
     const detail = error instanceof Error ? error.message : 'slack_error'
     await postSlackDmMessage(args.client, channel, 'I hit an error while preparing the Slack reply. Please try again.').catch(() => undefined)
     await slackService.markLastError(detail).catch(() => undefined)
+    // The user was notified above; rethrow so the socket manager logs the failure.
     throw error
   }
 }
@@ -137,14 +136,14 @@ export async function handleNewSlackDmCommand(args: {
 }): Promise<void> {
   const body = args.body
   if (!body?.channel_id || !body.user_id) {
-    await args.respond({ text: 'No pude interpretar el comando /new.' })
+    await args.respond({ text: 'I could not interpret the /new command.' })
     return
   }
 
   if (!isSlackDmCommand(body)) {
     await args.respond({
       response_type: 'ephemeral',
-      text: '/new está pensado para DMs con Arche. Para canales, menciona a Arche en un hilo.',
+      text: '/new is intended for Arche DMs. For channels, mention Arche in a thread.',
     })
     return
   }
@@ -152,7 +151,7 @@ export async function handleNewSlackDmCommand(args: {
   try {
     const slackTeamId = await resolveSlackTeamId(body)
     if (!slackTeamId) {
-      await args.respond({ text: 'No pude identificar el workspace de Slack para vincular tu cuenta.' })
+      await args.respond({ text: 'I could not identify the Slack workspace to link your account.' })
       return
     }
 
@@ -190,11 +189,11 @@ export async function handleNewSlackDmCommand(args: {
     })
 
     if (!messageText) {
-      await args.respond({ text: 'Nueva conversación iniciada. Escribe tu siguiente mensaje aquí.' })
+      await args.respond({ text: 'New conversation started. Send your next message here.' })
       return
     }
 
-    await args.respond({ text: 'Nueva conversación iniciada. Estoy pensando...' })
+    await args.respond({ text: 'New conversation started. Thinking...' })
     await executeSlackDmPromptAndReply({
       bindingId: session.binding.id,
       channel: body.channel_id,
@@ -219,31 +218,29 @@ export async function handleSlackDmDecisionAction(args: {
   const decisionId = getSlackActionValue(args.body)
   const actionTarget = getSlackActionTarget(args.body)
   if (!decisionId) {
-    await updateSlackActionMessage(args.client, actionTarget, 'Esta decisión ya no es válida.').catch(() => undefined)
+    await updateSlackActionMessage(args.client, actionTarget, 'This decision is no longer valid.').catch(() => undefined)
     return
   }
 
   try {
     const decision = await slackService.findPendingDmDecision(decisionId)
     if (!decision || decision.status !== 'pending') {
-      await updateSlackActionMessage(args.client, actionTarget, 'Esta decisión ya no es válida.')
+      await updateSlackActionMessage(args.client, actionTarget, 'This decision is no longer valid.')
       return
     }
 
     if (decision.expiresAt.getTime() <= Date.now()) {
       await slackService.expirePendingDmDecision(decision.id)
-      await updateSlackActionMessage(args.client, actionTarget, 'Esta decisión expiró. Envía tu mensaje otra vez para continuar.')
+      await updateSlackActionMessage(args.client, actionTarget, 'This decision expired. Send your message again to continue.')
       return
     }
-
-    const pendingDecision: PendingSlackDmDecision = { ...decision, status: 'pending' }
 
     if (args.action === 'continue') {
-      await continueSlackDmDecision(args.client, actionTarget, pendingDecision)
+      await continueSlackDmDecision(args.client, actionTarget, decision)
       return
     }
 
-    await startNewSlackDmDecision(args.client, actionTarget, pendingDecision)
+    await startNewSlackDmDecision(args.client, actionTarget, decision)
   } catch (error) {
     const detail = error instanceof Error ? error.message : 'slack_error'
     await slackService.markLastError(detail).catch(() => undefined)
@@ -254,30 +251,30 @@ export async function handleSlackDmDecisionAction(args: {
 async function continueSlackDmDecision(
   client: SlackChatClient,
   actionTarget: SlackActionTarget | null,
-  decision: PendingSlackDmDecision,
+  decision: SlackPendingDmDecisionRecord,
 ): Promise<void> {
   if (!decision.previousDmSessionBindingId) {
     await slackService.expirePendingDmDecision(decision.id)
-    await updateSlackActionMessage(client, actionTarget, 'No pude encontrar la conversación anterior. Envía tu mensaje otra vez para empezar de nuevo.')
+    await updateSlackActionMessage(client, actionTarget, 'I could not find the previous conversation. Send your message again to start over.')
     return
   }
 
   const binding = await slackService.findDmSessionBindingById(decision.previousDmSessionBindingId)
   if (!binding) {
     await slackService.expirePendingDmDecision(decision.id)
-    await updateSlackActionMessage(client, actionTarget, 'No pude encontrar la conversación anterior. Envía tu mensaje otra vez para empezar de nuevo.')
+    await updateSlackActionMessage(client, actionTarget, 'I could not find the previous conversation. Send your message again to start over.')
     return
   }
 
   const claimed = await slackService.markPendingDmDecisionContinued(decision.id)
   if (!claimed) {
-    await updateSlackActionMessage(client, actionTarget, 'Esta decisión ya no es válida.')
+    await updateSlackActionMessage(client, actionTarget, 'This decision is no longer valid.')
     return
   }
 
   const owner = await userService.findByIdSelect(binding.executionUserId, { slug: true })
   if (!owner) {
-    await updateSlackActionMessage(client, actionTarget, 'No pude encontrar la cuenta de Arche vinculada.')
+    await updateSlackActionMessage(client, actionTarget, 'I could not find the linked Arche account.')
     return
   }
 
@@ -287,7 +284,7 @@ async function continueSlackDmDecision(
     throw new Error('instance_unavailable')
   }
 
-  await updateSlackActionMessage(client, actionTarget, 'Continuando la conversación anterior...')
+  await updateSlackActionMessage(client, actionTarget, 'Continuing the previous conversation...')
   await executeSlackDmPromptAndReply({
     bindingId: binding.id,
     channel: decision.channelId,
@@ -302,11 +299,11 @@ async function continueSlackDmDecision(
 async function startNewSlackDmDecision(
   client: SlackChatClient,
   actionTarget: SlackActionTarget | null,
-  decision: PendingSlackDmDecision,
+  decision: SlackPendingDmDecisionRecord,
 ): Promise<void> {
-  const claimed = await slackService.markPendingDmDecisionStartedNew(decision.id, '')
+  const claimed = await slackService.markPendingDmDecisionStartedNew(decision.id)
   if (!claimed) {
-    await updateSlackActionMessage(client, actionTarget, 'Esta decisión ya no es válida.')
+    await updateSlackActionMessage(client, actionTarget, 'This decision is no longer valid.')
     return
   }
 
@@ -330,7 +327,7 @@ async function startNewSlackDmDecision(
     user: resolution.user,
   })
 
-  await updateSlackActionMessage(client, actionTarget, 'Empezando nueva conversación...')
+  await updateSlackActionMessage(client, actionTarget, 'Starting a new conversation...')
   await executeSlackDmPromptAndReply({
     bindingId: session.binding.id,
     channel: decision.channelId,
@@ -524,6 +521,6 @@ async function promptForSlackDmDecision(args: {
   await args.client.chat.postMessage({
     blocks: buildSlackDmDecisionBlocks(decision.id),
     channel: args.channel,
-    text: 'Han pasado más de 2 horas desde la última conversación. ¿Quieres continuar la conversación anterior o empezar una nueva?',
+    text: 'More than 2 hours have passed since the last conversation. Do you want to continue the previous conversation or start a new one?',
   })
 }

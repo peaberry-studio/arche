@@ -5,6 +5,7 @@ import { planAutopilotRetry } from '@/lib/autopilot/retry-policy'
 import { serializeSlackNotificationConfig } from '@/lib/autopilot/serializers'
 import { createInstanceClient } from '@/lib/opencode/client'
 import {
+  captureSessionMessageCursor,
   ensureWorkspaceRunningForExecution,
   readLatestAssistantText,
   waitForSessionToComplete,
@@ -175,6 +176,7 @@ export async function runClaimedAutopilotTask(
       sessionTitle,
     })
 
+    const sessionCursor = await captureSessionMessageCursor(client, sessionId)
     promptSent = true
     await client.session.promptAsync(
       {
@@ -193,6 +195,7 @@ export async function runClaimedAutopilotTask(
     let lastLeaseExtensionAt = 0
     const failure = await waitForSessionToComplete({
       client,
+      cursor: sessionCursor,
       sessionId,
       slug,
       onPulse: async () => {
@@ -232,7 +235,7 @@ export async function runClaimedAutopilotTask(
       const slackNotificationConfig = serializeSlackNotificationConfig(task.slackNotificationConfig)
       if (slackNotificationConfig?.enabled && sessionId && slug) {
         try {
-          const assistantText = await readLatestAssistantText(client, sessionId)
+          const assistantText = await readLatestAssistantText(client, sessionId, sessionCursor)
           if (!assistantText) {
             throw new Error('No assistant text to send')
           }

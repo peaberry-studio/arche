@@ -314,4 +314,16 @@ describe('validateAutopilotTaskPayload', () => {
 
     expect(result).toEqual({ ok: false, error: 'slack_notification_targets_required', status: 400 })
   })
+
+  it('accepts null Slack notification config to clear existing settings', async () => {
+    const { validateAutopilotTaskPayload } = await import('../payload')
+    const result = await validateAutopilotTaskPayload(
+      {
+        slackNotificationConfig: null,
+      },
+      'update',
+    )
+
+    expect(result).toEqual({ ok: true, value: { slackNotificationConfig: null } })
+  })
 })

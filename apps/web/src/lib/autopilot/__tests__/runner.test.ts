@@ -112,19 +112,21 @@ describe('autopilot runner', () => {
         create: vi.fn().mockResolvedValue({
           data: { id: 'session-1' },
         }),
-        messages: vi.fn().mockResolvedValue({
-          data: [
-            {
-              info: {
-                role: 'assistant',
-                time: { completed: 1 },
+        messages: vi.fn()
+          .mockResolvedValueOnce({ data: [] })
+          .mockResolvedValue({
+            data: [
+              {
+                info: {
+                  role: 'assistant',
+                  time: { completed: 1 },
+                },
+                parts: [
+                  { id: 'part-1', type: 'text', text: 'Done' },
+                ],
               },
-              parts: [
-                { id: 'part-1', type: 'text', text: 'Done' },
-              ],
-            },
-          ],
-        }),
+            ],
+          }),
         promptAsync: vi.fn().mockResolvedValue({ response: { ok: true } }),
         status: vi.fn().mockResolvedValue({
           data: {
@@ -171,19 +173,21 @@ describe('autopilot runner', () => {
         create: vi.fn().mockResolvedValue({
           data: { id: 'session-1' },
         }),
-        messages: vi.fn().mockResolvedValue({
-          data: [
-            {
-              info: {
-                role: 'assistant',
-                time: { completed: 1 },
+        messages: vi.fn()
+          .mockResolvedValueOnce({ data: [] })
+          .mockResolvedValue({
+            data: [
+              {
+                info: {
+                  role: 'assistant',
+                  time: { completed: 1 },
+                },
+                parts: [
+                  { id: 'part-1', type: 'text', text: 'Report text' },
+                ],
               },
-              parts: [
-                { id: 'part-1', type: 'text', text: 'Report text' },
-              ],
-            },
-          ],
-        }),
+            ],
+          }),
         promptAsync: vi.fn().mockResolvedValue({ response: { ok: true } }),
         status: vi.fn().mockResolvedValue({
           data: {
@@ -427,6 +431,9 @@ describe('autopilot runner', () => {
           messages: vi
             .fn()
             .mockResolvedValueOnce({
+              data: [],
+            })
+            .mockResolvedValueOnce({
               data: [
                 {
                   info: {
@@ -445,6 +452,24 @@ describe('autopilot runner', () => {
               ],
             })
             .mockResolvedValueOnce({
+              data: [
+                {
+                  info: {
+                    role: 'assistant',
+                    time: {},
+                  },
+                  parts: [
+                    {
+                      id: 'tool-1',
+                      type: 'tool',
+                      tool: 'task',
+                      state: { status: 'running', input: {}, title: 'working' },
+                    },
+                  ],
+                },
+              ],
+            })
+            .mockResolvedValue({
               data: [
                 {
                   info: {

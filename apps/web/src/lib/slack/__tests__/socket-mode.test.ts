@@ -536,7 +536,7 @@ describe('slack socket manager', () => {
       expect.objectContaining({ action: 'slack.new_command_used' }),
     )
     expect(promptAsyncMock).toHaveBeenCalled()
-    expect(respondMock).toHaveBeenCalledWith({ text: 'Nueva conversación iniciada. Estoy pensando...' })
+    expect(respondMock).toHaveBeenCalledWith({ text: 'New conversation started. Thinking...' })
     stopSlackSocketManager()
   })
 
@@ -602,7 +602,7 @@ describe('slack socket manager', () => {
     expect(client.chat.update).toHaveBeenCalledWith({
       blocks: [],
       channel: 'D123',
-      text: 'Continuando la conversación anterior...',
+      text: 'Continuing the previous conversation...',
       ts: 'decision-ts',
     })
     stopSlackSocketManager()

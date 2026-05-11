@@ -6,7 +6,7 @@ import { getNextAutopilotRunAt, validateAutopilotCronExpression } from '@/lib/au
 import { validateAutopilotTaskPayload } from '@/lib/autopilot/payload'
 import { resolveAutopilotWorkspaceUserId } from '@/lib/autopilot/route-auth'
 import { serializeAutopilotTaskDetail } from '@/lib/autopilot/serializers'
-import type { AutopilotTaskDetail } from '@/lib/autopilot/types'
+import type { AutopilotSlackNotificationConfig, AutopilotTaskDetail } from '@/lib/autopilot/types'
 import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { autopilotService } from '@/lib/services'
@@ -88,18 +88,30 @@ export const PATCH = withAuth<{ task: AutopilotTaskDetail } | { error: string },
     const nextRunAt = nextEnabled && (enabledChanged || scheduleChanged)
       ? getNextAutopilotRunAt(nextCronExpression, nextTimezone, new Date())
       : undefined
+    const updateData: {
+      name?: string
+      prompt?: string
+      targetAgentId?: string | null
+      cronExpression?: string
+      timezone?: string
+      enabled?: boolean
+      nextRunAt?: Date
+      slackNotificationConfig?: AutopilotSlackNotificationConfig | null
+    } = {
+      name: payload.value.name,
+      prompt: payload.value.prompt,
+      targetAgentId: payload.value.targetAgentId,
+      cronExpression: payload.value.cronExpression,
+      timezone: payload.value.timezone,
+      enabled: payload.value.enabled,
+      nextRunAt,
+    }
+    if ('slackNotificationConfig' in payload.value) {
+      updateData.slackNotificationConfig = payload.value.slackNotificationConfig ?? null
+    }
 
     try {
-      const updated = await autopilotService.updateTaskByIdAndUserId(id, userId, {
-        name: payload.value.name,
-        prompt: payload.value.prompt,
-        targetAgentId: payload.value.targetAgentId,
-        cronExpression: payload.value.cronExpression,
-        timezone: payload.value.timezone,
-        enabled: payload.value.enabled,
-        nextRunAt,
-        slackNotificationConfig: payload.value.slackNotificationConfig,
-      })
+      const updated = await autopilotService.updateTaskByIdAndUserId(id, userId, updateData)
 
       if (!updated) {
         return NextResponse.json({ error: 'not_found' }, { status: 404 })

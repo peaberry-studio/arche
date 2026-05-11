@@ -107,9 +107,9 @@ describe('slack socket utils', () => {
     expect(mapSlackFailureToMessage('autopilot_no_assistant_message')).toContain('could not produce')
     expect(mapSlackFailureToMessage('provider_auth_missing')).toContain('provider credentials')
     expect(mapSlackFailureToMessage('other')).toContain('preparing')
-    expect(mapSlackUserResolutionError('slack_email_missing')).toContain('email de Slack')
-    expect(mapSlackUserResolutionError('slack_email_not_found')).toContain('email coincida')
-    expect(mapSlackUserResolutionError('other')).toContain('vinculada')
+    expect(mapSlackUserResolutionError('slack_email_missing')).toContain('Slack email')
+    expect(mapSlackUserResolutionError('slack_email_not_found')).toContain('email matches')
+    expect(mapSlackUserResolutionError('other')).toContain('linked')
     expect(normalizeSlackMessageEvent(null)).toBeNull()
     expect(normalizeSlackMessageEvent({ bot_id: 'B1', channel: 'D1', channel_type: 'im', text: 'hi' })).toEqual({
       bot_id: 'B1',

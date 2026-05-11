@@ -256,6 +256,38 @@ describe('AutopilotTaskForm', () => {
     expect(screen.getByDisplayValue('Reloaded')).toBeTruthy()
   })
 
+  it('clears Slack notification config when editing and disabling notifications', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({
+        task: task({
+          slackNotificationConfig: {
+            enabled: true,
+            includeSessionLink: true,
+            targets: [{ type: 'dm', userId: 'user-1' }],
+          },
+        }),
+      }))
+      .mockResolvedValueOnce(slackTargetsResponse({
+        integrationEnabled: true,
+        users: [{ id: 'user-1', email: 'alice@test.com', slackLinked: true }],
+      }))
+      .mockResolvedValueOnce(jsonResponse({ task: task({ name: 'Updated' }) }))
+      .mockResolvedValueOnce(jsonResponse({ task: task({ name: 'Reloaded' }) }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<AutopilotTaskForm slug="alice" mode="edit" taskId="task-1" />)
+
+    await screen.findByText('Active targets (1)')
+    fireEvent.click(screen.getByLabelText('Slack notifications'))
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4))
+    expect(JSON.parse(String(fetchMock.mock.calls[2][1].body))).toEqual(
+      expect.objectContaining({ slackNotificationConfig: null }),
+    )
+  })
+
   it('deletes an existing task or shows delete fallback errors', async () => {
     const fetchMock = vi
       .fn()

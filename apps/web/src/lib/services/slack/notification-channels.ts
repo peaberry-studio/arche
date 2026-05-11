@@ -5,8 +5,12 @@ export async function upsertNotificationChannelsFromSlack(
   slackTeamId: string,
   channels: Array<{ channelId: string; name: string; isPrivate: boolean }>,
 ): Promise<void> {
-  for (const channel of channels) {
-    await prisma.slackNotificationChannel.upsert({
+  if (channels.length === 0) {
+    return
+  }
+
+  await prisma.$transaction(channels.map((channel) => (
+    prisma.slackNotificationChannel.upsert({
       where: {
         slackTeamId_channelId: {
           channelId: channel.channelId,
@@ -22,10 +26,10 @@ export async function upsertNotificationChannelsFromSlack(
       },
       update: {
         isPrivate: channel.isPrivate,
-        name: channel.name,
+          name: channel.name,
       },
     })
-  }
+  )))
 }
 
 export function listNotificationChannels(

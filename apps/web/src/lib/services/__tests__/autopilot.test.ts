@@ -168,6 +168,23 @@ describe('autopilotService', () => {
       expect(result).toBeNull()
       expect(mockPrisma.autopilotTask.findFirst).not.toHaveBeenCalled()
     })
+
+    it('clears Slack notification config when explicitly set to null', async () => {
+      const updated = { id: 'task-1', slackNotificationConfig: null }
+      mockPrisma.autopilotTask.updateMany.mockResolvedValue({ count: 1 })
+      mockPrisma.autopilotTask.findFirst.mockResolvedValue(updated)
+
+      const { updateTaskByIdAndUserId } = await import('../autopilot')
+      const result = await updateTaskByIdAndUserId('task-1', 'user-1', {
+        slackNotificationConfig: null,
+      })
+
+      expect(result).toEqual(updated)
+      expect(mockPrisma.autopilotTask.updateMany).toHaveBeenCalledWith({
+        where: { id: 'task-1', userId: 'user-1' },
+        data: { slackNotificationConfig: expect.anything() },
+      })
+    })
   })
 
   // -----------------------------------------------------------------------

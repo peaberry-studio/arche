@@ -21,11 +21,13 @@ export const GET = withAuth(
     }
 
     try {
-      const teamMembers = await userService.findTeamMembers()
+      const targetUsers = user.role === 'ADMIN'
+        ? await userService.findTeamMembers()
+        : [{ email: workspaceUser.email, id: workspaceUser.id }]
       const slackLinks = await prisma.slackUserLink.findMany({
         where: {
           userId: {
-            in: teamMembers.map((member) => member.id),
+            in: targetUsers.map((member) => member.id),
           },
         },
         select: {
@@ -46,7 +48,7 @@ export const GET = withAuth(
           name: channel.name,
         })),
         integrationEnabled,
-        users: teamMembers.map((member) => ({
+        users: targetUsers.map((member) => ({
           email: member.email,
           id: member.id,
           slackLinked: linkedUserIds.has(member.id),

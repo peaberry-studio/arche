@@ -140,14 +140,14 @@ export function mapSlackFailureToMessage(error: string): string {
 
 export function mapSlackUserResolutionError(error: string): string {
   if (error === 'slack_email_missing') {
-    return 'No puedo leer tu email de Slack. Pide a un admin que revise el scope users:read.email.'
+    return 'I cannot read your Slack email. Ask an admin to verify the users:read.email scope.'
   }
 
   if (error === 'slack_email_not_found') {
-    return 'No encuentro una cuenta de Arche con tu email de Slack. Revisa que tu email coincida o contacta a un admin.'
+    return 'I cannot find an Arche account with your Slack email. Check that your email matches or contact an admin.'
   }
 
-  return 'No encuentro una cuenta de Arche vinculada a tu usuario de Slack.'
+  return 'I cannot find an Arche account linked to your Slack user.'
 }
 
 export function normalizeSlackMessageEvent(event: unknown): SlackMessageEvent | null {
@@ -387,7 +387,7 @@ export function buildSlackDmDecisionBlocks(decisionId: string): SlackBlock[] {
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: 'Han pasado más de 2 horas desde la última conversación.\n¿Quieres continuar la conversación anterior o empezar una nueva?',
+        text: 'More than 2 hours have passed since the last conversation.\nDo you want to continue the previous conversation or start a new one?',
       },
     },
     {
@@ -396,14 +396,14 @@ export function buildSlackDmDecisionBlocks(decisionId: string): SlackBlock[] {
         {
           type: 'button',
           action_id: 'continue_conversation',
-          text: { type: 'plain_text', text: 'Continuar' },
+          text: { type: 'plain_text', text: 'Continue' },
           value: decisionId,
         },
         {
           type: 'button',
           action_id: 'start_new_conversation',
           style: 'primary',
-          text: { type: 'plain_text', text: 'Empezar nueva' },
+          text: { type: 'plain_text', text: 'Start new' },
           value: decisionId,
         },
       ],

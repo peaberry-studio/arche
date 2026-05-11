@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockPrisma = vi.hoisted(() => ({
+  $transaction: vi.fn(async (operations: Array<Promise<unknown>>) => Promise.all(operations)),
   externalIntegration: {
     findUnique: vi.fn(),
     upsert: vi.fn(),
@@ -453,7 +454,33 @@ describe('slackService', () => {
       expect(result).toEqual({ ok: true, user: { id: 'user-1', slug: 'alice' } })
       expect(mockPrisma.user.findFirst).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({ kind: 'HUMAN' }),
+          where: {
+            email: {
+              equals: 'Alice@Test.com',
+              mode: 'insensitive',
+            },
+            kind: 'HUMAN',
+          },
+        }),
+      )
+    })
+
+    it('uses a case-insensitive email lookup for Slack user linking', async () => {
+      mockPrisma.slackUserLink.findUnique.mockResolvedValue(null)
+      mockPrisma.user.findFirst.mockResolvedValue({ id: 'user-1', slug: 'alice' })
+      mockPrisma.slackUserLink.upsert.mockResolvedValue({ id: 'link-1' })
+      mockPrisma.auditEvent.create.mockResolvedValue({})
+
+      await resolveArcheUserFromSlackUser('T123', 'U123', 'ALICE@test.com', 'Alice')
+
+      expect(mockPrisma.user.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            email: {
+              equals: 'ALICE@test.com',
+              mode: 'insensitive',
+            },
+          }),
         }),
       )
     })
@@ -613,6 +640,7 @@ describe('slackService', () => {
         { channelId: 'C1', isPrivate: false, name: 'general' },
       ])
 
+      expect(mockPrisma.$transaction).toHaveBeenCalledWith([expect.any(Promise)])
       expect(mockPrisma.slackNotificationChannel.upsert).toHaveBeenCalledWith({
         where: {
           slackTeamId_channelId: {

@@ -119,11 +119,13 @@ export async function resolveArcheUserFromSlackUser(
     return { ok: false, error: 'slack_email_missing' }
   }
 
-  const emailCandidates = Array.from(new Set([email, email.toLowerCase()]))
   const user = await prisma.user.findFirst({
     where: {
       kind: 'HUMAN',
-      OR: emailCandidates.map((candidate) => ({ email: candidate })),
+      email: {
+        equals: email,
+        mode: 'insensitive',
+      },
     },
     select: {
       id: true,

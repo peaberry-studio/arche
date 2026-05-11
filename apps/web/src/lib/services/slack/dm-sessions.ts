@@ -97,7 +97,6 @@ export async function markPendingDmDecisionContinued(
 
 export async function markPendingDmDecisionStartedNew(
   decisionId: string,
-  _newSessionId?: string,
 ): Promise<boolean> {
   const result = await prisma.slackPendingDmDecision.updateMany({
     where: {

@@ -270,6 +270,7 @@ describe('/api/u/[slug]/autopilot/[id]', () => {
         'u-alice',
         expect.objectContaining({ name: 'Updated Task' }),
       )
+      expect(mocks.autopilotService.updateTaskByIdAndUserId.mock.calls[0][2]).not.toHaveProperty('slackNotificationConfig')
 
       expect(mocks.auditEvent).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -400,6 +401,25 @@ describe('/api/u/[slug]/autopilot/[id]', () => {
           enabled: true,
           nextRunAt: expect.any(Date),
         }),
+      )
+    })
+
+    it('passes null Slack notification config through for clearing', async () => {
+      mocks.validateAutopilotTaskPayload.mockResolvedValue({
+        ok: true,
+        value: { slackNotificationConfig: null },
+      })
+
+      const res = await PATCH(
+        makePatchRequest('alice', 'task-1', { slackNotificationConfig: null }),
+        idParams('alice', 'task-1'),
+      )
+
+      expect(res.status).toBe(200)
+      expect(mocks.autopilotService.updateTaskByIdAndUserId).toHaveBeenCalledWith(
+        'task-1',
+        'u-alice',
+        expect.objectContaining({ slackNotificationConfig: null }),
       )
     })
   })

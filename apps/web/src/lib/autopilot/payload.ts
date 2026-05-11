@@ -122,6 +122,11 @@ export async function validateAutopilotTaskPayload(
   }
 
   if ('slackNotificationConfig' in record) {
+    if (record.slackNotificationConfig === null) {
+      value.slackNotificationConfig = null
+      return { ok: true, value }
+    }
+
     const config = asRecord(record.slackNotificationConfig)
     if (!config) {
       return { ok: false, error: 'invalid_slack_notification_config', status: 400 }

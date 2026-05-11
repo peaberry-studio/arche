@@ -1,5 +1,5 @@
-import { AutopilotRunStatus, AutopilotRunTrigger } from '@prisma/client'
-import type { Prisma } from '@prisma/client'
+import { AutopilotRunStatus, Prisma } from '@prisma/client'
+import type { AutopilotRunTrigger } from '@prisma/client'
 
 import type { AutopilotSlackNotificationConfig } from '@/lib/autopilot/types'
 import { prisma } from '@/lib/prisma'
@@ -167,7 +167,7 @@ export async function createTask(data: {
   timezone: string
   enabled: boolean
   nextRunAt: Date
-  slackNotificationConfig?: AutopilotSlackNotificationConfig
+  slackNotificationConfig?: AutopilotSlackNotificationConfig | null
 }): Promise<AutopilotTaskRecord> {
   return prisma.autopilotTask.create({
     data: {
@@ -197,18 +197,20 @@ export async function updateTaskByIdAndUserId(
     timezone?: string
     enabled?: boolean
     nextRunAt?: Date
-    slackNotificationConfig?: AutopilotSlackNotificationConfig
+    slackNotificationConfig?: AutopilotSlackNotificationConfig | null
   },
 ): Promise<AutopilotTaskRecord | null> {
   const { slackNotificationConfig, ...taskData } = data
+  const updateData: Prisma.AutopilotTaskUpdateManyMutationInput = { ...taskData }
+  if ('slackNotificationConfig' in data) {
+    updateData.slackNotificationConfig = slackNotificationConfig
+      ? slackNotificationConfigToJson(slackNotificationConfig)
+      : Prisma.DbNull
+  }
+
   const result = await prisma.autopilotTask.updateMany({
     where: { id, userId },
-    data: {
-      ...taskData,
-      ...(slackNotificationConfig
-        ? { slackNotificationConfig: slackNotificationConfigToJson(slackNotificationConfig) }
-        : {}),
-    },
+    data: updateData,
   })
   if (result.count === 0) return null
   return prisma.autopilotTask.findFirst({ where: { id, userId } })

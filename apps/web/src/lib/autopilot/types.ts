@@ -58,7 +58,7 @@ export type AutopilotTaskPayload = {
   cronExpression: string
   timezone: string
   enabled: boolean
-  slackNotificationConfig?: AutopilotSlackNotificationConfig
+  slackNotificationConfig?: AutopilotSlackNotificationConfig | null
 }
 
 export type AutopilotTaskRunRequest = {

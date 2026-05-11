@@ -68,7 +68,7 @@ describe('/api/u/[slug]/autopilot/slack-targets', () => {
       { channelId: 'C1', isPrivate: false, name: 'general' },
       { channelId: 'G1', isPrivate: true, name: 'private-team' },
     ])
-    mocks.userService.findIdentityBySlug.mockResolvedValue({ id: 'u-alice' })
+    mocks.userService.findIdentityBySlug.mockResolvedValue({ email: 'alice@test.com', id: 'u-alice' })
     mocks.userService.findTeamMembers.mockResolvedValue([
       { email: 'alice@test.com', id: 'u-alice' },
       { email: 'bob@test.com', id: 'u-bob' },
@@ -76,7 +76,7 @@ describe('/api/u/[slug]/autopilot/slack-targets', () => {
     mocks.validateDesktopToken.mockReturnValue(true)
   })
 
-  it('returns linked users and enabled notification channels', async () => {
+  it('returns the current user and enabled notification channels for non-admins', async () => {
     const res = await GET(makeRequest(), slugParams())
 
     expect(res.status).toBe(200)
@@ -88,14 +88,34 @@ describe('/api/u/[slug]/autopilot/slack-targets', () => {
       integrationEnabled: true,
       users: [
         { email: 'alice@test.com', id: 'u-alice', slackLinked: true },
-        { email: 'bob@test.com', id: 'u-bob', slackLinked: false },
       ],
     })
+    expect(mocks.prisma.slackUserLink.findMany).toHaveBeenCalledWith({
+      where: { userId: { in: ['u-alice'] } },
+      select: { userId: true },
+    })
+    expect(mocks.userService.findTeamMembers).not.toHaveBeenCalled()
+    expect(mocks.slackService.listEnabledNotificationChannels).toHaveBeenCalledWith('T123')
+  })
+
+  it('returns all team members for admins', async () => {
+    mocks.getSession.mockResolvedValue({
+      user: { id: 'u-admin', email: 'admin@test.com', slug: 'admin', role: 'ADMIN' },
+      sessionId: 'session-admin',
+    })
+
+    const res = await GET(makeRequest(), slugParams())
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.users).toEqual([
+      { email: 'alice@test.com', id: 'u-alice', slackLinked: true },
+      { email: 'bob@test.com', id: 'u-bob', slackLinked: false },
+    ])
     expect(mocks.prisma.slackUserLink.findMany).toHaveBeenCalledWith({
       where: { userId: { in: ['u-alice', 'u-bob'] } },
       select: { userId: true },
     })
-    expect(mocks.slackService.listEnabledNotificationChannels).toHaveBeenCalledWith('T123')
   })
 
   it('returns no channels when Slack integration is disabled', async () => {
@@ -137,7 +157,7 @@ describe('/api/u/[slug]/autopilot/slack-targets', () => {
       user: { id: 'u-bob', email: 'bob@test.com', slug: 'alice', role: 'USER' },
       sessionId: 'session-2',
     })
-    mocks.userService.findIdentityBySlug.mockResolvedValue({ id: 'u-alice' })
+    mocks.userService.findIdentityBySlug.mockResolvedValue({ email: 'alice@test.com', id: 'u-alice' })
 
     const res = await GET(makeRequest('alice'), slugParams('alice'))
 
@@ -147,7 +167,7 @@ describe('/api/u/[slug]/autopilot/slack-targets', () => {
 
   it('returns 500 when target loading fails', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    mocks.userService.findTeamMembers.mockRejectedValue(new Error('db down'))
+    mocks.prisma.slackUserLink.findMany.mockRejectedValue(new Error('db down'))
 
     const res = await GET(makeRequest(), slugParams())
 
