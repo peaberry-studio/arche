@@ -17,9 +17,6 @@ import { isDesktop } from '@/lib/runtime/mode'
 import { getSession } from '@/lib/runtime/session'
 import {
   getWorkspaceLayoutCookieName,
-  getWorkspaceLeftPanelCookieName,
-  normalizeLeftPanelState,
-  parseStoredLeftPanelState,
   parseWorkspaceLayoutState,
 } from '@/lib/workspace-panel-state'
 import { getAgentSummaries, parseCommonWorkspaceConfig } from '@/lib/workspace-config'
@@ -79,11 +76,7 @@ export default async function WorkspaceHostPage({
   const macDesktopWindowInset = shouldUseCurrentMacOsInsetTitleBar()
   const persistenceScope = getWorkspacePersistenceScope(slug)
   const initialLayoutCookie = cookieStore.get(getWorkspaceLayoutCookieName(persistenceScope))?.value
-  const initialLeftPanelCookie = cookieStore.get(getWorkspaceLeftPanelCookieName(persistenceScope))?.value
   const initialLayoutState = initialLayoutCookie ? parseWorkspaceLayoutState(initialLayoutCookie) : null
-  const initialLeftPanelState = initialLeftPanelCookie
-    ? normalizeLeftPanelState(parseStoredLeftPanelState(initialLeftPanelCookie))
-    : null
   const initialSettingsSection = desktopVault && isDesktopSettingsSection(search?.settings)
     ? search.settings
     : null
@@ -108,7 +101,6 @@ export default async function WorkspaceHostPage({
         initialWorkspaceMode={initialWorkspaceMode}
         knowledgeAgentSources={knowledgeAgentSources}
         initialLayoutState={initialLayoutState}
-        initialLeftPanelState={initialLeftPanelState}
         macDesktopWindowInset={macDesktopWindowInset}
         workspaceAgentEnabled={caps.workspaceAgent}
         reaperEnabled={caps.reaper}

@@ -5,6 +5,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import type { WorkspaceSession } from '@/lib/opencode/types'
+import { hasUnseenAutopilotResult, isAutopilotSession } from '@/lib/workspace-session-utils'
 
 const ROW_HEIGHT = 22
 const FADE_END_INDEX = 6
@@ -30,7 +31,7 @@ type WorkspaceSessionsRailProps = {
 function isIdleSession(session: WorkspaceSession, unseen: ReadonlySet<string>): boolean {
   return session.status !== 'busy'
     && session.status !== 'error'
-    && !session.autopilot?.hasUnseenResult
+    && !hasUnseenAutopilotResult(session)
     && !unseen.has(session.id)
 }
 
@@ -84,7 +85,7 @@ export function WorkspaceSessionsRail({
   const visibleSessions = useMemo(
     () =>
       sessions.filter((session) =>
-        kind === 'tasks' ? Boolean(session.autopilot) : !session.autopilot
+        kind === 'tasks' ? isAutopilotSession(session) : !isAutopilotSession(session)
       ),
     [kind, sessions]
   )
@@ -98,7 +99,7 @@ export function WorkspaceSessionsRail({
     (session: WorkspaceSession) => {
       onSelectSession(session.id)
       const autopilot = session.autopilot
-      if (autopilot?.hasUnseenResult && onMarkAutopilotRunSeen) {
+      if (autopilot && hasUnseenAutopilotResult(session) && onMarkAutopilotRunSeen) {
         void onMarkAutopilotRunSeen(autopilot.runId)
       }
     },

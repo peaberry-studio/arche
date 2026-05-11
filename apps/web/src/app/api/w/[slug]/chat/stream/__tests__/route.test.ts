@@ -137,11 +137,12 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     })
   })
 
-  function makePostRequest(body: unknown, slug = 'alice') {
+  function makePostRequest(body: unknown, slug = 'alice', signal?: AbortSignal) {
     return new NextRequest(`http://localhost/api/w/${slug}/chat/stream`, {
       method: 'POST',
       body: JSON.stringify(body),
       headers: { 'Content-Type': 'application/json' },
+      signal,
     })
   }
 
@@ -604,5 +605,36 @@ describe('POST /api/w/[slug]/chat/stream', () => {
       'http://test-slug:3000/session/s1/prompt_async',
       expect.anything(),
     )
+  })
+
+  it('aborts the upstream event subscription when a resume client disconnects', async () => {
+    let upstreamSignal: AbortSignal | undefined
+    const fetchMock = vi.fn((url: string | URL, init?: RequestInit) => {
+      const href = String(url)
+      if (href === 'http://test-slug:3000/event') {
+        upstreamSignal = init?.signal as AbortSignal | undefined
+        return Promise.resolve(new Response(new ReadableStream<Uint8Array>(), { status: 200 }))
+      }
+      return Promise.reject(new Error(`unexpected fetch ${href}`))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const clientAbortController = new AbortController()
+
+    const { POST } = await import('../route')
+    await POST(makePostRequest({
+      sessionId: 's1',
+      resume: true,
+      messageId: 'assistant-1',
+    }, 'alice', clientAbortController.signal), params())
+
+    await vi.waitFor(() => {
+      expect(upstreamSignal).toBeDefined()
+    })
+
+    clientAbortController.abort()
+
+    await vi.waitFor(() => {
+      expect(upstreamSignal?.aborted).toBe(true)
+    })
   })
 })

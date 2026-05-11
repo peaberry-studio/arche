@@ -9,7 +9,6 @@ type WorkspaceShellProps = {
   currentVault: { id: string; name: string; path: string } | null
   initialFilePath: string | null
   initialLayoutState: unknown
-  initialLeftPanelState: unknown
   initialSessionId: string | null
   initialWorkspaceMode: string
   knowledgeAgentSources: { displayName: string; id: string; prompt: string }[]
@@ -37,8 +36,6 @@ const getKickstartStatusMock = vi.hoisted(() => vi.fn())
 const parseCommonWorkspaceConfigMock = vi.hoisted(() => vi.fn())
 const getAgentSummariesMock = vi.hoisted(() => vi.fn())
 const parseWorkspaceLayoutStateMock = vi.hoisted(() => vi.fn())
-const parseStoredLeftPanelStateMock = vi.hoisted(() => vi.fn())
-const normalizeLeftPanelStateMock = vi.hoisted(() => vi.fn())
 const workspaceShellProps = vi.hoisted(() => ({ current: undefined as WorkspaceShellProps | undefined }))
 
 vi.mock('next/navigation', () => ({
@@ -103,9 +100,6 @@ vi.mock('@/lib/workspace-config', () => ({
 
 vi.mock('@/lib/workspace-panel-state', () => ({
   getWorkspaceLayoutCookieName: (scope: string) => `layout:${scope}`,
-  getWorkspaceLeftPanelCookieName: (scope: string) => `left:${scope}`,
-  normalizeLeftPanelState: (...args: unknown[]) => normalizeLeftPanelStateMock(...args),
-  parseStoredLeftPanelState: (...args: unknown[]) => parseStoredLeftPanelStateMock(...args),
   parseWorkspaceLayoutState: (...args: unknown[]) => parseWorkspaceLayoutStateMock(...args),
 }))
 
@@ -123,7 +117,6 @@ describe('WorkspaceHostPage', () => {
     cookiesMock.mockResolvedValue({
       get: (name: string) => {
         if (name === 'layout:scope-alice') return { value: 'layout-cookie' }
-        if (name === 'left:scope-alice') return { value: 'left-cookie' }
         return undefined
       },
     })
@@ -142,8 +135,6 @@ describe('WorkspaceHostPage', () => {
       { id: 'assistant', displayName: 'Assistant', prompt: 'Help users' },
     ])
     parseWorkspaceLayoutStateMock.mockReturnValue({ layout: 'parsed' })
-    parseStoredLeftPanelStateMock.mockReturnValue({ panel: 'raw' })
-    normalizeLeftPanelStateMock.mockReturnValue({ panel: 'normalized' })
   })
 
   it('redirects desktop mode when no vault is selected', async () => {
@@ -188,7 +179,6 @@ describe('WorkspaceHostPage', () => {
       currentVault: { id: 'vault-1', name: 'Arche Vault', path: '/tmp/arche' },
       initialFilePath: 'Notes/Brief.md',
       initialLayoutState: { layout: 'parsed' },
-      initialLeftPanelState: { panel: 'normalized' },
       initialSessionId: 'session-1',
       initialWorkspaceMode: 'chat',
       knowledgeAgentSources: [{ id: 'assistant', displayName: 'Assistant', prompt: 'Help users' }],
@@ -199,6 +189,5 @@ describe('WorkspaceHostPage', () => {
     })
     expect(getWorkspacePersistenceScopeMock).toHaveBeenCalledWith('alice')
     expect(parseWorkspaceLayoutStateMock).toHaveBeenCalledWith('layout-cookie')
-    expect(parseStoredLeftPanelStateMock).toHaveBeenCalledWith('left-cookie')
   })
 })

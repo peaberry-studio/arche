@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useAutopilotTaskRunner } from '@/hooks/use-autopilot-task-runner'
 import type { WorkspaceSession } from '@/lib/opencode/types'
+import { hasUnseenAutopilotResult, isAutopilotSession } from '@/lib/workspace-session-utils'
 
 import { SessionsPanel } from './sessions-panel'
 
@@ -58,7 +59,7 @@ export function WorkspaceSessionsSidebar({
   } = useAutopilotTaskRunner({ slug, onRunTaskComplete })
 
   const visibleSessions = useMemo(
-    () => sessions.filter((session) => kind === 'tasks' ? Boolean(session.autopilot) : !session.autopilot),
+    () => sessions.filter((session) => kind === 'tasks' ? isAutopilotSession(session) : !isAutopilotSession(session)),
     [kind, sessions]
   )
 
@@ -72,7 +73,7 @@ export function WorkspaceSessionsSidebar({
       onSelectSession(sessionId)
       const selectedSession = sessions.find((session) => session.id === sessionId)
       const autopilot = selectedSession?.autopilot
-      if (autopilot?.hasUnseenResult) {
+      if (autopilot && hasUnseenAutopilotResult(selectedSession)) {
         void onMarkAutopilotRunSeen?.(autopilot.runId)
       }
     },

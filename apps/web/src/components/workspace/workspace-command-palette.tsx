@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { useAutopilotTaskRunner } from "@/hooks/use-autopilot-task-runner";
 import type { WorkspaceSession } from "@/lib/opencode/types";
+import { isAutopilotSession } from "@/lib/workspace-session-utils";
 import type { WorkspaceThemeId } from "@/lib/workspace-theme";
 import { cn } from "@/lib/utils";
 
@@ -290,9 +291,9 @@ export function WorkspaceCommandPalette({
 
   const sessionItems = useMemo<PaletteItem[]>(() => {
     return sessionResults
-      .filter((session) => !hideTasks || !session.autopilot)
+      .filter((session) => !hideTasks || !isAutopilotSession(session))
       .map((session) => {
-        const isTaskRun = Boolean(session.autopilot);
+        const isTaskRun = isAutopilotSession(session);
         return {
           id: `session-${session.id}`,
           title: session.title,

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { groupByDateBucket } from "@/lib/date-buckets";
 import type { WorkspaceSession } from "@/lib/opencode/types";
+import { hasUnseenAutopilotResult, isAutopilotSession } from "@/lib/workspace-session-utils";
 
 type SessionsPanelProps = {
   sessions: WorkspaceSession[];
@@ -52,7 +53,7 @@ export function SessionsPanel({
   const getIndicatorClassName = (session: WorkspaceSession): string | null => {
     if (session.status === "busy") return "text-amber-400";
     if (session.status === "error") return "text-red-400";
-    if (session.autopilot?.hasUnseenResult) return "text-green-400";
+    if (hasUnseenAutopilotResult(session)) return "text-green-400";
     if (unseenCompletedSessions.has(session.id)) return "text-green-400";
     return null;
   };
@@ -178,7 +179,7 @@ export function SessionsPanel({
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-2">
                       <span className="truncate font-medium">{primaryTitle}</span>
-                      {session.autopilot && kind !== "tasks" ? (
+                      {isAutopilotSession(session) && kind !== "tasks" ? (
                         <span className="shrink-0 rounded-full border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
                           Auto
                         </span>
