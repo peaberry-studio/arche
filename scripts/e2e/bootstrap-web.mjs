@@ -1,6 +1,7 @@
 import { createHash, createCipheriv, randomBytes, randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { mkdir } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
@@ -16,7 +17,8 @@ const requireFromWeb = createRequire(path.join(webDir, 'package.json'))
 const { Pool } = requireFromWeb('pg')
 const argon2 = requireFromWeb('argon2')
 
-const e2eRoot = path.join(webDir, '.e2e')
+// Keep mutable E2E data outside apps/web so Next dev HMR does not rebuild during tests.
+const e2eRoot = process.env.ARCHE_E2E_ROOT?.trim() || path.join(process.env.RUNNER_TEMP ?? tmpdir(), 'arche-web-e2e')
 const kbConfigRoot = process.env.KB_CONFIG_HOST_PATH ?? path.join(e2eRoot, 'kb-config')
 const kbContentRoot = process.env.KB_CONTENT_HOST_PATH ?? path.join(e2eRoot, 'kb-content')
 const usersRoot = process.env.ARCHE_USERS_PATH ?? path.join(e2eRoot, 'users')
