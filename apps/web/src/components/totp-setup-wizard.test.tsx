@@ -161,6 +161,8 @@ describe('TotpSetupWizard', () => {
     expect(await screen.findByText('GGGG-HHHH')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Copy codes' }))
 
-    expect(write).toHaveBeenCalledWith('<pre style="font-size:16px;padding:20px">GGGG-HHHH</pre>')
+    await waitFor(() => {
+      expect(write).toHaveBeenCalledWith('<pre style="font-size:16px;padding:20px">GGGG-HHHH</pre>')
+    })
   })
 })

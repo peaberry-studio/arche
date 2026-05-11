@@ -4,6 +4,13 @@ import { useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 
 import {
+  disable2FA,
+  initiate2FASetup,
+  regenerateRecoveryCodes,
+  verify2FASetup,
+} from '@/app/u/[slug]/settings/security/actions'
+import { Button } from '@/components/ui/button'
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -12,20 +19,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-
-import {
-  initiate2FASetup,
-  verify2FASetup,
-  disable2FA,
-  regenerateRecoveryCodes,
-} from '@/app/u/[slug]/settings/security/actions'
+import { copyTextToClipboard } from '@/lib/clipboard'
 
 type Step = 'init' | 'scan' | 'verify' | 'recovery'
 
-interface TotpSetupWizardProps {
+type TotpSetupWizardProps = {
   mode: 'setup' | 'disable' | 'regenerate'
   children: React.ReactNode
 }
@@ -111,21 +111,20 @@ export function TotpSetupWizard({ mode, children }: TotpSetupWizardProps) {
     setStep('recovery')
   }
 
-  function copyCodes() {
+  async function copyCodes() {
     const text = recoveryCodes.join('\n')
 
-    if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(text).then(() => {
-        setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
-      })
-    } else {
-      // HTTP: open new window with codes for easy copy
-      const w = window.open('', '_blank', 'width=400,height=300')
-      if (w) {
-        w.document.write(`<pre style="font-size:16px;padding:20px">${text}</pre>`)
-        w.document.title = 'Recovery codes - Select and copy'
-      }
+    const ok = await copyTextToClipboard(text)
+    if (ok) {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+      return
+    }
+
+    const w = window.open('', '_blank', 'width=400,height=300')
+    if (w) {
+      w.document.write(`<pre style="font-size:16px;padding:20px">${text}</pre>`)
+      w.document.title = 'Recovery codes - Select and copy'
     }
   }
 

@@ -13,7 +13,6 @@ import { ChatCircle, CheckCircle, Copy, File, Info, XCircle } from "@phosphor-ic
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { copyTextToClipboard } from "@/components/workspace/chat-panel/clipboard";
 import {
   FileGroup,
   MessagePartRenderer,
@@ -23,6 +22,7 @@ import {
 } from "@/components/workspace/chat-panel/message-part-renderer";
 import type { SessionTabInfo } from "@/components/workspace/chat-panel/types";
 import { workspaceMarkdownComponents } from "@/components/workspace/markdown-components";
+import { copyTextToClipboard } from "@/lib/clipboard";
 import type { MessagePart, PermissionResponse } from "@/lib/opencode/types";
 import { cn } from "@/lib/utils";
 import type { ChatMessage } from "@/types/workspace";

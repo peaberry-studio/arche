@@ -2,11 +2,15 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { copyTextToClipboard } from '@/components/workspace/chat-panel/clipboard'
+import { copyTextToClipboard } from '@/lib/clipboard'
 
 describe('copyTextToClipboard', () => {
   afterEach(() => {
     vi.restoreAllMocks()
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: undefined,
+    })
     document.body.innerHTML = ''
   })
 
@@ -37,10 +41,14 @@ describe('copyTextToClipboard', () => {
     expect(document.querySelector('textarea')).toBeNull()
   })
 
-  it('returns false when copying fails', async () => {
+  it('returns false when all copy paths fail', async () => {
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
       value: { writeText: vi.fn().mockRejectedValue(new Error('denied')) },
+    })
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: vi.fn(() => false),
     })
 
     await expect(copyTextToClipboard('hello')).resolves.toBe(false)

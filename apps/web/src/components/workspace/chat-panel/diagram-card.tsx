@@ -10,7 +10,6 @@ import {
   WarningCircle,
 } from '@phosphor-icons/react'
 
-import { copyTextToClipboard } from '@/components/workspace/chat-panel/clipboard'
 import {
   hasBlockedMermaidSyntax,
   type DiagramOutput,
@@ -19,6 +18,7 @@ import {
   buildMermaidThemeVariables,
   resolveVisualizationTheme,
 } from '@/components/workspace/chat-panel/visualization-theme'
+import { copyTextToClipboard } from '@/lib/clipboard'
 
 type DiagramCardProps = {
   diagram: DiagramOutput

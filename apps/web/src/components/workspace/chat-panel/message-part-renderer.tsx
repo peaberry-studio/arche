@@ -27,7 +27,6 @@ import {
   parseChartOutput,
   type ChartOutput,
 } from '@/components/workspace/chat-panel/chart-output'
-import { copyTextToClipboard } from '@/components/workspace/chat-panel/clipboard'
 import { DiagramCard } from '@/components/workspace/chat-panel/diagram-card'
 import {
   parseDiagramOutput,
@@ -40,6 +39,7 @@ import {
 import { PermissionCard } from '@/components/workspace/chat-panel/permission-card'
 import type { SessionTabInfo } from '@/components/workspace/chat-panel/types'
 import { workspaceMarkdownComponents } from '@/components/workspace/markdown-components'
+import { copyTextToClipboard } from '@/lib/clipboard'
 import type { MessagePart, PermissionResponse } from '@/lib/opencode/types'
 import { isRecord } from '@/lib/records'
 import { cn } from '@/lib/utils'

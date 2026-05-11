@@ -12,11 +12,11 @@ import {
 import type { VisualizationSpec } from 'vega-embed'
 
 import type { ChartOutput } from '@/components/workspace/chat-panel/chart-output'
-import { copyTextToClipboard } from '@/components/workspace/chat-panel/clipboard'
 import {
   buildVegaConfig,
   resolveVisualizationTheme,
 } from '@/components/workspace/chat-panel/visualization-theme'
+import { copyTextToClipboard } from '@/lib/clipboard'
 
 type ChartCardProps = {
   chart: ChartOutput

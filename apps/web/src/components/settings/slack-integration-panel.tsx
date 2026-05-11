@@ -7,8 +7,8 @@ import { SettingsInfoBox } from '@/components/settings/settings-info-box'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { copyTextToClipboard } from '@/lib/clipboard'
 import { SLACK_MANIFEST_JSON, SLACK_MANIFEST_YAML } from '@/lib/slack/manifest'
-import { cn } from '@/lib/utils'
 import type {
   SlackIntegrationGetResponse,
   SlackIntegrationMutateResponse,
@@ -16,6 +16,7 @@ import type {
   SlackIntegrationSummary,
   SlackIntegrationTestResponse,
 } from '@/lib/slack/types'
+import { cn } from '@/lib/utils'
 
 type SlackIntegrationPanelProps = {
   slug: string
@@ -101,33 +102,6 @@ function formatTimestamp(value: string | null): string {
   })
 }
 
-async function copyText(text: string): Promise<boolean> {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text)
-      return true
-    }
-  } catch {
-    // fall through to the legacy fallback below
-  }
-
-  try {
-    const textarea = document.createElement('textarea')
-    textarea.value = text
-    textarea.setAttribute('readonly', '')
-    textarea.style.position = 'fixed'
-    textarea.style.top = '0'
-    textarea.style.left = '-9999px'
-    document.body.appendChild(textarea)
-    textarea.select()
-    const succeeded = document.execCommand('copy')
-    document.body.removeChild(textarea)
-    return succeeded
-  } catch {
-    return false
-  }
-}
-
 export function SlackIntegrationPanel({
   slug,
   collapsible = true,
@@ -188,7 +162,7 @@ export function SlackIntegrationPanel({
 
   async function handleCopy(format: 'json' | 'yaml') {
     const text = format === 'yaml' ? SLACK_MANIFEST_YAML : SLACK_MANIFEST_JSON
-    const copied = await copyText(text).catch(() => false)
+    const copied = await copyTextToClipboard(text).catch(() => false)
     if (!copied) {
       setError('Copy failed. Your browser blocked clipboard access — select the manifest text and copy it manually.')
       return
