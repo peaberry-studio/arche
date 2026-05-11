@@ -210,14 +210,14 @@ export function SlackIntegrationPanel({
     }
   }, [loadNotificationChannels, slug])
 
-  const setChannelEnabled = useCallback(async (channelId: string, enabled: boolean) => {
+  const setChannelEnabled = useCallback(async (id: string, enabled: boolean) => {
     setError(null)
 
     try {
       const response = await fetch(`/api/u/${slug}/slack-integration/channels`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ channelId, enabled }),
+        body: JSON.stringify({ enabled, id }),
       })
       const data = (await response.json().catch(() => null)) as { error?: string } | null
       if (!response.ok) {

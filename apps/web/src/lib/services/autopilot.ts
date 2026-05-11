@@ -53,6 +53,8 @@ export type AutopilotClaimedTask = AutopilotTaskRecord & {
   scheduledFor: Date
 }
 
+export type AutopilotClaimConcurrencyPolicy = 'per_user' | 'task_only'
+
 type LeaseScope = {
   leaseExpiresAt: null
 } | {
@@ -124,6 +126,16 @@ function noActiveUserLease(now: Date) {
         },
       },
     },
+  }
+}
+
+function claimAvailabilityWhere(
+  now: Date,
+  concurrencyPolicy: AutopilotClaimConcurrencyPolicy,
+): Prisma.AutopilotTaskWhereInput {
+  return {
+    OR: availableLease(now),
+    ...(concurrencyPolicy === 'per_user' ? noActiveUserLease(now) : {}),
   }
 }
 
@@ -217,8 +229,7 @@ export async function claimNextDueTask(params: {
       where: {
         enabled: true,
         nextRunAt: { lte: params.now },
-        OR: availableLease(params.now),
-        ...noActiveUserLease(params.now),
+        ...claimAvailabilityWhere(params.now, 'per_user'),
       },
       orderBy: [
         { nextRunAt: 'asc' },
@@ -241,8 +252,7 @@ export async function claimNextDueTask(params: {
         id: task.id,
         enabled: true,
         nextRunAt: task.nextRunAt,
-        OR: availableLease(params.now),
-        ...noActiveUserLease(params.now),
+        ...claimAvailabilityWhere(params.now, 'per_user'),
       },
       data: {
         leaseOwner: params.leaseOwner,
@@ -278,12 +288,14 @@ export async function claimTaskForImmediateRun(params: {
   leaseOwner: string
   now: Date
   userId?: string
+  concurrencyPolicy?: AutopilotClaimConcurrencyPolicy
 }): Promise<AutopilotClaimedTask | null> {
+  const concurrencyPolicy = params.concurrencyPolicy ?? 'task_only'
   const task = await prisma.autopilotTask.findFirst({
     where: {
       id: params.id,
       ...(params.userId ? { userId: params.userId } : {}),
-      OR: availableLease(params.now),
+      ...claimAvailabilityWhere(params.now, concurrencyPolicy),
     },
   })
 
@@ -296,7 +308,7 @@ export async function claimTaskForImmediateRun(params: {
     where: {
       id: task.id,
       ...(params.userId ? { userId: params.userId } : {}),
-      OR: availableLease(params.now),
+      ...claimAvailabilityWhere(params.now, concurrencyPolicy),
     },
     data: {
       leaseOwner: params.leaseOwner,

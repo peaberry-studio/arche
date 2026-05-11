@@ -65,18 +65,10 @@ const SCHEMA_DDL = [
     "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "audit_events_actor_user_id_fkey" FOREIGN KEY ("actor_user_id") REFERENCES "users" ("id") ON DELETE SET NULL ON UPDATE CASCADE
   )`,
-  `CREATE TABLE IF NOT EXISTS "slack_integration" (
-    "singleton_key" TEXT NOT NULL PRIMARY KEY DEFAULT 'default',
-    "enabled" BOOLEAN NOT NULL DEFAULT false,
-    "bot_token_secret" TEXT,
-    "app_token_secret" TEXT,
-    "slack_team_id" TEXT,
-    "slack_app_id" TEXT,
-    "slack_bot_user_id" TEXT,
-    "default_agent_id" TEXT,
-    "last_error" TEXT,
-    "last_socket_connected_at" DATETIME,
-    "last_event_at" DATETIME,
+  `CREATE TABLE IF NOT EXISTS "external_integrations" (
+    "key" TEXT NOT NULL PRIMARY KEY,
+    "config" TEXT NOT NULL,
+    "state" TEXT DEFAULT '{}',
     "version" INTEGER NOT NULL DEFAULT 1,
     "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" DATETIME NOT NULL
@@ -97,6 +89,55 @@ const SCHEMA_DDL = [
     "type" TEXT NOT NULL,
     "received_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`,
+  `CREATE TABLE IF NOT EXISTS "slack_user_links" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "user_id" TEXT NOT NULL,
+    "slack_team_id" TEXT NOT NULL,
+    "slack_user_id" TEXT NOT NULL,
+    "slack_email" TEXT,
+    "display_name" TEXT,
+    "last_seen_at" DATETIME NOT NULL,
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" DATETIME NOT NULL,
+    CONSTRAINT "slack_user_links_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS "slack_dm_session_bindings" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "slack_team_id" TEXT NOT NULL,
+    "slack_user_id" TEXT NOT NULL,
+    "channel_id" TEXT NOT NULL,
+    "execution_user_id" TEXT NOT NULL,
+    "opencode_session_id" TEXT NOT NULL,
+    "started_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "last_message_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" DATETIME NOT NULL,
+    CONSTRAINT "slack_dm_session_bindings_execution_user_id_fkey" FOREIGN KEY ("execution_user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS "slack_pending_dm_decisions" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "source_event_id" TEXT NOT NULL,
+    "slack_team_id" TEXT NOT NULL,
+    "slack_user_id" TEXT NOT NULL,
+    "channel_id" TEXT NOT NULL,
+    "source_ts" TEXT NOT NULL,
+    "message_text" TEXT NOT NULL,
+    "previous_dm_session_binding_id" TEXT,
+    "expires_at" DATETIME NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'pending',
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" DATETIME NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS "slack_notification_channels" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "slack_team_id" TEXT NOT NULL,
+    "channel_id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "is_private" BOOLEAN NOT NULL DEFAULT false,
+    "enabled" BOOLEAN NOT NULL DEFAULT true,
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" DATETIME NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS "autopilot_tasks" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "user_id" TEXT NOT NULL,
@@ -106,10 +147,13 @@ const SCHEMA_DDL = [
     "prompt" TEXT NOT NULL,
     "target_agent_id" TEXT,
     "enabled" BOOLEAN NOT NULL DEFAULT true,
+    "slack_notification_config" TEXT,
     "next_run_at" DATETIME NOT NULL,
     "last_run_at" DATETIME,
     "lease_owner" TEXT,
     "lease_expires_at" DATETIME,
+    "retry_attempt" INTEGER NOT NULL DEFAULT 0,
+    "retry_scheduled_for" DATETIME,
     "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" DATETIME NOT NULL,
     CONSTRAINT "autopilot_tasks_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE
@@ -126,6 +170,7 @@ const SCHEMA_DDL = [
     "opencode_session_id" TEXT,
     "session_title" TEXT,
     "result_seen_at" DATETIME,
+    "attempt" INTEGER NOT NULL DEFAULT 1,
     "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" DATETIME NOT NULL,
     CONSTRAINT "autopilot_runs_task_id_fkey" FOREIGN KEY ("task_id") REFERENCES "autopilot_tasks" ("id") ON DELETE CASCADE ON UPDATE CASCADE
@@ -176,10 +221,20 @@ const SCHEMA_DDL = [
   `CREATE INDEX IF NOT EXISTS "slack_thread_bindings_execution_user_id_idx" ON "slack_thread_bindings"("execution_user_id")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "slack_event_receipts_event_id_key" ON "slack_event_receipts"("event_id")`,
   `CREATE INDEX IF NOT EXISTS "slack_event_receipts_received_at_idx" ON "slack_event_receipts"("received_at")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "slack_user_links_slack_team_id_slack_user_id_key" ON "slack_user_links"("slack_team_id", "slack_user_id")`,
+  `CREATE INDEX IF NOT EXISTS "slack_user_links_user_id_idx" ON "slack_user_links"("user_id")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "slack_dm_session_bindings_opencode_session_id_key" ON "slack_dm_session_bindings"("opencode_session_id")`,
+  `CREATE INDEX IF NOT EXISTS "slack_dm_session_bindings_slack_team_id_slack_user_id_last_message_at_idx" ON "slack_dm_session_bindings"("slack_team_id", "slack_user_id", "last_message_at")`,
+  `CREATE INDEX IF NOT EXISTS "slack_dm_session_bindings_execution_user_id_idx" ON "slack_dm_session_bindings"("execution_user_id")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "slack_pending_dm_decisions_source_event_id_key" ON "slack_pending_dm_decisions"("source_event_id")`,
+  `CREATE INDEX IF NOT EXISTS "slack_pending_dm_decisions_expires_at_idx" ON "slack_pending_dm_decisions"("expires_at")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "slack_notification_channels_slack_team_id_channel_id_key" ON "slack_notification_channels"("slack_team_id", "channel_id")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "autopilot_tasks_user_id_name_key" ON "autopilot_tasks"("user_id", "name")`,
   `CREATE INDEX IF NOT EXISTS "autopilot_tasks_user_id_idx" ON "autopilot_tasks"("user_id")`,
   `CREATE INDEX IF NOT EXISTS "autopilot_tasks_enabled_next_run_at_idx" ON "autopilot_tasks"("enabled", "next_run_at")`,
   `CREATE INDEX IF NOT EXISTS "autopilot_tasks_lease_expires_at_idx" ON "autopilot_tasks"("lease_expires_at")`,
+  `CREATE INDEX IF NOT EXISTS "autopilot_tasks_user_id_lease_expires_at_idx" ON "autopilot_tasks"("user_id", "lease_expires_at")`,
+  `CREATE INDEX IF NOT EXISTS "autopilot_tasks_retry_scheduled_for_idx" ON "autopilot_tasks"("retry_scheduled_for")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "autopilot_runs_opencode_session_id_key" ON "autopilot_runs"("opencode_session_id")`,
   `CREATE INDEX IF NOT EXISTS "autopilot_runs_task_id_started_at_idx" ON "autopilot_runs"("task_id", "started_at")`,
   `CREATE INDEX IF NOT EXISTS "autopilot_runs_status_idx" ON "autopilot_runs"("status")`,
@@ -190,38 +245,34 @@ const SCHEMA_DDL = [
   `CREATE INDEX IF NOT EXISTS "two_factor_recovery_user_id_idx" ON "two_factor_recovery"("user_id")`,
 ]
 
-const SCHEMA_VERSION = '5'
+const SCHEMA_VERSION = '6'
 
-async function ensureAutopilotRunResultSeenAtColumn(client: DesktopPrismaClient): Promise<void> {
-  const columns = await client.$queryRawUnsafe('PRAGMA table_info("autopilot_runs")') as Array<{ name?: string }>
-  const hasResultSeenAt = columns.some((column) => column.name === 'result_seen_at')
+async function getTableColumnNames(client: DesktopPrismaClient, tableName: string): Promise<Set<string>> {
+  const columns = await client.$queryRawUnsafe(`PRAGMA table_info("${tableName}")`) as Array<{ name?: string }>
+  return new Set(columns.flatMap((column) => column.name ? [column.name] : []))
+}
 
-  if (!hasResultSeenAt) {
-    await client.$executeRawUnsafe('ALTER TABLE "autopilot_runs" ADD COLUMN "result_seen_at" DATETIME')
+async function ensureColumn(
+  client: DesktopPrismaClient,
+  tableName: string,
+  columnName: string,
+  ddl: string,
+): Promise<void> {
+  const columns = await getTableColumnNames(client, tableName)
+  if (!columns.has(columnName)) {
+    await client.$executeRawUnsafe(ddl)
   }
 }
 
-async function ensureUserKindColumn(client: DesktopPrismaClient): Promise<void> {
-  const columns = await client.$queryRawUnsafe('PRAGMA table_info("users")') as Array<{ name?: string }>
-  const hasKind = columns.some((column) => column.name === 'kind')
-
-  if (!hasKind) {
-    await client.$executeRawUnsafe('ALTER TABLE "users" ADD COLUMN "kind" TEXT NOT NULL DEFAULT \'HUMAN\'')
-  }
-}
-
-async function ensureInstanceProviderSyncColumns(client: DesktopPrismaClient): Promise<void> {
-  const columns = await client.$queryRawUnsafe('PRAGMA table_info("instances")') as Array<{ name?: string }>
-  const hasProviderSyncHash = columns.some((column) => column.name === 'provider_sync_hash')
-  const hasProviderSyncedAt = columns.some((column) => column.name === 'provider_synced_at')
-
-  if (!hasProviderSyncHash) {
-    await client.$executeRawUnsafe('ALTER TABLE "instances" ADD COLUMN "provider_sync_hash" TEXT')
-  }
-
-  if (!hasProviderSyncedAt) {
-    await client.$executeRawUnsafe('ALTER TABLE "instances" ADD COLUMN "provider_synced_at" DATETIME')
-  }
+async function ensureDesktopSchemaColumns(client: DesktopPrismaClient): Promise<void> {
+  await ensureColumn(client, 'users', 'kind', 'ALTER TABLE "users" ADD COLUMN "kind" TEXT NOT NULL DEFAULT \'HUMAN\'')
+  await ensureColumn(client, 'instances', 'provider_sync_hash', 'ALTER TABLE "instances" ADD COLUMN "provider_sync_hash" TEXT')
+  await ensureColumn(client, 'instances', 'provider_synced_at', 'ALTER TABLE "instances" ADD COLUMN "provider_synced_at" DATETIME')
+  await ensureColumn(client, 'autopilot_tasks', 'slack_notification_config', 'ALTER TABLE "autopilot_tasks" ADD COLUMN "slack_notification_config" TEXT')
+  await ensureColumn(client, 'autopilot_tasks', 'retry_attempt', 'ALTER TABLE "autopilot_tasks" ADD COLUMN "retry_attempt" INTEGER NOT NULL DEFAULT 0')
+  await ensureColumn(client, 'autopilot_tasks', 'retry_scheduled_for', 'ALTER TABLE "autopilot_tasks" ADD COLUMN "retry_scheduled_for" DATETIME')
+  await ensureColumn(client, 'autopilot_runs', 'result_seen_at', 'ALTER TABLE "autopilot_runs" ADD COLUMN "result_seen_at" DATETIME')
+  await ensureColumn(client, 'autopilot_runs', 'attempt', 'ALTER TABLE "autopilot_runs" ADD COLUMN "attempt" INTEGER NOT NULL DEFAULT 1')
 }
 
 function getDesktopDatabasePath(): string {
@@ -266,22 +317,15 @@ export async function initDesktopDatabase(): Promise<void> {
 
   const storedVersion = result[0]?.value
 
-  if (storedVersion === SCHEMA_VERSION) {
-    await ensureAutopilotRunResultSeenAtColumn(client)
-    await ensureInstanceProviderSyncColumns(client)
-    await ensureUserKindColumn(client)
-    return
-  }
-
   for (let i = 1; i < SCHEMA_DDL.length; i++) {
     await client.$executeRawUnsafe(SCHEMA_DDL[i])
   }
 
-  await ensureAutopilotRunResultSeenAtColumn(client)
-  await ensureInstanceProviderSyncColumns(client)
-  await ensureUserKindColumn(client)
+  await ensureDesktopSchemaColumns(client)
 
-  await client.$executeRaw`INSERT OR REPLACE INTO _arche_schema_meta (key, value) VALUES ('schema_version', ${SCHEMA_VERSION})`
+  if (storedVersion !== SCHEMA_VERSION) {
+    await client.$executeRaw`INSERT OR REPLACE INTO _arche_schema_meta (key, value) VALUES ('schema_version', ${SCHEMA_VERSION})`
+  }
 }
 
 export async function getDesktopPrismaClient(): Promise<DesktopPrismaClient> {

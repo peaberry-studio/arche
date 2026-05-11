@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
-import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
+import { requireSlackIntegrationAdmin } from '@/lib/slack/route-auth'
+import { callSlackApi, type SlackApiObject } from '@/lib/slack/web-api'
 import { slackService } from '@/lib/services'
 
-type SlackConversationListResponse = {
+type SlackConversationListResponse = SlackApiObject & {
   ok?: boolean
   error?: string
   channels?: Array<{
@@ -23,22 +24,6 @@ type SlackListedChannel = {
   channelId: string
   isPrivate: boolean
   name: string
-}
-
-function requireAdmin(user: { id: string; role: string }) {
-  const denied = requireCapability('slackIntegration')
-  if (denied) {
-    return { ok: false as const, response: denied }
-  }
-
-  if (user.role !== 'ADMIN') {
-    return {
-      ok: false as const,
-      response: NextResponse.json({ error: 'forbidden' }, { status: 403 }),
-    }
-  }
-
-  return { ok: true as const }
 }
 
 async function listSlackChannels(botToken: string): Promise<SlackListedChannel[]> {
@@ -90,34 +75,21 @@ async function callSlackConversationsList(
   type: 'public_channel' | 'private_channel',
   cursor: string | null,
 ): Promise<SlackConversationListResponse> {
-  const response = await fetch('https://slack.com/api/conversations.list', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${botToken}`,
-      'Content-Type': 'application/json; charset=utf-8',
-    },
-    body: JSON.stringify({
+  return callSlackApi<SlackConversationListResponse>('conversations.list', botToken, {
+    body: {
       cursor: cursor ?? undefined,
       exclude_archived: true,
       limit: 200,
       types: type,
-    }),
-    cache: 'no-store',
-    signal: AbortSignal.timeout(10_000),
+    },
+    contentType: 'json',
   })
-
-  const data = await response.json().catch(() => null) as SlackConversationListResponse | null
-  if (!response.ok || !data?.ok) {
-    throw new Error(data?.error ?? 'slack_conversations_list_failed')
-  }
-
-  return data
 }
 
 export const GET = withAuth(
   { csrf: false },
   async (_request, { user }) => {
-    const admin = requireAdmin(user)
+    const admin = requireSlackIntegrationAdmin(user)
     if (!admin.ok) return admin.response
 
     try {
@@ -138,7 +110,7 @@ export const GET = withAuth(
 export const POST = withAuth(
   { csrf: true },
   async (_request, { user }) => {
-    const admin = requireAdmin(user)
+    const admin = requireSlackIntegrationAdmin(user)
     if (!admin.ok) return admin.response
 
     try {
@@ -169,7 +141,7 @@ export const POST = withAuth(
 export const PATCH = withAuth(
   { csrf: true },
   async (request, { user }) => {
-    const admin = requireAdmin(user)
+    const admin = requireSlackIntegrationAdmin(user)
     if (!admin.ok) return admin.response
 
     try {
@@ -179,18 +151,18 @@ export const PATCH = withAuth(
       }
 
       const record = body as Record<string, unknown>
-      const channelId = typeof record.channelId === 'string' ? record.channelId.trim() : ''
+      const id = typeof record.id === 'string' ? record.id.trim() : ''
       const enabled = record.enabled
-      if (!channelId || typeof enabled !== 'boolean') {
+      if (!id || typeof enabled !== 'boolean') {
         return NextResponse.json({ error: 'invalid_request' }, { status: 400 })
       }
 
-      await slackService.setNotificationChannelEnabled(channelId, enabled)
+      await slackService.setNotificationChannelEnabledById(id, enabled)
       await auditEvent({
         actorUserId: user.id,
         action: 'slack.notification_channel_updated',
         metadata: {
-          channelId,
+          channelRecordId: id,
           enabled,
         },
       })

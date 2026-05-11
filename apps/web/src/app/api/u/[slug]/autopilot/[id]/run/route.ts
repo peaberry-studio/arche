@@ -1,23 +1,14 @@
 import { NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
+import { resolveAutopilotWorkspaceUserId } from '@/lib/autopilot/route-auth'
 import { triggerAutopilotTaskNow } from '@/lib/autopilot/runner'
 import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
-import { userService } from '@/lib/services'
 
 type AutopilotRunRouteParams = {
   id: string
   slug: string
-}
-
-async function resolveUserIdForSlug(slug: string, contextUser: { id: string; slug: string }) {
-  if (contextUser.slug === slug) {
-    return contextUser.id
-  }
-
-  const owner = await userService.findIdBySlug(slug)
-  return owner?.id ?? null
 }
 
 export const POST = withAuth<{ ok: true } | { error: string }, AutopilotRunRouteParams>(
@@ -26,7 +17,7 @@ export const POST = withAuth<{ ok: true } | { error: string }, AutopilotRunRoute
     const denied = requireCapability('autopilot')
     if (denied) return denied
 
-    const userId = await resolveUserIdForSlug(slug, user)
+    const userId = await resolveAutopilotWorkspaceUserId(slug, user)
     if (!userId) {
       return NextResponse.json({ error: 'not_found' }, { status: 404 })
     }

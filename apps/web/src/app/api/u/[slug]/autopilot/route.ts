@@ -4,24 +4,16 @@ import { NextResponse } from 'next/server'
 import { auditEvent } from '@/lib/auth'
 import { getNextAutopilotRunAt } from '@/lib/autopilot/cron'
 import { validateAutopilotTaskPayload } from '@/lib/autopilot/payload'
+import { resolveAutopilotWorkspaceUserId } from '@/lib/autopilot/route-auth'
 import { triggerAutopilotTaskNow } from '@/lib/autopilot/runner'
 import { serializeAutopilotTaskDetail, serializeAutopilotTaskListItem } from '@/lib/autopilot/serializers'
 import type { AutopilotTaskDetail, AutopilotTaskListItem } from '@/lib/autopilot/types'
 import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
-import { autopilotService, userService } from '@/lib/services'
+import { autopilotService } from '@/lib/services'
 
 type AutopilotListResponse = {
   tasks: AutopilotTaskListItem[]
-}
-
-async function resolveUserIdForSlug(slug: string, contextUser: { id: string; slug: string }) {
-  if (contextUser.slug === slug) {
-    return contextUser.id
-  }
-
-  const owner = await userService.findIdBySlug(slug)
-  return owner?.id ?? null
 }
 
 export const GET = withAuth<AutopilotListResponse | { error: string }>(
@@ -30,7 +22,7 @@ export const GET = withAuth<AutopilotListResponse | { error: string }>(
     const denied = requireCapability('autopilot')
     if (denied) return denied
 
-    const userId = await resolveUserIdForSlug(slug, user)
+    const userId = await resolveAutopilotWorkspaceUserId(slug, user)
     if (!userId) {
       return NextResponse.json({ error: 'not_found' }, { status: 404 })
     }
@@ -62,7 +54,7 @@ export const POST = withAuth<{ task: AutopilotTaskDetail } | { error: string }>(
       return NextResponse.json({ error: payload.error }, { status: payload.status })
     }
 
-    const userId = await resolveUserIdForSlug(slug, user)
+    const userId = await resolveAutopilotWorkspaceUserId(slug, user)
     if (!userId) {
       return NextResponse.json({ error: 'not_found' }, { status: 404 })
     }

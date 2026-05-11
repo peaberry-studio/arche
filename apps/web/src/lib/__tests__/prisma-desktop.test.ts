@@ -125,4 +125,35 @@ describe('desktop prisma context isolation', () => {
       'ALTER TABLE "autopilot_runs" ADD COLUMN "result_seen_at" DATETIME',
     )
   })
+
+  it('executes the current desktop schema DDL including external integrations and Slack DM tables', async () => {
+    const executeRawUnsafe = vi.fn()
+    const queryRawUnsafe = vi.fn().mockResolvedValue([
+      { name: 'kind' },
+      { name: 'provider_sync_hash' },
+      { name: 'provider_synced_at' },
+      { name: 'slack_notification_config' },
+      { name: 'retry_attempt' },
+      { name: 'retry_scheduled_for' },
+      { name: 'result_seen_at' },
+      { name: 'attempt' },
+    ])
+
+    mockGeneratedPrismaClient.mockImplementationOnce(({ adapter }: { adapter: { url: string } }) => ({
+      adapterUrl: adapter.url,
+      $executeRaw: vi.fn(),
+      $executeRawUnsafe: executeRawUnsafe,
+      $queryRawUnsafe: queryRawUnsafe,
+      $queryRaw: vi.fn().mockResolvedValue([{ value: '5' }]),
+    }))
+
+    const { initDesktopDatabase } = await import('../prisma-desktop')
+    await initDesktopDatabase()
+
+    const ddl = executeRawUnsafe.mock.calls.map((call) => String(call[0]))
+    expect(ddl.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS "external_integrations"'))).toBe(true)
+    expect(ddl.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS "slack_dm_session_bindings"'))).toBe(true)
+    expect(ddl.some((statement) => statement.includes('"slack_notification_config" TEXT'))).toBe(true)
+    expect(ddl.some((statement) => statement.includes('"attempt" INTEGER NOT NULL DEFAULT 1'))).toBe(true)
+  })
 })

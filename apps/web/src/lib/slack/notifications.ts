@@ -1,8 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { auditService, slackService } from '@/lib/services'
 import type { SlackNotificationTarget } from '@/lib/services/slack'
-
-type SlackApiObject = Record<string, unknown>
+import { callSlackApi, type SlackApiObject } from '@/lib/slack/web-api'
 
 type SlackUserLookupResponse = SlackApiObject & {
   user?: {
@@ -138,7 +137,7 @@ async function sendDmNotification(args: {
     const userInfo = await callSlackApi<SlackUserLookupResponse>(
       'users.lookupByEmail',
       args.botToken,
-      { email: user.email },
+      { body: { email: user.email }, contentType: 'json' },
     )
     const slackUserInfo = userInfo.user
     const slackUserId = slackUserInfo?.id
@@ -159,7 +158,7 @@ async function sendDmNotification(args: {
   const dm = await callSlackApi<SlackConversationsOpenResponse>(
     'conversations.open',
     args.botToken,
-    { users: slackUser.slackUserId },
+    { body: { users: slackUser.slackUserId }, contentType: 'json' },
   )
   const dmChannelId = dm.channel?.id
   if (!dmChannelId) {
@@ -186,33 +185,12 @@ async function sendChannelNotification(args: {
 
 async function postSlackMessage(botToken: string, channelId: string, text: string): Promise<void> {
   await callSlackApi('chat.postMessage', botToken, {
-    channel: channelId,
-    text,
-  })
-}
-
-async function callSlackApi<T extends SlackApiObject>(
-  method: string,
-  botToken: string,
-  body: Record<string, string>,
-): Promise<T> {
-  const response = await fetch(`https://slack.com/api/${method}`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${botToken}`,
-      'Content-Type': 'application/json; charset=utf-8',
+    body: {
+      channel: channelId,
+      text,
     },
-    body: JSON.stringify(body),
-    cache: 'no-store',
-    signal: AbortSignal.timeout(10_000),
+    contentType: 'json',
   })
-
-  const data = await response.json().catch(() => null) as (T & { ok?: boolean; error?: string }) | null
-  if (!response.ok || !data?.ok) {
-    throw new Error(data?.error ?? `slack_${method.replace(/\./g, '_')}_failed`)
-  }
-
-  return data
 }
 
 function buildNotificationMessage(text: string, sessionLink?: string): string {

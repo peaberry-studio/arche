@@ -4,24 +4,16 @@ import { NextResponse } from 'next/server'
 import { auditEvent } from '@/lib/auth'
 import { getNextAutopilotRunAt, validateAutopilotCronExpression } from '@/lib/autopilot/cron'
 import { validateAutopilotTaskPayload } from '@/lib/autopilot/payload'
+import { resolveAutopilotWorkspaceUserId } from '@/lib/autopilot/route-auth'
 import { serializeAutopilotTaskDetail } from '@/lib/autopilot/serializers'
 import type { AutopilotTaskDetail } from '@/lib/autopilot/types'
 import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
-import { autopilotService, userService } from '@/lib/services'
+import { autopilotService } from '@/lib/services'
 
 type AutopilotTaskRouteParams = {
   id: string
   slug: string
-}
-
-async function resolveUserIdForSlug(slug: string, contextUser: { id: string; slug: string }) {
-  if (contextUser.slug === slug) {
-    return contextUser.id
-  }
-
-  const owner = await userService.findIdBySlug(slug)
-  return owner?.id ?? null
 }
 
 export const GET = withAuth<{ task: AutopilotTaskDetail } | { error: string }, AutopilotTaskRouteParams>(
@@ -30,7 +22,7 @@ export const GET = withAuth<{ task: AutopilotTaskDetail } | { error: string }, A
     const denied = requireCapability('autopilot')
     if (denied) return denied
 
-    const userId = await resolveUserIdForSlug(slug, user)
+    const userId = await resolveAutopilotWorkspaceUserId(slug, user)
     if (!userId) {
       return NextResponse.json({ error: 'not_found' }, { status: 404 })
     }
@@ -50,7 +42,7 @@ export const PATCH = withAuth<{ task: AutopilotTaskDetail } | { error: string },
     const denied = requireCapability('autopilot')
     if (denied) return denied
 
-    const userId = await resolveUserIdForSlug(slug, user)
+    const userId = await resolveAutopilotWorkspaceUserId(slug, user)
     if (!userId) {
       return NextResponse.json({ error: 'not_found' }, { status: 404 })
     }
@@ -147,7 +139,7 @@ export const DELETE = withAuth<{ ok: true } | { error: string }, AutopilotTaskRo
     const denied = requireCapability('autopilot')
     if (denied) return denied
 
-    const userId = await resolveUserIdForSlug(slug, user)
+    const userId = await resolveAutopilotWorkspaceUserId(slug, user)
     if (!userId) {
       return NextResponse.json({ error: 'not_found' }, { status: 404 })
     }
