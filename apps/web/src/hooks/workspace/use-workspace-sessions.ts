@@ -7,7 +7,7 @@ import {
   listSessionsAction,
   createSessionAction,
   deleteSessionAction,
-  markAutopilotRunSeenAction,
+  markFlowRunSeenAction,
   updateSessionAction,
 } from "@/actions/opencode";
 import type { WorkspaceSession } from "@/lib/opencode/types";
@@ -152,7 +152,7 @@ export function useWorkspaceSessions({
         const firstManualRootSession = visibleSessions.find(
           (session) =>
             (!session.parentId || !sessionIds.has(session.parentId)) &&
-            !session.autopilot
+            !session.flow
         );
         const firstRootSession = visibleSessions.find(
           (session) => !session.parentId || !sessionIds.has(session.parentId)
@@ -284,28 +284,28 @@ export function useWorkspaceSessions({
     });
   }, []);
 
-  const markAutopilotRunSeen = useCallback(
+  const markFlowRunSeen = useCallback(
     async (runId: string) => {
       let touched = false;
 
       updateVisibleSessions((prev) =>
         prev.map((session) => {
-          if (session.autopilot?.runId !== runId || !session.autopilot.hasUnseenResult) {
+          if (session.flow?.runId !== runId || !session.flow.hasUnseenResult) {
             return session;
           }
 
           touched = true;
           return {
             ...session,
-            autopilot: {
-              ...session.autopilot,
+            flow: {
+              ...session.flow,
               hasUnseenResult: false,
             },
           };
         })
       );
 
-      const result = await markAutopilotRunSeenAction(slug, runId);
+      const result = await markFlowRunSeenAction(slug, runId);
       if (!result.ok && touched) {
         void loadSessions();
       }
@@ -400,7 +400,7 @@ export function useWorkspaceSessions({
     ensureSessionFamilyLoaded,
     selectSession,
     markSessionCompleted,
-    markAutopilotRunSeen,
+    markFlowRunSeen,
     createSession,
     deleteSession,
     renameSession,

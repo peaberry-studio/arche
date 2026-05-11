@@ -18,8 +18,8 @@ import {
 import {
   getWorkspaceSessionMode,
   getWorkspaceUnreadCounts,
-  isAutopilotSession,
-  isBusyAutopilotWorkspaceSession,
+  isBusyFlowWorkspaceSession,
+  isFlowSession,
 } from "@/lib/workspace-session-utils";
 import { downloadWorkspaceFile } from "@/lib/workspace-file-download";
 import {
@@ -46,7 +46,7 @@ import { FilePreviewPanel } from "./file-preview-panel";
 import { InspectorPanel } from "./inspector-panel";
 import { KnowledgeEmptyState } from "./knowledge-empty-state";
 import { KnowledgeNavigationPanel, type KnowledgeNavigationView } from "./knowledge-navigation-panel";
-import { TasksEmptyState } from "./tasks-empty-state";
+import { FlowsEmptyState } from "./flows-empty-state";
 import { WorkspaceCommandPalette } from "./workspace-command-palette";
 import { WorkspaceSessionsSidebar } from "./workspace-sessions-sidebar";
 import { WorkspaceSessionsRail } from "./workspace-sessions-rail";
@@ -144,11 +144,11 @@ function getWorkspaceModeFromSearch(search: string, hasDesktopVault: boolean): W
   const params = new URLSearchParams(search);
   const requestedMode = params.get("mode") === "knowledge"
     ? "knowledge"
-    : params.get("mode") === "tasks"
-      ? "tasks"
+    : params.get("mode") === "flows"
+      ? "flows"
       : "chat";
 
-  return hasDesktopVault && requestedMode === "tasks" ? "chat" : requestedMode;
+  return hasDesktopVault && requestedMode === "flows" ? "chat" : requestedMode;
 }
 
 function resolveRootSessionId(
@@ -251,15 +251,15 @@ export function WorkspaceShell({
   const layoutCookieName = getWorkspaceLayoutCookieName(resolvedPersistenceScope);
   const layoutStorageKey = getWorkspaceLayoutStorageKey(resolvedPersistenceScope);
   const hasDesktopVault = Boolean(currentVault);
-  const availableInitialWorkspaceMode = hasDesktopVault && initialWorkspaceMode === "tasks"
+  const availableInitialWorkspaceMode = hasDesktopVault && initialWorkspaceMode === "flows"
     ? "chat"
     : initialWorkspaceMode;
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(availableInitialWorkspaceMode);
   const isKnowledgeMode = workspaceMode === "knowledge";
-  const isTasksMode = workspaceMode === "tasks";
-  const lastSessionByModeRef = useRef<{ chat: string | null; tasks: string | null }>({
+  const isFlowsMode = workspaceMode === "flows";
+  const lastSessionByModeRef = useRef<{ chat: string | null; flows: string | null }>({
     chat: null,
-    tasks: null,
+    flows: null,
   });
 
   useEffect(() => {
@@ -388,7 +388,7 @@ export function WorkspaceShell({
     });
   }, [workspace.sessions, sessionsById]);
 
-  const { sessionsUnreadCount, tasksUnreadCount } = useMemo(
+  const { sessionsUnreadCount, flowsUnreadCount } = useMemo(
     () => getWorkspaceUnreadCounts(workspace.sessions, workspace.unseenCompletedSessions),
     [workspace.sessions, workspace.unseenCompletedSessions]
   );
@@ -398,7 +398,7 @@ export function WorkspaceShell({
     [workspace.activeSessionId, sessionsById]
   );
 
-  // Track last active session per chat/tasks mode so switching restores it
+  // Track last active session per chat/flows mode so switching restores it
   useEffect(() => {
     const id = workspace.activeSessionId;
     if (!id) return;
@@ -497,7 +497,7 @@ export function WorkspaceShell({
       const fallback = legacy ?? false;
       return {
         chat: byMode?.chat ?? fallback,
-        tasks: byMode?.tasks ?? fallback,
+        flows: byMode?.flows ?? fallback,
         knowledge: byMode?.knowledge ?? fallback,
       };
     },
@@ -514,7 +514,7 @@ export function WorkspaceShell({
       };
       return {
         chat: pickMode("chat"),
-        tasks: pickMode("tasks"),
+        flows: pickMode("flows"),
         knowledge: pickMode("knowledge"),
       };
     },
@@ -532,7 +532,7 @@ export function WorkspaceShell({
   const [rightWidthByMode, setRightWidthByMode] = useState<Record<WorkspaceMode, number>>(() =>
     buildInitialWidthByMode(initialLayoutState?.rightWidth, initialLayoutState?.rightWidthByMode, MIN_RIGHT_PX)
   );
-  const leftCollapsed = isTasksMode ? false : leftCollapsedByMode[workspaceMode];
+  const leftCollapsed = isFlowsMode ? false : leftCollapsedByMode[workspaceMode];
   const rightCollapsed = rightCollapsedByMode[workspaceMode];
   const leftWidth = leftWidthByMode[workspaceMode];
   const rightWidth = rightWidthByMode[workspaceMode];
@@ -614,7 +614,7 @@ export function WorkspaceShell({
       return;
     }
 
-    if (workspaceMode === "tasks") return;
+    if (workspaceMode === "flows") return;
     setLeftCollapsedForMode(workspaceMode, (prev) => !prev);
   }, [isCompactLayout, setLeftCollapsedForMode, workspaceMode]);
 
@@ -668,7 +668,7 @@ export function WorkspaceShell({
 
   const handleWorkspaceModeChange = useCallback(
     (nextMode: WorkspaceMode) => {
-      const resolvedNextMode = hasDesktopVault && nextMode === "tasks" ? "chat" : nextMode;
+      const resolvedNextMode = hasDesktopVault && nextMode === "flows" ? "chat" : nextMode;
       const prevMode = workspaceMode;
       setWorkspaceMode(resolvedNextMode);
 
@@ -681,19 +681,18 @@ export function WorkspaceShell({
         const currentSession = currentActiveId
           ? sessionsById.get(currentActiveId) ?? null
           : null;
-        const currentIsAutopilot = isAutopilotSession(currentSession);
+        const currentIsFlow = isFlowSession(currentSession);
 
-        if (resolvedNextMode === "chat" && currentIsAutopilot) {
+        if (resolvedNextMode === "chat" && currentIsFlow) {
           const targetId = lastSessionByModeRef.current.chat;
           if (targetId !== currentActiveId) {
             workspace.selectSession(targetId);
           }
-        } else if (resolvedNextMode === "tasks" && !currentIsAutopilot) {
-          // Only switch the active session if we have a remembered task to
+        } else if (resolvedNextMode === "flows" && !currentIsFlow) {
+          // Only switch the active session if we have a remembered flow to
           // restore. If not, leave the session as-is so the workspace hook
-          // does not auto-reselect a chat session in the background — the UI
-          // renders an autopilot empty state regardless of what's active.
-          const targetId = lastSessionByModeRef.current.tasks;
+          // does not auto-reselect a chat session in the background.
+          const targetId = lastSessionByModeRef.current.flows;
           if (targetId && targetId !== currentActiveId) {
             workspace.selectSession(targetId);
           }
@@ -709,8 +708,8 @@ export function WorkspaceShell({
       const params = new URLSearchParams(window.location.search);
       if (resolvedNextMode === "knowledge") {
         params.set("mode", "knowledge");
-      } else if (resolvedNextMode === "tasks") {
-        params.set("mode", "tasks");
+      } else if (resolvedNextMode === "flows") {
+        params.set("mode", "flows");
       } else {
         params.delete("mode");
       }
@@ -745,7 +744,7 @@ export function WorkspaceShell({
 
         if (isCompactLayout) {
           setMobileView((prev) => (prev === "left" ? "chat" : "left"));
-        } else if (workspaceMode !== "tasks") {
+        } else if (workspaceMode !== "flows") {
           setLeftCollapsedForMode(workspaceMode, (prev) => !prev);
         }
         return;
@@ -1071,7 +1070,7 @@ export function WorkspaceShell({
 
     const fittedLeftByMode: Record<WorkspaceMode, number> = { ...initialLeftByMode };
     const fittedRightByMode: Record<WorkspaceMode, number> = { ...initialRightByMode };
-    const modes: WorkspaceMode[] = ["chat", "tasks", "knowledge"];
+    const modes: WorkspaceMode[] = ["chat", "flows", "knowledge"];
     let activeFitted = fitWidths(containerWidth, initialLeftByMode[workspaceMode], initialRightByMode[workspaceMode]);
     for (const mode of modes) {
       const fitted = fitWidths(containerWidth, initialLeftByMode[mode], initialRightByMode[mode]);
@@ -1170,7 +1169,7 @@ export function WorkspaceShell({
       status: s.status === 'busy' ? 'active' as const : s.status === 'idle' ? 'idle' as const : 'archived' as const,
       updatedAt: s.updatedAt,
       agent: 'OpenCode',
-      autopilot: s.autopilot,
+      flow: s.flow,
     }));
   }, [workspace.sessions]);
 
@@ -1583,9 +1582,9 @@ export function WorkspaceShell({
     );
   };
 
-  const leftPanelModeLabel = isKnowledgeMode ? "knowledge" : isTasksMode ? "tasks" : "sessions";
+  const leftPanelModeLabel = isKnowledgeMode ? "knowledge" : isFlowsMode ? "flows" : "sessions";
 
-  const collapseLeftButton = !isCompactLayout && !isTasksMode ? (
+  const collapseLeftButton = !isCompactLayout && !isFlowsMode ? (
     <button
       type="button"
       onClick={handleToggleLeft}
@@ -1597,19 +1596,19 @@ export function WorkspaceShell({
     </button>
   ) : null;
 
-  const tasksSettingsButton = !isCompactLayout && isTasksMode ? (
+  const flowsSettingsButton = !isCompactLayout && isFlowsMode ? (
     <button
       type="button"
-      onClick={() => router.push(`/u/${slug}/autopilot`)}
+      onClick={() => router.push(`/u/${slug}/flows`)}
       className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground/80 transition-colors hover:bg-foreground/5 hover:text-foreground"
-      aria-label="Manage autopilot tasks"
-      title="Manage tasks"
+      aria-label="Manage flows"
+      title="Manage flows"
     >
       <SlidersHorizontal size={13} weight="bold" />
     </button>
   ) : null;
 
-  const leftPanelHeaderActions = collapseLeftButton ?? tasksSettingsButton;
+  const leftPanelHeaderActions = collapseLeftButton ?? flowsSettingsButton;
 
   const leftPanelCoreElement = isKnowledgeMode ? (
     <KnowledgeNavigationPanel
@@ -1628,7 +1627,7 @@ export function WorkspaceShell({
   ) : (
     <WorkspaceSessionsSidebar
       slug={slug}
-      kind={isTasksMode ? "tasks" : "chats"}
+      kind={isFlowsMode ? "flows" : "chats"}
       sessions={rootSessions}
       activeSessionId={activeRootSessionId}
       hasMoreSessions={workspace.hasMoreSessions}
@@ -1637,8 +1636,8 @@ export function WorkspaceShell({
       headerActions={leftPanelHeaderActions}
       onCreateSession={handleCreateSession}
       onLoadMoreSessions={workspace.loadMoreSessions}
-      onMarkAutopilotRunSeen={workspace.markAutopilotRunSeen}
-      onRunTaskComplete={workspace.refreshSessions}
+      onMarkFlowRunSeen={workspace.markFlowRunSeen}
+      onRunFlowComplete={workspace.refreshSessions}
       onSelectSession={handleSelectSession}
     />
   );
@@ -1689,12 +1688,12 @@ export function WorkspaceShell({
         </>
       ) : (
         <WorkspaceSessionsRail
-          kind={isTasksMode ? "tasks" : "chats"}
+          kind={isFlowsMode ? "flows" : "chats"}
           sessions={rootSessions}
           activeSessionId={activeRootSessionId}
           unseenCompletedSessions={workspace.unseenCompletedSessions}
           onSelectSession={handleSelectSession}
-          onMarkAutopilotRunSeen={workspace.markAutopilotRunSeen}
+          onMarkFlowRunSeen={workspace.markFlowRunSeen}
         />
       )}
     </div>
@@ -1707,8 +1706,8 @@ export function WorkspaceShell({
   const activeSessionRecord = workspace.activeSessionId
     ? sessionsById.get(workspace.activeSessionId) ?? null
     : null;
-  const isBusyAutopilotSession = isBusyAutopilotWorkspaceSession(activeSessionRecord);
-  const isReadOnlyChatSession = isInspectingSubagentSession || isBusyAutopilotSession;
+  const isBusyFlowSession = isBusyFlowWorkspaceSession(activeSessionRecord);
+  const isReadOnlyChatSession = isInspectingSubagentSession || isBusyFlowSession;
 
   const chatPanelElement = (
     <ChatPanel
@@ -1739,8 +1738,8 @@ export function WorkspaceShell({
       onSelectModel={workspace.setSelectedModel}
       isReadOnly={isReadOnlyChatSession}
       readOnlyNotice={
-        isBusyAutopilotSession
-          ? "This task run is still in progress. It is read-only until Autopilot finishes."
+        isBusyFlowSession
+          ? "This flow run is still in progress. It is read-only until Flows finishes."
           : undefined
       }
       onReturnToMainConversation={
@@ -1808,15 +1807,15 @@ export function WorkspaceShell({
     />
   );
 
-  const isViewingAutopilotSession = isAutopilotSession(activeSessionRecord);
-  const showTasksEmptyState = isTasksMode && !isViewingAutopilotSession;
+  const isViewingFlowSession = isFlowSession(activeSessionRecord);
+  const showFlowsEmptyState = isFlowsMode && !isViewingFlowSession;
   const showKnowledgeEmptyState = isKnowledgeMode && openFilePaths.length === 0;
   const centerPanelElement = isKnowledgeMode
     ? showKnowledgeEmptyState
       ? <KnowledgeEmptyState />
       : fileEditorPanelElement
-    : showTasksEmptyState
-      ? <TasksEmptyState />
+    : showFlowsEmptyState
+      ? <FlowsEmptyState />
       : chatPanelElement;
   const previewCacheEntry = previewFilePath ? fileCache[previewFilePath] : null;
   const previewPanelElement = previewFilePath ? (
@@ -1836,7 +1835,7 @@ export function WorkspaceShell({
   const isChatActive = mobileView === "chat";
   const isRightPanelActive = mobileView === "right";
   const rightPanelBadgeLabel = workspace.diffs.length > 99 ? "99+" : String(workspace.diffs.length);
-  const mobileLeftLabel = isKnowledgeMode ? "Tree" : isTasksMode ? "Tasks" : "Sessions";
+  const mobileLeftLabel = isKnowledgeMode ? "Tree" : isFlowsMode ? "Flows" : "Sessions";
   const mobileCenterLabel = isKnowledgeMode ? "Files" : "Chat";
   const mobileRightLabel = "Review";
   const mobileCenterAriaLabel = isKnowledgeMode ? "Show files" : "Show chat";
@@ -1853,7 +1852,7 @@ export function WorkspaceShell({
       <WorkspaceCommandPalette
         slug={slug}
         open={commandPaletteOpen}
-        hideTasks={hasDesktopVault}
+        hideFlows={hasDesktopVault}
         onOpenChange={setCommandPaletteOpen}
         onCreateSession={handleCreateSession}
         onModeChange={handleWorkspaceModeChange}
@@ -1870,10 +1869,10 @@ export function WorkspaceShell({
         mode={workspaceMode}
         status="active"
         sessionsUnreadCount={sessionsUnreadCount}
-        tasksUnreadCount={tasksUnreadCount}
+        flowsUnreadCount={flowsUnreadCount}
         knowledgePendingCount={workspace.diffs.length}
         macDesktopWindowInset={macDesktopWindowInset}
-        hideTasksMode={hasDesktopVault}
+        hideFlowsMode={hasDesktopVault}
         onModeChange={handleWorkspaceModeChange}
         onNavigateConnectors={navigateConnectors}
         onNavigateProviders={navigateProviders}

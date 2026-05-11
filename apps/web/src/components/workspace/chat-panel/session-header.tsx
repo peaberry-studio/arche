@@ -151,9 +151,9 @@ export function ChatPanelSessionHeader({
                 </DropdownMenu>
               ) : null}
             </div>
-            {activeSession?.autopilot ? (
+            {activeSession?.flow ? (
               <p className="truncate text-xs text-muted-foreground">
-                Autopilot run for {activeSession.autopilot.taskName}
+                Flow run for {activeSession.flow.flowName}
               </p>
             ) : null}
           </>

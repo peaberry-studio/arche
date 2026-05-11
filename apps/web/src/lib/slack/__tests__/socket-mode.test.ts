@@ -611,8 +611,8 @@ describe('slack socket manager', () => {
   })
 
   it.each([
-    ['autopilot_run_timeout', 'I took too long to reply in Slack. Please try again.'],
-    ['autopilot_no_assistant_message', 'I could not produce a Slack reply for that message.'],
+    ['flow_run_timeout', 'I took too long to reply in Slack. Please try again.'],
+    ['flow_no_assistant_message', 'I could not produce a Slack reply for that message.'],
     ['unexpected_failure', 'I hit an error while preparing the Slack reply. Please try again.'],
   ])('maps %s failures to Slack replies', async (failure, expectedText) => {
     const client = {

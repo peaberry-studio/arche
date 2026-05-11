@@ -135,13 +135,13 @@ services:
     healthcheck:
       disable: true
 
-  autopilot:
+  flows:
     image: {{ web_image }}
     restart: "unless-stopped"
     command:
       - pnpm
       - run
-      - start:autopilot
+      - start:flows
     env_file:
       - {{ env_file_name | default('.env') }}
     networks:

@@ -11,7 +11,7 @@ export type RuntimeCapabilities = {
   teamManagement: boolean
   connectors: boolean
   kickstart: boolean
-  autopilot: boolean
+  flows: boolean
   slackIntegration: boolean
   googleWorkspaceIntegration: boolean
   metaAdsConnector: boolean
@@ -28,7 +28,7 @@ const WEB_CAPABILITIES: RuntimeCapabilities = {
   teamManagement: true,
   connectors: true,
   kickstart: true,
-  autopilot: true,
+  flows: true,
   slackIntegration: true,
   googleWorkspaceIntegration: true,
   metaAdsConnector: true,
@@ -45,7 +45,7 @@ const DESKTOP_CAPABILITIES: RuntimeCapabilities = {
   teamManagement: false,
   connectors: true,
   kickstart: true,
-  autopilot: false,
+  flows: false,
   slackIntegration: false,
   googleWorkspaceIntegration: false,
   metaAdsConnector: true,

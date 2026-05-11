@@ -5,7 +5,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import type { WorkspaceSession } from '@/lib/opencode/types'
-import { hasUnseenAutopilotResult, isAutopilotSession } from '@/lib/workspace-session-utils'
+import { hasUnseenFlowResult, isFlowSession } from '@/lib/workspace-session-utils'
 
 const ROW_HEIGHT = 22
 const FADE_END_INDEX = 6
@@ -17,7 +17,7 @@ const MAX_DOT_SCALE = 2.1
 const MAX_DOT_GAP_EXTRA = 5
 const RAIL_EDGE_PADDING_PX = 10
 
-type Kind = 'chats' | 'tasks'
+type Kind = 'chats' | 'flows'
 
 type WorkspaceSessionsRailProps = {
   kind: Kind
@@ -25,13 +25,14 @@ type WorkspaceSessionsRailProps = {
   activeSessionId: string | null
   unseenCompletedSessions: ReadonlySet<string>
   onSelectSession: (id: string) => void
-  onMarkAutopilotRunSeen?: (runId: string) => Promise<void> | void
+  onMarkFlowRunSeen?: (runId: string) => Promise<void> | void
 }
 
 function isIdleSession(session: WorkspaceSession, unseen: ReadonlySet<string>): boolean {
   return session.status !== 'busy'
     && session.status !== 'error'
-    && !hasUnseenAutopilotResult(session)
+    && session.flow?.status !== 'waiting_for_human'
+    && !hasUnseenFlowResult(session)
     && !unseen.has(session.id)
 }
 
@@ -39,6 +40,7 @@ function dotColorClass(session: WorkspaceSession, unseen: ReadonlySet<string>): 
   if (isIdleSession(session, unseen)) return 'bg-muted-foreground'
   if (session.status === 'busy') return 'bg-amber-400'
   if (session.status === 'error') return 'bg-red-400'
+  if (session.flow?.status === 'waiting_for_human') return 'bg-amber-400'
   return 'bg-green-400'
 }
 
@@ -72,7 +74,7 @@ export function WorkspaceSessionsRail({
   activeSessionId,
   unseenCompletedSessions,
   onSelectSession,
-  onMarkAutopilotRunSeen,
+  onMarkFlowRunSeen,
 }: WorkspaceSessionsRailProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const buttonElsRef = useRef<Map<string, HTMLButtonElement>>(new Map())
@@ -85,7 +87,7 @@ export function WorkspaceSessionsRail({
   const visibleSessions = useMemo(
     () =>
       sessions.filter((session) =>
-        kind === 'tasks' ? isAutopilotSession(session) : !isAutopilotSession(session)
+        kind === 'flows' ? isFlowSession(session) : !isFlowSession(session)
       ),
     [kind, sessions]
   )
@@ -98,12 +100,12 @@ export function WorkspaceSessionsRail({
   const handleSelect = useCallback(
     (session: WorkspaceSession) => {
       onSelectSession(session.id)
-      const autopilot = session.autopilot
-      if (autopilot && hasUnseenAutopilotResult(session) && onMarkAutopilotRunSeen) {
-        void onMarkAutopilotRunSeen(autopilot.runId)
+      const flow = session.flow
+      if (flow && hasUnseenFlowResult(session) && onMarkFlowRunSeen) {
+        void onMarkFlowRunSeen(flow.runId)
       }
     },
-    [onMarkAutopilotRunSeen, onSelectSession]
+    [onMarkFlowRunSeen, onSelectSession]
   )
 
   const applyRailStyles = useCallback(
@@ -199,7 +201,7 @@ export function WorkspaceSessionsRail({
         onMouseLeave={handleMouseLeave}
         className="flex w-full min-h-0 flex-1 flex-col items-center overflow-hidden"
         style={{ paddingBottom: RAIL_EDGE_PADDING_PX, paddingTop: RAIL_EDGE_PADDING_PX }}
-        aria-label={kind === 'tasks' ? 'Tasks' : 'Chats'}
+        aria-label={kind === 'flows' ? 'Flows' : 'Chats'}
       >
         {visibleSessions.map((session) => {
           const isActive = session.id === activeSessionId
@@ -211,7 +213,7 @@ export function WorkspaceSessionsRail({
             ? 'bg-primary'
             : statusColorCls
           const title =
-            kind === 'tasks' && session.autopilot ? session.autopilot.taskName : session.title
+            kind === 'flows' && session.flow ? session.flow.flowName : session.title
 
           return (
             <Tooltip key={session.id}>

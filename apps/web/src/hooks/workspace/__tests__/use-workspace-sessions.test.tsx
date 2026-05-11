@@ -11,7 +11,7 @@ const opencodeMocks = vi.hoisted(() => ({
   deleteSessionAction: vi.fn(),
   listSessionFamilyAction: vi.fn(),
   listSessionsAction: vi.fn(),
-  markAutopilotRunSeenAction: vi.fn(),
+  markFlowRunSeenAction: vi.fn(),
   updateSessionAction: vi.fn(),
 }));
 
@@ -69,7 +69,7 @@ describe("useWorkspaceSessions", () => {
       session: { ...rootSession, id: "created", title: "Created" },
     });
     vi.mocked(opencodeMocks.updateSessionAction).mockResolvedValue({ ok: true });
-    vi.mocked(opencodeMocks.markAutopilotRunSeenAction).mockResolvedValue({ ok: true });
+    vi.mocked(opencodeMocks.markFlowRunSeenAction).mockResolvedValue({ ok: true });
   });
 
   afterEach(() => {
@@ -98,10 +98,7 @@ describe("useWorkspaceSessions", () => {
       ]);
     });
 
-    let deleteResult: Awaited<ReturnType<typeof result.current.deleteSession>>;
-    await act(async () => {
-      deleteResult = await result.current.deleteSession("root");
-    });
+    const deleteResult = await act(async () => result.current.deleteSession("root"));
 
     if (!deleteResult) throw new Error("Expected deleteSession to succeed");
     expect([...deleteResult.deletedSessionIds].sort()).toEqual([

@@ -34,10 +34,10 @@ describe('WorkspaceModeToggle', () => {
     expect(screen.getByLabelText('120 pending')).toBeTruthy()
     expect(screen.getByText('99+')).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Tasks' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Flows' }))
     fireEvent.click(screen.getByRole('button', { name: /Knowledge/ }))
 
-    expect(onModeChange).toHaveBeenNthCalledWith(1, 'tasks')
+    expect(onModeChange).toHaveBeenNthCalledWith(1, 'flows')
     expect(onModeChange).toHaveBeenNthCalledWith(2, 'knowledge')
   })
 
@@ -53,11 +53,11 @@ describe('WorkspaceModeToggle', () => {
     expect(screen.getByLabelText('120 unread').textContent).toBe('99+')
   })
 
-  it('renders the tasks unread badge only when nonzero', () => {
+  it('renders the flows unread badge only when nonzero', () => {
     const { rerender } = render(
       <WorkspaceModeToggle
         mode="chat"
-        tasksUnreadCount={0}
+        flowsUnreadCount={0}
         onModeChange={vi.fn()}
       />
     )
@@ -67,7 +67,7 @@ describe('WorkspaceModeToggle', () => {
     rerender(
       <WorkspaceModeToggle
         mode="chat"
-        tasksUnreadCount={3}
+        flowsUnreadCount={3}
         onModeChange={vi.fn()}
       />
     )
@@ -75,18 +75,18 @@ describe('WorkspaceModeToggle', () => {
     expect(screen.getByLabelText('3 unread').textContent).toBe('3')
   })
 
-  it('hides tasks mode and still allows returning to sessions', () => {
+  it('hides flows mode and still allows returning to sessions', () => {
     const onModeChange = vi.fn()
 
     render(
       <WorkspaceModeToggle
         mode="knowledge"
-        hideTasks
+        hideFlows
         onModeChange={onModeChange}
       />
     )
 
-    expect(screen.queryByText('Tasks')).toBeNull()
+    expect(screen.queryByText('Flows')).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'Sessions' }))
 
@@ -94,7 +94,7 @@ describe('WorkspaceModeToggle', () => {
   })
 
   it('remeasures the active indicator when the knowledge badge disappears', () => {
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
       const isActiveButton = this instanceof HTMLButtonElement && this.getAttribute('aria-pressed') === 'true'
       const hasPendingBadge = this instanceof HTMLButtonElement && this.querySelector('[aria-label="3 pending"]') !== null
       const width = isActiveButton
@@ -137,7 +137,7 @@ describe('WorkspaceModeToggle', () => {
   })
 
   it('remeasures the active indicator when the sessions badge disappears', () => {
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
       const isActiveButton = this instanceof HTMLButtonElement && this.getAttribute('aria-pressed') === 'true'
       const hasUnreadBadge = this instanceof HTMLButtonElement && this.querySelector('[aria-label="3 unread"]') !== null
       const width = isActiveButton

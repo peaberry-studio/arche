@@ -7,11 +7,11 @@ async function gracefulShutdown(): Promise<void> {
 
   if (process.env.NODE_ENV === 'production') {
     try {
-      const { stopAutopilotScheduler } = await import('@/lib/autopilot/scheduler')
-      stopAutopilotScheduler()
-      console.log('[shutdown] Autopilot scheduler stopped')
+      const { stopFlowScheduler } = await import('@/lib/flows/scheduler')
+      stopFlowScheduler()
+      console.log('[shutdown] Flow scheduler stopped')
     } catch (err) {
-      console.error('[shutdown] Failed to stop autopilot scheduler:', err)
+      console.error('[shutdown] Failed to stop flow scheduler:', err)
     }
   }
 
@@ -71,12 +71,12 @@ export async function registerNodeInstrumentation() {
 
   if (process.env.NODE_ENV === 'production') {
     try {
-      const { shouldStartInlineAutopilotScheduler, startAutopilotScheduler } = await import('@/lib/autopilot/scheduler')
-      if (shouldStartInlineAutopilotScheduler()) {
-        startAutopilotScheduler()
+      const { shouldStartInlineFlowScheduler, startFlowScheduler } = await import('@/lib/flows/scheduler')
+      if (shouldStartInlineFlowScheduler()) {
+        startFlowScheduler()
       }
     } catch (error) {
-      console.error('[autopilot] Failed to start scheduler', error)
+      console.error('[flows] Failed to start scheduler', error)
     }
   }
 

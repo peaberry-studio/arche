@@ -20,7 +20,7 @@ import {
 import { getActiveCredentialForUser } from "@/lib/providers/store";
 import { PROVIDERS, type ProviderId } from "@/lib/providers/types";
 import { getSession } from "@/lib/runtime/session";
-import { autopilotService, instanceService, userService } from "@/lib/services";
+import { flowService, instanceService, userService } from "@/lib/services";
 import { decryptPassword } from "@/lib/spawner/crypto";
 import { createWorkspaceAgentClient } from "@/lib/workspace-agent/client";
 import { deriveWorkspaceMessageRuntimeState } from "@/lib/workspace-message-state";
@@ -380,10 +380,10 @@ function toBusyStatus(type: unknown): "active" | "idle" | "busy" | "error" {
 function toWorkspaceSessions(
   sessions: WorkspaceSessionListEntry[],
   statuses: Record<string, { type?: string }>,
-  autopilotBySessionId: Map<string, Awaited<ReturnType<typeof autopilotService.findSessionMetadataByUserId>>[number]>,
+  flowBySessionId: Map<string, Awaited<ReturnType<typeof flowService.findSessionMetadataByUserId>>[number]>,
 ): WorkspaceSession[] {
   return sessions.map((session) => {
-    const autopilot = autopilotBySessionId.get(session.id);
+    const flow = flowBySessionId.get(session.id);
 
     return {
       id: session.id,
@@ -392,13 +392,14 @@ function toWorkspaceSessions(
       updatedAt: formatTimestamp(session.updatedAtRaw),
       updatedAtRaw: session.updatedAtRaw,
       parentId: session.parentId,
-      autopilot: autopilot
+      flow: flow
         ? {
-            runId: autopilot.runId,
-            taskId: autopilot.taskId,
-            taskName: autopilot.taskName,
-            trigger: autopilot.trigger,
-            hasUnseenResult: autopilot.hasUnseenResult,
+            flowId: flow.flowId,
+            flowName: flow.flowName,
+            runId: flow.runId,
+            status: flow.status,
+            trigger: flow.trigger,
+            hasUnseenResult: flow.hasUnseenResult,
           }
         : undefined,
       share: session.share ? { url: session.share.url, version: 1 } : undefined,
@@ -441,13 +442,13 @@ async function getWorkspaceSessionMetadata(
   ]);
   const statuses = statusResult?.data ?? {};
   const targetUserId = workspaceUser.ok ? workspaceUser.userId : null;
-  const autopilotMetadata = targetUserId
-    ? await autopilotService.findSessionMetadataByUserId(targetUserId, sessionIds)
+  const flowMetadata = targetUserId
+    ? await flowService.findSessionMetadataByUserId(targetUserId, sessionIds)
     : [];
 
   return {
-    autopilotBySessionId: new Map(
-      autopilotMetadata.map((entry) => [entry.openCodeSessionId, entry]),
+    flowBySessionId: new Map(
+      flowMetadata.map((entry) => [entry.openCodeSessionId, entry]),
     ),
     statuses,
   };
@@ -474,13 +475,13 @@ async function listWorkspaceSessionsFromApi(
   });
   const sessions = (result.data ?? []).map(mapApiSession);
   const metadata = await getWorkspaceSessionMetadata(slug, client, sessions.map((session) => session.id));
-  const workspaceSessions = toWorkspaceSessions(sessions, metadata.statuses, metadata.autopilotBySessionId);
+  const workspaceSessions = toWorkspaceSessions(sessions, metadata.statuses, metadata.flowBySessionId);
 
   if (query) {
     const filteredSessions = workspaceSessions.filter((session) => {
       const title = session.title.toLowerCase();
-      const taskName = session.autopilot?.taskName.toLowerCase() ?? "";
-      return title.includes(query) || taskName.includes(query);
+      const flowName = session.flow?.flowName.toLowerCase() ?? "";
+      return title.includes(query) || flowName.includes(query);
     });
 
     return {
@@ -601,7 +602,7 @@ export async function listSessionFamilyAction(
     return {
       ok: true,
       rootSessionId: family.rootSessionId,
-      sessions: toWorkspaceSessions(family.sessions, metadata.statuses, metadata.autopilotBySessionId),
+      sessions: toWorkspaceSessions(family.sessions, metadata.statuses, metadata.flowBySessionId),
     };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "unknown" };
@@ -660,7 +661,7 @@ export async function deleteSessionAction(
   }
 }
 
-export async function markAutopilotRunSeenAction(
+export async function markFlowRunSeenAction(
   slug: string,
   runId: string,
 ): Promise<{
@@ -672,7 +673,7 @@ export async function markAutopilotRunSeenAction(
     return { ok: false, error: workspaceUser.error };
   }
 
-  const marked = await autopilotService.markRunResultSeenByIdAndUserId(
+  const marked = await flowService.markRunResultSeenByIdAndUserId(
     runId,
     workspaceUser.userId,
     new Date(),

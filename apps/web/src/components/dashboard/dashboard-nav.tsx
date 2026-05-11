@@ -52,7 +52,7 @@ function getWebNavItems(slug: string): DashboardNavItem[] {
     { label: 'Knowledge', href: getWorkspaceHref(slug, { mode: 'knowledge' }), icon: Database },
     { label: 'Agents', href: `${base}/agents`, icon: Robot },
     { label: 'Skills', href: `${base}/skills`, icon: Lightning },
-    { label: 'Autopilot', href: `${base}/autopilot`, icon: Sparkle },
+    { label: 'Flows', href: `${base}/flows`, icon: Sparkle },
     { label: 'Connectors', href: `${base}/connectors`, icon: Plugs },
     { label: 'Team', href: `${base}/team`, icon: UsersThree },
     { label: 'Settings', href: `${base}/settings`, icon: GearSix },

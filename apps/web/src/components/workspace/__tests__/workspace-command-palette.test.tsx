@@ -7,8 +7,8 @@ import { WorkspaceCommandPalette } from "@/components/workspace/workspace-comman
 import type { WorkspaceSession } from "@/lib/opencode/types"
 
 const listSessionsActionMock = vi.fn()
-const loadTasksMock = vi.fn()
-const runTaskMock = vi.fn()
+const loadFlowsMock = vi.fn()
+const runFlowMock = vi.fn()
 const setThemeIdMock = vi.fn()
 const toggleDarkMock = vi.fn()
 
@@ -28,16 +28,21 @@ vi.mock("@/contexts/workspace-theme-context", () => ({
   }),
 }))
 
-vi.mock("@/hooks/use-autopilot-task-runner", () => ({
-  useAutopilotTaskRunner: () => ({
-    tasks: [
-      { id: "task-1", name: "Daily report", prompt: "Prepare account summary" },
+vi.mock("@/hooks/use-flow-runner", () => ({
+  useFlowRunner: () => ({
+    flows: [
+      {
+        id: "flow-1",
+        name: "Daily report",
+        description: "Prepare account summary",
+        definition: { version: 1, startNodeId: "node-1", nodes: [], edges: [] },
+      },
     ],
-    isLoadingTasks: false,
-    runningTaskId: null,
+    isLoadingFlows: false,
+    runningFlowId: null,
     runError: null,
-    loadTasks: loadTasksMock,
-    runTask: runTaskMock,
+    loadFlows: loadFlowsMock,
+    runFlow: runFlowMock,
   }),
 }))
 
@@ -69,13 +74,13 @@ function makeHandlers(): PaletteHandlers {
   }
 }
 
-function renderPalette(options?: { hideTasks?: boolean; handlers?: PaletteHandlers }) {
+function renderPalette(options?: { hideFlows?: boolean; handlers?: PaletteHandlers }) {
   const handlers = options?.handlers ?? makeHandlers()
   render(
     <WorkspaceCommandPalette
       slug="alice"
       open
-      hideTasks={options?.hideTasks ?? false}
+      hideFlows={options?.hideFlows ?? false}
       {...handlers}
     />
   )
@@ -86,7 +91,7 @@ describe("WorkspaceCommandPalette", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     listSessionsActionMock.mockResolvedValue({ ok: true, sessions: [] })
-    runTaskMock.mockResolvedValue(undefined)
+    runFlowMock.mockResolvedValue(undefined)
     window.HTMLElement.prototype.scrollIntoView = vi.fn()
     window.requestAnimationFrame = (callback: FrameRequestCallback) => {
       callback(0)
@@ -98,16 +103,16 @@ describe("WorkspaceCommandPalette", () => {
     cleanup()
   })
 
-  it("loads tasks when opened and runs the selected new chat command", async () => {
+  it("loads flows when opened and runs the selected new chat command", async () => {
     const handlers = renderPalette()
 
-    expect(loadTasksMock).toHaveBeenCalledTimes(1)
-    expect(screen.getByText("Go to Tasks mode")).not.toBeNull()
+    expect(loadFlowsMock).toHaveBeenCalledTimes(1)
+    expect(screen.getByText("Go to Flows mode")).not.toBeNull()
 
-    fireEvent.change(screen.getByPlaceholderText("Search commands, chats, tasks..."), {
+    fireEvent.change(screen.getByPlaceholderText("Search commands, chats, flows..."), {
       target: { value: "new chat" },
     })
-    fireEvent.keyDown(screen.getByPlaceholderText("Search commands, chats, tasks..."), {
+    fireEvent.keyDown(screen.getByPlaceholderText("Search commands, chats, flows..."), {
       key: "Enter",
     })
 
@@ -116,21 +121,28 @@ describe("WorkspaceCommandPalette", () => {
     expect(handlers.onCreateSession).toHaveBeenCalledTimes(1)
   })
 
-  it("searches root sessions and opens a task run result in tasks mode", async () => {
+  it("searches root sessions and opens a flow run result in flows mode", async () => {
     const sessions = [
       {
-        id: "task-session",
+        id: "flow-session",
         title: "Weekly run",
         status: "idle",
         updatedAt: "now",
         updatedAtRaw: 1,
-        autopilot: { runId: "run-1", taskName: "Weekly KPI" },
+        flow: {
+          runId: "run-1",
+          flowId: "flow-1",
+          flowName: "Weekly KPI",
+          status: "succeeded",
+          trigger: "manual",
+          hasUnseenResult: false,
+        },
       },
     ] satisfies WorkspaceSession[]
     listSessionsActionMock.mockResolvedValue({ ok: true, sessions })
     const handlers = renderPalette()
 
-    fireEvent.change(screen.getByPlaceholderText("Search commands, chats, tasks..."), {
+    fireEvent.change(screen.getByPlaceholderText("Search commands, chats, flows..."), {
       target: { value: "weekly" },
     })
 
@@ -146,18 +158,25 @@ describe("WorkspaceCommandPalette", () => {
     fireEvent.click(screen.getByText("Weekly run"))
 
     await waitFor(() => expect(handlers.onOpenChange).toHaveBeenCalledWith(false))
-    expect(handlers.onSelectSession).toHaveBeenCalledWith("task-session", "tasks")
+    expect(handlers.onSelectSession).toHaveBeenCalledWith("flow-session", "flows")
   })
 
-  it("hides task commands and task search results when tasks are unavailable", async () => {
+  it("hides flow commands and flow search results when flows are unavailable", async () => {
     const sessions = [
       {
-        id: "task-session",
-        title: "Hidden task run",
+        id: "flow-session",
+        title: "Hidden flow run",
         status: "idle",
         updatedAt: "now",
         updatedAtRaw: 1,
-        autopilot: { runId: "run-1", taskName: "Hidden task" },
+        flow: {
+          runId: "run-1",
+          flowId: "flow-1",
+          flowName: "Hidden flow",
+          status: "succeeded",
+          trigger: "manual",
+          hasUnseenResult: false,
+        },
       },
       {
         id: "chat-session",
@@ -168,22 +187,22 @@ describe("WorkspaceCommandPalette", () => {
       },
     ] satisfies WorkspaceSession[]
     listSessionsActionMock.mockResolvedValue({ ok: true, sessions })
-    renderPalette({ hideTasks: true })
+    renderPalette({ hideFlows: true })
 
-    expect(loadTasksMock).not.toHaveBeenCalled()
-    expect(screen.queryByText("Go to Tasks mode")).toBeNull()
+    expect(loadFlowsMock).not.toHaveBeenCalled()
+    expect(screen.queryByText("Go to Flows mode")).toBeNull()
 
-    fireEvent.change(screen.getByPlaceholderText("Search commands, chats, tasks..."), {
+    fireEvent.change(screen.getByPlaceholderText("Search commands, chats, flows..."), {
       target: { value: "run" },
     })
 
     expect(await screen.findByText("Visible chat")).not.toBeNull()
-    expect(screen.queryByText("Hidden task run")).toBeNull()
+    expect(screen.queryByText("Hidden flow run")).toBeNull()
   })
 
-  it("runs theme, layout, navigation, and task commands", async () => {
+  it("runs theme, layout, navigation, and flow commands", async () => {
     const handlers = renderPalette()
-    const input = screen.getByPlaceholderText("Search commands, chats, tasks...")
+    const input = screen.getByPlaceholderText("Search commands, chats, flows...")
 
     fireEvent.change(input, { target: { value: "slate" } })
     fireEvent.keyDown(input, { key: "Enter" })
@@ -199,14 +218,14 @@ describe("WorkspaceCommandPalette", () => {
 
     fireEvent.change(input, { target: { value: "daily report" } })
     fireEvent.keyDown(input, { key: "Enter" })
-    await waitFor(() => expect(runTaskMock).toHaveBeenCalledWith("task-1"))
-    expect(handlers.onModeChange).toHaveBeenCalledWith("tasks")
+    await waitFor(() => expect(runFlowMock).toHaveBeenCalledWith("flow-1"))
+    expect(handlers.onModeChange).toHaveBeenCalledWith("flows")
   })
 
   it("supports keyboard navigation, hover selection, empty results, and dark mode", async () => {
     listSessionsActionMock.mockResolvedValue({ ok: false })
     const handlers = renderPalette()
-    const input = screen.getByPlaceholderText("Search commands, chats, tasks...")
+    const input = screen.getByPlaceholderText("Search commands, chats, flows...")
 
     fireEvent.keyDown(input, { key: "ArrowDown" })
     fireEvent.keyDown(input, { key: "ArrowUp" })

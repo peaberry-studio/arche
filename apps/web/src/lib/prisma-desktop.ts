@@ -97,39 +97,6 @@ const SCHEMA_DDL = [
     "type" TEXT NOT NULL,
     "received_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`,
-  `CREATE TABLE IF NOT EXISTS "autopilot_tasks" (
-    "id" TEXT NOT NULL PRIMARY KEY,
-    "user_id" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
-    "cron_expression" TEXT NOT NULL,
-    "timezone" TEXT NOT NULL,
-    "prompt" TEXT NOT NULL,
-    "target_agent_id" TEXT,
-    "enabled" BOOLEAN NOT NULL DEFAULT true,
-    "next_run_at" DATETIME NOT NULL,
-    "last_run_at" DATETIME,
-    "lease_owner" TEXT,
-    "lease_expires_at" DATETIME,
-    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" DATETIME NOT NULL,
-    CONSTRAINT "autopilot_tasks_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE
-  )`,
-  `CREATE TABLE IF NOT EXISTS "autopilot_runs" (
-    "id" TEXT NOT NULL PRIMARY KEY,
-    "task_id" TEXT NOT NULL,
-    "status" TEXT NOT NULL,
-    "trigger" TEXT NOT NULL,
-    "scheduled_for" DATETIME NOT NULL,
-    "started_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "finished_at" DATETIME,
-    "error" TEXT,
-    "opencode_session_id" TEXT,
-    "session_title" TEXT,
-    "result_seen_at" DATETIME,
-    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" DATETIME NOT NULL,
-    CONSTRAINT "autopilot_runs_task_id_fkey" FOREIGN KEY ("task_id") REFERENCES "autopilot_tasks" ("id") ON DELETE CASCADE ON UPDATE CASCADE
-  )`,
   `CREATE TABLE IF NOT EXISTS "connectors" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "user_id" TEXT NOT NULL,
@@ -176,14 +143,6 @@ const SCHEMA_DDL = [
   `CREATE INDEX IF NOT EXISTS "slack_thread_bindings_execution_user_id_idx" ON "slack_thread_bindings"("execution_user_id")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "slack_event_receipts_event_id_key" ON "slack_event_receipts"("event_id")`,
   `CREATE INDEX IF NOT EXISTS "slack_event_receipts_received_at_idx" ON "slack_event_receipts"("received_at")`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS "autopilot_tasks_user_id_name_key" ON "autopilot_tasks"("user_id", "name")`,
-  `CREATE INDEX IF NOT EXISTS "autopilot_tasks_user_id_idx" ON "autopilot_tasks"("user_id")`,
-  `CREATE INDEX IF NOT EXISTS "autopilot_tasks_enabled_next_run_at_idx" ON "autopilot_tasks"("enabled", "next_run_at")`,
-  `CREATE INDEX IF NOT EXISTS "autopilot_tasks_lease_expires_at_idx" ON "autopilot_tasks"("lease_expires_at")`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS "autopilot_runs_opencode_session_id_key" ON "autopilot_runs"("opencode_session_id")`,
-  `CREATE INDEX IF NOT EXISTS "autopilot_runs_task_id_started_at_idx" ON "autopilot_runs"("task_id", "started_at")`,
-  `CREATE INDEX IF NOT EXISTS "autopilot_runs_status_idx" ON "autopilot_runs"("status")`,
-  `CREATE INDEX IF NOT EXISTS "autopilot_runs_scheduled_for_idx" ON "autopilot_runs"("scheduled_for")`,
   `CREATE INDEX IF NOT EXISTS "connectors_user_id_idx" ON "connectors"("user_id")`,
   `CREATE INDEX IF NOT EXISTS "provider_credentials_user_id_idx" ON "provider_credentials"("user_id")`,
   `CREATE INDEX IF NOT EXISTS "provider_credentials_provider_id_idx" ON "provider_credentials"("provider_id")`,
@@ -191,15 +150,6 @@ const SCHEMA_DDL = [
 ]
 
 const SCHEMA_VERSION = '5'
-
-async function ensureAutopilotRunResultSeenAtColumn(client: DesktopPrismaClient): Promise<void> {
-  const columns = await client.$queryRawUnsafe('PRAGMA table_info("autopilot_runs")') as Array<{ name?: string }>
-  const hasResultSeenAt = columns.some((column) => column.name === 'result_seen_at')
-
-  if (!hasResultSeenAt) {
-    await client.$executeRawUnsafe('ALTER TABLE "autopilot_runs" ADD COLUMN "result_seen_at" DATETIME')
-  }
-}
 
 async function ensureUserKindColumn(client: DesktopPrismaClient): Promise<void> {
   const columns = await client.$queryRawUnsafe('PRAGMA table_info("users")') as Array<{ name?: string }>
@@ -267,7 +217,6 @@ export async function initDesktopDatabase(): Promise<void> {
   const storedVersion = result[0]?.value
 
   if (storedVersion === SCHEMA_VERSION) {
-    await ensureAutopilotRunResultSeenAtColumn(client)
     await ensureInstanceProviderSyncColumns(client)
     await ensureUserKindColumn(client)
     return
@@ -277,7 +226,6 @@ export async function initDesktopDatabase(): Promise<void> {
     await client.$executeRawUnsafe(SCHEMA_DDL[i])
   }
 
-  await ensureAutopilotRunResultSeenAtColumn(client)
   await ensureInstanceProviderSyncColumns(client)
   await ensureUserKindColumn(client)
 

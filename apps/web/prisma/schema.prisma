@@ -34,6 +34,38 @@ enum AutopilotRunTrigger {
   manual
 }
 
+enum FlowRunStatus {
+  running
+  waiting_for_human
+  succeeded
+  failed
+  cancelled
+}
+
+enum FlowRunTrigger {
+  on_create
+  schedule
+  manual
+  resume
+}
+
+enum FlowRunStepStatus {
+  pending
+  running
+  waiting_for_human
+  succeeded
+  skipped
+  failed
+}
+
+enum FlowNodeType {
+  agent
+  human
+  condition
+  merge
+  compaction
+}
+
 model User {
   id           String      @id @default(cuid())
   email        String      @unique
@@ -55,6 +87,7 @@ model User {
   connectors         Connector[]
   providerCredentials ProviderCredential[]
   autopilotTasks      AutopilotTask[]
+  flows               Flow[]
   slackThreadBindings SlackThreadBinding[]
 
   @@map("users")
@@ -216,6 +249,89 @@ model AutopilotRun {
   @@index([status])
   @@index([scheduledFor])
   @@map("autopilot_runs")
+}
+
+model Flow {
+  id             String         @id @default(cuid())
+  userId         String         @map("user_id")
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name           String
+  description    String?
+  definition     Json
+  cronExpression String?        @map("cron_expression")
+  timezone       String         @default("UTC")
+  enabled        Boolean        @default(false)
+
+  nextRunAt      DateTime?      @map("next_run_at")
+  lastRunAt      DateTime?      @map("last_run_at")
+  leaseOwner     String?        @map("lease_owner")
+  leaseExpiresAt DateTime?      @map("lease_expires_at")
+
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  runs           FlowRun[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@index([enabled, nextRunAt])
+  @@index([leaseExpiresAt])
+  @@index([userId, leaseExpiresAt])
+  @@map("flows")
+}
+
+model FlowRun {
+  id                String        @id @default(cuid())
+  flowId            String        @map("flow_id")
+  flow              Flow          @relation(fields: [flowId], references: [id], onDelete: Cascade)
+
+  status            FlowRunStatus
+  trigger           FlowRunTrigger
+  scheduledFor      DateTime      @map("scheduled_for")
+  startedAt         DateTime      @default(now()) @map("started_at")
+  finishedAt        DateTime?     @map("finished_at")
+  error             String?
+  openCodeSessionId String?       @unique @map("opencode_session_id")
+  sessionTitle      String?       @map("session_title")
+  currentNodeId     String?       @map("current_node_id")
+  resultSeenAt      DateTime?     @map("result_seen_at")
+
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  steps             FlowRunStep[]
+
+  @@index([flowId, startedAt])
+  @@index([status])
+  @@index([scheduledFor])
+  @@map("flow_runs")
+}
+
+model FlowRunStep {
+  id              String            @id @default(cuid())
+  runId           String            @map("run_id")
+  run             FlowRun           @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  nodeId          String            @map("node_id")
+  nodeName        String?           @map("node_name")
+  nodeType        FlowNodeType      @map("node_type")
+  status          FlowRunStepStatus
+  input           Json?
+  rawOutput       String?           @map("raw_output")
+  compactedOutput String?           @map("compacted_output")
+  humanResponse   String?           @map("human_response")
+  error           String?
+  startedAt       DateTime?         @map("started_at")
+  finishedAt      DateTime?         @map("finished_at")
+
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  @@unique([runId, nodeId])
+  @@index([runId])
+  @@index([status])
+  @@map("flow_run_steps")
 }
 
 model Connector {

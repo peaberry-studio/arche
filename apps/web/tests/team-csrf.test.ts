@@ -1,6 +1,34 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@prisma/client', () => ({
+  FlowNodeType: {
+    agent: 'agent',
+    compaction: 'compaction',
+    condition: 'condition',
+    human: 'human',
+    merge: 'merge',
+  },
+  FlowRunStatus: {
+    cancelled: 'cancelled',
+    failed: 'failed',
+    running: 'running',
+    succeeded: 'succeeded',
+    waiting_for_human: 'waiting_for_human',
+  },
+  FlowRunStepStatus: {
+    failed: 'failed',
+    pending: 'pending',
+    running: 'running',
+    skipped: 'skipped',
+    succeeded: 'succeeded',
+    waiting_for_human: 'waiting_for_human',
+  },
+  FlowRunTrigger: {
+    manual: 'manual',
+    on_create: 'on_create',
+    resume: 'resume',
+    schedule: 'schedule',
+  },
   Prisma: {
     PrismaClientKnownRequestError: class PrismaClientKnownRequestError extends Error {
       code: string

@@ -307,8 +307,9 @@ export function areWorkspaceSessionListsEqual(
       session.updatedAt === candidate.updatedAt &&
       session.updatedAtRaw === candidate.updatedAtRaw &&
       session.parentId === candidate.parentId &&
-      session.autopilot?.runId === candidate.autopilot?.runId &&
-      session.autopilot?.hasUnseenResult === candidate.autopilot?.hasUnseenResult
+      session.flow?.runId === candidate.flow?.runId &&
+      session.flow?.status === candidate.flow?.status &&
+      session.flow?.hasUnseenResult === candidate.flow?.hasUnseenResult
     );
   });
 }
@@ -389,7 +390,7 @@ export type UseWorkspaceReturn = {
   refreshSessions: () => Promise<void>;
   loadMoreSessions: () => Promise<void>;
   selectSession: (id: string | null) => void;
-  markAutopilotRunSeen: (runId: string) => Promise<void>;
+  markFlowRunSeen: (runId: string) => Promise<void>;
   createSession: (title?: string) => Promise<WorkspaceSession | null>;
   deleteSession: (id: string) => Promise<boolean>;
   renameSession: (id: string, title: string) => Promise<boolean>;

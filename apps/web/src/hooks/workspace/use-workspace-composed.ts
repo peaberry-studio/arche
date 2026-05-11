@@ -10,9 +10,9 @@ import { useWorkspaceFiles } from "@/hooks/use-workspace-files";
 import { useWorkspaceDerivedState } from "@/hooks/workspace/use-workspace-derived-state";
 import {
   useWorkspaceActiveSessionEffects,
-  useWorkspaceAutopilotSeenEffect,
   useWorkspaceCleanupEffect,
   useWorkspaceConfigRefreshEffect,
+  useWorkspaceFlowSeenEffect,
   useWorkspaceInitialRefreshEffect,
   useWorkspacePollingEffect,
   useWorkspaceResumeEffect,
@@ -129,7 +129,7 @@ export function useWorkspace({
     deleteSession: deleteWorkspaceSession,
     ensureSessionFamilyLoaded,
     loadSessions,
-    markAutopilotRunSeen,
+    markFlowRunSeen,
     sessions,
     sessionsRef,
   } = sessionsHook;
@@ -248,9 +248,9 @@ export function useWorkspace({
     isMountedRef,
     workspaceRefreshTimeoutRef,
   });
-  useWorkspaceAutopilotSeenEffect({
+  useWorkspaceFlowSeenEffect({
     activeSession,
-    markAutopilotRunSeen,
+    markFlowRunSeen,
   });
 
   return {
@@ -274,7 +274,7 @@ export function useWorkspace({
     refreshSessions: sessionsHook.loadSessions,
     loadMoreSessions: sessionsHook.loadMoreSessions,
     selectSession: sessionsHook.selectSession,
-    markAutopilotRunSeen: sessionsHook.markAutopilotRunSeen,
+    markFlowRunSeen: sessionsHook.markFlowRunSeen,
     createSession,
     deleteSession,
     renameSession: sessionsHook.renameSession,

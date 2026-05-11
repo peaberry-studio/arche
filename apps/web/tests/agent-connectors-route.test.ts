@@ -53,7 +53,7 @@ describe('GET /api/u/[slug]/agents/connectors', () => {
       csrf: true,
       teamManagement: true,
       kickstart: true,
-      autopilot: true,
+      flows: true,
       slackIntegration: true,
       twoFactor: false,
     })

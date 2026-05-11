@@ -46,7 +46,7 @@ function getWebCapabilities() {
     teamManagement: true,
     connectors: true,
     kickstart: true,
-    autopilot: true,
+    flows: true,
     slackIntegration: true,
   }
 }
@@ -63,7 +63,7 @@ function getDesktopCapabilities() {
     teamManagement: false,
     connectors: true,
     kickstart: true,
-    autopilot: false,
+    flows: false,
     slackIntegration: false,
   }
 }

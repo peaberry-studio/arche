@@ -36,7 +36,6 @@ describe('desktop prisma context isolation', () => {
     process.env = { ...originalEnv }
     delete process.env.DATABASE_URL
     process.env.ARCHE_DATA_DIR = '/tmp/active-vault'
-    // @ts-expect-error test isolation
     globalThis.prismaDesktopClient = undefined
 
     mockGetDesktopVaultRuntimeContext.mockReturnValue(null)
@@ -53,12 +52,16 @@ describe('desktop prisma context isolation', () => {
 
   afterEach(() => {
     process.env = originalEnv
-    // @ts-expect-error test isolation
     globalThis.prismaDesktopClient = undefined
   })
 
   it('keeps contextual desktop clients isolated from the global client cache', async () => {
-    const context = {
+    const context: {
+      databaseUrl: string
+      vaultRoot: string
+      prismaClient?: unknown
+      prismaClientPromise?: Promise<unknown>
+    } = {
       databaseUrl: 'file:/tmp/context-vault/.arche.db',
       vaultRoot: '/tmp/context-vault',
     }
@@ -91,7 +94,12 @@ describe('desktop prisma context isolation', () => {
   })
 
   it('stores contextual init state without mutating the global desktop prisma client', async () => {
-    const context = {
+    const context: {
+      databaseUrl: string
+      vaultRoot: string
+      prismaClient?: unknown
+      prismaClientPromise?: Promise<unknown>
+    } = {
       databaseUrl: 'file:/tmp/context-vault/.arche.db',
       vaultRoot: '/tmp/context-vault',
     }
@@ -105,24 +113,4 @@ describe('desktop prisma context isolation', () => {
     expect(globalThis.prismaDesktopClient).toBeUndefined()
   })
 
-  it('adds the missing autopilot result_seen_at column during desktop init', async () => {
-    const executeRawUnsafe = vi.fn()
-    const queryRawUnsafe = vi.fn().mockResolvedValue([{ name: 'id' }])
-
-    mockGeneratedPrismaClient.mockImplementationOnce(({ adapter }: { adapter: { url: string } }) => ({
-      adapterUrl: adapter.url,
-      $executeRaw: vi.fn(),
-      $executeRawUnsafe: executeRawUnsafe,
-      $queryRawUnsafe: queryRawUnsafe,
-      $queryRaw: vi.fn().mockResolvedValue([{ value: '2' }]),
-    }))
-
-    const { initDesktopDatabase } = await import('../prisma-desktop')
-    await initDesktopDatabase()
-
-    expect(queryRawUnsafe).toHaveBeenCalledWith('PRAGMA table_info("autopilot_runs")')
-    expect(executeRawUnsafe).toHaveBeenCalledWith(
-      'ALTER TABLE "autopilot_runs" ADD COLUMN "result_seen_at" DATETIME',
-    )
-  })
 })

@@ -13,7 +13,7 @@ const opencodeMocks = vi.hoisted(() => ({
   listSessionFamilyAction: vi.fn(),
   createSessionAction: vi.fn(),
   deleteSessionAction: vi.fn(),
-  markAutopilotRunSeenAction: vi.fn(),
+  markFlowRunSeenAction: vi.fn(),
   updateSessionAction: vi.fn(),
   listMessagesAction: vi.fn(),
   abortSessionAction: vi.fn(),
@@ -110,7 +110,7 @@ describe("useWorkspace", () => {
       session: { id: "s2", title: "Fresh", status: "active", updatedAt: "now" },
     });
     opencodeMocks.deleteSessionAction.mockResolvedValue({ ok: true });
-    opencodeMocks.markAutopilotRunSeenAction.mockResolvedValue({ ok: true });
+    opencodeMocks.markFlowRunSeenAction.mockResolvedValue({ ok: true });
     opencodeMocks.updateSessionAction.mockResolvedValue({ ok: true });
     opencodeMocks.listMessagesAction.mockImplementation(async (_slug: string, sessionId: string) => {
       if (sessionId === "s1") {
@@ -270,19 +270,20 @@ describe("useWorkspace", () => {
     expect(result.current.agentDefaultModel?.modelId).toBe("gpt-5.4");
   });
 
-  it("marks unseen autopilot results as seen when a deep-linked session becomes active", async () => {
+  it("marks unseen flow results as seen when a deep-linked session becomes active", async () => {
     opencodeMocks.listSessionsAction.mockResolvedValue({
       ok: true,
       sessions: [
         {
-          id: "task-1-session",
-          title: "Autopilot | Daily brief | Apr 12",
+          id: "flow-1-session",
+          title: "Flow | Daily brief | Apr 12",
           status: "idle",
           updatedAt: "now",
-          autopilot: {
+          flow: {
             runId: "run-1",
-            taskId: "task-1",
-            taskName: "Daily brief",
+            flowId: "flow-1",
+            flowName: "Daily brief",
+            status: "succeeded",
             trigger: "schedule",
             hasUnseenResult: true,
           },
@@ -291,31 +292,32 @@ describe("useWorkspace", () => {
     });
 
     const { result } = renderHook(() =>
-      useWorkspace({ slug: "alice", pollInterval: 0, initialSessionId: "task-1-session" })
+      useWorkspace({ slug: "alice", pollInterval: 0, initialSessionId: "flow-1-session" })
     );
 
     await waitFor(() => {
-      expect(result.current.activeSessionId).toBe("task-1-session");
+      expect(result.current.activeSessionId).toBe("flow-1-session");
     });
 
     await waitFor(() => {
-      expect(opencodeMocks.markAutopilotRunSeenAction).toHaveBeenCalledWith("alice", "run-1");
+      expect(opencodeMocks.markFlowRunSeenAction).toHaveBeenCalledWith("alice", "run-1");
     });
   });
 
-  it("marks each autopilot run seen only once while backend state is stale", async () => {
+  it("marks each flow run seen only once while backend state is stale", async () => {
     opencodeMocks.listSessionsAction.mockResolvedValue({
       ok: true,
       sessions: [
         {
-          id: "task-1-session",
-          title: "Autopilot | Daily brief | Apr 12",
+          id: "flow-1-session",
+          title: "Flow | Daily brief | Apr 12",
           status: "idle",
           updatedAt: "now",
-          autopilot: {
+          flow: {
             runId: "run-1",
-            taskId: "task-1",
-            taskName: "Daily brief",
+            flowId: "flow-1",
+            flowName: "Daily brief",
+            status: "succeeded",
             trigger: "schedule",
             hasUnseenResult: true,
           },
@@ -324,25 +326,25 @@ describe("useWorkspace", () => {
     });
 
     const { result } = renderHook(() =>
-      useWorkspace({ slug: "alice", pollInterval: 20, initialSessionId: "task-1-session" })
+      useWorkspace({ slug: "alice", pollInterval: 20, initialSessionId: "flow-1-session" })
     );
 
     await waitFor(() => {
-      expect(result.current.activeSessionId).toBe("task-1-session");
-      expect(opencodeMocks.markAutopilotRunSeenAction).toHaveBeenCalledTimes(1);
+      expect(result.current.activeSessionId).toBe("flow-1-session");
+      expect(opencodeMocks.markFlowRunSeenAction).toHaveBeenCalledTimes(1);
     });
 
     await waitFor(() => {
       expect(opencodeMocks.listSessionsAction.mock.calls.length).toBeGreaterThanOrEqual(2);
     });
 
-    expect(opencodeMocks.markAutopilotRunSeenAction).toHaveBeenCalledTimes(1);
+    expect(opencodeMocks.markFlowRunSeenAction).toHaveBeenCalledTimes(1);
   });
 
-  it("does not resume or abort a busy autopilot session opened by deep link", async () => {
-    const pendingAutopilotMessage: WorkspaceMessage = {
+  it("does not resume or abort a busy flow session opened by deep link", async () => {
+    const pendingFlowMessage: WorkspaceMessage = {
       id: "assistant-pending",
-      sessionId: "task-session",
+      sessionId: "flow-session",
       role: "assistant",
       content: "",
       timestamp: "now",
@@ -350,15 +352,16 @@ describe("useWorkspace", () => {
       parts: [],
       pending: true,
     };
-    const taskSession = {
-      id: "task-session",
-      title: "Autopilot | Daily brief | Apr 12",
+    const flowSession = {
+      id: "flow-session",
+      title: "Flow | Daily brief | Apr 12",
       status: "busy" as const,
       updatedAt: "now",
-      autopilot: {
+      flow: {
         runId: "run-1",
-        taskId: "task-1",
-        taskName: "Daily brief",
+        flowId: "flow-1",
+        flowName: "Daily brief",
+        status: "running" as const,
         trigger: "manual" as const,
         hasUnseenResult: false,
       },
@@ -367,17 +370,17 @@ describe("useWorkspace", () => {
 
     opencodeMocks.listSessionsAction.mockResolvedValue({
       ok: true,
-      sessions: [taskSession],
+      sessions: [flowSession],
       hasMore: false,
     });
     opencodeMocks.listSessionFamilyAction.mockResolvedValue({
       ok: true,
-      rootSessionId: "task-session",
-      sessions: [taskSession],
+      rootSessionId: "flow-session",
+      sessions: [flowSession],
     });
     opencodeMocks.listMessagesAction.mockResolvedValue({
       ok: true,
-      messages: [pendingAutopilotMessage],
+      messages: [pendingFlowMessage],
     });
 
     vi.stubGlobal(
@@ -430,11 +433,11 @@ describe("useWorkspace", () => {
     );
 
     const { result } = renderHook(() =>
-      useWorkspace({ slug: "alice", pollInterval: 0, initialSessionId: "task-session" })
+      useWorkspace({ slug: "alice", pollInterval: 0, initialSessionId: "flow-session" })
     );
 
     await waitFor(() => {
-      expect(result.current.activeSessionId).toBe("task-session");
+      expect(result.current.activeSessionId).toBe("flow-session");
       expect(result.current.messages[0]?.id).toBe("assistant-pending");
     });
 
@@ -444,7 +447,7 @@ describe("useWorkspace", () => {
 
     expect(chatStreamRequests).toEqual([]);
     expect(opencodeMocks.abortSessionAction).not.toHaveBeenCalled();
-    expect(result.current.activeSessionId).toBe("task-session");
+    expect(result.current.activeSessionId).toBe("flow-session");
   });
 
   it("sends the primary agent model when there is no manual selection", async () => {

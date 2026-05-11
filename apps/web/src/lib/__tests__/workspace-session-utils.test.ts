@@ -5,9 +5,9 @@ import {
   canAutoResumeWorkspaceSession,
   getWorkspaceSessionMode,
   getWorkspaceUnreadCounts,
-  hasUnseenAutopilotResult,
-  isAutopilotSession,
-  isBusyAutopilotWorkspaceSession,
+  hasUnseenFlowResult,
+  isBusyFlowWorkspaceSession,
+  isFlowSession,
 } from "@/lib/workspace-session-utils";
 
 const manualSession: WorkspaceSession = {
@@ -17,44 +17,45 @@ const manualSession: WorkspaceSession = {
   updatedAt: "now",
 };
 
-const autopilotSession: WorkspaceSession = {
-  id: "task-session",
-  title: "Autopilot | Daily brief",
+const flowSession: WorkspaceSession = {
+  id: "flow-session",
+  title: "Flow | Daily brief",
   status: "busy",
   updatedAt: "now",
-  autopilot: {
+  flow: {
     runId: "run-1",
-    taskId: "task-1",
-    taskName: "Daily brief",
+    flowId: "flow-1",
+    flowName: "Daily brief",
+    status: "running",
     trigger: "manual",
     hasUnseenResult: true,
   },
 };
 
 describe("workspace session utils", () => {
-  it("classifies manual and autopilot sessions", () => {
-    expect(isAutopilotSession(manualSession)).toBe(false);
-    expect(isAutopilotSession(autopilotSession)).toBe(true);
+  it("classifies manual and flow sessions", () => {
+    expect(isFlowSession(manualSession)).toBe(false);
+    expect(isFlowSession(flowSession)).toBe(true);
     expect(getWorkspaceSessionMode(manualSession)).toBe("chat");
-    expect(getWorkspaceSessionMode(autopilotSession)).toBe("tasks");
+    expect(getWorkspaceSessionMode(flowSession)).toBe("flows");
   });
 
-  it("keeps resume ownership and task result state explicit", () => {
+  it("keeps resume ownership and flow result state explicit", () => {
     expect(canAutoResumeWorkspaceSession(manualSession)).toBe(true);
-    expect(canAutoResumeWorkspaceSession(autopilotSession)).toBe(false);
-    expect(isBusyAutopilotWorkspaceSession(autopilotSession)).toBe(true);
-    expect(hasUnseenAutopilotResult(autopilotSession)).toBe(true);
+    expect(canAutoResumeWorkspaceSession(flowSession)).toBe(false);
+    expect(isBusyFlowWorkspaceSession(flowSession)).toBe(true);
+    expect(hasUnseenFlowResult(flowSession)).toBe(true);
   });
 
-  it("derives unread counts without mixing chat and task ownership", () => {
+  it("derives unread counts without mixing chat and flow ownership", () => {
     expect(
       getWorkspaceUnreadCounts(
-        [manualSession, autopilotSession],
-        new Set(["manual-session", "task-session", "unknown-session"])
+        [manualSession, flowSession],
+        new Set(["manual-session", "flow-session", "unknown-session"])
       )
     ).toEqual({
       sessionsUnreadCount: 1,
-      tasksUnreadCount: 1,
+      flowsUnreadCount: 1,
     });
   });
 });

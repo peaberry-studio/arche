@@ -381,7 +381,7 @@
   ansible.builtin.shell:
     cmd: >
       podman compose -f {{ app_dir }}/compose.yml --env-file {{ app_dir }}/.env
-      -p arche up -d reaper autopilot
+      -p arche up -d reaper flows
   changed_when: true
   when:
     - deploy_mode == 'remote'
@@ -392,7 +392,7 @@
   ansible.builtin.shell:
     cmd: >
       podman-compose -f {{ app_dir }}/compose.yml --env-file {{ app_dir }}/.env
-      -p arche up -d reaper autopilot
+      -p arche up -d reaper flows
   changed_when: true
   when:
     - deploy_mode == 'remote'

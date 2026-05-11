@@ -80,38 +80,40 @@ describe("SessionsPanel", () => {
     expect(timestamp.className).toContain("transition-all");
   });
 
-  it("shows autopilot sessions with task context and matches them in search", () => {
+  it("shows flow sessions with flow context and matches them in search", () => {
     render(
       <SessionsPanel
         sessions={[
           {
-            id: "autopilot-session",
-            title: "Autopilot | Daily summary",
+            id: "flow-session",
+            title: "Flow | Daily summary",
             status: "idle",
             updatedAt: "now",
             updatedAtRaw: 4,
-            autopilot: {
+            flow: {
               runId: "run-1",
-              taskId: "task-1",
-              taskName: "Daily summary",
+              flowId: "flow-1",
+              flowName: "Daily summary",
+              status: "succeeded",
               trigger: "schedule",
+              hasUnseenResult: false,
             },
           },
         ]}
-        activeSessionId={"autopilot-session"}
+        activeSessionId={"flow-session"}
         unseenCompletedSessions={new Set<string>()}
         onSelectSession={vi.fn()}
         onCreateSession={vi.fn()}
-        kind="tasks"
+        kind="flows"
         query="daily summary"
       />
     );
 
     expect(screen.getByText("Daily summary")).toBeTruthy();
-    expect(screen.getByText("Autopilot | Daily summary")).toBeTruthy();
+    expect(screen.getByText("Flow | Daily summary")).toBeTruthy();
   });
 
-  it("hides chat creation affordances in tasks mode", () => {
+  it("hides chat creation affordances in flows mode", () => {
     render(
       <SessionsPanel
         sessions={[]}
@@ -119,11 +121,11 @@ describe("SessionsPanel", () => {
         unseenCompletedSessions={new Set<string>()}
         onSelectSession={vi.fn()}
         onCreateSession={vi.fn()}
-        kind="tasks"
+        kind="flows"
       />
     );
 
-    expect(screen.getByText("No tasks yet")).toBeTruthy();
+    expect(screen.getByText("No flows yet")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "New chat" })).toBeNull();
   });
 
@@ -166,20 +168,20 @@ describe("SessionsPanel", () => {
     expect(onCreateSession).toHaveBeenCalledTimes(1);
   });
 
-  it("shows task-specific loading copy while fetching more", () => {
+  it("shows flow-specific loading copy while fetching more", () => {
     render(
       <SessionsPanel
         sessions={sessions}
         activeSessionId="idle-session"
         isLoadingMore
-        kind="tasks"
+        kind="flows"
         unseenCompletedSessions={new Set<string>()}
         onSelectSession={vi.fn()}
         onCreateSession={vi.fn()}
       />
     );
 
-    expect(screen.getByText("Loading more tasks...")).toBeTruthy();
+    expect(screen.getByText("Loading more flows...")).toBeTruthy();
   });
 
   it("requests more sessions when the load-more sentinel becomes visible", () => {

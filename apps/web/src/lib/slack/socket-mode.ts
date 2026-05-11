@@ -396,10 +396,10 @@ function getEventId(body: unknown): string | null {
 }
 
 function mapSlackFailureToMessage(error: string): string {
-  if (error === 'autopilot_run_timeout') {
+  if (error === 'flow_run_timeout') {
     return 'I took too long to reply in Slack. Please try again.'
   }
-  if (error === 'autopilot_no_assistant_message') {
+  if (error === 'flow_no_assistant_message') {
     return 'I could not produce a Slack reply for that message.'
   }
   if (error === 'provider_auth_missing') {
