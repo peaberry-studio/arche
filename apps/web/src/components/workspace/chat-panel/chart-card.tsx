@@ -13,6 +13,10 @@ import type { VisualizationSpec } from 'vega-embed'
 
 import type { ChartOutput } from '@/components/workspace/chat-panel/chart-output'
 import { copyTextToClipboard } from '@/components/workspace/chat-panel/clipboard'
+import {
+  buildVegaConfig,
+  resolveVisualizationTheme,
+} from '@/components/workspace/chat-panel/visualization-theme'
 
 type ChartCardProps = {
   chart: ChartOutput
@@ -38,7 +42,7 @@ function ChartCopyButton({ text }: { text: string }) {
       title="Copy chart spec"
       aria-label="Copy chart spec"
     >
-      {copied ? <CheckCircle size={14} weight="fill" className="text-primary" /> : <Copy size={14} />}
+      {copied ? <CheckCircle size={12} weight="fill" className="text-primary" /> : <Copy size={12} />}
     </button>
   )
 }
@@ -63,9 +67,15 @@ export function ChartCard({ chart, isRunning }: ChartCardProps) {
 
       try {
         const { default: embed } = await import('vega-embed')
-        const result = await embed(container, chart.spec as VisualizationSpec, {
+        const theme = resolveVisualizationTheme()
+        // The wrapper title is already shown in the card header, so we drop spec.title
+        // to avoid duplicating it inside the SVG.
+        const renderSpec = { ...chart.spec }
+        delete renderSpec.title
+        const result = await embed(container, renderSpec as VisualizationSpec, {
           actions: false,
           ast: true,
+          config: buildVegaConfig(theme),
           defaultStyle: false,
           mode: 'vega-lite',
           renderer: 'svg',
@@ -98,30 +108,25 @@ export function ChartCard({ chart, isRunning }: ChartCardProps) {
   }, [chart.spec])
 
   return (
-    <div className="my-3 overflow-hidden rounded-xl border border-border/60 bg-card text-sm shadow-sm">
-      <div className="flex items-center gap-2 border-b border-border/40 bg-muted/40 px-4 py-2.5">
-        <ChartBar size={16} weight="fill" className="shrink-0 text-primary" />
-        <span className="text-xs font-semibold tracking-wide text-primary uppercase">Chart</span>
-        {isRunning || isLoading ? (
-          <span className="chat-text-micro inline-flex items-center gap-1 text-muted-foreground">
-            <SpinnerGap size={12} className="animate-spin" />
-            {isRunning ? 'Updating' : 'Rendering'}
-          </span>
-        ) : null}
-        <div className="ml-auto">
-          <ChartCopyButton text={copyText} />
+    <div className="my-2 rounded-lg border border-border/40 bg-muted/15">
+      <div className="flex items-start gap-2 px-3 py-2">
+        <ChartBar size={12} weight="fill" className="mt-[3px] shrink-0 text-primary/70" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-xs font-medium text-foreground">{chart.title}</p>
+          {chart.sourceNote ? (
+            <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{chart.sourceNote}</p>
+          ) : null}
         </div>
+        {isRunning || isLoading ? (
+          <SpinnerGap size={12} className="mt-[3px] shrink-0 animate-spin text-muted-foreground" />
+        ) : null}
+        <ChartCopyButton text={copyText} />
       </div>
 
-      <div className="border-b border-border/30 px-4 py-2.5">
-        <h3 className="text-sm font-semibold text-foreground">{chart.title}</h3>
-        {chart.sourceNote ? <p className="mt-1 text-xs text-muted-foreground">{chart.sourceNote}</p> : null}
-      </div>
-
-      <div className="min-h-52 px-4 py-4">
+      <div className="border-t border-border/30 px-3 pb-3 pt-3">
         {error ? (
-          <div className="flex items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-            <WarningCircle size={14} weight="fill" className="mt-0.5 shrink-0" />
+          <div className="mb-2 flex items-start gap-2 rounded-md border border-destructive/25 bg-destructive/5 px-2.5 py-1.5 text-xs text-destructive">
+            <WarningCircle size={12} weight="fill" className="mt-0.5 shrink-0" />
             <span>{error}</span>
           </div>
         ) : null}

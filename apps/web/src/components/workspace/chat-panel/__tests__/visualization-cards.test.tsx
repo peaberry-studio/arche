@@ -8,7 +8,7 @@ import type { ChartOutput } from '@/components/workspace/chat-panel/chart-output
 import { DiagramCard } from '@/components/workspace/chat-panel/diagram-card'
 import type { DiagramOutput } from '@/components/workspace/chat-panel/diagram-output'
 
-const embedMock = vi.hoisted(() => vi.fn(async (element: HTMLElement) => {
+const embedMock = vi.hoisted(() => vi.fn(async (...[element]: [HTMLElement, unknown, Record<string, unknown>]) => {
   element.innerHTML = '<svg><text>chart rendered</text></svg>'
   return { finalize: vi.fn() }
 }))
@@ -63,18 +63,23 @@ describe('visualization cards', () => {
   it('renders charts with CSP-safe Vega options and copies the spec', async () => {
     render(<ChartCard chart={chart} isRunning={false} />)
 
-    expect(screen.getByText('Chart')).toBeTruthy()
     expect(screen.getByText('Revenue')).toBeTruthy()
     expect(screen.getByText('Forecast')).toBeTruthy()
 
     await waitFor(() => expect(embedMock).toHaveBeenCalled())
-    expect(embedMock.mock.calls[0]?.[2]).toMatchObject({
+    const embedOptions = embedMock.mock.calls[0]?.[2]
+    expect(embedOptions).toMatchObject({
       actions: false,
       ast: true,
       defaultStyle: false,
       mode: 'vega-lite',
       renderer: 'svg',
       tooltip: false,
+    })
+    expect(embedOptions?.config).toMatchObject({
+      background: 'transparent',
+      axis: expect.objectContaining({ gridColor: expect.any(String) }),
+      range: expect.objectContaining({ category: expect.any(Array) }),
     })
     expect(screen.getByText('chart rendered')).toBeTruthy()
 
@@ -85,13 +90,18 @@ describe('visualization cards', () => {
   it('renders Mermaid diagrams with strict settings and sanitized SVG', async () => {
     const { rerender } = render(<DiagramCard diagram={diagram} isRunning={false} />)
 
-    expect(screen.getByText('Diagram')).toBeTruthy()
     expect(screen.getByText('Support flow')).toBeTruthy()
 
     await waitFor(() => expect(mermaidInitializeMock).toHaveBeenCalledTimes(1))
     expect(mermaidInitializeMock).toHaveBeenCalledWith(expect.objectContaining({
       securityLevel: 'strict',
-      flowchart: { htmlLabels: false },
+      flowchart: expect.objectContaining({ htmlLabels: false, useMaxWidth: true }),
+      theme: 'base',
+      themeVariables: expect.objectContaining({
+        primaryColor: expect.any(String),
+        lineColor: expect.any(String),
+        nodeTextColor: expect.any(String),
+      }),
     }))
     expect(sanitizeMock).toHaveBeenCalledWith('<svg><text>diagram rendered</text></svg>', {
       USE_PROFILES: { svg: true, svgFilters: true },

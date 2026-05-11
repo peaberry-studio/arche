@@ -15,6 +15,10 @@ import {
   hasBlockedMermaidSyntax,
   type DiagramOutput,
 } from '@/components/workspace/chat-panel/diagram-output'
+import {
+  buildMermaidThemeVariables,
+  resolveVisualizationTheme,
+} from '@/components/workspace/chat-panel/visualization-theme'
 
 type DiagramCardProps = {
   diagram: DiagramOutput
@@ -29,11 +33,13 @@ function loadMermaid(): Promise<MermaidApi> {
   if (!mermaidPromise) {
     mermaidPromise = import('mermaid')
       .then(({ default: mermaid }) => {
+        const theme = resolveVisualizationTheme()
         mermaid.initialize({
           startOnLoad: false,
           securityLevel: 'strict',
-          flowchart: { htmlLabels: false },
-          theme: 'default',
+          flowchart: { htmlLabels: false, useMaxWidth: true },
+          theme: 'base',
+          themeVariables: buildMermaidThemeVariables(theme),
         })
 
         return mermaid
@@ -66,7 +72,7 @@ function DiagramCopyButton({ text }: { text: string }) {
       title="Copy diagram source"
       aria-label="Copy diagram source"
     >
-      {copied ? <CheckCircle size={14} weight="fill" className="text-primary" /> : <Copy size={14} />}
+      {copied ? <CheckCircle size={12} weight="fill" className="text-primary" /> : <Copy size={12} />}
     </button>
   )
 }
@@ -123,29 +129,22 @@ export function DiagramCard({ diagram, isRunning }: DiagramCardProps) {
   }, [diagram.source, renderId])
 
   return (
-    <div className="my-3 overflow-hidden rounded-xl border border-border/60 bg-card text-sm shadow-sm">
-      <div className="flex items-center gap-2 border-b border-border/40 bg-muted/40 px-4 py-2.5">
-        <TreeStructure size={16} weight="fill" className="shrink-0 text-primary" />
-        <span className="text-xs font-semibold tracking-wide text-primary uppercase">Diagram</span>
-        {isRunning || isLoading ? (
-          <span className="chat-text-micro inline-flex items-center gap-1 text-muted-foreground">
-            <SpinnerGap size={12} className="animate-spin" />
-            {isRunning ? 'Updating' : 'Rendering'}
-          </span>
-        ) : null}
-        <div className="ml-auto">
-          <DiagramCopyButton text={diagram.source} />
+    <div className="my-2 rounded-lg border border-border/40 bg-muted/15">
+      <div className="flex items-start gap-2 px-3 py-2">
+        <TreeStructure size={12} weight="fill" className="mt-[3px] shrink-0 text-primary/70" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-xs font-medium text-foreground">{diagram.title}</p>
         </div>
+        {isRunning || isLoading ? (
+          <SpinnerGap size={12} className="mt-[3px] shrink-0 animate-spin text-muted-foreground" />
+        ) : null}
+        <DiagramCopyButton text={diagram.source} />
       </div>
 
-      <div className="border-b border-border/30 px-4 py-2.5">
-        <h3 className="text-sm font-semibold text-foreground">{diagram.title}</h3>
-      </div>
-
-      <div className="min-h-52 px-4 py-4">
+      <div className="border-t border-border/30 px-3 pb-3 pt-3">
         {error ? (
-          <div className="flex items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-            <WarningCircle size={14} weight="fill" className="mt-0.5 shrink-0" />
+          <div className="mb-2 flex items-start gap-2 rounded-md border border-destructive/25 bg-destructive/5 px-2.5 py-1.5 text-xs text-destructive">
+            <WarningCircle size={12} weight="fill" className="mt-0.5 shrink-0" />
             <span>{error}</span>
           </div>
         ) : null}
