@@ -37,7 +37,11 @@ function loadMermaid(): Promise<MermaidApi> {
         mermaid.initialize({
           startOnLoad: false,
           securityLevel: 'strict',
-          flowchart: { htmlLabels: false, useMaxWidth: true },
+          // Root-level htmlLabels (v11+). The deprecated flowchart.htmlLabels is
+          // ignored, so labels would otherwise render as HTML in <foreignObject>
+          // and get stripped by DOMPurify's SVG profile, leaving empty nodes.
+          htmlLabels: false,
+          flowchart: { useMaxWidth: true },
           theme: 'base',
           themeVariables: buildMermaidThemeVariables(theme),
         })
@@ -130,13 +134,11 @@ export function DiagramCard({ diagram, isRunning }: DiagramCardProps) {
 
   return (
     <div className="my-2 rounded-lg border border-border/40 bg-muted/15">
-      <div className="flex items-start gap-2 px-3 py-2">
-        <TreeStructure size={12} weight="fill" className="mt-[3px] shrink-0 text-primary/70" />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-medium text-foreground">{diagram.title}</p>
-        </div>
+      <div className="flex items-center gap-2 px-3 py-2">
+        <TreeStructure size={12} weight="fill" className="shrink-0 text-primary/70" />
+        <p className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">{diagram.title}</p>
         {isRunning || isLoading ? (
-          <SpinnerGap size={12} className="mt-[3px] shrink-0 animate-spin text-muted-foreground" />
+          <SpinnerGap size={12} className="shrink-0 animate-spin text-muted-foreground" />
         ) : null}
         <DiagramCopyButton text={diagram.source} />
       </div>

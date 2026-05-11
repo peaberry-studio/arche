@@ -95,7 +95,8 @@ describe('visualization cards', () => {
     await waitFor(() => expect(mermaidInitializeMock).toHaveBeenCalledTimes(1))
     expect(mermaidInitializeMock).toHaveBeenCalledWith(expect.objectContaining({
       securityLevel: 'strict',
-      flowchart: expect.objectContaining({ htmlLabels: false, useMaxWidth: true }),
+      htmlLabels: false,
+      flowchart: expect.objectContaining({ useMaxWidth: true }),
       theme: 'base',
       themeVariables: expect.objectContaining({
         primaryColor: expect.any(String),

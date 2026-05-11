@@ -109,18 +109,18 @@ export function ChartCard({ chart, isRunning }: ChartCardProps) {
 
   return (
     <div className="my-2 rounded-lg border border-border/40 bg-muted/15">
-      <div className="flex items-start gap-2 px-3 py-2">
-        <ChartBar size={12} weight="fill" className="mt-[3px] shrink-0 text-primary/70" />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-medium text-foreground">{chart.title}</p>
-          {chart.sourceNote ? (
-            <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{chart.sourceNote}</p>
+      <div className="px-3 py-2">
+        <div className="flex items-center gap-2">
+          <ChartBar size={12} weight="fill" className="shrink-0 text-primary/70" />
+          <p className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">{chart.title}</p>
+          {isRunning || isLoading ? (
+            <SpinnerGap size={12} className="shrink-0 animate-spin text-muted-foreground" />
           ) : null}
+          <ChartCopyButton text={copyText} />
         </div>
-        {isRunning || isLoading ? (
-          <SpinnerGap size={12} className="mt-[3px] shrink-0 animate-spin text-muted-foreground" />
+        {chart.sourceNote ? (
+          <p className="mt-0.5 truncate pl-5 text-[11px] text-muted-foreground">{chart.sourceNote}</p>
         ) : null}
-        <ChartCopyButton text={copyText} />
       </div>
 
       <div className="border-t border-border/30 px-3 pb-3 pt-3">
