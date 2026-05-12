@@ -23,12 +23,24 @@ const CHART_INPUT_EXAMPLE = {
   ],
   sourceNote: 'Mixpanel, last 7 full days vs previous 7 days',
 }
-const INVALID_CHART_INPUT_HINT = [
+const CHART_INPUT_CONTRACT_HINT = [
   'chart_create requires inline data in the data field as an array of row objects.',
   'Do not put CSV, JSON, or numeric values only in sourceNote; sourceNote is metadata only.',
   'Every row must include the xField and yField keys, and every yField value must be a finite number.',
   `Example input: ${JSON.stringify(CHART_INPUT_EXAMPLE)}`,
 ].join(' ')
+const INVALID_CHART_INPUT_REASON_HINTS = {
+  column_limit_exceeded: `The data field can include at most ${MAX_COLUMNS} distinct columns across all rows.`,
+  invalid_chart_type: `The type field must be one of: ${CHART_TYPES.join(', ')}.`,
+  missing_field: 'Every data row must include both the xField and yField keys.',
+  non_finite_numeric: 'Numeric chart values must be finite; do not pass Infinity or NaN.',
+  pie_negative_value: 'Pie charts require every yField value to be zero or greater.',
+  row_limit_exceeded: `The data field can include at most ${MAX_ROWS} rows.`,
+  scatter_x_not_numeric: 'Scatter charts require every xField value to be a finite number.',
+  schema_validation_failed: 'The input did not match the chart_create argument schema.',
+  unsafe_text: 'Use plain text only for title, field names, row strings, and sourceNote; do not include HTML or URLs.',
+  y_not_numeric: 'Every yField value must be a finite number.',
+}
 
 const chartTypeSchema = z.enum(CHART_TYPES)
 const cellValueSchema = z.union([
@@ -78,12 +90,12 @@ function normalizeRows(rows) {
 
     for (const [rawKey, value] of Object.entries(row)) {
       const key = normalizeSafeText(rawKey, MAX_FIELD_CHARS)
-      if (!key || rowKeys.has(key)) return null
-      if (!isValidCellValue(value)) return null
+      if (!key || rowKeys.has(key)) return { ok: false, reason: 'unsafe_text' }
+      if (!isValidCellValue(value)) return { ok: false, reason: 'unsafe_text' }
 
       rowKeys.add(key)
       columns.add(key)
-      if (columns.size > MAX_COLUMNS) return null
+      if (columns.size > MAX_COLUMNS) return { ok: false, reason: 'column_limit_exceeded' }
 
       nextRow[key] = typeof value === 'string' ? normalizeLineEndings(value) : value
     }
@@ -91,7 +103,7 @@ function normalizeRows(rows) {
     normalizedRows.push(nextRow)
   }
 
-  return { columns, rows: normalizedRows }
+  return { ok: true, columns, rows: normalizedRows }
 }
 
 function hasPresentValue(row, field) {
@@ -109,13 +121,13 @@ function inferFieldType(rows, field) {
 
 function validateChartData(type, rows, xField, yField) {
   for (const row of rows) {
-    if (!hasPresentValue(row, xField)) return false
-    if (!isFiniteNumber(row[yField])) return false
-    if (type === 'scatter' && !isFiniteNumber(row[xField])) return false
-    if (type === 'pie' && row[yField] < 0) return false
+    if (!hasPresentValue(row, xField)) return 'missing_field'
+    if (!isFiniteNumber(row[yField])) return 'y_not_numeric'
+    if (type === 'scatter' && !isFiniteNumber(row[xField])) return 'scatter_x_not_numeric'
+    if (type === 'pie' && row[yField] < 0) return 'pie_negative_value'
   }
 
-  return true
+  return null
 }
 
 function buildSpec({ type, title, xField, yField, data }) {
@@ -160,33 +172,59 @@ function normalizeChartInput(input) {
     : normalizeSafeText(input.sourceNote, MAX_SOURCE_NOTE_CHARS, true)
   const normalizedData = normalizeRows(input.data)
 
-  if (!title || !xField || !yField || sourceNote === null || !normalizedData) {
-    return null
+  if (!title || !xField || !yField || sourceNote === null) {
+    return { ok: false, reason: 'unsafe_text' }
+  }
+
+  if (!normalizedData.ok) {
+    return normalizedData
   }
 
   if (!normalizedData.columns.has(xField) || !normalizedData.columns.has(yField)) {
-    return null
+    return { ok: false, reason: 'missing_field' }
   }
 
-  if (!validateChartData(input.type, normalizedData.rows, xField, yField)) {
-    return null
+  const dataValidationReason = validateChartData(input.type, normalizedData.rows, xField, yField)
+  if (dataValidationReason) {
+    return { ok: false, reason: dataValidationReason }
   }
 
   return {
-    type: input.type,
-    title,
-    xField,
-    yField,
-    data: normalizedData.rows,
-    sourceNote: sourceNote || undefined,
+    ok: true,
+    value: {
+      type: input.type,
+      title,
+      xField,
+      yField,
+      data: normalizedData.rows,
+      sourceNote: sourceNote || undefined,
+    },
   }
 }
 
-function invalidChartInputOutput() {
+function hasNonFiniteNumber(value) {
+  if (typeof value === 'number') return !Number.isFinite(value)
+  if (Array.isArray(value)) return value.some((item) => hasNonFiniteNumber(item))
+  if (!value || typeof value !== 'object') return false
+  return Object.values(value).some((item) => hasNonFiniteNumber(item))
+}
+
+function schemaFailureReason(input) {
+  if (input && typeof input === 'object') {
+    if ('type' in input && !CHART_TYPES.includes(input.type)) return 'invalid_chart_type'
+    if (Array.isArray(input.data) && input.data.length > MAX_ROWS) return 'row_limit_exceeded'
+    if (hasNonFiniteNumber(input.data)) return 'non_finite_numeric'
+  }
+
+  return 'schema_validation_failed'
+}
+
+function invalidChartInputOutput(reason) {
   return toToolOutput({
     ok: false,
     error: 'invalid_chart_input',
-    hint: INVALID_CHART_INPUT_HINT,
+    reason,
+    hint: `${INVALID_CHART_INPUT_REASON_HINTS[reason]} ${CHART_INPUT_CONTRACT_HINT}`,
     example: CHART_INPUT_EXAMPLE,
   })
 }
@@ -204,8 +242,7 @@ export const create = {
     xField: z.string().min(1).max(MAX_FIELD_CHARS).describe('Field name for the x-axis or category labels.'),
     yField: z.string().min(1).max(MAX_FIELD_CHARS).describe('Numeric field name for the y-axis or values.'),
     data: z.array(chartRowSchema).min(1).max(MAX_ROWS).describe(
-      'Required inline chart data as row objects, for example [{"segment":"Mexico","change_percent":60}]. ' +
-        'Maximum 1000 rows and 50 columns.',
+      'Required inline chart data as row objects. Maximum 1000 rows and 50 columns.',
     ),
     sourceNote: z.string().max(MAX_SOURCE_NOTE_CHARS).optional().describe(
       'Optional plain-text note explaining the data source. Do not put the chart data here.',
@@ -214,13 +251,15 @@ export const create = {
   async execute(args) {
     const parsed = createArgsSchema.safeParse(args)
     if (!parsed.success) {
-      return invalidChartInputOutput()
+      return invalidChartInputOutput(schemaFailureReason(args))
     }
 
-    const chartInput = normalizeChartInput(parsed.data)
-    if (!chartInput) {
-      return invalidChartInputOutput()
+    const normalized = normalizeChartInput(parsed.data)
+    if (!normalized.ok) {
+      return invalidChartInputOutput(normalized.reason)
     }
+
+    const chartInput = normalized.value
 
     return toToolOutput({
       ok: true,
