@@ -1,6 +1,7 @@
 import { FlowNodeType, FlowRunStatus, FlowRunStepStatus, FlowRunTrigger } from '@prisma/client'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { FlowDefinition } from '@/lib/flows/types'
 import { createDefaultFlowDefinition } from '@/lib/flows/validation'
 
 const mocks = vi.hoisted(() => ({
@@ -11,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   createFlowLeaseOwner: vi.fn(),
   createInstanceClient: vi.fn(),
   createRun: vi.fn(),
+  extendFlowLease: vi.fn(),
   ensureWorkspaceRunningForExecution: vi.fn(),
   findFlowByIdAndUserId: vi.fn(),
   findRunByIdAndUserId: vi.fn(),
@@ -48,6 +50,7 @@ vi.mock('@/lib/services', () => ({
     claimFlowLeaseById: mocks.claimFlowLeaseById,
     claimFlowForImmediateRun: mocks.claimFlowForImmediateRun,
     createRun: mocks.createRun,
+    extendFlowLease: mocks.extendFlowLease,
     findFlowByIdAndUserId: mocks.findFlowByIdAndUserId,
     findRunByIdAndUserId: mocks.findRunByIdAndUserId,
     markRunFailed: mocks.markRunFailed,
@@ -184,9 +187,10 @@ describe('triggerFlowNow', () => {
       updatedAt: now,
     })
     mocks.findRunByIdAndUserId.mockResolvedValue(null)
-    mocks.markRunFailed.mockResolvedValue(undefined)
+    mocks.extendFlowLease.mockResolvedValue({ count: 1 })
+    mocks.markRunFailed.mockResolvedValue({ count: 1 })
     mocks.markRunRunning.mockResolvedValue(undefined)
-    mocks.markRunSucceeded.mockResolvedValue(undefined)
+    mocks.markRunSucceeded.mockResolvedValue({ count: 1 })
     mocks.markRunWaitingForHuman.mockResolvedValue(undefined)
     mocks.releaseFlowLease.mockResolvedValue({ count: 1 })
     mocks.updateRunStepByRunIdAndNodeId.mockImplementation(async (runId: string, nodeId: string, updates: Record<string, unknown>) => createStepRecord({
@@ -293,6 +297,20 @@ describe('triggerFlowNow', () => {
     expect(mocks.markRunSucceeded).toHaveBeenCalledWith('run-1', expect.objectContaining({ openCodeSessionId: 'session-1' }))
   })
 
+  it('does not execute or finalize when the claimed flow lease is lost', async () => {
+    mocks.userFindByIdSelect.mockResolvedValue({ slug: 'alice' })
+    mocks.createRun.mockResolvedValue(createRunRecord())
+    mocks.extendFlowLease.mockResolvedValue({ count: 0 })
+    mocks.releaseFlowLease.mockResolvedValue({ count: 0 })
+
+    await runClaimedFlow(createClaimedFlow(), FlowRunTrigger.manual)
+
+    expect(mocks.updateRunCurrentNode).not.toHaveBeenCalled()
+    expect(mocks.runFlowPromptAndReadOutput).not.toHaveBeenCalled()
+    expect(mocks.markRunSucceeded).not.toHaveBeenCalled()
+    expect(mocks.markRunFailed).not.toHaveBeenCalled()
+  })
+
   it('pauses a claimed human flow for input', async () => {
     const flow = createClaimedFlow()
     flow.definition = {
@@ -338,6 +356,34 @@ describe('triggerFlowNow', () => {
     expect(mocks.upsertRunStep).toHaveBeenCalledWith(expect.objectContaining({ nodeId: 'compaction-1', nodeType: FlowNodeType.compaction }))
     expect(mocks.upsertRunStep).toHaveBeenCalledWith(expect.objectContaining({ nodeId: 'merge-1', nodeType: FlowNodeType.merge }))
     expect(mocks.markRunSucceeded).toHaveBeenCalledWith('run-1', expect.objectContaining({ sessionTitle: 'Flow | Flow | May 12, 2026, 10:00 AM' }))
+  })
+
+  it('runs flows with more than 100 nodes', async () => {
+    const flow = createClaimedFlow()
+    const nodes: FlowDefinition['nodes'] = Array.from({ length: 101 }, (_, index) => ({
+      id: `merge-${index}`,
+      name: `Merge ${index}`,
+      type: 'merge',
+    }))
+    const edges: FlowDefinition['edges'] = nodes.slice(0, -1).map((node, index) => ({
+      id: `edge-${index}`,
+      sourceNodeId: node.id,
+      targetNodeId: `merge-${index + 1}`,
+    }))
+    flow.definition = {
+      edges,
+      nodes,
+      startNodeId: 'merge-0',
+      version: 1,
+    }
+    mocks.userFindByIdSelect.mockResolvedValue({ slug: 'alice' })
+    mocks.createRun.mockResolvedValue(createRunRecord())
+
+    await runClaimedFlow(flow, FlowRunTrigger.manual)
+
+    expect(mocks.upsertRunStep).toHaveBeenCalledWith(expect.objectContaining({ nodeId: 'merge-100' }))
+    expect(mocks.markRunSucceeded).toHaveBeenCalledWith('run-1', expect.any(Object))
+    expect(mocks.markRunFailed).not.toHaveBeenCalled()
   })
 
   it('evaluates condition rules before falling back to outgoing edges', async () => {
@@ -411,6 +457,38 @@ describe('triggerFlowNow', () => {
     expect(mocks.markRunFailed).toHaveBeenCalledWith('run-ai-fail', expect.objectContaining({ error: 'condition_ai_invalid_target' }))
   })
 
+  it('routes AI conditions with delimited target ids and rejects ambiguous text matches', async () => {
+    const flow = createClaimedFlow()
+    flow.definition = {
+      edges: [
+        { id: 'edge-1', sourceNodeId: 'condition-1', targetNodeId: 'step-1' },
+        { id: 'edge-2', sourceNodeId: 'condition-1', targetNodeId: 'step-10' },
+      ],
+      nodes: [
+        { evaluatorPrompt: 'Pick a target', id: 'condition-1', mode: 'ai', name: 'AI condition', type: 'condition' },
+        { id: 'step-1', name: 'Step 1', type: 'merge' },
+        { id: 'step-10', name: 'Step 10', type: 'merge' },
+      ],
+      startNodeId: 'condition-1',
+      version: 1,
+    }
+    mocks.userFindByIdSelect.mockResolvedValue({ slug: 'alice' })
+    mocks.createRun.mockResolvedValueOnce(createRunRecord({ id: 'run-ai-delimited' }))
+    mocks.runFlowPromptAndReadOutput.mockResolvedValueOnce({ ok: true, output: 'Choose step-10.' })
+
+    await runClaimedFlow(flow, FlowRunTrigger.manual)
+
+    expect(mocks.updateRunCurrentNode).toHaveBeenCalledWith('run-ai-delimited', 'step-10')
+    expect(mocks.markRunSucceeded).toHaveBeenCalledWith('run-ai-delimited', expect.any(Object))
+
+    mocks.createRun.mockResolvedValueOnce(createRunRecord({ id: 'run-ai-ambiguous' }))
+    mocks.runFlowPromptAndReadOutput.mockResolvedValueOnce({ ok: true, output: 'Either step-1 or step-10 could work.' })
+
+    await runClaimedFlow(flow, FlowRunTrigger.manual)
+
+    expect(mocks.markRunFailed).toHaveBeenCalledWith('run-ai-ambiguous', expect.objectContaining({ error: 'condition_ai_invalid_target' }))
+  })
+
   it('fails AI conditions with no targets or failed evaluator prompts', async () => {
     const noTargetsFlow = createClaimedFlow()
     noTargetsFlow.definition = {
@@ -468,6 +546,27 @@ describe('triggerFlowNow', () => {
     await runClaimedFlow(flow, FlowRunTrigger.manual)
 
     expect(mocks.markRunFailed).toHaveBeenCalledWith('run-compact-fail', expect.objectContaining({ error: 'compact_failed' }))
+  })
+
+  it('marks agent steps failed when prompt execution throws', async () => {
+    const flow = createClaimedFlow()
+    flow.definition = {
+      edges: [],
+      nodes: [{ compactOutput: false, id: 'agent-1', name: 'Agent', promptTemplate: 'Start', targetAgentId: null, type: 'agent' }],
+      startNodeId: 'agent-1',
+      version: 1,
+    }
+    mocks.userFindByIdSelect.mockResolvedValue({ slug: 'alice' })
+    mocks.createRun.mockResolvedValueOnce(createRunRecord({ id: 'run-prompt-throw' }))
+    mocks.runFlowPromptAndReadOutput.mockRejectedValueOnce(new Error('network_blip'))
+
+    await runClaimedFlow(flow, FlowRunTrigger.manual)
+
+    expect(mocks.updateRunStepByRunIdAndNodeId).toHaveBeenCalledWith('run-prompt-throw', 'agent-1', expect.objectContaining({
+      error: 'network_blip',
+      status: FlowRunStepStatus.failed,
+    }))
+    expect(mocks.markRunFailed).toHaveBeenCalledWith('run-prompt-throw', expect.objectContaining({ error: 'network_blip' }))
   })
 
   it('rejects empty required human responses and busy resumes', async () => {

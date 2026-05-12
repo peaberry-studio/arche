@@ -11,6 +11,7 @@ const definition: FlowDefinition = {
     { compactOutput: false, id: 'agent-1', name: 'Agent', promptTemplate: 'Prompt', targetAgentId: null, type: 'agent' },
     { id: 'human-1', instructions: 'Review', name: 'Human', required: true, type: 'human' },
     { id: 'condition-1', mode: 'rules', name: 'Condition', rules: [{ id: 'rule-1', operator: 'contains', targetNodeId: 'human-1', value: 'yes', variable: 'previous.output' }], type: 'condition' },
+    { id: 'merge-1', name: 'Merge', type: 'merge' },
   ],
   startNodeId: 'agent-1',
   version: 1,
@@ -59,5 +60,11 @@ describe('FlowNodeInspector', () => {
 
     fireEvent.change(screen.getByLabelText('Mode'), { target: { value: 'ai' } })
     expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({ mode: 'ai' }))
+  })
+
+  it('documents merge nodes as pass-through markers', () => {
+    render(<FlowNodeInspector agents={[]} definition={definition} selectedNode={definition.nodes[3]} onDeleteNode={vi.fn()} onUpdateDefinition={vi.fn()} onUpdateNode={vi.fn()} />)
+
+    expect(screen.getByText(/Merge nodes are pass-through join markers/)).toBeTruthy()
   })
 })

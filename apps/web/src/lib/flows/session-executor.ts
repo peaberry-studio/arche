@@ -14,6 +14,7 @@ function importRuntimeModule<T>(specifier: string): Promise<T> {
     return import(specifier) as Promise<T>
   }
 
+  // Keep runtime imports out of Next/Vitest static module transforms.
   return Function('runtimeSpecifier', 'return import(runtimeSpecifier)')(specifier) as Promise<T>
 }
 
@@ -50,11 +51,12 @@ export async function runFlowPromptAndReadOutput(params: {
         return
       }
 
-      await flowService.extendFlowLease(
+      const result = await flowService.extendFlowLease(
         params.flowId,
         params.leaseOwner,
         new Date(Date.now() + FLOW_LEASE_MS),
       )
+      if (result.count !== 1) return 'flow_lease_lost'
       lastLeaseExtensionAt = Date.now()
     },
     sessionId: params.sessionId,

@@ -216,6 +216,14 @@ describe('flowService', () => {
     await expect(flowService.findRunByIdAndUserId('run-1', 'user-1')).resolves.toEqual(run)
     await expect(flowService.listRunsByFlowIdAndUserId('flow-1', 'user-1')).resolves.toEqual([run])
     await expect(flowService.markRunResultSeenByIdAndUserId('run-1', 'user-1', now)).resolves.toBe(true)
+    expect(prismaMock.flowRun.updateMany).toHaveBeenCalledWith({
+      data: { resultSeenAt: now },
+      where: {
+        flow: { userId: 'user-1' },
+        id: 'run-1',
+        resultSeenAt: null,
+      },
+    })
     await expect(flowService.findSessionMetadataByUserId('user-1', ['session-1'])).resolves.toEqual([{
       flowId: 'flow-1',
       flowName: 'Flow',

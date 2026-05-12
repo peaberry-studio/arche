@@ -23,8 +23,6 @@ import type { FlowClaimedRecord, FlowRecord, FlowRunDetailRecord, FlowRunRecord,
 
 export { FLOW_LEASE_MS } from '@/lib/flows/session-executor'
 
-const MAX_FLOW_NODE_EXECUTIONS = 100
-
 type FlowExecutionOutcome =
   | { status: 'succeeded' }
   | { status: 'waiting_for_human'; nodeId: string }
@@ -84,6 +82,33 @@ function evaluateRule(value: string | null, operator: FlowConditionOperator, exp
   }
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function containsDelimitedTarget(value: string, targetNodeId: string): boolean {
+  return new RegExp(`(^|[^A-Za-z0-9_-])${escapeRegExp(targetNodeId)}($|[^A-Za-z0-9_-])`).test(value)
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback
+}
+
+async function hasActiveFlowLease(flowId: string, leaseOwner: string): Promise<boolean> {
+  if (!leaseOwner) return false
+
+  const result = await flowService.extendFlowLease(
+    flowId,
+    leaseOwner,
+    new Date(Date.now() + FLOW_LEASE_MS),
+  )
+
+  if (result.count === 1) return true
+
+  console.warn('[flows] Flow lease no longer owned by runner', { flowId })
+  return false
+}
+
 function extractAiTarget(rawOutput: string, targetNodeIds: string[]): string | null {
   const trimmed = rawOutput.trim()
   if (targetNodeIds.includes(trimmed)) return trimmed
@@ -97,7 +122,8 @@ function extractAiTarget(rawOutput: string, targetNodeIds: string[]): string | n
     // Fall through to text matching.
   }
 
-  return targetNodeIds.find((targetNodeId) => trimmed.includes(targetNodeId)) ?? null
+  const matches = targetNodeIds.filter((targetNodeId) => containsDelimitedTarget(trimmed, targetNodeId))
+  return matches.length === 1 ? matches[0] : null
 }
 
 async function executeAgentNode(params: {
@@ -133,15 +159,26 @@ async function executeAgentNode(params: {
     status: FlowRunStepStatus.running,
   }))
 
-  const rawResult = await runFlowPromptAndReadOutput({
-    agent: params.node.targetAgentId,
-    client: params.client,
-    flowId: params.flow.id,
-    leaseOwner: params.leaseOwner,
-    prompt: rendered.value,
-    sessionId: params.sessionId,
-    slug: params.slug,
-  })
+  let rawResult: Awaited<ReturnType<typeof runFlowPromptAndReadOutput>>
+  try {
+    rawResult = await runFlowPromptAndReadOutput({
+      agent: params.node.targetAgentId,
+      client: params.client,
+      flowId: params.flow.id,
+      leaseOwner: params.leaseOwner,
+      prompt: rendered.value,
+      sessionId: params.sessionId,
+      slug: params.slug,
+    })
+  } catch (error) {
+    const message = errorMessage(error, 'flow_prompt_failed')
+    steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, params.node.id, {
+      error: message,
+      finishedAt: new Date(),
+      status: FlowRunStepStatus.failed,
+    }))
+    return { ok: false, error: message, steps }
+  }
   if (!rawResult.ok) {
     steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, params.node.id, {
       error: rawResult.error,
@@ -159,14 +196,26 @@ async function executeAgentNode(params: {
       '',
       rawResult.output,
     ].join('\n')
-    const compactResult = await runFlowPromptAndReadOutput({
-      client: params.client,
-      flowId: params.flow.id,
-      leaseOwner: params.leaseOwner,
-      prompt: compactPrompt,
-      sessionId: params.sessionId,
-      slug: params.slug,
-    })
+    let compactResult: Awaited<ReturnType<typeof runFlowPromptAndReadOutput>>
+    try {
+      compactResult = await runFlowPromptAndReadOutput({
+        client: params.client,
+        flowId: params.flow.id,
+        leaseOwner: params.leaseOwner,
+        prompt: compactPrompt,
+        sessionId: params.sessionId,
+        slug: params.slug,
+      })
+    } catch (error) {
+      const message = errorMessage(error, 'flow_prompt_failed')
+      steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, params.node.id, {
+        error: message,
+        finishedAt: new Date(),
+        rawOutput: rawResult.output,
+        status: FlowRunStepStatus.failed,
+      }))
+      return { ok: false, error: message, steps }
+    }
     if (!compactResult.ok) {
       steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, params.node.id, {
         error: compactResult.error,
@@ -271,7 +320,14 @@ async function executeConditionNode(params: {
     steps,
   })
   const rendered = renderFlowTemplate(params.node.evaluatorPrompt ?? '', context)
-  if (!rendered.ok) return { ok: false, error: rendered.error, steps }
+  if (!rendered.ok) {
+    steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, params.node.id, {
+      error: rendered.error,
+      finishedAt: new Date(),
+      status: FlowRunStepStatus.failed,
+    }))
+    return { ok: false, error: rendered.error, steps }
+  }
 
   const prompt = [
     rendered.value,
@@ -279,14 +335,25 @@ async function executeConditionNode(params: {
     'Choose exactly one target node id from this list and return only that id or JSON like {"targetNodeId":"..."}.',
     outgoingTargets.map((targetNodeId) => `- ${targetNodeId}`).join('\n'),
   ].join('\n')
-  const aiResult = await runFlowPromptAndReadOutput({
-    client: params.client,
-    flowId: params.flow.id,
-    leaseOwner: params.leaseOwner,
-    prompt,
-    sessionId: params.sessionId,
-    slug: params.slug,
-  })
+  let aiResult: Awaited<ReturnType<typeof runFlowPromptAndReadOutput>>
+  try {
+    aiResult = await runFlowPromptAndReadOutput({
+      client: params.client,
+      flowId: params.flow.id,
+      leaseOwner: params.leaseOwner,
+      prompt,
+      sessionId: params.sessionId,
+      slug: params.slug,
+    })
+  } catch (error) {
+    const message = errorMessage(error, 'flow_prompt_failed')
+    steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, params.node.id, {
+      error: message,
+      finishedAt: new Date(),
+      status: FlowRunStepStatus.failed,
+    }))
+    return { ok: false, error: message, steps }
+  }
   if (!aiResult.ok) {
     steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, params.node.id, {
       error: aiResult.error,
@@ -333,8 +400,12 @@ async function executeFlowNodes(params: {
   const visitedNodeIds = new Set<string>()
 
   while (currentNodeId) {
-    if (visitedNodeIds.has(currentNodeId) || visitedNodeIds.size >= Math.min(MAX_FLOW_NODE_EXECUTIONS, params.definition.nodes.length + 1)) {
+    if (visitedNodeIds.has(currentNodeId)) {
       return { status: 'failed', error: 'cyclic_flow' }
+    }
+
+    if (!await hasActiveFlowLease(params.flow.id, params.leaseOwner)) {
+      return { status: 'failed', error: 'flow_lease_lost' }
     }
 
     visitedNodeIds.add(currentNodeId)
@@ -407,25 +478,48 @@ async function executeFlowNodes(params: {
       })
       const rendered = renderFlowTemplate(node.promptTemplate, context)
       if (!rendered.ok) return { status: 'failed', error: rendered.error }
-      const result = await runFlowPromptAndReadOutput({
-        client: params.client,
-        flowId: params.flow.id,
-        leaseOwner: params.leaseOwner,
-        prompt: rendered.value,
-        sessionId: params.sessionId,
-        slug: params.slug,
-      })
-      if (!result.ok) return { status: 'failed', error: result.error }
       steps = replaceStep(steps, await flowService.upsertRunStep({
-        compactedOutput: result.output,
-        finishedAt: new Date(),
         input: toPrismaJson({ prompt: rendered.value }),
         nodeId: node.id,
         nodeName: node.name,
         nodeType: nodeTypeToPrisma(node),
-        rawOutput: result.output,
         runId: params.run.id,
         startedAt: new Date(),
+        status: FlowRunStepStatus.running,
+      }))
+
+      let result: Awaited<ReturnType<typeof runFlowPromptAndReadOutput>>
+      try {
+        result = await runFlowPromptAndReadOutput({
+          client: params.client,
+          flowId: params.flow.id,
+          leaseOwner: params.leaseOwner,
+          prompt: rendered.value,
+          sessionId: params.sessionId,
+          slug: params.slug,
+        })
+      } catch (error) {
+        const message = errorMessage(error, 'flow_prompt_failed')
+        steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, node.id, {
+          error: message,
+          finishedAt: new Date(),
+          status: FlowRunStepStatus.failed,
+        }))
+        return { status: 'failed', error: message }
+      }
+      if (!result.ok) {
+        steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, node.id, {
+          error: result.error,
+          finishedAt: new Date(),
+          status: FlowRunStepStatus.failed,
+        }))
+        return { status: 'failed', error: result.error }
+      }
+
+      steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, node.id, {
+        compactedOutput: result.output,
+        finishedAt: new Date(),
+        rawOutput: result.output,
         status: FlowRunStepStatus.succeeded,
       }))
       previousOutput = result.output
@@ -479,6 +573,7 @@ async function continueRun(params: {
 
 async function finalizeRun(params: {
   flow: FlowRecord
+  leaseOwner: string
   outcome: FlowExecutionOutcome
   run: FlowRunRecord
   sessionId: string | null
@@ -486,6 +581,8 @@ async function finalizeRun(params: {
   slug: string
   trigger: FlowRunTrigger
 }) {
+  if (!await hasActiveFlowLease(params.flow.id, params.leaseOwner)) return
+
   if (params.outcome.status === 'waiting_for_human') {
     await auditService.createEvent({
       action: 'flows.run_waiting_for_human',
@@ -509,11 +606,12 @@ async function finalizeRun(params: {
   }
 
   if (params.outcome.status === 'succeeded') {
-    await flowService.markRunSucceeded(params.run.id, {
+    const result = await flowService.markRunSucceeded(params.run.id, {
       finishedAt,
       openCodeSessionId: params.sessionId,
       sessionTitle: params.sessionTitle,
     })
+    if (result.count !== 1) return
     await auditService.createEvent({
       action: 'flows.run_succeeded',
       actorUserId: params.flow.userId,
@@ -528,12 +626,13 @@ async function finalizeRun(params: {
     return
   }
 
-  await flowService.markRunFailed(params.run.id, {
+  const result = await flowService.markRunFailed(params.run.id, {
     error: params.outcome.error,
     finishedAt,
     openCodeSessionId: params.sessionId,
     sessionTitle: params.sessionTitle,
   })
+  if (result.count !== 1) return
   await auditService.createEvent({
     action: 'flows.run_failed',
     actorUserId: params.flow.userId,
@@ -591,6 +690,7 @@ async function executeClaimedFlowRun(
   } finally {
     await finalizeRun({
       flow,
+      leaseOwner: flow.leaseOwner ?? '',
       outcome,
       run,
       sessionId,
@@ -599,11 +699,14 @@ async function executeClaimedFlowRun(
       trigger,
     }).catch(() => undefined)
 
-    await flowService.releaseFlowLease(
+    const result = await flowService.releaseFlowLease(
       flow.id,
       flow.leaseOwner ?? '',
       outcome.status === 'waiting_for_human' ? undefined : new Date(),
-    ).catch(() => undefined)
+    ).catch(() => null)
+    if (result && result.count !== 1) {
+      console.warn('[flows] Flow lease release skipped because ownership changed', { flowId: flow.id })
+    }
   }
 }
 
@@ -759,6 +862,7 @@ async function resumeClaimedFlowRun(params: {
   } finally {
     await finalizeRun({
       flow: params.flow,
+      leaseOwner: params.flow.leaseOwner ?? '',
       outcome,
       run: params.run,
       sessionId: params.run.openCodeSessionId,
@@ -767,10 +871,13 @@ async function resumeClaimedFlowRun(params: {
       trigger: FlowRunTrigger.resume,
     }).catch(() => undefined)
 
-    await flowService.releaseFlowLease(
+    const result = await flowService.releaseFlowLease(
       params.flow.id,
       params.flow.leaseOwner ?? '',
       outcome.status === 'waiting_for_human' ? undefined : new Date(),
-    ).catch(() => undefined)
+    ).catch(() => null)
+    if (result && result.count !== 1) {
+      console.warn('[flows] Flow lease release skipped because ownership changed', { flowId: params.flow.id })
+    }
   }
 }

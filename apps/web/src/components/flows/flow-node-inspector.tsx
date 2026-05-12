@@ -236,6 +236,12 @@ export function FlowNodeInspector({
         </>
       ) : null}
 
+      {node.type === 'merge' ? (
+        <p className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+          Merge nodes are pass-through join markers. Flows still execute one path at a time and continue through the selected next node.
+        </p>
+      ) : null}
+
       {node.type !== 'condition' ? (
         <div className="space-y-2">
           <Label htmlFor="flow-next-node">Next node</Label>

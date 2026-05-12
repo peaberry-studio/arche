@@ -65,7 +65,7 @@ describe('runFlowPromptAndReadOutput', () => {
   })
 
   it('extends the flow lease while waiting for completion', async () => {
-    mocks.waitForSessionToComplete.mockImplementation(async (params: { onPulse?: () => Promise<void> }) => {
+    mocks.waitForSessionToComplete.mockImplementation(async (params: { onPulse?: () => Promise<string | null | void> }) => {
       await params.onPulse?.()
       return null
     })
@@ -80,6 +80,25 @@ describe('runFlowPromptAndReadOutput', () => {
     })
 
     expect(mocks.extendFlowLease).toHaveBeenCalledWith('flow-1', 'worker-1', expect.any(Date))
+  })
+
+  it('fails when the flow lease can no longer be extended', async () => {
+    mocks.extendFlowLease.mockResolvedValue({ count: 0 })
+    mocks.waitForSessionToComplete.mockImplementation(async (params: { onPulse?: () => Promise<string | null | void> }) => {
+      const result = await params.onPulse?.()
+      return result ?? null
+    })
+
+    await expect(runFlowPromptAndReadOutput({
+      client: createClient(),
+      flowId: 'flow-1',
+      leaseOwner: 'worker-1',
+      prompt: 'Do work',
+      sessionId: 'session-1',
+      slug: 'alice',
+    })).resolves.toEqual({ ok: false, error: 'flow_lease_lost' })
+
+    expect(mocks.readLatestAssistantText).not.toHaveBeenCalled()
   })
 
   it('returns completion failures without reading output', async () => {

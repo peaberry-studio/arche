@@ -169,7 +169,7 @@ export async function waitForSessionToComplete(params: {
   cursor?: SessionMessageCursor
   sessionId: string
   slug: string
-  onPulse?: () => Promise<void>
+  onPulse?: () => Promise<string | null | void>
 }): Promise<string | null> {
   const deadline = Date.now() + RUN_TIMEOUT_MS
   const startedAt = Date.now()
@@ -182,7 +182,8 @@ export async function waitForSessionToComplete(params: {
       lastActivityTouchAt = Date.now()
     }
 
-    await params.onPulse?.().catch(() => undefined)
+    const pulseFailure = await params.onPulse?.().catch(() => null)
+    if (pulseFailure) return pulseFailure
 
     const [statusResult, messagesResult] = await Promise.all([
       params.client.session.status({}, { throwOnError: true }),

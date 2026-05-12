@@ -442,7 +442,7 @@ export function markRunRunning(id: string) {
 }
 
 export function markRunSucceeded(id: string, data: { finishedAt: Date; openCodeSessionId?: string | null; sessionTitle?: string | null }) {
-  return prisma.flowRun.update({
+  return prisma.flowRun.updateMany({
     data: {
       currentNodeId: null,
       finishedAt: data.finishedAt,
@@ -450,12 +450,12 @@ export function markRunSucceeded(id: string, data: { finishedAt: Date; openCodeS
       sessionTitle: data.sessionTitle ?? null,
       status: FlowRunStatus.succeeded,
     },
-    where: { id },
+    where: { id, status: FlowRunStatus.running },
   })
 }
 
 export function markRunFailed(id: string, data: { error: string; finishedAt: Date; openCodeSessionId?: string | null; sessionTitle?: string | null }) {
-  return prisma.flowRun.update({
+  return prisma.flowRun.updateMany({
     data: {
       error: data.error,
       finishedAt: data.finishedAt,
@@ -463,7 +463,7 @@ export function markRunFailed(id: string, data: { error: string; finishedAt: Dat
       sessionTitle: data.sessionTitle ?? null,
       status: FlowRunStatus.failed,
     },
-    where: { id },
+    where: { id, status: FlowRunStatus.running },
   })
 }
 
@@ -615,6 +615,7 @@ export async function markRunResultSeenByIdAndUserId(id: string, userId: string,
   const result = await prisma.flowRun.updateMany({
     data: { resultSeenAt: seenAt },
     where: {
+      flow: { userId },
       id,
       resultSeenAt: null,
     },
