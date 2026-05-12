@@ -17,10 +17,10 @@ const mockPrisma = vi.hoisted(() => ({
     upsert: vi.fn(),
   },
   slackUserLink: {
+    create: vi.fn(),
     findFirst: vi.fn(),
     findUnique: vi.fn(),
     update: vi.fn(),
-    upsert: vi.fn(),
   },
   slackDmSessionBinding: {
     create: vi.fn(),
@@ -417,9 +417,9 @@ describe('slackService', () => {
       })
     })
 
-    it('upserts a Slack user link and audits new links', async () => {
+    it('creates a Slack user link and audits new links', async () => {
       mockPrisma.slackUserLink.findUnique.mockResolvedValue(null)
-      mockPrisma.slackUserLink.upsert.mockResolvedValue({ id: 'link-1' })
+      mockPrisma.slackUserLink.create.mockResolvedValue({ id: 'link-1' })
       mockPrisma.auditEvent.create.mockResolvedValue({})
 
       await upsertUserLink({
@@ -430,12 +430,9 @@ describe('slackService', () => {
         userId: 'user-1',
       })
 
-      expect(mockPrisma.slackUserLink.upsert).toHaveBeenCalledWith(
-        expect.objectContaining({
-          create: expect.objectContaining({ userId: 'user-1' }),
-          update: expect.objectContaining({ userId: 'user-1' }),
-        }),
-      )
+      expect(mockPrisma.slackUserLink.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ userId: 'user-1' }),
+      })
       expect(mockPrisma.auditEvent.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({ action: 'slack.user_linked' }),
@@ -443,10 +440,31 @@ describe('slackService', () => {
       )
     })
 
+    it('rejects Slack user link conflicts without reassigning ownership', async () => {
+      mockPrisma.slackUserLink.findUnique.mockResolvedValue({ id: 'link-1', userId: 'user-2' })
+      mockPrisma.auditEvent.create.mockResolvedValue({})
+
+      await expect(upsertUserLink({
+        displayName: 'Alice',
+        slackEmail: 'alice@test.com',
+        slackTeamId: 'T123',
+        slackUserId: 'U123',
+        userId: 'user-1',
+      })).rejects.toThrow('slack_user_link_conflict')
+
+      expect(mockPrisma.slackUserLink.create).not.toHaveBeenCalled()
+      expect(mockPrisma.slackUserLink.update).not.toHaveBeenCalled()
+      expect(mockPrisma.auditEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ action: 'slack.user_link_conflict' }),
+        }),
+      )
+    })
+
     it('resolves and links an Arche human user by Slack email', async () => {
       mockPrisma.slackUserLink.findUnique.mockResolvedValue(null)
       mockPrisma.user.findFirst.mockResolvedValue({ id: 'user-1', slug: 'alice' })
-      mockPrisma.slackUserLink.upsert.mockResolvedValue({ id: 'link-1' })
+      mockPrisma.slackUserLink.create.mockResolvedValue({ id: 'link-1' })
       mockPrisma.auditEvent.create.mockResolvedValue({})
 
       const result = await resolveArcheUserFromSlackUser('T123', 'U123', 'Alice@Test.com', 'Alice')
@@ -468,7 +486,7 @@ describe('slackService', () => {
     it('uses a case-insensitive email lookup for Slack user linking', async () => {
       mockPrisma.slackUserLink.findUnique.mockResolvedValue(null)
       mockPrisma.user.findFirst.mockResolvedValue({ id: 'user-1', slug: 'alice' })
-      mockPrisma.slackUserLink.upsert.mockResolvedValue({ id: 'link-1' })
+      mockPrisma.slackUserLink.create.mockResolvedValue({ id: 'link-1' })
       mockPrisma.auditEvent.create.mockResolvedValue({})
 
       await resolveArcheUserFromSlackUser('T123', 'U123', 'ALICE@test.com', 'Alice')

@@ -1,7 +1,8 @@
 import { prisma } from '@/lib/prisma'
 import { createSlackAuditEvent } from '@/lib/services/slack/audit'
-import { normalizeOptionalSlackText } from '@/lib/services/slack/text'
+import { isUniqueConstraintError } from '@/lib/services/slack/errors'
 import type { SlackUserLinkRecord } from '@/lib/services/slack/records'
+import { normalizeOptionalSlackText } from '@/lib/services/slack/text'
 
 export function findUserLinkBySlackUser(
   slackTeamId: string,
@@ -29,30 +30,43 @@ export async function upsertUserLink(data: {
   const existing = await findUserLinkBySlackUser(data.slackTeamId, data.slackUserId)
   const lastSeenAt = new Date()
 
-  const link = await prisma.slackUserLink.upsert({
-    where: {
-      slackTeamId_slackUserId: {
+  if (existing) {
+    if (existing.userId !== data.userId) {
+      await createSlackAuditEvent({
+        actorUserId: data.userId,
+        action: 'slack.user_link_conflict',
+        metadata: {
+          existingUserId: existing.userId,
+          slackEmail,
+          slackTeamId: data.slackTeamId,
+          slackUserId: data.slackUserId,
+        },
+      })
+      throw new Error('slack_user_link_conflict')
+    }
+
+    return prisma.slackUserLink.update({
+      where: { id: existing.id },
+      data: {
+        displayName,
+        lastSeenAt,
+        slackEmail,
+      },
+    })
+  }
+
+  try {
+    const link = await prisma.slackUserLink.create({
+      data: {
+        displayName,
+        lastSeenAt,
+        slackEmail,
         slackTeamId: data.slackTeamId,
         slackUserId: data.slackUserId,
+        userId: data.userId,
       },
-    },
-    create: {
-      displayName,
-      lastSeenAt,
-      slackEmail,
-      slackTeamId: data.slackTeamId,
-      slackUserId: data.slackUserId,
-      userId: data.userId,
-    },
-    update: {
-      displayName,
-      lastSeenAt,
-      slackEmail,
-      userId: data.userId,
-    },
-  })
+    })
 
-  if (!existing || existing.userId !== data.userId) {
     await createSlackAuditEvent({
       actorUserId: data.userId,
       action: 'slack.user_linked',
@@ -62,9 +76,41 @@ export async function upsertUserLink(data: {
         slackUserId: data.slackUserId,
       },
     })
-  }
 
-  return link
+    return link
+  } catch (error) {
+    if (!isUniqueConstraintError(error)) {
+      throw error
+    }
+
+    const conflict = await findUserLinkBySlackUser(data.slackTeamId, data.slackUserId)
+    if (!conflict) {
+      throw error
+    }
+
+    if (conflict.userId === data.userId) {
+      return prisma.slackUserLink.update({
+        where: { id: conflict.id },
+        data: {
+          displayName,
+          lastSeenAt,
+          slackEmail,
+        },
+      })
+    }
+
+    await createSlackAuditEvent({
+      actorUserId: data.userId,
+      action: 'slack.user_link_conflict',
+      metadata: {
+        existingUserId: conflict.userId,
+        slackEmail,
+        slackTeamId: data.slackTeamId,
+        slackUserId: data.slackUserId,
+      },
+    })
+    throw new Error('slack_user_link_conflict')
+  }
 }
 
 export async function resolveArcheUserFromSlackUser(
