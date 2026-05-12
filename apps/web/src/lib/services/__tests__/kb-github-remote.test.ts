@@ -7,6 +7,9 @@ const mockPrismaFindUnique = vi.fn()
 const mockPrismaUpdateMany = vi.fn()
 const mockPushToGithub = vi.fn()
 const mockPullFromGithub = vi.fn()
+const mockEnsureGithubRemote = vi.fn()
+const mockRemoveGithubRemote = vi.fn()
+const mockHasPendingSyncConflicts = vi.fn()
 
 vi.mock('@/lib/connectors/crypto', () => ({
   encryptConfig: (...args: unknown[]) => mockEncryptConfig(...args),
@@ -26,6 +29,9 @@ vi.mock('@/lib/prisma', () => ({
 vi.mock('@/lib/git/kb-github-sync', () => ({
   pushToGithub: (...args: unknown[]) => mockPushToGithub(...args),
   pullFromGithub: (...args: unknown[]) => mockPullFromGithub(...args),
+  ensureGithubRemote: (...args: unknown[]) => mockEnsureGithubRemote(...args),
+  removeGithubRemote: (...args: unknown[]) => mockRemoveGithubRemote(...args),
+  hasPendingSyncConflicts: (...args: unknown[]) => mockHasPendingSyncConflicts(...args),
 }))
 
 function makeRow(config: string, state: unknown = {}) {
@@ -130,6 +136,7 @@ describe('kbGithubRemoteService', () => {
         remoteBranch: null,
         lastPushAt: null,
         lastPullAt: null,
+        hasPendingConflicts: false,
       },
       version: 1,
       createdAt: new Date(),
@@ -296,6 +303,7 @@ describe('kbGithubRemoteService', () => {
           remoteBranch: null,
           lastPushAt: null,
           lastPullAt: null,
+          hasPendingConflicts: false,
         },
       ),
     ).toBe(true)
@@ -316,6 +324,7 @@ describe('kbGithubRemoteService', () => {
           remoteBranch: null,
           lastPushAt: null,
           lastPullAt: null,
+          hasPendingConflicts: false,
         },
       ),
     ).toBe(false)
@@ -367,6 +376,7 @@ describe('kbGithubRemoteService', () => {
       remoteBranch: null,
       lastPushAt: null,
       lastPullAt: null,
+      hasPendingConflicts: false,
     })
   })
 
@@ -463,6 +473,7 @@ describe('kbGithubRemoteService', () => {
         lastSyncStatus: null,
         lastError: null,
         remoteBranch: null,
+        hasPendingConflicts: false,
         version: 0,
         updatedAt: null,
       })
@@ -483,6 +494,7 @@ describe('kbGithubRemoteService', () => {
           remoteBranch: 'main',
           lastPushAt: null,
           lastPullAt: null,
+          hasPendingConflicts: false,
         },
         version: 2,
         createdAt: new Date('2026-04-27T10:00:00Z'),
@@ -543,7 +555,11 @@ describe('kbGithubRemoteService', () => {
       const { pullBestEffort } = await import('../kb-github-remote')
       const result = await pullBestEffort()
 
-      expect(result).toEqual({ status: 'conflicts' })
+      expect(result).toEqual({
+        status: 'conflicts',
+        message: 'Merge conflicts in 2 file(s)',
+        conflictingFiles: ['a.md', 'b.md'],
+      })
     })
 
     it('persists error state on unexpected exception', async () => {
@@ -558,7 +574,7 @@ describe('kbGithubRemoteService', () => {
       const { pullBestEffort } = await import('../kb-github-remote')
       const result = await pullBestEffort()
 
-      expect(result).toEqual({ status: 'error' })
+      expect(result).toEqual({ status: 'error', message: 'network timeout' })
       expect(mockPrismaUpdateMany).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
@@ -568,25 +584,6 @@ describe('kbGithubRemoteService', () => {
             }),
           }),
         }),
-      )
-    })
-
-    it('passes strategy to pullFromGithub', async () => {
-      mockPrismaFindUnique.mockResolvedValue(
-        makeRow('enc:{"appId":"12345","privateKey":"pem"}', {
-          installationId: 99,
-          repoCloneUrl: 'https://github.com/owner/repo.git',
-        }),
-      )
-      mockPullFromGithub.mockResolvedValue({ ok: true, status: 'resolved', commitHash: 'xyz', branch: 'main' })
-
-      const { pullBestEffort } = await import('../kb-github-remote')
-      const result = await pullBestEffort('local_wins')
-
-      expect(result).toEqual({ status: 'resolved' })
-      expect(mockPullFromGithub).toHaveBeenCalledWith(
-        expect.objectContaining({ appId: '12345' }),
-        'local_wins',
       )
     })
 
@@ -607,13 +604,14 @@ describe('kbGithubRemoteService', () => {
   })
 
   describe('pushBestEffort', () => {
-    it('does nothing when no credentials', async () => {
+    it('returns skipped when no credentials', async () => {
       const { pushBestEffort } = await import('../kb-github-remote')
-      await pushBestEffort()
+      const result = await pushBestEffort()
+      expect(result).toEqual({ status: 'skipped' })
       expect(mockPushToGithub).not.toHaveBeenCalled()
     })
 
-    it('pushes and updates state on success', async () => {
+    it('pushes and returns pushed status on success', async () => {
       mockPrismaFindUnique.mockResolvedValue(
         makeRow('enc:{"appId":"12345","privateKey":"pem"}', {
           installationId: 99,
@@ -623,13 +621,29 @@ describe('kbGithubRemoteService', () => {
       mockPushToGithub.mockResolvedValue({ ok: true, status: 'pushed', commitHash: 'abc', branch: 'main' })
 
       const { pushBestEffort } = await import('../kb-github-remote')
-      await pushBestEffort()
+      const result = await pushBestEffort()
 
+      expect(result).toEqual({ status: 'pushed' })
       expect(mockPushToGithub).toHaveBeenCalled()
       expect(mockPrismaUpdateMany).toHaveBeenCalled()
     })
 
-    it('persists error state on exception', async () => {
+    it('returns push_rejected on non-fast-forward', async () => {
+      mockPrismaFindUnique.mockResolvedValue(
+        makeRow('enc:{"appId":"12345","privateKey":"pem"}', {
+          installationId: 99,
+          repoCloneUrl: 'https://github.com/owner/repo.git',
+        }),
+      )
+      mockPushToGithub.mockResolvedValue({ ok: false, status: 'push_rejected', message: 'Push rejected — the remote has newer changes.', detail: 'non-fast-forward' })
+
+      const { pushBestEffort } = await import('../kb-github-remote')
+      const result = await pushBestEffort()
+
+      expect(result).toEqual({ status: 'push_rejected', message: 'Push rejected — the remote has newer changes.' })
+    })
+
+    it('persists error state and returns error on exception', async () => {
       mockPrismaFindUnique.mockResolvedValue(
         makeRow('enc:{"appId":"12345","privateKey":"pem"}', {
           installationId: 99,
@@ -639,7 +653,8 @@ describe('kbGithubRemoteService', () => {
       mockPushToGithub.mockRejectedValue(new Error('network down'))
 
       const { pushBestEffort } = await import('../kb-github-remote')
-      await expect(pushBestEffort()).resolves.toBeUndefined()
+      const result = await pushBestEffort()
+      expect(result).toEqual({ status: 'error', message: 'network down' })
 
       expect(mockPrismaUpdateMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -702,6 +717,7 @@ describe('kbGithubRemoteService', () => {
         remoteBranch: null,
         lastPushAt: null,
         lastPullAt: null,
+        hasPendingConflicts: false,
       })
     })
   })

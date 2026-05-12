@@ -91,6 +91,8 @@ export const PUT = withAuth<{ ok: boolean; repoFullName: string } | { error: str
       repoCloneUrl: matchedRepo.cloneUrl,
     })
 
+    await kbGithubRemoteService.ensureRemote()
+
     await auditEvent({
       actorUserId: user.id,
       action: 'kb_github_remote.repo_selected',

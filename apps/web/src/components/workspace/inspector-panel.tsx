@@ -18,6 +18,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { PublishKbResult } from "@/app/api/instances/[slug]/publish-kb/route";
+import type { SyncKbResult } from "@/app/api/instances/[slug]/sync-kb/route";
 import { useEditorDrafts, type SaveState } from "@/hooks/use-editor-drafts";
 import type { WorkspaceDiff } from "@/hooks/use-workspace";
 import { cn } from "@/lib/utils";
@@ -63,9 +65,17 @@ type InspectorPanelProps = {
     expectedHash?: string
   ) => Promise<{ ok: true; hash?: string } | { ok: false; error: string }>;
   onDiscardFileChanges?: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;
-  onPublish?: () => void;
+  onPublish?: (result: PublishKbResult) => void;
   onResolveConflict?: (path: string, content: string) => void;
   hideCollapseButton?: boolean;
+  githubSyncRequired?: boolean;
+  githubSyncMessage?: string | null;
+  githubMergePending?: boolean;
+  githubConflictFiles?: string[];
+  onPullGithubChanges?: () => Promise<SyncKbResult>;
+  onGithubConflictResolved?: (path: string) => void;
+  onGithubMergeFinalized?: () => void;
+  onGithubMergeAborted?: () => void;
 };
 
 // --- Minified (collapsed) panel ---
@@ -186,7 +196,7 @@ export function InspectorPanel({
   onTabChange,
   rightCollapsed,
   onToggleRight,
-  pendingDiffsForBadge = 0,
+  pendingDiffsForBadge,
   openFiles,
   activeFilePath,
   onSelectFile,
@@ -202,6 +212,14 @@ export function InspectorPanel({
   onPublish,
   onResolveConflict,
   hideCollapseButton = false,
+  githubSyncRequired,
+  githubSyncMessage,
+  githubMergePending,
+  githubConflictFiles,
+  onPullGithubChanges,
+  onGithubConflictResolved,
+  onGithubMergeFinalized,
+  onGithubMergeAborted,
 }: InspectorPanelProps) {
   // Minified state
   if (rightCollapsed) {
@@ -240,6 +258,14 @@ export function InspectorPanel({
       onPublish={onPublish}
       onResolveConflict={onResolveConflict}
       hideCollapseButton={hideCollapseButton}
+      githubSyncRequired={githubSyncRequired}
+      githubSyncMessage={githubSyncMessage}
+      githubMergePending={githubMergePending}
+      githubConflictFiles={githubConflictFiles}
+      onPullGithubChanges={onPullGithubChanges}
+      onGithubConflictResolved={onGithubConflictResolved}
+      onGithubMergeFinalized={onGithubMergeFinalized}
+      onGithubMergeAborted={onGithubMergeAborted}
     />
   );
 }
@@ -251,6 +277,7 @@ function ExpandedInspectorPanel({
   workspaceAgentEnabled = true,
   onTabChange,
   onToggleRight,
+  pendingDiffsForBadge,
   openFiles,
   activeFilePath,
   onSelectFile,
@@ -266,8 +293,17 @@ function ExpandedInspectorPanel({
   onPublish,
   onResolveConflict,
   hideCollapseButton = false,
+  githubSyncRequired,
+  githubSyncMessage,
+  githubMergePending,
+  githubConflictFiles,
+  onPullGithubChanges,
+  onGithubConflictResolved,
+  onGithubMergeFinalized,
+  onGithubMergeAborted,
 }: Omit<InspectorPanelProps, "rightCollapsed" | "onOpenReview">) {
-  const pendingDiffs = diffs.length;
+  const pendingDiffs = pendingDiffsForBadge ?? diffs.length;
+  const hasBlockingConflicts = githubSyncRequired || githubMergePending || diffs.some((diff) => diff.conflicted);
   const effectiveActiveTab = panelMode === "files" ? "preview" : panelMode === "review" ? "review" : activeTab;
   const activeFile = openFiles.find((f) => f.path === activeFilePath) ?? null;
   const tabsRef = useRef<HTMLDivElement>(null);
@@ -441,10 +477,12 @@ function ExpandedInspectorPanel({
             <PublishKbButton
               slug={slug}
               onComplete={onPublish}
-              disabled={diffs.some((diff) => diff.conflicted)}
+              disabled={hasBlockingConflicts}
               disabledReason={
-                diffs.some((diff) => diff.conflicted)
-                  ? "Resolve conflicts before publishing"
+                hasBlockingConflicts
+                  ? githubSyncRequired
+                    ? "Pull from GitHub before publishing"
+                    : "Resolve conflicts before publishing"
                   : undefined
               }
             />
@@ -586,6 +624,14 @@ function ExpandedInspectorPanel({
               onOpenFile={onOpenFile}
               onDiscardFileChanges={onDiscardFileChanges}
               onResolveConflict={onResolveConflict}
+              githubSyncRequired={githubSyncRequired}
+              githubSyncMessage={githubSyncMessage}
+              githubMergePending={githubMergePending}
+              githubConflictFiles={githubConflictFiles}
+              onPullGithubChanges={onPullGithubChanges}
+              onGithubConflictResolved={onGithubConflictResolved}
+              onGithubMergeFinalized={onGithubMergeFinalized}
+              onGithubMergeAborted={onGithubMergeAborted}
             />
           </div>
         )}

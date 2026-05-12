@@ -11,7 +11,7 @@ type PublishKbButtonProps = {
   slug: string
   disabled?: boolean
   disabledReason?: string
-  onComplete?: () => void
+  onComplete?: (result: PublishKbResult) => void
 }
 
 type PublishState =
@@ -19,7 +19,6 @@ type PublishState =
   | 'publishing'
   | 'published'
   | 'nothing'
-  | 'push_rejected'
   | 'conflicts'
   | 'no_remote'
   | 'error'
@@ -50,48 +49,49 @@ export function PublishKbButton({ slug, disabled, disabledReason, onComplete }: 
 
       if (result.status === 'published') {
         setState('published')
-        onComplete?.()
+        onComplete?.(result)
         setTimeout(() => setState('idle'), 2000)
         return
       }
 
       if (result.status === 'nothing_to_publish') {
         setState('nothing')
-        onComplete?.()
+        onComplete?.(result)
         setTimeout(() => setState('idle'), 2000)
         return
       }
 
       if (result.status === 'push_rejected') {
-        setState('push_rejected')
-        setMessage(result.message || 'Sync the KB before publishing')
-        setFiles(result.files || [])
-        onComplete?.()
+        setState('idle')
+        setMessage(null)
+        setFiles([])
+        onComplete?.(result)
         return
       }
 
       if (result.status === 'conflicts') {
         setState('conflicts')
         setMessage(result.message || 'There are unresolved conflicts')
-        setFiles(result.files || [])
-        onComplete?.()
+        setFiles(result.githubConflictFiles || result.files || [])
+        onComplete?.(result)
         return
       }
 
       if (result.status === 'no_remote') {
         setState('no_remote')
         setMessage(result.message || 'KB remote not configured')
-        onComplete?.()
+        onComplete?.(result)
         return
       }
 
       setState('error')
       setMessage(result.message || 'Publishing failed')
-      onComplete?.()
+      onComplete?.(result)
     } catch (err) {
       setState('error')
-      setMessage(err instanceof Error ? err.message : 'Unknown error')
-      onComplete?.()
+      const msg = err instanceof Error ? err.message : 'Unknown error'
+      setMessage(msg)
+      onComplete?.({ ok: false, status: 'error', message: msg })
     }
   }, [slug, state, onComplete])
 
@@ -130,13 +130,6 @@ export function PublishKbButton({ slug, disabled, disabledReason, onComplete }: 
       buttonClassName: 'bg-muted text-muted-foreground hover:bg-muted/80',
       weight: 'bold' as const,
     },
-    push_rejected: {
-      icon: Warning,
-      label: 'Sync required',
-      className: 'text-amber-500',
-      buttonClassName: '',
-      weight: 'fill' as const,
-    },
     conflicts: {
       icon: Warning,
       label: 'Conflicts',
@@ -162,7 +155,7 @@ export function PublishKbButton({ slug, disabled, disabledReason, onComplete }: 
 
   const config = stateConfig[state]
   const Icon = config.icon
-  const showPopover = state === 'push_rejected' || state === 'conflicts' || state === 'no_remote' || state === 'error'
+  const showPopover = state === 'conflicts' || state === 'no_remote' || state === 'error'
 
   return (
     <div className="relative">
@@ -181,49 +174,14 @@ export function PublishKbButton({ slug, disabled, disabledReason, onComplete }: 
         <div className="absolute right-0 top-full z-50 -mt-px w-64 rounded-md border border-border bg-popover p-3 shadow-md">
           <div className="flex items-start justify-between gap-2">
             <div className="flex-1 min-w-0">
-              {state === 'push_rejected' ? (
+              {state === 'conflicts' ? (
                 <>
                   <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
-                    KB sync required
+                    Merge conflicts detected
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {message || 'Sync before publishing'}
+                    {files.length} file{files.length !== 1 ? 's' : ''} need resolution in the Review panel.
                   </p>
-                  {files.length > 0 ? (
-                    <ul className="mt-2 max-h-32 overflow-y-auto text-xs">
-                      {files.map((file) => (
-                        <li
-                          key={file}
-                          className="truncate font-mono text-muted-foreground"
-                          title={file}
-                        >
-                          {file}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </>
-              ) : state === 'conflicts' ? (
-                <>
-                  <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
-                    Pending conflicts
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {message || 'Resolve conflicts before publishing'}
-                  </p>
-                  {files.length > 0 ? (
-                    <ul className="mt-2 max-h-32 overflow-y-auto text-xs">
-                      {files.map((file) => (
-                        <li
-                          key={file}
-                          className="truncate font-mono text-muted-foreground"
-                          title={file}
-                        >
-                          {file}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
                 </>
               ) : state === 'no_remote' ? (
                 <>

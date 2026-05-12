@@ -16,7 +16,7 @@ import type { SyncKbResult } from '@/app/api/instances/[slug]/sync-kb/route'
 type SyncKbButtonProps = {
   slug: string
   disabled?: boolean
-  onComplete?: (status: SyncKbResult['status']) => void
+  onComplete?: (result: SyncKbResult) => void
   variant?: 'default' | 'muted'
   renderAs?: 'icon' | 'row'
 }
@@ -45,9 +45,17 @@ export function SyncKbButton({ slug, disabled, onComplete, variant = 'default', 
 
       const result: SyncKbResult = await response.json()
 
-      if (result.status === 'synced') {
+      const hasGithubConflicts = result.githubSyncStatus === 'conflicts'
+      const hasGithubError = result.githubSyncStatus === 'error'
+
+      if (hasGithubConflicts) {
+        setState('conflicts')
+        setConflicts(result.githubConflictFiles || [])
+      } else if (hasGithubError) {
+        setState('error')
+        setError(result.message || 'Pull from GitHub did not complete')
+      } else if (result.status === 'synced') {
         setState('synced')
-        // Reset to idle after showing success
         setTimeout(() => setState('idle'), 2000)
       } else if (result.status === 'conflicts') {
         setState('conflicts')
@@ -56,11 +64,11 @@ export function SyncKbButton({ slug, disabled, onComplete, variant = 'default', 
         setState('error')
         setError(result.message || 'Sync failed')
       }
-      onComplete?.(result.status)
+      onComplete?.(result)
     } catch (err) {
       setState('error')
       setError(err instanceof Error ? err.message : 'Unknown error')
-      onComplete?.('error')
+      onComplete?.({ ok: false, status: 'error', message: err instanceof Error ? err.message : 'Unknown error' })
     }
   }, [slug, onComplete])
 

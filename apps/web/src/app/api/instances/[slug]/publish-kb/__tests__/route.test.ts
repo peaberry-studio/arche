@@ -25,10 +25,12 @@ vi.mock('@/lib/runtime/workspace-host', () => ({
 vi.mock('@/lib/workspace-agent/client', () => ({
   createWorkspaceAgentClient: mocks.createWorkspaceAgentClient,
 }))
+const mockGithubService = vi.hoisted(() => ({
+  pushBestEffort: vi.fn().mockResolvedValue({ status: 'pushed' }),
+  pullBestEffort: vi.fn().mockResolvedValue({ status: 'skipped' }),
+}))
 vi.mock('@/lib/services', () => ({
-  kbGithubRemoteService: {
-    pushBestEffort: vi.fn().mockResolvedValue(undefined),
-  },
+  kbGithubRemoteService: mockGithubService,
 }))
 
 import { POST } from '../route'
@@ -122,6 +124,81 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     const res = await POST(makeRequest(), params('alice'))
     const body = await res.json()
     expect(body.message).toBe('Unknown error')
+    spy.mockRestore()
+  })
+
+  it('auto-pulls and retries push when push is rejected', async () => {
+    mockGithubService.pushBestEffort
+      .mockResolvedValueOnce({ status: 'push_rejected', message: 'Remote has newer changes' })
+      .mockResolvedValueOnce({ status: 'pushed' })
+    mockGithubService.pullBestEffort.mockResolvedValueOnce({ status: 'pulled' })
+
+    const spy = mockFetch({ ok: true, status: 'published', commitHash: 'abc' })
+    const res = await POST(makeRequest(), params('alice'))
+    const body = await res.json()
+
+    expect(body).toEqual({ ok: true, status: 'published', commitHash: 'abc' })
+    expect(mockGithubService.pullBestEffort).toHaveBeenCalledTimes(1)
+    expect(mockGithubService.pushBestEffort).toHaveBeenCalledTimes(2)
+    spy.mockRestore()
+  })
+
+  it('pushes GitHub backup even when workspace has no new working-tree changes', async () => {
+    mockGithubService.pushBestEffort.mockResolvedValueOnce({ status: 'pushed' })
+
+    const spy = mockFetch({ ok: true, status: 'nothing_to_publish', message: 'Nothing to publish.' })
+    const res = await POST(makeRequest(), params('alice'))
+    const body = await res.json()
+
+    expect(body).toEqual({ ok: true, status: 'nothing_to_publish', message: 'Nothing to publish.' })
+    expect(mockGithubService.pushBestEffort).toHaveBeenCalledTimes(1)
+    spy.mockRestore()
+  })
+
+  it('auto-pulls and retries GitHub backup when a clean workspace has unpublished KB commits', async () => {
+    mockGithubService.pushBestEffort
+      .mockResolvedValueOnce({ status: 'push_rejected', message: 'Remote has newer changes' })
+      .mockResolvedValueOnce({ status: 'pushed' })
+    mockGithubService.pullBestEffort.mockResolvedValueOnce({ status: 'pulled' })
+
+    const spy = mockFetch({ ok: true, status: 'nothing_to_publish', message: 'Nothing to publish.' })
+    const res = await POST(makeRequest(), params('alice'))
+    const body = await res.json()
+
+    expect(body).toEqual({ ok: true, status: 'nothing_to_publish', message: 'Nothing to publish.' })
+    expect(mockGithubService.pullBestEffort).toHaveBeenCalledTimes(1)
+    expect(mockGithubService.pushBestEffort).toHaveBeenCalledTimes(2)
+    expect(spy).toHaveBeenCalledWith('http://agent:8080/kb/sync', expect.objectContaining({ method: 'POST' }))
+    spy.mockRestore()
+  })
+
+  it('returns conflicts with file list when pull produces merge conflicts', async () => {
+    mockGithubService.pushBestEffort.mockResolvedValueOnce({ status: 'push_rejected', message: 'rejected' })
+    mockGithubService.pullBestEffort.mockResolvedValueOnce({
+      status: 'conflicts',
+      conflictingFiles: ['docs/intro.md', 'docs/faq.md'],
+    })
+
+    const spy = mockFetch({ ok: true, status: 'published', commitHash: 'abc' })
+    const res = await POST(makeRequest(), params('alice'))
+    const body = await res.json()
+
+    expect(body.ok).toBe(false)
+    expect(body.status).toBe('conflicts')
+    expect(body.githubConflictFiles).toEqual(['docs/intro.md', 'docs/faq.md'])
+    spy.mockRestore()
+  })
+
+  it('returns push_rejected when pull itself fails', async () => {
+    mockGithubService.pushBestEffort.mockResolvedValueOnce({ status: 'push_rejected', message: 'rejected' })
+    mockGithubService.pullBestEffort.mockResolvedValueOnce({ status: 'error' })
+
+    const spy = mockFetch({ ok: true, status: 'published', commitHash: 'abc' })
+    const res = await POST(makeRequest(), params('alice'))
+    const body = await res.json()
+
+    expect(body.ok).toBe(false)
+    expect(body.status).toBe('push_rejected')
     spy.mockRestore()
   })
 })

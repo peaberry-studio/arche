@@ -10,6 +10,7 @@ export type KbGithubRemoteIntegrationSummary = {
   lastSyncStatus: 'success' | 'error' | 'conflicts' | null
   lastError: string | null
   remoteBranch: string | null
+  hasPendingConflicts: boolean
   version: number
   updatedAt: string | null
 }

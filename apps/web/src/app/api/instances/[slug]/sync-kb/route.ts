@@ -11,6 +11,7 @@ export interface SyncKbResult {
   message?: string
   conflicts?: string[]
   githubSyncStatus?: string
+  githubConflictFiles?: string[]
 }
 
 export const POST = withAuth<SyncKbResult | { error: string }>(
@@ -24,6 +25,25 @@ export const POST = withAuth<SyncKbResult | { error: string }>(
 
     try {
       const githubResult = await kbGithubRemoteService.pullBestEffort()
+
+      if (githubResult.status === 'conflicts') {
+        return NextResponse.json({
+          ok: false,
+          status: 'conflicts',
+          message: githubResult.message ?? `Merge conflicts in ${githubResult.conflictingFiles?.length ?? 0} file(s)`,
+          githubSyncStatus: githubResult.status,
+          githubConflictFiles: githubResult.conflictingFiles,
+        } satisfies SyncKbResult)
+      }
+
+      if (githubResult.status === 'error') {
+        return NextResponse.json({
+          ok: false,
+          status: 'error',
+          message: githubResult.message ?? 'Pull from GitHub did not complete. The remote may still have newer changes.',
+          githubSyncStatus: githubResult.status,
+        } satisfies SyncKbResult)
+      }
 
       const agent = await createWorkspaceAgentClient(slug)
       if (!agent) {
@@ -53,6 +73,7 @@ export const POST = withAuth<SyncKbResult | { error: string }>(
       return NextResponse.json({
         ...data,
         githubSyncStatus: githubResult.status,
+        githubConflictFiles: githubResult.conflictingFiles,
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'

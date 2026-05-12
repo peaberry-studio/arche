@@ -9,6 +9,7 @@ const {
   mockValidateDesktopToken,
   mockIsWorkspaceReachable,
   mockCreateWorkspaceAgentClient,
+  mockPullBestEffort,
 } = vi.hoisted(() => ({
   mockGetRuntimeCapabilities: vi.fn(),
   mockIsDesktop: vi.fn(),
@@ -17,6 +18,7 @@ const {
   mockValidateDesktopToken: vi.fn(),
   mockIsWorkspaceReachable: vi.fn(),
   mockCreateWorkspaceAgentClient: vi.fn(),
+  mockPullBestEffort: vi.fn(),
 }))
 
 vi.mock('@/lib/runtime/capabilities', () => ({ getRuntimeCapabilities: mockGetRuntimeCapabilities }))
@@ -35,7 +37,7 @@ vi.mock('@/lib/workspace-agent/client', () => ({
 }))
 vi.mock('@/lib/services', () => ({
   kbGithubRemoteService: {
-    pullBestEffort: vi.fn().mockResolvedValue({ status: 'skipped' }),
+    pullBestEffort: mockPullBestEffort,
   },
 }))
 
@@ -67,6 +69,7 @@ describe('POST /api/instances/[slug]/sync-kb', () => {
     mockGetSession.mockResolvedValue(SESSION)
     mockValidateSameOrigin.mockReturnValue({ ok: true })
     mockIsWorkspaceReachable.mockResolvedValue(true)
+    mockPullBestEffort.mockResolvedValue({ status: 'skipped' })
     mockCreateWorkspaceAgentClient.mockResolvedValue({
       baseUrl: 'http://agent:8080',
       authHeader: 'Bearer tok',
@@ -89,6 +92,48 @@ describe('POST /api/instances/[slug]/sync-kb', () => {
     expect(body.conflicts).toEqual(['file.txt'])
     expect(body.githubSyncStatus).toBe('skipped')
     spy.mockRestore()
+  })
+
+  it('returns GitHub conflicts without reporting workspace sync success', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    mockPullBestEffort.mockResolvedValue({
+      status: 'conflicts',
+      message: 'Merge conflicts in 1 file(s)',
+      conflictingFiles: ['docs/intro.md'],
+    })
+
+    const res = await POST(makeRequest('POST'), { params: Promise.resolve({ slug: 'alice' }) })
+    const body = await res.json()
+
+    expect(body).toEqual({
+      ok: false,
+      status: 'conflicts',
+      message: 'Merge conflicts in 1 file(s)',
+      githubSyncStatus: 'conflicts',
+      githubConflictFiles: ['docs/intro.md'],
+    })
+    expect(fetchSpy).not.toHaveBeenCalled()
+    fetchSpy.mockRestore()
+  })
+
+  it('returns GitHub pull errors without reporting workspace sync success', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    mockPullBestEffort.mockResolvedValue({
+      status: 'error',
+      message: 'GitHub pull failed',
+    })
+
+    const res = await POST(makeRequest('POST'), { params: Promise.resolve({ slug: 'alice' }) })
+    const body = await res.json()
+
+    expect(body).toEqual({
+      ok: false,
+      status: 'error',
+      message: 'GitHub pull failed',
+      githubSyncStatus: 'error',
+    })
+    expect(fetchSpy).not.toHaveBeenCalled()
+    fetchSpy.mockRestore()
   })
 
   it('returns 409 when instance not running', async () => {

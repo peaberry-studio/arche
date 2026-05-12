@@ -11,6 +11,8 @@ export interface PublishKbResult {
   commitHash?: string
   files?: string[]
   message?: string
+  githubSyncError?: string
+  githubConflictFiles?: string[]
 }
 
 export const POST = withAuth<PublishKbResult | { error: string }>(
@@ -47,8 +49,54 @@ export const POST = withAuth<PublishKbResult | { error: string }>(
         })
       }
 
-      if (data.ok && data.status === 'published') {
-        await kbGithubRemoteService.pushBestEffort()
+      if (data.ok && (data.status === 'published' || data.status === 'nothing_to_publish')) {
+        const pushResult = await kbGithubRemoteService.pushBestEffort()
+
+        if (pushResult.status === 'push_rejected') {
+          const pullResult = await kbGithubRemoteService.pullBestEffort()
+
+          if (pullResult.status === 'conflicts') {
+            return NextResponse.json({
+              ok: false,
+              status: 'conflicts',
+              message: `Merge conflicts in ${pullResult.conflictingFiles?.length ?? 0} file(s). Resolve them in the Review panel.`,
+              githubConflictFiles: pullResult.conflictingFiles ?? [],
+            } satisfies PublishKbResult)
+          }
+
+          if (pullResult.status === 'pulled' || pullResult.status === 'up_to_date') {
+            const retryPush = await kbGithubRemoteService.pushBestEffort()
+            if (retryPush.status === 'pushed' || retryPush.status === 'up_to_date') {
+              await fetch(`${agent.baseUrl}/kb/sync`, {
+                method: 'POST',
+                headers: {
+                  Authorization: agent.authHeader,
+                  Accept: 'application/json'
+                },
+                cache: 'no-store'
+              }).catch(() => undefined)
+              return NextResponse.json(data)
+            }
+            return NextResponse.json({
+              ok: false,
+              status: 'push_rejected',
+              message: retryPush.message ?? 'Push failed after pulling latest changes. Try again.',
+            } satisfies PublishKbResult)
+          }
+
+          return NextResponse.json({
+            ok: false,
+            status: 'push_rejected',
+            message: pullResult.message ?? pushResult.message ?? 'Remote has changes that could not be pulled automatically.',
+          } satisfies PublishKbResult)
+        }
+
+        if (pushResult.status === 'error') {
+          return NextResponse.json({
+            ...data,
+            githubSyncError: pushResult.message,
+          })
+        }
       }
 
       return NextResponse.json(data)

@@ -31,7 +31,9 @@ export function KbGithubRemoteSummaryCard({
               <Badge variant="secondary">Not configured</Badge>
             )}
             {integration.lastSyncStatus === 'error' ? (
-              <Badge variant="destructive">Sync error</Badge>
+              <Badge variant="outline" className="border-red-500/50 text-red-600 dark:text-red-400">
+                Sync error
+              </Badge>
             ) : null}
             {integration.lastSyncStatus === 'conflicts' ? (
               <Badge variant="secondary" className="border-amber-500/50 text-amber-600 dark:text-amber-400">

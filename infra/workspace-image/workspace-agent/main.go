@@ -1204,61 +1204,50 @@ func (s *server) handleKbPublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(entries) == 0 {
-		writeJSON(w, http.StatusOK, publishKbResponse{
-			Ok:      true,
-			Status:  "nothing_to_publish",
-			Message: "Nothing to publish.",
+	files := []string{}
+	if len(entries) > 0 {
+		_, addErr, addCode, addExecErr := runCmd(r.Context(), s.workspace, []string{
+			"git", "add", "-A",
 		})
-		return
-	}
-
-	_, addErr, addCode, addExecErr := runCmd(r.Context(), s.workspace, []string{
-		"git", "add", "-A",
-	})
-	if addExecErr != nil || addCode != 0 {
-		msg := strings.TrimSpace(addErr)
-		if msg == "" {
-			msg = "git_add_failed"
+		if addExecErr != nil || addCode != 0 {
+			msg := strings.TrimSpace(addErr)
+			if msg == "" {
+				msg = "git_add_failed"
+			}
+			writeJSON(w, http.StatusOK, publishKbResponse{
+				Ok:      false,
+				Status:  "error",
+				Message: "git add failed: " + msg,
+			})
+			return
 		}
-		writeJSON(w, http.StatusOK, publishKbResponse{
-			Ok:      false,
-			Status:  "error",
-			Message: "git add failed: " + msg,
+
+		statOut, _, _, _ := runCmd(r.Context(), s.workspace, []string{
+			"git", "diff", "--cached", "--stat",
 		})
-		return
-	}
+		commitMessage := generateCommitMessage(statOut)
 
-	statOut, _, _, _ := runCmd(r.Context(), s.workspace, []string{
-		"git", "diff", "--cached", "--stat",
-	})
-	commitMessage := generateCommitMessage(statOut)
-
-	_, commitErr, commitCode, commitExecErr := runCmd(r.Context(), s.workspace, []string{
-		"git", "commit", "-m", commitMessage,
-	})
-	if commitExecErr != nil || commitCode != 0 {
-		msg := strings.TrimSpace(commitErr)
-		if msg == "" {
-			msg = "git_commit_failed"
+		_, commitErr, commitCode, commitExecErr := runCmd(r.Context(), s.workspace, []string{
+			"git", "commit", "-m", commitMessage,
+		})
+		if commitExecErr != nil || commitCode != 0 {
+			msg := strings.TrimSpace(commitErr)
+			if msg == "" {
+				msg = "git_commit_failed"
+			}
+			writeJSON(w, http.StatusOK, publishKbResponse{
+				Ok:      false,
+				Status:  "error",
+				Message: "git commit failed: " + msg,
+			})
+			return
 		}
-		writeJSON(w, http.StatusOK, publishKbResponse{
-			Ok:      false,
-			Status:  "error",
-			Message: "git commit failed: " + msg,
+
+		filesOut, _, _, _ := runCmd(r.Context(), s.workspace, []string{
+			"git", "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD",
 		})
-		return
+		files = splitLines(filesOut)
 	}
-
-	hashOut, _, _, _ := runCmd(r.Context(), s.workspace, []string{
-		"git", "rev-parse", "--short", "HEAD",
-	})
-	commitHash := strings.TrimSpace(hashOut)
-
-	filesOut, _, _, _ := runCmd(r.Context(), s.workspace, []string{
-		"git", "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD",
-	})
-	files := splitLines(filesOut)
 
 	// Fetch and merge remote before pushing to avoid rejected pushes.
 	mergeOk, mergeConflicts, mergeErrMsg := s.fetchAndMergeKb(r.Context())
@@ -1281,6 +1270,24 @@ func (s *server) handleKbPublish(w http.ResponseWriter, r *http.Request) {
 	}
 
 	kbBranch := s.resolveKbBranch(r.Context())
+	if !s.localHeadDiffersFromKb(r.Context(), kbBranch) {
+		writeJSON(w, http.StatusOK, publishKbResponse{
+			Ok:      true,
+			Status:  "nothing_to_publish",
+			Message: "Nothing to publish.",
+		})
+		return
+	}
+
+	if len(files) == 0 {
+		files = s.changedFilesToPublish(r.Context(), kbBranch)
+	}
+
+	hashOut, _, _, _ := runCmd(r.Context(), s.workspace, []string{
+		"git", "rev-parse", "--short", "HEAD",
+	})
+	commitHash := strings.TrimSpace(hashOut)
+
 	_, pushErr, pushCode, pushExecErr := runCmd(r.Context(), s.workspace, []string{
 		"git", "push", "kb", "HEAD:refs/heads/" + kbBranch,
 	})
@@ -1373,6 +1380,49 @@ func (s *server) remoteBranchExists(ctx context.Context, branch string) bool {
 		"git", "show-ref", "--verify", "--quiet", "refs/remotes/kb/" + branch,
 	})
 	return code == 0
+}
+
+func (s *server) localHeadDiffersFromKb(ctx context.Context, branch string) bool {
+	headOut, _, headCode, _ := runCmd(ctx, s.workspace, []string{
+		"git", "rev-parse", "HEAD",
+	})
+	if headCode != 0 {
+		return false
+	}
+	head := strings.TrimSpace(headOut)
+	if head == "" {
+		return false
+	}
+	if !s.remoteBranchExists(ctx, branch) {
+		return true
+	}
+
+	remoteOut, _, remoteCode, _ := runCmd(ctx, s.workspace, []string{
+		"git", "rev-parse", "refs/remotes/kb/" + branch,
+	})
+	return remoteCode != 0 || head != strings.TrimSpace(remoteOut)
+}
+
+func (s *server) changedFilesToPublish(ctx context.Context, branch string) []string {
+	if s.remoteBranchExists(ctx, branch) {
+		filesOut, _, code, _ := runCmd(ctx, s.workspace, []string{
+			"git", "diff", "--name-only", "kb/" + branch + "...HEAD",
+		})
+		if code == 0 {
+			files := splitLines(filesOut)
+			if len(files) > 0 {
+				return files
+			}
+		}
+	}
+
+	filesOut, _, code, _ := runCmd(ctx, s.workspace, []string{
+		"git", "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD",
+	})
+	if code != 0 {
+		return nil
+	}
+	return splitLines(filesOut)
 }
 
 func (s *server) currentBranch(ctx context.Context) string {

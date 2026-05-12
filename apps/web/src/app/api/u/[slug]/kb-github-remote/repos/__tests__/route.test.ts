@@ -37,6 +37,7 @@ vi.mock('@/lib/services', () => ({
     findIntegration: (...args: unknown[]) => findIntegrationMock(...args),
     decryptIntegrationConfig: (...args: unknown[]) => decryptIntegrationConfigMock(...args),
     updateSyncState: (...args: unknown[]) => updateSyncStateMock(...args),
+    ensureRemote: vi.fn().mockResolvedValue(undefined),
   },
 }))
 

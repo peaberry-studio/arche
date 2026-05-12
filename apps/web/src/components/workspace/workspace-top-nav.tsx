@@ -58,7 +58,7 @@ type WorkspaceTopNavProps = {
   onNavigateConnectors?: () => void
   onNavigateProviders?: () => void
   onNavigateSettings: () => void
-  onSyncComplete?: (status: SyncKbResult['status']) => void
+  onSyncComplete?: (result: SyncKbResult) => void
 }
 
 export function WorkspaceTopNav({

@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ArrowsClockwise, SpinnerGap } from '@phosphor-icons/react'
 
+import type { ConflictResolutionStrategy, WorkspaceConflictDetails } from '@/actions/workspace-agent'
 import { SettingsInfoBox } from '@/components/settings/settings-info-box'
+import { ConflictResolverDialog } from '@/components/workspace/conflict-resolver-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import type {
@@ -35,8 +37,7 @@ function getErrorMessage(error: string | undefined): string {
   return ERROR_MESSAGES[error] ?? error
 }
 
-type ConflictStrategy = 'local_wins' | 'remote_wins'
-type BusyAction = 'clear' | 'test' | 'push' | 'pull' | 'resolve' | 'repos' | null
+type BusyAction = 'clear' | 'test' | 'push' | 'pull' | 'resolve' | 'finalize' | 'abort' | 'repos' | null
 
 export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
   const [integration, setIntegration] = useState<KbGithubRemoteIntegrationSummary | null>(null)
@@ -47,6 +48,8 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
   const [success, setSuccess] = useState<string | null>(null)
   const [hasConflicts, setHasConflicts] = useState(false)
   const [conflictFiles, setConflictFiles] = useState<string[]>([])
+  const [resolvingFile, setResolvingFile] = useState<string | null>(null)
+  const [resolvedFiles, setResolvedFiles] = useState<Set<string>>(new Set())
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const errorParam = params.get('error')
@@ -66,6 +69,18 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
     }
   }, [])
 
+  const loadConflictFiles = useCallback(async (fallbackPending = false) => {
+    try {
+      const response = await fetch(`/api/u/${slug}/kb-github-remote/conflicts`, { cache: 'no-store' })
+      const data = (await response.json().catch(() => null)) as { files?: string[]; hasPendingMerge?: boolean } | null
+      const files = data?.files ?? []
+      setConflictFiles(files)
+      setHasConflicts(data?.hasPendingMerge ?? Boolean(fallbackPending || files.length > 0))
+    } catch {
+      // Non-critical — the panel still works without the conflict list.
+    }
+  }, [slug])
+
   const loadIntegration = useCallback(async () => {
     setIsLoading(true)
 
@@ -82,12 +97,16 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
       }
 
       setIntegration(data)
+      if (data.hasPendingConflicts || data.lastSyncStatus === 'conflicts') {
+        setHasConflicts(true)
+        void loadConflictFiles(true)
+      }
     } catch {
       setError(getErrorMessage('network_error'))
     } finally {
       setIsLoading(false)
     }
-  }, [slug])
+  }, [loadConflictFiles, slug])
 
   useEffect(() => {
     void loadIntegration()
@@ -251,8 +270,8 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
     }
   }
 
-  async function handleSync(direction: 'push' | 'pull', strategy?: ConflictStrategy) {
-    setBusyAction(strategy ? 'resolve' : direction)
+  async function handleSync(direction: 'push' | 'pull') {
+    setBusyAction(direction)
     setError(null)
     setSuccess(null)
 
@@ -260,7 +279,7 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
       const response = await fetch(`/api/u/${slug}/kb-github-remote/sync`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ direction, ...(strategy ? { strategy } : {}) }),
+        body: JSON.stringify({ direction }),
       })
       const data = (await response.json().catch(() => null)) as {
         ok?: boolean
@@ -280,9 +299,7 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
         setConflictFiles([])
         const detail = data.status === 'up_to_date'
           ? 'Already up to date.'
-          : data.status === 'resolved'
-            ? 'Conflicts resolved successfully.'
-            : `${direction === 'push' ? 'Pushed' : 'Pulled'} successfully.`
+          : `${direction === 'push' ? 'Pushed' : 'Pulled'} successfully.`
         setSuccess(detail)
         void loadIntegration()
         window.setTimeout(() => setSuccess(null), 5000)
@@ -297,6 +314,114 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
       } else {
         setError(data.message ?? `${direction === 'push' ? 'Push' : 'Pull'} failed.`)
       }
+    } catch {
+      setError(getErrorMessage('network_error'))
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  const getGithubSyncConflict = useCallback(async (_slug: string, path: string): Promise<{ ok: boolean; conflict?: WorkspaceConflictDetails; error?: string }> => {
+    try {
+      const response = await fetch(`/api/u/${slug}/kb-github-remote/conflicts/resolve?path=${encodeURIComponent(path)}`, { cache: 'no-store' })
+      const data = (await response.json().catch(() => null)) as {
+        path?: string; ours?: string; theirs?: string; base?: string; working?: string; error?: string
+      } | null
+      if (!response.ok || !data?.path) {
+        return { ok: false, error: data?.error ?? 'conflict_not_found' }
+      }
+      return {
+        ok: true,
+        conflict: {
+          path: data.path,
+          ours: data.ours ?? '',
+          theirs: data.theirs ?? '',
+          base: data.base,
+          working: data.working,
+        },
+      }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : 'network_error' }
+    }
+  }, [slug])
+
+  const resolveGithubSyncConflict = useCallback(async (_slug: string, payload: { path: string; strategy: ConflictResolutionStrategy; content?: string }): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      const response = await fetch(`/api/u/${slug}/kb-github-remote/conflicts/resolve`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          path: payload.path,
+          strategy: payload.strategy === 'manual' ? 'ours' : payload.strategy,
+          content: payload.content,
+        }),
+      })
+      const data = (await response.json().catch(() => null)) as { ok?: boolean; error?: string } | null
+      if (!response.ok || !data?.ok) {
+        return { ok: false, error: data?.error ?? 'resolution_failed' }
+      }
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : 'network_error' }
+    }
+  }, [slug])
+
+  function handleConflictResolved(path: string) {
+    setResolvedFiles((prev) => new Set(prev).add(path))
+    void loadConflictFiles()
+  }
+
+  async function handleFinalizeMerge() {
+    setBusyAction('finalize')
+    setError(null)
+    setSuccess(null)
+
+    try {
+      const response = await fetch(`/api/u/${slug}/kb-github-remote/conflicts/finalize`, {
+        method: 'POST',
+      })
+      const data = (await response.json().catch(() => null)) as { ok?: boolean; error?: string } | null
+
+      if (!response.ok || !data?.ok) {
+        setError(data?.error ?? 'Failed to finalize merge.')
+        return
+      }
+
+      setHasConflicts(false)
+      setConflictFiles([])
+      setResolvedFiles(new Set())
+      setSuccess('Merge completed successfully.')
+      void loadIntegration()
+      window.setTimeout(() => setSuccess(null), 5000)
+    } catch {
+      setError(getErrorMessage('network_error'))
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  async function handleAbortMerge() {
+    setBusyAction('abort')
+    setError(null)
+    setSuccess(null)
+
+    try {
+      const response = await fetch(`/api/u/${slug}/kb-github-remote/conflicts`, {
+        method: 'DELETE',
+      })
+      const data = (await response.json().catch(() => null)) as { ok?: boolean; error?: string } | null
+
+      if (!response.ok || !data?.ok) {
+        setError(data?.error ?? 'Failed to abort merge.')
+        return
+      }
+
+      setHasConflicts(false)
+      setConflictFiles([])
+      setResolvedFiles(new Set())
+      setSuccess('Merge aborted.')
+      void loadIntegration()
+      window.setTimeout(() => setSuccess(null), 3000)
     } catch {
       setError(getErrorMessage('network_error'))
     } finally {
@@ -462,35 +587,69 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
                 ) : null}
 
                 {hasConflicts ? (
-                  <div className="space-y-2">
+                  <div className="space-y-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-4">
                     <p className="text-sm font-medium text-foreground">
-                      Resolve conflicts
+                      Merge conflicts detected
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      Conflicting files: {conflictFiles.join(', ') || 'unknown'}
+                      Resolve each conflicted file, then finalize the merge.
                     </p>
-                    <div className="flex flex-wrap gap-2">
+                    {conflictFiles.length > 0 ? (
+                      <div className="space-y-1.5">
+                        {conflictFiles.map((file) => (
+                          <div
+                            key={file}
+                            className="flex items-center justify-between rounded border border-border/40 bg-background px-3 py-2"
+                          >
+                            <span className="font-mono text-xs text-foreground/80">{file}</span>
+                            {resolvedFiles.has(file) ? (
+                              <Badge variant="success">Resolved</Badge>
+                            ) : (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                disabled={busyAction !== null}
+                                onClick={() => setResolvingFile(file)}
+                              >
+                                Resolve
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    <div className="flex flex-wrap gap-2 pt-1">
                       <Button
                         type="button"
-                        variant="outline"
-                        disabled={busyAction !== null}
-                        onClick={() => void handleSync('pull', 'local_wins')}
+                        disabled={busyAction !== null || (conflictFiles.length > 0 && resolvedFiles.size < conflictFiles.length)}
+                        onClick={() => void handleFinalizeMerge()}
                       >
-                        <ArrowsClockwise size={14} className={busyAction === 'resolve' ? 'animate-spin' : ''} />
-                        {busyAction === 'resolve' ? 'Resolving...' : 'Keep local version'}
+                        {busyAction === 'finalize' ? 'Finalizing...' : 'Finalize Merge'}
                       </Button>
                       <Button
                         type="button"
-                        variant="outline"
+                        variant="destructive"
+                        size="sm"
                         disabled={busyAction !== null}
-                        onClick={() => void handleSync('pull', 'remote_wins')}
+                        onClick={() => void handleAbortMerge()}
                       >
-                        <ArrowsClockwise size={14} className={busyAction === 'resolve' ? 'animate-spin' : ''} />
-                        {busyAction === 'resolve' ? 'Resolving...' : 'Keep GitHub version'}
+                        {busyAction === 'abort' ? 'Aborting...' : 'Abort Merge'}
                       </Button>
                     </div>
                   </div>
                 ) : null}
+
+                <ConflictResolverDialog
+                  slug={slug}
+                  path={resolvingFile}
+                  open={resolvingFile !== null}
+                  onOpenChange={(open) => { if (!open) setResolvingFile(null) }}
+                  onResolved={(path) => handleConflictResolved(path)}
+                  getConflict={getGithubSyncConflict}
+                  resolveConflict={resolveGithubSyncConflict}
+                />
 
                 <div className="flex flex-wrap gap-2">
                   <Button

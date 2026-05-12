@@ -23,6 +23,15 @@ vi.mock('@/lib/auth', () => ({
   SESSION_COOKIE_NAME: 'arche_session',
 }))
 
+const mockPushBestEffort = vi.fn()
+const mockPullBestEffort = vi.fn()
+vi.mock('@/lib/services', () => ({
+  kbGithubRemoteService: {
+    pushBestEffort: (...args: unknown[]) => mockPushBestEffort(...args),
+    pullBestEffort: (...args: unknown[]) => mockPullBestEffort(...args),
+  },
+}))
+
 // --- Helpers ---
 
 function session(slug: string, role = 'USER') {
@@ -67,6 +76,8 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     vi.resetModules()
     vi.stubGlobal('fetch', vi.fn())
     mockIsWorkspaceReachable.mockResolvedValue(true)
+    mockPushBestEffort.mockResolvedValue({ status: 'skipped' })
+    mockPullBestEffort.mockResolvedValue({ status: 'skipped' })
   })
 
   it('returns 401 without session cookie', async () => {

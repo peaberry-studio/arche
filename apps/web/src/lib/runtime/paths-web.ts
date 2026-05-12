@@ -9,6 +9,7 @@ function getE2eWebPathOverride(value: string | undefined, fallback: string): str
 export const webPaths: RuntimePaths = {
   kbConfigRoot: () => getE2eWebPathOverride(process.env.KB_CONFIG_HOST_PATH, '/kb-config'),
   kbContentRoot: () => getE2eWebPathOverride(process.env.KB_CONTENT_HOST_PATH, '/kb-content'),
+  kbSyncWorkingCopyRoot: () => getE2eWebPathOverride(process.env.KB_SYNC_WC_PATH, '/kb-sync-wc'),
   usersBasePath: () => process.env.ARCHE_USERS_PATH || '/opt/arche/users',
   userDataPath: (slug: string) => {
     assertValidSlug(slug)

@@ -1,5 +1,5 @@
 import { encryptConfig, decryptConfig } from '@/lib/connectors/crypto'
-import { pushToGithub, pullFromGithub, type KbGithubSyncCredentials, type ConflictStrategy } from '@/lib/git/kb-github-sync'
+import { pushToGithub, pullFromGithub, ensureGithubRemote, removeGithubRemote, hasPendingSyncConflicts, type KbGithubSyncCredentials } from '@/lib/git/kb-github-sync'
 import type { KbGithubRemoteIntegrationSummary } from '@/lib/kb-github-remote/types'
 
 import { findByKey, upsertByKey, updateStateByKey } from './external-integrations'
@@ -22,6 +22,7 @@ export type KbGithubRemoteSyncState = {
   remoteBranch: string | null
   lastPushAt: string | null
   lastPullAt: string | null
+  hasPendingConflicts: boolean
 }
 
 export type KbGithubRemoteIntegrationRecord = {
@@ -43,6 +44,7 @@ const DEFAULT_STATE: KbGithubRemoteSyncState = {
   remoteBranch: null,
   lastPushAt: null,
   lastPullAt: null,
+  hasPendingConflicts: false,
 }
 
 function parseState(raw: unknown): KbGithubRemoteSyncState {
@@ -61,6 +63,7 @@ function parseState(raw: unknown): KbGithubRemoteSyncState {
     remoteBranch: typeof s.remoteBranch === 'string' ? s.remoteBranch : null,
     lastPushAt: typeof s.lastPushAt === 'string' ? s.lastPushAt : null,
     lastPullAt: typeof s.lastPullAt === 'string' ? s.lastPullAt : null,
+    hasPendingConflicts: typeof s.hasPendingConflicts === 'boolean' ? s.hasPendingConflicts : false,
   }
 }
 
@@ -197,34 +200,59 @@ export function toSummary(
     lastSyncStatus: state?.lastSyncStatus ?? null,
     lastError: state?.lastError ?? null,
     remoteBranch: state?.remoteBranch ?? null,
+    hasPendingConflicts: state?.hasPendingConflicts ?? false,
     version: record?.version ?? 0,
     updatedAt: record?.updatedAt?.toISOString() ?? null,
   }
 }
 
-export type PullBestEffortResult = {
-  status: 'pulled' | 'resolved' | 'up_to_date' | 'conflicts' | 'error' | 'skipped'
+export async function ensureRemote(): Promise<void> {
+  const record = await findIntegration()
+  if (!record) return
+  const url = record.state.repoCloneUrl
+  if (!url) return
+  await ensureGithubRemote(url)
 }
 
-export async function pullBestEffort(strategy?: ConflictStrategy): Promise<PullBestEffortResult> {
+export async function clearRemote(): Promise<void> {
+  await removeGithubRemote()
+}
+
+export async function checkPendingConflicts(): Promise<boolean> {
+  return hasPendingSyncConflicts()
+}
+
+export type PullBestEffortResult = {
+  status: 'pulled' | 'up_to_date' | 'conflicts' | 'error' | 'skipped'
+  message?: string
+  conflictingFiles?: string[]
+}
+
+export async function pullBestEffort(): Promise<PullBestEffortResult> {
   try {
     const creds = await getSyncCredentials()
     if (!creds) return { status: 'skipped' }
 
-    const result = await pullFromGithub(creds, strategy)
+    const result = await pullFromGithub(creds)
+    if (!result.ok && 'detail' in result && result.detail) {
+      console.error('[kb-github-remote] pull error detail:', result.detail)
+    }
 
     const now = new Date().toISOString()
+    const hasConflicts = !result.ok && result.status === 'conflicts'
     await updateSyncState({
       lastSyncAt: now,
       lastPullAt: now,
-      lastSyncStatus: result.ok ? 'success' : (
-        !result.ok && result.status === 'conflicts' ? 'conflicts' : 'error'
-      ),
+      lastSyncStatus: result.ok ? 'success' : (hasConflicts ? 'conflicts' : 'error'),
       lastError: result.ok ? null : result.message,
       remoteBranch: result.ok && 'branch' in result ? result.branch : undefined,
+      hasPendingConflicts: hasConflicts,
     })
 
-    return { status: result.ok ? result.status : result.status === 'conflicts' ? 'conflicts' : 'error' }
+    if (hasConflicts) {
+      return { status: 'conflicts', message: result.message, conflictingFiles: result.conflictingFiles }
+    }
+    return { status: result.ok ? result.status : 'error', message: result.ok ? undefined : result.message }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error during pull'
     await updateSyncState({
@@ -232,16 +260,24 @@ export async function pullBestEffort(strategy?: ConflictStrategy): Promise<PullB
       lastSyncStatus: 'error',
       lastError: errorMessage,
     }).catch(() => {})
-    return { status: 'error' }
+    return { status: 'error', message: errorMessage }
   }
 }
 
-export async function pushBestEffort(): Promise<void> {
+export type PushBestEffortResult = {
+  status: 'pushed' | 'up_to_date' | 'push_rejected' | 'error' | 'skipped'
+  message?: string
+}
+
+export async function pushBestEffort(): Promise<PushBestEffortResult> {
   try {
     const creds = await getSyncCredentials()
-    if (!creds) return
+    if (!creds) return { status: 'skipped' }
 
     const result = await pushToGithub(creds)
+    if (!result.ok && 'detail' in result && result.detail) {
+      console.error('[kb-github-remote] push error detail:', result.detail)
+    }
 
     const now = new Date().toISOString()
     await updateSyncState({
@@ -251,6 +287,14 @@ export async function pushBestEffort(): Promise<void> {
       lastError: result.ok ? null : result.message,
       remoteBranch: result.ok && 'branch' in result ? result.branch : undefined,
     })
+
+    if (result.ok) {
+      return { status: result.status === 'up_to_date' ? 'up_to_date' : 'pushed' }
+    }
+    return {
+      status: result.status === 'push_rejected' ? 'push_rejected' : 'error',
+      message: result.message,
+    }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error during push'
     await updateSyncState({
@@ -258,5 +302,6 @@ export async function pushBestEffort(): Promise<void> {
       lastSyncStatus: 'error',
       lastError: errorMessage,
     }).catch(() => {})
+    return { status: 'error', message: errorMessage }
   }
 }

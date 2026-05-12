@@ -61,6 +61,69 @@ func TestGitStatusEntriesReturnsNestedUntrackedFiles(t *testing.T) {
 	t.Fatalf("expected nested untracked file %q in status entries: %#v", expected, entries)
 }
 
+func TestHandleKbPublishPushesCleanAheadWorkspace(t *testing.T) {
+	ctx := context.Background()
+	workspace, bareRepo := setupPublishWorkspace(t, ctx)
+
+	writeWorkspaceFile(t, workspace, "README.md", "local change\n")
+	runGit(t, ctx, workspace, "add", "README.md")
+	runGit(t, ctx, workspace, "commit", "-m", "local change")
+
+	s := &server{workspace: workspace}
+	response := callKbPublish(t, s)
+
+	if !response.Ok || response.Status != "published" {
+		t.Fatalf("unexpected publish response: %+v", response)
+	}
+	if len(response.Files) != 1 || response.Files[0] != "README.md" {
+		t.Fatalf("files = %#v, want README.md", response.Files)
+	}
+
+	workspaceHead := gitOutput(t, ctx, workspace, "rev-parse", "HEAD")
+	bareHead := gitOutput(t, ctx, bareRepo, "rev-parse", "refs/heads/main")
+	if workspaceHead != bareHead {
+		t.Fatalf("bare repo was not updated: workspace=%s bare=%s", workspaceHead, bareHead)
+	}
+}
+
+func TestHandleKbPublishMergesRemoteThenPushesCleanAheadWorkspace(t *testing.T) {
+	ctx := context.Background()
+	workspace, bareRepo := setupPublishWorkspace(t, ctx)
+	remoteWorkspace := t.TempDir()
+
+	runGit(t, ctx, workspace, "remote", "set-url", "kb", bareRepo)
+	runGit(t, ctx, remoteWorkspace, "clone", bareRepo, ".")
+	runGit(t, ctx, remoteWorkspace, "config", "user.email", "tests@example.com")
+	runGit(t, ctx, remoteWorkspace, "config", "user.name", "Workspace Agent Tests")
+
+	writeWorkspaceFile(t, workspace, "local.md", "local\n")
+	runGit(t, ctx, workspace, "add", "local.md")
+	runGit(t, ctx, workspace, "commit", "-m", "local change")
+
+	writeWorkspaceFile(t, remoteWorkspace, "remote.md", "remote\n")
+	runGit(t, ctx, remoteWorkspace, "add", "remote.md")
+	runGit(t, ctx, remoteWorkspace, "commit", "-m", "remote change")
+	runGit(t, ctx, remoteWorkspace, "push", "origin", "HEAD:main")
+
+	s := &server{workspace: workspace}
+	response := callKbPublish(t, s)
+
+	if !response.Ok || response.Status != "published" {
+		t.Fatalf("unexpected publish response: %+v", response)
+	}
+
+	workspaceHead := gitOutput(t, ctx, workspace, "rev-parse", "HEAD")
+	bareHead := gitOutput(t, ctx, bareRepo, "rev-parse", "refs/heads/main")
+	if workspaceHead != bareHead {
+		t.Fatalf("bare repo was not updated after merge: workspace=%s bare=%s", workspaceHead, bareHead)
+	}
+	for _, name := range []string{"local.md", "remote.md"} {
+		if _, err := os.Stat(filepath.Join(workspace, name)); err != nil {
+			t.Fatalf("%s missing after publish merge: %v", name, err)
+		}
+	}
+}
+
 func runGit(t *testing.T, ctx context.Context, dir string, args ...string) {
 	t.Helper()
 
@@ -72,6 +135,68 @@ func runGit(t *testing.T, ctx context.Context, dir string, args ...string) {
 	if code != 0 {
 		t.Fatalf("git command exited with code %d (%v): %s", code, command, stderr)
 	}
+}
+
+func gitOutput(t *testing.T, ctx context.Context, dir string, args ...string) string {
+	t.Helper()
+
+	command := append([]string{"git"}, args...)
+	stdout, stderr, code, err := runCmd(ctx, dir, command)
+	if err != nil {
+		t.Fatalf("git command failed (%v): %v", command, err)
+	}
+	if code != 0 {
+		t.Fatalf("git command exited with code %d (%v): %s", code, command, stderr)
+	}
+	return strings.TrimSpace(stdout)
+}
+
+func setupPublishWorkspace(t *testing.T, ctx context.Context) (string, string) {
+	t.Helper()
+
+	workspace := t.TempDir()
+	bareRepo := filepath.Join(t.TempDir(), "kb.git")
+
+	runGit(t, ctx, workspace, "init", "--bare", "-b", "main", bareRepo)
+	runGit(t, ctx, workspace, "init", "-b", "main")
+	runGit(t, ctx, workspace, "config", "user.email", "tests@example.com")
+	runGit(t, ctx, workspace, "config", "user.name", "Workspace Agent Tests")
+	writeWorkspaceFile(t, workspace, "README.md", "baseline\n")
+	runGit(t, ctx, workspace, "add", "README.md")
+	runGit(t, ctx, workspace, "commit", "-m", "baseline")
+	runGit(t, ctx, workspace, "remote", "add", "kb", bareRepo)
+	runGit(t, ctx, workspace, "push", "kb", "HEAD:main")
+
+	return workspace, bareRepo
+}
+
+func writeWorkspaceFile(t *testing.T, workspace string, name string, content string) {
+	t.Helper()
+
+	filePath := filepath.Join(workspace, name)
+	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
+		t.Fatalf("create parent dir for %s: %v", name, err)
+	}
+	if err := os.WriteFile(filePath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", name, err)
+	}
+}
+
+func callKbPublish(t *testing.T, s *server) publishKbResponse {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodPost, "/kb/publish", nil)
+	recorder := httptest.NewRecorder()
+	s.handleKbPublish(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response publishKbResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	return response
 }
 
 func TestIsInternalWorkspacePath(t *testing.T) {

@@ -40,6 +40,7 @@ const baseSummary: KbGithubRemoteIntegrationSummary = {
   lastSyncStatus: null,
   lastError: null,
   remoteBranch: null,
+  hasPendingConflicts: false,
   version: 0,
   updatedAt: null,
 }

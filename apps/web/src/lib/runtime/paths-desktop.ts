@@ -2,6 +2,7 @@ import type { RuntimePaths } from '@/lib/runtime/types'
 import {
   DESKTOP_KB_CONFIG_DIR_NAME,
   DESKTOP_KB_CONTENT_DIR_NAME,
+  DESKTOP_KB_SYNC_WC_DIR_NAME,
   DESKTOP_USERS_DIR_NAME,
 } from '@/lib/runtime/desktop/vault-layout-constants'
 
@@ -77,6 +78,7 @@ function getRequiredVaultRoot(): string {
 export const desktopPaths: RuntimePaths = {
   kbConfigRoot: () => joinDesktopPath(getRequiredVaultRoot(), DESKTOP_KB_CONFIG_DIR_NAME),
   kbContentRoot: () => joinDesktopPath(getRequiredVaultRoot(), DESKTOP_KB_CONTENT_DIR_NAME),
+  kbSyncWorkingCopyRoot: () => joinDesktopPath(getRequiredVaultRoot(), DESKTOP_KB_SYNC_WC_DIR_NAME),
   usersBasePath: () => joinDesktopPath(getRequiredVaultRoot(), DESKTOP_USERS_DIR_NAME),
   userDataPath: (slug: string) => {
     assertValidSlug(slug)

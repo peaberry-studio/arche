@@ -58,6 +58,10 @@ vi.mock('@/components/ui/button', () => ({
   },
 }))
 
+vi.mock('@/components/workspace/conflict-resolver-dialog', () => ({
+  ConflictResolverDialog: () => null,
+}))
+
 const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
 
 function jsonResponse(body: unknown, init?: ResponseInit) {
@@ -79,6 +83,7 @@ const baseSummary: KbGithubRemoteIntegrationSummary = {
   lastSyncStatus: null,
   lastError: null,
   remoteBranch: null,
+  hasPendingConflicts: false,
   version: 0,
   updatedAt: null,
 }
@@ -650,8 +655,11 @@ describe('KbGithubRemotePanel', () => {
       await waitFor(() =>
         expect(screen.getByText(/Merge conflicts detected in 2 file/)).toBeTruthy(),
       )
-      expect(screen.getByText('Keep local version')).toBeTruthy()
-      expect(screen.getByText('Keep GitHub version')).toBeTruthy()
+      expect(screen.getByText('article1.md')).toBeTruthy()
+      expect(screen.getByText('article2.md')).toBeTruthy()
+      expect(screen.getAllByText('Resolve')).toHaveLength(2)
+      expect(screen.getByText('Finalize Merge')).toBeTruthy()
+      expect(screen.getByText('Abort Merge')).toBeTruthy()
     })
 
     it('handles pull network error', async () => {
@@ -684,21 +692,6 @@ describe('KbGithubRemotePanel', () => {
       )
     })
 
-    it('shows resolved status on successful conflict resolution', async () => {
-      fetchMock
-        .mockResolvedValueOnce(jsonResponse(readySummary))
-        .mockResolvedValueOnce(jsonResponse({ ok: true, status: 'resolved' }))
-        .mockResolvedValueOnce(jsonResponse(readySummary))
-
-      await renderPanel()
-      await waitFor(() => expect(screen.getByText('Pull from GitHub')).toBeTruthy())
-
-      fireEvent.click(screen.getByText('Pull from GitHub'))
-
-      await waitFor(() =>
-        expect(screen.getByText('Conflicts resolved successfully.')).toBeTruthy(),
-      )
-    })
   })
 
   describe('conflict resolution', () => {
@@ -716,67 +709,57 @@ describe('KbGithubRemotePanel', () => {
       await renderPanel()
       await waitFor(() => expect(screen.getByText('Pull from GitHub')).toBeTruthy())
       fireEvent.click(screen.getByText('Pull from GitHub'))
-      await waitFor(() => expect(screen.getByText('Keep local version')).toBeTruthy())
+      await waitFor(() => expect(screen.getByText('Merge conflicts detected')).toBeTruthy())
     }
 
-    it('resolves with local_wins strategy', async () => {
+    it('shows conflict files with resolve buttons', async () => {
+      await renderWithConflicts()
+
+      expect(screen.getByText('file1.md')).toBeTruthy()
+      expect(screen.getByText('file2.md')).toBeTruthy()
+      expect(screen.getAllByText('Resolve')).toHaveLength(2)
+    })
+
+    it('disables finalize when not all files resolved', async () => {
+      await renderWithConflicts()
+
+      const finalizeBtn = screen.getByText('Finalize Merge').closest('button')
+      expect(finalizeBtn?.disabled).toBe(true)
+    })
+
+    it('aborts merge and clears conflict state', async () => {
       await renderWithConflicts()
 
       fetchMock
-        .mockResolvedValueOnce(jsonResponse({ ok: true, status: 'resolved' }))
+        .mockResolvedValueOnce(jsonResponse({ ok: true }))
         .mockResolvedValueOnce(jsonResponse(readySummary))
 
-      fireEvent.click(screen.getByText('Keep local version'))
+      fireEvent.click(screen.getByText('Abort Merge'))
 
       await waitFor(() =>
-        expect(screen.getByText('Conflicts resolved successfully.')).toBeTruthy(),
+        expect(screen.getByText('Merge aborted.')).toBeTruthy(),
       )
-      const resolveCall = fetchMock.mock.calls[2]
-      expect(JSON.parse(String(resolveCall[1]?.body))).toEqual({
-        direction: 'pull',
-        strategy: 'local_wins',
-      })
+      expect(screen.queryByText('Merge conflicts detected')).toBeNull()
     })
 
-    it('resolves with remote_wins strategy', async () => {
-      await renderWithConflicts()
+    it('finalizes merge when conflicts resolved externally', async () => {
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ ...readySummary, hasPendingConflicts: true, lastSyncStatus: 'conflicts' }))
+        .mockResolvedValueOnce(jsonResponse({ files: [] }))
+
+      await renderPanel()
+      await waitFor(() => expect(screen.getByText('Merge conflicts detected')).toBeTruthy())
 
       fetchMock
-        .mockResolvedValueOnce(jsonResponse({ ok: true, status: 'resolved' }))
+        .mockResolvedValueOnce(jsonResponse({ ok: true }))
         .mockResolvedValueOnce(jsonResponse(readySummary))
 
-      fireEvent.click(screen.getByText('Keep GitHub version'))
+      fireEvent.click(screen.getByText('Finalize Merge'))
 
       await waitFor(() =>
-        expect(screen.getByText('Conflicts resolved successfully.')).toBeTruthy(),
+        expect(screen.getByText('Merge completed successfully.')).toBeTruthy(),
       )
-      const resolveCall = fetchMock.mock.calls[2]
-      expect(JSON.parse(String(resolveCall[1]?.body))).toEqual({
-        direction: 'pull',
-        strategy: 'remote_wins',
-      })
-    })
-
-    it('shows conflict files in resolution section', async () => {
-      await renderWithConflicts()
-
-      expect(screen.getByText('Resolve conflicts')).toBeTruthy()
-      expect(screen.getByText(/Conflicting files:.*file1\.md.*file2\.md/)).toBeTruthy()
-    })
-
-    it('clears conflict state on successful resolution', async () => {
-      await renderWithConflicts()
-
-      fetchMock
-        .mockResolvedValueOnce(jsonResponse({ ok: true, status: 'resolved' }))
-        .mockResolvedValueOnce(jsonResponse(readySummary))
-
-      fireEvent.click(screen.getByText('Keep local version'))
-
-      await waitFor(() =>
-        expect(screen.getByText('Conflicts resolved successfully.')).toBeTruthy(),
-      )
-      expect(screen.queryByText('Resolve conflicts')).toBeNull()
+      expect(screen.queryByText('Merge conflicts detected')).toBeNull()
     })
   })
 

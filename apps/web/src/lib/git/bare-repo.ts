@@ -4,7 +4,7 @@ import * as path from 'node:path'
 
 export type GitResult =
   | { ok: true; stdout: string; stderr: string }
-  | { ok: false; stderr: string }
+  | { ok: false; stdout: string; stderr: string }
 
 export type CloneResult =
   | { ok: true; dir: string; gitEnv: NodeJS.ProcessEnv; safeConfigDir: string }
@@ -42,10 +42,11 @@ export async function runGit(
     if (error && typeof error === 'object' && 'stderr' in error) {
       return {
         ok: false,
+        stdout: String((error as { stdout?: string }).stdout ?? ''),
         stderr: String((error as { stderr?: string }).stderr ?? ''),
       }
     }
-    return { ok: false, stderr: 'git_failed' }
+    return { ok: false, stdout: '', stderr: 'git_failed' }
   }
 }
 
@@ -83,11 +84,11 @@ export async function runGitOnBareRepo(
   args: string[]
 ): Promise<GitResult> {
   if (!(await hasBareRepoLayout(root))) {
-    return { ok: false, stderr: 'not_bare_repository' }
+    return { ok: false, stdout: '', stderr: 'not_bare_repository' }
   }
 
   if (!(await isGitAvailable())) {
-    return { ok: false, stderr: 'git_unavailable' }
+    return { ok: false, stdout: '', stderr: 'git_unavailable' }
   }
 
   return runGit(['--git-dir', root, ...args])
@@ -155,4 +156,26 @@ export async function detectDefaultBranch(
 
 export function hashContent(content: string): string {
   return createHash('sha256').update(content).digest('hex')
+}
+
+export async function hasRemote(gitDir: string, name: string): Promise<boolean> {
+  const result = await runGit(['--git-dir', gitDir, 'remote'])
+  if (!result.ok) return false
+  return result.stdout.split('\n').some((line) => line.trim() === name)
+}
+
+export async function addOrUpdateRemote(
+  gitDir: string,
+  name: string,
+  url: string,
+): Promise<GitResult> {
+  const exists = await hasRemote(gitDir, name)
+  if (exists) {
+    return runGit(['--git-dir', gitDir, 'remote', 'set-url', name, url])
+  }
+  return runGit(['--git-dir', gitDir, 'remote', 'add', name, url])
+}
+
+export async function removeRemote(gitDir: string, name: string): Promise<GitResult> {
+  return runGit(['--git-dir', gitDir, 'remote', 'remove', name])
 }

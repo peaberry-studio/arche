@@ -334,6 +334,21 @@ describe("InspectorPanel", () => {
     expect(publishButton.getAttribute('title')).toBe('Resolve conflicts before publishing')
   })
 
+  it('renders review-only mode with publish disabled by required GitHub pull', () => {
+    render(
+      <InspectorPanel
+        {...defaultProps}
+        activeTab="review"
+        panelMode="review"
+        githubSyncRequired
+      />
+    )
+
+    const publishButton = screen.getByRole('button', { name: 'Publish' })
+    expect(publishButton.hasAttribute('disabled')).toBe(true)
+    expect(publishButton.getAttribute('title')).toBe('Pull from GitHub before publishing')
+  })
+
   it('renders files-only mode without the combined header', () => {
     render(
       <InspectorPanel

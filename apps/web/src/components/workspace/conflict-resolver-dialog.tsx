@@ -18,12 +18,17 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
+type GetConflictFn = (slug: string, path: string) => Promise<{ ok: boolean; conflict?: WorkspaceConflictDetails; error?: string }>
+type ResolveConflictFn = (slug: string, payload: { path: string; strategy: ConflictResolutionStrategy; content?: string }) => Promise<{ ok: boolean; error?: string }>
+
 type ConflictResolverDialogProps = {
   slug: string;
   path: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onResolved?: (path: string, content: string) => void;
+  getConflict?: GetConflictFn;
+  resolveConflict?: ResolveConflictFn;
 };
 
 const STRATEGY_OPTIONS: Array<{
@@ -54,6 +59,8 @@ export function ConflictResolverDialog({
   open,
   onOpenChange,
   onResolved,
+  getConflict = getWorkspaceConflictAction,
+  resolveConflict = resolveWorkspaceConflictAction,
 }: ConflictResolverDialogProps) {
   const [status, setStatus] = useState<"idle" | "loading" | "saving">("idle");
   const [error, setError] = useState<string | null>(null);
@@ -73,7 +80,7 @@ export function ConflictResolverDialog({
       setConflict(null);
     });
 
-    getWorkspaceConflictAction(slug, path)
+    getConflict(slug, path)
       .then((result) => {
         if (cancelled) return;
         if (!result.ok || !result.conflict) {
@@ -95,7 +102,7 @@ export function ConflictResolverDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, path, slug]);
+  }, [open, path, slug, getConflict]);
 
   const previewContent = useMemo(() => {
     if (!conflict) return "";
@@ -117,7 +124,7 @@ export function ConflictResolverDialog({
           ? conflict.ours
           : conflict.theirs;
 
-    const result = await resolveWorkspaceConflictAction(slug, {
+    const result = await resolveConflict(slug, {
       path,
       strategy,
       content: strategy === "manual" ? manualContent : undefined,

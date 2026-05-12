@@ -16,6 +16,10 @@ export function getKbContentRoot(): string {
   return getPaths().kbContentRoot()
 }
 
+export function getKbSyncWorkingCopyRoot(): string {
+  return getPaths().kbSyncWorkingCopyRoot()
+}
+
 export function getUsersBasePath(): string {
   return getPaths().usersBasePath()
 }

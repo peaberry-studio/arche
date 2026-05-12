@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { CaretDown, CaretRight, GitDiff, Trash } from "@phosphor-icons/react";
+import { ArrowsClockwise, CaretDown, CaretRight, GitDiff, Trash, Warning } from "@phosphor-icons/react";
 
 import { ConflictResolverDialog } from "./conflict-resolver-dialog";
+import { GitHubConflictSection } from "./github-conflict-section";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DiffViewer } from "@/components/ui/diff-viewer";
@@ -16,6 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import type { SyncKbResult } from "@/app/api/instances/[slug]/sync-kb/route";
 import type { WorkspaceDiff } from "@/hooks/use-workspace";
 
 type ReviewPanelProps = {
@@ -26,6 +28,14 @@ type ReviewPanelProps = {
   onOpenFile: (path: string) => void;
   onDiscardFileChanges?: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   onResolveConflict?: (path: string, content: string) => void;
+  githubSyncRequired?: boolean;
+  githubSyncMessage?: string | null;
+  githubMergePending?: boolean;
+  githubConflictFiles?: string[];
+  onPullGithubChanges?: () => Promise<SyncKbResult>;
+  onGithubConflictResolved?: (path: string) => void;
+  onGithubMergeFinalized?: () => void;
+  onGithubMergeAborted?: () => void;
 };
 
 const DIFF_PREVIEW_LINES = 120;
@@ -38,6 +48,14 @@ export function ReviewPanel({
   onOpenFile,
   onDiscardFileChanges,
   onResolveConflict,
+  githubSyncRequired,
+  githubSyncMessage,
+  githubMergePending,
+  githubConflictFiles,
+  onPullGithubChanges,
+  onGithubConflictResolved,
+  onGithubMergeFinalized,
+  onGithubMergeAborted,
 }: ReviewPanelProps) {
   const [expandedDiffs, setExpandedDiffs] = useState<Record<string, boolean>>({});
   const [conflictPath, setConflictPath] = useState<string | null>(null);
@@ -49,6 +67,8 @@ export function ReviewPanel({
 
   const conflictCount = useMemo(() => diffs.filter((diff) => diff.conflicted).length, [diffs]);
   const hasConflicts = conflictCount > 0;
+  const hasGithubConflicts = Boolean(githubMergePending || (githubConflictFiles && githubConflictFiles.length > 0));
+  const hasGithubReviewAction = hasGithubConflicts || Boolean(githubSyncRequired);
 
   const toggleDiff = useCallback((path: string) => {
     setExpandedDiffs((prev) => ({ ...prev, [path]: !prev[path] }));
@@ -81,7 +101,7 @@ export function ReviewPanel({
     }
   }, []);
 
-  if (error) {
+  if (error && !hasGithubReviewAction) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
         <GitDiff size={28} className="text-muted-foreground/30" />
@@ -95,7 +115,7 @@ export function ReviewPanel({
     );
   }
 
-  if (diffs.length === 0) {
+  if (diffs.length === 0 && !hasGithubReviewAction) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
         <GitDiff size={32} className="text-muted-foreground/30" />
@@ -108,6 +128,30 @@ export function ReviewPanel({
 
   return (
     <div className="space-y-2">
+      {githubSyncRequired && !hasGithubConflicts ? (
+        <GitHubSyncRequiredSection
+          message={githubSyncMessage}
+          onPullGithubChanges={onPullGithubChanges}
+        />
+      ) : null}
+
+      {hasGithubConflicts ? (
+        <GitHubConflictSection
+          slug={slug}
+          mergePending={githubMergePending}
+          conflictFiles={githubConflictFiles ?? []}
+          onFileResolved={onGithubConflictResolved ?? (() => {})}
+          onMergeFinalized={onGithubMergeFinalized ?? (() => {})}
+          onMergeAborted={onGithubMergeAborted ?? (() => {})}
+        />
+      ) : null}
+
+      {error ? (
+        <div className="rounded-md border border-red-500/30 bg-red-500/10 px-2.5 py-1.5 text-[11px] text-red-500">
+          Unable to load local workspace changes: {error}
+        </div>
+      ) : null}
+
       {hasConflicts ? (
         <div className="rounded-md border-[0.5px] border-amber-500/25 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-700 dark:text-amber-300">
           Detected {conflictCount} conflict{conflictCount !== 1 ? "s" : ""}. Resolve the files before publishing.
@@ -257,6 +301,78 @@ export function ReviewPanel({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function GitHubSyncRequiredSection({
+  message,
+  onPullGithubChanges,
+}: {
+  message?: string | null;
+  onPullGithubChanges?: () => Promise<SyncKbResult>;
+}) {
+  const [isPulling, setIsPulling] = useState(false);
+  const [pullError, setPullError] = useState<string | null>(null);
+
+  const handlePull = useCallback(async () => {
+    if (!onPullGithubChanges || isPulling) return;
+
+    setIsPulling(true);
+    setPullError(null);
+
+    try {
+      const result = await onPullGithubChanges();
+      if (
+        result.githubSyncStatus === "conflicts" ||
+        ((result.githubSyncStatus === "pulled" || result.githubSyncStatus === "up_to_date") &&
+          (result.status === "synced" || result.status === "conflicts"))
+      ) {
+        return;
+      }
+      setPullError(
+        result.githubSyncStatus === "skipped"
+          ? "GitHub remote is not ready. Check the GitHub KB remote settings."
+          : result.githubSyncStatus === "pulled" || result.githubSyncStatus === "up_to_date"
+            ? result.message ?? "Pull from GitHub completed, but updating the workspace failed."
+          : result.message ?? "Pull from GitHub did not complete. The remote may still have newer changes.",
+      );
+    } catch (error) {
+      setPullError(error instanceof Error ? error.message : "Pull from GitHub failed.");
+    } finally {
+      setIsPulling(false);
+    }
+  }, [isPulling, onPullGithubChanges]);
+
+  return (
+    <div className="space-y-2">
+      <div className="rounded-md border-[0.5px] border-amber-500/25 bg-amber-500/5 p-2.5">
+        <div className="flex items-center gap-2 text-[11px] font-medium text-amber-700 dark:text-amber-300">
+          <Warning size={14} weight="bold" className="shrink-0" />
+          <span>KB sync required</span>
+        </div>
+        <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+          {message || "GitHub has newer changes. Pull from GitHub before publishing again."}
+        </p>
+        <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+          If local and GitHub changes conflict, the resolver will appear here.
+        </p>
+        <Button
+          size="sm"
+          className="mt-2 h-7 gap-1.5 px-3 text-[11px]"
+          disabled={!onPullGithubChanges || isPulling}
+          onClick={() => void handlePull()}
+        >
+          <ArrowsClockwise size={12} weight="bold" className={cn(isPulling && "animate-spin")} />
+          {isPulling ? "Pulling…" : "Pull from GitHub"}
+        </Button>
+      </div>
+
+      {pullError ? (
+        <div className="rounded-md border border-red-500/30 bg-red-500/10 px-2.5 py-1.5 text-[11px] text-red-500">
+          {pullError}
+        </div>
+      ) : null}
     </div>
   );
 }

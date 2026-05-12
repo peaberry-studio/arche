@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLineLeft, ArrowLineRight, ChatCircle, Circle, Compass, Database, File, Graph, SlidersHorizontal, TreeStructure, Warning, X } from "@phosphor-icons/react";
 
 import { ensureInstanceRunningAction } from "@/actions/spawner";
+import type { PublishKbResult } from "@/app/api/instances/[slug]/publish-kb/route";
 import type { SyncKbResult } from "@/app/api/instances/[slug]/sync-kb/route";
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { useWorkspace } from "@/hooks/use-workspace";
@@ -281,7 +282,13 @@ export function WorkspaceShell({
   const configStatus = useConfigStatus(slug, instanceStatus === "running");
 
   // GitHub sync conflict state (set during auto-sync on spawn)
-  const [githubConflicts, setGithubConflicts] = useState(false);
+  const [githubConflictFiles, setGithubConflictFiles] = useState<string[]>([]);
+  const [githubMergePending, setGithubMergePending] = useState(false);
+  const [githubSyncRequired, setGithubSyncRequired] = useState(false);
+  const [githubSyncRequiredMessage, setGithubSyncRequiredMessage] = useState<string | null>(null);
+  const [githubConflictBannerDismissed, setGithubConflictBannerDismissed] = useState(false);
+  const githubConflicts = githubMergePending || githubConflictFiles.length > 0;
+  const githubNeedsReview = githubConflicts || githubSyncRequired;
 
   // Auto-start instance on mount
   useEffect(() => {
@@ -376,6 +383,24 @@ export function WorkspaceShell({
     setKnowledgeGraphReloadKey((current) => current + 1);
   }, []);
 
+  const loadGithubConflictState = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/u/${slug}/kb-github-remote/conflicts`, { cache: "no-store" });
+      const data = await response.json().catch(() => null) as { files?: string[]; hasPendingMerge?: boolean } | null;
+      if (!response.ok || !data) return;
+
+      const files = Array.isArray(data.files) ? data.files.filter((file): file is string => typeof file === "string") : [];
+      setGithubConflictFiles(files);
+      setGithubMergePending(Boolean(data.hasPendingMerge || files.length > 0));
+    } catch {
+      // Non-critical. Explicit sync/publish responses still surface conflicts.
+    }
+  }, [slug]);
+
+  useEffect(() => {
+    void loadGithubConflictState();
+  }, [loadGithubConflictState]);
+
   const sessionsById = useMemo(() => {
     const map = new Map<string, WorkspaceSession>();
     workspace.sessions.forEach((session) => {
@@ -467,16 +492,21 @@ export function WorkspaceShell({
         const res = await fetch(`/api/instances/${slug}/sync-kb`, { method: 'POST' });
         const data: SyncKbResult | null = await res.json().catch(() => null);
         if (data?.githubSyncStatus === 'conflicts') {
-          setGithubConflicts(true);
+          setGithubConflictFiles(data.githubConflictFiles ?? []);
+          setGithubMergePending(true);
+          setGithubSyncRequired(false);
+          setGithubSyncRequiredMessage(null);
+          setGithubConflictBannerDismissed(false);
         }
       } catch {
         // silent — auto-sync is best-effort
       }
+      void loadGithubConflictState();
       workspace.refreshDiffs();
       workspace.refreshFiles();
       reloadKnowledgeGraph();
     })();
-  }, [workspace, workspace.isConnected, slug, workspace.refreshDiffs, workspace.refreshFiles, reloadKnowledgeGraph]);
+  }, [workspace, workspace.isConnected, slug, workspace.refreshDiffs, workspace.refreshFiles, reloadKnowledgeGraph, loadGithubConflictState]);
 
   useEffect(() => {
     if (!workspace.isConnected || hasAutoStartedPrompt.current) return;
@@ -833,21 +863,110 @@ export function WorkspaceShell({
     });
   }, [openFilePaths, workspace]);
 
-  const handleSyncComplete = useCallback((status: SyncKbResult["status"]) => {
+  const handleSyncComplete = useCallback((result: SyncKbResult) => {
     workspace.refreshDiffs();
     workspace.refreshFiles();
     reloadKnowledgeGraph();
 
-    if (status === "synced") {
+    const hasGithubSyncConflicts = result.githubSyncStatus === 'conflicts';
+    const hasGithubSyncFailure = result.githubSyncStatus === 'error' || result.githubSyncStatus === 'skipped';
+
+    if (result.status === "synced" && !hasGithubSyncConflicts && !hasGithubSyncFailure) {
+      setGithubSyncRequired(false);
+      setGithubSyncRequiredMessage(null);
       void refreshOpenFilesCache();
     }
-  }, [refreshOpenFilesCache, reloadKnowledgeGraph, workspace]);
 
-  const handlePublishComplete = useCallback(() => {
+    if (hasGithubSyncConflicts) {
+      setGithubSyncRequired(false);
+      setGithubSyncRequiredMessage(null);
+      setGithubConflictFiles(result.githubConflictFiles ?? []);
+      setGithubMergePending(true);
+      setGithubConflictBannerDismissed(false);
+      setRightTab('review');
+      setRightCollapsedForMode(workspaceMode, false);
+    } else {
+      void loadGithubConflictState();
+    }
+  }, [refreshOpenFilesCache, reloadKnowledgeGraph, workspace, workspaceMode, setRightCollapsedForMode, loadGithubConflictState]);
+
+  const handlePullGithubChanges = useCallback(async (): Promise<SyncKbResult> => {
+    const response = await fetch(`/api/instances/${slug}/sync-kb`, { method: 'POST' });
+    const data = await response.json().catch(() => null) as (SyncKbResult | { error?: string }) | null;
+
+    if (!response.ok || !data || !('status' in data)) {
+      const message = data && 'error' in data && typeof data.error === 'string'
+        ? data.error
+        : `HTTP ${response.status}`;
+      const result: SyncKbResult = { ok: false, status: 'error', message };
+      setGithubSyncRequired(true);
+      setGithubSyncRequiredMessage(message);
+      return result;
+    }
+
+    if (data.githubSyncStatus === 'conflicts') {
+      handleSyncComplete(data);
+      setGithubSyncRequired(false);
+      setGithubSyncRequiredMessage(null);
+      return data;
+    }
+
+    const githubPullSucceeded = data.githubSyncStatus === 'pulled' || data.githubSyncStatus === 'up_to_date';
+    if (githubPullSucceeded && (data.status === 'synced' || data.status === 'conflicts')) {
+      handleSyncComplete(data);
+      setGithubSyncRequired(false);
+      setGithubSyncRequiredMessage(null);
+      return data;
+    }
+
     workspace.refreshDiffs();
     workspace.refreshFiles();
     reloadKnowledgeGraph();
-  }, [reloadKnowledgeGraph, workspace]);
+    setRightTab('review');
+    setRightCollapsedForMode(workspaceMode, false);
+    setGithubSyncRequired(true);
+    setGithubSyncRequiredMessage(
+      data.githubSyncStatus === 'skipped'
+        ? 'GitHub remote is not ready. Check the GitHub KB remote settings.'
+        : githubPullSucceeded
+          ? data.message ?? 'Pull from GitHub completed, but updating the workspace failed.'
+        : data.message ?? 'Pull from GitHub did not complete. The remote may still have newer changes.',
+    );
+    return data;
+  }, [handleSyncComplete, reloadKnowledgeGraph, setRightCollapsedForMode, slug, workspace, workspaceMode]);
+
+  const handlePublishComplete = useCallback((result: PublishKbResult) => {
+    workspace.refreshDiffs();
+    workspace.refreshFiles();
+    reloadKnowledgeGraph();
+
+    if (result.status === 'push_rejected') {
+      setGithubSyncRequired(true);
+      setGithubSyncRequiredMessage(result.message ?? 'GitHub has newer changes. Pull from GitHub before publishing again.');
+      setGithubConflictFiles([]);
+      setGithubMergePending(false);
+      setGithubConflictBannerDismissed(false);
+      setRightTab('review');
+      setRightCollapsedForMode(workspaceMode, false);
+      return;
+    }
+
+    if (result.status === 'conflicts') {
+      setGithubSyncRequired(false);
+      setGithubSyncRequiredMessage(null);
+      setGithubConflictFiles(result.githubConflictFiles ?? []);
+      setGithubMergePending(true);
+      setGithubConflictBannerDismissed(false);
+      setRightTab('review');
+      setRightCollapsedForMode(workspaceMode, false);
+      return;
+    }
+
+    if (result.status === 'published' || result.status === 'nothing_to_publish') {
+      setGithubSyncRequired(false);
+      setGithubSyncRequiredMessage(null);
+    }
+  }, [reloadKnowledgeGraph, workspace, workspaceMode, setRightCollapsedForMode]);
 
   const handleResolveConflict = useCallback(
     (path: string, content: string) => {
@@ -872,6 +991,31 @@ export function WorkspaceShell({
     },
     [reloadKnowledgeGraph, workspace]
   );
+
+  const handleGithubConflictResolved = useCallback((_path: string) => {
+    workspace.refreshDiffs();
+    void loadGithubConflictState();
+  }, [workspace, loadGithubConflictState]);
+
+  const handleGithubMergeFinalized = useCallback(() => {
+    setGithubConflictFiles([]);
+    setGithubMergePending(false);
+    setGithubSyncRequired(false);
+    setGithubSyncRequiredMessage(null);
+    setGithubConflictBannerDismissed(false);
+    workspace.refreshDiffs();
+    workspace.refreshFiles();
+    reloadKnowledgeGraph();
+  }, [reloadKnowledgeGraph, workspace]);
+
+  const handleGithubMergeAborted = useCallback(() => {
+    setGithubConflictFiles([]);
+    setGithubMergePending(false);
+    setGithubSyncRequired(false);
+    setGithubSyncRequiredMessage(null);
+    setGithubConflictBannerDismissed(false);
+    workspace.refreshDiffs();
+  }, [workspace]);
 
   const handleSaveFile = useCallback(
     async (path: string, content: string, expectedHash?: string) => {
@@ -1224,6 +1368,8 @@ export function WorkspaceShell({
       })
       .filter((f): f is NonNullable<typeof f> => f != null);
   }, [openFilePaths, fileCache]);
+  const githubConflictBadgeCount = githubNeedsReview ? Math.max(githubConflictFiles.length, 1) : 0;
+  const reviewPendingCount = workspace.diffs.length + githubConflictBadgeCount;
 
   // File handlers
   const handleOpenFile = useCallback(async (path: string) => {
@@ -1769,7 +1915,7 @@ export function WorkspaceShell({
       rightCollapsed={false}
       onToggleRight={handleToggleRight}
       hideCollapseButton
-      pendingDiffsForBadge={workspace.diffs.length}
+      pendingDiffsForBadge={reviewPendingCount}
       openFiles={openFiles}
       activeFilePath={activeFilePath}
       onSelectFile={handleSelectFile}
@@ -1797,7 +1943,7 @@ export function WorkspaceShell({
       rightCollapsed={isCompactLayout ? false : rightCollapsed}
       onToggleRight={isCompactLayout ? handleShowChat : handleToggleRight}
       hideCollapseButton={isCompactLayout}
-      pendingDiffsForBadge={workspace.diffs.length}
+      pendingDiffsForBadge={reviewPendingCount}
       openFiles={openFiles}
       activeFilePath={activeFilePath}
       onSelectFile={handleSelectFile}
@@ -1812,6 +1958,14 @@ export function WorkspaceShell({
       onDiscardFileChanges={workspaceAgentEnabled ? handleDiscardFileChanges : undefined}
       onPublish={workspaceAgentEnabled ? handlePublishComplete : undefined}
       onResolveConflict={workspaceAgentEnabled ? handleResolveConflict : undefined}
+      githubSyncRequired={githubSyncRequired}
+      githubSyncMessage={githubSyncRequiredMessage}
+      githubMergePending={githubMergePending}
+      githubConflictFiles={githubConflictFiles}
+      onPullGithubChanges={handlePullGithubChanges}
+      onGithubConflictResolved={handleGithubConflictResolved}
+      onGithubMergeFinalized={handleGithubMergeFinalized}
+      onGithubMergeAborted={handleGithubMergeAborted}
     />
   );
 
@@ -1842,7 +1996,7 @@ export function WorkspaceShell({
   const isLeftPanelActive = mobileView === "left";
   const isChatActive = mobileView === "chat";
   const isRightPanelActive = mobileView === "right";
-  const rightPanelBadgeLabel = workspace.diffs.length > 99 ? "99+" : String(workspace.diffs.length);
+  const rightPanelBadgeLabel = reviewPendingCount > 99 ? "99+" : String(reviewPendingCount);
   const mobileLeftLabel = isKnowledgeMode ? "Tree" : isTasksMode ? "Tasks" : "Sessions";
   const mobileCenterLabel = isKnowledgeMode ? "Files" : "Chat";
   const mobileRightLabel = "Review";
@@ -1878,7 +2032,7 @@ export function WorkspaceShell({
         status="active"
         sessionsUnreadCount={sessionsUnreadCount}
         tasksUnreadCount={tasksUnreadCount}
-        knowledgePendingCount={workspace.diffs.length}
+        knowledgePendingCount={reviewPendingCount}
         macDesktopWindowInset={macDesktopWindowInset}
         hideTasksMode={hasDesktopVault}
         onModeChange={handleWorkspaceModeChange}
@@ -1896,13 +2050,26 @@ export function WorkspaceShell({
           onRestart={configStatus.restart}
         />
       ) : null}
-      {githubConflicts ? (
+      {githubNeedsReview && !githubConflictBannerDismissed ? (
         <div className="flex w-full shrink-0 items-center justify-center gap-3 bg-amber-500 px-4 py-2.5 text-sm font-medium text-white dark:bg-amber-600">
           <Warning size={16} weight="bold" className="shrink-0" />
-          <span>GitHub sync: merge conflicts detected. Resolve in Settings &gt; Integrations.</span>
+          <span>
+            {githubSyncRequired
+              ? 'GitHub sync: remote changes need to be pulled before publishing.'
+              : githubConflictFiles.length > 0
+              ? `GitHub sync: merge conflicts in ${githubConflictFiles.length} file${githubConflictFiles.length !== 1 ? 's' : ''}.`
+              : 'GitHub sync: merge ready to finalize.'}
+          </span>
           <button
             type="button"
-            onClick={() => setGithubConflicts(false)}
+            onClick={() => { setRightTab("review"); if (rightCollapsed) handleToggleRight(); }}
+            className="inline-flex items-center rounded-md bg-white/20 px-2 py-0.5 text-xs font-medium text-white transition-colors hover:bg-white/30"
+          >
+            Open Review
+          </button>
+          <button
+            type="button"
+            onClick={() => setGithubConflictBannerDismissed(true)}
             className="ml-1 inline-flex items-center rounded-md p-1 text-white/80 transition-colors hover:text-white"
             aria-label="Dismiss"
           >
@@ -2013,7 +2180,7 @@ export function WorkspaceShell({
                 >
                   <div className="relative">
                     <File size={22} weight={isRightPanelActive ? "fill" : "regular"} />
-                    {workspace.diffs.length > 0 ? (
+                    {reviewPendingCount > 0 ? (
                       <span className="absolute -right-1.5 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
                         {rightPanelBadgeLabel}
                       </span>

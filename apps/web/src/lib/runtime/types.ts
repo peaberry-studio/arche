@@ -43,6 +43,7 @@ export type WorkspaceHost = {
 export type RuntimePaths = {
   kbConfigRoot: () => string
   kbContentRoot: () => string
+  kbSyncWorkingCopyRoot: () => string
   usersBasePath: () => string
   userDataPath: (slug: string) => string
 }

@@ -60,13 +60,13 @@ describe('runGit', () => {
   it('returns stderr on error with stderr property', async () => {
     mockExecFile.mockRejectedValue({ stderr: 'fatal: bad' })
     const result = await runGit(['status'])
-    expect(result).toEqual({ ok: false, stderr: 'fatal: bad' })
+    expect(result).toEqual({ ok: false, stdout: '', stderr: 'fatal: bad' })
   })
 
   it('returns git_failed for errors without stderr', async () => {
     mockExecFile.mockRejectedValue(new Error('ENOENT'))
     const result = await runGit(['status'])
-    expect(result).toEqual({ ok: false, stderr: 'git_failed' })
+    expect(result).toEqual({ ok: false, stdout: '', stderr: 'git_failed' })
   })
 
   it('passes cwd and env options', async () => {

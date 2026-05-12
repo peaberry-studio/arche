@@ -41,7 +41,7 @@ describe('SyncKbButton', () => {
 
     expect(await screen.findByRole('button', { name: 'Knowledge base synced' })).toBeTruthy()
     expect(fetchMock).toHaveBeenCalledWith('/api/instances/alice/sync-kb', { method: 'POST' })
-    expect(onComplete).toHaveBeenCalledWith('synced')
+    expect(onComplete).toHaveBeenCalledWith(expect.objectContaining({ status: 'synced' }))
   })
 
   it('shows conflicts in icon mode and dismisses the popover', async () => {
@@ -58,10 +58,48 @@ describe('SyncKbButton', () => {
     expect(await screen.findByText('Merge conflicts detected')).toBeTruthy()
     expect(screen.getByText('Resolve these files in the editor:')).toBeTruthy()
     expect(screen.getByText('Notes/A.md')).toBeTruthy()
-    expect(onComplete).toHaveBeenCalledWith('conflicts')
+    expect(onComplete).toHaveBeenCalledWith(expect.objectContaining({ status: 'conflicts' }))
 
     fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     await waitFor(() => expect(screen.queryByText('Merge conflicts detected')).toBeNull())
+  })
+
+  it('detects GitHub sync conflicts from response', async () => {
+    const onComplete = vi.fn()
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      ok: false,
+      status: 'conflicts',
+      githubSyncStatus: 'conflicts',
+      githubConflictFiles: ['docs/intro.md', 'docs/faq.md'],
+    }))
+
+    render(<SyncKbButton slug="alice" onComplete={onComplete} />)
+    fireEvent.click(screen.getByRole('button'))
+
+    expect(await screen.findByText('Merge conflicts detected')).toBeTruthy()
+    expect(screen.getByText('docs/intro.md')).toBeTruthy()
+    expect(screen.getByText('docs/faq.md')).toBeTruthy()
+    expect(onComplete).toHaveBeenCalledWith(
+      expect.objectContaining({ githubSyncStatus: 'conflicts', githubConflictFiles: ['docs/intro.md', 'docs/faq.md'] })
+    )
+  })
+
+  it('does not show success when GitHub pull fails before workspace sync', async () => {
+    const onComplete = vi.fn()
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      ok: false,
+      status: 'error',
+      message: 'GitHub pull failed',
+      githubSyncStatus: 'error',
+    }))
+
+    render(<SyncKbButton slug="alice" onComplete={onComplete} renderAs="row" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Sync knowledge base' }))
+
+    expect(await screen.findByRole('button', { name: 'Sync failed' })).toBeTruthy()
+    expect(onComplete).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'error', githubSyncStatus: 'error' })
+    )
   })
 
   it('shows API and network errors', async () => {
@@ -81,7 +119,7 @@ describe('SyncKbButton', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sync knowledge base' }))
 
     expect(await screen.findByRole('button', { name: 'Sync failed' })).toBeTruthy()
-    expect(onComplete).toHaveBeenCalledWith('error')
+    expect(onComplete).toHaveBeenCalledWith(expect.objectContaining({ status: 'error' }))
   })
 
   it('shows failed result messages in row mode', async () => {
@@ -92,6 +130,6 @@ describe('SyncKbButton', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sync knowledge base' }))
 
     expect(await screen.findByRole('button', { name: 'Sync failed' })).toBeTruthy()
-    expect(onComplete).toHaveBeenCalledWith('no_remote')
+    expect(onComplete).toHaveBeenCalledWith(expect.objectContaining({ status: 'no_remote' }))
   })
 })

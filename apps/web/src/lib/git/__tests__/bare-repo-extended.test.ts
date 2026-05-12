@@ -51,7 +51,7 @@ describe('bare-repo extended', () => {
     it('returns not_bare_repository for invalid layout', async () => {
       const badDir = await fs.mkdtemp(path.join(tmpdir(), 'bad-repo-'))
       const result = await runGitOnBareRepo(badDir, ['log'])
-      expect(result).toEqual({ ok: false, stderr: 'not_bare_repository' })
+      expect(result).toEqual({ ok: false, stdout: '', stderr: 'not_bare_repository' })
       await fs.rm(badDir, { recursive: true, force: true })
     })
 

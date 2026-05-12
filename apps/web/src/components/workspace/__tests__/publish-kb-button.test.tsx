@@ -42,7 +42,7 @@ describe('PublishKbButton', () => {
 
     await screen.findByRole('button', { name: 'Published' })
     expect(fetchMock).toHaveBeenCalledWith('/api/instances/alice/publish-kb', { method: 'POST' })
-    expect(onComplete).toHaveBeenCalledTimes(1)
+    expect(onComplete).toHaveBeenCalledWith(expect.objectContaining({ status: 'published' }))
   })
 
   it('shows no changes when there is nothing to publish', async () => {
@@ -53,10 +53,11 @@ describe('PublishKbButton', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Publish' }))
 
     await screen.findByRole('button', { name: 'No changes' })
-    expect(onComplete).toHaveBeenCalledTimes(1)
+    expect(onComplete).toHaveBeenCalledWith(expect.objectContaining({ status: 'nothing_to_publish' }))
   })
 
-  it('shows push rejected details and dismisses the popover', async () => {
+  it('reports push rejection without showing a redundant popover', async () => {
+    const onComplete = vi.fn()
     fetchMock.mockResolvedValueOnce(
       jsonResponse({
         status: 'push_rejected',
@@ -65,30 +66,33 @@ describe('PublishKbButton', () => {
       })
     )
 
+    render(<PublishKbButton slug="alice" onComplete={onComplete} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Publish' }))
+
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith(expect.objectContaining({ status: 'push_rejected' })))
+    expect(screen.queryByText('KB sync required')).toBeNull()
+    expect(screen.queryByText('Sync first')).toBeNull()
+    expect(screen.queryByText('Notes/A.md')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Publish' })).toBeDefined()
+  })
+
+  it('shows conflict summary pointing to Review panel', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      status: 'conflicts',
+      githubConflictFiles: ['Conflict.md', 'Other.md'],
+    }))
+
     render(<PublishKbButton slug="alice" />)
     fireEvent.click(screen.getByRole('button', { name: 'Publish' }))
 
-    expect(await screen.findByText('KB sync required')).toBeDefined()
-    expect(screen.getByText('Sync first')).toBeDefined()
-    expect(screen.getByText('Notes/A.md')).toBeDefined()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
-    await waitFor(() => expect(screen.queryByText('KB sync required')).toBeNull())
+    expect(await screen.findByText('Merge conflicts detected')).toBeDefined()
+    expect(screen.getByText(/2 files need resolution in the Review panel/)).toBeDefined()
   })
 
-  it('shows conflict and missing remote details', async () => {
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse({ status: 'conflicts', files: ['Conflict.md'] }))
-      .mockResolvedValueOnce(jsonResponse({ status: 'no_remote', message: 'No origin' }))
+  it('shows missing remote details', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ status: 'no_remote', message: 'No origin' }))
 
-    const { rerender } = render(<PublishKbButton slug="alice" />)
-    fireEvent.click(screen.getByRole('button', { name: 'Publish' }))
-
-    expect(await screen.findByText('Pending conflicts')).toBeDefined()
-    expect(screen.getByText('Conflict.md')).toBeDefined()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
-    rerender(<PublishKbButton slug="alice" />)
+    render(<PublishKbButton slug="alice" />)
     fireEvent.click(screen.getByRole('button', { name: 'Publish' }))
 
     expect(await screen.findByText('KB remote unavailable')).toBeDefined()
