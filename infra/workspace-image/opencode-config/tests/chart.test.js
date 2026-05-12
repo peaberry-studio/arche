@@ -92,5 +92,9 @@ test('chart_create rejects malformed and unsafe chart inputs', async () => {
     const output = await createChart(overrides)
     assert.equal(output.ok, false)
     assert.equal(output.error, 'invalid_chart_input')
+    assert.match(output.hint, /requires inline data in the data field/)
+    assert.equal(output.example.xField, 'segment')
+    assert.equal(output.example.yField, 'change_percent')
+    assert.deepEqual(output.example.data[0], { segment: 'Mexico', change_percent: 60 })
   }
 })

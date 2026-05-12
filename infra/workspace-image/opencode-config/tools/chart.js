@@ -12,6 +12,23 @@ const VEGA_LITE_SCHEMA = 'https://vega.github.io/schema/vega-lite/v5.json'
 
 const CHART_TYPES = ['bar', 'line', 'area', 'scatter', 'pie']
 const UNSAFE_TEXT_PATTERN = /[<>]|\b(?:https?:\/\/|www\.)|\b(?:javascript|data):/i
+const CHART_INPUT_EXAMPLE = {
+  type: 'bar',
+  title: 'Variation by segment',
+  xField: 'segment',
+  yField: 'change_percent',
+  data: [
+    { segment: 'Mexico', change_percent: 60 },
+    { segment: 'Rest of countries', change_percent: -9.1 },
+  ],
+  sourceNote: 'Mixpanel, last 7 full days vs previous 7 days',
+}
+const INVALID_CHART_INPUT_HINT = [
+  'chart_create requires inline data in the data field as an array of row objects.',
+  'Do not put CSV, JSON, or numeric values only in sourceNote; sourceNote is metadata only.',
+  'Every row must include the xField and yField keys, and every yField value must be a finite number.',
+  `Example input: ${JSON.stringify(CHART_INPUT_EXAMPLE)}`,
+].join(' ')
 
 const chartTypeSchema = z.enum(CHART_TYPES)
 const cellValueSchema = z.union([
@@ -165,25 +182,44 @@ function normalizeChartInput(input) {
   }
 }
 
+function invalidChartInputOutput() {
+  return toToolOutput({
+    ok: false,
+    error: 'invalid_chart_input',
+    hint: INVALID_CHART_INPUT_HINT,
+    example: CHART_INPUT_EXAMPLE,
+  })
+}
+
 export const create = {
-  description: 'Create a safe Vega-Lite chart from inline data. Use sourceNote when the data comes from a document, query, or calculation.',
+  description: [
+    'Create a safe Vega-Lite chart from inline row data.',
+    'Always pass the numeric rows in the required data field; sourceNote is only a short metadata note, ' +
+      'not a place for CSV/JSON/data values.',
+    `Example input: ${JSON.stringify(CHART_INPUT_EXAMPLE)}`,
+  ].join(' '),
   args: {
     type: chartTypeSchema.describe('Chart type: bar, line, area, scatter, or pie.'),
     title: z.string().min(1).max(MAX_TITLE_CHARS).describe('Short chart title. Plain text only.'),
     xField: z.string().min(1).max(MAX_FIELD_CHARS).describe('Field name for the x-axis or category labels.'),
     yField: z.string().min(1).max(MAX_FIELD_CHARS).describe('Numeric field name for the y-axis or values.'),
-    data: z.array(chartRowSchema).min(1).max(MAX_ROWS).describe('Inline chart data. Maximum 1000 rows and 50 columns.'),
-    sourceNote: z.string().max(MAX_SOURCE_NOTE_CHARS).optional().describe('Optional plain-text note explaining the data source.'),
+    data: z.array(chartRowSchema).min(1).max(MAX_ROWS).describe(
+      'Required inline chart data as row objects, for example [{"segment":"Mexico","change_percent":60}]. ' +
+        'Maximum 1000 rows and 50 columns.',
+    ),
+    sourceNote: z.string().max(MAX_SOURCE_NOTE_CHARS).optional().describe(
+      'Optional plain-text note explaining the data source. Do not put the chart data here.',
+    ),
   },
   async execute(args) {
     const parsed = createArgsSchema.safeParse(args)
     if (!parsed.success) {
-      return toToolOutput({ ok: false, error: 'invalid_chart_input' })
+      return invalidChartInputOutput()
     }
 
     const chartInput = normalizeChartInput(parsed.data)
     if (!chartInput) {
-      return toToolOutput({ ok: false, error: 'invalid_chart_input' })
+      return invalidChartInputOutput()
     }
 
     return toToolOutput({
