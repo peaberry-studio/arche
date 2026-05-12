@@ -32,7 +32,7 @@ describe('createInstanceClient', () => {
     const connection = { baseUrl: 'http://opencode-alice:4096', authHeader: 'Basic abc', username: 'opencode', password: 'pw' }
     mockResolveInstanceConnection.mockResolvedValue(connection)
     const mockClient = { global: { health: vi.fn() } }
-    mockCreateConfiguredOpencodeClient.mockReturnValue(mockClient)
+    mockCreateConfiguredOpencodeClient.mockResolvedValue(mockClient)
 
     const { createInstanceClient } = await import('../client')
     const result = await createInstanceClient('alice')
@@ -60,7 +60,7 @@ describe('isInstanceHealthy', () => {
     const connection = { baseUrl: 'http://opencode-alice:4096', authHeader: 'Basic abc', username: 'opencode', password: 'pw' }
     mockResolveInstanceConnection.mockResolvedValue(connection)
     const mockClient = { global: { health: vi.fn().mockResolvedValue({ data: { healthy: true } }) } }
-    mockCreateConfiguredOpencodeClient.mockReturnValue(mockClient)
+    mockCreateConfiguredOpencodeClient.mockResolvedValue(mockClient)
 
     const { isInstanceHealthy } = await import('../client')
     const result = await isInstanceHealthy('alice')
@@ -73,7 +73,7 @@ describe('isInstanceHealthy', () => {
     const connection = { baseUrl: 'http://opencode-alice:4096', authHeader: 'Basic abc', username: 'opencode', password: 'pw' }
     mockResolveInstanceConnection.mockResolvedValue(connection)
     const mockClient = { global: { health: vi.fn().mockResolvedValue({ data: { healthy: false } }) } }
-    mockCreateConfiguredOpencodeClient.mockReturnValue(mockClient)
+    mockCreateConfiguredOpencodeClient.mockResolvedValue(mockClient)
 
     const { isInstanceHealthy } = await import('../client')
     const result = await isInstanceHealthy('alice')
@@ -85,7 +85,7 @@ describe('isInstanceHealthy', () => {
     const connection = { baseUrl: 'http://opencode-alice:4096', authHeader: 'Basic abc', username: 'opencode', password: 'pw' }
     mockResolveInstanceConnection.mockResolvedValue(connection)
     const mockClient = { global: { health: vi.fn().mockRejectedValue(new Error('timeout')) } }
-    mockCreateConfiguredOpencodeClient.mockReturnValue(mockClient)
+    mockCreateConfiguredOpencodeClient.mockResolvedValue(mockClient)
 
     const { isInstanceHealthy } = await import('../client')
     const result = await isInstanceHealthy('alice')

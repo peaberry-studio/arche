@@ -1,11 +1,25 @@
-import { createOpencodeClient, type OpencodeClient } from '@opencode-ai/sdk/v2/client'
+import type { OpencodeClient } from '@opencode-ai/sdk/v2/client'
 
 type CreateOpencodeClientArgs = {
   authHeader: string
   baseUrl: string
 }
 
-export function createConfiguredOpencodeClient({ baseUrl, authHeader }: CreateOpencodeClientArgs): OpencodeClient {
+function importRuntimeModule<T>(specifier: string): Promise<T> {
+  if (process.env.VITEST) {
+    return import(specifier) as Promise<T>
+  }
+
+  return Function('runtimeSpecifier', 'return import(runtimeSpecifier)')(specifier) as Promise<T>
+}
+
+export async function createConfiguredOpencodeClient(
+  { baseUrl, authHeader }: CreateOpencodeClientArgs,
+): Promise<OpencodeClient> {
+  const { createOpencodeClient } = await importRuntimeModule<typeof import('@opencode-ai/sdk/v2/client')>(
+    '@opencode-ai/sdk/v2/client',
+  )
+
   return createOpencodeClient({
     baseUrl,
     fetch: async (input, init) => {
