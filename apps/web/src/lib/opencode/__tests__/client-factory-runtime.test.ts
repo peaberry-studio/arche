@@ -1,5 +1,7 @@
-import { execFile as execFileCallback } from 'child_process'
-import { promisify } from 'util'
+import { execFile as execFileCallback } from 'node:child_process'
+import * as path from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { promisify } from 'node:util'
 
 import { describe, expect, it } from 'vitest'
 
@@ -13,9 +15,14 @@ function createRuntimeEnv(): NodeJS.ProcessEnv {
 
 describe('createConfiguredOpencodeClient runtime loading', () => {
   it('loads the SDK client subpath under tsx without CommonJS export errors', async () => {
+    const testDir = path.dirname(fileURLToPath(import.meta.url))
+    const appRoot = path.resolve(testDir, '../../../..')
+    const factoryUrl = pathToFileURL(path.resolve(testDir, '../client-factory.ts')).href
+
+    // createOpencodeClient only constructs a client; this URL is never contacted.
     const script = [
       '(async () => {',
-      "const clientFactory = await import('./src/lib/opencode/client-factory.ts')",
+      `const clientFactory = await import(${JSON.stringify(factoryUrl)})`,
       'const { createConfiguredOpencodeClient } = clientFactory.default ?? clientFactory',
       "await createConfiguredOpencodeClient({ baseUrl: 'http://127.0.0.1:4096', authHeader: 'Basic test' })",
       "console.log('OK')",
@@ -23,7 +30,7 @@ describe('createConfiguredOpencodeClient runtime loading', () => {
     ].join('; ')
 
     const { stdout, stderr } = await execFile('pnpm', ['exec', 'tsx', '-e', script], {
-      cwd: process.cwd(),
+      cwd: appRoot,
       env: createRuntimeEnv(),
       timeout: 15_000,
     })

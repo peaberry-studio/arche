@@ -10,6 +10,8 @@ function importRuntimeModule<T>(specifier: string): Promise<T> {
     return import(specifier) as Promise<T>
   }
 
+  // Keep this hidden from tsx/esbuild so import() is not rewritten to require().
+  // The SDK subpath must be resolved through ESM package exports at runtime.
   return Function('runtimeSpecifier', 'return import(runtimeSpecifier)')(specifier) as Promise<T>
 }
 

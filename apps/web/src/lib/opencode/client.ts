@@ -79,7 +79,7 @@ export async function createInstanceClient(slug: string): Promise<OpencodeClient
     return null
   }
 
-  return await createConfiguredOpencodeClient(connection)
+  return createConfiguredOpencodeClient(connection)
 }
 
 /**
