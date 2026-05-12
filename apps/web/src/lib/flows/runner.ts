@@ -6,42 +6,29 @@ import {
 } from '@prisma/client'
 
 import { formatFlowRunDate } from '@/lib/flows/cron'
+import { getFlowNodeById, getFlowOutgoingTargets } from '@/lib/flows/graph'
 import { serializeFlowRun, toPrismaJson } from '@/lib/flows/serializers'
+import { createFlowLeaseOwner, FLOW_LEASE_MS, runFlowPromptAndReadOutput } from '@/lib/flows/session-executor'
 import { buildFlowTemplateContext, renderFlowTemplate } from '@/lib/flows/template'
 import type { ConditionFlowNode, FlowConditionOperator, FlowDefinition, FlowNode } from '@/lib/flows/types'
 import { validateFlowDefinition } from '@/lib/flows/validation'
 import { createInstanceClient } from '@/lib/opencode/client'
 import {
-  captureSessionMessageCursor,
   ensureWorkspaceRunningForExecution,
-  readLatestAssistantText,
-  waitForSessionToComplete,
   type SessionExecutionClient,
 } from '@/lib/opencode/session-execution'
 import { isRecord } from '@/lib/records'
 import { auditService, flowService, instanceService, userService } from '@/lib/services'
 import type { FlowClaimedRecord, FlowRecord, FlowRunDetailRecord, FlowRunRecord, FlowRunStepRecord } from '@/lib/services/flow'
 
-const LEASE_EXTENSION_INTERVAL_MS = 60_000
-export const FLOW_LEASE_MS = 15 * 60 * 1000
+export { FLOW_LEASE_MS } from '@/lib/flows/session-executor'
+
+const MAX_FLOW_NODE_EXECUTIONS = 100
 
 type FlowExecutionOutcome =
   | { status: 'succeeded' }
   | { status: 'waiting_for_human'; nodeId: string }
   | { status: 'failed'; error: string }
-
-function importRuntimeModule<T>(specifier: string): Promise<T> {
-  if (process.env.VITEST) {
-    return import(specifier) as Promise<T>
-  }
-
-  return Function('runtimeSpecifier', 'return import(runtimeSpecifier)')(specifier) as Promise<T>
-}
-
-async function createLeaseOwner(): Promise<string> {
-  const { randomUUID } = await importRuntimeModule<typeof import('crypto')>('crypto')
-  return `flows:${process.pid}:${randomUUID()}`
-}
 
 function buildFlowSessionTitle(flow: FlowRecord, scheduledFor: Date): string {
   return `Flow | ${flow.name} | ${formatFlowRunDate(scheduledFor, flow.timezone)}`
@@ -60,16 +47,6 @@ function nodeTypeToPrisma(node: FlowNode): PrismaFlowNodeType {
     case 'compaction':
       return PrismaFlowNodeType.compaction
   }
-}
-
-function getNodeById(definition: FlowDefinition, nodeId: string): FlowNode | null {
-  return definition.nodes.find((node) => node.id === nodeId) ?? null
-}
-
-function getOutgoingTargets(definition: FlowDefinition, nodeId: string): string[] {
-  return definition.edges
-    .filter((edge) => edge.sourceNodeId === nodeId)
-    .map((edge) => edge.targetNodeId)
 }
 
 function replaceStep(steps: FlowRunStepRecord[], step: FlowRunStepRecord): FlowRunStepRecord[] {
@@ -123,57 +100,6 @@ function extractAiTarget(rawOutput: string, targetNodeIds: string[]): string | n
   return targetNodeIds.find((targetNodeId) => trimmed.includes(targetNodeId)) ?? null
 }
 
-async function runPromptAndReadOutput(params: {
-  agent?: string | null
-  client: SessionExecutionClient
-  flowId: string
-  leaseOwner: string
-  prompt: string
-  sessionId: string
-  slug: string
-}): Promise<{ ok: true; output: string } | { ok: false; error: string }> {
-  const cursor = await captureSessionMessageCursor(params.client, params.sessionId)
-  await params.client.session.promptAsync(
-    {
-      agent: params.agent ?? undefined,
-      parts: [{ text: params.prompt, type: 'text' }],
-      sessionID: params.sessionId,
-    },
-    { throwOnError: true },
-  )
-
-  let lastLeaseExtensionAt = 0
-  const failure = await waitForSessionToComplete({
-    client: params.client,
-    cursor,
-    onPulse: async () => {
-      if (Date.now() - lastLeaseExtensionAt < LEASE_EXTENSION_INTERVAL_MS) {
-        return
-      }
-
-      await flowService.extendFlowLease(
-        params.flowId,
-        params.leaseOwner,
-        new Date(Date.now() + FLOW_LEASE_MS),
-      )
-      lastLeaseExtensionAt = Date.now()
-    },
-    sessionId: params.sessionId,
-    slug: params.slug,
-  })
-
-  if (failure) {
-    return { ok: false, error: failure }
-  }
-
-  const output = await readLatestAssistantText(params.client, params.sessionId, cursor)
-  if (!output) {
-    return { ok: false, error: 'flow_no_assistant_output' }
-  }
-
-  return { ok: true, output }
-}
-
 async function executeAgentNode(params: {
   client: SessionExecutionClient
   flow: FlowRecord
@@ -207,7 +133,7 @@ async function executeAgentNode(params: {
     status: FlowRunStepStatus.running,
   }))
 
-  const rawResult = await runPromptAndReadOutput({
+  const rawResult = await runFlowPromptAndReadOutput({
     agent: params.node.targetAgentId,
     client: params.client,
     flowId: params.flow.id,
@@ -233,7 +159,7 @@ async function executeAgentNode(params: {
       '',
       rawResult.output,
     ].join('\n')
-    const compactResult = await runPromptAndReadOutput({
+    const compactResult = await runFlowPromptAndReadOutput({
       client: params.client,
       flowId: params.flow.id,
       leaseOwner: params.leaseOwner,
@@ -307,7 +233,7 @@ async function executeConditionNode(params: {
     startedAt: new Date(),
     status: FlowRunStepStatus.running,
   }))
-  const outgoingTargets = getOutgoingTargets(params.definition, params.node.id)
+  const outgoingTargets = getFlowOutgoingTargets(params.definition, params.node.id)
 
   if (params.node.mode === 'rules') {
     const matchedRule = (params.node.rules ?? []).find((rule) => {
@@ -353,7 +279,7 @@ async function executeConditionNode(params: {
     'Choose exactly one target node id from this list and return only that id or JSON like {"targetNodeId":"..."}.',
     outgoingTargets.map((targetNodeId) => `- ${targetNodeId}`).join('\n'),
   ].join('\n')
-  const aiResult = await runPromptAndReadOutput({
+  const aiResult = await runFlowPromptAndReadOutput({
     client: params.client,
     flowId: params.flow.id,
     leaseOwner: params.leaseOwner,
@@ -404,9 +330,15 @@ async function executeFlowNodes(params: {
   let currentNodeId = params.startNodeId
   let previousOutput = params.previousOutput
   let steps = params.steps
+  const visitedNodeIds = new Set<string>()
 
   while (currentNodeId) {
-    const node = getNodeById(params.definition, currentNodeId)
+    if (visitedNodeIds.has(currentNodeId) || visitedNodeIds.size >= Math.min(MAX_FLOW_NODE_EXECUTIONS, params.definition.nodes.length + 1)) {
+      return { status: 'failed', error: 'cyclic_flow' }
+    }
+
+    visitedNodeIds.add(currentNodeId)
+    const node = getFlowNodeById(params.definition, currentNodeId)
     if (!node) {
       return { status: 'failed', error: 'flow_node_not_found' }
     }
@@ -428,7 +360,7 @@ async function executeFlowNodes(params: {
       steps = result.steps
       if (!result.ok) return { status: 'failed', error: result.error }
       previousOutput = result.previousOutput
-      currentNodeId = getOutgoingTargets(params.definition, node.id)[0] ?? null
+      currentNodeId = getFlowOutgoingTargets(params.definition, node.id)[0] ?? null
       continue
     }
 
@@ -475,7 +407,7 @@ async function executeFlowNodes(params: {
       })
       const rendered = renderFlowTemplate(node.promptTemplate, context)
       if (!rendered.ok) return { status: 'failed', error: rendered.error }
-      const result = await runPromptAndReadOutput({
+      const result = await runFlowPromptAndReadOutput({
         client: params.client,
         flowId: params.flow.id,
         leaseOwner: params.leaseOwner,
@@ -497,7 +429,7 @@ async function executeFlowNodes(params: {
         status: FlowRunStepStatus.succeeded,
       }))
       previousOutput = result.output
-      currentNodeId = getOutgoingTargets(params.definition, node.id)[0] ?? null
+      currentNodeId = getFlowOutgoingTargets(params.definition, node.id)[0] ?? null
       continue
     }
 
@@ -510,7 +442,7 @@ async function executeFlowNodes(params: {
       startedAt: new Date(),
       status: FlowRunStepStatus.succeeded,
     })
-    currentNodeId = getOutgoingTargets(params.definition, node.id)[0] ?? null
+    currentNodeId = getFlowOutgoingTargets(params.definition, node.id)[0] ?? null
   }
 
   return { status: 'succeeded' }
@@ -616,16 +548,11 @@ async function finalizeRun(params: {
   })
 }
 
-export async function runClaimedFlow(
+async function executeClaimedFlowRun(
   flow: FlowClaimedRecord,
   trigger: FlowRunTrigger,
+  run: FlowRunRecord,
 ): Promise<void> {
-  const run = await flowService.createRun({
-    flowId: flow.id,
-    scheduledFor: flow.scheduledFor,
-    trigger,
-  })
-
   let sessionId: string | null = null
   let sessionTitle: string | null = null
   let slug: string | null = null
@@ -680,13 +607,48 @@ export async function runClaimedFlow(
   }
 }
 
+export async function runClaimedFlow(
+  flow: FlowClaimedRecord,
+  trigger: FlowRunTrigger,
+): Promise<void> {
+  const run = await flowService.createRun({
+    flowId: flow.id,
+    scheduledFor: flow.scheduledFor,
+    trigger,
+  })
+
+  await executeClaimedFlowRun(flow, trigger, run)
+}
+
+export async function dispatchClaimedFlowRun(
+  flow: FlowClaimedRecord,
+  trigger: FlowRunTrigger,
+): Promise<{ ok: true; runId: string }> {
+  const run = await flowService.createRun({
+    flowId: flow.id,
+    scheduledFor: flow.scheduledFor,
+    trigger,
+  })
+
+  void executeClaimedFlowRun(flow, trigger, run).catch((error) => {
+    console.error('[flows] Failed to execute dispatched flow run', {
+      error,
+      flowId: flow.id,
+      runId: run.id,
+      trigger,
+    })
+  })
+
+  return { ok: true, runId: run.id }
+}
+
 export async function triggerFlowNow(params: {
   flowId: string
   trigger: FlowRunTrigger
   userId?: string
 }): Promise<{ ok: true } | { ok: false; error: 'not_found' | 'flow_busy' }> {
   const now = new Date()
-  const leaseOwner = await createLeaseOwner()
+  const leaseOwner = await createFlowLeaseOwner()
   const claimed = await flowService.claimFlowForImmediateRun({
     id: params.flowId,
     leaseMs: FLOW_LEASE_MS,
@@ -703,13 +665,7 @@ export async function triggerFlowNow(params: {
     return { ok: false, error: 'flow_busy' }
   }
 
-  void runClaimedFlow(claimed, params.trigger).catch((error) => {
-    console.error('[flows] Failed to execute immediate flow run', {
-      error,
-      flowId: claimed.id,
-      trigger: params.trigger,
-    })
-  })
+  await dispatchClaimedFlowRun(claimed, params.trigger)
 
   return { ok: true }
 }
@@ -728,13 +684,13 @@ export async function resumeFlowRun(params: {
   const definitionResult = validateFlowDefinition(run.flow.definition)
   if (!definitionResult.ok) return { ok: false, error: 'invalid_state' }
 
-  const humanNode = getNodeById(definitionResult.definition, run.currentNodeId)
+  const humanNode = getFlowNodeById(definitionResult.definition, run.currentNodeId)
   if (!humanNode || humanNode.type !== 'human') return { ok: false, error: 'invalid_state' }
 
   const response = params.humanResponse.trim()
   if (humanNode.required && !response) return { ok: false, error: 'invalid_response' }
 
-  const leaseOwner = await createLeaseOwner()
+  const leaseOwner = await createFlowLeaseOwner()
   const claimedFlow = await flowService.claimFlowLeaseById({
     id: run.flowId,
     leaseMs: FLOW_LEASE_MS,
@@ -758,7 +714,7 @@ export async function resumeFlowRun(params: {
     flow: claimedFlow,
     previousOutput: response,
     run: refreshedRun,
-    startNodeId: getOutgoingTargets(definitionResult.definition, humanNode.id)[0] ?? null,
+    startNodeId: getFlowOutgoingTargets(definitionResult.definition, humanNode.id)[0] ?? null,
   }).catch((error) => {
     console.error('[flows] Failed to resume flow run', {
       error,

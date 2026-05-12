@@ -2,24 +2,18 @@ import { Prisma } from '@prisma/client'
 import { NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
+import { resolveFlowOwnerUserId } from '@/lib/flows/api'
 import { getNextFlowRunAt, validateFlowCronExpression } from '@/lib/flows/cron'
 import { validateFlowPayload } from '@/lib/flows/payload'
 import { serializeFlowDetail, toPrismaJson } from '@/lib/flows/serializers'
 import type { FlowDetail } from '@/lib/flows/types'
 import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
-import { flowService, userService } from '@/lib/services'
+import { flowService } from '@/lib/services'
 
 type FlowRouteParams = {
   id: string
   slug: string
-}
-
-async function resolveUserIdForSlug(slug: string, contextUser: { id: string; slug: string }) {
-  if (contextUser.slug === slug) return contextUser.id
-
-  const owner = await userService.findIdBySlug(slug)
-  return owner?.id ?? null
 }
 
 export const GET = withAuth<{ flow: FlowDetail } | { error: string }, FlowRouteParams>(
@@ -28,7 +22,7 @@ export const GET = withAuth<{ flow: FlowDetail } | { error: string }, FlowRouteP
     const denied = requireCapability('flows')
     if (denied) return denied
 
-    const userId = await resolveUserIdForSlug(slug, user)
+    const userId = await resolveFlowOwnerUserId(slug, user)
     if (!userId) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
     const flow = await flowService.findFlowByIdAndUserId(id, userId)
@@ -44,7 +38,7 @@ export const PATCH = withAuth<{ flow: FlowDetail } | { error: string }, FlowRout
     const denied = requireCapability('flows')
     if (denied) return denied
 
-    const userId = await resolveUserIdForSlug(slug, user)
+    const userId = await resolveFlowOwnerUserId(slug, user)
     if (!userId) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
     const existing = await flowService.findFlowByIdAndUserId(id, userId)
@@ -130,7 +124,7 @@ export const DELETE = withAuth<{ ok: true } | { error: string }, FlowRouteParams
     const denied = requireCapability('flows')
     if (denied) return denied
 
-    const userId = await resolveUserIdForSlug(slug, user)
+    const userId = await resolveFlowOwnerUserId(slug, user)
     if (!userId) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
     const deleted = await flowService.deleteFlowByIdAndUserId(id, userId)

@@ -4,6 +4,7 @@ import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { submitHumanResponseRequest } from '@/lib/flows/client'
 import type { FlowRunListItem } from '@/lib/flows/types'
 
 type HumanStepResponseCardProps = {
@@ -29,14 +30,9 @@ export function HumanStepResponseCard({ run, slug, onSubmitted }: HumanStepRespo
     setError(null)
 
     try {
-      const result = await fetch(`/api/u/${slug}/flows/runs/${run.id}/human-response`, {
-        body: JSON.stringify({ response }),
-        headers: { 'Content-Type': 'application/json' },
-        method: 'POST',
-      })
+      const result = await submitHumanResponseRequest(slug, run.id, response)
       if (!result.ok) {
-        const data = (await result.json().catch(() => null)) as { error?: string } | null
-        setError(data?.error ?? 'submit_failed')
+        setError(result.error)
         return
       }
 

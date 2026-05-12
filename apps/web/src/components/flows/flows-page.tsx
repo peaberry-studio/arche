@@ -8,6 +8,7 @@ import { DashboardEmptyState } from '@/components/dashboard/dashboard-empty-stat
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { fetchFlowList, runFlowRequest, updateFlowRequest } from '@/lib/flows/client'
 import { formatFlowRunDate } from '@/lib/flows/cron'
 import type { FlowListItem } from '@/lib/flows/types'
 import { cn } from '@/lib/utils'
@@ -45,14 +46,13 @@ export function FlowsPage({ slug }: FlowsPageProps) {
     setIsLoading(true)
     setLoadError(null)
     try {
-      const response = await fetch(`/api/u/${slug}/flows`, { cache: 'no-store' })
-      const data = (await response.json().catch(() => null)) as { flows?: FlowListItem[]; error?: string } | null
-      if (!response.ok || !data?.flows) {
-        setLoadError(data?.error ?? 'load_failed')
+      const result = await fetchFlowList(slug)
+      if (!result.ok) {
+        setLoadError(result.error)
         return
       }
 
-      setFlows(data.flows)
+      setFlows(result.data.flows)
       setActionError(null)
     } catch {
       setLoadError('network_error')
@@ -78,14 +78,9 @@ export function FlowsPage({ slug }: FlowsPageProps) {
     markMutating(flow.id, true)
     setActionError(null)
     try {
-      const response = await fetch(`/api/u/${slug}/flows/${flow.id}`, {
-        body: JSON.stringify({ enabled: !flow.enabled }),
-        headers: { 'Content-Type': 'application/json' },
-        method: 'PATCH',
-      })
-      if (!response.ok) {
-        const data = (await response.json().catch(() => null)) as { error?: string } | null
-        setActionError(data?.error ?? 'toggle_failed')
+      const result = await updateFlowRequest(slug, flow.id, { enabled: !flow.enabled })
+      if (!result.ok) {
+        setActionError(result.error)
         return
       }
 
@@ -101,10 +96,9 @@ export function FlowsPage({ slug }: FlowsPageProps) {
     markMutating(flowId, true)
     setActionError(null)
     try {
-      const response = await fetch(`/api/u/${slug}/flows/${flowId}/run`, { method: 'POST' })
-      if (!response.ok) {
-        const data = (await response.json().catch(() => null)) as { error?: string } | null
-        setActionError(data?.error ?? 'run_failed')
+      const result = await runFlowRequest(slug, flowId)
+      if (!result.ok) {
+        setActionError(result.error)
         return
       }
 

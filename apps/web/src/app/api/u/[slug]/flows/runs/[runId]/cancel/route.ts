@@ -1,20 +1,14 @@
 import { NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
+import { resolveFlowOwnerUserId } from '@/lib/flows/api'
 import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
-import { flowService, userService } from '@/lib/services'
+import { flowService } from '@/lib/services'
 
 type FlowCancelRunRouteParams = {
   runId: string
   slug: string
-}
-
-async function resolveUserIdForSlug(slug: string, contextUser: { id: string; slug: string }) {
-  if (contextUser.slug === slug) return contextUser.id
-
-  const owner = await userService.findIdBySlug(slug)
-  return owner?.id ?? null
 }
 
 export const POST = withAuth<{ ok: true } | { error: string }, FlowCancelRunRouteParams>(
@@ -23,7 +17,7 @@ export const POST = withAuth<{ ok: true } | { error: string }, FlowCancelRunRout
     const denied = requireCapability('flows')
     if (denied) return denied
 
-    const userId = await resolveUserIdForSlug(slug, user)
+    const userId = await resolveFlowOwnerUserId(slug, user)
     if (!userId) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
     const cancelled = await flowService.cancelRunByIdAndUserId(runId, userId, new Date())

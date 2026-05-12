@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client'
 import { NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
+import { resolveFlowOwnerUserId } from '@/lib/flows/api'
 import { getNextFlowRunAt } from '@/lib/flows/cron'
 import { validateFlowPayload } from '@/lib/flows/payload'
 import { triggerFlowNow } from '@/lib/flows/runner'
@@ -9,17 +10,10 @@ import { serializeFlowDetail, serializeFlowListItem, toPrismaJson } from '@/lib/
 import type { FlowDetail, FlowListItem } from '@/lib/flows/types'
 import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
-import { flowService, userService } from '@/lib/services'
+import { flowService } from '@/lib/services'
 
 type FlowListResponse = {
   flows: FlowListItem[]
-}
-
-async function resolveUserIdForSlug(slug: string, contextUser: { id: string; slug: string }) {
-  if (contextUser.slug === slug) return contextUser.id
-
-  const owner = await userService.findIdBySlug(slug)
-  return owner?.id ?? null
 }
 
 export const GET = withAuth<FlowListResponse | { error: string }>(
@@ -28,7 +22,7 @@ export const GET = withAuth<FlowListResponse | { error: string }>(
     const denied = requireCapability('flows')
     if (denied) return denied
 
-    const userId = await resolveUserIdForSlug(slug, user)
+    const userId = await resolveFlowOwnerUserId(slug, user)
     if (!userId) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
     const flows = await flowService.listFlowsByUserId(userId)
@@ -57,7 +51,7 @@ export const POST = withAuth<{ flow: FlowDetail } | { error: string }>(
       return NextResponse.json({ error: payload.error }, { status: payload.status })
     }
 
-    const userId = await resolveUserIdForSlug(slug, user)
+    const userId = await resolveFlowOwnerUserId(slug, user)
     if (!userId) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
     try {

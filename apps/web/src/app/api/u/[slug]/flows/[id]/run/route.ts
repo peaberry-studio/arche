@@ -1,21 +1,14 @@
 import { NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
+import { resolveFlowOwnerUserId } from '@/lib/flows/api'
 import { triggerFlowNow } from '@/lib/flows/runner'
 import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
-import { userService } from '@/lib/services'
 
 type FlowRunRouteParams = {
   id: string
   slug: string
-}
-
-async function resolveUserIdForSlug(slug: string, contextUser: { id: string; slug: string }) {
-  if (contextUser.slug === slug) return contextUser.id
-
-  const owner = await userService.findIdBySlug(slug)
-  return owner?.id ?? null
 }
 
 export const POST = withAuth<{ ok: true } | { error: string }, FlowRunRouteParams>(
@@ -24,7 +17,7 @@ export const POST = withAuth<{ ok: true } | { error: string }, FlowRunRouteParam
     const denied = requireCapability('flows')
     if (denied) return denied
 
-    const userId = await resolveUserIdForSlug(slug, user)
+    const userId = await resolveFlowOwnerUserId(slug, user)
     if (!userId) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
     const result = await triggerFlowNow({ flowId: id, trigger: 'manual', userId })

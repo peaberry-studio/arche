@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { useAgentsCatalog } from '@/hooks/use-agents-catalog'
+import { createFlowRequest, deleteFlowRequest, fetchFlowDetail, runFlowRequest, updateFlowRequest } from '@/lib/flows/client'
 import { getFlowTimeZoneOptions } from '@/lib/flows/cron'
 import type { FlowDefinition, FlowDetail, FlowNode } from '@/lib/flows/types'
 import { createDefaultFlowDefinition, validateFlowDefinition } from '@/lib/flows/validation'
@@ -100,21 +101,20 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
     setIsLoading(true)
     setLoadError(null)
     try {
-      const response = await fetch(`/api/u/${slug}/flows/${flowId}`, { cache: 'no-store' })
-      const data = (await response.json().catch(() => null)) as { flow?: FlowDetail; error?: string } | null
-      if (!response.ok || !data?.flow) {
-        setLoadError(data?.error ?? 'load_failed')
+      const result = await fetchFlowDetail(slug, flowId)
+      if (!result.ok) {
+        setLoadError(result.error)
         return
       }
 
-      setFlow(data.flow)
-      setName(data.flow.name)
-      setDescription(data.flow.description ?? '')
-      setDefinition(data.flow.definition)
-      setSelectedNodeId(data.flow.definition.startNodeId)
-      setCronExpression(data.flow.cronExpression ?? '')
-      setTimezone(data.flow.timezone)
-      setEnabled(data.flow.enabled)
+      setFlow(result.data.flow)
+      setName(result.data.flow.name)
+      setDescription(result.data.flow.description ?? '')
+      setDefinition(result.data.flow.definition)
+      setSelectedNodeId(result.data.flow.definition.startNodeId)
+      setCronExpression(result.data.flow.cronExpression ?? '')
+      setTimezone(result.data.flow.timezone)
+      setEnabled(result.data.flow.enabled)
     } catch {
       setLoadError('network_error')
     } finally {
@@ -212,27 +212,27 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
     setFormError(null)
 
     try {
-      const response = await fetch(mode === 'create' ? `/api/u/${slug}/flows` : `/api/u/${slug}/flows/${flowId}`, {
-        body: JSON.stringify({
-          cronExpression: cronExpression.trim() ? cronExpression : null,
-          definition,
-          description: description.trim() ? description : null,
-          enabled,
-          name,
-          timezone,
-        }),
-        headers: { 'Content-Type': 'application/json' },
-        method: mode === 'create' ? 'POST' : 'PATCH',
-      })
-      const data = (await response.json().catch(() => null)) as { flow?: FlowDetail; error?: string } | null
-      if (!response.ok || !data?.flow) {
-        setFormError(data?.error ?? 'save_failed')
+      const payload = {
+        cronExpression: cronExpression.trim() ? cronExpression : null,
+        definition,
+        description: description.trim() ? description : null,
+        enabled,
+        name,
+        timezone,
+      }
+      const result = mode === 'create'
+        ? await createFlowRequest(slug, payload)
+        : flowId
+          ? await updateFlowRequest(slug, flowId, payload)
+          : { ok: false as const, error: 'missing_flow_id' }
+      if (!result.ok) {
+        setFormError(result.error)
         return
       }
 
-      setFlow(data.flow)
+      setFlow(result.data.flow)
       if (mode === 'create') {
-        router.push(`/u/${slug}/flows/${data.flow.id}`)
+        router.push(`/u/${slug}/flows/${result.data.flow.id}`)
         return
       }
 
@@ -250,10 +250,9 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
     setIsDeleting(true)
     setFormError(null)
     try {
-      const response = await fetch(`/api/u/${slug}/flows/${flowId}`, { method: 'DELETE' })
-      if (!response.ok) {
-        const data = (await response.json().catch(() => null)) as { error?: string } | null
-        setFormError(data?.error ?? 'delete_failed')
+      const result = await deleteFlowRequest(slug, flowId)
+      if (!result.ok) {
+        setFormError(result.error)
         return
       }
 
@@ -271,10 +270,9 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
     setIsRunning(true)
     setFormError(null)
     try {
-      const response = await fetch(`/api/u/${slug}/flows/${flowId}/run`, { method: 'POST' })
-      if (!response.ok) {
-        const data = (await response.json().catch(() => null)) as { error?: string } | null
-        setFormError(data?.error ?? 'run_failed')
+      const result = await runFlowRequest(slug, flowId)
+      if (!result.ok) {
+        setFormError(result.error)
         return
       }
 

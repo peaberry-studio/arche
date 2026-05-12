@@ -1,3 +1,4 @@
+import { getFlowTraversalTargets } from '@/lib/flows/graph'
 import { isRecord } from '@/lib/records'
 
 import type {
@@ -179,14 +180,6 @@ function parseLayout(value: unknown): FlowLayout | undefined | null {
 }
 
 function hasCycle(definition: FlowDefinition): boolean {
-  const outgoing = new Map<string, string[]>()
-  for (const node of definition.nodes) {
-    outgoing.set(node.id, [])
-  }
-  for (const edge of definition.edges) {
-    outgoing.get(edge.sourceNodeId)?.push(edge.targetNodeId)
-  }
-
   const visiting = new Set<string>()
   const visited = new Set<string>()
 
@@ -195,7 +188,7 @@ function hasCycle(definition: FlowDefinition): boolean {
     if (visited.has(nodeId)) return false
 
     visiting.add(nodeId)
-    for (const target of outgoing.get(nodeId) ?? []) {
+    for (const target of getFlowTraversalTargets(definition, nodeId)) {
       if (visit(target)) return true
     }
     visiting.delete(nodeId)

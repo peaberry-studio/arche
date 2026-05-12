@@ -139,6 +139,25 @@ function noActiveRun() {
   }
 }
 
+export async function recoverStaleRunningRuns(now: Date): Promise<number> {
+  const result = await prisma.flowRun.updateMany({
+    data: {
+      currentNodeId: null,
+      error: 'flow_run_stale_recovered',
+      finishedAt: now,
+      status: FlowRunStatus.failed,
+    },
+    where: {
+      flow: {
+        leaseExpiresAt: { lt: now },
+      },
+      status: FlowRunStatus.running,
+    },
+  })
+
+  return result.count
+}
+
 export async function listFlowsByUserId(userId: string): Promise<FlowListRecord[]> {
   return prisma.flow.findMany({
     include: FLOW_RUN_INCLUDE,
@@ -213,6 +232,8 @@ export async function claimNextDueFlow(params: {
   now: Date
   resolveNextRunAt: (flow: FlowRecord) => Date | null
 }): Promise<FlowClaimedRecord | null> {
+  await recoverStaleRunningRuns(params.now)
+
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const flow = await prisma.flow.findFirst({
       orderBy: [
@@ -276,6 +297,8 @@ export async function claimFlowForImmediateRun(params: {
   now: Date
   userId?: string
 }): Promise<FlowClaimedRecord | null> {
+  await recoverStaleRunningRuns(params.now)
+
   const flow = await prisma.flow.findFirst({
     where: {
       id: params.id,

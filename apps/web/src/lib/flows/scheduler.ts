@@ -1,5 +1,6 @@
 import { getNextFlowRunAt } from '@/lib/flows/cron'
-import { FLOW_LEASE_MS, runClaimedFlow } from '@/lib/flows/runner'
+import { dispatchClaimedFlowRun, FLOW_LEASE_MS } from '@/lib/flows/runner'
+import { createFlowLeaseOwner } from '@/lib/flows/session-executor'
 import { flowService } from '@/lib/services'
 
 export const FLOW_SCHEDULER_INTERVAL_MS = 30_000
@@ -62,19 +63,6 @@ export function getFlowSchedulerStatus() {
   }
 }
 
-function importRuntimeModule<T>(specifier: string): Promise<T> {
-  if (process.env.VITEST) {
-    return import(specifier) as Promise<T>
-  }
-
-  return Function('runtimeSpecifier', 'return import(runtimeSpecifier)')(specifier) as Promise<T>
-}
-
-async function createLeaseOwner(): Promise<string> {
-  const { randomUUID } = await importRuntimeModule<typeof import('crypto')>('crypto')
-  return `flows:${process.pid}:${randomUUID()}`
-}
-
 export async function dispatchDueFlows(limit = FLOW_SCHEDULER_BATCH_LIMIT): Promise<number> {
   lastDispatchStartedAt = new Date()
   let claimedCount = 0
@@ -84,7 +72,7 @@ export async function dispatchDueFlows(limit = FLOW_SCHEDULER_BATCH_LIMIT): Prom
       const now = new Date()
       const claimed = await flowService.claimNextDueFlow({
         leaseMs: FLOW_LEASE_MS,
-        leaseOwner: await createLeaseOwner(),
+        leaseOwner: await createFlowLeaseOwner(),
         now,
         resolveNextRunAt: (flow) => flow.cronExpression
           ? getNextFlowRunAt(flow.cronExpression, flow.timezone, now)
@@ -94,7 +82,7 @@ export async function dispatchDueFlows(limit = FLOW_SCHEDULER_BATCH_LIMIT): Prom
       if (!claimed) break
 
       claimedCount += 1
-      void runClaimedFlow(claimed, 'schedule').catch((error) => {
+      void dispatchClaimedFlowRun(claimed, 'schedule').catch((error) => {
         console.error('[flows] Failed to execute scheduled flow run', {
           error,
           flowId: claimed.id,

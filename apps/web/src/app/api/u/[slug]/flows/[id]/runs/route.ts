@@ -1,21 +1,15 @@
 import { NextResponse } from 'next/server'
 
+import { resolveFlowOwnerUserId } from '@/lib/flows/api'
 import { serializeFlowRun } from '@/lib/flows/serializers'
 import type { FlowRunListItem } from '@/lib/flows/types'
 import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
-import { flowService, userService } from '@/lib/services'
+import { flowService } from '@/lib/services'
 
 type FlowRunsRouteParams = {
   id: string
   slug: string
-}
-
-async function resolveUserIdForSlug(slug: string, contextUser: { id: string; slug: string }) {
-  if (contextUser.slug === slug) return contextUser.id
-
-  const owner = await userService.findIdBySlug(slug)
-  return owner?.id ?? null
 }
 
 export const GET = withAuth<{ runs: FlowRunListItem[] } | { error: string }, FlowRunsRouteParams>(
@@ -24,7 +18,7 @@ export const GET = withAuth<{ runs: FlowRunListItem[] } | { error: string }, Flo
     const denied = requireCapability('flows')
     if (denied) return denied
 
-    const userId = await resolveUserIdForSlug(slug, user)
+    const userId = await resolveFlowOwnerUserId(slug, user)
     if (!userId) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
     const flow = await flowService.findFlowByIdAndUserId(id, userId)

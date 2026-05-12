@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 
+import { fetchFlowList, runFlowRequest } from "@/lib/flows/client";
 import type { FlowListItem } from "@/lib/flows/types";
 
 type UseFlowRunnerOptions = {
@@ -20,14 +21,13 @@ export function useFlowRunner({ slug, onRunFlowComplete }: UseFlowRunnerOptions)
     setRunError(null);
 
     try {
-      const response = await fetch(`/api/u/${slug}/flows`, { cache: "no-store" });
-      const data = (await response.json().catch(() => null)) as { flows?: FlowListItem[]; error?: string } | null;
-      if (!response.ok || !data?.flows) {
-        setRunError(data?.error ?? "load_failed");
+      const result = await fetchFlowList(slug);
+      if (!result.ok) {
+        setRunError(result.error);
         return;
       }
 
-      setFlows(data.flows);
+      setFlows(result.data.flows);
     } catch {
       setRunError("network_error");
     } finally {
@@ -41,10 +41,9 @@ export function useFlowRunner({ slug, onRunFlowComplete }: UseFlowRunnerOptions)
       setRunError(null);
 
       try {
-        const response = await fetch(`/api/u/${slug}/flows/${flowId}/run`, { method: "POST" });
-        if (!response.ok) {
-          const data = (await response.json().catch(() => null)) as { error?: string } | null;
-          setRunError(data?.error ?? "run_failed");
+        const result = await runFlowRequest(slug, flowId);
+        if (!result.ok) {
+          setRunError(result.error);
           return;
         }
 
