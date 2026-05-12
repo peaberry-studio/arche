@@ -20,6 +20,7 @@ import {
   buildSlackDmDecisionBlocks,
   buildSlackDmSessionTitle,
   finalizeSlackDmReply,
+  getSlackActionContext,
   getSlackActionTarget,
   getSlackActionValue,
   isSlackDmCommand,
@@ -225,6 +226,17 @@ export async function handleSlackDmDecisionAction(args: {
   try {
     const decision = await slackService.findPendingDmDecision(decisionId)
     if (!decision || decision.status !== 'pending') {
+      await updateSlackActionMessage(args.client, actionTarget, 'This decision is no longer valid.')
+      return
+    }
+
+    const actionContext = getSlackActionContext(args.body)
+    if (
+      !actionContext ||
+      actionContext.channelId !== decision.channelId ||
+      actionContext.slackTeamId !== decision.slackTeamId ||
+      actionContext.slackUserId !== decision.slackUserId
+    ) {
       await updateSlackActionMessage(args.client, actionTarget, 'This decision is no longer valid.')
       return
     }

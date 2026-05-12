@@ -44,6 +44,12 @@ export type SlackActionTarget = {
   messageTs: string
 }
 
+export type SlackActionContext = {
+  channelId: string
+  slackTeamId: string
+  slackUserId: string
+}
+
 export type SlackUserProfile = {
   displayName: string | null
   email: string | null

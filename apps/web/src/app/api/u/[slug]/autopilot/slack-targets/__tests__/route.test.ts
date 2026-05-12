@@ -83,7 +83,6 @@ describe('/api/u/[slug]/autopilot/slack-targets', () => {
     await expect(res.json()).resolves.toEqual({
       channels: [
         { channelId: 'C1', isPrivate: false, name: 'general' },
-        { channelId: 'G1', isPrivate: true, name: 'private-team' },
       ],
       integrationEnabled: true,
       users: [
@@ -108,6 +107,10 @@ describe('/api/u/[slug]/autopilot/slack-targets', () => {
 
     expect(res.status).toBe(200)
     const body = await res.json()
+    expect(body.channels).toEqual([
+      { channelId: 'C1', isPrivate: false, name: 'general' },
+      { channelId: 'G1', isPrivate: true, name: 'private-team' },
+    ])
     expect(body.users).toEqual([
       { email: 'alice@test.com', id: 'u-alice', slackLinked: true },
       { email: 'bob@test.com', id: 'u-bob', slackLinked: false },

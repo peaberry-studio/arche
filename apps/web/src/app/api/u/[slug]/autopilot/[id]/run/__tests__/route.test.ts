@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   validateDesktopToken: vi.fn(() => true),
   auditEvent: vi.fn(),
   triggerAutopilotTaskNow: vi.fn(),
+  slackService: {},
   userService: { findIdBySlug: vi.fn() },
 }))
 
@@ -24,7 +25,7 @@ vi.mock('@/lib/runtime/desktop/token', () => ({
 }))
 vi.mock('@/lib/auth', () => ({ auditEvent: mocks.auditEvent }))
 vi.mock('@/lib/autopilot/runner', () => ({ triggerAutopilotTaskNow: mocks.triggerAutopilotTaskNow }))
-vi.mock('@/lib/services', () => ({ userService: mocks.userService }))
+vi.mock('@/lib/services', () => ({ slackService: mocks.slackService, userService: mocks.userService }))
 
 import { POST } from '../route'
 

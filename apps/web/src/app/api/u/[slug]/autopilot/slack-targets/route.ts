@@ -40,9 +40,12 @@ export const GET = withAuth(
       const channels = integrationEnabled && integration?.slackTeamId
         ? await slackService.listEnabledNotificationChannels(integration.slackTeamId)
         : []
+      const visibleChannels = user.role === 'ADMIN'
+        ? channels
+        : channels.filter((channel) => !channel.isPrivate)
 
       return NextResponse.json({
-        channels: channels.map((channel) => ({
+        channels: visibleChannels.map((channel) => ({
           channelId: channel.channelId,
           isPrivate: channel.isPrivate,
           name: channel.name,

@@ -4,7 +4,10 @@ import { NextResponse } from 'next/server'
 import { auditEvent } from '@/lib/auth'
 import { getNextAutopilotRunAt, validateAutopilotCronExpression } from '@/lib/autopilot/cron'
 import { validateAutopilotTaskPayload } from '@/lib/autopilot/payload'
-import { resolveAutopilotWorkspaceUserId } from '@/lib/autopilot/route-auth'
+import {
+  resolveAutopilotWorkspaceUserId,
+  validateAutopilotSlackNotificationAccess,
+} from '@/lib/autopilot/route-auth'
 import { serializeAutopilotTaskDetail } from '@/lib/autopilot/serializers'
 import type { AutopilotSlackNotificationConfig, AutopilotTaskDetail } from '@/lib/autopilot/types'
 import { requireCapability } from '@/lib/runtime/require-capability'
@@ -108,6 +111,18 @@ export const PATCH = withAuth<{ task: AutopilotTaskDetail } | { error: string },
     }
     if ('slackNotificationConfig' in payload.value) {
       updateData.slackNotificationConfig = payload.value.slackNotificationConfig ?? null
+    }
+
+    const slackNotificationAccess = await validateAutopilotSlackNotificationAccess(
+      payload.value.slackNotificationConfig,
+      user,
+      userId,
+    )
+    if (!slackNotificationAccess.ok) {
+      return NextResponse.json(
+        { error: slackNotificationAccess.error },
+        { status: slackNotificationAccess.status },
+      )
     }
 
     try {

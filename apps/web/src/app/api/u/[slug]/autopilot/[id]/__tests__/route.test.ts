@@ -21,8 +21,13 @@ const mocks = vi.hoisted(() => ({
     updateTaskByIdAndUserId: vi.fn(),
     deleteTaskByIdAndUserId: vi.fn(),
   },
+  slackService: {
+    findIntegration: vi.fn(),
+    listEnabledNotificationChannels: vi.fn(),
+  },
   userService: {
     findIdBySlug: vi.fn(),
+    findTeamMemberById: vi.fn(),
   },
   PrismaClientKnownRequestError: class PrismaClientKnownRequestError extends Error {
     code: string
@@ -83,6 +88,7 @@ vi.mock('@/lib/autopilot/serializers', () => ({
 
 vi.mock('@/lib/services', () => ({
   autopilotService: mocks.autopilotService,
+  slackService: mocks.slackService,
   userService: mocks.userService,
 }))
 
@@ -252,6 +258,12 @@ describe('/api/u/[slug]/autopilot/[id]', () => {
       })
 
       mocks.autopilotService.updateTaskByIdAndUserId.mockResolvedValue(existingTask)
+      mocks.slackService.findIntegration.mockResolvedValue({ enabled: true, slackTeamId: 'T123' })
+      mocks.slackService.listEnabledNotificationChannels.mockResolvedValue([
+        { channelId: 'C123', isPrivate: false, name: 'general' },
+        { channelId: 'G123', isPrivate: true, name: 'private-team' },
+      ])
+      mocks.userService.findTeamMemberById.mockResolvedValue({ id: 'u-bob' })
       mocks.serializeAutopilotTaskDetail.mockImplementation((t: { id: string }) => ({ id: t.id }))
     })
 
@@ -421,6 +433,50 @@ describe('/api/u/[slug]/autopilot/[id]', () => {
         'u-alice',
         expect.objectContaining({ slackNotificationConfig: null }),
       )
+    })
+
+    it('rejects non-admin Slack DM notification targets for other users', async () => {
+      mocks.validateAutopilotTaskPayload.mockResolvedValue({
+        ok: true,
+        value: {
+          slackNotificationConfig: {
+            enabled: true,
+            includeSessionLink: true,
+            targets: [{ type: 'dm', userId: 'u-bob' }],
+          },
+        },
+      })
+
+      const res = await PATCH(
+        makePatchRequest('alice', 'task-1', { slackNotificationConfig: {} }),
+        idParams('alice', 'task-1'),
+      )
+
+      expect(res.status).toBe(403)
+      await expect(res.json()).resolves.toEqual({ error: 'slack_notification_dm_target_forbidden' })
+      expect(mocks.autopilotService.updateTaskByIdAndUserId).not.toHaveBeenCalled()
+    })
+
+    it('rejects unknown Slack notification channels', async () => {
+      mocks.validateAutopilotTaskPayload.mockResolvedValue({
+        ok: true,
+        value: {
+          slackNotificationConfig: {
+            enabled: true,
+            includeSessionLink: true,
+            targets: [{ type: 'channel', channelId: 'C999' }],
+          },
+        },
+      })
+
+      const res = await PATCH(
+        makePatchRequest('alice', 'task-1', { slackNotificationConfig: {} }),
+        idParams('alice', 'task-1'),
+      )
+
+      expect(res.status).toBe(400)
+      await expect(res.json()).resolves.toEqual({ error: 'unknown_slack_notification_channel_target' })
+      expect(mocks.autopilotService.updateTaskByIdAndUserId).not.toHaveBeenCalled()
     })
   })
 

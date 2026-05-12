@@ -609,7 +609,7 @@ describe('slackService', () => {
           id: 'decision-1',
           status: 'pending',
         },
-        data: { status: 'continued' },
+        data: { messageText: '', status: 'continued' },
       })
       expect(mockPrisma.slackPendingDmDecision.updateMany).toHaveBeenNthCalledWith(2, {
         where: {
@@ -617,7 +617,7 @@ describe('slackService', () => {
           id: 'decision-2',
           status: 'pending',
         },
-        data: { status: 'started_new' },
+        data: { messageText: '', status: 'started_new' },
       })
     })
 
@@ -628,7 +628,7 @@ describe('slackService', () => {
 
       expect(mockPrisma.slackPendingDmDecision.updateMany).toHaveBeenCalledWith({
         where: { id: 'decision-1', status: 'pending' },
-        data: { status: 'expired' },
+        data: { messageText: '', status: 'expired' },
       })
     })
   })

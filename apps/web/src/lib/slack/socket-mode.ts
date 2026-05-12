@@ -15,8 +15,11 @@ import type {
 import {
   getEventId,
   isSlackDmMessage,
+  loadSlackUserProfile,
+  mapSlackUserResolutionError,
   normalizeSlackCommandBody,
   normalizeSlackMessageEvent,
+  resolveSlackTeamId,
   shouldIgnoreSlackMessage,
 } from '@/lib/slack/socket-utils'
 import { handleSlackThreadEvent } from '@/lib/slack/thread-handler'
@@ -235,6 +238,8 @@ async function handleSlackEvent(args: {
       return
     }
 
+    const threadTs = event.thread_ts ?? eventTs
+
     if (isSlackDmMessage(event)) {
       await handleSlackDmEvent({
         body: args.body,
@@ -247,7 +252,22 @@ async function handleSlackEvent(args: {
       return
     }
 
-    const threadTs = event.thread_ts ?? eventTs
+    const authorization = await authorizeSlackThreadEvent({
+      body: args.body,
+      channel,
+      client: args.client,
+      event,
+    })
+    if (!authorization.ok) {
+      await args.client.chat.postMessage({
+        channel,
+        text: authorization.message,
+        thread_ts: threadTs,
+      }).catch(() => undefined)
+      await recordSlackEventReceipt(eventId, args.type)
+      return
+    }
+
     await handleSlackThreadEvent({
       channel,
       client: args.client,
@@ -266,6 +286,42 @@ async function handleSlackEvent(args: {
       type: args.type,
     })
   })
+}
+
+async function authorizeSlackThreadEvent(args: {
+  body: unknown
+  channel: string
+  client: SlackChatClient
+  event: SlackMessageEvent
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  const slackTeamId = await resolveSlackTeamId(args.body)
+  if (!slackTeamId || !args.event.user) {
+    return {
+      ok: false,
+      message: 'I could not identify the Slack workspace or user for this request.',
+    }
+  }
+
+  const channelAllowed = await slackService.isNotificationChannelAllowed(slackTeamId, args.channel)
+  if (!channelAllowed) {
+    return {
+      ok: false,
+      message: 'This Slack channel is not enabled for Arche replies. Ask an admin to allow it in Slack settings.',
+    }
+  }
+
+  const profile = await loadSlackUserProfile(args.client, args.event.user)
+  const resolution = await slackService.resolveArcheUserFromSlackUser(
+    slackTeamId,
+    args.event.user,
+    profile.email,
+    profile.displayName,
+  )
+  if (!resolution.ok) {
+    return { ok: false, message: mapSlackUserResolutionError(resolution.error) }
+  }
+
+  return { ok: true }
 }
 
 async function recordSlackEventReceipt(eventId: string, type: string): Promise<void> {

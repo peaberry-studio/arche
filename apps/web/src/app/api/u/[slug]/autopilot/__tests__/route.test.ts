@@ -22,8 +22,13 @@ const mocks = vi.hoisted(() => ({
     createTask: vi.fn(),
     findTaskByIdAndUserId: vi.fn(),
   },
+  slackService: {
+    findIntegration: vi.fn(),
+    listEnabledNotificationChannels: vi.fn(),
+  },
   userService: {
     findIdBySlug: vi.fn(),
+    findTeamMemberById: vi.fn(),
   },
   PrismaClientKnownRequestError: class PrismaClientKnownRequestError extends Error {
     code: string
@@ -88,6 +93,7 @@ vi.mock('@/lib/autopilot/serializers', () => ({
 
 vi.mock('@/lib/services', () => ({
   autopilotService: mocks.autopilotService,
+  slackService: mocks.slackService,
   userService: mocks.userService,
 }))
 
@@ -240,6 +246,12 @@ describe('/api/u/[slug]/autopilot', () => {
       const createdTask = makeFakeTask({ id: 'task-new' })
       mocks.autopilotService.createTask.mockResolvedValue(createdTask)
       mocks.autopilotService.findTaskByIdAndUserId.mockResolvedValue(createdTask)
+      mocks.slackService.findIntegration.mockResolvedValue({ enabled: true, slackTeamId: 'T123' })
+      mocks.slackService.listEnabledNotificationChannels.mockResolvedValue([
+        { channelId: 'C123', isPrivate: false, name: 'general' },
+        { channelId: 'G123', isPrivate: true, name: 'private-team' },
+      ])
+      mocks.userService.findTeamMemberById.mockResolvedValue({ id: 'u-bob' })
       mocks.triggerAutopilotTaskNow.mockResolvedValue({ ok: true })
       mocks.serializeAutopilotTaskDetail.mockImplementation((t: { id: string }) => ({ id: t.id }))
     })
@@ -384,6 +396,74 @@ describe('/api/u/[slug]/autopilot', () => {
       expect(res.status).toBe(404)
       const json = await res.json()
       expect(json.error).toBe('not_found')
+    })
+
+    it('rejects non-admin Slack DM notification targets for other users', async () => {
+      mocks.validateAutopilotTaskPayload.mockResolvedValue({
+        ok: true,
+        value: {
+          ...validPayload,
+          slackNotificationConfig: {
+            enabled: true,
+            includeSessionLink: true,
+            targets: [{ type: 'dm', userId: 'u-bob' }],
+          },
+        },
+      })
+
+      const res = await POST(makePostRequest('alice', validPayload), slugParams('alice'))
+
+      expect(res.status).toBe(403)
+      await expect(res.json()).resolves.toEqual({ error: 'slack_notification_dm_target_forbidden' })
+      expect(mocks.autopilotService.createTask).not.toHaveBeenCalled()
+    })
+
+    it('rejects non-admin Slack notification targets for private channels', async () => {
+      mocks.validateAutopilotTaskPayload.mockResolvedValue({
+        ok: true,
+        value: {
+          ...validPayload,
+          slackNotificationConfig: {
+            enabled: true,
+            includeSessionLink: true,
+            targets: [{ type: 'channel', channelId: 'G123' }],
+          },
+        },
+      })
+
+      const res = await POST(makePostRequest('alice', validPayload), slugParams('alice'))
+
+      expect(res.status).toBe(403)
+      await expect(res.json()).resolves.toEqual({ error: 'slack_notification_channel_target_forbidden' })
+      expect(mocks.autopilotService.createTask).not.toHaveBeenCalled()
+    })
+
+    it('allows admin Slack notification targets for team members and private channels', async () => {
+      mocks.getSession.mockResolvedValue({
+        user: { id: 'u-admin', email: 'admin@test.com', slug: 'admin', role: 'ADMIN' },
+        sessionId: 'session-admin',
+      })
+      mocks.userService.findIdBySlug.mockResolvedValue({ id: 'u-alice' })
+      mocks.validateAutopilotTaskPayload.mockResolvedValue({
+        ok: true,
+        value: {
+          ...validPayload,
+          slackNotificationConfig: {
+            enabled: true,
+            includeSessionLink: true,
+            targets: [
+              { type: 'dm', userId: 'u-bob' },
+              { type: 'channel', channelId: 'G123' },
+            ],
+          },
+        },
+      })
+
+      const res = await POST(makePostRequest('alice', validPayload), slugParams('alice'))
+
+      expect(res.status).toBe(201)
+      expect(mocks.userService.findTeamMemberById).toHaveBeenCalledWith('u-bob')
+      expect(mocks.autopilotService.createTask).toHaveBeenCalled()
     })
   })
 })

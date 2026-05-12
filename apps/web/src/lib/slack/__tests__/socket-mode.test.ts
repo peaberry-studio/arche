@@ -46,6 +46,7 @@ const createAuditEventMock = vi.fn()
 const findByIdSelectMock = vi.fn()
 const hasEventReceiptMock = vi.fn()
 const findThreadBindingMock = vi.fn()
+const isNotificationChannelAllowedMock = vi.fn()
 const markEventReceivedMock = vi.fn()
 const markLastErrorMock = vi.fn()
 const markSocketConnectedMock = vi.fn()
@@ -123,6 +124,7 @@ vi.mock('@/lib/services', () => ({
       findPendingDmDecision: (...args: unknown[]) => findPendingDmDecisionMock(...args),
       hasEventReceipt: (...args: unknown[]) => hasEventReceiptMock(...args),
       findThreadBinding: (...args: unknown[]) => findThreadBindingMock(...args),
+      isNotificationChannelAllowed: (...args: unknown[]) => isNotificationChannelAllowedMock(...args),
       markEventReceived: (...args: unknown[]) => markEventReceivedMock(...args),
       markLastError: (...args: unknown[]) => markLastErrorMock(...args),
       markPendingDmDecisionContinued: (...args: unknown[]) => markPendingDmDecisionContinuedMock(...args),
@@ -185,6 +187,7 @@ describe('slack socket manager', () => {
       return true
     })
     findThreadBindingMock.mockResolvedValue(null)
+    isNotificationChannelAllowedMock.mockResolvedValue(true)
     ensureSlackServiceUserMock.mockResolvedValue({ ok: true, user: { id: 'service-1', slug: 'slack-bot' } })
     ensureWorkspaceRunningForExecutionMock.mockResolvedValue(undefined)
     captureSessionMessageCursorMock.mockResolvedValue({ messageCount: 0 })
@@ -427,6 +430,105 @@ describe('slack socket manager', () => {
     stopSlackSocketManager()
   })
 
+  it('does not execute channel prompts outside enabled Slack channels', async () => {
+    isNotificationChannelAllowedMock.mockResolvedValue(false)
+    const client = {
+      chat: {
+        postMessage: vi.fn().mockResolvedValue({ ts: 'auth-reply' }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      conversations: {
+        history: vi.fn().mockResolvedValue({ messages: [] }),
+        replies: vi.fn().mockResolvedValue({ messages: [] }),
+      },
+      users: {
+        info: vi.fn().mockResolvedValue({ user: { profile: { display_name: 'Alice', email: 'alice@test.com' } } }),
+      },
+    }
+
+    const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
+    await syncSlackSocketManager()
+
+    const mentionHandler = appInstances[0].event.mock.calls.find(([name]) => name === 'app_mention')?.[1]
+    expect(typeof mentionHandler).toBe('function')
+
+    await mentionHandler({
+      body: { event_id: 'evt-channel-not-allowed', team_id: 'T123' },
+      client,
+      event: {
+        channel: 'C999',
+        text: '<@U999> hello',
+        ts: '100.1',
+        user: 'U123',
+      },
+    })
+
+    expect(client.chat.postMessage).toHaveBeenCalledWith({
+      channel: 'C999',
+      text: 'This Slack channel is not enabled for Arche replies. Ask an admin to allow it in Slack settings.',
+      thread_ts: '100.1',
+    })
+    expect(ensureSlackServiceUserMock).not.toHaveBeenCalled()
+    expect(createInstanceClientMock).not.toHaveBeenCalled()
+    expect(recordEventReceiptMock).toHaveBeenCalledWith({
+      eventId: 'evt-channel-not-allowed',
+      receivedAt: expect.any(Date),
+      type: 'app_mention',
+    })
+
+    stopSlackSocketManager()
+  })
+
+  it('does not execute channel prompts for unlinked Slack users', async () => {
+    resolveArcheUserFromSlackUserMock.mockResolvedValueOnce({ ok: false, error: 'slack_email_not_found' })
+    const client = {
+      chat: {
+        postMessage: vi.fn().mockResolvedValue({ ts: 'auth-reply' }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      conversations: {
+        history: vi.fn().mockResolvedValue({ messages: [] }),
+        replies: vi.fn().mockResolvedValue({ messages: [] }),
+      },
+      users: {
+        info: vi.fn().mockResolvedValue({ user: { profile: { display_name: 'Alice', email: 'unknown@test.com' } } }),
+      },
+    }
+
+    const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
+    await syncSlackSocketManager()
+
+    const mentionHandler = appInstances[0].event.mock.calls.find(([name]) => name === 'app_mention')?.[1]
+    expect(typeof mentionHandler).toBe('function')
+
+    await mentionHandler({
+      body: { event_id: 'evt-channel-unlinked', team_id: 'T123' },
+      client,
+      event: {
+        channel: 'C123',
+        text: '<@U999> hello',
+        ts: '100.1',
+        user: 'U123',
+      },
+    })
+
+    expect(resolveArcheUserFromSlackUserMock).toHaveBeenCalledWith('T123', 'U123', 'unknown@test.com', 'Alice')
+    expect(client.chat.postMessage).toHaveBeenCalledWith({
+      channel: 'C123',
+      text: 'I cannot find an Arche account with your Slack email. Check that your email matches or contact an admin.',
+      thread_ts: '100.1',
+    })
+    expect(ensureSlackServiceUserMock).not.toHaveBeenCalled()
+    expect(createInstanceClientMock).not.toHaveBeenCalled()
+    expect(recordEventReceiptMock).toHaveBeenCalledWith({
+      eventId: 'evt-channel-unlinked',
+      receivedAt: expect.any(Date),
+      type: 'app_mention',
+    })
+
+    stopSlackSocketManager()
+  })
+
   it('prompts for a DM decision when the latest session is between two and eight hours old', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-04-25T12:00:00.000Z'))
@@ -590,6 +692,8 @@ describe('slack socket manager', () => {
         actions: [{ value: 'decision-1' }],
         channel: { id: 'D123' },
         message: { ts: 'decision-ts' },
+        team: { id: 'T123' },
+        user: { id: 'U123' },
       },
       client,
     })
@@ -605,6 +709,63 @@ describe('slack socket manager', () => {
       text: 'Continuing the previous conversation...',
       ts: 'decision-ts',
     })
+    stopSlackSocketManager()
+  })
+
+  it('rejects a DM decision action from a different Slack user', async () => {
+    findPendingDmDecisionMock.mockResolvedValue({
+      channelId: 'D123',
+      expiresAt: new Date(Date.now() + 60_000),
+      id: 'decision-1',
+      messageText: 'continue this',
+      previousDmSessionBindingId: 'dm-binding-1',
+      slackTeamId: 'T123',
+      slackUserId: 'U123',
+      sourceEventId: 'evt-1',
+      sourceTs: '100.1',
+      status: 'pending',
+    })
+    const client = {
+      chat: {
+        postMessage: vi.fn().mockResolvedValue({ ts: 'reply-1' }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      conversations: {
+        history: vi.fn().mockResolvedValue({ messages: [] }),
+        replies: vi.fn().mockResolvedValue({ messages: [] }),
+      },
+      users: {
+        info: vi.fn().mockResolvedValue({ user: { profile: { display_name: 'Alice', email: 'alice@test.com' } } }),
+      },
+    }
+
+    const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
+    await syncSlackSocketManager()
+
+    const actionHandler = appInstances[0].action.mock.calls.find(([name]) => name === 'continue_conversation')?.[1]
+    expect(typeof actionHandler).toBe('function')
+
+    await actionHandler({
+      ack: vi.fn().mockResolvedValue(undefined),
+      body: {
+        actions: [{ value: 'decision-1' }],
+        channel: { id: 'D123' },
+        message: { ts: 'decision-ts' },
+        team: { id: 'T123' },
+        user: { id: 'U999' },
+      },
+      client,
+    })
+
+    expect(markPendingDmDecisionContinuedMock).not.toHaveBeenCalled()
+    expect(createInstanceClientMock).not.toHaveBeenCalled()
+    expect(client.chat.update).toHaveBeenCalledWith({
+      blocks: [],
+      channel: 'D123',
+      text: 'This decision is no longer valid.',
+      ts: 'decision-ts',
+    })
+
     stopSlackSocketManager()
   })
 

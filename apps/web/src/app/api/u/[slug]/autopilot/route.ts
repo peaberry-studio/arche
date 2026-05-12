@@ -4,7 +4,10 @@ import { NextResponse } from 'next/server'
 import { auditEvent } from '@/lib/auth'
 import { getNextAutopilotRunAt } from '@/lib/autopilot/cron'
 import { validateAutopilotTaskPayload } from '@/lib/autopilot/payload'
-import { resolveAutopilotWorkspaceUserId } from '@/lib/autopilot/route-auth'
+import {
+  resolveAutopilotWorkspaceUserId,
+  validateAutopilotSlackNotificationAccess,
+} from '@/lib/autopilot/route-auth'
 import { triggerAutopilotTaskNow } from '@/lib/autopilot/runner'
 import { serializeAutopilotTaskDetail, serializeAutopilotTaskListItem } from '@/lib/autopilot/serializers'
 import type { AutopilotTaskDetail, AutopilotTaskListItem } from '@/lib/autopilot/types'
@@ -57,6 +60,18 @@ export const POST = withAuth<{ task: AutopilotTaskDetail } | { error: string }>(
     const userId = await resolveAutopilotWorkspaceUserId(slug, user)
     if (!userId) {
       return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    }
+
+    const slackNotificationAccess = await validateAutopilotSlackNotificationAccess(
+      payload.value.slackNotificationConfig,
+      user,
+      userId,
+    )
+    if (!slackNotificationAccess.ok) {
+      return NextResponse.json(
+        { error: slackNotificationAccess.error },
+        { status: slackNotificationAccess.status },
+      )
     }
 
     try {

@@ -89,7 +89,7 @@ export async function markPendingDmDecisionContinued(
       id: decisionId,
       status: 'pending',
     },
-    data: { status: 'continued' },
+    data: { messageText: '', status: 'continued' },
   })
 
   return result.count === 1
@@ -104,7 +104,7 @@ export async function markPendingDmDecisionStartedNew(
       id: decisionId,
       status: 'pending',
     },
-    data: { status: 'started_new' },
+    data: { messageText: '', status: 'started_new' },
   })
 
   return result.count === 1
@@ -116,6 +116,6 @@ export async function expirePendingDmDecision(decisionId: string): Promise<void>
       id: decisionId,
       status: 'pending',
     },
-    data: { status: 'expired' },
+    data: { messageText: '', status: 'expired' },
   })
 }

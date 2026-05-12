@@ -1,6 +1,7 @@
 import { slackService } from '@/lib/services'
 import { loadSlackAgentOptions } from '@/lib/slack/agents'
 import type {
+  SlackActionContext,
   SlackActionTarget,
   SlackBlock,
   SlackChatClient,
@@ -113,6 +114,36 @@ export function getSlackActionTarget(body: unknown): SlackActionTarget | null {
   }
 
   return { channelId, messageTs }
+}
+
+export function getSlackActionContext(body: unknown): SlackActionContext | null {
+  if (!body || typeof body !== 'object') {
+    return null
+  }
+
+  const record = body as Record<string, unknown>
+  const channel = record.channel
+  const team = record.team
+  const user = record.user
+  const channelId = channel && typeof channel === 'object'
+    ? (channel as Record<string, unknown>).id
+    : null
+  const slackTeamId = team && typeof team === 'object'
+    ? (team as Record<string, unknown>).id
+    : record.team_id
+  const slackUserId = user && typeof user === 'object'
+    ? (user as Record<string, unknown>).id
+    : record.user_id
+
+  if (
+    typeof channelId !== 'string' ||
+    typeof slackTeamId !== 'string' ||
+    typeof slackUserId !== 'string'
+  ) {
+    return null
+  }
+
+  return { channelId, slackTeamId, slackUserId }
 }
 
 export function extractSlackResponseTs(response: unknown): string | null {
