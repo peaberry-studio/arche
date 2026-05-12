@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
-import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { loadSlackAgentOptions } from '@/lib/slack/agents'
+import { requireSlackIntegrationAdmin } from '@/lib/slack/route-auth'
 
 import {
   isSlackAppToken,
@@ -93,26 +93,10 @@ async function parseJsonObject(request: NextRequest): Promise<
   return { ok: true, body: body as JsonObject }
 }
 
-function requireAdmin(user: { id: string; role: string }) {
-  const denied = requireCapability('slackIntegration')
-  if (denied) {
-    return { ok: false as const, response: denied }
-  }
-
-  if (user.role !== 'ADMIN') {
-    return {
-      ok: false as const,
-      response: NextResponse.json({ error: 'forbidden' }, { status: 403 }),
-    }
-  }
-
-  return { ok: true as const }
-}
-
 export const GET = withAuth<SlackIntegrationGetResponse | { error: string }>(
   { csrf: false },
   async (_request, { user }) => {
-    const admin = requireAdmin(user)
+    const admin = requireSlackIntegrationAdmin(user)
     if (!admin.ok) {
       return admin.response
     }
@@ -129,7 +113,7 @@ export const GET = withAuth<SlackIntegrationGetResponse | { error: string }>(
 export const PUT = withAuth<SlackIntegrationMutateResponse | { error: string; message?: string }>(
   { csrf: true },
   async (request, { user }) => {
-    const admin = requireAdmin(user)
+    const admin = requireSlackIntegrationAdmin(user)
     if (!admin.ok) {
       return admin.response
     }
@@ -253,7 +237,7 @@ export const PUT = withAuth<SlackIntegrationMutateResponse | { error: string; me
 export const DELETE = withAuth<SlackIntegrationMutateResponse | { error: string }>(
   { csrf: true },
   async (_request, { user }) => {
-    const admin = requireAdmin(user)
+    const admin = requireSlackIntegrationAdmin(user)
     if (!admin.ok) {
       return admin.response
     }

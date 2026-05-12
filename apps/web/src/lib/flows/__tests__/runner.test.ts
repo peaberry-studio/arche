@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   markRunWaitingForHuman: vi.fn(),
   releaseFlowLease: vi.fn(),
   runFlowPromptAndReadOutput: vi.fn(),
+  sendSlackNotifications: vi.fn(),
   touchActivity: vi.fn(),
   updateRunStepByRunIdAndNodeId: vi.fn(),
   updateRunCurrentNode: vi.fn(),
@@ -64,6 +65,10 @@ vi.mock('@/lib/services', () => ({
   },
   instanceService: { touchActivity: mocks.touchActivity },
   userService: { findByIdSelect: mocks.userFindByIdSelect },
+}))
+
+vi.mock('@/lib/slack/notifications', () => ({
+  sendSlackNotifications: mocks.sendSlackNotifications,
 }))
 
 import { resumeFlowRun, runClaimedFlow, triggerFlowNow } from '@/lib/flows/runner'

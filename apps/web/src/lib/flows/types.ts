@@ -6,6 +6,16 @@ export type FlowRunStepStatus = 'pending' | 'running' | 'waiting_for_human' | 's
 
 export type FlowNodeType = 'agent' | 'human' | 'condition' | 'merge' | 'compaction'
 
+export type FlowSlackNotificationTarget =
+  | { type: 'dm'; userId: string }
+  | { type: 'channel'; channelId: string }
+
+export type FlowSlackNotificationConfig = {
+  enabled: boolean
+  includeSessionLink: boolean
+  targets: FlowSlackNotificationTarget[]
+}
+
 export type FlowConditionMode = 'rules' | 'ai'
 
 export type FlowConditionOperator =
@@ -142,6 +152,7 @@ export type FlowListItem = {
   createdAt: string
   updatedAt: string
   latestRun: FlowRunListItem | null
+  slackNotificationConfig?: FlowSlackNotificationConfig
 }
 
 export type FlowDetail = FlowListItem & {
@@ -155,6 +166,7 @@ export type FlowPayload = {
   cronExpression: string | null
   timezone: string
   enabled: boolean
+  slackNotificationConfig?: FlowSlackNotificationConfig | null
 }
 
 export type FlowSessionMetadata = {

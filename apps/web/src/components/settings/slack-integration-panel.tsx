@@ -1,17 +1,19 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CaretDown, Check, CheckCircle, Copy, SpinnerGap, XCircle } from '@phosphor-icons/react'
+import { CaretDown, Check, CheckCircle, Copy, Hash, Lock, SpinnerGap, XCircle } from '@phosphor-icons/react'
 
 import { SettingsInfoBox } from '@/components/settings/settings-info-box'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 import { copyTextToClipboard } from '@/lib/clipboard'
 import { SLACK_MANIFEST_JSON, SLACK_MANIFEST_YAML } from '@/lib/slack/manifest'
 import type {
   SlackIntegrationGetResponse,
   SlackIntegrationMutateResponse,
+  SlackNotificationChannel,
   SlackIntegrationStatus,
   SlackIntegrationSummary,
   SlackIntegrationTestResponse,
@@ -120,6 +122,8 @@ export function SlackIntegrationPanel({
   const [isExpanded, setIsExpanded] = useState(!collapsible)
   const [isLoading, setIsLoading] = useState(true)
   const [manifestFormat, setManifestFormat] = useState<'json' | 'yaml'>('yaml')
+  const [notificationChannels, setNotificationChannels] = useState<SlackNotificationChannel[]>([])
+  const [isRefreshingChannels, setIsRefreshingChannels] = useState(false)
   const [testResult, setTestResult] = useState<SlackIntegrationTestResponse | null>(null)
 
   const effectiveAgentLabel = useMemo(() => {
@@ -156,9 +160,76 @@ export function SlackIntegrationPanel({
     }
   }, [slug])
 
+  const loadNotificationChannels = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/u/${slug}/slack-integration/channels`, { cache: 'no-store' })
+      const data = (await response.json().catch(() => null)) as { channels?: SlackNotificationChannel[]; error?: string } | null
+      if (!response.ok || !data) {
+        setError(getErrorMessage(data?.error))
+        return
+      }
+
+      setNotificationChannels(data.channels ?? [])
+    } catch {
+      setError(getErrorMessage('network_error'))
+    }
+  }, [slug])
+
   useEffect(() => {
     void loadIntegration()
   }, [loadIntegration, refreshVersion])
+
+  useEffect(() => {
+    if (integration?.enabled) {
+      void loadNotificationChannels()
+      return
+    }
+
+    setNotificationChannels([])
+  }, [integration?.enabled, loadNotificationChannels])
+
+  const refreshSlackChannels = useCallback(async () => {
+    setIsRefreshingChannels(true)
+    setError(null)
+
+    try {
+      const response = await fetch(`/api/u/${slug}/slack-integration/channels`, {
+        method: 'POST',
+      })
+      const data = (await response.json().catch(() => null)) as { error?: string } | null
+      if (!response.ok) {
+        setError(getErrorMessage(data?.error))
+        return
+      }
+
+      await loadNotificationChannels()
+    } catch {
+      setError(getErrorMessage('network_error'))
+    } finally {
+      setIsRefreshingChannels(false)
+    }
+  }, [loadNotificationChannels, slug])
+
+  const setChannelEnabled = useCallback(async (id: string, enabled: boolean) => {
+    setError(null)
+
+    try {
+      const response = await fetch(`/api/u/${slug}/slack-integration/channels`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled, id }),
+      })
+      const data = (await response.json().catch(() => null)) as { error?: string } | null
+      if (!response.ok) {
+        setError(getErrorMessage(data?.error))
+        return
+      }
+
+      await loadNotificationChannels()
+    } catch {
+      setError(getErrorMessage('network_error'))
+    }
+  }, [loadNotificationChannels, slug])
 
   async function handleCopy(format: 'json' | 'yaml') {
     const text = format === 'yaml' ? SLACK_MANIFEST_YAML : SLACK_MANIFEST_JSON
@@ -464,6 +535,54 @@ export function SlackIntegrationPanel({
               </button>
             </div>
           </div>
+
+          {isEnabled ? (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <h3 className="text-sm font-medium text-foreground">Notification channels</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Channels where Autopilot can send notifications. Private channels only appear if the bot has been invited.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void refreshSlackChannels()}
+                  disabled={isRefreshingChannels}
+                >
+                  {isRefreshingChannels ? 'Refreshing...' : 'Refresh channels'}
+                </Button>
+              </div>
+
+              {notificationChannels.length === 0 ? (
+                <p className="rounded-lg border border-border/60 bg-card/40 px-3 py-2 text-sm text-muted-foreground">
+                  No channels found. Click refresh to load channels from Slack.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {notificationChannels.map((channel) => (
+                    <div key={channel.id} className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-card/40 px-3 py-2">
+                      <div className="flex min-w-0 items-center gap-2">
+                        {channel.isPrivate ? (
+                          <Lock size={14} className="shrink-0 text-muted-foreground" />
+                        ) : (
+                          <Hash size={14} className="shrink-0 text-muted-foreground" />
+                        )}
+                        <span className="truncate text-sm text-foreground">{channel.name}</span>
+                      </div>
+                      <Switch
+                        checked={channel.enabled}
+                        onCheckedChange={(checked) => void setChannelEnabled(channel.id, checked)}
+                        aria-label={`Enable notifications to ${channel.name}`}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : null}
 
           {showDangerZone && isEnabled ? (
             <div className="space-y-3 pt-2">

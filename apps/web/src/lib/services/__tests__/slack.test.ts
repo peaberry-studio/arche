@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockPrisma = vi.hoisted(() => ({
+  $transaction: vi.fn(async (operations: Array<Promise<unknown>>) => Promise.all(operations)),
   externalIntegration: {
     findUnique: vi.fn(),
     upsert: vi.fn(),
@@ -14,6 +15,35 @@ const mockPrisma = vi.hoisted(() => ({
   slackThreadBinding: {
     findUnique: vi.fn(),
     upsert: vi.fn(),
+  },
+  slackUserLink: {
+    create: vi.fn(),
+    findFirst: vi.fn(),
+    findUnique: vi.fn(),
+    update: vi.fn(),
+  },
+  slackDmSessionBinding: {
+    create: vi.fn(),
+    findFirst: vi.fn(),
+    findUnique: vi.fn(),
+    update: vi.fn(),
+  },
+  slackPendingDmDecision: {
+    create: vi.fn(),
+    findUnique: vi.fn(),
+    updateMany: vi.fn(),
+  },
+  slackNotificationChannel: {
+    findFirst: vi.fn(),
+    findMany: vi.fn(),
+    updateMany: vi.fn(),
+    upsert: vi.fn(),
+  },
+  user: {
+    findFirst: vi.fn(),
+  },
+  auditEvent: {
+    create: vi.fn(),
   },
 }))
 
@@ -30,17 +60,34 @@ vi.mock('@/lib/connectors/crypto', () => ({
 
 import {
   SLACK_INTEGRATION_KEY,
-  findIntegration,
-  saveIntegrationConfig,
   clearIntegration,
-  markSocketConnected,
+  createDmSessionBinding,
+  createPendingDmDecision,
+  expirePendingDmDecision,
+  findDmSessionBindingById,
+  findIntegration,
+  findLatestDmSession,
+  findPendingDmDecision,
+  findThreadBinding,
+  findUserLinkBySlackUser,
+  hasEventReceipt,
+  isNotificationChannelAllowed,
+  listEnabledNotificationChannels,
+  listNotificationChannels,
   markEventReceived,
   markLastError,
-  hasEventReceipt,
-  recordEventReceipt,
+  markPendingDmDecisionContinued,
+  markPendingDmDecisionStartedNew,
+  markSocketConnected,
   pruneEventReceipts,
-  findThreadBinding,
+  recordEventReceipt,
+  resolveArcheUserFromSlackUser,
+  saveIntegrationConfig,
+  setNotificationChannelEnabledById,
+  touchDmSessionBinding,
+  upsertNotificationChannelsFromSlack,
   upsertThreadBinding,
+  upsertUserLink,
 } from '../slack'
 
 const NOW = new Date('2026-04-25T12:00:00Z')
@@ -353,6 +400,338 @@ describe('slackService', () => {
           },
         }),
       )
+    })
+  })
+
+  describe('Slack user links', () => {
+    it('finds a user link by Slack team and user id', async () => {
+      mockPrisma.slackUserLink.findUnique.mockResolvedValue(null)
+      await findUserLinkBySlackUser('T123', 'U123')
+      expect(mockPrisma.slackUserLink.findUnique).toHaveBeenCalledWith({
+        where: {
+          slackTeamId_slackUserId: {
+            slackTeamId: 'T123',
+            slackUserId: 'U123',
+          },
+        },
+      })
+    })
+
+    it('creates a Slack user link and audits new links', async () => {
+      mockPrisma.slackUserLink.findUnique.mockResolvedValue(null)
+      mockPrisma.slackUserLink.create.mockResolvedValue({ id: 'link-1' })
+      mockPrisma.auditEvent.create.mockResolvedValue({})
+
+      await upsertUserLink({
+        displayName: 'Alice',
+        slackEmail: 'alice@test.com',
+        slackTeamId: 'T123',
+        slackUserId: 'U123',
+        userId: 'user-1',
+      })
+
+      expect(mockPrisma.slackUserLink.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ userId: 'user-1' }),
+      })
+      expect(mockPrisma.auditEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ action: 'slack.user_linked' }),
+        }),
+      )
+    })
+
+    it('rejects Slack user link conflicts without reassigning ownership', async () => {
+      mockPrisma.slackUserLink.findUnique.mockResolvedValue({ id: 'link-1', userId: 'user-2' })
+      mockPrisma.auditEvent.create.mockResolvedValue({})
+
+      await expect(upsertUserLink({
+        displayName: 'Alice',
+        slackEmail: 'alice@test.com',
+        slackTeamId: 'T123',
+        slackUserId: 'U123',
+        userId: 'user-1',
+      })).rejects.toThrow('slack_user_link_conflict')
+
+      expect(mockPrisma.slackUserLink.create).not.toHaveBeenCalled()
+      expect(mockPrisma.slackUserLink.update).not.toHaveBeenCalled()
+      expect(mockPrisma.auditEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ action: 'slack.user_link_conflict' }),
+        }),
+      )
+    })
+
+    it('resolves and links an Arche human user by Slack email', async () => {
+      mockPrisma.slackUserLink.findUnique.mockResolvedValue(null)
+      mockPrisma.user.findFirst.mockResolvedValue({ id: 'user-1', slug: 'alice' })
+      mockPrisma.slackUserLink.create.mockResolvedValue({ id: 'link-1' })
+      mockPrisma.auditEvent.create.mockResolvedValue({})
+
+      const result = await resolveArcheUserFromSlackUser('T123', 'U123', 'Alice@Test.com', 'Alice')
+
+      expect(result).toEqual({ ok: true, user: { id: 'user-1', slug: 'alice' } })
+      expect(mockPrisma.user.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            email: {
+              equals: 'Alice@Test.com',
+              mode: 'insensitive',
+            },
+            kind: 'HUMAN',
+          },
+        }),
+      )
+    })
+
+    it('uses a case-insensitive email lookup for Slack user linking', async () => {
+      mockPrisma.slackUserLink.findUnique.mockResolvedValue(null)
+      mockPrisma.user.findFirst.mockResolvedValue({ id: 'user-1', slug: 'alice' })
+      mockPrisma.slackUserLink.create.mockResolvedValue({ id: 'link-1' })
+      mockPrisma.auditEvent.create.mockResolvedValue({})
+
+      await resolveArcheUserFromSlackUser('T123', 'U123', 'ALICE@test.com', 'Alice')
+
+      expect(mockPrisma.user.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            email: {
+              equals: 'ALICE@test.com',
+              mode: 'insensitive',
+            },
+          }),
+        }),
+      )
+    })
+
+    it('returns a helpful error when Slack email has no Arche match', async () => {
+      mockPrisma.slackUserLink.findUnique.mockResolvedValue(null)
+      mockPrisma.user.findFirst.mockResolvedValue(null)
+
+      const result = await resolveArcheUserFromSlackUser('T123', 'U123', 'missing@test.com', 'Missing')
+
+      expect(result).toEqual({ ok: false, error: 'slack_email_not_found' })
+    })
+  })
+
+  describe('DM sessions and pending decisions', () => {
+    it('finds the latest DM session by last message time', async () => {
+      mockPrisma.slackDmSessionBinding.findFirst.mockResolvedValue(null)
+      await findLatestDmSession('T123', 'U123')
+      expect(mockPrisma.slackDmSessionBinding.findFirst).toHaveBeenCalledWith({
+        where: { slackTeamId: 'T123', slackUserId: 'U123' },
+        orderBy: { lastMessageAt: 'desc' },
+      })
+    })
+
+    it('finds a DM session binding by id', async () => {
+      mockPrisma.slackDmSessionBinding.findUnique.mockResolvedValue({ id: 'binding-1' })
+
+      const result = await findDmSessionBindingById('binding-1')
+
+      expect(result).toEqual({ id: 'binding-1' })
+      expect(mockPrisma.slackDmSessionBinding.findUnique).toHaveBeenCalledWith({
+        where: { id: 'binding-1' },
+      })
+    })
+
+    it('creates and audits a DM session binding', async () => {
+      const binding = {
+        channelId: 'D123',
+        executionUserId: 'user-1',
+        openCodeSessionId: 'session-1',
+        slackTeamId: 'T123',
+        slackUserId: 'U123',
+      }
+      mockPrisma.slackDmSessionBinding.create.mockResolvedValue({ id: 'binding-1', ...binding })
+      mockPrisma.auditEvent.create.mockResolvedValue({})
+
+      const result = await createDmSessionBinding(binding)
+
+      expect(result).toEqual({ id: 'binding-1', ...binding })
+      expect(mockPrisma.slackDmSessionBinding.create).toHaveBeenCalledWith({ data: binding })
+      expect(mockPrisma.auditEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          action: 'slack.dm_session_created',
+          actorUserId: 'user-1',
+          metadata: expect.objectContaining({ openCodeSessionId: 'session-1' }),
+        }),
+      })
+    })
+
+    it('does not fail DM session creation when audit logging fails', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      mockPrisma.slackDmSessionBinding.create.mockResolvedValue({ id: 'binding-1' })
+      mockPrisma.auditEvent.create.mockRejectedValue(new Error('audit down'))
+
+      await expect(createDmSessionBinding({
+        channelId: 'D123',
+        executionUserId: 'user-1',
+        openCodeSessionId: 'session-1',
+        slackTeamId: 'T123',
+        slackUserId: 'U123',
+      })).resolves.toEqual({ id: 'binding-1' })
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[slack] audit event failed:',
+        'slack.dm_session_created',
+        expect.any(Error),
+      )
+      warnSpy.mockRestore()
+    })
+
+    it('touches DM session binding activity time', async () => {
+      mockPrisma.slackDmSessionBinding.update.mockResolvedValue({})
+      const lastMessageAt = new Date('2026-04-25T13:00:00Z')
+
+      await touchDmSessionBinding('binding-1', lastMessageAt)
+
+      expect(mockPrisma.slackDmSessionBinding.update).toHaveBeenCalledWith({
+        where: { id: 'binding-1' },
+        data: { lastMessageAt },
+      })
+    })
+
+    it('creates and finds pending DM decisions', async () => {
+      const expiresAt = new Date('2026-04-25T12:30:00Z')
+      mockPrisma.slackPendingDmDecision.create.mockResolvedValue({ id: 'decision-1' })
+      mockPrisma.slackPendingDmDecision.findUnique.mockResolvedValue({ id: 'decision-1' })
+
+      await findPendingDmDecision('decision-1')
+      expect(mockPrisma.slackPendingDmDecision.findUnique).toHaveBeenCalledWith({ where: { id: 'decision-1' } })
+
+      await createPendingDmDecision({
+        channelId: 'D123',
+        expiresAt,
+        messageText: 'hello',
+        previousDmSessionBindingId: 'binding-1',
+        slackTeamId: 'T123',
+        slackUserId: 'U123',
+        sourceEventId: 'evt-1',
+        sourceTs: '100.1',
+      })
+      expect(mockPrisma.slackPendingDmDecision.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ sourceEventId: 'evt-1' }),
+      })
+    })
+
+    it('marks pending DM decisions as continued or started new only when updated', async () => {
+      mockPrisma.slackPendingDmDecision.updateMany
+        .mockResolvedValueOnce({ count: 1 })
+        .mockResolvedValueOnce({ count: 0 })
+
+      await expect(markPendingDmDecisionContinued('decision-1')).resolves.toBe(true)
+      await expect(markPendingDmDecisionStartedNew('decision-2')).resolves.toBe(false)
+
+      expect(mockPrisma.slackPendingDmDecision.updateMany).toHaveBeenNthCalledWith(1, {
+        where: {
+          expiresAt: { gt: expect.any(Date) },
+          id: 'decision-1',
+          status: 'pending',
+        },
+        data: { messageText: '', status: 'continued' },
+      })
+      expect(mockPrisma.slackPendingDmDecision.updateMany).toHaveBeenNthCalledWith(2, {
+        where: {
+          expiresAt: { gt: expect.any(Date) },
+          id: 'decision-2',
+          status: 'pending',
+        },
+        data: { messageText: '', status: 'started_new' },
+      })
+    })
+
+    it('expires a pending DM decision', async () => {
+      mockPrisma.slackPendingDmDecision.updateMany.mockResolvedValue({ count: 1 })
+
+      await expirePendingDmDecision('decision-1')
+
+      expect(mockPrisma.slackPendingDmDecision.updateMany).toHaveBeenCalledWith({
+        where: { id: 'decision-1', status: 'pending' },
+        data: { messageText: '', status: 'expired' },
+      })
+    })
+  })
+
+  describe('notification channels', () => {
+    it('upserts notification channels without disabling existing entries', async () => {
+      mockPrisma.slackNotificationChannel.upsert.mockResolvedValue({})
+      await upsertNotificationChannelsFromSlack('T123', [
+        { channelId: 'C1', isPrivate: false, name: 'general' },
+      ])
+
+      expect(mockPrisma.$transaction).toHaveBeenCalledWith([expect.any(Promise)])
+      expect(mockPrisma.slackNotificationChannel.upsert).toHaveBeenCalledWith({
+        where: {
+          slackTeamId_channelId: {
+            channelId: 'C1',
+            slackTeamId: 'T123',
+          },
+        },
+        create: expect.objectContaining({ enabled: true, name: 'general' }),
+        update: {
+          isPrivate: false,
+          name: 'general',
+        },
+      })
+    })
+
+    it('lists notification channels by team with stable ordering', async () => {
+      mockPrisma.slackNotificationChannel.findMany.mockResolvedValue([])
+
+      await listNotificationChannels('T123')
+
+      expect(mockPrisma.slackNotificationChannel.findMany).toHaveBeenCalledWith({
+        where: { slackTeamId: 'T123' },
+        orderBy: [
+          { isPrivate: 'asc' },
+          { name: 'asc' },
+        ],
+      })
+    })
+
+    it('lists enabled notification channels by team with stable ordering', async () => {
+      mockPrisma.slackNotificationChannel.findMany.mockResolvedValue([])
+
+      await listEnabledNotificationChannels('T123')
+
+      expect(mockPrisma.slackNotificationChannel.findMany).toHaveBeenCalledWith({
+        where: {
+          enabled: true,
+          slackTeamId: 'T123',
+        },
+        orderBy: [
+          { isPrivate: 'asc' },
+          { name: 'asc' },
+        ],
+      })
+    })
+
+    it('updates notification channels by database id only', async () => {
+      mockPrisma.slackNotificationChannel.updateMany.mockResolvedValue({ count: 1 })
+
+      await setNotificationChannelEnabledById('row-1', false)
+
+      expect(mockPrisma.slackNotificationChannel.updateMany).toHaveBeenCalledWith({
+        where: { id: 'row-1' },
+        data: { enabled: false },
+      })
+    })
+
+    it('checks whether a notification channel is enabled', async () => {
+      mockPrisma.slackNotificationChannel.findFirst
+        .mockResolvedValueOnce({ id: 'row-1' })
+        .mockResolvedValueOnce(null)
+
+      await expect(isNotificationChannelAllowed('T123', 'C1')).resolves.toBe(true)
+      await expect(isNotificationChannelAllowed('T123', 'C2')).resolves.toBe(false)
+
+      expect(mockPrisma.slackNotificationChannel.findFirst).toHaveBeenNthCalledWith(1, {
+        where: {
+          channelId: 'C1',
+          enabled: true,
+          slackTeamId: 'T123',
+        },
+        select: { id: true },
+      })
     })
   })
 })

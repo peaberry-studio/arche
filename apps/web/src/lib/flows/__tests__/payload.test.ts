@@ -74,6 +74,37 @@ describe('validateFlowPayload', () => {
       .resolves.toEqual({ ok: true, value: { cronExpression: '0 9 * * 1' } })
   })
 
+  it('accepts and normalizes Slack notification config', async () => {
+    await expect(validateFlowPayload({
+      slackNotificationConfig: {
+        enabled: true,
+        includeSessionLink: false,
+        targets: [
+          { type: 'dm', userId: ' user-1 ' },
+          { type: 'channel', channelId: ' C123 ' },
+        ],
+      },
+    }, 'update')).resolves.toEqual({
+      ok: true,
+      value: {
+        slackNotificationConfig: {
+          enabled: true,
+          includeSessionLink: false,
+          targets: [
+            { type: 'dm', userId: 'user-1' },
+            { type: 'channel', channelId: 'C123' },
+          ],
+        },
+      },
+    })
+  })
+
+  it('rejects enabled Slack notification config without targets', async () => {
+    await expect(validateFlowPayload({
+      slackNotificationConfig: { enabled: true, targets: [] },
+    }, 'update')).resolves.toEqual({ ok: false, error: 'slack_notification_targets_required', status: 400 })
+  })
+
   it('rejects malformed scalar update fields', async () => {
     await expect(validateFlowPayload(null, 'update'))
       .resolves.toEqual({ ok: false, error: 'invalid_body', status: 400 })

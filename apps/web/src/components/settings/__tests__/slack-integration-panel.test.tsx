@@ -91,6 +91,7 @@ describe('SlackIntegrationPanel', () => {
     fetchMock
       .mockResolvedValueOnce(getResponse())
       .mockResolvedValueOnce(getResponse(connectedIntegration))
+      .mockResolvedValueOnce(jsonResponse({ channels: [] }))
 
     render(<SlackIntegrationPanel slug="alice" collapsible={false} onMutated={onMutated} />)
 
@@ -155,6 +156,7 @@ describe('SlackIntegrationPanel', () => {
     const onMutated = vi.fn()
     fetchMock
       .mockResolvedValueOnce(getResponse({ ...connectedIntegration, lastError: 'socket closed' }))
+      .mockResolvedValueOnce(jsonResponse({ channels: [] }))
       .mockResolvedValueOnce(jsonResponse({ error: 'invalid_auth' }, { status: 400 }))
       .mockResolvedValueOnce(getResponse(disabledIntegration))
 
@@ -173,12 +175,48 @@ describe('SlackIntegrationPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Disable integration' }))
     await waitFor(() => expect(onMutated).toHaveBeenCalledTimes(1))
-    expect(JSON.parse(String(fetchMock.mock.calls[2][1]?.body))).toEqual({
+    expect(JSON.parse(String(fetchMock.mock.calls[3][1]?.body))).toEqual({
       defaultAgentId: 'researcher',
       enabled: false,
       reconnect: false,
     })
     expect(screen.getByText('Disabled')).toBeTruthy()
+  })
+
+  it('refreshes and toggles notification channels', async () => {
+    fetchMock
+      .mockResolvedValueOnce(getResponse(connectedIntegration))
+      .mockResolvedValueOnce(jsonResponse({
+        channels: [
+          {
+            id: 'row-1',
+            slackTeamId: 'T123',
+            channelId: 'C123',
+            name: 'general',
+            isPrivate: false,
+            enabled: true,
+            createdAt: '2026-04-01T00:00:00.000Z',
+            updatedAt: '2026-04-01T00:00:00.000Z',
+          },
+        ],
+      }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true }))
+      .mockResolvedValueOnce(jsonResponse({ channels: [] }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true }))
+      .mockResolvedValueOnce(jsonResponse({ channels: [] }))
+
+    render(<SlackIntegrationPanel slug="alice" collapsible={false} />)
+
+    expect(await screen.findByText('general')).toBeTruthy()
+    const channelSwitch = screen.getByRole('switch', { name: 'Enable notifications to general' })
+    fireEvent.click(channelSwitch)
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      '/api/u/alice/slack-integration/channels',
+      expect.objectContaining({ method: 'PATCH' }),
+    ))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh channels' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/u/alice/slack-integration/channels', { method: 'POST' }))
   })
 
   it('shows load failures with friendly messages', async () => {

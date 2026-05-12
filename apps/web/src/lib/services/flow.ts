@@ -6,6 +6,7 @@ import {
   Prisma,
 } from '@prisma/client'
 
+import type { FlowSlackNotificationConfig } from '@/lib/flows/types'
 import { prisma } from '@/lib/prisma'
 
 export type FlowRecord = {
@@ -17,6 +18,7 @@ export type FlowRecord = {
   cronExpression: string | null
   timezone: string
   enabled: boolean
+  slackNotificationConfig?: Prisma.JsonValue | null
   nextRunAt: Date | null
   lastRunAt: Date | null
   leaseOwner: string | null
@@ -139,6 +141,28 @@ function noActiveRun() {
   }
 }
 
+function slackNotificationConfigToJson(
+  config: FlowSlackNotificationConfig,
+): Prisma.InputJsonObject {
+  return {
+    enabled: config.enabled,
+    includeSessionLink: config.includeSessionLink,
+    targets: config.targets.map((target) => {
+      if (target.type === 'dm') {
+        return {
+          type: 'dm',
+          userId: target.userId,
+        }
+      }
+
+      return {
+        type: 'channel',
+        channelId: target.channelId,
+      }
+    }),
+  }
+}
+
 export async function recoverStaleRunningRuns(now: Date): Promise<number> {
   const result = await prisma.flowRun.updateMany({
     data: {
@@ -184,6 +208,7 @@ export async function createFlow(data: {
   enabled: boolean
   name: string
   nextRunAt?: Date | null
+  slackNotificationConfig?: FlowSlackNotificationConfig | null
   timezone: string
   userId: string
 }): Promise<FlowRecord> {
@@ -195,6 +220,9 @@ export async function createFlow(data: {
       enabled: data.enabled,
       name: data.name,
       nextRunAt: data.nextRunAt ?? null,
+      ...(data.slackNotificationConfig
+        ? { slackNotificationConfig: slackNotificationConfigToJson(data.slackNotificationConfig) }
+        : {}),
       timezone: data.timezone,
       userId: data.userId,
     },
@@ -211,11 +239,20 @@ export async function updateFlowByIdAndUserId(
     enabled?: boolean
     name?: string
     nextRunAt?: Date | null
+    slackNotificationConfig?: FlowSlackNotificationConfig | null
     timezone?: string
   },
 ): Promise<FlowRecord | null> {
+  const { slackNotificationConfig, ...flowData } = data
+  const updateData: Prisma.FlowUpdateManyMutationInput = { ...flowData }
+  if ('slackNotificationConfig' in data) {
+    updateData.slackNotificationConfig = slackNotificationConfig
+      ? slackNotificationConfigToJson(slackNotificationConfig)
+      : Prisma.DbNull
+  }
+
   const result = await prisma.flow.updateMany({
-    data,
+    data: updateData,
     where: { id, userId },
   })
   if (result.count === 0) return null

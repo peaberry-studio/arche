@@ -63,9 +63,16 @@ describe('FlowEditor', () => {
     mocks.updateFlowRequest.mockResolvedValue({ ok: true, data: { flow } })
     mocks.deleteFlowRequest.mockResolvedValue({ ok: true, data: { ok: true } })
     mocks.runFlowRequest.mockResolvedValue({ ok: true, data: { ok: true } })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      json: vi.fn().mockResolvedValue({ channels: [], integrationEnabled: false, users: [] }),
+      ok: true,
+    }))
   })
 
-  afterEach(() => cleanup())
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+  })
 
   it('creates a flow and navigates to it', async () => {
     render(<FlowEditor slug="alice" mode="create" />)

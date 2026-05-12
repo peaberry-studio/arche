@@ -1,7 +1,8 @@
 import type { SlackIntegrationRecord } from '@/lib/services/slack'
 import type { SlackIntegrationStatus, SlackIntegrationSummary, SlackIntegrationTestResponse } from '@/lib/slack/types'
+import { callSlackApi, type SlackApiObject } from '@/lib/slack/web-api'
 
-type SlackApiResponse = {
+type SlackApiResponse = SlackApiObject & {
   ok?: boolean
   bot?: {
     app_id?: string
@@ -63,18 +64,18 @@ export async function testSlackCredentials(args: {
   appToken: string
   botToken: string
 }): Promise<SlackIntegrationTestResponse> {
-  const botAuth = await callSlackApi('auth.test', args.botToken)
+  const botAuth = await callSlackApi<SlackApiResponse>('auth.test', args.botToken)
   const botId = botAuth.bot_id
   if (!botId) {
     throw new Error('slack_bot_id_missing')
   }
 
-  const botInfo = await callSlackApi(
+  const botInfo = await callSlackApi<SlackApiResponse>(
     'bots.info',
     args.botToken,
-    new URLSearchParams({ bot: botId }).toString(),
+    { body: { bot: botId } },
   )
-  const socket = await callSlackApi('apps.connections.open', args.appToken)
+  const socket = await callSlackApi<SlackApiResponse>('apps.connections.open', args.appToken)
   const appTokenAppId = extractSlackAppIdFromAppToken(args.appToken)
   const socketAppId = extractSlackAppIdFromSocketUrl(socket.url)
   const botAppId = botInfo.bot?.app_id ?? null
@@ -109,24 +110,4 @@ function extractSlackAppIdFromSocketUrl(socketUrl: string | undefined): string |
   } catch {
     return null
   }
-}
-
-async function callSlackApi(method: string, token: string, body = ''): Promise<SlackApiResponse> {
-  const response = await fetch(`https://slack.com/api/${method}`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body,
-    cache: 'no-store',
-    signal: AbortSignal.timeout(10_000),
-  })
-
-  const data = await response.json().catch(() => null) as SlackApiResponse | null
-  if (!response.ok || !data?.ok) {
-    throw new Error(data?.error ?? `slack_${method.replace(/\./g, '_')}_failed`)
-  }
-
-  return data
 }

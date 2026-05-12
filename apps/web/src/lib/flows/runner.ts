@@ -7,7 +7,7 @@ import {
 
 import { formatFlowRunDate } from '@/lib/flows/cron'
 import { getFlowNodeById, getFlowOutgoingTargets } from '@/lib/flows/graph'
-import { serializeFlowRun, toPrismaJson } from '@/lib/flows/serializers'
+import { serializeFlowRun, serializeSlackNotificationConfig, toPrismaJson } from '@/lib/flows/serializers'
 import { createFlowLeaseOwner, FLOW_LEASE_MS, runFlowPromptAndReadOutput } from '@/lib/flows/session-executor'
 import { buildFlowTemplateContext, renderFlowTemplate } from '@/lib/flows/template'
 import type { ConditionFlowNode, FlowConditionOperator, FlowDefinition, FlowNode } from '@/lib/flows/types'
@@ -20,6 +20,7 @@ import {
 import { isRecord } from '@/lib/records'
 import { auditService, flowService, instanceService, userService } from '@/lib/services'
 import type { FlowClaimedRecord, FlowRecord, FlowRunDetailRecord, FlowRunRecord, FlowRunStepRecord } from '@/lib/services/flow'
+import { sendSlackNotifications } from '@/lib/slack/notifications'
 
 export { FLOW_LEASE_MS } from '@/lib/flows/session-executor'
 
@@ -30,6 +31,35 @@ type FlowExecutionOutcome =
 
 function buildFlowSessionTitle(flow: FlowRecord, scheduledFor: Date): string {
   return `Flow | ${flow.name} | ${formatFlowRunDate(scheduledFor, flow.timezone)}`
+}
+
+function buildFlowSessionLink(slug: string, sessionId: string): string | undefined {
+  const publicBaseUrl = process.env.ARCHE_PUBLIC_BASE_URL?.trim()
+  if (!publicBaseUrl || publicBaseUrl.includes('0.0.0.0') || publicBaseUrl.includes('::')) {
+    return undefined
+  }
+
+  try {
+    const url = new URL(publicBaseUrl)
+    url.pathname = `/w/${slug}`
+    url.searchParams.set('mode', 'flows')
+    url.searchParams.set('session', sessionId)
+    return url.toString()
+  } catch {
+    return undefined
+  }
+}
+
+function getFlowNotificationOutput(run: FlowRunDetailRecord | null): string | null {
+  if (!run) return null
+
+  for (let index = run.steps.length - 1; index >= 0; index -= 1) {
+    const step = run.steps[index]
+    const output = step.compactedOutput ?? step.rawOutput ?? step.humanResponse
+    if (output?.trim()) return output
+  }
+
+  return null
 }
 
 function nodeTypeToPrisma(node: FlowNode): PrismaFlowNodeType {
@@ -612,19 +642,50 @@ async function finalizeRun(params: {
       sessionTitle: params.sessionTitle,
     })
     if (result.count !== 1) return
-    await auditService.createEvent({
-      action: 'flows.run_succeeded',
-      actorUserId: params.flow.userId,
+      await auditService.createEvent({
+        action: 'flows.run_succeeded',
+        actorUserId: params.flow.userId,
       metadata: {
         flowId: params.flow.id,
         runId: params.run.id,
         sessionId: params.sessionId,
         slug: params.slug,
-        trigger: params.trigger,
-      },
-    })
-    return
-  }
+          trigger: params.trigger,
+        },
+      })
+
+      const slackNotificationConfig = serializeSlackNotificationConfig(params.flow.slackNotificationConfig)
+      if (slackNotificationConfig?.enabled && params.sessionId && params.slug) {
+        try {
+          const output = getFlowNotificationOutput(currentRun)
+          if (!output) {
+            throw new Error('No flow output to send')
+          }
+
+          const notificationResult = await sendSlackNotifications({
+            sessionLink: slackNotificationConfig.includeSessionLink
+              ? buildFlowSessionLink(params.slug, params.sessionId)
+              : undefined,
+            source: 'flows',
+            targets: slackNotificationConfig.targets,
+            text: `Flow report: ${params.flow.name}\n\n${output}`,
+          })
+
+          if (!notificationResult.ok) {
+            console.error('[flows] Failed to send Slack notification', notificationResult.error)
+          } else if (notificationResult.failed > 0) {
+            console.error('[flows] Partial Slack notification failure', {
+              errors: notificationResult.errors,
+              failed: notificationResult.failed,
+              sent: notificationResult.sent,
+            })
+          }
+        } catch (error) {
+          console.error('[flows] Error sending Slack notification', error)
+        }
+      }
+      return
+    }
 
   const result = await flowService.markRunFailed(params.run.id, {
     error: params.outcome.error,

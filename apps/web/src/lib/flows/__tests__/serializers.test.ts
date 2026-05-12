@@ -60,6 +60,7 @@ function createFlow(runs: FlowRunDetailRecord[]): FlowDetailRecord {
     name: 'Flow',
     nextRunAt: null,
     runs,
+    slackNotificationConfig: null,
     timezone: 'UTC',
     updatedAt: now,
     userId: 'user-1',
@@ -87,6 +88,23 @@ describe('flow serializers', () => {
     }
 
     expect(serializeFlowListItem(flow).definition).toEqual({ edges: [], nodes: [], startNodeId: '', version: 1 })
+  })
+
+  it('serializes Slack notification config', () => {
+    const detail = serializeFlowDetail({
+      ...createFlow([]),
+      slackNotificationConfig: {
+        enabled: true,
+        includeSessionLink: false,
+        targets: [{ type: 'dm', userId: 'user-1' }],
+      },
+    })
+
+    expect(detail.slackNotificationConfig).toEqual({
+      enabled: true,
+      includeSessionLink: false,
+      targets: [{ type: 'dm', userId: 'user-1' }],
+    })
   })
 
   it('serializes standalone runs and converts JSON to Prisma input JSON', () => {

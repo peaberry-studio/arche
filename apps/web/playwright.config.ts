@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 import { defineConfig } from '@playwright/test'
@@ -8,11 +9,13 @@ const profile = getE2eProfile()
 const isSmokeFake = profile === 'smoke-fake'
 const DEFAULT_E2E_ENCRYPTION_KEY = 'ZGV2LWluc2VjdXJlLWtleS0zMi1ieXRlcy1sb25nISE='
 
-const e2eRoot = path.join(__dirname, '.e2e')
+// Keep mutable E2E data outside apps/web so Next dev HMR does not rebuild during tests.
+const e2eRoot = process.env.ARCHE_E2E_ROOT?.trim() || path.join(process.env.RUNNER_TEMP ?? tmpdir(), 'arche-web-e2e')
 const runtimePassword = process.env.ARCHE_E2E_RUNTIME_PASSWORD ?? 'arche-e2e-runtime'
 const runtimeBaseUrl = process.env.ARCHE_E2E_RUNTIME_BASE_URL ?? `http://127.0.0.1:${process.env.ARCHE_E2E_RUNTIME_PORT ?? '4210'}`
 
 const commonEnv = {
+  ARCHE_E2E_ROOT: e2eRoot,
   ARCHE_ENCRYPTION_KEY: process.env.ARCHE_ENCRYPTION_KEY ?? DEFAULT_E2E_ENCRYPTION_KEY,
   ARCHE_SEED_ADMIN_EMAIL: process.env.ARCHE_SEED_ADMIN_EMAIL ?? 'admin-e2e@arche.local',
   ARCHE_SEED_ADMIN_PASSWORD: process.env.ARCHE_SEED_ADMIN_PASSWORD ?? 'arche-e2e-admin',

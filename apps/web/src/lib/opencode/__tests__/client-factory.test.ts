@@ -40,8 +40,8 @@ describe('createConfiguredOpencodeClient', () => {
     vi.unstubAllGlobals()
   })
 
-  it('creates an SDK client with the configured base URL', () => {
-    createConfiguredOpencodeClient({
+  it('creates an SDK client with the configured base URL', async () => {
+    await createConfiguredOpencodeClient({
       authHeader: 'Basic secret',
       baseUrl: 'http://opencode-alice:4096',
     })
@@ -56,7 +56,7 @@ describe('createConfiguredOpencodeClient', () => {
     const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
       .mockResolvedValue(new Response('ok'))
     vi.stubGlobal('fetch', fetchMock)
-    createConfiguredOpencodeClient({ authHeader: 'Basic secret', baseUrl: 'http://opencode' })
+    await createConfiguredOpencodeClient({ authHeader: 'Basic secret', baseUrl: 'http://opencode' })
 
     await getCapturedOptions().fetch('http://opencode/session', {
       body: 'payload',
@@ -78,7 +78,7 @@ describe('createConfiguredOpencodeClient', () => {
     const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
       .mockResolvedValue(new Response('ok'))
     vi.stubGlobal('fetch', fetchMock)
-    createConfiguredOpencodeClient({ authHeader: 'Bearer token', baseUrl: 'http://opencode' })
+    await createConfiguredOpencodeClient({ authHeader: 'Bearer token', baseUrl: 'http://opencode' })
     const request = new Request('http://opencode/session/message', {
       body: 'hello',
       headers: { 'content-type': 'text/plain' },
@@ -101,7 +101,7 @@ describe('createConfiguredOpencodeClient', () => {
     vi.stubGlobal('fetch', vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
       .mockRejectedValue(error))
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    createConfiguredOpencodeClient({ authHeader: 'Basic secret', baseUrl: 'http://opencode' })
+    await createConfiguredOpencodeClient({ authHeader: 'Basic secret', baseUrl: 'http://opencode' })
 
     await expect(getCapturedOptions().fetch('http://opencode/global/health')).rejects.toThrow('network down')
     expect(consoleSpy).toHaveBeenCalledWith('[opencode/client] Fetch error:', error)

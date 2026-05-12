@@ -5,8 +5,9 @@ import { auditEvent } from '@/lib/auth'
 import { resolveFlowOwnerUserId } from '@/lib/flows/api'
 import { getNextFlowRunAt, validateFlowCronExpression } from '@/lib/flows/cron'
 import { validateFlowPayload } from '@/lib/flows/payload'
+import { validateFlowSlackNotificationAccess } from '@/lib/flows/route-auth'
 import { serializeFlowDetail, toPrismaJson } from '@/lib/flows/serializers'
-import type { FlowDetail } from '@/lib/flows/types'
+import type { FlowDetail, FlowSlackNotificationConfig } from '@/lib/flows/types'
 import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { flowService } from '@/lib/services'
@@ -85,16 +86,42 @@ export const PATCH = withAuth<{ flow: FlowDetail } | { error: string }, FlowRout
         ? null
         : undefined
 
+    const updateData: {
+      cronExpression?: string | null
+      definition?: ReturnType<typeof toPrismaJson>
+      description?: string | null
+      enabled?: boolean
+      name?: string
+      nextRunAt?: Date | null
+      slackNotificationConfig?: FlowSlackNotificationConfig | null
+      timezone?: string
+    } = {
+      cronExpression: payload.value.cronExpression,
+      definition: payload.value.definition ? toPrismaJson(payload.value.definition) : undefined,
+      description: payload.value.description,
+      enabled: payload.value.enabled,
+      name: payload.value.name,
+      nextRunAt,
+      timezone: payload.value.timezone,
+    }
+    if ('slackNotificationConfig' in payload.value) {
+      updateData.slackNotificationConfig = payload.value.slackNotificationConfig ?? null
+    }
+
+    const slackNotificationAccess = await validateFlowSlackNotificationAccess(
+      payload.value.slackNotificationConfig,
+      user,
+      userId,
+    )
+    if (!slackNotificationAccess.ok) {
+      return NextResponse.json(
+        { error: slackNotificationAccess.error },
+        { status: slackNotificationAccess.status },
+      )
+    }
+
     try {
-      const updated = await flowService.updateFlowByIdAndUserId(id, userId, {
-        cronExpression: payload.value.cronExpression,
-        definition: payload.value.definition ? toPrismaJson(payload.value.definition) : undefined,
-        description: payload.value.description,
-        enabled: payload.value.enabled,
-        name: payload.value.name,
-        nextRunAt,
-        timezone: payload.value.timezone,
-      })
+      const updated = await flowService.updateFlowByIdAndUserId(id, userId, updateData)
 
       if (!updated) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 

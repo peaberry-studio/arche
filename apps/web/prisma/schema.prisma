@@ -66,6 +66,13 @@ enum FlowNodeType {
   compaction
 }
 
+enum SlackPendingDecisionStatus {
+  pending
+  continued
+  started_new
+  expired
+}
+
 model User {
   id           String      @id @default(cuid())
   email        String      @unique
@@ -89,6 +96,8 @@ model User {
   autopilotTasks      AutopilotTask[]
   flows               Flow[]
   slackThreadBindings SlackThreadBinding[]
+  slackUserLinks      SlackUserLink[]
+  slackDmSessionBindings SlackDmSessionBinding[]
 
   @@map("users")
 }
@@ -127,6 +136,75 @@ model SlackEventReceipt {
 
   @@index([receivedAt])
   @@map("slack_event_receipts")
+}
+
+model SlackUserLink {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  slackTeamId String   @map("slack_team_id")
+  slackUserId String   @map("slack_user_id")
+  slackEmail  String?  @map("slack_email")
+  displayName String?  @map("display_name")
+  lastSeenAt  DateTime @map("last_seen_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([slackTeamId, slackUserId])
+  @@index([userId])
+  @@map("slack_user_links")
+}
+
+model SlackDmSessionBinding {
+  id                String   @id @default(cuid())
+  slackTeamId       String   @map("slack_team_id")
+  slackUserId       String   @map("slack_user_id")
+  channelId         String   @map("channel_id")
+  executionUserId   String   @map("execution_user_id")
+  openCodeSessionId String   @unique @map("opencode_session_id")
+  startedAt         DateTime @default(now()) @map("started_at")
+  lastMessageAt     DateTime @default(now()) @map("last_message_at")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  executionUser     User     @relation(fields: [executionUserId], references: [id], onDelete: Cascade)
+
+  @@index([slackTeamId, slackUserId, lastMessageAt])
+  @@index([executionUserId])
+  @@map("slack_dm_session_bindings")
+}
+
+model SlackPendingDmDecision {
+  id                         String                       @id @default(cuid())
+  sourceEventId              String                       @unique @map("source_event_id")
+  slackTeamId                String                       @map("slack_team_id")
+  slackUserId                String                       @map("slack_user_id")
+  channelId                  String                       @map("channel_id")
+  sourceTs                   String                       @map("source_ts")
+  messageText                String                       @map("message_text")
+  previousDmSessionBindingId String?                      @map("previous_dm_session_binding_id")
+  expiresAt                  DateTime                     @map("expires_at")
+  status                     SlackPendingDecisionStatus   @default(pending)
+  createdAt                  DateTime                     @default(now()) @map("created_at")
+  updatedAt                  DateTime                     @updatedAt @map("updated_at")
+
+  @@index([expiresAt])
+  @@map("slack_pending_dm_decisions")
+}
+
+model SlackNotificationChannel {
+  id          String   @id @default(cuid())
+  slackTeamId String   @map("slack_team_id")
+  channelId   String   @map("channel_id")
+  name        String
+  isPrivate   Boolean  @default(false) @map("is_private")
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([slackTeamId, channelId])
+  @@map("slack_notification_channels")
 }
 
 enum InstanceStatus {
@@ -204,6 +282,7 @@ model AutopilotTask {
   prompt         String
   targetAgentId  String?        @map("target_agent_id")
   enabled        Boolean        @default(true)
+  slackNotificationConfig Json? @map("slack_notification_config")
 
   nextRunAt      DateTime       @map("next_run_at")
   lastRunAt      DateTime?      @map("last_run_at")
@@ -262,6 +341,7 @@ model Flow {
   cronExpression String?        @map("cron_expression")
   timezone       String         @default("UTC")
   enabled        Boolean        @default(false)
+  slackNotificationConfig Json? @map("slack_notification_config")
 
   nextRunAt      DateTime?      @map("next_run_at")
   lastRunAt      DateTime?      @map("last_run_at")

@@ -24,6 +24,17 @@ export type SlackIntegrationSummary = {
   updatedAt: string | null
 }
 
+export type SlackNotificationChannel = {
+  id: string
+  slackTeamId: string
+  channelId: string
+  name: string
+  isPrivate: boolean
+  enabled: boolean
+  createdAt: string | Date
+  updatedAt: string | Date
+}
+
 export type SlackIntegrationGetResponse = {
   agents: SlackAgentOption[]
   integration: SlackIntegrationSummary

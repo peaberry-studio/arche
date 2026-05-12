@@ -37,6 +37,7 @@ function loadMermaid(): Promise<MermaidApi> {
         mermaid.initialize({
           startOnLoad: false,
           securityLevel: 'strict',
+          suppressErrorRendering: true,
           // Root-level htmlLabels (v11+). The deprecated flowchart.htmlLabels is
           // ignored, so labels would otherwise render as HTML in <foreignObject>
           // and get stripped by DOMPurify's SVG profile, leaving empty nodes.
