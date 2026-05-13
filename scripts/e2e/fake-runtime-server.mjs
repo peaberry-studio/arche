@@ -23,6 +23,7 @@ const state = {
   nextSessionId: 1,
   sessions: new Map(),
   files: new Map(),
+  providerAuth: new Map(),
   eventClients: new Set(),
 }
 
@@ -597,6 +598,21 @@ function handleInternalSessions(response) {
   })
 }
 
+async function handleProviderAuth(request, response, pathname) {
+  const providerId = pathname.split('/')[2] ?? ''
+
+  if (request.method === 'PUT') {
+    const rawBody = (await readBody(request)).toString('utf8')
+    const auth = rawBody.trim() ? JSON.parse(rawBody) : {}
+    state.providerAuth.set(providerId, { auth, updatedAt: now() })
+    sendJson(response, 200, true)
+    return
+  }
+
+  state.providerAuth.delete(providerId)
+  sendJson(response, 200, true)
+}
+
 const server = createServer(async (request, response) => {
   const method = request.method ?? 'GET'
   const url = new URL(request.url ?? '/', `http://127.0.0.1:${port}`)
@@ -609,6 +625,16 @@ const server = createServer(async (request, response) => {
     }
 
     if (!requireBasicAuth(request, response)) {
+      return
+    }
+
+    if ((method === 'PUT' || method === 'DELETE') && /^\/auth\/[^/]+$/.test(pathname)) {
+      await handleProviderAuth(request, response, pathname)
+      return
+    }
+
+    if (method === 'POST' && pathname === '/instance/dispose') {
+      sendJson(response, 200, true)
       return
     }
 
