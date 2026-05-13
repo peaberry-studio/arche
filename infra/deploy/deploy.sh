@@ -43,6 +43,7 @@ SSH_USER="root"
 ACME_EMAIL=""
 EXPOSURE_MODE="direct"
 EXPOSURE_MODE_SET_BY_FLAG=false
+REMOTE_FLAGS_SET=false
 DRY_RUN=false
 VERBOSE=false
 SKIP_ENSURE_DNS_RECORD=false
@@ -208,12 +209,12 @@ EOF
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --local-dev)   MODE="local-dev";   shift ;;
-    --ip)          DEPLOY_IP="$2";       shift 2 ;;
-    --domain)      DEPLOY_DOMAIN="$2";   shift 2 ;;
-    --ssh-key)     SSH_KEY="$2";         shift 2 ;;
+    --ip)          DEPLOY_IP="$2";       REMOTE_FLAGS_SET=true; shift 2 ;;
+    --domain)      DEPLOY_DOMAIN="$2";   REMOTE_FLAGS_SET=true; shift 2 ;;
+    --ssh-key)     SSH_KEY="$2";         REMOTE_FLAGS_SET=true; shift 2 ;;
     --user)        SSH_USER="$2";        shift 2 ;;
-    --acme-email)  ACME_EMAIL="$2";      shift 2 ;;
-    --cloudflare-tunnel) EXPOSURE_MODE="cloudflare-tunnel"; EXPOSURE_MODE_SET_BY_FLAG=true; shift ;;
+    --acme-email)  ACME_EMAIL="$2";      REMOTE_FLAGS_SET=true; shift 2 ;;
+    --cloudflare-tunnel) EXPOSURE_MODE="cloudflare-tunnel"; EXPOSURE_MODE_SET_BY_FLAG=true; REMOTE_FLAGS_SET=true; shift ;;
     --version)     WEB_VERSION="$2";     shift 2 ;;
     --skip-ensure-dns-record) SKIP_ENSURE_DNS_RECORD=true; shift ;;
     --dry-run)     DRY_RUN=true;         shift ;;
@@ -350,11 +351,11 @@ log "About to determine mode, current MODE=$MODE"
 # Determine mode
 if [[ "$MODE" == "local-dev" ]]; then
   # Ensure no remote flags were also passed
-  if [[ -n "$DEPLOY_IP" || -n "$DEPLOY_DOMAIN" || -n "$SSH_KEY" || -n "$ACME_EMAIL" || "$EXPOSURE_MODE" != "direct" ]]; then
+  if $REMOTE_FLAGS_SET; then
     ERRORS+=("--local-dev is mutually exclusive with remote flags (--ip, --domain, --ssh-key, --acme-email, --cloudflare-tunnel)")
   fi
   validate_local
-elif [[ -n "$DEPLOY_IP" || -n "$DEPLOY_DOMAIN" || -n "$SSH_KEY" || -n "$ACME_EMAIL" || "$EXPOSURE_MODE" != "direct" ]]; then
+elif $REMOTE_FLAGS_SET; then
   MODE="remote"
   validate_remote
 else

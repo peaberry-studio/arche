@@ -129,6 +129,9 @@ describe('web dev scripts', () => {
     expect(deployScript).toContain('--cloudflare-tunnel')
     expect(deployScript).toContain('CLOUDFLARED_TUNNEL_TOKEN is required when --cloudflare-tunnel is used')
     expect(deployScript).toContain('export ARCHE_PUBLIC_BASE_URL="https://${DEPLOY_DOMAIN}"')
+    expect(deployScript).toContain('REMOTE_FLAGS_SET=false')
+    expect(deployScript).toContain('REMOTE_FLAGS_SET=true')
+    expect(deployScript).toContain('elif $REMOTE_FLAGS_SET; then')
     expect(deployScript).toContain('"exposure_mode": os.environ["EXPOSURE_MODE"]')
     expect(deployScript).toContain(
       '"cloudflared_tunnel_token": os.environ.get("CLOUDFLARED_TUNNEL_TOKEN", "")',
