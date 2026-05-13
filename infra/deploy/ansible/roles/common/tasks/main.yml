@@ -59,12 +59,14 @@
     rule: allow
     port: "80"
     proto: tcp
+  when: exposure_mode == 'direct'
 
 - name: Allow HTTPS through UFW
   community.general.ufw:
     rule: allow
     port: "443"
     proto: tcp
+  when: exposure_mode == 'direct'
 
 - name: Enable UFW
   community.general.ufw:

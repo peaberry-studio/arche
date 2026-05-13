@@ -2,11 +2,17 @@
 # Deployment mode: "remote" or "local-dev"
 deploy_mode: "{{ lookup('env', 'DEPLOY_MODE') | default('remote', true) }}"
 
+# Exposure mode: "direct" or "cloudflare-tunnel"
+exposure_mode: "{{ lookup('env', 'ARCHE_EXPOSURE_MODE') | default('direct', true) }}"
+
 # Domain
 domain: "{{ lookup('env', 'ARCHE_DOMAIN') | default('arche.lvh.me', true) }}"
 
 # ACME email for Let's Encrypt
 acme_email: "{{ lookup('env', 'ACME_EMAIL') | default('', true) }}"
+
+# Cloudflare Tunnel
+cloudflared_tunnel_token: "{{ lookup('env', 'CLOUDFLARED_TUNNEL_TOKEN') | default('', true) }}"
 
 # Podman socket path (Linux rootful default; macOS varies)
 podman_socket_path: "{{ lookup('env', 'PODMAN_SOCKET_PATH') | default('/run/podman/podman.sock', true) }}"
@@ -16,6 +22,7 @@ image_prefix: "{{ lookup('env', 'IMAGE_PREFIX') | default('ghcr.io/peaberry-stud
 web_version: "{{ lookup('env', 'WEB_VERSION') | default('latest', true) }}"
 web_image: "{{ lookup('env', 'WEB_IMAGE') | default(image_prefix ~ 'web:' ~ web_version, true) }}"
 opencode_image: "{{ lookup('env', 'OPENCODE_IMAGE') | default('arche-workspace:latest', true) }}"
+cloudflared_image: "{{ lookup('env', 'CLOUDFLARED_IMAGE') | default('docker.io/cloudflare/cloudflared:2026.5.0', true) }}"
 
 # GHCR auth
 ghcr_token: "{{ lookup('env', 'GHCR_TOKEN') | default('', true) }}"
