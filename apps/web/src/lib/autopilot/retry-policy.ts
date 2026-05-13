@@ -66,6 +66,8 @@ export function isRetryableAutopilotStartError(error: string): boolean {
     normalized.includes('healthcheck timeout') ||
     normalized.includes('instance_start_timeout') ||
     normalized.includes('instance_unavailable') ||
+    normalized.includes('kb_unavailable') ||
+    normalized.includes('user_data_unavailable') ||
     normalized.includes('fetch failed') ||
     normalized.includes('econnrefused') ||
     normalized.includes('enotfound') ||

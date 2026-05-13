@@ -37,6 +37,7 @@ vi.mock('@/lib/workspace-paths', () => ({
 import {
   buildWorkspacePromptParts,
   normalizeContextPaths,
+  normalizeMessageAttachments,
 } from '@/lib/opencode/workspace-prompt'
 
 describe('workspace prompt builder', () => {
@@ -58,6 +59,21 @@ describe('workspace prompt builder', () => {
 
     expect(normalizeContextPaths([' notes/a.md ', 'notes/a.md', 'bad/../path'])).toEqual([
       'notes/a.md',
+    ])
+  })
+
+  it('limits context references and normalizes attachment inputs', () => {
+    const paths = Array.from({ length: 25 }, (_, index) => `notes/${index}.md`)
+
+    expect(normalizeContextPaths('notes/a.md')).toEqual([])
+    expect(normalizeContextPaths(paths)).toHaveLength(20)
+    expect(normalizeMessageAttachments('not-array')).toEqual([])
+    expect(normalizeMessageAttachments([
+      { path: ' .arche/attachments/a.txt ', filename: 'a.txt', mime: 'text/plain' },
+      { filename: 'missing-path.txt' },
+      null,
+    ])).toEqual([
+      { path: ' .arche/attachments/a.txt ', filename: 'a.txt', mime: 'text/plain' },
     ])
   })
 
@@ -106,5 +122,103 @@ describe('workspace prompt builder', () => {
       filename: 'screenshot.png',
       url: `data:image/png;base64,${Buffer.from('image bytes').toString('base64')}`,
     })
+  })
+
+  it('returns validation errors for empty prompts and invalid attachment paths', async () => {
+    await expect(buildWorkspacePromptParts({
+      agent: { baseUrl: 'http://agent', authHeader: 'Basic secret' },
+      attachments: [],
+      contextPaths: [],
+    })).resolves.toEqual({ ok: false, error: 'missing_fields' })
+
+    mocks.isWorkspaceAttachmentPath.mockReturnValue(false)
+    await expect(buildWorkspacePromptParts({
+      agent: { baseUrl: 'http://agent', authHeader: 'Basic secret' },
+      attachments: [{ path: '/tmp/nope.txt' }],
+      contextPaths: [],
+      text: 'Hi',
+    })).resolves.toEqual({ ok: false, error: 'invalid_attachment_path' })
+  })
+
+  it('adds fallback text for PDFs and specialized attachment tool hints', async () => {
+    mocks.isPdfMime.mockImplementation((mime: string) => mime === 'application/pdf')
+    mocks.isSpreadsheetMimeType.mockImplementation((mime: string) => mime === 'text/csv')
+    mocks.isDocumentMimeType.mockImplementation((mime: string) => mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+    mocks.isPresentationMimeType.mockImplementation((mime: string) => mime === 'application/vnd.openxmlformats-officedocument.presentationml.presentation')
+    mocks.extractPdfText.mockResolvedValue({ ok: false })
+    mocks.workspaceAgentFetch
+      .mockResolvedValueOnce({ ok: false, data: { ok: false } })
+      .mockResolvedValueOnce({ ok: true, data: { ok: true, content: 'pdf bytes', encoding: 'utf-8' } })
+
+    const result = await buildWorkspacePromptParts({
+      agent: { baseUrl: 'http://agent', authHeader: 'Basic secret' },
+      attachments: [
+        { path: '.arche/attachments/missing.pdf', mime: 'application/pdf' },
+        { path: '.arche/attachments/scanned.pdf', mime: 'application/pdf' },
+        { path: '.arche/attachments/data.csv', mime: 'text/csv' },
+        { path: '.arche/attachments/brief.docx', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+        { path: '.arche/attachments/deck.pptx', mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' },
+      ],
+      contextPaths: [],
+      text: 'Review these files',
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    const promptText = result.parts.map((part) => ('text' in part ? part.text : '')).join('\n')
+    expect(promptText).toContain('Attached PDF could not be extracted automatically')
+    expect(promptText).toContain('You must use spreadsheet_inspect first')
+    expect(promptText).toContain('Use document_inspect')
+    expect(promptText).toContain('Use presentation_inspect')
+  })
+
+  it('falls back to workspace file urls for unreadable attachments when available', async () => {
+    mocks.workspaceAgentFetch.mockResolvedValue({ ok: true, data: { ok: true, content: 'ignored', encoding: 'binary' } })
+    mocks.inferAttachmentMimeType.mockImplementation((filename: string) => filename.endsWith('.png') ? 'image/png' : 'text/plain')
+
+    const result = await buildWorkspacePromptParts({
+      agent: { baseUrl: 'http://agent', authHeader: 'Basic secret' },
+      attachments: [
+        { path: '.arche/attachments/missing.png' },
+        { path: '.arche/attachments/notes.txt' },
+      ],
+      contextPaths: [],
+      text: 'Open these',
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.parts).toContainEqual({
+      type: 'file',
+      mime: 'image/png',
+      filename: 'missing.png',
+      url: 'file:///workspace/.arche/attachments/missing.png',
+    })
+    expect(result.parts).toContainEqual({
+      type: 'file',
+      mime: 'text/plain',
+      filename: 'notes.txt',
+      url: 'file:///workspace/.arche/attachments/notes.txt',
+    })
+  })
+
+  it('omits file urls in desktop mode while keeping attachment hints', async () => {
+    mocks.isDesktop.mockReturnValue(true)
+    mocks.workspaceAgentFetch.mockResolvedValue({ ok: false, data: { ok: false } })
+
+    const result = await buildWorkspacePromptParts({
+      agent: { baseUrl: 'http://agent', authHeader: 'Basic secret' },
+      attachments: [{ path: '.arche/attachments/notes.txt' }],
+      contextPaths: [],
+      text: 'Open this',
+    })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.parts.some((part) => part.type === 'file')).toBe(false)
+    expect(result.parts.map((part) => ('text' in part ? part.text : '')).join('\n')).toContain('- .arche/attachments/notes.txt')
   })
 })

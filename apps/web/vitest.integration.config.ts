@@ -13,6 +13,7 @@ export default mergeConfig(
         exclude: [
           ...sharedCoverageExclude,
           'src/actions/**',
+          'src/autopilot-daemon.ts',
           'src/app/auth/**',
           'src/app/layout.tsx',
           'src/app/login/**',

@@ -248,6 +248,49 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     expect(json.error).toBe('run_not_found')
   })
 
+  it('returns terminal SSE events for completed runs', async () => {
+    const { POST } = await import('../route')
+
+    mocks.messageRunService.findRunById.mockResolvedValueOnce({
+      id: 'run-1',
+      slug: 'alice',
+      sessionId: 's1',
+      source: 'web',
+      status: 'succeeded',
+      error: null,
+      startedAt: new Date(),
+      finishedAt: new Date(),
+    })
+    const succeeded = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
+    await expect(succeeded.text()).resolves.toContain('event: done')
+
+    mocks.messageRunService.findRunById.mockResolvedValueOnce({
+      id: 'run-1',
+      slug: 'alice',
+      sessionId: 's1',
+      source: 'web',
+      status: 'aborted',
+      error: null,
+      startedAt: new Date(),
+      finishedAt: new Date(),
+    })
+    const aborted = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
+    await expect(aborted.text()).resolves.toContain('cancelled')
+
+    mocks.messageRunService.findRunById.mockResolvedValueOnce({
+      id: 'run-1',
+      slug: 'alice',
+      sessionId: 's1',
+      source: 'web',
+      status: 'failed',
+      error: 'provider_auth_missing',
+      startedAt: new Date(),
+      finishedAt: new Date(),
+    })
+    const failed = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
+    await expect(failed.text()).resolves.toContain('provider_auth_missing')
+  })
+
   it('returns 401 when not authenticated', async () => {
     mocks.getSession.mockResolvedValue(null)
     const { POST } = await import('../route')
@@ -410,6 +453,8 @@ describe('POST /api/w/[slug]/chat/stream', () => {
           },
         },
       },
+      { type: 'session.status', properties: { info: { sessionID: 's1' }, status: { type: 'idle' } } },
+      { type: 'session.idle', properties: { info: { sessionID: 's1' } } },
       {
         type: 'permission.replied',
         properties: {
@@ -433,6 +478,46 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     expect(text).toContain('"response":"once"')
   })
 
+  it('forwards permission events using fallback payload shapes', async () => {
+    const fetchMock = mockOpenCodeFetch([
+      {
+        type: 'message.updated',
+        properties: { info: { id: 'm1', role: 'assistant', sessionID: 's1' } },
+      },
+      {
+        type: 'permission.updated',
+        properties: {
+          id: 'perm-info',
+          messageId: 'm1',
+          metadata: { toolName: 'fallback-tool' },
+          pattern: 'fallback-pattern',
+          permissionId: 'perm-ignored',
+          sessionID: 's1',
+          type: 'tool',
+        },
+      },
+      {
+        type: 'permission.replied',
+        properties: {
+          permissionId: 'perm-info',
+          response: 'always',
+          sessionID: 's1',
+        },
+      },
+      { type: 'session.idle', properties: { info: { sessionID: 's1' } } },
+    ])
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('../route')
+    const res = await POST(makePostRequest({ sessionId: 's1', text: 'Hi' }), params())
+
+    const text = await res.text()
+
+    expect(text).toContain('fallback-tool')
+    expect(text).toContain('fallback-pattern')
+    expect(text).toContain('"response":"always"')
+  })
+
   it('streams an error when the upstream event subscription fails', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 500 })))
 
@@ -440,6 +525,61 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     const res = await POST(makePostRequest({ sessionId: 's1', text: 'hi' }), params())
 
     await expect(res.text()).resolves.toContain('Failed to connect to event stream')
+  })
+
+  it('streams an error when subscribing to upstream events throws', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('stream down')))
+
+    const { POST } = await import('../route')
+    const res = await POST(makePostRequest({ sessionId: 's1', text: 'hi' }), params())
+
+    await expect(res.text()).resolves.toContain('stream down')
+  })
+
+  it('filters unrelated events and marks run failures from session errors', async () => {
+    const fetchMock = mockOpenCodeFetch([
+      {
+        type: 'session.status',
+        properties: { info: { sessionID: 'other-session' }, status: { type: 'busy' } },
+      },
+      {
+        type: 'message.updated',
+        properties: { info: { id: 'other-message', role: 'assistant', sessionID: 'other-session' } },
+      },
+      {
+        type: 'message.part.updated',
+        properties: { part: { id: 'early', messageID: 'm-late', sessionID: 's1', type: 'step-start' } },
+      },
+      {
+        type: 'message.updated',
+        properties: { info: { id: 'm-late', role: 'assistant', sessionID: 's1' } },
+      },
+      {
+        type: 'message.part.updated',
+        properties: { part: { id: 'p-text', messageID: 'm-late', sessionID: 's1', type: 'text' } },
+      },
+      {
+        type: 'message.part.updated',
+        properties: { part: { id: 'p-tool', messageID: 'm-late', sessionID: 's1', type: 'tool', tool: 'bash', state: { status: 'done' } } },
+      },
+      {
+        type: 'message.part.updated',
+        properties: { part: { id: 'p-retry', messageID: 'm-late', sessionID: 's1', type: 'retry' } },
+      },
+      {
+        type: 'session.error',
+        properties: { info: { sessionID: 's1' }, error: { data: { message: 'provider missing' } } },
+      },
+    ])
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('../route')
+    const res = await POST(makePostRequest({ sessionId: 's1', text: 'Hi' }), params())
+
+    const text = await res.text()
+    expect(text).toContain('provider missing')
+    expect(text).not.toContain('other-message')
+    expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith('run-1', 'provider missing')
   })
 
   it('streams resume delta events without sending a new prompt', async () => {

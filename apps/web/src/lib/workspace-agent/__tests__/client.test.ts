@@ -111,6 +111,30 @@ describe('createWorkspaceAgentClient', () => {
       authHeader: expect.any(String),
     })
   })
+
+  it('returns null when no running instance credentials are available', async () => {
+    const { createWorkspaceAgentClient } = await import('../client')
+
+    mockFindCredentialsBySlug.mockResolvedValueOnce(null)
+    await expect(createWorkspaceAgentClient('missing')).resolves.toBeNull()
+
+    mockFindCredentialsBySlug.mockResolvedValueOnce({ serverPassword: null, status: 'running' })
+    await expect(createWorkspaceAgentClient('missing-password')).resolves.toBeNull()
+
+    mockFindCredentialsBySlug.mockResolvedValueOnce({ serverPassword: 'encrypted-password', status: 'stopped' })
+    await expect(createWorkspaceAgentClient('stopped')).resolves.toBeNull()
+  })
+
+  it('returns null when password decryption fails', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    mockDecryptPassword.mockImplementationOnce(() => { throw new Error('bad password') })
+
+    const { createWorkspaceAgentClient } = await import('../client')
+
+    await expect(createWorkspaceAgentClient('alice')).resolves.toBeNull()
+    expect(consoleErrorSpy).toHaveBeenCalledWith('[workspace-agent] Failed to decrypt password for alice')
+    consoleErrorSpy.mockRestore()
+  })
 })
 
 describe('workspaceAgentFetch', () => {

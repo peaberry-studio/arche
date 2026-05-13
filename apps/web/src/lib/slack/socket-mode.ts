@@ -252,6 +252,16 @@ async function handleSlackEvent(args: {
       return
     }
 
+    const shouldHandleThread = await shouldHandleSlackThreadCandidate({
+      channel,
+      event,
+      eventTs,
+      isMention: args.isMention,
+    })
+    if (!shouldHandleThread) {
+      return
+    }
+
     const authorization = await authorizeSlackThreadEvent({
       body: args.body,
       channel,
@@ -288,6 +298,25 @@ async function handleSlackEvent(args: {
   })
 }
 
+async function shouldHandleSlackThreadCandidate(args: {
+  channel: string
+  event: SlackMessageEvent
+  eventTs: string
+  isMention: boolean
+}): Promise<boolean> {
+  if (args.isMention) {
+    return true
+  }
+
+  const threadTs = args.event.thread_ts
+  if (!threadTs || threadTs === args.eventTs) {
+    return false
+  }
+
+  const existingBinding = await slackService.findThreadBinding(args.channel, threadTs)
+  return Boolean(existingBinding)
+}
+
 async function authorizeSlackThreadEvent(args: {
   body: unknown
   channel: string
@@ -299,14 +328,6 @@ async function authorizeSlackThreadEvent(args: {
     return {
       ok: false,
       message: 'I could not identify the Slack workspace or user for this request.',
-    }
-  }
-
-  const channelAllowed = await slackService.isNotificationChannelAllowed(slackTeamId, args.channel)
-  if (!channelAllowed) {
-    return {
-      ok: false,
-      message: 'This Slack channel is not enabled for Arche replies. Ask an admin to allow it in Slack settings.',
     }
   }
 

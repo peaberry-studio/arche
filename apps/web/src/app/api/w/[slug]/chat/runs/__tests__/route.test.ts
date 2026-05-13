@@ -131,6 +131,19 @@ describe('/api/w/[slug]/chat/runs', () => {
     return { params: Promise.resolve({ slug: 'alice' }) }
   }
 
+  function activeRun(status: 'aborted' | 'failed' | 'running' | 'succeeded' = 'running') {
+    return {
+      id: 'run-1',
+      slug: 'alice',
+      sessionId: 's1',
+      source: 'web',
+      status,
+      error: null,
+      startedAt: new Date('2026-05-13T12:00:00.000Z'),
+      finishedAt: status === 'running' ? null : new Date('2026-05-13T12:01:00.000Z'),
+    }
+  }
+
   it('starts an OpenCode prompt under a durable run lock', async () => {
     const fetchMock = vi.fn((url: string | URL) => {
       const href = String(url)
@@ -260,16 +273,7 @@ describe('/api/w/[slug]/chat/runs', () => {
   })
 
   it('returns and clears no active run when OpenCode is already idle', async () => {
-    mocks.messageRunService.findActiveRun.mockResolvedValue({
-      id: 'run-1',
-      slug: 'alice',
-      sessionId: 's1',
-      source: 'web',
-      status: 'running',
-      error: null,
-      startedAt: new Date('2026-05-13T12:00:00.000Z'),
-      finishedAt: null,
-    })
+    mocks.messageRunService.findActiveRun.mockResolvedValue(activeRun())
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ s1: { type: 'idle' } }), { status: 200 })))
 
     const { GET } = await import('../route')
@@ -278,5 +282,115 @@ describe('/api/w/[slug]/chat/runs', () => {
     expect(res.status).toBe(200)
     await expect(res.json()).resolves.toEqual({ activeRun: null })
     expect(mocks.messageRunService.markRunSucceeded).toHaveBeenCalledWith('run-1')
+  })
+
+  it('validates GET query fields and inactive runs', async () => {
+    const { GET } = await import('../route')
+
+    const missing = await GET(new NextRequest('http://localhost/api/w/alice/chat/runs'), params())
+    expect(missing.status).toBe(400)
+
+    const none = await GET(getRequest('s1'), params())
+    expect(none.status).toBe(200)
+    await expect(none.json()).resolves.toEqual({ activeRun: null })
+
+    mocks.messageRunService.findActiveRun.mockResolvedValue(activeRun('failed'))
+    const failed = await GET(getRequest('s1'), params())
+    expect(failed.status).toBe(200)
+    await expect(failed.json()).resolves.toEqual({ activeRun: null })
+    expect(mocks.messageRunService.markActiveRunSucceeded).toHaveBeenCalledWith('alice', 's1')
+  })
+
+  it('returns active runs when runtime state is not idle', async () => {
+    mocks.messageRunService.findActiveRun.mockResolvedValue(activeRun())
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ s1: { type: 'retry' } }), { status: 200 })))
+
+    const { GET } = await import('../route')
+    const res = await GET(getRequest('s1'), params())
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({
+      activeRun: {
+        runId: 'run-1',
+        sessionId: 's1',
+        source: 'web',
+        status: 'running',
+        startedAt: '2026-05-13T12:00:00.000Z',
+      },
+    })
+  })
+
+  it('keeps active runs when runtime status cannot be read', async () => {
+    mocks.messageRunService.findActiveRun.mockResolvedValue(activeRun())
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('status down')))
+
+    const { GET } = await import('../route')
+    const res = await GET(getRequest('s1'), params())
+
+    expect(res.status).toBe(200)
+    expect((await res.json()).activeRun.runId).toBe('run-1')
+  })
+
+  it('returns 503 for active run checks and prompt starts without a running instance', async () => {
+    mocks.instanceService.findCredentialsBySlug.mockResolvedValue({ status: 'stopped', serverPassword: null })
+    mocks.messageRunService.findActiveRun.mockResolvedValue(activeRun())
+
+    const { GET, POST } = await import('../route')
+    const getRes = await GET(getRequest('s1'), params())
+    const postRes = await POST(postRequest({ sessionId: 's1', text: 'Hi' }), params())
+
+    expect(getRes.status).toBe(503)
+    expect(postRes.status).toBe(503)
+  })
+
+  it('validates POST bodies before starting runs', async () => {
+    const { POST } = await import('../route')
+
+    const invalidJson = await POST(new NextRequest('http://localhost/api/w/alice/chat/runs', {
+      method: 'POST',
+      body: 'not json{',
+      headers: { 'Content-Type': 'application/json' },
+    }), params())
+    expect(invalidJson.status).toBe(400)
+
+    const missing = await POST(postRequest({ sessionId: 's1' }), params())
+    expect(missing.status).toBe(400)
+
+    const tooManyAttachments = await POST(postRequest({
+      sessionId: 's1',
+      attachments: Array.from({ length: 11 }, (_, index) => ({ path: `.arche/attachments/${index}.txt` })),
+    }), params())
+    expect(tooManyAttachments.status).toBe(400)
+
+    mocks.isWorkspaceAttachmentPath.mockReturnValue(false)
+    const invalidAttachment = await POST(postRequest({
+      sessionId: 's1',
+      text: 'Hi',
+      attachments: [{ path: '/tmp/nope.txt' }],
+    }), params())
+    expect(invalidAttachment.status).toBe(400)
+    await expect(invalidAttachment.json()).resolves.toEqual({ error: 'invalid_attachment_path' })
+  })
+
+  it('marks runs failed when prompt startup fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')))
+
+    const { POST } = await import('../route')
+    const res = await POST(postRequest({ sessionId: 's1', text: 'Hi' }), params())
+
+    expect(res.status).toBe(502)
+    await expect(res.json()).resolves.toEqual({ error: 'network down' })
+    expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith('run-1', 'network down')
+  })
+
+  it('marks runs failed when OpenCode rejects prompt startup', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('bad prompt', { status: 500 })))
+
+    const { POST } = await import('../route')
+    const res = await POST(postRequest({ sessionId: 's1', text: 'Hi' }), params())
+
+    expect(res.status).toBe(502)
+    await expect(res.json()).resolves.toEqual({ error: 'Failed to start message: bad prompt' })
+    expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith('run-1', 'Failed to start message: bad prompt')
   })
 })

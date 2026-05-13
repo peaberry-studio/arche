@@ -52,7 +52,7 @@ async function listSlackChannelsByType(botToken: string, type: 'public_channel' 
       }
 
       const isPrivate = type === 'private_channel' || channel.is_private === true
-      if (isPrivate && channel.is_member !== true) {
+      if (isPrivate && channel.is_member === false) {
         continue
       }
 
