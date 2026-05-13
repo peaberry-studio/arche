@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const requireCapabilityMock = vi.fn()
+const requireCapabilityMock = vi.hoisted(() => vi.fn())
 
 vi.mock('@/lib/runtime/require-capability', () => ({
   requireCapability: (...args: unknown[]) => requireCapabilityMock(...args),

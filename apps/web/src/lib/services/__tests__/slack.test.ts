@@ -466,7 +466,7 @@ describe('slackService', () => {
 
     it('updates an existing Slack user link for the same owner', async () => {
       mockPrisma.slackUserLink.findUnique.mockResolvedValue({ id: 'link-1', userId: 'user-1' })
-      mockPrisma.slackUserLink.update.mockResolvedValue({ id: 'link-1' })
+      mockPrisma.slackUserLink.update.mockResolvedValue({ id: 'link-1', userId: 'user-1' })
 
       const result = await upsertUserLink({
         displayName: ' Alice ',
@@ -476,14 +476,16 @@ describe('slackService', () => {
         userId: 'user-1',
       })
 
-      expect(result).toEqual({ id: 'link-1' })
+      expect(result).toEqual({ id: 'link-1', userId: 'user-1' })
       expect(mockPrisma.slackUserLink.update).toHaveBeenCalledWith({
         where: { id: 'link-1' },
-        data: expect.objectContaining({
+        data: {
           displayName: 'Alice',
+          lastSeenAt: expect.any(Date),
           slackEmail: 'alice@test.com',
-        }),
+        },
       })
+      expect(mockPrisma.auditEvent.create).not.toHaveBeenCalled()
     })
 
     it('updates after a concurrent create for the same Slack user link owner', async () => {
@@ -504,10 +506,11 @@ describe('slackService', () => {
       expect(result).toEqual({ id: 'link-1' })
       expect(mockPrisma.slackUserLink.update).toHaveBeenCalledWith({
         where: { id: 'link-1' },
-        data: expect.objectContaining({
+        data: {
           displayName: null,
+          lastSeenAt: expect.any(Date),
           slackEmail: null,
-        }),
+        },
       })
     })
 
@@ -535,7 +538,9 @@ describe('slackService', () => {
 
     it('rethrows a unique constraint when the conflicting Slack user link cannot be found', async () => {
       const uniqueError = { code: 'P2002' }
-      mockPrisma.slackUserLink.findUnique.mockResolvedValue(null)
+      mockPrisma.slackUserLink.findUnique
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null)
       mockPrisma.slackUserLink.create.mockRejectedValue(uniqueError)
 
       await expect(upsertUserLink({
@@ -585,10 +590,11 @@ describe('slackService', () => {
       expect(result).toEqual({ ok: true, user: { id: 'user-1', slug: 'alice' } })
       expect(mockPrisma.slackUserLink.update).toHaveBeenCalledWith({
         where: { id: 'link-1' },
-        data: expect.objectContaining({
+        data: {
           displayName: 'Alice',
+          lastSeenAt: expect.any(Date),
           slackEmail: 'alice@test.com',
-        }),
+        },
       })
     })
 
@@ -651,6 +657,7 @@ describe('slackService', () => {
 
       expect(result).toEqual({ ok: false, error: 'slack_email_not_found' })
     })
+
   })
 
   describe('DM sessions and pending decisions', () => {

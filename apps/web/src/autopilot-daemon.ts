@@ -1,4 +1,6 @@
-import { prisma } from '@/lib/prisma'
+import { constants } from 'node:fs'
+import * as fs from 'node:fs/promises'
+
 import {
   AUTOPILOT_SCHEDULER_INTERVAL_MS,
   getAutopilotSchedulerMode,
@@ -6,6 +8,9 @@ import {
   startAutopilotScheduler,
   stopAutopilotScheduler,
 } from '@/lib/autopilot/scheduler'
+import { hasBareRepoLayout, resolveRepoRoot } from '@/lib/git/bare-repo'
+import { prisma } from '@/lib/prisma'
+import { getKbConfigRoot, getUsersBasePath } from '@/lib/runtime/paths'
 
 declare global {
   var archeAutopilotCleanupRegistered: boolean | undefined
@@ -31,6 +36,30 @@ function isAutopilotSchedulerHealthy(now: number): boolean {
   }
 
   return now - heartbeat.getTime() <= AUTOPILOT_WATCHDOG_TIMEOUT_MS
+}
+
+async function ensureKbConfigAvailable(): Promise<void> {
+  const configuredRoot = getKbConfigRoot()
+  const root = await resolveRepoRoot(configuredRoot)
+  if (!root) {
+    throw new Error(`kb_unavailable: ${configuredRoot} does not exist or is not a directory`)
+  }
+
+  if (!(await hasBareRepoLayout(root))) {
+    throw new Error(`kb_unavailable: ${root} is not a bare git repository`)
+  }
+}
+
+async function ensureUserDataPathAvailable(): Promise<void> {
+  const usersBasePath = getUsersBasePath()
+  const stats = await fs.stat(usersBasePath).catch(() => null)
+  if (!stats?.isDirectory()) {
+    throw new Error(`user_data_unavailable: ${usersBasePath} does not exist or is not a directory`)
+  }
+
+  await fs.access(usersBasePath, constants.W_OK).catch(() => {
+    throw new Error(`user_data_unavailable: ${usersBasePath} is not writable`)
+  })
 }
 
 function startAutopilotWatchdog(): NodeJS.Timeout {
@@ -94,6 +123,8 @@ export async function startAutopilotDaemon(): Promise<void> {
   }
 
   const { initWebPrisma } = await import('@/lib/prisma')
+  await ensureKbConfigAvailable()
+  await ensureUserDataPathAvailable()
   await initWebPrisma()
 
   startAutopilotScheduler()

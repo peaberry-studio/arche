@@ -1,9 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const findIdBySlugMock = vi.fn()
-const findIntegrationMock = vi.fn()
-const findTeamMemberByIdMock = vi.fn()
-const listEnabledNotificationChannelsMock = vi.fn()
+const mocks = vi.hoisted(() => ({
+  findIdBySlug: vi.fn(),
+  findIntegration: vi.fn(),
+  findTeamMemberById: vi.fn(),
+  listEnabledNotificationChannels: vi.fn(),
+}))
+
+const findIdBySlugMock = mocks.findIdBySlug
+const findIntegrationMock = mocks.findIntegration
+const findTeamMemberByIdMock = mocks.findTeamMemberById
+const listEnabledNotificationChannelsMock = mocks.listEnabledNotificationChannels
 
 vi.mock('@/lib/services', () => ({
   slackService: {
@@ -63,6 +70,17 @@ describe('autopilot route auth', () => {
 
     expect(result).toBe('owner-1')
     expect(findIdBySlugMock).toHaveBeenCalledWith('alice')
+  })
+
+  it('returns null when the target slug is unknown', async () => {
+    findIdBySlugMock.mockResolvedValue(null)
+
+    const result = await resolveAutopilotWorkspaceUserId('missing', {
+      id: 'admin-1',
+      slug: 'admin',
+    })
+
+    expect(result).toBeNull()
   })
 
   it('allows disabled or empty Slack notification configs', async () => {
