@@ -126,7 +126,7 @@ describe('desktop prisma context isolation', () => {
     )
   })
 
-  it('executes the current desktop schema DDL including external integrations and Slack DM tables', async () => {
+  it('executes the current desktop schema DDL including durable runs and Slack DM tables', async () => {
     const executeRawUnsafe = vi.fn()
     const queryRawUnsafe = vi.fn().mockResolvedValue([
       { name: 'kind' },
@@ -151,6 +151,10 @@ describe('desktop prisma context isolation', () => {
     await initDesktopDatabase()
 
     const ddl = executeRawUnsafe.mock.calls.map((call) => String(call[0]))
+    expect(ddl.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS "message_runs"'))).toBe(true)
+    expect(ddl.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS "message_run_locks"'))).toBe(true)
+    expect(ddl.some((statement) => statement.includes('CREATE INDEX IF NOT EXISTS "message_runs_slug_opencode_session_id_status_idx"'))).toBe(true)
+    expect(ddl.some((statement) => statement.includes('CREATE UNIQUE INDEX IF NOT EXISTS "message_run_locks_run_id_key"'))).toBe(true)
     expect(ddl.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS "external_integrations"'))).toBe(true)
     expect(ddl.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS "slack_dm_session_bindings"'))).toBe(true)
     expect(ddl.some((statement) => statement.includes('"slack_notification_config" TEXT'))).toBe(true)

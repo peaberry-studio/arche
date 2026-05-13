@@ -65,6 +65,27 @@ const SCHEMA_DDL = [
     "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "audit_events_actor_user_id_fkey" FOREIGN KEY ("actor_user_id") REFERENCES "users" ("id") ON DELETE SET NULL ON UPDATE CASCADE
   )`,
+  `CREATE TABLE IF NOT EXISTS "message_runs" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "slug" TEXT NOT NULL,
+    "opencode_session_id" TEXT NOT NULL,
+    "source" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'running',
+    "error" TEXT,
+    "started_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "finished_at" DATETIME,
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" DATETIME NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS "message_run_locks" (
+    "slug" TEXT NOT NULL,
+    "opencode_session_id" TEXT NOT NULL,
+    "run_id" TEXT NOT NULL,
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" DATETIME NOT NULL,
+    PRIMARY KEY ("slug", "opencode_session_id"),
+    CONSTRAINT "message_run_locks_run_id_fkey" FOREIGN KEY ("run_id") REFERENCES "message_runs" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
   `CREATE TABLE IF NOT EXISTS "external_integrations" (
     "key" TEXT NOT NULL PRIMARY KEY,
     "config" TEXT NOT NULL,
@@ -217,6 +238,10 @@ const SCHEMA_DDL = [
   `CREATE INDEX IF NOT EXISTS "sessions_expires_at_idx" ON "sessions"("expires_at")`,
   `CREATE INDEX IF NOT EXISTS "audit_events_actor_user_id_idx" ON "audit_events"("actor_user_id")`,
   `CREATE INDEX IF NOT EXISTS "audit_events_created_at_idx" ON "audit_events"("created_at")`,
+  `CREATE INDEX IF NOT EXISTS "message_runs_slug_opencode_session_id_status_idx" ON "message_runs"("slug", "opencode_session_id", "status")`,
+  `CREATE INDEX IF NOT EXISTS "message_runs_started_at_idx" ON "message_runs"("started_at")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "message_run_locks_run_id_key" ON "message_run_locks"("run_id")`,
+  `CREATE INDEX IF NOT EXISTS "message_run_locks_run_id_idx" ON "message_run_locks"("run_id")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "slack_thread_bindings_channel_id_thread_ts_key" ON "slack_thread_bindings"("channel_id", "thread_ts")`,
   `CREATE INDEX IF NOT EXISTS "slack_thread_bindings_execution_user_id_idx" ON "slack_thread_bindings"("execution_user_id")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "slack_event_receipts_event_id_key" ON "slack_event_receipts"("event_id")`,
@@ -245,7 +270,7 @@ const SCHEMA_DDL = [
   `CREATE INDEX IF NOT EXISTS "two_factor_recovery_user_id_idx" ON "two_factor_recovery"("user_id")`,
 ]
 
-const SCHEMA_VERSION = '6'
+const SCHEMA_VERSION = '7'
 
 async function getTableColumnNames(client: DesktopPrismaClient, tableName: string): Promise<Set<string>> {
   const columns = await client.$queryRawUnsafe(`PRAGMA table_info("${tableName}")`) as Array<{ name?: string }>
