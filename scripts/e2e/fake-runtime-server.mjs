@@ -23,7 +23,10 @@ const state = {
   nextSessionId: 1,
   sessions: new Map(),
   files: new Map(),
+  providerAuth: new Map(),
   eventClients: new Set(),
+  nextEventClientGeneration: 1,
+  pendingEventBatches: [],
 }
 
 function now() {
@@ -376,11 +379,97 @@ function createPromptResponse(session, prompt) {
   }
 }
 
-function broadcastEvent(payload) {
-  const chunk = `data: ${JSON.stringify(payload)}\n\n`
-  for (const client of state.eventClients) {
-    client.write(chunk)
+function addEventClient(response) {
+  const client = {
+    generation: state.nextEventClientGeneration++,
+    response,
   }
+  state.eventClients.add(client)
+  setTimeout(flushPendingEventBatches, 25)
+  return client
+}
+
+function broadcastEvent(payload, clients = state.eventClients) {
+  const chunk = `data: ${JSON.stringify(payload)}\n\n`
+  for (const client of clients) {
+    client.response.write(chunk)
+  }
+}
+
+function flushPendingEventBatches() {
+  if (state.eventClients.size === 0 || state.pendingEventBatches.length === 0) {
+    return
+  }
+
+  const remainingBatches = []
+  const batches = state.pendingEventBatches.splice(0)
+  for (const batch of batches) {
+    const eligibleClients = Array.from(state.eventClients)
+      .filter((client) => client.generation >= batch.minEventClientGeneration)
+
+    if (eligibleClients.length === 0) {
+      remainingBatches.push(batch)
+      continue
+    }
+
+    for (const event of batch.events) {
+      broadcastEvent(event, eligibleClients)
+    }
+
+    batch.session.status = 'idle'
+    batch.session.updatedAt = now()
+    broadcastEvent({
+      type: 'session.idle',
+      properties: { sessionID: batch.session.id },
+    }, eligibleClients)
+  }
+
+  state.pendingEventBatches.push(...remainingBatches)
+}
+
+function queuePromptEvents(session, userMessage, assistantMessage, assistantPartId, reply) {
+  state.pendingEventBatches.push({
+    minEventClientGeneration: state.nextEventClientGeneration,
+    session,
+    events: [
+      {
+        type: 'session.status',
+        properties: {
+          sessionID: session.id,
+          status: { type: 'busy' },
+        },
+      },
+      {
+        type: 'message.updated',
+        properties: {
+          info: mapMessageInfo(userMessage),
+        },
+      },
+      {
+        type: 'message.updated',
+        properties: {
+          info: mapMessageInfo(assistantMessage),
+        },
+      },
+      {
+        type: 'message.part.delta',
+        properties: {
+          messageID: assistantMessage.id,
+          partID: assistantPartId,
+          partType: 'text',
+          delta: reply,
+          part: {
+            id: assistantPartId,
+            type: 'text',
+            messageID: assistantMessage.id,
+            sessionID: session.id,
+          },
+        },
+      },
+    ],
+  })
+
+  setTimeout(flushPendingEventBatches, 25)
 }
 
 function listFilesUnder(prefix) {
@@ -444,50 +533,9 @@ async function handlePrompt(request, response, pathname) {
   const prompt = reconstructPrompt(body)
   const { reply, userMessage, assistantMessage, assistantPartId } = createPromptResponse(session, prompt)
 
-  broadcastEvent({
-    type: 'session.status',
-    properties: {
-      sessionID: session.id,
-      status: { type: 'busy' },
-    },
-  })
-  broadcastEvent({
-    type: 'message.updated',
-    properties: {
-      info: mapMessageInfo(userMessage),
-    },
-  })
-  broadcastEvent({
-    type: 'message.updated',
-    properties: {
-      info: mapMessageInfo(assistantMessage),
-    },
-  })
-  broadcastEvent({
-    type: 'message.part.delta',
-    properties: {
-      messageID: assistantMessage.id,
-      partID: assistantPartId,
-      partType: 'text',
-      delta: reply,
-      part: {
-        id: assistantPartId,
-        type: 'text',
-        messageID: assistantMessage.id,
-        sessionID: session.id,
-      },
-    },
-  })
-
-  session.status = 'idle'
-  session.updatedAt = now()
-  broadcastEvent({
-    type: 'session.idle',
-    properties: { sessionID: session.id },
-  })
-
   response.writeHead(204)
   response.end()
+  queuePromptEvents(session, userMessage, assistantMessage, assistantPartId, reply)
 }
 
 async function handleFilesList(request, response) {
@@ -597,6 +645,21 @@ function handleInternalSessions(response) {
   })
 }
 
+async function handleProviderAuth(request, response, pathname) {
+  const providerId = pathname.split('/')[2] ?? ''
+
+  if (request.method === 'PUT') {
+    const rawBody = (await readBody(request)).toString('utf8')
+    const auth = rawBody.trim() ? JSON.parse(rawBody) : {}
+    state.providerAuth.set(providerId, { auth, updatedAt: now() })
+    sendJson(response, 200, true)
+    return
+  }
+
+  state.providerAuth.delete(providerId)
+  sendJson(response, 200, true)
+}
+
 const server = createServer(async (request, response) => {
   const method = request.method ?? 'GET'
   const url = new URL(request.url ?? '/', `http://127.0.0.1:${port}`)
@@ -609,6 +672,16 @@ const server = createServer(async (request, response) => {
     }
 
     if (!requireBasicAuth(request, response)) {
+      return
+    }
+
+    if ((method === 'PUT' || method === 'DELETE') && /^\/auth\/[^/]+$/.test(pathname)) {
+      await handleProviderAuth(request, response, pathname)
+      return
+    }
+
+    if (method === 'POST' && pathname === '/instance/dispose') {
+      sendJson(response, 200, true)
       return
     }
 
@@ -868,9 +941,9 @@ const server = createServer(async (request, response) => {
         Connection: 'keep-alive',
       })
       response.write(': connected\n\n')
-      state.eventClients.add(response)
+      const client = addEventClient(response)
       request.on('close', () => {
-        state.eventClients.delete(response)
+        state.eventClients.delete(client)
       })
       return
     }
@@ -882,9 +955,9 @@ const server = createServer(async (request, response) => {
         Connection: 'keep-alive',
       })
       response.write(': connected\n\n')
-      state.eventClients.add(response)
+      const client = addEventClient(response)
       request.on('close', () => {
-        state.eventClients.delete(response)
+        state.eventClients.delete(client)
       })
       return
     }

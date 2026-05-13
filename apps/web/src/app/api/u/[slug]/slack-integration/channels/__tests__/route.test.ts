@@ -144,6 +144,7 @@ describe('/api/u/[slug]/slack-integration/channels', () => {
           channels: [
             { id: 'G1', is_member: true, name: 'private-team' },
             { id: 'G2', is_member: false, name: 'outside-private' },
+            { id: 'G3', name: 'incident-room' },
           ],
         })
 
@@ -174,12 +175,13 @@ describe('/api/u/[slug]/slack-integration/channels', () => {
         { channelId: 'C2', isPrivate: true, name: 'ops' },
         { channelId: 'C3', isPrivate: false, name: 'random' },
         { channelId: 'G1', isPrivate: true, name: 'private-team' },
+        { channelId: 'G3', isPrivate: true, name: 'incident-room' },
       ])
       expect(mocks.auditEvent).toHaveBeenCalledWith({
         actorUserId: 'u-admin',
         action: 'slack.notification_channels_refreshed',
         metadata: {
-          channelCount: 4,
+          channelCount: 5,
           slackTeamId: 'T123',
         },
       })

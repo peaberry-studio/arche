@@ -8,6 +8,9 @@ const mockIsDesktop = vi.fn(() => false)
 const mockValidateDesktopToken = vi.fn(() => false)
 
 const mockFindCredentialsBySlug = vi.fn()
+const mockFindRunById = vi.fn()
+const mockMarkRunFailed = vi.fn()
+const mockMarkRunSucceeded = vi.fn()
 
 const mockDecryptPassword = vi.fn(() => 'secret-password')
 
@@ -47,6 +50,11 @@ async function loadRoute() {
     instanceService: {
       findCredentialsBySlug: (...args: unknown[]) => mockFindCredentialsBySlug(...args),
     },
+    messageRunService: {
+      findRunById: (...args: unknown[]) => mockFindRunById(...args),
+      markRunFailed: (...args: unknown[]) => mockMarkRunFailed(...args),
+      markRunSucceeded: (...args: unknown[]) => mockMarkRunSucceeded(...args),
+    },
   }))
 
   vi.doMock('@/lib/spawner/crypto', () => ({
@@ -66,7 +74,7 @@ async function loadRoute() {
 
 function createRequest(
   slug = 'alice',
-  body: BodyInit | null = JSON.stringify({ sessionId: 'session-1', text: 'Hello' }),
+  body: BodyInit | null = JSON.stringify({ sessionId: 'session-1', runId: 'run-1' }),
   init?: {
     headers?: Record<string, string>
     signal?: AbortSignal
@@ -124,6 +132,18 @@ describe('POST /api/w/[slug]/chat/stream', () => {
       serverPassword: 'encrypted-password',
       status: 'running',
     })
+    mockFindRunById.mockResolvedValue({
+      id: 'run-1',
+      slug: 'alice',
+      sessionId: 'session-1',
+      source: 'web',
+      status: 'running',
+      error: null,
+      startedAt: new Date(),
+      finishedAt: null,
+    })
+    mockMarkRunFailed.mockResolvedValue(undefined)
+    mockMarkRunSucceeded.mockResolvedValue(undefined)
     mockDecryptPassword.mockReturnValue('secret-password')
   })
 
@@ -231,10 +251,6 @@ describe('POST /api/w/[slug]/chat/stream', () => {
         return emptyEventStreamResponse()
       }
 
-      if (url.includes('/prompt_async')) {
-        return new Response('', { status: 200 })
-      }
-
       throw new Error(`Unexpected fetch url: ${url}`)
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -244,7 +260,7 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     const response = await POST(
       createRequest(
         'alice',
-        JSON.stringify({ sessionId: 'session-1', text: 'Hello' }),
+        JSON.stringify({ sessionId: 'session-1', runId: 'run-1' }),
         { signal: abortController.signal },
       ) as never,
       {
@@ -256,18 +272,13 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     await response.text()
 
     const eventSignal = fetchMock.mock.calls[0]?.[1]?.signal
-    const promptSignal = fetchMock.mock.calls[1]?.[1]?.signal
 
     expect(eventSignal).toBeInstanceOf(AbortSignal)
     expect(eventSignal).not.toBe(abortController.signal)
-    expect(promptSignal).toBeInstanceOf(AbortSignal)
-    expect(promptSignal).not.toBe(abortController.signal)
   })
 
-  it('keeps the prompt request running when the client disconnects during startup', async () => {
+  it('keeps execution independent when the client disconnects during observation', async () => {
     let upstreamAborted = false
-    let promptResolve: ((response: Response) => void) | null = null
-    let promptSignal: AbortSignal | null | undefined
 
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
@@ -297,13 +308,6 @@ describe('POST /api/w/[slug]/chat/stream', () => {
         )
       }
 
-      if (url.includes('/prompt_async')) {
-        promptSignal = init?.signal
-        return new Promise<Response>((resolve) => {
-          promptResolve = resolve
-        })
-      }
-
       throw new Error(`Unexpected fetch url: ${url}`)
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -313,7 +317,7 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     const response = await POST(
       createRequest(
         'alice',
-        JSON.stringify({ sessionId: 'session-1', text: 'Hello' }),
+        JSON.stringify({ sessionId: 'session-1', runId: 'run-1' }),
         { signal: abortController.signal },
       ) as never,
       {
@@ -324,84 +328,10 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     expect(response.status).toBe(200)
 
     const responseTextPromise = response.text()
-    await vi.waitFor(() => {
-      expect(promptResolve).toBeTypeOf('function')
-    })
-
     abortController.abort()
 
     expect(upstreamAborted).toBe(true)
-    expect(promptSignal).toBeInstanceOf(AbortSignal)
-    expect(promptSignal).not.toBe(abortController.signal)
-    expect(promptSignal?.aborted).toBe(false)
-
-    const resolvePrompt = promptResolve
-    if (!resolvePrompt) {
-      throw new Error('Prompt request was not started')
-    }
-    resolvePrompt(new Response('', { status: 200 }))
-
     await responseTextPromise
-  })
-
-  it('fails prompt startup when the detached prompt request times out', async () => {
-    const timeoutController = new AbortController()
-    const timeoutSpy = vi
-      .spyOn(AbortSignal, 'timeout')
-      .mockReturnValue(timeoutController.signal)
-
-    try {
-      const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-        const url = String(input)
-
-        if (url.endsWith('/event')) {
-          return new Response(
-            new ReadableStream<Uint8Array>(),
-            {
-              status: 200,
-              headers: { 'Content-Type': 'text/event-stream' },
-            },
-          )
-        }
-
-        if (url.includes('/prompt_async')) {
-          return new Promise<Response>((_resolve, reject) => {
-            init?.signal?.addEventListener(
-              'abort',
-              () => reject(new DOMException('Timed out', 'AbortError')),
-              { once: true },
-            )
-          })
-        }
-
-        throw new Error(`Unexpected fetch url: ${url}`)
-      })
-      vi.stubGlobal('fetch', fetchMock)
-
-      const { POST } = await loadRoute()
-      const response = await POST(
-        createRequest(
-          'alice',
-          JSON.stringify({ sessionId: 'session-1', text: 'Hello' }),
-        ) as never,
-        {
-          params: Promise.resolve({ slug: 'alice' }),
-        },
-      )
-
-      expect(response.status).toBe(200)
-
-      const responseTextPromise = response.text()
-      await vi.waitFor(() => {
-        expect(timeoutSpy).toHaveBeenCalledWith(60_000)
-      })
-
-      timeoutController.abort()
-
-      await expect(responseTextPromise).resolves.toContain('prompt_start_timeout')
-    } finally {
-      timeoutSpy.mockRestore()
-    }
   })
 
   it('aborts the upstream event stream and closes the SSE response when the client disconnects', async () => {

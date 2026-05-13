@@ -485,10 +485,14 @@ describe("useWorkspace", () => {
           };
         }
 
-        if (String(input) === "/api/w/alice/chat/stream") {
+        if (String(input) === "/api/w/alice/chat/runs") {
           requestBody = JSON.parse(String(init?.body ?? "{}")) as {
             model?: { providerId: string; modelId: string };
           };
+          return { ok: true, json: async () => ({ runId: "run-1" }) };
+        }
+
+        if (String(input) === "/api/w/alice/chat/stream") {
 
           return {
             ok: true,
@@ -577,11 +581,15 @@ describe("useWorkspace", () => {
           };
         }
 
-        if (String(input) === "/api/w/alice/chat/stream") {
+        if (String(input) === "/api/w/alice/chat/runs") {
           requestBody = JSON.parse(String(init?.body ?? "{}")) as {
             attachments?: Array<{ path: string; filename?: string; mime?: string }>;
             contextPaths?: string[];
           };
+          return { ok: true, json: async () => ({ runId: "run-1" }) };
+        }
+
+        if (String(input) === "/api/w/alice/chat/stream") {
 
           return {
             ok: true,
@@ -671,10 +679,14 @@ describe("useWorkspace", () => {
           };
         }
 
-        if (String(input) === "/api/w/alice/chat/stream") {
+        if (String(input) === "/api/w/alice/chat/runs") {
           requestBody = JSON.parse(String(init?.body ?? "{}")) as {
             model?: { providerId: string; modelId: string };
           };
+          return { ok: true, json: async () => ({ runId: "run-1" }) };
+        }
+
+        if (String(input) === "/api/w/alice/chat/stream") {
 
           return {
             ok: true,
@@ -778,10 +790,14 @@ describe("useWorkspace", () => {
           };
         }
 
-        if (String(input) === "/api/w/alice/chat/stream") {
+        if (String(input) === "/api/w/alice/chat/runs") {
           requestBodies.push(JSON.parse(String(init?.body ?? "{}")) as {
             model?: { providerId: string; modelId: string };
           });
+          return { ok: true, json: async () => ({ runId: `run-${requestBodies.length}` }) };
+        }
+
+        if (String(input) === "/api/w/alice/chat/stream") {
 
           return {
             ok: true,
@@ -1472,6 +1488,10 @@ describe("useWorkspace", () => {
           };
         }
 
+        if (String(input) === "/api/w/alice/chat/runs") {
+          return { ok: true, json: async () => ({ runId: "run-1" }) };
+        }
+
         if (String(input) === "/api/w/alice/chat/stream") {
           streamSignal = init?.signal as AbortSignal | undefined;
           return {
@@ -1606,6 +1626,10 @@ describe("useWorkspace", () => {
           ok: true,
           json: async () => ({ providers: [] }),
         };
+      }
+
+      if (String(input) === "/api/w/alice/chat/runs") {
+        return { ok: true, json: async () => ({ runId: `run-${streamClosers.length + 1}` }) };
       }
 
       if (String(input) === "/api/w/alice/chat/stream") {
@@ -1826,6 +1850,10 @@ describe("useWorkspace", () => {
           };
         }
 
+        if (String(input) === "/api/w/alice/chat/runs") {
+          return { ok: true, json: async () => ({ runId: "run-1" }) };
+        }
+
         if (String(input) === "/api/w/alice/chat/stream") {
           return {
             ok: true,
@@ -1878,6 +1906,10 @@ describe("useWorkspace", () => {
               ],
             }),
           };
+        }
+
+        if (String(input) === "/api/w/alice/chat/runs") {
+          return { ok: true, json: async () => ({ runId: "run-1" }) };
         }
 
         if (String(input) === "/api/w/alice/chat/stream") {

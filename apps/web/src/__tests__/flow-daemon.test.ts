@@ -28,10 +28,14 @@ function mockProcessOnce() {
 }
 
 function mockFlowDaemonDependencies(options: {
+  access?: () => Promise<void>
   disconnect?: () => Promise<void>
+  hasBareRepoLayout?: () => Promise<boolean>
   initWebPrisma?: () => Promise<void>
   mode?: 'daemon' | 'inline' | 'off'
+  resolveRepoRoot?: () => Promise<string | null>
   status?: FlowSchedulerStatus
+  stat?: () => Promise<{ isDirectory: () => boolean }>
   stopFlowScheduler?: () => void
 } = {}) {
   let status = options.status ?? {
@@ -42,15 +46,31 @@ function mockFlowDaemonDependencies(options: {
     running: true,
   }
   const initWebPrisma = vi.fn(options.initWebPrisma ?? (async () => {}))
+  const access = vi.fn(options.access ?? (async () => {}))
   const disconnect = vi.fn(options.disconnect ?? (async () => {}))
+  const hasBareRepoLayout = vi.fn(options.hasBareRepoLayout ?? (async () => true))
+  const resolveRepoRoot = vi.fn(options.resolveRepoRoot ?? (async () => '/kb-config'))
   const startFlowScheduler = vi.fn()
+  const stat = vi.fn(options.stat ?? (async () => ({ isDirectory: () => true })))
   const stopFlowScheduler = vi.fn(options.stopFlowScheduler ?? (() => {}))
   const getFlowSchedulerMode = vi.fn(() => options.mode ?? 'daemon')
   const getFlowSchedulerStatus = vi.fn(() => status)
 
+  vi.doMock('node:fs/promises', () => ({
+    access,
+    stat,
+  }))
   vi.doMock('@/lib/prisma', () => ({
     initWebPrisma,
     prisma: { $disconnect: disconnect },
+  }))
+  vi.doMock('@/lib/git/bare-repo', () => ({
+    hasBareRepoLayout,
+    resolveRepoRoot,
+  }))
+  vi.doMock('@/lib/runtime/paths', () => ({
+    getKbConfigRoot: () => '/kb-config',
+    getUsersBasePath: () => '/users',
   }))
   vi.doMock('@/lib/flows/scheduler', () => ({
     FLOW_SCHEDULER_INTERVAL_MS: 30_000,
@@ -61,14 +81,18 @@ function mockFlowDaemonDependencies(options: {
   }))
 
   return {
+    access,
     disconnect,
     getFlowSchedulerMode,
     getFlowSchedulerStatus,
+    hasBareRepoLayout,
     initWebPrisma,
+    resolveRepoRoot,
     setStatus(nextStatus: FlowSchedulerStatus) {
       status = nextStatus
     },
     startFlowScheduler,
+    stat,
     stopFlowScheduler,
   }
 }
@@ -88,6 +112,9 @@ describe('flow daemon', () => {
     delete globalThis.archeFlowCleanupRegistered
     vi.doUnmock('@/lib/prisma')
     vi.doUnmock('@/lib/flows/scheduler')
+    vi.doUnmock('@/lib/git/bare-repo')
+    vi.doUnmock('@/lib/runtime/paths')
+    vi.doUnmock('node:fs/promises')
     vi.restoreAllMocks()
     vi.useRealTimers()
     vi.resetModules()
@@ -116,6 +143,10 @@ describe('flow daemon', () => {
     vi.advanceTimersByTime(60_000)
 
     expect(deps.initWebPrisma).toHaveBeenCalledTimes(1)
+    expect(deps.resolveRepoRoot).toHaveBeenCalledWith('/kb-config')
+    expect(deps.hasBareRepoLayout).toHaveBeenCalledWith('/kb-config')
+    expect(deps.stat).toHaveBeenCalledWith('/users')
+    expect(deps.access).toHaveBeenCalled()
     expect(deps.startFlowScheduler).toHaveBeenCalledTimes(1)
     expect(handlers.has('SIGTERM')).toBe(true)
     expect(handlers.has('SIGINT')).toBe(true)
@@ -124,6 +155,24 @@ describe('flow daemon', () => {
 
     handlers.get('SIGTERM')?.()
     await vi.waitFor(() => expect(kill).toHaveBeenCalledWith(process.pid, 'SIGTERM'))
+  })
+
+  it('fails before starting when KB config is unavailable', async () => {
+    const deps = mockFlowDaemonDependencies({ resolveRepoRoot: async () => null })
+    const { startFlowDaemon } = await import('@/flow-daemon')
+
+    await expect(startFlowDaemon()).rejects.toThrow('kb_unavailable: /kb-config does not exist or is not a directory')
+    expect(deps.initWebPrisma).not.toHaveBeenCalled()
+    expect(deps.startFlowScheduler).not.toHaveBeenCalled()
+  })
+
+  it('fails before starting when user data is unavailable', async () => {
+    const deps = mockFlowDaemonDependencies({ stat: async () => ({ isDirectory: () => false }) })
+    const { startFlowDaemon } = await import('@/flow-daemon')
+
+    await expect(startFlowDaemon()).rejects.toThrow('user_data_unavailable: /users does not exist or is not a directory')
+    expect(deps.initWebPrisma).not.toHaveBeenCalled()
+    expect(deps.startFlowScheduler).not.toHaveBeenCalled()
   })
 
   it('exits when the watchdog sees a stopped scheduler', async () => {

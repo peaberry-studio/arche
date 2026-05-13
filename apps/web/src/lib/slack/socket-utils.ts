@@ -165,6 +165,9 @@ export function mapSlackFailureToMessage(error: string): string {
   if (error === 'provider_auth_missing') {
     return 'I cannot answer in Slack yet because this workspace has no provider credentials configured. Add a provider API key in Settings > Providers and try again.'
   }
+  if (error === 'session_busy') {
+    return 'That conversation is already working on a reply. Wait for it to finish, then send your next message.'
+  }
 
   return 'I hit an error while preparing the Slack reply. Please try again.'
 }

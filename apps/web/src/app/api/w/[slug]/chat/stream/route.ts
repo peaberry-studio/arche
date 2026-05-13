@@ -2,54 +2,19 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { getIdleFinalizationOutcome, getSilentStreamOutcome } from '@/app/api/w/[slug]/chat/stream/watchdog'
 import { createUpstreamSessionStatusReader } from '@/app/api/w/[slug]/chat/stream/status-reader'
-import { extractPdfText, isPdfMime } from '@/lib/attachments/pdf-text-extractor'
 import { getInstanceUrl } from '@/lib/opencode/client'
-import { normalizeProviderId, resolveRuntimeProviderId } from '@/lib/providers/catalog'
-import { isDesktop } from '@/lib/runtime/mode'
+import { normalizeProviderId } from '@/lib/providers/catalog'
 import { withAuth } from '@/lib/runtime/with-auth'
-import { instanceService } from '@/lib/services'
+import { instanceService, messageRunService } from '@/lib/services'
 import { INITIAL_SSE_PARSE_STATE, parseSseChunk } from '@/lib/sse-parser'
 import { decryptPassword } from '@/lib/spawner/crypto'
-import {
-  isValidContextReferencePath,
-  normalizeAttachmentPath,
-  normalizeWorkspacePath,
-} from '@/lib/workspace-paths'
-import { workspaceAgentFetch } from '@/lib/workspace-agent-client'
-import { getWorkspaceAgentUrl } from '@/lib/workspace-agent/client'
-import {
-  inferAttachmentMimeType,
-  isDocumentMimeType,
-  isPresentationMimeType,
-  isWorkspaceAttachmentPath,
-  isSpreadsheetMimeType,
-  MAX_ATTACHMENTS_PER_MESSAGE,
-} from '@/lib/workspace-attachments'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-type MessageAttachmentInput = {
-  path: string
-  filename?: string
-  mime?: string
-}
-
-type WorkspaceAgentReadResponse = {
-  ok: boolean
-  content?: string
-  encoding?: 'utf-8' | 'base64'
-  error?: string
-}
-
-const MAX_PDF_BYTES_FOR_EXTRACTION = 8 * 1024 * 1024
-const MAX_IMAGE_BYTES_FOR_INLINE = 8 * 1024 * 1024
-const MAX_PDF_TEXT_CHARS = 24_000
-const MAX_CONTEXT_REFERENCES_PER_MESSAGE = 20
 const STREAM_RELEVANT_EVENT_TICK_MS = 1000
 const SEND_STREAM_RELEVANT_EVENT_TIMEOUT_MS = 20_000
 const RESUME_STREAM_RELEVANT_EVENT_TIMEOUT_MS = 12_000
-const PROMPT_START_TIMEOUT_MS = 60_000
 
 function jsonErrorResponse(status: number, error: string) {
   return NextResponse.json({ error }, { status })
@@ -67,181 +32,60 @@ function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError'
 }
 
-function isTimeoutError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'TimeoutError'
-}
-
-function normalizeContextPaths(value: unknown): string[] {
-  if (!Array.isArray(value)) return []
-
-  const unique = new Set<string>()
-  const normalized: string[] = []
-
-  for (const item of value) {
-    if (typeof item !== 'string') continue
-    const path = normalizeWorkspacePath(item.trim())
-    if (!isValidContextReferencePath(path) || unique.has(path)) continue
-
-    unique.add(path)
-    normalized.push(path)
-
-    if (normalized.length >= MAX_CONTEXT_REFERENCES_PER_MESSAGE) {
-      break
-    }
-  }
-
-  return normalized
-}
-
-function toContextReferenceText(paths: string[]): string {
-  return [
-    'Workspace context references (open files):',
-    ...paths.map((path) => `@${path}`),
-    'These are references only; inspect files with tools when needed.',
-  ].join('\n')
-}
-
-function normalizeMessageAttachments(
-  value: unknown,
-): MessageAttachmentInput[] {
-  if (!Array.isArray(value)) return []
-
-  return value
-    .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
-    .map((item) => ({
-      path: typeof item.path === 'string' ? normalizeAttachmentPath(item.path) : '',
-      filename: typeof item.filename === 'string' ? item.filename : undefined,
-      mime: typeof item.mime === 'string' ? item.mime : undefined,
-    }))
-    .filter((item) => item.path.length > 0)
-}
-
-const IMAGE_MIME_TYPES = new Set([
-  'image/jpeg',
-  'image/png',
-  'image/gif',
-  'image/webp',
-])
-
-function isImageMime(mime: string): boolean {
-  return IMAGE_MIME_TYPES.has(mime.toLowerCase())
-}
-
-async function readWorkspaceImageAttachment(
-  agent: { baseUrl: string; authHeader: string },
-  path: string,
-): Promise<Buffer | null> {
-  const response = await workspaceAgentFetch<WorkspaceAgentReadResponse>(agent, '/files/read', {
-    path,
+function createSseResponse(events: Array<{ event: string; data: unknown }>): Response {
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream({
+    start(controller) {
+      for (const event of events) {
+        controller.enqueue(encoder.encode(`event: ${event.event}\ndata: ${JSON.stringify(event.data)}\n\n`))
+      }
+      controller.close()
+    },
   })
-  if (!response.ok) return null
 
-  const decoded = decodeWorkspaceAgentFileContent(response.data)
-  if (!decoded || decoded.length === 0) return null
-  if (decoded.length > MAX_IMAGE_BYTES_FOR_INLINE) return null
-  return decoded
-}
-
-function toWorkspaceFileUrl(path: string): string | null {
-  if (isDesktop()) {
-    return null
-  }
-
-  const encodedPath = normalizeAttachmentPath(path)
-    .split('/')
-    .map((segment) => encodeURIComponent(segment))
-    .join('/')
-
-  return `file:///workspace/${encodedPath}`
-}
-
-function toAttachmentPromptPath(path: string): string {
-  const normalized = normalizeAttachmentPath(path)
-  return isDesktop() ? normalized : `/workspace/${normalized}`
-}
-
-function toAttachmentHintText(paths: string[]): string {
-  const lines = [
-    'Attached workspace files:',
-    ...paths.map((path) => `- ${toAttachmentPromptPath(path)}`),
-    'If direct file parsing is unavailable, inspect these paths with available tools.',
-  ]
-  return lines.join('\n')
-}
-
-function toPdfExtractedTextPart(path: string, text: string, truncated: boolean): string {
-  const truncationNote = truncated
-    ? '\n\n[The extracted content was truncated to fit the prompt window.]'
-    : ''
-
-  return [
-    `Extracted text from attached PDF: ${toAttachmentPromptPath(path)}`,
-    text,
-    truncationNote,
-  ]
-    .filter((segment) => segment.length > 0)
-    .join('\n\n')
-}
-
-function toPdfExtractionFailureText(path: string): string {
-  return [
-    `Attached PDF could not be extracted automatically: ${toAttachmentPromptPath(path)}`,
-    'Continue by using available tools on this path, or ask the user for an OCR-friendly/text PDF if the file is scanned.',
-  ].join('\n')
-}
-
-function toSpreadsheetToolHintText(path: string): string {
-  return [
-    `Attached spreadsheet file: ${toAttachmentPromptPath(path)}`,
-    'You must use spreadsheet_inspect first to detect sheets and columns, then use spreadsheet_sample/spreadsheet_query/spreadsheet_stats for focused analysis and calculations.',
-  ].join('\n')
-}
-
-function toDocumentToolHintText(path: string): string {
-  return [
-    `Attached document file: ${toAttachmentPromptPath(path)}`,
-    'Use document_inspect to extract the structure, headings, and normalized text before answering detailed questions about the document.',
-  ].join('\n')
-}
-
-function toPresentationToolHintText(path: string): string {
-  return [
-    `Attached presentation file: ${toAttachmentPromptPath(path)}`,
-    'Use presentation_inspect to inspect slide structure and extracted slide text before summarizing or comparing the deck.',
-  ].join('\n')
-}
-
-function decodeWorkspaceAgentFileContent(data: WorkspaceAgentReadResponse): Buffer | null {
-  if (typeof data.content !== 'string') return null
-
-  if (data.encoding === 'base64') {
-    try {
-      return Buffer.from(data.content, 'base64')
-    } catch {
-      return null
-    }
-  }
-
-  if (data.encoding === 'utf-8' || data.encoding === undefined) {
-    return Buffer.from(data.content, 'utf-8')
-  }
-
-  return null
-}
-
-async function readWorkspaceAttachment(
-  agent: { baseUrl: string; authHeader: string },
-  path: string,
-): Promise<Buffer | null> {
-  const response = await workspaceAgentFetch<WorkspaceAgentReadResponse>(agent, '/files/read', {
-    path,
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    },
   })
-  if (!response.ok) return null
+}
 
-  const decoded = decodeWorkspaceAgentFileContent(response.data)
-  if (!decoded || decoded.length === 0) return null
-  if (decoded.length > MAX_PDF_BYTES_FOR_EXTRACTION) return null
-  return decoded
+function createTerminalRunResponse(status: string, error: string | null): Response {
+  if (status === 'succeeded') {
+    return createSseResponse([
+      { event: 'status', data: { status: 'complete' } },
+      { event: 'done', data: { refresh: true } },
+    ])
+  }
+
+  return createSseResponse([
+    {
+      event: 'error',
+      data: { error: error ?? (status === 'aborted' ? 'cancelled' : 'run_failed') },
+    },
+  ])
+}
+
+function parseObserveBody(body: unknown): {
+  sessionId: string
+  runId?: string
+  resume: boolean
+  messageId?: string
+} | null {
+  if (!isRecord(body)) return null
+
+  const sessionId = getString(body.sessionId)
+  if (!sessionId) return null
+
+  return {
+    sessionId,
+    runId: getString(body.runId),
+    resume: body.resume === true,
+    messageId: getString(body.messageId),
+  }
 }
 
 /**
@@ -258,85 +102,87 @@ async function readWorkspaceAttachment(
 export const POST = withAuth(
   { csrf: true },
   async (request: NextRequest, { slug }) => {
-  // Get instance credentials
-  const instance = await instanceService.findCredentialsBySlug(slug)
+    // Get instance credentials
+    const instance = await instanceService.findCredentialsBySlug(slug)
 
-  if (!instance || !instance.serverPassword || instance.status !== 'running') {
-    return jsonErrorResponse(503, 'instance_unavailable')
-  }
+    if (!instance || !instance.serverPassword || instance.status !== 'running') {
+      return jsonErrorResponse(503, 'instance_unavailable')
+    }
 
-  // Parse request body
-  let body: unknown
-  try {
-    body = await request.json()
-  } catch {
-    return jsonErrorResponse(400, 'invalid_json')
-  }
+    // Parse request body
+    let body: unknown
+    try {
+      body = await request.json()
+    } catch {
+      return jsonErrorResponse(400, 'invalid_json')
+    }
 
-  const { sessionId, text, model, resume, messageId } = body as {
-    sessionId: string
-    text?: string
-    model?: { providerId: string; modelId: string }
-    attachments?: MessageAttachmentInput[]
-    contextPaths?: string[]
-    resume?: boolean
-    messageId?: string
-  }
+    const observeBody = parseObserveBody(body)
+    if (!observeBody || (!observeBody.resume && !observeBody.runId)) {
+      return jsonErrorResponse(400, 'missing_fields')
+    }
 
-  const attachments = normalizeMessageAttachments((body as { attachments?: unknown }).attachments)
-  const contextPaths = normalizeContextPaths((body as { contextPaths?: unknown }).contextPaths)
-
-  if (!sessionId || (!resume && !text && attachments.length === 0)) {
-    return jsonErrorResponse(400, 'missing_fields')
-  }
-
-  if (attachments.length > MAX_ATTACHMENTS_PER_MESSAGE) {
-    return jsonErrorResponse(400, 'too_many_attachments')
-  }
-
-  const password = decryptPassword(instance.serverPassword)
-  const authHeader = `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`
-  const baseUrl = getInstanceUrl(slug)
-  const workspaceAgentUrl = getWorkspaceAgentUrl(slug)
-
-  // Create SSE stream
-  const encoder = new TextEncoder()
-
-   const stream = new ReadableStream({
-    async start(controller) {
-      // Track whether the downstream client (browser) has disconnected.
-      let clientGone = false
-      let aborted = false
-      let promptSent = Boolean(resume)
-      let promptAcknowledged = Boolean(resume)
-      const upstreamEventsController = new AbortController()
-
-      // Shared reference so the abort path and finally block can always
-      // clean up the active reader when it exists.
-      let eventReader: ReadableStreamDefaultReader<Uint8Array> | null = null
-
-      const handleAbort = () => {
-        clientGone = true
-        aborted = true
-        upstreamEventsController.abort()
-        void eventReader?.cancel().catch(() => undefined)
-        try { controller.close() } catch { /* already closed/errored */ }
+    const { sessionId, resume, messageId, runId } = observeBody
+    if (runId) {
+      const run = await messageRunService.findRunById(runId)
+      if (!run || run.slug !== slug || run.sessionId !== sessionId) {
+        return jsonErrorResponse(404, 'run_not_found')
       }
-
-      if (request.signal.aborted) {
-        handleAbort()
-      } else {
-        request.signal.addEventListener('abort', handleAbort, { once: true })
+      if (run.status !== 'running') {
+        return createTerminalRunResponse(run.status, run.error)
       }
+    }
 
-      const sendEvent = (event: string, data: unknown) => {
-        if (clientGone) return
-        try {
-          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`))
-        } catch {
+    const password = decryptPassword(instance.serverPassword)
+    const authHeader = `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`
+    const baseUrl = getInstanceUrl(slug)
+
+    // Create SSE stream
+    const encoder = new TextEncoder()
+
+    const stream = new ReadableStream({
+      async start(controller) {
+        // Track whether the downstream client (browser) has disconnected.
+        let clientGone = false
+        let aborted = false
+        const upstreamEventsController = new AbortController()
+
+        // Shared reference so the abort path and finally block can always
+        // clean up the active reader when it exists.
+        let eventReader: ReadableStreamDefaultReader<Uint8Array> | null = null
+
+        const handleAbort = () => {
           clientGone = true
+          aborted = true
+          upstreamEventsController.abort()
+          void eventReader?.cancel().catch(() => undefined)
+          try { controller.close() } catch { /* already closed/errored */ }
         }
-      }
+
+        if (request.signal.aborted) {
+          handleAbort()
+        } else {
+          request.signal.addEventListener('abort', handleAbort, { once: true })
+        }
+
+        const sendEvent = (event: string, data: unknown) => {
+          if (clientGone) return
+          try {
+            controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`))
+          } catch {
+            clientGone = true
+          }
+        }
+
+        const markRunSucceeded = () => {
+          if (!runId) return
+          void messageRunService.markRunSucceeded(runId).catch(() => undefined)
+        }
+
+        const markRunFailed = (detail: string) => {
+          if (!runId) return
+          void messageRunService.markRunFailed(runId, detail).catch(() => undefined)
+        }
 
         try {
           sendEvent('status', { status: 'connecting' })
@@ -349,242 +195,38 @@ export const POST = withAuth(
           // Subscribe first so we don't miss fast session events.
           const eventsUrl = `${baseUrl}/event`
 
-        let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
-        if (!clientGone) {
-          try {
-            const eventsResponse = await fetch(eventsUrl, {
-              method: 'GET',
-              headers: {
-                'Authorization': authHeader,
-                'Accept': 'text/event-stream',
-                'Cache-Control': 'no-cache'
-              },
-              signal: upstreamEventsController.signal,
-            })
-
-            if (!eventsResponse.ok || !eventsResponse.body) {
-              sendEvent('error', { error: 'Failed to connect to event stream' })
-              return
-            }
-
-            reader = eventsResponse.body.getReader()
-            eventReader = reader
-          } catch (error) {
-            if (!clientGone && !isAbortError(error)) {
-              sendEvent('error', {
-                error: error instanceof Error ? error.message : 'Unknown error'
+          let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
+          if (!clientGone) {
+            try {
+              const eventsResponse = await fetch(eventsUrl, {
+                method: 'GET',
+                headers: {
+                  'Authorization': authHeader,
+                  'Accept': 'text/event-stream',
+                  'Cache-Control': 'no-cache'
+                },
+                signal: upstreamEventsController.signal,
               })
-              return
-            }
-          }
-        }
 
-        const decoder = new TextDecoder()
-        let parseState = INITIAL_SSE_PARSE_STATE
-
-        const cancelReader = async () => {
-          await reader?.cancel().catch(() => undefined)
-        }
-
-        if (!resume) {
-          const promptParts: Array<
-            { type: 'text'; text: string } |
-            { type: 'file'; mime: string; filename?: string; url: string }
-          > = []
-
-          if (typeof text === 'string' && text.trim().length > 0) {
-            promptParts.push({ type: 'text', text })
-          }
-
-          if (contextPaths.length > 0) {
-            promptParts.push({
-              type: 'text',
-              text: toContextReferenceText(contextPaths),
-            })
-          }
-
-          if (attachments.length > 0) {
-            const attachmentPathsForHint: string[] = []
-
-            for (const attachment of attachments) {
-              const attachmentPath = normalizeAttachmentPath(attachment.path)
-
-              if (!isWorkspaceAttachmentPath(attachmentPath)) {
-                sendEvent('error', { error: 'invalid_attachment_path' })
-                await cancelReader()
+              if (!eventsResponse.ok || !eventsResponse.body) {
+                sendEvent('error', { error: 'Failed to connect to event stream' })
                 return
               }
 
-              const fileName =
-                attachment.filename ??
-                attachmentPath.split('/').pop() ??
-                'attachment'
-              const attachmentMime = attachment.mime?.trim()
-              const mime =
-                attachmentMime &&
-                attachmentMime.length > 0 &&
-                attachmentMime !== 'application/octet-stream'
-                  ? attachmentMime
-                  : inferAttachmentMimeType(fileName)
-
-              if (isPdfMime(mime)) {
-                const attachmentBytes = await readWorkspaceAttachment(
-                  { baseUrl: workspaceAgentUrl, authHeader },
-                  attachmentPath,
-                )
-
-                if (attachmentBytes) {
-                  const extracted = await extractPdfText(attachmentBytes, MAX_PDF_TEXT_CHARS)
-                  if (extracted.ok) {
-                    promptParts.push({
-                      type: 'text',
-                      text: toPdfExtractedTextPart(
-                        attachmentPath,
-                        extracted.text,
-                        extracted.truncated,
-                      ),
-                    })
-                  } else {
-                    promptParts.push({
-                      type: 'text',
-                      text: toPdfExtractionFailureText(attachmentPath),
-                    })
-                  }
-                } else {
-                  promptParts.push({
-                    type: 'text',
-                    text: toPdfExtractionFailureText(attachmentPath),
-                  })
-                }
-
-                attachmentPathsForHint.push(attachmentPath)
-                continue
-              }
-
-              if (isSpreadsheetMimeType(mime)) {
-                promptParts.push({
-                  type: 'text',
-                  text: toSpreadsheetToolHintText(attachmentPath),
+              reader = eventsResponse.body.getReader()
+              eventReader = reader
+            } catch (error) {
+              if (!clientGone && !isAbortError(error)) {
+                sendEvent('error', {
+                  error: error instanceof Error ? error.message : 'Unknown error'
                 })
-                attachmentPathsForHint.push(attachmentPath)
-                continue
+                return
               }
-
-              if (isDocumentMimeType(mime)) {
-                promptParts.push({
-                  type: 'text',
-                  text: toDocumentToolHintText(attachmentPath),
-                })
-                attachmentPathsForHint.push(attachmentPath)
-                continue
-              }
-
-              if (isPresentationMimeType(mime)) {
-                promptParts.push({
-                  type: 'text',
-                  text: toPresentationToolHintText(attachmentPath),
-                })
-                attachmentPathsForHint.push(attachmentPath)
-                continue
-              }
-
-              if (isImageMime(mime)) {
-                const imageBytes = await readWorkspaceImageAttachment(
-                  { baseUrl: workspaceAgentUrl, authHeader },
-                  attachmentPath,
-                )
-                const workspaceFileUrl = toWorkspaceFileUrl(attachmentPath)
-
-                if (imageBytes) {
-                  const base64 = imageBytes.toString('base64')
-                  promptParts.push({
-                    type: 'file',
-                    mime,
-                    filename: fileName,
-                    url: `data:${mime};base64,${base64}`,
-                  })
-                } else if (workspaceFileUrl) {
-                  promptParts.push({
-                    type: 'file',
-                    mime,
-                    filename: fileName,
-                    url: workspaceFileUrl,
-                  })
-                }
-
-                attachmentPathsForHint.push(attachmentPath)
-                continue
-              }
-
-              const workspaceFileUrl = toWorkspaceFileUrl(attachmentPath)
-              if (workspaceFileUrl) {
-                promptParts.push({
-                  type: 'file',
-                  mime,
-                  filename: fileName,
-                  url: workspaceFileUrl,
-                })
-              }
-
-              attachmentPathsForHint.push(attachmentPath)
-            }
-
-            if (attachmentPathsForHint.length > 0) {
-              promptParts.push({
-                type: 'text',
-                text: toAttachmentHintText(attachmentPathsForHint),
-              })
             }
           }
 
-          if (promptParts.length === 0) {
-            sendEvent('error', { error: 'missing_fields' })
-            await cancelReader()
-            return
-          }
-
-          const promptBody = {
-            parts: promptParts,
-            ...(model && {
-              model: {
-                providerID: resolveRuntimeProviderId(model.providerId),
-                modelID: model.modelId,
-              },
-            })
-          }
-
-          const promptUrl = `${baseUrl}/session/${sessionId}/prompt_async`
-
-          const promptStartSignal = AbortSignal.timeout(PROMPT_START_TIMEOUT_MS)
-          let promptResponse: Response
-          try {
-            promptResponse = await fetch(promptUrl, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': authHeader
-              },
-              body: JSON.stringify(promptBody),
-              signal: promptStartSignal,
-            })
-          } catch (error) {
-            if (isTimeoutError(error) || (promptStartSignal.aborted && isAbortError(error))) {
-              sendEvent('error', { error: 'prompt_start_timeout' })
-              await cancelReader()
-              return
-            }
-            throw error
-          }
-
-          if (!promptResponse.ok) {
-            const errorText = await promptResponse.text()
-            sendEvent('error', { error: `Failed to start message: ${errorText}` })
-            await cancelReader()
-            return
-          }
-
-          promptSent = true
-        }
+        const decoder = new TextDecoder()
+        let parseState = INITIAL_SSE_PARSE_STATE
 
         sendEvent('status', { status: 'thinking' })
 
@@ -649,12 +291,14 @@ export const POST = withAuth(
           if (outcome !== 'complete') {
             emitStatus('error', undefined, outcome)
             sendEvent('error', { error: outcome })
+            markRunFailed(outcome)
             aborted = true
             return
           }
 
           emitStatus('complete')
           sendEvent('done', { refresh: true })
+          markRunSucceeded()
           aborted = true
         }
 
@@ -772,16 +416,10 @@ export const POST = withAuth(
                     const status = event.properties?.status
 
                     if (status?.type === 'busy') {
-                      promptSent = true
-                      promptAcknowledged = true
                       emitStatus('thinking')
                     } else if (status?.type === 'retry') {
-                      promptAcknowledged = true
                       emitStatus('thinking', undefined, status?.message)
                     } else if (status?.type === 'idle') {
-                      if (!promptSent || !promptAcknowledged) {
-                        break
-                      }
                       if (pendingPermissionIds.size > 0) {
                         break
                       }
@@ -792,9 +430,6 @@ export const POST = withAuth(
 
                   case 'session.idle': {
                     markRelevantEvent()
-                    if (!promptSent || !promptAcknowledged) {
-                      break
-                    }
                     if (pendingPermissionIds.size > 0) {
                       break
                     }
@@ -809,13 +444,13 @@ export const POST = withAuth(
 
                     emitStatus('error', undefined, errorMessage)
                     sendEvent('error', { error: errorMessage })
+                    markRunFailed(errorMessage)
                     aborted = true
                     break
                   }
 
                   case 'permission.updated': {
                     markRelevantEvent()
-                    promptAcknowledged = true
 
                     const permission = isRecord(event.properties?.permission)
                       ? event.properties.permission
@@ -897,7 +532,6 @@ export const POST = withAuth(
                       assistantMessageId = info.id
                     }
                     if (info.role === 'assistant') {
-                      promptAcknowledged = true
                       assistantMessageSeen = true
                       if (seenPartMessageIds.has(info.id)) {
                         assistantPartSeen = true
@@ -942,7 +576,6 @@ export const POST = withAuth(
 
                     if (!isAssistantPart) break
 
-                    promptAcknowledged = true
                     assistantPartSeen = true
 
                     switch (part.type) {
@@ -1065,7 +698,6 @@ export const POST = withAuth(
 
                     if (!isAssistantPart) break
 
-                    promptAcknowledged = true
                     assistantPartSeen = true
 
                     if (part.type === 'reasoning') {
@@ -1125,16 +757,16 @@ export const POST = withAuth(
         }
         try { controller.close() } catch { /* already closed/errored */ }
       }
-    }
-  })
+      }
+    })
 
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache, no-transform',
-      'Connection': 'keep-alive',
-      'X-Accel-Buffering': 'no'
-    }
-  })
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no'
+      }
+    })
   },
 )
