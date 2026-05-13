@@ -20,7 +20,7 @@ import {
 import { getActiveCredentialForUser } from "@/lib/providers/store";
 import { PROVIDERS, type ProviderId } from "@/lib/providers/types";
 import { getSession } from "@/lib/runtime/session";
-import { autopilotService, instanceService, userService } from "@/lib/services";
+import { autopilotService, instanceService, slackService, userService } from "@/lib/services";
 import { decryptPassword } from "@/lib/spawner/crypto";
 import { createWorkspaceAgentClient } from "@/lib/workspace-agent/client";
 import { deriveWorkspaceMessageRuntimeState } from "@/lib/workspace-message-state";
@@ -654,6 +654,7 @@ export async function deleteSessionAction(
 
   try {
     await client!.session.delete({ sessionID: sessionId });
+    await slackService.deleteSessionBindingsByOpenCodeSessionId(sessionId);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "unknown" };

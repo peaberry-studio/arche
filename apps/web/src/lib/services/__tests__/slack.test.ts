@@ -13,6 +13,7 @@ const mockPrisma = vi.hoisted(() => ({
     deleteMany: vi.fn(),
   },
   slackThreadBinding: {
+    deleteMany: vi.fn(),
     findUnique: vi.fn(),
     upsert: vi.fn(),
   },
@@ -24,6 +25,7 @@ const mockPrisma = vi.hoisted(() => ({
   },
   slackDmSessionBinding: {
     create: vi.fn(),
+    deleteMany: vi.fn(),
     findFirst: vi.fn(),
     findUnique: vi.fn(),
     update: vi.fn(),
@@ -63,6 +65,7 @@ import {
   clearIntegration,
   createDmSessionBinding,
   createPendingDmDecision,
+  deleteSessionBindingsByOpenCodeSessionId,
   expirePendingDmDecision,
   findDmSessionBindingById,
   findIntegration,
@@ -514,6 +517,25 @@ describe('slackService', () => {
   })
 
   describe('DM sessions and pending decisions', () => {
+    it('deletes Slack bindings by OpenCode session id', async () => {
+      mockPrisma.slackDmSessionBinding.deleteMany.mockResolvedValue({ count: 1 })
+      mockPrisma.slackThreadBinding.deleteMany.mockResolvedValue({ count: 2 })
+
+      const result = await deleteSessionBindingsByOpenCodeSessionId('session-1')
+
+      expect(result).toEqual({ dm: 1, thread: 2 })
+      expect(mockPrisma.slackDmSessionBinding.deleteMany).toHaveBeenCalledWith({
+        where: { openCodeSessionId: 'session-1' },
+      })
+      expect(mockPrisma.slackThreadBinding.deleteMany).toHaveBeenCalledWith({
+        where: { openCodeSessionId: 'session-1' },
+      })
+      expect(mockPrisma.$transaction).toHaveBeenCalledWith([
+        expect.any(Promise),
+        expect.any(Promise),
+      ])
+    })
+
     it('finds the latest DM session by last message time', async () => {
       mockPrisma.slackDmSessionBinding.findFirst.mockResolvedValue(null)
       await findLatestDmSession('T123', 'U123')

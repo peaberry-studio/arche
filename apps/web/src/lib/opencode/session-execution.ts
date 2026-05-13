@@ -29,6 +29,65 @@ function normalizeRole(role: unknown): 'assistant' | 'system' | 'user' | null {
   return null
 }
 
+function toRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null
+  }
+
+  return value as Record<string, unknown>
+}
+
+function parseStatus(status: unknown): number | null {
+  if (typeof status === 'number') {
+    return status
+  }
+
+  if (typeof status === 'string') {
+    const parsed = Number.parseInt(status, 10)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  return null
+}
+
+function firstString(values: unknown[]): string | null {
+  const value = values.find((item) => typeof item === 'string')
+  return typeof value === 'string' ? value : null
+}
+
+export function isOpenCodeSessionNotFoundError(error: unknown): boolean {
+  const record = toRecord(error)
+  const response = toRecord(record?.response)
+  const cause = toRecord(record?.cause)
+  const status = parseStatus(
+    record?.status ?? record?.statusCode ?? response?.status ?? response?.statusCode,
+  )
+  if (status === 404) {
+    return true
+  }
+
+  const code = firstString([
+    record?.code,
+    record?.name,
+    cause?.code,
+    cause?.name,
+  ])
+  if (code && /session.*not.*found|session_not_found/i.test(code)) {
+    return true
+  }
+
+  const message = firstString([
+    error instanceof Error ? error.message : error,
+    record?.message,
+    record?.statusText,
+    response?.message,
+    response?.statusText,
+    cause?.message,
+  ]) ?? ''
+
+  return /session.*not\s*found|session.*missing|no session.*found|404.*session/i.test(message)
+}
+
 function getMessagesSinceCursor(
   messages: Awaited<ReturnType<SessionExecutionClient['session']['messages']>>['data'] | undefined,
   cursor?: SessionMessageCursor,

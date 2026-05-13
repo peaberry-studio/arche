@@ -2,9 +2,11 @@ import { createInstanceClient } from '@/lib/opencode/client'
 import {
   captureSessionMessageCursor,
   ensureWorkspaceRunningForExecution,
+  isOpenCodeSessionNotFoundError,
   readLatestAssistantText,
   waitForSessionToComplete,
 } from '@/lib/opencode/session-execution'
+import { openCodeSessionExists } from '@/lib/opencode/session-utils'
 import { slackService } from '@/lib/services'
 import { buildSlackContext } from '@/lib/slack/context'
 import { buildSlackPrompt } from '@/lib/slack/prompt'
@@ -20,6 +22,8 @@ import {
   resolveTargetAgentId,
   stripBotMention,
 } from '@/lib/slack/socket-utils'
+
+const STALE_THREAD_SESSION_MESSAGE = 'The previous Slack thread conversation was no longer available, so I started a new conversation.'
 
 export async function handleSlackThreadEvent(args: {
   channel: string
@@ -52,20 +56,27 @@ export async function handleSlackThreadEvent(args: {
       }
 
       let sessionId = existingBinding?.openCodeSessionId ?? null
-      if (!sessionId) {
-        const sessionResult = await opencodeClient.session.create(
-          { title: buildSlackSessionTitle(args.channel, args.threadTs) },
-          { throwOnError: true },
-        )
-        if (!sessionResult.data) {
-          throw new Error('slack_session_create_failed')
-        }
+      let messagePrefix: string | undefined
 
-        sessionId = sessionResult.data.id
-        await slackService.upsertThreadBinding({
+      if (sessionId) {
+        const sessionExists = await openCodeSessionExists(opencodeClient, sessionId)
+        if (!sessionExists) {
+          await slackService.deleteSessionBindingsByOpenCodeSessionId(sessionId).catch((error) => {
+            console.warn('[slack] Failed to delete stale thread session bindings', {
+              error,
+              openCodeSessionId: sessionId,
+            })
+          })
+          sessionId = null
+          messagePrefix = STALE_THREAD_SESSION_MESSAGE
+        }
+      }
+
+      if (!sessionId) {
+        sessionId = await createSlackThreadSession({
           channelId: args.channel,
           executionUserId: serviceUser.user.id,
-          openCodeSessionId: sessionId,
+          opencodeClient,
           threadTs: args.threadTs,
         })
       }
@@ -81,28 +92,43 @@ export async function handleSlackThreadEvent(args: {
       const prompt = buildSlackPrompt(context)
 
       placeholderTs = await postSlackPlaceholder(args.client, args.channel, args.threadTs)
-      const sessionCursor = await captureSessionMessageCursor(opencodeClient, sessionId)
+      let replyText: string
+      try {
+        replyText = await sendSlackThreadPromptToSession({
+          agentId,
+          opencodeClient,
+          prompt,
+          sessionId,
+          slug: serviceUser.user.slug,
+        })
+      } catch (error) {
+        if (!isOpenCodeSessionNotFoundError(error)) {
+          throw error
+        }
 
-      await opencodeClient.session.promptAsync(
-        {
-          agent: agentId ?? undefined,
-          parts: [{ type: 'text', text: prompt }],
-          sessionID: sessionId,
-        },
-        { throwOnError: true },
-      )
+        await slackService.deleteSessionBindingsByOpenCodeSessionId(sessionId).catch((cleanupError) => {
+          console.warn('[slack] Failed to delete stale thread session bindings', {
+            error: cleanupError,
+            openCodeSessionId: sessionId,
+          })
+        })
+        sessionId = await createSlackThreadSession({
+          channelId: args.channel,
+          executionUserId: serviceUser.user.id,
+          opencodeClient,
+          threadTs: args.threadTs,
+        })
+        messagePrefix = STALE_THREAD_SESSION_MESSAGE
+        replyText = await sendSlackThreadPromptToSession({
+          agentId,
+          opencodeClient,
+          prompt,
+          sessionId,
+          slug: serviceUser.user.slug,
+        })
+      }
 
-      const failure = await waitForSessionToComplete({
-        client: opencodeClient,
-        cursor: sessionCursor,
-        sessionId,
-        slug: serviceUser.user.slug,
-      })
-      const replyText = failure
-        ? mapSlackFailureToMessage(failure)
-        : (await readLatestAssistantText(opencodeClient, sessionId, sessionCursor)) ?? 'I could not produce a Slack-ready text response.'
-
-      await finalizeSlackReply(args.client, args.channel, args.threadTs, placeholderTs, replyText)
+      await finalizeSlackReply(args.client, args.channel, args.threadTs, placeholderTs, formatSlackThreadReply(replyText, messagePrefix))
       await slackService.markLastError(null).catch(() => undefined)
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'slack_error'
@@ -117,4 +143,62 @@ export async function handleSlackThreadEvent(args: {
       throw error
     }
   })
+}
+
+async function createSlackThreadSession(args: {
+  channelId: string
+  executionUserId: string
+  opencodeClient: NonNullable<Awaited<ReturnType<typeof createInstanceClient>>>
+  threadTs: string
+}): Promise<string> {
+  const sessionResult = await args.opencodeClient.session.create(
+    { title: buildSlackSessionTitle(args.channelId, args.threadTs) },
+    { throwOnError: true },
+  )
+  if (!sessionResult.data) {
+    throw new Error('slack_session_create_failed')
+  }
+
+  await slackService.upsertThreadBinding({
+    channelId: args.channelId,
+    executionUserId: args.executionUserId,
+    openCodeSessionId: sessionResult.data.id,
+    threadTs: args.threadTs,
+  })
+
+  return sessionResult.data.id
+}
+
+async function sendSlackThreadPromptToSession(args: {
+  agentId: string | null
+  opencodeClient: NonNullable<Awaited<ReturnType<typeof createInstanceClient>>>
+  prompt: string
+  sessionId: string
+  slug: string
+}): Promise<string> {
+  const sessionCursor = await captureSessionMessageCursor(args.opencodeClient, args.sessionId)
+
+  await args.opencodeClient.session.promptAsync(
+    {
+      agent: args.agentId ?? undefined,
+      parts: [{ type: 'text', text: args.prompt }],
+      sessionID: args.sessionId,
+    },
+    { throwOnError: true },
+  )
+
+  const failure = await waitForSessionToComplete({
+    client: args.opencodeClient,
+    cursor: sessionCursor,
+    sessionId: args.sessionId,
+    slug: args.slug,
+  })
+
+  return failure
+    ? mapSlackFailureToMessage(failure)
+    : (await readLatestAssistantText(args.opencodeClient, args.sessionId, sessionCursor)) ?? 'I could not produce a Slack-ready text response.'
+}
+
+function formatSlackThreadReply(replyText: string, messagePrefix: string | undefined): string {
+  return messagePrefix ? `${messagePrefix}\n\n${replyText}` : replyText
 }
