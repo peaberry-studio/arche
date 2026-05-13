@@ -1,11 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+const accessMock = vi.fn()
 const disconnectMock = vi.fn()
 const getAutopilotSchedulerModeMock = vi.fn()
 const getAutopilotSchedulerStatusMock = vi.fn()
+const hasBareRepoLayoutMock = vi.fn()
 const initWebPrismaMock = vi.fn()
+const resolveRepoRootMock = vi.fn()
 const startAutopilotSchedulerMock = vi.fn()
+const statMock = vi.fn()
 const stopAutopilotSchedulerMock = vi.fn()
+
+vi.mock('node:fs/promises', () => ({
+  access: (...args: unknown[]) => accessMock(...args),
+  stat: (...args: unknown[]) => statMock(...args),
+}))
+
+vi.mock('@/lib/git/bare-repo', () => ({
+  hasBareRepoLayout: (...args: unknown[]) => hasBareRepoLayoutMock(...args),
+  resolveRepoRoot: (...args: unknown[]) => resolveRepoRootMock(...args),
+}))
 
 vi.mock('@/lib/prisma', () => ({
   initWebPrisma: (...args: unknown[]) => initWebPrismaMock(...args),
@@ -22,6 +36,11 @@ vi.mock('@/lib/autopilot/scheduler', () => ({
   stopAutopilotScheduler: (...args: unknown[]) => stopAutopilotSchedulerMock(...args),
 }))
 
+vi.mock('@/lib/runtime/paths', () => ({
+  getKbConfigRoot: () => '/kb-config',
+  getUsersBasePath: () => '/users',
+}))
+
 import { AUTOPILOT_WATCHDOG_TIMEOUT_MS, startAutopilotDaemon } from '@/autopilot-daemon'
 
 describe('autopilot daemon', () => {
@@ -35,7 +54,11 @@ describe('autopilot daemon', () => {
       lastDispatchStartedAt: null,
       running: true,
     })
+    accessMock.mockResolvedValue(undefined)
+    hasBareRepoLayoutMock.mockResolvedValue(true)
     initWebPrismaMock.mockResolvedValue(undefined)
+    resolveRepoRootMock.mockResolvedValue('/kb-config')
+    statMock.mockResolvedValue({ isDirectory: () => true })
   })
 
   afterEach(() => {
