@@ -47,6 +47,9 @@ vi.mock('@/lib/services', () => ({
   instanceService: {
     findCredentialsBySlug: vi.fn(),
   },
+  messageRunService: {
+    abortActiveRun: vi.fn(),
+  },
   userService: {
     findIdBySlug: vi.fn(),
   },
@@ -66,7 +69,7 @@ vi.mock('@/lib/workspace-agent/client', () => ({
 
 import { getSession } from '@/lib/runtime/session'
 import { createInstanceClient } from '@/lib/opencode/client'
-import { autopilotService, instanceService, userService } from '@/lib/services'
+import { autopilotService, instanceService, messageRunService, userService } from '@/lib/services'
 import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 
 import {
@@ -96,6 +99,7 @@ const mockCreateInstanceClient = vi.mocked(createInstanceClient)
 const mockInstanceService = vi.mocked(instanceService)
 const mockUserService = vi.mocked(userService)
 const mockAutopilotService = vi.mocked(autopilotService)
+const mockMessageRunService = vi.mocked(messageRunService)
 const mockCreateWorkspaceAgentClient = vi.mocked(createWorkspaceAgentClient)
 
 const fakeSession = {
@@ -146,6 +150,7 @@ beforeEach(() => {
   mockGetSession.mockResolvedValue(fakeSession)
   mockCreateInstanceClient.mockResolvedValue(makeClient())
   mockSessionStatus.mockResolvedValue({ data: {} })
+  mockMessageRunService.abortActiveRun.mockResolvedValue(undefined)
   // Mock global fetch
   vi.stubGlobal('fetch', vi.fn())
 })

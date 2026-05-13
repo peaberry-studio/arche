@@ -230,6 +230,7 @@ export function useWorkspace({
     messages,
     resumeFailureStateRef,
     sessionStreamStatusRef,
+    slug,
     streamChat,
     updateSessionMessages,
   });

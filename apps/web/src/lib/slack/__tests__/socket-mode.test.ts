@@ -28,6 +28,7 @@ const loadSlackAgentOptionsMock = vi.fn()
 const buildSlackContextMock = vi.fn()
 const buildSlackPromptMock = vi.fn()
 const captureSessionMessageCursorMock = vi.fn()
+const createSessionPromptRunMock = vi.fn()
 const createInstanceClientMock = vi.fn()
 const ensureSlackServiceUserMock = vi.fn()
 const ensureWorkspaceRunningForExecutionMock = vi.fn()
@@ -38,6 +39,8 @@ const createDmSessionBindingMock = vi.fn()
 const createPendingDmDecisionMock = vi.fn()
 const markPendingDmDecisionContinuedMock = vi.fn()
 const markPendingDmDecisionStartedNewMock = vi.fn()
+const markRunFailedMock = vi.fn()
+const markRunSucceededMock = vi.fn()
 const expirePendingDmDecisionMock = vi.fn()
 const resolveArcheUserFromSlackUserMock = vi.fn()
 const touchDmSessionBindingMock = vi.fn()
@@ -88,6 +91,7 @@ vi.mock('@/lib/opencode/session-execution', async (importOriginal) => {
   return {
     ...actual,
     captureSessionMessageCursor: (...args: unknown[]) => captureSessionMessageCursorMock(...args),
+    createSessionPromptRun: (...args: unknown[]) => createSessionPromptRunMock(...args),
     ensureWorkspaceRunningForExecution: (...args: unknown[]) => ensureWorkspaceRunningForExecutionMock(...args),
     readLatestAssistantText: (...args: Parameters<ReadLatestAssistantTextFn>) => readLatestAssistantTextMock(...args),
     waitForSessionToComplete: (...args: unknown[]) => waitForSessionToCompleteMock(...args),
@@ -135,6 +139,10 @@ vi.mock('@/lib/services', () => ({
       resolveArcheUserFromSlackUser: (...args: unknown[]) => resolveArcheUserFromSlackUserMock(...args),
       touchDmSessionBinding: (...args: unknown[]) => touchDmSessionBindingMock(...args),
       upsertThreadBinding: (...args: unknown[]) => upsertThreadBindingMock(...args),
+    },
+    messageRunService: {
+      markRunFailed: (...args: unknown[]) => markRunFailedMock(...args),
+      markRunSucceeded: (...args: unknown[]) => markRunSucceededMock(...args),
     },
     userService: {
       findByIdSelect: (...args: unknown[]) => findByIdSelectMock(...args),
@@ -191,6 +199,21 @@ describe('slack socket manager', () => {
     ensureSlackServiceUserMock.mockResolvedValue({ ok: true, user: { id: 'service-1', slug: 'slack-bot' } })
     ensureWorkspaceRunningForExecutionMock.mockResolvedValue(undefined)
     captureSessionMessageCursorMock.mockResolvedValue({ messageCount: 0 })
+    createSessionPromptRunMock.mockResolvedValue({
+      ok: true,
+      run: {
+        id: 'run-1',
+        slug: 'alice',
+        sessionId: 'session-1',
+        source: 'slack_thread',
+        status: 'running',
+        error: null,
+        startedAt: new Date(),
+        finishedAt: null,
+      },
+    })
+    markRunFailedMock.mockResolvedValue(undefined)
+    markRunSucceededMock.mockResolvedValue(undefined)
     loadSlackAgentOptionsMock.mockResolvedValue({
       agents: [{ displayName: 'Assistant', id: 'assistant', isPrimary: true }],
       ok: true,

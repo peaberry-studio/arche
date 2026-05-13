@@ -106,6 +106,7 @@ describe('slack socket utils', () => {
     expect(mapSlackFailureToMessage('autopilot_run_timeout')).toContain('too long')
     expect(mapSlackFailureToMessage('autopilot_no_assistant_message')).toContain('could not produce')
     expect(mapSlackFailureToMessage('provider_auth_missing')).toContain('provider credentials')
+    expect(mapSlackFailureToMessage('session_busy')).toContain('already working')
     expect(mapSlackFailureToMessage('other')).toContain('preparing')
     expect(mapSlackUserResolutionError('slack_email_missing')).toContain('Slack email')
     expect(mapSlackUserResolutionError('slack_email_not_found')).toContain('email matches')

@@ -2,7 +2,7 @@ import { createInstanceClient } from '@/lib/opencode/client'
 import { ensureProviderAccessFreshForExecution } from '@/lib/opencode/providers'
 import { transformParts } from '@/lib/opencode/transform'
 import type { MessagePart } from '@/lib/opencode/types'
-import { instanceService } from '@/lib/services'
+import { instanceService, messageRunService } from '@/lib/services'
 import { getInstanceStatus, startInstance } from '@/lib/spawner/core'
 import { deriveWorkspaceMessageRuntimeState } from '@/lib/workspace-message-state'
 
@@ -16,6 +16,8 @@ export type SessionExecutionClient = NonNullable<Awaited<ReturnType<typeof creat
 export type SessionMessageCursor = {
   messageCount: number
 }
+
+export type SessionPromptRunResult = Awaited<ReturnType<typeof messageRunService.createActiveRun>>
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -162,6 +164,33 @@ export async function captureSessionMessageCursor(
   return {
     messageCount: response.data?.length ?? 0,
   }
+}
+
+export async function createSessionPromptRun(params: {
+  client: SessionExecutionClient
+  sessionId: string
+  slug: string
+  source: string
+}): Promise<SessionPromptRunResult> {
+  const firstAttempt = await messageRunService.createActiveRun({
+    slug: params.slug,
+    sessionId: params.sessionId,
+    source: params.source,
+  })
+  if (firstAttempt.ok) return firstAttempt
+
+  const statusResult = await params.client.session.status({}, { throwOnError: true })
+  const sessionStatus = statusResult.data?.[params.sessionId]
+  if (sessionStatus?.type === 'busy' || sessionStatus?.type === 'retry') {
+    return firstAttempt
+  }
+
+  await messageRunService.markActiveRunSucceeded(params.slug, params.sessionId)
+  return messageRunService.createActiveRun({
+    slug: params.slug,
+    sessionId: params.sessionId,
+    source: params.source,
+  })
 }
 
 export async function waitForSessionToComplete(params: {
