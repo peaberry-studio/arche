@@ -17,6 +17,7 @@ describe('autopilot retry policy', () => {
     expect(isRetryableAutopilotStartError('healthcheck timeout')).toBe(true)
     expect(isRetryableAutopilotStartError('instance_unavailable')).toBe(true)
     expect(isRetryableAutopilotStartError('fetch failed: ENOTFOUND')).toBe(true)
+    expect(isRetryableAutopilotStartError('kb_unavailable')).toBe(true)
     expect(isRetryableAutopilotStartError('container name is already in use')).toBe(true)
   })
 

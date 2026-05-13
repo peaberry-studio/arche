@@ -449,21 +449,21 @@
   changed_when: true
   ignore_errors: true
 
-- name: Recreate reaper daemon (podman compose)
+- name: Recreate daemon services (podman compose)
   ansible.builtin.shell:
     cmd: >
       podman compose -f {{ app_dir }}/compose.yml --env-file {{ app_dir }}/.env
-      -p arche up -d --force-recreate reaper
+      -p arche up -d --force-recreate reaper autopilot
   changed_when: true
   when:
     - deploy_mode == 'remote'
     - podman_compose_check.rc == 0
 
-- name: Recreate reaper daemon (podman-compose fallback)
+- name: Recreate daemon services (podman-compose fallback)
   ansible.builtin.shell:
     cmd: >
       podman-compose -f {{ app_dir }}/compose.yml --env-file {{ app_dir }}/.env
-      -p arche up -d --force-recreate reaper
+      -p arche up -d --force-recreate reaper autopilot
   changed_when: true
   when:
     - deploy_mode == 'remote'
@@ -479,6 +479,18 @@
   failed_when:
     - deploy_mode == 'remote'
     - reaper_status.stdout | trim | length == 0
+  when: deploy_mode == 'remote'
+
+- name: Verify autopilot daemon is running
+  ansible.builtin.shell:
+    cmd: >
+      podman ps --filter label=com.docker.compose.project=arche --filter label=com.docker.compose.service=autopilot
+      --format '{{ '{{' }}.Names{{ '}}' }}'
+  register: autopilot_status
+  changed_when: false
+  failed_when:
+    - deploy_mode == 'remote'
+    - autopilot_status.stdout | trim | length == 0
   when: deploy_mode == 'remote'
 
 # ---------------------------------------------------------------------------

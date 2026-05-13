@@ -147,6 +147,10 @@ services:
     networks:
       - default
       - arche-internal
+    volumes:
+      - {{ users_path | default('/opt/arche/users') }}:{{ users_path | default('/opt/arche/users') }}
+      - {{ kb_content_host_path | default('/opt/arche/kb-content') }}:/kb-content
+      - {{ kb_config_host_path | default('/opt/arche/kb-config') }}:/kb-config
     depends_on:
       postgres:
         condition: service_healthy
