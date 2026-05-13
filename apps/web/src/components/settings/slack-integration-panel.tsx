@@ -542,7 +542,7 @@ export function SlackIntegrationPanel({
                 <div className="space-y-1">
                   <h3 className="text-sm font-medium text-foreground">Notification channels</h3>
                   <p className="text-xs text-muted-foreground">
-                    Channels where Autopilot can send notifications. Private channels only appear if the bot has been invited.
+                    Channels where Autopilot can proactively send notifications. Thread replies work separately whenever Arche is mentioned in a channel where the bot is present.
                   </p>
                 </div>
                 <Button
@@ -558,7 +558,7 @@ export function SlackIntegrationPanel({
 
               {notificationChannels.length === 0 ? (
                 <p className="rounded-lg border border-border/60 bg-card/40 px-3 py-2 text-sm text-muted-foreground">
-                  No channels found. Click refresh to load channels from Slack.
+                  No channels found. Invite the bot to Slack channels, then click refresh to load them from Slack.
                 </p>
               ) : (
                 <div className="space-y-2">

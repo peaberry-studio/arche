@@ -1069,7 +1069,7 @@ describe('slack socket manager', () => {
     })
 
     expect(findThreadBindingMock).toHaveBeenCalledTimes(2)
-    expect(isNotificationChannelAllowedMock).toHaveBeenCalledWith('T123', 'C123')
+    expect(isNotificationChannelAllowedMock).not.toHaveBeenCalled()
     expect(promptAsyncMock).toHaveBeenCalledWith(
       expect.objectContaining({ sessionID: 'thread-session-1' }),
       { throwOnError: true },
@@ -1309,11 +1309,18 @@ describe('slack socket manager', () => {
     stopSlackSocketManager()
   })
 
-  it('does not execute channel prompts outside enabled Slack channels', async () => {
+  it('executes mentioned channel prompts without checking notification allowlist', async () => {
     isNotificationChannelAllowedMock.mockResolvedValue(false)
+    const promptAsyncMock = vi.fn().mockResolvedValue({})
+    createInstanceClientMock.mockResolvedValue({
+      session: {
+        create: vi.fn().mockResolvedValue({ data: { id: 'session-allowlist-free' } }),
+        promptAsync: promptAsyncMock,
+      },
+    })
     const client = {
       chat: {
-        postMessage: vi.fn().mockResolvedValue({ ts: 'auth-reply' }),
+        postMessage: vi.fn().mockResolvedValue({ ts: 'reply-1' }),
         update: vi.fn().mockResolvedValue({}),
       },
       conversations: {
@@ -1342,13 +1349,22 @@ describe('slack socket manager', () => {
       },
     })
 
-    expect(client.chat.postMessage).toHaveBeenCalledWith({
-      channel: 'C999',
-      text: 'This Slack channel is not enabled for Arche replies. Ask an admin to allow it in Slack settings.',
-      thread_ts: '100.1',
+    expect(isNotificationChannelAllowedMock).not.toHaveBeenCalled()
+    expect(upsertThreadBindingMock).toHaveBeenCalledWith({
+      channelId: 'C999',
+      executionUserId: 'service-1',
+      openCodeSessionId: 'session-allowlist-free',
+      threadTs: '100.1',
     })
-    expect(ensureSlackServiceUserMock).not.toHaveBeenCalled()
-    expect(createInstanceClientMock).not.toHaveBeenCalled()
+    expect(promptAsyncMock).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionID: 'session-allowlist-free' }),
+      { throwOnError: true },
+    )
+    expect(client.chat.update).toHaveBeenCalledWith({
+      channel: 'C999',
+      text: 'Final reply',
+      ts: 'reply-1',
+    })
     expect(recordEventReceiptMock).toHaveBeenCalledWith({
       eventId: 'evt-channel-not-allowed',
       receivedAt: expect.any(Date),

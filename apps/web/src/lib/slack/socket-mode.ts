@@ -331,14 +331,6 @@ async function authorizeSlackThreadEvent(args: {
     }
   }
 
-  const channelAllowed = await slackService.isNotificationChannelAllowed(slackTeamId, args.channel)
-  if (!channelAllowed) {
-    return {
-      ok: false,
-      message: 'This Slack channel is not enabled for Arche replies. Ask an admin to allow it in Slack settings.',
-    }
-  }
-
   const profile = await loadSlackUserProfile(args.client, args.event.user)
   const resolution = await slackService.resolveArcheUserFromSlackUser(
     slackTeamId,
