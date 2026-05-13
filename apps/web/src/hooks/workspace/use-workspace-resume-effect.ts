@@ -21,6 +21,7 @@ export function useWorkspaceResumeEffect({
   messages,
   resumeFailureStateRef,
   sessionStreamStatusRef,
+  slug,
   streamChat,
   updateSessionMessages,
 }: {
@@ -32,12 +33,14 @@ export function useWorkspaceResumeEffect({
   messages: WorkspaceMessage[];
   resumeFailureStateRef: MutableRefObject<Map<string, ResumeFailureState>>;
   sessionStreamStatusRef: MutableRefObject<Record<string, StreamStatus>>;
+  slug: string;
   streamChat: (options: StreamOptions) => Promise<void>;
   updateSessionMessages: (
     sessionId: string,
     updater: (messages: WorkspaceMessage[]) => WorkspaceMessage[]
   ) => void;
 }) {
+  const activeRunLookupRef = useRef(new Set<string>());
   const pendingAssistantKey = useMemo(() => {
     const pending: string[] = [];
     for (const message of messages) {
@@ -115,7 +118,69 @@ export function useWorkspaceResumeEffect({
         mode: "resume",
         targetMessageId: pendingAssistant.id,
       });
+      return;
     }
+
+    if (!sessionBusy || activeRunLookupRef.current.has(activeSessionId)) {
+      return;
+    }
+
+    activeRunLookupRef.current.add(activeSessionId);
+    void (async () => {
+      try {
+        const response = await fetch(
+          `/api/w/${slug}/chat/runs?sessionId=${encodeURIComponent(activeSessionId)}`
+        );
+        if (!response.ok) return;
+
+        const data: unknown = await response.json();
+        const activeRun =
+          data && typeof data === "object" && "activeRun" in data
+            ? data.activeRun
+            : null;
+        const runId =
+          activeRun &&
+          typeof activeRun === "object" &&
+          "runId" in activeRun &&
+          typeof activeRun.runId === "string"
+            ? activeRun.runId
+            : null;
+        if (!runId) return;
+
+        const targetMessageId = `temp-assistant-${runId}`;
+        updateSessionMessages(activeSessionId, (prev) => {
+          if (prev.some((message) => message.id === targetMessageId)) {
+            return prev;
+          }
+
+          return [
+            ...prev,
+            {
+              id: targetMessageId,
+              sessionId: activeSessionId,
+              role: "assistant",
+              content: "",
+              timestamp: "Just now",
+              timestampRaw: Date.now(),
+              parts: [],
+              pending: true,
+              statusInfo: { status: "thinking" },
+            },
+          ];
+        });
+
+        streamChat({
+          sessionId: activeSessionId,
+          mode: "send",
+          targetMessageId,
+          runId,
+        });
+      } catch {
+        // Active-run lookup is opportunistic; normal polling/resume still applies.
+      } finally {
+        activeRunLookupRef.current.delete(activeSessionId);
+      }
+    })();
   }, [
     activeSession?.status,
     activeSessionId,
@@ -126,6 +191,7 @@ export function useWorkspaceResumeEffect({
     activeStreamsRef,
     resumeFailureStateRef,
     sessionStreamStatusRef,
+    slug,
     streamChat,
     updateSessionMessages,
   ]);

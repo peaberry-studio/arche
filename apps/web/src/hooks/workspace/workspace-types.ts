@@ -439,6 +439,7 @@ export type StreamOptions = {
   sessionId: string;
   mode: StreamMode;
   targetMessageId: string;
+  runId?: string;
   text?: string;
   model?: { providerId: string; modelId: string };
   attachments?: MessageAttachmentInput[];

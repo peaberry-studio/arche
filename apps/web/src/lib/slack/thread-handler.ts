@@ -1,13 +1,14 @@
 import { createInstanceClient } from '@/lib/opencode/client'
 import {
   captureSessionMessageCursor,
+  createSessionPromptRun,
   ensureWorkspaceRunningForExecution,
   isOpenCodeSessionNotFoundError,
   readLatestAssistantText,
   waitForSessionToComplete,
 } from '@/lib/opencode/session-execution'
 import { openCodeSessionExists } from '@/lib/opencode/session-utils'
-import { slackService } from '@/lib/services'
+import { messageRunService, slackService } from '@/lib/services'
 import { buildSlackContext } from '@/lib/slack/context'
 import { buildSlackPrompt } from '@/lib/slack/prompt'
 import { ensureSlackServiceUser } from '@/lib/slack/service-user'
@@ -176,27 +177,52 @@ async function sendSlackThreadPromptToSession(args: {
   sessionId: string
   slug: string
 }): Promise<string> {
-  const sessionCursor = await captureSessionMessageCursor(args.opencodeClient, args.sessionId)
-
-  await args.opencodeClient.session.promptAsync(
-    {
-      agent: args.agentId ?? undefined,
-      parts: [{ type: 'text', text: args.prompt }],
-      sessionID: args.sessionId,
-    },
-    { throwOnError: true },
-  )
-
-  const failure = await waitForSessionToComplete({
+  const runResult = await createSessionPromptRun({
     client: args.opencodeClient,
-    cursor: sessionCursor,
     sessionId: args.sessionId,
     slug: args.slug,
+    source: 'slack_thread',
   })
+  if (!runResult.ok) {
+    return mapSlackFailureToMessage('session_busy')
+  }
 
-  return failure
-    ? mapSlackFailureToMessage(failure)
-    : (await readLatestAssistantText(args.opencodeClient, args.sessionId, sessionCursor)) ?? 'I could not produce a Slack-ready text response.'
+  const runId = runResult.run.id
+  try {
+    const sessionCursor = await captureSessionMessageCursor(args.opencodeClient, args.sessionId)
+    await args.opencodeClient.session.promptAsync(
+      {
+        agent: args.agentId ?? undefined,
+        parts: [{ type: 'text', text: args.prompt }],
+        sessionID: args.sessionId,
+      },
+      { throwOnError: true },
+    )
+
+    const failure = await waitForSessionToComplete({
+      client: args.opencodeClient,
+      cursor: sessionCursor,
+      sessionId: args.sessionId,
+      slug: args.slug,
+    })
+
+    if (failure) {
+      if (failure === 'autopilot_run_timeout') {
+        await args.opencodeClient.session.abort({ sessionID: args.sessionId }).catch(() => undefined)
+      }
+      await messageRunService.markRunFailed(runId, failure)
+      return mapSlackFailureToMessage(failure)
+    }
+
+    await messageRunService.markRunSucceeded(runId)
+    return (await readLatestAssistantText(args.opencodeClient, args.sessionId, sessionCursor)) ?? 'I could not produce a Slack-ready text response.'
+  } catch (error) {
+    await messageRunService.markRunFailed(
+      runId,
+      error instanceof Error ? error.message : 'slack_thread_prompt_failed',
+    )
+    throw error
+  }
 }
 
 function formatSlackThreadReply(replyText: string, messagePrefix: string | undefined): string {

@@ -1,13 +1,14 @@
 import { createInstanceClient } from '@/lib/opencode/client'
 import {
   captureSessionMessageCursor,
+  createSessionPromptRun,
   ensureWorkspaceRunningForExecution,
   isOpenCodeSessionNotFoundError,
   readLatestAssistantText,
   waitForSessionToComplete,
 } from '@/lib/opencode/session-execution'
 import { openCodeSessionExists } from '@/lib/opencode/session-utils'
-import { auditService, slackService, userService } from '@/lib/services'
+import { auditService, messageRunService, slackService, userService } from '@/lib/services'
 import type { SlackPendingDmDecisionRecord } from '@/lib/services/slack'
 import { buildSlackDmPrompt } from '@/lib/slack/dm-prompt'
 import type {
@@ -652,26 +653,52 @@ async function sendSlackDmPromptToSession(args: {
   slug: string
 }): Promise<string> {
   const agentId = await resolveConfiguredSlackAgentId()
-  const sessionCursor = await captureSessionMessageCursor(args.opencodeClient, args.sessionId)
-  await args.opencodeClient.session.promptAsync(
-    {
-      agent: agentId ?? undefined,
-      parts: [{ type: 'text', text: buildSlackDmPrompt({ text: args.messageText }) }],
-      sessionID: args.sessionId,
-    },
-    { throwOnError: true },
-  )
-
-  const failure = await waitForSessionToComplete({
+  const runResult = await createSessionPromptRun({
     client: args.opencodeClient,
-    cursor: sessionCursor,
     sessionId: args.sessionId,
     slug: args.slug,
+    source: 'slack_dm',
   })
+  if (!runResult.ok) {
+    return mapSlackFailureToMessage('session_busy')
+  }
 
-  return failure
-    ? mapSlackFailureToMessage(failure)
-    : (await readLatestAssistantText(args.opencodeClient, args.sessionId, sessionCursor)) ?? 'I could not produce a Slack-ready text response.'
+  const runId = runResult.run.id
+  try {
+    const sessionCursor = await captureSessionMessageCursor(args.opencodeClient, args.sessionId)
+    await args.opencodeClient.session.promptAsync(
+      {
+        agent: agentId ?? undefined,
+        parts: [{ type: 'text', text: buildSlackDmPrompt({ text: args.messageText }) }],
+        sessionID: args.sessionId,
+      },
+      { throwOnError: true },
+    )
+
+    const failure = await waitForSessionToComplete({
+      client: args.opencodeClient,
+      cursor: sessionCursor,
+      sessionId: args.sessionId,
+      slug: args.slug,
+    })
+
+    if (failure) {
+      if (failure === 'autopilot_run_timeout') {
+        await args.opencodeClient.session.abort({ sessionID: args.sessionId }).catch(() => undefined)
+      }
+      await messageRunService.markRunFailed(runId, failure)
+      return mapSlackFailureToMessage(failure)
+    }
+
+    await messageRunService.markRunSucceeded(runId)
+    return (await readLatestAssistantText(args.opencodeClient, args.sessionId, sessionCursor)) ?? 'I could not produce a Slack-ready text response.'
+  } catch (error) {
+    await messageRunService.markRunFailed(
+      runId,
+      error instanceof Error ? error.message : 'slack_dm_prompt_failed',
+    )
+    throw error
+  }
 }
 
 async function promptForSlackDmDecision(args: {

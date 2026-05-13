@@ -8,6 +8,9 @@ vi.mock('@/lib/services', () => ({
   auditService: {
     createEvent: vi.fn(),
   },
+  messageRunService: {
+    reapStaleRuns: vi.fn(),
+  },
 }))
 
 vi.mock('../docker', () => ({
@@ -15,17 +18,19 @@ vi.mock('../docker', () => ({
   removeContainer: vi.fn(),
 }))
 
-import { instanceService } from '@/lib/services'
+import { instanceService, messageRunService } from '@/lib/services'
 import * as docker from '../docker'
-import { getReaperStatus, reapIdleInstances, REAPER_INTERVAL_MS, startReaper, stopReaper } from '../reaper'
+import { getReaperStatus, reapIdleInstances, reapStaleMessageRuns, REAPER_INTERVAL_MS, startReaper, stopReaper } from '../reaper'
 
 const mockInstance = vi.mocked(instanceService)
+const mockMessageRun = vi.mocked(messageRunService)
 const mockDocker = vi.mocked(docker)
 
 beforeEach(() => {
   vi.clearAllMocks()
   vi.spyOn(console, 'error').mockImplementation(() => {})
   vi.spyOn(console, 'warn').mockImplementation(() => {})
+  mockMessageRun.reapStaleRuns.mockResolvedValue(0)
   vi.useFakeTimers()
 })
 
@@ -146,6 +151,14 @@ describe('reapIdleInstances', () => {
   })
 })
 
+describe('reapStaleMessageRuns', () => {
+  it('delegates to the message run service', async () => {
+    mockMessageRun.reapStaleRuns.mockResolvedValue(2)
+
+    await expect(reapStaleMessageRuns()).resolves.toBe(2)
+  })
+})
+
 describe('startReaper / stopReaper', () => {
   it('starts interval that calls reapIdleInstances', async () => {
     mockInstance.findIdleInstances.mockResolvedValue([])
@@ -209,6 +222,15 @@ describe('startReaper / stopReaper', () => {
     startReaper()
 
     await vi.waitFor(() => expect(console.error).toHaveBeenCalledWith('[reaper] Stopped 1 idle instance(s)'))
+  })
+
+  it('logs when a cycle fails stale message runs', async () => {
+    mockInstance.findIdleInstances.mockResolvedValue([])
+    mockMessageRun.reapStaleRuns.mockResolvedValue(2)
+
+    startReaper()
+
+    await vi.waitFor(() => expect(console.error).toHaveBeenCalledWith('[reaper] Failed 2 stale message run(s)'))
   })
 
   it('stores and logs cycle errors', async () => {

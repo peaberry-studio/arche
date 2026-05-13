@@ -21,13 +21,20 @@ const mocks = vi.hoisted(() => ({
   },
   sessionExecution: {
     captureSessionMessageCursor: vi.fn(),
+    createSessionPromptRun: vi.fn(),
     ensureWorkspaceRunningForExecution: vi.fn(),
+    isOpenCodeSessionNotFoundError: vi.fn(),
     readLatestAssistantText: vi.fn(),
     waitForSessionToComplete: vi.fn(),
+  },
+  messageRunService: {
+    markRunFailed: vi.fn(),
+    markRunSucceeded: vi.fn(),
   },
   slackService: {
     createDmSessionBinding: vi.fn(),
     createPendingDmDecision: vi.fn(),
+    deleteSessionBindingsByOpenCodeSessionId: vi.fn(),
     expirePendingDmDecision: vi.fn(),
     findDmSessionBindingById: vi.fn(),
     findLatestDmSession: vi.fn(),
@@ -66,13 +73,16 @@ vi.mock('@/lib/opencode/client', () => ({
 
 vi.mock('@/lib/opencode/session-execution', () => ({
   captureSessionMessageCursor: (...args: unknown[]) => mocks.sessionExecution.captureSessionMessageCursor(...args),
+  createSessionPromptRun: (...args: unknown[]) => mocks.sessionExecution.createSessionPromptRun(...args),
   ensureWorkspaceRunningForExecution: (...args: unknown[]) => mocks.sessionExecution.ensureWorkspaceRunningForExecution(...args),
+  isOpenCodeSessionNotFoundError: (...args: unknown[]) => mocks.sessionExecution.isOpenCodeSessionNotFoundError(...args),
   readLatestAssistantText: (...args: unknown[]) => mocks.sessionExecution.readLatestAssistantText(...args),
   waitForSessionToComplete: (...args: unknown[]) => mocks.sessionExecution.waitForSessionToComplete(...args),
 }))
 
 vi.mock('@/lib/services', () => ({
   auditService: mocks.auditService,
+  messageRunService: mocks.messageRunService,
   slackService: mocks.slackService,
   userService: mocks.userService,
 }))
@@ -146,6 +156,14 @@ describe('Slack DM handler', () => {
     mocks.socketUtils.postSlackDmMessage.mockResolvedValue(undefined)
     mocks.socketUtils.postSlackDmPlaceholder.mockResolvedValue('placeholder-ts')
     mocks.socketUtils.updateSlackActionMessage.mockResolvedValue(undefined)
+    mocks.sessionExecution.createSessionPromptRun.mockResolvedValue({
+      ok: true,
+      run: { id: 'run-1' },
+    })
+    mocks.sessionExecution.isOpenCodeSessionNotFoundError.mockReturnValue(false)
+    mocks.messageRunService.markRunFailed.mockResolvedValue(undefined)
+    mocks.messageRunService.markRunSucceeded.mockResolvedValue(undefined)
+    mocks.slackService.deleteSessionBindingsByOpenCodeSessionId.mockResolvedValue({ dm: 0, thread: 0 })
     mocks.slackService.markLastError.mockResolvedValue(undefined)
     mocks.slackService.resolveArcheUserFromSlackUser.mockResolvedValue({
       ok: true,

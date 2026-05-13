@@ -68,7 +68,7 @@ describe('desktop prisma context isolation', () => {
     const { getDesktopPrismaClient } = await import('../prisma-desktop')
     const contextualClient = await getDesktopPrismaClient()
 
-    expect(context.prismaClient).toBe(contextualClient)
+    expect(context.prismaClient).toBeUndefined()
     expect(contextualClient.adapterUrl).toBe('file:/tmp/context-vault/.arche.db')
 
     mockGetDesktopVaultRuntimeContext.mockReturnValue(null)
@@ -126,7 +126,34 @@ describe('desktop prisma context isolation', () => {
     )
   })
 
-  it('executes the current desktop schema DDL including external integrations and Slack DM tables', async () => {
+  it('adds the missing autopilot retry column before creating its index', async () => {
+    const executeRawUnsafe = vi.fn()
+    const queryRawUnsafe = vi.fn().mockResolvedValue([{ name: 'id' }])
+
+    mockGeneratedPrismaClient.mockImplementationOnce(({ adapter }: { adapter: { url: string } }) => ({
+      adapterUrl: adapter.url,
+      $executeRaw: vi.fn(),
+      $executeRawUnsafe: executeRawUnsafe,
+      $queryRawUnsafe: queryRawUnsafe,
+      $queryRaw: vi.fn().mockResolvedValue([{ value: '6' }]),
+    }))
+
+    const { initDesktopDatabase } = await import('../prisma-desktop')
+    await initDesktopDatabase()
+
+    const ddl = executeRawUnsafe.mock.calls.map((call) => String(call[0]))
+    const addColumnIndex = ddl.findIndex((statement) =>
+      statement === 'ALTER TABLE "autopilot_tasks" ADD COLUMN "retry_scheduled_for" DATETIME',
+    )
+    const createIndexIndex = ddl.findIndex((statement) =>
+      statement.includes('CREATE INDEX IF NOT EXISTS "autopilot_tasks_retry_scheduled_for_idx"'),
+    )
+
+    expect(addColumnIndex).toBeGreaterThanOrEqual(0)
+    expect(createIndexIndex).toBeGreaterThan(addColumnIndex)
+  })
+
+  it('executes the current desktop schema DDL including durable runs and Slack DM tables', async () => {
     const executeRawUnsafe = vi.fn()
     const queryRawUnsafe = vi.fn().mockResolvedValue([
       { name: 'kind' },
@@ -151,6 +178,10 @@ describe('desktop prisma context isolation', () => {
     await initDesktopDatabase()
 
     const ddl = executeRawUnsafe.mock.calls.map((call) => String(call[0]))
+    expect(ddl.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS "message_runs"'))).toBe(true)
+    expect(ddl.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS "message_run_locks"'))).toBe(true)
+    expect(ddl.some((statement) => statement.includes('CREATE INDEX IF NOT EXISTS "message_runs_slug_opencode_session_id_status_idx"'))).toBe(true)
+    expect(ddl.some((statement) => statement.includes('CREATE UNIQUE INDEX IF NOT EXISTS "message_run_locks_run_id_key"'))).toBe(true)
     expect(ddl.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS "external_integrations"'))).toBe(true)
     expect(ddl.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS "slack_dm_session_bindings"'))).toBe(true)
     expect(ddl.some((statement) => statement.includes('"slack_notification_config" TEXT'))).toBe(true)

@@ -238,6 +238,39 @@ model AuditEvent {
   @@map("audit_events")
 }
 
+model MessageRun {
+  id         String   @id
+  slug       String
+  sessionId  String   @map("opencode_session_id")
+  source     String
+  status     String   @default("running")
+  error      String?
+  startedAt  DateTime @default(now()) @map("started_at")
+  finishedAt DateTime? @map("finished_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  lock       MessageRunLock?
+
+  @@index([slug, sessionId, status])
+  @@index([startedAt])
+  @@map("message_runs")
+}
+
+model MessageRunLock {
+  slug      String
+  sessionId String   @map("opencode_session_id")
+  runId     String   @unique @map("run_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  run       MessageRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@id([slug, sessionId])
+  @@index([runId])
+  @@map("message_run_locks")
+}
+
 model AutopilotTask {
   id             String         @id @default(cuid())
   userId         String         @map("user_id")

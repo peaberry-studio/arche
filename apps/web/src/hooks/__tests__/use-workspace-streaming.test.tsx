@@ -142,6 +142,18 @@ function stubFetchWithStream(
           json: async () => ({ agents: DEFAULT_AGENTS }),
         };
       }
+      if (String(input) === "/api/w/alice/chat/runs") {
+        return {
+          ok: true,
+          json: async () => ({ runId: "run-1", sessionId: "s1", status: "running" }),
+        };
+      }
+      if (String(input).startsWith("/api/w/alice/chat/runs?")) {
+        return {
+          ok: true,
+          json: async () => ({ activeRun: null }),
+        };
+      }
       if (String(input) === "/api/w/alice/chat/stream") {
         return {
           ok: true,
@@ -887,6 +899,12 @@ describe("useWorkspace streaming", () => {
               json: async () => ({ agents: DEFAULT_AGENTS }),
             };
           }
+          if (String(input) === "/api/w/alice/chat/runs") {
+            return { ok: true, json: async () => ({ runId: "run-1" }) };
+          }
+          if (String(input).startsWith("/api/w/alice/chat/runs?")) {
+            return { ok: true, json: async () => ({ activeRun: null }) };
+          }
           if (String(input) === "/api/w/alice/chat/stream") {
             return { ok: false, json: async () => ({ error: "server_error" }) };
           }
@@ -1283,6 +1301,12 @@ describe("useWorkspace streaming", () => {
               json: async () => ({ agents: DEFAULT_AGENTS }),
             };
           }
+          if (String(input) === "/api/w/alice/chat/runs") {
+            return { ok: true, json: async () => ({ runId: "run-1" }) };
+          }
+          if (String(input).startsWith("/api/w/alice/chat/runs?")) {
+            return { ok: true, json: async () => ({ activeRun: null }) };
+          }
           if (String(input) === "/api/w/alice/chat/stream") {
             streamFetched = true;
             return { ok: true, body: sse };
@@ -1342,6 +1366,12 @@ describe("useWorkspace streaming", () => {
               json: async () => ({ agents: DEFAULT_AGENTS }),
             };
           }
+          if (String(input) === "/api/w/alice/chat/runs") {
+            return { ok: true, json: async () => ({ runId: "run-1" }) };
+          }
+          if (String(input).startsWith("/api/w/alice/chat/runs?")) {
+            return { ok: true, json: async () => ({ activeRun: null }) };
+          }
           if (String(input) === "/api/w/alice/chat/stream") {
             streamFetched = true;
             return { ok: true, body: createSSEStream() };
@@ -1360,6 +1390,60 @@ describe("useWorkspace streaming", () => {
 
       // Stream should NOT have been fetched
       expect(streamFetched).toBe(false);
+    });
+
+    it("reattaches to an active run when a busy session has no pending assistant yet", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+
+      opencodeMocks.listSessionsAction.mockResolvedValue({
+        ok: true,
+        sessions: [{ id: "s1", title: "Existing", status: "busy", updatedAt: "now" }],
+      });
+      opencodeMocks.listMessagesAction.mockResolvedValue({ ok: true, messages: [] });
+
+      const sse = createSSEStream();
+      let startCalled = false;
+      let streamFetched = false;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL) => {
+          if (String(input) === "/api/u/alice/agents") {
+            return { ok: true, json: async () => ({ agents: DEFAULT_AGENTS }) };
+          }
+          if (String(input) === "/api/w/alice/chat/runs") {
+            startCalled = true;
+            return { ok: true, json: async () => ({ runId: "new-run" }) };
+          }
+          if (String(input).startsWith("/api/w/alice/chat/runs?")) {
+            return {
+              ok: true,
+              json: async () => ({
+                activeRun: { runId: "run-active", sessionId: "s1", status: "running" },
+              }),
+            };
+          }
+          if (String(input) === "/api/w/alice/chat/stream") {
+            streamFetched = true;
+            return { ok: true, body: sse };
+          }
+          throw new Error(`Unexpected fetch: ${String(input)}`);
+        })
+      );
+
+      const result = await renderConnectedHook();
+
+      await act(async () => {
+        vi.advanceTimersByTime(200);
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(streamFetched).toBe(true);
+        expect(startCalled).toBe(false);
+        expect(result.current.messages.some((message) => message.id === "temp-assistant-run-active")).toBe(true);
+      });
+
+      act(() => { sse.close(); });
     });
   });
 
@@ -1495,6 +1579,12 @@ describe("useWorkspace streaming", () => {
               json: async () => ({ agents: DEFAULT_AGENTS }),
             };
           }
+          if (String(input) === "/api/w/alice/chat/runs") {
+            return { ok: true, json: async () => ({ runId: "run-1" }) };
+          }
+          if (String(input).startsWith("/api/w/alice/chat/runs?")) {
+            return { ok: true, json: async () => ({ activeRun: null }) };
+          }
           if (String(input) === "/api/w/alice/chat/stream") {
             // Return a reader that waits indefinitely (will be aborted)
             return {
@@ -1553,6 +1643,12 @@ describe("useWorkspace streaming", () => {
               json: async () => ({ agents: DEFAULT_AGENTS }),
             };
           }
+          if (String(input) === "/api/w/alice/chat/runs") {
+            return { ok: true, json: async () => ({ runId: "run-1" }) };
+          }
+          if (String(input).startsWith("/api/w/alice/chat/runs?")) {
+            return { ok: true, json: async () => ({ activeRun: null }) };
+          }
           if (String(input) === "/api/w/alice/chat/stream") {
             return {
               ok: false,
@@ -1603,6 +1699,12 @@ describe("useWorkspace streaming", () => {
               ok: true,
               json: async () => ({ agents: DEFAULT_AGENTS }),
             };
+          }
+          if (String(input) === "/api/w/alice/chat/runs") {
+            return { ok: true, json: async () => ({ runId: "run-1" }) };
+          }
+          if (String(input).startsWith("/api/w/alice/chat/runs?")) {
+            return { ok: true, json: async () => ({ activeRun: null }) };
           }
           if (String(input) === "/api/w/alice/chat/stream") {
             return {
@@ -1749,6 +1851,12 @@ describe("useWorkspace streaming", () => {
           if (String(input) === "/api/u/alice/agents") {
             return { ok: true, json: async () => ({ agents: DEFAULT_AGENTS }) };
           }
+          if (String(input) === "/api/w/alice/chat/runs") {
+            return { ok: true, json: async () => ({ runId: "run-1" }) };
+          }
+          if (String(input).startsWith("/api/w/alice/chat/runs?")) {
+            return { ok: true, json: async () => ({ activeRun: null }) };
+          }
           if (String(input) === "/api/w/alice/chat/stream") {
             streamFetched = true;
             return { ok: true, body: createSSEStream() };
@@ -1811,6 +1919,12 @@ describe("useWorkspace streaming", () => {
         vi.fn(async (input: RequestInfo | URL) => {
           if (String(input) === "/api/u/alice/agents") {
             return { ok: true, json: async () => ({ agents: DEFAULT_AGENTS }) };
+          }
+          if (String(input) === "/api/w/alice/chat/runs") {
+            return { ok: true, json: async () => ({ runId: "run-1" }) };
+          }
+          if (String(input).startsWith("/api/w/alice/chat/runs?")) {
+            return { ok: true, json: async () => ({ activeRun: null }) };
           }
           if (String(input) === "/api/w/alice/chat/stream") {
             const stream = createSSEStream();
@@ -1926,6 +2040,12 @@ describe("useWorkspace streaming", () => {
         vi.fn(async (input: RequestInfo | URL) => {
           if (String(input) === "/api/u/alice/agents") {
             return { ok: true, json: async () => ({ agents: DEFAULT_AGENTS }) };
+          }
+          if (String(input) === "/api/w/alice/chat/runs") {
+            return { ok: true, json: async () => ({ runId: "run-1" }) };
+          }
+          if (String(input).startsWith("/api/w/alice/chat/runs?")) {
+            return { ok: true, json: async () => ({ activeRun: null }) };
           }
           if (String(input) === "/api/w/alice/chat/stream") {
             return { ok: true, body: sse };

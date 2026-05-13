@@ -124,7 +124,7 @@ describe('prisma dispatcher', () => {
     expect(globalThis.prismaDesktopClient).toBeUndefined()
   })
 
-  it('initDesktopPrisma sets client even if initDesktopDatabase fails', async () => {
+  it('initDesktopPrisma does not expose the client if initDesktopDatabase fails', async () => {
     process.env.ARCHE_RUNTIME_MODE = 'desktop'
 
     const mockClient = { $executeRawUnsafe: vi.fn(), $executeRaw: vi.fn() }
@@ -136,7 +136,34 @@ describe('prisma dispatcher', () => {
 
     const { initDesktopPrisma } = await import('../prisma-desktop-init')
     await expect(initDesktopPrisma()).rejects.toThrow('DDL failed')
-    // Client is set before initDesktopDatabase runs (line 22 runs before line 23)
+    expect(globalThis.prismaDesktopClient).toBeUndefined()
+  })
+
+  it('initDesktopPrisma exposes the client only after database init completes', async () => {
+    process.env.ARCHE_RUNTIME_MODE = 'desktop'
+
+    let resolveInit: () => void
+    const databaseInitPromise = new Promise<void>((resolve) => {
+      resolveInit = resolve
+    })
+    const mockClient = { $executeRawUnsafe: vi.fn(), $executeRaw: vi.fn() }
+    const initDesktopDatabase = vi.fn().mockReturnValue(databaseInitPromise)
+
+    vi.doMock('@/lib/prisma-desktop', () => ({
+      getDesktopPrismaClient: vi.fn().mockResolvedValue(mockClient),
+      initDesktopDatabase,
+    }))
+
+    const { initDesktopPrisma } = await import('../prisma-desktop-init')
+    const init = initDesktopPrisma()
+
+    while (initDesktopDatabase.mock.calls.length === 0) {
+      await Promise.resolve()
+    }
+
+    expect(globalThis.prismaDesktopClient).toBeUndefined()
+    resolveInit!()
+    await init
     expect(globalThis.prismaDesktopClient).toBe(mockClient)
   })
 
