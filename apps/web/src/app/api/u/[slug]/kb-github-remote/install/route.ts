@@ -7,7 +7,7 @@ import { requireAdmin } from '../require-admin'
 
 export const GET = withAuth<{ error: string }>(
   { csrf: false },
-  async (_request, { user, slug }) => {
+  async (_request, { user }) => {
     const admin = requireAdmin(user)
     if (!admin.ok) {
       return admin.response

@@ -622,6 +622,41 @@ export function WorkspaceShell({
   const isCompactLayout = viewportWidth < MOBILE_LAYOUT_BREAKPOINT;
   const wasCompactLayoutRef = useRef(isCompactLayout);
 
+  const openGithubReviewPanel = useCallback(() => {
+    setRightTab("review");
+    if (isCompactLayout) {
+      setMobileView("right");
+      return;
+    }
+    setRightCollapsedForMode(workspaceMode, false);
+  }, [isCompactLayout, setRightCollapsedForMode, workspaceMode]);
+
+  const clearGithubReviewState = useCallback(() => {
+    setGithubConflictFiles([]);
+    setGithubMergePending(false);
+    setGithubSyncRequired(false);
+    setGithubSyncRequiredMessage(null);
+    setGithubConflictBannerDismissed(false);
+  }, []);
+
+  const showGithubConflicts = useCallback((files: string[]) => {
+    setGithubSyncRequired(false);
+    setGithubSyncRequiredMessage(null);
+    setGithubConflictFiles(files);
+    setGithubMergePending(true);
+    setGithubConflictBannerDismissed(false);
+    openGithubReviewPanel();
+  }, [openGithubReviewPanel]);
+
+  const showGithubSyncRequired = useCallback((message: string) => {
+    setGithubSyncRequired(true);
+    setGithubSyncRequiredMessage(message);
+    setGithubConflictFiles([]);
+    setGithubMergePending(false);
+    setGithubConflictBannerDismissed(false);
+    openGithubReviewPanel();
+  }, [openGithubReviewPanel]);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -878,17 +913,11 @@ export function WorkspaceShell({
     }
 
     if (hasGithubSyncConflicts) {
-      setGithubSyncRequired(false);
-      setGithubSyncRequiredMessage(null);
-      setGithubConflictFiles(result.githubConflictFiles ?? []);
-      setGithubMergePending(true);
-      setGithubConflictBannerDismissed(false);
-      setRightTab('review');
-      setRightCollapsedForMode(workspaceMode, false);
+      showGithubConflicts(result.githubConflictFiles ?? []);
     } else {
       void loadGithubConflictState();
     }
-  }, [refreshOpenFilesCache, reloadKnowledgeGraph, workspace, workspaceMode, setRightCollapsedForMode, loadGithubConflictState]);
+  }, [refreshOpenFilesCache, reloadKnowledgeGraph, workspace, loadGithubConflictState, showGithubConflicts]);
 
   const handlePullGithubChanges = useCallback(async (): Promise<SyncKbResult> => {
     const response = await fetch(`/api/instances/${slug}/sync-kb`, { method: 'POST' });
@@ -899,15 +928,12 @@ export function WorkspaceShell({
         ? data.error
         : `HTTP ${response.status}`;
       const result: SyncKbResult = { ok: false, status: 'error', message };
-      setGithubSyncRequired(true);
-      setGithubSyncRequiredMessage(message);
+      showGithubSyncRequired(message);
       return result;
     }
 
     if (data.githubSyncStatus === 'conflicts') {
       handleSyncComplete(data);
-      setGithubSyncRequired(false);
-      setGithubSyncRequiredMessage(null);
       return data;
     }
 
@@ -922,18 +948,15 @@ export function WorkspaceShell({
     workspace.refreshDiffs();
     workspace.refreshFiles();
     reloadKnowledgeGraph();
-    setRightTab('review');
-    setRightCollapsedForMode(workspaceMode, false);
-    setGithubSyncRequired(true);
-    setGithubSyncRequiredMessage(
+    showGithubSyncRequired(
       data.githubSyncStatus === 'skipped'
         ? 'GitHub remote is not ready. Check the GitHub KB remote settings.'
         : githubPullSucceeded
           ? data.message ?? 'Pull from GitHub completed, but updating the workspace failed.'
-        : data.message ?? 'Pull from GitHub did not complete. The remote may still have newer changes.',
+          : data.message ?? 'Pull from GitHub did not complete. The remote may still have newer changes.',
     );
     return data;
-  }, [handleSyncComplete, reloadKnowledgeGraph, setRightCollapsedForMode, slug, workspace, workspaceMode]);
+  }, [handleSyncComplete, reloadKnowledgeGraph, showGithubSyncRequired, slug, workspace]);
 
   const handlePublishComplete = useCallback((result: PublishKbResult) => {
     workspace.refreshDiffs();
@@ -941,24 +964,12 @@ export function WorkspaceShell({
     reloadKnowledgeGraph();
 
     if (result.status === 'push_rejected') {
-      setGithubSyncRequired(true);
-      setGithubSyncRequiredMessage(result.message ?? 'GitHub has newer changes. Pull from GitHub before publishing again.');
-      setGithubConflictFiles([]);
-      setGithubMergePending(false);
-      setGithubConflictBannerDismissed(false);
-      setRightTab('review');
-      setRightCollapsedForMode(workspaceMode, false);
+      showGithubSyncRequired(result.message ?? 'GitHub has newer changes. Pull from GitHub before publishing again.');
       return;
     }
 
     if (result.status === 'conflicts') {
-      setGithubSyncRequired(false);
-      setGithubSyncRequiredMessage(null);
-      setGithubConflictFiles(result.githubConflictFiles ?? []);
-      setGithubMergePending(true);
-      setGithubConflictBannerDismissed(false);
-      setRightTab('review');
-      setRightCollapsedForMode(workspaceMode, false);
+      showGithubConflicts(result.githubConflictFiles ?? []);
       return;
     }
 
@@ -966,7 +977,7 @@ export function WorkspaceShell({
       setGithubSyncRequired(false);
       setGithubSyncRequiredMessage(null);
     }
-  }, [reloadKnowledgeGraph, workspace, workspaceMode, setRightCollapsedForMode]);
+  }, [reloadKnowledgeGraph, showGithubConflicts, showGithubSyncRequired, workspace]);
 
   const handleResolveConflict = useCallback(
     (path: string, content: string) => {
@@ -994,28 +1005,24 @@ export function WorkspaceShell({
 
   const handleGithubConflictResolved = useCallback((_path: string) => {
     workspace.refreshDiffs();
+    workspace.refreshFiles();
+    reloadKnowledgeGraph();
     void loadGithubConflictState();
-  }, [workspace, loadGithubConflictState]);
+  }, [reloadKnowledgeGraph, workspace, loadGithubConflictState]);
 
   const handleGithubMergeFinalized = useCallback(() => {
-    setGithubConflictFiles([]);
-    setGithubMergePending(false);
-    setGithubSyncRequired(false);
-    setGithubSyncRequiredMessage(null);
-    setGithubConflictBannerDismissed(false);
+    clearGithubReviewState();
     workspace.refreshDiffs();
     workspace.refreshFiles();
     reloadKnowledgeGraph();
-  }, [reloadKnowledgeGraph, workspace]);
+  }, [clearGithubReviewState, reloadKnowledgeGraph, workspace]);
 
   const handleGithubMergeAborted = useCallback(() => {
-    setGithubConflictFiles([]);
-    setGithubMergePending(false);
-    setGithubSyncRequired(false);
-    setGithubSyncRequiredMessage(null);
-    setGithubConflictBannerDismissed(false);
+    clearGithubReviewState();
     workspace.refreshDiffs();
-  }, [workspace]);
+    workspace.refreshFiles();
+    reloadKnowledgeGraph();
+  }, [clearGithubReviewState, reloadKnowledgeGraph, workspace]);
 
   const handleSaveFile = useCallback(
     async (path: string, content: string, expectedHash?: string) => {
@@ -1905,59 +1912,48 @@ export function WorkspaceShell({
     />
   );
 
+  const inspectorPanelSharedProps = {
+    slug,
+    workspaceAgentEnabled,
+    openFiles,
+    activeFilePath,
+    onSelectFile: handleSelectFile,
+    onCloseFile: handleCloseFile,
+    diffs: workspace.diffs,
+    isLoadingDiffs: workspace.isLoadingDiffs,
+    diffsError: workspace.diffsError,
+    onOpenFile: handleOpenFile,
+    internalLinkPaths: markdownFilePaths,
+    onReloadFile: handleReloadFile,
+    onSaveFile: workspaceAgentEnabled ? handleSaveFile : undefined,
+    onDiscardFileChanges: workspaceAgentEnabled ? handleDiscardFileChanges : undefined,
+    onPublish: workspaceAgentEnabled ? handlePublishComplete : undefined,
+    onResolveConflict: workspaceAgentEnabled ? handleResolveConflict : undefined,
+  };
+
   const fileEditorPanelElement = (
     <InspectorPanel
-      slug={slug}
+      {...inspectorPanelSharedProps}
       activeTab="preview"
       panelMode="files"
-      workspaceAgentEnabled={workspaceAgentEnabled}
       onTabChange={setRightTab}
       rightCollapsed={false}
       onToggleRight={handleToggleRight}
       hideCollapseButton
       pendingDiffsForBadge={reviewPendingCount}
-      openFiles={openFiles}
-      activeFilePath={activeFilePath}
-      onSelectFile={handleSelectFile}
-      onCloseFile={handleCloseFile}
-      diffs={workspace.diffs}
-      isLoadingDiffs={workspace.isLoadingDiffs}
-      diffsError={workspace.diffsError}
-      onOpenFile={handleOpenFile}
-      internalLinkPaths={markdownFilePaths}
-      onReloadFile={handleReloadFile}
-      onSaveFile={workspaceAgentEnabled ? handleSaveFile : undefined}
-      onDiscardFileChanges={workspaceAgentEnabled ? handleDiscardFileChanges : undefined}
-      onPublish={workspaceAgentEnabled ? handlePublishComplete : undefined}
-      onResolveConflict={workspaceAgentEnabled ? handleResolveConflict : undefined}
     />
   );
 
   const reviewPanelElement = (
     <InspectorPanel
-      slug={slug}
+      {...inspectorPanelSharedProps}
       activeTab="review"
       panelMode="review"
-      workspaceAgentEnabled={workspaceAgentEnabled}
       onTabChange={setRightTab}
       rightCollapsed={isCompactLayout ? false : rightCollapsed}
       onToggleRight={isCompactLayout ? handleShowChat : handleToggleRight}
       hideCollapseButton={isCompactLayout}
       pendingDiffsForBadge={reviewPendingCount}
-      openFiles={openFiles}
-      activeFilePath={activeFilePath}
-      onSelectFile={handleSelectFile}
-      onCloseFile={handleCloseFile}
-      diffs={workspace.diffs}
-      isLoadingDiffs={workspace.isLoadingDiffs}
-      diffsError={workspace.diffsError}
-      onOpenFile={handleOpenFile}
-      internalLinkPaths={markdownFilePaths}
-      onReloadFile={handleReloadFile}
-      onSaveFile={workspaceAgentEnabled ? handleSaveFile : undefined}
-      onDiscardFileChanges={workspaceAgentEnabled ? handleDiscardFileChanges : undefined}
-      onPublish={workspaceAgentEnabled ? handlePublishComplete : undefined}
-      onResolveConflict={workspaceAgentEnabled ? handleResolveConflict : undefined}
       githubSyncRequired={githubSyncRequired}
       githubSyncMessage={githubSyncRequiredMessage}
       githubMergePending={githubMergePending}
@@ -2062,7 +2058,7 @@ export function WorkspaceShell({
           </span>
           <button
             type="button"
-            onClick={() => { setRightTab("review"); if (rightCollapsed) handleToggleRight(); }}
+            onClick={openGithubReviewPanel}
             className="inline-flex items-center rounded-md bg-white/20 px-2 py-0.5 text-xs font-medium text-white transition-colors hover:bg-white/30"
           >
             Open Review

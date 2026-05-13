@@ -17,10 +17,8 @@ vi.mock('util', () => ({
 
 import {
   runGit,
-  isGitAvailable,
   hasBareRepoLayout,
   resolveRepoRoot,
-  runGitOnBareRepo,
   detectDefaultBranch,
   hashContent,
 } from '@/lib/git/bare-repo'

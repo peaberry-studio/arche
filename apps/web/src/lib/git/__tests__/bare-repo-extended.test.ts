@@ -16,10 +16,7 @@ vi.mock('util', () => ({
 }))
 
 import {
-  runGit,
   isGitAvailable,
-  hasBareRepoLayout,
-  resolveRepoRoot,
   runGitOnBareRepo,
   cloneRepoToTemp,
   cleanupClone,
@@ -67,21 +64,6 @@ describe('bare-repo extended', () => {
         ['--git-dir', tempDir, 'log', '--oneline', '-1'],
         expect.any(Object)
       )
-    })
-
-    it('returns git_unavailable when git is not installed', async () => {
-      // Mock runGit to simulate git not being available
-      mockExecFile.mockRejectedValue({ stderr: 'command not found' })
-
-      // Need to call this so isGitAvailable returns false
-      const { isGitAvailable: freshIsGitAvailable, runGitOnBareRepo: freshRunGitOnBareRepo } =
-        await vi.importActual<typeof import('@/lib/git/bare-repo')>('@/lib/git/bare-repo')
-      mockExecFile.mockRejectedValue({ stderr: '' })
-
-      // Actually, let's just test the internal flow
-      // Since cache is shared, we can't easily test this. Instead let's just verify
-      // that runGitOnBareRepo returns git_unavailable when isGitAvailable returns false.
-      // The easiest way is to test via mocking.
     })
   })
 
