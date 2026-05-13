@@ -128,9 +128,10 @@ export async function handleSlackThreadEvent(args: {
       }
 
       if (failure) {
-        if (failure !== 'autopilot_run_timeout') {
-          await messageRunService.markRunFailed(runId, failure)
+        if (failure === 'autopilot_run_timeout') {
+          await opencodeClient.session.abort({ sessionID: sessionId }).catch(() => undefined)
         }
+        await messageRunService.markRunFailed(runId, failure)
       } else {
         await messageRunService.markRunSucceeded(runId)
       }

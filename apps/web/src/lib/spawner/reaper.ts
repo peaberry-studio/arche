@@ -1,4 +1,4 @@
-import { auditService, instanceService } from '@/lib/services'
+import { auditService, instanceService, messageRunService } from '@/lib/services'
 import { getIdleTimeoutMinutes } from './config'
 
 export const REAPER_INTERVAL_MS = 5 * 60 * 1000
@@ -56,6 +56,10 @@ export async function reapIdleInstances(): Promise<number> {
   return reapedCount
 }
 
+export async function reapStaleMessageRuns(): Promise<number> {
+  return messageRunService.reapStaleRuns()
+}
+
 export function getReaperStatus(): ReaperStatus {
   return {
     lastRunError,
@@ -69,11 +73,17 @@ async function runReaperCycle(): Promise<void> {
   lastRunStartedAt = new Date()
 
   try {
-    const count = await reapIdleInstances()
+    const [instanceCount, messageRunCount] = await Promise.all([
+      reapIdleInstances(),
+      reapStaleMessageRuns(),
+    ])
     lastRunError = null
 
-    if (count > 0) {
-      console.error(`[reaper] Stopped ${count} idle instance(s)`)
+    if (instanceCount > 0) {
+      console.error(`[reaper] Stopped ${instanceCount} idle instance(s)`)
+    }
+    if (messageRunCount > 0) {
+      console.error(`[reaper] Failed ${messageRunCount} stale message run(s)`)
     }
   } catch (err) {
     lastRunError = err instanceof Error ? err.message : 'reaper_error'

@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
 
   instanceService: { findCredentialsBySlug: vi.fn() },
   messageRunService: {
-    createActiveRun: vi.fn(),
+    createActiveRunAfterRuntimeStateCheck: vi.fn(),
     findActiveRun: vi.fn(),
     markActiveRunSucceeded: vi.fn(),
     markRunFailed: vi.fn(),
@@ -21,9 +21,17 @@ const mocks = vi.hoisted(() => ({
   getWorkspaceAgentUrl: vi.fn(() => 'http://agent:3000'),
   resolveRuntimeProviderId: vi.fn((id: string) => id),
 
-  buildWorkspacePromptParts: vi.fn(),
-  normalizeContextPaths: vi.fn(() => []),
-  normalizeMessageAttachments: vi.fn(() => []),
+  extractPdfText: vi.fn(),
+  inferAttachmentMimeType: vi.fn(() => 'text/plain'),
+  isDocumentMimeType: vi.fn(() => false),
+  isPdfMime: vi.fn(() => false),
+  isPresentationMimeType: vi.fn(() => false),
+  isSpreadsheetMimeType: vi.fn(() => false),
+  isValidContextReferencePath: vi.fn(() => true),
+  isWorkspaceAttachmentPath: vi.fn(() => true),
+  normalizeAttachmentPath: vi.fn((path: string) => path),
+  normalizeWorkspacePath: vi.fn((path: string) => path),
+  workspaceAgentFetch: vi.fn(),
 }))
 
 vi.mock('@/lib/runtime/capabilities', () => ({ getRuntimeCapabilities: mocks.getRuntimeCapabilities }))
@@ -42,12 +50,28 @@ vi.mock('@/lib/spawner/crypto', () => ({ decryptPassword: mocks.decryptPassword 
 vi.mock('@/lib/opencode/client', () => ({ getInstanceUrl: mocks.getInstanceUrl }))
 vi.mock('@/lib/workspace-agent/client', () => ({ getWorkspaceAgentUrl: mocks.getWorkspaceAgentUrl }))
 vi.mock('@/lib/providers/catalog', () => ({ resolveRuntimeProviderId: mocks.resolveRuntimeProviderId }))
-vi.mock('@/lib/workspace-attachments', () => ({ MAX_ATTACHMENTS_PER_MESSAGE: 10 }))
-vi.mock('@/lib/opencode/workspace-prompt', () => ({
-  buildWorkspacePromptParts: mocks.buildWorkspacePromptParts,
-  normalizeContextPaths: mocks.normalizeContextPaths,
-  normalizeMessageAttachments: mocks.normalizeMessageAttachments,
+vi.mock('@/lib/attachments/pdf-text-extractor', () => ({
+  extractPdfText: mocks.extractPdfText,
+  isPdfMime: mocks.isPdfMime,
 }))
+vi.mock('@/lib/workspace-agent-client', () => ({ workspaceAgentFetch: mocks.workspaceAgentFetch }))
+vi.mock('@/lib/workspace-paths', () => ({
+  isValidContextReferencePath: mocks.isValidContextReferencePath,
+  normalizeAttachmentPath: mocks.normalizeAttachmentPath,
+  normalizeWorkspacePath: mocks.normalizeWorkspacePath,
+}))
+vi.mock('@/lib/workspace-attachments', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/lib/workspace-attachments')>()
+  return {
+    ...original,
+    inferAttachmentMimeType: mocks.inferAttachmentMimeType,
+    isDocumentMimeType: mocks.isDocumentMimeType,
+    isPresentationMimeType: mocks.isPresentationMimeType,
+    isSpreadsheetMimeType: mocks.isSpreadsheetMimeType,
+    isWorkspaceAttachmentPath: mocks.isWorkspaceAttachmentPath,
+    MAX_ATTACHMENTS_PER_MESSAGE: 10,
+  }
+})
 
 describe('/api/w/[slug]/chat/runs', () => {
   beforeEach(() => {
@@ -61,11 +85,18 @@ describe('/api/w/[slug]/chat/runs', () => {
       status: 'running',
       serverPassword: 'enc:pw',
     })
-    mocks.buildWorkspacePromptParts.mockResolvedValue({
-      ok: true,
-      parts: [{ type: 'text', text: 'Hi' }],
-    })
-    mocks.messageRunService.createActiveRun.mockResolvedValue({
+    mocks.extractPdfText.mockResolvedValue({ ok: true, text: 'PDF body', truncated: false })
+    mocks.inferAttachmentMimeType.mockReturnValue('text/plain')
+    mocks.isDocumentMimeType.mockReturnValue(false)
+    mocks.isPdfMime.mockReturnValue(false)
+    mocks.isPresentationMimeType.mockReturnValue(false)
+    mocks.isSpreadsheetMimeType.mockReturnValue(false)
+    mocks.isValidContextReferencePath.mockReturnValue(true)
+    mocks.isWorkspaceAttachmentPath.mockReturnValue(true)
+    mocks.normalizeAttachmentPath.mockImplementation((path: string) => path)
+    mocks.normalizeWorkspacePath.mockImplementation((path: string) => path)
+    mocks.workspaceAgentFetch.mockResolvedValue({ ok: false, data: { ok: false } })
+    mocks.messageRunService.createActiveRunAfterRuntimeStateCheck.mockResolvedValue({
       ok: true,
       run: {
         id: 'run-1',
@@ -123,7 +154,8 @@ describe('/api/w/[slug]/chat/runs', () => {
       sessionId: 's1',
       status: 'running',
     })
-    expect(mocks.messageRunService.createActiveRun).toHaveBeenCalledWith({
+    expect(mocks.messageRunService.createActiveRunAfterRuntimeStateCheck).toHaveBeenCalledWith({
+      readRuntimeSessionState: expect.any(Function),
       slug: 'alice',
       sessionId: 's1',
       source: 'web',
@@ -136,20 +168,82 @@ describe('/api/w/[slug]/chat/runs', () => {
     })
   })
 
+  it('sends built PDF and image attachment parts to prompt_async', async () => {
+    mocks.isPdfMime.mockImplementation((mime: string) => mime === 'application/pdf')
+    mocks.workspaceAgentFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          ok: true,
+          content: Buffer.from('pdf bytes').toString('base64'),
+          encoding: 'base64',
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          ok: true,
+          content: 'image bytes',
+          encoding: 'utf-8',
+        },
+      })
+    const fetchMock = vi.fn((url: string | URL) => {
+      const href = String(url)
+      if (href === 'http://test-slug:3000/session/s1/prompt_async') {
+        return Promise.resolve(new Response('', { status: 200 }))
+      }
+      return Promise.reject(new Error(`unexpected fetch ${href}`))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('../route')
+    const res = await POST(postRequest({
+      sessionId: 's1',
+      text: 'Summarize these files',
+      attachments: [
+        { path: '.arche/attachments/report.pdf', filename: 'report.pdf', mime: 'application/pdf' },
+        { path: '.arche/attachments/screenshot.png', filename: 'screenshot.png', mime: 'image/png' },
+      ],
+    }), params())
+
+    expect(res.status).toBe(200)
+    const promptCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/session/s1/prompt_async'))
+    const promptBody = JSON.parse(String(promptCall?.[1]?.body))
+
+    expect(promptBody.parts).toContainEqual({ type: 'text', text: 'Summarize these files' })
+    expect(promptBody.parts).toContainEqual({
+      type: 'file',
+      mime: 'image/png',
+      filename: 'screenshot.png',
+      url: `data:image/png;base64,${Buffer.from('image bytes').toString('base64')}`,
+    })
+    expect(promptBody.parts.some((part: { text?: string }) =>
+      part.text?.includes('Extracted text from attached PDF') && part.text.includes('PDF body'),
+    )).toBe(true)
+    expect(promptBody.parts.some((part: { text?: string }) =>
+      part.text?.includes('Attached workspace files:') && part.text.includes('/workspace/.arche/attachments/report.pdf'),
+    )).toBe(true)
+  })
+
   it('rejects concurrent prompts without calling prompt_async', async () => {
-    mocks.messageRunService.createActiveRun.mockResolvedValue({
-      ok: false,
-      error: 'session_busy',
-      activeRun: {
-        id: 'run-active',
-        slug: 'alice',
-        sessionId: 's1',
-        source: 'web',
-        status: 'running',
-        error: null,
-        startedAt: new Date('2026-05-13T12:00:00.000Z'),
-        finishedAt: null,
-      },
+    mocks.messageRunService.createActiveRunAfterRuntimeStateCheck.mockImplementationOnce(async (params: {
+      readRuntimeSessionState: () => Promise<unknown>
+    }) => {
+      await params.readRuntimeSessionState()
+      return {
+        ok: false,
+        error: 'session_busy',
+        activeRun: {
+          id: 'run-active',
+          slug: 'alice',
+          sessionId: 's1',
+          source: 'web',
+          status: 'running',
+          error: null,
+          startedAt: new Date('2026-05-13T12:00:00.000Z'),
+          finishedAt: null,
+        },
+      }
     })
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ s1: { type: 'busy' } }), { status: 200 }),

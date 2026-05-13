@@ -145,8 +145,6 @@ export const POST = withAuth(
         // Track whether the downstream client (browser) has disconnected.
         let clientGone = false
         let aborted = false
-        let promptSent = true
-        let promptAcknowledged = true
         const upstreamEventsController = new AbortController()
 
         // Shared reference so the abort path and finally block can always
@@ -418,16 +416,10 @@ export const POST = withAuth(
                     const status = event.properties?.status
 
                     if (status?.type === 'busy') {
-                      promptSent = true
-                      promptAcknowledged = true
                       emitStatus('thinking')
                     } else if (status?.type === 'retry') {
-                      promptAcknowledged = true
                       emitStatus('thinking', undefined, status?.message)
                     } else if (status?.type === 'idle') {
-                      if (!promptSent || !promptAcknowledged) {
-                        break
-                      }
                       if (pendingPermissionIds.size > 0) {
                         break
                       }
@@ -438,9 +430,6 @@ export const POST = withAuth(
 
                   case 'session.idle': {
                     markRelevantEvent()
-                    if (!promptSent || !promptAcknowledged) {
-                      break
-                    }
                     if (pendingPermissionIds.size > 0) {
                       break
                     }
@@ -462,7 +451,6 @@ export const POST = withAuth(
 
                   case 'permission.updated': {
                     markRelevantEvent()
-                    promptAcknowledged = true
 
                     const permission = isRecord(event.properties?.permission)
                       ? event.properties.permission
@@ -544,7 +532,6 @@ export const POST = withAuth(
                       assistantMessageId = info.id
                     }
                     if (info.role === 'assistant') {
-                      promptAcknowledged = true
                       assistantMessageSeen = true
                       if (seenPartMessageIds.has(info.id)) {
                         assistantPartSeen = true
@@ -589,7 +576,6 @@ export const POST = withAuth(
 
                     if (!isAssistantPart) break
 
-                    promptAcknowledged = true
                     assistantPartSeen = true
 
                     switch (part.type) {
@@ -712,7 +698,6 @@ export const POST = withAuth(
 
                     if (!isAssistantPart) break
 
-                    promptAcknowledged = true
                     assistantPartSeen = true
 
                     if (part.type === 'reasoning') {

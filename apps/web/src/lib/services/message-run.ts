@@ -3,6 +3,9 @@ import { randomUUID } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
 
 export type MessageRunStatus = 'running' | 'succeeded' | 'failed' | 'aborted'
+export type ActiveRunRuntimeState = 'busy' | 'idle' | 'unknown'
+
+export const MESSAGE_RUN_TIMEOUT_MS = 35 * 60 * 1000
 
 export type MessageRunRecord = {
   id: string
@@ -18,6 +21,13 @@ export type MessageRunRecord = {
 type CreateActiveRunResult =
   | { ok: true; run: MessageRunRecord }
   | { ok: false; error: 'session_busy'; activeRun: MessageRunRecord | null }
+
+type CreateActiveRunAfterRuntimeStateCheckParams = {
+  readRuntimeSessionState: () => Promise<ActiveRunRuntimeState>
+  sessionId: string
+  slug: string
+  source: string
+}
 
 function isUniqueConstraintError(error: unknown): boolean {
   return (
@@ -117,6 +127,64 @@ export async function createActiveRun(params: {
 
     throw error
   }
+}
+
+export async function createActiveRunAfterRuntimeStateCheck(
+  params: CreateActiveRunAfterRuntimeStateCheckParams,
+): Promise<CreateActiveRunResult> {
+  const firstAttempt = await createActiveRun({
+    slug: params.slug,
+    sessionId: params.sessionId,
+    source: params.source,
+  })
+  if (firstAttempt.ok) return firstAttempt
+
+  const runtimeState = await params.readRuntimeSessionState()
+  if (runtimeState !== 'idle') {
+    return firstAttempt
+  }
+
+  await markActiveRunSucceeded(params.slug, params.sessionId)
+  return createActiveRun({
+    slug: params.slug,
+    sessionId: params.sessionId,
+    source: params.source,
+  })
+}
+
+export async function reapStaleRuns(now = new Date()): Promise<number> {
+  const threshold = new Date(now.getTime() - MESSAGE_RUN_TIMEOUT_MS)
+  const staleLocks = await prisma.messageRunLock.findMany({
+    where: {
+      run: {
+        is: {
+          startedAt: { lte: threshold },
+          status: 'running',
+        },
+      },
+    },
+    select: { runId: true },
+  })
+
+  if (staleLocks.length === 0) return 0
+
+  const runIds = staleLocks.map((lock) => lock.runId)
+  const [updated] = await prisma.$transaction([
+    prisma.messageRun.updateMany({
+      where: {
+        id: { in: runIds },
+        status: 'running',
+      },
+      data: {
+        error: 'message_run_timeout',
+        finishedAt: now,
+        status: 'failed',
+      },
+    }),
+    prisma.messageRunLock.deleteMany({ where: { runId: { in: runIds } } }),
+  ])
+
+  return updated.count
 }
 
 export async function markRunSucceeded(runId: string): Promise<void> {

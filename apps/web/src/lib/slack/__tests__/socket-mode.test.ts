@@ -225,6 +225,7 @@ describe('slack socket manager', () => {
     readLatestAssistantTextMock.mockResolvedValue('Final reply')
     createInstanceClientMock.mockResolvedValue({
       session: {
+        abort: vi.fn().mockResolvedValue({}),
         create: vi.fn().mockResolvedValue({ data: { id: 'session-1' } }),
         promptAsync: vi.fn().mockResolvedValue({}),
       },
@@ -1132,6 +1133,7 @@ describe('slack socket manager', () => {
       text: expectedText,
       ts: 'reply-1',
     })
+    expect(markRunFailedMock).toHaveBeenCalledWith('run-1', failure)
     stopSlackSocketManager()
   })
 

@@ -9,7 +9,7 @@ import {
 import { resolveRuntimeProviderId } from '@/lib/providers/catalog'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { instanceService, messageRunService } from '@/lib/services'
-import type { MessageRunRecord } from '@/lib/services/message-run'
+import type { ActiveRunRuntimeState, MessageRunRecord } from '@/lib/services/message-run'
 import { decryptPassword } from '@/lib/spawner/crypto'
 import { getWorkspaceAgentUrl } from '@/lib/workspace-agent/client'
 import { MAX_ATTACHMENTS_PER_MESSAGE } from '@/lib/workspace-attachments'
@@ -18,8 +18,6 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 const PROMPT_START_TIMEOUT_MS = 60_000
-
-type RuntimeSessionState = 'busy' | 'idle' | 'unknown'
 
 type StartPromptBody = {
   sessionId?: string
@@ -82,7 +80,7 @@ async function readRuntimeSessionState(params: {
   authHeader: string
   baseUrl: string
   sessionId: string
-}): Promise<RuntimeSessionState> {
+}): Promise<ActiveRunRuntimeState> {
   try {
     const response = await fetch(`${params.baseUrl}/session/status`, {
       headers: {
@@ -107,32 +105,6 @@ async function readRuntimeSessionState(params: {
   } catch {
     return 'unknown'
   }
-}
-
-async function createRunAfterStaleLockCheck(params: {
-  authHeader: string
-  baseUrl: string
-  sessionId: string
-  slug: string
-}) {
-  const firstAttempt = await messageRunService.createActiveRun({
-    slug: params.slug,
-    sessionId: params.sessionId,
-    source: 'web',
-  })
-  if (firstAttempt.ok) return firstAttempt
-
-  const runtimeState = await readRuntimeSessionState(params)
-  if (runtimeState !== 'idle') {
-    return firstAttempt
-  }
-
-  await messageRunService.markActiveRunSucceeded(params.slug, params.sessionId)
-  return messageRunService.createActiveRun({
-    slug: params.slug,
-    sessionId: params.sessionId,
-    source: 'web',
-  })
 }
 
 async function getInstanceConnection(slug: string) {
@@ -226,11 +198,15 @@ export const POST = withAuth(
       return jsonErrorResponse(400, prompt.error)
     }
 
-    const runResult = await createRunAfterStaleLockCheck({
-      authHeader: connection.authHeader,
-      baseUrl: connection.baseUrl,
+    const runResult = await messageRunService.createActiveRunAfterRuntimeStateCheck({
+      readRuntimeSessionState: () => readRuntimeSessionState({
+        authHeader: connection.authHeader,
+        baseUrl: connection.baseUrl,
+        sessionId,
+      }),
       sessionId,
       slug,
+      source: 'web',
     })
     if (!runResult.ok) {
       return NextResponse.json(

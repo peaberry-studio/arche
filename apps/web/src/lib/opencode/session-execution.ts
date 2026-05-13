@@ -3,6 +3,7 @@ import { ensureProviderAccessFreshForExecution } from '@/lib/opencode/providers'
 import { transformParts } from '@/lib/opencode/transform'
 import type { MessagePart } from '@/lib/opencode/types'
 import { instanceService, messageRunService } from '@/lib/services'
+import type { ActiveRunRuntimeState } from '@/lib/services/message-run'
 import { getInstanceStatus, startInstance } from '@/lib/spawner/core'
 import { deriveWorkspaceMessageRuntimeState } from '@/lib/workspace-message-state'
 
@@ -17,7 +18,7 @@ export type SessionMessageCursor = {
   messageCount: number
 }
 
-export type SessionPromptRunResult = Awaited<ReturnType<typeof messageRunService.createActiveRun>>
+export type SessionPromptRunResult = Awaited<ReturnType<typeof messageRunService.createActiveRunAfterRuntimeStateCheck>>
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -172,21 +173,19 @@ export async function createSessionPromptRun(params: {
   slug: string
   source: string
 }): Promise<SessionPromptRunResult> {
-  const firstAttempt = await messageRunService.createActiveRun({
-    slug: params.slug,
-    sessionId: params.sessionId,
-    source: params.source,
-  })
-  if (firstAttempt.ok) return firstAttempt
+  return messageRunService.createActiveRunAfterRuntimeStateCheck({
+    readRuntimeSessionState: async (): Promise<ActiveRunRuntimeState> => {
+      const statusResult = await params.client.session.status({}, { throwOnError: true })
+      const sessionStatus = statusResult.data?.[params.sessionId]
+      if (sessionStatus?.type === 'busy' || sessionStatus?.type === 'retry') {
+        return 'busy'
+      }
+      if (!sessionStatus || sessionStatus.type === 'idle') {
+        return 'idle'
+      }
 
-  const statusResult = await params.client.session.status({}, { throwOnError: true })
-  const sessionStatus = statusResult.data?.[params.sessionId]
-  if (sessionStatus?.type === 'busy' || sessionStatus?.type === 'retry') {
-    return firstAttempt
-  }
-
-  await messageRunService.markActiveRunSucceeded(params.slug, params.sessionId)
-  return messageRunService.createActiveRun({
+      return 'unknown'
+    },
     slug: params.slug,
     sessionId: params.sessionId,
     source: params.source,
