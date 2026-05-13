@@ -25,6 +25,7 @@ const state = {
   files: new Map(),
   providerAuth: new Map(),
   eventClients: new Set(),
+  nextEventClientGeneration: 1,
   pendingEventBatches: [],
 }
 
@@ -378,10 +379,20 @@ function createPromptResponse(session, prompt) {
   }
 }
 
-function broadcastEvent(payload) {
+function addEventClient(response) {
+  const client = {
+    generation: state.nextEventClientGeneration++,
+    response,
+  }
+  state.eventClients.add(client)
+  setTimeout(flushPendingEventBatches, 25)
+  return client
+}
+
+function broadcastEvent(payload, clients = state.eventClients) {
   const chunk = `data: ${JSON.stringify(payload)}\n\n`
-  for (const client of state.eventClients) {
-    client.write(chunk)
+  for (const client of clients) {
+    client.response.write(chunk)
   }
 }
 
@@ -390,10 +401,19 @@ function flushPendingEventBatches() {
     return
   }
 
+  const remainingBatches = []
   const batches = state.pendingEventBatches.splice(0)
   for (const batch of batches) {
+    const eligibleClients = Array.from(state.eventClients)
+      .filter((client) => client.generation >= batch.minEventClientGeneration)
+
+    if (eligibleClients.length === 0) {
+      remainingBatches.push(batch)
+      continue
+    }
+
     for (const event of batch.events) {
-      broadcastEvent(event)
+      broadcastEvent(event, eligibleClients)
     }
 
     batch.session.status = 'idle'
@@ -401,12 +421,15 @@ function flushPendingEventBatches() {
     broadcastEvent({
       type: 'session.idle',
       properties: { sessionID: batch.session.id },
-    })
+    }, eligibleClients)
   }
+
+  state.pendingEventBatches.push(...remainingBatches)
 }
 
 function queuePromptEvents(session, userMessage, assistantMessage, assistantPartId, reply) {
   state.pendingEventBatches.push({
+    minEventClientGeneration: state.nextEventClientGeneration,
     session,
     events: [
       {
@@ -918,10 +941,9 @@ const server = createServer(async (request, response) => {
         Connection: 'keep-alive',
       })
       response.write(': connected\n\n')
-      state.eventClients.add(response)
-      setTimeout(flushPendingEventBatches, 25)
+      const client = addEventClient(response)
       request.on('close', () => {
-        state.eventClients.delete(response)
+        state.eventClients.delete(client)
       })
       return
     }
@@ -933,10 +955,9 @@ const server = createServer(async (request, response) => {
         Connection: 'keep-alive',
       })
       response.write(': connected\n\n')
-      state.eventClients.add(response)
-      setTimeout(flushPendingEventBatches, 25)
+      const client = addEventClient(response)
       request.on('close', () => {
-        state.eventClients.delete(response)
+        state.eventClients.delete(client)
       })
       return
     }
