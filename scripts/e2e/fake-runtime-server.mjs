@@ -25,6 +25,7 @@ const state = {
   files: new Map(),
   providerAuth: new Map(),
   eventClients: new Set(),
+  pendingEventBatches: [],
 }
 
 function now() {
@@ -384,6 +385,70 @@ function broadcastEvent(payload) {
   }
 }
 
+function flushPendingEventBatches() {
+  if (state.eventClients.size === 0 || state.pendingEventBatches.length === 0) {
+    return
+  }
+
+  const batches = state.pendingEventBatches.splice(0)
+  for (const batch of batches) {
+    for (const event of batch.events) {
+      broadcastEvent(event)
+    }
+
+    batch.session.status = 'idle'
+    batch.session.updatedAt = now()
+    broadcastEvent({
+      type: 'session.idle',
+      properties: { sessionID: batch.session.id },
+    })
+  }
+}
+
+function queuePromptEvents(session, userMessage, assistantMessage, assistantPartId, reply) {
+  state.pendingEventBatches.push({
+    session,
+    events: [
+      {
+        type: 'session.status',
+        properties: {
+          sessionID: session.id,
+          status: { type: 'busy' },
+        },
+      },
+      {
+        type: 'message.updated',
+        properties: {
+          info: mapMessageInfo(userMessage),
+        },
+      },
+      {
+        type: 'message.updated',
+        properties: {
+          info: mapMessageInfo(assistantMessage),
+        },
+      },
+      {
+        type: 'message.part.delta',
+        properties: {
+          messageID: assistantMessage.id,
+          partID: assistantPartId,
+          partType: 'text',
+          delta: reply,
+          part: {
+            id: assistantPartId,
+            type: 'text',
+            messageID: assistantMessage.id,
+            sessionID: session.id,
+          },
+        },
+      },
+    ],
+  })
+
+  setTimeout(flushPendingEventBatches, 25)
+}
+
 function listFilesUnder(prefix) {
   const normalizedPrefix = typeof prefix === 'string' && prefix.length > 0 ? prefix.replace(/^\/+|\/+$/g, '') : ''
   const results = []
@@ -445,50 +510,9 @@ async function handlePrompt(request, response, pathname) {
   const prompt = reconstructPrompt(body)
   const { reply, userMessage, assistantMessage, assistantPartId } = createPromptResponse(session, prompt)
 
-  broadcastEvent({
-    type: 'session.status',
-    properties: {
-      sessionID: session.id,
-      status: { type: 'busy' },
-    },
-  })
-  broadcastEvent({
-    type: 'message.updated',
-    properties: {
-      info: mapMessageInfo(userMessage),
-    },
-  })
-  broadcastEvent({
-    type: 'message.updated',
-    properties: {
-      info: mapMessageInfo(assistantMessage),
-    },
-  })
-  broadcastEvent({
-    type: 'message.part.delta',
-    properties: {
-      messageID: assistantMessage.id,
-      partID: assistantPartId,
-      partType: 'text',
-      delta: reply,
-      part: {
-        id: assistantPartId,
-        type: 'text',
-        messageID: assistantMessage.id,
-        sessionID: session.id,
-      },
-    },
-  })
-
-  session.status = 'idle'
-  session.updatedAt = now()
-  broadcastEvent({
-    type: 'session.idle',
-    properties: { sessionID: session.id },
-  })
-
   response.writeHead(204)
   response.end()
+  queuePromptEvents(session, userMessage, assistantMessage, assistantPartId, reply)
 }
 
 async function handleFilesList(request, response) {
@@ -895,6 +919,7 @@ const server = createServer(async (request, response) => {
       })
       response.write(': connected\n\n')
       state.eventClients.add(response)
+      setTimeout(flushPendingEventBatches, 25)
       request.on('close', () => {
         state.eventClients.delete(response)
       })
@@ -909,6 +934,7 @@ const server = createServer(async (request, response) => {
       })
       response.write(': connected\n\n')
       state.eventClients.add(response)
+      setTimeout(flushPendingEventBatches, 25)
       request.on('close', () => {
         state.eventClients.delete(response)
       })
