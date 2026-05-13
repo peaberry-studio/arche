@@ -13,6 +13,22 @@ function createDeferred<T>() {
   return { promise, reject, resolve }
 }
 
+function createSlackClient() {
+  return {
+    chat: {
+      postMessage: vi.fn().mockResolvedValue({ ts: 'reply-1' }),
+      update: vi.fn().mockResolvedValue({}),
+    },
+    conversations: {
+      history: vi.fn().mockResolvedValue({ messages: [] }),
+      replies: vi.fn().mockResolvedValue({ messages: [] }),
+    },
+    users: {
+      info: vi.fn().mockResolvedValue({ user: { profile: { display_name: 'Alice', email: 'alice@test.com' } } }),
+    },
+  }
+}
+
 const appConstructorMock = vi.fn()
 let nextAppStartImplementation: (() => Promise<void>) | null = null
 const appInstances: Array<{
@@ -36,6 +52,7 @@ const findLatestDmSessionMock = vi.fn()
 const findPendingDmDecisionMock = vi.fn()
 const createDmSessionBindingMock = vi.fn()
 const createPendingDmDecisionMock = vi.fn()
+const deleteSessionBindingsByOpenCodeSessionIdMock = vi.fn()
 const markPendingDmDecisionContinuedMock = vi.fn()
 const markPendingDmDecisionStartedNewMock = vi.fn()
 const expirePendingDmDecisionMock = vi.fn()
@@ -117,6 +134,7 @@ vi.mock('@/lib/services', () => ({
     slackService: {
       createDmSessionBinding: (...args: unknown[]) => createDmSessionBindingMock(...args),
       createPendingDmDecision: (...args: unknown[]) => createPendingDmDecisionMock(...args),
+      deleteSessionBindingsByOpenCodeSessionId: (...args: unknown[]) => deleteSessionBindingsByOpenCodeSessionIdMock(...args),
       expirePendingDmDecision: (...args: unknown[]) => expirePendingDmDecisionMock(...args),
       findIntegration: (...args: unknown[]) => findIntegrationMock(...args),
       findDmSessionBindingById: (...args: unknown[]) => findDmSessionBindingByIdMock(...args),
@@ -170,6 +188,7 @@ describe('slack socket manager', () => {
     findPendingDmDecisionMock.mockResolvedValue(null)
     createDmSessionBindingMock.mockResolvedValue({ id: 'dm-binding-1' })
     createPendingDmDecisionMock.mockResolvedValue({ id: 'decision-1' })
+    deleteSessionBindingsByOpenCodeSessionIdMock.mockResolvedValue({ dm: 0, thread: 0 })
     markPendingDmDecisionContinuedMock.mockResolvedValue(true)
     markPendingDmDecisionStartedNewMock.mockResolvedValue(true)
     expirePendingDmDecisionMock.mockResolvedValue(undefined)
@@ -211,6 +230,422 @@ describe('slack socket manager', () => {
     markLastErrorMock.mockResolvedValue(undefined)
     markSocketConnectedMock.mockResolvedValue(undefined)
     pruneEventReceiptsMock.mockResolvedValue(undefined)
+  })
+
+  it('posts a DM setup error when Slack team cannot be resolved', async () => {
+    findIntegrationMock.mockResolvedValue(null)
+    const client = createSlackClient()
+    const { handleSlackDmEvent } = await import('../dm-handler')
+
+    await handleSlackDmEvent({
+      body: { event_id: 'evt-dm-no-team' },
+      client,
+      event: {
+        channel: 'D123',
+        channel_type: 'im',
+        text: 'hello',
+        ts: '100.1',
+        user: 'U123',
+      },
+      eventId: 'evt-dm-no-team',
+    })
+
+    expect(client.chat.postMessage).toHaveBeenCalledWith({
+      channel: 'D123',
+      text: 'I could not identify the Slack workspace to link your account.',
+    })
+    expect(resolveArcheUserFromSlackUserMock).not.toHaveBeenCalled()
+  })
+
+  it('posts a DM account resolution error before starting a session', async () => {
+    resolveArcheUserFromSlackUserMock.mockResolvedValue({ ok: false, error: 'slack_email_not_found' })
+    const client = createSlackClient()
+    const { handleSlackDmEvent } = await import('../dm-handler')
+
+    await handleSlackDmEvent({
+      body: { event_id: 'evt-dm-unlinked', team_id: 'T123' },
+      client,
+      event: {
+        channel: 'D123',
+        channel_type: 'im',
+        text: 'hello',
+        ts: '100.1',
+        user: 'U123',
+      },
+      eventId: 'evt-dm-unlinked',
+    })
+
+    expect(client.chat.postMessage).toHaveBeenCalledWith({
+      channel: 'D123',
+      text: 'I cannot find an Arche account with your Slack email. Check that your email matches or contact an admin.',
+    })
+    expect(createInstanceClientMock).not.toHaveBeenCalled()
+  })
+
+  it('ignores incomplete Slack DM events', async () => {
+    const client = createSlackClient()
+    const { handleSlackDmEvent } = await import('../dm-handler')
+
+    await handleSlackDmEvent({
+      body: { event_id: 'evt-dm-empty', team_id: 'T123' },
+      client,
+      event: {
+        channel: 'D123',
+        channel_type: 'im',
+        text: '   ',
+        ts: '100.1',
+        user: 'U123',
+      },
+      eventId: 'evt-dm-empty',
+    })
+
+    expect(resolveArcheUserFromSlackUserMock).not.toHaveBeenCalled()
+    expect(client.chat.postMessage).not.toHaveBeenCalled()
+  })
+
+  it('reports DM execution setup errors before posting a placeholder', async () => {
+    createInstanceClientMock.mockResolvedValue(null)
+    const client = createSlackClient()
+    const { handleSlackDmEvent } = await import('../dm-handler')
+
+    await expect(handleSlackDmEvent({
+      body: { event_id: 'evt-dm-instance-missing', team_id: 'T123' },
+      client,
+      event: {
+        channel: 'D123',
+        channel_type: 'im',
+        text: 'hello',
+        ts: '100.1',
+        user: 'U123',
+      },
+      eventId: 'evt-dm-instance-missing',
+    })).rejects.toThrow('instance_unavailable')
+
+    expect(client.chat.postMessage).toHaveBeenCalledWith({
+      channel: 'D123',
+      text: 'I hit an error while preparing the Slack reply. Please try again.',
+    })
+    expect(client.chat.update).not.toHaveBeenCalled()
+    expect(markLastErrorMock).toHaveBeenCalledWith('instance_unavailable')
+  })
+
+  it('starts a new DM conversation when the latest session is older than eight hours', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-04-25T12:00:00.000Z'))
+
+    try {
+      const promptAsyncMock = vi.fn().mockResolvedValue({})
+      createInstanceClientMock.mockResolvedValue({
+        session: {
+          create: vi.fn().mockResolvedValue({ data: { id: 'dm-session-new' } }),
+          promptAsync: promptAsyncMock,
+        },
+      })
+      findLatestDmSessionMock.mockResolvedValue({
+        channelId: 'D123',
+        executionUserId: 'user-1',
+        id: 'dm-binding-old',
+        lastMessageAt: new Date('2026-04-25T03:00:00.000Z'),
+        openCodeSessionId: 'dm-session-old',
+        slackTeamId: 'T123',
+        slackUserId: 'U123',
+      })
+      createDmSessionBindingMock.mockResolvedValue({ id: 'dm-binding-new' })
+      const client = createSlackClient()
+      const { handleSlackDmEvent } = await import('../dm-handler')
+
+      await handleSlackDmEvent({
+        body: { event_id: 'evt-dm-old', team_id: 'T123' },
+        client,
+        event: {
+          channel: 'D123',
+          channel_type: 'im',
+          text: 'hello again',
+          ts: '100.1',
+          user: 'U123',
+        },
+        eventId: 'evt-dm-old',
+      })
+
+      expect(createPendingDmDecisionMock).not.toHaveBeenCalled()
+      expect(promptAsyncMock).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionID: 'dm-session-new' }),
+        { throwOnError: true },
+      )
+      expect(client.chat.update).toHaveBeenCalledWith({
+        channel: 'D123',
+        text: 'More than 8 hours have passed, so I started a new conversation.\n\nFinal reply',
+        ts: 'reply-1',
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reports /new setup and account resolution failures', async () => {
+    const client = createSlackClient()
+    const respondMock = vi.fn().mockResolvedValue(undefined)
+    const { handleNewSlackDmCommand } = await import('../dm-handler')
+
+    findIntegrationMock.mockResolvedValueOnce(null)
+    await handleNewSlackDmCommand({
+      body: {
+        channel_id: 'D123',
+        channel_name: 'directmessage',
+        text: 'start',
+        user_id: 'U123',
+      },
+      client,
+      respond: respondMock,
+    })
+    expect(respondMock).toHaveBeenCalledWith({ text: 'I could not identify the Slack workspace to link your account.' })
+
+    resolveArcheUserFromSlackUserMock.mockResolvedValueOnce({ ok: false, error: 'slack_email_missing' })
+    await handleNewSlackDmCommand({
+      body: {
+        channel_id: 'D123',
+        channel_name: 'directmessage',
+        team_id: 'T123',
+        text: 'start',
+        user_id: 'U123',
+      },
+      client,
+      respond: respondMock,
+    })
+    expect(respondMock).toHaveBeenCalledWith({
+      text: 'I cannot read your Slack email. Ask an admin to verify the users:read.email scope.',
+    })
+  })
+
+  it('reports /new execution setup errors without throwing', async () => {
+    createInstanceClientMock.mockResolvedValue(null)
+    const client = createSlackClient()
+    const respondMock = vi.fn().mockResolvedValue(undefined)
+    const { handleNewSlackDmCommand } = await import('../dm-handler')
+
+    await handleNewSlackDmCommand({
+      body: {
+        channel_id: 'D123',
+        channel_name: 'directmessage',
+        team_id: 'T123',
+        text: '',
+        user_id: 'U123',
+      },
+      client,
+      respond: respondMock,
+    })
+
+    expect(respondMock).toHaveBeenCalledWith({ text: 'I hit an error while preparing the Slack reply. Please try again.' })
+    expect(markLastErrorMock).toHaveBeenCalledWith('instance_unavailable')
+    expect(createAuditEventMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects invalid pending DM decisions', async () => {
+    const client = createSlackClient()
+    const { handleSlackDmDecisionAction } = await import('../dm-handler')
+
+    await handleSlackDmDecisionAction({
+      action: 'continue',
+      body: {
+        actions: [],
+        channel: { id: 'D123' },
+        message: { ts: 'decision-ts' },
+      },
+      client,
+    })
+
+    expect(client.chat.update).toHaveBeenCalledWith({
+      blocks: [],
+      channel: 'D123',
+      text: 'This decision is no longer valid.',
+      ts: 'decision-ts',
+    })
+
+    findPendingDmDecisionMock.mockResolvedValueOnce({ status: 'continued' })
+    await handleSlackDmDecisionAction({
+      action: 'continue',
+      body: {
+        actions: [{ value: 'decision-1' }],
+        channel: { id: 'D123' },
+        message: { ts: 'decision-ts' },
+      },
+      client,
+    })
+
+    expect(client.chat.update).toHaveBeenLastCalledWith({
+      blocks: [],
+      channel: 'D123',
+      text: 'This decision is no longer valid.',
+      ts: 'decision-ts',
+    })
+  })
+
+  it('rejects pending DM decision continuations without usable previous sessions', async () => {
+    const client = createSlackClient()
+    const { handleSlackDmDecisionAction } = await import('../dm-handler')
+
+    findPendingDmDecisionMock.mockResolvedValueOnce({
+      channelId: 'D123',
+      expiresAt: new Date(Date.now() + 60_000),
+      id: 'decision-1',
+      messageText: 'continue this',
+      previousDmSessionBindingId: null,
+      slackTeamId: 'T123',
+      slackUserId: 'U123',
+      sourceEventId: 'evt-1',
+      sourceTs: '100.1',
+      status: 'pending',
+    })
+    await handleSlackDmDecisionAction({
+      action: 'continue',
+      body: {
+        actions: [{ value: 'decision-1' }],
+        channel: { id: 'D123' },
+        message: { ts: 'decision-ts' },
+        team: { id: 'T123' },
+        user: { id: 'U123' },
+      },
+      client,
+    })
+    expect(expirePendingDmDecisionMock).toHaveBeenCalledWith('decision-1')
+
+    findPendingDmDecisionMock.mockResolvedValueOnce({
+      channelId: 'D123',
+      expiresAt: new Date(Date.now() + 60_000),
+      id: 'decision-2',
+      messageText: 'continue this',
+      previousDmSessionBindingId: 'dm-binding-1',
+      slackTeamId: 'T123',
+      slackUserId: 'U123',
+      sourceEventId: 'evt-2',
+      sourceTs: '100.2',
+      status: 'pending',
+    })
+    findDmSessionBindingByIdMock.mockResolvedValueOnce({
+      executionUserId: 'user-1',
+      id: 'dm-binding-1',
+      openCodeSessionId: 'dm-session-1',
+    })
+    markPendingDmDecisionContinuedMock.mockResolvedValueOnce(false)
+    await handleSlackDmDecisionAction({
+      action: 'continue',
+      body: {
+        actions: [{ value: 'decision-2' }],
+        channel: { id: 'D123' },
+        message: { ts: 'decision-ts' },
+        team: { id: 'T123' },
+        user: { id: 'U123' },
+      },
+      client,
+    })
+
+    expect(client.chat.update).toHaveBeenLastCalledWith({
+      blocks: [],
+      channel: 'D123',
+      text: 'This decision is no longer valid.',
+      ts: 'decision-ts',
+    })
+  })
+
+  it('rejects start-new DM decisions when user resolution fails', async () => {
+    const client = createSlackClient()
+    const { handleSlackDmDecisionAction } = await import('../dm-handler')
+    findPendingDmDecisionMock.mockResolvedValue({
+      channelId: 'D123',
+      expiresAt: new Date(Date.now() + 60_000),
+      id: 'decision-1',
+      messageText: 'start over',
+      previousDmSessionBindingId: 'dm-binding-1',
+      slackTeamId: 'T123',
+      slackUserId: 'U123',
+      sourceEventId: 'evt-1',
+      sourceTs: '100.1',
+      status: 'pending',
+    })
+    resolveArcheUserFromSlackUserMock.mockResolvedValueOnce({ ok: false, error: 'slack_email_not_found' })
+
+    await handleSlackDmDecisionAction({
+      action: 'start_new',
+      body: {
+        actions: [{ value: 'decision-1' }],
+        channel: { id: 'D123' },
+        message: { ts: 'decision-ts' },
+        team: { id: 'T123' },
+        user: { id: 'U123' },
+      },
+      client,
+    })
+
+    expect(markPendingDmDecisionStartedNewMock).toHaveBeenCalledWith('decision-1')
+    expect(client.chat.update).toHaveBeenCalledWith({
+      blocks: [],
+      channel: 'D123',
+      text: 'I cannot find an Arche account with your Slack email. Check that your email matches or contact an admin.',
+      ts: 'decision-ts',
+    })
+    expect(createInstanceClientMock).not.toHaveBeenCalled()
+  })
+
+  it('starts a new conversation for a start-new DM decision', async () => {
+    const promptAsyncMock = vi.fn().mockResolvedValue({})
+    const sessionCreateMock = vi.fn().mockResolvedValue({ data: { id: 'dm-session-new' } })
+    createInstanceClientMock.mockResolvedValue({
+      session: {
+        create: sessionCreateMock,
+        promptAsync: promptAsyncMock,
+      },
+    })
+    createDmSessionBindingMock.mockResolvedValue({ id: 'dm-binding-new' })
+    findPendingDmDecisionMock.mockResolvedValue({
+      channelId: 'D123',
+      expiresAt: new Date(Date.now() + 60_000),
+      id: 'decision-1',
+      messageText: 'start over',
+      previousDmSessionBindingId: 'dm-binding-1',
+      slackTeamId: 'T123',
+      slackUserId: 'U123',
+      sourceEventId: 'evt-1',
+      sourceTs: '100.1',
+      status: 'pending',
+    })
+    const client = createSlackClient()
+    const { handleSlackDmDecisionAction } = await import('../dm-handler')
+
+    await handleSlackDmDecisionAction({
+      action: 'start_new',
+      body: {
+        actions: [{ value: 'decision-1' }],
+        channel: { id: 'D123' },
+        message: { ts: 'decision-ts' },
+        team: { id: 'T123' },
+        user: { id: 'U123' },
+      },
+      client,
+    })
+
+    expect(markPendingDmDecisionStartedNewMock).toHaveBeenCalledWith('decision-1')
+    expect(createDmSessionBindingMock).toHaveBeenCalledWith({
+      channelId: 'D123',
+      executionUserId: 'user-1',
+      openCodeSessionId: 'dm-session-new',
+      slackTeamId: 'T123',
+      slackUserId: 'U123',
+    })
+    expect(client.chat.update).toHaveBeenCalledWith({
+      blocks: [],
+      channel: 'D123',
+      text: 'Starting a new conversation...',
+      ts: 'decision-ts',
+    })
+    expect(promptAsyncMock).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionID: 'dm-session-new' }),
+      { throwOnError: true },
+    )
+    expect(client.chat.update).toHaveBeenCalledWith({
+      channel: 'D123',
+      text: 'Final reply',
+      ts: 'reply-1',
+    })
   })
 
   it('starts a socket-mode app for an enabled integration', async () => {
@@ -359,6 +794,301 @@ describe('slack socket manager', () => {
     stopSlackSocketManager()
   })
 
+  it('starts a new Slack thread conversation when the binding points at a deleted session', async () => {
+    const promptAsyncMock = vi.fn().mockResolvedValue({})
+    const sessionCreateMock = vi.fn().mockResolvedValue({ data: { id: 'thread-session-new' } })
+    createInstanceClientMock.mockResolvedValue({
+      session: {
+        create: sessionCreateMock,
+        promptAsync: promptAsyncMock,
+      },
+    })
+    findThreadBindingMock.mockResolvedValue({
+      channelId: 'C123',
+      createdAt: new Date(),
+      executionUserId: 'service-1',
+      id: 'thread-binding-stale',
+      openCodeSessionId: 'thread-session-deleted',
+      threadTs: '100.1',
+      updatedAt: new Date(),
+    })
+    captureSessionMessageCursorMock
+      .mockRejectedValueOnce(new Error('session not found'))
+      .mockResolvedValue({ messageCount: 0 })
+    const client = {
+      chat: {
+        postMessage: vi.fn().mockResolvedValue({ ts: 'reply-1' }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      conversations: {
+        history: vi.fn().mockResolvedValue({ messages: [] }),
+        replies: vi.fn().mockResolvedValue({ messages: [] }),
+      },
+      users: {
+        info: vi.fn().mockResolvedValue({ user: { profile: { display_name: 'Alice', email: 'alice@test.com' } } }),
+      },
+    }
+
+    const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
+    await syncSlackSocketManager()
+
+    const mentionHandler = appInstances[0].event.mock.calls.find(([name]) => name === 'app_mention')?.[1]
+    expect(typeof mentionHandler).toBe('function')
+
+    await mentionHandler({
+      body: { event_id: 'evt-thread-stale', team_id: 'T123' },
+      client,
+      event: {
+        channel: 'C123',
+        text: '<@U999> hello after deletion',
+        ts: '100.1',
+        user: 'U123',
+      },
+    })
+
+    expect(deleteSessionBindingsByOpenCodeSessionIdMock).toHaveBeenCalledWith('thread-session-deleted')
+    expect(upsertThreadBindingMock).toHaveBeenCalledWith({
+      channelId: 'C123',
+      executionUserId: 'service-1',
+      openCodeSessionId: 'thread-session-new',
+      threadTs: '100.1',
+    })
+    expect(promptAsyncMock).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionID: 'thread-session-new' }),
+      { throwOnError: true },
+    )
+    expect(client.chat.update).toHaveBeenCalledWith({
+      channel: 'C123',
+      text: 'The previous Slack thread conversation was no longer available, so I started a new conversation.\n\nFinal reply',
+      ts: 'reply-1',
+    })
+
+    stopSlackSocketManager()
+  })
+
+  it('recovers a Slack thread when the bound session is deleted during prompt execution', async () => {
+    const promptAsyncMock = vi.fn()
+      .mockRejectedValueOnce(new Error('session not found'))
+      .mockResolvedValue({})
+    const sessionCreateMock = vi.fn().mockResolvedValue({ data: { id: 'thread-session-recovered' } })
+    createInstanceClientMock.mockResolvedValue({
+      session: {
+        create: sessionCreateMock,
+        promptAsync: promptAsyncMock,
+      },
+    })
+    findThreadBindingMock.mockResolvedValue({
+      channelId: 'C123',
+      createdAt: new Date(),
+      executionUserId: 'service-1',
+      id: 'thread-binding-existing',
+      openCodeSessionId: 'thread-session-existing',
+      threadTs: '100.1',
+      updatedAt: new Date(),
+    })
+    const client = createSlackClient()
+    const { handleSlackThreadEvent } = await import('../thread-handler')
+
+    await handleSlackThreadEvent({
+      channel: 'C123',
+      client,
+      event: {
+        channel: 'C123',
+        text: '<@U999> hello during deletion',
+        thread_ts: '100.1',
+        ts: '100.2',
+        user: 'U123',
+      },
+      eventTs: '100.2',
+      isMention: true,
+      savedBotUserId: 'U999',
+      threadTs: '100.1',
+    })
+
+    expect(deleteSessionBindingsByOpenCodeSessionIdMock).toHaveBeenCalledWith('thread-session-existing')
+    expect(upsertThreadBindingMock).toHaveBeenCalledWith({
+      channelId: 'C123',
+      executionUserId: 'service-1',
+      openCodeSessionId: 'thread-session-recovered',
+      threadTs: '100.1',
+    })
+    expect(promptAsyncMock).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ sessionID: 'thread-session-existing' }),
+      { throwOnError: true },
+    )
+    expect(promptAsyncMock).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ sessionID: 'thread-session-recovered' }),
+      { throwOnError: true },
+    )
+    expect(client.chat.update).toHaveBeenCalledWith({
+      channel: 'C123',
+      text: 'The previous Slack thread conversation was no longer available, so I started a new conversation.\n\nFinal reply',
+      ts: 'reply-1',
+    })
+  })
+
+  it('silently ignores top-level channel messages without a mention', async () => {
+    isNotificationChannelAllowedMock.mockResolvedValue(false)
+    const client = {
+      chat: {
+        postMessage: vi.fn().mockResolvedValue({ ts: 'reply-1' }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      conversations: {
+        history: vi.fn().mockResolvedValue({ messages: [] }),
+        replies: vi.fn().mockResolvedValue({ messages: [] }),
+      },
+      users: {
+        info: vi.fn().mockResolvedValue({ user: { profile: { display_name: 'Alice', email: 'alice@test.com' } } }),
+      },
+    }
+
+    const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
+    await syncSlackSocketManager()
+
+    const messageHandler = appInstances[0].event.mock.calls.find(([name]) => name === 'message')?.[1]
+    expect(typeof messageHandler).toBe('function')
+
+    await messageHandler({
+      body: { event_id: 'evt-channel-unmentioned', team_id: 'T123' },
+      client,
+      event: {
+        channel: 'C999',
+        text: 'hello channel',
+        ts: '100.1',
+        user: 'U123',
+      },
+    })
+
+    expect(client.chat.postMessage).not.toHaveBeenCalled()
+    expect(client.chat.update).not.toHaveBeenCalled()
+    expect(findThreadBindingMock).not.toHaveBeenCalled()
+    expect(isNotificationChannelAllowedMock).not.toHaveBeenCalled()
+    expect(ensureSlackServiceUserMock).not.toHaveBeenCalled()
+    expect(createInstanceClientMock).not.toHaveBeenCalled()
+    expect(recordEventReceiptMock).not.toHaveBeenCalled()
+
+    stopSlackSocketManager()
+  })
+
+  it('silently ignores unmentioned thread replies without a binding', async () => {
+    isNotificationChannelAllowedMock.mockResolvedValue(false)
+    const client = {
+      chat: {
+        postMessage: vi.fn().mockResolvedValue({ ts: 'reply-1' }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      conversations: {
+        history: vi.fn().mockResolvedValue({ messages: [] }),
+        replies: vi.fn().mockResolvedValue({ messages: [] }),
+      },
+      users: {
+        info: vi.fn().mockResolvedValue({ user: { profile: { display_name: 'Alice', email: 'alice@test.com' } } }),
+      },
+    }
+
+    const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
+    await syncSlackSocketManager()
+
+    const messageHandler = appInstances[0].event.mock.calls.find(([name]) => name === 'message')?.[1]
+    expect(typeof messageHandler).toBe('function')
+
+    await messageHandler({
+      body: { event_id: 'evt-thread-unbound', team_id: 'T123' },
+      client,
+      event: {
+        channel: 'C123',
+        text: 'hello thread',
+        thread_ts: '100.1',
+        ts: '100.2',
+        user: 'U123',
+      },
+    })
+
+    expect(findThreadBindingMock).toHaveBeenCalledWith('C123', '100.1')
+    expect(client.chat.postMessage).not.toHaveBeenCalled()
+    expect(client.chat.update).not.toHaveBeenCalled()
+    expect(isNotificationChannelAllowedMock).not.toHaveBeenCalled()
+    expect(ensureSlackServiceUserMock).not.toHaveBeenCalled()
+    expect(createInstanceClientMock).not.toHaveBeenCalled()
+    expect(recordEventReceiptMock).not.toHaveBeenCalled()
+
+    stopSlackSocketManager()
+  })
+
+  it('continues an unmentioned thread reply when a binding exists', async () => {
+    const promptAsyncMock = vi.fn().mockResolvedValue({})
+    createInstanceClientMock.mockResolvedValue({
+      session: {
+        create: vi.fn().mockResolvedValue({ data: { id: 'new-session' } }),
+        promptAsync: promptAsyncMock,
+      },
+    })
+    const binding = {
+      channelId: 'C123',
+      createdAt: new Date(),
+      executionUserId: 'service-1',
+      id: 'thread-binding-1',
+      openCodeSessionId: 'thread-session-1',
+      threadTs: '100.1',
+      updatedAt: new Date(),
+    }
+    findThreadBindingMock.mockResolvedValue(binding)
+    const client = {
+      chat: {
+        postMessage: vi.fn().mockResolvedValue({ ts: 'reply-1' }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      conversations: {
+        history: vi.fn().mockResolvedValue({ messages: [] }),
+        replies: vi.fn().mockResolvedValue({ messages: [] }),
+      },
+      users: {
+        info: vi.fn().mockResolvedValue({ user: { profile: { display_name: 'Alice', email: 'alice@test.com' } } }),
+      },
+    }
+
+    const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
+    await syncSlackSocketManager()
+
+    const messageHandler = appInstances[0].event.mock.calls.find(([name]) => name === 'message')?.[1]
+    expect(typeof messageHandler).toBe('function')
+
+    await messageHandler({
+      body: { event_id: 'evt-thread-bound', team_id: 'T123' },
+      client,
+      event: {
+        channel: 'C123',
+        text: 'continue thread',
+        thread_ts: '100.1',
+        ts: '100.2',
+        user: 'U123',
+      },
+    })
+
+    expect(findThreadBindingMock).toHaveBeenCalledTimes(2)
+    expect(isNotificationChannelAllowedMock).toHaveBeenCalledWith('T123', 'C123')
+    expect(promptAsyncMock).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionID: 'thread-session-1' }),
+      { throwOnError: true },
+    )
+    expect(upsertThreadBindingMock).not.toHaveBeenCalled()
+    expect(client.chat.update).toHaveBeenCalledWith({
+      channel: 'C123',
+      text: 'Final reply',
+      ts: 'reply-1',
+    })
+    expect(recordEventReceiptMock).toHaveBeenCalledWith({
+      eventId: 'evt-thread-bound',
+      receivedAt: expect.any(Date),
+      type: 'message',
+    })
+
+    stopSlackSocketManager()
+  })
+
   it('creates a user-scoped session for a new Slack DM', async () => {
     const promptAsyncMock = vi.fn().mockResolvedValue({})
     createInstanceClientMock.mockResolvedValue({
@@ -425,6 +1155,155 @@ describe('slack socket manager', () => {
       eventId: 'evt-dm-1',
       receivedAt: expect.any(Date),
       type: 'message.im',
+    })
+
+    stopSlackSocketManager()
+  })
+
+  it('starts a new Slack DM conversation when the latest binding points at a deleted session', async () => {
+    const promptAsyncMock = vi.fn().mockResolvedValue({})
+    const sessionCreateMock = vi.fn().mockResolvedValue({ data: { id: 'dm-session-new' } })
+    createInstanceClientMock.mockResolvedValue({
+      session: {
+        create: sessionCreateMock,
+        promptAsync: promptAsyncMock,
+      },
+    })
+    findLatestDmSessionMock.mockResolvedValue({
+      channelId: 'D123',
+      executionUserId: 'user-1',
+      id: 'dm-binding-stale',
+      lastMessageAt: new Date(),
+      openCodeSessionId: 'dm-session-deleted',
+      slackTeamId: 'T123',
+      slackUserId: 'U123',
+    })
+    captureSessionMessageCursorMock
+      .mockRejectedValueOnce(new Error('session not found'))
+      .mockResolvedValue({ messageCount: 0 })
+    createDmSessionBindingMock.mockResolvedValue({ id: 'dm-binding-new' })
+    const client = {
+      chat: {
+        postMessage: vi.fn().mockResolvedValue({ ts: 'reply-1' }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      conversations: {
+        history: vi.fn().mockResolvedValue({ messages: [] }),
+        replies: vi.fn().mockResolvedValue({ messages: [] }),
+      },
+      users: {
+        info: vi.fn().mockResolvedValue({ user: { profile: { display_name: 'Alice', email: 'alice@test.com' } } }),
+      },
+    }
+
+    const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
+    await syncSlackSocketManager()
+
+    const messageHandler = appInstances[0].event.mock.calls.find(([name]) => name === 'message')?.[1]
+    expect(typeof messageHandler).toBe('function')
+
+    await messageHandler({
+      body: { event_id: 'evt-dm-stale', team_id: 'T123' },
+      client,
+      event: {
+        channel: 'D123',
+        channel_type: 'im',
+        text: 'hello after deletion',
+        ts: '100.1',
+        user: 'U123',
+      },
+    })
+
+    expect(deleteSessionBindingsByOpenCodeSessionIdMock).toHaveBeenCalledWith('dm-session-deleted')
+    expect(sessionCreateMock).toHaveBeenCalledTimes(1)
+    expect(createDmSessionBindingMock).toHaveBeenCalledWith({
+      channelId: 'D123',
+      executionUserId: 'user-1',
+      openCodeSessionId: 'dm-session-new',
+      slackTeamId: 'T123',
+      slackUserId: 'U123',
+    })
+    expect(promptAsyncMock).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionID: 'dm-session-new' }),
+      { throwOnError: true },
+    )
+    expect(client.chat.update).toHaveBeenCalledWith({
+      channel: 'D123',
+      text: 'The previous Slack conversation was no longer available, so I started a new conversation.\n\nFinal reply',
+      ts: 'reply-1',
+    })
+
+    stopSlackSocketManager()
+  })
+
+  it('recovers a Slack DM when the bound session is deleted during prompt execution', async () => {
+    const promptAsyncMock = vi.fn()
+      .mockRejectedValueOnce(new Error('session not found'))
+      .mockResolvedValue({})
+    const sessionCreateMock = vi.fn().mockResolvedValue({ data: { id: 'dm-session-recovered' } })
+    createInstanceClientMock.mockResolvedValue({
+      session: {
+        create: sessionCreateMock,
+        promptAsync: promptAsyncMock,
+      },
+    })
+    findLatestDmSessionMock.mockResolvedValue({
+      channelId: 'D123',
+      executionUserId: 'user-1',
+      id: 'dm-binding-existing',
+      lastMessageAt: new Date(),
+      openCodeSessionId: 'dm-session-existing',
+      slackTeamId: 'T123',
+      slackUserId: 'U123',
+    })
+    createDmSessionBindingMock.mockResolvedValue({ id: 'dm-binding-recovered' })
+    const client = {
+      chat: {
+        postMessage: vi.fn().mockResolvedValue({ ts: 'reply-1' }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      conversations: {
+        history: vi.fn().mockResolvedValue({ messages: [] }),
+        replies: vi.fn().mockResolvedValue({ messages: [] }),
+      },
+      users: {
+        info: vi.fn().mockResolvedValue({ user: { profile: { display_name: 'Alice', email: 'alice@test.com' } } }),
+      },
+    }
+
+    const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
+    await syncSlackSocketManager()
+
+    const messageHandler = appInstances[0].event.mock.calls.find(([name]) => name === 'message')?.[1]
+    expect(typeof messageHandler).toBe('function')
+
+    await messageHandler({
+      body: { event_id: 'evt-dm-race', team_id: 'T123' },
+      client,
+      event: {
+        channel: 'D123',
+        channel_type: 'im',
+        text: 'hello during deletion',
+        ts: '100.1',
+        user: 'U123',
+      },
+    })
+
+    expect(deleteSessionBindingsByOpenCodeSessionIdMock).toHaveBeenCalledWith('dm-session-existing')
+    expect(promptAsyncMock).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ sessionID: 'dm-session-existing' }),
+      { throwOnError: true },
+    )
+    expect(promptAsyncMock).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ sessionID: 'dm-session-recovered' }),
+      { throwOnError: true },
+    )
+    expect(client.chat.update).toHaveBeenCalledWith({
+      channel: 'D123',
+      text: 'The previous Slack conversation was no longer available, so I started a new conversation.\n\nFinal reply',
+      ts: 'reply-1',
     })
 
     stopSlackSocketManager()
@@ -639,6 +1518,221 @@ describe('slack socket manager', () => {
     )
     expect(promptAsyncMock).toHaveBeenCalled()
     expect(respondMock).toHaveBeenCalledWith({ text: 'New conversation started. Thinking...' })
+    stopSlackSocketManager()
+  })
+
+  it('responds to malformed /new commands without creating sessions', async () => {
+    const respondMock = vi.fn().mockResolvedValue(undefined)
+    const ackMock = vi.fn().mockResolvedValue(undefined)
+    const client = createSlackClient()
+
+    const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
+    await syncSlackSocketManager()
+
+    const commandHandler = appInstances[0].command.mock.calls.find(([name]) => name === '/new')?.[1]
+    expect(typeof commandHandler).toBe('function')
+
+    await commandHandler({
+      ack: ackMock,
+      body: { team_id: 'T123', text: 'start here' },
+      client,
+      respond: respondMock,
+    })
+
+    expect(ackMock).toHaveBeenCalled()
+    expect(respondMock).toHaveBeenCalledWith({ text: 'I could not interpret the /new command.' })
+    expect(createInstanceClientMock).not.toHaveBeenCalled()
+    stopSlackSocketManager()
+  })
+
+  it('rejects /new outside DMs before resolving a user', async () => {
+    const respondMock = vi.fn().mockResolvedValue(undefined)
+    const client = createSlackClient()
+
+    const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
+    await syncSlackSocketManager()
+
+    const commandHandler = appInstances[0].command.mock.calls.find(([name]) => name === '/new')?.[1]
+    await commandHandler({
+      ack: vi.fn().mockResolvedValue(undefined),
+      body: {
+        channel_id: 'C123',
+        channel_name: 'general',
+        team_id: 'T123',
+        text: 'start here',
+        user_id: 'U123',
+      },
+      client,
+      respond: respondMock,
+    })
+
+    expect(respondMock).toHaveBeenCalledWith({
+      response_type: 'ephemeral',
+      text: '/new is intended for Arche DMs. For channels, mention Arche in a thread.',
+    })
+    expect(resolveArcheUserFromSlackUserMock).not.toHaveBeenCalled()
+    stopSlackSocketManager()
+  })
+
+  it('starts a /new DM conversation without an optional first prompt', async () => {
+    const respondMock = vi.fn().mockResolvedValue(undefined)
+    const client = createSlackClient()
+    createInstanceClientMock.mockResolvedValue({
+      session: {
+        create: vi.fn().mockResolvedValue({ data: { id: 'new-session-1' } }),
+        promptAsync: vi.fn().mockResolvedValue({}),
+      },
+    })
+
+    const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
+    await syncSlackSocketManager()
+
+    const commandHandler = appInstances[0].command.mock.calls.find(([name]) => name === '/new')?.[1]
+    await commandHandler({
+      ack: vi.fn().mockResolvedValue(undefined),
+      body: {
+        channel_id: 'D123',
+        channel_name: 'directmessage',
+        team_id: 'T123',
+        text: '   ',
+        user_id: 'U123',
+      },
+      client,
+      respond: respondMock,
+    })
+
+    expect(respondMock).toHaveBeenCalledWith({ text: 'New conversation started. Send your next message here.' })
+    expect(createAuditEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'slack.new_command_used' }),
+    )
+    expect(client.chat.update).not.toHaveBeenCalled()
+    stopSlackSocketManager()
+  })
+
+  it('expires stale pending DM decisions', async () => {
+    const client = createSlackClient()
+    findPendingDmDecisionMock.mockResolvedValue({
+      channelId: 'D123',
+      expiresAt: new Date(Date.now() - 60_000),
+      id: 'decision-1',
+      messageText: 'continue this',
+      previousDmSessionBindingId: 'dm-binding-1',
+      slackTeamId: 'T123',
+      slackUserId: 'U123',
+      sourceEventId: 'evt-1',
+      sourceTs: '100.1',
+      status: 'pending',
+    })
+
+    const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
+    await syncSlackSocketManager()
+
+    const actionHandler = appInstances[0].action.mock.calls.find(([name]) => name === 'continue_conversation')?.[1]
+    await actionHandler({
+      ack: vi.fn().mockResolvedValue(undefined),
+      body: {
+        actions: [{ value: 'decision-1' }],
+        channel: { id: 'D123' },
+        message: { ts: 'decision-ts' },
+        team: { id: 'T123' },
+        user: { id: 'U123' },
+      },
+      client,
+    })
+
+    expect(expirePendingDmDecisionMock).toHaveBeenCalledWith('decision-1')
+    expect(client.chat.update).toHaveBeenCalledWith({
+      blocks: [],
+      channel: 'D123',
+      text: 'This decision expired. Send your message again to continue.',
+      ts: 'decision-ts',
+    })
+    expect(markPendingDmDecisionContinuedMock).not.toHaveBeenCalled()
+    stopSlackSocketManager()
+  })
+
+  it('rejects pending DM decisions that cannot find their previous binding', async () => {
+    const client = createSlackClient()
+    findPendingDmDecisionMock.mockResolvedValue({
+      channelId: 'D123',
+      expiresAt: new Date(Date.now() + 60_000),
+      id: 'decision-1',
+      messageText: 'continue this',
+      previousDmSessionBindingId: 'dm-binding-1',
+      slackTeamId: 'T123',
+      slackUserId: 'U123',
+      sourceEventId: 'evt-1',
+      sourceTs: '100.1',
+      status: 'pending',
+    })
+    findDmSessionBindingByIdMock.mockResolvedValue(null)
+
+    const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
+    await syncSlackSocketManager()
+
+    const actionHandler = appInstances[0].action.mock.calls.find(([name]) => name === 'continue_conversation')?.[1]
+    await actionHandler({
+      ack: vi.fn().mockResolvedValue(undefined),
+      body: {
+        actions: [{ value: 'decision-1' }],
+        channel: { id: 'D123' },
+        message: { ts: 'decision-ts' },
+        team: { id: 'T123' },
+        user: { id: 'U123' },
+      },
+      client,
+    })
+
+    expect(expirePendingDmDecisionMock).toHaveBeenCalledWith('decision-1')
+    expect(client.chat.update).toHaveBeenCalledWith({
+      blocks: [],
+      channel: 'D123',
+      text: 'I could not find the previous conversation. Send your message again to start over.',
+      ts: 'decision-ts',
+    })
+    expect(markPendingDmDecisionContinuedMock).not.toHaveBeenCalled()
+    stopSlackSocketManager()
+  })
+
+  it('rejects start-new DM decisions that lose their claim', async () => {
+    const client = createSlackClient()
+    markPendingDmDecisionStartedNewMock.mockResolvedValue(false)
+    findPendingDmDecisionMock.mockResolvedValue({
+      channelId: 'D123',
+      expiresAt: new Date(Date.now() + 60_000),
+      id: 'decision-1',
+      messageText: 'start over',
+      previousDmSessionBindingId: 'dm-binding-1',
+      slackTeamId: 'T123',
+      slackUserId: 'U123',
+      sourceEventId: 'evt-1',
+      sourceTs: '100.1',
+      status: 'pending',
+    })
+
+    const { syncSlackSocketManager, stopSlackSocketManager } = await import('../socket-mode')
+    await syncSlackSocketManager()
+
+    const actionHandler = appInstances[0].action.mock.calls.find(([name]) => name === 'start_new_conversation')?.[1]
+    await actionHandler({
+      ack: vi.fn().mockResolvedValue(undefined),
+      body: {
+        actions: [{ value: 'decision-1' }],
+        channel: { id: 'D123' },
+        message: { ts: 'decision-ts' },
+        team: { id: 'T123' },
+        user: { id: 'U123' },
+      },
+      client,
+    })
+
+    expect(client.chat.update).toHaveBeenCalledWith({
+      blocks: [],
+      channel: 'D123',
+      text: 'This decision is no longer valid.',
+      ts: 'decision-ts',
+    })
+    expect(createInstanceClientMock).not.toHaveBeenCalled()
     stopSlackSocketManager()
   })
 

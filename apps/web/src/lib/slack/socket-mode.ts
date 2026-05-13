@@ -252,6 +252,16 @@ async function handleSlackEvent(args: {
       return
     }
 
+    const shouldHandleThread = await shouldHandleSlackThreadCandidate({
+      channel,
+      event,
+      eventTs,
+      isMention: args.isMention,
+    })
+    if (!shouldHandleThread) {
+      return
+    }
+
     const authorization = await authorizeSlackThreadEvent({
       body: args.body,
       channel,
@@ -286,6 +296,25 @@ async function handleSlackEvent(args: {
       type: args.type,
     })
   })
+}
+
+async function shouldHandleSlackThreadCandidate(args: {
+  channel: string
+  event: SlackMessageEvent
+  eventTs: string
+  isMention: boolean
+}): Promise<boolean> {
+  if (args.isMention) {
+    return true
+  }
+
+  const threadTs = args.event.thread_ts
+  if (!threadTs || threadTs === args.eventTs) {
+    return false
+  }
+
+  const existingBinding = await slackService.findThreadBinding(args.channel, threadTs)
+  return Boolean(existingBinding)
 }
 
 async function authorizeSlackThreadEvent(args: {

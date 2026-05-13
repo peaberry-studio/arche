@@ -47,6 +47,9 @@ vi.mock('@/lib/services', () => ({
   instanceService: {
     findCredentialsBySlug: vi.fn(),
   },
+  slackService: {
+    deleteSessionBindingsByOpenCodeSessionId: vi.fn(),
+  },
   userService: {
     findIdBySlug: vi.fn(),
   },
@@ -66,7 +69,7 @@ vi.mock('@/lib/workspace-agent/client', () => ({
 
 import { getSession } from '@/lib/runtime/session'
 import { createInstanceClient } from '@/lib/opencode/client'
-import { autopilotService, instanceService, userService } from '@/lib/services'
+import { autopilotService, instanceService, slackService, userService } from '@/lib/services'
 import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 
 import {
@@ -94,6 +97,7 @@ import {
 const mockGetSession = vi.mocked(getSession)
 const mockCreateInstanceClient = vi.mocked(createInstanceClient)
 const mockInstanceService = vi.mocked(instanceService)
+const mockSlackService = vi.mocked(slackService)
 const mockUserService = vi.mocked(userService)
 const mockAutopilotService = vi.mocked(autopilotService)
 const mockCreateWorkspaceAgentClient = vi.mocked(createWorkspaceAgentClient)
@@ -146,6 +150,7 @@ beforeEach(() => {
   mockGetSession.mockResolvedValue(fakeSession)
   mockCreateInstanceClient.mockResolvedValue(makeClient())
   mockSessionStatus.mockResolvedValue({ data: {} })
+  mockSlackService.deleteSessionBindingsByOpenCodeSessionId.mockResolvedValue({ dm: 0, thread: 0 })
   // Mock global fetch
   vi.stubGlobal('fetch', vi.fn())
 })
@@ -513,6 +518,17 @@ describe('deleteSessionAction', () => {
     const result = await deleteSessionAction('alice', 'sess-1')
     expect(result).toEqual({ ok: true })
     expect(mockSessionDelete).toHaveBeenCalledWith({ sessionID: 'sess-1' })
+    expect(mockSlackService.deleteSessionBindingsByOpenCodeSessionId).toHaveBeenCalledWith('sess-1')
+  })
+
+  it('removes Slack bindings for the deleted session', async () => {
+    mockSessionDelete.mockResolvedValue(undefined)
+    mockSlackService.deleteSessionBindingsByOpenCodeSessionId.mockResolvedValue({ dm: 1, thread: 1 })
+
+    const result = await deleteSessionAction('alice', 'sess-1')
+
+    expect(result).toEqual({ ok: true })
+    expect(mockSlackService.deleteSessionBindingsByOpenCodeSessionId).toHaveBeenCalledWith('sess-1')
   })
 
   it('handles exceptions', async () => {
