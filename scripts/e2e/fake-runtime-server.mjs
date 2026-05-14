@@ -428,8 +428,12 @@ function flushPendingEventBatches() {
 }
 
 function queuePromptEvents(session, userMessage, assistantMessage, assistantPartId, reply) {
+  const minEventClientGeneration = state.eventClients.size === 0
+    ? state.nextEventClientGeneration
+    : state.nextEventClientGeneration - 1
+
   state.pendingEventBatches.push({
-    minEventClientGeneration: state.nextEventClientGeneration,
+    minEventClientGeneration,
     session,
     events: [
       {

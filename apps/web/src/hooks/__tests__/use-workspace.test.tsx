@@ -486,14 +486,13 @@ describe("useWorkspace", () => {
         }
 
         if (String(input) === "/api/w/alice/chat/runs") {
-          requestBody = JSON.parse(String(init?.body ?? "{}")) as {
-            model?: { providerId: string; modelId: string };
-          };
           return { ok: true, json: async () => ({ runId: "run-1" }) };
         }
 
         if (String(input) === "/api/w/alice/chat/stream") {
-
+          requestBody = JSON.parse(String(init?.body ?? "{}")) as {
+            model?: { providerId: string; modelId: string };
+          };
           return {
             ok: true,
             body: {
@@ -582,15 +581,14 @@ describe("useWorkspace", () => {
         }
 
         if (String(input) === "/api/w/alice/chat/runs") {
-          requestBody = JSON.parse(String(init?.body ?? "{}")) as {
-            attachments?: Array<{ path: string; filename?: string; mime?: string }>;
-            contextPaths?: string[];
-          };
           return { ok: true, json: async () => ({ runId: "run-1" }) };
         }
 
         if (String(input) === "/api/w/alice/chat/stream") {
-
+          requestBody = JSON.parse(String(init?.body ?? "{}")) as {
+            attachments?: Array<{ path: string; filename?: string; mime?: string }>;
+            contextPaths?: string[];
+          };
           return {
             ok: true,
             body: {
@@ -680,14 +678,13 @@ describe("useWorkspace", () => {
         }
 
         if (String(input) === "/api/w/alice/chat/runs") {
-          requestBody = JSON.parse(String(init?.body ?? "{}")) as {
-            model?: { providerId: string; modelId: string };
-          };
           return { ok: true, json: async () => ({ runId: "run-1" }) };
         }
 
         if (String(input) === "/api/w/alice/chat/stream") {
-
+          requestBody = JSON.parse(String(init?.body ?? "{}")) as {
+            model?: { providerId: string; modelId: string };
+          };
           return {
             ok: true,
             body: {
@@ -791,14 +788,13 @@ describe("useWorkspace", () => {
         }
 
         if (String(input) === "/api/w/alice/chat/runs") {
-          requestBodies.push(JSON.parse(String(init?.body ?? "{}")) as {
-            model?: { providerId: string; modelId: string };
-          });
-          return { ok: true, json: async () => ({ runId: `run-${requestBodies.length}` }) };
+          return { ok: true, json: async () => ({ runId: `run-${requestBodies.length + 1}` }) };
         }
 
         if (String(input) === "/api/w/alice/chat/stream") {
-
+          requestBodies.push(JSON.parse(String(init?.body ?? "{}")) as {
+            model?: { providerId: string; modelId: string };
+          });
           return {
             ok: true,
             body: {

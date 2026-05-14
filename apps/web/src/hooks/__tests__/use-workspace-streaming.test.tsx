@@ -399,6 +399,62 @@ describe("useWorkspace streaming", () => {
 
       act(() => { sse.close(); });
     });
+
+    it("posts new prompt payloads directly to the stream endpoint", async () => {
+      const sse = createSSEStream();
+      let runsPostCount = 0;
+      let streamBody: Record<string, unknown> | null = null;
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          if (String(input) === "/api/u/alice/agents") {
+            return { ok: true, json: async () => ({ agents: DEFAULT_AGENTS }) };
+          }
+          if (String(input) === "/api/w/alice/chat/runs") {
+            runsPostCount += 1;
+            return { ok: true, json: async () => ({ runId: "run-1" }) };
+          }
+          if (String(input).startsWith("/api/w/alice/chat/runs?")) {
+            return { ok: true, json: async () => ({ activeRun: null }) };
+          }
+          if (String(input) === "/api/w/alice/chat/stream") {
+            streamBody = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+            return { ok: true, body: sse };
+          }
+          throw new Error(`Unexpected fetch: ${String(input)}`);
+        })
+      );
+
+      const result = await renderConnectedHook();
+
+      await act(async () => {
+        await result.current.sendMessage(
+          "hello",
+          { providerId: "openai", modelId: "gpt-5.2" },
+          {
+            attachments: [{ path: "docs/a.md", filename: "a.md", mime: "text/markdown" }],
+            contextPaths: ["docs/a.md"],
+          }
+        );
+      });
+
+      await waitFor(() => {
+        expect(streamBody).not.toBeNull();
+      });
+
+      expect(runsPostCount).toBe(0);
+      expect(streamBody).toEqual({
+        sessionId: "s1",
+        resume: false,
+        text: "hello",
+        model: { providerId: "openai", modelId: "gpt-5.2" },
+        attachments: [{ path: "docs/a.md", filename: "a.md", mime: "text/markdown" }],
+        contextPaths: ["docs/a.md"],
+      });
+
+      act(() => { sse.close(); });
+    });
   });
 
   // -----------------------------------------------------------------------

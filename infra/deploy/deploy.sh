@@ -6,6 +6,7 @@ set -euo pipefail
 #   Remote:    ./deploy.sh --ip <IP> --domain <DOMAIN> --ssh-key <KEY> --acme-email <EMAIL>
 #   Tunnel:    ./deploy.sh --ip <IP> --domain <DOMAIN> --ssh-key <KEY> --cloudflare-tunnel
 #   Local dev: ./deploy.sh --local-dev
+#   Local dev down: ./deploy.sh --local-dev-down
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -48,6 +49,7 @@ DRY_RUN=false
 VERBOSE=false
 SKIP_ENSURE_DNS_RECORD=false
 LOCAL_DOMAIN="arche.lvh.me"
+STOP_PODMAN_MACHINE=false
 
 # GHCR defaults
 IMAGE_PREFIX="${IMAGE_PREFIX:-ghcr.io/peaberry-studio/arche/}"
@@ -170,6 +172,19 @@ LOCAL DEV MODE:
     - KB content deployed to ~/.arche/kb-content
     - KB config deployed to ~/.arche/kb-config
 
+  ./deploy.sh --local-dev-down
+
+  Tears down local development resources:
+    - Stops/removes local-dev containers
+    - Removes generated local compose/env files
+    - Removes local-dev network
+    - Removes local-dev named volumes
+    - Removes arche-workspace image
+    - Optionally stops podman machine when idle (with --stop-podman-machine)
+
+  Optional with --local-dev-down:
+    --stop-podman-machine  Stop first running podman machine if no containers remain
+
 
 ENVIRONMENT VARIABLES (via .env or exported):
   POSTGRES_PASSWORD         Database password
@@ -209,6 +224,7 @@ EOF
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --local-dev)   MODE="local-dev";   shift ;;
+    --local-dev-down) MODE="local-dev-down"; shift ;;
     --ip)          DEPLOY_IP="$2";       REMOTE_FLAGS_SET=true; shift 2 ;;
     --domain)      DEPLOY_DOMAIN="$2";   REMOTE_FLAGS_SET=true; shift 2 ;;
     --ssh-key)     SSH_KEY="$2";         REMOTE_FLAGS_SET=true; shift 2 ;;
@@ -216,6 +232,7 @@ while [[ $# -gt 0 ]]; do
     --acme-email)  ACME_EMAIL="$2";      REMOTE_FLAGS_SET=true; shift 2 ;;
     --cloudflare-tunnel) EXPOSURE_MODE="cloudflare-tunnel"; EXPOSURE_MODE_SET_BY_FLAG=true; REMOTE_FLAGS_SET=true; shift ;;
     --version)     WEB_VERSION="$2";     shift 2 ;;
+    --stop-podman-machine) STOP_PODMAN_MACHINE=true; shift ;;
     --skip-ensure-dns-record) SKIP_ENSURE_DNS_RECORD=true; shift ;;
     --dry-run)     DRY_RUN=true;         shift ;;
     --verbose)     VERBOSE=true;         shift ;;
@@ -227,7 +244,7 @@ done
 # ---------------------------------------------------------------------------
 # Load .env if present
 # ---------------------------------------------------------------------------
-if [[ -f "$SCRIPT_DIR/.env" ]]; then
+if [[ "$MODE" != "local-dev-down" && -f "$SCRIPT_DIR/.env" ]]; then
   log "Loading .env file"
   set -a
   # shellcheck source=/dev/null
@@ -352,14 +369,18 @@ log "About to determine mode, current MODE=$MODE"
 if [[ "$MODE" == "local-dev" ]]; then
   # Ensure no remote flags were also passed
   if $REMOTE_FLAGS_SET; then
-    ERRORS+=("--local-dev is mutually exclusive with remote flags (--ip, --domain, --ssh-key, --acme-email, --cloudflare-tunnel)")
+    ERRORS+=("--${MODE} is mutually exclusive with remote flags (--ip, --domain, --ssh-key, --acme-email, --cloudflare-tunnel)")
   fi
   validate_local
+elif [[ "$MODE" == "local-dev-down" ]]; then
+  if $REMOTE_FLAGS_SET; then
+    ERRORS+=("--${MODE} is mutually exclusive with remote flags (--ip, --domain, --ssh-key, --acme-email, --cloudflare-tunnel)")
+  fi
 elif $REMOTE_FLAGS_SET; then
   MODE="remote"
   validate_remote
 else
-  err "Specify --local-dev, or remote flags (--ip, --domain, etc.)"
+  err "Specify --local-dev, --local-dev-down, or remote flags (--ip, --domain, etc.)"
   usage 1
 fi
 
@@ -869,10 +890,91 @@ PLAYBOOK
   info "  Restart:  podman compose -f $COMPOSE_OUT --env-file $LOCAL_DEV_ENV_FILE -p $LOCAL_DEV_PROJECT_NAME restart"
 }
 
+teardown_local_dev() {
+  log "Starting local-dev teardown"
+
+  if ! command -v podman &>/dev/null; then
+    warn "Podman not found; nothing to tear down."
+    return 0
+  fi
+
+  if ! podman compose version &>/dev/null; then
+    warn "podman compose not found; skipping compose teardown."
+  fi
+
+  local project_name="arche"
+  local network_name="arche-internal"
+  local compose_file="$SCRIPT_DIR/.compose-local-dev.yml"
+  local env_file="$SCRIPT_DIR/.env.local-dev"
+  local workspace_images=("arche-workspace:latest" "localhost/arche-workspace:latest")
+
+  if [[ -f "$compose_file" && -f "$env_file" ]] && podman compose version &>/dev/null; then
+    log "Stopping/removing compose stack for project ${project_name}..."
+    podman compose -f "$compose_file" --env-file "$env_file" -p "$project_name" down -v --remove-orphans || warn "Compose down reported issues; continuing cleanup."
+  else
+    warn "Local compose/env files not found; attempting label-based cleanup."
+    local containers=()
+    while IFS= read -r line; do
+      [[ -n "$line" ]] && containers+=("$line")
+    done < <(podman ps -a --filter "label=io.podman.compose.project=${project_name}" --format '{{.ID}}' 2>/dev/null || true)
+    if [[ ${#containers[@]} -gt 0 ]]; then
+      podman rm -f "${containers[@]}" || warn "Failed removing some project containers."
+    fi
+  fi
+
+  if [[ -f "$compose_file" ]]; then
+    log "Removing generated compose file: $compose_file"
+    rm -f "$compose_file"
+  fi
+
+  if [[ -f "$env_file" ]]; then
+    log "Removing generated env file: $env_file"
+    rm -f "$env_file"
+  fi
+
+  if podman network inspect "$network_name" &>/dev/null; then
+    log "Removing network: $network_name"
+    podman network rm "$network_name" || warn "Could not remove network $network_name (may still be in use)."
+  fi
+
+  local volumes=()
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && volumes+=("$line")
+  done < <(podman volume ls --format '{{.Name}}' 2>/dev/null | grep "^${project_name}_" || true)
+  if [[ ${#volumes[@]} -gt 0 ]]; then
+    log "Removing project volumes (${#volumes[@]})..."
+    podman volume rm "${volumes[@]}" || warn "Failed removing some volumes."
+  fi
+
+  local image
+  for image in "${workspace_images[@]}"; do
+    if podman image exists "$image" 2>/dev/null; then
+      log "Removing workspace image: $image"
+      podman rmi -f "$image" || warn "Failed to remove $image."
+    fi
+  done
+
+  if $STOP_PODMAN_MACHINE; then
+    local running_containers
+    running_containers="$(podman ps -q 2>/dev/null || true)"
+    if [[ -z "$running_containers" ]] && podman machine inspect &>/dev/null; then
+      local machine_name
+      machine_name="$(podman machine list --format '{{.Name}} {{.Running}}' | awk '$2=="true"{print $1}' | head -n 1)"
+      if [[ -n "$machine_name" ]]; then
+        log "Stopping idle podman machine: $machine_name"
+        podman machine stop "$machine_name" || warn "Could not stop podman machine $machine_name."
+      fi
+    fi
+  fi
+
+  log "Local-dev teardown complete."
+}
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 case "$MODE" in
   remote)    deploy_remote ;;
   local-dev) deploy_local_dev ;;
+  local-dev-down) teardown_local_dev ;;
 esac
