@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   assertValidFlowTimeZone,
   getNextFlowRunAt,
+  getUpcomingFlowRunDates,
   isValidFlowTimeZone,
   normalizeFlowCronExpression,
   validateFlowCronExpression,
@@ -23,5 +24,10 @@ describe('flow cron helpers', () => {
   it('computes the next run date', () => {
     expect(getNextFlowRunAt('0 9 * * 1', 'UTC', new Date('2026-05-12T10:00:00.000Z')).toISOString())
       .toBe('2026-05-18T09:00:00.000Z')
+  })
+
+  it('computes upcoming run dates', () => {
+    expect(getUpcomingFlowRunDates('0 9 * * 1', 'UTC', new Date('2026-05-12T10:00:00.000Z'), 2).map((date) => date.toISOString()))
+      .toEqual(['2026-05-18T09:00:00.000Z', '2026-05-25T09:00:00.000Z'])
   })
 })

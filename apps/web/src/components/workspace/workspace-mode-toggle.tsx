@@ -9,7 +9,7 @@ import {
   type ComponentType,
   type RefObject,
 } from 'react'
-import { ChatCircle, Database, Lightning } from '@phosphor-icons/react'
+import { ChatCircle, Database, GitBranch } from '@phosphor-icons/react'
 
 import { cn } from '@/lib/utils'
 
@@ -166,7 +166,7 @@ export function WorkspaceModeToggle({
           badgeCount={flowsUnreadCount}
           badgeDescription="unread"
           buttonRef={flowsRef}
-          icon={Lightning}
+          icon={GitBranch}
           label="Flows"
           onClick={() => onModeChange('flows')}
         />

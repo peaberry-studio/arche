@@ -14,7 +14,6 @@ type FlowNodeInspectorProps = {
   definition: FlowDefinition
   selectedNode: FlowNode | null
   onDeleteNode: (nodeId: string) => void
-  onUpdateDefinition: (definition: FlowDefinition) => void
   onUpdateNode: (node: FlowNode) => void
 }
 
@@ -33,7 +32,6 @@ export function FlowNodeInspector({
   definition,
   selectedNode,
   onDeleteNode,
-  onUpdateDefinition,
   onUpdateNode,
 }: FlowNodeInspectorProps) {
   if (!selectedNode) {
@@ -45,26 +43,7 @@ export function FlowNodeInspector({
   }
 
   const node = selectedNode
-  const outgoingEdge = definition.edges.find((edge) => edge.sourceNodeId === node.id)
   const targetOptions = definition.nodes.filter((candidate) => candidate.id !== node.id)
-
-  function updateOutgoingTarget(targetNodeId: string) {
-    const existing = definition.edges.find((edge) => edge.sourceNodeId === node.id)
-    const edges = targetNodeId
-      ? existing
-        ? definition.edges.map((edge) => edge.id === existing.id ? { ...edge, targetNodeId } : edge)
-        : [
-            ...definition.edges,
-            {
-              id: `edge-${Date.now()}`,
-              sourceNodeId: node.id,
-              targetNodeId,
-            },
-          ]
-      : definition.edges.filter((edge) => edge.sourceNodeId !== node.id)
-
-    onUpdateDefinition({ ...definition, edges })
-  }
 
   function updateRule(rule: FlowConditionRule) {
     if (node.type !== 'condition') return
@@ -242,22 +221,9 @@ export function FlowNodeInspector({
         </p>
       ) : null}
 
-      {node.type !== 'condition' ? (
-        <div className="space-y-2">
-          <Label htmlFor="flow-next-node">Next node</Label>
-          <select
-            id="flow-next-node"
-            value={outgoingEdge?.targetNodeId ?? ''}
-            onChange={(event) => updateOutgoingTarget(event.target.value)}
-            className="flex h-10 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/30"
-          >
-            <option value="">End flow</option>
-            {targetOptions.map((node) => (
-              <option key={node.id} value={node.id}>{node.name}</option>
-            ))}
-          </select>
-        </div>
-      ) : null}
+      <p className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+        Create or remove step connections directly on the canvas.
+      </p>
     </div>
   )
 }

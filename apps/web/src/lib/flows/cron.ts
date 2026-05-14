@@ -54,6 +54,22 @@ export function getNextFlowRunAt(expression: string, timezone: string, fromDate:
   return iterator.next().toDate()
 }
 
+export function getUpcomingFlowRunDates(
+  expression: string,
+  timezone: string,
+  fromDate: Date,
+  count: number,
+): Date[] {
+  const normalizedExpression = validateFlowCronExpression(expression, timezone)
+  const iterator = CronExpressionParser.parse(normalizedExpression, {
+    currentDate: fromDate,
+    strict: false,
+    tz: timezone,
+  })
+
+  return iterator.take(Math.max(0, Math.floor(count))).map((entry) => entry.toDate())
+}
+
 export function formatFlowRunDate(date: Date, timezone: string): string {
   return new Intl.DateTimeFormat('en-US', {
     dateStyle: 'medium',

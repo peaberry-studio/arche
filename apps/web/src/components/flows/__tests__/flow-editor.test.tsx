@@ -25,25 +25,50 @@ vi.mock('@/lib/flows/client', () => ({
   updateFlowRequest: mocks.updateFlowRequest,
 }))
 vi.mock('@/components/flows/flow-canvas', () => ({
-  FlowCanvas: ({ onMoveNode, onSelectNode }: { onMoveNode: (nodeId: string, x: number, y: number) => void; onSelectNode: (nodeId: string) => void }) => (
+  FlowCanvas: ({
+    definition,
+    onAddNodeAfter,
+    onConnectNodes,
+    onEditNode,
+    onMoveNode,
+    onRemoveConnection,
+    onSelectNode,
+  }: {
+    definition: FlowDefinition
+    onAddNodeAfter: (sourceNodeId: string, type: FlowNode['type']) => void
+    onConnectNodes: (sourceNodeId: string, targetNodeId: string) => void
+    onEditNode: (nodeId: string) => void
+    onMoveNode: (nodeId: string, x: number, y: number) => void
+    onRemoveConnection: (edgeId: string) => void
+    onSelectNode: (nodeId: string) => void
+  }) => {
+    const humanNode = definition.nodes.find((node) => node.type === 'human')
+
+    return (
     <div>
       <button type="button" onClick={() => onSelectNode('agent-1')}>Canvas</button>
+      <button type="button" onClick={() => onEditNode('agent-1')}>Open node editor</button>
+      <button type="button" onClick={() => onAddNodeAfter('agent-1', 'human')}>Add human after agent</button>
+      <button type="button" onClick={() => humanNode ? onConnectNodes('agent-1', humanNode.id) : undefined}>Connect agent to human</button>
       <button type="button" onClick={() => onMoveNode('agent-1', 240, 180)}>Move existing node</button>
       <button type="button" onClick={() => onMoveNode('loose-node', 320, 220)}>Move loose node</button>
+      {definition.edges.map((edge) => (
+        <div key={edge.id}>
+          <span>{`${edge.sourceNodeId}->${edge.targetNodeId}`}</span>
+          <button type="button" onClick={() => onRemoveConnection(edge.id)}>Remove edge</button>
+        </div>
+      ))}
     </div>
-  ),
+    )
+  },
 }))
 vi.mock('@/components/flows/flow-node-inspector', () => ({
   FlowNodeInspector: ({
-    definition,
     onDeleteNode,
-    onUpdateDefinition,
     onUpdateNode,
     selectedNode,
   }: {
-    definition: FlowDefinition
     onDeleteNode: (nodeId: string) => void
-    onUpdateDefinition: (definition: FlowDefinition) => void
     onUpdateNode: (node: FlowNode) => void
     selectedNode: FlowNode | null
   }) => (
@@ -51,16 +76,6 @@ vi.mock('@/components/flows/flow-node-inspector', () => ({
       <div>Inspector {selectedNode?.name}</div>
       <button type="button" onClick={() => selectedNode ? onUpdateNode({ ...selectedNode, name: 'Renamed node' }) : undefined}>Rename selected node</button>
       <button type="button" onClick={() => selectedNode ? onDeleteNode(selectedNode.id) : undefined}>Delete selected node</button>
-      <button
-        type="button"
-        onClick={() => onUpdateDefinition({
-          ...definition,
-          nodes: definition.nodes.filter((node) => node.id !== selectedNode?.id),
-          startNodeId: definition.nodes.find((node) => node.id !== selectedNode?.id)?.id ?? '',
-        })}
-      >
-        Drop selected from definition
-      </button>
     </div>
   ),
 }))
@@ -140,28 +155,19 @@ describe('FlowEditor', () => {
   it('updates graph nodes, layout, and connections', async () => {
     render(<FlowEditor slug="alice" mode="create" />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Agent' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Human' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Condition' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Merge' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add human after agent' }))
+    expect(screen.getByText('Inspector Human step 2')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(screen.getByText(/agent-1->human-\d+/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Connect agent to human' }))
     fireEvent.click(screen.getByRole('button', { name: 'Move existing node' }))
     fireEvent.click(screen.getByRole('button', { name: 'Move loose node' }))
 
-    const [sourceSelect, targetSelect] = screen.getAllByRole('combobox').slice(-2) as HTMLSelectElement[]
-    const sourceOption = Array.from(sourceSelect.options).find((option) => option.text === 'First agent step')
-    const targetOption = Array.from(targetSelect.options).find((option) => option.text === 'Human step 3')
-    expect(sourceOption).toBeTruthy()
-    expect(targetOption).toBeTruthy()
-    fireEvent.change(sourceSelect, { target: { value: sourceOption?.value } })
-    fireEvent.change(targetSelect, { target: { value: targetOption?.value } })
-    fireEvent.click(screen.getByRole('button', { name: 'Add connection' }))
-
-    expect(screen.getByText(/First agent step -> Human step 3/)).toBeTruthy()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Remove connection' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Remove edge' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open node editor' }))
+    expect(screen.getByText('Inspector First agent step')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Rename selected node' }))
     fireEvent.click(screen.getByRole('button', { name: 'Delete selected node' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Drop selected from definition' }))
   })
 
   it('creates Slack notification targets for DMs and channels', async () => {

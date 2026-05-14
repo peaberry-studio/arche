@@ -7,7 +7,7 @@ import {
   Database,
   File,
   GearSix,
-  Lightning,
+  GitBranch,
   Moon,
   Palette,
   Plugs,
@@ -252,7 +252,7 @@ export function WorkspaceCommandPalette({
         title: "Go to Flows mode",
         subtitle: "Show flow runs",
         section: "Modes",
-        icon: Lightning,
+        icon: GitBranch,
         keywords: "flows automation runs",
         run: () => onModeChange("flows"),
       });
@@ -280,7 +280,7 @@ export function WorkspaceCommandPalette({
       title: `Run flow: ${flow.name}`,
       subtitle: flow.description ?? `${flow.definition.nodes.length} nodes`,
       section: "Flows",
-      icon: Lightning,
+      icon: GitBranch,
       keywords: "flows automation",
       run: async () => {
         onModeChange("flows");
@@ -301,7 +301,7 @@ export function WorkspaceCommandPalette({
             ? `Flow run${session.flow?.flowName ? `: ${session.flow.flowName}` : ""}`
             : "Chat session",
           section: isFlowRun ? "Flow runs" : "Chats",
-          icon: isFlowRun ? Lightning : ChatCircle,
+          icon: isFlowRun ? GitBranch : ChatCircle,
           keywords: session.flow?.flowName,
           run: () => onSelectSession(session.id, isFlowRun ? "flows" : "chat"),
         };

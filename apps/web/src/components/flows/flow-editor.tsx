@@ -3,19 +3,27 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { GitBranch, Plus, SpinnerGap, Trash } from '@phosphor-icons/react'
+import { SpinnerGap } from '@phosphor-icons/react'
 
 import { FlowCanvas } from '@/components/flows/flow-canvas'
 import { FlowNodeInspector } from '@/components/flows/flow-node-inspector'
 import { FlowRunHistory } from '@/components/flows/flow-run-history'
+import { FlowScheduleBuilder } from '@/components/flows/flow-schedule-builder'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { useAgentsCatalog } from '@/hooks/use-agents-catalog'
 import { createFlowRequest, deleteFlowRequest, fetchFlowDetail, runFlowRequest, updateFlowRequest } from '@/lib/flows/client'
 import { getFlowTimeZoneOptions } from '@/lib/flows/cron'
+import {
+  getDefaultFlowScheduleFormState,
+  getFlowSchedulePreview,
+  inferFlowScheduleFormState,
+  type FlowScheduleFormState,
+} from '@/lib/flows/schedule-form'
 import type { FlowDefinition, FlowDetail, FlowNode, FlowSlackNotificationTarget } from '@/lib/flows/types'
 import { createDefaultFlowDefinition, validateFlowDefinition } from '@/lib/flows/validation'
 
@@ -93,9 +101,10 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
   const [flow, setFlow] = useState<FlowDetail | null>(null)
   const [definition, setDefinition] = useState<FlowDefinition>(() => createDefaultFlowDefinition())
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>('agent-1')
+  const [editingNodeId, setEditingNodeId] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [cronExpression, setCronExpression] = useState('')
+  const [schedule, setSchedule] = useState<FlowScheduleFormState>(() => getDefaultFlowScheduleFormState())
   const [timezone, setTimezone] = useState('UTC')
   const [enabled, setEnabled] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -104,8 +113,6 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isRunning, setIsRunning] = useState(false)
-  const [connectionSource, setConnectionSource] = useState('')
-  const [connectionTarget, setConnectionTarget] = useState('')
   const [slackIntegrationEnabled, setSlackIntegrationEnabled] = useState(false)
   const [slackNotificationsEnabled, setSlackNotificationsEnabled] = useState(false)
   const [includeSessionLink, setIncludeSessionLink] = useState(true)
@@ -134,7 +141,8 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
       setDescription(result.data.flow.description ?? '')
       setDefinition(result.data.flow.definition)
       setSelectedNodeId(result.data.flow.definition.startNodeId)
-      setCronExpression(result.data.flow.cronExpression ?? '')
+      setEditingNodeId(null)
+      setSchedule(inferFlowScheduleFormState(result.data.flow.cronExpression))
       setTimezone(result.data.flow.timezone)
       setEnabled(result.data.flow.enabled)
       if (result.data.flow.slackNotificationConfig) {
@@ -185,11 +193,13 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
     void loadSlackTargets()
   }, [loadSlackTargets])
 
-  const selectedNode = useMemo(
-    () => definition.nodes.find((node) => node.id === selectedNodeId) ?? null,
-    [definition.nodes, selectedNodeId],
+  const editingNode = useMemo(
+    () => definition.nodes.find((node) => node.id === editingNodeId) ?? null,
+    [definition.nodes, editingNodeId],
   )
   const validation = useMemo(() => validateFlowDefinition(definition), [definition])
+  const schedulePreview = useMemo(() => getFlowSchedulePreview(schedule, timezone), [schedule, timezone])
+  const isScheduleValid = !enabled || schedulePreview.isValid
   const canAddTarget = useMemo(() => {
     if (targetType === 'dm') {
       return selectedDmUser.length > 0 && !notificationTargets.some((target) => target.type === 'dm' && target.userId === selectedDmUser)
@@ -230,6 +240,7 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
     if (selectedNodeId && !nextDefinition.nodes.some((node) => node.id === selectedNodeId)) {
       setSelectedNodeId((nextDefinition.startNodeId || nextDefinition.nodes[0]?.id) ?? null)
     }
+    setEditingNodeId((current) => current && !nextDefinition.nodes.some((node) => node.id === current) ? null : current)
   }, [selectedNodeId])
 
   const updateNode = useCallback((node: FlowNode) => {
@@ -237,21 +248,6 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
       ...definition,
       nodes: definition.nodes.map((candidate) => candidate.id === node.id ? node : candidate),
     })
-  }, [definition, updateDefinition])
-
-  const addNode = useCallback((type: FlowNode['type']) => {
-    const node = createNode(type, definition.nodes.length + 1)
-    updateDefinition({
-      ...definition,
-      layout: {
-        nodes: [
-          ...(definition.layout?.nodes ?? []),
-          { nodeId: node.id, x: 120 + definition.nodes.length * 40, y: 180 + definition.nodes.length * 28 },
-        ],
-      },
-      nodes: [...definition.nodes, node],
-    })
-    setSelectedNodeId(node.id)
   }, [definition, updateDefinition])
 
   const deleteNode = useCallback((nodeId: string) => {
@@ -268,6 +264,7 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
       nodes: nextNodes,
       startNodeId: nextStartNodeId,
     })
+    setEditingNodeId((current) => current === nodeId ? null : current)
   }, [definition, updateDefinition])
 
   const moveNode = useCallback((nodeId: string, x: number, y: number) => {
@@ -285,16 +282,68 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
     })
   }, [])
 
-  const addConnection = useCallback(() => {
-    if (!connectionSource || !connectionTarget || connectionSource === connectionTarget) return
+  const addNodeAfter = useCallback((sourceNodeId: string, type: FlowNode['type']) => {
+    const sourceNode = definition.nodes.find((node) => node.id === sourceNodeId)
+    if (!sourceNode) return
+
+    const sourceIndex = definition.nodes.findIndex((node) => node.id === sourceNodeId)
+    const sourceLayout = definition.layout?.nodes.find((node) => node.nodeId === sourceNodeId)
+    const node = createNode(type, definition.nodes.length + 1)
+    const edgeBase = Date.now()
+    const existingOutgoing = definition.edges.filter((edge) => edge.sourceNodeId === sourceNodeId)
+    const retainedEdges = sourceNode.type === 'condition'
+      ? definition.edges
+      : definition.edges.filter((edge) => edge.sourceNodeId !== sourceNodeId)
+    const insertedEdges = [
+      ...retainedEdges,
+      { id: `edge-${edgeBase}`, sourceNodeId, targetNodeId: node.id },
+    ]
+    const bridgedEdges = sourceNode.type !== 'condition' && existingOutgoing[0]
+      ? [
+          ...insertedEdges,
+          { id: `edge-${edgeBase}-next`, sourceNodeId: node.id, targetNodeId: existingOutgoing[0].targetNodeId },
+        ]
+      : insertedEdges
+
+    updateDefinition({
+      ...definition,
+      edges: bridgedEdges,
+      layout: {
+        nodes: [
+          ...(definition.layout?.nodes ?? []),
+          {
+            nodeId: node.id,
+            x: (sourceLayout?.x ?? 120 + sourceIndex * 190) + 230,
+            y: sourceLayout?.y ?? 120,
+          },
+        ],
+      },
+      nodes: [...definition.nodes, node],
+    })
+    setSelectedNodeId(node.id)
+    setEditingNodeId(node.id)
+  }, [definition, updateDefinition])
+
+  const connectNodes = useCallback((sourceNodeId: string, targetNodeId: string) => {
+    if (sourceNodeId === targetNodeId) return
+
+    const sourceNode = definition.nodes.find((node) => node.id === sourceNodeId)
+    const targetNode = definition.nodes.find((node) => node.id === targetNodeId)
+    if (!sourceNode || !targetNode) return
+
+    const retainedEdges = sourceNode.type === 'condition'
+      ? definition.edges.filter((edge) => edge.sourceNodeId !== sourceNodeId || edge.targetNodeId !== targetNodeId)
+      : definition.edges.filter((edge) => edge.sourceNodeId !== sourceNodeId)
+
     updateDefinition({
       ...definition,
       edges: [
-        ...definition.edges.filter((edge) => edge.sourceNodeId !== connectionSource || edge.targetNodeId !== connectionTarget),
-        { id: `edge-${Date.now()}`, sourceNodeId: connectionSource, targetNodeId: connectionTarget },
+        ...retainedEdges,
+        { id: `edge-${Date.now()}`, sourceNodeId, targetNodeId },
       ],
     })
-  }, [connectionSource, connectionTarget, definition, updateDefinition])
+    setSelectedNodeId(targetNodeId)
+  }, [definition, updateDefinition])
 
   const removeConnection = useCallback((edgeId: string) => {
     updateDefinition({ ...definition, edges: definition.edges.filter((edge) => edge.id !== edgeId) })
@@ -311,6 +360,12 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
       return
     }
 
+    if (enabled && !schedulePreview.isValid) {
+      setFormError('invalid_cron_expression')
+      setIsSaving(false)
+      return
+    }
+
     try {
       const slackNotificationConfig = slackNotificationsEnabled
         ? {
@@ -321,8 +376,9 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
         : mode === 'edit' && flow?.slackNotificationConfig
           ? null
           : undefined
+      const payloadCronExpression = schedulePreview.isValid ? schedulePreview.cronExpression : null
       const payload = {
-        cronExpression: cronExpression.trim() ? cronExpression : null,
+        cronExpression: enabled ? schedulePreview.cronExpression : payloadCronExpression,
         definition,
         description: description.trim() ? description : null,
         enabled,
@@ -352,7 +408,7 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
     } finally {
       setIsSaving(false)
     }
-  }, [cronExpression, definition, description, enabled, flow, flowId, includeSessionLink, loadFlow, mode, name, notificationTargets, router, slackNotificationsEnabled, slug, timezone])
+  }, [definition, description, enabled, flow, flowId, includeSessionLink, loadFlow, mode, name, notificationTargets, router, schedulePreview, slackNotificationsEnabled, slug, timezone])
 
   const deleteFlow = useCallback(async () => {
     if (mode !== 'edit' || !flowId) return
@@ -421,214 +477,180 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
 
   return (
     <div className="space-y-8">
-      <div className="grid gap-5 md:grid-cols-[1.5fr_1fr]">
-        <div className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="flow-name">Flow name</Label>
-              <Input id="flow-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Weekly GTM review" />
-            </div>
-            <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="flow-description">Description</Label>
-              <Input id="flow-description" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="What this flow automates" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="flow-cron">Cron schedule</Label>
-              <Input id="flow-cron" value={cronExpression} onChange={(event) => setCronExpression(event.target.value)} placeholder="0 9 * * 1" />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="flow-timezone">Timezone</Label>
-              <Input id="flow-timezone" list="flow-timezones" value={timezone} onChange={(event) => setTimezone(event.target.value)} />
-              <datalist id="flow-timezones">
-                {timezoneOptions.map((option) => <option key={option} value={option} />)}
-              </datalist>
-            </div>
+      <div className="space-y-5">
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-2 md:col-span-2">
+            <Label htmlFor="flow-name">Flow name</Label>
+            <Input id="flow-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Weekly GTM review" />
           </div>
-
-          <div className="flex items-center justify-between rounded-xl border border-border/60 bg-card/40 px-4 py-3">
-            <div>
-              <p className="text-sm font-medium text-foreground">Scheduled</p>
-              <p className="text-xs text-muted-foreground">Enabled flows run on the cron schedule and once after creation.</p>
-            </div>
-            <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="Enable scheduled flow" />
+          <div className="space-y-2 md:col-span-2">
+            <Label htmlFor="flow-description">Description</Label>
+            <Input id="flow-description" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="What this flow automates" />
           </div>
+          <div className="space-y-2">
+            <Label htmlFor="flow-timezone">Timezone</Label>
+            <Input id="flow-timezone" list="flow-timezones" value={timezone} onChange={(event) => setTimezone(event.target.value)} />
+            <datalist id="flow-timezones">
+              {timezoneOptions.map((option) => <option key={option} value={option} />)}
+            </datalist>
+          </div>
+        </div>
 
-          {slackIntegrationEnabled ? (
-            <div className="space-y-3 rounded-xl border border-border/60 bg-card/40 px-4 py-3">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <Label htmlFor="flow-slack-notifications">Slack notifications</Label>
-                  <p className="text-xs text-muted-foreground">Send flow results to Slack DMs or allowlisted channels.</p>
-                </div>
-                <Switch
-                  checked={slackNotificationsEnabled}
-                  id="flow-slack-notifications"
-                  onCheckedChange={setSlackNotificationsEnabled}
-                />
+        <div className="flex items-center justify-between rounded-xl border border-border/60 bg-card/40 px-4 py-3">
+          <div>
+            <p className="text-sm font-medium text-foreground">Scheduled</p>
+            <p className="text-xs text-muted-foreground">Enabled flows run on the configured schedule and once after creation.</p>
+          </div>
+          <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="Enable scheduled flow" />
+        </div>
+
+        <FlowScheduleBuilder
+          preview={schedulePreview}
+          schedule={schedule}
+          timezone={timezone}
+          onChange={setSchedule}
+        />
+
+        {slackIntegrationEnabled ? (
+          <div className="space-y-3 rounded-xl border border-border/60 bg-card/40 px-4 py-3">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <Label htmlFor="flow-slack-notifications">Slack notifications</Label>
+                <p className="text-xs text-muted-foreground">Send flow results to Slack DMs or allowlisted channels.</p>
               </div>
+              <Switch
+                checked={slackNotificationsEnabled}
+                id="flow-slack-notifications"
+                onCheckedChange={setSlackNotificationsEnabled}
+              />
+            </div>
 
-              {slackNotificationsEnabled ? (
-                <div className="space-y-4 border-t border-border/40 pt-3">
-                  <div className="flex items-center justify-between gap-4">
-                    <Label htmlFor="flow-include-session-link">Include session link</Label>
-                    <Switch
-                      checked={includeSessionLink}
-                      id="flow-include-session-link"
-                      onCheckedChange={setIncludeSessionLink}
-                    />
-                  </div>
+            {slackNotificationsEnabled ? (
+              <div className="space-y-4 border-t border-border/40 pt-3">
+                <div className="flex items-center justify-between gap-4">
+                  <Label htmlFor="flow-include-session-link">Include session link</Label>
+                  <Switch
+                    checked={includeSessionLink}
+                    id="flow-include-session-link"
+                    onCheckedChange={setIncludeSessionLink}
+                  />
+                </div>
 
-                  <div className="space-y-3">
-                    <Label>Notification targets</Label>
-                    <div className="space-y-2">
-                      <label htmlFor="flow-target-dm" className="flex items-center gap-2 text-sm text-foreground">
-                        <input
-                          checked={targetType === 'dm'}
-                          id="flow-target-dm"
-                          name="flow-target-type"
-                          onChange={() => setTargetType('dm')}
-                          type="radio"
-                          value="dm"
-                        />
-                        Send to user DM
-                      </label>
+                <div className="space-y-3">
+                  <Label>Notification targets</Label>
+                  <div className="space-y-2">
+                    <label htmlFor="flow-target-dm" className="flex items-center gap-2 text-sm text-foreground">
+                      <input
+                        checked={targetType === 'dm'}
+                        id="flow-target-dm"
+                        name="flow-target-type"
+                        onChange={() => setTargetType('dm')}
+                        type="radio"
+                        value="dm"
+                      />
+                      Send to user DM
+                    </label>
 
-                      {targetType === 'dm' ? (
+                    {targetType === 'dm' ? (
+                      <div className="ml-6">
+                        <select
+                          aria-label="Slack DM target"
+                          className="flex h-10 w-full appearance-none rounded-lg border border-border bg-background px-3 py-2 pr-8 text-sm text-foreground"
+                          onChange={(event) => setSelectedDmUser(event.target.value)}
+                          value={selectedDmUser}
+                        >
+                          <option value="">Select user...</option>
+                          {teamMembers.map((member) => (
+                            <option key={member.id} value={member.id}>
+                              {member.email}{member.slackLinked ? ' (linked)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ) : null}
+
+                    <label htmlFor="flow-target-channel" className="flex items-center gap-2 text-sm text-foreground">
+                      <input
+                        checked={targetType === 'channel'}
+                        id="flow-target-channel"
+                        name="flow-target-type"
+                        onChange={() => setTargetType('channel')}
+                        type="radio"
+                        value="channel"
+                      />
+                      Send to channel
+                    </label>
+
+                    {targetType === 'channel' ? (
+                      slackChannels.length > 0 ? (
                         <div className="ml-6">
                           <select
-                            aria-label="Slack DM target"
+                            aria-label="Slack channel target"
                             className="flex h-10 w-full appearance-none rounded-lg border border-border bg-background px-3 py-2 pr-8 text-sm text-foreground"
-                            onChange={(event) => setSelectedDmUser(event.target.value)}
-                            value={selectedDmUser}
+                            onChange={(event) => setSelectedChannel(event.target.value)}
+                            value={selectedChannel}
                           >
-                            <option value="">Select user...</option>
-                            {teamMembers.map((member) => (
-                              <option key={member.id} value={member.id}>
-                                {member.email}{member.slackLinked ? ' (linked)' : ''}
+                            <option value="">Select channel...</option>
+                            {slackChannels.map((channel) => (
+                              <option key={channel.channelId} value={channel.channelId}>
+                                {channel.name}{channel.isPrivate ? ' (private)' : ''}
                               </option>
                             ))}
                           </select>
                         </div>
-                      ) : null}
-
-                      <label htmlFor="flow-target-channel" className="flex items-center gap-2 text-sm text-foreground">
-                        <input
-                          checked={targetType === 'channel'}
-                          id="flow-target-channel"
-                          name="flow-target-type"
-                          onChange={() => setTargetType('channel')}
-                          type="radio"
-                          value="channel"
-                        />
-                        Send to channel
-                      </label>
-
-                      {targetType === 'channel' ? (
-                        slackChannels.length > 0 ? (
-                          <div className="ml-6">
-                            <select
-                              aria-label="Slack channel target"
-                              className="flex h-10 w-full appearance-none rounded-lg border border-border bg-background px-3 py-2 pr-8 text-sm text-foreground"
-                              onChange={(event) => setSelectedChannel(event.target.value)}
-                              value={selectedChannel}
-                            >
-                              <option value="">Select channel...</option>
-                              {slackChannels.map((channel) => (
-                                <option key={channel.channelId} value={channel.channelId}>
-                                  {channel.name}{channel.isPrivate ? ' (private)' : ''}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        ) : (
-                          <p className="ml-6 text-xs text-muted-foreground">No channels available. Configure notification channels in Slack settings.</p>
-                        )
-                      ) : null}
-                    </div>
-
-                    <Button type="button" variant="outline" size="sm" onClick={() => addNotificationTarget()} disabled={!canAddTarget}>Add target</Button>
-
-                    {notificationTargets.length > 0 ? (
-                      <div className="space-y-1 pt-1">
-                        <p className="text-xs font-medium text-muted-foreground">Active targets ({notificationTargets.length})</p>
-                        {notificationTargets.map((target, index) => (
-                          <div key={`${target.type}-${index}`} className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-background/60 px-3 py-2 text-sm">
-                            <span>{getTargetLabel(target)}</span>
-                            <button type="button" onClick={() => removeNotificationTarget(index)} className="text-muted-foreground hover:text-destructive">Remove</button>
-                          </div>
-                        ))}
-                      </div>
+                      ) : (
+                        <p className="ml-6 text-xs text-muted-foreground">No channels available. Configure notification channels in Slack settings.</p>
+                      )
                     ) : null}
                   </div>
 
-                  {slackNotificationError ? <p className="text-sm text-destructive">{slackNotificationError}</p> : null}
+                  <Button type="button" variant="outline" size="sm" onClick={() => addNotificationTarget()} disabled={!canAddTarget}>Add target</Button>
+
+                  {notificationTargets.length > 0 ? (
+                    <div className="space-y-1 pt-1">
+                      <p className="text-xs font-medium text-muted-foreground">Active targets ({notificationTargets.length})</p>
+                      {notificationTargets.map((target, index) => (
+                        <div key={`${target.type}-${index}`} className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-background/60 px-3 py-2 text-sm">
+                          <span>{getTargetLabel(target)}</span>
+                          <button type="button" onClick={() => removeNotificationTarget(index)} className="text-muted-foreground hover:text-destructive">Remove</button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
-            </div>
-          ) : null}
 
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="outline" onClick={() => addNode('agent')}><Plus size={13} className="mr-1" />Agent</Button>
-            <Button type="button" variant="outline" onClick={() => addNode('human')}><Plus size={13} className="mr-1" />Human</Button>
-            <Button type="button" variant="outline" onClick={() => addNode('condition')}><Plus size={13} className="mr-1" />Condition</Button>
-            <Button type="button" variant="outline" onClick={() => addNode('merge')}><Plus size={13} className="mr-1" />Merge</Button>
+                {slackNotificationError ? <p className="text-sm text-destructive">{slackNotificationError}</p> : null}
+              </div>
+            ) : null}
           </div>
+        ) : null}
 
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">Flow canvas</h2>
+              <p className="text-xs text-muted-foreground">Hover a step to edit it, drag from its connector dot, or use + to add the next step.</p>
+            </div>
+          </div>
           <FlowCanvas
             definition={definition}
             selectedNodeId={selectedNodeId}
+            onAddNodeAfter={addNodeAfter}
+            onConnectNodes={connectNodes}
+            onEditNode={(nodeId) => {
+              setSelectedNodeId(nodeId)
+              setEditingNodeId(nodeId)
+            }}
             onMoveNode={moveNode}
+            onRemoveConnection={removeConnection}
             onSelectNode={setSelectedNodeId}
           />
-        </div>
-
-        <div className="space-y-4">
-          <FlowNodeInspector
-            agents={agents}
-            definition={definition}
-            selectedNode={selectedNode}
-            onDeleteNode={deleteNode}
-            onUpdateDefinition={updateDefinition}
-            onUpdateNode={updateNode}
-          />
-
-          <div className="space-y-3 rounded-xl border border-border/60 bg-card/40 p-4">
-            <div className="flex items-center gap-2">
-              <GitBranch size={15} weight="bold" />
-              <h3 className="text-sm font-semibold">Connections</h3>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <select value={connectionSource} onChange={(event) => setConnectionSource(event.target.value)} className="h-10 rounded-lg border border-border bg-background px-3 text-sm">
-                <option value="">Source</option>
-                {definition.nodes.map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
-              </select>
-              <select value={connectionTarget} onChange={(event) => setConnectionTarget(event.target.value)} className="h-10 rounded-lg border border-border bg-background px-3 text-sm">
-                <option value="">Target</option>
-                {definition.nodes.map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
-              </select>
-            </div>
-            <Button type="button" variant="outline" size="sm" onClick={addConnection}>Add connection</Button>
-            <div className="space-y-2">
-              {definition.edges.map((edge) => {
-                const source = definition.nodes.find((node) => node.id === edge.sourceNodeId)
-                const target = definition.nodes.find((node) => node.id === edge.targetNodeId)
-                return (
-                  <div key={edge.id} className="flex items-center justify-between gap-2 rounded-lg border border-border/50 px-3 py-2 text-xs">
-                    <span className="truncate">{source?.name ?? edge.sourceNodeId}{' -> '}{target?.name ?? edge.targetNodeId}</span>
-                    <button type="button" onClick={() => removeConnection(edge.id)} className="text-muted-foreground hover:text-destructive" aria-label="Remove connection">
-                      <Trash size={13} />
-                    </button>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
         </div>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/40 pt-5">
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => void saveFlow()} disabled={isSaving || !validation.ok}>
+          <Button onClick={() => void saveFlow()} disabled={isSaving || !validation.ok || !isScheduleValid}>
             {isSaving ? 'Saving...' : mode === 'create' ? 'Create flow' : 'Save changes'}
           </Button>
           {mode === 'edit' ? (
@@ -646,7 +668,26 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
       </div>
 
       {!validation.ok ? <p className="text-sm text-destructive">Definition error: {validation.error}</p> : null}
+      {!isScheduleValid ? <p className="text-sm text-destructive">Schedule error: invalid_cron_expression</p> : null}
       {formError ? <p className="text-sm text-destructive">{formError}</p> : null}
+
+      <Dialog open={Boolean(editingNode)} onOpenChange={(open) => {
+        if (!open) setEditingNodeId(null)
+      }}>
+        <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit step</DialogTitle>
+            <DialogDescription>Update the selected flow step. Connections are managed on the canvas.</DialogDescription>
+          </DialogHeader>
+          <FlowNodeInspector
+            agents={agents}
+            definition={definition}
+            selectedNode={editingNode}
+            onDeleteNode={deleteNode}
+            onUpdateNode={updateNode}
+          />
+        </DialogContent>
+      </Dialog>
 
       {mode === 'edit' && flow ? <FlowRunHistory flow={flow} slug={slug} onRefresh={loadFlow} /> : null}
     </div>
