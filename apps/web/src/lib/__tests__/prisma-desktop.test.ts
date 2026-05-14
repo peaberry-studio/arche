@@ -153,6 +153,71 @@ describe('desktop prisma context isolation', () => {
     expect(createIndexIndex).toBeGreaterThan(addColumnIndex)
   })
 
+  it('adds the autopilot soft-delete column before creating the active-name index', async () => {
+    const executeRawUnsafe = vi.fn()
+    const queryRawUnsafe = vi.fn().mockResolvedValue([{ name: 'id' }])
+
+    mockGeneratedPrismaClient.mockImplementationOnce(({ adapter }: { adapter: { url: string } }) => ({
+      adapterUrl: adapter.url,
+      $executeRaw: vi.fn(),
+      $executeRawUnsafe: executeRawUnsafe,
+      $queryRawUnsafe: queryRawUnsafe,
+      $queryRaw: vi.fn().mockResolvedValue([{ value: '7' }]),
+    }))
+
+    const { initDesktopDatabase } = await import('../prisma-desktop')
+    await initDesktopDatabase()
+
+    const ddl = executeRawUnsafe.mock.calls.map((call) => String(call[0]))
+    const addColumnIndex = ddl.findIndex((statement) =>
+      statement === 'ALTER TABLE "autopilot_tasks" ADD COLUMN "deleted_at" DATETIME',
+    )
+    const createIndexIndex = ddl.findIndex((statement) =>
+      statement.includes('CREATE UNIQUE INDEX IF NOT EXISTS "autopilot_tasks_user_id_name_active_key"'),
+    )
+
+    expect(addColumnIndex).toBeGreaterThanOrEqual(0)
+    expect(createIndexIndex).toBeGreaterThan(addColumnIndex)
+  })
+
+  it('replaces the legacy autopilot task name index with active-only uniqueness', async () => {
+    const executeRawUnsafe = vi.fn()
+    const queryRawUnsafe = vi.fn().mockResolvedValue([
+      { name: 'kind' },
+      { name: 'provider_sync_hash' },
+      { name: 'provider_synced_at' },
+      { name: 'slack_notification_config' },
+      { name: 'retry_attempt' },
+      { name: 'retry_scheduled_for' },
+      { name: 'deleted_at' },
+      { name: 'result_seen_at' },
+      { name: 'attempt' },
+    ])
+
+    mockGeneratedPrismaClient.mockImplementationOnce(({ adapter }: { adapter: { url: string } }) => ({
+      adapterUrl: adapter.url,
+      $executeRaw: vi.fn(),
+      $executeRawUnsafe: executeRawUnsafe,
+      $queryRawUnsafe: queryRawUnsafe,
+      $queryRaw: vi.fn().mockResolvedValue([{ value: '7' }]),
+    }))
+
+    const { initDesktopDatabase } = await import('../prisma-desktop')
+    await initDesktopDatabase()
+
+    const ddl = executeRawUnsafe.mock.calls.map((call) => String(call[0]))
+    const dropLegacyIndex = ddl.findIndex((statement) =>
+      statement === 'DROP INDEX IF EXISTS "autopilot_tasks_user_id_name_key"',
+    )
+    const createActiveIndex = ddl.findIndex((statement) =>
+      statement === 'CREATE UNIQUE INDEX IF NOT EXISTS "autopilot_tasks_user_id_name_active_key" ON "autopilot_tasks"("user_id", "name") WHERE "deleted_at" IS NULL',
+    )
+
+    expect(dropLegacyIndex).toBeGreaterThanOrEqual(0)
+    expect(createActiveIndex).toBeGreaterThan(dropLegacyIndex)
+    expect(ddl).not.toContain('CREATE UNIQUE INDEX IF NOT EXISTS "autopilot_tasks_user_id_name_key" ON "autopilot_tasks"("user_id", "name")')
+  })
+
   it('executes the current desktop schema DDL including durable runs and Slack DM tables', async () => {
     const executeRawUnsafe = vi.fn()
     const queryRawUnsafe = vi.fn().mockResolvedValue([
@@ -162,6 +227,7 @@ describe('desktop prisma context isolation', () => {
       { name: 'slack_notification_config' },
       { name: 'retry_attempt' },
       { name: 'retry_scheduled_for' },
+      { name: 'deleted_at' },
       { name: 'result_seen_at' },
       { name: 'attempt' },
     ])
@@ -185,6 +251,7 @@ describe('desktop prisma context isolation', () => {
     expect(ddl.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS "external_integrations"'))).toBe(true)
     expect(ddl.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS "slack_dm_session_bindings"'))).toBe(true)
     expect(ddl.some((statement) => statement.includes('"slack_notification_config" TEXT'))).toBe(true)
+    expect(ddl.some((statement) => statement.includes('"deleted_at" DATETIME'))).toBe(true)
     expect(ddl.some((statement) => statement.includes('"attempt" INTEGER NOT NULL DEFAULT 1'))).toBe(true)
   })
 })

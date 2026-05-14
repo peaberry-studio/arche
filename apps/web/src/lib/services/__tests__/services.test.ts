@@ -301,7 +301,7 @@ describe('service layer', () => {
   })
 
   describe('autopilotService', () => {
-    it('listTasksByUserId scopes tasks to the user and includes latest runs', async () => {
+    it('listTasksByUserId scopes active tasks to the user and includes latest runs', async () => {
       mockPrisma.autopilotTask.findMany.mockResolvedValue([])
 
       const { autopilotService } = await import('../index')
@@ -309,7 +309,7 @@ describe('service layer', () => {
 
       expect(mockPrisma.autopilotTask.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { userId: 'user-1' },
+          where: { deletedAt: null, userId: 'user-1' },
           include: expect.objectContaining({
             runs: expect.objectContaining({ take: 1 }),
           }),

@@ -29,7 +29,7 @@ describe('autopilotService', () => {
   // listTasksByUserId
   // -----------------------------------------------------------------------
   describe('listTasksByUserId', () => {
-    it('queries tasks scoped to user with run include and ordering', async () => {
+    it('queries active tasks scoped to user with run include and ordering', async () => {
       mockPrisma.autopilotTask.findMany.mockResolvedValue([])
       const { listTasksByUserId } = await import('../autopilot')
       const result = await listTasksByUserId('user-1')
@@ -37,7 +37,7 @@ describe('autopilotService', () => {
       expect(result).toEqual([])
       expect(mockPrisma.autopilotTask.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { userId: 'user-1' },
+          where: { deletedAt: null, userId: 'user-1' },
           include: expect.objectContaining({
             runs: expect.objectContaining({ take: 1 }),
           }),
@@ -64,7 +64,7 @@ describe('autopilotService', () => {
 
       expect(result).toEqual(task)
       expect(mockPrisma.autopilotTask.findFirst).toHaveBeenCalledWith({
-        where: { id: 'task-1', userId: 'user-1' },
+        where: { deletedAt: null, id: 'task-1', userId: 'user-1' },
         include: expect.objectContaining({
           runs: expect.objectContaining({ take: 50 }),
         }),
@@ -151,11 +151,11 @@ describe('autopilotService', () => {
 
       expect(result).toEqual(updated)
       expect(mockPrisma.autopilotTask.updateMany).toHaveBeenCalledWith({
-        where: { id: 'task-1', userId: 'user-1' },
+        where: { deletedAt: null, id: 'task-1', userId: 'user-1' },
         data: { name: 'New Name' },
       })
       expect(mockPrisma.autopilotTask.findFirst).toHaveBeenCalledWith({
-        where: { id: 'task-1', userId: 'user-1' },
+        where: { deletedAt: null, id: 'task-1', userId: 'user-1' },
       })
     })
 
@@ -181,7 +181,7 @@ describe('autopilotService', () => {
 
       expect(result).toEqual(updated)
       expect(mockPrisma.autopilotTask.updateMany).toHaveBeenCalledWith({
-        where: { id: 'task-1', userId: 'user-1' },
+        where: { deletedAt: null, id: 'task-1', userId: 'user-1' },
         data: { slackNotificationConfig: expect.anything() },
       })
     })
@@ -191,15 +191,25 @@ describe('autopilotService', () => {
   // deleteTaskByIdAndUserId
   // -----------------------------------------------------------------------
   describe('deleteTaskByIdAndUserId', () => {
-    it('deletes tasks scoped to id and user', async () => {
-      mockPrisma.autopilotTask.deleteMany.mockResolvedValue({ count: 1 })
+    it('archives active tasks scoped to id and user without deleting run rows', async () => {
+      const deletedAt = new Date('2026-04-20T12:00:00Z')
+      mockPrisma.autopilotTask.updateMany.mockResolvedValue({ count: 1 })
 
       const { deleteTaskByIdAndUserId } = await import('../autopilot')
-      await deleteTaskByIdAndUserId('task-1', 'user-1')
+      await deleteTaskByIdAndUserId('task-1', 'user-1', deletedAt)
 
-      expect(mockPrisma.autopilotTask.deleteMany).toHaveBeenCalledWith({
-        where: { id: 'task-1', userId: 'user-1' },
+      expect(mockPrisma.autopilotTask.updateMany).toHaveBeenCalledWith({
+        where: { deletedAt: null, id: 'task-1', userId: 'user-1' },
+        data: {
+          deletedAt,
+          enabled: false,
+          leaseExpiresAt: null,
+          leaseOwner: null,
+          retryAttempt: 0,
+          retryScheduledFor: null,
+        },
       })
+      expect(mockPrisma.autopilotTask.deleteMany).not.toHaveBeenCalled()
     })
   })
 
@@ -241,6 +251,8 @@ describe('autopilotService', () => {
       expect(mockPrisma.autopilotTask.findFirst).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
+            deletedAt: null,
+            enabled: true,
             user: {
               autopilotTasks: {
                 none: {
@@ -248,6 +260,14 @@ describe('autopilotService', () => {
                 },
               },
             },
+          }),
+        }),
+      )
+      expect(mockPrisma.autopilotTask.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            deletedAt: null,
+            enabled: true,
           }),
         }),
       )
@@ -388,9 +408,10 @@ describe('autopilotService', () => {
 
       expect(mockPrisma.autopilotTask.findFirst).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: expect.objectContaining({ userId: 'user-1' }),
+          where: expect.objectContaining({ deletedAt: null, userId: 'user-1' }),
         }),
       )
+      expect(mockPrisma.autopilotTask.updateMany).not.toHaveBeenCalled()
     })
 
     it('returns null when task not found', async () => {
@@ -438,6 +459,7 @@ describe('autopilotService', () => {
 
       const findCall = mockPrisma.autopilotTask.findFirst.mock.calls[0][0]
       expect(findCall.where).not.toHaveProperty('userId')
+      expect(findCall.where).toEqual(expect.objectContaining({ deletedAt: null }))
     })
 
     it('can explicitly use the per-user concurrency policy for immediate claims', async () => {
@@ -457,6 +479,7 @@ describe('autopilotService', () => {
       expect(mockPrisma.autopilotTask.findFirst).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
+            deletedAt: null,
             user: {
               autopilotTasks: {
                 none: {
@@ -464,6 +487,31 @@ describe('autopilotService', () => {
                 },
               },
             },
+          }),
+        }),
+      )
+    })
+
+    it('requires active tasks when racing to claim an immediate run', async () => {
+      const task = { id: 'task-1', leaseOwner: null, leaseExpiresAt: null }
+      mockPrisma.autopilotTask.findFirst.mockResolvedValue(task)
+      mockPrisma.autopilotTask.updateMany.mockResolvedValue({ count: 1 })
+
+      const { claimTaskForImmediateRun } = await import('../autopilot')
+      await claimTaskForImmediateRun({
+        id: 'task-1',
+        leaseMs: 60_000,
+        leaseOwner: 'worker-1',
+        now,
+        userId: 'user-1',
+      })
+
+      expect(mockPrisma.autopilotTask.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            deletedAt: null,
+            id: 'task-1',
+            userId: 'user-1',
           }),
         }),
       )
@@ -828,6 +876,23 @@ describe('autopilotService', () => {
           hasUnseenResult: true,
         },
       ])
+      expect(mockPrisma.autopilotRun.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            task: { userId: 'user-1' },
+          }),
+        }),
+      )
+    })
+
+    it('does not require active tasks so archived task sessions remain classified', async () => {
+      mockPrisma.autopilotRun.findMany.mockResolvedValue([])
+
+      const { findSessionMetadataByUserId } = await import('../autopilot')
+      await findSessionMetadataByUserId('user-1', ['oc-session-1'])
+
+      const query = mockPrisma.autopilotRun.findMany.mock.calls[0][0]
+      expect(query.where.task).toEqual({ userId: 'user-1' })
     })
 
     it('filters out runs without openCodeSessionId', async () => {
