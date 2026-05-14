@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   ensureWorkspaceRunningForExecution: vi.fn(),
   findFlowByIdAndUserId: vi.fn(),
   findRunByIdAndUserId: vi.fn(),
+  findRunStatusById: vi.fn(),
   markRunFailed: vi.fn(),
   markRunRunning: vi.fn(),
   markRunSucceeded: vi.fn(),
@@ -32,6 +33,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/lib/flows/session-executor', () => ({
   FLOW_LEASE_MS: 900_000,
+  FLOW_RUN_CANCELLED_ERROR: 'flow_run_cancelled',
   createFlowLeaseOwner: mocks.createFlowLeaseOwner,
   runFlowPromptAndReadOutput: mocks.runFlowPromptAndReadOutput,
 }))
@@ -54,6 +56,7 @@ vi.mock('@/lib/services', () => ({
     extendFlowLease: mocks.extendFlowLease,
     findFlowByIdAndUserId: mocks.findFlowByIdAndUserId,
     findRunByIdAndUserId: mocks.findRunByIdAndUserId,
+    findRunStatusById: mocks.findRunStatusById,
     markRunFailed: mocks.markRunFailed,
     markRunRunning: mocks.markRunRunning,
     markRunSucceeded: mocks.markRunSucceeded,
@@ -192,6 +195,7 @@ describe('triggerFlowNow', () => {
       updatedAt: now,
     })
     mocks.findRunByIdAndUserId.mockResolvedValue(null)
+    mocks.findRunStatusById.mockResolvedValue({ status: FlowRunStatus.running })
     mocks.extendFlowLease.mockResolvedValue({ count: 1 })
     mocks.markRunFailed.mockResolvedValue({ count: 1 })
     mocks.markRunRunning.mockResolvedValue(undefined)
@@ -302,6 +306,31 @@ describe('triggerFlowNow', () => {
     expect(mocks.markRunSucceeded).toHaveBeenCalledWith('run-1', expect.objectContaining({ openCodeSessionId: 'session-1' }))
   })
 
+  it('stops before prompting when a run is cancelled before the next node', async () => {
+    mocks.userFindByIdSelect.mockResolvedValue({ slug: 'alice' })
+    mocks.createRun.mockResolvedValue(createRunRecord({ id: 'run-cancelled' }))
+    mocks.findRunStatusById.mockResolvedValue({ status: FlowRunStatus.cancelled })
+
+    await runClaimedFlow(createClaimedFlow(), FlowRunTrigger.manual)
+
+    expect(mocks.upsertRunStep).not.toHaveBeenCalled()
+    expect(mocks.runFlowPromptAndReadOutput).not.toHaveBeenCalled()
+    expect(mocks.markRunSucceeded).not.toHaveBeenCalledWith('run-cancelled', expect.any(Object))
+    expect(mocks.markRunFailed).not.toHaveBeenCalledWith('run-cancelled', expect.any(Object))
+  })
+
+  it('does not mark the run failed when prompt execution reports cancellation', async () => {
+    mocks.userFindByIdSelect.mockResolvedValue({ slug: 'alice' })
+    mocks.createRun.mockResolvedValue(createRunRecord({ id: 'run-cancelled-mid-prompt' }))
+    mocks.runFlowPromptAndReadOutput.mockResolvedValueOnce({ ok: false, error: 'flow_run_cancelled' })
+
+    await runClaimedFlow(createClaimedFlow(), FlowRunTrigger.manual)
+
+    expect(mocks.markRunSucceeded).not.toHaveBeenCalledWith('run-cancelled-mid-prompt', expect.any(Object))
+    expect(mocks.markRunFailed).not.toHaveBeenCalledWith('run-cancelled-mid-prompt', expect.any(Object))
+    expect(mocks.auditCreateEvent).not.toHaveBeenCalledWith(expect.objectContaining({ action: 'flows.run_failed' }))
+  })
+
   it('does not execute or finalize when the claimed flow lease is lost', async () => {
     mocks.userFindByIdSelect.mockResolvedValue({ slug: 'alice' })
     mocks.createRun.mockResolvedValue(createRunRecord())
@@ -392,6 +421,7 @@ describe('triggerFlowNow', () => {
   })
 
   it('evaluates condition rules before falling back to outgoing edges', async () => {
+    const longMatchingPattern = `Flow|${'x'.repeat(257)}`
     const flow = createClaimedFlow()
     flow.definition = {
       edges: [{ id: 'edge-1', sourceNodeId: 'condition-1', targetNodeId: 'merge-fallback' }],
@@ -410,12 +440,16 @@ describe('triggerFlowNow', () => {
             { id: 'rule-7', operator: 'not_equals', targetNodeId: 'merge-fallback', value: 'Flow', variable: 'flow.name' },
             { id: 'rule-8', operator: 'starts_with', targetNodeId: 'merge-fallback', value: 'Other', variable: 'flow.name' },
             { id: 'rule-9', operator: 'exists', targetNodeId: 'merge-fallback', variable: 'missing.value' },
-            { id: 'rule-10', operator: 'not_exists', targetNodeId: 'merge-matched', variable: 'missing.value' },
+            { id: 'rule-10', operator: 'matches', targetNodeId: 'merge-long-regex', value: longMatchingPattern, variable: 'flow.name' },
+            { id: 'rule-11', operator: 'matches', targetNodeId: 'merge-unsafe-regex', value: '(?:Flow|Other)+', variable: 'flow.name' },
+            { id: 'rule-12', operator: 'not_exists', targetNodeId: 'merge-matched', variable: 'missing.value' },
           ],
           type: 'condition',
         },
         { id: 'merge-fallback', name: 'Fallback', type: 'merge' },
+        { id: 'merge-long-regex', name: 'Long Regex', type: 'merge' },
         { id: 'merge-matched', name: 'Matched', type: 'merge' },
+        { id: 'merge-unsafe-regex', name: 'Unsafe Regex', type: 'merge' },
       ],
       startNodeId: 'condition-1',
       version: 1,
@@ -460,6 +494,32 @@ describe('triggerFlowNow', () => {
     await runClaimedFlow(flow, FlowRunTrigger.manual)
 
     expect(mocks.markRunFailed).toHaveBeenCalledWith('run-ai-fail', expect.objectContaining({ error: 'condition_ai_invalid_target' }))
+  })
+
+  it('truncates invalid AI condition output before persisting it', async () => {
+    const flow = createClaimedFlow()
+    const output = 'x'.repeat(8_012)
+    flow.definition = {
+      edges: [{ id: 'edge-1', sourceNodeId: 'condition-1', targetNodeId: 'merge-a' }],
+      nodes: [
+        { evaluatorPrompt: 'Pick a target', id: 'condition-1', mode: 'ai', name: 'AI condition', type: 'condition' },
+        { id: 'merge-a', name: 'A', type: 'merge' },
+      ],
+      startNodeId: 'condition-1',
+      version: 1,
+    }
+    mocks.userFindByIdSelect.mockResolvedValue({ slug: 'alice' })
+    mocks.createRun.mockResolvedValueOnce(createRunRecord({ id: 'run-ai-long-output' }))
+    mocks.runFlowPromptAndReadOutput.mockResolvedValueOnce({ ok: true, output })
+
+    await runClaimedFlow(flow, FlowRunTrigger.manual)
+
+    expect(mocks.updateRunStepByRunIdAndNodeId).toHaveBeenCalledWith('run-ai-long-output', 'condition-1', expect.objectContaining({
+      rawOutput: expect.stringContaining('[truncated 12 characters]'),
+    }))
+    expect(mocks.updateRunStepByRunIdAndNodeId).not.toHaveBeenCalledWith('run-ai-long-output', 'condition-1', expect.objectContaining({
+      rawOutput: output,
+    }))
   })
 
   it('routes AI conditions with delimited target ids and rejects ambiguous text matches', async () => {

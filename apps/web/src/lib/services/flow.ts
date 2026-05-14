@@ -444,6 +444,13 @@ export function createRun(data: {
   })
 }
 
+export function findRunStatusById(id: string): Promise<{ status: FlowRunStatus } | null> {
+  return prisma.flowRun.findUnique({
+    select: { status: true },
+    where: { id },
+  })
+}
+
 export function attachRunSession(id: string, data: { openCodeSessionId: string; sessionTitle: string }) {
   return prisma.flowRun.update({
     data: {

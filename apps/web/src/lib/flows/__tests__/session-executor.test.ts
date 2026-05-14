@@ -1,8 +1,10 @@
+import { FlowRunStatus } from '@prisma/client'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   captureSessionMessageCursor: vi.fn(),
   extendFlowLease: vi.fn(),
+  findRunStatusById: vi.fn(),
   readLatestAssistantText: vi.fn(),
   waitForSessionToComplete: vi.fn(),
 }))
@@ -16,6 +18,7 @@ vi.mock('@/lib/opencode/session-execution', () => ({
 vi.mock('@/lib/services', () => ({
   flowService: {
     extendFlowLease: mocks.extendFlowLease,
+    findRunStatusById: mocks.findRunStatusById,
   },
 }))
 
@@ -26,6 +29,7 @@ type FlowPromptClient = Parameters<typeof runFlowPromptAndReadOutput>[0]['client
 function createClient(): FlowPromptClient {
   return {
     session: {
+      abort: vi.fn(),
       promptAsync: vi.fn(),
     },
   } as FlowPromptClient
@@ -38,6 +42,7 @@ describe('runFlowPromptAndReadOutput', () => {
     mocks.waitForSessionToComplete.mockResolvedValue(null)
     mocks.readLatestAssistantText.mockResolvedValue('assistant output')
     mocks.extendFlowLease.mockResolvedValue({ count: 1 })
+    mocks.findRunStatusById.mockResolvedValue({ status: FlowRunStatus.running })
   })
 
   it('sends the prompt and returns the latest assistant output', async () => {
@@ -49,6 +54,7 @@ describe('runFlowPromptAndReadOutput', () => {
       flowId: 'flow-1',
       leaseOwner: 'worker-1',
       prompt: 'Do work',
+      runId: 'run-1',
       sessionId: 'session-1',
       slug: 'alice',
     })).resolves.toEqual({ ok: true, output: 'assistant output' })
@@ -64,6 +70,50 @@ describe('runFlowPromptAndReadOutput', () => {
     expect(mocks.readLatestAssistantText).toHaveBeenCalledWith(client, 'session-1', { messageCount: 3 })
   })
 
+  it('does not send a prompt when the run was already cancelled', async () => {
+    const client = createClient()
+    mocks.findRunStatusById.mockResolvedValueOnce({ status: FlowRunStatus.cancelled })
+
+    await expect(runFlowPromptAndReadOutput({
+      client,
+      flowId: 'flow-1',
+      leaseOwner: 'worker-1',
+      prompt: 'Do work',
+      runId: 'run-1',
+      sessionId: 'session-1',
+      slug: 'alice',
+    })).resolves.toEqual({ ok: false, error: 'flow_run_cancelled' })
+
+    expect(mocks.captureSessionMessageCursor).not.toHaveBeenCalled()
+    expect(client.session.promptAsync).not.toHaveBeenCalled()
+    expect(client.session.abort).not.toHaveBeenCalled()
+  })
+
+  it('aborts the OpenCode session when cancellation is detected while waiting', async () => {
+    const client = createClient()
+    mocks.findRunStatusById
+      .mockResolvedValueOnce({ status: FlowRunStatus.running })
+      .mockResolvedValueOnce({ status: FlowRunStatus.cancelled })
+    mocks.waitForSessionToComplete.mockImplementation(async (params: { onPulse?: () => Promise<string | null | void> }) => {
+      const result = await params.onPulse?.()
+      return result ?? null
+    })
+
+    await expect(runFlowPromptAndReadOutput({
+      client,
+      flowId: 'flow-1',
+      leaseOwner: 'worker-1',
+      prompt: 'Do work',
+      runId: 'run-1',
+      sessionId: 'session-1',
+      slug: 'alice',
+    })).resolves.toEqual({ ok: false, error: 'flow_run_cancelled' })
+
+    expect(client.session.abort).toHaveBeenCalledWith({ sessionID: 'session-1' })
+    expect(mocks.extendFlowLease).not.toHaveBeenCalled()
+    expect(mocks.readLatestAssistantText).not.toHaveBeenCalled()
+  })
+
   it('extends the flow lease while waiting for completion', async () => {
     mocks.waitForSessionToComplete.mockImplementation(async (params: { onPulse?: () => Promise<string | null | void> }) => {
       await params.onPulse?.()
@@ -75,6 +125,7 @@ describe('runFlowPromptAndReadOutput', () => {
       flowId: 'flow-1',
       leaseOwner: 'worker-1',
       prompt: 'Do work',
+      runId: 'run-1',
       sessionId: 'session-1',
       slug: 'alice',
     })
@@ -94,6 +145,7 @@ describe('runFlowPromptAndReadOutput', () => {
       flowId: 'flow-1',
       leaseOwner: 'worker-1',
       prompt: 'Do work',
+      runId: 'run-1',
       sessionId: 'session-1',
       slug: 'alice',
     })).resolves.toEqual({ ok: false, error: 'flow_lease_lost' })
@@ -109,6 +161,7 @@ describe('runFlowPromptAndReadOutput', () => {
       flowId: 'flow-1',
       leaseOwner: 'worker-1',
       prompt: 'Do work',
+      runId: 'run-1',
       sessionId: 'session-1',
       slug: 'alice',
     })).resolves.toEqual({ ok: false, error: 'flow_run_timeout' })
@@ -124,6 +177,7 @@ describe('runFlowPromptAndReadOutput', () => {
       flowId: 'flow-1',
       leaseOwner: 'worker-1',
       prompt: 'Do work',
+      runId: 'run-1',
       sessionId: 'session-1',
       slug: 'alice',
     })).resolves.toEqual({ ok: false, error: 'flow_no_assistant_output' })

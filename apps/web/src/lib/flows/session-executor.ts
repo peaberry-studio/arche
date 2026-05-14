@@ -1,3 +1,5 @@
+import { FlowRunStatus } from '@prisma/client'
+
 import {
   captureSessionMessageCursor,
   readLatestAssistantText,
@@ -8,6 +10,7 @@ import { flowService } from '@/lib/services'
 
 const LEASE_EXTENSION_INTERVAL_MS = 60_000
 export const FLOW_LEASE_MS = 15 * 60 * 1000
+export const FLOW_RUN_CANCELLED_ERROR = 'flow_run_cancelled'
 
 function importRuntimeModule<T>(specifier: string): Promise<T> {
   if (process.env.VITEST) {
@@ -29,9 +32,15 @@ export async function runFlowPromptAndReadOutput(params: {
   flowId: string
   leaseOwner: string
   prompt: string
+  runId: string
   sessionId: string
   slug: string
 }): Promise<{ ok: true; output: string } | { ok: false; error: string }> {
+  const existingRun = await flowService.findRunStatusById(params.runId)
+  if (existingRun?.status === FlowRunStatus.cancelled) {
+    return { ok: false, error: FLOW_RUN_CANCELLED_ERROR }
+  }
+
   const cursor = await captureSessionMessageCursor(params.client, params.sessionId)
   await params.client.session.promptAsync(
     {
@@ -43,10 +52,27 @@ export async function runFlowPromptAndReadOutput(params: {
   )
 
   let lastLeaseExtensionAt = 0
+  const abortIfCancelled = async (): Promise<string | null> => {
+    const run = await flowService.findRunStatusById(params.runId)
+    if (run?.status !== FlowRunStatus.cancelled) return null
+
+    await Promise.resolve(params.client.session.abort({ sessionID: params.sessionId })).catch((error) => {
+      console.warn('[flows] Failed to abort cancelled flow session', {
+        error,
+        runId: params.runId,
+        sessionId: params.sessionId,
+      })
+    })
+    return FLOW_RUN_CANCELLED_ERROR
+  }
+
   const failure = await waitForSessionToComplete({
     client: params.client,
     cursor,
     onPulse: async () => {
+      const cancellation = await abortIfCancelled()
+      if (cancellation) return cancellation
+
       if (Date.now() - lastLeaseExtensionAt < LEASE_EXTENSION_INTERVAL_MS) {
         return
       }

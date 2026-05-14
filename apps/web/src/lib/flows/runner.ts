@@ -8,7 +8,12 @@ import {
 import { formatFlowRunDate } from '@/lib/flows/cron'
 import { getFlowNodeById, getFlowOutgoingTargets } from '@/lib/flows/graph'
 import { serializeFlowRun, serializeSlackNotificationConfig, toPrismaJson } from '@/lib/flows/serializers'
-import { createFlowLeaseOwner, FLOW_LEASE_MS, runFlowPromptAndReadOutput } from '@/lib/flows/session-executor'
+import {
+  createFlowLeaseOwner,
+  FLOW_LEASE_MS,
+  FLOW_RUN_CANCELLED_ERROR,
+  runFlowPromptAndReadOutput,
+} from '@/lib/flows/session-executor'
 import { buildFlowTemplateContext, renderFlowTemplate } from '@/lib/flows/template'
 import type { ConditionFlowNode, FlowConditionOperator, FlowDefinition, FlowNode } from '@/lib/flows/types'
 import { validateFlowDefinition } from '@/lib/flows/validation'
@@ -25,9 +30,14 @@ import { sendSlackNotifications } from '@/lib/slack/notifications'
 export { FLOW_LEASE_MS } from '@/lib/flows/session-executor'
 
 type FlowExecutionOutcome =
+  | { status: 'cancelled' }
   | { status: 'succeeded' }
   | { status: 'waiting_for_human'; nodeId: string }
   | { status: 'failed'; error: string }
+
+const CONDITION_MATCHES_PATTERN_MAX_LENGTH = 256
+const CONDITION_MATCHES_VALUE_MAX_LENGTH = 4_096
+const INVALID_TARGET_RAW_OUTPUT_MAX_LENGTH = 8_000
 
 function buildFlowSessionTitle(flow: FlowRecord, scheduledFor: Date): string {
   return `Flow | ${flow.name} | ${formatFlowRunDate(scheduledFor, flow.timezone)}`
@@ -86,6 +96,97 @@ function replaceStep(steps: FlowRunStepRecord[], step: FlowRunStepRecord): FlowR
   return next
 }
 
+function isRegexQuantifierStart(value: string): boolean {
+  return value === '*' || value === '+' || value === '?' || value === '{'
+}
+
+// JS RegExp has no timeout, so reject patterns likely to backtrack catastrophically.
+function isSafeConditionRegex(pattern: string): boolean {
+  if (pattern.length > CONDITION_MATCHES_PATTERN_MAX_LENGTH) return false
+
+  const groups: Array<{ hasAlternation: boolean; hasQuantifier: boolean }> = []
+  let escaped = false
+  let inCharClass = false
+  let lastToken: 'group' | 'other' | null = null
+  let lastGroupHadAlternation = false
+  let lastGroupHadQuantifier = false
+
+  for (let index = 0; index < pattern.length; index += 1) {
+    const char = pattern[index]
+
+    if (escaped) {
+      if (!inCharClass && /[1-9]/.test(char)) return false
+      escaped = false
+      lastToken = 'other'
+      lastGroupHadAlternation = false
+      lastGroupHadQuantifier = false
+      continue
+    }
+
+    if (char === '\\') {
+      escaped = true
+      continue
+    }
+
+    if (inCharClass) {
+      if (char === ']') inCharClass = false
+      continue
+    }
+
+    if (char === '[') {
+      inCharClass = true
+      lastToken = 'other'
+      lastGroupHadAlternation = false
+      lastGroupHadQuantifier = false
+      continue
+    }
+
+    if (char === '(') {
+      if (pattern[index + 1] === '?' && pattern[index + 2] !== ':') return false
+      groups.push({ hasAlternation: false, hasQuantifier: false })
+      lastToken = null
+      lastGroupHadAlternation = false
+      lastGroupHadQuantifier = false
+      continue
+    }
+
+    if (char === ')') {
+      const group = groups.pop()
+      if (group && groups.length > 0) {
+        if (group.hasAlternation) groups[groups.length - 1].hasAlternation = true
+        if (group.hasQuantifier) groups[groups.length - 1].hasQuantifier = true
+      }
+      lastToken = 'group'
+      lastGroupHadAlternation = group?.hasAlternation ?? false
+      lastGroupHadQuantifier = group?.hasQuantifier ?? false
+      continue
+    }
+
+    if (char === '|' && groups.length > 0) {
+      groups[groups.length - 1].hasAlternation = true
+      lastToken = 'other'
+      lastGroupHadAlternation = false
+      lastGroupHadQuantifier = false
+      continue
+    }
+
+    if (isRegexQuantifierStart(char)) {
+      if (lastToken === 'group' && (lastGroupHadAlternation || lastGroupHadQuantifier)) return false
+      if (groups.length > 0) groups[groups.length - 1].hasQuantifier = true
+      lastToken = 'other'
+      lastGroupHadAlternation = false
+      lastGroupHadQuantifier = false
+      continue
+    }
+
+    lastToken = 'other'
+    lastGroupHadAlternation = false
+    lastGroupHadQuantifier = false
+  }
+
+  return true
+}
+
 function evaluateRule(value: string | null, operator: FlowConditionOperator, expected?: string): boolean {
   if (operator === 'exists') return Boolean(value && value.length > 0)
   if (operator === 'not_exists') return !value || value.length === 0
@@ -100,6 +201,7 @@ function evaluateRule(value: string | null, operator: FlowConditionOperator, exp
     case 'equals':
       return value === right
     case 'matches':
+      if (value.length > CONDITION_MATCHES_VALUE_MAX_LENGTH || !isSafeConditionRegex(right)) return false
       try {
         return new RegExp(right).test(value)
       } catch {
@@ -112,6 +214,12 @@ function evaluateRule(value: string | null, operator: FlowConditionOperator, exp
   }
 }
 
+function truncateInvalidTargetOutput(output: string): string {
+  if (output.length <= INVALID_TARGET_RAW_OUTPUT_MAX_LENGTH) return output
+
+  return `${output.slice(0, INVALID_TARGET_RAW_OUTPUT_MAX_LENGTH)}\n[truncated ${output.length - INVALID_TARGET_RAW_OUTPUT_MAX_LENGTH} characters]`
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
@@ -122,6 +230,15 @@ function containsDelimitedTarget(value: string, targetNodeId: string): boolean {
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback
+}
+
+function isFlowRunCancellation(error: string): boolean {
+  return error === FLOW_RUN_CANCELLED_ERROR
+}
+
+async function isRunCancelled(runId: string): Promise<boolean> {
+  const run = await flowService.findRunStatusById(runId)
+  return run?.status === FlowRunStatus.cancelled
 }
 
 async function hasActiveFlowLease(flowId: string, leaseOwner: string): Promise<boolean> {
@@ -197,6 +314,7 @@ async function executeAgentNode(params: {
       flowId: params.flow.id,
       leaseOwner: params.leaseOwner,
       prompt: rendered.value,
+      runId: params.run.id,
       sessionId: params.sessionId,
       slug: params.slug,
     })
@@ -210,6 +328,8 @@ async function executeAgentNode(params: {
     return { ok: false, error: message, steps }
   }
   if (!rawResult.ok) {
+    if (isFlowRunCancellation(rawResult.error)) return { ok: false, error: rawResult.error, steps }
+
     steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, params.node.id, {
       error: rawResult.error,
       finishedAt: new Date(),
@@ -233,6 +353,7 @@ async function executeAgentNode(params: {
         flowId: params.flow.id,
         leaseOwner: params.leaseOwner,
         prompt: compactPrompt,
+        runId: params.run.id,
         sessionId: params.sessionId,
         slug: params.slug,
       })
@@ -247,6 +368,8 @@ async function executeAgentNode(params: {
       return { ok: false, error: message, steps }
     }
     if (!compactResult.ok) {
+      if (isFlowRunCancellation(compactResult.error)) return { ok: false, error: compactResult.error, steps }
+
       steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, params.node.id, {
         error: compactResult.error,
         finishedAt: new Date(),
@@ -372,6 +495,7 @@ async function executeConditionNode(params: {
       flowId: params.flow.id,
       leaseOwner: params.leaseOwner,
       prompt,
+      runId: params.run.id,
       sessionId: params.sessionId,
       slug: params.slug,
     })
@@ -385,6 +509,8 @@ async function executeConditionNode(params: {
     return { ok: false, error: message, steps }
   }
   if (!aiResult.ok) {
+    if (isFlowRunCancellation(aiResult.error)) return { ok: false, error: aiResult.error, steps }
+
     steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, params.node.id, {
       error: aiResult.error,
       finishedAt: new Date(),
@@ -398,7 +524,7 @@ async function executeConditionNode(params: {
     steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, params.node.id, {
       error: 'condition_ai_invalid_target',
       finishedAt: new Date(),
-      rawOutput: aiResult.output,
+      rawOutput: truncateInvalidTargetOutput(aiResult.output),
       status: FlowRunStepStatus.failed,
     }))
     return { ok: false, error: 'condition_ai_invalid_target', steps }
@@ -434,6 +560,10 @@ async function executeFlowNodes(params: {
       return { status: 'failed', error: 'cyclic_flow' }
     }
 
+    if (await isRunCancelled(params.run.id)) {
+      return { status: 'cancelled' }
+    }
+
     if (!await hasActiveFlowLease(params.flow.id, params.leaseOwner)) {
       return { status: 'failed', error: 'flow_lease_lost' }
     }
@@ -459,7 +589,11 @@ async function executeFlowNodes(params: {
         steps,
       })
       steps = result.steps
-      if (!result.ok) return { status: 'failed', error: result.error }
+      if (!result.ok) {
+        return isFlowRunCancellation(result.error)
+          ? { status: 'cancelled' }
+          : { status: 'failed', error: result.error }
+      }
       previousOutput = result.previousOutput
       currentNodeId = getFlowOutgoingTargets(params.definition, node.id)[0] ?? null
       continue
@@ -493,7 +627,11 @@ async function executeFlowNodes(params: {
         steps,
       })
       steps = result.steps
-      if (!result.ok) return { status: 'failed', error: result.error }
+      if (!result.ok) {
+        return isFlowRunCancellation(result.error)
+          ? { status: 'cancelled' }
+          : { status: 'failed', error: result.error }
+      }
       previousOutput = result.previousOutput
       currentNodeId = result.nextNodeId
       continue
@@ -525,6 +663,7 @@ async function executeFlowNodes(params: {
           flowId: params.flow.id,
           leaseOwner: params.leaseOwner,
           prompt: rendered.value,
+          runId: params.run.id,
           sessionId: params.sessionId,
           slug: params.slug,
         })
@@ -538,6 +677,8 @@ async function executeFlowNodes(params: {
         return { status: 'failed', error: message }
       }
       if (!result.ok) {
+        if (isFlowRunCancellation(result.error)) return { status: 'cancelled' }
+
         steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, node.id, {
           error: result.error,
           finishedAt: new Date(),
@@ -613,6 +754,11 @@ async function finalizeRun(params: {
 }) {
   if (!await hasActiveFlowLease(params.flow.id, params.leaseOwner)) return
 
+  const currentRun = await flowService.findRunByIdAndUserId(params.run.id, params.flow.userId)
+  if (params.outcome.status === 'cancelled' || currentRun?.status === FlowRunStatus.cancelled) {
+    return
+  }
+
   if (params.outcome.status === 'waiting_for_human') {
     await auditService.createEvent({
       action: 'flows.run_waiting_for_human',
@@ -630,10 +776,6 @@ async function finalizeRun(params: {
   }
 
   const finishedAt = new Date()
-  const currentRun = await flowService.findRunByIdAndUserId(params.run.id, params.flow.userId)
-  if (currentRun?.status === FlowRunStatus.cancelled) {
-    return
-  }
 
   if (params.outcome.status === 'succeeded') {
     const result = await flowService.markRunSucceeded(params.run.id, {
@@ -642,50 +784,50 @@ async function finalizeRun(params: {
       sessionTitle: params.sessionTitle,
     })
     if (result.count !== 1) return
-      await auditService.createEvent({
-        action: 'flows.run_succeeded',
-        actorUserId: params.flow.userId,
+    await auditService.createEvent({
+      action: 'flows.run_succeeded',
+      actorUserId: params.flow.userId,
       metadata: {
         flowId: params.flow.id,
         runId: params.run.id,
         sessionId: params.sessionId,
         slug: params.slug,
-          trigger: params.trigger,
-        },
-      })
+        trigger: params.trigger,
+      },
+    })
 
-      const slackNotificationConfig = serializeSlackNotificationConfig(params.flow.slackNotificationConfig)
-      if (slackNotificationConfig?.enabled && params.sessionId && params.slug) {
-        try {
-          const output = getFlowNotificationOutput(currentRun)
-          if (!output) {
-            throw new Error('No flow output to send')
-          }
-
-          const notificationResult = await sendSlackNotifications({
-            sessionLink: slackNotificationConfig.includeSessionLink
-              ? buildFlowSessionLink(params.slug, params.sessionId)
-              : undefined,
-            source: 'flows',
-            targets: slackNotificationConfig.targets,
-            text: `Flow report: ${params.flow.name}\n\n${output}`,
-          })
-
-          if (!notificationResult.ok) {
-            console.error('[flows] Failed to send Slack notification', notificationResult.error)
-          } else if (notificationResult.failed > 0) {
-            console.error('[flows] Partial Slack notification failure', {
-              errors: notificationResult.errors,
-              failed: notificationResult.failed,
-              sent: notificationResult.sent,
-            })
-          }
-        } catch (error) {
-          console.error('[flows] Error sending Slack notification', error)
+    const slackNotificationConfig = serializeSlackNotificationConfig(params.flow.slackNotificationConfig)
+    if (slackNotificationConfig?.enabled && params.sessionId && params.slug) {
+      try {
+        const output = getFlowNotificationOutput(currentRun)
+        if (!output) {
+          throw new Error('No flow output to send')
         }
+
+        const notificationResult = await sendSlackNotifications({
+          sessionLink: slackNotificationConfig.includeSessionLink
+            ? buildFlowSessionLink(params.slug, params.sessionId)
+            : undefined,
+          source: 'flows',
+          targets: slackNotificationConfig.targets,
+          text: `Flow report: ${params.flow.name}\n\n${output}`,
+        })
+
+        if (!notificationResult.ok) {
+          console.error('[flows] Failed to send Slack notification', notificationResult.error)
+        } else if (notificationResult.failed > 0) {
+          console.error('[flows] Partial Slack notification failure', {
+            errors: notificationResult.errors,
+            failed: notificationResult.failed,
+            sent: notificationResult.sent,
+          })
+        }
+      } catch (error) {
+        console.error('[flows] Error sending Slack notification', error)
       }
-      return
     }
+    return
+  }
 
   const result = await flowService.markRunFailed(params.run.id, {
     error: params.outcome.error,
