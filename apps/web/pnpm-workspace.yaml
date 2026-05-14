@@ -1,0 +1,15 @@
+allowBuilds:
+  '@prisma/engines': true
+  argon2: true
+  better-sqlite3: true
+  cpu-features: true
+  esbuild: true
+  prisma: true
+  protobufjs: true
+  sharp: true
+  ssh2: true
+  unrs-resolver: true
+overrides:
+  tar: 7.5.7
+  lodash: 4.17.23
+  hono: 4.11.7

@@ -2,7 +2,10 @@
   "name": "@arche/web",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "pnpm@10.14.0",
+  "packageManager": "pnpm@11.1.1+sha512.d1fdf5f73c617b64fa1a56a81c3c8dfe0e966e33a6010aa256b517ae77be21d93e05affc0de1a83b0e4f29d569f68b446ae8f068cd7247c0bb3df0fb4d7bdf9a",
+  "volta": {
+    "extends": "../../package.json"
+  },
   "scripts": {
     "postinstall": "pnpm prisma:generate && pnpm prisma:generate:desktop",
     "predev": "pnpm prisma:generate && pnpm prisma:generate:desktop",
@@ -69,7 +72,7 @@
     "fflate": "^0.8.2",
     "lucide-react": "^0.563.0",
     "mermaid": "^11.14.0",
-    "next": "16.1.6",
+    "next": "16.2.6",
     "otpauth": "^9.4.1",
     "pdf-parse": "^1.1.1",
     "pg": "^8.18.0",
@@ -103,7 +106,7 @@
     "@vitest/coverage-v8": "^3.2.4",
     "dotenv": "16.6.1",
     "eslint": "^9.39.2",
-    "eslint-config-next": "16.1.6",
+    "eslint-config-next": "16.2.6",
     "jsdom": "^28.0.0",
     "playwright": "^1.59.1",
     "prisma": "^7.3.0",
@@ -111,20 +114,6 @@
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@prisma/engines",
-      "argon2",
-      "better-sqlite3",
-      "esbuild",
-      "prisma"
-    ],
-    "overrides": {
-      "tar": "7.5.7",
-      "lodash": "4.17.23",
-      "hono": "4.11.7"
-    }
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
