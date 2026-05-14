@@ -306,6 +306,49 @@ describe('triggerFlowNow', () => {
     expect(mocks.markRunSucceeded).toHaveBeenCalledWith('run-1', expect.objectContaining({ openCodeSessionId: 'session-1' }))
   })
 
+  it('sends configured Slack notifications with the latest run output', async () => {
+    const previousPublicBaseUrl = process.env.ARCHE_PUBLIC_BASE_URL
+    process.env.ARCHE_PUBLIC_BASE_URL = 'https://arche.example'
+    const flow = {
+      ...createClaimedFlow(),
+      slackNotificationConfig: {
+        enabled: true,
+        includeSessionLink: true,
+        targets: [{ type: 'channel', channelId: 'C123' }],
+      },
+    }
+    mocks.userFindByIdSelect.mockResolvedValue({ slug: 'alice' })
+    mocks.createRun.mockResolvedValue(createRunRecord())
+    mocks.updateRunStepByRunIdAndNodeId.mockResolvedValue(createStepRecord({
+      finishedAt: now,
+      rawOutput: 'Final report',
+      status: FlowRunStepStatus.succeeded,
+    }))
+    mocks.findRunByIdAndUserId.mockResolvedValue({
+      ...createRunRecord(),
+      flow,
+      steps: [createStepRecord({ rawOutput: 'Final report', status: FlowRunStepStatus.succeeded })],
+    })
+    mocks.sendSlackNotifications.mockResolvedValue({ errors: [], failed: 0, ok: true, sent: 1 })
+
+    try {
+      await runClaimedFlow(flow, FlowRunTrigger.manual)
+    } finally {
+      if (previousPublicBaseUrl === undefined) {
+        delete process.env.ARCHE_PUBLIC_BASE_URL
+      } else {
+        process.env.ARCHE_PUBLIC_BASE_URL = previousPublicBaseUrl
+      }
+    }
+
+    expect(mocks.sendSlackNotifications).toHaveBeenCalledWith({
+      sessionLink: 'https://arche.example/w/alice?mode=flows&session=session-1',
+      source: 'flows',
+      targets: [{ type: 'channel', channelId: 'C123' }],
+      text: 'Flow report: Flow\n\nFinal report',
+    })
+  })
+
   it('stops before prompting when a run is cancelled before the next node', async () => {
     mocks.userFindByIdSelect.mockResolvedValue({ slug: 'alice' })
     mocks.createRun.mockResolvedValue(createRunRecord({ id: 'run-cancelled' }))

@@ -177,6 +177,7 @@ const SCHEMA_DDL = [
     "retry_scheduled_for" DATETIME,
     "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" DATETIME NOT NULL,
+    "deleted_at" DATETIME,
     CONSTRAINT "autopilot_tasks_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE
   )`,
   `CREATE TABLE IF NOT EXISTS "autopilot_runs" (
@@ -254,7 +255,8 @@ const SCHEMA_DDL = [
   `CREATE UNIQUE INDEX IF NOT EXISTS "slack_pending_dm_decisions_source_event_id_key" ON "slack_pending_dm_decisions"("source_event_id")`,
   `CREATE INDEX IF NOT EXISTS "slack_pending_dm_decisions_expires_at_idx" ON "slack_pending_dm_decisions"("expires_at")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "slack_notification_channels_slack_team_id_channel_id_key" ON "slack_notification_channels"("slack_team_id", "channel_id")`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS "autopilot_tasks_user_id_name_key" ON "autopilot_tasks"("user_id", "name")`,
+  `DROP INDEX IF EXISTS "autopilot_tasks_user_id_name_key"`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "autopilot_tasks_user_id_name_active_key" ON "autopilot_tasks"("user_id", "name") WHERE "deleted_at" IS NULL`,
   `CREATE INDEX IF NOT EXISTS "autopilot_tasks_user_id_idx" ON "autopilot_tasks"("user_id")`,
   `CREATE INDEX IF NOT EXISTS "autopilot_tasks_enabled_next_run_at_idx" ON "autopilot_tasks"("enabled", "next_run_at")`,
   `CREATE INDEX IF NOT EXISTS "autopilot_tasks_lease_expires_at_idx" ON "autopilot_tasks"("lease_expires_at")`,
@@ -270,7 +272,7 @@ const SCHEMA_DDL = [
   `CREATE INDEX IF NOT EXISTS "two_factor_recovery_user_id_idx" ON "two_factor_recovery"("user_id")`,
 ]
 
-const SCHEMA_VERSION = '7'
+const SCHEMA_VERSION = '8'
 
 function isCreateIndexStatement(ddl: string): boolean {
   return /^CREATE (UNIQUE )?INDEX\b/.test(ddl.trim())
@@ -300,6 +302,7 @@ async function ensureDesktopSchemaColumns(client: DesktopPrismaClient): Promise<
   await ensureColumn(client, 'autopilot_tasks', 'slack_notification_config', 'ALTER TABLE "autopilot_tasks" ADD COLUMN "slack_notification_config" TEXT')
   await ensureColumn(client, 'autopilot_tasks', 'retry_attempt', 'ALTER TABLE "autopilot_tasks" ADD COLUMN "retry_attempt" INTEGER NOT NULL DEFAULT 0')
   await ensureColumn(client, 'autopilot_tasks', 'retry_scheduled_for', 'ALTER TABLE "autopilot_tasks" ADD COLUMN "retry_scheduled_for" DATETIME')
+  await ensureColumn(client, 'autopilot_tasks', 'deleted_at', 'ALTER TABLE "autopilot_tasks" ADD COLUMN "deleted_at" DATETIME')
   await ensureColumn(client, 'autopilot_runs', 'result_seen_at', 'ALTER TABLE "autopilot_runs" ADD COLUMN "result_seen_at" DATETIME')
   await ensureColumn(client, 'autopilot_runs', 'attempt', 'ALTER TABLE "autopilot_runs" ADD COLUMN "attempt" INTEGER NOT NULL DEFAULT 1')
 }
