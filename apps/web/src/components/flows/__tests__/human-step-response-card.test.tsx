@@ -70,4 +70,31 @@ describe('HumanStepResponseCard', () => {
 
     expect(container.textContent).toBe('')
   })
+
+  it('renders without optional instructions', () => {
+    const runWithoutInstructions: FlowRunListItem = {
+      ...run,
+      steps: [{ ...run.steps[0], input: 'review' }],
+    }
+
+    render(<HumanStepResponseCard run={runWithoutInstructions} slug="alice" />)
+
+    expect(screen.getByText('Waiting for human input')).toBeTruthy()
+    expect(screen.queryByText('Approve or reject.')).toBeNull()
+  })
+
+  it('shows API and network errors while submitting', async () => {
+    clientMocks.submitHumanResponseRequest.mockResolvedValueOnce({ ok: false, error: 'run_not_waiting_for_human' })
+    render(<HumanStepResponseCard run={run} slug="alice" />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Submit and resume' }))
+    await waitFor(() => expect(screen.getByText('run_not_waiting_for_human')).toBeTruthy())
+    cleanup()
+
+    clientMocks.submitHumanResponseRequest.mockRejectedValueOnce(new Error('offline'))
+    render(<HumanStepResponseCard run={run} slug="alice" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Submit and resume' }))
+
+    await waitFor(() => expect(screen.getByText('network_error')).toBeTruthy())
+  })
 })

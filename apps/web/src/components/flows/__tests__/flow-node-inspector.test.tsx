@@ -49,6 +49,43 @@ describe('FlowNodeInspector', () => {
     }))
   })
 
+  it('updates existing outgoing targets and clears them', () => {
+    const onUpdateDefinition = vi.fn()
+    const definitionWithEdge: FlowDefinition = {
+      ...definition,
+      edges: [{ id: 'edge-1', sourceNodeId: 'agent-1', targetNodeId: 'human-1' }],
+    }
+    render(
+      <FlowNodeInspector
+        agents={[]}
+        definition={definitionWithEdge}
+        selectedNode={definitionWithEdge.nodes[0]}
+        onDeleteNode={vi.fn()}
+        onUpdateDefinition={onUpdateDefinition}
+        onUpdateNode={vi.fn()}
+      />,
+    )
+
+    fireEvent.change(screen.getByLabelText('Next node'), { target: { value: 'merge-1' } })
+    expect(onUpdateDefinition).toHaveBeenCalledWith(expect.objectContaining({
+      edges: [expect.objectContaining({ id: 'edge-1', targetNodeId: 'merge-1' })],
+    }))
+
+    fireEvent.change(screen.getByLabelText('Next node'), { target: { value: '' } })
+    expect(onUpdateDefinition).toHaveBeenCalledWith(expect.objectContaining({ edges: [] }))
+  })
+
+  it('updates human node fields', () => {
+    const onUpdateNode = vi.fn()
+    render(<FlowNodeInspector agents={[]} definition={definition} selectedNode={definition.nodes[1]} onDeleteNode={vi.fn()} onUpdateDefinition={vi.fn()} onUpdateNode={onUpdateNode} />)
+
+    fireEvent.change(screen.getByLabelText('Instructions'), { target: { value: 'Approve this output' } })
+    expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({ instructions: 'Approve this output' }))
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Require response' }))
+    expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({ required: false }))
+  })
+
   it('updates condition rules and mode', () => {
     const onUpdateNode = vi.fn()
     render(<FlowNodeInspector agents={[]} definition={definition} selectedNode={definition.nodes[2]} onDeleteNode={vi.fn()} onUpdateDefinition={vi.fn()} onUpdateNode={onUpdateNode} />)
@@ -60,6 +97,23 @@ describe('FlowNodeInspector', () => {
 
     fireEvent.change(screen.getByLabelText('Mode'), { target: { value: 'ai' } })
     expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({ mode: 'ai' }))
+  })
+
+  it('adds rules and updates AI evaluator prompts', () => {
+    const onUpdateNode = vi.fn()
+    render(<FlowNodeInspector agents={[]} definition={definition} selectedNode={definition.nodes[2]} onDeleteNode={vi.fn()} onUpdateDefinition={vi.fn()} onUpdateNode={onUpdateNode} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add rule' }))
+    expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({
+      rules: [expect.any(Object), expect.objectContaining({ targetNodeId: 'agent-1' })],
+    }))
+
+    cleanup()
+
+    const aiCondition = { ...definition.nodes[2], evaluatorPrompt: 'Pick one', mode: 'ai' as const }
+    render(<FlowNodeInspector agents={[]} definition={definition} selectedNode={aiCondition} onDeleteNode={vi.fn()} onUpdateDefinition={vi.fn()} onUpdateNode={onUpdateNode} />)
+    fireEvent.change(screen.getByLabelText('Evaluator prompt'), { target: { value: 'Choose carefully' } })
+    expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({ evaluatorPrompt: 'Choose carefully' }))
   })
 
   it('documents merge nodes as pass-through markers', () => {

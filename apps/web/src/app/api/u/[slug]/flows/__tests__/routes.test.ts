@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   updateFlowByIdAndUserId: vi.fn(),
   validateDesktopToken: vi.fn(),
   validateFlowPayload: vi.fn(),
+  validateFlowSlackNotificationAccess: vi.fn(),
   validateSameOrigin: vi.fn(),
 }))
 
@@ -35,6 +36,7 @@ vi.mock('@/lib/runtime/desktop/token', () => ({
 }))
 vi.mock('@/lib/auth', () => ({ auditEvent: mocks.auditEvent }))
 vi.mock('@/lib/flows/payload', () => ({ validateFlowPayload: mocks.validateFlowPayload }))
+vi.mock('@/lib/flows/route-auth', () => ({ validateFlowSlackNotificationAccess: mocks.validateFlowSlackNotificationAccess }))
 vi.mock('@/lib/flows/runner', () => ({
   resumeFlowRun: mocks.resumeFlowRun,
   triggerFlowNow: mocks.triggerFlowNow,
@@ -159,6 +161,7 @@ describe('Flow API routes', () => {
     mocks.isDesktop.mockReturnValue(false)
     mocks.validateDesktopToken.mockReturnValue(true)
     mocks.validateSameOrigin.mockReturnValue({ ok: true })
+    mocks.validateFlowSlackNotificationAccess.mockResolvedValue({ ok: true })
     mocks.findIdBySlug.mockResolvedValue({ id: 'user-1' })
     mocks.auditEvent.mockResolvedValue(undefined)
     mocks.validateFlowPayload.mockResolvedValue({
@@ -196,6 +199,48 @@ describe('Flow API routes', () => {
     expect(mocks.auditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'flows.flow_created' }))
   })
 
+  it('triggers enabled flows after creation and logs trigger failures', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const flow = { ...createFlowRecord(), cronExpression: '0 9 * * 1', enabled: true }
+    mocks.validateFlowPayload.mockResolvedValue({
+      ok: true,
+      value: {
+        cronExpression: '0 9 * * 1',
+        definition: createDefaultFlowDefinition(),
+        description: null,
+        enabled: true,
+        name: 'Flow',
+        timezone: 'UTC',
+      },
+    })
+    mocks.createFlow.mockResolvedValue(flow)
+    mocks.findFlowByIdAndUserId.mockResolvedValue(flow)
+    mocks.triggerFlowNow.mockResolvedValue({ ok: false, error: 'flow_busy' })
+
+    const response = await POST_FLOW(request('/api/u/alice/flows', 'POST', { name: 'Flow' }), params({ slug: 'alice' }))
+
+    expect(response.status).toBe(201)
+    expect(mocks.triggerFlowNow).toHaveBeenCalledWith({ flowId: 'flow-1', trigger: 'on_create', userId: 'user-1' })
+    expect(consoleError).toHaveBeenCalledWith('[flows] Failed to trigger initial flow run', expect.objectContaining({ flowId: 'flow-1', reason: 'flow_busy' }))
+  })
+
+  it('rejects invalid create requests before writing', async () => {
+    mocks.validateFlowPayload.mockResolvedValueOnce({ ok: false, error: 'invalid_name', status: 400 })
+
+    expect((await POST_FLOW(request('/api/u/alice/flows', 'POST', { name: '' }), params({ slug: 'alice' }))).status).toBe(400)
+    expect((await POST_FLOW(request('/api/u/alice/flows', 'POST', undefined), params({ slug: 'alice' }))).status).toBe(400)
+  })
+
+  it('maps create authorization and detail lookup failures', async () => {
+    const flow = createFlowRecord()
+    mocks.validateFlowSlackNotificationAccess.mockResolvedValueOnce({ ok: false, error: 'slack_integration_disabled', status: 400 })
+    expect((await POST_FLOW(request('/api/u/alice/flows', 'POST', { name: 'Flow' }), params({ slug: 'alice' }))).status).toBe(400)
+
+    mocks.createFlow.mockResolvedValue(flow)
+    mocks.findFlowByIdAndUserId.mockResolvedValue(null)
+    expect((await POST_FLOW(request('/api/u/alice/flows', 'POST', { name: 'Flow' }), params({ slug: 'alice' }))).status).toBe(404)
+  })
+
   it('reads, updates, and deletes a flow', async () => {
     const flow = createFlowRecord()
     mocks.findFlowByIdAndUserId.mockResolvedValue(flow)
@@ -208,6 +253,78 @@ describe('Flow API routes', () => {
       .toBe(200)
     expect((await DELETE_FLOW(request('/api/u/alice/flows/flow-1', 'DELETE'), params({ id: 'flow-1', slug: 'alice' }))).status)
       .toBe(200)
+  })
+
+  it('rejects invalid updates before writing', async () => {
+    const flow = createFlowRecord()
+    mocks.findFlowByIdAndUserId.mockResolvedValue(flow)
+    mocks.validateFlowPayload.mockResolvedValueOnce({ ok: false, error: 'invalid_name', status: 400 })
+
+    expect((await PATCH_FLOW(request('/api/u/alice/flows/flow-1', 'PATCH', { name: '' }), params({ id: 'flow-1', slug: 'alice' }))).status)
+      .toBe(400)
+    expect((await PATCH_FLOW(request('/api/u/alice/flows/flow-1', 'PATCH', undefined), params({ id: 'flow-1', slug: 'alice' }))).status)
+      .toBe(400)
+  })
+
+  it('validates update schedules and Slack notification targets', async () => {
+    const flow = createFlowRecord()
+    mocks.findFlowByIdAndUserId.mockResolvedValue(flow)
+    mocks.validateFlowPayload.mockResolvedValueOnce({
+      ok: true,
+      value: { enabled: true, name: 'Flow' },
+    })
+    expect((await PATCH_FLOW(request('/api/u/alice/flows/flow-1', 'PATCH', { enabled: true }), params({ id: 'flow-1', slug: 'alice' }))).status)
+      .toBe(400)
+
+    mocks.validateFlowPayload.mockResolvedValueOnce({
+      ok: true,
+      value: { cronExpression: 'not cron', enabled: true, name: 'Flow', timezone: 'UTC' },
+    })
+    expect((await PATCH_FLOW(request('/api/u/alice/flows/flow-1', 'PATCH', { cronExpression: 'not cron', enabled: true }), params({ id: 'flow-1', slug: 'alice' }))).status)
+      .toBe(400)
+
+    mocks.validateFlowPayload.mockResolvedValueOnce({
+      ok: true,
+      value: { name: 'Flow', slackNotificationConfig: { enabled: true, includeSessionLink: true, targets: [{ type: 'dm', userId: 'user-2' }] } },
+    })
+    mocks.validateFlowSlackNotificationAccess.mockResolvedValueOnce({ ok: false, error: 'slack_notification_dm_target_forbidden', status: 403 })
+    expect((await PATCH_FLOW(request('/api/u/alice/flows/flow-1', 'PATCH', { name: 'Flow' }), params({ id: 'flow-1', slug: 'alice' }))).status)
+      .toBe(403)
+  })
+
+  it('clears schedules and Slack notification config on update', async () => {
+    const flow = { ...createFlowRecord(), cronExpression: '0 9 * * 1', enabled: true }
+    const updated = { ...flow, cronExpression: null, enabled: false, nextRunAt: null, slackNotificationConfig: null }
+    mocks.findFlowByIdAndUserId.mockResolvedValueOnce(flow).mockResolvedValueOnce(updated)
+    mocks.updateFlowByIdAndUserId.mockResolvedValue(updated)
+    mocks.validateFlowPayload.mockResolvedValue({
+      ok: true,
+      value: { cronExpression: null, enabled: false, name: 'Flow', slackNotificationConfig: null },
+    })
+
+    const response = await PATCH_FLOW(request('/api/u/alice/flows/flow-1', 'PATCH', { enabled: false }), params({ id: 'flow-1', slug: 'alice' }))
+
+    expect(response.status).toBe(200)
+    expect(mocks.updateFlowByIdAndUserId).toHaveBeenCalledWith('flow-1', 'user-1', expect.objectContaining({
+      nextRunAt: null,
+      slackNotificationConfig: null,
+    }))
+  })
+
+  it('maps update and delete misses to not found', async () => {
+    const flow = createFlowRecord()
+    mocks.findFlowByIdAndUserId.mockResolvedValueOnce(null)
+    expect((await PATCH_FLOW(request('/api/u/alice/flows/flow-1', 'PATCH', { name: 'Flow' }), params({ id: 'flow-1', slug: 'alice' }))).status)
+      .toBe(404)
+
+    mocks.findFlowByIdAndUserId.mockResolvedValueOnce(flow).mockResolvedValueOnce(null)
+    mocks.updateFlowByIdAndUserId.mockResolvedValue(flow)
+    expect((await PATCH_FLOW(request('/api/u/alice/flows/flow-1', 'PATCH', { name: 'Flow' }), params({ id: 'flow-1', slug: 'alice' }))).status)
+      .toBe(404)
+
+    mocks.deleteFlowByIdAndUserId.mockResolvedValue({ count: 0 })
+    expect((await DELETE_FLOW(request('/api/u/alice/flows/flow-1', 'DELETE'), params({ id: 'flow-1', slug: 'alice' }))).status)
+      .toBe(404)
   })
 
   it('starts manual runs and maps busy responses', async () => {
@@ -241,5 +358,16 @@ describe('Flow API routes', () => {
       .toBe(200)
     expect((await POST_HUMAN_RESPONSE(request('/api/u/alice/flows/runs/run-1/human-response', 'POST', { response: 'Approved' }), params({ runId: 'run-1', slug: 'alice' }))).status)
       .toBe(202)
+  })
+
+  it('rejects invalid human responses and maps resume failures', async () => {
+    expect((await POST_HUMAN_RESPONSE(request('/api/u/alice/flows/runs/run-1/human-response', 'POST', { response: 42 }), params({ runId: 'run-1', slug: 'alice' }))).status)
+      .toBe(400)
+    expect((await POST_HUMAN_RESPONSE(request('/api/u/alice/flows/runs/run-1/human-response', 'POST', undefined), params({ runId: 'run-1', slug: 'alice' }))).status)
+      .toBe(400)
+
+    mocks.resumeFlowRun.mockResolvedValue({ ok: false, error: 'flow_busy' })
+    expect((await POST_HUMAN_RESPONSE(request('/api/u/alice/flows/runs/run-1/human-response', 'POST', { response: 'Approved' }), params({ runId: 'run-1', slug: 'alice' }))).status)
+      .toBe(409)
   })
 })
