@@ -22,6 +22,7 @@ export type AutopilotTaskRecord = {
   slackNotificationConfig?: Prisma.JsonValue | null
   createdAt: Date
   updatedAt: Date
+  deletedAt: Date | null
 }
 
 export type AutopilotRunRecord = {
@@ -141,7 +142,7 @@ function claimAvailabilityWhere(
 
 export async function listTasksByUserId(userId: string): Promise<AutopilotTaskListRecord[]> {
   return prisma.autopilotTask.findMany({
-    where: { userId },
+    where: { deletedAt: null, userId },
     include: TASK_RUN_INCLUDE,
     orderBy: [
       { enabled: 'desc' },
@@ -153,7 +154,7 @@ export async function listTasksByUserId(userId: string): Promise<AutopilotTaskLi
 
 export async function findTaskByIdAndUserId(id: string, userId: string): Promise<AutopilotTaskDetailRecord | null> {
   return prisma.autopilotTask.findFirst({
-    where: { id, userId },
+    where: { deletedAt: null, id, userId },
     include: TASK_DETAIL_INCLUDE,
   })
 }
@@ -209,15 +210,25 @@ export async function updateTaskByIdAndUserId(
   }
 
   const result = await prisma.autopilotTask.updateMany({
-    where: { id, userId },
+    where: { deletedAt: null, id, userId },
     data: updateData,
   })
   if (result.count === 0) return null
-  return prisma.autopilotTask.findFirst({ where: { id, userId } })
+  return prisma.autopilotTask.findFirst({ where: { deletedAt: null, id, userId } })
 }
 
-export function deleteTaskByIdAndUserId(id: string, userId: string) {
-  return prisma.autopilotTask.deleteMany({ where: { id, userId } })
+export function deleteTaskByIdAndUserId(id: string, userId: string, deletedAt = new Date()) {
+  return prisma.autopilotTask.updateMany({
+    where: { deletedAt: null, id, userId },
+    data: {
+      deletedAt,
+      enabled: false,
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      retryAttempt: 0,
+      retryScheduledFor: null,
+    },
+  })
 }
 
 export async function claimNextDueTask(params: {
@@ -229,6 +240,7 @@ export async function claimNextDueTask(params: {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const task = await prisma.autopilotTask.findFirst({
       where: {
+        deletedAt: null,
         enabled: true,
         nextRunAt: { lte: params.now },
         ...claimAvailabilityWhere(params.now, 'per_user'),
@@ -251,6 +263,7 @@ export async function claimNextDueTask(params: {
     const leaseExpiresAt = new Date(params.now.getTime() + params.leaseMs)
     const claimed = await prisma.autopilotTask.updateMany({
       where: {
+        deletedAt: null,
         id: task.id,
         enabled: true,
         nextRunAt: task.nextRunAt,
@@ -295,6 +308,7 @@ export async function claimTaskForImmediateRun(params: {
   const concurrencyPolicy = params.concurrencyPolicy ?? 'task_only'
   const task = await prisma.autopilotTask.findFirst({
     where: {
+      deletedAt: null,
       id: params.id,
       ...(params.userId ? { userId: params.userId } : {}),
       ...claimAvailabilityWhere(params.now, concurrencyPolicy),
@@ -308,6 +322,7 @@ export async function claimTaskForImmediateRun(params: {
   const leaseExpiresAt = new Date(params.now.getTime() + params.leaseMs)
   const claimed = await prisma.autopilotTask.updateMany({
     where: {
+      deletedAt: null,
       id: task.id,
       ...(params.userId ? { userId: params.userId } : {}),
       ...claimAvailabilityWhere(params.now, concurrencyPolicy),

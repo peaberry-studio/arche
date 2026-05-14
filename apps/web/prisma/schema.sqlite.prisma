@@ -252,10 +252,10 @@ model AutopilotTask {
 
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
 
   runs           AutopilotRun[]
 
-  @@unique([userId, name])
   @@index([userId])
   @@index([enabled, nextRunAt])
   @@index([leaseExpiresAt])
