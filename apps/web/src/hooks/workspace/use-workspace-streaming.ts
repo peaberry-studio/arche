@@ -453,7 +453,7 @@ export function useWorkspaceStreaming({
 
       let assistantMessageId: string | null =
         mode === "resume" ? targetMessageId : null;
-      let runId = existingRunId ?? null;
+      const runId = existingRunId ?? null;
       const bufferedParts = new Map<string, MessagePart[]>();
       const textAccumulatorByPart = new Map<string, string>();
       let streamCompleted = false;
@@ -563,41 +563,17 @@ export function useWorkspaceStreaming({
       };
 
       try {
-        if (mode === "send" && !runId) {
-          const startResponse = await fetch(`/api/w/${slug}/chat/runs`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              sessionId,
-              text,
-              model,
-              attachments,
-              contextPaths,
-            }),
-          });
-
-          if (!startResponse.ok) {
-            const error = await startResponse
-              .json()
-              .catch(() => ({ error: "Failed to start message" }));
-            throw new Error(error.error || "Failed to start message");
-          }
-
-          const started = await startResponse.json();
-          if (typeof started.runId !== "string" || started.runId.length === 0) {
-            throw new Error("missing_run_id");
-          }
-          runId = started.runId;
-        }
-
         const response = await fetch(`/api/w/${slug}/chat/stream`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             sessionId,
-            runId,
+            ...(runId ? { runId } : {}),
             resume: mode === "resume",
             messageId: mode === "resume" ? targetMessageId : undefined,
+            ...(mode === "send" && !runId
+              ? { text, model, attachments, contextPaths }
+              : {}),
           }),
           signal: abortController.signal,
         });

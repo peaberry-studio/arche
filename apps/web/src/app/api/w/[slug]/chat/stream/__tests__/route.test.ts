@@ -10,7 +10,9 @@ const mocks = vi.hoisted(() => ({
 
   instanceService: { findCredentialsBySlug: vi.fn() },
   messageRunService: {
+    createActiveRunAfterRuntimeStateCheck: vi.fn(),
     findRunById: vi.fn(),
+    markRunAborted: vi.fn(),
     markRunFailed: vi.fn(),
     markRunSucceeded: vi.fn(),
   },
@@ -153,6 +155,20 @@ describe('POST /api/w/[slug]/chat/stream', () => {
       startedAt: new Date(),
       finishedAt: null,
     })
+    mocks.messageRunService.createActiveRunAfterRuntimeStateCheck.mockResolvedValue({
+      ok: true,
+      run: {
+        id: 'run-started',
+        slug: 'alice',
+        sessionId: 's1',
+        source: 'web',
+        status: 'running',
+        error: null,
+        startedAt: new Date('2026-05-13T12:00:00.000Z'),
+        finishedAt: null,
+      },
+    })
+    mocks.messageRunService.markRunAborted.mockResolvedValue(undefined)
     mocks.messageRunService.markRunFailed.mockResolvedValue(undefined)
     mocks.messageRunService.markRunSucceeded.mockResolvedValue(undefined)
   })
@@ -170,6 +186,15 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     return new NextRequest(`http://localhost/api/w/${slug}/chat/stream`, {
       method: 'POST',
       body: JSON.stringify(requestBody),
+      headers: { 'Content-Type': 'application/json' },
+      signal,
+    })
+  }
+
+  function makeStartPostRequest(body: unknown, slug = 'alice', signal?: AbortSignal) {
+    return new NextRequest(`http://localhost/api/w/${slug}/chat/stream`, {
+      method: 'POST',
+      body: JSON.stringify(body),
       headers: { 'Content-Type': 'application/json' },
       signal,
     })
@@ -239,6 +264,45 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     expect(json.error).toBe('missing_fields')
   })
 
+  it('rejects prompt input when observing an existing run', async () => {
+    vi.stubGlobal('fetch', vi.fn())
+
+    const { POST } = await import('../route')
+    const res = await POST(makeStartPostRequest({ sessionId: 's1', runId: 'run-1', text: 'ignored' }), params())
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: 'invalid_stream_payload' })
+    expect(mocks.messageRunService.findRunById).not.toHaveBeenCalled()
+  })
+
+  it('rejects too many attachments before creating a new run', async () => {
+    const { POST } = await import('../route')
+    const res = await POST(makeStartPostRequest({
+      sessionId: 's1',
+      attachments: Array.from({ length: 11 }, (_, index) => ({ path: `.arche/attachments/${index}.txt` })),
+    }), params())
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: 'too_many_attachments' })
+    expect(mocks.messageRunService.createActiveRunAfterRuntimeStateCheck).not.toHaveBeenCalled()
+  })
+
+  it('marks a new run failed when prompt building rejects an attachment', async () => {
+    mocks.isWorkspaceAttachmentPath.mockReturnValue(false)
+    vi.stubGlobal('fetch', vi.fn())
+
+    const { POST } = await import('../route')
+    const res = await POST(makeStartPostRequest({
+      sessionId: 's1',
+      text: 'Hi',
+      attachments: [{ path: '/tmp/nope.txt' }],
+    }), params())
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: 'invalid_attachment_path' })
+    expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith('run-started', 'invalid_attachment_path')
+  })
+
   it('returns 404 when run is not found', async () => {
     mocks.messageRunService.findRunById.mockResolvedValue(null)
     const { POST } = await import('../route')
@@ -296,6 +360,226 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     const { POST } = await import('../route')
     const res = await POST(makePostRequest({ sessionId: 's1', text: 'hi' }), params())
     expect(res.status).toBe(401)
+  })
+
+  it('subscribes to events before starting a new prompt', async () => {
+    const calls: string[] = []
+    const fetchMock = vi.fn((url: string | URL, init?: RequestInit) => {
+      const href = String(url)
+      calls.push(`${init?.method ?? 'GET'} ${href}`)
+
+      if (href === 'http://test-slug:3000/event') {
+        return Promise.resolve(new Response(eventStream([
+          {
+            type: 'message.updated',
+            properties: { info: { id: 'm1', role: 'assistant', sessionID: 's1' } },
+          },
+          {
+            type: 'message.part.updated',
+            properties: { part: { id: 'p1', messageID: 'm1', sessionID: 's1', type: 'text' } },
+          },
+          { type: 'session.idle', properties: { info: { sessionID: 's1' } } },
+        ]), { status: 200 }))
+      }
+
+      if (href === 'http://test-slug:3000/session/s1/prompt_async') {
+        return Promise.resolve(new Response('', { status: 200 }))
+      }
+
+      return Promise.reject(new Error(`unexpected fetch ${init?.method ?? 'GET'} ${href}`))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    mocks.resolveRuntimeProviderId.mockImplementation((id: string) => `runtime:${id}`)
+
+    const { POST } = await import('../route')
+    const res = await POST(makeStartPostRequest({
+      sessionId: 's1',
+      text: 'Hi',
+      model: { providerId: 'openai', modelId: 'gpt-5.2' },
+    }), params())
+
+    await expect(res.text()).resolves.toContain('event: done')
+    expect(calls[0]).toBe('GET http://test-slug:3000/event')
+    expect(calls).toContain('POST http://test-slug:3000/session/s1/prompt_async')
+    expect(calls.indexOf('GET http://test-slug:3000/event')).toBeLessThan(
+      calls.indexOf('POST http://test-slug:3000/session/s1/prompt_async'),
+    )
+    expect(mocks.messageRunService.createActiveRunAfterRuntimeStateCheck).toHaveBeenCalledWith({
+      readRuntimeSessionState: expect.any(Function),
+      slug: 'alice',
+      sessionId: 's1',
+      source: 'web',
+    })
+    const promptCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/session/s1/prompt_async'))
+    expect(JSON.parse(String(promptCall?.[1]?.body))).toEqual({
+      parts: [{ type: 'text', text: 'Hi' }],
+      model: { providerID: 'runtime:openai', modelID: 'gpt-5.2' },
+    })
+    expect(mocks.messageRunService.markRunSucceeded).toHaveBeenCalledWith('run-started')
+  })
+
+  it('sends built PDF and image attachment parts to prompt_async after subscribing', async () => {
+    mocks.isPdfMime.mockImplementation((mime: string) => mime === 'application/pdf')
+    mocks.extractPdfText.mockResolvedValue({ ok: true, text: 'PDF body', truncated: false })
+    mocks.workspaceAgentFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          ok: true,
+          content: Buffer.from('pdf bytes').toString('base64'),
+          encoding: 'base64',
+        },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          ok: true,
+          content: 'image bytes',
+          encoding: 'utf-8',
+        },
+      })
+    const calls: string[] = []
+    const fetchMock = vi.fn((url: string | URL, init?: RequestInit) => {
+      const href = String(url)
+      calls.push(`${init?.method ?? 'GET'} ${href}`)
+
+      if (href === 'http://test-slug:3000/event') {
+        return Promise.resolve(new Response(eventStream([
+          {
+            type: 'message.updated',
+            properties: { info: { id: 'm1', role: 'assistant', sessionID: 's1' } },
+          },
+          {
+            type: 'message.part.updated',
+            properties: { part: { id: 'p1', messageID: 'm1', sessionID: 's1', type: 'text' } },
+          },
+          { type: 'session.idle', properties: { info: { sessionID: 's1' } } },
+        ]), { status: 200 }))
+      }
+
+      if (href === 'http://test-slug:3000/session/s1/prompt_async') {
+        return Promise.resolve(new Response('', { status: 200 }))
+      }
+
+      return Promise.reject(new Error(`unexpected fetch ${init?.method ?? 'GET'} ${href}`))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('../route')
+    const res = await POST(makeStartPostRequest({
+      sessionId: 's1',
+      text: 'Summarize these files',
+      attachments: [
+        { path: '.arche/attachments/report.pdf', filename: 'report.pdf', mime: 'application/pdf' },
+        { path: '.arche/attachments/screenshot.png', filename: 'screenshot.png', mime: 'image/png' },
+      ],
+    }), params())
+
+    await expect(res.text()).resolves.toContain('event: done')
+    expect(calls.indexOf('GET http://test-slug:3000/event')).toBeLessThan(
+      calls.indexOf('POST http://test-slug:3000/session/s1/prompt_async'),
+    )
+    const promptCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/session/s1/prompt_async'))
+    const promptBody = JSON.parse(String(promptCall?.[1]?.body))
+
+    expect(promptBody.parts).toContainEqual({ type: 'text', text: 'Summarize these files' })
+    expect(promptBody.parts).toContainEqual({
+      type: 'file',
+      mime: 'image/png',
+      filename: 'screenshot.png',
+      url: `data:image/png;base64,${Buffer.from('image bytes').toString('base64')}`,
+    })
+    expect(promptBody.parts.some((part: { text?: string }) =>
+      part.text?.includes('Extracted text from attached PDF') && part.text.includes('PDF body'),
+    )).toBe(true)
+    expect(promptBody.parts.some((part: { text?: string }) =>
+      part.text?.includes('Attached workspace files:') && part.text.includes('/workspace/.arche/attachments/report.pdf'),
+    )).toBe(true)
+  })
+
+  it('rejects concurrent prompt starts without subscribing or calling prompt_async', async () => {
+    mocks.messageRunService.createActiveRunAfterRuntimeStateCheck.mockResolvedValueOnce({
+      ok: false,
+      error: 'session_busy',
+      activeRun: {
+        id: 'run-active',
+        slug: 'alice',
+        sessionId: 's1',
+        source: 'web',
+        status: 'running',
+        error: null,
+        startedAt: new Date('2026-05-13T12:00:00.000Z'),
+        finishedAt: null,
+      },
+    })
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('../route')
+    const res = await POST(makeStartPostRequest({ sessionId: 's1', text: 'Hi' }), params())
+
+    expect(res.status).toBe(409)
+    await expect(res.json()).resolves.toEqual({
+      error: 'session_busy',
+      activeRun: {
+        runId: 'run-active',
+        sessionId: 's1',
+        source: 'web',
+        status: 'running',
+        startedAt: '2026-05-13T12:00:00.000Z',
+      },
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('marks a new run failed when prompt startup fails after subscription', async () => {
+    const calls: string[] = []
+    const fetchMock = vi.fn((url: string | URL, init?: RequestInit) => {
+      const href = String(url)
+      calls.push(`${init?.method ?? 'GET'} ${href}`)
+
+      if (href === 'http://test-slug:3000/event') {
+        return Promise.resolve(new Response(new ReadableStream<Uint8Array>(), { status: 200 }))
+      }
+
+      if (href === 'http://test-slug:3000/session/s1/prompt_async') {
+        return Promise.resolve(new Response('bad prompt', { status: 500 }))
+      }
+
+      return Promise.reject(new Error(`unexpected fetch ${init?.method ?? 'GET'} ${href}`))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { POST } = await import('../route')
+    const res = await POST(makeStartPostRequest({ sessionId: 's1', text: 'Hi' }), params())
+
+    await expect(res.text()).resolves.toContain('Failed to start message: bad prompt')
+    expect(calls.indexOf('GET http://test-slug:3000/event')).toBeLessThan(
+      calls.indexOf('POST http://test-slug:3000/session/s1/prompt_async'),
+    )
+    expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith(
+      'run-started',
+      'Failed to start message: bad prompt',
+    )
+  })
+
+  it('marks a new run failed when the upstream event subscription fails', async () => {
+    vi.stubGlobal('fetch', vi.fn((url: string | URL) => {
+      if (String(url) === 'http://test-slug:3000/event') {
+        return Promise.resolve(new Response('', { status: 500 }))
+      }
+
+      return Promise.reject(new Error(`unexpected fetch ${String(url)}`))
+    }))
+
+    const { POST } = await import('../route')
+    const res = await POST(makeStartPostRequest({ sessionId: 's1', text: 'Hi' }), params())
+
+    await expect(res.text()).resolves.toContain('Failed to connect to event stream')
+    expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith(
+      'run-started',
+      'event_stream_unavailable',
+    )
   })
 
   it('streams assistant status, parts, metadata, workspace updates, and completion', async () => {
@@ -376,9 +660,7 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     const { POST } = await import('../route')
     const res = await POST(makePostRequest({
       sessionId: 's1',
-      text: 'Hi',
-      model: { providerId: 'openai', modelId: 'gpt-5.2' },
-      contextPaths: [' notes/a.md ', 'notes/a.md', 'invalid/../path'],
+      runId: 'run-1',
     }), params())
 
     const text = await res.text()
@@ -422,7 +704,7 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const { POST } = await import('../route')
-    const res = await POST(makePostRequest({ sessionId: 's1', text: 'Hi' }), params())
+    const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
 
     const text = await res.text()
 
@@ -467,7 +749,7 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const { POST } = await import('../route')
-    const res = await POST(makePostRequest({ sessionId: 's1', text: 'Hi' }), params())
+    const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
 
     const text = await res.text()
 
@@ -509,7 +791,7 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const { POST } = await import('../route')
-    const res = await POST(makePostRequest({ sessionId: 's1', text: 'Hi' }), params())
+    const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
 
     const text = await res.text()
 
@@ -522,7 +804,7 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 500 })))
 
     const { POST } = await import('../route')
-    const res = await POST(makePostRequest({ sessionId: 's1', text: 'hi' }), params())
+    const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
 
     await expect(res.text()).resolves.toContain('Failed to connect to event stream')
   })
@@ -531,9 +813,74 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('stream down')))
 
     const { POST } = await import('../route')
-    const res = await POST(makePostRequest({ sessionId: 's1', text: 'hi' }), params())
+    const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
 
     await expect(res.text()).resolves.toContain('stream down')
+  })
+
+  it('keeps waiting through delegated silence while upstream is busy and finalizes once idle', async () => {
+    vi.useFakeTimers()
+    try {
+      const readStatus = vi.fn()
+        .mockResolvedValueOnce('busy')
+        .mockResolvedValueOnce('idle')
+      mocks.createUpstreamSessionStatusReader.mockReturnValue(readStatus)
+      mocks.getSilentStreamOutcome.mockImplementation(({ upstreamStatus }: { upstreamStatus: string | null }) => (
+        upstreamStatus === 'idle' ? 'finalize_idle' : 'keep_waiting'
+      ))
+      vi.stubGlobal('fetch', vi.fn((url: string | URL) => {
+        if (String(url) === 'http://test-slug:3000/event') {
+          return Promise.resolve(new Response(new ReadableStream<Uint8Array>(), { status: 200 }))
+        }
+
+        return Promise.reject(new Error(`unexpected fetch ${String(url)}`))
+      }))
+
+      const { POST } = await import('../route')
+      const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
+      const textPromise = res.text()
+
+      await vi.advanceTimersByTimeAsync(21_000)
+      expect(mocks.messageRunService.markRunFailed).not.toHaveBeenCalledWith('run-1', 'stream_timeout')
+
+      await vi.advanceTimersByTimeAsync(21_000)
+      const text = await textPromise
+
+      expect(text).toContain('event: done')
+      expect(text).not.toContain('stream_timeout')
+      expect(readStatus).toHaveBeenCalledTimes(2)
+      expect(mocks.messageRunService.markRunSucceeded).toHaveBeenCalledWith('run-1')
+      expect(mocks.messageRunService.markRunFailed).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('marks the run failed when the watchdog reports a real stream timeout', async () => {
+    vi.useFakeTimers()
+    try {
+      mocks.createUpstreamSessionStatusReader.mockReturnValue(vi.fn().mockResolvedValue(null))
+      mocks.getSilentStreamOutcome.mockReturnValue('stream_timeout')
+      vi.stubGlobal('fetch', vi.fn((url: string | URL) => {
+        if (String(url) === 'http://test-slug:3000/event') {
+          return Promise.resolve(new Response(new ReadableStream<Uint8Array>(), { status: 200 }))
+        }
+
+        return Promise.reject(new Error(`unexpected fetch ${String(url)}`))
+      }))
+
+      const { POST } = await import('../route')
+      const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
+      const textPromise = res.text()
+
+      await vi.advanceTimersByTimeAsync(21_000)
+      const text = await textPromise
+
+      expect(text).toContain('stream_timeout')
+      expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith('run-1', 'stream_timeout')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('filters unrelated events and marks run failures from session errors', async () => {
@@ -574,7 +921,7 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const { POST } = await import('../route')
-    const res = await POST(makePostRequest({ sessionId: 's1', text: 'Hi' }), params())
+    const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
 
     const text = await res.text()
     expect(text).toContain('provider missing')

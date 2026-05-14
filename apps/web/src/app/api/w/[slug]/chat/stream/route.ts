@@ -3,11 +3,21 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getIdleFinalizationOutcome, getSilentStreamOutcome } from '@/app/api/w/[slug]/chat/stream/watchdog'
 import { createUpstreamSessionStatusReader } from '@/app/api/w/[slug]/chat/stream/status-reader'
 import { getInstanceUrl } from '@/lib/opencode/client'
-import { normalizeProviderId } from '@/lib/providers/catalog'
+import {
+  buildWorkspacePromptParts,
+  normalizeContextPaths,
+  normalizeMessageAttachments,
+  type MessageAttachmentInput,
+  type OpenCodePromptPart,
+} from '@/lib/opencode/workspace-prompt'
+import { normalizeProviderId, resolveRuntimeProviderId } from '@/lib/providers/catalog'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { instanceService, messageRunService } from '@/lib/services'
+import { MESSAGE_RUN_TIMEOUT_MS, type ActiveRunRuntimeState } from '@/lib/services/message-run'
 import { INITIAL_SSE_PARSE_STATE, parseSseChunk } from '@/lib/sse-parser'
 import { decryptPassword } from '@/lib/spawner/crypto'
+import { getWorkspaceAgentUrl } from '@/lib/workspace-agent/client'
+import { MAX_ATTACHMENTS_PER_MESSAGE } from '@/lib/workspace-attachments'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -15,6 +25,23 @@ export const dynamic = 'force-dynamic'
 const STREAM_RELEVANT_EVENT_TICK_MS = 1000
 const SEND_STREAM_RELEVANT_EVENT_TIMEOUT_MS = 20_000
 const RESUME_STREAM_RELEVANT_EVENT_TIMEOUT_MS = 12_000
+const PROMPT_START_TIMEOUT_MS = 60_000
+
+type StreamRequestBody = {
+  attachments: MessageAttachmentInput[]
+  contextPaths: string[]
+  messageId?: string
+  model?: { providerId: string; modelId: string }
+  resume: boolean
+  runId?: string
+  sessionId: string
+  text?: string
+}
+
+type PromptBody = {
+  parts: OpenCodePromptPart[]
+  model?: { providerID: string; modelID: string }
+}
 
 function jsonErrorResponse(status: number, error: string) {
   return NextResponse.json({ error }, { status })
@@ -30,6 +57,10 @@ function getString(value: unknown): string | undefined {
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError'
+}
+
+function isTimeoutError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'TimeoutError'
 }
 
 function createSseResponse(events: Array<{ event: string; data: unknown }>): Response {
@@ -69,22 +100,63 @@ function createTerminalRunResponse(status: string, error: string | null): Respon
   ])
 }
 
-function parseObserveBody(body: unknown): {
-  sessionId: string
-  runId?: string
-  resume: boolean
-  messageId?: string
-} | null {
+function parseStreamRequestBody(body: unknown): StreamRequestBody | null {
   if (!isRecord(body)) return null
 
   const sessionId = getString(body.sessionId)
   if (!sessionId) return null
 
+  const model = isRecord(body.model)
+    ? {
+        providerId: getString(body.model.providerId) ?? '',
+        modelId: getString(body.model.modelId) ?? '',
+      }
+    : undefined
+
+  const text = typeof body.text === 'string' && body.text.trim().length > 0
+    ? body.text
+    : undefined
+
   return {
-    sessionId,
-    runId: getString(body.runId),
-    resume: body.resume === true,
+    attachments: normalizeMessageAttachments(body.attachments),
+    contextPaths: normalizeContextPaths(body.contextPaths),
     messageId: getString(body.messageId),
+    model: model?.providerId && model.modelId ? model : undefined,
+    resume: body.resume === true,
+    runId: getString(body.runId),
+    sessionId,
+    text,
+  }
+}
+
+async function readRuntimeSessionState(params: {
+  authHeader: string
+  baseUrl: string
+  sessionId: string
+}): Promise<ActiveRunRuntimeState> {
+  try {
+    const response = await fetch(`${params.baseUrl}/session/status`, {
+      headers: {
+        Authorization: params.authHeader,
+        Accept: 'application/json',
+      },
+      cache: 'no-store',
+    })
+    if (!response.ok) return 'unknown'
+
+    const data: unknown = await response.json()
+    if (!isRecord(data)) return 'unknown'
+
+    const statusRecord = data[params.sessionId]
+    if (!isRecord(statusRecord)) return 'idle'
+
+    const statusType = statusRecord.type
+    if (statusType === 'busy' || statusType === 'retry') return 'busy'
+    if (statusType === 'idle') return 'idle'
+
+    return 'unknown'
+  } catch {
+    return 'unknown'
   }
 }
 
@@ -117,12 +189,45 @@ export const POST = withAuth(
       return jsonErrorResponse(400, 'invalid_json')
     }
 
-    const observeBody = parseObserveBody(body)
-    if (!observeBody || (!observeBody.resume && !observeBody.runId)) {
+    const streamBody = parseStreamRequestBody(body)
+    if (!streamBody) {
       return jsonErrorResponse(400, 'missing_fields')
     }
 
-    const { sessionId, resume, messageId, runId } = observeBody
+    const {
+      attachments,
+      contextPaths,
+      messageId,
+      model,
+      resume,
+      runId,
+      sessionId,
+      text,
+    } = streamBody
+    const startsPrompt = !resume && !runId
+    const hasPromptInput = Boolean(text) || attachments.length > 0 || contextPaths.length > 0 || Boolean(model)
+
+    if (!startsPrompt && hasPromptInput) {
+      return jsonErrorResponse(400, 'invalid_stream_payload')
+    }
+
+    if (attachments.length > MAX_ATTACHMENTS_PER_MESSAGE) {
+      return jsonErrorResponse(400, 'too_many_attachments')
+    }
+
+    if (startsPrompt && !text && attachments.length === 0) {
+      return jsonErrorResponse(400, 'missing_fields')
+    }
+
+    const password = decryptPassword(instance.serverPassword)
+    const authHeader = `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`
+    const baseUrl = getInstanceUrl(slug)
+    const workspaceAgentUrl = getWorkspaceAgentUrl(slug)
+
+    let activeRunId = runId ?? null
+    let runStartedAt = Date.now()
+    let promptBody: PromptBody | null = null
+
     if (runId) {
       const run = await messageRunService.findRunById(runId)
       if (!run || run.slug !== slug || run.sessionId !== sessionId) {
@@ -131,11 +236,63 @@ export const POST = withAuth(
       if (run.status !== 'running') {
         return createTerminalRunResponse(run.status, run.error)
       }
+      runStartedAt = run.startedAt.getTime()
     }
 
-    const password = decryptPassword(instance.serverPassword)
-    const authHeader = `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`
-    const baseUrl = getInstanceUrl(slug)
+    if (startsPrompt) {
+      const runResult = await messageRunService.createActiveRunAfterRuntimeStateCheck({
+        readRuntimeSessionState: () => readRuntimeSessionState({
+          authHeader,
+          baseUrl,
+          sessionId,
+        }),
+        sessionId,
+        slug,
+        source: 'web',
+      })
+
+      if (!runResult.ok) {
+        return NextResponse.json(
+          {
+            error: 'session_busy',
+            activeRun: runResult.activeRun
+              ? {
+                  runId: runResult.activeRun.id,
+                  sessionId: runResult.activeRun.sessionId,
+                  source: runResult.activeRun.source,
+                  status: runResult.activeRun.status,
+                  startedAt: runResult.activeRun.startedAt.toISOString(),
+                }
+              : null,
+          },
+          { status: 409 },
+        )
+      }
+
+      activeRunId = runResult.run.id
+      runStartedAt = runResult.run.startedAt.getTime()
+
+      const prompt = await buildWorkspacePromptParts({
+        agent: { baseUrl: workspaceAgentUrl, authHeader },
+        attachments,
+        contextPaths,
+        text,
+      })
+      if (!prompt.ok) {
+        await messageRunService.markRunFailed(activeRunId, prompt.error).catch(() => undefined)
+        return jsonErrorResponse(400, prompt.error)
+      }
+
+      promptBody = {
+        parts: prompt.parts,
+        ...(model && {
+          model: {
+            providerID: resolveRuntimeProviderId(model.providerId),
+            modelID: model.modelId,
+          },
+        }),
+      }
+    }
 
     // Create SSE stream
     const encoder = new TextEncoder()
@@ -150,12 +307,16 @@ export const POST = withAuth(
         // Shared reference so the abort path and finally block can always
         // clean up the active reader when it exists.
         let eventReader: ReadableStreamDefaultReader<Uint8Array> | null = null
+        let promptStarted = !startsPrompt
 
         const handleAbort = () => {
           clientGone = true
           aborted = true
           upstreamEventsController.abort()
           void eventReader?.cancel().catch(() => undefined)
+          if (startsPrompt && activeRunId && !promptStarted) {
+            void messageRunService.markRunAborted(activeRunId).catch(() => undefined)
+          }
           try { controller.close() } catch { /* already closed/errored */ }
         }
 
@@ -175,13 +336,13 @@ export const POST = withAuth(
         }
 
         const markRunSucceeded = () => {
-          if (!runId) return
-          void messageRunService.markRunSucceeded(runId).catch(() => undefined)
+          if (!activeRunId) return
+          void messageRunService.markRunSucceeded(activeRunId).catch(() => undefined)
         }
 
         const markRunFailed = (detail: string) => {
-          if (!runId) return
-          void messageRunService.markRunFailed(runId, detail).catch(() => undefined)
+          if (!activeRunId) return
+          void messageRunService.markRunFailed(activeRunId, detail).catch(() => undefined)
         }
 
         try {
@@ -209,6 +370,7 @@ export const POST = withAuth(
               })
 
               if (!eventsResponse.ok || !eventsResponse.body) {
+                markRunFailed('event_stream_unavailable')
                 sendEvent('error', { error: 'Failed to connect to event stream' })
                 return
               }
@@ -217,6 +379,7 @@ export const POST = withAuth(
               eventReader = reader
             } catch (error) {
               if (!clientGone && !isAbortError(error)) {
+                markRunFailed(error instanceof Error ? error.message : 'event_stream_unavailable')
                 sendEvent('error', {
                   error: error instanceof Error ? error.message : 'Unknown error'
                 })
@@ -232,6 +395,49 @@ export const POST = withAuth(
 
         if (!reader || clientGone || aborted) {
           return
+        }
+
+        const cancelReader = async () => {
+          await reader.cancel().catch(() => undefined)
+        }
+
+        if (startsPrompt) {
+          const promptStartSignal = AbortSignal.timeout(PROMPT_START_TIMEOUT_MS)
+          let promptResponse: Response
+          try {
+            // Once OpenCode receives the prompt it may keep running after navigation;
+            // keep the run resumable instead of marking it aborted on disconnect.
+            promptStarted = true
+            promptResponse = await fetch(`${baseUrl}/session/${sessionId}/prompt_async`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: authHeader,
+              },
+              body: JSON.stringify(promptBody),
+              signal: promptStartSignal,
+            })
+          } catch (error) {
+            const detail =
+              isTimeoutError(error) || (promptStartSignal.aborted && isAbortError(error))
+                ? 'prompt_start_timeout'
+                : error instanceof Error
+                  ? error.message
+                  : 'prompt_start_failed'
+            markRunFailed(detail)
+            sendEvent('error', { error: detail })
+            await cancelReader()
+            return
+          }
+
+          if (!promptResponse.ok) {
+            const errorText = await promptResponse.text()
+            const detail = `Failed to start message: ${errorText}`
+            markRunFailed(detail)
+            sendEvent('error', { error: detail })
+            await cancelReader()
+            return
+          }
         }
 
         // Track state for the assistant response
@@ -323,6 +529,8 @@ export const POST = withAuth(
 
                 const watchdogOutcome = getSilentStreamOutcome(
                   {
+                    maxRuntimeMs: MESSAGE_RUN_TIMEOUT_MS,
+                    runtimeMs: Date.now() - runStartedAt,
                     upstreamStatus: await readUpstreamSessionStatus(),
                     silentForMs: Date.now() - lastStreamActivityAt,
                     relevantEventTimeoutMs,
@@ -342,6 +550,7 @@ export const POST = withAuth(
 
                 emitStatus('error', undefined, 'stream_timeout')
                 sendEvent('error', { error: 'stream_timeout' })
+                markRunFailed('stream_timeout')
                 aborted = true
               }
               continue
@@ -745,6 +954,7 @@ export const POST = withAuth(
 
       } catch (error) {
         if (!aborted && !request.signal.aborted && !isAbortError(error)) {
+          markRunFailed(error instanceof Error ? error.message : 'stream_error')
           sendEvent('error', {
             error: error instanceof Error ? error.message : 'Unknown error'
           })

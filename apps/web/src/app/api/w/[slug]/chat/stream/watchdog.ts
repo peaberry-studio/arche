@@ -6,8 +6,6 @@ export type IdleFinalizationOutcome =
 
 export type SilentStreamOutcome = 'finalize_idle' | 'keep_waiting' | 'stream_timeout'
 
-const SILENT_STREAM_TIMEOUT_MULTIPLIER = 3
-
 type IdleFinalizationInput = {
   resume: boolean
   assistantMessageSeen: boolean
@@ -15,6 +13,8 @@ type IdleFinalizationInput = {
 }
 
 type SilentStreamInput = {
+  maxRuntimeMs: number
+  runtimeMs: number
   upstreamStatus: string | null
   silentForMs: number
   relevantEventTimeoutMs: number
@@ -40,18 +40,16 @@ export function getIdleFinalizationOutcome({
   return 'complete'
 }
 
-export function getSilentStreamOutcome({
-  upstreamStatus,
-  silentForMs,
-  relevantEventTimeoutMs,
-}: SilentStreamInput): SilentStreamOutcome {
-  if (upstreamStatus === 'busy' || upstreamStatus === 'retry') {
-    return silentForMs < relevantEventTimeoutMs * SILENT_STREAM_TIMEOUT_MULTIPLIER
-      ? 'keep_waiting'
-      : 'stream_timeout'
+export function getSilentStreamOutcome(input: SilentStreamInput): SilentStreamOutcome {
+  if (input.runtimeMs >= input.maxRuntimeMs) {
+    return 'stream_timeout'
   }
 
-  if (upstreamStatus === 'idle') {
+  if (input.upstreamStatus === 'busy' || input.upstreamStatus === 'retry') {
+    return 'keep_waiting'
+  }
+
+  if (input.upstreamStatus === 'idle') {
     return 'finalize_idle'
   }
 
