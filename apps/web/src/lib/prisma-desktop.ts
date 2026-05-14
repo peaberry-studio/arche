@@ -272,6 +272,10 @@ const SCHEMA_DDL = [
 
 const SCHEMA_VERSION = '7'
 
+function isCreateIndexStatement(ddl: string): boolean {
+  return /^CREATE (UNIQUE )?INDEX\b/.test(ddl.trim())
+}
+
 async function getTableColumnNames(client: DesktopPrismaClient, tableName: string): Promise<Set<string>> {
   const columns = await client.$queryRawUnsafe(`PRAGMA table_info("${tableName}")`) as Array<{ name?: string }>
   return new Set(columns.flatMap((column) => column.name ? [column.name] : []))
@@ -343,10 +347,20 @@ export async function initDesktopDatabase(): Promise<void> {
   const storedVersion = result[0]?.value
 
   for (let i = 1; i < SCHEMA_DDL.length; i++) {
-    await client.$executeRawUnsafe(SCHEMA_DDL[i])
+    const ddl = SCHEMA_DDL[i]
+    if (!isCreateIndexStatement(ddl)) {
+      await client.$executeRawUnsafe(ddl)
+    }
   }
 
   await ensureDesktopSchemaColumns(client)
+
+  for (let i = 1; i < SCHEMA_DDL.length; i++) {
+    const ddl = SCHEMA_DDL[i]
+    if (isCreateIndexStatement(ddl)) {
+      await client.$executeRawUnsafe(ddl)
+    }
+  }
 
   if (storedVersion !== SCHEMA_VERSION) {
     await client.$executeRaw`INSERT OR REPLACE INTO _arche_schema_meta (key, value) VALUES ('schema_version', ${SCHEMA_VERSION})`
@@ -364,10 +378,7 @@ export async function getDesktopPrismaClient(): Promise<DesktopPrismaClient> {
   }
 
   if (context) {
-    context.prismaClientPromise = createClient().then((client) => {
-      context.prismaClient = client as DesktopPrismaClient
-      return client
-    }) as Promise<DesktopPrismaClient>
+    context.prismaClientPromise = createClient() as Promise<DesktopPrismaClient>
 
     return context.prismaClientPromise as Promise<DesktopPrismaClient>
   }

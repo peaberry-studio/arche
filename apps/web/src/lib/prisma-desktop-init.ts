@@ -10,11 +10,15 @@ let initPromise: Promise<void> | null = null
 
 export async function initDesktopPrisma(): Promise<void> {
   const context = getDesktopVaultRuntimeContext()
-  if (context?.prismaClient) return
 
   if (context) {
+    if (context.prismaClient) return
+
     if (!context.initPromise) {
-      context.initPromise = doInit()
+      context.initPromise = doInit().catch((error) => {
+        context.initPromise = undefined
+        throw error
+      })
     }
 
     return context.initPromise
@@ -23,7 +27,10 @@ export async function initDesktopPrisma(): Promise<void> {
   if (globalThis.prismaDesktopClient) return
 
   if (!initPromise) {
-    initPromise = doInit()
+    initPromise = doInit().catch((error) => {
+      initPromise = null
+      throw error
+    })
   }
 
   return initPromise
@@ -32,11 +39,12 @@ export async function initDesktopPrisma(): Promise<void> {
 async function doInit(): Promise<void> {
   const { getDesktopPrismaClient, initDesktopDatabase } = await import('@/lib/prisma-desktop')
   const client = await getDesktopPrismaClient()
+  await initDesktopDatabase()
+
   const context = getDesktopVaultRuntimeContext()
   if (context) {
     context.prismaClient = client as PrismaClient
   } else {
     globalThis.prismaDesktopClient = client as PrismaClient
   }
-  await initDesktopDatabase()
 }

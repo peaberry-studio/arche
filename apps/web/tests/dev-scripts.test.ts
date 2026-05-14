@@ -93,4 +93,60 @@ describe('web dev scripts', () => {
     expect(deployScript).toContain('ARCHE_CONNECTOR_META_ADS_GRAPH_API_VERSION')
     expect(deployScript).toContain('ARCHE_USERS_PATH')
   })
+
+  it('keeps Cloudflare Tunnel exposure mode wired through deploy templates', () => {
+    const repoRoot = resolve(process.cwd(), '..', '..')
+    const composeTemplate = readFileSync(
+      resolve(repoRoot, 'infra', 'deploy', 'ansible', 'roles', 'app', 'templates', 'compose.yml.j2'),
+      'utf8',
+    )
+    const envTemplate = readFileSync(
+      resolve(repoRoot, 'infra', 'deploy', 'ansible', 'roles', 'app', 'templates', '.env.j2'),
+      'utf8',
+    )
+    const appTasks = readFileSync(
+      resolve(repoRoot, 'infra', 'deploy', 'ansible', 'roles', 'app', 'tasks', 'main.yml'),
+      'utf8',
+    )
+    const commonTasks = readFileSync(
+      resolve(repoRoot, 'infra', 'deploy', 'ansible', 'roles', 'common', 'tasks', 'main.yml'),
+      'utf8',
+    )
+    const autostartTemplate = readFileSync(
+      resolve(repoRoot, 'infra', 'deploy', 'ansible', 'roles', 'app', 'templates', 'arche-autostart.sh.j2'),
+      'utf8',
+    )
+    const deployScript = readFileSync(resolve(repoRoot, 'infra', 'deploy', 'deploy.sh'), 'utf8')
+
+    const tunnelEntrypointStart = composeTemplate.indexOf(
+      "{% elif deploy_mode == 'remote' and exposure_mode == 'cloudflare-tunnel' %}",
+    )
+    const tunnelEntrypointEnd = composeTemplate.indexOf('{% else %}', tunnelEntrypointStart)
+    const tunnelEntrypointBlock = composeTemplate.slice(tunnelEntrypointStart, tunnelEntrypointEnd)
+
+    expect(tunnelEntrypointStart).toBeGreaterThan(-1)
+    expect(tunnelEntrypointEnd).toBeGreaterThan(tunnelEntrypointStart)
+    expect(deployScript).toContain('--cloudflare-tunnel')
+    expect(deployScript).toContain('CLOUDFLARED_TUNNEL_TOKEN is required when --cloudflare-tunnel is used')
+    expect(deployScript).toContain('export ARCHE_PUBLIC_BASE_URL="https://${DEPLOY_DOMAIN}"')
+    expect(deployScript).toContain('REMOTE_FLAGS_SET=false')
+    expect(deployScript).toContain('REMOTE_FLAGS_SET=true')
+    expect(deployScript).toContain('elif $REMOTE_FLAGS_SET; then')
+    expect(deployScript).toContain('"exposure_mode": os.environ["EXPOSURE_MODE"]')
+    expect(deployScript).toContain(
+      '"cloudflared_tunnel_token": os.environ.get("CLOUDFLARED_TUNNEL_TOKEN", "")',
+    )
+    expect(envTemplate).toContain('CLOUDFLARED_TUNNEL_TOKEN={{ cloudflared_tunnel_token }}')
+    expect(composeTemplate).toContain('cloudflared:')
+    expect(composeTemplate).toContain('image: {{ cloudflared_image }}')
+    expect(composeTemplate).toContain('TUNNEL_TOKEN: "${CLOUDFLARED_TUNNEL_TOKEN}"')
+    expect(composeTemplate).toContain("{% if deploy_mode == 'remote' and exposure_mode == 'direct' %}")
+    expect(tunnelEntrypointBlock).not.toContain('letsencrypt')
+    expect(tunnelEntrypointBlock).not.toContain('websecure')
+    expect(appTasks).toContain("deploy_mode == 'remote' and exposure_mode == 'direct'")
+    expect(appTasks).toContain('traefik.http.routers.arche-base.entrypoints=web')
+    expect(appTasks).toContain("cloudflared{% endif %}")
+    expect(commonTasks).toContain("when: exposure_mode == 'direct'")
+    expect(autostartTemplate).toContain("cloudflared{% endif %}")
+  })
 })

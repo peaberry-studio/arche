@@ -43,6 +43,44 @@
   register: ufw_dns_tcp
   changed_when: "'Skipping adding existing rule' not in ufw_dns_tcp.stdout"
 
+- name: Allow public HTTP through UFW in direct mode
+  community.general.ufw:
+    rule: allow
+    port: "80"
+    proto: tcp
+  when:
+    - deploy_mode == 'remote'
+    - exposure_mode == 'direct'
+
+- name: Allow public HTTPS through UFW in direct mode
+  community.general.ufw:
+    rule: allow
+    port: "443"
+    proto: tcp
+  when:
+    - deploy_mode == 'remote'
+    - exposure_mode == 'direct'
+
+- name: Remove public HTTP UFW allow rule in tunnel mode
+  community.general.ufw:
+    rule: allow
+    port: "80"
+    proto: tcp
+    delete: true
+  when:
+    - deploy_mode == 'remote'
+    - exposure_mode == 'cloudflare-tunnel'
+
+- name: Remove public HTTPS UFW allow rule in tunnel mode
+  community.general.ufw:
+    rule: allow
+    port: "443"
+    proto: tcp
+    delete: true
+  when:
+    - deploy_mode == 'remote'
+    - exposure_mode == 'cloudflare-tunnel'
+
 - name: Create users data directory
   ansible.builtin.file:
     path: "{{ users_path | default('/opt/arche/users') }}"
@@ -234,7 +272,7 @@
   ansible.builtin.shell:
     cmd: >
       podman compose -f {{ app_dir }}/compose.yml --env-file {{ app_dir }}/.env
-      -p arche up -d postgres traefik docker-socket-proxy
+      -p arche up -d postgres traefik docker-socket-proxy{% if exposure_mode == 'cloudflare-tunnel' %} cloudflared{% endif %}
   changed_when: true
   when: podman_compose_check.rc == 0
 
@@ -242,7 +280,7 @@
   ansible.builtin.shell:
     cmd: >
       podman-compose -f {{ app_dir }}/compose.yml --env-file {{ app_dir }}/.env
-      -p arche up -d postgres traefik docker-socket-proxy
+      -p arche up -d postgres traefik docker-socket-proxy{% if exposure_mode == 'cloudflare-tunnel' %} cloudflared{% endif %}
   changed_when: true
   when: podman_compose_check.rc != 0
 
@@ -328,7 +366,7 @@
 - name: Build podman run command
   ansible.builtin.set_fact:
     kb_volumes: "{% if kb_content_host_path is defined and kb_content_host_path and kb_config_host_path is defined and kb_config_host_path %}-v {{ kb_content_host_path }}:/kb-content -v {{ kb_config_host_path }}:/kb-config{% endif %}"
-    traefik_labels: "{% if deploy_mode == 'remote' %}--label 'traefik.http.routers.arche-base.rule=Host(`{{ domain }}`)' --label traefik.http.routers.arche-base.entrypoints=websecure --label traefik.http.routers.arche-base.tls=true --label traefik.http.routers.arche-base.tls.certresolver=letsencrypt --label traefik.http.routers.arche-base.service=arche-web{% else %}--label 'traefik.http.routers.arche-base.rule=Host(`{{ domain }}`)' --label traefik.http.routers.arche-base.entrypoints=web --label traefik.http.routers.arche-base.service=arche-web{% endif %}"
+    traefik_labels: "{% if deploy_mode == 'remote' and exposure_mode == 'direct' %}--label 'traefik.http.routers.arche-base.rule=Host(`{{ domain }}`)' --label traefik.http.routers.arche-base.entrypoints=websecure --label traefik.http.routers.arche-base.tls=true --label traefik.http.routers.arche-base.tls.certresolver=letsencrypt --label traefik.http.routers.arche-base.service=arche-web{% else %}--label 'traefik.http.routers.arche-base.rule=Host(`{{ domain }}`)' --label traefik.http.routers.arche-base.entrypoints=web --label traefik.http.routers.arche-base.service=arche-web{% endif %}"
 
 - name: Start new web container
   ansible.builtin.shell:

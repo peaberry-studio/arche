@@ -4,6 +4,7 @@ set -euo pipefail
 # Arche One-Click Deployer
 # Usage:
 #   Remote:    ./deploy.sh --ip <IP> --domain <DOMAIN> --ssh-key <KEY> --acme-email <EMAIL>
+#   Tunnel:    ./deploy.sh --ip <IP> --domain <DOMAIN> --ssh-key <KEY> --cloudflare-tunnel
 #   Local dev: ./deploy.sh --local-dev
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -40,6 +41,9 @@ DEPLOY_DOMAIN=""
 SSH_KEY=""
 SSH_USER="root"
 ACME_EMAIL=""
+EXPOSURE_MODE="direct"
+EXPOSURE_MODE_SET_BY_FLAG=false
+REMOTE_FLAGS_SET=false
 DRY_RUN=false
 VERBOSE=false
 SKIP_ENSURE_DNS_RECORD=false
@@ -132,14 +136,16 @@ Arche One-Click Deployer
 
 REMOTE MODE:
   ./deploy.sh --ip <IP> --domain <DOMAIN> --ssh-key <KEY> --acme-email <EMAIL> [OPTIONS]
+  ./deploy.sh --ip <IP> --domain <DOMAIN> --ssh-key <KEY> --cloudflare-tunnel [OPTIONS]
 
   Required:
     --ip            VPS IP address (IPv4 or IPv6)
     --domain        Production domain (e.g. arche.example.com or app.arche.example.com)
     --ssh-key       Path to SSH private key
-    --acme-email    Email for Let's Encrypt ACME account
+    --acme-email    Email for Let's Encrypt ACME account (direct mode only)
 
   Optional:
+    --cloudflare-tunnel  Use Cloudflare Tunnel instead of public 80/443 + ACME
     --version       Web image tag to deploy (default: latest)
     --user          SSH user (default: root)
     --skip-ensure-dns-record  Skip DNS verification step before deploy
@@ -147,9 +153,10 @@ REMOTE MODE:
     --verbose       Enable verbose output
 
   DNS Setup:
-    The script will verify your domain points to the VPS IP.
+    In direct mode, the script will verify your domain points to the VPS IP.
     If not, it will show you exactly which DNS record to add.
     Works with any domain provider (Cloudflare, GoDaddy, Namecheap, etc.)
+    In Cloudflare Tunnel mode, DNS verification is skipped.
 
 LOCAL DEV MODE:
   ./deploy.sh --local-dev
@@ -186,6 +193,8 @@ ENVIRONMENT VARIABLES (via .env or exported):
   ARCHE_USERS_PATH          Host path for persisted user data (optional)
   OPENCODE_VERSION          OpenCode version override (optional)
   WEB_IMAGE                 Web app image (set arche-web:latest to build on VPS)
+  CLOUDFLARED_TUNNEL_TOKEN  Cloudflare Tunnel token (required with --cloudflare-tunnel)
+  CLOUDFLARED_IMAGE         cloudflared image override (optional)
   KB_CONTENT_HOST_PATH      Path to the KB content bare repo
   KB_CONFIG_HOST_PATH       Path to the KB config bare repo
 EOF
@@ -200,11 +209,12 @@ EOF
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --local-dev)   MODE="local-dev";   shift ;;
-    --ip)          DEPLOY_IP="$2";       shift 2 ;;
-    --domain)      DEPLOY_DOMAIN="$2";   shift 2 ;;
-    --ssh-key)     SSH_KEY="$2";         shift 2 ;;
+    --ip)          DEPLOY_IP="$2";       REMOTE_FLAGS_SET=true; shift 2 ;;
+    --domain)      DEPLOY_DOMAIN="$2";   REMOTE_FLAGS_SET=true; shift 2 ;;
+    --ssh-key)     SSH_KEY="$2";         REMOTE_FLAGS_SET=true; shift 2 ;;
     --user)        SSH_USER="$2";        shift 2 ;;
-    --acme-email)  ACME_EMAIL="$2";      shift 2 ;;
+    --acme-email)  ACME_EMAIL="$2";      REMOTE_FLAGS_SET=true; shift 2 ;;
+    --cloudflare-tunnel) EXPOSURE_MODE="cloudflare-tunnel"; EXPOSURE_MODE_SET_BY_FLAG=true; REMOTE_FLAGS_SET=true; shift ;;
     --version)     WEB_VERSION="$2";     shift 2 ;;
     --skip-ensure-dns-record) SKIP_ENSURE_DNS_RECORD=true; shift ;;
     --dry-run)     DRY_RUN=true;         shift ;;
@@ -226,7 +236,12 @@ if [[ -f "$SCRIPT_DIR/.env" ]]; then
   log ".env file loaded successfully"
 fi
 
+if ! $EXPOSURE_MODE_SET_BY_FLAG; then
+  EXPOSURE_MODE="${ARCHE_EXPOSURE_MODE:-$EXPOSURE_MODE}"
+fi
+
 WEB_IMAGE="${WEB_IMAGE:-${IMAGE_PREFIX}web:${WEB_VERSION}}"
+CLOUDFLARED_IMAGE="${CLOUDFLARED_IMAGE:-docker.io/cloudflare/cloudflared:2026.5.0}"
 
 # ---------------------------------------------------------------------------
 # Validation
@@ -263,10 +278,20 @@ PY
 
 validate_remote() {
   log "Starting validate_remote..."
+  case "$EXPOSURE_MODE" in
+    direct|cloudflare-tunnel) ;;
+    *) ERRORS+=("Invalid exposure mode: $EXPOSURE_MODE (expected direct or cloudflare-tunnel)") ;;
+  esac
+
   [[ -z "$DEPLOY_IP" ]]    && ERRORS+=("--ip is required")
   [[ -z "$DEPLOY_DOMAIN" ]] && ERRORS+=("--domain is required")
   [[ -z "$SSH_KEY" ]]       && ERRORS+=("--ssh-key is required")
-  [[ -z "$ACME_EMAIL" ]]    && ERRORS+=("--acme-email is required")
+
+  if [[ "$EXPOSURE_MODE" == "direct" ]]; then
+    [[ -z "$ACME_EMAIL" ]] && ERRORS+=("--acme-email is required")
+  else
+    [[ -z "${CLOUDFLARED_TUNNEL_TOKEN:-}" ]] && ERRORS+=("CLOUDFLARED_TUNNEL_TOKEN is required when --cloudflare-tunnel is used")
+  fi
 
   if [[ -n "$SSH_KEY" && ! -f "$SSH_KEY" ]]; then
     ERRORS+=("SSH key not found: $SSH_KEY")
@@ -326,11 +351,11 @@ log "About to determine mode, current MODE=$MODE"
 # Determine mode
 if [[ "$MODE" == "local-dev" ]]; then
   # Ensure no remote flags were also passed
-  if [[ -n "$DEPLOY_IP" || -n "$DEPLOY_DOMAIN" || -n "$SSH_KEY" || -n "$ACME_EMAIL" ]]; then
-    ERRORS+=("--${MODE} is mutually exclusive with remote flags (--ip, --domain, etc.)")
+  if $REMOTE_FLAGS_SET; then
+    ERRORS+=("--local-dev is mutually exclusive with remote flags (--ip, --domain, --ssh-key, --acme-email, --cloudflare-tunnel)")
   fi
   validate_local
-elif [[ -n "$DEPLOY_IP" || -n "$DEPLOY_DOMAIN" || -n "$SSH_KEY" || -n "$ACME_EMAIL" ]]; then
+elif $REMOTE_FLAGS_SET; then
   MODE="remote"
   validate_remote
 else
@@ -347,6 +372,11 @@ if [[ ${#ERRORS[@]} -gt 0 ]]; then
 fi
 
 log "Validation passed, MODE=$MODE"
+
+if [[ "$MODE" == "remote" && "$EXPOSURE_MODE" == "cloudflare-tunnel" && -z "${ARCHE_PUBLIC_BASE_URL:-}" ]]; then
+  export ARCHE_PUBLIC_BASE_URL="https://${DEPLOY_DOMAIN}"
+  log "Using ARCHE_PUBLIC_BASE_URL=$ARCHE_PUBLIC_BASE_URL"
+fi
 
 # ---------------------------------------------------------------------------
 # DNS Record Management (Simplified - User-guided)
@@ -487,7 +517,9 @@ deploy_remote() {
   fi
   log "SSH connection OK"
 
-  if $SKIP_ENSURE_DNS_RECORD; then
+  if [[ "$EXPOSURE_MODE" == "cloudflare-tunnel" ]]; then
+    warn "Skipping DNS verification (Cloudflare Tunnel mode)"
+  elif $SKIP_ENSURE_DNS_RECORD; then
     warn "Skipping DNS verification (--skip-ensure-dns-record enabled)"
   else
     # Ensure DNS record points to VPS IP
@@ -505,19 +537,22 @@ ${DEPLOY_IP} ansible_user=${SSH_USER} ansible_ssh_private_key_file=${SSH_KEY}
 EOF
 
   # Export variables so python3 subprocess can read them
-  export DEPLOY_DOMAIN ACME_EMAIL IMAGE_PREFIX WEB_VERSION WEB_IMAGE OPENCODE_IMAGE
+  export DEPLOY_DOMAIN ACME_EMAIL IMAGE_PREFIX WEB_VERSION WEB_IMAGE OPENCODE_IMAGE EXPOSURE_MODE CLOUDFLARED_TUNNEL_TOKEN CLOUDFLARED_IMAGE
 
   # Build extra vars as JSON (safe for secrets with special characters)
   python3 -c '
 import json, os, sys
 vars = {
     "domain": os.environ["DEPLOY_DOMAIN"],
-    "acme_email": os.environ["ACME_EMAIL"],
+    "acme_email": os.environ.get("ACME_EMAIL", ""),
     "deploy_mode": "remote",
+    "exposure_mode": os.environ["EXPOSURE_MODE"],
     "image_prefix": os.environ["IMAGE_PREFIX"],
     "web_version": os.environ["WEB_VERSION"],
     "web_image": os.environ["WEB_IMAGE"],
     "opencode_image": os.environ["OPENCODE_IMAGE"],
+    "cloudflared_tunnel_token": os.environ.get("CLOUDFLARED_TUNNEL_TOKEN", ""),
+    "cloudflared_image": os.environ["CLOUDFLARED_IMAGE"],
     "postgres_password": os.environ["POSTGRES_PASSWORD"],
     "arche_session_pepper": os.environ["ARCHE_SESSION_PEPPER"],
     "arche_encryption_key": os.environ["ARCHE_ENCRYPTION_KEY"],
@@ -689,6 +724,7 @@ deploy_local_dev() {
 import json, os, sys
 vars = {
     "deploy_mode": "local-dev",
+    "exposure_mode": "direct",
     "domain": os.environ["LOCAL_DOMAIN"],
     "acme_email": "",
     "env_file_name": ".env.local-dev",
@@ -696,6 +732,8 @@ vars = {
     "image_prefix": os.environ["IMAGE_PREFIX"],
     "web_version": os.environ["WEB_VERSION"],
     "opencode_image": "arche-workspace:latest",
+    "cloudflared_tunnel_token": "",
+    "cloudflared_image": "docker.io/cloudflare/cloudflared:2026.5.0",
     "repo_root": os.environ["REPO_ROOT"],
     "kb_content_host_path": os.environ["KB_CONTENT_DEST"],
     "kb_config_host_path": os.environ["KB_CONFIG_DEST"],

@@ -7,13 +7,15 @@ Deploy Arche to a VPS or run the local development stack with hot reload.
 ```
 Local Machine
   ./deploy.sh --ip X --domain Y --ssh-key K --acme-email E
+  ./deploy.sh --ip X --domain Y --ssh-key K --cloudflare-tunnel
               │ SSH (Ansible)
               ▼
 Remote VPS (/opt/arche)
   ┌──────────────────────────────────────────────────────────┐
   │ Podman                                                    │
   │  ┌──────────────────┐                                     │
-  │  │ Traefik           │ :80 → :443 (TLS/ACME)              │
+  │  │ Traefik           │ :80 → :443 (direct TLS/ACME)       │
+  │  │                   │ :80 internal (Cloudflare Tunnel)   │
   │  │ Container provider│──► docker-socket-proxy :2375       │
   │  └────────┬─────────┘                                     │
   │           │                                                │
@@ -74,6 +76,10 @@ Edit files in `apps/web/src/` and Next.js hot reloads automatically.
 
 Deploys to a VPS via SSH using Ansible. The playbook provisions Podman (if missing), renders the compose and env templates, deploys images (from GHCR or local VPS builds), runs migrations, and seeds the database.
 
+Remote deployments support two exposure modes: direct exposure with Traefik and ACME, or Cloudflare Tunnel with the origin ports closed.
+
+#### Direct exposure (default)
+
 - Domain: any single hostname (apex or subdomain), with TLS via ACME HTTP challenge
 - HTTPS on port 443, HTTP redirects to HTTPS
 - Requires all secrets set in `.env` or exported
@@ -92,6 +98,30 @@ cp .env.example .env
   --skip-ensure-dns-record
 ```
 
+#### Cloudflare Tunnel exposure
+
+- Domain: any single hostname routed through a Cloudflare Tunnel public hostname
+- No host ports `80/443` are published by Traefik
+- No Let's Encrypt ACME runs on the VPS
+- Cloudflare terminates public TLS at the edge
+- The Cloudflare Tunnel public hostname service must point to `http://traefik:80`
+- Remove A/AAAA records that point the hostname directly at the VPS IP
+- Requires `CLOUDFLARED_TUNNEL_TOKEN` set in `.env` or exported
+
+```bash
+cd infra/deploy
+cp .env.example .env
+# Fill in all required values in .env, including CLOUDFLARED_TUNNEL_TOKEN
+
+./deploy.sh \
+  --ip 203.0.113.50 \
+  --domain arche.example.com \
+  --ssh-key ~/.ssh/id_rsa \
+  --cloudflare-tunnel
+```
+
+Create and configure the tunnel in the Cloudflare dashboard before deploying. The deployer starts `cloudflared` with the token, but it does not create the Cloudflare tunnel or DNS routing for you.
+
 ## CLI Reference
 
 ### Remote flags
@@ -101,7 +131,8 @@ cp .env.example .env
 | `--ip` | Yes | VPS IP address |
 | `--domain` | Yes | Production domain |
 | `--ssh-key` | Yes | Path to SSH private key |
-| `--acme-email` | Yes | Let's Encrypt ACME email |
+| `--acme-email` | Direct only | Let's Encrypt ACME email |
+| `--cloudflare-tunnel` | No | Use Cloudflare Tunnel instead of public `80/443` and ACME |
 | `--version` | No | Web image tag to deploy (default: `latest`) |
 | `--user` | No | SSH user (default: `root`) |
 | `--skip-ensure-dns-record` | No | Skip `ensure_dns_record` verification before running Ansible |
@@ -127,9 +158,16 @@ Set in `.env` or export before running `deploy.sh`.
 | `ARCHE_ENCRYPTION_KEY` | Encryption key (`openssl rand -base64 32`) |
 | `ARCHE_INTERNAL_TOKEN` | Internal API token (`openssl rand -base64 32`) |
 | `ARCHE_CONNECTOR_OAUTH_STATE_SECRET` | Connector OAuth state secret (`openssl rand -base64 32`) |
+| `ARCHE_GATEWAY_TOKEN_SECRET` | Gateway token signing secret (`openssl rand -base64 32`) |
 | `ARCHE_SEED_ADMIN_EMAIL` | Seed admin email |
 | `ARCHE_SEED_ADMIN_PASSWORD` | Seed admin password |
 | `ARCHE_SEED_ADMIN_SLUG` | Seed admin URL slug |
+
+### Required (Cloudflare Tunnel)
+
+| Variable | Description |
+|----------|-------------|
+| `CLOUDFLARED_TUNNEL_TOKEN` | Cloudflare Tunnel token from the Cloudflare dashboard |
 
 ### Optional (remote auth)
 
@@ -146,7 +184,7 @@ Set in `.env` or export before running `deploy.sh`.
 
 ### ACME notes
 
-No DNS provider token is required. Traefik uses ACME HTTP challenge on entrypoint `web` (port 80).
+No DNS provider token is required in direct mode. Traefik uses ACME HTTP challenge on entrypoint `web` (port 80). Cloudflare Tunnel mode skips ACME entirely.
 
 ### Optional overrides
 
@@ -156,8 +194,9 @@ No DNS provider token is required. Traefik uses ACME HTTP challenge on entrypoin
 | `WEB_VERSION` | `latest` |
 | `WEB_IMAGE` | `<IMAGE_PREFIX>web:<WEB_VERSION>` |
 | `OPENCODE_IMAGE` | `arche-workspace:latest` |
+| `CLOUDFLARED_IMAGE` | `docker.io/cloudflare/cloudflared:2026.5.0` |
 | `PODMAN_SOCKET_PATH` | Auto-detected (see below) |
-| `ARCHE_PUBLIC_BASE_URL` | Derived from request origin unless set |
+| `ARCHE_PUBLIC_BASE_URL` | Derived from request origin unless set; in tunnel mode defaults to `https://<domain>` |
 | `ARCHE_SESSION_TTL_DAYS` | `7` |
 | `ARCHE_USERS_PATH` | `/opt/arche/users` remote, `~/.arche/users` local-dev |
 | `KB_CONTENT_HOST_PATH` | `/opt/arche/kb-content` remote, `~/.arche/kb-content` local-dev |
@@ -193,13 +232,14 @@ On remote deploys, the playbook auto-detects whether Podman and a `deploy` user 
 
 ## ACME Notes
 
-HTTP-01 challenge is used in remote mode. Make sure your domain resolves to the VPS and ports `80/443` are reachable.
+HTTP-01 challenge is used in direct remote mode. Make sure your domain resolves to the VPS and ports `80/443` are reachable. Cloudflare Tunnel mode does not use ACME on the VPS.
 
 ## Services
 
 | Service | Image | Purpose |
 |---------|-------|---------|
-| Traefik | `traefik:v3.6.7` | Reverse proxy, TLS termination, routing |
+| Traefik | `traefik:v3.6.7` | Reverse proxy, direct-mode TLS termination, routing |
+| cloudflared | `cloudflare/cloudflared:2026.5.0` | Cloudflare Tunnel client in tunnel mode |
 | docker-socket-proxy | `ghcr.io/tecnativa/docker-socket-proxy:latest` | Secure container API access |
 | PostgreSQL | `postgres:16` | Database |
 | Web | Configurable (`WEB_IMAGE`) | Next.js app (BFF + spawner) |
@@ -238,6 +278,9 @@ podman ps -a --filter label=arche.managed=true
 
 # Re-deploy (from local machine)
 ./deploy.sh --ip <IP> --domain <DOMAIN> --ssh-key <KEY> --acme-email <EMAIL> [--skip-ensure-dns-record]
+
+# Re-deploy in Cloudflare Tunnel mode (from local machine)
+./deploy.sh --ip <IP> --domain <DOMAIN> --ssh-key <KEY> --cloudflare-tunnel
 ```
 
 ## Troubleshooting
@@ -245,6 +288,8 @@ podman ps -a --filter label=arche.managed=true
 **SSH connection fails**: Ensure the SSH key has access and the user can log in (`ssh -i <key> <user>@<ip>`).
 
 **ACME certificate not issued**: Check Traefik logs (`podman compose logs traefik`). Verify domain A/AAAA records point to the VPS and ports `80/443` are reachable.
+
+**Cloudflare Tunnel returns 502/1033**: Check `podman compose logs cloudflared` and verify the Cloudflare public hostname service is `http://traefik:80`.
 
 **Web service unhealthy**: Check web logs (`podman compose logs web`). Ensure `DATABASE_URL` is correct and Postgres is running.
 
