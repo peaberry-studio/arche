@@ -205,6 +205,11 @@ export const POST = withAuth(
       text,
     } = streamBody
     const startsPrompt = !resume && !runId
+    const hasPromptInput = Boolean(text) || attachments.length > 0 || contextPaths.length > 0 || Boolean(model)
+
+    if (!startsPrompt && hasPromptInput) {
+      return jsonErrorResponse(400, 'invalid_stream_payload')
+    }
 
     if (attachments.length > MAX_ATTACHMENTS_PER_MESSAGE) {
       return jsonErrorResponse(400, 'too_many_attachments')
@@ -397,16 +402,11 @@ export const POST = withAuth(
         }
 
         if (startsPrompt) {
-          if (!promptBody) {
-            markRunFailed('missing_fields')
-            sendEvent('error', { error: 'missing_fields' })
-            await cancelReader()
-            return
-          }
-
           const promptStartSignal = AbortSignal.timeout(PROMPT_START_TIMEOUT_MS)
           let promptResponse: Response
           try {
+            // Once OpenCode receives the prompt it may keep running after navigation;
+            // keep the run resumable instead of marking it aborted on disconnect.
             promptStarted = true
             promptResponse = await fetch(`${baseUrl}/session/${sessionId}/prompt_async`, {
               method: 'POST',

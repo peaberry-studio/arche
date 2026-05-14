@@ -264,6 +264,17 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     expect(json.error).toBe('missing_fields')
   })
 
+  it('rejects prompt input when observing an existing run', async () => {
+    vi.stubGlobal('fetch', vi.fn())
+
+    const { POST } = await import('../route')
+    const res = await POST(makeStartPostRequest({ sessionId: 's1', runId: 'run-1', text: 'ignored' }), params())
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: 'invalid_stream_payload' })
+    expect(mocks.messageRunService.findRunById).not.toHaveBeenCalled()
+  })
+
   it('rejects too many attachments before creating a new run', async () => {
     const { POST } = await import('../route')
     const res = await POST(makeStartPostRequest({
@@ -649,9 +660,7 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     const { POST } = await import('../route')
     const res = await POST(makePostRequest({
       sessionId: 's1',
-      text: 'Hi',
-      model: { providerId: 'openai', modelId: 'gpt-5.2' },
-      contextPaths: [' notes/a.md ', 'notes/a.md', 'invalid/../path'],
+      runId: 'run-1',
     }), params())
 
     const text = await res.text()
@@ -695,7 +704,7 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const { POST } = await import('../route')
-    const res = await POST(makePostRequest({ sessionId: 's1', text: 'Hi' }), params())
+    const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
 
     const text = await res.text()
 
@@ -740,7 +749,7 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const { POST } = await import('../route')
-    const res = await POST(makePostRequest({ sessionId: 's1', text: 'Hi' }), params())
+    const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
 
     const text = await res.text()
 
@@ -782,7 +791,7 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const { POST } = await import('../route')
-    const res = await POST(makePostRequest({ sessionId: 's1', text: 'Hi' }), params())
+    const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
 
     const text = await res.text()
 
@@ -795,7 +804,7 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 500 })))
 
     const { POST } = await import('../route')
-    const res = await POST(makePostRequest({ sessionId: 's1', text: 'hi' }), params())
+    const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
 
     await expect(res.text()).resolves.toContain('Failed to connect to event stream')
   })
@@ -804,7 +813,7 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('stream down')))
 
     const { POST } = await import('../route')
-    const res = await POST(makePostRequest({ sessionId: 's1', text: 'hi' }), params())
+    const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
 
     await expect(res.text()).resolves.toContain('stream down')
   })
@@ -912,7 +921,7 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const { POST } = await import('../route')
-    const res = await POST(makePostRequest({ sessionId: 's1', text: 'Hi' }), params())
+    const res = await POST(makePostRequest({ sessionId: 's1', runId: 'run-1' }), params())
 
     const text = await res.text()
     expect(text).toContain('provider missing')
