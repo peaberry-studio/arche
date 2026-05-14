@@ -49,6 +49,7 @@ DRY_RUN=false
 VERBOSE=false
 SKIP_ENSURE_DNS_RECORD=false
 LOCAL_DOMAIN="arche.lvh.me"
+STOP_PODMAN_MACHINE=false
 
 # GHCR defaults
 IMAGE_PREFIX="${IMAGE_PREFIX:-ghcr.io/peaberry-studio/arche/}"
@@ -179,7 +180,10 @@ LOCAL DEV MODE:
     - Removes local-dev network
     - Removes local-dev named volumes
     - Removes arche-workspace image
-    - Optionally removes podman machine when idle
+    - Optionally stops podman machine when idle (with --stop-podman-machine)
+
+  Optional with --local-dev-down:
+    --stop-podman-machine  Stop first running podman machine if no containers remain
 
 
 ENVIRONMENT VARIABLES (via .env or exported):
@@ -228,6 +232,7 @@ while [[ $# -gt 0 ]]; do
     --acme-email)  ACME_EMAIL="$2";      REMOTE_FLAGS_SET=true; shift 2 ;;
     --cloudflare-tunnel) EXPOSURE_MODE="cloudflare-tunnel"; EXPOSURE_MODE_SET_BY_FLAG=true; REMOTE_FLAGS_SET=true; shift ;;
     --version)     WEB_VERSION="$2";     shift 2 ;;
+    --stop-podman-machine) STOP_PODMAN_MACHINE=true; shift ;;
     --skip-ensure-dns-record) SKIP_ENSURE_DNS_RECORD=true; shift ;;
     --dry-run)     DRY_RUN=true;         shift ;;
     --verbose)     VERBOSE=true;         shift ;;
@@ -239,7 +244,7 @@ done
 # ---------------------------------------------------------------------------
 # Load .env if present
 # ---------------------------------------------------------------------------
-if [[ -f "$SCRIPT_DIR/.env" ]]; then
+if [[ "$MODE" != "local-dev-down" && -f "$SCRIPT_DIR/.env" ]]; then
   log "Loading .env file"
   set -a
   # shellcheck source=/dev/null
@@ -361,12 +366,16 @@ validate_local() {
 log "About to determine mode, current MODE=$MODE"
 
 # Determine mode
-if [[ "$MODE" == "local-dev" || "$MODE" == "local-dev-down" ]]; then
+if [[ "$MODE" == "local-dev" ]]; then
   # Ensure no remote flags were also passed
   if $REMOTE_FLAGS_SET; then
     ERRORS+=("--${MODE} is mutually exclusive with remote flags (--ip, --domain, --ssh-key, --acme-email, --cloudflare-tunnel)")
   fi
   validate_local
+elif [[ "$MODE" == "local-dev-down" ]]; then
+  if $REMOTE_FLAGS_SET; then
+    ERRORS+=("--${MODE} is mutually exclusive with remote flags (--ip, --domain, --ssh-key, --acme-email, --cloudflare-tunnel)")
+  fi
 elif $REMOTE_FLAGS_SET; then
   MODE="remote"
   validate_remote
@@ -897,7 +906,7 @@ teardown_local_dev() {
   local network_name="arche-internal"
   local compose_file="$SCRIPT_DIR/.compose-local-dev.yml"
   local env_file="$SCRIPT_DIR/.env.local-dev"
-  local workspace_image="localhost/arche-workspace:latest"
+  local workspace_images=("arche-workspace:latest" "localhost/arche-workspace:latest")
 
   if [[ -f "$compose_file" && -f "$env_file" ]] && podman compose version &>/dev/null; then
     log "Stopping/removing compose stack for project ${project_name}..."
@@ -937,19 +946,24 @@ teardown_local_dev() {
     podman volume rm "${volumes[@]}" || warn "Failed removing some volumes."
   fi
 
-  if podman image exists "$workspace_image" 2>/dev/null; then
-    log "Removing workspace image: $workspace_image"
-    podman rmi -f "$workspace_image" || warn "Failed to remove $workspace_image."
-  fi
+  local image
+  for image in "${workspace_images[@]}"; do
+    if podman image exists "$image" 2>/dev/null; then
+      log "Removing workspace image: $image"
+      podman rmi -f "$image" || warn "Failed to remove $image."
+    fi
+  done
 
-  local running_containers
-  running_containers="$(podman ps -q 2>/dev/null || true)"
-  if [[ -z "$running_containers" ]] && podman machine inspect &>/dev/null; then
-    local machine_name
-    machine_name="$(podman machine list --format '{{.Name}} {{.Running}}' | awk '$2=="true"{print $1}' | head -n 1)"
-    if [[ -n "$machine_name" ]]; then
-      log "Stopping idle podman machine: $machine_name"
-      podman machine stop "$machine_name" || warn "Could not stop podman machine $machine_name."
+  if $STOP_PODMAN_MACHINE; then
+    local running_containers
+    running_containers="$(podman ps -q 2>/dev/null || true)"
+    if [[ -z "$running_containers" ]] && podman machine inspect &>/dev/null; then
+      local machine_name
+      machine_name="$(podman machine list --format '{{.Name}} {{.Running}}' | awk '$2=="true"{print $1}' | head -n 1)"
+      if [[ -n "$machine_name" ]]; then
+        log "Stopping idle podman machine: $machine_name"
+        podman machine stop "$machine_name" || warn "Could not stop podman machine $machine_name."
+      fi
     fi
   fi
 
