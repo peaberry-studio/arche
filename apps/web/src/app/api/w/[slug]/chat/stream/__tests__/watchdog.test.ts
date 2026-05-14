@@ -69,16 +69,30 @@ describe('chat stream watchdog helpers', () => {
       })).toBe('keep_waiting')
     })
 
-    it('times out after extended silence even when upstream stays busy', () => {
+    it('keeps waiting through extended silence while upstream stays busy', () => {
       expect(getSilentStreamOutcome({
         upstreamStatus: 'busy',
         silentForMs: 60_000,
         relevantEventTimeoutMs: 20_000,
-      })).toBe('stream_timeout')
+        runtimeMs: 60_000,
+        maxRuntimeMs: 35 * 60 * 1000,
+      })).toBe('keep_waiting')
       expect(getSilentStreamOutcome({
         upstreamStatus: 'retry',
         silentForMs: 36_000,
         relevantEventTimeoutMs: 12_000,
+        runtimeMs: 36_000,
+        maxRuntimeMs: 35 * 60 * 1000,
+      })).toBe('keep_waiting')
+    })
+
+    it('times out only when the explicit max runtime is reached', () => {
+      expect(getSilentStreamOutcome({
+        upstreamStatus: 'busy',
+        silentForMs: 60_000,
+        relevantEventTimeoutMs: 20_000,
+        runtimeMs: 35 * 60 * 1000,
+        maxRuntimeMs: 35 * 60 * 1000,
       })).toBe('stream_timeout')
     })
 
@@ -87,6 +101,8 @@ describe('chat stream watchdog helpers', () => {
         upstreamStatus: 'idle',
         silentForMs: 20_000,
         relevantEventTimeoutMs: 20_000,
+        runtimeMs: 20_000,
+        maxRuntimeMs: 35 * 60 * 1000,
       })).toBe('finalize_idle')
     })
 
@@ -95,11 +111,15 @@ describe('chat stream watchdog helpers', () => {
         upstreamStatus: null,
         silentForMs: 20_000,
         relevantEventTimeoutMs: 20_000,
+        runtimeMs: 20_000,
+        maxRuntimeMs: 35 * 60 * 1000,
       })).toBe('stream_timeout')
       expect(getSilentStreamOutcome({
         upstreamStatus: 'complete',
         silentForMs: 20_000,
         relevantEventTimeoutMs: 20_000,
+        runtimeMs: 20_000,
+        maxRuntimeMs: 35 * 60 * 1000,
       })).toBe('stream_timeout')
     })
   })
