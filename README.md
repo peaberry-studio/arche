@@ -136,6 +136,17 @@ archectl destroy --token "$DIGITALOCEAN_TOKEN"
 
 By default, `archectl` keeps output minimal and shows only lifecycle steps plus in-place progress. Add `-vv` or `--verbose` to show SSH/bootstrap logs.
 
+### GitHub KB Sync
+
+Admins can connect the deployment-wide shared knowledge base to a GitHub repository from Settings -> Integrations -> GitHub KB sync.
+
+- Arche creates a GitHub App from a manifest, so admins do not need to manually copy app IDs or private keys.
+- The GitHub App needs `Contents: Read and write` and `Metadata: Read-only` permissions for the selected repository.
+- Sync scope is only KB content. Runtime state, databases, provider credentials, connector secrets, and user sessions are not pushed to GitHub.
+- Starting with an empty repository is recommended. The first sync pushes the local KB into the selected GitHub branch.
+- Publishing from the Knowledge Review panel fetches the latest GitHub state before pushing. Clean merges are applied automatically.
+- Merge conflicts are surfaced in the existing Knowledge Review panel and resolved with the same local/incoming/manual flow used for KB conflicts.
+
 If the local state file is missing, recovery flags are available:
 
 ```bash
