@@ -79,7 +79,7 @@ services:
       - arche_postgres:/var/lib/postgresql/data
 
   web:
-    image: node:24-bookworm-slim
+    image: node:24.14.0-bookworm-slim
     working_dir: /app
     environment:
       # Base host

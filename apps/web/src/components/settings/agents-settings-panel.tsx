@@ -27,7 +27,7 @@ type ModelOption = {
 export function AgentsSettingsPanel({ slug }: AgentsSettingsPanelProps) {
   const { agents, defaultModel, hash, isLoading, loadError, reload } = useAgentsCatalog(slug)
   const [editorState, setEditorState] = useState<EditorState | null>(null)
-  const [defaultModelInput, setDefaultModelInput] = useState('')
+  const [defaultModelDraft, setDefaultModelDraft] = useState<string | null>(null)
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([])
   const [isSavingDefaultModel, setIsSavingDefaultModel] = useState(false)
   const [defaultModelMessage, setDefaultModelMessage] = useState<string | null>(null)
@@ -39,10 +39,7 @@ export function AgentsSettingsPanel({ slug }: AgentsSettingsPanelProps) {
     editorState?.mode === 'edit'
       ? agents.find((agent) => agent.id === editorState.agentId) ?? null
       : null
-
-  useEffect(() => {
-    setDefaultModelInput(defaultModel ?? '')
-  }, [defaultModel])
+  const defaultModelInput = defaultModelDraft ?? defaultModel ?? ''
 
   useEffect(() => {
     let cancelled = false
@@ -88,6 +85,7 @@ export function AgentsSettingsPanel({ slug }: AgentsSettingsPanelProps) {
       }
 
       setDefaultModelMessage('Default model saved.')
+      setDefaultModelDraft(null)
       notifyWorkspaceConfigChanged()
       await reload()
     } catch {
@@ -161,7 +159,7 @@ export function AgentsSettingsPanel({ slug }: AgentsSettingsPanelProps) {
                 id="desktop-workspace-default-model"
                 list="desktop-workspace-default-model-options"
                 value={defaultModelInput}
-                onChange={(event) => setDefaultModelInput(event.target.value)}
+                onChange={(event) => setDefaultModelDraft(event.target.value)}
                 placeholder="Select or type a model"
                 className="sm:flex-1"
               />

@@ -168,6 +168,32 @@ function downloadMarkdownFile(filename: string, content: string) {
   URL.revokeObjectURL(url);
 }
 
+async function fetchWorkspaceAttachments(slug: string): Promise<{
+  attachments: WorkspaceAttachment[];
+  error?: string;
+  ok: boolean;
+}> {
+  const response = await fetch(`/api/w/${slug}/attachments`, {
+    cache: "no-store",
+  });
+  const data = (await response
+    .json()
+    .catch(() => null)) as { attachments?: WorkspaceAttachment[]; error?: string } | null;
+
+  if (!response.ok || !data?.attachments) {
+    return {
+      attachments: [],
+      error: data?.error ?? "attachments_load_failed",
+      ok: false,
+    };
+  }
+
+  return {
+    attachments: data.attachments,
+    ok: true,
+  };
+}
+
 export function ChatPanel({
   slug,
   agents = EMPTY_AGENTS,
@@ -383,13 +409,6 @@ export function ChatPanel({
   }, [activeSession, messages]);
 
   useEffect(() => {
-    setEditingSessionId(null);
-    setDraftTitle("");
-    setIsSavingTitle(false);
-    setRenameError(null);
-  }, [activeSessionId]);
-
-  useEffect(() => {
     if (!isEditingActiveSessionTitle) return;
 
     const frameId = requestAnimationFrame(() => {
@@ -426,7 +445,6 @@ export function ChatPanel({
 
   useEffect(() => {
     if (!isAttachmentMenuOpen) {
-      setContextSearch("");
       return;
     }
 
@@ -494,12 +512,6 @@ export function ChatPanel({
     };
   }, [slug]);
 
-  useEffect(() => {
-    setManualContextPaths((previous) =>
-      previous.filter((path) => openFilePathSet.has(path))
-    );
-  }, [openFilePathSet]);
-
   const clearAllAttachSelections = useCallback(() => {
     setManualContextPaths([]);
     setSelectedAttachmentPaths([]);
@@ -526,15 +538,10 @@ export function ChatPanel({
 
     setIsLoadingAttachments(true);
     try {
-      const response = await fetch(`/api/w/${slug}/attachments`, {
-        cache: "no-store",
-      });
-      const data = (await response
-        .json()
-        .catch(() => null)) as { attachments?: WorkspaceAttachment[]; error?: string } | null;
+      const data = await fetchWorkspaceAttachments(slug);
 
-      if (!response.ok || !data?.attachments) {
-        setAttachmentsError(data?.error ?? "attachments_load_failed");
+      if (!data.ok) {
+        setAttachmentsError(data.error ?? "attachments_load_failed");
         setAttachmentUploadFailures([]);
         return;
       }
@@ -557,8 +564,48 @@ export function ChatPanel({
   }, [attachmentsEnabled, slug]);
 
   useEffect(() => {
-    void refreshAttachments();
-  }, [refreshAttachments]);
+    if (!attachmentsEnabled) return;
+
+    let cancelled = false;
+
+    async function loadInitialAttachments() {
+      try {
+        const data = await fetchWorkspaceAttachments(slug);
+        if (cancelled) return;
+
+        if (!data.ok) {
+          setAttachmentsError(data.error ?? "attachments_load_failed");
+          setAttachmentUploadFailures([]);
+          return;
+        }
+
+        const nextAttachments = data.attachments;
+        setAttachments(nextAttachments);
+        setSelectedAttachmentPaths((previous) =>
+          previous.filter((path) =>
+            nextAttachments.some((attachment) => attachment.path === path)
+          )
+        );
+        setAttachmentsError(null);
+        setAttachmentUploadFailures([]);
+      } catch {
+        if (!cancelled) {
+          setAttachmentsError("attachments_load_failed");
+          setAttachmentUploadFailures([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingAttachments(false);
+        }
+      }
+    }
+
+    void loadInitialAttachments();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [attachmentsEnabled, slug]);
 
   const toggleAttachmentSelection = useCallback((path: string) => {
     setSelectedAttachmentPaths((previous) => {
@@ -1134,12 +1181,15 @@ export function ChatPanel({
           />
           <div className="mt-3 flex items-center gap-2 sm:mt-2 sm:items-end">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 sm:items-end">
-              <DropdownMenu
-                open={isAttachmentMenuOpen}
-                onOpenChange={(open) => {
-                  setIsAttachmentMenuOpen(open);
-                  if (open && attachmentsEnabled) {
-                    void refreshAttachments();
+                <DropdownMenu
+                  open={isAttachmentMenuOpen}
+                  onOpenChange={(open) => {
+                    setIsAttachmentMenuOpen(open);
+                    if (!open) {
+                      setContextSearch("");
+                    }
+                    if (open && attachmentsEnabled) {
+                      void refreshAttachments();
                   }
                 }}
               >

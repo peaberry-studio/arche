@@ -29,13 +29,14 @@ export function useWorkspaceConnection(
     status: "connecting",
   });
 
-  const isConnected = connection.status === "connected";
-
   // Keep onConnected in a ref so the init effect does not re-fire when the
   // caller's callback identity changes (which it inevitably will because the
   // caller closes over state that changes after init loads data).
   const onConnectedRef = useRef(onConnected);
-  onConnectedRef.current = onConnected;
+
+  useEffect(() => {
+    onConnectedRef.current = onConnected;
+  }, [onConnected]);
 
   const checkConnection = useCallback(async () => {
     const result = await checkConnectionAction(slug);
@@ -46,7 +47,6 @@ export function useWorkspaceConnection(
   // Initial connection check with retry
   useEffect(() => {
     if (!enabled) {
-      setConnection({ status: "connecting" });
       return;
     }
 
@@ -88,5 +88,9 @@ export function useWorkspaceConnection(
     };
   }, [checkConnection, enabled]);
 
-  return { connection, isConnected };
+  const visibleConnection: WorkspaceConnectionState = enabled
+    ? connection
+    : { status: "connecting" };
+
+  return { connection: visibleConnection, isConnected: visibleConnection.status === "connected" };
 }

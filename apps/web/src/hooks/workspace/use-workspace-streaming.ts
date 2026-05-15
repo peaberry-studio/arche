@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState, type MutableRefObject, type SetStateAction } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type SetStateAction } from "react";
 
 import { listMessagesAction } from "@/actions/opencode";
 import type {
@@ -230,9 +230,15 @@ export function useWorkspaceStreaming({
   const workspaceRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const activeSessionIdGetterRef = useRef(getActiveSessionId);
-  activeSessionIdGetterRef.current = getActiveSessionId;
   const sessionsGetterRef = useRef(getSessions);
-  sessionsGetterRef.current = getSessions;
+
+  useEffect(() => {
+    activeSessionIdGetterRef.current = getActiveSessionId;
+  }, [getActiveSessionId]);
+
+  useEffect(() => {
+    sessionsGetterRef.current = getSessions;
+  }, [getSessions]);
 
   const setSessionStreamStatusTo = useCallback(
     (sessionId: string, status: "submitted" | "streaming" | "error" | "ready") => {

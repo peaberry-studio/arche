@@ -31,6 +31,40 @@ function formatCreatedAt(value: string): string {
   })
 }
 
+async function fetchTeamUsers(slug: string): Promise<{
+  error?: string
+  ok: boolean
+  users: TeamUser[]
+}> {
+  const response = await fetch(`/api/u/${slug}/team`, { cache: 'no-store' })
+  const data = (await response.json().catch(() => null)) as
+    | { users?: TeamUser[]; error?: string }
+    | null
+
+  if (!response.ok) {
+    return {
+      error: getTeamErrorMessage(data?.error ?? 'load_failed'),
+      ok: false,
+      users: [],
+    }
+  }
+
+  return {
+    ok: true,
+    users: data?.users ?? [],
+  }
+}
+
+function resolveTeamUsers(data: Awaited<ReturnType<typeof fetchTeamUsers>>):
+  | { ok: true; users: TeamUser[] }
+  | { ok: false; error: string } {
+  if (!data.ok) {
+    return { ok: false, error: data.error ?? getTeamErrorMessage('load_failed') }
+  }
+
+  return { ok: true, users: data.users }
+}
+
 export function TeamPageClient({
   slug,
   isAdmin,
@@ -60,17 +94,16 @@ export function TeamPageClient({
     setLoadError(null)
 
     try {
-      const response = await fetch(`/api/u/${slug}/team`, { cache: 'no-store' })
-      const data = (await response.json().catch(() => null)) as
-        | { users?: TeamUser[]; error?: string }
-        | null
+      const data = await fetchTeamUsers(slug)
+      const result = resolveTeamUsers(data)
 
-      if (!response.ok) {
-        setLoadError(getTeamErrorMessage(data?.error ?? 'load_failed'))
+      if (!result.ok) {
+        setLoadError(result.error)
         return
       }
 
-      setUsers(data?.users ?? [])
+      setUsers(result.users)
+      setLoadError(null)
     } catch {
       setLoadError(getTeamErrorMessage('network_error'))
     } finally {
@@ -79,8 +112,38 @@ export function TeamPageClient({
   }, [slug])
 
   useEffect(() => {
-    void loadUsers()
-  }, [loadUsers])
+    let cancelled = false
+
+    async function loadInitialUsers() {
+      try {
+        const data = await fetchTeamUsers(slug)
+        if (cancelled) return
+
+        const result = resolveTeamUsers(data)
+        if (!result.ok) {
+          setLoadError(result.error)
+          return
+        }
+
+        setUsers(result.users)
+        setLoadError(null)
+      } catch {
+        if (!cancelled) {
+          setLoadError(getTeamErrorMessage('network_error'))
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    void loadInitialUsers()
+
+    return () => {
+      cancelled = true
+    }
+  }, [slug])
 
   const handleUserCreated = useCallback((user: TeamUser) => {
     setUsers((current) => [user, ...current.filter((entry) => entry.id !== user.id)])

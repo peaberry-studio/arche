@@ -123,8 +123,6 @@ export function AgentForm({
 
   useEffect(() => {
     if (mode === 'edit' && agentId) {
-      setIsLoading(true)
-      setLoadError(null)
       fetch(`/api/u/${slug}/agents/${agentId}`, { cache: 'no-store' })
         .then(async (response) => {
           const data = (await response.json().catch(() => null)) as
@@ -152,6 +150,7 @@ export function AgentForm({
             return
           }
 
+          setLoadError(null)
           setId(data.agent.id)
           setDisplayName(data.agent.displayName ?? data.agent.id)
           setDescription(data.agent.description ?? '')

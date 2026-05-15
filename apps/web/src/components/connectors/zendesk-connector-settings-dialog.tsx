@@ -63,9 +63,10 @@ export function ZendeskConnectorSettingsDialog({
 }: ZendeskConnectorSettingsDialogProps) {
   const [permissions, setPermissions] = useState<ZendeskConnectorPermissions>(DEFAULT_ZENDESK_CONNECTOR_PERMISSIONS)
   const [hasLoadedSettings, setHasLoadedSettings] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const isLoading = open && Boolean(connectorId) && !hasLoadedSettings && error === null
 
   const hasCommentVisibility = permissions.allowPublicComments || permissions.allowInternalComments
   const permissionsConstraintMessage = getZendeskConnectorPermissionsConstraintMessage(permissions)
@@ -79,23 +80,28 @@ export function ZendeskConnectorSettingsDialog({
     !canEditPermissions ||
     (permissions.allowCreateTickets && permissions.allowPublicComments && !permissions.allowInternalComments)
 
+  function resetDialogState() {
+    setPermissions(DEFAULT_ZENDESK_CONNECTOR_PERMISSIONS)
+    setHasLoadedSettings(false)
+    setError(null)
+    setIsSaving(false)
+  }
+
+  function handleDialogOpenChange(nextOpen: boolean) {
+    if (!nextOpen) {
+      resetDialogState()
+    }
+    onOpenChange(nextOpen)
+  }
+
   useEffect(() => {
     if (!open || !connectorId) {
-      setPermissions(DEFAULT_ZENDESK_CONNECTOR_PERMISSIONS)
-      setHasLoadedSettings(false)
-      setError(null)
-      setIsLoading(false)
-      setIsSaving(false)
       return
     }
 
     let cancelled = false
 
     async function loadSettings() {
-      setHasLoadedSettings(false)
-      setIsLoading(true)
-      setError(null)
-
       try {
         const response = await fetch(`/api/u/${slug}/connectors/${connectorId}/zendesk-settings`, {
           cache: 'no-store',
@@ -113,13 +119,10 @@ export function ZendeskConnectorSettingsDialog({
 
         setPermissions(data.permissions)
         setHasLoadedSettings(true)
+        setError(null)
       } catch {
         if (!cancelled) {
           setError(getConnectorErrorMessage(null, 'network_error'))
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false)
         }
       }
     }
@@ -162,7 +165,7 @@ export function ZendeskConnectorSettingsDialog({
       }
 
       setPermissions(data.permissions)
-      onOpenChange(false)
+      handleDialogOpenChange(false)
     } catch {
       setError(getConnectorErrorMessage(null, 'network_error'))
     } finally {
@@ -171,7 +174,7 @@ export function ZendeskConnectorSettingsDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent className="scrollbar-custom max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Zendesk settings</DialogTitle>
@@ -274,7 +277,7 @@ export function ZendeskConnectorSettingsDialog({
           <ConnectorToolPermissionsSection connectorId={connectorId} enabled={open && hasLoadedSettings} slug={slug} />
 
           <div className="flex justify-end gap-2">
-            <Button disabled={isSaving} variant="ghost" onClick={() => onOpenChange(false)}>
+            <Button disabled={isSaving} variant="ghost" onClick={() => handleDialogOpenChange(false)}>
               Cancel
             </Button>
             <Button

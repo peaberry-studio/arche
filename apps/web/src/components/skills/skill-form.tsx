@@ -62,9 +62,6 @@ export function SkillForm({
 
   useEffect(() => {
     if (mode === 'edit' && skillName) {
-      setIsLoading(true)
-      setLoadError(null)
-
       fetch(`/api/u/${slug}/skills/${skillName}`, { cache: 'no-store' })
         .then(async (response) => {
           const data = (await response.json().catch(() => null)) as SkillDetailResponse | null
@@ -73,6 +70,7 @@ export function SkillForm({
             return
           }
 
+          setLoadError(null)
           setName(data.skill.name)
           setDescription(data.skill.description)
           setBody(data.skill.body)

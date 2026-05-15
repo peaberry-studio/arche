@@ -30,17 +30,14 @@ export function AgentsPageClient({
   loadingLabel = 'Loading agents...',
 }: AgentsPageClientProps) {
   const { agents, defaultModel, hash, isLoading, loadError, reload } = useAgentsCatalog(slug)
-  const [defaultModelInput, setDefaultModelInput] = useState('')
+  const [defaultModelDraft, setDefaultModelDraft] = useState<string | null>(null)
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([])
   const [isSavingDefaultModel, setIsSavingDefaultModel] = useState(false)
   const [defaultModelMessage, setDefaultModelMessage] = useState<string | null>(null)
   const [defaultModelError, setDefaultModelError] = useState<string | null>(null)
 
   const visibleAgents = includePrimary ? agents : agents.filter((agent) => !agent.isPrimary)
-
-  useEffect(() => {
-    setDefaultModelInput(defaultModel ?? '')
-  }, [defaultModel])
+  const defaultModelInput = defaultModelDraft ?? defaultModel ?? ''
 
   useEffect(() => {
     let cancelled = false
@@ -81,6 +78,7 @@ export function AgentsPageClient({
       }
 
       setDefaultModelMessage('Default model saved.')
+      setDefaultModelDraft(null)
       notifyWorkspaceConfigChanged()
       await reload()
     } catch {
@@ -127,7 +125,7 @@ export function AgentsPageClient({
                   id="workspace-default-model"
                   list="workspace-default-model-options"
                   value={defaultModelInput}
-                  onChange={(event) => setDefaultModelInput(event.target.value)}
+                  onChange={(event) => setDefaultModelDraft(event.target.value)}
                   placeholder="Select or type a model"
                   className="sm:flex-1"
                 />
