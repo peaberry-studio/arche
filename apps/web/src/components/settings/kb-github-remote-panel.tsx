@@ -14,10 +14,18 @@ import type {
 import { cn } from '@/lib/utils'
 
 type KbGithubRemotePanelProps = {
+  initialError?: string | null
+  initialIntegration: KbGithubRemoteIntegrationSummary
   slug: string
 }
 
 type BusyAction = 'connect' | 'disconnect' | 'repos' | 'select' | 'sync' | 'test' | null
+
+type InitialFeedback = {
+  error: string | null
+  shouldClearUrl: boolean
+  success: string | null
+}
 
 const ERROR_MESSAGES: Record<string, string> = {
   exchange_failed: 'GitHub App creation failed. The manifest code may have expired.',
@@ -42,17 +50,15 @@ const ERROR_MESSAGES: Record<string, string> = {
 const INSTANCE_START_POLL_INTERVAL_MS = 2_000
 const INSTANCE_START_TIMEOUT_MS = 120_000
 
-export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
+export function KbGithubRemotePanel({ initialError, initialIntegration, slug }: KbGithubRemotePanelProps) {
+  const [initialFeedback] = useState<InitialFeedback>(() => getInitialFeedback())
   const [busyAction, setBusyAction] = useState<BusyAction>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [integration, setIntegration] = useState<KbGithubRemoteIntegrationSummary | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(initialFeedback.error ?? (initialError ? getErrorMessage(initialError) : null))
+  const [integration, setIntegration] = useState<KbGithubRemoteIntegrationSummary | null>(initialIntegration)
   const [repos, setRepos] = useState<KbGithubRemoteRepo[] | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(initialFeedback.success)
 
   const loadIntegration = useCallback(async () => {
-    setIsLoading(true)
-
     try {
       const response = await fetch(`/api/u/${slug}/kb-github-remote`, { cache: 'no-store' })
       const data = await response.json().catch(() => null) as (KbGithubRemoteIntegrationSummary & { error?: string }) | null
@@ -65,30 +71,14 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
       setIntegration(data)
     } catch {
       setError(getErrorMessage('network_error'))
-    } finally {
-      setIsLoading(false)
     }
   }, [slug])
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const errorParam = params.get('error')
-    const installed = params.get('installed')
-
-    if (errorParam) {
-      setError(getErrorMessage(errorParam))
-    } else if (installed === 'true') {
-      setSuccess('GitHub App installed. Select a repository to finish setup.')
-    }
-
-    if (errorParam || installed) {
+    if (initialFeedback.shouldClearUrl) {
       window.history.replaceState({}, '', window.location.pathname)
     }
-  }, [])
-
-  useEffect(() => {
-    void loadIntegration()
-  }, [loadIntegration])
+  }, [initialFeedback.shouldClearUrl])
 
   const shouldShowRepos = Boolean(integration?.appConfigured && integration.installationId && !integration.repoFullName)
   useEffect(() => {
@@ -308,7 +298,6 @@ export function KbGithubRemotePanel({ slug }: KbGithubRemotePanelProps) {
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-lg font-medium text-foreground">GitHub KB sync</h2>
             <Badge variant={integration?.ready ? 'default' : 'secondary'}>{statusLabel}</Badge>
-            {isLoading ? <SpinnerGap size={14} className="animate-spin text-muted-foreground" /> : null}
           </div>
           <p className="text-sm text-muted-foreground">
             Connect the deployment-wide shared knowledge base to a GitHub repository. Arche uses a GitHub App and short-lived installation tokens.
@@ -471,6 +460,24 @@ function DisconnectButton({
 function getErrorMessage(error: string | undefined): string {
   if (!error) return 'Something went wrong.'
   return ERROR_MESSAGES[error] ?? error
+}
+
+function getInitialFeedback(): InitialFeedback {
+  if (typeof window === 'undefined') {
+    return { error: null, shouldClearUrl: false, success: null }
+  }
+
+  const params = new URLSearchParams(window.location.search)
+  const errorParam = params.get('error')
+  const installed = params.get('installed')
+
+  return {
+    error: errorParam ? getErrorMessage(errorParam) : null,
+    shouldClearUrl: Boolean(errorParam || installed),
+    success: !errorParam && installed === 'true'
+      ? 'GitHub App installed. Select a repository to finish setup.'
+      : null,
+  }
 }
 
 function delay(ms: number): Promise<void> {

@@ -5,6 +5,7 @@ import { KbGithubRemotePanel } from '@/components/settings/kb-github-remote-pane
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { isDesktop } from '@/lib/runtime/mode'
 import { getSession } from '@/lib/runtime/session'
+import { kbGithubRemoteService } from '@/lib/services'
 import { get2FAStatus } from '../../security/actions'
 
 export default async function KbGithubRemoteSettingsPage({
@@ -33,6 +34,12 @@ export default async function KbGithubRemoteSettingsPage({
     redirect(`/u/${slug}/settings?section=integrations`)
   }
 
+  const integration = await kbGithubRemoteService.findIntegration()
+  const initialIntegration = kbGithubRemoteService.toSummary(
+    integration,
+    kbGithubRemoteService.decryptIntegrationConfig(integration),
+  )
+
   return (
     <main className="relative mx-auto max-w-6xl px-6 py-10">
       <div className="space-y-8">
@@ -54,7 +61,7 @@ export default async function KbGithubRemoteSettingsPage({
           </div>
         </div>
 
-        <KbGithubRemotePanel slug={slug} />
+        <KbGithubRemotePanel initialIntegration={initialIntegration} slug={slug} />
       </div>
     </main>
   )

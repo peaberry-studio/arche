@@ -61,6 +61,19 @@ function jsonResponse(body: unknown, init?: ResponseInit) {
   })
 }
 
+function renderPanel(
+  initialIntegration: KbGithubRemoteIntegrationSummary = readyIntegration,
+  props?: { initialError?: string | null },
+) {
+  return render(
+    <KbGithubRemotePanel
+      initialError={props?.initialError}
+      initialIntegration={initialIntegration}
+      slug="alice"
+    />,
+  )
+}
+
 describe('KbGithubRemotePanel', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', fetchMock)
@@ -85,7 +98,7 @@ describe('KbGithubRemotePanel', () => {
   })
 
   it('starts the workspace before publishing an initial sync', async () => {
-    render(<KbGithubRemotePanel slug="alice" />)
+    renderPanel()
 
     expect(await screen.findByText('acme/kb')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /Sync now/ }))
@@ -94,7 +107,7 @@ describe('KbGithubRemotePanel', () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/instances/alice/publish-kb', { method: 'POST' }))
 
     const publishCall = fetchMock.mock.calls.findIndex(([input]) => String(input) === '/api/instances/alice/publish-kb')
-    expect(publishCall).toBeGreaterThan(0)
+    expect(publishCall).toBeGreaterThanOrEqual(0)
     expect(ensureInstanceRunningActionMock.mock.invocationCallOrder[0]).toBeLessThan(
       fetchMock.mock.invocationCallOrder[publishCall],
     )
@@ -114,7 +127,7 @@ describe('KbGithubRemotePanel', () => {
       return jsonResponse({ error: `unexpected fetch: ${url}` }, { status: 500 })
     })
 
-    render(<KbGithubRemotePanel slug="alice" />)
+    renderPanel(notConfiguredIntegration)
     fireEvent.click(await screen.findByRole('button', { name: 'Connect GitHub' }))
 
     await waitFor(() => expect(submitMock).toHaveBeenCalled())
@@ -143,7 +156,7 @@ describe('KbGithubRemotePanel', () => {
       return jsonResponse({ error: `unexpected fetch: ${url}` }, { status: 500 })
     })
 
-    render(<KbGithubRemotePanel slug="alice" />)
+    renderPanel(notConfiguredIntegration)
     fireEvent.click(await screen.findByRole('button', { name: 'Connect GitHub' }))
 
     expect(await screen.findByText('Sign in again before continuing.')).toBeTruthy()
@@ -166,7 +179,7 @@ describe('KbGithubRemotePanel', () => {
       return jsonResponse({ error: `unexpected fetch: ${url}` }, { status: 500 })
     })
 
-    render(<KbGithubRemotePanel slug="alice" />)
+    renderPanel(installedIntegration)
 
     expect(await screen.findByText('Select repository')).toBeTruthy()
     fireEvent.click(await screen.findByRole('button', { name: /acme\/new-kb/ }))
@@ -190,7 +203,7 @@ describe('KbGithubRemotePanel', () => {
       return jsonResponse({ error: `unexpected fetch: ${url}` }, { status: 500 })
     })
 
-    render(<KbGithubRemotePanel slug="alice" />)
+    renderPanel(installedIntegration)
 
     expect(await screen.findByText('No repositories are available to this GitHub App installation.')).toBeTruthy()
   })
@@ -210,7 +223,7 @@ describe('KbGithubRemotePanel', () => {
       return jsonResponse({ error: `unexpected fetch: ${url}` }, { status: 500 })
     })
 
-    render(<KbGithubRemotePanel slug="alice" />)
+    renderPanel()
 
     fireEvent.click(await screen.findByRole('button', { name: 'Test connection' }))
     expect(await screen.findByText('Token ok.')).toBeTruthy()
@@ -222,7 +235,7 @@ describe('KbGithubRemotePanel', () => {
   it('surfaces workspace start errors before initial sync', async () => {
     ensureInstanceRunningActionMock.mockResolvedValue({ error: 'setup_required', status: 'error' })
 
-    render(<KbGithubRemotePanel slug="alice" />)
+    renderPanel()
     fireEvent.click(await screen.findByRole('button', { name: /Sync now/ }))
 
     expect(await screen.findByText('Finish Kickstart setup before syncing the knowledge base.')).toBeTruthy()
@@ -232,16 +245,14 @@ describe('KbGithubRemotePanel', () => {
   it('shows install-return success from URL params and clears them', async () => {
     window.history.pushState({}, '', '/u/alice/settings/integrations/kb-github-remote?installed=true')
 
-    render(<KbGithubRemotePanel slug="alice" />)
+    renderPanel()
 
     expect(await screen.findByText('GitHub App installed. Select a repository to finish setup.')).toBeTruthy()
     expect(window.location.search).toBe('')
   })
 
-  it('shows API errors while loading the integration', async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ error: 'forbidden' }, { status: 403 }))
-
-    render(<KbGithubRemotePanel slug="alice" />)
+  it('shows initial integration errors', async () => {
+    renderPanel(notConfiguredIntegration, { initialError: 'forbidden' })
 
     expect(await screen.findByText('Only admins can manage GitHub KB sync.')).toBeTruthy()
   })
@@ -258,7 +269,7 @@ describe('KbGithubRemotePanel', () => {
       return jsonResponse({ error: `unexpected fetch: ${url}` }, { status: 500 })
     })
 
-    const { unmount } = render(<KbGithubRemotePanel slug="alice" />)
+    const { unmount } = renderPanel()
     fireEvent.click(await screen.findByRole('button', { name: /Sync now/ }))
     expect(await screen.findByText('Sync found conflicts. Open the Knowledge Review panel to resolve them.')).toBeTruthy()
     unmount()
@@ -274,7 +285,7 @@ describe('KbGithubRemotePanel', () => {
       return jsonResponse({ error: `unexpected fetch: ${url}` }, { status: 500 })
     })
 
-    render(<KbGithubRemotePanel slug="alice" />)
+    renderPanel()
     fireEvent.click(await screen.findByRole('button', { name: /Sync now/ }))
     expect(await screen.findByText('Push rejected.')).toBeTruthy()
   })
