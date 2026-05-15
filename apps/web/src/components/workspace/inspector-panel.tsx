@@ -37,6 +37,15 @@ type WorkspaceFile = {
   kind: 'markdown' | 'text';
 };
 
+type ConflictMarkerTextEditorProps = {
+  value: string;
+  onChange: (next: string) => void;
+  saveState: SaveState;
+  saveError?: string | null;
+  onReload?: () => void;
+  modifiedAt?: string;
+};
+
 type InspectorPanelProps = {
   slug: string;
   activeTab: "preview" | "review";
@@ -64,7 +73,7 @@ type InspectorPanelProps = {
   ) => Promise<{ ok: true; hash?: string } | { ok: false; error: string }>;
   onDiscardFileChanges?: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;
   onPublish?: () => void;
-  onResolveConflict?: (path: string, content: string) => void;
+  onResolveConflict?: (path: string) => void | Promise<void>;
   hideCollapseButton?: boolean;
 };
 
@@ -173,6 +182,78 @@ function MinifiedInspectorPanel({
         ) : null}
       </div>
     </TooltipProvider>
+  );
+}
+
+function hasGitConflictMarkers(content: string): boolean {
+  return content.split(/\r?\n/).some((line) => (
+    line.startsWith("<<<<<<<") || line.startsWith("=======") || line.startsWith(">>>>>>>")
+  ));
+}
+
+function ConflictMarkerTextEditor({
+  value,
+  onChange,
+  saveState,
+  saveError,
+  onReload,
+  modifiedAt,
+}: ConflictMarkerTextEditorProps) {
+  const isEditing = saveState === "dirty" || saveState === "saving";
+  const isError = saveState === "error";
+  const statusLabel = isError ? "Error" : isEditing ? "Editing" : "Saved";
+  const reloadRecommended = Boolean(saveState === "error" && saveError && saveError.includes("conflict"));
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border/30 px-4 py-2">
+        <p className="min-w-0 text-[11px] text-muted-foreground">
+          Edit the conflict markers directly. Remove every{" "}
+          <span className="font-mono">&lt;&lt;&lt;&lt;&lt;&lt;&lt;</span>,{" "}
+          <span className="font-mono">=======</span>, and{" "}
+          <span className="font-mono">&gt;&gt;&gt;&gt;&gt;&gt;&gt;</span> line to resolve.
+        </p>
+        <div className="flex shrink-0 items-center gap-2 text-[11px]">
+          {onReload && reloadRecommended ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-[11px]"
+              onClick={onReload}
+            >
+              Reload
+            </Button>
+          ) : null}
+          {modifiedAt ? <span className="shrink-0 text-muted-foreground">{modifiedAt}</span> : null}
+          <div className="flex shrink-0 items-center gap-1.5 rounded-full border border-border/50 px-2 py-1 text-[10px] text-muted-foreground">
+            <span
+              className={cn(
+                "h-2 w-2 rounded-full",
+                isError ? "bg-destructive" : isEditing ? "bg-amber-400" : "bg-emerald-500",
+                isEditing && "animate-pulse"
+              )}
+            />
+            <span>{statusLabel}</span>
+          </div>
+          {saveError ? (
+            <span className="min-w-0 truncate text-destructive/90" title={saveError}>
+              {saveError}
+            </span>
+          ) : null}
+        </div>
+      </div>
+      <textarea
+        aria-label="Edit conflict file"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className={cn(
+          "min-h-0 flex-1 resize-none bg-background px-6 py-4 font-mono text-[12px] leading-relaxed text-foreground",
+          "outline-none scrollbar-custom"
+        )}
+        spellCheck={false}
+      />
+    </div>
   );
 }
 
@@ -318,6 +399,15 @@ function ExpandedInspectorPanel({
   const activeSaveError = activeFile
     ? getSaveError(activeFile.path)
     : null;
+  const activeDiff = activeFile
+    ? diffs.find((diff) => diff.path === activeFile.path)
+    : undefined;
+  const useConflictTextEditor = Boolean(
+    activeFile?.kind === "markdown" &&
+    activeDraft !== null &&
+    canEditMarkdown &&
+    (activeDiff?.conflicted || hasGitConflictMarkers(activeDraft))
+  );
 
   const updateScrollState = () => {
     const el = tabsRef.current;
@@ -537,19 +627,32 @@ function ExpandedInspectorPanel({
               {activeFile ? (
                 <div className="flex-1 min-h-0 overflow-y-auto scrollbar-none">
                   {activeFile.kind === "markdown" && activeDraft != null && canEditMarkdown ? (
-                    <MarkdownEditor
-                      key={activeFile.path}
-                      value={activeDraft}
-                      onChange={(next) =>
-                        handleChange(activeFile.path, next, activeFile.content, activeFile.hash)
-                      }
-                      saveState={activeSaveState}
-                      saveError={activeSaveError}
-                      modifiedAt={activeFile.updatedAt}
-                      internalLinkPaths={internalLinkPaths}
-                      onOpenInternalLink={onOpenFile}
-                      onReload={onReloadFile ? () => void handleReload(activeFile.path) : undefined}
-                    />
+                    useConflictTextEditor ? (
+                      <ConflictMarkerTextEditor
+                        value={activeDraft}
+                        onChange={(next) =>
+                          handleChange(activeFile.path, next, activeFile.content, activeFile.hash)
+                        }
+                        saveState={activeSaveState}
+                        saveError={activeSaveError}
+                        modifiedAt={activeFile.updatedAt}
+                        onReload={onReloadFile ? () => void handleReload(activeFile.path) : undefined}
+                      />
+                    ) : (
+                      <MarkdownEditor
+                        key={activeFile.path}
+                        value={activeDraft}
+                        onChange={(next) =>
+                          handleChange(activeFile.path, next, activeFile.content, activeFile.hash)
+                        }
+                        saveState={activeSaveState}
+                        saveError={activeSaveError}
+                        modifiedAt={activeFile.updatedAt}
+                        internalLinkPaths={internalLinkPaths}
+                        onOpenInternalLink={onOpenFile}
+                        onReload={onReloadFile ? () => void handleReload(activeFile.path) : undefined}
+                      />
+                    )
                   ) : (
                     <>
                       <div className="flex items-center justify-between gap-3 px-5 py-3">

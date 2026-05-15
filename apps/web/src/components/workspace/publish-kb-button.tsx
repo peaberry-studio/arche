@@ -20,7 +20,6 @@ type PublishState =
   | 'published'
   | 'nothing'
   | 'push_rejected'
-  | 'conflicts'
   | 'no_remote'
   | 'error'
 
@@ -71,10 +70,8 @@ export function PublishKbButton({ slug, disabled, disabledReason, onComplete }: 
       }
 
       if (result.status === 'conflicts') {
-        setState('conflicts')
-        setMessage(result.message || 'There are unresolved conflicts')
-        setFiles(result.files || [])
         onComplete?.()
+        setState('idle')
         return
       }
 
@@ -137,13 +134,6 @@ export function PublishKbButton({ slug, disabled, disabledReason, onComplete }: 
       buttonClassName: '',
       weight: 'fill' as const,
     },
-    conflicts: {
-      icon: Warning,
-      label: 'Conflicts',
-      className: 'text-amber-500',
-      buttonClassName: '',
-      weight: 'fill' as const,
-    },
     no_remote: {
       icon: Warning,
       label: 'No remote',
@@ -162,7 +152,7 @@ export function PublishKbButton({ slug, disabled, disabledReason, onComplete }: 
 
   const config = stateConfig[state]
   const Icon = config.icon
-  const showPopover = state === 'push_rejected' || state === 'conflicts' || state === 'no_remote' || state === 'error'
+  const showPopover = state === 'push_rejected' || state === 'no_remote' || state === 'error'
 
   return (
     <div className="relative">
@@ -188,28 +178,6 @@ export function PublishKbButton({ slug, disabled, disabledReason, onComplete }: 
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {message || 'Sync before publishing'}
-                  </p>
-                  {files.length > 0 ? (
-                    <ul className="mt-2 max-h-32 overflow-y-auto text-xs">
-                      {files.map((file) => (
-                        <li
-                          key={file}
-                          className="truncate font-mono text-muted-foreground"
-                          title={file}
-                        >
-                          {file}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </>
-              ) : state === 'conflicts' ? (
-                <>
-                  <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
-                    Pending conflicts
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {message || 'Resolve conflicts before publishing'}
                   </p>
                   {files.length > 0 ? (
                     <ul className="mt-2 max-h-32 overflow-y-auto text-xs">

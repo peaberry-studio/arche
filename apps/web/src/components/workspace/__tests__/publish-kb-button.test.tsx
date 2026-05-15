@@ -76,19 +76,24 @@ describe('PublishKbButton', () => {
     await waitFor(() => expect(screen.queryByText('KB sync required')).toBeNull())
   })
 
-  it('shows conflict and missing remote details', async () => {
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse({ status: 'conflicts', files: ['Conflict.md'] }))
-      .mockResolvedValueOnce(jsonResponse({ status: 'no_remote', message: 'No origin' }))
+  it('refreshes on conflicts without showing a redundant conflict popover', async () => {
+    const onComplete = vi.fn()
+    fetchMock.mockResolvedValueOnce(jsonResponse({ status: 'conflicts', files: ['Conflict.md'] }))
 
-    const { rerender } = render(<PublishKbButton slug="alice" />)
+    render(<PublishKbButton slug="alice" onComplete={onComplete} />)
     fireEvent.click(screen.getByRole('button', { name: 'Publish' }))
 
-    expect(await screen.findByText('Pending conflicts')).toBeDefined()
-    expect(screen.getByText('Conflict.md')).toBeDefined()
+    await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1))
+    expect(screen.queryByText('Pending conflicts')).toBeNull()
+    expect(screen.queryByText('Conflict.md')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Publish' })).toBeDefined()
+  })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
-    rerender(<PublishKbButton slug="alice" />)
+  it('shows missing remote details', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ status: 'no_remote', message: 'No origin' }))
+
+    render(<PublishKbButton slug="alice" />)
     fireEvent.click(screen.getByRole('button', { name: 'Publish' }))
 
     expect(await screen.findByText('KB remote unavailable')).toBeDefined()
