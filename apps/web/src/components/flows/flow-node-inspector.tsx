@@ -36,9 +36,7 @@ export function FlowNodeInspector({
 }: FlowNodeInspectorProps) {
   if (!selectedNode) {
     return (
-      <div className="rounded-xl border border-border/60 bg-card/40 p-4 text-sm text-muted-foreground">
-        Select a node to edit its properties.
-      </div>
+      <p className="text-sm text-muted-foreground">Select a node to edit its properties.</p>
     )
   }
 
@@ -54,17 +52,7 @@ export function FlowNodeInspector({
   }
 
   return (
-    <div className="space-y-5 rounded-xl border border-border/60 bg-card/40 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{node.type} node</p>
-          <h3 className="mt-1 text-sm font-semibold text-foreground">Inspector</h3>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => onDeleteNode(node.id)}>
-          <Trash size={13} className="mr-1" /> Delete
-        </Button>
-      </div>
-
+    <div className="space-y-5">
       <div className="space-y-2">
         <Label htmlFor="flow-node-name">Name</Label>
         <Input
@@ -216,14 +204,24 @@ export function FlowNodeInspector({
       ) : null}
 
       {node.type === 'merge' ? (
-        <p className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           Merge nodes are pass-through join markers. Flows still execute one path at a time and continue through the selected next node.
         </p>
       ) : null}
 
-      <p className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-        Create or remove step connections directly on the canvas.
-      </p>
+      <div className="flex items-center justify-between gap-3 border-t border-border/40 pt-4">
+        <p className="text-xs text-muted-foreground">
+          Create or remove step connections directly on the canvas.
+        </p>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => onDeleteNode(node.id)}
+          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+        >
+          <Trash size={13} className="mr-1" /> Delete step
+        </Button>
+      </div>
     </div>
   )
 }

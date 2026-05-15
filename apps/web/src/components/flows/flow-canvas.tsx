@@ -204,7 +204,7 @@ export function FlowCanvas({
   }, [nodes, onMoveNode])
 
   return (
-    <div className="min-h-[420px] overflow-hidden rounded-xl border border-border/60 bg-card/40">
+    <div className="min-h-[420px] overflow-hidden rounded-lg border border-border/50 bg-background/40">
       <svg
         ref={svgRef}
         className="h-[420px] w-full touch-none"
@@ -215,14 +215,13 @@ export function FlowCanvas({
         onPointerCancel={clearConnection}
       >
         <defs>
-          <pattern id="flow-dot-grid" width="18" height="18" patternUnits="userSpaceOnUse">
-            <circle cx="1.5" cy="1.5" r="1.25" className="fill-muted-foreground/35" />
+          <pattern id="flow-dot-grid" width="22" height="22" patternUnits="userSpaceOnUse">
+            <circle cx="1" cy="1" r="0.9" className="fill-muted-foreground/15" />
           </pattern>
           <marker id="flow-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-            <path d="M 0 0 L 10 5 L 0 10 z" className="fill-muted-foreground" />
+            <path d="M 0 0 L 10 5 L 0 10 z" className="fill-muted-foreground/70" />
           </marker>
         </defs>
-        <rect width="100%" height="100%" className="fill-background/70" />
         <rect width="100%" height="100%" fill="url(#flow-dot-grid)" />
         <g ref={zoomLayerRef}>
           {definition.edges.map((edge) => {
@@ -259,7 +258,7 @@ export function FlowCanvas({
                   onTouchStart={stopCanvasAction}
                   className="cursor-pointer opacity-0 outline-none transition-opacity group-hover:opacity-100 focus:opacity-100"
                 >
-                  <circle r="9" className="fill-background stroke-border" strokeWidth="1.2" />
+                  <circle r="9" className="fill-card stroke-border" strokeWidth="1.2" />
                   <text textAnchor="middle" dominantBaseline="central" className="fill-muted-foreground text-[11px] font-semibold">×</text>
                 </g>
               </g>
@@ -280,8 +279,9 @@ export function FlowCanvas({
 
           {nodes.map((node) => {
             const selected = selectedNodeId === node.nodeId
-            const active = selected || hoveredNodeId === node.nodeId || addMenuNodeId === node.nodeId || pendingConnection?.sourceNodeId === node.nodeId
+            const showActions = hoveredNodeId === node.nodeId || addMenuNodeId === node.nodeId || pendingConnection?.sourceNodeId === node.nodeId
             const connectionTarget = pendingConnectionTargetId === node.nodeId
+            const hiddenAction = showActions ? 'opacity-100' : 'opacity-0 pointer-events-none'
             return (
               <g
                 key={node.nodeId}
@@ -304,15 +304,23 @@ export function FlowCanvas({
               >
                 <title>{node.label}</title>
                 <rect
+                  x={-6}
+                  y={-36}
+                  width={NODE_WIDTH + 44}
+                  height={NODE_HEIGHT + 44}
+                  fill="transparent"
+                  pointerEvents="all"
+                />
+                <rect
                   width={NODE_WIDTH}
                   height={NODE_HEIGHT}
-                  rx="14"
+                  rx="12"
                   className={cn(
-                    'fill-background stroke-border transition-colors',
+                    'fill-card stroke-border transition-colors',
                     selected && 'stroke-primary',
                     connectionTarget && 'stroke-primary fill-primary/10',
                   )}
-                  strokeWidth={selected || connectionTarget ? 2.5 : 1.2}
+                  strokeWidth={selected || connectionTarget ? 2 : 1}
                 />
                 <text x="14" y="23" className="fill-foreground text-[12px] font-semibold">
                   {node.label.length > 20 ? `${node.label.slice(0, 19)}...` : node.label}
@@ -320,86 +328,88 @@ export function FlowCanvas({
                 <text x="14" y="41" className="fill-muted-foreground text-[10px] uppercase tracking-wide">
                   {node.type}
                 </text>
-                {active ? (
-                  <>
-                    <g
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`Edit ${node.label}`}
-                      transform={`translate(${NODE_WIDTH - 54}, -30)`}
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        onEditNode(node.nodeId)
-                      }}
-                      onKeyDown={(event) => handleActionKeyDown(event, () => onEditNode(node.nodeId))}
-                      onMouseDown={stopCanvasAction}
-                      onTouchStart={stopCanvasAction}
-                      className="cursor-pointer outline-none"
-                    >
-                      <rect width="54" height="22" rx="11" className="fill-background stroke-border transition-colors hover:fill-muted" strokeWidth="1.2" />
-                      <text x="27" y="14" textAnchor="middle" className="fill-foreground text-[10px] font-semibold">Edit</text>
-                    </g>
-                    <g
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`Connect from ${node.label}`}
-                      transform={`translate(${NODE_WIDTH + 4}, ${NODE_HEIGHT / 2})`}
-                      onPointerDown={(event) => startConnection(node, event)}
-                      onMouseDown={stopCanvasAction}
-                      onTouchStart={stopCanvasAction}
-                      onKeyDown={(event) => handleActionKeyDown(event, () => setAddMenuNodeId(node.nodeId))}
-                      className="cursor-crosshair outline-none"
-                    >
-                      <circle r="6" className="fill-background stroke-primary" strokeWidth="2" />
-                      <circle r="2" className="fill-primary" />
-                    </g>
-                    <g
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`Add node after ${node.label}`}
-                      transform={`translate(${NODE_WIDTH + 23}, ${NODE_HEIGHT / 2})`}
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        setAddMenuNodeId((current) => current === node.nodeId ? null : node.nodeId)
-                      }}
-                      onKeyDown={(event) => handleActionKeyDown(event, () => setAddMenuNodeId((current) => current === node.nodeId ? null : node.nodeId))}
-                      onMouseDown={stopCanvasAction}
-                      onTouchStart={stopCanvasAction}
-                      className="cursor-pointer outline-none"
-                    >
-                      <circle r="12" className="fill-primary stroke-background" strokeWidth="2" />
-                      <text textAnchor="middle" dominantBaseline="central" className="fill-primary-foreground text-[15px] font-semibold">+</text>
-                    </g>
-                    {addMenuNodeId === node.nodeId ? (
-                      <g transform={`translate(${NODE_WIDTH + 42}, -8)`}>
-                        <rect width="104" height="112" rx="12" className="fill-background stroke-border drop-shadow-sm" strokeWidth="1.2" />
-                        {ADD_NODE_TYPES.map((item, index) => (
-                          <g
-                            key={item.type}
-                            role="button"
-                            tabIndex={0}
-                            aria-label={`Add ${item.label.toLowerCase()} step after ${node.label}`}
-                            transform={`translate(8, ${8 + index * 26})`}
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              onAddNodeAfter(node.nodeId, item.type)
-                              setAddMenuNodeId(null)
-                            }}
-                            onKeyDown={(event) => handleActionKeyDown(event, () => {
-                              onAddNodeAfter(node.nodeId, item.type)
-                              setAddMenuNodeId(null)
-                            })}
-                            onMouseDown={stopCanvasAction}
-                            onTouchStart={stopCanvasAction}
-                            className="cursor-pointer outline-none"
-                          >
-                            <rect width="88" height="22" rx="8" className="fill-transparent transition-colors hover:fill-muted" />
-                            <text x="10" y="14" className="fill-foreground text-[11px] font-medium">{item.label}</text>
-                          </g>
-                        ))}
+                <g
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Edit ${node.label}`}
+                  transform={`translate(${NODE_WIDTH - 54}, -28)`}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onEditNode(node.nodeId)
+                  }}
+                  onKeyDown={(event) => handleActionKeyDown(event, () => onEditNode(node.nodeId))}
+                  onMouseDown={stopCanvasAction}
+                  onTouchStart={stopCanvasAction}
+                  className={cn('group/edit cursor-pointer outline-none transition-opacity focus:opacity-100', hiddenAction)}
+                >
+                  <rect width="54" height="22" rx="11" className="fill-card stroke-border transition-colors group-hover/edit:fill-muted group-hover/edit:stroke-primary/50" strokeWidth="1" />
+                  <text x="27" y="14" textAnchor="middle" className="fill-foreground text-[10px] font-medium">Edit</text>
+                </g>
+                <g
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Connect from ${node.label}`}
+                  transform={`translate(${NODE_WIDTH + 4}, ${NODE_HEIGHT / 2})`}
+                  onPointerDown={(event) => startConnection(node, event)}
+                  onMouseDown={stopCanvasAction}
+                  onTouchStart={stopCanvasAction}
+                  onKeyDown={(event) => handleActionKeyDown(event, () => setAddMenuNodeId(node.nodeId))}
+                  className={cn('group/dot cursor-crosshair outline-none transition-opacity focus:opacity-100', hiddenAction)}
+                >
+                  <circle r="5.5" className="fill-card stroke-primary/70 transition-colors group-hover/dot:stroke-primary" strokeWidth="1.5" />
+                  <circle r="2" className="fill-primary" />
+                </g>
+                <g
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Add node after ${node.label}`}
+                  transform={`translate(${NODE_WIDTH + 24}, ${NODE_HEIGHT / 2})`}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    setAddMenuNodeId((current) => current === node.nodeId ? null : node.nodeId)
+                  }}
+                  onKeyDown={(event) => handleActionKeyDown(event, () => setAddMenuNodeId((current) => current === node.nodeId ? null : node.nodeId))}
+                  onMouseDown={stopCanvasAction}
+                  onTouchStart={stopCanvasAction}
+                  className={cn('group/add cursor-pointer outline-none transition-opacity focus:opacity-100', hiddenAction)}
+                >
+                  <circle r="9" className="fill-card stroke-border transition-colors group-hover/add:fill-muted group-hover/add:stroke-primary/60" strokeWidth="1" />
+                  <path
+                    d="M -3.5 0 L 3.5 0 M 0 -3.5 L 0 3.5"
+                    className="stroke-muted-foreground transition-colors group-hover/add:stroke-foreground"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    fill="none"
+                  />
+                </g>
+                {addMenuNodeId === node.nodeId ? (
+                  <g transform={`translate(${NODE_WIDTH + 40}, -8)`}>
+                    <rect width="104" height="112" rx="10" className="fill-card stroke-border drop-shadow-sm" strokeWidth="1" />
+                    {ADD_NODE_TYPES.map((item, index) => (
+                      <g
+                        key={item.type}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Add ${item.label.toLowerCase()} step after ${node.label}`}
+                        transform={`translate(8, ${8 + index * 26})`}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          onAddNodeAfter(node.nodeId, item.type)
+                          setAddMenuNodeId(null)
+                        }}
+                        onKeyDown={(event) => handleActionKeyDown(event, () => {
+                          onAddNodeAfter(node.nodeId, item.type)
+                          setAddMenuNodeId(null)
+                        })}
+                        onMouseDown={stopCanvasAction}
+                        onTouchStart={stopCanvasAction}
+                        className="cursor-pointer outline-none"
+                      >
+                        <rect width="88" height="22" rx="8" className="fill-transparent transition-colors hover:fill-muted" />
+                        <text x="10" y="14" className="fill-foreground text-[11px] font-medium">{item.label}</text>
                       </g>
-                    ) : null}
-                  </>
+                    ))}
+                  </g>
                 ) : null}
               </g>
             )
