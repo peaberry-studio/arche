@@ -4,6 +4,7 @@ import { useCallback, type ComponentType, type Dispatch, type SetStateAction } f
 import {
   Calendar,
   CalendarBlank,
+  CaretDown,
   Code,
   Clock,
   Sun,
@@ -12,7 +13,6 @@ import {
 } from '@phosphor-icons/react'
 
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { formatFlowRunDate } from '@/lib/flows/cron'
 import {
   FLOW_WEEKDAY_OPTIONS,
@@ -37,16 +37,31 @@ type ScheduleOption = {
 }
 
 const SCHEDULE_OPTIONS: ScheduleOption[] = [
-  { mode: 'minutes', label: 'Minutes', icon: Timer },
+  { mode: 'minutes', label: 'Every X minutes', icon: Timer },
   { mode: 'hourly', label: 'Hourly', icon: Clock },
   { mode: 'daily', label: 'Daily', icon: Sun },
   { mode: 'weekly', label: 'Weekly', icon: CalendarBlank },
   { mode: 'monthly', label: 'Monthly', icon: Calendar },
-  { mode: 'custom', label: 'Custom', icon: Code },
+  { mode: 'custom', label: 'Custom cron', icon: Code },
 ]
+
+const SCHEDULE_MODES: FlowScheduleBuilderMode[] = SCHEDULE_OPTIONS.map((option) => option.mode)
 
 const numberInputClass = 'h-9 w-16 text-center font-medium tabular-nums'
 const timeInputClass = 'h-9 w-14 text-center font-medium tabular-nums'
+
+function formatRelativeRunTime(date: Date, now: Date): string {
+  const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
+  const diffMs = date.getTime() - now.getTime()
+  const absMs = Math.abs(diffMs)
+
+  if (absMs < 60_000) return rtf.format(Math.round(diffMs / 1_000), 'second')
+  if (absMs < 3_600_000) return rtf.format(Math.round(diffMs / 60_000), 'minute')
+  if (absMs < 86_400_000) return rtf.format(Math.round(diffMs / 3_600_000), 'hour')
+  if (absMs < 14 * 86_400_000) return rtf.format(Math.round(diffMs / 86_400_000), 'day')
+  if (absMs < 60 * 86_400_000) return rtf.format(Math.round(diffMs / (86_400_000 * 7)), 'week')
+  return rtf.format(Math.round(diffMs / (86_400_000 * 30)), 'month')
+}
 
 export function FlowScheduleBuilder({
   preview,
@@ -72,40 +87,40 @@ export function FlowScheduleBuilder({
     }))
   }, [updateSchedule])
 
+  const activeOption = SCHEDULE_OPTIONS.find((option) => option.mode === schedule.mode) ?? SCHEDULE_OPTIONS[0]
+  const ActiveIcon = activeOption.icon
+
+  const now = new Date()
+
   return (
     <div className="space-y-5">
-      <div
-        role="tablist"
-        aria-label="Schedule frequency"
-        className="grid grid-cols-3 gap-1 rounded-lg border border-border/60 bg-background/50 p-1 sm:grid-cols-6"
-      >
-        {SCHEDULE_OPTIONS.map(({ mode, label, icon: Icon }) => {
-          const active = schedule.mode === mode
-          return (
-            <button
-              key={mode}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              onClick={() => setScheduleMode(mode)}
-              className={cn(
-                'flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-all',
-                active
-                  ? 'bg-card text-primary shadow-sm ring-1 ring-primary/30'
-                  : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground',
-              )}
-            >
-              <Icon size={13} weight={active ? 'fill' : 'regular'} />
-              <span>{label}</span>
-            </button>
-          )
-        })}
-      </div>
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-3 text-sm text-foreground">
+        <span className="text-muted-foreground">Run</span>
 
-      <div className="rounded-lg border border-border/50 bg-background/40 px-4 py-3.5">
+        <div className="relative inline-flex h-9 items-center gap-2 rounded-md border border-border/70 bg-background/60 pl-3 pr-8 text-sm font-medium transition-colors focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20 hover:border-border">
+          <ActiveIcon size={14} weight="fill" className="text-primary" />
+          <span className="pointer-events-none">{activeOption.label}</span>
+          <CaretDown size={12} className="pointer-events-none absolute right-2.5 text-muted-foreground" />
+          <select
+            aria-label="Schedule frequency"
+            value={schedule.mode}
+            onChange={(event) => {
+              const next = event.target.value as FlowScheduleBuilderMode
+              if (SCHEDULE_MODES.includes(next)) setScheduleMode(next)
+            }}
+            className="absolute inset-0 cursor-pointer appearance-none bg-transparent text-transparent opacity-0 focus:outline-none"
+          >
+            {SCHEDULE_OPTIONS.map((option) => (
+              <option key={option.mode} value={option.mode} className="bg-background text-foreground">
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
         {schedule.mode === 'minutes' ? (
-          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2 text-sm text-foreground">
-            <span>Run every</span>
+          <>
+            <span className="text-muted-foreground">every</span>
             <Input
               id="flow-interval-minutes"
               aria-label="Every N minutes"
@@ -118,13 +133,13 @@ export function FlowScheduleBuilder({
               }))}
               className={numberInputClass}
             />
-            <span className="text-muted-foreground">minute(s).</span>
-          </div>
+            <span className="text-muted-foreground">minute(s)</span>
+          </>
         ) : null}
 
         {schedule.mode === 'hourly' ? (
-          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2 text-sm text-foreground">
-            <span>Run every</span>
+          <>
+            <span className="text-muted-foreground">every</span>
             <Input
               id="flow-interval-hours"
               aria-label="Every N hours"
@@ -151,13 +166,12 @@ export function FlowScheduleBuilder({
               }))}
               className={timeInputClass}
             />
-            <span className="text-muted-foreground">.</span>
-          </div>
+          </>
         ) : null}
 
         {schedule.mode === 'daily' ? (
-          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2 text-sm text-foreground">
-            <span>Run every</span>
+          <>
+            <span className="text-muted-foreground">every</span>
             <Input
               id="flow-interval-days"
               aria-label="Every N days"
@@ -198,77 +212,72 @@ export function FlowScheduleBuilder({
               }))}
               className={timeInputClass}
             />
-          </div>
+          </>
         ) : null}
 
         {schedule.mode === 'weekly' ? (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                Weekdays
-              </Label>
-              <div className="flex flex-wrap gap-1.5">
-                {FLOW_WEEKDAY_OPTIONS.map((option) => {
-                  const selected = schedule.weekdays.includes(option.value)
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => updateSchedule((current) => ({
-                        ...current,
-                        weekdays: selected
-                          ? current.weekdays.filter((weekday) => weekday !== option.value)
-                          : [...current.weekdays, option.value].sort((left, right) => left - right),
-                      }))}
-                      className={cn(
-                        'h-8 w-12 rounded-md border text-xs font-medium transition-colors',
-                        selected
-                          ? 'border-primary/50 bg-primary/10 text-primary'
-                          : 'border-border/70 bg-background/60 text-muted-foreground hover:border-border hover:text-foreground',
-                      )}
-                    >
-                      {option.label}
-                    </button>
-                  )
-                })}
-              </div>
+          <>
+            <span className="text-muted-foreground">at</span>
+            <Input
+              id="flow-weekly-hour"
+              aria-label="Hour"
+              type="number"
+              min={0}
+              max={23}
+              value={schedule.hour}
+              onChange={(event) => updateSchedule((current) => ({
+                ...current,
+                hour: Number.parseInt(event.target.value, 10) || 0,
+              }))}
+              className={timeInputClass}
+            />
+            <span className="text-muted-foreground">:</span>
+            <Input
+              id="flow-weekly-minute"
+              aria-label="Minute"
+              type="number"
+              min={0}
+              max={59}
+              value={schedule.minute}
+              onChange={(event) => updateSchedule((current) => ({
+                ...current,
+                minute: Number.parseInt(event.target.value, 10) || 0,
+              }))}
+              className={timeInputClass}
+            />
+            <div className="basis-full" />
+            <span className="text-muted-foreground">on</span>
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Weekdays">
+              {FLOW_WEEKDAY_OPTIONS.map((option) => {
+                const selected = schedule.weekdays.includes(option.value)
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => updateSchedule((current) => ({
+                      ...current,
+                      weekdays: selected
+                        ? current.weekdays.filter((weekday) => weekday !== option.value)
+                        : [...current.weekdays, option.value].sort((left, right) => left - right),
+                    }))}
+                    className={cn(
+                      'h-8 w-10 rounded-md border text-xs font-medium transition-colors',
+                      selected
+                        ? 'border-primary/50 bg-primary/10 text-primary'
+                        : 'border-border/70 bg-background/60 text-muted-foreground hover:border-border hover:text-foreground',
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                )
+              })}
             </div>
-            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2 text-sm text-foreground">
-              <span className="text-muted-foreground">at</span>
-              <Input
-                id="flow-weekly-hour"
-                aria-label="Hour"
-                type="number"
-                min={0}
-                max={23}
-                value={schedule.hour}
-                onChange={(event) => updateSchedule((current) => ({
-                  ...current,
-                  hour: Number.parseInt(event.target.value, 10) || 0,
-                }))}
-                className={timeInputClass}
-              />
-              <span className="text-muted-foreground">:</span>
-              <Input
-                id="flow-weekly-minute"
-                aria-label="Minute"
-                type="number"
-                min={0}
-                max={59}
-                value={schedule.minute}
-                onChange={(event) => updateSchedule((current) => ({
-                  ...current,
-                  minute: Number.parseInt(event.target.value, 10) || 0,
-                }))}
-                className={timeInputClass}
-              />
-            </div>
-          </div>
+          </>
         ) : null}
 
         {schedule.mode === 'monthly' ? (
-          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2 text-sm text-foreground">
-            <span>Run every</span>
+          <>
+            <span className="text-muted-foreground">every</span>
             <Input
               id="flow-interval-months"
               aria-label="Every N months"
@@ -323,51 +332,43 @@ export function FlowScheduleBuilder({
               }))}
               className={timeInputClass}
             />
-          </div>
+          </>
         ) : null}
 
         {schedule.mode === 'custom' ? (
-          <div className="space-y-2">
-            <Label htmlFor="flow-custom-cron" className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              Custom cron expression
-            </Label>
-            <Input
-              id="flow-custom-cron"
-              value={schedule.customCronExpression}
-              onChange={(event) => updateSchedule((current) => ({
-                ...current,
-                customCronExpression: event.target.value,
-              }))}
-              placeholder="0 9 * * 1-5"
-              className="h-9 font-mono"
-            />
-            <p className="text-xs text-muted-foreground">
-              Standard 5-field cron: minute hour day-of-month month day-of-week.
-            </p>
-          </div>
+          <Input
+            id="flow-custom-cron"
+            aria-label="Custom cron expression"
+            value={schedule.customCronExpression}
+            onChange={(event) => updateSchedule((current) => ({
+              ...current,
+              customCronExpression: event.target.value,
+            }))}
+            placeholder="0 9 * * 1-5"
+            className="h-9 w-56 font-mono"
+          />
         ) : null}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/50 bg-background/40 px-3.5 py-2.5">
-        <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-          Resolved cron
-        </span>
-        <code className="font-mono text-xs text-foreground">{preview.cronExpression}</code>
-      </div>
+      <p className="font-mono text-[11px] text-muted-foreground/70">
+        <span>{preview.cronExpression}</span>
+        <span className="mx-1.5 text-muted-foreground/40">·</span>
+        <span>{timezone}</span>
+      </p>
 
       {preview.isValid && preview.nextRuns.length > 0 ? (
         <div className="space-y-2">
           <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-            Upcoming runs ({timezone})
+            Next {preview.nextRuns.length} run{preview.nextRuns.length === 1 ? '' : 's'}
           </p>
-          <ul className="grid gap-1.5 sm:grid-cols-2">
+          <ul className="space-y-1">
             {preview.nextRuns.map((runAt) => (
               <li
                 key={runAt.toISOString()}
-                className="flex items-center gap-2.5 rounded-md border border-border/40 bg-background/30 px-3 py-1.5 text-sm text-foreground"
+                className="flex flex-wrap items-baseline gap-x-3 text-sm tabular-nums"
               >
-                <span className="size-1.5 shrink-0 rounded-full bg-primary/70" aria-hidden />
-                <span className="tabular-nums">{formatFlowRunDate(runAt, timezone)}</span>
+                <span className="text-foreground">{formatFlowRunDate(runAt, timezone)}</span>
+                <span className="text-xs text-muted-foreground">{formatRelativeRunTime(runAt, now)}</span>
               </li>
             ))}
           </ul>

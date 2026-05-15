@@ -51,29 +51,31 @@ describe('FlowScheduleBuilder', () => {
   it('switches schedule modes and updates visible fields', () => {
     render(<ScheduleHarness />)
 
+    const frequency = screen.getByLabelText('Schedule frequency') as HTMLSelectElement
+
     fireEvent.change(screen.getByLabelText('Every N minutes'), { target: { value: '30' } })
     expect((screen.getByLabelText('Every N minutes') as HTMLInputElement).value).toBe('30')
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Hourly' }))
+    fireEvent.change(frequency, { target: { value: 'hourly' } })
     fireEvent.change(screen.getByLabelText('Minute of the hour'), { target: { value: '20' } })
     expect((screen.getByLabelText('Minute of the hour') as HTMLInputElement).value).toBe('20')
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Daily' }))
+    fireEvent.change(frequency, { target: { value: 'daily' } })
     expect(screen.getByLabelText('Every N days')).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Weekly' }))
+    fireEvent.change(frequency, { target: { value: 'weekly' } })
     fireEvent.click(screen.getByRole('button', { name: 'Wed' }))
-    expect(screen.getByText('Weekdays')).toBeTruthy()
+    expect(screen.getByRole('group', { name: 'Weekdays' })).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Monthly' }))
+    fireEvent.change(frequency, { target: { value: 'monthly' } })
     expect(screen.getByLabelText('Day of month')).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Custom' }))
+    fireEvent.change(frequency, { target: { value: 'custom' } })
     const customCronInput = screen.getByLabelText('Custom cron expression') as HTMLInputElement
     fireEvent.change(customCronInput, { target: { value: '0 9 * * 1-5' } })
     expect(customCronInput.value).toBe('0 9 * * 1-5')
     expect(screen.getByText('*/15 * * * *')).toBeTruthy()
-    expect(screen.getByText(/Upcoming runs/)).toBeTruthy()
+    expect(screen.getByText(/Next \d run/)).toBeTruthy()
   })
 
   it('shows invalid preview feedback when no upcoming runs exist', () => {

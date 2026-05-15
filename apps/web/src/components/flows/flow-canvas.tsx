@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type TouchEvent } from 'react'
+import { ArrowsIn, ArrowsOut } from '@phosphor-icons/react'
 import { drag as d3drag } from 'd3-drag'
 import { select } from 'd3-selection'
 import { zoom as d3zoom, zoomIdentity, type D3ZoomEvent, type ZoomTransform } from 'd3-zoom'
@@ -57,11 +58,13 @@ export function FlowCanvas({
 }: FlowCanvasProps) {
   const svgRef = useRef<SVGSVGElement | null>(null)
   const zoomLayerRef = useRef<SVGGElement | null>(null)
+  const dotPatternRef = useRef<SVGPatternElement | null>(null)
   const zoomTransformRef = useRef<ZoomTransform>(zoomIdentity)
   const nodeRefs = useRef<Map<string, SVGGElement>>(new Map())
   const [addMenuNodeId, setAddMenuNodeId] = useState<string | null>(null)
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
   const [pendingConnection, setPendingConnection] = useState<PendingConnection | null>(null)
+  const [isExpanded, setIsExpanded] = useState(false)
 
   const nodes = useMemo<CanvasNode[]>(() => {
     const layoutByNodeId = new Map(definition.layout?.nodes.map((node) => [node.nodeId, node]) ?? [])
@@ -174,8 +177,12 @@ export function FlowCanvas({
     const zoomBehavior = d3zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.4, 2.5])
       .on('zoom', (event: D3ZoomEvent<SVGSVGElement, unknown>) => {
+        const transformString = event.transform.toString()
         zoomTransformRef.current = event.transform
-        select(layer).attr('transform', event.transform.toString())
+        select(layer).attr('transform', transformString)
+        if (dotPatternRef.current) {
+          select(dotPatternRef.current).attr('patternTransform', transformString)
+        }
       })
 
     select(svg).call(zoomBehavior)
@@ -183,6 +190,15 @@ export function FlowCanvas({
       select(svg).on('.zoom', null)
     }
   }, [])
+
+  useEffect(() => {
+    if (!isExpanded) return
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') setIsExpanded(false)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isExpanded])
 
   useEffect(() => {
     const currentNodeRefs = nodeRefs.current
@@ -205,10 +221,25 @@ export function FlowCanvas({
   }, [nodes, onMoveNode])
 
   return (
-    <div className="min-h-[420px] overflow-hidden rounded-lg border border-border/50 bg-background/40">
+    <div
+      className={cn(
+        'relative overflow-hidden rounded-lg border border-border/50',
+        isExpanded
+          ? 'fixed inset-0 z-50 rounded-none border-0 bg-background shadow-2xl'
+          : 'min-h-[560px] bg-background/40',
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => setIsExpanded((current) => !current)}
+        aria-label={isExpanded ? 'Minimize canvas' : 'Maximize canvas'}
+        className="absolute right-3 top-3 z-10 inline-flex h-8 w-8 items-center justify-center rounded-md border border-border/70 bg-background/80 text-muted-foreground backdrop-blur transition-colors hover:bg-muted hover:text-foreground"
+      >
+        {isExpanded ? <ArrowsIn size={14} weight="bold" /> : <ArrowsOut size={14} weight="bold" />}
+      </button>
       <svg
         ref={svgRef}
-        className="h-[420px] w-full touch-none"
+        className={cn('w-full touch-none', isExpanded ? 'h-full' : 'h-[560px]')}
         role="img"
         aria-label="Flow diagram editor"
         onPointerMove={handlePointerMove}
@@ -216,7 +247,13 @@ export function FlowCanvas({
         onPointerCancel={clearConnection}
       >
         <defs>
-          <pattern id="flow-dot-grid" width="22" height="22" patternUnits="userSpaceOnUse">
+          <pattern
+            ref={dotPatternRef}
+            id="flow-dot-grid"
+            width="22"
+            height="22"
+            patternUnits="userSpaceOnUse"
+          >
             <circle cx="1" cy="1" r="0.9" className="fill-muted-foreground/15" />
           </pattern>
           <marker id="flow-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
