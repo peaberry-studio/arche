@@ -30,6 +30,7 @@ const ADD_NODE_TYPES: Array<{ label: string; type: FlowNodeType }> = [
   { label: 'Agent', type: 'agent' },
   { label: 'Human', type: 'human' },
   { label: 'Condition', type: 'condition' },
+  { label: 'Slack', type: 'slack' },
   { label: 'Merge', type: 'merge' },
 ]
 
@@ -384,7 +385,7 @@ export function FlowCanvas({
                 </g>
                 {addMenuNodeId === node.nodeId ? (
                   <g transform={`translate(${NODE_WIDTH + 40}, -8)`}>
-                    <rect width="104" height="112" rx="10" className="fill-card stroke-border drop-shadow-sm" strokeWidth="1" />
+                    <rect width="104" height="138" rx="10" className="fill-card stroke-border drop-shadow-sm" strokeWidth="1" />
                     {ADD_NODE_TYPES.map((item, index) => (
                       <g
                         key={item.type}

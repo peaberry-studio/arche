@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const prismaMock = vi.hoisted(() => ({
   flow: {
     create: vi.fn(),
-    deleteMany: vi.fn(),
     findFirst: vi.fn(),
     findMany: vi.fn(),
     updateMany: vi.fn(),
@@ -13,6 +12,7 @@ const prismaMock = vi.hoisted(() => ({
     create: vi.fn(),
     findFirst: vi.fn(),
     findMany: vi.fn(),
+    findUnique: vi.fn(),
     update: vi.fn(),
     updateMany: vi.fn(),
   },
@@ -34,6 +34,7 @@ function createFlowRecord(overrides: Record<string, unknown> = {}) {
     cronExpression: null,
     definition: { version: 1 },
     description: null,
+    deletedAt: null,
     enabled: false,
     id: 'flow-1',
     lastRunAt: null,
@@ -56,7 +57,10 @@ function createRunRecord(overrides: Record<string, unknown> = {}) {
     finishedAt: null,
     flowId: 'flow-1',
     id: 'run-1',
+    attempt: 1,
+    lastRetryError: null,
     openCodeSessionId: null,
+    retryScheduledFor: null,
     resultSeenAt: null,
     scheduledFor: now,
     sessionTitle: null,
@@ -89,6 +93,7 @@ describe('flowService', () => {
         flow: {
           leaseExpiresAt: { lt: now },
         },
+        retryScheduledFor: null,
         status: FlowRunStatus.running,
       },
     })
@@ -124,18 +129,24 @@ describe('flowService', () => {
     prismaMock.flow.findFirst.mockResolvedValue(flow)
     prismaMock.flow.create.mockResolvedValue(flow)
     prismaMock.flow.updateMany.mockResolvedValue({ count: 1 })
-    prismaMock.flow.deleteMany.mockResolvedValue({ count: 1 })
 
     await expect(flowService.listFlowsByUserId('user-1')).resolves.toEqual([flow])
     await expect(flowService.findFlowByIdAndUserId('flow-1', 'user-1')).resolves.toEqual(flow)
     await expect(flowService.createFlow({ definition: { version: 1 }, enabled: false, name: 'Flow', timezone: 'UTC', userId: 'user-1' })).resolves.toEqual(flow)
     await expect(flowService.updateFlowByIdAndUserId('flow-1', 'user-1', { name: 'Updated' })).resolves.toEqual(flow)
     await expect(flowService.deleteFlowByIdAndUserId('flow-1', 'user-1')).resolves.toEqual({ count: 1 })
+    expect(prismaMock.flow.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { deletedAt: null, userId: 'user-1' } }))
+    expect(prismaMock.flow.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ deletedAt: expect.any(Date), enabled: false, nextRunAt: null }),
+      where: { deletedAt: null, id: 'flow-1', userId: 'user-1' },
+    }))
   })
 
   it('claims scheduled and resume leases', async () => {
     const dueFlow = createFlowRecord({ nextRunAt: now })
-    prismaMock.flowRun.updateMany.mockResolvedValue({ count: 0 })
+    prismaMock.flowRun.updateMany
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 1 })
     prismaMock.flow.findFirst.mockResolvedValue(dueFlow)
     prismaMock.flow.updateMany.mockResolvedValue({ count: 1 })
 
@@ -155,6 +166,7 @@ describe('flowService', () => {
     prismaMock.flow.updateMany.mockResolvedValue({ count: 1 })
     prismaMock.flowRun.create.mockResolvedValue(run)
     prismaMock.flowRun.update.mockResolvedValue(run)
+    prismaMock.flowRun.findUnique.mockResolvedValue({ status: FlowRunStatus.running })
     prismaMock.flowRun.updateMany.mockResolvedValue({ count: 1 })
 
     await flowService.extendFlowLease('flow-1', 'worker-1', now)
@@ -166,7 +178,73 @@ describe('flowService', () => {
     await flowService.markRunRunning('run-1')
     await flowService.markRunSucceeded('run-1', { finishedAt: now, openCodeSessionId: 'session-1', sessionTitle: 'Title' })
     await flowService.markRunFailed('run-1', { error: 'failed', finishedAt: now })
+    await flowService.markRunRetryScheduled('run-1', { attempt: 2, error: 'instance_unavailable', retryAt: now })
+    await expect(flowService.findRunStatusById('run-1')).resolves.toEqual({ status: FlowRunStatus.running })
     await expect(flowService.cancelRunByIdAndUserId('run-1', 'user-1', now)).resolves.toBe(true)
+  })
+
+  it('claims due retry runs without requiring the flow to be enabled', async () => {
+    const retryAt = new Date('2026-05-12T09:59:00.000Z')
+    const run = createRunRecord({
+      attempt: 2,
+      flow: createFlowRecord({ enabled: false }),
+      retryScheduledFor: retryAt,
+      steps: [],
+    })
+    prismaMock.flowRun.updateMany
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 1 })
+    prismaMock.flowRun.findFirst.mockResolvedValue(run)
+    prismaMock.flow.updateMany.mockResolvedValue({ count: 1 })
+
+    await expect(flowService.claimNextRetryRun({
+      leaseMs: 900_000,
+      leaseOwner: 'worker-1',
+      now,
+    })).resolves.toMatchObject({
+      id: 'flow-1',
+      retryRun: { id: 'run-1', retryScheduledFor: null },
+      scheduledFor: now,
+    })
+
+    expect(prismaMock.flowRun.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ retryScheduledFor: { lte: now }, status: FlowRunStatus.running }),
+    }))
+    expect(prismaMock.flowRun.updateMany).toHaveBeenLastCalledWith({
+      data: { retryScheduledFor: null },
+      where: { id: 'run-1', retryScheduledFor: retryAt, status: FlowRunStatus.running },
+    })
+  })
+
+  it('releases a retry lease when clearing the retry schedule loses the race', async () => {
+    const retryAt = new Date('2026-05-12T09:59:00.000Z')
+    const run = createRunRecord({
+      flow: createFlowRecord(),
+      retryScheduledFor: retryAt,
+      steps: [],
+    })
+    prismaMock.flowRun.updateMany
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 0 })
+    prismaMock.flowRun.findFirst
+      .mockResolvedValueOnce(run)
+      .mockResolvedValueOnce(null)
+    prismaMock.flow.updateMany.mockResolvedValue({ count: 1 })
+
+    await expect(flowService.claimNextRetryRun({
+      leaseMs: 900_000,
+      leaseOwner: 'worker-1',
+      now,
+    })).resolves.toBeNull()
+
+    expect(prismaMock.flow.updateMany).toHaveBeenCalledWith({
+      data: {
+        lastRunAt: undefined,
+        leaseExpiresAt: null,
+        leaseOwner: null,
+      },
+      where: { id: 'flow-1', leaseOwner: 'worker-1' },
+    })
   })
 
   it('upserts and updates run steps', async () => {

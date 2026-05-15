@@ -5,11 +5,8 @@ import type {
   FlowListItem,
   FlowRunListItem,
   FlowRunStepListItem,
-  FlowSlackNotificationConfig,
-  FlowSlackNotificationTarget,
 } from '@/lib/flows/types'
 import { validateFlowDefinition } from '@/lib/flows/validation'
-import { isRecord } from '@/lib/records'
 import type {
   FlowDetailRecord,
   FlowListRecord,
@@ -46,11 +43,14 @@ function serializeRun(run: (FlowRunRecord & { steps: FlowRunStepRecord[] }) | Fl
 
   return {
     currentNodeId: run.currentNodeId,
+    attempt: run.attempt,
     error: run.error,
     finishedAt: run.finishedAt ? run.finishedAt.toISOString() : null,
     flowId: run.flowId,
     id: run.id,
+    lastRetryError: run.lastRetryError,
     openCodeSessionId: run.openCodeSessionId,
+    retryScheduledFor: run.retryScheduledFor ? run.retryScheduledFor.toISOString() : null,
     scheduledFor: run.scheduledFor.toISOString(),
     sessionTitle: run.sessionTitle,
     startedAt: run.startedAt.toISOString(),
@@ -71,36 +71,7 @@ function parseDefinition(definition: unknown) {
   }
 }
 
-export function serializeSlackNotificationConfig(
-  value: unknown,
-): FlowSlackNotificationConfig | undefined {
-  if (!isRecord(value)) return undefined
-
-  const targetsRaw = Array.isArray(value.targets) ? value.targets : []
-  const targets = targetsRaw.flatMap((targetRaw): FlowSlackNotificationTarget[] => {
-    if (!isRecord(targetRaw)) return []
-
-    if (targetRaw.type === 'dm' && typeof targetRaw.userId === 'string' && targetRaw.userId) {
-      return [{ type: 'dm', userId: targetRaw.userId }]
-    }
-
-    if (targetRaw.type === 'channel' && typeof targetRaw.channelId === 'string' && targetRaw.channelId) {
-      return [{ type: 'channel', channelId: targetRaw.channelId }]
-    }
-
-    return []
-  })
-
-  return {
-    enabled: value.enabled === true,
-    includeSessionLink: typeof value.includeSessionLink === 'boolean' ? value.includeSessionLink : true,
-    targets,
-  }
-}
-
 export function serializeFlowListItem(flow: FlowListRecord): FlowListItem {
-  const slackNotificationConfig = serializeSlackNotificationConfig(flow.slackNotificationConfig)
-
   return {
     createdAt: flow.createdAt.toISOString(),
     cronExpression: flow.cronExpression,
@@ -112,7 +83,6 @@ export function serializeFlowListItem(flow: FlowListRecord): FlowListItem {
     latestRun: serializeRun(flow.runs[0]),
     name: flow.name,
     nextRunAt: flow.nextRunAt ? flow.nextRunAt.toISOString() : null,
-    ...(slackNotificationConfig ? { slackNotificationConfig } : {}),
     timezone: flow.timezone,
     updatedAt: flow.updatedAt.toISOString(),
   }

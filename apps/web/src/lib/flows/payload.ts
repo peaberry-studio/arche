@@ -53,6 +53,10 @@ function validateTemplates(definition: FlowPayload['definition']): PayloadValida
       const result = validateFlowTemplateVariables(node.promptTemplate, nodeIds)
       if (!result.ok) return { ok: false, error: result.error, status: 400 }
     }
+    if (node.type === 'slack' && node.messageMode === 'template') {
+      const result = validateFlowTemplateVariables(node.messageTemplate, nodeIds)
+      if (!result.ok) return { ok: false, error: result.error, status: 400 }
+    }
   }
 
   return null
@@ -139,58 +143,6 @@ export async function validateFlowPayload(
     }
 
     value.enabled = body.enabled
-  }
-
-  if ('slackNotificationConfig' in body) {
-    if (body.slackNotificationConfig === null) {
-      value.slackNotificationConfig = null
-    } else {
-      if (!isRecord(body.slackNotificationConfig)) {
-        return { ok: false, error: 'invalid_slack_notification_config', status: 400 }
-      }
-
-      const config = body.slackNotificationConfig
-      const enabled = typeof config.enabled === 'boolean' ? config.enabled : false
-      const includeSessionLink = typeof config.includeSessionLink === 'boolean' ? config.includeSessionLink : true
-      const targetsRaw = Array.isArray(config.targets) ? config.targets : []
-      const targets: NonNullable<FlowPayload['slackNotificationConfig']>['targets'] = []
-
-      for (const targetRaw of targetsRaw) {
-        if (!isRecord(targetRaw)) {
-          return { ok: false, error: 'invalid_slack_notification_target', status: 400 }
-        }
-
-        if (targetRaw.type === 'dm') {
-          const userId = typeof targetRaw.userId === 'string' ? targetRaw.userId.trim() : ''
-          if (!userId) {
-            return { ok: false, error: 'invalid_slack_notification_dm_target', status: 400 }
-          }
-          targets.push({ type: 'dm', userId })
-          continue
-        }
-
-        if (targetRaw.type === 'channel') {
-          const channelId = typeof targetRaw.channelId === 'string' ? targetRaw.channelId.trim() : ''
-          if (!channelId) {
-            return { ok: false, error: 'invalid_slack_notification_channel_target', status: 400 }
-          }
-          targets.push({ type: 'channel', channelId })
-          continue
-        }
-
-        return { ok: false, error: 'invalid_slack_notification_target_type', status: 400 }
-      }
-
-      if (enabled && targets.length === 0) {
-        return { ok: false, error: 'slack_notification_targets_required', status: 400 }
-      }
-
-      value.slackNotificationConfig = {
-        enabled,
-        includeSessionLink,
-        targets,
-      }
-    }
   }
 
   const enabled = value.enabled ?? false

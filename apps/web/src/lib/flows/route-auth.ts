@@ -1,20 +1,30 @@
-import type { FlowSlackNotificationConfig } from '@/lib/flows/types'
+import type { FlowDefinition, FlowSlackTarget } from '@/lib/flows/types'
 import { slackService, userService } from '@/lib/services'
 
-type FlowSlackNotificationAccessResult =
+type FlowSlackNodeAccessResult =
   | { ok: true }
   | { ok: false; error: string; status: 400 | 403 }
 
-export async function validateFlowSlackNotificationAccess(
-  config: FlowSlackNotificationConfig | null | undefined,
+function getSlackTargets(definition: FlowDefinition | null | undefined): FlowSlackTarget[] {
+  if (!definition) return []
+
+  return definition.nodes.flatMap((node) => node.type === 'slack' ? [node.target] : [])
+}
+
+export async function validateFlowSlackNodeAccess(
+  definition: FlowDefinition | null | undefined,
   contextUser: { id: string; role: string },
   flowOwnerUserId: string,
-): Promise<FlowSlackNotificationAccessResult> {
-  if (!config?.enabled) {
-    return { ok: true }
+): Promise<FlowSlackNodeAccessResult> {
+  const targets = getSlackTargets(definition)
+  if (targets.length === 0) return { ok: true }
+
+  const integration = await slackService.findIntegration()
+  if (!integration?.enabled || !integration.slackTeamId) {
+    return { ok: false, error: 'slack_integration_disabled', status: 400 }
   }
 
-  for (const target of config.targets) {
+  for (const target of targets) {
     if (target.type !== 'dm') {
       continue
     }
@@ -32,16 +42,11 @@ export async function validateFlowSlackNotificationAccess(
     }
   }
 
-  const channelTargets = config.targets.flatMap((target) => (
+  const channelTargets = targets.flatMap((target) => (
     target.type === 'channel' ? [target] : []
   ))
   if (channelTargets.length === 0) {
     return { ok: true }
-  }
-
-  const integration = await slackService.findIntegration()
-  if (!integration?.enabled || !integration.slackTeamId) {
-    return { ok: false, error: 'slack_integration_disabled', status: 400 }
   }
 
   const channels = await slackService.listEnabledNotificationChannels(integration.slackTeamId)

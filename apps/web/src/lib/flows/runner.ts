@@ -7,7 +7,8 @@ import {
 
 import { formatFlowRunDate } from '@/lib/flows/cron'
 import { getFlowNodeById, getFlowOutgoingTargets } from '@/lib/flows/graph'
-import { serializeFlowRun, serializeSlackNotificationConfig, toPrismaJson } from '@/lib/flows/serializers'
+import { planFlowRetry } from '@/lib/flows/retry-policy'
+import { serializeFlowRun, toPrismaJson } from '@/lib/flows/serializers'
 import {
   createFlowLeaseOwner,
   FLOW_LEASE_MS,
@@ -15,7 +16,7 @@ import {
   runFlowPromptAndReadOutput,
 } from '@/lib/flows/session-executor'
 import { buildFlowTemplateContext, renderFlowTemplate } from '@/lib/flows/template'
-import type { ConditionFlowNode, FlowConditionOperator, FlowDefinition, FlowNode } from '@/lib/flows/types'
+import type { ConditionFlowNode, FlowConditionOperator, FlowDefinition, FlowNode, SlackFlowNode } from '@/lib/flows/types'
 import { validateFlowDefinition } from '@/lib/flows/validation'
 import { createInstanceClient } from '@/lib/opencode/client'
 import {
@@ -24,7 +25,7 @@ import {
 } from '@/lib/opencode/session-execution'
 import { isRecord } from '@/lib/records'
 import { auditService, flowService, instanceService, userService } from '@/lib/services'
-import type { FlowClaimedRecord, FlowRecord, FlowRunDetailRecord, FlowRunRecord, FlowRunStepRecord } from '@/lib/services/flow'
+import type { FlowClaimedRecord, FlowRecord, FlowRetryClaimedRecord, FlowRunDetailRecord, FlowRunRecord, FlowRunStepRecord } from '@/lib/services/flow'
 import { sendSlackNotifications } from '@/lib/slack/notifications'
 
 export { FLOW_LEASE_MS } from '@/lib/flows/session-executor'
@@ -43,35 +44,6 @@ function buildFlowSessionTitle(flow: FlowRecord, scheduledFor: Date): string {
   return `Flow | ${flow.name} | ${formatFlowRunDate(scheduledFor, flow.timezone)}`
 }
 
-function buildFlowSessionLink(slug: string, sessionId: string): string | undefined {
-  const publicBaseUrl = process.env.ARCHE_PUBLIC_BASE_URL?.trim()
-  if (!publicBaseUrl || publicBaseUrl.includes('0.0.0.0') || publicBaseUrl.includes('::')) {
-    return undefined
-  }
-
-  try {
-    const url = new URL(publicBaseUrl)
-    url.pathname = `/w/${slug}`
-    url.searchParams.set('mode', 'flows')
-    url.searchParams.set('session', sessionId)
-    return url.toString()
-  } catch {
-    return undefined
-  }
-}
-
-function getFlowNotificationOutput(run: FlowRunDetailRecord | null): string | null {
-  if (!run) return null
-
-  for (let index = run.steps.length - 1; index >= 0; index -= 1) {
-    const step = run.steps[index]
-    const output = step.compactedOutput ?? step.rawOutput ?? step.humanResponse
-    if (output?.trim()) return output
-  }
-
-  return null
-}
-
 function nodeTypeToPrisma(node: FlowNode): PrismaFlowNodeType {
   switch (node.type) {
     case 'agent':
@@ -80,6 +52,8 @@ function nodeTypeToPrisma(node: FlowNode): PrismaFlowNodeType {
       return PrismaFlowNodeType.human
     case 'condition':
       return PrismaFlowNodeType.condition
+    case 'slack':
+      return PrismaFlowNodeType.slack
     case 'merge':
       return PrismaFlowNodeType.merge
     case 'compaction':
@@ -230,6 +204,30 @@ function containsDelimitedTarget(value: string, targetNodeId: string): boolean {
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback
+}
+
+function getStepOutput(step: FlowRunStepRecord): string | null {
+  return step.compactedOutput ?? step.rawOutput ?? step.humanResponse
+}
+
+function getPreviousOutputForRetry(run: FlowRunRecord & { steps?: FlowRunStepRecord[] }): string | null {
+  const steps = run.steps ?? []
+  if (!run.currentNodeId) {
+    for (let index = steps.length - 1; index >= 0; index -= 1) {
+      const output = getStepOutput(steps[index])
+      if (output) return output
+    }
+    return null
+  }
+
+  const currentStepIndex = steps.findIndex((step) => step.nodeId === run.currentNodeId)
+  const previousSteps = currentStepIndex === -1 ? steps : steps.slice(0, currentStepIndex)
+  for (let index = previousSteps.length - 1; index >= 0; index -= 1) {
+    const output = getStepOutput(previousSteps[index])
+    if (output) return output
+  }
+
+  return null
 }
 
 function isFlowRunCancellation(error: string): boolean {
@@ -538,6 +536,91 @@ async function executeConditionNode(params: {
   return { ok: true, nextNodeId, previousOutput: nextNodeId, steps }
 }
 
+async function executeSlackNode(params: {
+  flow: FlowRecord
+  node: SlackFlowNode
+  previousOutput: string | null
+  run: FlowRunRecord
+  steps: FlowRunStepRecord[]
+}): Promise<
+  | { ok: true; previousOutput: string | null; steps: FlowRunStepRecord[] }
+  | { ok: false; error: string; steps: FlowRunStepRecord[] }
+> {
+  let text: string
+  if (params.node.messageMode === 'previous_output') {
+    if (!params.previousOutput?.trim()) {
+      return { ok: false, error: 'slack_message_previous_output_missing', steps: params.steps }
+    }
+    text = params.previousOutput
+  } else if (params.node.messageMode === 'template') {
+    const rendered = renderFlowTemplate(params.node.messageTemplate, buildFlowTemplateContext({
+      flowName: params.flow.name,
+      previousOutput: params.previousOutput,
+      runId: params.run.id,
+      steps: params.steps,
+    }))
+    if (!rendered.ok) return { ok: false, error: rendered.error, steps: params.steps }
+    text = rendered.value
+  } else {
+    text = params.node.messageTemplate
+  }
+
+  let steps = replaceStep(params.steps, await flowService.upsertRunStep({
+    input: toPrismaJson({ messageMode: params.node.messageMode, target: params.node.target, text }),
+    nodeId: params.node.id,
+    nodeName: params.node.name,
+    nodeType: nodeTypeToPrisma(params.node),
+    runId: params.run.id,
+    startedAt: new Date(),
+    status: FlowRunStepStatus.running,
+  }))
+
+  let result: Awaited<ReturnType<typeof sendSlackNotifications>>
+  try {
+    result = await sendSlackNotifications({
+      source: 'flows',
+      targets: [params.node.target],
+      text,
+    })
+  } catch (error) {
+    const message = errorMessage(error, 'slack_notification_failed')
+    steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, params.node.id, {
+      error: message,
+      finishedAt: new Date(),
+      status: FlowRunStepStatus.failed,
+    }))
+    return { ok: false, error: message, steps }
+  }
+
+  if (!result.ok) {
+    steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, params.node.id, {
+      error: result.error,
+      finishedAt: new Date(),
+      status: FlowRunStepStatus.failed,
+    }))
+    return { ok: false, error: result.error, steps }
+  }
+
+  if (result.failed > 0) {
+    const detail = result.errors[0]?.error ?? 'slack_notification_failed'
+    steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, params.node.id, {
+      error: detail,
+      finishedAt: new Date(),
+      rawOutput: text,
+      status: FlowRunStepStatus.failed,
+    }))
+    return { ok: false, error: detail, steps }
+  }
+
+  steps = replaceStep(steps, await flowService.updateRunStepByRunIdAndNodeId(params.run.id, params.node.id, {
+    finishedAt: new Date(),
+    rawOutput: text,
+    status: FlowRunStepStatus.succeeded,
+  }))
+
+  return { ok: true, previousOutput: params.previousOutput, steps }
+}
+
 async function executeFlowNodes(params: {
   client: SessionExecutionClient
   definition: FlowDefinition
@@ -634,6 +717,23 @@ async function executeFlowNodes(params: {
       }
       previousOutput = result.previousOutput
       currentNodeId = result.nextNodeId
+      continue
+    }
+
+    if (node.type === 'slack') {
+      const result = await executeSlackNode({
+        flow: params.flow,
+        node,
+        previousOutput,
+        run: params.run,
+        steps,
+      })
+      steps = result.steps
+      if (!result.ok) {
+        return { status: 'failed', error: result.error }
+      }
+      previousOutput = result.previousOutput
+      currentNodeId = getFlowOutgoingTargets(params.definition, node.id)[0] ?? null
       continue
     }
 
@@ -751,12 +851,12 @@ async function finalizeRun(params: {
   sessionTitle: string | null
   slug: string
   trigger: FlowRunTrigger
-}) {
-  if (!await hasActiveFlowLease(params.flow.id, params.leaseOwner)) return
+}): Promise<{ retryScheduled: boolean }> {
+  if (!await hasActiveFlowLease(params.flow.id, params.leaseOwner)) return { retryScheduled: false }
 
   const currentRun = await flowService.findRunByIdAndUserId(params.run.id, params.flow.userId)
   if (params.outcome.status === 'cancelled' || currentRun?.status === FlowRunStatus.cancelled) {
-    return
+    return { retryScheduled: false }
   }
 
   if (params.outcome.status === 'waiting_for_human') {
@@ -772,7 +872,7 @@ async function finalizeRun(params: {
         trigger: params.trigger,
       },
     })
-    return
+    return { retryScheduled: false }
   }
 
   const finishedAt = new Date()
@@ -783,7 +883,7 @@ async function finalizeRun(params: {
       openCodeSessionId: params.sessionId,
       sessionTitle: params.sessionTitle,
     })
-    if (result.count !== 1) return
+    if (result.count !== 1) return { retryScheduled: false }
     await auditService.createEvent({
       action: 'flows.run_succeeded',
       actorUserId: params.flow.userId,
@@ -796,37 +896,51 @@ async function finalizeRun(params: {
       },
     })
 
-    const slackNotificationConfig = serializeSlackNotificationConfig(params.flow.slackNotificationConfig)
-    if (slackNotificationConfig?.enabled && params.sessionId && params.slug) {
-      try {
-        const output = getFlowNotificationOutput(currentRun)
-        if (!output) {
-          throw new Error('No flow output to send')
-        }
+    return { retryScheduled: false }
+  }
 
-        const notificationResult = await sendSlackNotifications({
-          sessionLink: slackNotificationConfig.includeSessionLink
-            ? buildFlowSessionLink(params.slug, params.sessionId)
-            : undefined,
-          source: 'flows',
-          targets: slackNotificationConfig.targets,
-          text: `Flow report: ${params.flow.name}\n\n${output}`,
-        })
+  const retryPlan = planFlowRetry({
+    attempt: params.run.attempt,
+    error: params.outcome.error,
+    now: finishedAt,
+  })
 
-        if (!notificationResult.ok) {
-          console.error('[flows] Failed to send Slack notification', notificationResult.error)
-        } else if (notificationResult.failed > 0) {
-          console.error('[flows] Partial Slack notification failure', {
-            errors: notificationResult.errors,
-            failed: notificationResult.failed,
-            sent: notificationResult.sent,
-          })
-        }
-      } catch (error) {
-        console.error('[flows] Error sending Slack notification', error)
-      }
-    }
-    return
+  if (retryPlan.ok) {
+    const result = await flowService.markRunRetryScheduled(params.run.id, {
+      attempt: retryPlan.nextAttempt,
+      error: params.outcome.error,
+      openCodeSessionId: params.sessionId,
+      retryAt: retryPlan.retryAt,
+      sessionTitle: params.sessionTitle,
+    })
+    if (result.count !== 1) return { retryScheduled: false }
+
+    console.warn('[flows] Retry scheduled', {
+      attempt: params.run.attempt,
+      error: params.outcome.error,
+      flowId: params.flow.id,
+      maxAttempts: retryPlan.maxAttempts,
+      retryAt: retryPlan.retryAt.toISOString(),
+      runId: params.run.id,
+    })
+
+    await auditService.createEvent({
+      action: 'flows.run_failed',
+      actorUserId: params.flow.userId,
+      metadata: {
+        attempt: params.run.attempt,
+        error: params.outcome.error,
+        flowId: params.flow.id,
+        maxAttempts: retryPlan.maxAttempts,
+        retryAt: retryPlan.retryAt.toISOString(),
+        runId: params.run.id,
+        sessionId: params.sessionId,
+        slug: params.slug,
+        trigger: params.trigger,
+        willRetry: true,
+      },
+    })
+    return { retryScheduled: true }
   }
 
   const result = await flowService.markRunFailed(params.run.id, {
@@ -835,30 +949,35 @@ async function finalizeRun(params: {
     openCodeSessionId: params.sessionId,
     sessionTitle: params.sessionTitle,
   })
-  if (result.count !== 1) return
+  if (result.count !== 1) return { retryScheduled: false }
   await auditService.createEvent({
     action: 'flows.run_failed',
     actorUserId: params.flow.userId,
     metadata: {
       error: params.outcome.error,
       flowId: params.flow.id,
+      maxAttempts: retryPlan.maxAttempts,
+      retryReason: retryPlan.reason,
       runId: params.run.id,
       sessionId: params.sessionId,
       slug: params.slug,
       trigger: params.trigger,
+      willRetry: false,
     },
   })
+  return { retryScheduled: false }
 }
 
 async function executeClaimedFlowRun(
   flow: FlowClaimedRecord,
   trigger: FlowRunTrigger,
-  run: FlowRunRecord,
+  run: FlowRunRecord & { steps?: FlowRunStepRecord[] },
 ): Promise<void> {
-  let sessionId: string | null = null
-  let sessionTitle: string | null = null
+  let sessionId: string | null = run.openCodeSessionId
+  let sessionTitle: string | null = run.sessionTitle
   let slug: string | null = null
   let outcome: FlowExecutionOutcome = { status: 'failed', error: 'flow_run_failed' }
+  let finalization: { retryScheduled: boolean } = { retryScheduled: false }
 
   try {
     const owner = await userService.findByIdSelect(flow.userId, { slug: true })
@@ -871,27 +990,34 @@ async function executeClaimedFlowRun(
     const client = await createInstanceClient(slug)
     if (!client) throw new Error('instance_unavailable')
 
-    sessionTitle = buildFlowSessionTitle(flow, flow.scheduledFor)
-    const sessionResult = await client.session.create({ title: sessionTitle }, { throwOnError: true })
-    if (!sessionResult.data) throw new Error('flow_session_create_failed')
+    if (!sessionId) {
+      sessionTitle = buildFlowSessionTitle(flow, flow.scheduledFor)
+      const sessionResult = await client.session.create({ title: sessionTitle }, { throwOnError: true })
+      if (!sessionResult.data) throw new Error('flow_session_create_failed')
 
-    sessionId = sessionResult.data.id
-    await flowService.attachRunSession(run.id, { openCodeSessionId: sessionId, sessionTitle })
+      sessionId = sessionResult.data.id
+      await flowService.attachRunSession(run.id, { openCodeSessionId: sessionId, sessionTitle })
+    }
+
+    if (!sessionTitle) {
+      sessionTitle = buildFlowSessionTitle(flow, flow.scheduledFor)
+    }
+
     const definitionResult = validateFlowDefinition(flow.definition)
     outcome = await continueRun({
       client,
       flow,
       leaseOwner: flow.leaseOwner ?? '',
-      previousOutput: null,
+      previousOutput: run.currentNodeId ? getPreviousOutputForRetry(run) : null,
       run,
       sessionId,
       slug,
-      startNodeId: definitionResult.ok ? definitionResult.definition.startNodeId : null,
+      startNodeId: run.currentNodeId ?? (definitionResult.ok ? definitionResult.definition.startNodeId : null),
     })
   } catch (error) {
     outcome = { status: 'failed', error: error instanceof Error ? error.message : 'flow_run_failed' }
   } finally {
-    await finalizeRun({
+    finalization = await finalizeRun({
       flow,
       leaseOwner: flow.leaseOwner ?? '',
       outcome,
@@ -900,12 +1026,12 @@ async function executeClaimedFlowRun(
       sessionTitle,
       slug: slug ?? '',
       trigger,
-    }).catch(() => undefined)
+    }).catch(() => ({ retryScheduled: false }))
 
     const result = await flowService.releaseFlowLease(
       flow.id,
       flow.leaseOwner ?? '',
-      outcome.status === 'waiting_for_human' ? undefined : new Date(),
+      outcome.status === 'waiting_for_human' || finalization.retryScheduled ? undefined : new Date(),
     ).catch(() => null)
     if (result && result.count !== 1) {
       console.warn('[flows] Flow lease release skipped because ownership changed', { flowId: flow.id })
@@ -946,6 +1072,21 @@ export async function dispatchClaimedFlowRun(
   })
 
   return { ok: true, runId: run.id }
+}
+
+export async function dispatchClaimedFlowRetryRun(
+  flow: FlowRetryClaimedRecord,
+): Promise<{ ok: true; runId: string }> {
+  void executeClaimedFlowRun(flow, flow.retryRun.trigger, flow.retryRun).catch((error) => {
+    console.error('[flows] Failed to execute dispatched flow retry', {
+      error,
+      flowId: flow.id,
+      runId: flow.retryRun.id,
+      trigger: flow.retryRun.trigger,
+    })
+  })
+
+  return { ok: true, runId: flow.retryRun.id }
 }
 
 export async function triggerFlowNow(params: {
@@ -1011,6 +1152,8 @@ export async function resumeFlowRun(params: {
     humanResponse: response,
     status: FlowRunStepStatus.succeeded,
   })
+  const nextNodeId = getFlowOutgoingTargets(definitionResult.definition, humanNode.id)[0] ?? null
+  await flowService.updateRunCurrentNode(run.id, nextNodeId)
   await flowService.markRunRunning(run.id)
 
   const refreshedRun = await flowService.findRunByIdAndUserId(run.id, params.userId)
@@ -1020,7 +1163,7 @@ export async function resumeFlowRun(params: {
     flow: claimedFlow,
     previousOutput: response,
     run: refreshedRun,
-    startNodeId: getFlowOutgoingTargets(definitionResult.definition, humanNode.id)[0] ?? null,
+    startNodeId: nextNodeId,
   }).catch((error) => {
     console.error('[flows] Failed to resume flow run', {
       error,
@@ -1040,12 +1183,18 @@ async function resumeClaimedFlowRun(params: {
 }): Promise<void> {
   let outcome: FlowExecutionOutcome = { status: 'failed', error: 'flow_resume_failed' }
   let slug: string | null = null
+  let finalization: { retryScheduled: boolean } = { retryScheduled: false }
 
   try {
     const owner = await userService.findByIdSelect(params.flow.userId, { slug: true })
     if (!owner) throw new Error('flow_user_not_found')
 
     slug = owner.slug
+    if (!params.startNodeId) {
+      outcome = { status: 'succeeded' }
+      return
+    }
+
     await ensureWorkspaceRunningForExecution(slug, params.flow.userId)
     const client = await createInstanceClient(slug)
     if (!client) throw new Error('instance_unavailable')
@@ -1063,7 +1212,7 @@ async function resumeClaimedFlowRun(params: {
   } catch (error) {
     outcome = { status: 'failed', error: error instanceof Error ? error.message : 'flow_resume_failed' }
   } finally {
-    await finalizeRun({
+    finalization = await finalizeRun({
       flow: params.flow,
       leaseOwner: params.flow.leaseOwner ?? '',
       outcome,
@@ -1072,12 +1221,12 @@ async function resumeClaimedFlowRun(params: {
       sessionTitle: params.run.sessionTitle,
       slug: slug ?? '',
       trigger: FlowRunTrigger.resume,
-    }).catch(() => undefined)
+    }).catch(() => ({ retryScheduled: false }))
 
     const result = await flowService.releaseFlowLease(
       params.flow.id,
       params.flow.leaseOwner ?? '',
-      outcome.status === 'waiting_for_human' ? undefined : new Date(),
+      outcome.status === 'waiting_for_human' || finalization.retryScheduled ? undefined : new Date(),
     ).catch(() => null)
     if (result && result.count !== 1) {
       console.warn('[flows] Flow lease release skipped because ownership changed', { flowId: params.flow.id })

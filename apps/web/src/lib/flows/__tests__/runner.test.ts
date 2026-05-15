@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   findRunStatusById: vi.fn(),
   markRunFailed: vi.fn(),
   markRunRunning: vi.fn(),
+  markRunRetryScheduled: vi.fn(),
   markRunSucceeded: vi.fn(),
   markRunWaitingForHuman: vi.fn(),
   releaseFlowLease: vi.fn(),
@@ -59,6 +60,7 @@ vi.mock('@/lib/services', () => ({
     findRunStatusById: mocks.findRunStatusById,
     markRunFailed: mocks.markRunFailed,
     markRunRunning: mocks.markRunRunning,
+    markRunRetryScheduled: mocks.markRunRetryScheduled,
     markRunSucceeded: mocks.markRunSucceeded,
     markRunWaitingForHuman: mocks.markRunWaitingForHuman,
     releaseFlowLease: mocks.releaseFlowLease,
@@ -84,6 +86,7 @@ function createClaimedFlow() {
     cronExpression: null,
     definition: createDefaultFlowDefinition(),
     description: null,
+    deletedAt: null,
     enabled: false,
     id: 'flow-1',
     lastRunAt: null,
@@ -106,7 +109,10 @@ function createRunRecord(overrides: Record<string, unknown> = {}) {
     finishedAt: null,
     flowId: 'flow-1',
     id: 'run-1',
+    attempt: 1,
+    lastRetryError: null,
     openCodeSessionId: null,
+    retryScheduledFor: null,
     resultSeenAt: null,
     scheduledFor: now,
     sessionTitle: null,
@@ -185,7 +191,10 @@ describe('triggerFlowNow', () => {
       finishedAt: null,
       flowId: 'flow-1',
       id: 'run-1',
+      attempt: 1,
+      lastRetryError: null,
       openCodeSessionId: null,
+      retryScheduledFor: null,
       resultSeenAt: null,
       scheduledFor: now,
       sessionTitle: null,
@@ -197,8 +206,10 @@ describe('triggerFlowNow', () => {
     mocks.findRunByIdAndUserId.mockResolvedValue(null)
     mocks.findRunStatusById.mockResolvedValue({ status: FlowRunStatus.running })
     mocks.extendFlowLease.mockResolvedValue({ count: 1 })
+    mocks.ensureWorkspaceRunningForExecution.mockResolvedValue(undefined)
     mocks.markRunFailed.mockResolvedValue({ count: 1 })
     mocks.markRunRunning.mockResolvedValue(undefined)
+    mocks.markRunRetryScheduled.mockResolvedValue({ count: 1 })
     mocks.markRunSucceeded.mockResolvedValue({ count: 1 })
     mocks.markRunWaitingForHuman.mockResolvedValue(undefined)
     mocks.releaseFlowLease.mockResolvedValue({ count: 1 })
@@ -306,47 +317,81 @@ describe('triggerFlowNow', () => {
     expect(mocks.markRunSucceeded).toHaveBeenCalledWith('run-1', expect.objectContaining({ openCodeSessionId: 'session-1' }))
   })
 
-  it('sends configured Slack notifications with the latest run output', async () => {
-    const previousPublicBaseUrl = process.env.ARCHE_PUBLIC_BASE_URL
-    process.env.ARCHE_PUBLIC_BASE_URL = 'https://arche.example'
-    const flow = {
-      ...createClaimedFlow(),
-      slackNotificationConfig: {
-        enabled: true,
-        includeSessionLink: true,
-        targets: [{ type: 'channel', channelId: 'C123' }],
-      },
+  it('runs Slack message nodes with fixed, previous output, and template messages', async () => {
+    const flow = createClaimedFlow()
+    flow.definition = {
+      edges: [
+        { id: 'edge-1', sourceNodeId: 'agent-1', targetNodeId: 'slack-fixed' },
+        { id: 'edge-2', sourceNodeId: 'slack-fixed', targetNodeId: 'slack-previous' },
+        { id: 'edge-3', sourceNodeId: 'slack-previous', targetNodeId: 'slack-template' },
+      ],
+      nodes: [
+        { compactOutput: false, id: 'agent-1', name: 'Agent', promptTemplate: 'Start', targetAgentId: null, type: 'agent' },
+        { id: 'slack-fixed', messageMode: 'fixed', messageTemplate: 'Fixed update', name: 'Fixed', target: { type: 'channel', channelId: 'C123' }, type: 'slack' },
+        { id: 'slack-previous', messageMode: 'previous_output', messageTemplate: '', name: 'Previous', target: { type: 'dm', userId: 'user-1' }, type: 'slack' },
+        { id: 'slack-template', messageMode: 'template', messageTemplate: 'Report: {{previous.output}} / {{steps.agent-1.output}}', name: 'Template', target: { type: 'channel', channelId: 'C456' }, type: 'slack' },
+      ],
+      startNodeId: 'agent-1',
+      version: 1,
     }
     mocks.userFindByIdSelect.mockResolvedValue({ slug: 'alice' })
     mocks.createRun.mockResolvedValue(createRunRecord())
-    mocks.updateRunStepByRunIdAndNodeId.mockResolvedValue(createStepRecord({
-      finishedAt: now,
-      rawOutput: 'Final report',
-      status: FlowRunStepStatus.succeeded,
-    }))
-    mocks.findRunByIdAndUserId.mockResolvedValue({
-      ...createRunRecord(),
-      flow,
-      steps: [createStepRecord({ rawOutput: 'Final report', status: FlowRunStepStatus.succeeded })],
-    })
     mocks.sendSlackNotifications.mockResolvedValue({ errors: [], failed: 0, ok: true, sent: 1 })
 
-    try {
-      await runClaimedFlow(flow, FlowRunTrigger.manual)
-    } finally {
-      if (previousPublicBaseUrl === undefined) {
-        delete process.env.ARCHE_PUBLIC_BASE_URL
-      } else {
-        process.env.ARCHE_PUBLIC_BASE_URL = previousPublicBaseUrl
-      }
-    }
+    await runClaimedFlow(flow, FlowRunTrigger.manual)
 
-    expect(mocks.sendSlackNotifications).toHaveBeenCalledWith({
-      sessionLink: 'https://arche.example/w/alice?mode=flows&session=session-1',
+    expect(mocks.sendSlackNotifications).toHaveBeenNthCalledWith(1, {
       source: 'flows',
       targets: [{ type: 'channel', channelId: 'C123' }],
-      text: 'Flow report: Flow\n\nFinal report',
+      text: 'Fixed update',
     })
+    expect(mocks.sendSlackNotifications).toHaveBeenNthCalledWith(2, {
+      source: 'flows',
+      targets: [{ type: 'dm', userId: 'user-1' }],
+      text: 'assistant output',
+    })
+    expect(mocks.sendSlackNotifications).toHaveBeenNthCalledWith(3, {
+      source: 'flows',
+      targets: [{ type: 'channel', channelId: 'C456' }],
+      text: 'Report: assistant output / assistant output',
+    })
+    expect(mocks.upsertRunStep).toHaveBeenCalledWith(expect.objectContaining({ nodeId: 'slack-fixed', nodeType: FlowNodeType.slack }))
+  })
+
+  it('schedules retries for retryable startup failures across run triggers', async () => {
+    mocks.userFindByIdSelect.mockResolvedValue({ slug: 'alice' })
+    mocks.ensureWorkspaceRunningForExecution.mockRejectedValue(new Error('instance_unavailable'))
+    mocks.createRun
+      .mockResolvedValueOnce(createRunRecord({ id: 'run-manual', trigger: FlowRunTrigger.manual }))
+      .mockResolvedValueOnce(createRunRecord({ id: 'run-schedule', trigger: FlowRunTrigger.schedule }))
+      .mockResolvedValueOnce(createRunRecord({ id: 'run-on-create', trigger: FlowRunTrigger.on_create }))
+
+    await runClaimedFlow(createClaimedFlow(), FlowRunTrigger.manual)
+    await runClaimedFlow(createClaimedFlow(), FlowRunTrigger.schedule)
+    await runClaimedFlow(createClaimedFlow(), FlowRunTrigger.on_create)
+
+    expect(mocks.markRunRetryScheduled).toHaveBeenCalledTimes(3)
+    expect(mocks.markRunRetryScheduled).toHaveBeenNthCalledWith(1, 'run-manual', expect.objectContaining({
+      attempt: 2,
+      error: 'instance_unavailable',
+      retryAt: expect.any(Date),
+    }))
+    expect(mocks.markRunFailed).not.toHaveBeenCalledWith('run-manual', expect.any(Object))
+    expect(mocks.releaseFlowLease).toHaveBeenCalledWith('flow-1', 'worker-1', undefined)
+  })
+
+  it('stops retrying after the max attempt and records the retry reason', async () => {
+    mocks.userFindByIdSelect.mockResolvedValue({ slug: 'alice' })
+    mocks.ensureWorkspaceRunningForExecution.mockRejectedValue(new Error('instance_unavailable'))
+    mocks.createRun.mockResolvedValue(createRunRecord({ attempt: 5, id: 'run-exhausted' }))
+
+    await runClaimedFlow(createClaimedFlow(), FlowRunTrigger.manual)
+
+    expect(mocks.markRunRetryScheduled).not.toHaveBeenCalled()
+    expect(mocks.markRunFailed).toHaveBeenCalledWith('run-exhausted', expect.objectContaining({ error: 'instance_unavailable' }))
+    expect(mocks.auditCreateEvent).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: expect.objectContaining({ retryReason: 'retry_exhausted', willRetry: false }),
+    }))
   })
 
   it('stops before prompting when a run is cancelled before the next node', async () => {

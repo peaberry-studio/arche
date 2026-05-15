@@ -22,7 +22,10 @@ const flow: FlowDetail = {
     finishedAt: '2026-05-12T10:02:00.000Z',
     flowId: 'flow-1',
     id: 'run-1',
+    attempt: 1,
+    lastRetryError: null,
     openCodeSessionId: 'session-1',
+    retryScheduledFor: null,
     scheduledFor: '2026-05-12T10:00:00.000Z',
     sessionTitle: 'Flow | Flow',
     startedAt: '2026-05-12T10:00:00.000Z',
@@ -59,6 +62,22 @@ describe('FlowRunHistory', () => {
     expect(screen.getAllByText('succeeded').length).toBeGreaterThan(0)
     expect(screen.getByText('Compact: Compact result')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Open session' }).getAttribute('href')).toBe('/w/alice?mode=flows&session=session-1')
+  })
+
+  it('renders scheduled retry metadata', () => {
+    render(<FlowRunHistory flow={{
+      ...flow,
+      runs: [{
+        ...flow.runs[0],
+        attempt: 2,
+        lastRetryError: 'instance_unavailable',
+        retryScheduledFor: '2026-05-12T10:05:00.000Z',
+        status: 'running',
+      }],
+    }} slug="alice" />)
+
+    expect(screen.getByText(/Retry attempt 2 scheduled/)).toBeTruthy()
+    expect(screen.getByText('Last retry error: instance_unavailable')).toBeTruthy()
   })
 
   it('renders empty history', () => {

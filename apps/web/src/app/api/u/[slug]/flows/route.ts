@@ -5,7 +5,7 @@ import { auditEvent } from '@/lib/auth'
 import { resolveFlowOwnerUserId } from '@/lib/flows/api'
 import { getNextFlowRunAt } from '@/lib/flows/cron'
 import { validateFlowPayload } from '@/lib/flows/payload'
-import { validateFlowSlackNotificationAccess } from '@/lib/flows/route-auth'
+import { validateFlowSlackNodeAccess } from '@/lib/flows/route-auth'
 import { triggerFlowNow } from '@/lib/flows/runner'
 import { serializeFlowDetail, serializeFlowListItem, toPrismaJson } from '@/lib/flows/serializers'
 import type { FlowDetail, FlowListItem } from '@/lib/flows/types'
@@ -55,15 +55,15 @@ export const POST = withAuth<{ flow: FlowDetail } | { error: string }>(
     const userId = await resolveFlowOwnerUserId(slug, user)
     if (!userId) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
-    const slackNotificationAccess = await validateFlowSlackNotificationAccess(
-      payload.value.slackNotificationConfig,
+    const slackNodeAccess = await validateFlowSlackNodeAccess(
+      payload.value.definition,
       user,
       userId,
     )
-    if (!slackNotificationAccess.ok) {
+    if (!slackNodeAccess.ok) {
       return NextResponse.json(
-        { error: slackNotificationAccess.error },
-        { status: slackNotificationAccess.status },
+        { error: slackNodeAccess.error },
+        { status: slackNodeAccess.status },
       )
     }
 
@@ -84,7 +84,6 @@ export const POST = withAuth<{ flow: FlowDetail } | { error: string }>(
         enabled,
         name,
         nextRunAt: enabled && cronExpression ? getNextFlowRunAt(cronExpression, timezone, new Date()) : null,
-        slackNotificationConfig: payload.value.slackNotificationConfig,
         timezone,
         userId,
       })

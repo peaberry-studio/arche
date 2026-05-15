@@ -96,7 +96,6 @@ function createFlowDetail(): FlowDetail {
     name: 'Existing flow',
     nextRunAt: null,
     runs: [],
-    slackNotificationConfig: null,
     timezone: 'UTC',
     updatedAt: '2026-05-12T10:00:00.000Z',
   }
@@ -170,72 +169,6 @@ describe('FlowEditor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Delete selected node' }))
   })
 
-  it('creates Slack notification targets for DMs and channels', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      json: vi.fn().mockResolvedValue({
-        channels: [{ channelId: 'C1', isPrivate: true, name: 'ops' }],
-        integrationEnabled: true,
-        users: [{ email: 'alice@example.com', id: 'user-1', slackLinked: true }],
-      }),
-      ok: true,
-    }))
-    render(<FlowEditor slug="alice" mode="create" />)
-
-    await waitFor(() => expect(screen.getByText('Slack notifications')).toBeTruthy())
-    fireEvent.click(screen.getByRole('switch', { name: 'Slack notifications' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Create flow' }))
-    expect(screen.getByText('Add at least one Slack notification target.')).toBeTruthy()
-
-    fireEvent.change(screen.getByLabelText('Slack DM target'), { target: { value: 'user-1' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Add target' }))
-    expect(screen.getByText('DM: alice@example.com')).toBeTruthy()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
-    fireEvent.click(screen.getByLabelText('Send to channel'))
-    fireEvent.change(screen.getByLabelText('Slack channel target'), { target: { value: 'C1' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Add target' }))
-    fireEvent.click(screen.getByRole('switch', { name: 'Include session link' }))
-    fireEvent.change(screen.getByLabelText('Flow name'), { target: { value: 'Notify flow' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Create flow' }))
-
-    await waitFor(() => expect(mocks.createFlowRequest).toHaveBeenCalledWith('alice', expect.objectContaining({
-      name: 'Notify flow',
-      slackNotificationConfig: {
-        enabled: true,
-        includeSessionLink: false,
-        targets: [{ channelId: 'C1', type: 'channel' }],
-      },
-    })))
-  })
-
-  it('loads existing Slack notification config and clears it when disabled', async () => {
-    const flow = createFlowDetail()
-    flow.slackNotificationConfig = {
-      enabled: true,
-      includeSessionLink: false,
-      targets: [{ type: 'dm', userId: 'user-1' }],
-    }
-    mocks.fetchFlowDetail.mockResolvedValue({ ok: true, data: { flow } })
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      json: vi.fn().mockResolvedValue({
-        channels: [],
-        integrationEnabled: true,
-        users: [{ email: 'alice@example.com', id: 'user-1', slackLinked: true }],
-      }),
-      ok: true,
-    }))
-
-    render(<FlowEditor slug="alice" mode="edit" flowId="flow-1" />)
-
-    await waitFor(() => expect(screen.getByText('DM: alice@example.com')).toBeTruthy())
-    fireEvent.click(screen.getByRole('switch', { name: 'Slack notifications' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
-
-    await waitFor(() => expect(mocks.updateFlowRequest).toHaveBeenCalledWith('alice', 'flow-1', expect.objectContaining({
-      slackNotificationConfig: null,
-    })))
-  })
-
   it('handles Slack target load failures without blocking the editor', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('network down')))
@@ -243,22 +176,7 @@ describe('FlowEditor', () => {
     render(<FlowEditor slug="alice" mode="create" />)
 
     await waitFor(() => expect(consoleError).toHaveBeenCalledWith('[flow-editor] Failed to load Slack targets', expect.any(Error)))
-    expect(screen.queryByText('Slack notifications')).toBeNull()
-  })
-
-  it('shows Slack channel empty state when no channels are configured', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      json: vi.fn().mockResolvedValue({ channels: [], integrationEnabled: true, users: [] }),
-      ok: true,
-    }))
-
-    render(<FlowEditor slug="alice" mode="create" />)
-
-    await waitFor(() => expect(screen.getByText('Slack notifications')).toBeTruthy())
-    fireEvent.click(screen.getByRole('switch', { name: 'Slack notifications' }))
-    fireEvent.click(screen.getByLabelText('Send to channel'))
-
-    expect(screen.getByText('No channels available. Configure notification channels in Slack settings.')).toBeTruthy()
+    expect(screen.getByLabelText('Flow name')).toBeTruthy()
   })
 
   it('surfaces save, run, and delete errors', async () => {
@@ -309,7 +227,7 @@ describe('FlowEditor', () => {
     await waitFor(() => expect(screen.getByText('network_error')).toBeTruthy())
   })
 
-  it('skips Slack controls when target loading returns an error response', async () => {
+  it('continues when Slack target loading returns an error response', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       json: vi.fn().mockResolvedValue(null),
       ok: false,
@@ -317,7 +235,7 @@ describe('FlowEditor', () => {
 
     render(<FlowEditor slug="alice" mode="create" />)
 
-    await waitFor(() => expect(screen.queryByText('Slack notifications')).toBeNull())
+    await waitFor(() => expect(screen.getByLabelText('Flow name')).toBeTruthy())
   })
 
   it('renders load errors', async () => {

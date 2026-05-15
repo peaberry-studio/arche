@@ -5,9 +5,10 @@ import { auditEvent } from '@/lib/auth'
 import { resolveFlowOwnerUserId } from '@/lib/flows/api'
 import { getNextFlowRunAt, validateFlowCronExpression } from '@/lib/flows/cron'
 import { validateFlowPayload } from '@/lib/flows/payload'
-import { validateFlowSlackNotificationAccess } from '@/lib/flows/route-auth'
+import { validateFlowSlackNodeAccess } from '@/lib/flows/route-auth'
 import { serializeFlowDetail, toPrismaJson } from '@/lib/flows/serializers'
-import type { FlowDetail, FlowSlackNotificationConfig } from '@/lib/flows/types'
+import type { FlowDetail } from '@/lib/flows/types'
+import { validateFlowDefinition } from '@/lib/flows/validation'
 import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { flowService } from '@/lib/services'
@@ -93,7 +94,6 @@ export const PATCH = withAuth<{ flow: FlowDetail } | { error: string }, FlowRout
       enabled?: boolean
       name?: string
       nextRunAt?: Date | null
-      slackNotificationConfig?: FlowSlackNotificationConfig | null
       timezone?: string
     } = {
       cronExpression: payload.value.cronExpression,
@@ -104,19 +104,20 @@ export const PATCH = withAuth<{ flow: FlowDetail } | { error: string }, FlowRout
       nextRunAt,
       timezone: payload.value.timezone,
     }
-    if ('slackNotificationConfig' in payload.value) {
-      updateData.slackNotificationConfig = payload.value.slackNotificationConfig ?? null
+    const existingDefinition = validateFlowDefinition(existing.definition)
+    if (!payload.value.definition && !existingDefinition.ok) {
+      return NextResponse.json({ error: existingDefinition.error }, { status: 400 })
     }
 
-    const slackNotificationAccess = await validateFlowSlackNotificationAccess(
-      payload.value.slackNotificationConfig,
+    const slackNodeAccess = await validateFlowSlackNodeAccess(
+      payload.value.definition ?? (existingDefinition.ok ? existingDefinition.definition : null),
       user,
       userId,
     )
-    if (!slackNotificationAccess.ok) {
+    if (!slackNodeAccess.ok) {
       return NextResponse.json(
-        { error: slackNotificationAccess.error },
-        { status: slackNotificationAccess.status },
+        { error: slackNodeAccess.error },
+        { status: slackNodeAccess.status },
       )
     }
 

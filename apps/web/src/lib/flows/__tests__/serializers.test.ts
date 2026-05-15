@@ -16,7 +16,10 @@ function createRun(): FlowRunDetailRecord {
     flow: createFlow([]),
     flowId: 'flow-1',
     id: 'run-1',
+    attempt: 2,
+    lastRetryError: 'instance_unavailable',
     openCodeSessionId: 'session-1',
+    retryScheduledFor: now,
     resultSeenAt: null,
     scheduledFor: now,
     sessionTitle: 'Flow | Test',
@@ -52,6 +55,7 @@ function createFlow(runs: FlowRunDetailRecord[]): FlowDetailRecord {
     cronExpression: null,
     definition: createDefaultFlowDefinition(),
     description: null,
+    deletedAt: null,
     enabled: false,
     id: 'flow-1',
     lastRunAt: now,
@@ -60,7 +64,6 @@ function createFlow(runs: FlowRunDetailRecord[]): FlowDetailRecord {
     name: 'Flow',
     nextRunAt: null,
     runs,
-    slackNotificationConfig: null,
     timezone: 'UTC',
     updatedAt: now,
     userId: 'user-1',
@@ -74,7 +77,10 @@ describe('flow serializers', () => {
 
     expect(detail.runs[0]).toMatchObject({
       id: 'run-1',
+      attempt: 2,
+      lastRetryError: 'instance_unavailable',
       openCodeSessionId: 'session-1',
+      retryScheduledFor: '2026-05-12T10:00:00.000Z',
       status: 'succeeded',
       steps: [{ compactedOutput: 'compact', nodeId: 'agent-1' }],
     })
@@ -88,23 +94,6 @@ describe('flow serializers', () => {
     }
 
     expect(serializeFlowListItem(flow).definition).toEqual({ edges: [], nodes: [], startNodeId: '', version: 1 })
-  })
-
-  it('serializes Slack notification config', () => {
-    const detail = serializeFlowDetail({
-      ...createFlow([]),
-      slackNotificationConfig: {
-        enabled: true,
-        includeSessionLink: false,
-        targets: [{ type: 'dm', userId: 'user-1' }],
-      },
-    })
-
-    expect(detail.slackNotificationConfig).toEqual({
-      enabled: true,
-      includeSessionLink: false,
-      targets: [{ type: 'dm', userId: 'user-1' }],
-    })
   })
 
   it('serializes standalone runs and converts JSON to Prisma input JSON', () => {

@@ -72,4 +72,23 @@ describe('validateFlowDefinition', () => {
 
     expect(validateFlowDefinition(definition)).toEqual({ ok: false, error: 'unknown_condition_target' })
   })
+
+  it('accepts configured Slack message nodes and rejects incomplete ones', () => {
+    const definition: FlowDefinition = {
+      edges: [],
+      nodes: [{ id: 'slack-1', messageMode: 'template', messageTemplate: 'Report: {{previous.output}}', name: 'Notify', target: { type: 'channel', channelId: 'C1' }, type: 'slack' }],
+      startNodeId: 'slack-1',
+      version: 1,
+    }
+
+    expect(validateFlowDefinition(definition).ok).toBe(true)
+    expect(validateFlowDefinition({
+      ...definition,
+      nodes: [{ ...definition.nodes[0], target: { type: 'dm', userId: '' } }],
+    })).toEqual({ ok: false, error: 'invalid_flow_nodes' })
+    expect(validateFlowDefinition({
+      ...definition,
+      nodes: [{ ...definition.nodes[0], messageMode: 'fixed', messageTemplate: '' }],
+    })).toEqual({ ok: false, error: 'invalid_flow_nodes' })
+  })
 })

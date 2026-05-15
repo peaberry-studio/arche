@@ -1,5 +1,5 @@
 import { getNextFlowRunAt } from '@/lib/flows/cron'
-import { dispatchClaimedFlowRun, FLOW_LEASE_MS } from '@/lib/flows/runner'
+import { dispatchClaimedFlowRetryRun, dispatchClaimedFlowRun, FLOW_LEASE_MS } from '@/lib/flows/runner'
 import { createFlowLeaseOwner } from '@/lib/flows/session-executor'
 import { flowService } from '@/lib/services'
 
@@ -70,6 +70,24 @@ export async function dispatchDueFlows(limit = FLOW_SCHEDULER_BATCH_LIMIT): Prom
   try {
     while (claimedCount < limit) {
       const now = new Date()
+      const retry = await flowService.claimNextRetryRun({
+        leaseMs: FLOW_LEASE_MS,
+        leaseOwner: await createFlowLeaseOwner(),
+        now,
+      })
+
+      if (retry) {
+        claimedCount += 1
+        void dispatchClaimedFlowRetryRun(retry).catch((error) => {
+          console.error('[flows] Failed to execute scheduled flow retry', {
+            error,
+            flowId: retry.id,
+            runId: retry.retryRun.id,
+          })
+        })
+        continue
+      }
+
       const claimed = await flowService.claimNextDueFlow({
         leaseMs: FLOW_LEASE_MS,
         leaseOwner: await createFlowLeaseOwner(),

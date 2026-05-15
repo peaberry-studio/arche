@@ -4,17 +4,13 @@ export type FlowRunTrigger = 'on_create' | 'schedule' | 'manual' | 'resume'
 
 export type FlowRunStepStatus = 'pending' | 'running' | 'waiting_for_human' | 'succeeded' | 'skipped' | 'failed'
 
-export type FlowNodeType = 'agent' | 'human' | 'condition' | 'merge' | 'compaction'
+export type FlowNodeType = 'agent' | 'human' | 'condition' | 'slack' | 'merge' | 'compaction'
 
-export type FlowSlackNotificationTarget =
+export type FlowSlackTarget =
   | { type: 'dm'; userId: string }
   | { type: 'channel'; channelId: string }
 
-export type FlowSlackNotificationConfig = {
-  enabled: boolean
-  includeSessionLink: boolean
-  targets: FlowSlackNotificationTarget[]
-}
+export type FlowSlackMessageMode = 'fixed' | 'previous_output' | 'template'
 
 export type FlowConditionMode = 'rules' | 'ai'
 
@@ -62,6 +58,15 @@ export type ConditionFlowNode = {
   evaluatorPrompt?: string
 }
 
+export type SlackFlowNode = {
+  id: string
+  type: 'slack'
+  name: string
+  target: FlowSlackTarget
+  messageMode: FlowSlackMessageMode
+  messageTemplate: string
+}
+
 export type MergeFlowNode = {
   id: string
   type: 'merge'
@@ -79,6 +84,7 @@ export type FlowNode =
   | AgentFlowNode
   | HumanFlowNode
   | ConditionFlowNode
+  | SlackFlowNode
   | MergeFlowNode
   | CompactionFlowNode
 
@@ -136,6 +142,9 @@ export type FlowRunListItem = {
   openCodeSessionId: string | null
   sessionTitle: string | null
   currentNodeId: string | null
+  attempt: number
+  retryScheduledFor: string | null
+  lastRetryError: string | null
   steps: FlowRunStepListItem[]
 }
 
@@ -152,7 +161,6 @@ export type FlowListItem = {
   createdAt: string
   updatedAt: string
   latestRun: FlowRunListItem | null
-  slackNotificationConfig?: FlowSlackNotificationConfig
 }
 
 export type FlowDetail = FlowListItem & {
@@ -166,7 +174,6 @@ export type FlowPayload = {
   cronExpression: string | null
   timezone: string
   enabled: boolean
-  slackNotificationConfig?: FlowSlackNotificationConfig | null
 }
 
 export type FlowSessionMetadata = {

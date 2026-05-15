@@ -12,8 +12,11 @@ import type {
   FlowLayout,
   FlowLayoutNode,
   FlowNode,
+  FlowSlackMessageMode,
+  FlowSlackTarget,
   HumanFlowNode,
   MergeFlowNode,
+  SlackFlowNode,
 } from '@/lib/flows/types'
 
 export type FlowDefinitionValidationResult =
@@ -29,6 +32,12 @@ const CONDITION_OPERATORS = new Set<FlowConditionOperator>([
   'not_equals',
   'not_exists',
   'starts_with',
+])
+
+const SLACK_MESSAGE_MODES = new Set<FlowSlackMessageMode>([
+  'fixed',
+  'previous_output',
+  'template',
 ])
 
 function readString(record: Record<string, unknown>, key: string): string | null {
@@ -64,6 +73,22 @@ function parseConditionRule(value: unknown): FlowConditionRule | null {
     value: readOptionalString(value, 'value'),
     variable,
   }
+}
+
+function parseSlackTarget(value: unknown): FlowSlackTarget | null {
+  if (!isRecord(value)) return null
+
+  if (value.type === 'dm') {
+    const userId = readString(value, 'userId')
+    return userId ? { type: 'dm', userId } : null
+  }
+
+  if (value.type === 'channel') {
+    const channelId = readString(value, 'channelId')
+    return channelId ? { type: 'channel', channelId } : null
+  }
+
+  return null
 }
 
 function parseNode(value: unknown): FlowNode | null {
@@ -127,6 +152,23 @@ function parseNode(value: unknown): FlowNode | null {
       rules: rules as FlowConditionRule[] | undefined,
       type,
     } satisfies ConditionFlowNode
+  }
+
+  if (type === 'slack') {
+    const messageMode = value.messageMode
+    const messageTemplate = typeof value.messageTemplate === 'string' ? value.messageTemplate : ''
+    const target = parseSlackTarget(value.target)
+    if (!SLACK_MESSAGE_MODES.has(messageMode as FlowSlackMessageMode) || !target) return null
+    if (messageMode !== 'previous_output' && messageTemplate.trim().length === 0) return null
+
+    return {
+      id,
+      messageMode: messageMode as FlowSlackMessageMode,
+      messageTemplate,
+      name,
+      target,
+      type,
+    } satisfies SlackFlowNode
   }
 
   if (type === 'merge') {

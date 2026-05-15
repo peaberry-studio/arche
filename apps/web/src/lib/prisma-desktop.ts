@@ -159,44 +159,8 @@ const SCHEMA_DDL = [
     "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" DATETIME NOT NULL
   )`,
-  `CREATE TABLE IF NOT EXISTS "autopilot_tasks" (
-    "id" TEXT NOT NULL PRIMARY KEY,
-    "user_id" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
-    "cron_expression" TEXT NOT NULL,
-    "timezone" TEXT NOT NULL,
-    "prompt" TEXT NOT NULL,
-    "target_agent_id" TEXT,
-    "enabled" BOOLEAN NOT NULL DEFAULT true,
-    "slack_notification_config" TEXT,
-    "next_run_at" DATETIME NOT NULL,
-    "last_run_at" DATETIME,
-    "lease_owner" TEXT,
-    "lease_expires_at" DATETIME,
-    "retry_attempt" INTEGER NOT NULL DEFAULT 0,
-    "retry_scheduled_for" DATETIME,
-    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" DATETIME NOT NULL,
-    "deleted_at" DATETIME,
-    CONSTRAINT "autopilot_tasks_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE
-  )`,
-  `CREATE TABLE IF NOT EXISTS "autopilot_runs" (
-    "id" TEXT NOT NULL PRIMARY KEY,
-    "task_id" TEXT NOT NULL,
-    "status" TEXT NOT NULL,
-    "trigger" TEXT NOT NULL,
-    "scheduled_for" DATETIME NOT NULL,
-    "started_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "finished_at" DATETIME,
-    "error" TEXT,
-    "opencode_session_id" TEXT,
-    "session_title" TEXT,
-    "result_seen_at" DATETIME,
-    "attempt" INTEGER NOT NULL DEFAULT 1,
-    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" DATETIME NOT NULL,
-    CONSTRAINT "autopilot_runs_task_id_fkey" FOREIGN KEY ("task_id") REFERENCES "autopilot_tasks" ("id") ON DELETE CASCADE ON UPDATE CASCADE
-  )`,
+  `DROP TABLE IF EXISTS "autopilot_runs"`,
+  `DROP TABLE IF EXISTS "autopilot_tasks"`,
   `CREATE TABLE IF NOT EXISTS "connectors" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "user_id" TEXT NOT NULL,
@@ -255,24 +219,13 @@ const SCHEMA_DDL = [
   `CREATE UNIQUE INDEX IF NOT EXISTS "slack_pending_dm_decisions_source_event_id_key" ON "slack_pending_dm_decisions"("source_event_id")`,
   `CREATE INDEX IF NOT EXISTS "slack_pending_dm_decisions_expires_at_idx" ON "slack_pending_dm_decisions"("expires_at")`,
   `CREATE UNIQUE INDEX IF NOT EXISTS "slack_notification_channels_slack_team_id_channel_id_key" ON "slack_notification_channels"("slack_team_id", "channel_id")`,
-  `DROP INDEX IF EXISTS "autopilot_tasks_user_id_name_key"`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS "autopilot_tasks_user_id_name_active_key" ON "autopilot_tasks"("user_id", "name") WHERE "deleted_at" IS NULL`,
-  `CREATE INDEX IF NOT EXISTS "autopilot_tasks_user_id_idx" ON "autopilot_tasks"("user_id")`,
-  `CREATE INDEX IF NOT EXISTS "autopilot_tasks_enabled_next_run_at_idx" ON "autopilot_tasks"("enabled", "next_run_at")`,
-  `CREATE INDEX IF NOT EXISTS "autopilot_tasks_lease_expires_at_idx" ON "autopilot_tasks"("lease_expires_at")`,
-  `CREATE INDEX IF NOT EXISTS "autopilot_tasks_user_id_lease_expires_at_idx" ON "autopilot_tasks"("user_id", "lease_expires_at")`,
-  `CREATE INDEX IF NOT EXISTS "autopilot_tasks_retry_scheduled_for_idx" ON "autopilot_tasks"("retry_scheduled_for")`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS "autopilot_runs_opencode_session_id_key" ON "autopilot_runs"("opencode_session_id")`,
-  `CREATE INDEX IF NOT EXISTS "autopilot_runs_task_id_started_at_idx" ON "autopilot_runs"("task_id", "started_at")`,
-  `CREATE INDEX IF NOT EXISTS "autopilot_runs_status_idx" ON "autopilot_runs"("status")`,
-  `CREATE INDEX IF NOT EXISTS "autopilot_runs_scheduled_for_idx" ON "autopilot_runs"("scheduled_for")`,
   `CREATE INDEX IF NOT EXISTS "connectors_user_id_idx" ON "connectors"("user_id")`,
   `CREATE INDEX IF NOT EXISTS "provider_credentials_user_id_idx" ON "provider_credentials"("user_id")`,
   `CREATE INDEX IF NOT EXISTS "provider_credentials_provider_id_idx" ON "provider_credentials"("provider_id")`,
   `CREATE INDEX IF NOT EXISTS "two_factor_recovery_user_id_idx" ON "two_factor_recovery"("user_id")`,
 ]
 
-const SCHEMA_VERSION = '8'
+const SCHEMA_VERSION = '9'
 
 function isCreateIndexStatement(ddl: string): boolean {
   return /^CREATE (UNIQUE )?INDEX\b/.test(ddl.trim())
@@ -299,12 +252,6 @@ async function ensureDesktopSchemaColumns(client: DesktopPrismaClient): Promise<
   await ensureColumn(client, 'users', 'kind', 'ALTER TABLE "users" ADD COLUMN "kind" TEXT NOT NULL DEFAULT \'HUMAN\'')
   await ensureColumn(client, 'instances', 'provider_sync_hash', 'ALTER TABLE "instances" ADD COLUMN "provider_sync_hash" TEXT')
   await ensureColumn(client, 'instances', 'provider_synced_at', 'ALTER TABLE "instances" ADD COLUMN "provider_synced_at" DATETIME')
-  await ensureColumn(client, 'autopilot_tasks', 'slack_notification_config', 'ALTER TABLE "autopilot_tasks" ADD COLUMN "slack_notification_config" TEXT')
-  await ensureColumn(client, 'autopilot_tasks', 'retry_attempt', 'ALTER TABLE "autopilot_tasks" ADD COLUMN "retry_attempt" INTEGER NOT NULL DEFAULT 0')
-  await ensureColumn(client, 'autopilot_tasks', 'retry_scheduled_for', 'ALTER TABLE "autopilot_tasks" ADD COLUMN "retry_scheduled_for" DATETIME')
-  await ensureColumn(client, 'autopilot_tasks', 'deleted_at', 'ALTER TABLE "autopilot_tasks" ADD COLUMN "deleted_at" DATETIME')
-  await ensureColumn(client, 'autopilot_runs', 'result_seen_at', 'ALTER TABLE "autopilot_runs" ADD COLUMN "result_seen_at" DATETIME')
-  await ensureColumn(client, 'autopilot_runs', 'attempt', 'ALTER TABLE "autopilot_runs" ADD COLUMN "attempt" INTEGER NOT NULL DEFAULT 1')
 }
 
 function getDesktopDatabasePath(): string {

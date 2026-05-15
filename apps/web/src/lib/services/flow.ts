@@ -6,7 +6,6 @@ import {
   Prisma,
 } from '@prisma/client'
 
-import type { FlowSlackNotificationConfig } from '@/lib/flows/types'
 import { prisma } from '@/lib/prisma'
 
 export type FlowRecord = {
@@ -18,13 +17,13 @@ export type FlowRecord = {
   cronExpression: string | null
   timezone: string
   enabled: boolean
-  slackNotificationConfig?: Prisma.JsonValue | null
   nextRunAt: Date | null
   lastRunAt: Date | null
   leaseOwner: string | null
   leaseExpiresAt: Date | null
   createdAt: Date
   updatedAt: Date
+  deletedAt: Date | null
 }
 
 export type FlowRunStepRecord = {
@@ -58,6 +57,9 @@ export type FlowRunRecord = {
   sessionTitle: string | null
   currentNodeId: string | null
   resultSeenAt: Date | null
+  attempt: number
+  retryScheduledFor: Date | null
+  lastRetryError: string | null
   createdAt: Date
   updatedAt: Date
 }
@@ -76,6 +78,11 @@ export type FlowRunDetailRecord = FlowRunRecord & {
 }
 
 export type FlowClaimedRecord = FlowRecord & {
+  scheduledFor: Date
+}
+
+export type FlowRetryClaimedRecord = FlowRecord & {
+  retryRun: FlowRunDetailRecord
   scheduledFor: Date
 }
 
@@ -122,6 +129,13 @@ const FLOW_DETAIL_INCLUDE = {
   },
 }
 
+const FLOW_RETRY_RUN_INCLUDE = {
+  flow: true,
+  steps: {
+    orderBy: { createdAt: 'asc' as const },
+  },
+}
+
 function availableLease(now: Date): LeaseScope[] {
   return [
     { leaseExpiresAt: null },
@@ -141,28 +155,6 @@ function noActiveRun() {
   }
 }
 
-function slackNotificationConfigToJson(
-  config: FlowSlackNotificationConfig,
-): Prisma.InputJsonObject {
-  return {
-    enabled: config.enabled,
-    includeSessionLink: config.includeSessionLink,
-    targets: config.targets.map((target) => {
-      if (target.type === 'dm') {
-        return {
-          type: 'dm',
-          userId: target.userId,
-        }
-      }
-
-      return {
-        type: 'channel',
-        channelId: target.channelId,
-      }
-    }),
-  }
-}
-
 export async function recoverStaleRunningRuns(now: Date): Promise<number> {
   const result = await prisma.flowRun.updateMany({
     data: {
@@ -175,6 +167,7 @@ export async function recoverStaleRunningRuns(now: Date): Promise<number> {
       flow: {
         leaseExpiresAt: { lt: now },
       },
+      retryScheduledFor: null,
       status: FlowRunStatus.running,
     },
   })
@@ -190,14 +183,14 @@ export async function listFlowsByUserId(userId: string): Promise<FlowListRecord[
       { updatedAt: 'desc' },
       { createdAt: 'asc' },
     ],
-    where: { userId },
+    where: { deletedAt: null, userId },
   })
 }
 
 export async function findFlowByIdAndUserId(id: string, userId: string): Promise<FlowDetailRecord | null> {
   return prisma.flow.findFirst({
     include: FLOW_DETAIL_INCLUDE,
-    where: { id, userId },
+    where: { deletedAt: null, id, userId },
   })
 }
 
@@ -208,7 +201,6 @@ export async function createFlow(data: {
   enabled: boolean
   name: string
   nextRunAt?: Date | null
-  slackNotificationConfig?: FlowSlackNotificationConfig | null
   timezone: string
   userId: string
 }): Promise<FlowRecord> {
@@ -220,9 +212,6 @@ export async function createFlow(data: {
       enabled: data.enabled,
       name: data.name,
       nextRunAt: data.nextRunAt ?? null,
-      ...(data.slackNotificationConfig
-        ? { slackNotificationConfig: slackNotificationConfigToJson(data.slackNotificationConfig) }
-        : {}),
       timezone: data.timezone,
       userId: data.userId,
     },
@@ -239,28 +228,26 @@ export async function updateFlowByIdAndUserId(
     enabled?: boolean
     name?: string
     nextRunAt?: Date | null
-    slackNotificationConfig?: FlowSlackNotificationConfig | null
     timezone?: string
   },
 ): Promise<FlowRecord | null> {
-  const { slackNotificationConfig, ...flowData } = data
-  const updateData: Prisma.FlowUpdateManyMutationInput = { ...flowData }
-  if ('slackNotificationConfig' in data) {
-    updateData.slackNotificationConfig = slackNotificationConfig
-      ? slackNotificationConfigToJson(slackNotificationConfig)
-      : Prisma.DbNull
-  }
-
   const result = await prisma.flow.updateMany({
-    data: updateData,
-    where: { id, userId },
+    data,
+    where: { deletedAt: null, id, userId },
   })
   if (result.count === 0) return null
-  return prisma.flow.findFirst({ where: { id, userId } })
+  return prisma.flow.findFirst({ where: { deletedAt: null, id, userId } })
 }
 
 export function deleteFlowByIdAndUserId(id: string, userId: string) {
-  return prisma.flow.deleteMany({ where: { id, userId } })
+  return prisma.flow.updateMany({
+    data: {
+      deletedAt: new Date(),
+      enabled: false,
+      nextRunAt: null,
+    },
+    where: { deletedAt: null, id, userId },
+  })
 }
 
 export async function claimNextDueFlow(params: {
@@ -279,6 +266,7 @@ export async function claimNextDueFlow(params: {
       ],
       where: {
         enabled: true,
+        deletedAt: null,
         nextRunAt: { lte: params.now },
         OR: availableLease(params.now),
         ...noActiveRun(),
@@ -300,6 +288,7 @@ export async function claimNextDueFlow(params: {
       },
       where: {
         enabled: true,
+        deletedAt: null,
         id: flow.id,
         nextRunAt: flow.nextRunAt,
         OR: availableLease(params.now),
@@ -327,6 +316,87 @@ export async function claimNextDueFlow(params: {
   return null
 }
 
+export async function claimNextRetryRun(params: {
+  leaseMs: number
+  leaseOwner: string
+  now: Date
+}): Promise<FlowRetryClaimedRecord | null> {
+  await recoverStaleRunningRuns(params.now)
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const run = await prisma.flowRun.findFirst({
+      include: FLOW_RETRY_RUN_INCLUDE,
+      orderBy: [
+        { retryScheduledFor: 'asc' },
+        { createdAt: 'asc' },
+      ],
+      where: {
+        retryScheduledFor: { lte: params.now },
+        status: FlowRunStatus.running,
+        flow: {
+          OR: availableLease(params.now),
+        },
+      },
+    })
+
+    if (!run || !run.retryScheduledFor) return null
+
+    const leaseExpiresAt = new Date(params.now.getTime() + params.leaseMs)
+    const claimedFlow = await prisma.flow.updateMany({
+      data: {
+        leaseExpiresAt,
+        leaseOwner: params.leaseOwner,
+      },
+      where: {
+        id: run.flowId,
+        OR: availableLease(params.now),
+      },
+    })
+
+    if (claimedFlow.count !== 1) continue
+
+    const claimedRun = await prisma.flowRun.updateMany({
+      data: { retryScheduledFor: null },
+      where: {
+        id: run.id,
+        retryScheduledFor: run.retryScheduledFor,
+        status: FlowRunStatus.running,
+      },
+    })
+
+    if (claimedRun.count !== 1) {
+      await releaseFlowLease(run.flowId, params.leaseOwner).catch(() => undefined)
+      continue
+    }
+
+    console.log('[flows] Flow retry claimed', {
+      attempt: run.attempt,
+      flowId: run.flowId,
+      runId: run.id,
+      scheduledFor: run.scheduledFor.toISOString(),
+      userId: run.flow.userId,
+    })
+
+    const flow = {
+      ...run.flow,
+      leaseExpiresAt,
+      leaseOwner: params.leaseOwner,
+    }
+
+    return {
+      ...flow,
+      retryRun: {
+        ...run,
+        flow,
+        retryScheduledFor: null,
+      },
+      scheduledFor: run.scheduledFor,
+    }
+  }
+
+  return null
+}
+
 export async function claimFlowForImmediateRun(params: {
   id: string
   leaseMs: number
@@ -339,6 +409,7 @@ export async function claimFlowForImmediateRun(params: {
   const flow = await prisma.flow.findFirst({
     where: {
       id: params.id,
+      deletedAt: null,
       ...(params.userId ? { userId: params.userId } : {}),
       OR: availableLease(params.now),
       ...noActiveRun(),
@@ -355,6 +426,7 @@ export async function claimFlowForImmediateRun(params: {
     },
     where: {
       id: flow.id,
+      deletedAt: null,
       ...(params.userId ? { userId: params.userId } : {}),
       OR: availableLease(params.now),
       ...noActiveRun(),
@@ -429,6 +501,7 @@ export function releaseFlowLease(id: string, leaseOwner: string, lastRunAt?: Dat
 }
 
 export function createRun(data: {
+  attempt?: number
   flowId: string
   scheduledFor: Date
   status?: FlowRunStatus
@@ -437,6 +510,7 @@ export function createRun(data: {
   return prisma.flowRun.create({
     data: {
       flowId: data.flowId,
+      attempt: data.attempt ?? 1,
       scheduledFor: data.scheduledFor,
       status: data.status ?? FlowRunStatus.running,
       trigger: data.trigger,
@@ -491,6 +565,8 @@ export function markRunSucceeded(id: string, data: { finishedAt: Date; openCodeS
       currentNodeId: null,
       finishedAt: data.finishedAt,
       openCodeSessionId: data.openCodeSessionId ?? null,
+      retryScheduledFor: null,
+      lastRetryError: null,
       sessionTitle: data.sessionTitle ?? null,
       status: FlowRunStatus.succeeded,
     },
@@ -504,8 +580,25 @@ export function markRunFailed(id: string, data: { error: string; finishedAt: Dat
       error: data.error,
       finishedAt: data.finishedAt,
       openCodeSessionId: data.openCodeSessionId ?? null,
+      retryScheduledFor: null,
+      lastRetryError: data.error,
       sessionTitle: data.sessionTitle ?? null,
       status: FlowRunStatus.failed,
+    },
+    where: { id, status: FlowRunStatus.running },
+  })
+}
+
+export function markRunRetryScheduled(id: string, data: { attempt: number; error: string; retryAt: Date; sessionTitle?: string | null; openCodeSessionId?: string | null }) {
+  return prisma.flowRun.updateMany({
+    data: {
+      attempt: data.attempt,
+      error: null,
+      lastRetryError: data.error,
+      openCodeSessionId: data.openCodeSessionId ?? null,
+      retryScheduledFor: data.retryAt,
+      sessionTitle: data.sessionTitle ?? null,
+      status: FlowRunStatus.running,
     },
     where: { id, status: FlowRunStatus.running },
   })

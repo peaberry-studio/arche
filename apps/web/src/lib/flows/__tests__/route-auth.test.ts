@@ -24,16 +24,22 @@ vi.mock('@/lib/services', () => ({
 }))
 
 import { resolveFlowOwnerUserId } from '@/lib/flows/api'
-import { validateFlowSlackNotificationAccess } from '@/lib/flows/route-auth'
-import type { FlowSlackNotificationConfig } from '@/lib/flows/types'
+import { validateFlowSlackNodeAccess } from '@/lib/flows/route-auth'
+import type { FlowDefinition, FlowSlackTarget } from '@/lib/flows/types'
 
-function notificationConfig(
-  targets: FlowSlackNotificationConfig['targets'],
-): FlowSlackNotificationConfig {
+function definitionWithSlackTargets(targets: FlowSlackTarget[]): FlowDefinition {
   return {
-    enabled: true,
-    includeSessionLink: true,
-    targets,
+    edges: [],
+    nodes: targets.map((target, index) => ({
+      id: `slack-${index}`,
+      messageMode: 'fixed',
+      messageTemplate: 'Hello',
+      name: `Slack ${index}`,
+      target,
+      type: 'slack',
+    })),
+    startNodeId: 'slack-0',
+    version: 1,
   }
 }
 
@@ -81,13 +87,13 @@ describe('flow route auth', () => {
     expect(result).toBeNull()
   })
 
-  it('allows disabled or empty Slack notification configs', async () => {
+  it('allows flows without Slack nodes', async () => {
     await expect(
-      validateFlowSlackNotificationAccess(null, { id: 'user-1', role: 'USER' }, 'user-1'),
+      validateFlowSlackNodeAccess(null, { id: 'user-1', role: 'USER' }, 'user-1'),
     ).resolves.toEqual({ ok: true })
     await expect(
-      validateFlowSlackNotificationAccess(
-        { enabled: false, includeSessionLink: true, targets: [] },
+      validateFlowSlackNodeAccess(
+        { edges: [], nodes: [], startNodeId: '', version: 1 },
         { id: 'user-1', role: 'USER' },
         'user-1',
       ),
@@ -95,8 +101,8 @@ describe('flow route auth', () => {
   })
 
   it('rejects non-admin DM targets outside the flow owner', async () => {
-    const result = await validateFlowSlackNotificationAccess(
-      notificationConfig([{ type: 'dm', userId: 'user-2' }]),
+    const result = await validateFlowSlackNodeAccess(
+      definitionWithSlackTargets([{ type: 'dm', userId: 'user-2' }]),
       { id: 'user-1', role: 'USER' },
       'user-1',
     )
@@ -109,21 +115,21 @@ describe('flow route auth', () => {
   })
 
   it('allows non-admin DM targets for the flow owner', async () => {
-    const result = await validateFlowSlackNotificationAccess(
-      notificationConfig([{ type: 'dm', userId: 'user-1' }]),
+    const result = await validateFlowSlackNodeAccess(
+      definitionWithSlackTargets([{ type: 'dm', userId: 'user-1' }]),
       { id: 'user-1', role: 'USER' },
       'user-1',
     )
 
     expect(result).toEqual({ ok: true })
-    expect(findIntegrationMock).not.toHaveBeenCalled()
+    expect(findIntegrationMock).toHaveBeenCalled()
   })
 
   it('requires admin DM targets to exist as team members', async () => {
     findTeamMemberByIdMock.mockResolvedValue(null)
 
-    const result = await validateFlowSlackNotificationAccess(
-      notificationConfig([{ type: 'dm', userId: 'missing-user' }]),
+    const result = await validateFlowSlackNodeAccess(
+      definitionWithSlackTargets([{ type: 'dm', userId: 'missing-user' }]),
       { id: 'admin-1', role: 'ADMIN' },
       'owner-1',
     )
@@ -138,8 +144,8 @@ describe('flow route auth', () => {
   it('rejects channel targets when Slack integration is disabled', async () => {
     findIntegrationMock.mockResolvedValue({ enabled: false, slackTeamId: 'T123' })
 
-    const result = await validateFlowSlackNotificationAccess(
-      notificationConfig([{ type: 'channel', channelId: 'C-public' }]),
+    const result = await validateFlowSlackNodeAccess(
+      definitionWithSlackTargets([{ type: 'channel', channelId: 'C-public' }]),
       { id: 'user-1', role: 'USER' },
       'user-1',
     )
@@ -152,8 +158,8 @@ describe('flow route auth', () => {
   })
 
   it('rejects unknown Slack notification channels', async () => {
-    const result = await validateFlowSlackNotificationAccess(
-      notificationConfig([{ type: 'channel', channelId: 'C-missing' }]),
+    const result = await validateFlowSlackNodeAccess(
+      definitionWithSlackTargets([{ type: 'channel', channelId: 'C-missing' }]),
       { id: 'user-1', role: 'USER' },
       'user-1',
     )
@@ -166,8 +172,8 @@ describe('flow route auth', () => {
   })
 
   it('rejects private channel targets for non-admin users', async () => {
-    const result = await validateFlowSlackNotificationAccess(
-      notificationConfig([{ type: 'channel', channelId: 'C-private' }]),
+    const result = await validateFlowSlackNodeAccess(
+      definitionWithSlackTargets([{ type: 'channel', channelId: 'C-private' }]),
       { id: 'user-1', role: 'USER' },
       'user-1',
     )
@@ -180,8 +186,8 @@ describe('flow route auth', () => {
   })
 
   it('allows valid mixed Slack notification targets', async () => {
-    const result = await validateFlowSlackNotificationAccess(
-      notificationConfig([
+    const result = await validateFlowSlackNodeAccess(
+      definitionWithSlackTargets([
         { type: 'dm', userId: 'user-2' },
         { type: 'channel', channelId: 'C-private' },
       ]),

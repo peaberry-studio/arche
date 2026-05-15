@@ -23,7 +23,7 @@ vi.mock('d3-zoom', () => ({
 }))
 
 function renderCanvas(overrides?: {
-  onAddNodeAfter?: (sourceNodeId: string, type: 'agent' | 'human' | 'condition' | 'merge' | 'compaction') => void
+  onAddNodeAfter?: (sourceNodeId: string, type: 'agent' | 'human' | 'condition' | 'slack' | 'merge' | 'compaction') => void
   onConnectNodes?: (sourceNodeId: string, targetNodeId: string) => void
   onEditNode?: (nodeId: string) => void
   onMoveNode?: (nodeId: string, x: number, y: number) => void
@@ -86,6 +86,10 @@ describe('FlowCanvas', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add node after Agent step' }))
     fireEvent.click(screen.getByRole('button', { name: 'Add human step after Agent step' }))
     expect(onAddNodeAfter).toHaveBeenCalledWith('agent-1', 'human')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add node after Agent step' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add slack step after Agent step' }))
+    expect(onAddNodeAfter).toHaveBeenCalledWith('agent-1', 'slack')
 
     fireEvent.pointerDown(screen.getByRole('button', { name: 'Connect from Agent step' }), {
       clientX: 166,

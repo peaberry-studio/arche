@@ -7,12 +7,27 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import type { AgentListItem } from '@/hooks/use-agents-catalog'
-import type { FlowConditionRule, FlowDefinition, FlowNode } from '@/lib/flows/types'
+import type { FlowConditionRule, FlowDefinition, FlowNode, SlackFlowNode } from '@/lib/flows/types'
+
+type SlackTargetUser = {
+  email: string
+  id: string
+  slackLinked: boolean
+}
+
+type SlackTargetChannel = {
+  channelId: string
+  isPrivate: boolean
+  name: string
+}
 
 type FlowNodeInspectorProps = {
   agents: AgentListItem[]
   definition: FlowDefinition
   selectedNode: FlowNode | null
+  slackChannels: SlackTargetChannel[]
+  slackIntegrationEnabled: boolean
+  slackUsers: SlackTargetUser[]
   onDeleteNode: (nodeId: string) => void
   onUpdateNode: (node: FlowNode) => void
 }
@@ -27,10 +42,18 @@ function createRule(targetNodeId: string): FlowConditionRule {
   }
 }
 
+function readSlackMessageMode(value: string): SlackFlowNode['messageMode'] {
+  if (value === 'previous_output' || value === 'template') return value
+  return 'fixed'
+}
+
 export function FlowNodeInspector({
   agents,
   definition,
   selectedNode,
+  slackChannels,
+  slackIntegrationEnabled,
+  slackUsers,
   onDeleteNode,
   onUpdateNode,
 }: FlowNodeInspectorProps) {
@@ -200,6 +223,97 @@ export function FlowNodeInspector({
               />
             </div>
           )}
+        </>
+      ) : null}
+
+      {node.type === 'slack' ? (
+        <>
+          {!slackIntegrationEnabled ? (
+            <p className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              Slack integration is not enabled. Configure Slack before this node can send messages.
+            </p>
+          ) : null}
+
+          <div className="space-y-2">
+            <Label htmlFor="flow-slack-target-type">Target type</Label>
+            <select
+              id="flow-slack-target-type"
+              value={node.target.type}
+              onChange={(event) => onUpdateNode({
+                ...node,
+                target: event.target.value === 'channel'
+                  ? { type: 'channel', channelId: slackChannels[0]?.channelId ?? '' }
+                  : { type: 'dm', userId: slackUsers[0]?.id ?? '' },
+              })}
+              className="flex h-10 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/30"
+            >
+              <option value="dm">User DM</option>
+              <option value="channel">Channel</option>
+            </select>
+          </div>
+
+          {node.target.type === 'dm' ? (
+            <div className="space-y-2">
+              <Label htmlFor="flow-slack-dm-target">Slack DM target</Label>
+              <select
+                id="flow-slack-dm-target"
+                value={node.target.userId}
+                onChange={(event) => onUpdateNode({ ...node, target: { type: 'dm', userId: event.target.value } })}
+                className="flex h-10 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/30"
+              >
+                <option value="">Select user...</option>
+                {slackUsers.map((user) => (
+                  <option key={user.id} value={user.id}>{user.email}{user.slackLinked ? ' (linked)' : ''}</option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <Label htmlFor="flow-slack-channel-target">Slack channel target</Label>
+              {slackChannels.length > 0 ? (
+                <select
+                  id="flow-slack-channel-target"
+                  value={node.target.channelId}
+                  onChange={(event) => onUpdateNode({ ...node, target: { type: 'channel', channelId: event.target.value } })}
+                  className="flex h-10 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/30"
+                >
+                  <option value="">Select channel...</option>
+                  {slackChannels.map((channel) => (
+                    <option key={channel.channelId} value={channel.channelId}>{channel.name}{channel.isPrivate ? ' (private)' : ''}</option>
+                  ))}
+                </select>
+              ) : (
+                <p className="text-xs text-muted-foreground">No channels available. Configure notification channels in Slack settings.</p>
+              )}
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <Label htmlFor="flow-slack-message-mode">Message source</Label>
+            <select
+              id="flow-slack-message-mode"
+              value={node.messageMode}
+              onChange={(event) => onUpdateNode({ ...node, messageMode: readSlackMessageMode(event.target.value) })}
+              className="flex h-10 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/30"
+            >
+              <option value="fixed">Fixed text</option>
+              <option value="previous_output">Previous step output</option>
+              <option value="template">Template</option>
+            </select>
+          </div>
+
+          {node.messageMode !== 'previous_output' ? (
+            <div className="space-y-2">
+              <Label htmlFor="flow-slack-message-template">Message</Label>
+              <textarea
+                id="flow-slack-message-template"
+                value={node.messageTemplate}
+                onChange={(event) => onUpdateNode({ ...node, messageTemplate: event.target.value })}
+                rows={5}
+                className="min-h-[120px] w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/30"
+              />
+            </div>
+          ) : null}
         </>
       ) : null}
 

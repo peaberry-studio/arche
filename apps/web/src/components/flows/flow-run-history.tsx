@@ -55,6 +55,12 @@ export function FlowRunHistory({ flow, slug, onRefresh }: FlowRunHistoryProps) {
                       Started {formatFlowRunDate(new Date(run.startedAt), flow.timezone)}
                     </p>
                     {run.error ? <p className="text-destructive">{run.error}</p> : null}
+                    {run.retryScheduledFor ? (
+                      <p className="text-muted-foreground">
+                        Retry attempt {run.attempt} scheduled for {formatFlowRunDate(new Date(run.retryScheduledFor), flow.timezone)}
+                      </p>
+                    ) : null}
+                    {run.lastRetryError && !run.error ? <p className="text-muted-foreground">Last retry error: {run.lastRetryError}</p> : null}
                   </div>
 
                   {run.openCodeSessionId ? (

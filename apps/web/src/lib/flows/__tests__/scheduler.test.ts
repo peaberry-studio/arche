@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   claimNextDueFlow: vi.fn(),
+  claimNextRetryRun: vi.fn(),
   createFlowLeaseOwner: vi.fn(),
+  dispatchClaimedFlowRetryRun: vi.fn(),
   dispatchClaimedFlowRun: vi.fn(),
   getNextFlowRunAt: vi.fn(),
 }))
@@ -10,11 +12,13 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/services', () => ({
   flowService: {
     claimNextDueFlow: mocks.claimNextDueFlow,
+    claimNextRetryRun: mocks.claimNextRetryRun,
   },
 }))
 
 vi.mock('@/lib/flows/runner', () => ({
   FLOW_LEASE_MS: 900_000,
+  dispatchClaimedFlowRetryRun: mocks.dispatchClaimedFlowRetryRun,
   dispatchClaimedFlowRun: mocks.dispatchClaimedFlowRun,
 }))
 
@@ -34,6 +38,7 @@ function createClaimedFlow(id: string) {
     createdAt: now,
     cronExpression: '0 9 * * 1',
     definition: { version: 1 },
+    deletedAt: null,
     description: null,
     enabled: true,
     id,
@@ -79,19 +84,18 @@ describe('flow scheduler', () => {
   it('claims and dispatches due flows up to the batch limit', async () => {
     const firstFlow = createClaimedFlow('flow-1')
     const secondFlow = createClaimedFlow('flow-2')
-    mocks.createFlowLeaseOwner
-      .mockResolvedValueOnce('worker-1')
-      .mockResolvedValueOnce('worker-2')
-      .mockResolvedValueOnce('worker-3')
+    mocks.createFlowLeaseOwner.mockResolvedValue('worker-1')
     mocks.claimNextDueFlow
       .mockResolvedValueOnce(firstFlow)
       .mockResolvedValueOnce(secondFlow)
       .mockResolvedValueOnce(null)
+    mocks.claimNextRetryRun.mockResolvedValue(null)
     mocks.dispatchClaimedFlowRun.mockResolvedValue({ ok: true, runId: 'run-1' })
     mocks.getNextFlowRunAt.mockReturnValue(new Date('2026-05-19T09:00:00.000Z'))
 
     await expect(dispatchDueFlows(4)).resolves.toBe(2)
 
+    expect(mocks.claimNextRetryRun).toHaveBeenCalledTimes(3)
     expect(mocks.claimNextDueFlow).toHaveBeenCalledTimes(3)
     expect(mocks.claimNextDueFlow).toHaveBeenNthCalledWith(1, expect.objectContaining({
       leaseMs: 900_000,
@@ -105,6 +109,7 @@ describe('flow scheduler', () => {
     const flow = createClaimedFlow('flow-1')
     vi.spyOn(console, 'error').mockImplementation(() => {})
     mocks.createFlowLeaseOwner.mockResolvedValue('worker-1')
+    mocks.claimNextRetryRun.mockResolvedValue(null)
     mocks.claimNextDueFlow.mockResolvedValueOnce(flow)
     mocks.dispatchClaimedFlowRun.mockRejectedValue(new Error('dispatch failed'))
 
@@ -127,6 +132,7 @@ describe('flow scheduler', () => {
   it('starts and stops the interval scheduler', () => {
     vi.useFakeTimers()
     mocks.createFlowLeaseOwner.mockResolvedValue('worker-1')
+    mocks.claimNextRetryRun.mockResolvedValue(null)
     mocks.claimNextDueFlow.mockResolvedValue(null)
 
     startFlowScheduler()
@@ -135,5 +141,41 @@ describe('flow scheduler', () => {
     startFlowScheduler()
     stopFlowScheduler()
     expect(getFlowSchedulerStatus().running).toBe(false)
+  })
+
+  it('dispatches due retry runs before newly due schedules', async () => {
+    const retry = {
+      ...createClaimedFlow('flow-1'),
+      retryRun: {
+        attempt: 2,
+        createdAt: new Date('2026-05-12T10:00:00.000Z'),
+        currentNodeId: null,
+        error: null,
+        finishedAt: null,
+        flow: createClaimedFlow('flow-1'),
+        flowId: 'flow-1',
+        id: 'run-1',
+        lastRetryError: 'instance_unavailable',
+        openCodeSessionId: null,
+        resultSeenAt: null,
+        retryScheduledFor: null,
+        scheduledFor: new Date('2026-05-12T10:00:00.000Z'),
+        sessionTitle: null,
+        startedAt: new Date('2026-05-12T10:00:00.000Z'),
+        status: 'running',
+        steps: [],
+        trigger: 'manual',
+        updatedAt: new Date('2026-05-12T10:00:00.000Z'),
+      },
+    }
+    mocks.createFlowLeaseOwner.mockResolvedValue('worker-1')
+    mocks.claimNextRetryRun.mockResolvedValueOnce(retry).mockResolvedValueOnce(null)
+    mocks.claimNextDueFlow.mockResolvedValue(null)
+    mocks.dispatchClaimedFlowRetryRun.mockResolvedValue({ ok: true, runId: 'run-1' })
+
+    await expect(dispatchDueFlows(2)).resolves.toBe(1)
+
+    expect(mocks.dispatchClaimedFlowRetryRun).toHaveBeenCalledWith(retry)
+    expect(mocks.dispatchClaimedFlowRun).not.toHaveBeenCalled()
   })
 })

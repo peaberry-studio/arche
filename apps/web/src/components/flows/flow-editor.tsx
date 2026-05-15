@@ -24,7 +24,7 @@ import {
   inferFlowScheduleFormState,
   type FlowScheduleFormState,
 } from '@/lib/flows/schedule-form'
-import type { FlowDefinition, FlowDetail, FlowNode, FlowSlackNotificationTarget } from '@/lib/flows/types'
+import type { FlowDefinition, FlowDetail, FlowNode } from '@/lib/flows/types'
 import { createDefaultFlowDefinition, validateFlowDefinition } from '@/lib/flows/validation'
 
 type FlowEditorProps = {
@@ -78,6 +78,17 @@ function createNode(type: FlowNode['type'], index: number): FlowNode {
     }
   }
 
+  if (type === 'slack') {
+    return {
+      id,
+      messageMode: 'fixed',
+      messageTemplate: 'Flow update',
+      name: `Slack message ${index}`,
+      target: { type: 'dm', userId: '' },
+      type,
+    }
+  }
+
   if (type === 'compaction') {
     return {
       id,
@@ -114,15 +125,8 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
   const [isDeleting, setIsDeleting] = useState(false)
   const [isRunning, setIsRunning] = useState(false)
   const [slackIntegrationEnabled, setSlackIntegrationEnabled] = useState(false)
-  const [slackNotificationsEnabled, setSlackNotificationsEnabled] = useState(false)
-  const [includeSessionLink, setIncludeSessionLink] = useState(true)
-  const [targetType, setTargetType] = useState<'dm' | 'channel'>('dm')
-  const [selectedDmUser, setSelectedDmUser] = useState('')
-  const [selectedChannel, setSelectedChannel] = useState('')
-  const [notificationTargets, setNotificationTargets] = useState<FlowSlackNotificationTarget[]>([])
   const [teamMembers, setTeamMembers] = useState<SlackTargetUser[]>([])
   const [slackChannels, setSlackChannels] = useState<SlackTargetChannel[]>([])
-  const [slackNotificationError, setSlackNotificationError] = useState<string | null>(null)
 
   const loadFlow = useCallback(async () => {
     if (mode !== 'edit' || !flowId) return
@@ -145,15 +149,6 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
       setSchedule(inferFlowScheduleFormState(result.data.flow.cronExpression))
       setTimezone(result.data.flow.timezone)
       setEnabled(result.data.flow.enabled)
-      if (result.data.flow.slackNotificationConfig) {
-        setSlackNotificationsEnabled(result.data.flow.slackNotificationConfig.enabled)
-        setIncludeSessionLink(result.data.flow.slackNotificationConfig.includeSessionLink)
-        setNotificationTargets(result.data.flow.slackNotificationConfig.targets)
-      } else {
-        setSlackNotificationsEnabled(false)
-        setIncludeSessionLink(true)
-        setNotificationTargets([])
-      }
     } catch {
       setLoadError('network_error')
     } finally {
@@ -186,15 +181,6 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
         setSchedule(inferFlowScheduleFormState(result.data.flow.cronExpression))
         setTimezone(result.data.flow.timezone)
         setEnabled(result.data.flow.enabled)
-        if (result.data.flow.slackNotificationConfig) {
-          setSlackNotificationsEnabled(result.data.flow.slackNotificationConfig.enabled)
-          setIncludeSessionLink(result.data.flow.slackNotificationConfig.includeSessionLink)
-          setNotificationTargets(result.data.flow.slackNotificationConfig.targets)
-        } else {
-          setSlackNotificationsEnabled(false)
-          setIncludeSessionLink(true)
-          setNotificationTargets([])
-        }
       } catch {
         if (!cancelled) {
           setLoadError('network_error')
@@ -258,40 +244,6 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
   const validation = useMemo(() => validateFlowDefinition(definition), [definition])
   const schedulePreview = useMemo(() => getFlowSchedulePreview(schedule, timezone), [schedule, timezone])
   const isScheduleValid = !enabled || schedulePreview.isValid
-  const canAddTarget = useMemo(() => {
-    if (targetType === 'dm') {
-      return selectedDmUser.length > 0 && !notificationTargets.some((target) => target.type === 'dm' && target.userId === selectedDmUser)
-    }
-
-    return selectedChannel.length > 0 && !notificationTargets.some((target) => target.type === 'channel' && target.channelId === selectedChannel)
-  }, [notificationTargets, selectedChannel, selectedDmUser, targetType])
-
-  const getTargetLabel = useCallback((target: FlowSlackNotificationTarget): string => {
-    if (target.type === 'dm') {
-      const member = teamMembers.find((item) => item.id === target.userId)
-      return `DM: ${member?.email ?? target.userId}`
-    }
-
-    const channel = slackChannels.find((item) => item.channelId === target.channelId)
-    return `Channel: ${channel?.name ?? target.channelId}`
-  }, [slackChannels, teamMembers])
-
-  const addNotificationTarget = useCallback(() => {
-    if (!canAddTarget) return
-
-    if (targetType === 'dm') {
-      setNotificationTargets((current) => [...current, { type: 'dm', userId: selectedDmUser }])
-      setSelectedDmUser('')
-      return
-    }
-
-    setNotificationTargets((current) => [...current, { type: 'channel', channelId: selectedChannel }])
-    setSelectedChannel('')
-  }, [canAddTarget, selectedChannel, selectedDmUser, targetType])
-
-  const removeNotificationTarget = useCallback((index: number) => {
-    setNotificationTargets((current) => current.filter((_, itemIndex) => itemIndex !== index))
-  }, [])
 
   const updateDefinition = useCallback((nextDefinition: FlowDefinition) => {
     setDefinition(nextDefinition)
@@ -410,13 +362,6 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
   const saveFlow = useCallback(async () => {
     setIsSaving(true)
     setFormError(null)
-    setSlackNotificationError(null)
-
-    if (slackNotificationsEnabled && notificationTargets.length === 0) {
-      setSlackNotificationError('Add at least one Slack notification target.')
-      setIsSaving(false)
-      return
-    }
 
     if (enabled && !schedulePreview.isValid) {
       setFormError('invalid_cron_expression')
@@ -425,15 +370,6 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
     }
 
     try {
-      const slackNotificationConfig = slackNotificationsEnabled
-        ? {
-            enabled: true,
-            includeSessionLink,
-            targets: notificationTargets,
-          }
-        : mode === 'edit' && flow?.slackNotificationConfig
-          ? null
-          : undefined
       const payloadCronExpression = schedulePreview.isValid ? schedulePreview.cronExpression : null
       const payload = {
         cronExpression: enabled ? schedulePreview.cronExpression : payloadCronExpression,
@@ -441,7 +377,6 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
         description: description.trim() ? description : null,
         enabled,
         name,
-        slackNotificationConfig,
         timezone,
       }
       const result = mode === 'create'
@@ -466,7 +401,7 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
     } finally {
       setIsSaving(false)
     }
-  }, [definition, description, enabled, flow, flowId, includeSessionLink, loadFlow, mode, name, notificationTargets, router, schedulePreview, slackNotificationsEnabled, slug, timezone])
+  }, [definition, description, enabled, flowId, loadFlow, mode, name, router, schedulePreview, slug, timezone])
 
   const deleteFlow = useCallback(async () => {
     if (mode !== 'edit' || !flowId) return
@@ -572,123 +507,6 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
           />
         </section>
 
-        {slackIntegrationEnabled ? (
-          <section className="rounded-xl border border-border/60 bg-card/40 p-5">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-sm font-semibold text-foreground">Slack notifications</h2>
-                <p className="text-xs text-muted-foreground">Send flow results to Slack DMs or allowlisted channels.</p>
-              </div>
-              <Switch
-                aria-label="Slack notifications"
-                checked={slackNotificationsEnabled}
-                id="flow-slack-notifications"
-                onCheckedChange={setSlackNotificationsEnabled}
-              />
-            </div>
-
-            {slackNotificationsEnabled ? (
-              <div className="mt-5 space-y-4 border-t border-border/40 pt-5">
-                <div className="flex items-center justify-between gap-4">
-                  <Label htmlFor="flow-include-session-link">Include session link</Label>
-                  <Switch
-                    checked={includeSessionLink}
-                    id="flow-include-session-link"
-                    onCheckedChange={setIncludeSessionLink}
-                  />
-                </div>
-
-                <div className="space-y-3">
-                  <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                    Notification targets
-                  </Label>
-                  <div className="space-y-2">
-                    <label htmlFor="flow-target-dm" className="flex items-center gap-2 text-sm text-foreground">
-                      <input
-                        checked={targetType === 'dm'}
-                        id="flow-target-dm"
-                        name="flow-target-type"
-                        onChange={() => setTargetType('dm')}
-                        type="radio"
-                        value="dm"
-                      />
-                      Send to user DM
-                    </label>
-
-                    {targetType === 'dm' ? (
-                      <div className="ml-6">
-                        <select
-                          aria-label="Slack DM target"
-                          className="flex h-9 w-full appearance-none rounded-md border border-border/70 bg-background/60 px-3 py-2 pr-8 text-sm text-foreground"
-                          onChange={(event) => setSelectedDmUser(event.target.value)}
-                          value={selectedDmUser}
-                        >
-                          <option value="">Select user...</option>
-                          {teamMembers.map((member) => (
-                            <option key={member.id} value={member.id}>
-                              {member.email}{member.slackLinked ? ' (linked)' : ''}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    ) : null}
-
-                    <label htmlFor="flow-target-channel" className="flex items-center gap-2 text-sm text-foreground">
-                      <input
-                        checked={targetType === 'channel'}
-                        id="flow-target-channel"
-                        name="flow-target-type"
-                        onChange={() => setTargetType('channel')}
-                        type="radio"
-                        value="channel"
-                      />
-                      Send to channel
-                    </label>
-
-                    {targetType === 'channel' ? (
-                      slackChannels.length > 0 ? (
-                        <div className="ml-6">
-                          <select
-                            aria-label="Slack channel target"
-                            className="flex h-9 w-full appearance-none rounded-md border border-border/70 bg-background/60 px-3 py-2 pr-8 text-sm text-foreground"
-                            onChange={(event) => setSelectedChannel(event.target.value)}
-                            value={selectedChannel}
-                          >
-                            <option value="">Select channel...</option>
-                            {slackChannels.map((channel) => (
-                              <option key={channel.channelId} value={channel.channelId}>
-                                {channel.name}{channel.isPrivate ? ' (private)' : ''}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      ) : (
-                        <p className="ml-6 text-xs text-muted-foreground">No channels available. Configure notification channels in Slack settings.</p>
-                      )
-                    ) : null}
-                  </div>
-
-                  <Button type="button" variant="outline" size="sm" onClick={() => addNotificationTarget()} disabled={!canAddTarget}>Add target</Button>
-
-                  {notificationTargets.length > 0 ? (
-                    <div className="space-y-1.5 pt-1">
-                      <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Active targets ({notificationTargets.length})</p>
-                      {notificationTargets.map((target, index) => (
-                        <div key={`${target.type}-${index}`} className="flex items-center justify-between gap-3 rounded-md border border-border/50 bg-background/40 px-3 py-2 text-sm">
-                          <span>{getTargetLabel(target)}</span>
-                          <button type="button" onClick={() => removeNotificationTarget(index)} className="text-muted-foreground hover:text-destructive">Remove</button>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-
-                {slackNotificationError ? <p className="text-sm text-destructive">{slackNotificationError}</p> : null}
-              </div>
-            ) : null}
-          </section>
-        ) : null}
-
         <section className="rounded-xl border border-border/60 bg-card/40 p-5">
           <div className="mb-4">
             <h2 className="text-sm font-semibold text-foreground">Flow canvas</h2>
@@ -745,6 +563,9 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
             agents={agents}
             definition={definition}
             selectedNode={editingNode}
+            slackChannels={slackChannels}
+            slackIntegrationEnabled={slackIntegrationEnabled}
+            slackUsers={teamMembers}
             onDeleteNode={deleteNode}
             onUpdateNode={updateNode}
           />

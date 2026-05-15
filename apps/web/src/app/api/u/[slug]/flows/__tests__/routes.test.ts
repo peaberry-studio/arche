@@ -22,7 +22,7 @@ const mocks = vi.hoisted(() => ({
   updateFlowByIdAndUserId: vi.fn(),
   validateDesktopToken: vi.fn(),
   validateFlowPayload: vi.fn(),
-  validateFlowSlackNotificationAccess: vi.fn(),
+  validateFlowSlackNodeAccess: vi.fn(),
   validateSameOrigin: vi.fn(),
 }))
 
@@ -36,7 +36,7 @@ vi.mock('@/lib/runtime/desktop/token', () => ({
 }))
 vi.mock('@/lib/auth', () => ({ auditEvent: mocks.auditEvent }))
 vi.mock('@/lib/flows/payload', () => ({ validateFlowPayload: mocks.validateFlowPayload }))
-vi.mock('@/lib/flows/route-auth', () => ({ validateFlowSlackNotificationAccess: mocks.validateFlowSlackNotificationAccess }))
+vi.mock('@/lib/flows/route-auth', () => ({ validateFlowSlackNodeAccess: mocks.validateFlowSlackNodeAccess }))
 vi.mock('@/lib/flows/runner', () => ({
   resumeFlowRun: mocks.resumeFlowRun,
   triggerFlowNow: mocks.triggerFlowNow,
@@ -75,6 +75,7 @@ function createFlowRecord() {
     cronExpression: null,
     definition: createDefaultFlowDefinition(),
     description: null,
+    deletedAt: null,
     enabled: false,
     id: 'flow-1',
     lastRunAt: null,
@@ -100,6 +101,7 @@ function createRunRecord() {
       cronExpression: null,
       definition: createDefaultFlowDefinition(),
       description: null,
+      deletedAt: null,
       enabled: false,
       id: 'flow-1',
       lastRunAt: null,
@@ -113,7 +115,10 @@ function createRunRecord() {
     },
     flowId: 'flow-1',
     id: 'run-1',
+    attempt: 1,
+    lastRetryError: null,
     openCodeSessionId: 'opencode-1',
+    retryScheduledFor: null,
     resultSeenAt: null,
     scheduledFor: now,
     sessionTitle: 'Flow | Flow',
@@ -161,7 +166,7 @@ describe('Flow API routes', () => {
     mocks.isDesktop.mockReturnValue(false)
     mocks.validateDesktopToken.mockReturnValue(true)
     mocks.validateSameOrigin.mockReturnValue({ ok: true })
-    mocks.validateFlowSlackNotificationAccess.mockResolvedValue({ ok: true })
+    mocks.validateFlowSlackNodeAccess.mockResolvedValue({ ok: true })
     mocks.findIdBySlug.mockResolvedValue({ id: 'user-1' })
     mocks.auditEvent.mockResolvedValue(undefined)
     mocks.validateFlowPayload.mockResolvedValue({
@@ -233,7 +238,7 @@ describe('Flow API routes', () => {
 
   it('maps create authorization and detail lookup failures', async () => {
     const flow = createFlowRecord()
-    mocks.validateFlowSlackNotificationAccess.mockResolvedValueOnce({ ok: false, error: 'slack_integration_disabled', status: 400 })
+    mocks.validateFlowSlackNodeAccess.mockResolvedValueOnce({ ok: false, error: 'slack_integration_disabled', status: 400 })
     expect((await POST_FLOW(request('/api/u/alice/flows', 'POST', { name: 'Flow' }), params({ slug: 'alice' }))).status).toBe(400)
 
     mocks.createFlow.mockResolvedValue(flow)
@@ -266,7 +271,7 @@ describe('Flow API routes', () => {
       .toBe(400)
   })
 
-  it('validates update schedules and Slack notification targets', async () => {
+  it('validates update schedules and Slack node targets', async () => {
     const flow = createFlowRecord()
     mocks.findFlowByIdAndUserId.mockResolvedValue(flow)
     mocks.validateFlowPayload.mockResolvedValueOnce({
@@ -285,21 +290,21 @@ describe('Flow API routes', () => {
 
     mocks.validateFlowPayload.mockResolvedValueOnce({
       ok: true,
-      value: { name: 'Flow', slackNotificationConfig: { enabled: true, includeSessionLink: true, targets: [{ type: 'dm', userId: 'user-2' }] } },
+      value: { definition: createDefaultFlowDefinition(), name: 'Flow' },
     })
-    mocks.validateFlowSlackNotificationAccess.mockResolvedValueOnce({ ok: false, error: 'slack_notification_dm_target_forbidden', status: 403 })
+    mocks.validateFlowSlackNodeAccess.mockResolvedValueOnce({ ok: false, error: 'slack_notification_dm_target_forbidden', status: 403 })
     expect((await PATCH_FLOW(request('/api/u/alice/flows/flow-1', 'PATCH', { name: 'Flow' }), params({ id: 'flow-1', slug: 'alice' }))).status)
       .toBe(403)
   })
 
-  it('clears schedules and Slack notification config on update', async () => {
+  it('clears schedules on update', async () => {
     const flow = { ...createFlowRecord(), cronExpression: '0 9 * * 1', enabled: true }
-    const updated = { ...flow, cronExpression: null, enabled: false, nextRunAt: null, slackNotificationConfig: null }
+    const updated = { ...flow, cronExpression: null, enabled: false, nextRunAt: null }
     mocks.findFlowByIdAndUserId.mockResolvedValueOnce(flow).mockResolvedValueOnce(updated)
     mocks.updateFlowByIdAndUserId.mockResolvedValue(updated)
     mocks.validateFlowPayload.mockResolvedValue({
       ok: true,
-      value: { cronExpression: null, enabled: false, name: 'Flow', slackNotificationConfig: null },
+      value: { cronExpression: null, enabled: false, name: 'Flow' },
     })
 
     const response = await PATCH_FLOW(request('/api/u/alice/flows/flow-1', 'PATCH', { enabled: false }), params({ id: 'flow-1', slug: 'alice' }))
@@ -307,7 +312,6 @@ describe('Flow API routes', () => {
     expect(response.status).toBe(200)
     expect(mocks.updateFlowByIdAndUserId).toHaveBeenCalledWith('flow-1', 'user-1', expect.objectContaining({
       nextRunAt: null,
-      slackNotificationConfig: null,
     }))
   })
 

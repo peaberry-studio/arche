@@ -22,18 +22,6 @@ enum ProviderCredentialStatus {
   disabled
 }
 
-enum AutopilotRunStatus {
-  running
-  succeeded
-  failed
-}
-
-enum AutopilotRunTrigger {
-  on_create
-  schedule
-  manual
-}
-
 enum FlowRunStatus {
   running
   waiting_for_human
@@ -62,6 +50,7 @@ enum FlowNodeType {
   agent
   human
   condition
+  slack
   merge
   compaction
 }
@@ -93,7 +82,6 @@ model User {
   twoFactorRecovery  TwoFactorRecovery[]
   connectors         Connector[]
   providerCredentials ProviderCredential[]
-  autopilotTasks      AutopilotTask[]
   flows               Flow[]
   slackThreadBindings SlackThreadBinding[]
   slackUserLinks      SlackUserLink[]
@@ -304,65 +292,6 @@ model MessageRunLock {
   @@map("message_run_locks")
 }
 
-model AutopilotTask {
-  id             String         @id @default(cuid())
-  userId         String         @map("user_id")
-  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  name           String
-  cronExpression String         @map("cron_expression")
-  timezone       String
-  prompt         String
-  targetAgentId  String?        @map("target_agent_id")
-  enabled        Boolean        @default(true)
-  slackNotificationConfig Json? @map("slack_notification_config")
-
-  nextRunAt      DateTime       @map("next_run_at")
-  lastRunAt      DateTime?      @map("last_run_at")
-  leaseOwner     String?        @map("lease_owner")
-  leaseExpiresAt DateTime?      @map("lease_expires_at")
-  retryAttempt   Int            @default(0) @map("retry_attempt")
-  retryScheduledFor DateTime?   @map("retry_scheduled_for")
-
-  createdAt      DateTime       @default(now()) @map("created_at")
-  updatedAt      DateTime       @updatedAt @map("updated_at")
-  deletedAt      DateTime?      @map("deleted_at")
-
-  runs           AutopilotRun[]
-
-  @@index([userId])
-  @@index([enabled, nextRunAt])
-  @@index([leaseExpiresAt])
-  @@index([userId, leaseExpiresAt])
-  @@index([retryScheduledFor])
-  @@map("autopilot_tasks")
-}
-
-model AutopilotRun {
-  id              String             @id @default(cuid())
-  taskId          String             @map("task_id")
-  task            AutopilotTask      @relation(fields: [taskId], references: [id], onDelete: Cascade)
-
-  status          AutopilotRunStatus
-  trigger         AutopilotRunTrigger
-  scheduledFor    DateTime           @map("scheduled_for")
-  attempt         Int                @default(1)
-  startedAt       DateTime           @default(now()) @map("started_at")
-  finishedAt      DateTime?          @map("finished_at")
-  error           String?
-  openCodeSessionId String?          @unique @map("opencode_session_id")
-  sessionTitle    String?            @map("session_title")
-  resultSeenAt    DateTime?          @map("result_seen_at")
-
-  createdAt       DateTime           @default(now()) @map("created_at")
-  updatedAt       DateTime           @updatedAt @map("updated_at")
-
-  @@index([taskId, startedAt])
-  @@index([status])
-  @@index([scheduledFor])
-  @@map("autopilot_runs")
-}
-
 model Flow {
   id             String         @id @default(cuid())
   userId         String         @map("user_id")
@@ -374,7 +303,6 @@ model Flow {
   cronExpression String?        @map("cron_expression")
   timezone       String         @default("UTC")
   enabled        Boolean        @default(false)
-  slackNotificationConfig Json? @map("slack_notification_config")
 
   nextRunAt      DateTime?      @map("next_run_at")
   lastRunAt      DateTime?      @map("last_run_at")
@@ -383,11 +311,12 @@ model Flow {
 
   createdAt      DateTime       @default(now()) @map("created_at")
   updatedAt      DateTime       @updatedAt @map("updated_at")
+  deletedAt      DateTime?      @map("deleted_at")
 
   runs           FlowRun[]
 
-  @@unique([userId, name])
   @@index([userId])
+  @@index([userId, name])
   @@index([enabled, nextRunAt])
   @@index([leaseExpiresAt])
   @@index([userId, leaseExpiresAt])
@@ -409,6 +338,9 @@ model FlowRun {
   sessionTitle      String?       @map("session_title")
   currentNodeId     String?       @map("current_node_id")
   resultSeenAt      DateTime?     @map("result_seen_at")
+  attempt           Int           @default(1)
+  retryScheduledFor DateTime?     @map("retry_scheduled_for")
+  lastRetryError    String?       @map("last_retry_error")
 
   createdAt         DateTime      @default(now()) @map("created_at")
   updatedAt         DateTime      @updatedAt @map("updated_at")
@@ -418,6 +350,7 @@ model FlowRun {
   @@index([flowId, startedAt])
   @@index([status])
   @@index([scheduledFor])
+  @@index([retryScheduledFor])
   @@map("flow_runs")
 }
 
