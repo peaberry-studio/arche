@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { SpinnerGap } from '@phosphor-icons/react'
 
 import { SettingsInfoBox } from '@/components/settings/settings-info-box'
@@ -30,6 +30,27 @@ function getErrorMessage(error: string | undefined): string {
   return ERROR_MESSAGES[error] ?? error
 }
 
+async function fetchGoogleWorkspaceIntegration(slug: string): Promise<{
+  data?: GoogleWorkspaceIntegrationGetResponse
+  error?: string
+  ok: boolean
+}> {
+  const response = await fetch(`/api/u/${slug}/google-workspace-integration`, { cache: 'no-store' })
+  const data = (await response.json().catch(() => null)) as
+    | (GoogleWorkspaceIntegrationGetResponse & { error?: string })
+    | { error?: string }
+    | null
+
+  if (!response.ok || !data || !('configured' in data)) {
+    return {
+      error: getErrorMessage(data?.error),
+      ok: false,
+    }
+  }
+
+  return { data, ok: true }
+}
+
 export function GoogleWorkspaceIntegrationPanel({ slug, redirectUri }: GoogleWorkspaceIntegrationPanelProps) {
   const [clientId, setClientId] = useState('')
   const [clientSecret, setClientSecret] = useState('')
@@ -39,34 +60,39 @@ export function GoogleWorkspaceIntegrationPanel({ slug, redirectUri }: GoogleWor
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
 
-  const loadIntegration = useCallback(async () => {
-    setIsLoading(true)
-    setError(null)
+  useEffect(() => {
+    let cancelled = false
 
-    try {
-      const response = await fetch(`/api/u/${slug}/google-workspace-integration`, { cache: 'no-store' })
-      const data = (await response.json().catch(() => null)) as
-        | (GoogleWorkspaceIntegrationGetResponse & { error?: string })
-        | { error?: string }
-        | null
+    async function loadInitialIntegration() {
+      try {
+        const result = await fetchGoogleWorkspaceIntegration(slug)
+        if (cancelled) return
 
-      if (!response.ok || !data || !('configured' in data)) {
-        setError(getErrorMessage(data?.error))
-        return
+        if (!result.ok || !result.data) {
+          setError(result.error ?? getErrorMessage(undefined))
+          return
+        }
+
+        setIntegration(result.data)
+        setClientId(result.data.clientId ?? '')
+        setError(null)
+      } catch {
+        if (!cancelled) {
+          setError(getErrorMessage('network_error'))
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false)
+        }
       }
+    }
 
-      setIntegration(data)
-      setClientId(data.clientId ?? '')
-    } catch {
-      setError(getErrorMessage('network_error'))
-    } finally {
-      setIsLoading(false)
+    void loadInitialIntegration()
+
+    return () => {
+      cancelled = true
     }
   }, [slug])
-
-  useEffect(() => {
-    void loadIntegration()
-  }, [loadIntegration])
 
   async function handleSave() {
     setBusyAction('save')

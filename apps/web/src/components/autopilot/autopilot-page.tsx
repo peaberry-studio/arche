@@ -32,6 +32,23 @@ function getRunBadgeLabel(task: AutopilotTaskListItem): string {
   return 'Last run failed'
 }
 
+async function fetchAutopilotTasks(slug: string): Promise<{
+  error?: string
+  ok: boolean
+  tasks?: AutopilotTaskListItem[]
+}> {
+  const response = await fetch(`/api/u/${slug}/autopilot`, { cache: 'no-store' })
+  const data = (await response.json().catch(() => null)) as
+    | { tasks?: AutopilotTaskListItem[]; error?: string }
+    | null
+
+  return {
+    ...(data ?? {}),
+    error: response.ok && data?.tasks ? data.error : data?.error ?? 'load_failed',
+    ok: response.ok && Boolean(data?.tasks),
+  }
+}
+
 export function AutopilotPage({ slug }: AutopilotPageProps) {
   const [tasks, setTasks] = useState<AutopilotTaskListItem[]>([])
   const [actionError, setActionError] = useState<string | null>(null)
@@ -44,13 +61,10 @@ export function AutopilotPage({ slug }: AutopilotPageProps) {
     setLoadError(null)
 
     try {
-      const response = await fetch(`/api/u/${slug}/autopilot`, { cache: 'no-store' })
-      const data = (await response.json().catch(() => null)) as
-        | { tasks?: AutopilotTaskListItem[]; error?: string }
-        | null
+      const data = await fetchAutopilotTasks(slug)
 
-      if (!response.ok || !data?.tasks) {
-        setLoadError(data?.error ?? 'load_failed')
+      if (!data.ok || !data.tasks) {
+        setLoadError(data.error ?? 'load_failed')
         return
       }
 
@@ -64,8 +78,38 @@ export function AutopilotPage({ slug }: AutopilotPageProps) {
   }, [slug])
 
   useEffect(() => {
-    void loadTasks()
-  }, [loadTasks])
+    let cancelled = false
+
+    async function loadInitialTasks() {
+      try {
+        const data = await fetchAutopilotTasks(slug)
+        if (cancelled) return
+
+        if (!data.ok || !data.tasks) {
+          setLoadError(data.error ?? 'load_failed')
+          return
+        }
+
+        setTasks(data.tasks)
+        setActionError(null)
+        setLoadError(null)
+      } catch {
+        if (!cancelled) {
+          setLoadError('network_error')
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    void loadInitialTasks()
+
+    return () => {
+      cancelled = true
+    }
+  }, [slug])
 
   const markMutating = useCallback((taskId: string, active: boolean) => {
     setMutatingTaskIds((current) => {

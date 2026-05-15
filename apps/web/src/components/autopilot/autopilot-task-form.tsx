@@ -42,6 +42,52 @@ type SlackTargetChannel = {
   name: string
 }
 
+async function fetchAutopilotTask(slug: string, taskId: string): Promise<{
+  error?: string
+  ok: boolean
+  task?: AutopilotTaskDetail
+}> {
+  const response = await fetch(`/api/u/${slug}/autopilot/${taskId}`, { cache: 'no-store' })
+  const data = (await response.json().catch(() => null)) as
+    | { task?: AutopilotTaskDetail; error?: string }
+    | null
+
+  return {
+    ...(data ?? {}),
+    error: response.ok && data?.task ? data.error : data?.error ?? 'load_failed',
+    ok: response.ok && Boolean(data?.task),
+  }
+}
+
+function applyTaskToForm(
+  task: AutopilotTaskDetail,
+  setters: {
+    setEnabled: (value: boolean) => void
+    setIncludeSessionLink: (value: boolean) => void
+    setName: (value: string) => void
+    setNotificationTargets: (value: AutopilotSlackNotificationTarget[]) => void
+    setPrompt: (value: string) => void
+    setSchedule: (value: AutopilotScheduleFormState) => void
+    setSlackNotificationsEnabled: (value: boolean) => void
+    setTargetAgentId: (value: string) => void
+    setTask: (value: AutopilotTaskDetail) => void
+    setTimezone: (value: string) => void
+  }
+) {
+  setters.setTask(task)
+  setters.setName(task.name)
+  setters.setPrompt(task.prompt)
+  setters.setTargetAgentId(task.targetAgentId ?? '')
+  setters.setTimezone(task.timezone)
+  setters.setEnabled(task.enabled)
+  setters.setSchedule(inferAutopilotScheduleFormState(task.cronExpression))
+  if (task.slackNotificationConfig) {
+    setters.setSlackNotificationsEnabled(task.slackNotificationConfig.enabled)
+    setters.setIncludeSessionLink(task.slackNotificationConfig.includeSessionLink)
+    setters.setNotificationTargets(task.slackNotificationConfig.targets)
+  }
+}
+
 export function AutopilotTaskForm({ slug, mode, taskId }: AutopilotTaskFormProps) {
   const router = useRouter()
   const { agents } = useAgentsCatalog(slug)
@@ -78,28 +124,25 @@ export function AutopilotTaskForm({ slug, mode, taskId }: AutopilotTaskFormProps
     setIsLoading(true)
     setLoadError(null)
     try {
-      const response = await fetch(`/api/u/${slug}/autopilot/${taskId}`, { cache: 'no-store' })
-      const data = (await response.json().catch(() => null)) as
-        | { task?: AutopilotTaskDetail; error?: string }
-        | null
+      const data = await fetchAutopilotTask(slug, taskId)
 
-      if (!response.ok || !data?.task) {
-        setLoadError(data?.error ?? 'load_failed')
+      if (!data.ok || !data.task) {
+        setLoadError(data.error ?? 'load_failed')
         return
       }
 
-      setTask(data.task)
-      setName(data.task.name)
-      setPrompt(data.task.prompt)
-      setTargetAgentId(data.task.targetAgentId ?? '')
-      setTimezone(data.task.timezone)
-      setEnabled(data.task.enabled)
-      setSchedule(inferAutopilotScheduleFormState(data.task.cronExpression))
-      if (data.task.slackNotificationConfig) {
-        setSlackNotificationsEnabled(data.task.slackNotificationConfig.enabled)
-        setIncludeSessionLink(data.task.slackNotificationConfig.includeSessionLink)
-        setNotificationTargets(data.task.slackNotificationConfig.targets)
-      }
+      applyTaskToForm(data.task, {
+        setEnabled,
+        setIncludeSessionLink,
+        setName,
+        setNotificationTargets,
+        setPrompt,
+        setSchedule,
+        setSlackNotificationsEnabled,
+        setTargetAgentId,
+        setTask,
+        setTimezone,
+      })
     } catch {
       setLoadError('network_error')
     } finally {
@@ -108,36 +151,91 @@ export function AutopilotTaskForm({ slug, mode, taskId }: AutopilotTaskFormProps
   }, [mode, slug, taskId])
 
   useEffect(() => {
-    void loadTask()
-  }, [loadTask])
-
-  const loadSlackTargets = useCallback(async () => {
-    try {
-      const response = await fetch(`/api/u/${slug}/autopilot/slack-targets`, { cache: 'no-store' })
-      const data = (await response.json().catch(() => null)) as
-        | {
-            channels?: SlackTargetChannel[]
-            integrationEnabled?: boolean
-            users?: SlackTargetUser[]
-          }
-        | null
-      if (!response.ok || !data) {
-        setSlackIntegrationEnabled(false)
-        return
-      }
-
-      setSlackIntegrationEnabled(data.integrationEnabled === true)
-      setTeamMembers(data.users ?? [])
-      setSlackChannels(data.channels ?? [])
-    } catch (error) {
-      console.error('[autopilot-form] Failed to load Slack targets', error)
-      setSlackIntegrationEnabled(false)
+    if (mode !== 'edit' || !taskId) {
+      return
     }
-  }, [slug])
+
+    const currentTaskId = taskId
+    let cancelled = false
+
+    async function loadInitialTask() {
+      try {
+        const data = await fetchAutopilotTask(slug, currentTaskId)
+        if (cancelled) return
+
+        if (!data.ok || !data.task) {
+          setLoadError(data.error ?? 'load_failed')
+          return
+        }
+
+        setLoadError(null)
+        applyTaskToForm(data.task, {
+          setEnabled,
+          setIncludeSessionLink,
+          setName,
+          setNotificationTargets,
+          setPrompt,
+          setSchedule,
+          setSlackNotificationsEnabled,
+          setTargetAgentId,
+          setTask,
+          setTimezone,
+        })
+      } catch {
+        if (!cancelled) {
+          setLoadError('network_error')
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    void loadInitialTask()
+
+    return () => {
+      cancelled = true
+    }
+  }, [mode, slug, taskId])
 
   useEffect(() => {
+    let cancelled = false
+
+    async function loadSlackTargets() {
+      try {
+        const response = await fetch(`/api/u/${slug}/autopilot/slack-targets`, { cache: 'no-store' })
+        const data = (await response.json().catch(() => null)) as
+          | {
+              channels?: SlackTargetChannel[]
+              integrationEnabled?: boolean
+              users?: SlackTargetUser[]
+            }
+          | null
+        if (cancelled) return
+
+        if (!response.ok || !data) {
+          setSlackIntegrationEnabled(false)
+          return
+        }
+
+        setSlackIntegrationEnabled(data.integrationEnabled === true)
+        setTeamMembers(data.users ?? [])
+        setSlackChannels(data.channels ?? [])
+      } catch (error) {
+        console.error('[autopilot-form] Failed to load Slack targets', error)
+        if (!cancelled) {
+          setSlackIntegrationEnabled(false)
+        }
+      }
+    }
+
     void loadSlackTargets()
-  }, [loadSlackTargets])
+
+    return () => {
+      cancelled = true
+    }
+  }, [slug])
 
   const schedulePreview = useMemo(
     () => getAutopilotSchedulePreview(schedule, timezone),

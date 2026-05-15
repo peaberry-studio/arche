@@ -85,41 +85,47 @@ export function MetaAdsConnectorSettingsDialog({
   const [adAccountsError, setAdAccountsError] = useState<string | null>(null)
   const [redirectUri, setRedirectUri] = useState('')
   const [hasLoadedSettings, setHasLoadedSettings] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const isLoading = open && Boolean(connectorId) && !hasLoadedSettings && error === null
+
+  function resetDialogState() {
+    setAppId('')
+    setAppSecret('')
+    setPermissions({
+      allowRead: true,
+      allowWriteCampaigns: false,
+      allowWriteAdSets: false,
+      allowWriteAds: false,
+    })
+    setOauthConnected(false)
+    setOauthExpiresAt(undefined)
+    setSelectedAdAccountIds([])
+    setDefaultAdAccountId('')
+    setAdAccounts([])
+    setAdAccountsError(null)
+    setRedirectUri('')
+    setHasLoadedSettings(false)
+    setIsSaving(false)
+    setError(null)
+  }
+
+  function handleDialogOpenChange(nextOpen: boolean) {
+    if (!nextOpen) {
+      resetDialogState()
+    }
+    onOpenChange(nextOpen)
+  }
+
   useEffect(() => {
     if (!open || !connectorId) {
-      setAppId('')
-      setAppSecret('')
-      setPermissions({
-        allowRead: true,
-        allowWriteCampaigns: false,
-        allowWriteAdSets: false,
-        allowWriteAds: false,
-      })
-      setOauthConnected(false)
-      setOauthExpiresAt(undefined)
-      setSelectedAdAccountIds([])
-      setDefaultAdAccountId('')
-      setAdAccounts([])
-      setAdAccountsError(null)
-      setRedirectUri('')
-      setHasLoadedSettings(false)
-      setIsLoading(false)
-      setIsSaving(false)
-      setError(null)
       return
     }
 
     let cancelled = false
 
     async function loadSettings() {
-      setHasLoadedSettings(false)
-      setIsLoading(true)
-      setError(null)
-
       try {
         const response = await fetch(`/api/u/${slug}/connectors/${connectorId}/meta-ads-settings`, {
           cache: 'no-store',
@@ -146,13 +152,10 @@ export function MetaAdsConnectorSettingsDialog({
         setAdAccountsError(data.adAccountsError ?? null)
         setRedirectUri(data.redirectUri)
         setHasLoadedSettings(true)
+        setError(null)
       } catch {
         if (!cancelled) {
           setError(getConnectorErrorMessage(null, 'network_error'))
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false)
         }
       }
     }
@@ -218,7 +221,7 @@ export function MetaAdsConnectorSettingsDialog({
       setDefaultAdAccountId(data.defaultAdAccountId ?? '')
       setAdAccounts(data.adAccounts)
       setAdAccountsError(data.adAccountsError ?? null)
-      onOpenChange(false)
+      handleDialogOpenChange(false)
     } catch {
       setError(getConnectorErrorMessage(null, 'network_error'))
     } finally {
@@ -230,7 +233,7 @@ export function MetaAdsConnectorSettingsDialog({
   const canEditAccounts = hasLoadedSettings && oauthConnected && !isLoading && !isSaving
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent className="scrollbar-custom max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Meta Ads settings</DialogTitle>
@@ -386,7 +389,7 @@ export function MetaAdsConnectorSettingsDialog({
           <ConnectorToolPermissionsSection connectorId={connectorId} enabled={open && hasLoadedSettings} slug={slug} />
 
           <div className="flex justify-end gap-2">
-            <Button disabled={isSaving} variant="ghost" onClick={() => onOpenChange(false)}>
+            <Button disabled={isSaving} variant="ghost" onClick={() => handleDialogOpenChange(false)}>
               Cancel
             </Button>
             <Button

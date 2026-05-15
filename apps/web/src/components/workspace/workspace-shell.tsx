@@ -140,17 +140,6 @@ const persistLayout = (storageKey: string, cookieName: string, state: StoredLayo
   persistWorkspacePanelState(storageKey, cookieName, state);
 };
 
-function getWorkspaceModeFromSearch(search: string, hasDesktopVault: boolean): WorkspaceMode {
-  const params = new URLSearchParams(search);
-  const requestedMode = params.get("mode") === "knowledge"
-    ? "knowledge"
-    : params.get("mode") === "tasks"
-      ? "tasks"
-      : "chat";
-
-  return hasDesktopVault && requestedMode === "tasks" ? "chat" : requestedMode;
-}
-
 function resolveRootSessionId(
   sessionId: string | null,
   sessionsById: Map<string, WorkspaceSession>
@@ -243,7 +232,11 @@ export function WorkspaceShell({
 }: WorkspaceShellProps) {
   const router = useRouter();
   const routerRef = useRef(router);
-  routerRef.current = router;
+
+  useEffect(() => {
+    routerRef.current = router;
+  }, [router]);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
@@ -261,15 +254,6 @@ export function WorkspaceShell({
     chat: null,
     tasks: null,
   });
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const urlMode = getWorkspaceModeFromSearch(window.location.search, hasDesktopVault);
-      if (availableInitialWorkspaceMode !== urlMode) return;
-    }
-
-    setWorkspaceMode(availableInitialWorkspaceMode);
-  }, [availableInitialWorkspaceMode, hasDesktopVault]);
 
   // Instance startup state
   const [instanceStatus, setInstanceStatus] = useState<'starting' | 'running' | 'error' | null>(null);
@@ -666,6 +650,11 @@ export function WorkspaceShell({
     if (isCompactLayout) setMobileView("chat");
   }, [isCompactLayout]);
 
+  const [previewFilePath, setPreviewFilePath] = useState<string | null>(null);
+  const [previewExpanded, setPreviewExpanded] = useState(false);
+  const previewOpenFrameRef = useRef<number | null>(null);
+  const previewCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const handleWorkspaceModeChange = useCallback(
     (nextMode: WorkspaceMode) => {
       const resolvedNextMode = hasDesktopVault && nextMode === "tasks" ? "chat" : nextMode;
@@ -785,9 +774,6 @@ export function WorkspaceShell({
   const [activeFilePath, setActiveFilePath] = useState<string | null>(
     safeInitialFilePath
   );
-  const [previewFilePath, setPreviewFilePath] = useState<string | null>(null);
-  const [previewExpanded, setPreviewExpanded] = useState(false);
-  const previewCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [fileCache, setFileCache] = useState<FileContentCache>({});
   const fileCacheRef = useRef(fileCache);
 
@@ -1219,7 +1205,7 @@ export function WorkspaceShell({
   }, [openFilePaths, fileCache]);
 
   // File handlers
-  const handleOpenFile = useCallback(async (path: string) => {
+  async function handleOpenFile(path: string) {
     const resolvedPath = resolveFilePath(path);
     const pathToOpen = resolvedPath || path;
     const normalizedPath = normalizeWorkspacePath(pathToOpen);
@@ -1240,7 +1226,15 @@ export function WorkspaceShell({
         clearTimeout(previewCloseTimerRef.current);
         previewCloseTimerRef.current = null;
       }
+      if (previewOpenFrameRef.current !== null) {
+        cancelAnimationFrame(previewOpenFrameRef.current);
+      }
+      setPreviewExpanded(false);
       setPreviewFilePath(normalizedPath);
+      previewOpenFrameRef.current = requestAnimationFrame(() => {
+        setPreviewExpanded(true);
+        previewOpenFrameRef.current = null;
+      });
       setRightCollapsedForMode(workspaceMode, false);
       if (isCompactLayout) {
         setMobileView("right");
@@ -1272,13 +1266,17 @@ export function WorkspaceShell({
               updatedAt: 'Error',
               size: '0 KB',
             }
-          }));
+         }));
         }
       }
-    }, [isCompactLayout, isKnowledgeMode, resolveFilePath, setRightCollapsedForMode, workspace, workspaceMode]);
+    }
 
-  const handleClosePreview = useCallback(() => {
+  function handleClosePreview() {
     setPreviewExpanded(false);
+    if (previewOpenFrameRef.current !== null) {
+      cancelAnimationFrame(previewOpenFrameRef.current);
+      previewOpenFrameRef.current = null;
+    }
     if (previewCloseTimerRef.current) {
       clearTimeout(previewCloseTimerRef.current);
     }
@@ -1289,11 +1287,15 @@ export function WorkspaceShell({
         setMobileView("chat");
       }
     }, 220);
-  }, [isCompactLayout]);
+  }
 
-  const handleEditFromPreview = useCallback(() => {
+  function handleEditFromPreview() {
     if (!previewFilePath) return;
     const path = previewFilePath;
+    if (previewOpenFrameRef.current !== null) {
+      cancelAnimationFrame(previewOpenFrameRef.current);
+      previewOpenFrameRef.current = null;
+    }
     if (previewCloseTimerRef.current) {
       clearTimeout(previewCloseTimerRef.current);
       previewCloseTimerRef.current = null;
@@ -1304,18 +1306,12 @@ export function WorkspaceShell({
     setPreviewExpanded(false);
     setPreviewFilePath(null);
     handleWorkspaceModeChange("knowledge");
-  }, [handleWorkspaceModeChange, previewFilePath]);
-
-  useEffect(() => {
-    if (!previewFilePath) {
-      setPreviewExpanded(false);
-      return;
-    }
-    const id = requestAnimationFrame(() => setPreviewExpanded(true));
-    return () => cancelAnimationFrame(id);
-  }, [previewFilePath]);
+  }
 
   useEffect(() => () => {
+    if (previewOpenFrameRef.current !== null) {
+      cancelAnimationFrame(previewOpenFrameRef.current);
+    }
     if (previewCloseTimerRef.current) {
       clearTimeout(previewCloseTimerRef.current);
     }

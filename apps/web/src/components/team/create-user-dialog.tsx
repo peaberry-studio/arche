@@ -1,7 +1,7 @@
 'use client'
 
 import type { FormEvent } from 'react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { getTeamErrorMessage } from '@/components/team/error-messages'
 import type { TeamUser, TeamUserRole } from '@/components/team/types'
@@ -31,16 +31,21 @@ export function CreateUserDialog({ open, slug, onOpenChange, onUserCreated }: Cr
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (!open) {
-      setEmail('')
-      setUserSlug('')
-      setPassword('')
-      setRole('USER')
-      setError(null)
-      setIsSaving(false)
+  function resetDialogState() {
+    setEmail('')
+    setUserSlug('')
+    setPassword('')
+    setRole('USER')
+    setError(null)
+    setIsSaving(false)
+  }
+
+  function handleDialogOpenChange(nextOpen: boolean) {
+    if (!nextOpen) {
+      resetDialogState()
     }
-  }, [open])
+    onOpenChange(nextOpen)
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -71,7 +76,7 @@ export function CreateUserDialog({ open, slug, onOpenChange, onUserCreated }: Cr
       }
 
       onUserCreated(data.user)
-      onOpenChange(false)
+      handleDialogOpenChange(false)
     } catch {
       setError(getTeamErrorMessage('network_error'))
     } finally {
@@ -80,7 +85,7 @@ export function CreateUserDialog({ open, slug, onOpenChange, onUserCreated }: Cr
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent className="scrollbar-custom max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="type-display text-xl">
@@ -151,7 +156,7 @@ export function CreateUserDialog({ open, slug, onOpenChange, onUserCreated }: Cr
           ) : null}
 
           <div className="flex items-center justify-end gap-3 pt-2">
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="ghost" onClick={() => handleDialogOpenChange(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={isSaving}>
