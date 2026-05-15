@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
 export type AddConnectorSubmissionResult =
   | { ok: true; name: string; config: Record<string, unknown> }
@@ -21,7 +21,7 @@ export function useNotifyStateChange(
   const isFirstRender = useRef(true)
   const prevRef = useRef(stateSnapshot)
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (isFirstRender.current) {
       isFirstRender.current = false
       prevRef.current = stateSnapshot

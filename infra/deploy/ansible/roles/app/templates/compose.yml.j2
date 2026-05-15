@@ -190,7 +190,7 @@ services:
   # In remote mode, web is managed outside compose via podman run for
   # true blue-green zero-downtime deployments.
   web:
-    image: node:24-bookworm-slim
+    image: node:24.14.0-bookworm-slim
     working_dir: /app
     restart: "unless-stopped"
     env_file:

@@ -43,6 +43,38 @@ function toConnectorsPayload(value: unknown): {
   }
 }
 
+function resolveConnectorList(data: Awaited<ReturnType<typeof fetchConnectors>>):
+  | { ok: true; connectors: ConnectorListItem[] }
+  | { ok: false; error: string } {
+  if (!data.ok) {
+    return { ok: false, error: data.error ?? 'load_failed' }
+  }
+
+  return { ok: true, connectors: data.connectors }
+}
+
+async function fetchConnectors(slug: string): Promise<{
+  connectors: ConnectorListItem[]
+  error?: string
+  ok: boolean
+}> {
+  const response = await fetch(`/api/u/${slug}/connectors`, { cache: 'no-store' })
+  const data = (await response.json().catch(() => null)) as unknown
+
+  if (!response.ok) {
+    return {
+      connectors: [],
+      error: getConnectorErrorMessage(data, 'load_failed'),
+      ok: false,
+    }
+  }
+
+  return {
+    ...toConnectorsPayload(data),
+    ok: true,
+  }
+}
+
 function formatTestResult(result: ConnectorTestResult): ConnectorTestState {
   if (result.ok) {
     return { status: 'success', message: result.message ?? 'Connection verified.' }
@@ -75,7 +107,19 @@ export function ConnectorsPanel({ slug, oauthReturnTo, ref }: ConnectorsPanelPro
   const [connectors, setConnectors] = useState<ConnectorListItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [actionError, setActionError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null
+
+    const params = new URLSearchParams(window.location.search)
+    const oauthStatus = params.get('oauth')
+    const message = params.get('message')
+
+    if (oauthStatus === 'error') {
+      return getConnectorErrorMessage({ error: message ?? 'oauth_error' }, 'oauth_error')
+    }
+
+    return null
+  })
   const [busyConnectorIds, setBusyConnectorIds] = useState<Record<string, boolean>>({})
   const [testStates, setTestStates] = useState<Record<string, ConnectorTestState>>({})
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -106,16 +150,16 @@ export function ConnectorsPanel({ slug, oauthReturnTo, ref }: ConnectorsPanelPro
     setLoadError(null)
 
     try {
-      const response = await fetch(`/api/u/${slug}/connectors`, { cache: 'no-store' })
-      const data = (await response.json().catch(() => null)) as unknown
+      const data = await fetchConnectors(slug)
+      const result = resolveConnectorList(data)
 
-      if (!response.ok) {
-        setLoadError(getConnectorErrorMessage(data, 'load_failed'))
+      if (!result.ok) {
+        setLoadError(result.error)
         return
       }
 
-      const payload = toConnectorsPayload(data)
-      setConnectors(payload.connectors)
+      setConnectors(result.connectors)
+      setLoadError(null)
       setActionError(null)
     } catch {
       setLoadError(getConnectorErrorMessage(null, 'network_error'))
@@ -129,26 +173,47 @@ export function ConnectorsPanel({ slug, oauthReturnTo, ref }: ConnectorsPanelPro
     const oauthStatus = params.get('oauth')
     const message = params.get('message')
 
-    if (oauthStatus === 'error') {
-      setActionError(getConnectorErrorMessage({ error: message ?? 'oauth_error' }, 'oauth_error'))
-    }
-
-    if (oauthStatus === 'success') {
-      setActionError(null)
-      void loadConnectors()
-    }
-
     if (oauthStatus || message) {
       const cleanUrl = new URL(window.location.href)
       cleanUrl.searchParams.delete('oauth')
       cleanUrl.searchParams.delete('message')
       window.history.replaceState({}, '', `${cleanUrl.pathname}${cleanUrl.search}`)
     }
-  }, [loadConnectors])
+  }, [])
 
   useEffect(() => {
-    void loadConnectors()
-  }, [loadConnectors])
+    let cancelled = false
+
+    async function loadInitialConnectors() {
+      try {
+        const data = await fetchConnectors(slug)
+        if (cancelled) return
+
+        const result = resolveConnectorList(data)
+        if (!result.ok) {
+          setLoadError(result.error)
+          return
+        }
+
+        setConnectors(result.connectors)
+        setLoadError(null)
+      } catch {
+        if (!cancelled) {
+          setLoadError(getConnectorErrorMessage(null, 'network_error'))
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    void loadInitialConnectors()
+
+    return () => {
+      cancelled = true
+    }
+  }, [slug])
 
   const handleDelete = useCallback(
     async (id: string) => {
