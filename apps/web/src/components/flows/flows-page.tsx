@@ -62,8 +62,37 @@ export function FlowsPage({ slug }: FlowsPageProps) {
   }, [slug])
 
   useEffect(() => {
-    void loadFlows()
-  }, [loadFlows])
+    let cancelled = false
+
+    async function loadInitialFlows() {
+      try {
+        const result = await fetchFlowList(slug)
+        if (cancelled) return
+
+        if (!result.ok) {
+          setLoadError(result.error)
+          return
+        }
+
+        setFlows(result.data.flows)
+        setActionError(null)
+      } catch {
+        if (!cancelled) {
+          setLoadError('network_error')
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    void loadInitialFlows()
+
+    return () => {
+      cancelled = true
+    }
+  }, [slug])
 
   const markMutating = useCallback((flowId: string, active: boolean) => {
     setMutatingFlowIds((current) => {

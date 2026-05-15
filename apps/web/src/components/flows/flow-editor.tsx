@@ -162,36 +162,94 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
   }, [flowId, mode, slug])
 
   useEffect(() => {
-    void loadFlow()
-  }, [loadFlow])
+    if (mode !== 'edit' || !flowId) return
 
-  const loadSlackTargets = useCallback(async () => {
-    try {
-      const response = await fetch(`/api/u/${slug}/flows/slack-targets`, { cache: 'no-store' })
-      const data = (await response.json().catch(() => null)) as
-        | {
-            channels?: SlackTargetChannel[]
-            integrationEnabled?: boolean
-            users?: SlackTargetUser[]
-          }
-        | null
-      if (!response.ok || !data) {
-        setSlackIntegrationEnabled(false)
-        return
+    const currentFlowId = flowId
+    let cancelled = false
+
+    async function loadInitialFlow() {
+      try {
+        const result = await fetchFlowDetail(slug, currentFlowId)
+        if (cancelled) return
+
+        if (!result.ok) {
+          setLoadError(result.error)
+          return
+        }
+
+        setFlow(result.data.flow)
+        setName(result.data.flow.name)
+        setDescription(result.data.flow.description ?? '')
+        setDefinition(result.data.flow.definition)
+        setSelectedNodeId(result.data.flow.definition.startNodeId)
+        setEditingNodeId(null)
+        setSchedule(inferFlowScheduleFormState(result.data.flow.cronExpression))
+        setTimezone(result.data.flow.timezone)
+        setEnabled(result.data.flow.enabled)
+        if (result.data.flow.slackNotificationConfig) {
+          setSlackNotificationsEnabled(result.data.flow.slackNotificationConfig.enabled)
+          setIncludeSessionLink(result.data.flow.slackNotificationConfig.includeSessionLink)
+          setNotificationTargets(result.data.flow.slackNotificationConfig.targets)
+        } else {
+          setSlackNotificationsEnabled(false)
+          setIncludeSessionLink(true)
+          setNotificationTargets([])
+        }
+      } catch {
+        if (!cancelled) {
+          setLoadError('network_error')
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false)
+        }
       }
-
-      setSlackIntegrationEnabled(data.integrationEnabled === true)
-      setTeamMembers(data.users ?? [])
-      setSlackChannels(data.channels ?? [])
-    } catch (error) {
-      console.error('[flow-editor] Failed to load Slack targets', error)
-      setSlackIntegrationEnabled(false)
     }
-  }, [slug])
+
+    void loadInitialFlow()
+
+    return () => {
+      cancelled = true
+    }
+  }, [flowId, mode, slug])
 
   useEffect(() => {
-    void loadSlackTargets()
-  }, [loadSlackTargets])
+    let cancelled = false
+
+    async function loadInitialSlackTargets() {
+      try {
+        const response = await fetch(`/api/u/${slug}/flows/slack-targets`, { cache: 'no-store' })
+        const data = (await response.json().catch(() => null)) as
+          | {
+              channels?: SlackTargetChannel[]
+              integrationEnabled?: boolean
+              users?: SlackTargetUser[]
+            }
+          | null
+        if (cancelled) return
+
+        if (!response.ok || !data) {
+          setSlackIntegrationEnabled(false)
+          return
+        }
+
+        setSlackIntegrationEnabled(data.integrationEnabled === true)
+        setTeamMembers(data.users ?? [])
+        setSlackChannels(data.channels ?? [])
+      } catch (error) {
+        console.error('[flow-editor] Failed to load Slack targets', error)
+        if (!cancelled) {
+          setSlackIntegrationEnabled(false)
+        }
+      }
+    }
+
+    void loadInitialSlackTargets()
+
+    return () => {
+      cancelled = true
+    }
+  }, [slug])
 
   const editingNode = useMemo(
     () => definition.nodes.find((node) => node.id === editingNodeId) ?? null,
