@@ -13,7 +13,7 @@ FROM ghcr.io/anomalyco/opencode:${OPENCODE_VERSION}
 
 # Install git (required for KB sync)
 USER root
-RUN apk add --no-cache git nodejs npm
+RUN apk add --no-cache ca-certificates git nodejs npm
 
 # Install global OpenCode custom tools configuration.
 WORKDIR /opt/arche/opencode-config

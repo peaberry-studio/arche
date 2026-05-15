@@ -97,6 +97,51 @@ func TestIsInternalWorkspacePath(t *testing.T) {
 	}
 }
 
+func TestNormalizeGithubRemote(t *testing.T) {
+	valid, ok, errMsg := normalizeGithubRemote(&kbGithubRemoteRequest{
+		Branch:       "main",
+		RepoCloneUrl: "https://github.com/acme/kb.git",
+		Token:        "secret-token",
+	})
+	if !ok || errMsg != "" {
+		t.Fatalf("expected valid remote, ok=%v err=%q", ok, errMsg)
+	}
+	if valid.Branch != "main" || valid.RepoCloneUrl != "https://github.com/acme/kb.git" {
+		t.Fatalf("unexpected normalized remote: %+v", valid)
+	}
+
+	_, ok, errMsg = normalizeGithubRemote(&kbGithubRemoteRequest{
+		Branch:       "../main",
+		RepoCloneUrl: "https://github.com/acme/kb.git",
+		Token:        "secret-token",
+	})
+	if ok || errMsg != "github_branch_invalid" {
+		t.Fatalf("expected invalid branch, ok=%v err=%q", ok, errMsg)
+	}
+
+	_, ok, errMsg = normalizeGithubRemote(&kbGithubRemoteRequest{
+		RepoCloneUrl: "https://example.com/acme/kb.git",
+		Token:        "secret-token",
+	})
+	if ok || errMsg != "github_remote_invalid_url" {
+		t.Fatalf("expected invalid url, ok=%v err=%q", ok, errMsg)
+	}
+}
+
+func TestSanitizeGithubMessageRedactsToken(t *testing.T) {
+	token := "github-token"
+	encoded := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
+	message := "fatal: authentication failed for " + token + " header " + encoded
+
+	sanitized := sanitizeGithubMessage(message, token)
+	if strings.Contains(sanitized, token) || strings.Contains(sanitized, encoded) {
+		t.Fatalf("expected token redacted, got %q", sanitized)
+	}
+	if !strings.Contains(sanitized, "***") {
+		t.Fatalf("expected redaction marker, got %q", sanitized)
+	}
+}
+
 func TestFileHandlersHappyPath(t *testing.T) {
 	workspace := t.TempDir()
 	s := &server{workspace: workspace}
@@ -150,6 +195,187 @@ func TestFileHandlersHappyPath(t *testing.T) {
 			t.Fatalf("renamed file missing: %v", err)
 		}
 	})
+}
+
+func TestHandleFileWriteStagesResolvedConflict(t *testing.T) {
+	workspace := t.TempDir()
+	ctx := context.Background()
+	path := "Notes/Conflict.md"
+	createMergeConflict(t, ctx, workspace, path)
+
+	s := &server{workspace: workspace}
+	payload := map[string]string{
+		"path":    path,
+		"content": "merged content\n",
+	}
+	req := httptest.NewRequest(http.MethodPost, "/files/write", strings.NewReader(mustJSON(t, payload)))
+	recorder := httptest.NewRecorder()
+
+	s.handleFileWrite(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	assertNoUnmergedEntries(t, ctx, workspace, path)
+}
+
+func TestHandleFileWriteKeepsConflictWhenMarkersRemain(t *testing.T) {
+	workspace := t.TempDir()
+	ctx := context.Background()
+	path := "Notes/Conflict.md"
+	createMergeConflict(t, ctx, workspace, path)
+
+	s := &server{workspace: workspace}
+	payload := map[string]string{
+		"path":    path,
+		"content": "<<<<<<< HEAD\nlocal\n=======\nremote\n>>>>>>> incoming\n",
+	}
+	req := httptest.NewRequest(http.MethodPost, "/files/write", strings.NewReader(mustJSON(t, payload)))
+	recorder := httptest.NewRecorder()
+
+	s.handleFileWrite(recorder, req)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	assertHasUnmergedEntries(t, ctx, workspace, path)
+}
+
+func TestHandleKbPublishCommitsResolvedMergeWithNoFileDiff(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	remote := filepath.Join(root, "kb.git")
+	remoteWork := filepath.Join(root, "remote-work")
+	ctx := context.Background()
+	path := "Notes/Conflict.md"
+
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	runGit(t, ctx, workspace, "init", "-b", "main")
+	runGit(t, ctx, workspace, "config", "user.email", "tests@example.com")
+	runGit(t, ctx, workspace, "config", "user.name", "Workspace Agent Tests")
+	writeWorkspaceTestFile(t, workspace, path, "base\n")
+	runGit(t, ctx, workspace, "add", path)
+	runGit(t, ctx, workspace, "commit", "-m", "base")
+
+	runGit(t, ctx, root, "init", "--bare", remote)
+	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
+	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
+
+	runGit(t, ctx, root, "clone", remote, remoteWork)
+	runGit(t, ctx, remoteWork, "config", "user.email", "tests@example.com")
+	runGit(t, ctx, remoteWork, "config", "user.name", "Workspace Agent Tests")
+	writeWorkspaceTestFile(t, remoteWork, path, "remote\n")
+	runGit(t, ctx, remoteWork, "commit", "-am", "remote")
+	runGit(t, ctx, remoteWork, "push", "origin", "main")
+
+	writeWorkspaceTestFile(t, workspace, path, "local\n")
+	runGit(t, ctx, workspace, "commit", "-am", "local")
+	runGit(t, ctx, workspace, "fetch", "kb")
+	_, _, mergeCode, mergeErr := runCmd(ctx, workspace, []string{"git", "merge", "kb/main", "--no-edit"})
+	if mergeErr != nil {
+		t.Fatalf("git merge failed to run: %v", mergeErr)
+	}
+	if mergeCode == 0 {
+		t.Fatal("expected merge conflict")
+	}
+
+	s := &server{workspace: workspace}
+	writePayload := map[string]string{
+		"path":    path,
+		"content": "local\n",
+	}
+	writeReq := httptest.NewRequest(http.MethodPost, "/files/write", strings.NewReader(mustJSON(t, writePayload)))
+	writeRecorder := httptest.NewRecorder()
+	s.handleFileWrite(writeRecorder, writeReq)
+	if writeRecorder.Code != http.StatusOK {
+		t.Fatalf("write status = %d, body = %s", writeRecorder.Code, writeRecorder.Body.String())
+	}
+	assertNoUnmergedEntries(t, ctx, workspace, path)
+
+	diffReq := httptest.NewRequest(http.MethodGet, "/git/diffs", nil)
+	diffRecorder := httptest.NewRecorder()
+	s.handleGitDiffs(diffRecorder, diffReq)
+	if diffRecorder.Code != http.StatusOK {
+		t.Fatalf("diff status = %d, body = %s", diffRecorder.Code, diffRecorder.Body.String())
+	}
+	var diffResponse gitDiffResponse
+	if err := json.Unmarshal(diffRecorder.Body.Bytes(), &diffResponse); err != nil {
+		t.Fatalf("decode diff response: %v", err)
+	}
+	if len(diffResponse.Diffs) != 1 || diffResponse.Diffs[0].Path != path || diffResponse.Diffs[0].Conflicted {
+		t.Fatalf("unexpected resolved merge diffs: %+v", diffResponse.Diffs)
+	}
+	if !strings.Contains(diffResponse.Diffs[0].Diff, "-remote") || !strings.Contains(diffResponse.Diffs[0].Diff, "+local") {
+		t.Fatalf("expected diff against remote side, got %q", diffResponse.Diffs[0].Diff)
+	}
+
+	publishReq := httptest.NewRequest(http.MethodPost, "/kb/publish", strings.NewReader("{}"))
+	publishRecorder := httptest.NewRecorder()
+	s.handleKbPublish(publishRecorder, publishReq)
+	if publishRecorder.Code != http.StatusOK {
+		t.Fatalf("publish status = %d, body = %s", publishRecorder.Code, publishRecorder.Body.String())
+	}
+
+	var response publishKbResponse
+	if err := json.Unmarshal(publishRecorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode publish response: %v", err)
+	}
+	if response.Status != "published" {
+		t.Fatalf("publish status = %q, body = %s", response.Status, publishRecorder.Body.String())
+	}
+	if s.mergeInProgress(ctx) {
+		t.Fatal("expected merge to be concluded")
+	}
+}
+
+func TestHandleKbSyncTurnsLocalChangesIntoResolvableConflicts(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	remote := filepath.Join(root, "kb.git")
+	remoteWork := filepath.Join(root, "remote-work")
+	ctx := context.Background()
+	path := "Notes/Conflict.md"
+
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+	runGit(t, ctx, workspace, "init", "-b", "main")
+	runGit(t, ctx, workspace, "config", "user.email", "tests@example.com")
+	runGit(t, ctx, workspace, "config", "user.name", "Workspace Agent Tests")
+	writeWorkspaceTestFile(t, workspace, path, "base\n")
+	runGit(t, ctx, workspace, "add", path)
+	runGit(t, ctx, workspace, "commit", "-m", "base")
+
+	runGit(t, ctx, root, "init", "--bare", remote)
+	runGit(t, ctx, workspace, "remote", "add", "kb", remote)
+	runGit(t, ctx, workspace, "push", "-u", "kb", "main")
+
+	runGit(t, ctx, root, "clone", remote, remoteWork)
+	runGit(t, ctx, remoteWork, "config", "user.email", "tests@example.com")
+	runGit(t, ctx, remoteWork, "config", "user.name", "Workspace Agent Tests")
+	writeWorkspaceTestFile(t, remoteWork, path, "remote\n")
+	runGit(t, ctx, remoteWork, "commit", "-am", "remote")
+	runGit(t, ctx, remoteWork, "push", "origin", "main")
+
+	writeWorkspaceTestFile(t, workspace, path, "local\n")
+	s := &server{workspace: workspace}
+	req := httptest.NewRequest(http.MethodPost, "/kb/sync", strings.NewReader("{}"))
+	recorder := httptest.NewRecorder()
+	s.handleKbSync(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("sync status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	var response syncKbResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode sync response: %v", err)
+	}
+	if response.Status != "conflicts" || len(response.Conflicts) != 1 || response.Conflicts[0] != path {
+		t.Fatalf("unexpected sync response: %+v", response)
+	}
+	assertHasUnmergedEntries(t, ctx, workspace, path)
 }
 
 func TestHandleFileUploadWritesStreamedFile(t *testing.T) {
@@ -286,4 +512,69 @@ func mustJSON(t *testing.T, value any) string {
 		t.Fatalf("marshal json: %v", err)
 	}
 	return string(encoded)
+}
+
+func createMergeConflict(t *testing.T, ctx context.Context, workspace string, path string) {
+	t.Helper()
+
+	runGit(t, ctx, workspace, "init", "-b", "main")
+	runGit(t, ctx, workspace, "config", "user.email", "tests@example.com")
+	runGit(t, ctx, workspace, "config", "user.name", "Workspace Agent Tests")
+
+	writeWorkspaceTestFile(t, workspace, path, "base\n")
+	runGit(t, ctx, workspace, "add", path)
+	runGit(t, ctx, workspace, "commit", "-m", "base")
+
+	runGit(t, ctx, workspace, "checkout", "-b", "incoming")
+	writeWorkspaceTestFile(t, workspace, path, "remote\n")
+	runGit(t, ctx, workspace, "commit", "-am", "remote")
+
+	runGit(t, ctx, workspace, "checkout", "main")
+	writeWorkspaceTestFile(t, workspace, path, "local\n")
+	runGit(t, ctx, workspace, "commit", "-am", "local")
+
+	_, _, code, err := runCmd(ctx, workspace, []string{"git", "merge", "incoming"})
+	if err != nil {
+		t.Fatalf("git merge failed to run: %v", err)
+	}
+	if code == 0 {
+		t.Fatal("expected merge conflict")
+	}
+	assertHasUnmergedEntries(t, ctx, workspace, path)
+}
+
+func writeWorkspaceTestFile(t *testing.T, workspace string, path string, content string) {
+	t.Helper()
+
+	absPath := filepath.Join(workspace, filepath.FromSlash(path))
+	if err := os.MkdirAll(filepath.Dir(absPath), 0o755); err != nil {
+		t.Fatalf("create test file directory: %v", err)
+	}
+	if err := os.WriteFile(absPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+}
+
+func assertHasUnmergedEntries(t *testing.T, ctx context.Context, workspace string, path string) {
+	t.Helper()
+
+	out, stderr, code, err := runCmd(ctx, workspace, []string{"git", "ls-files", "-u", "--", path})
+	if err != nil || code != 0 {
+		t.Fatalf("git ls-files failed: code=%d err=%v stderr=%s", code, err, stderr)
+	}
+	if strings.TrimSpace(out) == "" {
+		t.Fatal("expected unmerged index entries")
+	}
+}
+
+func assertNoUnmergedEntries(t *testing.T, ctx context.Context, workspace string, path string) {
+	t.Helper()
+
+	out, stderr, code, err := runCmd(ctx, workspace, []string{"git", "ls-files", "-u", "--", path})
+	if err != nil || code != 0 {
+		t.Fatalf("git ls-files failed: code=%d err=%v stderr=%s", code, err, stderr)
+	}
+	if strings.TrimSpace(out) != "" {
+		t.Fatalf("expected no unmerged index entries, got %q", out)
+	}
 }

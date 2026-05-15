@@ -12,6 +12,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -171,10 +172,12 @@ type fileApplyPatchResponse struct {
 }
 
 type syncKbResponse struct {
-	Ok        bool     `json:"ok"`
-	Status    string   `json:"status"`
-	Message   string   `json:"message,omitempty"`
-	Conflicts []string `json:"conflicts,omitempty"`
+	Ok            bool     `json:"ok"`
+	Status        string   `json:"status"`
+	Message       string   `json:"message,omitempty"`
+	Conflicts     []string `json:"conflicts,omitempty"`
+	GithubStatus  string   `json:"githubStatus,omitempty"`
+	GithubMessage string   `json:"githubMessage,omitempty"`
 }
 
 type syncStatusResponse struct {
@@ -184,11 +187,40 @@ type syncStatusResponse struct {
 }
 
 type publishKbResponse struct {
-	Ok         bool     `json:"ok"`
-	Status     string   `json:"status"`
-	CommitHash string   `json:"commitHash,omitempty"`
-	Files      []string `json:"files,omitempty"`
-	Message    string   `json:"message,omitempty"`
+	Ok            bool     `json:"ok"`
+	Status        string   `json:"status"`
+	CommitHash    string   `json:"commitHash,omitempty"`
+	Files         []string `json:"files,omitempty"`
+	Message       string   `json:"message,omitempty"`
+	GithubStatus  string   `json:"githubStatus,omitempty"`
+	GithubMessage string   `json:"githubMessage,omitempty"`
+}
+
+type kbGithubRemoteRequest struct {
+	Branch       string `json:"branch,omitempty"`
+	RepoCloneUrl string `json:"repoCloneUrl"`
+	Token        string `json:"token"`
+}
+
+type kbSyncRequest struct {
+	Github *kbGithubRemoteRequest `json:"github,omitempty"`
+}
+
+type kbPublishRequest struct {
+	Github *kbGithubRemoteRequest `json:"github,omitempty"`
+}
+
+type kbGithubRemoteConfig struct {
+	Branch       string
+	RepoCloneUrl string
+	Token        string
+}
+
+type githubSyncResult struct {
+	Ok        bool
+	Status    string
+	Message   string
+	Conflicts []string
 }
 
 func main() {
@@ -279,6 +311,26 @@ func (s *server) handleGitDiffs(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	diffBase := "HEAD"
+	if len(entries) == 0 && s.mergeInProgress(r.Context()) {
+		entries, err = s.diffEntriesAgainstBase(r.Context(), "MERGE_HEAD")
+		if err != nil {
+			writeError(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		diffBase = "MERGE_HEAD"
+	}
+	if len(entries) == 0 {
+		kbBranch := s.resolveKbBranch(r.Context())
+		if s.remoteBranchExists(r.Context(), kbBranch) && s.localHeadDiffersFromKb(r.Context(), kbBranch) {
+			diffBase = "kb/" + kbBranch
+			entries, err = s.diffEntriesAgainstBase(r.Context(), diffBase)
+			if err != nil {
+				writeError(w, http.StatusBadGateway, err.Error())
+				return
+			}
+		}
+	}
 	if len(entries) == 0 {
 		writeJSON(w, http.StatusOK, gitDiffResponse{Ok: true, Diffs: []gitDiffEntry{}})
 		return
@@ -286,8 +338,8 @@ func (s *server) handleGitDiffs(w http.ResponseWriter, r *http.Request) {
 	diffs := make([]gitDiffEntry, 0, len(entries))
 
 	for _, entry := range entries {
-		diffArgs := []string{"git", "diff", "--no-color", "HEAD", "--", entry.Path}
-		numstatArgs := []string{"git", "diff", "--numstat", "HEAD", "--", entry.Path}
+		diffArgs := []string{"git", "diff", "--no-color", diffBase, "--", entry.Path}
+		numstatArgs := []string{"git", "diff", "--numstat", diffBase, "--", entry.Path}
 		if entry.Untracked {
 			diffArgs = []string{"git", "diff", "--no-color", "--no-index", "--", "/dev/null", entry.Path}
 			numstatArgs = []string{"git", "diff", "--numstat", "--no-index", "--", "/dev/null", entry.Path}
@@ -809,6 +861,16 @@ func (s *server) handleFileWrite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	relPath, relErr := s.relPathForAbs(path)
+	if relErr != nil {
+		writeError(w, http.StatusBadRequest, relErr.Error())
+		return
+	}
+	if err := s.stageResolvedFileIfConflicted(r.Context(), relPath, decodedContent); err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "read_failed")
@@ -1112,6 +1174,22 @@ func (s *server) handleKbSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var req kbSyncRequest
+	if err := decodeOptionalJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json")
+		return
+	}
+
+	githubRemote, hasGithubRemote, githubConfigErr := normalizeGithubRemote(req.Github)
+	if githubConfigErr != "" {
+		writeJSON(w, http.StatusOK, syncKbResponse{
+			Ok:      false,
+			Status:  "error",
+			Message: githubConfigErr,
+		})
+		return
+	}
+
 	_, _, remoteCode, remoteExecErr := runCmd(r.Context(), s.workspace, []string{
 		"git", "remote", "get-url", "kb",
 	})
@@ -1124,8 +1202,55 @@ func (s *server) handleKbSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	conflicts := s.listConflictFiles(r.Context())
+	if len(conflicts) > 0 {
+		writeJSON(w, http.StatusOK, syncKbResponse{
+			Ok:        true,
+			Status:    "conflicts",
+			Message:   "Merge has conflicts that need to be resolved",
+			Conflicts: conflicts,
+		})
+		return
+	}
+
+	if _, _, commitErrMsg := s.commitWorkspaceChangesIfNeeded(r.Context()); commitErrMsg != "" {
+		writeJSON(w, http.StatusOK, syncKbResponse{
+			Ok:      false,
+			Status:  "error",
+			Message: commitErrMsg,
+		})
+		return
+	}
+
 	mergeOk, conflicts, mergeErrMsg := s.fetchAndMergeKb(r.Context())
 	if mergeOk {
+		if hasGithubRemote {
+			githubResult := s.syncGithubRemote(r.Context(), githubRemote)
+			if !githubResult.Ok {
+				status := "error"
+				if githubResult.Status == "conflicts" {
+					status = "conflicts"
+				}
+				writeJSON(w, http.StatusOK, syncKbResponse{
+					Ok:            status == "conflicts",
+					Status:        status,
+					Message:       githubResult.Message,
+					Conflicts:     githubResult.Conflicts,
+					GithubStatus:  githubResult.Status,
+					GithubMessage: githubResult.Message,
+				})
+				return
+			}
+
+			writeJSON(w, http.StatusOK, syncKbResponse{
+				Ok:           true,
+				Status:       "synced",
+				Message:      "KB synchronized successfully",
+				GithubStatus: githubResult.Status,
+			})
+			return
+		}
+
 		writeJSON(w, http.StatusOK, syncKbResponse{
 			Ok:      true,
 			Status:  "synced",
@@ -1171,6 +1296,22 @@ func (s *server) handleKbPublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var req kbPublishRequest
+	if err := decodeOptionalJSON(w, r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_json")
+		return
+	}
+
+	githubRemote, hasGithubRemote, githubConfigErr := normalizeGithubRemote(req.Github)
+	if githubConfigErr != "" {
+		writeJSON(w, http.StatusOK, publishKbResponse{
+			Ok:      false,
+			Status:  "error",
+			Message: githubConfigErr,
+		})
+		return
+	}
+
 	_, _, remoteCode, remoteExecErr := runCmd(r.Context(), s.workspace, []string{
 		"git", "remote", "get-url", "kb",
 	})
@@ -1194,71 +1335,15 @@ func (s *server) handleKbPublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entries, statusErr := s.gitStatusEntries(r.Context())
-	if statusErr != nil {
+	committedLocalChanges, files, commitErrMsg := s.commitWorkspaceChangesIfNeeded(r.Context())
+	if commitErrMsg != "" {
 		writeJSON(w, http.StatusOK, publishKbResponse{
 			Ok:      false,
 			Status:  "error",
-			Message: statusErr.Error(),
+			Message: commitErrMsg,
 		})
 		return
 	}
-
-	if len(entries) == 0 {
-		writeJSON(w, http.StatusOK, publishKbResponse{
-			Ok:      true,
-			Status:  "nothing_to_publish",
-			Message: "Nothing to publish.",
-		})
-		return
-	}
-
-	_, addErr, addCode, addExecErr := runCmd(r.Context(), s.workspace, []string{
-		"git", "add", "-A",
-	})
-	if addExecErr != nil || addCode != 0 {
-		msg := strings.TrimSpace(addErr)
-		if msg == "" {
-			msg = "git_add_failed"
-		}
-		writeJSON(w, http.StatusOK, publishKbResponse{
-			Ok:      false,
-			Status:  "error",
-			Message: "git add failed: " + msg,
-		})
-		return
-	}
-
-	statOut, _, _, _ := runCmd(r.Context(), s.workspace, []string{
-		"git", "diff", "--cached", "--stat",
-	})
-	commitMessage := generateCommitMessage(statOut)
-
-	_, commitErr, commitCode, commitExecErr := runCmd(r.Context(), s.workspace, []string{
-		"git", "commit", "-m", commitMessage,
-	})
-	if commitExecErr != nil || commitCode != 0 {
-		msg := strings.TrimSpace(commitErr)
-		if msg == "" {
-			msg = "git_commit_failed"
-		}
-		writeJSON(w, http.StatusOK, publishKbResponse{
-			Ok:      false,
-			Status:  "error",
-			Message: "git commit failed: " + msg,
-		})
-		return
-	}
-
-	hashOut, _, _, _ := runCmd(r.Context(), s.workspace, []string{
-		"git", "rev-parse", "--short", "HEAD",
-	})
-	commitHash := strings.TrimSpace(hashOut)
-
-	filesOut, _, _, _ := runCmd(r.Context(), s.workspace, []string{
-		"git", "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD",
-	})
-	files := splitLines(filesOut)
 
 	// Fetch and merge remote before pushing to avoid rejected pushes.
 	mergeOk, mergeConflicts, mergeErrMsg := s.fetchAndMergeKb(r.Context())
@@ -1281,6 +1366,70 @@ func (s *server) handleKbPublish(w http.ResponseWriter, r *http.Request) {
 	}
 
 	kbBranch := s.resolveKbBranch(r.Context())
+	if hasGithubRemote {
+		githubResult := s.syncGithubRemote(r.Context(), githubRemote)
+		if !githubResult.Ok {
+			status := "error"
+			resultFiles := files
+			if githubResult.Status == "conflicts" {
+				status = "conflicts"
+				resultFiles = githubResult.Conflicts
+			} else if githubResult.Status == "push_rejected" {
+				status = "push_rejected"
+			}
+
+			writeJSON(w, http.StatusOK, publishKbResponse{
+				Ok:            false,
+				Status:        status,
+				Files:         resultFiles,
+				Message:       githubResult.Message,
+				GithubStatus:  githubResult.Status,
+				GithubMessage: githubResult.Message,
+			})
+			return
+		}
+
+		if files == nil || len(files) == 0 {
+			files = s.changedFilesToPublish(r.Context(), kbBranch)
+		}
+
+		hashOut, _, _, _ := runCmd(r.Context(), s.workspace, []string{
+			"git", "rev-parse", "--short", "HEAD",
+		})
+		commitHash := strings.TrimSpace(hashOut)
+		status := "published"
+		if !committedLocalChanges && githubResult.Status == "up_to_date" {
+			status = "nothing_to_publish"
+		}
+
+		writeJSON(w, http.StatusOK, publishKbResponse{
+			Ok:           true,
+			Status:       status,
+			CommitHash:   commitHash,
+			Files:        files,
+			GithubStatus: githubResult.Status,
+		})
+		return
+	}
+
+	if !s.localHeadDiffersFromKb(r.Context(), kbBranch) {
+		writeJSON(w, http.StatusOK, publishKbResponse{
+			Ok:      true,
+			Status:  "nothing_to_publish",
+			Message: "Nothing to publish.",
+		})
+		return
+	}
+
+	if len(files) == 0 {
+		files = s.changedFilesToPublish(r.Context(), kbBranch)
+	}
+
+	hashOut, _, _, _ := runCmd(r.Context(), s.workspace, []string{
+		"git", "rev-parse", "--short", "HEAD",
+	})
+	commitHash := strings.TrimSpace(hashOut)
+
 	_, pushErr, pushCode, pushExecErr := runCmd(r.Context(), s.workspace, []string{
 		"git", "push", "kb", "HEAD:refs/heads/" + kbBranch,
 	})
@@ -1322,6 +1471,133 @@ func (s *server) gitStatusEntries(ctx context.Context, paths ...string) ([]gitSt
 		return nil, errors.New(msg)
 	}
 	return parseGitStatus(out), nil
+}
+
+func (s *server) mergeInProgress(ctx context.Context) bool {
+	_, _, code, execErr := runCmd(ctx, s.workspace, []string{
+		"git", "rev-parse", "-q", "--verify", "MERGE_HEAD",
+	})
+	return execErr == nil && code == 0
+}
+
+func (s *server) diffEntriesAgainstBase(ctx context.Context, base string) ([]gitStatusEntry, error) {
+	out, stderr, code, err := runCmd(ctx, s.workspace, []string{
+		"git", "diff", "--name-only", "-z", base, "--",
+	})
+	if err != nil || code != 0 {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = "git_diff_failed"
+		}
+		return nil, errors.New(msg)
+	}
+
+	parts := bytes.Split([]byte(out), []byte{0})
+	entries := make([]gitStatusEntry, 0, len(parts))
+	seen := map[string]bool{}
+	for _, part := range parts {
+		path := string(part)
+		if path == "" || seen[path] || isInternalWorkspacePath(path) {
+			continue
+		}
+		seen[path] = true
+
+		status := "modified"
+		if _, statErr := os.Stat(filepath.Join(s.workspace, filepath.FromSlash(path))); errors.Is(statErr, os.ErrNotExist) {
+			status = "deleted"
+		}
+		entries = append(entries, gitStatusEntry{Path: path, Status: status})
+	}
+
+	return entries, nil
+}
+
+func (s *server) commitWorkspaceChangesIfNeeded(ctx context.Context) (bool, []string, string) {
+	entries, statusErr := s.gitStatusEntries(ctx)
+	if statusErr != nil {
+		return false, nil, statusErr.Error()
+	}
+
+	if len(entries) == 0 && !s.mergeInProgress(ctx) {
+		return false, []string{}, ""
+	}
+
+	_, addErr, addCode, addExecErr := runCmd(ctx, s.workspace, []string{
+		"git", "add", "-A",
+	})
+	if addExecErr != nil || addCode != 0 {
+		msg := strings.TrimSpace(addErr)
+		if msg == "" {
+			msg = "git_add_failed"
+		}
+		return false, nil, "git add failed: " + msg
+	}
+
+	statOut, _, _, _ := runCmd(ctx, s.workspace, []string{
+		"git", "diff", "--cached", "--stat",
+	})
+	commitMessage := generateCommitMessage(statOut)
+
+	_, commitErr, commitCode, commitExecErr := runCmd(ctx, s.workspace, []string{
+		"git", "commit", "-m", commitMessage,
+	})
+	if commitExecErr != nil || commitCode != 0 {
+		msg := strings.TrimSpace(commitErr)
+		if msg == "" {
+			msg = "git_commit_failed"
+		}
+		return false, nil, "git commit failed: " + msg
+	}
+
+	filesOut, _, _, _ := runCmd(ctx, s.workspace, []string{
+		"git", "diff-tree", "--no-commit-id", "--name-only", "-r", "-m", "HEAD",
+	})
+	return true, splitUniqueLines(filesOut), ""
+}
+
+func (s *server) stageResolvedFileIfConflicted(ctx context.Context, relPath string, content []byte) error {
+	if hasGitConflictBoundary(content) {
+		return nil
+	}
+
+	entries, statusErr := s.gitStatusEntries(ctx, relPath)
+	if statusErr != nil {
+		return nil
+	}
+
+	conflicted := false
+	for _, entry := range entries {
+		if entry.Path == relPath && entry.Conflicted {
+			conflicted = true
+			break
+		}
+	}
+	if !conflicted {
+		return nil
+	}
+
+	_, addErr, addCode, addExecErr := runCmd(ctx, s.workspace, []string{
+		"git", "add", "--", relPath,
+	})
+	if addExecErr != nil || addCode != 0 {
+		msg := strings.TrimSpace(addErr)
+		if msg == "" {
+			msg = "git_add_failed"
+		}
+		return errors.New(msg)
+	}
+
+	return nil
+}
+
+func hasGitConflictBoundary(content []byte) bool {
+	for _, line := range bytes.Split(content, []byte{'\n'}) {
+		line = bytes.TrimSuffix(line, []byte{'\r'})
+		if bytes.HasPrefix(line, []byte("<<<<<<<")) || bytes.HasPrefix(line, []byte(">>>>>>>")) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *server) listConflictFiles(ctx context.Context) []string {
@@ -1373,6 +1649,311 @@ func (s *server) remoteBranchExists(ctx context.Context, branch string) bool {
 		"git", "show-ref", "--verify", "--quiet", "refs/remotes/kb/" + branch,
 	})
 	return code == 0
+}
+
+func (s *server) localHeadDiffersFromKb(ctx context.Context, branch string) bool {
+	headOut, _, headCode, _ := runCmd(ctx, s.workspace, []string{
+		"git", "rev-parse", "HEAD",
+	})
+	if headCode != 0 {
+		return false
+	}
+	head := strings.TrimSpace(headOut)
+	if head == "" {
+		return false
+	}
+	if !s.remoteBranchExists(ctx, branch) {
+		return true
+	}
+
+	remoteOut, _, remoteCode, _ := runCmd(ctx, s.workspace, []string{
+		"git", "rev-parse", "refs/remotes/kb/" + branch,
+	})
+	return remoteCode != 0 || head != strings.TrimSpace(remoteOut)
+}
+
+func (s *server) changedFilesToPublish(ctx context.Context, branch string) []string {
+	if s.remoteBranchExists(ctx, branch) {
+		filesOut, _, code, _ := runCmd(ctx, s.workspace, []string{
+			"git", "diff", "--name-only", "kb/" + branch + "...HEAD",
+		})
+		if code == 0 {
+			files := splitLines(filesOut)
+			if len(files) > 0 {
+				return files
+			}
+		}
+	}
+
+	filesOut, _, code, _ := runCmd(ctx, s.workspace, []string{
+		"git", "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD",
+	})
+	if code != 0 {
+		return nil
+	}
+	return splitLines(filesOut)
+}
+
+func normalizeGithubRemote(req *kbGithubRemoteRequest) (kbGithubRemoteConfig, bool, string) {
+	if req == nil {
+		return kbGithubRemoteConfig{}, false, ""
+	}
+
+	repoCloneUrl := strings.TrimSpace(req.RepoCloneUrl)
+	token := strings.TrimSpace(req.Token)
+	branch := strings.TrimSpace(req.Branch)
+	if branch == "" {
+		branch = "main"
+	}
+
+	if repoCloneUrl == "" || token == "" {
+		return kbGithubRemoteConfig{}, false, "github_remote_incomplete"
+	}
+	if !isGithubCloneUrl(repoCloneUrl) {
+		return kbGithubRemoteConfig{}, false, "github_remote_invalid_url"
+	}
+	if !isSafeGitBranch(branch) {
+		return kbGithubRemoteConfig{}, false, "github_branch_invalid"
+	}
+
+	return kbGithubRemoteConfig{
+		Branch:       branch,
+		RepoCloneUrl: repoCloneUrl,
+		Token:        token,
+	}, true, ""
+}
+
+func isGithubCloneUrl(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	return parsed.Scheme == "https" && strings.EqualFold(parsed.Host, "github.com") && parsed.Path != ""
+}
+
+func isSafeGitBranch(branch string) bool {
+	if branch == "" || strings.HasPrefix(branch, "-") || strings.HasPrefix(branch, "/") || strings.HasSuffix(branch, "/") || strings.HasSuffix(branch, ".") {
+		return false
+	}
+	if strings.Contains(branch, "..") || strings.Contains(branch, "//") || strings.Contains(branch, "@{") {
+		return false
+	}
+	for _, r := range branch {
+		if r <= ' ' || strings.ContainsRune("~^:?*[\\", r) {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *server) syncGithubRemote(ctx context.Context, remote kbGithubRemoteConfig) githubSyncResult {
+	if msg := s.ensureNamedRemote(ctx, "github", remote.RepoCloneUrl); msg != "" {
+		return githubSyncResult{Ok: false, Status: "error", Message: msg}
+	}
+
+	fetchStatus, fetchMessage := s.fetchGithubBranch(ctx, remote)
+	if fetchStatus == "auth_failed" || fetchStatus == "error" {
+		return githubSyncResult{Ok: false, Status: fetchStatus, Message: fetchMessage}
+	}
+
+	if fetchStatus == "missing" {
+		kbBranch := s.resolveKbBranch(ctx)
+		if msg := s.pushCurrentToKb(ctx, kbBranch); msg != "" {
+			return githubSyncResult{Ok: false, Status: "error", Message: msg}
+		}
+		return s.pushCurrentToGithub(ctx, remote)
+	}
+
+	mergeOk, mergeChanged, conflicts, mergeMessage := s.mergeRemoteTrackingBranch(ctx, "github", remote.Branch)
+	if !mergeOk {
+		if len(conflicts) > 0 {
+			return githubSyncResult{
+				Ok:        false,
+				Status:    "conflicts",
+				Message:   "Merge has conflicts that need to be resolved",
+				Conflicts: conflicts,
+			}
+		}
+		return githubSyncResult{Ok: false, Status: "error", Message: mergeMessage}
+	}
+
+	kbBranch := s.resolveKbBranch(ctx)
+	if s.localHeadDiffersFromKb(ctx, kbBranch) {
+		if msg := s.pushCurrentToKb(ctx, kbBranch); msg != "" {
+			return githubSyncResult{Ok: false, Status: "error", Message: msg}
+		}
+	}
+
+	pushResult := s.pushCurrentToGithub(ctx, remote)
+	if pushResult.Ok && pushResult.Status == "up_to_date" && mergeChanged {
+		pushResult.Status = "pulled"
+	}
+	return pushResult
+}
+
+func (s *server) ensureNamedRemote(ctx context.Context, name string, remoteUrl string) string {
+	_, _, remoteCode, remoteExecErr := runCmd(ctx, s.workspace, []string{
+		"git", "remote", "get-url", name,
+	})
+	if remoteExecErr == nil && remoteCode == 0 {
+		_, stderr, code, execErr := runCmd(ctx, s.workspace, []string{
+			"git", "remote", "set-url", name, remoteUrl,
+		})
+		if execErr == nil && code == 0 {
+			return ""
+		}
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = "remote_set_url_failed"
+		}
+		return msg
+	}
+
+	_, stderr, code, execErr := runCmd(ctx, s.workspace, []string{
+		"git", "remote", "add", name, remoteUrl,
+	})
+	if execErr == nil && code == 0 {
+		return ""
+	}
+	msg := strings.TrimSpace(stderr)
+	if msg == "" {
+		msg = "remote_add_failed"
+	}
+	return msg
+}
+
+func (s *server) fetchGithubBranch(ctx context.Context, remote kbGithubRemoteConfig) (string, string) {
+	_, stderr, code, execErr := runCmd(ctx, s.workspace, githubGitArgs(remote.Token,
+		"fetch", "github", "+refs/heads/"+remote.Branch+":refs/remotes/github/"+remote.Branch,
+	))
+	if execErr == nil && code == 0 {
+		return "ok", ""
+	}
+
+	msg := sanitizeGithubMessage(strings.TrimSpace(stderr), remote.Token)
+	if msg == "" {
+		msg = "github_fetch_failed"
+	}
+	if isMissingRemoteRef(msg) {
+		return "missing", "GitHub repository has no selected branch yet."
+	}
+	if isGithubAuthFailure(msg) {
+		return "auth_failed", "GitHub authentication failed or repository access was denied."
+	}
+	return "error", "GitHub fetch failed: " + msg
+}
+
+func (s *server) mergeRemoteTrackingBranch(ctx context.Context, remote string, branch string) (bool, bool, []string, string) {
+	stdout, stderr, code, execErr := runCmd(ctx, s.workspace, []string{
+		"git", "merge", remote + "/" + branch, "--no-edit",
+	})
+	if execErr == nil && code == 0 {
+		changed := !strings.Contains(strings.ToLower(stdout+stderr), "already up to date")
+		return true, changed, nil, ""
+	}
+
+	if isUnrelatedHistoryError(stderr) {
+		stdoutAllow, stderrAllow, codeAllow, execErrAllow := runCmd(ctx, s.workspace, []string{
+			"git", "merge", remote + "/" + branch, "--no-edit", "--allow-unrelated-histories",
+		})
+		if execErrAllow == nil && codeAllow == 0 {
+			changed := !strings.Contains(strings.ToLower(stdoutAllow+stderrAllow), "already up to date")
+			return true, changed, nil, ""
+		}
+
+		conflicts := s.listConflictFiles(ctx)
+		if len(conflicts) > 0 {
+			return false, false, conflicts, "Merge has conflicts that need to be resolved"
+		}
+
+		msg := strings.TrimSpace(stderrAllow)
+		if msg == "" {
+			msg = "merge_failed"
+		}
+		return false, false, nil, "Merge failed: " + msg
+	}
+
+	conflicts := s.listConflictFiles(ctx)
+	if len(conflicts) > 0 {
+		return false, false, conflicts, "Merge has conflicts that need to be resolved"
+	}
+
+	msg := strings.TrimSpace(stderr)
+	if msg == "" {
+		msg = "merge_failed"
+	}
+	return false, false, nil, "Merge failed: " + msg
+}
+
+func (s *server) pushCurrentToKb(ctx context.Context, branch string) string {
+	_, stderr, code, execErr := runCmd(ctx, s.workspace, []string{
+		"git", "push", "kb", "HEAD:refs/heads/" + branch,
+	})
+	if execErr == nil && code == 0 {
+		return ""
+	}
+	msg := strings.TrimSpace(stderr)
+	if msg == "" {
+		msg = "git_push_failed"
+	}
+	return "KB push failed: " + msg
+}
+
+func (s *server) pushCurrentToGithub(ctx context.Context, remote kbGithubRemoteConfig) githubSyncResult {
+	stdout, stderr, code, execErr := runCmd(ctx, s.workspace, githubGitArgs(remote.Token,
+		"push", "github", "HEAD:refs/heads/"+remote.Branch,
+	))
+	combined := sanitizeGithubMessage(strings.TrimSpace(stdout+"\n"+stderr), remote.Token)
+	if execErr == nil && code == 0 {
+		if strings.Contains(combined, "Everything up-to-date") {
+			return githubSyncResult{Ok: true, Status: "up_to_date"}
+		}
+		return githubSyncResult{Ok: true, Status: "pushed"}
+	}
+
+	msg := combined
+	if msg == "" {
+		msg = "github_push_failed"
+	}
+	if isGithubAuthFailure(msg) {
+		return githubSyncResult{Ok: false, Status: "auth_failed", Message: "GitHub authentication failed or repository access was denied."}
+	}
+	if strings.Contains(strings.ToLower(msg), "non-fast-forward") || strings.Contains(strings.ToLower(msg), "rejected") {
+		return githubSyncResult{Ok: false, Status: "push_rejected", Message: msg}
+	}
+	return githubSyncResult{Ok: false, Status: "error", Message: "GitHub push failed: " + msg}
+}
+
+func githubGitArgs(token string, args ...string) []string {
+	credential := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
+	result := []string{"git", "-c", "http.extraheader=AUTHORIZATION: basic " + credential}
+	return append(result, args...)
+}
+
+func sanitizeGithubMessage(message string, token string) string {
+	if token == "" {
+		return message
+	}
+	credential := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
+	message = strings.ReplaceAll(message, token, "***")
+	message = strings.ReplaceAll(message, credential, "***")
+	return message
+}
+
+func isMissingRemoteRef(message string) bool {
+	lower := strings.ToLower(message)
+	return strings.Contains(lower, "couldn't find remote ref") || strings.Contains(lower, "could not find remote ref")
+}
+
+func isGithubAuthFailure(message string) bool {
+	lower := strings.ToLower(message)
+	return strings.Contains(lower, "authentication failed") ||
+		strings.Contains(lower, "could not read username") ||
+		strings.Contains(lower, "invalid credentials") ||
+		strings.Contains(lower, "repository not found") ||
+		strings.Contains(lower, "403") ||
+		strings.Contains(lower, "401") ||
+		strings.Contains(lower, "permission denied")
 }
 
 func (s *server) currentBranch(ctx context.Context) string {
@@ -1509,6 +2090,20 @@ func splitLines(output string) []string {
 		if trimmed != "" {
 			result = append(result, trimmed)
 		}
+	}
+	return result
+}
+
+func splitUniqueLines(output string) []string {
+	lines := splitLines(output)
+	seen := map[string]bool{}
+	result := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if seen[line] {
+			continue
+		}
+		seen[line] = true
+		result = append(result, line)
 	}
 	return result
 }
@@ -1712,6 +2307,21 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, target any) error {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); err != nil && !errors.Is(err, io.EOF) {
+		return errors.New("unexpected_data")
+	}
+	return nil
+}
+
+func decodeOptionalJSON(w http.ResponseWriter, r *http.Request, target any) error {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(target); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
 		return err
 	}
 	if err := decoder.Decode(&struct{}{}); err != nil && !errors.Is(err, io.EOF) {
