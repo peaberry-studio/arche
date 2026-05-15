@@ -165,6 +165,10 @@ jobs:
         working-directory: apps/web
         run: pnpm rebuild argon2 better-sqlite3
 
+      - name: Generate web desktop Prisma client
+        working-directory: apps/web
+        run: pnpm prisma:generate:desktop
+
       - name: Install desktop dependencies
         working-directory: apps/desktop
         run: pnpm install --frozen-lockfile
@@ -214,6 +218,10 @@ jobs:
       - name: Refresh web native modules
         working-directory: apps/web
         run: pnpm rebuild argon2 better-sqlite3
+
+      - name: Generate web desktop Prisma client
+        working-directory: apps/web
+        run: pnpm prisma:generate:desktop
 
       - name: Install desktop dependencies
         working-directory: apps/desktop

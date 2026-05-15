@@ -1,0 +1,4 @@
+allowBuilds:
+  dugite: true
+  electron: true
+  electron-winstaller: true

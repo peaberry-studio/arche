@@ -1,0 +1,25 @@
+allowBuilds:
+  # Prisma engines are required by prisma generate and runtime clients.
+  '@prisma/engines': true
+  # Native password hashing binding used by authentication.
+  argon2: true
+  # Native SQLite binding used by the Prisma desktop adapter.
+  better-sqlite3: true
+  # Optional native CPU capability probe for ssh2; app Docker access does not use SSH.
+  cpu-features: false
+  # Bundled binary used by TypeScript/runtime tooling.
+  esbuild: true
+  # Prisma CLI postinstall/generate flow requires its build scripts.
+  prisma: true
+  # protobufjs postinstall only prints version-scheme guidance.
+  protobufjs: false
+  # Next image optimization uses sharp at runtime through next/image.
+  sharp: true
+  # Docker integration uses the local socket/proxy path, not Docker-over-SSH.
+  ssh2: false
+  # ESLint's TypeScript import resolver uses this native resolver.
+  unrs-resolver: true
+overrides:
+  tar: 7.5.7
+  lodash: 4.17.23
+  hono: 4.11.7

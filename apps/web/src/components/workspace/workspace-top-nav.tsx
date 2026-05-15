@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   CaretDown,
   Cpu,
@@ -43,6 +43,33 @@ type ProviderSummary = {
   status: 'enabled' | 'disabled' | 'missing'
   type?: string
   version?: number
+}
+
+async function fetchIntegrationSummaries(slug: string): Promise<{
+  connectors?: ConnectorSummary[]
+  providers?: ProviderSummary[]
+}> {
+  const [connectorsResponse, providersResponse] = await Promise.all([
+    fetch(`/api/u/${slug}/connectors`, { cache: 'no-store' }),
+    fetch(`/api/u/${slug}/providers`, { cache: 'no-store' }),
+  ])
+
+  const result: {
+    connectors?: ConnectorSummary[]
+    providers?: ProviderSummary[]
+  } = {}
+
+  if (connectorsResponse.ok) {
+    const data = (await connectorsResponse.json().catch(() => null)) as { connectors?: ConnectorSummary[] } | null
+    result.connectors = Array.isArray(data?.connectors) ? data.connectors : []
+  }
+
+  if (providersResponse.ok) {
+    const data = (await providersResponse.json().catch(() => null)) as { providers?: ProviderSummary[] } | null
+    result.providers = Array.isArray(data?.providers) ? data.providers : []
+  }
+
+  return result
 }
 
 type WorkspaceTopNavProps = {
@@ -96,38 +123,40 @@ export function WorkspaceTopNav({
   const [isLoadingProviders, setIsLoadingProviders] = useState(true)
   const themeOptions = themes ?? []
 
-  const loadIntegrations = useCallback(async () => {
-    try {
-      const [connectorsResponse, providersResponse] = await Promise.all([
-        fetch(`/api/u/${slug}/connectors`, { cache: 'no-store' }),
-        fetch(`/api/u/${slug}/providers`, { cache: 'no-store' }),
-      ])
-
-      if (connectorsResponse.ok) {
-        const data = (await connectorsResponse.json().catch(() => null)) as { connectors?: ConnectorSummary[] } | null
-        setConnectors(Array.isArray(data?.connectors) ? data.connectors : [])
-      }
-
-      if (providersResponse.ok) {
-        const data = (await providersResponse.json().catch(() => null)) as { providers?: ProviderSummary[] } | null
-        setProviders(Array.isArray(data?.providers) ? data.providers : [])
-      }
-    } catch {
-      // Keep the menu usable when integration status polling fails.
-    } finally {
-      setIsLoadingConnectors(false)
-      setIsLoadingProviders(false)
-    }
-  }, [slug])
-
   useEffect(() => {
+    let cancelled = false
+
+    async function loadIntegrations() {
+      try {
+        const result = await fetchIntegrationSummaries(slug)
+        if (cancelled) return
+
+        if (result.connectors) {
+          setConnectors(result.connectors)
+        }
+        if (result.providers) {
+          setProviders(result.providers)
+        }
+      } catch {
+        // Keep the menu usable when integration status polling fails.
+      } finally {
+        if (!cancelled) {
+          setIsLoadingConnectors(false)
+          setIsLoadingProviders(false)
+        }
+      }
+    }
+
     void loadIntegrations()
     const interval = setInterval(() => {
       void loadIntegrations()
     }, 30000)
 
-    return () => clearInterval(interval)
-  }, [loadIntegrations])
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
+  }, [slug])
 
   const activeConnectors = connectors.filter((connector) => connector.status === 'ready').length
   const pendingConnectors = connectors.filter((connector) => connector.status === 'pending').length

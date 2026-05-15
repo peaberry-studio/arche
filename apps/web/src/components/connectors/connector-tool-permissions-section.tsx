@@ -55,29 +55,18 @@ export function ConnectorToolPermissionsSection({
   const [initialPermissions, setInitialPermissions] = useState<Record<string, ConnectorToolPermission>>({})
   const [policyConfigured, setPolicyConfigured] = useState(false)
   const [inventoryError, setInventoryError] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [loadedConnectorId, setLoadedConnectorId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!enabled || !connectorId) {
-      setTools([])
-      setInitialPermissions({})
-      setPolicyConfigured(false)
-      setInventoryError(null)
-      setError(null)
-      setIsLoading(false)
-      setIsSaving(false)
       return
     }
 
     let cancelled = false
 
     async function loadToolPermissions() {
-      setIsLoading(true)
-      setError(null)
-      setInventoryError(null)
-
       try {
         const response = await fetch(`/api/u/${slug}/connectors/${connectorId}/tool-permissions`, {
           cache: 'no-store',
@@ -89,21 +78,21 @@ export function ConnectorToolPermissionsSection({
         if (cancelled) return
 
         if (!response.ok || !data?.tools) {
+          setLoadedConnectorId(connectorId)
           setError(getConnectorErrorMessage(data, 'load_settings_failed'))
           return
         }
 
+        setLoadedConnectorId(connectorId)
+        setError(null)
         setTools(data.tools)
         setInitialPermissions(toPermissionsPayload(data.tools))
         setPolicyConfigured(data.policyConfigured)
         setInventoryError(data.inventoryError ?? null)
       } catch {
         if (!cancelled) {
+          setLoadedConnectorId(connectorId)
           setError(getConnectorErrorMessage(null, 'network_error'))
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false)
         }
       }
     }
@@ -115,9 +104,17 @@ export function ConnectorToolPermissionsSection({
     }
   }, [connectorId, enabled, slug])
 
-  const currentPermissions = useMemo(() => toPermissionsPayload(tools), [tools])
+  const hasActiveConnector = enabled && Boolean(connectorId)
+  const isLoading = hasActiveConnector && loadedConnectorId !== connectorId
+  const visibleTools = useMemo(
+    () => (hasActiveConnector && !isLoading ? tools : []),
+    [hasActiveConnector, isLoading, tools],
+  )
+  const visibleError = hasActiveConnector && !isLoading ? error : null
+  const visibleInventoryError = hasActiveConnector && !isLoading ? inventoryError : null
+  const currentPermissions = useMemo(() => toPermissionsPayload(visibleTools), [visibleTools])
   const hasChanges = !arePermissionsEqual(currentPermissions, initialPermissions)
-  const canEdit = enabled && Boolean(connectorId) && !isLoading && !isSaving && tools.length > 0
+  const canEdit = hasActiveConnector && !isLoading && !isSaving && visibleTools.length > 0
 
   function updatePermission(name: string, permission: ConnectorToolPermission) {
     setTools((current) =>
@@ -178,26 +175,26 @@ export function ConnectorToolPermissionsSection({
         </div>
       ) : null}
 
-      {error ? (
+      {visibleError ? (
         <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-          {error}
+          {visibleError}
         </p>
       ) : null}
 
-      {inventoryError ? (
+      {visibleInventoryError ? (
         <p className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
-          {inventoryError}
+          {visibleInventoryError}
         </p>
       ) : null}
 
-      {!isLoading && !error && tools.length === 0 ? (
+      {!isLoading && !visibleError && visibleTools.length === 0 ? (
         <p className="rounded-lg border border-border/60 bg-card/40 px-3 py-2 text-sm text-muted-foreground">
           No MCP tools are available for this connector yet.
         </p>
       ) : null}
 
       <div className="space-y-3">
-        {tools.map((tool) => (
+        {visibleTools.map((tool) => (
           <div key={tool.name} className="rounded-xl border border-border/60 bg-card/40 px-4 py-3">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0 space-y-1">

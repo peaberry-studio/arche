@@ -1,7 +1,7 @@
 'use client'
 
 import type { FormEvent } from 'react'
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { ProviderCredentialsPanel } from '@/components/providers/provider-credentials-panel'
 import { getTeamErrorMessage } from '@/components/team/error-messages'
@@ -36,7 +36,7 @@ export function EditUserDialog({
   onUserUpdated,
   onUserDeleted,
 }: EditUserDialogProps) {
-  const [role, setRole] = useState<TeamUserRole>('USER')
+  const [roleDraft, setRoleDraft] = useState<{ role: TeamUserRole; userId: string } | null>(null)
   const [isSavingRole, setIsSavingRole] = useState(false)
   const [isResettingPassword, setIsResettingPassword] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
@@ -45,15 +45,22 @@ export function EditUserDialog({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (!open || !user) return
+  const role = roleDraft && roleDraft.userId === user?.id ? roleDraft.role : user?.role ?? 'USER'
 
-    setRole(user.role)
+  function resetDialogState() {
+    setRoleDraft(null)
     setNewPassword('')
     setPasswordResetMessage(null)
     setActionError(null)
     setShowDeleteConfirm(false)
-  }, [open, user])
+  }
+
+  function handleDialogOpenChange(nextOpen: boolean) {
+    if (!nextOpen) {
+      resetDialogState()
+    }
+    onOpenChange(nextOpen)
+  }
 
   async function handleSaveRole(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -79,6 +86,7 @@ export function EditUserDialog({
       }
 
       onUserUpdated(data.user)
+      setRoleDraft(null)
     } catch {
       setActionError(getTeamErrorMessage('network_error'))
     } finally {
@@ -117,7 +125,7 @@ export function EditUserDialog({
     }
   }
 
-  const handleDeleteUser = useCallback(async () => {
+  async function handleDeleteUser() {
     if (!user || isDeleting) return
 
     setActionError(null)
@@ -135,16 +143,16 @@ export function EditUserDialog({
       }
 
       onUserDeleted(user.id)
-      onOpenChange(false)
+      handleDialogOpenChange(false)
     } catch {
       setActionError(getTeamErrorMessage('network_error'))
     } finally {
       setIsDeleting(false)
     }
-  }, [isDeleting, onOpenChange, onUserDeleted, slug, user])
+  }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent className="scrollbar-custom max-h-[90vh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle className="type-display text-xl">Edit user</DialogTitle>
@@ -176,7 +184,12 @@ export function EditUserDialog({
                         id="edit-user-role"
                         className="flex h-10 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-offset-2"
                         value={role}
-                        onChange={(event) => setRole(event.target.value === 'ADMIN' ? 'ADMIN' : 'USER')}
+                        onChange={(event) => {
+                          setRoleDraft({
+                            role: event.target.value === 'ADMIN' ? 'ADMIN' : 'USER',
+                            userId: user.id,
+                          })
+                        }}
                       >
                         <option value="USER">User</option>
                         <option value="ADMIN">Admin</option>

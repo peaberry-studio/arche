@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { AhrefsSection } from '@/components/connectors/add-connector/ahrefs/section'
 import { CustomSection } from '@/components/connectors/add-connector/custom/section'
@@ -40,6 +40,11 @@ type AddConnectorModalProps = {
   onSaved: () => void
 }
 
+type ConnectorSectionEntry = {
+  node: ReactNode
+  type: ConnectorType
+}
+
 export function AddConnectorModal({
   slug,
   existingConnectors,
@@ -56,7 +61,7 @@ export function AddConnectorModal({
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sessionKey, setSessionKey] = useState(0)
-  const [, setTick] = useState(0)
+  const [isActiveComplete, setIsActiveComplete] = useState(false)
 
   const linearRef = useRef<AddConnectorSectionHandle>(null)
   const notionRef = useRef<AddConnectorSectionHandle>(null)
@@ -70,10 +75,6 @@ export function AddConnectorModal({
   const googleChatRef = useRef<AddConnectorSectionHandle>(null)
   const googlePeopleRef = useRef<AddConnectorSectionHandle>(null)
   const customRef = useRef<AddConnectorSectionHandle>(null)
-
-  const handleStateChange = useCallback(() => {
-    setTick((t) => t + 1)
-  }, [])
 
   const sectionRefs = {
     linear: linearRef,
@@ -90,8 +91,6 @@ export function AddConnectorModal({
     custom: customRef,
   } satisfies Record<ConnectorType, typeof linearRef>
 
-  const activeRef = sectionRefs[selectedType]
-
   const availableTypeOptions = useMemo(
     () =>
       CONNECTOR_TYPE_OPTIONS.filter((option) => {
@@ -102,39 +101,40 @@ export function AddConnectorModal({
       }),
     [existingConnectors]
   )
+  const activeType = availableTypeOptions.some((option) => option.type === selectedType)
+    ? selectedType
+    : availableTypeOptions[0]?.type ?? 'custom'
+  const activeRef = sectionRefs[activeType]
 
-  const initializedForOpen = useRef(false)
-
-  useEffect(() => {
-    if (!open) {
-      setModalStep('select')
-      setSelectedType(DEFAULT_TYPE)
-      setIsSaving(false)
-      setError(null)
-      initializedForOpen.current = false
-      return
-    }
-    if (initializedForOpen.current) return
-    initializedForOpen.current = true
-    const defaultType = availableTypeOptions[0]?.type ?? 'custom'
-    setSelectedType(defaultType)
-    setSessionKey((k) => k + 1)
-  }, [open, availableTypeOptions])
+  const handleStateChange = useCallback(() => {
+    setIsActiveComplete(Boolean(activeRef.current?.isComplete()))
+  }, [activeRef])
 
   useEffect(() => {
-    if (!open) return
-    const selectedStillAvailable = availableTypeOptions.some(
-      (option) => option.type === selectedType
-    )
-    if (!selectedStillAvailable) {
-      const fallbackType = availableTypeOptions[0]?.type ?? 'custom'
-      setSelectedType(fallbackType)
-      setModalStep('select')
+    if (modalStep === 'configure') {
+      handleStateChange()
     }
-  }, [availableTypeOptions, open, selectedType])
+  }, [handleStateChange, modalStep])
+
+  function resetModalState() {
+    setModalStep('select')
+    setSelectedType(DEFAULT_TYPE)
+    setIsSaving(false)
+    setError(null)
+    setIsActiveComplete(false)
+    setSessionKey((key) => key + 1)
+  }
+
+  function handleDialogOpenChange(nextOpen: boolean) {
+    if (!nextOpen) {
+      resetModalState()
+    }
+    onOpenChange(nextOpen)
+  }
 
   function handleSelectType(type: ConnectorType) {
     setSelectedType(type)
+    setIsActiveComplete(false)
     setError(null)
     setModalStep('configure')
   }
@@ -143,6 +143,146 @@ export function AddConnectorModal({
     setModalStep('select')
     setError(null)
   }
+
+  const connectorSections = [
+    {
+      type: 'linear',
+      node: (
+        <LinearSection
+          key={`linear-${sessionKey}`}
+          ref={linearRef}
+          onStateChange={handleStateChange}
+          isActive={activeType === 'linear'}
+        />
+      ),
+    },
+    {
+      type: 'notion',
+      node: (
+        <NotionSection
+          key={`notion-${sessionKey}`}
+          ref={notionRef}
+          onStateChange={handleStateChange}
+          isActive={activeType === 'notion'}
+        />
+      ),
+    },
+    {
+      type: 'zendesk',
+      node: (
+        <ZendeskSection
+          key={`zendesk-${sessionKey}`}
+          ref={zendeskRef}
+          onStateChange={handleStateChange}
+          isActive={activeType === 'zendesk'}
+        />
+      ),
+    },
+    {
+      type: 'ahrefs',
+      node: (
+        <AhrefsSection
+          key={`ahrefs-${sessionKey}`}
+          ref={ahrefsRef}
+          onStateChange={handleStateChange}
+          isActive={activeType === 'ahrefs'}
+        />
+      ),
+    },
+    {
+      type: 'umami',
+      node: (
+        <UmamiSection
+          key={`umami-${sessionKey}`}
+          ref={umamiRef}
+          onStateChange={handleStateChange}
+          isActive={activeType === 'umami'}
+        />
+      ),
+    },
+    {
+      type: 'meta-ads',
+      node: (
+        <MetaAdsSection
+          key={`meta-ads-${sessionKey}`}
+          ref={metaAdsRef}
+          onStateChange={handleStateChange}
+          isActive={activeType === 'meta-ads'}
+        />
+      ),
+    },
+    {
+      type: 'google_gmail',
+      node: (
+        <GoogleWorkspaceSection
+          key={`google_gmail-${sessionKey}`}
+          ref={googleGmailRef}
+          onStateChange={handleStateChange}
+          isActive={activeType === 'google_gmail'}
+          connectorType="google_gmail"
+        />
+      ),
+    },
+    {
+      type: 'google_drive',
+      node: (
+        <GoogleWorkspaceSection
+          key={`google_drive-${sessionKey}`}
+          ref={googleDriveRef}
+          onStateChange={handleStateChange}
+          isActive={activeType === 'google_drive'}
+          connectorType="google_drive"
+        />
+      ),
+    },
+    {
+      type: 'google_calendar',
+      node: (
+        <GoogleWorkspaceSection
+          key={`google_calendar-${sessionKey}`}
+          ref={googleCalendarRef}
+          onStateChange={handleStateChange}
+          isActive={activeType === 'google_calendar'}
+          connectorType="google_calendar"
+        />
+      ),
+    },
+    {
+      type: 'google_chat',
+      node: (
+        <GoogleWorkspaceSection
+          key={`google_chat-${sessionKey}`}
+          ref={googleChatRef}
+          onStateChange={handleStateChange}
+          isActive={activeType === 'google_chat'}
+          connectorType="google_chat"
+        />
+      ),
+    },
+    {
+      type: 'google_people',
+      node: (
+        <GoogleWorkspaceSection
+          key={`google_people-${sessionKey}`}
+          ref={googlePeopleRef}
+          onStateChange={handleStateChange}
+          isActive={activeType === 'google_people'}
+          connectorType="google_people"
+        />
+      ),
+    },
+    {
+      type: 'custom',
+      node: (
+        <CustomSection
+          key={`custom-${sessionKey}`}
+          ref={customRef}
+          onStateChange={handleStateChange}
+          isActive={activeType === 'custom'}
+        />
+      ),
+    },
+  ] satisfies ConnectorSectionEntry[]
 
   async function handleSave() {
     const submission = activeRef.current?.getSubmission()
@@ -159,7 +299,7 @@ export function AddConnectorModal({
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          type: selectedType,
+          type: activeType,
           name: submission.name,
           config: submission.config,
         }),
@@ -175,7 +315,7 @@ export function AddConnectorModal({
       }
 
       onSaved()
-      onOpenChange(false)
+      handleDialogOpenChange(false)
     } catch {
       setError(getConnectorErrorMessage(null, 'network_error'))
     } finally {
@@ -184,7 +324,7 @@ export function AddConnectorModal({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent
         className={cn(
           'scrollbar-custom max-h-[90vh] overflow-y-auto sm:max-w-xl',
@@ -210,83 +350,7 @@ export function AddConnectorModal({
 
         {/* --- Configuration fields --- */}
         <div className={cn(modalStep !== 'configure' && 'hidden')}>
-          <LinearSection
-            key={`linear-${sessionKey}`}
-            ref={linearRef}
-            onStateChange={handleStateChange}
-            isActive={selectedType === 'linear'}
-          />
-          <NotionSection
-            key={`notion-${sessionKey}`}
-            ref={notionRef}
-            onStateChange={handleStateChange}
-            isActive={selectedType === 'notion'}
-          />
-          <ZendeskSection
-            key={`zendesk-${sessionKey}`}
-            ref={zendeskRef}
-            onStateChange={handleStateChange}
-            isActive={selectedType === 'zendesk'}
-          />
-          <AhrefsSection
-            key={`ahrefs-${sessionKey}`}
-            ref={ahrefsRef}
-            onStateChange={handleStateChange}
-            isActive={selectedType === 'ahrefs'}
-          />
-          <UmamiSection
-            key={`umami-${sessionKey}`}
-            ref={umamiRef}
-            onStateChange={handleStateChange}
-            isActive={selectedType === 'umami'}
-          />
-          <MetaAdsSection
-            key={`meta-ads-${sessionKey}`}
-            ref={metaAdsRef}
-            onStateChange={handleStateChange}
-            isActive={selectedType === 'meta-ads'}
-          />
-          <GoogleWorkspaceSection
-            key={`google_gmail-${sessionKey}`}
-            ref={googleGmailRef}
-            onStateChange={handleStateChange}
-            isActive={selectedType === 'google_gmail'}
-            connectorType="google_gmail"
-          />
-          <GoogleWorkspaceSection
-            key={`google_drive-${sessionKey}`}
-            ref={googleDriveRef}
-            onStateChange={handleStateChange}
-            isActive={selectedType === 'google_drive'}
-            connectorType="google_drive"
-          />
-          <GoogleWorkspaceSection
-            key={`google_calendar-${sessionKey}`}
-            ref={googleCalendarRef}
-            onStateChange={handleStateChange}
-            isActive={selectedType === 'google_calendar'}
-            connectorType="google_calendar"
-          />
-          <GoogleWorkspaceSection
-            key={`google_chat-${sessionKey}`}
-            ref={googleChatRef}
-            onStateChange={handleStateChange}
-            isActive={selectedType === 'google_chat'}
-            connectorType="google_chat"
-          />
-          <GoogleWorkspaceSection
-            key={`google_people-${sessionKey}`}
-            ref={googlePeopleRef}
-            onStateChange={handleStateChange}
-            isActive={selectedType === 'google_people'}
-            connectorType="google_people"
-          />
-          <CustomSection
-            key={`custom-${sessionKey}`}
-            ref={customRef}
-            onStateChange={handleStateChange}
-            isActive={selectedType === 'custom'}
-          />
+          {connectorSections.map((section) => section.node)}
         </div>
 
         {/* --- Error --- */}
@@ -311,7 +375,7 @@ export function AddConnectorModal({
               <Button
                 type="button"
                 onClick={handleSave}
-                disabled={isSaving || !activeRef.current?.isComplete()}
+                disabled={isSaving || !isActiveComplete}
               >
                 {isSaving ? 'Saving...' : 'Save connector'}
               </Button>

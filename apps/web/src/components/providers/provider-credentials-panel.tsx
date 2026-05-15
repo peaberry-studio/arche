@@ -18,6 +18,32 @@ type ProviderCredentialsPanelProps = {
   showHeader?: boolean
 }
 
+async function fetchProviders(slug: string): Promise<{
+  error?: string
+  ok: boolean
+  providers: TeamProviderStatus[]
+}> {
+  const response = await fetch(`/api/u/${slug}/providers`, {
+    cache: 'no-store',
+  })
+  const data = (await response.json().catch(() => null)) as
+    | { providers?: TeamProviderStatus[]; error?: string }
+    | null
+
+  if (!response.ok) {
+    return {
+      error: getTeamErrorMessage(data?.error ?? 'load_failed'),
+      ok: false,
+      providers: [],
+    }
+  }
+
+  return {
+    ok: true,
+    providers: data?.providers ?? [],
+  }
+}
+
 export function ProviderCredentialsPanel({
   slug,
   title = 'Provider credentials',
@@ -28,7 +54,7 @@ export function ProviderCredentialsPanel({
   const [providerApiKeys, setProviderApiKeys] = useState<Record<string, string>>({})
   const [providerBusy, setProviderBusy] = useState<Record<string, boolean>>({})
   const [expandedProviders, setExpandedProviders] = useState<Record<string, boolean>>({})
-  const [isLoadingProviders, setIsLoadingProviders] = useState(false)
+  const [isLoadingProviders, setIsLoadingProviders] = useState(true)
   const [providerError, setProviderError] = useState<string | null>(null)
 
   const loadProviders = useCallback(async () => {
@@ -36,19 +62,14 @@ export function ProviderCredentialsPanel({
     setProviderError(null)
 
     try {
-      const response = await fetch(`/api/u/${slug}/providers`, {
-        cache: 'no-store',
-      })
-      const data = (await response.json().catch(() => null)) as
-        | { providers?: TeamProviderStatus[]; error?: string }
-        | null
+      const data = await fetchProviders(slug)
 
-      if (!response.ok) {
-        setProviderError(getTeamErrorMessage(data?.error ?? 'load_failed'))
+      if (!data.ok) {
+        setProviderError(data.error ?? getTeamErrorMessage('load_failed'))
         return
       }
 
-      setProviders(data?.providers ?? [])
+      setProviders(data.providers)
     } catch {
       setProviderError(getTeamErrorMessage('network_error'))
     } finally {
@@ -57,8 +78,37 @@ export function ProviderCredentialsPanel({
   }, [slug])
 
   useEffect(() => {
-    void loadProviders()
-  }, [loadProviders])
+    let cancelled = false
+
+    async function loadInitialProviders() {
+      try {
+        const data = await fetchProviders(slug)
+        if (cancelled) return
+
+        if (!data.ok) {
+          setProviderError(data.error ?? getTeamErrorMessage('load_failed'))
+          return
+        }
+
+        setProviders(data.providers)
+        setProviderError(null)
+      } catch {
+        if (!cancelled) {
+          setProviderError(getTeamErrorMessage('network_error'))
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingProviders(false)
+        }
+      }
+    }
+
+    void loadInitialProviders()
+
+    return () => {
+      cancelled = true
+    }
+  }, [slug])
 
   async function handleSaveProvider(providerId: ProviderId) {
     const apiKey = providerApiKeys[providerId]?.trim() ?? ''

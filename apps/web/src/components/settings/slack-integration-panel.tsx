@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { CaretDown, Check, CheckCircle, Copy, Hash, Lock, SpinnerGap, XCircle } from '@phosphor-icons/react'
 
 import { SettingsInfoBox } from '@/components/settings/settings-info-box'
@@ -58,6 +58,56 @@ function getErrorMessage(error: string | undefined): string {
 
 function getApiErrorMessage(error: string | undefined, message: string | undefined): string {
   return getErrorMessage(message ?? error)
+}
+
+async function fetchSlackIntegration(slug: string): Promise<{
+  data?: SlackIntegrationGetResponse
+  error?: string
+  ok: boolean
+}> {
+  const response = await fetch(`/api/u/${slug}/slack-integration`, { cache: 'no-store' })
+  const data = (await response.json().catch(() => null)) as
+    | (SlackIntegrationGetResponse & { error?: string })
+    | { error?: string }
+    | null
+
+  if (!response.ok || !data || !('integration' in data)) {
+    return {
+      error: getErrorMessage(data?.error),
+      ok: false,
+    }
+  }
+
+  return { data, ok: true }
+}
+
+async function fetchSlackNotificationChannels(slug: string): Promise<{
+  channels: SlackNotificationChannel[]
+  error?: string
+  ok: boolean
+}> {
+  const response = await fetch(`/api/u/${slug}/slack-integration/channels`, { cache: 'no-store' })
+  const data = (await response.json().catch(() => null)) as { channels?: SlackNotificationChannel[]; error?: string } | null
+
+  if (!response.ok || !data) {
+    return {
+      channels: [],
+      error: getErrorMessage(data?.error),
+      ok: false,
+    }
+  }
+
+  return { channels: data.channels ?? [], ok: true }
+}
+
+function resolveSlackNotificationChannels(data: Awaited<ReturnType<typeof fetchSlackNotificationChannels>>):
+  | { ok: true; channels: SlackNotificationChannel[] }
+  | { ok: false; error: string } {
+  if (!data.ok) {
+    return { ok: false, error: data.error ?? getErrorMessage(undefined) }
+  }
+
+  return { ok: true, channels: data.channels }
 }
 
 function getStatusVariant(status: SlackIntegrationStatus): 'default' | 'secondary' | 'warning' | 'outline' {
@@ -126,67 +176,97 @@ export function SlackIntegrationPanel({
   const [isRefreshingChannels, setIsRefreshingChannels] = useState(false)
   const [testResult, setTestResult] = useState<SlackIntegrationTestResponse | null>(null)
 
-  const effectiveAgentLabel = useMemo(() => {
+  const effectiveAgentLabel = (() => {
     if (!integration?.resolvedDefaultAgentId) {
       return 'None'
     }
 
     return agents.find((agent) => agent.id === integration.resolvedDefaultAgentId)?.displayName ?? integration.resolvedDefaultAgentId
-  }, [agents, integration?.resolvedDefaultAgentId])
-
-  const loadIntegration = useCallback(async () => {
-    setIsLoading(true)
-    setError(null)
-
-    try {
-      const response = await fetch(`/api/u/${slug}/slack-integration`, { cache: 'no-store' })
-      const data = (await response.json().catch(() => null)) as
-        | (SlackIntegrationGetResponse & { error?: string })
-        | { error?: string }
-        | null
-
-      if (!response.ok || !data || !('integration' in data)) {
-        setError(getErrorMessage(data?.error))
-        return
-      }
-
-      setAgents(data.agents)
-      setIntegration(data.integration)
-      setDefaultAgentId(data.integration.defaultAgentId ?? '')
-    } catch {
-      setError(getErrorMessage('network_error'))
-    } finally {
-      setIsLoading(false)
-    }
-  }, [slug])
+  })()
 
   const loadNotificationChannels = useCallback(async () => {
     try {
-      const response = await fetch(`/api/u/${slug}/slack-integration/channels`, { cache: 'no-store' })
-      const data = (await response.json().catch(() => null)) as { channels?: SlackNotificationChannel[]; error?: string } | null
-      if (!response.ok || !data) {
-        setError(getErrorMessage(data?.error))
+      const data = await fetchSlackNotificationChannels(slug)
+      const result = resolveSlackNotificationChannels(data)
+
+      if (!result.ok) {
+        setError(result.error)
         return
       }
 
-      setNotificationChannels(data.channels ?? [])
+      setNotificationChannels(result.channels)
     } catch {
       setError(getErrorMessage('network_error'))
     }
   }, [slug])
 
   useEffect(() => {
-    void loadIntegration()
-  }, [loadIntegration, refreshVersion])
+    let cancelled = false
+
+    async function loadInitialIntegration() {
+      try {
+        const result = await fetchSlackIntegration(slug)
+        if (cancelled) return
+
+        if (!result.ok || !result.data) {
+          setError(result.error ?? getErrorMessage(undefined))
+          return
+        }
+
+        setAgents(result.data.agents)
+        setIntegration(result.data.integration)
+        setDefaultAgentId(result.data.integration.defaultAgentId ?? '')
+        setError(null)
+      } catch {
+        if (!cancelled) {
+          setError(getErrorMessage('network_error'))
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    void loadInitialIntegration()
+
+    return () => {
+      cancelled = true
+    }
+  }, [refreshVersion, slug])
 
   useEffect(() => {
-    if (integration?.enabled) {
-      void loadNotificationChannels()
+    if (!integration?.enabled) {
       return
     }
 
-    setNotificationChannels([])
-  }, [integration?.enabled, loadNotificationChannels])
+    let cancelled = false
+
+    async function loadInitialNotificationChannels() {
+      try {
+        const data = await fetchSlackNotificationChannels(slug)
+        if (cancelled) return
+
+        const result = resolveSlackNotificationChannels(data)
+        if (!result.ok) {
+          setError(result.error)
+          return
+        }
+
+        setNotificationChannels(result.channels)
+      } catch {
+        if (!cancelled) {
+          setError(getErrorMessage('network_error'))
+        }
+      }
+    }
+
+    void loadInitialNotificationChannels()
+
+    return () => {
+      cancelled = true
+    }
+  }, [integration?.enabled, slug])
 
   const refreshSlackChannels = useCallback(async () => {
     setIsRefreshingChannels(true)
@@ -330,6 +410,7 @@ export function SlackIntegrationPanel({
   const detailsId = 'slack-integration-details'
   const isEnabled = integration?.enabled ?? false
   const showDetails = collapsible ? isExpanded : true
+  const visibleNotificationChannels = isEnabled ? notificationChannels : []
 
   const headerContent = (
     <>
@@ -556,13 +637,13 @@ export function SlackIntegrationPanel({
                 </Button>
               </div>
 
-              {notificationChannels.length === 0 ? (
+              {visibleNotificationChannels.length === 0 ? (
                 <p className="rounded-lg border border-border/60 bg-card/40 px-3 py-2 text-sm text-muted-foreground">
                   No channels found. Invite the bot to Slack channels, then click refresh to load them from Slack.
                 </p>
               ) : (
                 <div className="space-y-2">
-                  {notificationChannels.map((channel) => (
+                  {visibleNotificationChannels.map((channel) => (
                     <div key={channel.id} className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-card/40 px-3 py-2">
                       <div className="flex min-w-0 items-center gap-2">
                         {channel.isPrivate ? (

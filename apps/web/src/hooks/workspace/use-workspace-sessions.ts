@@ -57,9 +57,7 @@ export function useWorkspaceSessions({
   const [unseenCompletedSessions, setUnseenCompletedSessions] = useState<Set<string>>(new Set());
 
   const activeSessionIdRef = useRef(activeSessionId);
-  activeSessionIdRef.current = activeSessionId;
   const sessionStoreRef = useRef(sessionStore);
-  sessionStoreRef.current = sessionStore;
   const sessionsRef = useRef<WorkspaceSession[]>([]);
   const sessionMutationVersionRef = useRef(0);
   const sessionLoadRequestIdRef = useRef(0);
@@ -75,7 +73,18 @@ export function useWorkspaceSessions({
     () => deriveVisibleSessions(sessionStore),
     [sessionStore]
   );
-  sessionsRef.current = sessions;
+
+  useEffect(() => {
+    activeSessionIdRef.current = activeSessionId;
+  }, [activeSessionId]);
+
+  useEffect(() => {
+    sessionStoreRef.current = sessionStore;
+  }, [sessionStore]);
+
+  useEffect(() => {
+    sessionsRef.current = sessions;
+  }, [sessions]);
 
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? null;
 
@@ -175,6 +184,7 @@ export function useWorkspaceSessions({
         initialSessionIdRef.current = null;
 
         if (nextActiveSessionId !== currentSessionId) {
+          activeSessionIdRef.current = nextActiveSessionId;
           setActiveSessionId(nextActiveSessionId);
         }
       }
@@ -260,6 +270,7 @@ export function useWorkspaceSessions({
 
   const selectSession = useCallback(
     (id: string | null) => {
+      activeSessionIdRef.current = id;
       setActiveSessionId(id);
 
       if (id === null) return;
@@ -319,6 +330,7 @@ export function useWorkspaceSessions({
       if (result.ok && result.session) {
         markSessionsMutated();
         setSessionStore((prev) => prependSession(prev, result.session!));
+        activeSessionIdRef.current = result.session.id;
         setActiveSessionId(result.session.id);
         return result.session;
       }
@@ -342,6 +354,7 @@ export function useWorkspaceSessions({
         const nextActiveSessionId = activeSessionIdRef.current && sessionIdsToRemove.has(activeSessionIdRef.current)
           ? nextVisibleSessions[0]?.id ?? null
           : activeSessionIdRef.current;
+        activeSessionIdRef.current = nextActiveSessionId;
         setActiveSessionId(nextActiveSessionId);
         return { deletedSessionIds: sessionIdsToRemove };
       }

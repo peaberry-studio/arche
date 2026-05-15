@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { SettingsInfoBox } from '@/components/settings/settings-info-box'
 import { SettingsSection } from '@/components/settings/settings-section'
@@ -18,6 +18,28 @@ const ERROR_MESSAGES: Record<string, string> = {
   network_error: 'Could not reach the server.',
 }
 
+async function fetchSlackIntegrationEnabled(slug: string): Promise<{
+  enabled: boolean
+  error?: string
+  ok: boolean
+}> {
+  const response = await fetch(`/api/u/${slug}/slack-integration`, { cache: 'no-store' })
+  const data = (await response.json().catch(() => null)) as
+    | (SlackIntegrationGetResponse & { error?: string })
+    | { error?: string }
+    | null
+
+  if (!response.ok || !data || !('integration' in data)) {
+    return {
+      enabled: false,
+      error: getErrorMessage(data?.error),
+      ok: false,
+    }
+  }
+
+  return { enabled: data.integration.enabled, ok: true }
+}
+
 export function SlackIntegrationDangerZone({
   slug,
   refreshVersion,
@@ -28,33 +50,38 @@ export function SlackIntegrationDangerZone({
   const [isDisabling, setIsDisabling] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const loadIntegration = useCallback(async () => {
-    setIsLoading(true)
-    setError(null)
-
-    try {
-      const response = await fetch(`/api/u/${slug}/slack-integration`, { cache: 'no-store' })
-      const data = (await response.json().catch(() => null)) as
-        | (SlackIntegrationGetResponse & { error?: string })
-        | { error?: string }
-        | null
-
-      if (!response.ok || !data || !('integration' in data)) {
-        setError(getErrorMessage(data?.error))
-        return
-      }
-
-      setEnabled(data.integration.enabled)
-    } catch {
-      setError(getErrorMessage('network_error'))
-    } finally {
-      setIsLoading(false)
-    }
-  }, [slug])
-
   useEffect(() => {
+    let cancelled = false
+
+    async function loadIntegration() {
+      try {
+        const result = await fetchSlackIntegrationEnabled(slug)
+        if (cancelled) return
+
+        if (!result.ok) {
+          setError(result.error ?? getErrorMessage(undefined))
+          return
+        }
+
+        setEnabled(result.enabled)
+        setError(null)
+      } catch {
+        if (!cancelled) {
+          setError(getErrorMessage('network_error'))
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false)
+        }
+      }
+    }
+
     void loadIntegration()
-  }, [loadIntegration, refreshVersion])
+
+    return () => {
+      cancelled = true
+    }
+  }, [refreshVersion, slug])
 
   async function handleDisable() {
     setIsDisabling(true)

@@ -8,12 +8,20 @@ type PackageJson = {
 }
 
 describe('web dev scripts', () => {
+  it('keeps postinstall limited to the web Prisma client', () => {
+    const packageJsonPath = resolve(process.cwd(), 'package.json')
+    const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as PackageJson
+
+    expect(packageJson.scripts?.postinstall).toBe('pnpm prisma:generate')
+  })
+
   it('generates both Prisma clients before pnpm dev starts Next.js', () => {
     const packageJsonPath = resolve(process.cwd(), 'package.json')
     const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as PackageJson
 
-    expect(packageJson.scripts?.predev).toContain('pnpm prisma:generate')
-    expect(packageJson.scripts?.predev).toContain('pnpm prisma:generate:desktop')
+    expect(packageJson.scripts?.predev).toBe('pnpm prisma:generate:all')
+    expect(packageJson.scripts?.['prisma:generate:all']).toContain('pnpm prisma:generate')
+    expect(packageJson.scripts?.['prisma:generate:all']).toContain('pnpm prisma:generate:desktop')
   })
 
   it('keeps local-dev compose generating the desktop Prisma client before webpack dev starts', () => {
