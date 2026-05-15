@@ -11,6 +11,13 @@ vi.mock('next/headers', () => ({
   headers: () => headersMock(),
 }))
 
+vi.mock('next/font/google', () => ({
+  Geist: () => ({ variable: 'font-geist-sans' }),
+  Geist_Mono: () => ({ variable: 'font-geist-mono' }),
+  Space_Grotesk: () => ({ variable: 'font-space-grotesk' }),
+  Tinos: () => ({ variable: 'font-tinos' }),
+}))
+
 function getElementProps<TProps>(element: ReactNode): TProps {
   if (!isReactElement<TProps>(element)) {
     throw new Error('Expected React element')
@@ -35,7 +42,7 @@ describe('RootLayout', () => {
     })
   })
 
-  it('awaits headers and wraps children with the app body class', async () => {
+  it('awaits headers and wraps children with the configured font classes', async () => {
     const element = await RootLayout({ children: <span>Layout child</span> })
     const htmlProps = getElementProps<{
       children: ReactElement
@@ -47,7 +54,8 @@ describe('RootLayout', () => {
     expect(headersMock).toHaveBeenCalledTimes(1)
     expect(htmlProps.lang).toBe('en')
     expect(htmlProps.suppressHydrationWarning).toBe(true)
-    expect(bodyProps.className).toBe('antialiased')
+    expect(bodyProps.className).toContain('font-geist-sans')
+    expect(bodyProps.className).toContain('font-tinos')
     expect(bodyProps.children).toEqual(<span>Layout child</span>)
   })
 })

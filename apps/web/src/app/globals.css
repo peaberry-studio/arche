@@ -70,10 +70,6 @@
 
 :root {
   --radius: 0.625rem;
-  --font-geist-sans: Inter, ui-sans-serif, system-ui, sans-serif;
-  --font-geist-mono: "SFMono-Regular", "Cascadia Code", "Roboto Mono", monospace;
-  --font-space-grotesk: "Space Grotesk", Inter, ui-sans-serif, system-ui, sans-serif;
-  --font-tinos: Georgia, "Times New Roman", serif;
   /* Base background – warm cream, easier on the eyes */
   --background: 36 28% 91%;
   /* Main text with strong contrast */

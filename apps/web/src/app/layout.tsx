@@ -1,6 +1,30 @@
 import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
+import { Geist, Geist_Mono, Space_Grotesk, Tinos } from "next/font/google";
 import "./globals.css";
+
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+const spaceGrotesk = Space_Grotesk({
+  variable: "--font-space-grotesk",
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+});
+
+const tinos = Tinos({
+  variable: "--font-tinos",
+  subsets: ["latin"],
+  weight: ["400", "700"],
+  style: ["normal", "italic"],
+});
 
 export const metadata: Metadata = {
   title: "Archē",
@@ -48,7 +72,9 @@ export default async function RootLayout({
 
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="antialiased">
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} ${spaceGrotesk.variable} ${tinos.variable} antialiased`}
+      >
         {children}
       </body>
     </html>
