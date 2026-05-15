@@ -19,6 +19,32 @@ describe('AddConnectorModal', () => {
     vi.unstubAllGlobals()
   })
 
+  it.each(['Linear', 'Notion'])(
+    'enables save for %s OAuth defaults',
+    async (label) => {
+      const onOpenChange = vi.fn()
+      const onSaved = vi.fn()
+
+      render(
+        <AddConnectorModal
+          slug="alice"
+          existingConnectors={[]}
+          open
+          onOpenChange={onOpenChange}
+          onSaved={onSaved}
+        />
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: new RegExp(label, 'i') }))
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: 'Save connector' }).hasAttribute('disabled')
+        ).toBe(false)
+      })
+    }
+  )
+
   it('shows Linear app actor setup instructions and saves the actor mode', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ id: 'conn-1' }), {

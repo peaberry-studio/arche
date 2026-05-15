@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { AhrefsSection } from '@/components/connectors/add-connector/ahrefs/section'
 import { CustomSection } from '@/components/connectors/add-connector/custom/section'
@@ -109,6 +109,12 @@ export function AddConnectorModal({
   const handleStateChange = useCallback(() => {
     setIsActiveComplete(Boolean(activeRef.current?.isComplete()))
   }, [activeRef])
+
+  useEffect(() => {
+    if (modalStep === 'configure') {
+      handleStateChange()
+    }
+  }, [handleStateChange, modalStep])
 
   function resetModalState() {
     setModalStep('select')
