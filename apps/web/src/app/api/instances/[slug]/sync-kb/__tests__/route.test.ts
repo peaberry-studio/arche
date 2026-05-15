@@ -107,6 +107,7 @@ describe('POST /api/instances/[slug]/sync-kb', () => {
     mockCreateWorkspaceAgentClient.mockResolvedValue(null)
     const res = await POST(makeRequest('POST'), { params: Promise.resolve({ slug: 'alice' }) })
     expect(res.status).toBe(409)
+    expect(mockCreateWorkspaceRemoteConfig).not.toHaveBeenCalled()
   })
 
   it('handles agent HTTP error', async () => {
@@ -118,7 +119,7 @@ describe('POST /api/instances/[slug]/sync-kb', () => {
     spy.mockRestore()
   })
 
-  it('returns GitHub remote configuration errors before contacting the agent', async () => {
+  it('returns GitHub remote configuration errors before contacting the agent endpoint', async () => {
     mockCreateWorkspaceRemoteConfig.mockResolvedValue({ ok: false, error: 'token failed' })
     const spy = vi.spyOn(globalThis, 'fetch')
 
@@ -126,6 +127,9 @@ describe('POST /api/instances/[slug]/sync-kb', () => {
     const body = await res.json()
 
     expect(body).toEqual({ ok: false, status: 'error', message: 'token failed' })
+    expect(mockCreateWorkspaceAgentClient.mock.invocationCallOrder[0]).toBeLessThan(
+      mockCreateWorkspaceRemoteConfig.mock.invocationCallOrder[0],
+    )
     expect(spy).not.toHaveBeenCalled()
     spy.mockRestore()
   })

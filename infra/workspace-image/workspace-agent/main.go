@@ -1823,9 +1823,9 @@ func (s *server) ensureNamedRemote(ctx context.Context, name string, remoteUrl s
 }
 
 func (s *server) fetchGithubBranch(ctx context.Context, remote kbGithubRemoteConfig) (string, string) {
-	_, stderr, code, execErr := runCmd(ctx, s.workspace, githubGitArgs(remote.Token,
+	_, stderr, code, execErr := runGithubGit(ctx, s.workspace, remote.Token,
 		"fetch", "github", "+refs/heads/"+remote.Branch+":refs/remotes/github/"+remote.Branch,
-	))
+	)
 	if execErr == nil && code == 0 {
 		return "ok", ""
 	}
@@ -1900,9 +1900,9 @@ func (s *server) pushCurrentToKb(ctx context.Context, branch string) string {
 }
 
 func (s *server) pushCurrentToGithub(ctx context.Context, remote kbGithubRemoteConfig) githubSyncResult {
-	stdout, stderr, code, execErr := runCmd(ctx, s.workspace, githubGitArgs(remote.Token,
+	stdout, stderr, code, execErr := runGithubGit(ctx, s.workspace, remote.Token,
 		"push", "github", "HEAD:refs/heads/"+remote.Branch,
-	))
+	)
 	combined := sanitizeGithubMessage(strings.TrimSpace(stdout+"\n"+stderr), remote.Token)
 	if execErr == nil && code == 0 {
 		if strings.Contains(combined, "Everything up-to-date") {
@@ -1924,10 +1924,19 @@ func (s *server) pushCurrentToGithub(ctx context.Context, remote kbGithubRemoteC
 	return githubSyncResult{Ok: false, Status: "error", Message: "GitHub push failed: " + msg}
 }
 
-func githubGitArgs(token string, args ...string) []string {
+func runGithubGit(ctx context.Context, dir string, token string, args ...string) (string, string, int, error) {
+	command := append([]string{"git"}, args...)
+	return runCmdWithEnv(ctx, dir, command, githubGitEnv(token))
+}
+
+func githubGitEnv(token string) []string {
 	credential := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
-	result := []string{"git", "-c", "http.extraheader=AUTHORIZATION: basic " + credential}
-	return append(result, args...)
+	return []string{
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=http.extraheader",
+		"GIT_CONFIG_VALUE_0=AUTHORIZATION: basic " + credential,
+		"GIT_TERMINAL_PROMPT=0",
+	}
 }
 
 func sanitizeGithubMessage(message string, token string) string {
@@ -2136,11 +2145,18 @@ func generateCommitMessage(statOutput string) string {
 }
 
 func runCmd(ctx context.Context, dir string, args []string) (string, string, int, error) {
+	return runCmdWithEnv(ctx, dir, args, nil)
+}
+
+func runCmdWithEnv(ctx context.Context, dir string, args []string, env []string) (string, string, int, error) {
 	if len(args) == 0 {
 		return "", "", 1, errors.New("no_command")
 	}
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Dir = dir
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout

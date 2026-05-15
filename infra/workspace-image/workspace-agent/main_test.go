@@ -142,6 +142,23 @@ func TestSanitizeGithubMessageRedactsToken(t *testing.T) {
 	}
 }
 
+func TestGithubGitEnvStoresCredentialOutsideArguments(t *testing.T) {
+	token := "github-token"
+	encoded := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + token))
+	env := strings.Join(githubGitEnv(token), "\n")
+	args := strings.Join([]string{"git", "fetch", "github", "main"}, " ")
+
+	if strings.Contains(args, token) || strings.Contains(args, encoded) {
+		t.Fatalf("expected git arguments not to contain credentials, got %q", args)
+	}
+	if !strings.Contains(env, "GIT_CONFIG_KEY_0=http.extraheader") || !strings.Contains(env, encoded) {
+		t.Fatalf("expected GitHub credential in git config environment, got %q", env)
+	}
+	if strings.Contains(env, token) {
+		t.Fatalf("expected raw token not to appear in environment, got %q", env)
+	}
+}
+
 func TestFileHandlersHappyPath(t *testing.T) {
 	workspace := t.TempDir()
 	s := &server{workspace: workspace}

@@ -25,6 +25,11 @@ export const POST = withAuth<PublishKbResult | { error: string }>(
     }
 
     try {
+      const agent = await createWorkspaceAgentClient(slug)
+      if (!agent) {
+        return NextResponse.json({ error: 'instance_unavailable' }, { status: 409 })
+      }
+
       const githubRemote = await kbGithubRemoteService.createWorkspaceRemoteConfig()
       if (!githubRemote.ok) {
         return NextResponse.json({
@@ -32,11 +37,6 @@ export const POST = withAuth<PublishKbResult | { error: string }>(
           status: 'error',
           message: githubRemote.error,
         })
-      }
-
-      const agent = await createWorkspaceAgentClient(slug)
-      if (!agent) {
-        return NextResponse.json({ error: 'instance_unavailable' }, { status: 409 })
       }
 
       const body = githubRemote.remote ? JSON.stringify({ github: githubRemote.remote }) : undefined
@@ -104,5 +104,7 @@ async function markGithubSync(
     lastError,
     lastSyncAt: new Date().toISOString(),
     lastSyncStatus: status,
-  }).catch(() => undefined)
+  }).catch((error) => {
+    console.error('[kb-github-remote] Failed to update publish sync state', error)
+  })
 }
