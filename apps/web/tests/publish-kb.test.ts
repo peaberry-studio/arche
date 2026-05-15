@@ -17,6 +17,15 @@ vi.mock('@/lib/prisma', () => ({
   prisma: { instance: { findUnique: (...args: unknown[]) => mockFindUnique(...args) } },
 }))
 
+const mockCreateWorkspaceRemoteConfig = vi.fn()
+const mockUpdateSyncState = vi.fn()
+vi.mock('@/lib/services', () => ({
+  kbGithubRemoteService: {
+    createWorkspaceRemoteConfig: (...args: unknown[]) => mockCreateWorkspaceRemoteConfig(...args),
+    updateSyncState: (...args: unknown[]) => mockUpdateSyncState(...args),
+  },
+}))
+
 const mockGetAuthenticatedUser = vi.fn()
 vi.mock('@/lib/auth', () => ({
   getAuthenticatedUser: (...args: unknown[]) => mockGetAuthenticatedUser(...args),
@@ -67,6 +76,8 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     vi.resetModules()
     vi.stubGlobal('fetch', vi.fn())
     mockIsWorkspaceReachable.mockResolvedValue(true)
+    mockCreateWorkspaceRemoteConfig.mockResolvedValue({ ok: true, remote: null })
+    mockUpdateSyncState.mockResolvedValue(undefined)
   })
 
   it('returns 401 without session cookie', async () => {

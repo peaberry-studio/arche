@@ -24,7 +24,7 @@ describe('web dev scripts', () => {
     expect(packageJson.scripts?.['prisma:generate:all']).toContain('pnpm prisma:generate:desktop')
   })
 
-  it('keeps local-dev compose generating the desktop Prisma client before webpack dev starts', () => {
+  it('keeps local-dev compose generating the desktop Prisma client before Next dev starts', () => {
     const composeTemplatePath = resolve(
       process.cwd(),
       '..',
@@ -41,7 +41,9 @@ describe('web dev scripts', () => {
 
     expect(composeTemplate).toContain('pnpm prisma generate')
     expect(composeTemplate).toContain('pnpm prisma:generate:desktop')
-    expect(composeTemplate).toContain('pnpm next dev --webpack -H 0.0.0.0 -p 3000')
+    expect(composeTemplate).toContain('pnpm next dev -H 0.0.0.0 -p 3000')
+    expect(composeTemplate).not.toContain('--webpack')
+    expect(composeTemplate).not.toContain('pnpm install --prefer-offline --force')
     expect(composeTemplate).toContain('NODE_COMPILE_CACHE: "/tmp/node-compile-cache"')
     expect(composeTemplate).toContain('restart: "unless-stopped"')
     expect(composeTemplate).toContain('name: arche')

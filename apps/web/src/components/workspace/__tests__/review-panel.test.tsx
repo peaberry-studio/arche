@@ -1,13 +1,26 @@
 /** @vitest-environment jsdom */
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ReviewPanel } from '@/components/workspace/review-panel'
 import type { WorkspaceDiff } from '@/hooks/use-workspace'
 
+const mocks = vi.hoisted(() => ({
+  resolveWorkspaceConflictAction: vi.fn(),
+}))
+
+vi.mock('@/actions/workspace-agent', () => ({
+  resolveWorkspaceConflictAction: mocks.resolveWorkspaceConflictAction,
+}))
+
+beforeEach(() => {
+  mocks.resolveWorkspaceConflictAction.mockResolvedValue({ ok: true })
+})
+
 afterEach(() => {
   cleanup()
+  vi.clearAllMocks()
 })
 
 function makeDiff(overrides: Partial<WorkspaceDiff> = {}): WorkspaceDiff {
@@ -58,7 +71,7 @@ describe('ReviewPanel', () => {
       />
     )
 
-    expect(screen.getByText('Detected 1 conflict. Resolve the files before publishing.')).toBeDefined()
+    expect(screen.getByText('Detected 1 conflict. Keep one version, or open the file to edit conflict markers manually.')).toBeDefined()
     expect(screen.getByText('Conflict')).toBeDefined()
 
     fireEvent.click(screen.getByRole('button', { name: /Notes\/A\.md/ }))
@@ -93,5 +106,53 @@ describe('ReviewPanel', () => {
 
     expect(await screen.findByText('cannot discard')).toBeDefined()
     expect(screen.getByText('Discard changes?')).toBeDefined()
+  })
+
+  it('resolves conflicted files with inline quick actions', async () => {
+    const onResolveConflict = vi.fn(async () => undefined)
+
+    render(
+      <ReviewPanel
+        diffs={[makeDiff({ conflicted: true, path: 'Notes/Conflict.md' })]}
+        onOpenFile={vi.fn()}
+        onResolveConflict={onResolveConflict}
+        slug="alice"
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Keep local' }))
+
+    await waitFor(() => {
+      expect(mocks.resolveWorkspaceConflictAction).toHaveBeenCalledWith('alice', {
+        path: 'Notes/Conflict.md',
+        strategy: 'ours',
+      })
+    })
+    expect(onResolveConflict).toHaveBeenCalledWith('Notes/Conflict.md')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Keep remote' }))
+
+    await waitFor(() => {
+      expect(mocks.resolveWorkspaceConflictAction).toHaveBeenCalledWith('alice', {
+        path: 'Notes/Conflict.md',
+        strategy: 'theirs',
+      })
+    })
+  })
+
+  it('shows inline conflict resolution failures', async () => {
+    mocks.resolveWorkspaceConflictAction.mockResolvedValueOnce({ ok: false, error: 'resolve_failed' })
+
+    render(
+      <ReviewPanel
+        diffs={[makeDiff({ conflicted: true, path: 'Notes/Conflict.md' })]}
+        onOpenFile={vi.fn()}
+        slug="alice"
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Keep remote' }))
+
+    expect(await screen.findByText('resolve_failed')).toBeDefined()
   })
 })

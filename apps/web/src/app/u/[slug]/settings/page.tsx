@@ -4,9 +4,10 @@ import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { getCurrentDesktopVault, getDesktopWorkspaceHref } from '@/lib/runtime/desktop/current-vault'
 import { isDesktop } from '@/lib/runtime/mode'
 import { getSession } from '@/lib/runtime/session'
+import type { KbGithubRemoteIntegrationSummary } from '@/lib/kb-github-remote/types'
 import { serializeSlackIntegration } from '@/lib/slack/integration'
 import type { SlackIntegrationSummary } from '@/lib/slack/types'
-import { slackService, googleWorkspaceService } from '@/lib/services'
+import { googleWorkspaceService, kbGithubRemoteService, slackService } from '@/lib/services'
 import type { GoogleWorkspaceIntegrationSummary } from '@/lib/google-workspace/types'
 import { get2FAStatus } from './security/actions'
 import { normalizeTwoFactorStatus } from './security/status'
@@ -32,7 +33,7 @@ export default async function SettingsPage({
   if (!session) redirect('/login')
 
   const caps = getRuntimeCapabilities()
-  const [status, slackIntegrationSummary, googleWorkspaceSummary] = await Promise.all([
+  const [status, slackIntegrationSummary, googleWorkspaceSummary, kbGithubRemoteSummary] = await Promise.all([
     caps.twoFactor ? get2FAStatus() : Promise.resolve(null),
     caps.slackIntegration && session.user.role === 'ADMIN'
       ? loadSlackIntegrationSummary()
@@ -40,6 +41,9 @@ export default async function SettingsPage({
     caps.googleWorkspaceIntegration && session.user.role === 'ADMIN'
       ? loadGoogleWorkspaceSummary()
       : Promise.resolve<GoogleWorkspaceIntegrationSummary | null>(null),
+    caps.kbGithubRemoteIntegration && session.user.role === 'ADMIN'
+      ? loadKbGithubRemoteSummary()
+      : Promise.resolve<KbGithubRemoteIntegrationSummary | null>(null),
   ])
 
   if (caps.twoFactor && (!status || !status.ok)) redirect('/login')
@@ -50,6 +54,7 @@ export default async function SettingsPage({
     passwordChangeEnabled: caps.auth,
     slackIntegrationEnabled: caps.slackIntegration,
     googleWorkspaceIntegrationEnabled: caps.googleWorkspaceIntegration,
+    kbGithubRemoteIntegrationEnabled: caps.kbGithubRemoteIntegration,
     twoFactorEnabled: caps.twoFactor,
   })
   const search = await searchParams
@@ -73,6 +78,7 @@ export default async function SettingsPage({
       releaseVersion={releaseVersion}
       slackIntegrationSummary={slackIntegrationSummary}
       googleWorkspaceSummary={googleWorkspaceSummary}
+      kbGithubRemoteSummary={kbGithubRemoteSummary}
     />
   )
 }
@@ -92,4 +98,10 @@ async function loadGoogleWorkspaceSummary(): Promise<GoogleWorkspaceIntegrationS
     version: record?.version ?? 0,
     updatedAt: record?.updatedAt?.toISOString() ?? null,
   }
+}
+
+async function loadKbGithubRemoteSummary(): Promise<KbGithubRemoteIntegrationSummary> {
+  const record = await kbGithubRemoteService.findIntegration()
+  const config = kbGithubRemoteService.decryptIntegrationConfig(record)
+  return kbGithubRemoteService.toSummary(record, config)
 }

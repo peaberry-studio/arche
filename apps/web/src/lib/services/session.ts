@@ -41,6 +41,26 @@ export function findByTokenHash(tokenHash: string): Promise<SessionWithUser | nu
   })
 }
 
+export function findByIdWithUser(id: string): Promise<SessionWithUser | null> {
+  return prisma.session.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      expiresAt: true,
+      revokedAt: true,
+      userId: true,
+      user: {
+        select: {
+          id: true,
+          email: true,
+          slug: true,
+          role: true,
+        },
+      },
+    },
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Mutations
 // ---------------------------------------------------------------------------

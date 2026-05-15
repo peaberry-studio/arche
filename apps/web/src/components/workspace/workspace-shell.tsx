@@ -829,25 +829,47 @@ export function WorkspaceShell({
   }, [reloadKnowledgeGraph, workspace]);
 
   const handleResolveConflict = useCallback(
-    (path: string, content: string) => {
+    async (path: string) => {
       workspace.refreshDiffs();
       workspace.refreshFiles();
       reloadKnowledgeGraph();
 
+      if (!fileCacheRef.current[path]) return;
+
+      const refreshed = await workspace.readFile(path);
+
       setFileCache((prev) => {
         const existing = prev[path];
         if (!existing) return prev;
-        const size = `${(content.length / 1024).toFixed(1)} KB`;
+        if (!refreshed) {
+          const next = { ...prev };
+          delete next[path];
+          return next;
+        }
+
         return {
           ...prev,
           [path]: {
             ...existing,
-            content,
+            content: refreshed.content,
+            type: refreshed.type,
             updatedAt: "Just now",
-            size,
+            size: `${(refreshed.content.length / 1024).toFixed(1)} KB`,
+            hash: refreshed.hash,
           },
         };
       });
+
+      if (!refreshed) {
+        setOpenFilePaths((prev) => {
+          const nextOpen = prev.filter((candidate) => candidate !== path);
+          setActiveFilePath((active) => {
+            if (active !== path) return active;
+            return nextOpen[0] ?? null;
+          });
+          return nextOpen;
+        });
+      }
     },
     [reloadKnowledgeGraph, workspace]
   );
