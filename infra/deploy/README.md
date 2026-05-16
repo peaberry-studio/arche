@@ -49,7 +49,7 @@ The deployer has two modes: **local-dev** for active development with hot reload
 
 ### Local dev mode
 
-Mounts your source code for hot reload via `next dev`. Use this for active development against the full stack (Traefik, Postgres, socket proxy).
+Mounts your source code for fast Turbopack reloads via `next dev`. Use this for active development against the full stack (Traefik, Postgres, socket proxy).
 
 - **App**: http://arche.lvh.me:8080
 - **Traefik dashboard**: http://localhost:8081
@@ -62,10 +62,24 @@ Mounts your source code for hot reload via `next dev`. Use this for active devel
 ```bash
 cd infra/deploy
 cp .env.example .env   # edit if needed, defaults work for local
+cd ../..
+scripts/dev-local.sh
+```
+
+The launcher runs `deploy.sh --local-dev` and then waits for shortcuts: `r` reloads only Next.js, `q` exits the launcher, and `Q` stops the local-dev stack.
+
+To run the deployer directly instead:
+
+```bash
+cd infra/deploy
 ./deploy.sh --local-dev
 ```
 
-Edit files in `apps/web/src/` and Next.js hot reloads automatically.
+Edit files in `apps/web/src/` and Next.js reloads automatically. If Podman misses a file event, restart only the Next.js dev server:
+
+```bash
+../../scripts/reload-web-dev.sh
+```
 
 > **Note**: `--local-dev` uses project name `arche`. Run `podman compose -f <compose-file> -p arche down` before re-running if a previous stack is still active.
 
