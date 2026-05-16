@@ -20,6 +20,7 @@ type KbGithubRemotePanelProps = {
 }
 
 type BusyAction = 'connect' | 'disconnect' | 'repos' | 'select' | 'sync' | 'test' | null
+type GitHubAppOwnerMode = 'personal' | 'organization'
 
 type InitialFeedback = {
   error: string | null
@@ -32,6 +33,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   forbidden: 'Only admins can manage GitHub KB sync.',
   invalid_body: 'The request body was invalid.',
   invalid_installation_id: 'GitHub returned an invalid installation ID.',
+  invalid_owner: 'Enter a valid GitHub organization name before creating the app.',
   invalid_state: 'GitHub setup state expired. Start the GitHub setup again.',
   invalid_json: 'The request body was invalid JSON.',
   missing_code: 'GitHub did not return an app manifest code.',
@@ -49,11 +51,14 @@ const ERROR_MESSAGES: Record<string, string> = {
 
 const INSTANCE_START_POLL_INTERVAL_MS = 2_000
 const INSTANCE_START_TIMEOUT_MS = 120_000
+const GITHUB_OWNER_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/
 
 export function KbGithubRemotePanel({ initialError, initialIntegration, slug }: KbGithubRemotePanelProps) {
   const [initialFeedback] = useState<InitialFeedback>(() => getInitialFeedback())
   const [busyAction, setBusyAction] = useState<BusyAction>(null)
   const [error, setError] = useState<string | null>(initialFeedback.error ?? (initialError ? getErrorMessage(initialError) : null))
+  const [githubAppOwnerMode, setGithubAppOwnerMode] = useState<GitHubAppOwnerMode>('personal')
+  const [githubOrganization, setGithubOrganization] = useState('')
   const [integration, setIntegration] = useState<KbGithubRemoteIntegrationSummary | null>(initialIntegration)
   const [repos, setRepos] = useState<KbGithubRemoteRepo[] | null>(null)
   const [success, setSuccess] = useState<string | null>(initialFeedback.success)
@@ -96,6 +101,13 @@ export function KbGithubRemotePanel({ initialError, initialIntegration, slug }: 
   }, [integration])
 
   async function handleConnectGithub() {
+    const actionUrl = getGitHubAppManifestActionUrl(githubAppOwnerMode, githubOrganization)
+    if (!actionUrl.ok) {
+      setError(getErrorMessage(actionUrl.error))
+      setSuccess(null)
+      return
+    }
+
     setBusyAction('connect')
     setError(null)
     setSuccess(null)
@@ -126,7 +138,7 @@ export function KbGithubRemotePanel({ initialError, initialIntegration, slug }: 
 
       const form = document.createElement('form')
       form.method = 'post'
-      form.action = `https://github.com/settings/apps/new?state=${encodeURIComponent(state)}`
+      form.action = `${actionUrl.url}?state=${encodeURIComponent(state)}`
 
       const input = document.createElement('input')
       input.type = 'hidden'
@@ -313,6 +325,12 @@ export function KbGithubRemotePanel({ initialError, initialIntegration, slug }: 
           <SettingsInfoBox>
             Create a GitHub App from a manifest, then install it on the repository you want to use for KB sync.
           </SettingsInfoBox>
+          <GitHubAppOwnerSelector
+            mode={githubAppOwnerMode}
+            organization={githubOrganization}
+            onModeChange={setGithubAppOwnerMode}
+            onOrganizationChange={setGithubOrganization}
+          />
           <Button type="button" disabled={busyAction !== null} onClick={handleConnectGithub}>
             {busyAction === 'connect' ? 'Opening GitHub…' : 'Connect GitHub'}
           </Button>
@@ -391,6 +409,77 @@ export function KbGithubRemotePanel({ initialError, initialIntegration, slug }: 
   )
 }
 
+function GitHubAppOwnerSelector({
+  mode,
+  organization,
+  onModeChange,
+  onOrganizationChange,
+}: {
+  mode: GitHubAppOwnerMode
+  organization: string
+  onModeChange: (mode: GitHubAppOwnerMode) => void
+  onOrganizationChange: (organization: string) => void
+}) {
+  return (
+    <div className="space-y-3 rounded-lg border border-border/60 bg-background/50 p-4">
+      <div>
+        <p className="text-sm font-medium text-foreground">Create the GitHub App under</p>
+        <p className="text-xs text-muted-foreground">
+          Organization apps require org owner or GitHub App manager permissions.
+        </p>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border/60 bg-card px-3 py-2 text-sm text-foreground">
+          <input
+            type="radio"
+            name="github-app-owner"
+            value="personal"
+            checked={mode === 'personal'}
+            onChange={() => onModeChange('personal')}
+            className="mt-1"
+          />
+          <span>
+            <span className="block font-medium">Signed-in user</span>
+            <span className="block text-xs text-muted-foreground">Create it in your personal GitHub account.</span>
+          </span>
+        </label>
+
+        <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border/60 bg-card px-3 py-2 text-sm text-foreground">
+          <input
+            type="radio"
+            name="github-app-owner"
+            value="organization"
+            checked={mode === 'organization'}
+            onChange={() => onModeChange('organization')}
+            className="mt-1"
+          />
+          <span>
+            <span className="block font-medium">Organization</span>
+            <span className="block text-xs text-muted-foreground">Create it in a GitHub organization you can manage.</span>
+          </span>
+        </label>
+      </div>
+
+      {mode === 'organization' ? (
+        <label className="block space-y-1.5 text-sm text-foreground">
+          <span className="font-medium">Organization name</span>
+          <input
+            type="text"
+            value={organization}
+            onChange={(event) => onOrganizationChange(event.target.value)}
+            placeholder="acme"
+            autoCapitalize="none"
+            autoComplete="off"
+            spellCheck={false}
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring/20"
+          />
+        </label>
+      ) : null}
+    </div>
+  )
+}
+
 function RepoPicker({
   busyAction,
   onLoadRepos,
@@ -460,6 +549,22 @@ function DisconnectButton({
 function getErrorMessage(error: string | undefined): string {
   if (!error) return 'Something went wrong.'
   return ERROR_MESSAGES[error] ?? error
+}
+
+function getGitHubAppManifestActionUrl(
+  mode: GitHubAppOwnerMode,
+  organization: string,
+): { ok: true; url: string } | { ok: false; error: string } {
+  if (mode === 'personal') {
+    return { ok: true, url: 'https://github.com/settings/apps/new' }
+  }
+
+  const owner = organization.trim()
+  if (!GITHUB_OWNER_PATTERN.test(owner)) {
+    return { ok: false, error: 'invalid_owner' }
+  }
+
+  return { ok: true, url: `https://github.com/organizations/${encodeURIComponent(owner)}/settings/apps/new` }
 }
 
 function getInitialFeedback(): InitialFeedback {
