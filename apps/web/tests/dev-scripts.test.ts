@@ -37,12 +37,15 @@ describe('web dev scripts', () => {
       'templates',
       'compose.yml.j2',
     )
+    const rootComposePath = resolve(process.cwd(), '..', '..', 'infra', 'compose', 'compose.yaml')
     const composeTemplate = readFileSync(composeTemplatePath, 'utf8')
+    const rootCompose = readFileSync(rootComposePath, 'utf8')
 
-    expect(composeTemplate).toContain('pnpm prisma generate')
-    expect(composeTemplate).toContain('pnpm prisma:generate:desktop')
-    expect(composeTemplate).toContain('pnpm next dev -H 0.0.0.0 -p 3000')
-    expect(composeTemplate).not.toContain('--webpack')
+    for (const composeSource of [composeTemplate, rootCompose]) {
+      expect(composeSource).toContain('pnpm prisma generate')
+      expect(composeSource).toContain('pnpm prisma:generate:desktop')
+      expect(composeSource).toContain('pnpm next dev --webpack -H 0.0.0.0 -p 3000')
+    }
     expect(composeTemplate).not.toContain('pnpm install --prefer-offline --force')
     expect(composeTemplate).toContain('NODE_COMPILE_CACHE: "/tmp/node-compile-cache"')
     expect(composeTemplate).toContain('restart: "unless-stopped"')
