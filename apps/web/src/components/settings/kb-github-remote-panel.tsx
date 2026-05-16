@@ -101,10 +101,9 @@ export function KbGithubRemotePanel({ initialError, initialIntegration, slug }: 
   }, [integration])
 
   async function handleConnectGithub() {
-    const actionUrl = getGitHubAppManifestActionUrl(githubAppOwnerMode, githubOrganization)
-    if (!actionUrl.ok) {
-      setError(getErrorMessage(actionUrl.error))
-      setSuccess(null)
+    const owner = githubOrganization.trim()
+    if (githubAppOwnerMode === 'organization' && !GITHUB_OWNER_PATTERN.test(owner)) {
+      setError(getErrorMessage('invalid_owner'))
       return
     }
 
@@ -112,46 +111,12 @@ export function KbGithubRemotePanel({ initialError, initialIntegration, slug }: 
     setError(null)
     setSuccess(null)
 
-    try {
-      const stateResponse = await fetch(`/api/u/${slug}/kb-github-remote/setup-state`, { method: 'POST' })
-      const stateData = await stateResponse.json().catch(() => null) as { error?: string; state?: string } | null
-      if (!stateResponse.ok || !stateData?.state) {
-        setError(getErrorMessage(stateData?.error))
-        setBusyAction(null)
-        return
-      }
-
-      const origin = window.location.origin
-      const state = stateData.state
-      const manifest = {
-        default_events: [],
-        default_permissions: {
-          contents: 'write',
-          metadata: 'read',
-        },
-        name: 'Arche KB Sync',
-        public: false,
-        redirect_url: `${origin}/api/u/${slug}/kb-github-remote/setup`,
-        setup_url: `${origin}/api/u/${slug}/kb-github-remote/callback?state=${encodeURIComponent(state)}`,
-        url: origin,
-      }
-
-      const form = document.createElement('form')
-      form.method = 'post'
-      form.action = `${actionUrl.url}?state=${encodeURIComponent(state)}`
-
-      const input = document.createElement('input')
-      input.type = 'hidden'
-      input.name = 'manifest'
-      input.value = JSON.stringify(manifest)
-      form.appendChild(input)
-      document.body.appendChild(form)
-      form.submit()
-      form.remove()
-    } catch {
-      setError(getErrorMessage('network_error'))
-      setBusyAction(null)
+    const params = new URLSearchParams()
+    if (githubAppOwnerMode === 'organization') {
+      params.set('owner', owner)
     }
+    const qs = params.toString()
+    window.location.href = `/api/u/${slug}/kb-github-remote/manifest${qs ? `?${qs}` : ''}`
   }
 
   async function handleDisconnect() {
@@ -549,22 +514,6 @@ function DisconnectButton({
 function getErrorMessage(error: string | undefined): string {
   if (!error) return 'Something went wrong.'
   return ERROR_MESSAGES[error] ?? error
-}
-
-function getGitHubAppManifestActionUrl(
-  mode: GitHubAppOwnerMode,
-  organization: string,
-): { ok: true; url: string } | { ok: false; error: string } {
-  if (mode === 'personal') {
-    return { ok: true, url: 'https://github.com/settings/apps/new' }
-  }
-
-  const owner = organization.trim()
-  if (!GITHUB_OWNER_PATTERN.test(owner)) {
-    return { ok: false, error: 'invalid_owner' }
-  }
-
-  return { ok: true, url: `https://github.com/organizations/${encodeURIComponent(owner)}/settings/apps/new` }
 }
 
 function getInitialFeedback(): InitialFeedback {
