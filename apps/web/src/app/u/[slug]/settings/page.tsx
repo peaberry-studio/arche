@@ -36,8 +36,10 @@ export default async function SettingsPage({
   if (!session) redirect('/login')
 
   const caps = getRuntimeCapabilities()
-  const requestHeaders = await headers()
-  const baseUrl = getPublicBaseUrl(new Headers(requestHeaders), 'http://localhost')
+  const requestHeaders = caps.mcp ? await headers() : null
+  const baseUrl = requestHeaders
+    ? getPublicBaseUrl(new Headers(requestHeaders), 'http://localhost')
+    : 'http://localhost'
   const [
     status,
     slackIntegrationSummary,
