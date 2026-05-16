@@ -257,6 +257,230 @@ describe('KbGithubRemotePanel', () => {
     expect(await screen.findByText('Only admins can manage GitHub KB sync.')).toBeTruthy()
   })
 
+  it('shows the install-app state when app is created but not installed', async () => {
+    const appOnlyIntegration: KbGithubRemoteIntegrationSummary = {
+      ...notConfiguredIntegration,
+      appConfigured: true,
+      appId: '42',
+      appSlug: 'arche-kb-sync',
+      hasPrivateKey: true,
+    }
+    fetchMock.mockImplementation(async (input) => {
+      if (String(input) === '/api/u/alice/kb-github-remote') {
+        return jsonResponse(appOnlyIntegration)
+      }
+      return jsonResponse({ error: 'unexpected' }, { status: 500 })
+    })
+
+    renderPanel(appOnlyIntegration)
+
+    const installLink = screen.getByRole('link', { name: 'Install on GitHub' }) as HTMLAnchorElement
+    expect(installLink.href).toMatch(/\/api\/u\/alice\/kb-github-remote\/install$/)
+  })
+
+  it('shows last sync time and last error for a ready integration', async () => {
+    const integrationWithHistory: KbGithubRemoteIntegrationSummary = {
+      ...readyIntegration,
+      lastSyncAt: new Date('2026-05-15T12:00:00.000Z').toISOString(),
+      lastError: 'Previous sync failed.',
+    }
+    fetchMock.mockImplementation(async (input) => {
+      if (String(input) === '/api/u/alice/kb-github-remote') {
+        return jsonResponse(integrationWithHistory)
+      }
+      return jsonResponse({ error: 'unexpected' }, { status: 500 })
+    })
+
+    renderPanel(integrationWithHistory)
+
+    expect(await screen.findByText(/Last sync:/)).toBeTruthy()
+    expect(screen.getByText('Previous sync failed.')).toBeTruthy()
+  })
+
+  it('shows repo repicker when clicking Change repo', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input)
+      if (url === '/api/u/alice/kb-github-remote') {
+        return jsonResponse(readyIntegration)
+      }
+      if (url === '/api/u/alice/kb-github-remote/repos') {
+        return jsonResponse({ repos: [{ defaultBranch: 'main', fullName: 'acme/other', private: false }] })
+      }
+      return jsonResponse({ error: 'unexpected' }, { status: 500 })
+    })
+
+    renderPanel()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Change repo' }))
+    expect(await screen.findByText('acme/other')).toBeTruthy()
+  })
+
+  it('shows error when disconnect fails', async () => {
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url === '/api/u/alice/kb-github-remote' && init?.method === 'DELETE') {
+        throw new Error('Network failure')
+      }
+      if (url === '/api/u/alice/kb-github-remote') {
+        return jsonResponse(readyIntegration)
+      }
+      return jsonResponse({ error: 'unexpected' }, { status: 500 })
+    })
+
+    renderPanel()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Disconnect' }))
+    expect(await screen.findByText('Could not reach the server.')).toBeTruthy()
+  })
+
+  it('shows error when test connection fails', async () => {
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url === '/api/u/alice/kb-github-remote') {
+        return jsonResponse(readyIntegration)
+      }
+      if (url === '/api/u/alice/kb-github-remote/test' && init?.method === 'POST') {
+        return jsonResponse({ ok: false, message: 'Credentials rejected.' })
+      }
+      return jsonResponse({ error: `unexpected fetch: ${url}` }, { status: 500 })
+    })
+
+    renderPanel()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Test connection' }))
+    expect(await screen.findByText('Credentials rejected.')).toBeTruthy()
+  })
+
+  it('shows error when disconnect returns a non-ok response', async () => {
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url === '/api/u/alice/kb-github-remote' && init?.method === 'DELETE') {
+        return jsonResponse({ error: 'not_configured' }, { status: 400 })
+      }
+      if (url === '/api/u/alice/kb-github-remote') {
+        return jsonResponse(readyIntegration)
+      }
+      return jsonResponse({ error: 'unexpected' }, { status: 500 })
+    })
+
+    renderPanel()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Disconnect' }))
+    expect(await screen.findByText('Create the GitHub App before continuing.')).toBeTruthy()
+  })
+
+  it('shows error when selecting a repo fails', async () => {
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url === '/api/u/alice/kb-github-remote') {
+        return jsonResponse(readyIntegration)
+      }
+      if (url === '/api/u/alice/kb-github-remote/repos' && init?.method === 'PUT') {
+        return jsonResponse({ error: 'invalid_body' }, { status: 400 })
+      }
+      if (url === '/api/u/alice/kb-github-remote/repos') {
+        return jsonResponse({ repos: [{ defaultBranch: 'main', fullName: 'acme/other', private: false }] })
+      }
+      return jsonResponse({ error: 'unexpected' }, { status: 500 })
+    })
+
+    renderPanel()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Change repo' }))
+    fireEvent.click(await screen.findByRole('button', { name: /acme\/other/ }))
+    expect(await screen.findByText('The request body was invalid.')).toBeTruthy()
+  })
+
+  it('shows network error when load repos fails', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input)
+      if (url === '/api/u/alice/kb-github-remote/repos') {
+        throw new Error('Network failure')
+      }
+      if (url === '/api/u/alice/kb-github-remote') {
+        return jsonResponse(readyIntegration)
+      }
+      return jsonResponse({ error: 'unexpected' }, { status: 500 })
+    })
+
+    renderPanel()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Change repo' }))
+    expect(await screen.findByText('Could not reach the server.')).toBeTruthy()
+  })
+
+  it('shows network error when test connection fetch throws', async () => {
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url === '/api/u/alice/kb-github-remote/test' && init?.method === 'POST') {
+        throw new Error('Network failure')
+      }
+      if (url === '/api/u/alice/kb-github-remote') {
+        return jsonResponse(readyIntegration)
+      }
+      return jsonResponse({ error: 'unexpected' }, { status: 500 })
+    })
+
+    renderPanel()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Test connection' }))
+    expect(await screen.findByText('Could not reach the server.')).toBeTruthy()
+  })
+
+  it('shows network error when publish-kb fetch throws', async () => {
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url === '/api/instances/alice/publish-kb' && init?.method === 'POST') {
+        throw new Error('Network failure')
+      }
+      if (url === '/api/u/alice/kb-github-remote') {
+        return jsonResponse(readyIntegration)
+      }
+      return jsonResponse({ error: 'unexpected' }, { status: 500 })
+    })
+
+    renderPanel()
+
+    fireEvent.click(await screen.findByRole('button', { name: /Sync now/ }))
+    expect(await screen.findByText('Could not reach the server.')).toBeTruthy()
+  })
+
+  it('shows start_timeout when publish-kb returns 409', async () => {
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url === '/api/u/alice/kb-github-remote') {
+        return jsonResponse(readyIntegration)
+      }
+      if (url === '/api/instances/alice/publish-kb' && init?.method === 'POST') {
+        return jsonResponse({ error: 'start_timeout' }, { status: 409 })
+      }
+      return jsonResponse({ error: 'unexpected' }, { status: 500 })
+    })
+
+    renderPanel()
+
+    fireEvent.click(await screen.findByRole('button', { name: /Sync now/ }))
+    expect(await screen.findByText('The workspace is still starting. Try syncing again in a moment.')).toBeTruthy()
+  })
+
+  it('shows error when publish-kb returns a non-ok response', async () => {
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url === '/api/u/alice/kb-github-remote') {
+        return jsonResponse(readyIntegration)
+      }
+      if (url === '/api/instances/alice/publish-kb' && init?.method === 'POST') {
+        return jsonResponse({ error: 'status_check_failed' }, { status: 500 })
+      }
+      return jsonResponse({ error: 'unexpected' }, { status: 500 })
+    })
+
+    renderPanel()
+
+    fireEvent.click(await screen.findByRole('button', { name: /Sync now/ }))
+    expect(await screen.findByText('Could not start the workspace for sync.')).toBeTruthy()
+  })
+
   it('shows initial sync conflict and error results', async () => {
     fetchMock.mockImplementation(async (input, init) => {
       const url = String(input)
