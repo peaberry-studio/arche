@@ -112,7 +112,7 @@ What each command does:
 - `pnpm coverage:integration`: API route line coverage produced by the integration-test layer
 - `pnpm coverage:refresh`: regenerates all three coverage reports and updates the SVG badges in `.github/badges/`
 
-The SVG badges are refreshed automatically on every `push` to `main` by `.github/workflows/coverage-badges.yml`.
+The SVG badges are verified automatically on pull requests targeting `main` by `.github/workflows/coverage-badges.yml`.
 
 Current README badges are generated from:
 

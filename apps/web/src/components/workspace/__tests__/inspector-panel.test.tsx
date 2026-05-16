@@ -222,6 +222,33 @@ describe("InspectorPanel", () => {
     expect(screen.getByText('Editor state: initial')).toBeTruthy()
   })
 
+  it('uses a raw text editor for conflicted markdown files', () => {
+    render(
+      <InspectorPanel
+        {...defaultProps}
+        openFiles={[
+          {
+            path: 'conflict.md',
+            title: 'conflict.md',
+            content: '<<<<<<< HEAD\nlocal\n=======\nremote\n>>>>>>> kb/main\n',
+            updatedAt: 'now',
+            size: '1 KB',
+            kind: 'markdown' as const,
+          },
+        ]}
+        activeFilePath="conflict.md"
+        diffs={[
+          { path: 'conflict.md', status: 'modified', additions: 1, deletions: 1, diff: 'diff', conflicted: true },
+        ]}
+        onSaveFile={vi.fn().mockResolvedValue({ ok: true })}
+      />
+    )
+
+    expect(screen.getByRole('textbox', { name: 'Edit conflict file' })).toBeTruthy()
+    expect(screen.getByText(/Edit the conflict markers directly/)).toBeTruthy()
+    expect(markdownEditorMock).not.toHaveBeenCalled()
+  })
+
   it('expands minified review and combined panels', () => {
     const onToggleRight = vi.fn()
     const onTabChange = vi.fn()

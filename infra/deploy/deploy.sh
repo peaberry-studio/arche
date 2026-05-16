@@ -838,7 +838,8 @@ PLAYBOOK
     RETRIES=$((RETRIES - 1))
     if [[ $RETRIES -le 0 ]]; then
       err "Web service did not become healthy in time."
-      podman compose "${LOCAL_DEV_COMPOSE_ARGS[@]}" logs --tail 100 web postgres || true
+      podman compose "${LOCAL_DEV_COMPOSE_ARGS[@]}" logs --tail 100 web || true
+      podman compose "${LOCAL_DEV_COMPOSE_ARGS[@]}" logs --tail 100 postgres || true
       exit 1
     fi
     sleep 3
@@ -851,7 +852,8 @@ PLAYBOOK
     RETRIES=$((RETRIES - 1))
     if [[ $RETRIES -le 0 ]]; then
       err "Prisma migrations failed after repeated attempts."
-      podman compose "${LOCAL_DEV_COMPOSE_ARGS[@]}" logs --tail 100 web postgres || true
+      podman compose "${LOCAL_DEV_COMPOSE_ARGS[@]}" logs --tail 100 web || true
+      podman compose "${LOCAL_DEV_COMPOSE_ARGS[@]}" logs --tail 100 postgres || true
       exit 1
     fi
     warn "Migration attempt failed. Retrying in 3s..."
@@ -864,7 +866,8 @@ PLAYBOOK
     RETRIES=$((RETRIES - 1))
     if [[ $RETRIES -le 0 ]]; then
       err "Seed failed after repeated attempts."
-      podman compose "${LOCAL_DEV_COMPOSE_ARGS[@]}" logs --tail 100 web postgres || true
+      podman compose "${LOCAL_DEV_COMPOSE_ARGS[@]}" logs --tail 100 web || true
+      podman compose "${LOCAL_DEV_COMPOSE_ARGS[@]}" logs --tail 100 postgres || true
       exit 1
     fi
     warn "Seed attempt failed. Retrying in 3s..."
@@ -873,9 +876,9 @@ PLAYBOOK
 
   echo ""
   log "Local dev deployment ready!"
-  info "  App:              http://${LOCAL_DOMAIN}"
-  info "  Dashboard:         http://${LOCAL_DOMAIN}/u/${ARCHE_SEED_ADMIN_SLUG}"
-  info "  Workspace:         http://${LOCAL_DOMAIN}/w/${ARCHE_SEED_ADMIN_SLUG}"
+  info "  App:              http://${LOCAL_DOMAIN}:8080"
+  info "  Dashboard:         http://${LOCAL_DOMAIN}:8080/u/${ARCHE_SEED_ADMIN_SLUG}"
+  info "  Workspace:         http://${LOCAL_DOMAIN}:8080/w/${ARCHE_SEED_ADMIN_SLUG}"
   info "  Traefik dashboard: http://localhost:8081"
   info "  Postgres:         localhost:5432"
   info "  Project:          ${LOCAL_DEV_PROJECT_NAME}"

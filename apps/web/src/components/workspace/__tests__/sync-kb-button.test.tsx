@@ -44,7 +44,7 @@ describe('SyncKbButton', () => {
     expect(onComplete).toHaveBeenCalledWith('synced')
   })
 
-  it('shows conflicts in icon mode and dismisses the popover', async () => {
+  it('refreshes on conflicts without showing a redundant conflict popover', async () => {
     const onComplete = vi.fn()
     fetchMock.mockResolvedValueOnce(jsonResponse({
       ok: true,
@@ -55,13 +55,9 @@ describe('SyncKbButton', () => {
     render(<SyncKbButton slug="alice" onComplete={onComplete} />)
     fireEvent.click(screen.getByRole('button'))
 
-    expect(await screen.findByText('Merge conflicts detected')).toBeTruthy()
-    expect(screen.getByText('Resolve these files in the editor:')).toBeTruthy()
-    expect(screen.getByText('Notes/A.md')).toBeTruthy()
-    expect(onComplete).toHaveBeenCalledWith('conflicts')
-
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
-    await waitFor(() => expect(screen.queryByText('Merge conflicts detected')).toBeNull())
+    await waitFor(() => expect(onComplete).toHaveBeenCalledWith('conflicts'))
+    expect(screen.queryByText('Merge conflicts detected')).toBeNull()
+    expect(screen.queryByText('Notes/A.md')).toBeNull()
   })
 
   it('shows API and network errors', async () => {

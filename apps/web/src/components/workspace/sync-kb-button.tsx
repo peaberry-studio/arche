@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback } from 'react'
-import { ArrowsClockwise, Check, Warning, X } from '@phosphor-icons/react'
+import { ArrowsClockwise, Check, X } from '@phosphor-icons/react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -21,17 +21,15 @@ type SyncKbButtonProps = {
   renderAs?: 'icon' | 'row'
 }
 
-type SyncState = 'idle' | 'syncing' | 'synced' | 'conflicts' | 'error'
+type SyncState = 'idle' | 'syncing' | 'synced' | 'error'
 
 export function SyncKbButton({ slug, disabled, onComplete, variant = 'default', renderAs = 'icon' }: SyncKbButtonProps) {
   const [state, setState] = useState<SyncState>('idle')
-  const [conflicts, setConflicts] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
 
   const handleSync = useCallback(async () => {
     setState('syncing')
     setError(null)
-    setConflicts([])
 
     try {
       const response = await fetch(`/api/instances/${slug}/sync-kb`, {
@@ -50,8 +48,7 @@ export function SyncKbButton({ slug, disabled, onComplete, variant = 'default', 
         // Reset to idle after showing success
         setTimeout(() => setState('idle'), 2000)
       } else if (result.status === 'conflicts') {
-        setState('conflicts')
-        setConflicts(result.conflicts || [])
+        setState('idle')
       } else {
         setState('error')
         setError(result.message || 'Sync failed')
@@ -66,7 +63,6 @@ export function SyncKbButton({ slug, disabled, onComplete, variant = 'default', 
 
   const handleDismiss = useCallback(() => {
     setState('idle')
-    setConflicts([])
     setError(null)
   }, [])
 
@@ -89,12 +85,6 @@ export function SyncKbButton({ slug, disabled, onComplete, variant = 'default', 
       className: 'text-emerald-500',
       weight: 'bold' as const,
     },
-    conflicts: {
-      icon: Warning,
-      label: 'Conflicts',
-      className: 'text-amber-500',
-      weight: 'fill' as const,
-    },
     error: {
       icon: X,
       label: 'Error',
@@ -105,18 +95,16 @@ export function SyncKbButton({ slug, disabled, onComplete, variant = 'default', 
 
   const config = stateConfig[state]
   const Icon = config.icon
-  const tooltipLabel = error || (conflicts.length > 0 ? `${conflicts.length} files with conflicts` : 'Sync knowledge base')
+  const tooltipLabel = error || 'Sync knowledge base'
 
   const rowLabel =
     state === 'syncing'
       ? 'Syncing knowledge base…'
       : state === 'synced'
         ? 'Knowledge base synced'
-        : state === 'conflicts'
-          ? `Conflicts detected${conflicts.length ? ` (${conflicts.length})` : ''}`
-          : state === 'error'
-            ? 'Sync failed'
-            : 'Sync knowledge base'
+        : state === 'error'
+          ? 'Sync failed'
+          : 'Sync knowledge base'
 
   return (
     <div className="relative">
@@ -161,37 +149,12 @@ export function SyncKbButton({ slug, disabled, onComplete, variant = 'default', 
         </TooltipProvider>
       )}
 
-      {/* Popover para mostrar conflictos o errores (solo en modo icon) */}
-      {renderAs === 'icon' && (state === 'conflicts' || state === 'error') && (
+      {renderAs === 'icon' && state === 'error' && (
         <div className="absolute right-0 top-full z-50 -mt-px w-64 rounded-md border border-border bg-popover p-3 shadow-md">
           <div className="flex items-start justify-between gap-2">
             <div className="flex-1 min-w-0">
-              {state === 'conflicts' ? (
-                <>
-                  <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
-                    Merge conflicts detected
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Resolve these files in the editor:
-                  </p>
-                  <ul className="mt-2 max-h-32 overflow-y-auto text-xs">
-                    {conflicts.map((file) => (
-                      <li
-                        key={file}
-                        className="truncate font-mono text-muted-foreground"
-                        title={file}
-                      >
-                        {file}
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              ) : (
-                <>
-                  <p className="text-sm font-medium text-red-500">Sync failed</p>
-                  <p className="mt-1 text-xs text-muted-foreground">{error}</p>
-                </>
-              )}
+              <p className="text-sm font-medium text-red-500">Sync failed</p>
+              <p className="mt-1 text-xs text-muted-foreground">{error}</p>
             </div>
             <Button
               size="icon"

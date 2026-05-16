@@ -29,7 +29,7 @@ describe('createConfiguredOpencodeClient runtime loading', () => {
       '})().catch((error) => { console.error(error); process.exit(1) })',
     ].join('; ')
 
-    const { stdout, stderr } = await execFile('pnpm', ['exec', 'tsx', '-e', script], {
+    const { stdout, stderr } = await execFile(process.execPath, ['--import', 'tsx', '-e', script], {
       cwd: appRoot,
       env: createRuntimeEnv(),
       timeout: 15_000,

@@ -10,6 +10,7 @@ type CapturedSettingsPageProps = {
   currentSection: string
   enabled: boolean
   googleWorkspaceSummary: unknown
+  kbGithubRemoteSummary: unknown
   passwordChangeEnabled: boolean
   recoveryCodesRemaining: number
   releaseVersion: string
@@ -32,6 +33,9 @@ const serializeSlackIntegrationMock = vi.hoisted(() => vi.fn())
 const findSlackIntegrationMock = vi.hoisted(() => vi.fn())
 const decryptGoogleWorkspaceConfigMock = vi.hoisted(() => vi.fn())
 const ensureGoogleWorkspaceSeededMock = vi.hoisted(() => vi.fn())
+const findKbGithubRemoteMock = vi.hoisted(() => vi.fn())
+const decryptKbGithubRemoteMock = vi.hoisted(() => vi.fn())
+const summarizeKbGithubRemoteMock = vi.hoisted(() => vi.fn())
 const settingsPageProps = vi.hoisted(() => ({ current: null as CapturedSettingsPageProps | null }))
 
 vi.mock('next/navigation', () => ({
@@ -71,6 +75,11 @@ vi.mock('@/lib/services', () => ({
     decryptIntegrationConfig: (...args: unknown[]) => decryptGoogleWorkspaceConfigMock(...args),
     ensureIntegrationSeededFromEnv: () => ensureGoogleWorkspaceSeededMock(),
   },
+  kbGithubRemoteService: {
+    decryptIntegrationConfig: (...args: unknown[]) => decryptKbGithubRemoteMock(...args),
+    findIntegration: () => findKbGithubRemoteMock(),
+    toSummary: (...args: unknown[]) => summarizeKbGithubRemoteMock(...args),
+  },
   slackService: {
     findIntegration: () => findSlackIntegrationMock(),
   },
@@ -100,6 +109,7 @@ describe('SettingsPage', () => {
     getRuntimeCapabilitiesMock.mockReturnValue({
       auth: true,
       googleWorkspaceIntegration: true,
+      kbGithubRemoteIntegration: true,
       slackIntegration: true,
       twoFactor: true,
     })
@@ -116,6 +126,9 @@ describe('SettingsPage', () => {
       version: 3,
     })
     decryptGoogleWorkspaceConfigMock.mockReturnValue({ clientId: 'google-client', clientSecret: 'secret' })
+    findKbGithubRemoteMock.mockResolvedValue({ id: 'kb-github-1' })
+    decryptKbGithubRemoteMock.mockReturnValue({ appId: '123' })
+    summarizeKbGithubRemoteMock.mockReturnValue({ ready: true, repoFullName: 'acme/kb' })
   })
 
   afterEach(() => {
@@ -165,6 +178,7 @@ describe('SettingsPage', () => {
         updatedAt: '2026-04-21T10:00:00.000Z',
         version: 3,
       },
+      kbGithubRemoteSummary: { ready: true, repoFullName: 'acme/kb' },
       passwordChangeEnabled: true,
       recoveryCodesRemaining: 4,
       releaseVersion: 'sha-123',
@@ -173,6 +187,7 @@ describe('SettingsPage', () => {
     })
     expect(findSlackIntegrationMock).toHaveBeenCalledTimes(1)
     expect(ensureGoogleWorkspaceSeededMock).toHaveBeenCalledTimes(1)
+    expect(findKbGithubRemoteMock).toHaveBeenCalledTimes(1)
   })
 
   it('skips admin-only summaries for regular users', async () => {
@@ -180,6 +195,7 @@ describe('SettingsPage', () => {
     getRuntimeCapabilitiesMock.mockReturnValue({
       auth: false,
       googleWorkspaceIntegration: true,
+      kbGithubRemoteIntegration: true,
       slackIntegration: true,
       twoFactor: false,
     })
@@ -195,5 +211,6 @@ describe('SettingsPage', () => {
     })
     expect(findSlackIntegrationMock).not.toHaveBeenCalled()
     expect(ensureGoogleWorkspaceSeededMock).not.toHaveBeenCalled()
+    expect(findKbGithubRemoteMock).not.toHaveBeenCalled()
   })
 })

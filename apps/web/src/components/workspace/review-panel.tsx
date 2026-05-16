@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { CaretDown, CaretRight, GitDiff, Trash } from "@phosphor-icons/react";
 
-import { ConflictResolverDialog } from "./conflict-resolver-dialog";
+import { resolveWorkspaceConflictAction } from "@/actions/workspace-agent";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DiffViewer } from "@/components/ui/diff-viewer";
@@ -15,8 +15,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
 import type { WorkspaceDiff } from "@/hooks/use-workspace";
+import { cn } from "@/lib/utils";
+
+type QuickConflictStrategy = "ours" | "theirs";
 
 type ReviewPanelProps = {
   slug: string;
@@ -25,7 +27,7 @@ type ReviewPanelProps = {
   error?: string;
   onOpenFile: (path: string) => void;
   onDiscardFileChanges?: (path: string) => Promise<{ ok: true } | { ok: false; error: string }>;
-  onResolveConflict?: (path: string, content: string) => void;
+  onResolveConflict?: (path: string) => void | Promise<void>;
 };
 
 const DIFF_PREVIEW_LINES = 120;
@@ -40,8 +42,11 @@ export function ReviewPanel({
   onResolveConflict,
 }: ReviewPanelProps) {
   const [expandedDiffs, setExpandedDiffs] = useState<Record<string, boolean>>({});
-  const [conflictPath, setConflictPath] = useState<string | null>(null);
-  const [conflictOpen, setConflictOpen] = useState(false);
+  const [resolvingConflict, setResolvingConflict] = useState<{
+    path: string;
+    strategy: QuickConflictStrategy;
+  } | null>(null);
+  const [conflictErrors, setConflictErrors] = useState<Record<string, string | undefined>>({});
   const [discardPath, setDiscardPath] = useState<string | null>(null);
   const [discardOpen, setDiscardOpen] = useState(false);
   const [isDiscarding, setIsDiscarding] = useState(false);
@@ -54,10 +59,30 @@ export function ReviewPanel({
     setExpandedDiffs((prev) => ({ ...prev, [path]: !prev[path] }));
   }, []);
 
-  const openConflictResolver = useCallback((path: string) => {
-    setConflictPath(path);
-    setConflictOpen(true);
-  }, []);
+  const resolveConflict = useCallback(async (path: string, strategy: QuickConflictStrategy) => {
+    setResolvingConflict({ path, strategy });
+    setConflictErrors((prev) => ({ ...prev, [path]: undefined }));
+
+    try {
+      const result = await resolveWorkspaceConflictAction(slug, { path, strategy });
+      if (!result.ok) {
+        setConflictErrors((prev) => ({
+          ...prev,
+          [path]: result.error ?? "Unable to resolve conflict",
+        }));
+        return;
+      }
+
+      await onResolveConflict?.(path);
+    } catch (err) {
+      setConflictErrors((prev) => ({
+        ...prev,
+        [path]: err instanceof Error ? err.message : "Unable to resolve conflict",
+      }));
+    } finally {
+      setResolvingConflict(null);
+    }
+  }, [onResolveConflict, slug]);
 
   const openDiscardConfirm = useCallback((path: string) => {
     setDiscardError(null);
@@ -71,13 +96,6 @@ export function ReviewPanel({
       setDiscardPath(null);
       setDiscardError(null);
       setIsDiscarding(false);
-    }
-  }, []);
-
-  const handleConflictOpenChange = useCallback((open: boolean) => {
-    setConflictOpen(open);
-    if (!open) {
-      setConflictPath(null);
     }
   }, []);
 
@@ -110,7 +128,8 @@ export function ReviewPanel({
     <div className="space-y-2">
       {hasConflicts ? (
         <div className="rounded-md border-[0.5px] border-amber-500/25 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-700 dark:text-amber-300">
-          Detected {conflictCount} conflict{conflictCount !== 1 ? "s" : ""}. Resolve the files before publishing.
+          Detected {conflictCount} conflict{conflictCount !== 1 ? "s" : ""}. Keep one version, or open the
+          file to edit conflict markers manually.
         </div>
       ) : null}
 
@@ -121,6 +140,10 @@ export function ReviewPanel({
           const isLong = diffLineCount > DIFF_PREVIEW_LINES;
           const isExpanded = Boolean(expandedDiffs[diff.path]);
           const isCollapsed = isLong && !isExpanded;
+          const conflictError = conflictErrors[diff.path];
+          const resolvingStrategy = resolvingConflict?.path === diff.path
+            ? resolvingConflict.strategy
+            : null;
 
           return (
             <div key={diff.path} className="overflow-hidden rounded-md border-[0.5px] border-border/20 bg-foreground/[0.015]">
@@ -143,6 +166,28 @@ export function ReviewPanel({
                     <span className="text-red-500">-{diff.deletions}</span>
                   </span>
                 </button>
+                {diff.conflicted ? (
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-[11px]"
+                      onClick={() => void resolveConflict(diff.path, "ours")}
+                      disabled={Boolean(resolvingConflict)}
+                    >
+                      {resolvingStrategy === "ours" ? "Keeping…" : "Keep local"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-[11px]"
+                      onClick={() => void resolveConflict(diff.path, "theirs")}
+                      disabled={Boolean(resolvingConflict)}
+                    >
+                      {resolvingStrategy === "theirs" ? "Keeping…" : "Keep remote"}
+                    </Button>
+                  </div>
+                ) : null}
                 {onDiscardFileChanges ? (
                   <Button
                     size="icon"
@@ -158,19 +203,6 @@ export function ReviewPanel({
                     <Trash size={13} weight="regular" />
                   </Button>
                 ) : null}
-                {diff.conflicted ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 shrink-0 px-2 text-[11px]"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      openConflictResolver(diff.path);
-                    }}
-                  >
-                    Resolve
-                  </Button>
-                ) : null}
                 {isLong ? (
                   <Button
                     size="sm"
@@ -183,6 +215,11 @@ export function ReviewPanel({
                   </Button>
                 ) : null}
               </div>
+              {conflictError ? (
+                <div className="border-t border-border/20 px-3 py-2 text-[11px] text-destructive">
+                  {conflictError}
+                </div>
+              ) : null}
               <div
                 className={cn(
                   "border-t border-border/20 bg-foreground/[0.015]",
@@ -200,15 +237,6 @@ export function ReviewPanel({
           );
         })}
       </div>
-      <ConflictResolverDialog
-        slug={slug}
-        path={conflictPath}
-        open={conflictOpen}
-        onOpenChange={handleConflictOpenChange}
-        onResolved={(path, content) => {
-          onResolveConflict?.(path, content);
-        }}
-      />
 
       <Dialog open={discardOpen} onOpenChange={handleDiscardOpenChange}>
         <DialogContent className="max-w-md">

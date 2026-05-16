@@ -119,10 +119,13 @@ services:
         trap cleanup INT TERM HUP
         docker-entrypoint.sh postgres &
         pid="$$!"
-        until gosu postgres pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" >/dev/null 2>&1; do
+        until gosu postgres pg_isready -U "$$POSTGRES_USER" -d postgres >/dev/null 2>&1; do
           sleep 1
         done
-        gosu postgres psql -v ON_ERROR_STOP=1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -c "ALTER USER \"$$POSTGRES_USER\" PASSWORD '$$POSTGRES_PASSWORD';"
+        if ! gosu postgres psql -v ON_ERROR_STOP=1 -U "$$POSTGRES_USER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = '$$POSTGRES_DB';" | grep -q 1; then
+          gosu postgres createdb -U "$$POSTGRES_USER" "$$POSTGRES_DB"
+        fi
+        gosu postgres psql -v ON_ERROR_STOP=1 -U "$$POSTGRES_USER" -d postgres -c "ALTER USER \"$$POSTGRES_USER\" PASSWORD '$$POSTGRES_PASSWORD';"
         wait "$$pid"
     ports:
       - "5432:5432"
@@ -185,8 +188,10 @@ services:
 
 {% if deploy_mode == 'local-dev' %}
   # In local-dev mode, web runs in compose with source mounts and
-  # `next dev --webpack` for hot reload. Runtime caches stay outside
-  # /app so Watchpack does not scan generated files on the bind mount.
+  # `next dev` (Turbopack by default on Next 16) for hot reload.
+  # Runtime caches stay outside
+  # the source bind mount so file watching stays focused on source files
+  # and Next's route compilation cache avoids macOS bind-mount writes.
   # In remote mode, web is managed outside compose via podman run for
   # true blue-green zero-downtime deployments.
   web:
@@ -201,8 +206,8 @@ services:
       ARCHE_GATEWAY_TOKEN_SECRET: "${ARCHE_GATEWAY_TOKEN_SECRET}"
       ARCHE_GATEWAY_TOKEN_TTL_SECONDS: "${ARCHE_GATEWAY_TOKEN_TTL_SECONDS}"
       ARCHE_GATEWAY_BASE_URL: "${ARCHE_GATEWAY_BASE_URL}"
+      NEXT_TELEMETRY_DISABLED: "1"
       NODE_COMPILE_CACHE: "/tmp/node-compile-cache"
-      WATCHPACK_POLLING: "true"
     networks:
       - default
       - arche-internal
@@ -217,12 +222,13 @@ services:
       - traefik.http.services.arche-web.loadbalancer.server.port=3000
     volumes:
       - {{ repo_root }}/apps/web:/app
+      - arche_web_next:/app/.next
       - arche_web_node_modules:/app/node_modules
       - arche_pnpm_store:/pnpm/store
       - {{ users_path | default('/opt/arche/users') }}:{{ users_path | default('/opt/arche/users') }}
       - {{ kb_content_host_path | default('/opt/arche/kb-content') }}:/kb-content
       - {{ kb_config_host_path | default('/opt/arche/kb-config') }}:/kb-config
-    command: sh -lc "rm -rf /app/node-compile-cache && apt-get update -y && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/* && corepack enable && pnpm config set store-dir /pnpm/store >/dev/null 2>&1 || true && pnpm install --prefer-offline --force && pnpm prisma generate && pnpm prisma:generate:desktop && WATCHPACK_POLLING=true pnpm next dev --webpack -H 0.0.0.0 -p 3000"
+    command: sh -lc "apt-get update -y && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/* && corepack enable && pnpm config set store-dir /pnpm/store >/dev/null 2>&1 || true && pnpm install --prefer-offline && pnpm prisma generate && pnpm prisma:generate:desktop && pnpm next dev -H 0.0.0.0 -p 3000"
 {% endif %}
 
 networks:
@@ -238,5 +244,6 @@ volumes:
 {% endif %}
 {% if deploy_mode == 'local-dev' %}
   arche_web_node_modules:
+  arche_web_next:
   arche_pnpm_store:
 {% endif %}

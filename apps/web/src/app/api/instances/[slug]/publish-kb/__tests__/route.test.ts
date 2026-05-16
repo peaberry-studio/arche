@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   validateDesktopToken: vi.fn(() => true),
   isWorkspaceReachable: vi.fn(),
   createWorkspaceAgentClient: vi.fn(),
+  createWorkspaceRemoteConfig: vi.fn(),
+  updateSyncState: vi.fn(),
 }))
 
 vi.mock('@/lib/runtime/capabilities', () => ({ getRuntimeCapabilities: mocks.getRuntimeCapabilities }))
@@ -24,6 +26,12 @@ vi.mock('@/lib/runtime/workspace-host', () => ({
 }))
 vi.mock('@/lib/workspace-agent/client', () => ({
   createWorkspaceAgentClient: mocks.createWorkspaceAgentClient,
+}))
+vi.mock('@/lib/services', () => ({
+  kbGithubRemoteService: {
+    createWorkspaceRemoteConfig: mocks.createWorkspaceRemoteConfig,
+    updateSyncState: mocks.updateSyncState,
+  },
 }))
 
 import { POST } from '../route'
@@ -62,6 +70,8 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
       baseUrl: 'http://agent:8080',
       authHeader: 'Bearer tok',
     })
+    mocks.createWorkspaceRemoteConfig.mockResolvedValue({ ok: true, remote: null })
+    mocks.updateSyncState.mockResolvedValue(undefined)
   })
 
   it('returns published result on success', async () => {
@@ -82,6 +92,7 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     mocks.createWorkspaceAgentClient.mockResolvedValue(null)
     const res = await POST(makeRequest(), params('alice'))
     expect(res.status).toBe(409)
+    expect(mocks.createWorkspaceRemoteConfig).not.toHaveBeenCalled()
   })
 
   it('handles agent HTTP error', async () => {
@@ -90,6 +101,21 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     const body = await res.json()
     expect(body.ok).toBe(false)
     expect(body.status).toBe('error')
+    spy.mockRestore()
+  })
+
+  it('returns GitHub remote configuration errors before contacting the agent endpoint', async () => {
+    mocks.createWorkspaceRemoteConfig.mockResolvedValue({ ok: false, error: 'token failed' })
+    const spy = vi.spyOn(globalThis, 'fetch')
+
+    const res = await POST(makeRequest(), params('alice'))
+    const body = await res.json()
+
+    expect(body).toEqual({ ok: false, status: 'error', message: 'token failed' })
+    expect(mocks.createWorkspaceAgentClient.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.createWorkspaceRemoteConfig.mock.invocationCallOrder[0],
+    )
+    expect(spy).not.toHaveBeenCalled()
     spy.mockRestore()
   })
 
@@ -117,6 +143,103 @@ describe('POST /api/instances/[slug]/publish-kb', () => {
     const res = await POST(makeRequest(), params('alice'))
     const body = await res.json()
     expect(body.message).toBe('Unknown error')
+    spy.mockRestore()
+  })
+
+  it('passes GitHub remote credentials to the workspace agent when configured', async () => {
+    mocks.createWorkspaceRemoteConfig.mockResolvedValue({
+      ok: true,
+      remote: {
+        branch: 'main',
+        repoCloneUrl: 'https://github.com/acme/kb.git',
+        token: 'token-1',
+      },
+    })
+    const spy = mockFetch({ ok: true, status: 'published', githubStatus: 'pushed' })
+
+    const res = await POST(makeRequest(), params('alice'))
+    const body = await res.json()
+
+    expect(body.status).toBe('published')
+    expect(spy).toHaveBeenCalledWith('http://agent:8080/kb/publish', expect.objectContaining({
+      body: JSON.stringify({
+        github: {
+          branch: 'main',
+          repoCloneUrl: 'https://github.com/acme/kb.git',
+          token: 'token-1',
+        },
+      }),
+    }))
+    expect(mocks.updateSyncState).toHaveBeenCalledWith(expect.objectContaining({
+      lastError: null,
+      lastSyncStatus: 'success',
+    }))
+    spy.mockRestore()
+  })
+
+  it('marks GitHub publish conflicts', async () => {
+    mocks.createWorkspaceRemoteConfig.mockResolvedValue({
+      ok: true,
+      remote: {
+        branch: 'main',
+        repoCloneUrl: 'https://github.com/acme/kb.git',
+        token: 'token-1',
+      },
+    })
+    const spy = mockFetch({ ok: true, status: 'conflicts', message: 'merge conflict' })
+
+    const res = await POST(makeRequest(), params('alice'))
+    const body = await res.json()
+
+    expect(body.status).toBe('conflicts')
+    expect(mocks.updateSyncState).toHaveBeenCalledWith(expect.objectContaining({
+      lastError: 'merge conflict',
+      lastSyncStatus: 'conflicts',
+    }))
+    spy.mockRestore()
+  })
+
+  it('marks GitHub publish errors from the agent response', async () => {
+    mocks.createWorkspaceRemoteConfig.mockResolvedValue({
+      ok: true,
+      remote: {
+        branch: 'main',
+        repoCloneUrl: 'https://github.com/acme/kb.git',
+        token: 'token-1',
+      },
+    })
+    const spy = mockFetch({ ok: false, status: 'push_rejected', githubMessage: 'fetch first' })
+
+    const res = await POST(makeRequest(), params('alice'))
+    const body = await res.json()
+
+    expect(body.status).toBe('push_rejected')
+    expect(mocks.updateSyncState).toHaveBeenCalledWith(expect.objectContaining({
+      lastError: 'fetch first',
+      lastSyncStatus: 'error',
+    }))
+    spy.mockRestore()
+  })
+
+  it('marks GitHub publish HTTP errors', async () => {
+    mocks.createWorkspaceRemoteConfig.mockResolvedValue({
+      ok: true,
+      remote: {
+        branch: 'main',
+        repoCloneUrl: 'https://github.com/acme/kb.git',
+        token: 'token-1',
+      },
+    })
+    const spy = mockFetch({ message: 'agent failed' }, 500)
+
+    const res = await POST(makeRequest(), params('alice'))
+    const body = await res.json()
+
+    expect(body).toEqual({ ok: false, status: 'error', message: 'agent failed' })
+    expect(mocks.updateSyncState).toHaveBeenCalledWith(expect.objectContaining({
+      lastError: 'agent failed',
+      lastSyncStatus: 'error',
+    }))
     spy.mockRestore()
   })
 })

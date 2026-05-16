@@ -14,6 +14,7 @@ export type RuntimeCapabilities = {
   flows: boolean
   slackIntegration: boolean
   googleWorkspaceIntegration: boolean
+  kbGithubRemoteIntegration: boolean
   metaAdsConnector: boolean
 }
 
@@ -31,6 +32,7 @@ const WEB_CAPABILITIES: RuntimeCapabilities = {
   flows: true,
   slackIntegration: true,
   googleWorkspaceIntegration: true,
+  kbGithubRemoteIntegration: true,
   metaAdsConnector: true,
 }
 
@@ -48,6 +50,7 @@ const DESKTOP_CAPABILITIES: RuntimeCapabilities = {
   flows: false,
   slackIntegration: false,
   googleWorkspaceIntegration: false,
+  kbGithubRemoteIntegration: false,
   metaAdsConnector: true,
 }
 

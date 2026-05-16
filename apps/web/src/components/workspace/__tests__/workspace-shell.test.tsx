@@ -170,7 +170,7 @@ vi.mock("@/components/workspace/inspector-panel", () => ({
     onOpenFile?: (path: string) => void;
     onPublish?: () => void;
     onReloadFile?: (path: string) => Promise<void>;
-    onResolveConflict?: (path: string, content: string) => void;
+    onResolveConflict?: (path: string) => void | Promise<void>;
     onSaveFile?: (path: string, content: string, expectedHash?: string) => Promise<{ ok: true; hash?: string } | { ok: false; error: string }>;
     onSelectFile?: (path: string) => void;
     onToggleRight: () => void;
@@ -200,7 +200,7 @@ vi.mock("@/components/workspace/inspector-panel", () => ({
           <button type="button" onClick={() => void onReloadFile?.(activeFilePath)}>Reload active file</button>
           <button type="button" onClick={() => void onSaveFile?.(activeFilePath, "Updated content", "expected-hash")}>Save active file</button>
           <button type="button" onClick={() => void onDiscardFileChanges?.(activeFilePath)}>Discard active file</button>
-          <button type="button" onClick={() => onResolveConflict?.(activeFilePath, "Resolved content")}>Resolve active conflict</button>
+          <button type="button" onClick={() => void onResolveConflict?.(activeFilePath)}>Resolve active conflict</button>
           <button type="button" onClick={() => onPublish?.()}>Publish file changes</button>
         </>
       ) : null}
