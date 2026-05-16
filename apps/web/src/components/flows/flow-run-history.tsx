@@ -1,13 +1,23 @@
 'use client'
 
 import Link from 'next/link'
+import {
+  ArrowSquareOut,
+  CheckCircle,
+  Circle,
+  CircleNotch,
+  ClockCountdown,
+  Hourglass,
+  MinusCircle,
+  Prohibit,
+  XCircle,
+} from '@phosphor-icons/react'
 
 import { HumanStepResponseCard } from '@/components/flows/human-step-response-card'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { formatFlowRunDate } from '@/lib/flows/cron'
-import type { FlowDetail, FlowRunListItem } from '@/lib/flows/types'
+import { cn } from '@/lib/utils'
+import type { FlowDetail, FlowRunListItem, FlowRunStepListItem } from '@/lib/flows/types'
 import { getWorkspaceHref } from '@/lib/workspace-hrefs'
 
 type FlowRunHistoryProps = {
@@ -16,82 +26,272 @@ type FlowRunHistoryProps = {
   onRefresh?: () => Promise<void> | void
 }
 
-function getRunBadgeVariant(status: FlowRunListItem['status']): 'default' | 'success' | 'warning' | 'secondary' {
-  if (status === 'succeeded') return 'success'
-  if (status === 'failed' || status === 'cancelled') return 'warning'
-  if (status === 'waiting_for_human') return 'secondary'
-  return 'default'
+type RunTone = 'success' | 'danger' | 'warning' | 'running' | 'neutral'
+
+const RUN_STATUS_LABEL: Record<FlowRunListItem['status'], string> = {
+  cancelled: 'Cancelled',
+  failed: 'Failed',
+  running: 'Running',
+  succeeded: 'Succeeded',
+  waiting_for_human: 'Waiting for human',
 }
 
-function getRunBadgeLabel(status: FlowRunListItem['status']): string {
-  if (status === 'waiting_for_human') return 'Waiting for human'
-  return status.replaceAll('_', ' ')
+const TRIGGER_LABEL: Record<FlowRunListItem['trigger'], string> = {
+  manual: 'Manual',
+  on_create: 'On create',
+  resume: 'Resume',
+  schedule: 'Schedule',
+}
+
+function getRunTone(status: FlowRunListItem['status']): RunTone {
+  if (status === 'succeeded') return 'success'
+  if (status === 'failed') return 'danger'
+  if (status === 'cancelled') return 'neutral'
+  if (status === 'waiting_for_human') return 'warning'
+  return 'running'
+}
+
+function getStepTone(status: FlowRunStepListItem['status']): RunTone {
+  if (status === 'succeeded') return 'success'
+  if (status === 'failed') return 'danger'
+  if (status === 'running') return 'running'
+  if (status === 'waiting_for_human') return 'warning'
+  return 'neutral'
+}
+
+const TONE_TEXT: Record<RunTone, string> = {
+  danger: 'text-destructive',
+  neutral: 'text-muted-foreground',
+  running: 'text-sky-500',
+  success: 'text-emerald-500',
+  warning: 'text-amber-500',
+}
+
+function RunStatusIcon({ status }: { status: FlowRunListItem['status'] }) {
+  const tone = getRunTone(status)
+  const className = cn('shrink-0', TONE_TEXT[tone])
+
+  if (status === 'succeeded') return <CheckCircle size={14} weight="fill" className={className} />
+  if (status === 'failed') return <XCircle size={14} weight="fill" className={className} />
+  if (status === 'cancelled') return <Prohibit size={14} weight="fill" className={className} />
+  if (status === 'waiting_for_human') return <Hourglass size={14} weight="fill" className={className} />
+  return <CircleNotch size={14} weight="bold" className={cn(className, 'animate-spin')} />
+}
+
+function StepStatusIcon({ status }: { status: FlowRunStepListItem['status'] }) {
+  const tone = getStepTone(status)
+  const className = cn('shrink-0', TONE_TEXT[tone])
+
+  if (status === 'succeeded') return <CheckCircle size={14} weight="fill" className={className} />
+  if (status === 'failed') return <XCircle size={14} weight="fill" className={className} />
+  if (status === 'running') return <CircleNotch size={14} weight="bold" className={cn(className, 'animate-spin')} />
+  if (status === 'waiting_for_human') return <Hourglass size={14} weight="fill" className={className} />
+  if (status === 'skipped') return <MinusCircle size={14} weight="fill" className={className} />
+  return <Circle size={14} weight="bold" className={className} />
+}
+
+const RELATIVE_THRESHOLDS: Array<{ unit: Intl.RelativeTimeFormatUnit; ms: number }> = [
+  { ms: 60_000, unit: 'second' },
+  { ms: 3_600_000, unit: 'minute' },
+  { ms: 86_400_000, unit: 'hour' },
+  { ms: 604_800_000, unit: 'day' },
+  { ms: 2_629_800_000, unit: 'week' },
+  { ms: 31_557_600_000, unit: 'month' },
+  { ms: Number.POSITIVE_INFINITY, unit: 'year' },
+]
+
+const RELATIVE_DIVISORS: Record<Intl.RelativeTimeFormatUnit, number> = {
+  day: 86_400_000,
+  days: 86_400_000,
+  hour: 3_600_000,
+  hours: 3_600_000,
+  minute: 60_000,
+  minutes: 60_000,
+  month: 2_629_800_000,
+  months: 2_629_800_000,
+  quarter: 7_889_400_000,
+  quarters: 7_889_400_000,
+  second: 1_000,
+  seconds: 1_000,
+  week: 604_800_000,
+  weeks: 604_800_000,
+  year: 31_557_600_000,
+  years: 31_557_600_000,
+}
+
+function formatRelativeTime(date: Date, now: Date): string {
+  const formatter = new Intl.RelativeTimeFormat('en-US', { numeric: 'auto' })
+  const diff = date.getTime() - now.getTime()
+  const abs = Math.abs(diff)
+  const bucket = RELATIVE_THRESHOLDS.find(({ ms }) => abs < ms) ?? RELATIVE_THRESHOLDS[RELATIVE_THRESHOLDS.length - 1]
+  const value = Math.round(diff / RELATIVE_DIVISORS[bucket.unit])
+  return formatter.format(value, bucket.unit)
+}
+
+function formatDuration(startedAt: string, finishedAt: string | null): string | null {
+  if (!finishedAt) return null
+  const ms = new Date(finishedAt).getTime() - new Date(startedAt).getTime()
+  if (!Number.isFinite(ms) || ms < 0) return null
+  if (ms < 1000) return `${ms}ms`
+  const seconds = Math.round(ms / 1000)
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  const remSeconds = seconds % 60
+  if (minutes < 60) return remSeconds ? `${minutes}m ${remSeconds}s` : `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  const remMinutes = minutes % 60
+  return remMinutes ? `${hours}h ${remMinutes}m` : `${hours}h`
+}
+
+function MetaDot() {
+  return <span aria-hidden className="text-muted-foreground/40">·</span>
+}
+
+function StepRow({ step }: { step: FlowRunStepListItem }) {
+  const detail = step.compactedOutput
+    ? `Compact: ${step.compactedOutput}`
+    : step.rawOutput
+    ? step.rawOutput
+    : null
+
+  return (
+    <li>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm">
+        <StepStatusIcon status={step.status} />
+        <span className="font-medium text-foreground/90">{step.nodeName ?? step.nodeId}</span>
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60">{step.nodeType}</span>
+      </div>
+      {detail ? <p className="ml-[22px] mt-0.5 line-clamp-2 text-xs text-muted-foreground/80">{detail}</p> : null}
+      {step.humanResponse ? (
+        <p className="ml-[22px] mt-0.5 line-clamp-2 text-xs text-muted-foreground/80">Human: {step.humanResponse}</p>
+      ) : null}
+      {step.error ? <p className="ml-[22px] mt-0.5 text-xs text-destructive">{step.error}</p> : null}
+    </li>
+  )
+}
+
+function RunRow({
+  run,
+  flow,
+  slug,
+  now,
+  onRefresh,
+  isLast,
+}: {
+  run: FlowRunListItem
+  flow: FlowDetail
+  slug: string
+  now: Date
+  onRefresh?: () => Promise<void> | void
+  isLast: boolean
+}) {
+  const tone = getRunTone(run.status)
+  const startedDate = new Date(run.startedAt)
+  const relative = formatRelativeTime(startedDate, now)
+  const absolute = formatFlowRunDate(startedDate, flow.timezone)
+  const duration = formatDuration(run.startedAt, run.finishedAt)
+
+  return (
+    <li className={cn('py-3 first:pt-0 last:pb-0', isLast ? '' : 'border-b border-border/40')}>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+        <div className="min-w-0 space-y-1">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <RunStatusIcon status={run.status} />
+            <span className={cn('text-sm font-semibold', TONE_TEXT[tone])}>{RUN_STATUS_LABEL[run.status]}</span>
+            <MetaDot />
+            <time dateTime={run.startedAt} title={absolute} className="text-sm text-muted-foreground">
+              {relative}
+            </time>
+            {duration ? (
+              <>
+                <MetaDot />
+                <span className="text-sm text-muted-foreground">{duration}</span>
+              </>
+            ) : null}
+            <MetaDot />
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60">
+              {TRIGGER_LABEL[run.trigger]}
+            </span>
+          </div>
+          {run.error ? <p className="ml-[22px] text-xs text-destructive">{run.error}</p> : null}
+          {run.retryScheduledFor ? (
+            <p className="ml-[22px] flex items-center gap-1 text-xs text-muted-foreground">
+              <ClockCountdown size={12} weight="bold" className="text-amber-500" />
+              Retry attempt {run.attempt} scheduled for {formatFlowRunDate(new Date(run.retryScheduledFor), flow.timezone)}
+            </p>
+          ) : null}
+          {run.lastRetryError && !run.error ? (
+            <p className="ml-[22px] text-xs text-muted-foreground">Last retry error: {run.lastRetryError}</p>
+          ) : null}
+        </div>
+
+        {run.openCodeSessionId ? (
+          <Link
+            href={getWorkspaceHref(slug, { mode: 'flows', sessionId: run.openCodeSessionId })}
+            className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            Open session
+            <ArrowSquareOut size={12} weight="bold" />
+          </Link>
+        ) : null}
+      </div>
+
+      {run.steps.length > 0 ? (
+        <ol className="ml-[22px] mt-2 space-y-2">
+          {run.steps.map((step) => (
+            <StepRow key={step.id} step={step} />
+          ))}
+        </ol>
+      ) : null}
+
+      {run.status === 'waiting_for_human' ? (
+        <div className="ml-[22px] mt-3">
+          <HumanStepResponseCard run={run} slug={slug} onSubmitted={onRefresh} />
+        </div>
+      ) : null}
+    </li>
+  )
 }
 
 export function FlowRunHistory({ flow, slug, onRefresh }: FlowRunHistoryProps) {
+  const now = new Date()
+  const count = flow.runs.length
+
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Run history</CardTitle>
-        <CardDescription>Every flow run executes in one OpenCode session and records every node step.</CardDescription>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0">
+        <div className="space-y-1">
+          <CardTitle>Run history</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Each run executes in one OpenCode session and records every node step.
+          </p>
+        </div>
+        {count > 0 ? (
+          <span className="rounded-full border border-border/60 bg-background px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
+            {count} {count === 1 ? 'run' : 'runs'}
+          </span>
+        ) : null}
       </CardHeader>
       <CardContent>
-        {flow.runs.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No runs recorded yet.</p>
-        ) : (
-          <div className="space-y-4">
-            {flow.runs.map((run) => (
-              <div key={run.id} className="space-y-3 rounded-xl border border-border/60 p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="space-y-1 text-sm">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant={getRunBadgeVariant(run.status)}>{getRunBadgeLabel(run.status)}</Badge>
-                      <Badge variant="outline">{run.trigger}</Badge>
-                    </div>
-                    <p className="text-foreground">
-                      Scheduled for {formatFlowRunDate(new Date(run.scheduledFor), flow.timezone)}
-                    </p>
-                    <p className="text-muted-foreground">
-                      Started {formatFlowRunDate(new Date(run.startedAt), flow.timezone)}
-                    </p>
-                    {run.error ? <p className="text-destructive">{run.error}</p> : null}
-                    {run.retryScheduledFor ? (
-                      <p className="text-muted-foreground">
-                        Retry attempt {run.attempt} scheduled for {formatFlowRunDate(new Date(run.retryScheduledFor), flow.timezone)}
-                      </p>
-                    ) : null}
-                    {run.lastRetryError && !run.error ? <p className="text-muted-foreground">Last retry error: {run.lastRetryError}</p> : null}
-                  </div>
-
-                  {run.openCodeSessionId ? (
-                    <Button variant="outline" asChild>
-                      <Link href={getWorkspaceHref(slug, { mode: 'flows', sessionId: run.openCodeSessionId })}>
-                        Open session
-                      </Link>
-                    </Button>
-                  ) : null}
-                </div>
-
-                <div className="grid gap-2 md:grid-cols-2">
-                  {run.steps.map((step) => (
-                    <div key={step.id} className="rounded-lg border border-border/50 bg-card/40 p-3 text-xs">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="truncate font-medium text-foreground">{step.nodeName ?? step.nodeId}</span>
-                        <Badge variant="outline">{step.status}</Badge>
-                      </div>
-                      <p className="mt-1 text-muted-foreground">{step.nodeType}</p>
-                      {step.compactedOutput ? <p className="mt-2 line-clamp-2 text-muted-foreground">Compact: {step.compactedOutput}</p> : null}
-                      {!step.compactedOutput && step.rawOutput ? <p className="mt-2 line-clamp-2 text-muted-foreground">{step.rawOutput}</p> : null}
-                      {step.humanResponse ? <p className="mt-2 line-clamp-2 text-muted-foreground">Human: {step.humanResponse}</p> : null}
-                      {step.error ? <p className="mt-2 text-destructive">{step.error}</p> : null}
-                    </div>
-                  ))}
-                </div>
-
-                <HumanStepResponseCard run={run} slug={slug} onSubmitted={onRefresh} />
-              </div>
-            ))}
+        {count === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-10 text-center">
+            <ClockCountdown size={28} className="text-muted-foreground/60" />
+            <p className="text-sm text-muted-foreground">No runs recorded yet.</p>
           </div>
+        ) : (
+          <ol className="space-y-0">
+            {flow.runs.map((run, index) => (
+              <RunRow
+                key={run.id}
+                run={run}
+                flow={flow}
+                slug={slug}
+                now={now}
+                onRefresh={onRefresh}
+                isLast={index === flow.runs.length - 1}
+              />
+            ))}
+          </ol>
         )}
       </CardContent>
     </Card>
