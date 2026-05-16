@@ -76,7 +76,7 @@ vi.mock('@/lib/slack/notifications', () => ({
   sendSlackNotifications: mocks.sendSlackNotifications,
 }))
 
-import { resumeFlowRun, runClaimedFlow, triggerFlowNow } from '@/lib/flows/runner'
+import { dispatchClaimedFlowRun, resumeFlowRun, runClaimedFlow, triggerFlowNow } from '@/lib/flows/runner'
 
 const now = new Date('2026-05-12T10:00:00.000Z')
 
@@ -255,6 +255,14 @@ describe('triggerFlowNow', () => {
       .resolves.toEqual({ ok: false, error: 'flow_busy' })
   })
 
+  it('returns flow_busy without a lookup when an unauthenticated immediate run cannot be claimed', async () => {
+    mocks.claimFlowForImmediateRun.mockResolvedValue(null)
+
+    await expect(triggerFlowNow({ flowId: 'flow-1', trigger: FlowRunTrigger.manual }))
+      .resolves.toEqual({ ok: false, error: 'flow_busy' })
+    expect(mocks.findFlowByIdAndUserId).not.toHaveBeenCalled()
+  })
+
   it('creates a durable run before returning success', async () => {
     const claimedFlow = createClaimedFlow()
     mocks.claimFlowForImmediateRun.mockResolvedValue(claimedFlow)
@@ -267,6 +275,21 @@ describe('triggerFlowNow', () => {
       scheduledFor: now,
       trigger: FlowRunTrigger.manual,
     })
+  })
+
+  it('dispatches claimed flow runs after creating a durable run', async () => {
+    mocks.createRun.mockResolvedValue(createRunRecord({ id: 'run-dispatched' }))
+    mocks.userFindByIdSelect.mockResolvedValue({ slug: 'alice' })
+
+    await expect(dispatchClaimedFlowRun(createClaimedFlow(), FlowRunTrigger.manual))
+      .resolves.toEqual({ ok: true, runId: 'run-dispatched' })
+
+    expect(mocks.createRun).toHaveBeenCalledWith({
+      flowId: 'flow-1',
+      scheduledFor: now,
+      trigger: FlowRunTrigger.manual,
+    })
+    await vi.waitFor(() => expect(mocks.releaseFlowLease).toHaveBeenCalledWith('flow-1', 'worker-1', expect.any(Date)))
   })
 
   it('validates human resume state and dispatches valid responses', async () => {
@@ -536,7 +559,12 @@ describe('triggerFlowNow', () => {
     const longMatchingPattern = `Flow|${'x'.repeat(257)}`
     const flow = createClaimedFlow()
     flow.definition = {
-      edges: [{ id: 'edge-1', sourceNodeId: 'condition-1', targetNodeId: 'merge-fallback' }],
+      edges: [
+        { id: 'edge-1', sourceNodeId: 'condition-1', targetNodeId: 'merge-fallback' },
+        { id: 'edge-2', sourceNodeId: 'condition-1', targetNodeId: 'merge-long-regex' },
+        { id: 'edge-3', sourceNodeId: 'condition-1', targetNodeId: 'merge-unsafe-regex' },
+        { id: 'edge-4', sourceNodeId: 'condition-1', targetNodeId: 'merge-matched' },
+      ],
       nodes: [
         {
           id: 'condition-1',

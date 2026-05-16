@@ -645,7 +645,7 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
             <div className="space-y-1">
               <h2 className="text-sm font-semibold text-destructive">Danger zone</h2>
               <p className="text-xs text-muted-foreground">
-                Deleting a flow removes its run history and cancels any scheduled runs. This cannot be undone.
+                Deleting a flow hides it from the list and cancels scheduled, retrying, and active runs. Existing run history remains available from linked sessions.
               </p>
             </div>
             <Button variant="destructive" onClick={() => void deleteFlow()} disabled={isDeleting}>

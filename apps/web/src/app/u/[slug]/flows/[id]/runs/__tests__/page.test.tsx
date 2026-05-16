@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   getCurrentDesktopVault: vi.fn(),
@@ -20,6 +20,10 @@ vi.mock('@/lib/runtime/desktop/current-vault', () => ({ getCurrentDesktopVault: 
 vi.mock('@/lib/runtime/mode', () => ({ isDesktop: mocks.isDesktop }))
 
 describe('FlowRunsPage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
   it('renders the run history view', async () => {
     mocks.isDesktop.mockReturnValue(false)
     mocks.getRuntimeCapabilities.mockReturnValue({ flows: true })
@@ -28,5 +32,24 @@ describe('FlowRunsPage', () => {
     const result = await Page({ params: Promise.resolve({ id: 'flow-1', slug: 'alice' }) })
 
     expect(result.type).toBe('main')
+  })
+
+  it('redirects when flows are unavailable', async () => {
+    mocks.isDesktop.mockReturnValue(false)
+    mocks.getRuntimeCapabilities.mockReturnValue({ flows: false })
+    const Page = (await import('../page')).default
+
+    await expect(Page({ params: Promise.resolve({ id: 'flow-1', slug: 'alice' }) })).rejects.toThrow('REDIRECT:/u/alice')
+  })
+
+  it('redirects desktop run history back to the workspace', async () => {
+    mocks.isDesktop.mockReturnValue(true)
+    mocks.getCurrentDesktopVault.mockReturnValue({ path: '/vault' })
+    const Page = (await import('../page')).default
+
+    await expect(Page({ params: Promise.resolve({ id: 'flow-1', slug: 'alice' }) })).rejects.toThrow('REDIRECT:/u/alice')
+
+    mocks.getCurrentDesktopVault.mockReturnValue(null)
+    await expect(Page({ params: Promise.resolve({ id: 'flow-1', slug: 'alice' }) })).rejects.toThrow('REDIRECT:/')
   })
 })

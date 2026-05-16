@@ -1,11 +1,12 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type TouchEvent } from 'react'
-import { ArrowsIn, ArrowsOut } from '@phosphor-icons/react'
+import { ArrowClockwise, ArrowsIn, ArrowsOut, Minus, Plus } from '@phosphor-icons/react'
 import { drag as d3drag } from 'd3-drag'
 import { select } from 'd3-selection'
-import { zoom as d3zoom, zoomIdentity, type D3ZoomEvent, type ZoomTransform } from 'd3-zoom'
+import { zoom as d3zoom, zoomIdentity, type D3ZoomEvent, type ZoomBehavior, type ZoomTransform } from 'd3-zoom'
 
+import { FLOW_CANVAS_NODE_TYPE_OPTIONS } from '@/lib/flows/node-types'
 import type { FlowDefinition, FlowLayoutNode, FlowNodeType } from '@/lib/flows/types'
 import { cn } from '@/lib/utils'
 
@@ -27,14 +28,6 @@ type CanvasNode = FlowLayoutNode & {
 
 const NODE_WIDTH = 156
 const NODE_HEIGHT = 56
-const ADD_NODE_TYPES: Array<{ label: string; type: FlowNodeType }> = [
-  { label: 'Agent', type: 'agent' },
-  { label: 'Human', type: 'human' },
-  { label: 'Condition', type: 'condition' },
-  { label: 'Slack', type: 'slack' },
-  { label: 'Merge', type: 'merge' },
-]
-
 type PendingConnection = {
   sourceNodeId: string
   x: number
@@ -60,6 +53,7 @@ export function FlowCanvas({
   const zoomLayerRef = useRef<SVGGElement | null>(null)
   const dotPatternRef = useRef<SVGPatternElement | null>(null)
   const zoomTransformRef = useRef<ZoomTransform>(zoomIdentity)
+  const zoomBehaviorRef = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null)
   const nodeRefs = useRef<Map<string, SVGGElement>>(new Map())
   const [addMenuNodeId, setAddMenuNodeId] = useState<string | null>(null)
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
@@ -176,6 +170,10 @@ export function FlowCanvas({
 
     const zoomBehavior = d3zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.4, 2.5])
+      .filter((event) => {
+        if (event.type === 'wheel') return event.ctrlKey || event.metaKey
+        return !event.button
+      })
       .on('zoom', (event: D3ZoomEvent<SVGSVGElement, unknown>) => {
         const transformString = event.transform.toString()
         zoomTransformRef.current = event.transform
@@ -185,10 +183,27 @@ export function FlowCanvas({
         }
       })
 
+    zoomBehaviorRef.current = zoomBehavior
     select(svg).call(zoomBehavior)
     return () => {
       select(svg).on('.zoom', null)
+      zoomBehaviorRef.current = null
     }
+  }, [])
+
+  const handleZoomIn = useCallback(() => {
+    if (!svgRef.current || !zoomBehaviorRef.current) return
+    select(svgRef.current).transition().duration(180).call(zoomBehaviorRef.current.scaleBy, 1.25)
+  }, [])
+
+  const handleZoomOut = useCallback(() => {
+    if (!svgRef.current || !zoomBehaviorRef.current) return
+    select(svgRef.current).transition().duration(180).call(zoomBehaviorRef.current.scaleBy, 0.8)
+  }, [])
+
+  const handleZoomReset = useCallback(() => {
+    if (!svgRef.current || !zoomBehaviorRef.current) return
+    select(svgRef.current).transition().duration(220).call(zoomBehaviorRef.current.transform, zoomIdentity)
   }, [])
 
   useEffect(() => {
@@ -423,7 +438,7 @@ export function FlowCanvas({
                 {addMenuNodeId === node.nodeId ? (
                   <g transform={`translate(${NODE_WIDTH + 40}, -8)`}>
                     <rect width="104" height="138" rx="10" className="fill-card stroke-border drop-shadow-sm" strokeWidth="1" />
-                    {ADD_NODE_TYPES.map((item, index) => (
+                    {FLOW_CANVAS_NODE_TYPE_OPTIONS.map((item, index) => (
                       <g
                         key={item.type}
                         role="button"
@@ -454,6 +469,33 @@ export function FlowCanvas({
           })}
         </g>
       </svg>
+
+      <div className="absolute bottom-3 right-3 z-10 flex items-center gap-0.5 rounded-md border border-border/70 bg-background/80 p-0.5 backdrop-blur">
+        <button
+          type="button"
+          onClick={handleZoomOut}
+          aria-label="Zoom out"
+          className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <Minus size={12} weight="bold" />
+        </button>
+        <button
+          type="button"
+          onClick={handleZoomReset}
+          aria-label="Reset zoom"
+          className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <ArrowClockwise size={12} weight="bold" />
+        </button>
+        <button
+          type="button"
+          onClick={handleZoomIn}
+          aria-label="Zoom in"
+          className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <Plus size={12} weight="bold" />
+        </button>
+      </div>
     </div>
   )
 }

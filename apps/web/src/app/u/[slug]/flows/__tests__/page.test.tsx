@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   ensureFlowSchedulerStarted: vi.fn(),
@@ -18,6 +18,10 @@ vi.mock('@/lib/runtime/desktop/current-vault', () => ({ getCurrentDesktopVault: 
 vi.mock('@/lib/runtime/mode', () => ({ isDesktop: mocks.isDesktop }))
 
 describe('FlowsListPage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
   it('renders the flows page and starts the scheduler', async () => {
     mocks.isDesktop.mockReturnValue(false)
     mocks.getRuntimeCapabilities.mockReturnValue({ flows: true })
@@ -35,5 +39,16 @@ describe('FlowsListPage', () => {
     const Page = (await import('../page')).default
 
     await expect(Page({ params: Promise.resolve({ slug: 'alice' }) })).rejects.toThrow('REDIRECT:/u/alice')
+  })
+
+  it('redirects desktop flow routes back to the workspace', async () => {
+    mocks.isDesktop.mockReturnValue(true)
+    mocks.getCurrentDesktopVault.mockReturnValue({ path: '/vault' })
+    const Page = (await import('../page')).default
+
+    await expect(Page({ params: Promise.resolve({ slug: 'alice' }) })).rejects.toThrow('REDIRECT:/u/alice')
+
+    mocks.getCurrentDesktopVault.mockReturnValue(null)
+    await expect(Page({ params: Promise.resolve({ slug: 'alice' }) })).rejects.toThrow('REDIRECT:/')
   })
 })

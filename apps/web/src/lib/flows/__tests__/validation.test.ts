@@ -8,9 +8,12 @@ describe('validateFlowDefinition', () => {
     expect(validateFlowDefinition(createDefaultFlowDefinition()).ok).toBe(true)
   })
 
-  it('rejects cycles created by condition rule targets', () => {
+  it('rejects cycles created by condition rule targets through graph edges', () => {
     const definition: FlowDefinition = {
-      edges: [{ id: 'edge-1', sourceNodeId: 'agent-1', targetNodeId: 'condition-1' }],
+      edges: [
+        { id: 'edge-1', sourceNodeId: 'agent-1', targetNodeId: 'condition-1' },
+        { id: 'edge-2', sourceNodeId: 'condition-1', targetNodeId: 'agent-1' },
+      ],
       nodes: [
         {
           compactOutput: false,
@@ -71,6 +74,33 @@ describe('validateFlowDefinition', () => {
     }
 
     expect(validateFlowDefinition(definition)).toEqual({ ok: false, error: 'unknown_condition_target' })
+  })
+
+  it('adds missing outgoing edges for condition rule targets', () => {
+    const definition: FlowDefinition = {
+      edges: [],
+      nodes: [
+        {
+          id: 'condition-1',
+          mode: 'rules',
+          name: 'Condition',
+          rules: [{ id: 'rule-1', operator: 'exists', targetNodeId: 'merge-1', variable: 'previous.output' }],
+          type: 'condition',
+        },
+        { id: 'merge-1', name: 'Merge', type: 'merge' },
+      ],
+      startNodeId: 'condition-1',
+      version: 1,
+    }
+
+    const result = validateFlowDefinition(definition)
+
+    expect(result).toEqual({
+      ok: true,
+      definition: expect.objectContaining({
+        edges: [expect.objectContaining({ sourceNodeId: 'condition-1', targetNodeId: 'merge-1' })],
+      }),
+    })
   })
 
   it('accepts configured Slack message nodes and rejects incomplete ones', () => {

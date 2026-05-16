@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { FlowRunStatus, FlowRunTrigger } from '@prisma/client'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { FlowsPage } from '@/components/flows/flows-page'
@@ -26,6 +27,33 @@ const flow: FlowListItem = {
   nextRunAt: '2026-05-18T09:00:00.000Z',
   timezone: 'UTC',
   updatedAt: '2026-05-12T10:00:00.000Z',
+}
+
+function createRun(status: FlowRunStatus): FlowListItem['latestRun'] {
+  return {
+    attempt: 1,
+    createdAt: '2026-05-12T10:00:00.000Z',
+    currentNodeId: null,
+    error: null,
+    finishedAt: null,
+    flowId: 'flow-1',
+    id: `run-${status}`,
+    lastRetryError: null,
+    openCodeSessionId: null,
+    resultSeenAt: null,
+    retryScheduledFor: null,
+    scheduledFor: '2026-05-12T10:00:00.000Z',
+    sessionTitle: null,
+    startedAt: '2026-05-12T10:00:00.000Z',
+    status,
+    steps: [],
+    trigger: FlowRunTrigger.manual,
+    updatedAt: '2026-05-12T10:00:00.000Z',
+  }
+}
+
+function createFlow(overrides: Partial<FlowListItem>): FlowListItem {
+  return { ...flow, ...overrides }
 }
 
 describe('FlowsPage', () => {
@@ -72,5 +100,44 @@ describe('FlowsPage', () => {
 
     await waitFor(() => expect(screen.getByText('Could not load flows')).toBeTruthy())
     expect(screen.getByText('load_failed')).toBeTruthy()
+  })
+
+  it('retries after network load errors', async () => {
+    clientMocks.fetchFlowList
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce({ ok: true, data: { flows: [flow] } })
+
+    render(<FlowsPage slug="alice" />)
+
+    await waitFor(() => expect(screen.getByText('network_error')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+    await waitFor(() => expect(screen.getByText('Weekly Review')).toBeTruthy())
+    expect(clientMocks.fetchFlowList).toHaveBeenCalledTimes(2)
+  })
+
+  it('labels run states for enabled and manual flows', async () => {
+    clientMocks.fetchFlowList.mockResolvedValue({
+      ok: true,
+      data: {
+        flows: [
+          createFlow({ enabled: false, id: 'disabled', name: 'Disabled flow' }),
+          createFlow({ id: 'running', latestRun: createRun(FlowRunStatus.running), name: 'Running flow' }),
+          createFlow({ id: 'succeeded', latestRun: createRun(FlowRunStatus.succeeded), name: 'Succeeded flow' }),
+          createFlow({ id: 'failed', latestRun: createRun(FlowRunStatus.failed), name: 'Failed flow' }),
+          createFlow({ id: 'cancelled', latestRun: createRun(FlowRunStatus.cancelled), name: 'Cancelled flow' }),
+          createFlow({ id: 'human', latestRun: createRun(FlowRunStatus.waiting_for_human), name: 'Human flow' }),
+        ],
+      },
+    })
+
+    render(<FlowsPage slug="alice" />)
+
+    await waitFor(() => expect(screen.getByText('Cancelled flow')).toBeTruthy())
+    expect(screen.getByText('Manual only')).toBeTruthy()
+    expect(screen.getByText('Running')).toBeTruthy()
+    expect(screen.getByText('Last run OK')).toBeTruthy()
+    expect(screen.getAllByText('Last run failed')).toHaveLength(2)
+    expect(screen.getByText('Waiting for human')).toBeTruthy()
   })
 })

@@ -10,7 +10,7 @@ const definition: FlowDefinition = {
   nodes: [
     { compactOutput: false, id: 'agent-1', name: 'Agent', promptTemplate: 'Prompt', targetAgentId: null, type: 'agent' },
     { id: 'human-1', instructions: 'Review', name: 'Human', required: true, type: 'human' },
-    { id: 'condition-1', mode: 'rules', name: 'Condition', rules: [{ id: 'rule-1', operator: 'contains', targetNodeId: 'human-1', value: 'yes', variable: 'previous.output' }], type: 'condition' },
+    { id: 'condition-1', mode: 'rules', name: 'Condition', rules: [{ id: 'rule-1', operator: 'contains', targetNodeId: 'merge-1', value: 'yes', variable: 'previous.output' }], type: 'condition' },
     { id: 'slack-1', messageMode: 'fixed', messageTemplate: 'Hello', name: 'Slack', target: { type: 'dm', userId: 'user-1' }, type: 'slack' },
     { id: 'merge-1', name: 'Merge', type: 'merge' },
   ],
@@ -23,6 +23,7 @@ const connectedDefinition: FlowDefinition = {
   edges: [
     { id: 'edge-1', sourceNodeId: 'agent-1', targetNodeId: 'human-1' },
     { id: 'edge-2', sourceNodeId: 'human-1', targetNodeId: 'condition-1' },
+    { id: 'edge-3', sourceNodeId: 'condition-1', targetNodeId: 'merge-1' },
   ],
 }
 
@@ -114,11 +115,11 @@ describe('FlowNodeInspector', () => {
 
   it('adds rules and updates AI evaluator prompts', () => {
     const onUpdateNode = vi.fn()
-    renderInspector({ selectedNode: definition.nodes[2], onUpdateNode })
+    renderInspector({ definition: connectedDefinition, selectedNode: connectedDefinition.nodes[2], onUpdateNode })
 
     fireEvent.click(screen.getByRole('button', { name: 'Add rule' }))
     expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({
-      rules: [expect.any(Object), expect.objectContaining({ targetNodeId: 'agent-1' })],
+      rules: [expect.any(Object), expect.objectContaining({ targetNodeId: 'merge-1' })],
     }))
 
     cleanup()

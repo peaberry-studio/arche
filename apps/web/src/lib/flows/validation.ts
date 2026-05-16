@@ -221,6 +221,23 @@ function parseLayout(value: unknown): FlowLayout | undefined | null {
   return { nodes: nodes as FlowLayoutNode[] }
 }
 
+function flowEdgeKey(sourceNodeId: string, targetNodeId: string): string {
+  return `${sourceNodeId}\0${targetNodeId}`
+}
+
+function createConditionRuleEdgeId(edgeIds: ReadonlySet<string>, rule: FlowConditionRule): string {
+  const base = `condition-rule-${rule.id}`
+  let candidate = base
+  let suffix = 2
+
+  while (edgeIds.has(candidate)) {
+    candidate = `${base}-${suffix}`
+    suffix += 1
+  }
+
+  return candidate
+}
+
 function hasCycle(definition: FlowDefinition): boolean {
   const visiting = new Set<string>()
   const visited = new Set<string>()
@@ -287,6 +304,7 @@ export function validateFlowDefinition(value: unknown): FlowDefinitionValidation
   }
 
   const edgeIds = new Set<string>()
+  const edgeKeys = new Set<string>()
   for (const edge of definition.edges) {
     if (edgeIds.has(edge.id)) {
       return { ok: false, error: 'duplicate_flow_edge_id' }
@@ -298,6 +316,7 @@ export function validateFlowDefinition(value: unknown): FlowDefinitionValidation
     if (edge.sourceNodeId === edge.targetNodeId) {
       return { ok: false, error: 'cyclic_flow' }
     }
+    edgeKeys.add(flowEdgeKey(edge.sourceNodeId, edge.targetNodeId))
   }
 
   for (const node of definition.nodes) {
@@ -305,6 +324,21 @@ export function validateFlowDefinition(value: unknown): FlowDefinitionValidation
     for (const rule of node.rules ?? []) {
       if (!nodeIds.has(rule.targetNodeId)) {
         return { ok: false, error: 'unknown_condition_target' }
+      }
+      if (rule.targetNodeId === node.id) {
+        return { ok: false, error: 'cyclic_flow' }
+      }
+
+      const edgeKey = flowEdgeKey(node.id, rule.targetNodeId)
+      if (!edgeKeys.has(edgeKey)) {
+        const edgeId = createConditionRuleEdgeId(edgeIds, rule)
+        definition.edges.push({
+          id: edgeId,
+          sourceNodeId: node.id,
+          targetNodeId: rule.targetNodeId,
+        })
+        edgeIds.add(edgeId)
+        edgeKeys.add(edgeKey)
       }
     }
   }

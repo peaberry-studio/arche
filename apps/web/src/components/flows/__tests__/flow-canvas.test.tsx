@@ -5,22 +5,35 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FlowCanvas } from '@/components/flows/flow-canvas'
 import type { FlowDefinition } from '@/lib/flows/types'
 
-const chain = () => ({
-  attr: vi.fn().mockReturnThis(),
-  call: vi.fn().mockReturnThis(),
-  datum: vi.fn().mockReturnThis(),
-  on: vi.fn().mockReturnThis(),
-})
+const chain = () => {
+  const node: Record<string, unknown> = {}
+  node.attr = vi.fn(() => node)
+  node.call = vi.fn(() => node)
+  node.datum = vi.fn(() => node)
+  node.on = vi.fn(() => node)
+  node.transition = vi.fn(() => node)
+  node.duration = vi.fn(() => node)
+  return node
+}
 
 vi.mock('d3-selection', () => ({ select: vi.fn(() => chain()) }))
 vi.mock('d3-drag', () => ({ drag: vi.fn(() => ({ on: vi.fn().mockReturnThis() })) }))
-vi.mock('d3-zoom', () => ({
-  zoom: vi.fn(() => ({ on: vi.fn().mockReturnThis(), scaleExtent: vi.fn().mockReturnThis() })),
-  zoomIdentity: {
-    invertX: (value: number) => value,
-    invertY: (value: number) => value,
-  },
-}))
+vi.mock('d3-zoom', () => {
+  const behavior = {
+    on: vi.fn().mockReturnThis(),
+    scaleExtent: vi.fn().mockReturnThis(),
+    filter: vi.fn().mockReturnThis(),
+    scaleBy: vi.fn(),
+    transform: vi.fn(),
+  }
+  return {
+    zoom: vi.fn(() => behavior),
+    zoomIdentity: {
+      invertX: (value: number) => value,
+      invertY: (value: number) => value,
+    },
+  }
+})
 
 function renderCanvas(overrides?: {
   onAddNodeAfter?: (sourceNodeId: string, type: 'agent' | 'human' | 'condition' | 'slack' | 'merge' | 'compaction') => void
@@ -90,6 +103,10 @@ describe('FlowCanvas', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add node after Agent step' }))
     fireEvent.click(screen.getByRole('button', { name: 'Add slack step after Agent step' }))
     expect(onAddNodeAfter).toHaveBeenCalledWith('agent-1', 'slack')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add node after Agent step' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add compaction step after Agent step' }))
+    expect(onAddNodeAfter).toHaveBeenCalledWith('agent-1', 'compaction')
 
     fireEvent.pointerDown(screen.getByRole('button', { name: 'Connect from Agent step' }), {
       clientX: 166,

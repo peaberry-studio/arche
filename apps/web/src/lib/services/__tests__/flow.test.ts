@@ -129,6 +129,7 @@ describe('flowService', () => {
     prismaMock.flow.findFirst.mockResolvedValue(flow)
     prismaMock.flow.create.mockResolvedValue(flow)
     prismaMock.flow.updateMany.mockResolvedValue({ count: 1 })
+    prismaMock.flowRun.updateMany.mockResolvedValue({ count: 1 })
 
     await expect(flowService.listFlowsByUserId('user-1')).resolves.toEqual([flow])
     await expect(flowService.findFlowByIdAndUserId('flow-1', 'user-1')).resolves.toEqual(flow)
@@ -137,8 +138,12 @@ describe('flowService', () => {
     await expect(flowService.deleteFlowByIdAndUserId('flow-1', 'user-1')).resolves.toEqual({ count: 1 })
     expect(prismaMock.flow.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { deletedAt: null, userId: 'user-1' } }))
     expect(prismaMock.flow.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ deletedAt: expect.any(Date), enabled: false, nextRunAt: null }),
+      data: expect.objectContaining({ deletedAt: expect.any(Date), enabled: false, leaseExpiresAt: null, leaseOwner: null, nextRunAt: null }),
       where: { deletedAt: null, id: 'flow-1', userId: 'user-1' },
+    }))
+    expect(prismaMock.flowRun.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ currentNodeId: null, retryScheduledFor: null, status: FlowRunStatus.cancelled }),
+      where: { flowId: 'flow-1', status: { in: [FlowRunStatus.running, FlowRunStatus.waiting_for_human] } },
     }))
   })
 
@@ -208,7 +213,14 @@ describe('flowService', () => {
     })
 
     expect(prismaMock.flowRun.findFirst).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ retryScheduledFor: { lte: now }, status: FlowRunStatus.running }),
+      where: expect.objectContaining({
+        flow: expect.objectContaining({ deletedAt: null }),
+        retryScheduledFor: { lte: now },
+        status: FlowRunStatus.running,
+      }),
+    }))
+    expect(prismaMock.flow.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ deletedAt: null, id: 'flow-1' }),
     }))
     expect(prismaMock.flowRun.updateMany).toHaveBeenLastCalledWith({
       data: { retryScheduledFor: null },

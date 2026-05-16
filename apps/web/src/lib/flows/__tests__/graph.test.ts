@@ -4,7 +4,10 @@ import { getFlowNodeById, getFlowOutgoingTargets, getFlowTraversalTargets } from
 import type { FlowDefinition } from '@/lib/flows/types'
 
 const definition: FlowDefinition = {
-  edges: [{ id: 'edge-1', sourceNodeId: 'agent-1', targetNodeId: 'merge-1' }],
+  edges: [
+    { id: 'edge-1', sourceNodeId: 'agent-1', targetNodeId: 'merge-1' },
+    { id: 'edge-2', sourceNodeId: 'condition-1', targetNodeId: 'merge-1' },
+  ],
   nodes: [
     {
       compactOutput: false,
@@ -33,7 +36,7 @@ describe('flow graph helpers', () => {
     expect(getFlowOutgoingTargets(definition, 'agent-1')).toEqual(['merge-1'])
   })
 
-  it('includes condition rule targets in traversal targets', () => {
-    expect(getFlowTraversalTargets(definition, 'condition-1')).toEqual(['agent-1'])
+  it('uses outgoing edges as traversal targets', () => {
+    expect(getFlowTraversalTargets(definition, 'condition-1')).toEqual(['merge-1'])
   })
 })

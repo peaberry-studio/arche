@@ -38,8 +38,35 @@ export function FlowRunHistoryView({ flowId, slug }: FlowRunHistoryViewProps) {
   }, [flowId, slug])
 
   useEffect(() => {
-    void loadFlow()
-  }, [loadFlow])
+    let cancelled = false
+
+    async function loadInitialFlow() {
+      try {
+        const result = await fetchFlowDetail(slug, flowId)
+        if (cancelled) return
+
+        if (!result.ok) {
+          setError(result.error)
+          return
+        }
+        setFlow(result.data.flow)
+      } catch {
+        if (!cancelled) {
+          setError('network_error')
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    void loadInitialFlow()
+
+    return () => {
+      cancelled = true
+    }
+  }, [flowId, slug])
 
   const runFlow = useCallback(async () => {
     setIsRunning(true)

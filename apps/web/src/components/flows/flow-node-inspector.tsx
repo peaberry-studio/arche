@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import type { AgentListItem } from '@/hooks/use-agents-catalog'
+import { getFlowOutgoingTargets } from '@/lib/flows/graph'
 import type { FlowConditionRule, FlowDefinition, FlowNode, SlackFlowNode } from '@/lib/flows/types'
 
 type SlackTargetUser = {
@@ -197,7 +198,11 @@ export function FlowNodeInspector({
   }
 
   const node = selectedNode
-  const targetOptions = definition.nodes.filter((candidate) => candidate.id !== node.id)
+  const targetOptions = node.type === 'condition'
+    ? getFlowOutgoingTargets(definition, node.id)
+      .map((targetNodeId) => definition.nodes.find((candidate) => candidate.id === targetNodeId))
+      .filter((candidate): candidate is FlowNode => Boolean(candidate))
+    : definition.nodes.filter((candidate) => candidate.id !== node.id)
   const templateSuggestions = getTemplateVariableSuggestions(definition, node)
 
   function updateRule(rule: FlowConditionRule) {
@@ -318,6 +323,11 @@ export function FlowNodeInspector({
 
           {node.mode === 'rules' ? (
             <div className="space-y-3">
+              {targetOptions.length === 0 ? (
+                <p className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                  Connect this condition to at least one target on the canvas before adding rules.
+                </p>
+              ) : null}
               {(node.rules ?? []).map((rule) => (
                 <div key={rule.id} className="space-y-2 rounded-lg border border-border/60 p-3">
                   <Input value={rule.variable} onChange={(event) => updateRule({ ...rule, variable: event.target.value })} placeholder="previous.output" />
@@ -356,6 +366,7 @@ export function FlowNodeInspector({
                 type="button"
                 variant="outline"
                 size="sm"
+                disabled={targetOptions.length === 0}
                 onClick={() => onUpdateNode({
                   ...node,
                   rules: [...(node.rules ?? []), createRule(targetOptions[0]?.id ?? node.id)],

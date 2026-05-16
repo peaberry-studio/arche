@@ -10,19 +10,6 @@ export function getFlowOutgoingTargets(definition: FlowDefinition, nodeId: strin
     .map((edge) => edge.targetNodeId)
 }
 
-export function getFlowConditionRuleTargets(node: FlowNode): string[] {
-  if (node.type !== 'condition') return []
-  if (node.mode !== 'rules') return []
-
-  return (node.rules ?? []).map((rule) => rule.targetNodeId)
-}
-
 export function getFlowTraversalTargets(definition: FlowDefinition, nodeId: string): string[] {
-  const node = getFlowNodeById(definition, nodeId)
-  if (!node) return []
-
-  return Array.from(new Set([
-    ...getFlowOutgoingTargets(definition, nodeId),
-    ...getFlowConditionRuleTargets(node),
-  ]))
+  return getFlowOutgoingTargets(definition, nodeId)
 }

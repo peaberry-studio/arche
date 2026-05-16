@@ -239,15 +239,35 @@ export async function updateFlowByIdAndUserId(
   return prisma.flow.findFirst({ where: { deletedAt: null, id, userId } })
 }
 
-export function deleteFlowByIdAndUserId(id: string, userId: string) {
-  return prisma.flow.updateMany({
+export async function deleteFlowByIdAndUserId(id: string, userId: string) {
+  const deletedAt = new Date()
+  const result = await prisma.flow.updateMany({
     data: {
-      deletedAt: new Date(),
+      deletedAt,
       enabled: false,
+      leaseExpiresAt: null,
+      leaseOwner: null,
       nextRunAt: null,
     },
     where: { deletedAt: null, id, userId },
   })
+
+  if (result.count === 0) return result
+
+  await prisma.flowRun.updateMany({
+    data: {
+      currentNodeId: null,
+      finishedAt: deletedAt,
+      retryScheduledFor: null,
+      status: FlowRunStatus.cancelled,
+    },
+    where: {
+      flowId: id,
+      status: { in: ACTIVE_RUN_STATUSES },
+    },
+  })
+
+  return result
 }
 
 export async function claimNextDueFlow(params: {
@@ -334,6 +354,7 @@ export async function claimNextRetryRun(params: {
         retryScheduledFor: { lte: params.now },
         status: FlowRunStatus.running,
         flow: {
+          deletedAt: null,
           OR: availableLease(params.now),
         },
       },
@@ -348,6 +369,7 @@ export async function claimNextRetryRun(params: {
         leaseOwner: params.leaseOwner,
       },
       where: {
+        deletedAt: null,
         id: run.flowId,
         OR: availableLease(params.now),
       },
