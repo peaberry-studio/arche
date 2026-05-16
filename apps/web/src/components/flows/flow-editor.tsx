@@ -639,28 +639,42 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
         </section>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/40 pt-5">
-        <div className="flex flex-wrap gap-2">
-          <Button onClick={() => void saveFlow()} disabled={isSaving || !validation.ok || !isScheduleValid}>
-            {isSaving ? 'Saving...' : mode === 'create' ? 'Create flow' : 'Save changes'}
-          </Button>
+      {mode === 'edit' ? (
+        <section className="rounded-xl border border-destructive/30 bg-destructive/5 p-5">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="space-y-1">
+              <h2 className="text-sm font-semibold text-destructive">Danger zone</h2>
+              <p className="text-xs text-muted-foreground">
+                Deleting a flow removes its run history and cancels any scheduled runs. This cannot be undone.
+              </p>
+            </div>
+            <Button variant="destructive" onClick={() => void deleteFlow()} disabled={isDeleting}>
+              {isDeleting ? 'Deleting...' : 'Delete flow'}
+            </Button>
+          </div>
+        </section>
+      ) : null}
+
+      <div className="sticky bottom-0 z-20 -mx-6 border-t border-border/60 bg-background/85 px-6 py-4 backdrop-blur-md supports-[backdrop-filter]:bg-background/70">
+        {(!validation.ok || !isScheduleValid || formError) ? (
+          <div className="mb-3 space-y-1">
+            {!validation.ok ? <p className="text-sm text-destructive">Definition error: {validation.error}</p> : null}
+            {!isScheduleValid ? <p className="text-sm text-destructive">Schedule error: invalid_cron_expression</p> : null}
+            {formError ? <p className="text-sm text-destructive">{formError}</p> : null}
+          </div>
+        ) : null}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button variant="outline" asChild><Link href={`/u/${slug}/flows`}>Back to list</Link></Button>
           {mode === 'edit' ? (
             <Button variant="outline" onClick={() => void runFlow()} disabled={isRunning}>
               {isRunning ? 'Starting...' : 'Run flow'}
             </Button>
           ) : null}
-          <Button variant="outline" asChild><Link href={`/u/${slug}/flows`}>Back to list</Link></Button>
+          <Button onClick={() => void saveFlow()} disabled={isSaving || !validation.ok || !isScheduleValid}>
+            {isSaving ? 'Saving...' : mode === 'create' ? 'Create flow' : 'Save changes'}
+          </Button>
         </div>
-        {mode === 'edit' ? (
-          <button type="button" onClick={() => void deleteFlow()} disabled={isDeleting} className="text-sm text-destructive underline-offset-2 hover:underline disabled:opacity-50">
-            {isDeleting ? 'Deleting...' : 'Delete flow'}
-          </button>
-        ) : null}
       </div>
-
-      {!validation.ok ? <p className="text-sm text-destructive">Definition error: {validation.error}</p> : null}
-      {!isScheduleValid ? <p className="text-sm text-destructive">Schedule error: invalid_cron_expression</p> : null}
-      {formError ? <p className="text-sm text-destructive">{formError}</p> : null}
 
       <Dialog open={Boolean(editingNode)} onOpenChange={(open) => {
         if (!open) setEditingNodeId(null)

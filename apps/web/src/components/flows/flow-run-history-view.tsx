@@ -70,21 +70,20 @@ export function FlowRunHistoryView({ flowId, slug }: FlowRunHistoryViewProps) {
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <Button variant="outline" asChild className="gap-2">
+            <Link href={editHref}>
+              <PencilSimple size={14} weight="bold" />
+              Edit flow
+            </Link>
+          </Button>
           <Button
             onClick={() => void runFlow()}
             disabled={isRunning || !flow}
-            className="inline-flex items-center gap-2"
+            className="gap-2"
           >
             <Lightning size={14} weight="fill" />
             {isRunning ? 'Starting...' : 'Run flow'}
           </Button>
-          <Link
-            href={editHref}
-            className="inline-flex items-center gap-2 rounded-md border border-border/60 bg-card/40 px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            <PencilSimple size={14} weight="bold" />
-            Edit flow
-          </Link>
         </div>
       </div>
 

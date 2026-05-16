@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { Info, SpinnerGap } from '@phosphor-icons/react'
 
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -69,9 +70,6 @@ export function AgentForm({
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saveSuccess, setSaveSuccess] = useState(false)
-  const checkboxClassName =
-    'h-4 w-4 rounded border border-border/70 bg-card/70 accent-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40'
-
   useEffect(() => {
     let cancelled = false
 
@@ -414,11 +412,9 @@ export function AgentForm({
           <div className="flex items-center justify-between gap-3">
             <Label htmlFor="agent-model">Model override</Label>
             <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={usesDefaultModel}
                 onChange={(event) => handleUsesDefaultModelChange(event.target.checked)}
-                className={checkboxClassName}
               />
               Use workspace default model
             </label>
@@ -518,11 +514,9 @@ export function AgentForm({
                         : 'border-border/60 bg-card/40 text-muted-foreground hover:bg-card/70'
                     )}
                   >
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={checked}
                       onChange={() => toggleTool(tool.id)}
-                      className={checkboxClassName}
                     />
                     <span>{tool.label}</span>
                   </label>
@@ -566,11 +560,9 @@ export function AgentForm({
                           : 'border-border/60 bg-card/40 text-muted-foreground hover:bg-card/70'
                       )}
                     >
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={checked}
                         onChange={() => toggleMcpConnector(connector.id)}
-                        className={checkboxClassName}
                       />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate font-medium">{connector.name}</span>
@@ -617,11 +609,9 @@ export function AgentForm({
                           : 'border-border/60 bg-card/40 text-muted-foreground hover:bg-card/70'
                       )}
                     >
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={checked}
                         onChange={() => toggleSkill(skill.name)}
-                        className={checkboxClassName}
                       />
                       <span className="font-medium">{skill.name}</span>
                     </label>
@@ -669,44 +659,44 @@ export function AgentForm({
 
       {mode === 'create' && allowPrimarySelection && (
         <label className="flex items-center gap-2 text-sm text-muted-foreground">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={isPrimary}
             onChange={(event) => setIsPrimary(event.target.checked)}
-            className={checkboxClassName}
           />
           Set as primary
         </label>
       )}
 
-      {saveError && (
-        <div className="rounded-lg border border-border/60 bg-card/50 p-4 text-sm text-destructive">
-          Error: {saveError}
-        </div>
+      {mode === 'edit' && !isPrimary && (
+        <section className="rounded-xl border border-destructive/30 bg-destructive/5 p-5">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="space-y-1">
+              <h2 className="text-sm font-semibold text-destructive">Danger zone</h2>
+              <p className="text-xs text-muted-foreground">
+                Deleting an agent removes it from this workspace. This cannot be undone.
+              </p>
+            </div>
+            <Button type="button" variant="destructive" onClick={handleDelete} disabled={isSaving}>
+              Delete agent
+            </Button>
+          </div>
+        </section>
       )}
 
-      <div className="flex items-center justify-between border-t border-border/40 pt-6">
-        <div className="flex items-center gap-3">
-          <Button type="submit" disabled={isSaving} variant={saveSuccess ? 'secondary' : 'default'}>
-            {saveLabel}
-          </Button>
+      <div className="sticky bottom-0 z-20 -mx-6 border-t border-border/60 bg-background/85 px-6 py-4 backdrop-blur-md supports-[backdrop-filter]:bg-background/70">
+        {saveError ? (
+          <p className="mb-3 text-sm text-destructive">Error: {saveError}</p>
+        ) : null}
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {onCancel ? (
             <Button type="button" variant="ghost" onClick={onCancel}>
               {cancelLabel}
             </Button>
           ) : null}
+          <Button type="submit" disabled={isSaving} variant={saveSuccess ? 'secondary' : 'default'}>
+            {saveLabel}
+          </Button>
         </div>
-
-        {mode === 'edit' && !isPrimary && (
-          <button
-            type="button"
-            onClick={handleDelete}
-            disabled={isSaving}
-            className="text-sm text-destructive underline-offset-2 hover:underline disabled:opacity-50"
-          >
-            Delete agent
-          </button>
-        )}
       </div>
     </form>
   )

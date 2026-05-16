@@ -6,6 +6,7 @@ import { CaretDown, CaretRight, Check, Info, PencilSimple, Plus, Trash } from "@
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   createEmptyFrontmatterProperty,
@@ -391,10 +392,9 @@ export function MarkdownFrontmatterPanel({
 
                 {property.type === "boolean" ? (
                   <label className="flex h-7 items-center gap-2 rounded-md border border-border bg-background px-2 text-xs text-foreground">
-                    <input
+                    <Checkbox
                       aria-label={`Property ${index + 1} value`}
                       checked={property.value}
-                      type="checkbox"
                       onChange={(event) => {
                         const next = [...draftProperties];
                         next[index] = { ...property, value: event.target.checked };
