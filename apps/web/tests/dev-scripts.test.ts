@@ -24,7 +24,7 @@ describe('web dev scripts', () => {
     expect(packageJson.scripts?.['prisma:generate:all']).toContain('pnpm prisma:generate:desktop')
   })
 
-  it('keeps local-dev compose generating the desktop Prisma client before Next dev starts', () => {
+  it('keeps local-dev compose using the Turbopack dev server wrapper', () => {
     const composeTemplatePath = resolve(
       process.cwd(),
       '..',
@@ -37,17 +37,39 @@ describe('web dev scripts', () => {
       'templates',
       'compose.yml.j2',
     )
+    const rootComposePath = resolve(process.cwd(), '..', '..', 'infra', 'compose', 'compose.yaml')
+    const devServerPath = resolve(process.cwd(), 'scripts', 'dev-server.sh')
+    const reloadWebDevPath = resolve(process.cwd(), '..', '..', 'scripts', 'reload-web-dev.sh')
     const composeTemplate = readFileSync(composeTemplatePath, 'utf8')
+    const rootCompose = readFileSync(rootComposePath, 'utf8')
+    const devServer = readFileSync(devServerPath, 'utf8')
+    const reloadWebDev = readFileSync(reloadWebDevPath, 'utf8')
 
-    expect(composeTemplate).toContain('pnpm prisma generate')
-    expect(composeTemplate).toContain('pnpm prisma:generate:desktop')
-    expect(composeTemplate).toContain('pnpm next dev -H 0.0.0.0 -p 3000')
-    expect(composeTemplate).not.toContain('--webpack')
+    for (const composeSource of [composeTemplate, rootCompose]) {
+      expect(composeSource).toContain('command: sh scripts/dev-server.sh')
+    }
+    expect(devServer).toContain('pnpm prisma generate')
+    expect(devServer).toContain('pnpm prisma:generate:desktop')
+    expect(devServer).toContain('pnpm next dev --turbopack -H 0.0.0.0 -p 3000')
+    expect(devServer).toContain('/tmp/arche-next-dev.pid')
+    expect(reloadWebDev).toContain('/tmp/arche-next-dev.pid')
+    expect(reloadWebDev).toContain('up -d --no-deps --force-recreate web')
     expect(composeTemplate).not.toContain('pnpm install --prefer-offline --force')
     expect(composeTemplate).toContain('NODE_COMPILE_CACHE: "/tmp/node-compile-cache"')
     expect(composeTemplate).toContain('restart: "unless-stopped"')
     expect(composeTemplate).toContain('name: arche')
     expect(composeTemplate).toContain('arche-internal')
+  })
+
+  it('keeps the local dev launcher wired to reload and stack shutdown', () => {
+    const devLocalPath = resolve(process.cwd(), '..', '..', 'scripts', 'dev-local.sh')
+    const devLocal = readFileSync(devLocalPath, 'utf8')
+
+    expect(devLocal).toContain('DEPLOY_SCRIPT="$ROOT_DIR/infra/deploy/deploy.sh"')
+    expect(devLocal).toContain('"$DEPLOY_SCRIPT" --local-dev')
+    expect(devLocal).toContain('RELOAD_SCRIPT="$ROOT_DIR/scripts/reload-web-dev.sh"')
+    expect(devLocal).toContain('podman compose "${COMPOSE_ARGS[@]}" down')
+    expect(devLocal).toContain('Q)')
   })
 
   it('keeps webpack watch ignores compatible with the webpack schema', () => {

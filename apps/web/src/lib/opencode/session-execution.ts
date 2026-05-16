@@ -159,7 +159,7 @@ async function inspectSessionOutcome(
   const assistantMessages = messages.filter((message) => normalizeRole(message.info.role) === 'assistant')
 
   if (assistantMessages.length === 0) {
-    return 'autopilot_no_assistant_message'
+    return 'flow_no_assistant_message'
   }
 
   const latestAssistant = assistantMessages[assistantMessages.length - 1]
@@ -173,11 +173,11 @@ async function inspectSessionOutcome(
   })
 
   if (runtimeState.pending) {
-    return 'autopilot_session_pending'
+    return 'flow_session_pending'
   }
 
   if (runtimeState.statusInfo?.status === 'error') {
-    return runtimeState.statusInfo.detail ?? 'autopilot_run_failed'
+    return runtimeState.statusInfo.detail ?? 'flow_run_failed'
   }
 
   return null
@@ -256,7 +256,7 @@ export async function waitForSessionToComplete(params: {
   cursor?: SessionMessageCursor
   sessionId: string
   slug: string
-  onPulse?: () => Promise<void>
+  onPulse?: () => Promise<string | null | void>
 }): Promise<string | null> {
   const deadline = Date.now() + RUN_TIMEOUT_MS
   const startedAt = Date.now()
@@ -269,7 +269,8 @@ export async function waitForSessionToComplete(params: {
       lastActivityTouchAt = Date.now()
     }
 
-    await params.onPulse?.().catch(() => undefined)
+    const pulseFailure = await params.onPulse?.().catch(() => null)
+    if (pulseFailure) return pulseFailure
 
     const [statusResult, messagesResult] = await Promise.all([
       params.client.session.status({}, { throwOnError: true }),
@@ -282,7 +283,7 @@ export async function waitForSessionToComplete(params: {
 
     if ((sessionStatus?.type === 'idle' || !sessionStatus) && assistantSeen) {
       const outcome = await inspectSessionOutcome(params.client, params.sessionId, params.cursor)
-      if (outcome === 'autopilot_session_pending') {
+      if (outcome === 'flow_session_pending') {
         await sleep(RUN_POLL_INTERVAL_MS)
         continue
       }
@@ -295,13 +296,13 @@ export async function waitForSessionToComplete(params: {
       !assistantSeen &&
       Date.now() - startedAt >= IDLE_WITHOUT_ASSISTANT_GRACE_MS
     ) {
-      return 'autopilot_no_assistant_message'
+      return 'flow_no_assistant_message'
     }
 
     await sleep(RUN_POLL_INTERVAL_MS)
   }
 
-  return 'autopilot_run_timeout'
+  return 'flow_run_timeout'
 }
 
 export async function readLatestAssistantText(

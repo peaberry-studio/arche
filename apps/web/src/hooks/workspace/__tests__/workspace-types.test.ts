@@ -239,8 +239,8 @@ describe("workspace-types session helpers", () => {
     )).toEqual([session("root"), session("child"), session("other")]);
 
     expect(areWorkspaceSessionListsEqual(
-      [session("root", { autopilot: { runId: "run-1", taskId: "task-1", taskName: "Task", trigger: "schedule", hasUnseenResult: true } })],
-      [session("root", { autopilot: { runId: "run-1", taskId: "task-1", taskName: "Task", trigger: "schedule", hasUnseenResult: true } })],
+      [session("root", { flow: { runId: "run-1", flowId: "flow-1", flowName: "Flow", status: "succeeded", trigger: "schedule", hasUnseenResult: true } })],
+      [session("root", { flow: { runId: "run-1", flowId: "flow-1", flowName: "Flow", status: "succeeded", trigger: "schedule", hasUnseenResult: true } })],
     )).toBe(true);
     expect(areWorkspaceSessionListsEqual([session("root")], [session("root", { title: "renamed" })])).toBe(false);
   });

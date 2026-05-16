@@ -15,6 +15,22 @@ vi.mock("next/image", () => ({
   default: () => null,
 }));
 
+vi.mock("@/components/flows/flow-human-response-panel", () => ({
+  FlowHumanResponsePanel: ({
+    runId,
+    onSubmitted,
+  }: {
+    runId: string;
+    onSubmitted?: () => Promise<void> | void;
+  }) => (
+    <div data-testid="flow-human-response-panel" data-run-id={runId}>
+      <button type="button" onClick={() => void onSubmitted?.()}>
+        Submit human response
+      </button>
+    </div>
+  ),
+}));
+
 type MockAttachment = {
   id: string;
   path: string;
@@ -992,5 +1008,32 @@ describe("ChatPanel textarea", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Main conversation" }));
     expect(onReturnToMainConversation).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders a human response panel for waiting flow sessions", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ attachments: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const onFlowHumanResponseSubmitted = vi.fn().mockResolvedValue(undefined);
+
+    renderChatPanel(undefined, {
+      flowHumanResponseRunId: "run-1",
+      isReadOnly: true,
+      onFlowHumanResponseSubmitted,
+      readOnlyNotice: "This flow run is still in progress.",
+    });
+
+    expect(screen.getByTestId("flow-human-response-panel").dataset.runId).toBe("run-1");
+    expect(screen.queryByText("This flow run is still in progress.")).toBeNull();
+    expect(screen.queryByPlaceholderText("Type a message...")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Submit human response" }));
+
+    await waitFor(() => {
+      expect(onFlowHumanResponseSubmitted).toHaveBeenCalledTimes(1);
+    });
   });
 });

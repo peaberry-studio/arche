@@ -49,7 +49,7 @@ describe('Slack notifications', () => {
 
     const { sendSlackNotifications } = await import('../notifications')
     const result = await sendSlackNotifications({
-      source: 'autopilot',
+      source: 'flows',
       targets: [{ type: 'channel', channelId: 'C123' }],
       text: 'Report',
     })
@@ -80,7 +80,7 @@ describe('Slack notifications', () => {
 
     const { sendSlackNotifications } = await import('../notifications')
     const result = await sendSlackNotifications({
-      source: 'autopilot',
+      source: 'flows',
       targets: [{ type: 'dm', userId: 'user-1' }],
       text: 'Report',
     })
@@ -101,7 +101,7 @@ describe('Slack notifications', () => {
 
     const { sendSlackNotifications } = await import('../notifications')
     const result = await sendSlackNotifications({
-      source: 'autopilot',
+      source: 'flows',
       targets: [{ type: 'channel', channelId: 'C123' }],
       text: 'Report',
     })
@@ -114,7 +114,7 @@ describe('Slack notifications', () => {
 
     const { sendSlackNotifications } = await import('../notifications')
     const result = await sendSlackNotifications({
-      source: 'autopilot',
+      source: 'flows',
       targets: [{ type: 'channel', channelId: 'C123' }],
       text: 'Report',
     })
@@ -129,7 +129,7 @@ describe('Slack notifications', () => {
       action: 'slack.notification_failed',
       metadata: {
         error: 'Channel not in allowlist',
-        source: 'autopilot',
+        source: 'flows',
         target: 'channel:C123',
       },
     })
@@ -146,7 +146,7 @@ describe('Slack notifications', () => {
     const { sendSlackNotifications } = await import('../notifications')
     const result = await sendSlackNotifications({
       sessionLink: 'https://arche.example/w/alice?session=s1',
-      source: 'autopilot',
+      source: 'flows',
       targets: [{ type: 'dm', userId: 'user-1' }],
       text: 'Report',
     })
@@ -169,7 +169,7 @@ describe('Slack notifications', () => {
 
     const { sendSlackNotifications } = await import('../notifications')
     const result = await sendSlackNotifications({
-      source: 'autopilot',
+      source: 'flows',
       targets: [{ type: 'dm', userId: 'missing-user' }],
       text: 'Report',
     })
@@ -190,7 +190,7 @@ describe('Slack notifications', () => {
 
     const { sendSlackNotifications } = await import('../notifications')
     const result = await sendSlackNotifications({
-      source: 'autopilot',
+      source: 'flows',
       targets: [{ type: 'dm', userId: 'user-1' }],
       text: 'Report',
     })
@@ -211,7 +211,7 @@ describe('Slack notifications', () => {
 
     const { sendSlackNotifications } = await import('../notifications')
     const result = await sendSlackNotifications({
-      source: 'autopilot',
+      source: 'flows',
       targets: [{ type: 'dm', userId: 'user-1' }],
       text: 'Report',
     })

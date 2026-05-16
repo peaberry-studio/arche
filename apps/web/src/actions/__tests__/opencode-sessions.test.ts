@@ -10,7 +10,7 @@ vi.mock("@/lib/opencode/client", () => ({
 }));
 
 vi.mock("@/lib/services", () => ({
-  autopilotService: {
+  flowService: {
     findSessionMetadataByUserId: vi.fn(),
   },
   userService: {
@@ -20,7 +20,7 @@ vi.mock("@/lib/services", () => ({
 
 import { getSession } from "@/lib/runtime/session";
 import { createInstanceClient } from "@/lib/opencode/client";
-import { autopilotService } from "@/lib/services";
+import { flowService } from "@/lib/services";
 import {
   listSessionFamilyAction,
   listSessionsAction,
@@ -28,7 +28,7 @@ import {
 
 const mockGetSession = vi.mocked(getSession);
 const mockCreateInstanceClient = vi.mocked(createInstanceClient);
-const mockFindSessionMetadataByUserId = vi.mocked(autopilotService.findSessionMetadataByUserId);
+const mockFindSessionMetadataByUserId = vi.mocked(flowService.findSessionMetadataByUserId);
 const mockSessionList = vi.fn();
 const mockSessionStatus = vi.fn();
 const mockSessionGet = vi.fn();
@@ -65,9 +65,10 @@ beforeEach(() => {
     {
       openCodeSessionId: "root",
       trigger: "schedule",
-      taskId: "task-1",
-      taskName: "Daily brief",
+      flowId: "flow-1",
+      flowName: "Daily brief",
       runId: "run-1",
+      status: "succeeded",
       hasUnseenResult: true,
     },
   ]);
@@ -108,9 +109,9 @@ describe("session listing actions", () => {
           title: "Daily brief",
           status: "busy",
           updatedAtRaw: 200,
-          autopilot: expect.objectContaining({
+          flow: expect.objectContaining({
             runId: "run-1",
-            taskName: "Daily brief",
+            flowName: "Daily brief",
             hasUnseenResult: true,
           }),
         }),
@@ -229,7 +230,7 @@ describe("session listing actions", () => {
       ok: true,
       hasMore: false,
       sessions: [
-        expect.objectContaining({ id: "root", autopilot: expect.objectContaining({ taskName: "Daily brief" }) }),
+        expect.objectContaining({ id: "root", flow: expect.objectContaining({ flowName: "Daily brief" }) }),
         expect.objectContaining({ id: "manual", title: "Daily chat" }),
       ],
     });

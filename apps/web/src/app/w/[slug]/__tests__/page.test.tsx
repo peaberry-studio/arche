@@ -23,7 +23,7 @@ const redirectMock = vi.hoisted(() => vi.fn((path: string) => {
   throw new Error(`REDIRECT:${path}`)
 }))
 const cookiesMock = vi.hoisted(() => vi.fn())
-const ensureAutopilotSchedulerStartedMock = vi.hoisted(() => vi.fn())
+const ensureFlowSchedulerStartedMock = vi.hoisted(() => vi.fn())
 const readCommonWorkspaceConfigMock = vi.hoisted(() => vi.fn())
 const getRuntimeCapabilitiesMock = vi.hoisted(() => vi.fn())
 const getCurrentDesktopVaultMock = vi.hoisted(() => vi.fn())
@@ -59,8 +59,8 @@ vi.mock('@/components/desktop/desktop-settings-dialog', () => ({
   ),
 }))
 
-vi.mock('@/lib/autopilot/scheduler-bootstrap', () => ({
-  ensureAutopilotSchedulerStarted: () => ensureAutopilotSchedulerStartedMock(),
+vi.mock('@/lib/flows/scheduler-bootstrap', () => ({
+  ensureFlowSchedulerStarted: () => ensureFlowSchedulerStartedMock(),
 }))
 
 vi.mock('@/lib/common-workspace-config-store', () => ({
@@ -120,7 +120,7 @@ describe('WorkspaceHostPage', () => {
         return undefined
       },
     })
-    ensureAutopilotSchedulerStartedMock.mockResolvedValue(undefined)
+    ensureFlowSchedulerStartedMock.mockResolvedValue(undefined)
     readCommonWorkspaceConfigMock.mockResolvedValue({ ok: true, content: 'config' })
     getRuntimeCapabilitiesMock.mockReturnValue({ workspaceAgent: true, reaper: false })
     getCurrentDesktopVaultMock.mockReturnValue(null)
@@ -166,7 +166,7 @@ describe('WorkspaceHostPage', () => {
     })
 
     render(await renderHostPage({
-      mode: 'tasks',
+      mode: 'flows',
       path: 'Notes/Brief.md',
       session: 'session-1',
       settings: 'appearance',
@@ -174,7 +174,7 @@ describe('WorkspaceHostPage', () => {
 
     expect(screen.getByText('Workspace shell for alice')).toBeTruthy()
     expect(screen.getByText('Desktop settings: appearance')).toBeTruthy()
-    expect(ensureAutopilotSchedulerStartedMock).toHaveBeenCalled()
+    expect(ensureFlowSchedulerStartedMock).toHaveBeenCalled()
     expect(workspaceShellProps.current).toMatchObject({
       currentVault: { id: 'vault-1', name: 'Arche Vault', path: '/tmp/arche' },
       initialFilePath: 'Notes/Brief.md',

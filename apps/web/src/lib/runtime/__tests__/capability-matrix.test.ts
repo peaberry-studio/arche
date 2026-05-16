@@ -60,7 +60,7 @@ describe('capability enforcement matrix', () => {
     { capability: 'teamManagement', web: true, desktop: false },
     { capability: 'connectors', web: true, desktop: true },
     { capability: 'kickstart', web: true, desktop: true },
-    { capability: 'autopilot', web: true, desktop: false },
+    { capability: 'flows', web: true, desktop: false },
     { capability: 'slackIntegration', web: true, desktop: false },
     { capability: 'googleWorkspaceIntegration', web: true, desktop: false },
     { capability: 'kbGithubRemoteIntegration', web: true, desktop: false },

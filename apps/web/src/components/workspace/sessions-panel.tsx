@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { groupByDateBucket } from "@/lib/date-buckets";
 import type { WorkspaceSession } from "@/lib/opencode/types";
-import { hasUnseenAutopilotResult, isAutopilotSession } from "@/lib/workspace-session-utils";
+import { hasUnseenFlowResult, isFlowSession } from "@/lib/workspace-session-utils";
 
 type SessionsPanelProps = {
   sessions: WorkspaceSession[];
@@ -18,7 +18,7 @@ type SessionsPanelProps = {
   onLoadMore?: () => void;
   onSelectSession: (id: string) => void;
   onCreateSession: () => void;
-  kind?: "chats" | "tasks";
+  kind?: "chats" | "flows";
   query?: string;
 };
 
@@ -41,7 +41,7 @@ export function SessionsPanel({
     if (!normalizedQuery) return sessions;
     return sessions.filter((session) =>
       session.title.toLowerCase().includes(normalizedQuery) ||
-      session.autopilot?.taskName.toLowerCase().includes(normalizedQuery)
+      session.flow?.flowName.toLowerCase().includes(normalizedQuery)
     );
   }, [normalizedQuery, sessions]);
 
@@ -53,15 +53,16 @@ export function SessionsPanel({
   const getIndicatorClassName = (session: WorkspaceSession): string | null => {
     if (session.status === "busy") return "text-amber-400";
     if (session.status === "error") return "text-red-400";
-    if (hasUnseenAutopilotResult(session)) return "text-green-400";
+    if (session.flow?.status === "waiting_for_human") return "text-amber-400";
+    if (hasUnseenFlowResult(session)) return "text-green-400";
     if (unseenCompletedSessions.has(session.id)) return "text-green-400";
     return null;
   };
 
-  const emptyLabel = kind === "tasks" ? "No tasks yet" : "No chats yet";
-  const emptySearchLabel = kind === "tasks" ? "No tasks found" : "No chats found";
-  const loadingLabel = kind === "tasks" ? "Loading more tasks..." : "Loading more chats...";
-  const moreLabel = kind === "tasks" ? "Scroll for older tasks" : "Scroll for older chats";
+  const emptyLabel = kind === "flows" ? "No flows yet" : "No chats yet";
+  const emptySearchLabel = kind === "flows" ? "No flows found" : "No chats found";
+  const loadingLabel = kind === "flows" ? "Loading more flows..." : "Loading more chats...";
+  const moreLabel = kind === "flows" ? "Scroll for older flows" : "Scroll for older chats";
 
   useEffect(() => {
     if (!hasMore || isLoadingMore || !onLoadMore) {
@@ -94,7 +95,7 @@ export function SessionsPanel({
   }, [hasMore, isLoadingMore, onLoadMore]);
 
   if (sessions.length === 0) {
-    const EmptyIcon = kind === "tasks" ? CheckSquare : ChatCircle;
+    const EmptyIcon = kind === "flows" ? CheckSquare : ChatCircle;
     return (
       <div className="flex flex-1 items-center justify-center px-4">
         <div className="flex flex-col items-center justify-center gap-2 text-center">
@@ -112,7 +113,7 @@ export function SessionsPanel({
   }
 
   if (filteredSessions.length === 0) {
-    const EmptySearchIcon = kind === "tasks" ? CheckSquare : ChatCircle;
+    const EmptySearchIcon = kind === "flows" ? CheckSquare : ChatCircle;
     return (
       <div className="flex flex-1 flex-col">
         {kind === "chats" ? (
@@ -140,14 +141,14 @@ export function SessionsPanel({
               const indicatorClassName = getIndicatorClassName(session);
               const hasIndicator = indicatorClassName !== null;
               const primaryTitle =
-                kind === "tasks" && session.autopilot
-                  ? session.autopilot.taskName
+                kind === "flows" && session.flow
+                  ? session.flow.flowName
                   : session.title;
               const secondaryLabel =
-                kind === "tasks" && session.autopilot && session.title !== session.autopilot.taskName
+                kind === "flows" && session.flow && session.title !== session.flow.flowName
                   ? session.title
-                  : session.autopilot && kind !== "tasks"
-                    ? session.autopilot.taskName
+                  : session.flow && kind !== "flows"
+                    ? session.flow.flowName
                     : null;
 
               return (
@@ -179,9 +180,14 @@ export function SessionsPanel({
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-2">
                       <span className="truncate font-medium">{primaryTitle}</span>
-                      {isAutopilotSession(session) && kind !== "tasks" ? (
+                      {isFlowSession(session) && kind !== "flows" ? (
                         <span className="shrink-0 rounded-full border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
-                          Auto
+                          Flow
+                        </span>
+                      ) : null}
+                      {session.flow?.status === "waiting_for_human" ? (
+                        <span className="shrink-0 rounded-full border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-500">
+                          Waiting
                         </span>
                       ) : null}
                     </span>

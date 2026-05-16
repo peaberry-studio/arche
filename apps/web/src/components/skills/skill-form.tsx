@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { SpinnerGap } from '@phosphor-icons/react'
 
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAgentsCatalog } from '@/hooks/use-agents-catalog'
@@ -319,11 +320,9 @@ export function SkillForm({
                       : 'border-border/60 bg-card/40 text-muted-foreground hover:bg-card/70'
                   )}
                 >
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={checked}
                     onChange={() => toggleAssignedAgent(agent.id)}
-                    className="h-4 w-4 rounded border border-border/70 bg-card/70 accent-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                   />
                   <span className="font-medium">{agent.displayName}</span>
                   {agent.isPrimary ? <span className="text-xs">(Primary)</span> : null}

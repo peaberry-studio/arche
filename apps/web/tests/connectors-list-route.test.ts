@@ -69,7 +69,7 @@ describe('GET /api/u/[slug]/connectors', () => {
       csrf: true,
       teamManagement: true,
       kickstart: true,
-      autopilot: true,
+      flows: true,
       slackIntegration: true,
       twoFactor: false,
     })

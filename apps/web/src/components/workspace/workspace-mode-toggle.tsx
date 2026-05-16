@@ -9,19 +9,19 @@ import {
   type ComponentType,
   type RefObject,
 } from 'react'
-import { ChatCircle, Database, Lightning } from '@phosphor-icons/react'
+import { ChatCircle, Database, GitBranch } from '@phosphor-icons/react'
 
 import { cn } from '@/lib/utils'
 
-export type WorkspaceMode = 'chat' | 'tasks' | 'knowledge'
+export type WorkspaceMode = 'chat' | 'flows' | 'knowledge'
 
 type WorkspaceModeToggleProps = {
   mode: WorkspaceMode
   onModeChange: (mode: WorkspaceMode) => void
   sessionsUnreadCount?: number
-  tasksUnreadCount?: number
+  flowsUnreadCount?: number
   knowledgePendingCount?: number
-  hideTasks?: boolean
+  hideFlows?: boolean
   className?: string
 }
 
@@ -86,16 +86,16 @@ export function WorkspaceModeToggle({
   mode,
   onModeChange,
   sessionsUnreadCount = 0,
-  tasksUnreadCount = 0,
+  flowsUnreadCount = 0,
   knowledgePendingCount = 0,
-  hideTasks = false,
+  hideFlows = false,
   className,
 }: WorkspaceModeToggleProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chatRef = useRef<HTMLButtonElement>(null)
-  const tasksRef = useRef<HTMLButtonElement>(null)
+  const flowsRef = useRef<HTMLButtonElement>(null)
   const knowledgeRef = useRef<HTMLButtonElement>(null)
-  const activeButtonRef = mode === 'chat' ? chatRef : mode === 'tasks' ? tasksRef : knowledgeRef
+  const activeButtonRef = mode === 'chat' ? chatRef : mode === 'flows' ? flowsRef : knowledgeRef
 
   const [indicator, setIndicator] = useState<{ left: number; width: number } | null>(null)
   const [hasAnimated, setHasAnimated] = useState(false)
@@ -115,7 +115,7 @@ export function WorkspaceModeToggle({
 
   useIsomorphicLayoutEffect(() => {
     updateIndicator()
-  }, [hideTasks, knowledgePendingCount, sessionsUnreadCount, tasksUnreadCount, updateIndicator])
+  }, [hideFlows, knowledgePendingCount, sessionsUnreadCount, flowsUnreadCount, updateIndicator])
 
   useEffect(() => {
     const button = activeButtonRef.current
@@ -160,15 +160,15 @@ export function WorkspaceModeToggle({
         label="Sessions"
         onClick={() => onModeChange('chat')}
       />
-      {hideTasks ? null : (
+      {hideFlows ? null : (
         <ModeButton
-          active={mode === 'tasks'}
-          badgeCount={tasksUnreadCount}
+          active={mode === 'flows'}
+          badgeCount={flowsUnreadCount}
           badgeDescription="unread"
-          buttonRef={tasksRef}
-          icon={Lightning}
-          label="Tasks"
-          onClick={() => onModeChange('tasks')}
+          buttonRef={flowsRef}
+          icon={GitBranch}
+          label="Flows"
+          onClick={() => onModeChange('flows')}
         />
       )}
       <ModeButton

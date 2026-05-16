@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from 'react'
 import { SpinnerGap, UploadSimple } from '@phosphor-icons/react'
 
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -168,11 +169,9 @@ export function ImportSkillDialog({
                         : 'border-border/60 bg-card/40 text-muted-foreground hover:bg-card/70'
                     )}
                   >
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={checked}
                       onChange={() => toggleAssignedAgent(agent.id)}
-                      className="h-4 w-4 rounded border border-border/70 bg-card/70 accent-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
                     />
                     <span className="font-medium">{agent.displayName}</span>
                     {agent.isPrimary ? <span className="text-xs">(Primary)</span> : null}

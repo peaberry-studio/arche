@@ -49,11 +49,12 @@ export type WorkspaceSession = {
   updatedAt: string
   updatedAtRaw?: number
   parentId?: string
-  autopilot?: {
+  flow?: {
     runId: string
-    taskId: string
-    taskName: string
-    trigger: 'on_create' | 'schedule' | 'manual'
+    flowId: string
+    flowName: string
+    status: 'running' | 'waiting_for_human' | 'succeeded' | 'failed' | 'cancelled'
+    trigger: 'on_create' | 'schedule' | 'manual' | 'resume'
     hasUnseenResult: boolean
   }
   share?: {

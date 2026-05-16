@@ -59,10 +59,14 @@ Recommended for local:
 From repo root:
 
 ```bash
-podman compose -f infra/compose/compose.yaml up -d --build
+scripts/dev-local.sh
 ```
 
+The launcher starts local-dev and waits for shortcuts: `r` reloads only Next.js, `q` exits the launcher, and `Q` stops the local-dev stack.
+
 6) **Migrations + seed**
+
+The launcher runs migrations and seed automatically. If you start the raw compose file directly, run:
 
 ```bash
 podman compose -f infra/compose/compose.yaml exec web pnpm prisma migrate dev --name init
@@ -96,6 +100,12 @@ podman compose -f infra/compose/compose.yaml logs -f traefik
 
 ```bash
 podman compose -f infra/compose/compose.yaml logs -f web
+```
+
+- Reload only the Next.js dev server:
+
+```bash
+scripts/reload-web-dev.sh
 ```
 
 - Stop (without deleting data):

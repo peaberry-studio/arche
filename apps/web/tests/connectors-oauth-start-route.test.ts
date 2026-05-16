@@ -93,7 +93,7 @@ describe('POST /api/u/[slug]/connectors/[id]/oauth/start', () => {
       csrf: true,
       teamManagement: true,
       kickstart: true,
-      autopilot: true,
+      flows: true,
       slackIntegration: true,
       twoFactor: false,
     })

@@ -7,8 +7,8 @@ describe("getWorkspaceHref", () => {
     expect(getWorkspaceHref("alice")).toBe("/w/alice");
     expect(getWorkspaceHref("alice", { mode: "chat" })).toBe("/w/alice");
     expect(getWorkspaceHref("alice", { mode: "knowledge" })).toBe("/w/alice?mode=knowledge");
-    expect(getWorkspaceHref("alice", { mode: "tasks", sessionId: "session 1" })).toBe(
-      "/w/alice?mode=tasks&session=session+1"
+    expect(getWorkspaceHref("alice", { mode: "flows", sessionId: "session 1" })).toBe(
+      "/w/alice?mode=flows&session=session+1"
     );
     expect(getWorkspaceHref("alice", { settings: "providers" })).toBe("/w/alice?settings=providers");
   });

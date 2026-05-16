@@ -17,10 +17,14 @@ Recommended for local:
 From the repo root:
 
 ```bash
-podman compose -f infra/compose/compose.yaml up -d --build
+scripts/dev-local.sh
 ```
 
+The launcher starts local-dev and waits for shortcuts: `r` reloads only Next.js, `q` exits the launcher, and `Q` stops the local-dev stack.
+
 ### 3) Migrations + seed (Prisma)
+
+The launcher runs migrations and seed automatically. If you start the raw compose file directly, run:
 
 ```bash
 podman compose -f infra/compose/compose.yaml exec web pnpm prisma migrate dev --name init
@@ -30,6 +34,12 @@ podman compose -f infra/compose/compose.yaml exec web pnpm db:seed
 ### 4) Open the app
 
 - `http://arche.lvh.me:8080`
+
+If Podman misses a file-watch event, reload only the Next.js dev server without restarting the full stack:
+
+```bash
+scripts/reload-web-dev.sh
+```
 
 ### 5) Verify database
 
@@ -112,7 +122,7 @@ What each command does:
 - `pnpm coverage:integration`: API route line coverage produced by the integration-test layer
 - `pnpm coverage:refresh`: regenerates all three coverage reports and updates the SVG badges in `.github/badges/`
 
-The SVG badges are refreshed automatically on every `push` to `main` by `.github/workflows/coverage-badges.yml`.
+The SVG badges are verified automatically on pull requests targeting `main` by `.github/workflows/coverage-badges.yml`.
 
 Current README badges are generated from:
 

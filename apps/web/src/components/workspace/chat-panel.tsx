@@ -49,6 +49,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { FlowHumanResponsePanel } from "@/components/flows/flow-human-response-panel";
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { useAgentMentionAutocomplete } from "@/hooks/use-agent-mention-autocomplete";
 import type { SkillListItem } from "@/hooks/use-skills-catalog";
@@ -99,6 +100,7 @@ type ChatPanelProps = {
     response: PermissionResponse
   ) => Promise<boolean>;
   onAbortMessage?: () => Promise<void> | void;
+  isLoadingMessages?: boolean;
   isSending?: boolean;
   isStartingNewSession?: boolean;
   models?: AvailableModel[];
@@ -108,6 +110,8 @@ type ChatPanelProps = {
   onSelectModel?: (model: AvailableModel | null) => void;
   isReadOnly?: boolean;
   readOnlyNotice?: string;
+  flowHumanResponseRunId?: string | null;
+  onFlowHumanResponseSubmitted?: () => Promise<void> | void;
   onReturnToMainConversation?: () => void;
   workspaceRoot?: string;
 };
@@ -212,6 +216,7 @@ export function ChatPanel({
   onSendMessage,
   onAnswerPermission,
   onAbortMessage,
+  isLoadingMessages = false,
   isSending = false,
   isStartingNewSession = false,
   models = EMPTY_MODELS,
@@ -221,6 +226,8 @@ export function ChatPanel({
   onSelectModel,
   isReadOnly = false,
   readOnlyNotice,
+  flowHumanResponseRunId,
+  onFlowHumanResponseSubmitted,
   onReturnToMainConversation,
   workspaceRoot,
 }: ChatPanelProps) {
@@ -1076,6 +1083,7 @@ export function ChatPanel({
       <ChatPanelMessages
         chatContentStyle={chatContentStyle}
         connectorNamesById={connectorNamesById}
+        isLoadingMessages={isLoadingMessages}
         isStartingNewSession={isStartingNewSession}
         messages={messages}
         messagesEndRef={messagesEndRef}
@@ -1097,23 +1105,31 @@ export function ChatPanel({
         ) : null}
 
         {isReadOnly ? (
-          <div className="flex items-center justify-between gap-3 rounded-xl border border-warning/20 bg-warning/10 px-4 py-3 text-sm text-warning-foreground">
-            <div className="flex items-center gap-2 text-warning-foreground">
-              <Info size={16} weight="fill" className="text-warning" />
-              <span>{readOnlyNotice ?? "Subagent sessions are read-only. Return to the main conversation to continue chatting."}</span>
+          flowHumanResponseRunId ? (
+            <FlowHumanResponsePanel
+              runId={flowHumanResponseRunId}
+              slug={slug}
+              onSubmitted={onFlowHumanResponseSubmitted}
+            />
+          ) : (
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-warning/20 bg-warning/10 px-4 py-3 text-sm text-warning-foreground">
+              <div className="flex items-center gap-2 text-warning-foreground">
+                <Info size={16} weight="fill" className="text-warning" />
+                <span>{readOnlyNotice ?? "Subagent sessions are read-only. Return to the main conversation to continue chatting."}</span>
+              </div>
+              {onReturnToMainConversation ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="border-warning-foreground/30 bg-background/80 text-warning-foreground hover:bg-background"
+                  onClick={onReturnToMainConversation}
+                >
+                  Main conversation
+                </Button>
+              ) : null}
             </div>
-            {onReturnToMainConversation ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="border-warning-foreground/30 bg-background/80 text-warning-foreground hover:bg-background"
-                onClick={onReturnToMainConversation}
-              >
-                Main conversation
-              </Button>
-            ) : null}
-          </div>
+          )
         ) : (
           <>
         {attachmentsEnabled && selectedAttachments.length > 0 && (
