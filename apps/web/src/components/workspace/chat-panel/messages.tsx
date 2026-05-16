@@ -30,6 +30,7 @@ import type { ChatMessage } from "@/types/workspace";
 type ChatPanelMessagesProps = {
   chatContentStyle: CSSProperties;
   connectorNamesById: Record<string, string>;
+  isLoadingMessages: boolean;
   isStartingNewSession: boolean;
   messages: ChatMessage[];
   messagesEndRef: RefObject<HTMLDivElement | null>;
@@ -336,6 +337,7 @@ function groupMessageParts(parts: MessagePart[]): PartGroup[] {
 export function ChatPanelMessages({
   chatContentStyle,
   connectorNamesById,
+  isLoadingMessages,
   isStartingNewSession,
   messages,
   messagesEndRef,
@@ -347,7 +349,8 @@ export function ChatPanelMessages({
   sessionTabs,
   workspaceRoot,
 }: ChatPanelMessagesProps) {
-  const showsCenteredState = isStartingNewSession || messages.length === 0;
+  const isLoadingConversation = isLoadingMessages && messages.length === 0;
+  const showsCenteredState = isStartingNewSession || isLoadingConversation || messages.length === 0;
 
   return (
     <div className="relative min-h-0 flex-1">
@@ -368,6 +371,13 @@ export function ChatPanelMessages({
               <div className="flex flex-col items-center gap-3">
                 <div className="h-16 w-16 animate-spin rounded-full border-4 border-muted border-t-primary" />
                 <p className="max-w-[260px] text-sm text-muted-foreground">Starting a new conversation...</p>
+              </div>
+            </div>
+          ) : isLoadingConversation ? (
+            <div className="grid h-full place-items-center text-center">
+              <div className="flex flex-col items-center gap-3">
+                <div className="h-16 w-16 animate-spin rounded-full border-4 border-muted border-t-primary" />
+                <p className="max-w-[260px] text-sm text-muted-foreground">Loading conversation...</p>
               </div>
             </div>
           ) : messages.length === 0 ? (

@@ -100,6 +100,7 @@ type ChatPanelProps = {
     response: PermissionResponse
   ) => Promise<boolean>;
   onAbortMessage?: () => Promise<void> | void;
+  isLoadingMessages?: boolean;
   isSending?: boolean;
   isStartingNewSession?: boolean;
   models?: AvailableModel[];
@@ -215,6 +216,7 @@ export function ChatPanel({
   onSendMessage,
   onAnswerPermission,
   onAbortMessage,
+  isLoadingMessages = false,
   isSending = false,
   isStartingNewSession = false,
   models = EMPTY_MODELS,
@@ -1081,6 +1083,7 @@ export function ChatPanel({
       <ChatPanelMessages
         chatContentStyle={chatContentStyle}
         connectorNamesById={connectorNamesById}
+        isLoadingMessages={isLoadingMessages}
         isStartingNewSession={isStartingNewSession}
         messages={messages}
         messagesEndRef={messagesEndRef}

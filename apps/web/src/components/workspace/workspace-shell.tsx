@@ -1745,6 +1745,7 @@ export function WorkspaceShell({
       skills={skillsCatalog.skills}
       messages={uiMessages}
       activeSessionId={workspace.activeSessionId}
+      isLoadingMessages={workspace.isLoadingMessages}
       isStartingNewSession={workspace.isStartingNewSession}
       sessionTabs={activeSessionTabs}
       openFilePaths={openFilePaths}
