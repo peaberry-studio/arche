@@ -25,14 +25,31 @@ vi.mock('@/lib/services', () => ({
 import { createFlowLeaseOwner, runFlowPromptAndReadOutput } from '@/lib/flows/session-executor'
 
 type FlowPromptClient = Parameters<typeof runFlowPromptAndReadOutput>[0]['client']
+type TestFlowPromptClient = FlowPromptClient & {
+  app: { agents: ReturnType<typeof vi.fn> }
+  config: { providers: ReturnType<typeof vi.fn> }
+  session: FlowPromptClient['session'] & {
+    abort: ReturnType<typeof vi.fn>
+    promptAsync: ReturnType<typeof vi.fn>
+  }
+}
 
-function createClient(): FlowPromptClient {
+function createClient(params: {
+  agents?: unknown[]
+  providers?: unknown[]
+} = {}): TestFlowPromptClient {
   return {
+    app: {
+      agents: vi.fn().mockResolvedValue({ data: params.agents ?? [] }),
+    },
+    config: {
+      providers: vi.fn().mockResolvedValue({ data: { providers: params.providers ?? [] } }),
+    },
     session: {
       abort: vi.fn(),
       promptAsync: vi.fn(),
     },
-  } as FlowPromptClient
+  } as TestFlowPromptClient
 }
 
 describe('runFlowPromptAndReadOutput', () => {
@@ -87,6 +104,27 @@ describe('runFlowPromptAndReadOutput', () => {
     expect(mocks.captureSessionMessageCursor).not.toHaveBeenCalled()
     expect(client.session.promptAsync).not.toHaveBeenCalled()
     expect(client.session.abort).not.toHaveBeenCalled()
+  })
+
+  it('fails before sending when the target agent model is unavailable', async () => {
+    const client = createClient({
+      agents: [{ model: { providerID: 'opencode', modelID: 'missing-model' }, name: 'writer' }],
+      providers: [{ id: 'opencode', models: { 'big-pickle': {} } }],
+    })
+
+    await expect(runFlowPromptAndReadOutput({
+      agent: 'writer',
+      client,
+      flowId: 'flow-1',
+      leaseOwner: 'worker-1',
+      prompt: 'Do work',
+      runId: 'run-1',
+      sessionId: 'session-1',
+      slug: 'alice',
+    })).resolves.toEqual({ ok: false, error: 'flow_agent_model_unavailable:writer:opencode/missing-model' })
+
+    expect(mocks.captureSessionMessageCursor).not.toHaveBeenCalled()
+    expect(client.session.promptAsync).not.toHaveBeenCalled()
   })
 
   it('aborts the OpenCode session when cancellation is detected while waiting', async () => {

@@ -12,6 +12,30 @@ const LEASE_EXTENSION_INTERVAL_MS = 60_000
 export const FLOW_LEASE_MS = 15 * 60 * 1000
 export const FLOW_RUN_CANCELLED_ERROR = 'flow_run_cancelled'
 
+type PromptModel = {
+  modelID: string
+  providerID: string
+}
+
+type RuntimeAgent = {
+  model?: PromptModel
+  name?: string
+}
+
+type RuntimeProvider = {
+  id?: string
+  models?: Record<string, unknown>
+}
+
+type RuntimeClientWithConfig = SessionExecutionClient & {
+  app?: {
+    agents?: (parameters?: unknown, options?: unknown) => Promise<{ data?: unknown }>
+  }
+  config?: {
+    providers?: (parameters?: unknown, options?: unknown) => Promise<{ data?: unknown }>
+  }
+}
+
 function importRuntimeModule<T>(specifier: string): Promise<T> {
   if (process.env.VITEST) {
     return import(specifier) as Promise<T>
@@ -19,6 +43,68 @@ function importRuntimeModule<T>(specifier: string): Promise<T> {
 
   // Keep runtime imports out of Next/Vitest static module transforms.
   return Function('runtimeSpecifier', 'return import(runtimeSpecifier)')(specifier) as Promise<T>
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function readAgentModel(agent: unknown): PromptModel | null {
+  if (!isRecord(agent) || !isRecord(agent.model)) return null
+
+  const providerID = agent.model.providerID
+  const modelID = agent.model.modelID
+  if (typeof providerID !== 'string' || typeof modelID !== 'string') return null
+
+  return { modelID, providerID }
+}
+
+function readRuntimeAgents(data: unknown): RuntimeAgent[] {
+  if (!Array.isArray(data)) return []
+
+  return data.flatMap((agent) => {
+    if (!isRecord(agent)) return []
+    const name = typeof agent.name === 'string' ? agent.name : undefined
+    const model = readAgentModel(agent) ?? undefined
+    return [{ model, name }]
+  })
+}
+
+function readRuntimeProviders(data: unknown): RuntimeProvider[] {
+  if (!isRecord(data) || !Array.isArray(data.providers)) return []
+
+  return data.providers.flatMap((provider) => {
+    if (!isRecord(provider)) return []
+    const id = typeof provider.id === 'string' ? provider.id : undefined
+    const models = isRecord(provider.models) ? provider.models : undefined
+    return [{ id, models }]
+  })
+}
+
+async function getUnavailableAgentModelError(params: {
+  agent: string | null | undefined
+  client: SessionExecutionClient
+}): Promise<string | null> {
+  if (!params.agent) return null
+
+  const client = params.client as RuntimeClientWithConfig
+  if (!client.app?.agents || !client.config?.providers) return null
+
+  try {
+    const agentsResult = await client.app.agents({}, { throwOnError: true })
+    const agent = readRuntimeAgents(agentsResult.data).find((entry) => entry.name === params.agent)
+    if (!agent?.model) return null
+
+    const providersResult = await client.config.providers({}, { throwOnError: true })
+    const provider = readRuntimeProviders(providersResult.data).find((entry) => entry.id === agent.model?.providerID)
+    if (provider?.models && Object.prototype.hasOwnProperty.call(provider.models, agent.model.modelID)) {
+      return null
+    }
+
+    return `flow_agent_model_unavailable:${params.agent}:${agent.model.providerID}/${agent.model.modelID}`
+  } catch {
+    return null
+  }
 }
 
 export async function createFlowLeaseOwner(): Promise<string> {
@@ -39,6 +125,14 @@ export async function runFlowPromptAndReadOutput(params: {
   const existingRun = await flowService.findRunStatusById(params.runId)
   if (existingRun?.status === FlowRunStatus.cancelled) {
     return { ok: false, error: FLOW_RUN_CANCELLED_ERROR }
+  }
+
+  const unavailableAgentModel = await getUnavailableAgentModelError({
+    agent: params.agent,
+    client: params.client,
+  })
+  if (unavailableAgentModel) {
+    return { ok: false, error: unavailableAgentModel }
   }
 
   const cursor = await captureSessionMessageCursor(params.client, params.sessionId)
