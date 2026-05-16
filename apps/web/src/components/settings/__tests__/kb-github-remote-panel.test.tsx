@@ -128,6 +128,7 @@ describe('KbGithubRemotePanel', () => {
     })
 
     renderPanel(notConfiguredIntegration)
+    expect((await screen.findByRole('radio', { name: /signed-in user/i }) as HTMLInputElement).checked).toBe(true)
     fireEvent.click(await screen.findByRole('button', { name: 'Connect GitHub' }))
 
     await waitFor(() => expect(submitMock).toHaveBeenCalled())
@@ -142,6 +143,42 @@ describe('KbGithubRemotePanel', () => {
     })
     expect(input?.value).toContain('/api/u/alice/kb-github-remote/callback?state=state-1')
     submitMock.mockRestore()
+  })
+
+  it('submits the GitHub App manifest to an organization app creation URL', async () => {
+    const submitMock = vi.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(() => undefined)
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url === '/api/u/alice/kb-github-remote/setup-state' && init?.method === 'POST') {
+        return jsonResponse({ state: 'state-1' })
+      }
+      return jsonResponse({ error: `unexpected fetch: ${url}` }, { status: 500 })
+    })
+
+    renderPanel(notConfiguredIntegration)
+    fireEvent.click(await screen.findByRole('radio', { name: /organization/i }))
+    fireEvent.change(screen.getByLabelText('Organization name'), { target: { value: 'acme-org' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Connect GitHub' }))
+
+    await waitFor(() => expect(submitMock).toHaveBeenCalled())
+    const submittedForm = submitMock.mock.contexts[0] as HTMLFormElement
+    const input = submittedForm.querySelector('input[name="manifest"]') as HTMLInputElement | null
+    expect(submittedForm.action).toBe('https://github.com/organizations/acme-org/settings/apps/new?state=state-1')
+    expect(JSON.parse(input?.value ?? '{}')).toMatchObject({ name: 'Arche KB Sync' })
+    submitMock.mockRestore()
+  })
+
+  it('validates the organization name before requesting setup state', async () => {
+    renderPanel(notConfiguredIntegration)
+    fireEvent.click(await screen.findByRole('radio', { name: /organization/i }))
+    fireEvent.change(screen.getByLabelText('Organization name'), { target: { value: '../acme' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Connect GitHub' }))
+
+    expect(await screen.findByText('Enter a valid GitHub organization name before creating the app.')).toBeTruthy()
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      '/api/u/alice/kb-github-remote/setup-state',
+      expect.objectContaining({ method: 'POST' }),
+    )
   })
 
   it('shows setup-state errors while connecting GitHub', async () => {
