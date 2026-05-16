@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { createFlowRequest, deleteFlowRequest, fetchFlowDetail, fetchFlowList, runFlowRequest, submitHumanResponseRequest, updateFlowRequest } from '@/lib/flows/client'
-import type { FlowDetail, FlowListItem } from '@/lib/flows/types'
+import { createFlowRequest, deleteFlowRequest, fetchFlowDetail, fetchFlowList, fetchFlowRunRequest, runFlowRequest, submitHumanResponseRequest, updateFlowRequest } from '@/lib/flows/client'
+import type { FlowDetail, FlowListItem, FlowRunListItem } from '@/lib/flows/types'
 
 const flow: FlowListItem = {
   createdAt: '2026-05-12T10:00:00.000Z',
@@ -16,6 +16,24 @@ const flow: FlowListItem = {
   nextRunAt: null,
   timezone: 'UTC',
   updatedAt: '2026-05-12T10:00:00.000Z',
+}
+
+const flowRun: FlowRunListItem = {
+  currentNodeId: 'human-1',
+  error: null,
+  finishedAt: null,
+  flowId: 'flow-1',
+  id: 'run-1',
+  attempt: 1,
+  lastRetryError: null,
+  openCodeSessionId: 'session-1',
+  retryScheduledFor: null,
+  scheduledFor: '2026-05-12T10:00:00.000Z',
+  sessionTitle: 'Flow | Flow',
+  startedAt: '2026-05-12T10:00:00.000Z',
+  status: 'waiting_for_human',
+  steps: [],
+  trigger: 'manual',
 }
 
 function jsonResponse(body: unknown, init?: ResponseInit): Response {
@@ -54,10 +72,12 @@ describe('flow client helpers', () => {
     const detail: FlowDetail = { ...flow, runs: [] }
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ flow: detail }))
+      .mockResolvedValueOnce(jsonResponse({ run: flowRun }))
       .mockResolvedValueOnce(jsonResponse({ flow: detail }))
     vi.stubGlobal('fetch', fetchMock)
 
     await expect(fetchFlowDetail('alice', 'flow-1')).resolves.toEqual({ ok: true, data: { flow: detail } })
+    await expect(fetchFlowRunRequest('alice', 'run-1')).resolves.toEqual({ ok: true, data: { run: flowRun } })
     await expect(updateFlowRequest('alice', 'flow-1', { enabled: true })).resolves.toEqual({ ok: true, data: { flow: detail } })
     expect(fetchMock).toHaveBeenLastCalledWith('/api/u/alice/flows/flow-1', {
       body: JSON.stringify({ enabled: true }),

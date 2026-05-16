@@ -1383,6 +1383,13 @@ export function WorkspaceShell({
     [workspace]
   );
 
+  const handleFlowHumanResponseSubmitted = useCallback(async () => {
+    await Promise.all([
+      workspace.refreshMessages(),
+      workspace.refreshSessions(),
+    ]);
+  }, [workspace]);
+
   const handleDownloadFile = useCallback(
     (path: string) => {
       downloadWorkspaceFile(slug, path);
@@ -1755,6 +1762,12 @@ export function WorkspaceShell({
       hasManualModelSelection={workspace.hasManualModelSelection}
       onSelectModel={workspace.setSelectedModel}
       isReadOnly={isReadOnlyChatSession}
+      flowHumanResponseRunId={
+        activeSessionRecord?.flow?.status === "waiting_for_human"
+          ? activeSessionRecord.flow.runId
+          : null
+      }
+      onFlowHumanResponseSubmitted={handleFlowHumanResponseSubmitted}
       readOnlyNotice={
         isBusyFlowSession
           ? "This flow run is still in progress. It is read-only until Flows finishes."

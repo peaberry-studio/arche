@@ -18,6 +18,7 @@ const discardFileChangesMock = vi.fn();
 const readFileMock = vi.fn();
 const refreshDiffsMock = vi.fn();
 const refreshFilesMock = vi.fn();
+const refreshMessagesMock = vi.fn();
 const sendMessageMock = vi.fn().mockResolvedValue(true);
 const writeFileMock = vi.fn();
 let workspaceMockOverrides: Record<string, unknown> = {};
@@ -72,6 +73,7 @@ vi.mock("@/hooks/use-workspace", () => ({
     connection: { status: "connected", error: null },
     refreshDiffs: refreshDiffsMock,
     refreshFiles: refreshFilesMock,
+    refreshMessages: refreshMessagesMock,
     readFile: readFileMock,
     writeFile: writeFileMock,
     discardFileChanges: discardFileChangesMock,
@@ -117,18 +119,23 @@ vi.mock('@/hooks/use-skills-catalog', () => ({
 vi.mock("@/components/workspace/chat-panel", () => ({
   ChatPanel: ({
     attachmentsEnabled = true,
+    flowHumanResponseRunId,
     isReadOnly,
+    onFlowHumanResponseSubmitted,
     onOpenFile,
     onReturnToMainConversation,
   }: {
     attachmentsEnabled?: boolean;
+    flowHumanResponseRunId?: string | null;
     isReadOnly?: boolean;
+    onFlowHumanResponseSubmitted?: () => Promise<void> | void;
     onOpenFile: (path: string) => void;
     onReturnToMainConversation?: () => void;
   }) => (
     <div
       data-testid="chat-panel"
       data-attachments-enabled={String(attachmentsEnabled)}
+      data-flow-human-response-run-id={flowHumanResponseRunId ?? ""}
       data-read-only={String(Boolean(isReadOnly))}
     >
       <span>Chat Panel</span>
@@ -138,6 +145,11 @@ vi.mock("@/components/workspace/chat-panel", () => ({
       {onReturnToMainConversation ? (
         <button type="button" onClick={onReturnToMainConversation}>
           Return to main conversation
+        </button>
+      ) : null}
+      {flowHumanResponseRunId ? (
+        <button type="button" onClick={() => void onFlowHumanResponseSubmitted?.()}>
+          Flow response submitted
         </button>
       ) : null}
     </div>
@@ -277,6 +289,8 @@ describe("WorkspaceShell", () => {
     readFileMock.mockResolvedValue({ content: "# Plan", type: "raw", hash: "hash-plan" });
     refreshDiffsMock.mockClear();
     refreshFilesMock.mockClear();
+    refreshMessagesMock.mockReset();
+    refreshMessagesMock.mockResolvedValue(undefined);
     sendMessageMock.mockClear();
     sendMessageMock.mockResolvedValue(true);
     workspaceMockOverrides = {};
@@ -627,7 +641,47 @@ describe("WorkspaceShell", () => {
     render(<WorkspaceShell slug="alice" />);
 
     expect((await screen.findByTestId("chat-panel")).dataset.readOnly).toBe("true");
+    expect(screen.getByTestId("chat-panel").dataset.flowHumanResponseRunId).toBe("");
     expect(screen.queryByRole("button", { name: "Return to main conversation" })).toBeNull();
+  });
+
+  it("passes waiting flow runs to the chat panel and refreshes after response", async () => {
+    const refreshSessions = vi.fn().mockResolvedValue(undefined);
+    refreshMessagesMock.mockResolvedValue(undefined);
+    workspaceMockOverrides = {
+      refreshSessions,
+      sessions: [
+        {
+          id: "flow-session",
+          title: "Flow | Daily brief",
+          status: "idle",
+          updatedAt: "now",
+          updatedAtRaw: 1,
+          flow: {
+            runId: "run-1",
+            flowId: "flow-1",
+            flowName: "Daily brief",
+            status: "waiting_for_human",
+            trigger: "manual",
+            hasUnseenResult: false,
+          },
+        },
+      ],
+      activeSessionId: "flow-session",
+    };
+
+    render(<WorkspaceShell slug="alice" />);
+
+    const chatPanel = await screen.findByTestId("chat-panel");
+    expect(chatPanel.dataset.readOnly).toBe("true");
+    expect(chatPanel.dataset.flowHumanResponseRunId).toBe("run-1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Flow response submitted" }));
+
+    await waitFor(() => {
+      expect(refreshMessagesMock).toHaveBeenCalledTimes(1);
+    });
+    expect(refreshSessions).toHaveBeenCalledTimes(1);
   });
 
   it("promotes a quickview file into knowledge editing", async () => {

@@ -1,4 +1,4 @@
-import type { FlowDetail, FlowListItem, FlowPayload } from '@/lib/flows/types'
+import type { FlowDetail, FlowListItem, FlowPayload, FlowRunListItem } from '@/lib/flows/types'
 
 export type FlowClientResult<T> =
   | { ok: true; data: T }
@@ -29,6 +29,12 @@ function ensureFlowDetail(data: { flow?: FlowDetail }): FlowClientResult<{ flow:
     : { ok: false, error: 'invalid_response' }
 }
 
+function ensureFlowRunDetail(data: { run?: FlowRunListItem }): FlowClientResult<{ run: FlowRunListItem }> {
+  return data.run
+    ? { ok: true, data: { run: data.run } }
+    : { ok: false, error: 'invalid_response' }
+}
+
 function ensureOk(data: { ok?: boolean }): FlowClientResult<{ ok: true }> {
   return data.ok === true
     ? { ok: true, data: { ok: true } }
@@ -43,6 +49,11 @@ export async function fetchFlowList(slug: string): Promise<FlowClientResult<{ fl
 export async function fetchFlowDetail(slug: string, flowId: string): Promise<FlowClientResult<{ flow: FlowDetail }>> {
   const result = await readFlowJson<{ flow?: FlowDetail }>(await fetch(`/api/u/${slug}/flows/${flowId}`, { cache: 'no-store' }))
   return result.ok ? ensureFlowDetail(result.data) : result
+}
+
+export async function fetchFlowRunRequest(slug: string, runId: string): Promise<FlowClientResult<{ run: FlowRunListItem }>> {
+  const result = await readFlowJson<{ run?: FlowRunListItem }>(await fetch(`/api/u/${slug}/flows/runs/${runId}`, { cache: 'no-store' }))
+  return result.ok ? ensureFlowRunDetail(result.data) : result
 }
 
 export async function createFlowRequest(slug: string, payload: FlowPayload): Promise<FlowClientResult<{ flow: FlowDetail }>> {
