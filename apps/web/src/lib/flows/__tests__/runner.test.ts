@@ -450,6 +450,30 @@ describe('triggerFlowNow', () => {
     expect(mocks.auditCreateEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'flows.run_waiting_for_human' }))
   })
 
+  it('renders human instructions with previous step output before pausing', async () => {
+    const flow = createClaimedFlow()
+    flow.definition = {
+      edges: [{ id: 'edge-1', sourceNodeId: 'agent-1', targetNodeId: 'human-1' }],
+      nodes: [
+        { compactOutput: false, id: 'agent-1', name: 'Agent', promptTemplate: 'Start', targetAgentId: null, type: 'agent' },
+        { id: 'human-1', instructions: 'Review {{previous.output}}', name: 'Human', required: true, type: 'human' },
+      ],
+      startNodeId: 'agent-1',
+      version: 1,
+    }
+    mocks.userFindByIdSelect.mockResolvedValue({ slug: 'alice' })
+    mocks.createRun.mockResolvedValue(createRunRecord())
+    mocks.runFlowPromptAndReadOutput.mockResolvedValueOnce({ ok: true, output: 'assistant output' })
+
+    await runClaimedFlow(flow, FlowRunTrigger.manual)
+
+    expect(mocks.upsertRunStep).toHaveBeenCalledWith(expect.objectContaining({
+      input: { instructions: 'Review assistant output', required: true },
+      nodeId: 'human-1',
+      status: FlowRunStepStatus.waiting_for_human,
+    }))
+  })
+
   it('runs compacting agent, compaction, and merge nodes', async () => {
     const flow = createClaimedFlow()
     flow.definition = {

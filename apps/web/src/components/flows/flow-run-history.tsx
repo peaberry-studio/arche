@@ -14,7 +14,6 @@ import {
 } from '@phosphor-icons/react'
 
 import { HumanStepResponseCard } from '@/components/flows/human-step-response-card'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { formatFlowRunDate } from '@/lib/flows/cron'
 import { cn } from '@/lib/utils'
 import type { FlowDetail, FlowRunListItem, FlowRunStepListItem } from '@/lib/flows/types'
@@ -62,14 +61,14 @@ function getStepTone(status: FlowRunStepListItem['status']): RunTone {
 const TONE_TEXT: Record<RunTone, string> = {
   danger: 'text-destructive',
   neutral: 'text-muted-foreground',
-  running: 'text-sky-500',
+  running: 'text-primary',
   success: 'text-emerald-500',
   warning: 'text-amber-500',
 }
 
 function RunStatusIcon({ status }: { status: FlowRunListItem['status'] }) {
   const tone = getRunTone(status)
-  const className = cn('shrink-0', TONE_TEXT[tone])
+  const className = cn('relative z-10 shrink-0', TONE_TEXT[tone])
 
   if (status === 'succeeded') return <CheckCircle size={14} weight="fill" className={className} />
   if (status === 'failed') return <XCircle size={14} weight="fill" className={className} />
@@ -80,7 +79,7 @@ function RunStatusIcon({ status }: { status: FlowRunListItem['status'] }) {
 
 function StepStatusIcon({ status }: { status: FlowRunStepListItem['status'] }) {
   const tone = getStepTone(status)
-  const className = cn('shrink-0', TONE_TEXT[tone])
+  const className = cn('relative z-10 shrink-0', TONE_TEXT[tone])
 
   if (status === 'succeeded') return <CheckCircle size={14} weight="fill" className={className} />
   if (status === 'failed') return <XCircle size={14} weight="fill" className={className} />
@@ -147,7 +146,7 @@ function MetaDot() {
   return <span aria-hidden className="text-muted-foreground/40">·</span>
 }
 
-function StepRow({ step }: { step: FlowRunStepListItem }) {
+function StepRow({ step, isLast }: { step: FlowRunStepListItem; isLast: boolean }) {
   const detail = step.compactedOutput
     ? `Compact: ${step.compactedOutput}`
     : step.rawOutput
@@ -155,7 +154,10 @@ function StepRow({ step }: { step: FlowRunStepListItem }) {
     : null
 
   return (
-    <li>
+    <li className={cn('relative', !isLast && 'pb-3')}>
+      {!isLast ? (
+        <span aria-hidden className="pointer-events-none absolute left-[6.5px] top-[10px] bottom-0 w-px bg-border/60" />
+      ) : null}
       <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm">
         <StepStatusIcon status={step.status} />
         <span className="font-medium text-foreground/90">{step.nodeName ?? step.nodeId}</span>
@@ -170,20 +172,18 @@ function StepRow({ step }: { step: FlowRunStepListItem }) {
   )
 }
 
-function RunRow({
+function RunCard({
   run,
   flow,
   slug,
   now,
   onRefresh,
-  isLast,
 }: {
   run: FlowRunListItem
   flow: FlowDetail
   slug: string
   now: Date
   onRefresh?: () => Promise<void> | void
-  isLast: boolean
 }) {
   const tone = getRunTone(run.status)
   const startedDate = new Date(run.startedAt)
@@ -192,7 +192,7 @@ function RunRow({
   const duration = formatDuration(run.startedAt, run.finishedAt)
 
   return (
-    <li className={cn('py-3 first:pt-0 last:pb-0', isLast ? '' : 'border-b border-border/40')}>
+    <li className="rounded-xl border border-border/60 bg-card/40 p-5">
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
@@ -208,8 +208,7 @@ function RunRow({
                 <span className="text-sm text-muted-foreground">{duration}</span>
               </>
             ) : null}
-            <MetaDot />
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60">
+            <span className="ml-1 inline-flex items-center rounded-md bg-muted px-1.5 py-1 text-[9px] font-medium uppercase tracking-[0.1em] leading-none text-muted-foreground">
               {TRIGGER_LABEL[run.trigger]}
             </span>
           </div>
@@ -237,15 +236,21 @@ function RunRow({
       </div>
 
       {run.steps.length > 0 ? (
-        <ol className="ml-[22px] mt-2 space-y-2">
-          {run.steps.map((step) => (
-            <StepRow key={step.id} step={step} />
-          ))}
-        </ol>
+        <div className="relative mt-4">
+          <span
+            aria-hidden
+            className="pointer-events-none absolute left-[6.5px] -top-4 h-[26px] w-px bg-border/60"
+          />
+          <ol className="space-y-0">
+            {run.steps.map((step, index) => (
+              <StepRow key={step.id} step={step} isLast={index === run.steps.length - 1} />
+            ))}
+          </ol>
+        </div>
       ) : null}
 
       {run.status === 'waiting_for_human' ? (
-        <div className="ml-[22px] mt-3">
+        <div className="mt-4">
           <HumanStepResponseCard run={run} slug={slug} onSubmitted={onRefresh} />
         </div>
       ) : null}
@@ -255,45 +260,28 @@ function RunRow({
 
 export function FlowRunHistory({ flow, slug, onRefresh }: FlowRunHistoryProps) {
   const now = new Date()
-  const count = flow.runs.length
+
+  if (flow.runs.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-2 rounded-xl border border-border/60 bg-card/40 py-10 text-center">
+        <ClockCountdown size={28} className="text-muted-foreground/60" />
+        <p className="text-sm text-muted-foreground">No runs recorded yet.</p>
+      </div>
+    )
+  }
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0">
-        <div className="space-y-1">
-          <CardTitle>Run history</CardTitle>
-          <p className="text-xs text-muted-foreground">
-            Each run executes in one OpenCode session and records every node step.
-          </p>
-        </div>
-        {count > 0 ? (
-          <span className="rounded-full border border-border/60 bg-background px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
-            {count} {count === 1 ? 'run' : 'runs'}
-          </span>
-        ) : null}
-      </CardHeader>
-      <CardContent>
-        {count === 0 ? (
-          <div className="flex flex-col items-center gap-2 py-10 text-center">
-            <ClockCountdown size={28} className="text-muted-foreground/60" />
-            <p className="text-sm text-muted-foreground">No runs recorded yet.</p>
-          </div>
-        ) : (
-          <ol className="space-y-0">
-            {flow.runs.map((run, index) => (
-              <RunRow
-                key={run.id}
-                run={run}
-                flow={flow}
-                slug={slug}
-                now={now}
-                onRefresh={onRefresh}
-                isLast={index === flow.runs.length - 1}
-              />
-            ))}
-          </ol>
-        )}
-      </CardContent>
-    </Card>
+    <ol className="space-y-3">
+      {flow.runs.map((run) => (
+        <RunCard
+          key={run.id}
+          run={run}
+          flow={flow}
+          slug={slug}
+          now={now}
+          onRefresh={onRefresh}
+        />
+      ))}
+    </ol>
   )
 }

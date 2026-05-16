@@ -27,7 +27,9 @@ type FlowScheduleBuilderProps = {
   preview: FlowSchedulePreview
   schedule: FlowScheduleFormState
   timezone: string
+  timezoneOptions: string[]
   onChange: Dispatch<SetStateAction<FlowScheduleFormState>>
+  onTimezoneChange: (timezone: string) => void
 }
 
 type ScheduleOption = {
@@ -47,8 +49,22 @@ const SCHEDULE_OPTIONS: ScheduleOption[] = [
 
 const SCHEDULE_MODES: FlowScheduleBuilderMode[] = SCHEDULE_OPTIONS.map((option) => option.mode)
 
-const numberInputClass = 'h-9 w-16 text-center font-medium tabular-nums'
-const timeInputClass = 'h-9 w-14 text-center font-medium tabular-nums'
+const hideSpinners =
+  '[appearance:textfield] [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none'
+const numberInputClass = cn('h-9 w-16 text-center font-medium tabular-nums focus-visible:ring-offset-0', hideSpinners)
+const timeInputClass = cn('h-9 w-14 text-center font-medium tabular-nums focus-visible:ring-offset-0', hideSpinners)
+
+function parseTimeDigits(raw: string, max: number): number {
+  const digits = raw.replace(/\D/g, '').slice(-2)
+  if (!digits) return 0
+  const value = Number.parseInt(digits, 10)
+  if (Number.isNaN(value)) return 0
+  return Math.min(value, max)
+}
+
+function padTwo(value: number): string {
+  return String(value).padStart(2, '0')
+}
 
 function formatRelativeRunTime(date: Date, now: Date): string {
   const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
@@ -67,7 +83,9 @@ export function FlowScheduleBuilder({
   preview,
   schedule,
   timezone,
+  timezoneOptions,
   onChange,
+  onTimezoneChange,
 }: FlowScheduleBuilderProps) {
   const updateSchedule = useCallback(
     (updater: (current: FlowScheduleFormState) => FlowScheduleFormState) => {
@@ -156,13 +174,13 @@ export function FlowScheduleBuilder({
             <Input
               id="flow-hourly-minute"
               aria-label="Minute of the hour"
-              type="number"
-              min={0}
-              max={59}
-              value={schedule.minute}
+              type="text"
+              inputMode="numeric"
+              maxLength={2}
+              value={padTwo(schedule.minute)}
               onChange={(event) => updateSchedule((current) => ({
                 ...current,
-                minute: Number.parseInt(event.target.value, 10) || 0,
+                minute: parseTimeDigits(event.target.value, 59),
               }))}
               className={timeInputClass}
             />
@@ -188,13 +206,13 @@ export function FlowScheduleBuilder({
             <Input
               id="flow-daily-hour"
               aria-label="Hour"
-              type="number"
-              min={0}
-              max={23}
-              value={schedule.hour}
+              type="text"
+              inputMode="numeric"
+              maxLength={2}
+              value={padTwo(schedule.hour)}
               onChange={(event) => updateSchedule((current) => ({
                 ...current,
-                hour: Number.parseInt(event.target.value, 10) || 0,
+                hour: parseTimeDigits(event.target.value, 23),
               }))}
               className={timeInputClass}
             />
@@ -202,13 +220,13 @@ export function FlowScheduleBuilder({
             <Input
               id="flow-daily-minute"
               aria-label="Minute"
-              type="number"
-              min={0}
-              max={59}
-              value={schedule.minute}
+              type="text"
+              inputMode="numeric"
+              maxLength={2}
+              value={padTwo(schedule.minute)}
               onChange={(event) => updateSchedule((current) => ({
                 ...current,
-                minute: Number.parseInt(event.target.value, 10) || 0,
+                minute: parseTimeDigits(event.target.value, 59),
               }))}
               className={timeInputClass}
             />
@@ -221,13 +239,13 @@ export function FlowScheduleBuilder({
             <Input
               id="flow-weekly-hour"
               aria-label="Hour"
-              type="number"
-              min={0}
-              max={23}
-              value={schedule.hour}
+              type="text"
+              inputMode="numeric"
+              maxLength={2}
+              value={padTwo(schedule.hour)}
               onChange={(event) => updateSchedule((current) => ({
                 ...current,
-                hour: Number.parseInt(event.target.value, 10) || 0,
+                hour: parseTimeDigits(event.target.value, 23),
               }))}
               className={timeInputClass}
             />
@@ -235,13 +253,13 @@ export function FlowScheduleBuilder({
             <Input
               id="flow-weekly-minute"
               aria-label="Minute"
-              type="number"
-              min={0}
-              max={59}
-              value={schedule.minute}
+              type="text"
+              inputMode="numeric"
+              maxLength={2}
+              value={padTwo(schedule.minute)}
               onChange={(event) => updateSchedule((current) => ({
                 ...current,
-                minute: Number.parseInt(event.target.value, 10) || 0,
+                minute: parseTimeDigits(event.target.value, 59),
               }))}
               className={timeInputClass}
             />
@@ -308,13 +326,13 @@ export function FlowScheduleBuilder({
             <Input
               id="flow-monthly-hour"
               aria-label="Hour"
-              type="number"
-              min={0}
-              max={23}
-              value={schedule.hour}
+              type="text"
+              inputMode="numeric"
+              maxLength={2}
+              value={padTwo(schedule.hour)}
               onChange={(event) => updateSchedule((current) => ({
                 ...current,
-                hour: Number.parseInt(event.target.value, 10) || 0,
+                hour: parseTimeDigits(event.target.value, 23),
               }))}
               className={timeInputClass}
             />
@@ -322,13 +340,13 @@ export function FlowScheduleBuilder({
             <Input
               id="flow-monthly-minute"
               aria-label="Minute"
-              type="number"
-              min={0}
-              max={59}
-              value={schedule.minute}
+              type="text"
+              inputMode="numeric"
+              maxLength={2}
+              value={padTwo(schedule.minute)}
               onChange={(event) => updateSchedule((current) => ({
                 ...current,
-                minute: Number.parseInt(event.target.value, 10) || 0,
+                minute: parseTimeDigits(event.target.value, 59),
               }))}
               className={timeInputClass}
             />
@@ -348,27 +366,42 @@ export function FlowScheduleBuilder({
             className="h-9 w-56 font-mono"
           />
         ) : null}
-      </div>
 
-      <p className="font-mono text-[11px] text-muted-foreground/70">
-        <span>{preview.cronExpression}</span>
-        <span className="mx-1.5 text-muted-foreground/40">·</span>
-        <span>{timezone}</span>
-      </p>
+        <span className="text-muted-foreground">in</span>
+        <div className="relative inline-flex h-9 items-center gap-2 rounded-md border border-border/70 bg-background/60 pl-3 pr-8 text-sm font-medium transition-colors focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20 hover:border-border">
+          <span className="pointer-events-none max-w-[16rem] truncate">{timezone}</span>
+          <CaretDown size={12} className="pointer-events-none absolute right-2.5 text-muted-foreground" />
+          <select
+            aria-label="Timezone"
+            value={timezone}
+            onChange={(event) => onTimezoneChange(event.target.value)}
+            className="absolute inset-0 cursor-pointer appearance-none bg-transparent text-transparent opacity-0 focus:outline-none"
+          >
+            {timezoneOptions.includes(timezone) ? null : (
+              <option value={timezone} className="bg-background text-foreground">{timezone}</option>
+            )}
+            {timezoneOptions.map((option) => (
+              <option key={option} value={option} className="bg-background text-foreground">
+                {option}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
 
       {preview.isValid && preview.nextRuns.length > 0 ? (
         <div className="space-y-2">
           <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
             Next {preview.nextRuns.length} run{preview.nextRuns.length === 1 ? '' : 's'}
           </p>
-          <ul className="space-y-1">
+          <ul className="flex flex-wrap gap-2">
             {preview.nextRuns.map((runAt) => (
               <li
                 key={runAt.toISOString()}
-                className="flex flex-wrap items-baseline gap-x-3 text-sm tabular-nums"
+                className="inline-flex flex-col gap-1 rounded-md border border-border/60 bg-background/60 px-3 py-2.5 tabular-nums leading-none"
               >
-                <span className="text-foreground">{formatFlowRunDate(runAt, timezone)}</span>
-                <span className="text-xs text-muted-foreground">{formatRelativeRunTime(runAt, now)}</span>
+                <span className="text-xs font-medium text-foreground">{formatFlowRunDate(runAt, timezone)}</span>
+                <span className="text-[11px] text-muted-foreground">{formatRelativeRunTime(runAt, now)}</span>
               </li>
             ))}
           </ul>

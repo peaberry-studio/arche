@@ -6,11 +6,13 @@ import { FlowHumanResponsePanel } from '@/components/flows/flow-human-response-p
 import type { FlowRunListItem } from '@/lib/flows/types'
 
 const clientMocks = vi.hoisted(() => ({
+  cancelFlowRunRequest: vi.fn(),
   fetchFlowRunRequest: vi.fn(),
   submitHumanResponseRequest: vi.fn(),
 }))
 
 vi.mock('@/lib/flows/client', () => ({
+  cancelFlowRunRequest: clientMocks.cancelFlowRunRequest,
   fetchFlowRunRequest: clientMocks.fetchFlowRunRequest,
   submitHumanResponseRequest: clientMocks.submitHumanResponseRequest,
 }))
@@ -51,6 +53,7 @@ const waitingRun: FlowRunListItem = {
 describe('FlowHumanResponsePanel', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    clientMocks.cancelFlowRunRequest.mockResolvedValue({ ok: true, data: { ok: true } })
     clientMocks.fetchFlowRunRequest.mockResolvedValue({ ok: true, data: { run: waitingRun } })
     clientMocks.submitHumanResponseRequest.mockResolvedValue({ ok: true, data: { ok: true } })
   })
@@ -73,6 +76,17 @@ describe('FlowHumanResponsePanel', () => {
     expect(onSubmitted).toHaveBeenCalledTimes(1)
     expect(clientMocks.fetchFlowRunRequest).toHaveBeenCalledWith('alice', 'run-1')
     expect(clientMocks.fetchFlowRunRequest).toHaveBeenCalledTimes(2)
+  })
+
+  it('cancels a waiting run', async () => {
+    const onSubmitted = vi.fn()
+    render(<FlowHumanResponsePanel runId="run-1" slug="alice" onSubmitted={onSubmitted} />)
+
+    await waitFor(() => expect(screen.getByText('Approve deployment.')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel run' }))
+
+    await waitFor(() => expect(clientMocks.cancelFlowRunRequest).toHaveBeenCalledWith('alice', 'run-1'))
+    expect(onSubmitted).toHaveBeenCalledTimes(1)
   })
 
   it('shows load errors and retries', async () => {

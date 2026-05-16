@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { FlowsPage } from '@/components/flows/flows-page'
@@ -7,14 +7,10 @@ import type { FlowListItem } from '@/lib/flows/types'
 
 const clientMocks = vi.hoisted(() => ({
   fetchFlowList: vi.fn(),
-  runFlowRequest: vi.fn(),
-  updateFlowRequest: vi.fn(),
 }))
 
 vi.mock('@/lib/flows/client', () => ({
   fetchFlowList: clientMocks.fetchFlowList,
-  runFlowRequest: clientMocks.runFlowRequest,
-  updateFlowRequest: clientMocks.updateFlowRequest,
 }))
 
 const flow: FlowListItem = {
@@ -36,8 +32,6 @@ describe('FlowsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     clientMocks.fetchFlowList.mockResolvedValue({ ok: true, data: { flows: [flow] } })
-    clientMocks.runFlowRequest.mockResolvedValue({ ok: true, data: { ok: true } })
-    clientMocks.updateFlowRequest.mockResolvedValue({ ok: true, data: { flow: { ...flow, enabled: false, runs: [] } } })
   })
 
   afterEach(() => {
@@ -60,15 +54,15 @@ describe('FlowsPage', () => {
     await waitFor(() => expect(screen.getByText('No flows yet')).toBeTruthy())
   })
 
-  it('runs and toggles flows through client helpers', async () => {
+  it('links each card to history and edit', async () => {
     render(<FlowsPage slug="alice" />)
     await waitFor(() => expect(screen.getByText('Weekly Review')).toBeTruthy())
 
-    fireEvent.click(screen.getByRole('button', { name: /Run now/ }))
-    await waitFor(() => expect(clientMocks.runFlowRequest).toHaveBeenCalledWith('alice', 'flow-1'))
+    const historyLink = screen.getByRole('link', { name: 'View run history for Weekly Review' })
+    expect(historyLink.getAttribute('href')).toBe('/u/alice/flows/flow-1/runs')
 
-    fireEvent.click(screen.getByRole('button', { name: /Pause/ }))
-    await waitFor(() => expect(clientMocks.updateFlowRequest).toHaveBeenCalledWith('alice', 'flow-1', { enabled: false }))
+    const editLink = screen.getByRole('link', { name: 'Edit Weekly Review' })
+    expect(editLink.getAttribute('href')).toBe('/u/alice/flows/flow-1')
   })
 
   it('shows load errors', async () => {

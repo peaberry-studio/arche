@@ -2,13 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ClockCountdown, GitBranch, Lightning, Pause, Play, SpinnerGap, TreeStructure } from '@phosphor-icons/react'
+import { ClockCountdown, GitBranch, PencilSimple, SpinnerGap, TreeStructure } from '@phosphor-icons/react'
 
 import { DashboardEmptyState } from '@/components/dashboard/dashboard-empty-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { fetchFlowList, runFlowRequest, updateFlowRequest } from '@/lib/flows/client'
+import { fetchFlowList } from '@/lib/flows/client'
 import { formatFlowRunDate } from '@/lib/flows/cron'
 import type { FlowListItem } from '@/lib/flows/types'
 import { cn } from '@/lib/utils'
@@ -37,10 +37,8 @@ function getRunBadgeLabel(flow: FlowListItem): string {
 
 export function FlowsPage({ slug }: FlowsPageProps) {
   const [flows, setFlows] = useState<FlowListItem[]>([])
-  const [actionError, setActionError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [mutatingFlowIds, setMutatingFlowIds] = useState<Set<string>>(new Set())
 
   const loadFlows = useCallback(async () => {
     setIsLoading(true)
@@ -53,7 +51,6 @@ export function FlowsPage({ slug }: FlowsPageProps) {
       }
 
       setFlows(result.data.flows)
-      setActionError(null)
     } catch {
       setLoadError('network_error')
     } finally {
@@ -75,7 +72,6 @@ export function FlowsPage({ slug }: FlowsPageProps) {
         }
 
         setFlows(result.data.flows)
-        setActionError(null)
       } catch {
         if (!cancelled) {
           setLoadError('network_error')
@@ -93,51 +89,6 @@ export function FlowsPage({ slug }: FlowsPageProps) {
       cancelled = true
     }
   }, [slug])
-
-  const markMutating = useCallback((flowId: string, active: boolean) => {
-    setMutatingFlowIds((current) => {
-      const next = new Set(current)
-      if (active) next.add(flowId)
-      else next.delete(flowId)
-      return next
-    })
-  }, [])
-
-  const handleToggleEnabled = useCallback(async (flow: FlowListItem) => {
-    markMutating(flow.id, true)
-    setActionError(null)
-    try {
-      const result = await updateFlowRequest(slug, flow.id, { enabled: !flow.enabled })
-      if (!result.ok) {
-        setActionError(result.error)
-        return
-      }
-
-      await loadFlows()
-    } catch {
-      setActionError('network_error')
-    } finally {
-      markMutating(flow.id, false)
-    }
-  }, [loadFlows, markMutating, slug])
-
-  const handleRunNow = useCallback(async (flowId: string) => {
-    markMutating(flowId, true)
-    setActionError(null)
-    try {
-      const result = await runFlowRequest(slug, flowId)
-      if (!result.ok) {
-        setActionError(result.error)
-        return
-      }
-
-      await loadFlows()
-    } catch {
-      setActionError('network_error')
-    } finally {
-      markMutating(flowId, false)
-    }
-  }, [loadFlows, markMutating, slug])
 
   const sortedFlows = useMemo(() => [...flows].sort((left, right) => left.name.localeCompare(right.name)), [flows])
 
@@ -174,15 +125,6 @@ export function FlowsPage({ slug }: FlowsPageProps) {
         </Card>
       ) : null}
 
-      {actionError ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Could not complete flow action</CardTitle>
-            <CardDescription>{actionError}</CardDescription>
-          </CardHeader>
-        </Card>
-      ) : null}
-
       {!isLoading && !loadError && sortedFlows.length === 0 ? (
         <DashboardEmptyState
           icon={GitBranch}
@@ -194,47 +136,49 @@ export function FlowsPage({ slug }: FlowsPageProps) {
 
       {!isLoading && !loadError && sortedFlows.length > 0 ? (
         <div className="grid gap-4 lg:grid-cols-2">
-          {sortedFlows.map((flow) => {
-            const isMutating = mutatingFlowIds.has(flow.id)
-            return (
-              <Link key={flow.id} href={`/u/${slug}/flows/${flow.id}`} className="group block">
-                <div className={cn(
-                  'rounded-xl border border-border/60 bg-card/50 p-5 transition-all hover:border-border hover:bg-card/80 hover:shadow-sm',
-                  !flow.enabled && 'opacity-80',
-                )}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <h3 className="truncate text-sm font-semibold text-foreground">{flow.name}</h3>
-                        <Badge variant={getRunBadgeVariant(flow)} className="shrink-0">{getRunBadgeLabel(flow)}</Badge>
-                      </div>
-                      <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">
-                        {flow.description ?? `${flow.definition.nodes.length} nodes, ${flow.definition.edges.length} edges`}
-                      </p>
-                    </div>
-                  </div>
+          {sortedFlows.map((flow) => (
+            <article
+              key={flow.id}
+              className={cn(
+                'group relative rounded-xl border border-border/60 bg-card/50 p-5 transition-all hover:border-border hover:bg-card/80 hover:shadow-sm',
+                !flow.enabled && 'opacity-80',
+              )}
+            >
+              <Link
+                href={`/u/${slug}/flows/${flow.id}/runs`}
+                aria-label={`View run history for ${flow.name}`}
+                className="absolute inset-0 z-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              />
 
-                  <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
-                    <span className="inline-flex items-center gap-1"><TreeStructure size={13} weight="bold" />{flow.definition.nodes.length} nodes</span>
-                    <span className="inline-flex items-center gap-1"><GitBranch size={13} weight="bold" />{flow.definition.edges.length} edges</span>
-                    <span className="inline-flex items-center gap-1">
-                      <ClockCountdown size={13} weight="bold" />
-                      {flow.nextRunAt ? formatFlowRunDate(new Date(flow.nextRunAt), flow.timezone) : 'Manual'}
-                    </span>
+              <div className="pointer-events-none relative z-10 flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="truncate text-sm font-semibold text-foreground">{flow.name}</h3>
+                    <Badge variant={getRunBadgeVariant(flow)} className="shrink-0">{getRunBadgeLabel(flow)}</Badge>
                   </div>
-
-                  <div className="mt-4 flex items-center gap-2" onClick={(event) => event.preventDefault()}>
-                    <Button size="sm" variant="outline" className="h-7 text-xs" onClick={(event) => { event.preventDefault(); void handleRunNow(flow.id) }} disabled={isMutating}>
-                      <Lightning size={12} weight="fill" className="mr-1" /> Run now
-                    </Button>
-                    <Button size="sm" variant="outline" className="h-7 text-xs" onClick={(event) => { event.preventDefault(); void handleToggleEnabled(flow) }} disabled={isMutating}>
-                      {flow.enabled ? <><Pause size={12} weight="fill" className="mr-1" /> Pause</> : <><Play size={12} weight="fill" className="mr-1" /> Schedule</>}
-                    </Button>
-                  </div>
+                  <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">
+                    {flow.description ?? `${flow.definition.nodes.length} nodes, ${flow.definition.edges.length} edges`}
+                  </p>
                 </div>
-              </Link>
-            )
-          })}
+                <Link
+                  href={`/u/${slug}/flows/${flow.id}`}
+                  aria-label={`Edit ${flow.name}`}
+                  className="pointer-events-auto inline-flex shrink-0 items-center gap-1 rounded-md border border-border/60 bg-background/60 px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <PencilSimple size={12} weight="bold" /> Edit
+                </Link>
+              </div>
+
+              <div className="pointer-events-none relative z-10 mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-1"><TreeStructure size={13} weight="bold" />{flow.definition.nodes.length} nodes</span>
+                <span className="inline-flex items-center gap-1"><GitBranch size={13} weight="bold" />{flow.definition.edges.length} edges</span>
+                <span className="inline-flex items-center gap-1">
+                  <ClockCountdown size={13} weight="bold" />
+                  {flow.nextRunAt ? formatFlowRunDate(new Date(flow.nextRunAt), flow.timezone) : 'Manual'}
+                </span>
+              </div>
+            </article>
+          ))}
         </div>
       ) : null}
     </div>

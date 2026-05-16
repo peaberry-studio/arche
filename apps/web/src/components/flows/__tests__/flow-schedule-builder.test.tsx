@@ -34,13 +34,16 @@ function ScheduleHarness({
   preview?: FlowSchedulePreview
 }) {
   const [schedule, setSchedule] = useState(initialSchedule)
+  const [timezone, setTimezone] = useState('UTC')
 
   return (
     <FlowScheduleBuilder
       preview={preview}
       schedule={schedule}
-      timezone="UTC"
+      timezone={timezone}
+      timezoneOptions={['UTC', 'America/Los_Angeles', 'Europe/Madrid']}
       onChange={setSchedule}
+      onTimezoneChange={setTimezone}
     />
   )
 }
@@ -74,7 +77,6 @@ describe('FlowScheduleBuilder', () => {
     const customCronInput = screen.getByLabelText('Custom cron expression') as HTMLInputElement
     fireEvent.change(customCronInput, { target: { value: '0 9 * * 1-5' } })
     expect(customCronInput.value).toBe('0 9 * * 1-5')
-    expect(screen.getByText('*/15 * * * *')).toBeTruthy()
     expect(screen.getByText(/Next \d run/)).toBeTruthy()
   })
 

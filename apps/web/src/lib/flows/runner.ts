@@ -683,8 +683,17 @@ async function executeFlowNodes(params: {
     }
 
     if (node.type === 'human') {
+      const context = buildFlowTemplateContext({
+        flowName: params.flow.name,
+        previousOutput,
+        runId: params.run.id,
+        steps,
+      })
+      const rendered = renderFlowTemplate(node.instructions, context)
+      if (!rendered.ok) return { status: 'failed', error: rendered.error }
+
       await flowService.upsertRunStep({
-        input: toPrismaJson({ instructions: node.instructions, required: node.required }),
+        input: toPrismaJson({ instructions: rendered.value, required: node.required }),
         nodeId: node.id,
         nodeName: node.name,
         nodeType: nodeTypeToPrisma(node),

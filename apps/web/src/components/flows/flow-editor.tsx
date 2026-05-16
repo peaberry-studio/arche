@@ -7,7 +7,6 @@ import { SpinnerGap } from '@phosphor-icons/react'
 
 import { FlowCanvas } from '@/components/flows/flow-canvas'
 import { FlowNodeInspector } from '@/components/flows/flow-node-inspector'
-import { FlowRunHistory } from '@/components/flows/flow-run-history'
 import { FlowScheduleBuilder } from '@/components/flows/flow-schedule-builder'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -24,8 +23,9 @@ import {
   inferFlowScheduleFormState,
   type FlowScheduleFormState,
 } from '@/lib/flows/schedule-form'
-import type { FlowDefinition, FlowDetail, FlowNode } from '@/lib/flows/types'
+import type { FlowDefinition, FlowNode } from '@/lib/flows/types'
 import { createDefaultFlowDefinition, validateFlowDefinition } from '@/lib/flows/validation'
+import { cn } from '@/lib/utils'
 
 type FlowEditorProps = {
   flowId?: string
@@ -45,13 +45,84 @@ type SlackTargetChannel = {
   name: string
 }
 
-function createNode(type: FlowNode['type'], index: number): FlowNode {
-  const id = `${type}-${Date.now()}`
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function slugifyNodeId(value: string): string {
+  return value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+function getUniqueNodeId(name: string, type: FlowNode['type'], existingIds: ReadonlySet<string>): string {
+  const base = slugifyNodeId(name) || `${type}-step`
+  let candidate = base
+  let suffix = 2
+
+  while (existingIds.has(candidate)) {
+    candidate = `${base}-${suffix}`
+    suffix += 1
+  }
+
+  return candidate
+}
+
+function replaceNodeVariableReferences(value: string, previousId: string, nextId: string): string {
+  if (previousId === nextId) return value
+
+  const escapedId = escapeRegExp(previousId)
+  return value
+    .replace(new RegExp(`steps\\.${escapedId}\\.output`, 'g'), `steps.${nextId}.output`)
+    .replace(new RegExp(`human\\.${escapedId}\\.response`, 'g'), `human.${nextId}.response`)
+}
+
+function updateNodeReferences(node: FlowNode, previousId: string, nextId: string): FlowNode {
+  if (previousId === nextId) return node
+
+  if (node.type === 'agent') {
+    return { ...node, promptTemplate: replaceNodeVariableReferences(node.promptTemplate, previousId, nextId) }
+  }
+
+  if (node.type === 'human') {
+    return { ...node, instructions: replaceNodeVariableReferences(node.instructions, previousId, nextId) }
+  }
+
+  if (node.type === 'condition') {
+    return {
+      ...node,
+      evaluatorPrompt: node.evaluatorPrompt
+        ? replaceNodeVariableReferences(node.evaluatorPrompt, previousId, nextId)
+        : node.evaluatorPrompt,
+      rules: node.rules?.map((rule) => ({
+        ...rule,
+        targetNodeId: rule.targetNodeId === previousId ? nextId : rule.targetNodeId,
+        variable: replaceNodeVariableReferences(rule.variable, previousId, nextId),
+      })),
+    }
+  }
+
+  if (node.type === 'slack') {
+    return { ...node, messageTemplate: replaceNodeVariableReferences(node.messageTemplate, previousId, nextId) }
+  }
+
+  if (node.type === 'compaction') {
+    return { ...node, promptTemplate: replaceNodeVariableReferences(node.promptTemplate, previousId, nextId) }
+  }
+
+  return node
+}
+
+function createNode(type: FlowNode['type'], index: number, existingIds: ReadonlySet<string>): FlowNode {
   if (type === 'agent') {
+    const name = `Agent step ${index}`
     return {
       compactOutput: false,
-      id,
-      name: `Agent step ${index}`,
+      id: getUniqueNodeId(name, type, existingIds),
+      name,
       promptTemplate: 'Use {{previous.output}} if this is not the first step.',
       targetAgentId: null,
       type,
@@ -59,48 +130,53 @@ function createNode(type: FlowNode['type'], index: number): FlowNode {
   }
 
   if (type === 'human') {
+    const name = `Human step ${index}`
     return {
-      id,
+      id: getUniqueNodeId(name, type, existingIds),
       instructions: 'Review the current flow output and provide the next instruction.',
-      name: `Human step ${index}`,
+      name,
       required: true,
       type,
     }
   }
 
   if (type === 'condition') {
+    const name = `Condition ${index}`
     return {
-      id,
+      id: getUniqueNodeId(name, type, existingIds),
       mode: 'rules',
-      name: `Condition ${index}`,
+      name,
       rules: [],
       type,
     }
   }
 
   if (type === 'slack') {
+    const name = `Slack message ${index}`
     return {
-      id,
+      id: getUniqueNodeId(name, type, existingIds),
       messageMode: 'fixed',
       messageTemplate: 'Flow update',
-      name: `Slack message ${index}`,
+      name,
       target: { type: 'dm', userId: '' },
       type,
     }
   }
 
   if (type === 'compaction') {
+    const name = `Compaction ${index}`
     return {
-      id,
-      name: `Compaction ${index}`,
+      id: getUniqueNodeId(name, type, existingIds),
+      name,
       promptTemplate: 'Compact {{previous.output}} for later steps.',
       type,
     }
   }
 
+  const name = `Merge ${index}`
   return {
-    id,
-    name: `Merge ${index}`,
+    id: getUniqueNodeId(name, type, existingIds),
+    name,
     type,
   }
 }
@@ -109,7 +185,6 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
   const router = useRouter()
   const { agents } = useAgentsCatalog(slug)
   const timezoneOptions = useMemo(() => getFlowTimeZoneOptions(), [])
-  const [flow, setFlow] = useState<FlowDetail | null>(null)
   const [definition, setDefinition] = useState<FlowDefinition>(() => createDefaultFlowDefinition())
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>('agent-1')
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null)
@@ -140,7 +215,6 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
         return
       }
 
-      setFlow(result.data.flow)
       setName(result.data.flow.name)
       setDescription(result.data.flow.description ?? '')
       setDefinition(result.data.flow.definition)
@@ -172,7 +246,6 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
           return
         }
 
-        setFlow(result.data.flow)
         setName(result.data.flow.name)
         setDescription(result.data.flow.description ?? '')
         setDefinition(result.data.flow.definition)
@@ -254,10 +327,44 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
   }, [selectedNodeId])
 
   const updateNode = useCallback((node: FlowNode) => {
+    const previousNode = definition.nodes.find((candidate) => candidate.id === node.id)
+    if (!previousNode) return
+
+    const existingIds = new Set(definition.nodes
+      .filter((candidate) => candidate.id !== previousNode.id)
+      .map((candidate) => candidate.id))
+    const nextNodeId = previousNode.name !== node.name
+      ? getUniqueNodeId(node.name, node.type, existingIds)
+      : node.id
+    const nextNode = nextNodeId === node.id ? node : { ...node, id: nextNodeId } as FlowNode
+
     updateDefinition({
       ...definition,
-      nodes: definition.nodes.map((candidate) => candidate.id === node.id ? node : candidate),
+      edges: definition.edges.map((edge) => ({
+        ...edge,
+        sourceNodeId: edge.sourceNodeId === previousNode.id ? nextNodeId : edge.sourceNodeId,
+        targetNodeId: edge.targetNodeId === previousNode.id ? nextNodeId : edge.targetNodeId,
+      })),
+      layout: definition.layout
+        ? {
+            nodes: definition.layout.nodes.map((layoutNode) => ({
+              ...layoutNode,
+              nodeId: layoutNode.nodeId === previousNode.id ? nextNodeId : layoutNode.nodeId,
+            })),
+          }
+        : definition.layout,
+      nodes: definition.nodes.map((candidate) => (
+        candidate.id === previousNode.id
+          ? updateNodeReferences(nextNode, previousNode.id, nextNodeId)
+          : updateNodeReferences(candidate, previousNode.id, nextNodeId)
+      )),
+      startNodeId: definition.startNodeId === previousNode.id ? nextNodeId : definition.startNodeId,
     })
+
+    if (nextNodeId !== previousNode.id) {
+      setSelectedNodeId(nextNodeId)
+      setEditingNodeId(nextNodeId)
+    }
   }, [definition, updateDefinition])
 
   const deleteNode = useCallback((nodeId: string) => {
@@ -298,7 +405,7 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
 
     const sourceIndex = definition.nodes.findIndex((node) => node.id === sourceNodeId)
     const sourceLayout = definition.layout?.nodes.find((node) => node.nodeId === sourceNodeId)
-    const node = createNode(type, definition.nodes.length + 1)
+    const node = createNode(type, definition.nodes.length + 1, new Set(definition.nodes.map((node) => node.id)))
     const edgeBase = Date.now()
     const existingOutgoing = definition.edges.filter((edge) => edge.sourceNodeId === sourceNodeId)
     const retainedEdges = sourceNode.type === 'condition'
@@ -389,7 +496,6 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
         return
       }
 
-      setFlow(result.data.flow)
       if (mode === 'create') {
         router.push(`/u/${slug}/flows/${result.data.flow.id}`)
         return
@@ -471,7 +577,7 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
   return (
     <div className="space-y-8">
       <div className="space-y-6">
-        <section className="rounded-xl border border-border/60 bg-card/40 p-5">
+        <section className="rounded-xl border border-border/60 bg-card/40 px-5 pb-5 pt-4">
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2 md:col-span-2">
               <Label htmlFor="flow-name">Flow name</Label>
@@ -481,30 +587,35 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
               <Label htmlFor="flow-description">Description</Label>
               <Input id="flow-description" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="What this flow automates" />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="flow-timezone">Timezone</Label>
-              <Input id="flow-timezone" list="flow-timezones" value={timezone} onChange={(event) => setTimezone(event.target.value)} />
-              <datalist id="flow-timezones">
-                {timezoneOptions.map((option) => <option key={option} value={option} />)}
-              </datalist>
-            </div>
           </div>
         </section>
 
         <section className="rounded-xl border border-border/60 bg-card/40 p-5">
-          <div className="mb-5 flex items-start justify-between gap-4">
+          <div className="flex items-start justify-between gap-4">
             <div>
               <h2 className="text-sm font-semibold text-foreground">Schedule</h2>
               <p className="text-xs text-muted-foreground">Run this flow automatically on a recurring schedule. Enabled flows also run once after creation.</p>
             </div>
             <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="Enable scheduled flow" />
           </div>
-          <FlowScheduleBuilder
-            preview={schedulePreview}
-            schedule={schedule}
-            timezone={timezone}
-            onChange={setSchedule}
-          />
+          <div
+            aria-hidden={!enabled}
+            className={cn(
+              'grid transition-[grid-template-rows,margin-top,opacity] duration-300 ease-out',
+              enabled ? 'mt-5 grid-rows-[1fr] opacity-100' : 'mt-0 grid-rows-[0fr] opacity-0',
+            )}
+          >
+            <div className="overflow-hidden">
+              <FlowScheduleBuilder
+                preview={schedulePreview}
+                schedule={schedule}
+                timezone={timezone}
+                timezoneOptions={timezoneOptions}
+                onChange={setSchedule}
+                onTimezoneChange={setTimezone}
+              />
+            </div>
+          </div>
         </section>
 
         <section className="rounded-xl border border-border/60 bg-card/40 p-5">
@@ -571,8 +682,6 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
           />
         </DialogContent>
       </Dialog>
-
-      {mode === 'edit' && flow ? <FlowRunHistory flow={flow} slug={slug} onRefresh={loadFlow} /> : null}
     </div>
   )
 }

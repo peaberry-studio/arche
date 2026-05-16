@@ -1,10 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type KeyboardEvent } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { submitHumanResponseRequest } from '@/lib/flows/client'
+import { cancelFlowRunRequest, submitHumanResponseRequest } from '@/lib/flows/client'
 import type { FlowRunListItem } from '@/lib/flows/types'
 
 type HumanStepResponseCardProps = {
@@ -16,6 +15,7 @@ type HumanStepResponseCardProps = {
 export function HumanStepResponseCard({ run, slug, onSubmitted }: HumanStepResponseCardProps) {
   const [response, setResponse] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [isCancelling, setIsCancelling] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const currentStep = run.steps.find((step) => step.nodeId === run.currentNodeId)
 
@@ -24,6 +24,7 @@ export function HumanStepResponseCard({ run, slug, onSubmitted }: HumanStepRespo
   const instructions = currentStep.input && typeof currentStep.input === 'object' && !Array.isArray(currentStep.input)
     ? (currentStep.input as { instructions?: unknown }).instructions
     : null
+  const stepLabel = currentStep.nodeName ?? currentStep.nodeId
 
   async function submitResponse() {
     setIsSubmitting(true)
@@ -45,28 +46,71 @@ export function HumanStepResponseCard({ run, slug, onSubmitted }: HumanStepRespo
     }
   }
 
+  async function cancelRun() {
+    setIsCancelling(true)
+    setError(null)
+
+    try {
+      const result = await cancelFlowRunRequest(slug, run.id)
+      if (!result.ok) {
+        setError(result.error)
+        return
+      }
+
+      await onSubmitted?.()
+    } catch {
+      setError('network_error')
+    } finally {
+      setIsCancelling(false)
+    }
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !isSubmitting) {
+      event.preventDefault()
+      void submitResponse()
+    }
+  }
+
   return (
-    <Card className="border-amber-400/40 bg-amber-500/5">
-      <CardHeader>
-        <CardTitle>Waiting for human input</CardTitle>
-        <CardDescription>{currentStep.nodeName ?? currentStep.nodeId}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {typeof instructions === 'string' ? (
-          <p className="text-sm text-foreground/80">{instructions}</p>
-        ) : null}
-        <textarea
-          value={response}
-          onChange={(event) => setResponse(event.target.value)}
-          rows={4}
-          className="min-h-[110px] w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/30"
-          placeholder="Enter the human response for this step."
-        />
-        {error ? <p className="text-sm text-destructive">{error}</p> : null}
-        <Button onClick={() => void submitResponse()} disabled={isSubmitting}>
+    <div className="rounded-xl border border-border/60 bg-card/40 p-5">
+      <div className="flex items-center gap-2">
+        <h3 className="text-sm font-semibold text-foreground">Waiting for human input</h3>
+        <span aria-hidden className="text-muted-foreground/40">·</span>
+        <span className="truncate text-xs text-muted-foreground">{stepLabel}</span>
+      </div>
+
+      {typeof instructions === 'string' && instructions.trim() ? (
+        <p className="mt-2 text-sm text-muted-foreground">{instructions}</p>
+      ) : null}
+
+      <textarea
+        value={response}
+        onChange={(event) => setResponse(event.target.value)}
+        onKeyDown={handleKeyDown}
+        rows={3}
+        className="mt-4 min-h-[96px] w-full resize-y rounded-lg border border-border/60 bg-background/40 px-3 py-2 text-sm text-foreground transition-colors placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+        placeholder="Enter the human response for this step."
+      />
+
+      <div className="mt-3 flex items-center gap-3">
+        <Button
+          size="sm"
+          onClick={() => void submitResponse()}
+          disabled={isSubmitting || isCancelling}
+        >
           {isSubmitting ? 'Resuming...' : 'Submit and resume'}
         </Button>
-      </CardContent>
-    </Card>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void cancelRun()}
+          disabled={isSubmitting || isCancelling}
+        >
+          {isCancelling ? 'Cancelling...' : 'Cancel run'}
+        </Button>
+        {error ? <p className="text-xs text-destructive" role="alert">{error}</p> : null}
+      </div>
+    </div>
   )
 }

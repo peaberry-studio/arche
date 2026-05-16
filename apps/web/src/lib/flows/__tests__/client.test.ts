@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { createFlowRequest, deleteFlowRequest, fetchFlowDetail, fetchFlowList, fetchFlowRunRequest, runFlowRequest, submitHumanResponseRequest, updateFlowRequest } from '@/lib/flows/client'
+import { cancelFlowRunRequest, createFlowRequest, deleteFlowRequest, fetchFlowDetail, fetchFlowList, fetchFlowRunRequest, runFlowRequest, submitHumanResponseRequest, updateFlowRequest } from '@/lib/flows/client'
 import type { FlowDetail, FlowListItem, FlowRunListItem } from '@/lib/flows/types'
 
 const flow: FlowListItem = {
@@ -93,6 +93,7 @@ describe('flow client helpers', () => {
       .mockResolvedValueOnce(jsonResponse({ ok: true }))
       .mockResolvedValueOnce(jsonResponse({ ok: true }))
       .mockResolvedValueOnce(jsonResponse({ ok: true }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true }))
     vi.stubGlobal('fetch', fetchMock)
 
     await expect(createFlowRequest('alice', {
@@ -105,6 +106,7 @@ describe('flow client helpers', () => {
     })).resolves.toEqual({ ok: true, data: { flow: detail } })
     await expect(deleteFlowRequest('alice', 'flow-1')).resolves.toEqual({ ok: true, data: { ok: true } })
     await expect(runFlowRequest('alice', 'flow-1')).resolves.toEqual({ ok: true, data: { ok: true } })
+    await expect(cancelFlowRunRequest('alice', 'run-1')).resolves.toEqual({ ok: true, data: { ok: true } })
     await expect(submitHumanResponseRequest('alice', 'run-1', 'Approved')).resolves.toEqual({ ok: true, data: { ok: true } })
   })
 })

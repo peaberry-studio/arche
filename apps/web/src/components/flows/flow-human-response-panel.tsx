@@ -83,7 +83,7 @@ export function FlowHumanResponsePanel({ runId, slug, onSubmitted }: FlowHumanRe
 
   if (isLoading) {
     return (
-      <div className="rounded-xl border border-amber-400/30 bg-amber-500/5 px-4 py-3 text-sm text-muted-foreground">
+      <div className="rounded-xl border border-border/60 bg-card/40 px-5 py-4 text-sm text-muted-foreground">
         Loading human input...
       </div>
     )
@@ -91,7 +91,7 @@ export function FlowHumanResponsePanel({ runId, slug, onSubmitted }: FlowHumanRe
 
   if (error) {
     return (
-      <div className="space-y-3 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm">
+      <div className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-card/40 px-5 py-4 text-sm">
         <p className="text-destructive">Unable to load human input: {error}</p>
         <Button type="button" size="sm" variant="outline" onClick={() => void loadRun()}>
           Retry
@@ -102,7 +102,7 @@ export function FlowHumanResponsePanel({ runId, slug, onSubmitted }: FlowHumanRe
 
   if (!run || run.status !== 'waiting_for_human') {
     return (
-      <div className="rounded-xl border border-border/60 bg-card/60 px-4 py-3 text-sm text-muted-foreground">
+      <div className="rounded-xl border border-border/60 bg-card/40 px-5 py-4 text-sm text-muted-foreground">
         This flow run no longer needs human input. It may still be finishing.
       </div>
     )

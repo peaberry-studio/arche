@@ -58,7 +58,6 @@ describe('FlowRunHistory', () => {
   it('renders run history and session link', () => {
     render(<FlowRunHistory flow={flow} slug="alice" />)
 
-    expect(screen.getByText('Run history')).toBeTruthy()
     expect(screen.getByText('Succeeded')).toBeTruthy()
     expect(screen.getByText('Compact: Compact result')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Open session' }).getAttribute('href')).toBe('/w/alice?mode=flows&session=session-1')

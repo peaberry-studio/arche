@@ -45,6 +45,10 @@ function validateTemplates(definition: FlowPayload['definition']): PayloadValida
       const result = validateFlowTemplateVariables(node.promptTemplate, nodeIds)
       if (!result.ok) return { ok: false, error: result.error, status: 400 }
     }
+    if (node.type === 'human') {
+      const result = validateFlowTemplateVariables(node.instructions, nodeIds)
+      if (!result.ok) return { ok: false, error: result.error, status: 400 }
+    }
     if (node.type === 'condition' && node.evaluatorPrompt) {
       const result = validateFlowTemplateVariables(node.evaluatorPrompt, nodeIds)
       if (!result.ok) return { ok: false, error: result.error, status: 400 }

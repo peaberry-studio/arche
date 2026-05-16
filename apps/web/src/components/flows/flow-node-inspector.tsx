@@ -32,6 +32,12 @@ type FlowNodeInspectorProps = {
   onUpdateNode: (node: FlowNode) => void
 }
 
+type TemplateVariableSuggestion = {
+  description: string
+  label: string
+  variable: string
+}
+
 function createRule(targetNodeId: string): FlowConditionRule {
   return {
     id: `rule-${Date.now()}`,
@@ -45,6 +51,133 @@ function createRule(targetNodeId: string): FlowConditionRule {
 function readSlackMessageMode(value: string): SlackFlowNode['messageMode'] {
   if (value === 'previous_output' || value === 'template') return value
   return 'fixed'
+}
+
+function appendTemplateVariable(value: string, variable: string): string {
+  if (!value) return variable
+  return `${value}${/\s$/.test(value) ? '' : ' '}${variable}`
+}
+
+function getAncestorNodes(definition: FlowDefinition, nodeId: string): FlowNode[] {
+  const incomingByTarget = new Map<string, string[]>()
+  for (const edge of definition.edges) {
+    incomingByTarget.set(edge.targetNodeId, [
+      ...(incomingByTarget.get(edge.targetNodeId) ?? []),
+      edge.sourceNodeId,
+    ])
+  }
+
+  const visited = new Set<string>()
+  const queue = [...(incomingByTarget.get(nodeId) ?? [])]
+
+  while (queue.length > 0) {
+    const sourceNodeId = queue.shift()
+    if (!sourceNodeId || visited.has(sourceNodeId)) continue
+
+    visited.add(sourceNodeId)
+    queue.push(...(incomingByTarget.get(sourceNodeId) ?? []))
+  }
+
+  return definition.nodes.filter((candidate) => visited.has(candidate.id))
+}
+
+function getTemplateVariableSuggestions(definition: FlowDefinition, node: FlowNode): TemplateVariableSuggestion[] {
+  const ancestors = getAncestorNodes(definition, node.id)
+  const suggestions: TemplateVariableSuggestion[] = [
+    {
+      description: 'The output handed to this step by the previous executed step.',
+      label: 'Previous output',
+      variable: 'previous.output',
+    },
+    {
+      description: 'The current flow name.',
+      label: 'Flow name',
+      variable: 'flow.name',
+    },
+    {
+      description: 'The current flow run id.',
+      label: 'Run id',
+      variable: 'run.id',
+    },
+  ]
+
+  for (const ancestor of ancestors) {
+    if (ancestor.type === 'human') {
+      suggestions.push({
+        description: `The response submitted for ${ancestor.name}.`,
+        label: `${ancestor.name} response`,
+        variable: `human.${ancestor.id}.response`,
+      })
+      continue
+    }
+
+    if (ancestor.type === 'merge') continue
+
+    suggestions.push({
+      description: `The recorded output from ${ancestor.name}.`,
+      label: `${ancestor.name} output`,
+      variable: `steps.${ancestor.id}.output`,
+    })
+  }
+
+  return suggestions
+}
+
+function formatVariable(variable: string, mode: 'template' | 'raw'): string {
+  return mode === 'template' ? `{{${variable}}}` : variable
+}
+
+function TemplateVariableHelp({
+  mode,
+  onInsert,
+  suggestions,
+}: {
+  mode: 'template' | 'raw'
+  onInsert: (value: string) => void
+  suggestions: TemplateVariableSuggestion[]
+}) {
+  return (
+    <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
+      <div className="space-y-1">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Variables</p>
+        <p className="text-xs text-muted-foreground">
+          {mode === 'template'
+            ? 'Click a chip to append it. Variables are replaced when the step runs.'
+            : 'Click a chip to use it as the rule variable. Rule variables do not use curly braces.'}
+        </p>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {suggestions.map((suggestion) => {
+          const value = formatVariable(suggestion.variable, mode)
+          return (
+            <button
+              key={suggestion.variable}
+              type="button"
+              title={suggestion.description}
+              onClick={() => onInsert(value)}
+              className="rounded-lg border border-border/60 bg-background px-2.5 py-1.5 text-left transition-colors hover:border-primary/40 hover:bg-primary/10"
+            >
+              <span className="block text-[11px] font-medium text-foreground">{suggestion.label}</span>
+              <code className="block text-[10px] text-muted-foreground">{value}</code>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function HumanResponseReference({ node }: { node: Extract<FlowNode, { type: 'human' }> }) {
+  return (
+    <div className="rounded-lg border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
+      <p>
+        After this step is answered, the next step receives the answer as <code className="text-foreground">{'{{previous.output}}'}</code>.
+      </p>
+      <p className="mt-1">
+        Later steps can reference this exact response with <code className="text-foreground">{`{{human.${node.id}.response}}`}</code>.
+      </p>
+    </div>
+  )
 }
 
 export function FlowNodeInspector({
@@ -65,6 +198,7 @@ export function FlowNodeInspector({
 
   const node = selectedNode
   const targetOptions = definition.nodes.filter((candidate) => candidate.id !== node.id)
+  const templateSuggestions = getTemplateVariableSuggestions(definition, node)
 
   function updateRule(rule: FlowConditionRule) {
     if (node.type !== 'condition') return
@@ -83,6 +217,9 @@ export function FlowNodeInspector({
           value={node.name}
           onChange={(event) => onUpdateNode({ ...node, name: event.target.value })}
         />
+        <p className="text-xs text-muted-foreground">
+          Step ID: <code className="text-foreground">{node.id}</code>. Rename the step to update this ID and make variables readable.
+        </p>
       </div>
 
       {node.type === 'agent' ? (
@@ -110,6 +247,11 @@ export function FlowNodeInspector({
               rows={7}
               className="min-h-[150px] w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/30"
             />
+            <TemplateVariableHelp
+              mode="template"
+              suggestions={templateSuggestions}
+              onInsert={(value) => onUpdateNode({ ...node, promptTemplate: appendTemplateVariable(node.promptTemplate, value) })}
+            />
           </div>
           <div className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2">
             <div>
@@ -136,7 +278,13 @@ export function FlowNodeInspector({
               rows={5}
               className="min-h-[120px] w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/30"
             />
+            <TemplateVariableHelp
+              mode="template"
+              suggestions={templateSuggestions}
+              onInsert={(value) => onUpdateNode({ ...node, instructions: appendTemplateVariable(node.instructions, value) })}
+            />
           </div>
+          <HumanResponseReference node={node} />
           <div className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2">
             <p className="text-sm font-medium text-foreground">Response required</p>
             <Switch
@@ -173,6 +321,11 @@ export function FlowNodeInspector({
               {(node.rules ?? []).map((rule) => (
                 <div key={rule.id} className="space-y-2 rounded-lg border border-border/60 p-3">
                   <Input value={rule.variable} onChange={(event) => updateRule({ ...rule, variable: event.target.value })} placeholder="previous.output" />
+                  <TemplateVariableHelp
+                    mode="raw"
+                    suggestions={templateSuggestions}
+                    onInsert={(value) => updateRule({ ...rule, variable: value })}
+                  />
                   <div className="grid grid-cols-2 gap-2">
                     <select
                       value={rule.operator}
@@ -220,6 +373,14 @@ export function FlowNodeInspector({
                 onChange={(event) => onUpdateNode({ ...node, evaluatorPrompt: event.target.value })}
                 rows={5}
                 className="min-h-[120px] w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/30"
+              />
+              <TemplateVariableHelp
+                mode="template"
+                suggestions={templateSuggestions}
+                onInsert={(value) => onUpdateNode({
+                  ...node,
+                  evaluatorPrompt: appendTemplateVariable(node.evaluatorPrompt ?? '', value),
+                })}
               />
             </div>
           )}
@@ -312,9 +473,34 @@ export function FlowNodeInspector({
                 rows={5}
                 className="min-h-[120px] w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/30"
               />
+              {node.messageMode === 'template' ? (
+                <TemplateVariableHelp
+                  mode="template"
+                  suggestions={templateSuggestions}
+                  onInsert={(value) => onUpdateNode({ ...node, messageTemplate: appendTemplateVariable(node.messageTemplate, value) })}
+                />
+              ) : null}
             </div>
           ) : null}
         </>
+      ) : null}
+
+      {node.type === 'compaction' ? (
+        <div className="space-y-2">
+          <Label htmlFor="flow-compaction-prompt">Compaction prompt</Label>
+          <textarea
+            id="flow-compaction-prompt"
+            value={node.promptTemplate}
+            onChange={(event) => onUpdateNode({ ...node, promptTemplate: event.target.value })}
+            rows={5}
+            className="min-h-[120px] w-full rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/30"
+          />
+          <TemplateVariableHelp
+            mode="template"
+            suggestions={templateSuggestions}
+            onInsert={(value) => onUpdateNode({ ...node, promptTemplate: appendTemplateVariable(node.promptTemplate, value) })}
+          />
+        </div>
       ) : null}
 
       {node.type === 'merge' ? (

@@ -107,6 +107,15 @@ describe('validateFlowPayload', () => {
     await expect(validateFlowPayload({
       definition: {
         edges: [],
+        nodes: [{ id: 'human-1', instructions: '{{missing.output}}', name: 'Human', required: true, type: 'human' }],
+        startNodeId: 'human-1',
+        version: 1,
+      },
+    }, 'update')).resolves.toEqual({ ok: false, error: 'unknown_template_variable:missing.output', status: 400 })
+
+    await expect(validateFlowPayload({
+      definition: {
+        edges: [],
         nodes: [{ evaluatorPrompt: '{{missing.output}}', id: 'condition-1', mode: 'ai', name: 'Condition', type: 'condition' }],
         startNodeId: 'condition-1',
         version: 1,

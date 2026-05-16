@@ -79,10 +79,6 @@ vi.mock('@/components/flows/flow-node-inspector', () => ({
     </div>
   ),
 }))
-vi.mock('@/components/flows/flow-run-history', () => ({
-  FlowRunHistory: () => <div>Run history</div>,
-}))
-
 function createFlowDetail(): FlowDetail {
   return {
     createdAt: '2026-05-12T10:00:00.000Z',
@@ -134,6 +130,25 @@ describe('FlowEditor', () => {
     expect(mocks.push).toHaveBeenCalledWith('/u/alice/flows/flow-1')
   })
 
+  it('keeps step ids readable when renaming nodes', async () => {
+    render(<FlowEditor slug="alice" mode="create" />)
+
+    fireEvent.change(screen.getByLabelText('Flow name'), { target: { value: 'Semantic flow' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Open node editor' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Rename selected node' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create flow' }))
+
+    await waitFor(() => expect(mocks.createFlowRequest).toHaveBeenCalledWith('alice', expect.objectContaining({
+      definition: expect.objectContaining({
+        layout: { nodes: [expect.objectContaining({ nodeId: 'renamed-node' })] },
+        nodes: [expect.objectContaining({ id: 'renamed-node', name: 'Renamed node' })],
+        startNodeId: 'renamed-node',
+      }),
+      name: 'Semantic flow',
+    })))
+  })
+
   it('loads, runs, saves, and deletes an existing flow', async () => {
     render(<FlowEditor slug="alice" mode="edit" flowId="flow-1" />)
 
@@ -157,7 +172,7 @@ describe('FlowEditor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add human after agent' }))
     expect(screen.getByText('Inspector Human step 2')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Close' }))
-    expect(screen.getByText(/agent-1->human-\d+/)).toBeTruthy()
+    expect(screen.getByText('agent-1->human-step-2')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Connect agent to human' }))
     fireEvent.click(screen.getByRole('button', { name: 'Move existing node' }))
     fireEvent.click(screen.getByRole('button', { name: 'Move loose node' }))

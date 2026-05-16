@@ -18,6 +18,14 @@ const definition: FlowDefinition = {
   version: 1,
 }
 
+const connectedDefinition: FlowDefinition = {
+  ...definition,
+  edges: [
+    { id: 'edge-1', sourceNodeId: 'agent-1', targetNodeId: 'human-1' },
+    { id: 'edge-2', sourceNodeId: 'human-1', targetNodeId: 'condition-1' },
+  ],
+}
+
 function renderInspector(props: Partial<Parameters<typeof FlowNodeInspector>[0]> = {}) {
   return render(
     <FlowNodeInspector
@@ -65,13 +73,30 @@ describe('FlowNodeInspector', () => {
 
   it('updates human node fields', () => {
     const onUpdateNode = vi.fn()
-    renderInspector({ selectedNode: definition.nodes[1], onUpdateNode })
+    renderInspector({ definition: connectedDefinition, selectedNode: connectedDefinition.nodes[1], onUpdateNode })
+
+    expect(screen.getByText('human-1')).toBeTruthy()
 
     fireEvent.change(screen.getByLabelText('Instructions'), { target: { value: 'Approve this output' } })
     expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({ instructions: 'Approve this output' }))
 
+    fireEvent.click(screen.getByRole('button', { name: /\{\{previous\.output\}\}/ }))
+    expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({ instructions: 'Review {{previous.output}}' }))
+    expect(screen.getByText('{{human.human-1.response}}')).toBeTruthy()
+
     fireEvent.click(screen.getByRole('switch', { name: 'Require response' }))
     expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({ required: false }))
+  })
+
+  it('suggests raw variables for condition rules', () => {
+    const onUpdateNode = vi.fn()
+    renderInspector({ definition: connectedDefinition, selectedNode: connectedDefinition.nodes[2], onUpdateNode })
+
+    fireEvent.click(screen.getByRole('button', { name: /human\.human-1\.response/ }))
+
+    expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({
+      rules: [expect.objectContaining({ variable: 'human.human-1.response' })],
+    }))
   })
 
   it('updates condition rules and mode', () => {
