@@ -3,9 +3,9 @@ import { ensureProviderAccessFreshForExecution } from '@/lib/opencode/providers'
 import { transformParts } from '@/lib/opencode/transform'
 import type { MessagePart } from '@/lib/opencode/types'
 import { isProviderId, normalizeProviderId } from '@/lib/providers/catalog'
-import { getEffectiveCredentialForUser } from '@/lib/providers/store'
+import { recordProviderRunUsageBestEffort } from '@/lib/providers/run-usage'
 import type { ProviderId } from '@/lib/providers/types'
-import { instanceService, messageRunService, providerUsageService } from '@/lib/services'
+import { instanceService, messageRunService } from '@/lib/services'
 import type { ActiveRunRuntimeState } from '@/lib/services/message-run'
 import { getInstanceStatus, startInstance } from '@/lib/spawner/core'
 import { deriveWorkspaceMessageRuntimeState } from '@/lib/workspace-message-state'
@@ -128,24 +128,16 @@ function recordSessionRunUsageBestEffort(input: {
   const usage = extractSessionRunUsage(input.messages)
   if (!usage) return
 
-  void getEffectiveCredentialForUser({ userId: usageInput.userId, providerId: usage.providerId })
-    .then((effectiveCredential) => {
-      if (!effectiveCredential) return null
-      return providerUsageService.recordProviderRunUsage({
-        costUsd: usage.costUsd,
-        credentialSource: effectiveCredential.source,
-        inputTokens: usage.inputTokens,
-        messageRunId: usageInput.messageRunId,
-        modelId: usage.modelId,
-        outputTokens: usage.outputTokens,
-        providerId: usage.providerId,
-        source: usageInput.source,
-        userId: usageInput.userId,
-      })
-    })
-    .catch((error) => {
-      console.warn('[opencode/session-execution] Failed to record provider run usage', error)
-    })
+  recordProviderRunUsageBestEffort({
+    costUsd: usage.costUsd,
+    inputTokens: usage.inputTokens,
+    messageRunId: usageInput.messageRunId,
+    modelId: usage.modelId,
+    outputTokens: usage.outputTokens,
+    providerId: usage.providerId,
+    source: usageInput.source,
+    userId: usageInput.userId,
+  }, '[opencode/session-execution]')
 }
 
 function firstString(values: unknown[]): string | null {

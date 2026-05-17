@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { parseUsageFilters } from '@/app/api/u/[slug]/usage/filters'
+import { parseUsageSessionFilters } from '@/app/api/u/[slug]/usage/filters'
 import { withAuth } from '@/lib/runtime/with-auth'
-import { providerUsageService } from '@/lib/services'
+import { usageDashboardService } from '@/lib/services'
 
 export const GET = withAuth(
   { csrf: false },
@@ -11,7 +11,7 @@ export const GET = withAuth(
       return NextResponse.json({ error: 'forbidden' }, { status: 403 })
     }
 
-    const sessions = await providerUsageService.listProviderUsageSessions(parseUsageFilters(request))
+    const sessions = await usageDashboardService.listUsageSessions(parseUsageSessionFilters(request))
     return NextResponse.json({ sessions })
   },
 )

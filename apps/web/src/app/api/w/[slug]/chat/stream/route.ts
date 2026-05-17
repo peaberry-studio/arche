@@ -12,9 +12,9 @@ import {
   type OpenCodePromptPart,
 } from '@/lib/opencode/workspace-prompt'
 import { isProviderId, normalizeProviderId, resolveRuntimeProviderId } from '@/lib/providers/catalog'
-import { getEffectiveCredentialForUser } from '@/lib/providers/store'
+import { recordProviderRunUsageBestEffort } from '@/lib/providers/run-usage'
 import { withAuth } from '@/lib/runtime/with-auth'
-import { instanceService, messageRunService, providerUsageService } from '@/lib/services'
+import { instanceService, messageRunService } from '@/lib/services'
 import { MESSAGE_RUN_TIMEOUT_MS, type ActiveRunRuntimeState } from '@/lib/services/message-run'
 import { INITIAL_SSE_PARSE_STATE, parseSseChunk } from '@/lib/sse-parser'
 import { decryptPassword } from '@/lib/spawner/crypto'
@@ -538,24 +538,16 @@ export const POST = withAuth(
 
           const messageRunId = activeRunId
           const providerId = runProviderId
-          void getEffectiveCredentialForUser({ userId: user.id, providerId })
-            .then((effectiveCredential) => {
-              if (!effectiveCredential) return null
-              return providerUsageService.recordProviderRunUsage({
-                costUsd: usage.costUsd,
-                credentialSource: effectiveCredential.source,
-                inputTokens: usage.inputTokens,
-                messageRunId,
-                modelId: runModelId,
-                outputTokens: usage.outputTokens,
-                providerId,
-                source: 'web',
-                userId: user.id,
-              })
-            })
-            .catch((error) => {
-              console.warn('[chat/stream] Failed to record provider run usage', error)
-            })
+          recordProviderRunUsageBestEffort({
+            costUsd: usage.costUsd,
+            inputTokens: usage.inputTokens,
+            messageRunId,
+            modelId: runModelId,
+            outputTokens: usage.outputTokens,
+            providerId,
+            source: 'web',
+            userId: user.id,
+          }, '[chat/stream]')
         }
 
         const finalizeFromIdle = () => {

@@ -186,6 +186,52 @@ const SCHEMA_DDL = [
     "updated_at" DATETIME NOT NULL,
     CONSTRAINT "provider_credentials_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE
   )`,
+  `CREATE TABLE IF NOT EXISTS "organization_provider_credentials" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "provider_id" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'enabled',
+    "version" INTEGER NOT NULL,
+    "secret" TEXT NOT NULL,
+    "last_error" TEXT,
+    "last_used_at" DATETIME,
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" DATETIME NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS "provider_usage_daily" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "bucket_date" DATETIME NOT NULL,
+    "user_id" TEXT NOT NULL,
+    "provider_id" TEXT NOT NULL,
+    "model_id" TEXT NOT NULL DEFAULT '',
+    "source" TEXT NOT NULL,
+    "credential_source" TEXT NOT NULL,
+    "request_count" INTEGER NOT NULL DEFAULT 0,
+    "error_count" INTEGER NOT NULL DEFAULT 0,
+    "run_count" INTEGER NOT NULL DEFAULT 0,
+    "input_tokens" INTEGER NOT NULL DEFAULT 0,
+    "output_tokens" INTEGER NOT NULL DEFAULT 0,
+    "cost_usd" DECIMAL NOT NULL DEFAULT 0,
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" DATETIME NOT NULL,
+    CONSTRAINT "provider_usage_daily_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS "provider_usage_runs" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "message_run_id" TEXT NOT NULL,
+    "user_id" TEXT NOT NULL,
+    "provider_id" TEXT NOT NULL,
+    "model_id" TEXT NOT NULL DEFAULT '',
+    "source" TEXT NOT NULL,
+    "credential_source" TEXT NOT NULL,
+    "input_tokens" INTEGER NOT NULL DEFAULT 0,
+    "output_tokens" INTEGER NOT NULL DEFAULT 0,
+    "cost_usd" DECIMAL NOT NULL DEFAULT 0,
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" DATETIME NOT NULL,
+    CONSTRAINT "provider_usage_runs_message_run_id_fkey" FOREIGN KEY ("message_run_id") REFERENCES "message_runs" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "provider_usage_runs_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
   `CREATE TABLE IF NOT EXISTS "two_factor_recovery" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "user_id" TEXT NOT NULL,
@@ -222,10 +268,19 @@ const SCHEMA_DDL = [
   `CREATE INDEX IF NOT EXISTS "connectors_user_id_idx" ON "connectors"("user_id")`,
   `CREATE INDEX IF NOT EXISTS "provider_credentials_user_id_idx" ON "provider_credentials"("user_id")`,
   `CREATE INDEX IF NOT EXISTS "provider_credentials_provider_id_idx" ON "provider_credentials"("provider_id")`,
+  `CREATE INDEX IF NOT EXISTS "organization_provider_credentials_provider_id_idx" ON "organization_provider_credentials"("provider_id")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "provider_usage_daily_bucket_user_provider_model_source_key" ON "provider_usage_daily"("bucket_date", "user_id", "provider_id", "model_id", "source", "credential_source")`,
+  `CREATE INDEX IF NOT EXISTS "provider_usage_daily_bucket_date_idx" ON "provider_usage_daily"("bucket_date")`,
+  `CREATE INDEX IF NOT EXISTS "provider_usage_daily_user_id_idx" ON "provider_usage_daily"("user_id")`,
+  `CREATE INDEX IF NOT EXISTS "provider_usage_daily_provider_id_model_id_idx" ON "provider_usage_daily"("provider_id", "model_id")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "provider_usage_runs_message_run_id_key" ON "provider_usage_runs"("message_run_id")`,
+  `CREATE INDEX IF NOT EXISTS "provider_usage_runs_user_id_idx" ON "provider_usage_runs"("user_id")`,
+  `CREATE INDEX IF NOT EXISTS "provider_usage_runs_provider_id_model_id_idx" ON "provider_usage_runs"("provider_id", "model_id")`,
+  `CREATE INDEX IF NOT EXISTS "provider_usage_runs_created_at_idx" ON "provider_usage_runs"("created_at")`,
   `CREATE INDEX IF NOT EXISTS "two_factor_recovery_user_id_idx" ON "two_factor_recovery"("user_id")`,
 ]
 
-const SCHEMA_VERSION = '9'
+const SCHEMA_VERSION = '10'
 
 function isCreateIndexStatement(ddl: string): boolean {
   return /^CREATE (UNIQUE )?INDEX\b/.test(ddl.trim())

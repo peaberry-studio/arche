@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { parseUsageFilters } from '@/app/api/u/[slug]/usage/filters'
+import { parseProviderUsageFilters } from '@/app/api/u/[slug]/usage/filters'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { providerUsageService } from '@/lib/services'
 
@@ -11,7 +11,7 @@ export const GET = withAuth(
       return NextResponse.json({ error: 'forbidden' }, { status: 403 })
     }
 
-    const providers = await providerUsageService.listProviderUsageProviders(parseUsageFilters(request))
+    const providers = await providerUsageService.listProviderUsageProviders(parseProviderUsageFilters(request))
     return NextResponse.json({ providers })
   },
 )

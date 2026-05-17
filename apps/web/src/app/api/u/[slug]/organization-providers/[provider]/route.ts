@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { auditEvent } from '@/lib/auth'
 import { isProviderId } from '@/lib/providers/catalog'
-import { replaceOrganizationApiCredential } from '@/lib/providers/store'
+import {
+  disableOrganizationProviderApiCredential,
+  replaceOrganizationProviderApiCredential,
+} from '@/lib/providers/credential-mutations'
 import type { ProviderId } from '@/lib/providers/types'
 import { withAuth } from '@/lib/runtime/with-auth'
-import { providerService } from '@/lib/services'
 
 export type CreateOrganizationProviderCredentialRequest = {
   apiKey: string
@@ -89,16 +90,12 @@ export const POST = withAuth<
     )
   }
 
-  const credential = await replaceOrganizationApiCredential({
+  const result = await replaceOrganizationProviderApiCredential({
+    actorUserId: context.sessionUserId,
     providerId: context.provider,
     apiKey,
   })
-
-  await auditEvent({
-    actorUserId: context.sessionUserId,
-    action: 'organization_provider_credential.created',
-    metadata: { providerId: context.provider, credentialId: credential.id },
-  })
+  const { credential } = result
 
   return NextResponse.json(
     {
@@ -123,19 +120,13 @@ export const DELETE = withAuth<
     return context.response
   }
 
-  const result = await providerService.disableEnabledOrganizationProvider(context.provider)
-
-  await auditEvent({
+  const result = await disableOrganizationProviderApiCredential({
     actorUserId: context.sessionUserId,
-    action: 'organization_provider_credential.disabled',
-    metadata: {
-      providerId: context.provider,
-      disabledCount: result.count,
-    },
+    providerId: context.provider,
   })
 
   return NextResponse.json({
     ok: true,
-    status: result.count > 0 ? 'disabled' : 'missing',
+    status: result.disabledCount > 0 ? 'disabled' : 'missing',
   })
 })

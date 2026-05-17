@@ -1,7 +1,14 @@
 import type { Prisma } from '@prisma/client'
 
-import { PROVIDER_SYNC_RESTART_REQUIRED } from '@/lib/providers/sync-status'
 import { prisma } from '@/lib/prisma'
+import type {
+  EffectiveProviderCredential,
+  OrganizationProviderCredentialSummary,
+  ProviderCredentialRecord,
+  ProviderCredentialSource,
+  ProviderCredentialSummary,
+} from '@/lib/providers/credentials'
+import { PROVIDER_SYNC_RESTART_REQUIRED } from '@/lib/providers/sync-status'
 
 const MAX_PROVIDER_CREDENTIAL_RETRIES = 3
 const SERIALIZABLE_ISOLATION_LEVEL = 'Serializable' as Prisma.TransactionIsolationLevel
@@ -10,29 +17,12 @@ const SERIALIZABLE_ISOLATION_LEVEL = 'Serializable' as Prisma.TransactionIsolati
 // Query return shapes
 // ---------------------------------------------------------------------------
 
-export type ProviderCredentialRecord = {
-  id: string
-  type: string
-  secret: string
-  version: number
-}
-
-export type ProviderCredentialSource = 'user' | 'organization'
-
-export type EffectiveProviderCredential =
-  | { source: ProviderCredentialSource; credential: ProviderCredentialRecord }
-  | null
-
-export type ProviderCredentialSummary = {
-  providerId: string
-  status: string
-  type: string
-  version: number
-}
-
-export type OrganizationProviderCredentialSummary = ProviderCredentialSummary & {
-  id: string
-  lastUsedAt: Date | null
+export type {
+  EffectiveProviderCredential,
+  OrganizationProviderCredentialSummary,
+  ProviderCredentialRecord,
+  ProviderCredentialSource,
+  ProviderCredentialSummary,
 }
 
 // ---------------------------------------------------------------------------

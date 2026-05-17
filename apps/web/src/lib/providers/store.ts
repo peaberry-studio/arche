@@ -1,20 +1,13 @@
 import { providerService } from '@/lib/services'
 
 import { encryptProviderSecret } from './crypto'
+import type {
+  EffectiveProviderCredential,
+  ProviderCredentialRecord,
+} from './credentials'
 import type { ProviderId } from './types'
 
-export type ProviderCredentialRecord = {
-  id: string
-  type: string
-  secret: string
-  version: number
-}
-
-export type ProviderCredentialSource = 'user' | 'organization'
-
-export type EffectiveProviderCredential =
-  | { source: ProviderCredentialSource; credential: ProviderCredentialRecord }
-  | null
+export type { EffectiveProviderCredential, ProviderCredentialRecord, ProviderCredentialSource } from './credentials'
 
 export type ReplaceApiCredentialInput = {
   userId: string
