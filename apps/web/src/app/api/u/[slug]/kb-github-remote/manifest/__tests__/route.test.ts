@@ -67,11 +67,15 @@ describe('GET /api/u/[slug]/kb-github-remote/manifest', () => {
   it('returns HTML form with organization GitHub App creation URL', async () => {
     const { GET } = await import('../route')
 
-    const response = await GET(request('/api/u/alice/kb-github-remote/manifest?owner=acme-org'), params())
+    const response = await GET(
+      request('/api/u/alice/kb-github-remote/manifest?owner=acme-org', { headers: { 'x-nonce': 'nonce-1' } }),
+      params(),
+    )
 
     expect(response.status).toBe(200)
     const body = await response.text()
     expect(body).toContain('<form method="post" action="https://github.com/organizations/acme-org/settings/apps/new?state=setup-state-1">')
+    expect(body).toContain('<script nonce="nonce-1">document.forms[0].submit()</script>')
     expect(body).toContain('https://example.com/api/u/alice/kb-github-remote/callback?state=setup-state-1')
   })
 
