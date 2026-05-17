@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
 import { verifyInstallation } from '@/lib/git/github-app-auth'
+import { getPublicBaseUrl } from '@/lib/http'
 import { requireKbGithubRemoteAdmin } from '@/lib/kb-github-remote/route-auth'
 import {
   clearKbGithubRemoteSetupCookie,
@@ -16,27 +17,27 @@ export async function GET(
 ): Promise<Response> {
   const { slug } = await params
   const setupSession = await getKbGithubRemoteSetupSession(request, slug)
-  if (!setupSession.ok) return redirectToManage(request.url, slug, setupSession.error)
+  if (!setupSession.ok) return redirectToManage(request, slug, setupSession.error)
 
   const admin = requireKbGithubRemoteAdmin(setupSession.user)
-  if (!admin.ok) return redirectToManage(request.url, slug, 'forbidden')
+  if (!admin.ok) return redirectToManage(request, slug, 'forbidden')
 
   const url = new URL(request.url)
   const installationIdRaw = url.searchParams.get('installation_id')
   const installationId = installationIdRaw ? Number(installationIdRaw) : NaN
   if (!Number.isSafeInteger(installationId) || installationId <= 0) {
-    return redirectToManage(request.url, slug, 'invalid_installation_id')
+    return redirectToManage(request, slug, 'invalid_installation_id')
   }
 
   const record = await kbGithubRemoteService.findIntegration()
   const config = kbGithubRemoteService.decryptIntegrationConfig(record)
   if (!config?.appId || !config.privateKey) {
-    return redirectToManage(request.url, slug, 'not_configured')
+    return redirectToManage(request, slug, 'not_configured')
   }
 
   const verification = await verifyInstallation(config.appId, config.privateKey, installationId)
   if (!verification.ok) {
-    return redirectToManage(request.url, slug, 'verification_failed')
+    return redirectToManage(request, slug, 'verification_failed')
   }
 
   await kbGithubRemoteService.saveInstallation({
@@ -50,7 +51,8 @@ export async function GET(
     metadata: { account: verification.account, installationId },
   })
 
-  const manageUrl = new URL(`/u/${slug}/settings/integrations/kb-github-remote`, request.url)
+  const baseUrl = getPublicBaseUrl(request.headers, request.url)
+  const manageUrl = new URL(`/u/${slug}/settings/integrations/kb-github-remote`, baseUrl)
   manageUrl.searchParams.set('installed', 'true')
   const response = NextResponse.redirect(manageUrl)
   setRestoredSessionCookie(response, setupSession.restoredSessionCookie, request.headers)
@@ -58,8 +60,9 @@ export async function GET(
   return response
 }
 
-function redirectToManage(requestUrl: string, slug: string, error: string): NextResponse {
-  const url = new URL(`/u/${slug}/settings/integrations/kb-github-remote`, requestUrl)
+function redirectToManage(request: NextRequest, slug: string, error: string): NextResponse {
+  const baseUrl = getPublicBaseUrl(request.headers, request.url)
+  const url = new URL(`/u/${slug}/settings/integrations/kb-github-remote`, baseUrl)
   url.searchParams.set('error', error)
   return NextResponse.redirect(url)
 }
