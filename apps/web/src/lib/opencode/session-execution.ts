@@ -2,7 +2,10 @@ import { createInstanceClient } from '@/lib/opencode/client'
 import { ensureProviderAccessFreshForExecution } from '@/lib/opencode/providers'
 import { transformParts } from '@/lib/opencode/transform'
 import type { MessagePart } from '@/lib/opencode/types'
-import { instanceService, messageRunService } from '@/lib/services'
+import { isProviderId, normalizeProviderId } from '@/lib/providers/catalog'
+import { getEffectiveCredentialForUser } from '@/lib/providers/store'
+import type { ProviderId } from '@/lib/providers/types'
+import { instanceService, messageRunService, providerUsageService } from '@/lib/services'
 import type { ActiveRunRuntimeState } from '@/lib/services/message-run'
 import { getInstanceStatus, startInstance } from '@/lib/spawner/core'
 import { deriveWorkspaceMessageRuntimeState } from '@/lib/workspace-message-state'
@@ -19,6 +22,20 @@ export type SessionMessageCursor = {
 }
 
 export type SessionPromptRunResult = Awaited<ReturnType<typeof messageRunService.createActiveRunAfterRuntimeStateCheck>>
+
+type SessionRunUsageInput = {
+  messageRunId: string
+  source: string
+  userId: string
+}
+
+type SessionRunUsage = {
+  costUsd: number
+  inputTokens: number
+  outputTokens: number
+  providerId: ProviderId
+  modelId: string | null
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -51,6 +68,84 @@ function parseStatus(status: unknown): number | null {
   }
 
   return null
+}
+
+function getNumber(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+function extractSessionRunUsage(messages: ReturnType<typeof getMessagesSinceCursor>): SessionRunUsage | null {
+  let providerId: ProviderId | null = null
+  let modelId: string | null = null
+  let costUsd = 0
+  let inputTokens = 0
+  let outputTokens = 0
+
+  for (const message of messages) {
+    if (normalizeRole(message.info.role) !== 'assistant') {
+      continue
+    }
+
+    const rawProviderId = (message.info as { providerID?: unknown }).providerID
+    if (typeof rawProviderId === 'string') {
+      const normalizedProviderId = normalizeProviderId(rawProviderId)
+      if (isProviderId(normalizedProviderId)) {
+        providerId = normalizedProviderId
+      }
+    }
+
+    const rawModelId = (message.info as { modelID?: unknown }).modelID
+    if (typeof rawModelId === 'string' && rawModelId.trim()) {
+      modelId = rawModelId.trim()
+    }
+
+    for (const part of transformParts(message.parts ?? [])) {
+      if (part.type !== 'step-finish') {
+        continue
+      }
+
+      costUsd += getNumber(part.cost)
+      inputTokens += getNumber(part.tokens.input)
+      outputTokens += getNumber(part.tokens.output)
+    }
+  }
+
+  if (!providerId || (costUsd <= 0 && inputTokens <= 0 && outputTokens <= 0)) {
+    return null
+  }
+
+  return { costUsd, inputTokens, modelId, outputTokens, providerId }
+}
+
+function recordSessionRunUsageBestEffort(input: {
+  messages: ReturnType<typeof getMessagesSinceCursor>
+  usage: SessionRunUsageInput | undefined
+}): void {
+  if (!input.usage) return
+
+  const usageInput = input.usage
+
+  const usage = extractSessionRunUsage(input.messages)
+  if (!usage) return
+
+  void getEffectiveCredentialForUser({ userId: usageInput.userId, providerId: usage.providerId })
+    .then((effectiveCredential) => {
+      if (!effectiveCredential) return null
+      return providerUsageService.recordProviderRunUsage({
+        costUsd: usage.costUsd,
+        credentialSource: effectiveCredential.source,
+        inputTokens: usage.inputTokens,
+        messageRunId: usageInput.messageRunId,
+        modelId: usage.modelId,
+        outputTokens: usage.outputTokens,
+        providerId: usage.providerId,
+        source: usageInput.source,
+        userId: usageInput.userId,
+      })
+    })
+    .catch((error) => {
+      console.warn('[opencode/session-execution] Failed to record provider run usage', error)
+    })
 }
 
 function firstString(values: unknown[]): string | null {
@@ -257,6 +352,7 @@ export async function waitForSessionToComplete(params: {
   sessionId: string
   slug: string
   onPulse?: () => Promise<string | null | void>
+  usage?: SessionRunUsageInput
 }): Promise<string | null> {
   const deadline = Date.now() + RUN_TIMEOUT_MS
   const startedAt = Date.now()
@@ -288,6 +384,9 @@ export async function waitForSessionToComplete(params: {
         continue
       }
 
+      if (!outcome) {
+        recordSessionRunUsageBestEffort({ messages, usage: params.usage })
+      }
       return outcome
     }
 

@@ -1,6 +1,8 @@
 import Link from 'next/link'
 
 import { ThemePicker } from '@/components/dashboard/theme-picker'
+import { OrganizationProviderCredentialsPanel } from '@/components/providers/organization-provider-credentials-panel'
+import { UsageAnalyticsPanel } from '@/components/providers/usage-analytics-panel'
 import { GoogleWorkspaceIntegrationSummaryCard } from '@/components/settings/google-workspace-integration-summary-card'
 import { KbGithubRemoteSummaryCard } from '@/components/settings/kb-github-remote-summary-card'
 import { SettingsLogoutButton } from '@/components/settings/settings-logout-button'
@@ -122,6 +124,24 @@ export function SettingsPageContent({
               <KbGithubRemoteSummaryCard slug={slug} integration={kbGithubRemoteSummary} />
             ) : null}
           </div>
+        )
+      case 'providers':
+        return (
+          <SettingsSection
+            title="Global Organization-wide Providers"
+            description="Set deployment-wide AI provider credentials inherited by users without overrides. Existing keys are never displayed."
+          >
+            <OrganizationProviderCredentialsPanel slug={slug} />
+          </SettingsSection>
+        )
+      case 'analytics':
+        return (
+          <SettingsSection
+            title="Usage & Analytics"
+            description="Track provider requests, errors, runs, tokens, costs, sessions, and audit activity. Prompts and responses are not captured."
+          >
+            <UsageAnalyticsPanel slug={slug} />
+          </SettingsSection>
         )
       case 'security':
         return (

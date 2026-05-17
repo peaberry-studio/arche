@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { decryptProviderSecret } from '@/lib/providers/crypto'
 import { getE2eFakeProviderUrl } from '@/lib/e2e/runtime'
 import { getCanonicalProviderId } from '@/lib/providers/catalog'
-import { getActiveCredentialForUser } from '@/lib/providers/store'
+import { getEffectiveCredentialForUser, type ProviderCredentialSource } from '@/lib/providers/store'
 import { verifyGatewayToken } from '@/lib/providers/tokens'
 import type { ProviderId } from '@/lib/providers/types'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
+import { providerService, providerUsageService } from '@/lib/services'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -141,6 +142,64 @@ function normalizeOpenAiResponsesPayload(payload: unknown): unknown {
   return normalizedBody ?? payload
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+async function extractRequestModelId(request: NextRequest, contentType: string): Promise<string | null> {
+  if (request.method === 'GET' || request.method === 'HEAD' || !contentType.includes('application/json')) {
+    return null
+  }
+
+  try {
+    const payload: unknown = await request.clone().json()
+    if (!isRecord(payload)) return null
+
+    const directModel = payload.model
+    if (typeof directModel === 'string' && directModel.trim()) {
+      return directModel.trim()
+    }
+
+    if (isRecord(directModel)) {
+      const modelId = directModel.modelId ?? directModel.modelID
+      if (typeof modelId === 'string' && modelId.trim()) {
+        return modelId.trim()
+      }
+    }
+  } catch {
+    return null
+  }
+
+  return null
+}
+
+function recordProviderGatewayRequestBestEffort(input: {
+  credentialSource: ProviderCredentialSource
+  isError: boolean
+  modelId: string | null
+  providerId: ProviderId
+  userId: string
+}) {
+  void providerUsageService.recordProviderGatewayRequest({
+    credentialSource: input.credentialSource,
+    isError: input.isError,
+    modelId: input.modelId,
+    providerId: input.providerId,
+    userId: input.userId,
+  }).catch((error) => {
+    console.warn('[providers/gateway] Failed to record usage', error)
+  })
+}
+
+function markCredentialLastUsedBestEffort(input: {
+  credentialId: string
+  source: ProviderCredentialSource
+}) {
+  void providerService.markCredentialLastUsed(input).catch((error) => {
+    console.warn('[providers/gateway] Failed to mark credential last used', error)
+  })
+}
+
 function stripObjectKeys(payload: unknown, keysToStrip: ReadonlySet<string>): unknown {
   if (Array.isArray(payload)) {
     let changed = false
@@ -270,6 +329,7 @@ async function handleProxy(
   let payload: ReturnType<typeof verifyGatewayToken> | null = null
   let apiKey: string | null = null
   let allowExpiredGatewayTokenOpencodeFallback = false
+  let credentialSource: ProviderCredentialSource | null = null
 
   if (token) {
     try {
@@ -304,17 +364,32 @@ async function handleProxy(
       return NextResponse.json({ error: 'provider_mismatch' }, { status: 403 })
     }
 
-    const credential = await getActiveCredentialForUser({
+    const effectiveCredential = await getEffectiveCredentialForUser({
       userId: payload.userId,
       providerId,
     })
 
-    if (!credential) {
+    if (!effectiveCredential) {
       if (providerId !== 'opencode') {
         return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
       }
     } else {
-      if (payload && payload.version !== credential.version) {
+      const payloadCredentialSource = payload.credentialSource ?? 'user'
+      const credential = effectiveCredential.credential
+
+      if (payloadCredentialSource !== effectiveCredential.source) {
+        return NextResponse.json({ error: 'invalid_token' }, { status: 401 })
+      }
+
+      if (payload.credentialId && payload.credentialId !== credential.id) {
+        return NextResponse.json({ error: 'invalid_token' }, { status: 401 })
+      }
+
+      if (effectiveCredential.source === 'organization' && payload.credentialId !== credential.id) {
+        return NextResponse.json({ error: 'invalid_token' }, { status: 401 })
+      }
+
+      if (payload.version !== credential.version) {
         return NextResponse.json({ error: 'invalid_token' }, { status: 401 })
       }
 
@@ -334,6 +409,9 @@ async function handleProxy(
       }
 
       apiKey = secret.apiKey.trim()
+      credentialSource = effectiveCredential.source
+      const credentialId = credential.id
+      markCredentialLastUsedBestEffort({ credentialId, source: credentialSource })
     }
   }
 
@@ -385,6 +463,7 @@ async function handleProxy(
   }
 
   const contentType = headers.get('content-type') ?? ''
+  const requestModelId = await extractRequestModelId(request, contentType)
   const isOpenAiResponsesRequest =
     providerId === 'openai' &&
     request.method === 'POST' &&
@@ -421,7 +500,26 @@ async function handleProxy(
       code: getFetchErrorCode(error),
       message: error instanceof Error ? error.message : 'unknown_error',
     })
+    if (payload && credentialSource) {
+      recordProviderGatewayRequestBestEffort({
+        credentialSource,
+        isError: true,
+        modelId: requestModelId,
+        providerId,
+        userId: payload.userId,
+      })
+    }
     return NextResponse.json({ error: 'provider_unavailable' }, { status: 502 })
+  }
+
+  if (payload && credentialSource) {
+    recordProviderGatewayRequestBestEffort({
+      credentialSource,
+      isError: upstreamResponse.status >= 400,
+      modelId: requestModelId,
+      providerId,
+      userId: payload.userId,
+    })
   }
 
   const responseHeaders = new Headers(upstreamResponse.headers)

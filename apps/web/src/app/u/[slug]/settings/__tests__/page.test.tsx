@@ -168,7 +168,7 @@ describe('SettingsPage', () => {
 
     expect(screen.getByText('Settings page content alice integrations')).toBeTruthy()
     expect(settingsPageProps.current).toMatchObject({
-      availableSections: ['general', 'integrations', 'security'],
+      availableSections: ['general', 'providers', 'analytics', 'integrations', 'security'],
       currentSection: 'integrations',
       enabled: true,
       googleWorkspaceSummary: {

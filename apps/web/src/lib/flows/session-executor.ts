@@ -6,7 +6,7 @@ import {
   waitForSessionToComplete,
   type SessionExecutionClient,
 } from '@/lib/opencode/session-execution'
-import { flowService } from '@/lib/services'
+import { flowService, messageRunService } from '@/lib/services'
 
 const LEASE_EXTENSION_INTERVAL_MS = 60_000
 export const FLOW_LEASE_MS = 15 * 60 * 1000
@@ -121,6 +121,7 @@ export async function runFlowPromptAndReadOutput(params: {
   runId: string
   sessionId: string
   slug: string
+  userId?: string
 }): Promise<{ ok: true; output: string } | { ok: false; error: string }> {
   const existingRun = await flowService.findRunStatusById(params.runId)
   if (existingRun?.status === FlowRunStatus.cancelled) {
@@ -135,15 +136,46 @@ export async function runFlowPromptAndReadOutput(params: {
     return { ok: false, error: unavailableAgentModel }
   }
 
-  const cursor = await captureSessionMessageCursor(params.client, params.sessionId)
-  await params.client.session.promptAsync(
-    {
-      agent: params.agent ?? undefined,
-      parts: [{ text: params.prompt, type: 'text' }],
-      sessionID: params.sessionId,
-    },
-    { throwOnError: true },
-  )
+  let messageRunId: string | null = null
+  if (params.userId) {
+    const runResult = await messageRunService.createActiveRunAfterRuntimeStateCheck({
+      readRuntimeSessionState: async () => {
+        const statusResult = await params.client.session.status({}, { throwOnError: true })
+        const sessionStatus = statusResult.data?.[params.sessionId]
+        if (sessionStatus?.type === 'busy' || sessionStatus?.type === 'retry') return 'busy'
+        if (!sessionStatus || sessionStatus.type === 'idle') return 'idle'
+        return 'unknown'
+      },
+      sessionId: params.sessionId,
+      slug: params.slug,
+      source: 'flow',
+    })
+    if (!runResult.ok) {
+      return { ok: false, error: 'session_busy' }
+    }
+    messageRunId = runResult.run.id
+  }
+
+  let cursor: Awaited<ReturnType<typeof captureSessionMessageCursor>>
+  try {
+    cursor = await captureSessionMessageCursor(params.client, params.sessionId)
+    await params.client.session.promptAsync(
+      {
+        agent: params.agent ?? undefined,
+        parts: [{ text: params.prompt, type: 'text' }],
+        sessionID: params.sessionId,
+      },
+      { throwOnError: true },
+    )
+  } catch (error) {
+    if (messageRunId) {
+      await messageRunService.markRunFailed(
+        messageRunId,
+        error instanceof Error ? error.message : 'flow_prompt_failed',
+      ).catch(() => undefined)
+    }
+    throw error
+  }
 
   let lastLeaseExtensionAt = 0
   const abortIfCancelled = async (): Promise<string | null> => {
@@ -181,10 +213,20 @@ export async function runFlowPromptAndReadOutput(params: {
     },
     sessionId: params.sessionId,
     slug: params.slug,
+    usage: params.userId && messageRunId
+      ? { messageRunId, source: 'flow', userId: params.userId }
+      : undefined,
   })
 
   if (failure) {
+    if (messageRunId) {
+      await messageRunService.markRunFailed(messageRunId, failure).catch(() => undefined)
+    }
     return { ok: false, error: failure }
+  }
+
+  if (messageRunId) {
+    await messageRunService.markRunSucceeded(messageRunId).catch(() => undefined)
   }
 
   const output = await readLatestAssistantText(params.client, params.sessionId, cursor)

@@ -1,5 +1,7 @@
 export const SETTINGS_SECTIONS = [
   'general',
+  'providers',
+  'analytics',
   'integrations',
   'security',
 ] as const
@@ -8,6 +10,8 @@ export type SettingsSection = (typeof SETTINGS_SECTIONS)[number]
 
 export const SETTINGS_SECTION_LABELS: Record<SettingsSection, string> = {
   general: 'General',
+  providers: 'Providers',
+  analytics: 'Analytics',
   integrations: 'Integrations',
   security: 'Security',
 }
@@ -30,6 +34,11 @@ export function getAvailableSettingsSections({
   twoFactorEnabled,
 }: SettingsSectionAvailability): SettingsSection[] {
   const sections: SettingsSection[] = ['general']
+
+  if (isAdmin) {
+    sections.push('providers')
+    sections.push('analytics')
+  }
 
   if (isAdmin && (slackIntegrationEnabled || googleWorkspaceIntegrationEnabled || kbGithubRemoteIntegrationEnabled)) {
     sections.push('integrations')

@@ -11,10 +11,13 @@ export type TeamUser = {
 }
 
 export type ProviderStatus = 'enabled' | 'disabled' | 'missing'
+export type ProviderCredentialSource = 'user' | 'organization'
 
 export type TeamProviderStatus = {
   providerId: ProviderId
   status: ProviderStatus
+  source?: ProviderCredentialSource
+  overrideStatus?: ProviderStatus
   type?: string
   version?: number
 }

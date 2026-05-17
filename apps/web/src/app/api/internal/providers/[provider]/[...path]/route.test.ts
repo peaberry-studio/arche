@@ -20,9 +20,11 @@ vi.mock('next/server', async () => {
 
 const mockCheckRateLimit = vi.fn()
 const mockDecryptProviderSecret = vi.fn()
-const mockGetActiveCredentialForUser = vi.fn()
+const mockGetEffectiveCredentialForUser = vi.fn()
 const mockGetCanonicalProviderId = vi.fn()
 const mockGetRuntimeCapabilities = vi.fn()
+const mockMarkCredentialLastUsed = vi.fn()
+const mockRecordProviderGatewayRequest = vi.fn()
 const mockVerifyGatewayToken = vi.fn()
 
 vi.mock('@/lib/providers/catalog', () => ({
@@ -34,7 +36,7 @@ vi.mock('@/lib/providers/crypto', () => ({
 }))
 
 vi.mock('@/lib/providers/store', () => ({
-  getActiveCredentialForUser: (...args: unknown[]) => mockGetActiveCredentialForUser(...args),
+  getEffectiveCredentialForUser: (...args: unknown[]) => mockGetEffectiveCredentialForUser(...args),
 }))
 
 vi.mock('@/lib/providers/tokens', () => ({
@@ -47,6 +49,11 @@ vi.mock('@/lib/rate-limit', () => ({
 
 vi.mock('@/lib/runtime/capabilities', () => ({
   getRuntimeCapabilities: () => mockGetRuntimeCapabilities(),
+}))
+
+vi.mock('@/lib/services', () => ({
+  providerService: { markCredentialLastUsed: (...args: unknown[]) => mockMarkCredentialLastUsed(...args) },
+  providerUsageService: { recordProviderGatewayRequest: (...args: unknown[]) => mockRecordProviderGatewayRequest(...args) },
 }))
 
 function buildRequest(headers?: HeadersInit): Request {
@@ -78,13 +85,18 @@ describe('POST /api/internal/providers/[provider]/[...path]', () => {
       providerId: 'openai',
       version: 1,
     })
-    mockGetActiveCredentialForUser.mockResolvedValue({
-      id: 'cred-1',
-      secret: 'enc',
-      type: 'api',
-      version: 2,
+    mockGetEffectiveCredentialForUser.mockResolvedValue({
+      source: 'user',
+      credential: {
+        id: 'cred-1',
+        secret: 'enc',
+        type: 'api',
+        version: 2,
+      },
     })
     mockDecryptProviderSecret.mockReturnValue({ apiKey: 'sk-test' })
+    mockMarkCredentialLastUsed.mockResolvedValue({ count: 1 })
+    mockRecordProviderGatewayRequest.mockResolvedValue(undefined)
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 })))
   })
 
@@ -104,11 +116,14 @@ describe('POST /api/internal/providers/[provider]/[...path]', () => {
   })
 
   it('forwards the request when the credential version matches the gateway token', async () => {
-    mockGetActiveCredentialForUser.mockResolvedValue({
-      id: 'cred-1',
-      secret: 'enc',
-      type: 'api',
-      version: 1,
+    mockGetEffectiveCredentialForUser.mockResolvedValue({
+      source: 'user',
+      credential: {
+        id: 'cred-1',
+        secret: 'enc',
+        type: 'api',
+        version: 1,
+      },
     })
 
     const { POST } = await import('./route')
@@ -124,11 +139,14 @@ describe('POST /api/internal/providers/[provider]/[...path]', () => {
     process.env.NODE_ENV = 'production'
     process.env.ARCHE_ENABLE_E2E_HOOKS = '1'
     process.env.ARCHE_E2E_FAKE_PROVIDER_URL = 'http://127.0.0.1:4211/v1'
-    mockGetActiveCredentialForUser.mockResolvedValue({
-      id: 'cred-1',
-      secret: 'enc',
-      type: 'api',
-      version: 1,
+    mockGetEffectiveCredentialForUser.mockResolvedValue({
+      source: 'user',
+      credential: {
+        id: 'cred-1',
+        secret: 'enc',
+        type: 'api',
+        version: 1,
+      },
     })
 
     const { POST } = await import('./route')

@@ -5,6 +5,11 @@ const mocks = vi.hoisted(() => ({
   captureSessionMessageCursor: vi.fn(),
   extendFlowLease: vi.fn(),
   findRunStatusById: vi.fn(),
+  messageRunService: {
+    createActiveRunAfterRuntimeStateCheck: vi.fn(),
+    markRunFailed: vi.fn(),
+    markRunSucceeded: vi.fn(),
+  },
   readLatestAssistantText: vi.fn(),
   waitForSessionToComplete: vi.fn(),
 }))
@@ -20,6 +25,7 @@ vi.mock('@/lib/services', () => ({
     extendFlowLease: mocks.extendFlowLease,
     findRunStatusById: mocks.findRunStatusById,
   },
+  messageRunService: mocks.messageRunService,
 }))
 
 import { createFlowLeaseOwner, runFlowPromptAndReadOutput } from '@/lib/flows/session-executor'

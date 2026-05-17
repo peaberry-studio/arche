@@ -6,20 +6,26 @@ const mocks = vi.hoisted(() => ({
   getCanonicalProviderId: vi.fn((id: string) =>
     ['openai', 'anthropic', 'fireworks', 'openrouter', 'opencode'].includes(id) ? id : null,
   ),
-  getActiveCredentialForUser: vi.fn(),
+  getEffectiveCredentialForUser: vi.fn(),
   verifyGatewayToken: vi.fn(),
   checkRateLimit: vi.fn(() => ({ allowed: true, remaining: 99, resetAt: Date.now() + 60_000 })),
   decryptProviderSecret: vi.fn(() => ({ apiKey: 'secret-key' })),
   getRuntimeCapabilities: vi.fn(() => ({ auth: true })),
+  markCredentialLastUsed: vi.fn(),
+  recordProviderGatewayRequest: vi.fn(),
 }))
 
 vi.mock('@/lib/providers/crypto', () => ({ decryptProviderSecret: mocks.decryptProviderSecret }))
 vi.mock('@/lib/e2e/runtime', () => ({ getE2eFakeProviderUrl: mocks.getE2eFakeProviderUrl }))
 vi.mock('@/lib/providers/catalog', () => ({ getCanonicalProviderId: mocks.getCanonicalProviderId }))
-vi.mock('@/lib/providers/store', () => ({ getActiveCredentialForUser: mocks.getActiveCredentialForUser }))
+vi.mock('@/lib/providers/store', () => ({ getEffectiveCredentialForUser: mocks.getEffectiveCredentialForUser }))
 vi.mock('@/lib/providers/tokens', () => ({ verifyGatewayToken: mocks.verifyGatewayToken }))
 vi.mock('@/lib/rate-limit', () => ({ checkRateLimit: mocks.checkRateLimit }))
 vi.mock('@/lib/runtime/capabilities', () => ({ getRuntimeCapabilities: mocks.getRuntimeCapabilities }))
+vi.mock('@/lib/services', () => ({
+  providerService: { markCredentialLastUsed: mocks.markCredentialLastUsed },
+  providerUsageService: { recordProviderGatewayRequest: mocks.recordProviderGatewayRequest },
+}))
 
 import { DELETE, GET, PATCH, POST, PUT } from '../route'
 
@@ -48,13 +54,18 @@ describe('/api/internal/providers/[provider]/[...path]', () => {
     fetchMock = vi.fn()
     global.fetch = fetchMock
     mocks.verifyGatewayToken.mockReturnValue(GATEWAY_PAYLOAD)
-    mocks.getActiveCredentialForUser.mockResolvedValue({
-      id: 'cred-1',
-      type: 'api',
-      secret: 'enc-secret',
-      version: 1,
+    mocks.getEffectiveCredentialForUser.mockResolvedValue({
+      source: 'user',
+      credential: {
+        id: 'cred-1',
+        type: 'api',
+        secret: 'enc-secret',
+        version: 1,
+      },
     })
     mocks.decryptProviderSecret.mockReturnValue({ apiKey: 'openai-key' })
+    mocks.markCredentialLastUsed.mockResolvedValue({ count: 1 })
+    mocks.recordProviderGatewayRequest.mockResolvedValue(undefined)
   })
 
   it('returns 400 for invalid provider', async () => {
@@ -125,7 +136,7 @@ describe('/api/internal/providers/[provider]/[...path]', () => {
   })
 
   it('returns 401 when no active credential exists for non-opencode', async () => {
-    mocks.getActiveCredentialForUser.mockResolvedValue(null)
+    mocks.getEffectiveCredentialForUser.mockResolvedValue(null)
     const res = await GET(
       makeRequest('GET', 'http://localhost/api/internal/providers/openai/v1/models', {
         headers: { authorization: 'Bearer valid-token' },
@@ -151,11 +162,14 @@ describe('/api/internal/providers/[provider]/[...path]', () => {
   })
 
   it('returns 501 when credential type is not api', async () => {
-    mocks.getActiveCredentialForUser.mockResolvedValue({
-      id: 'cred-1',
-      type: 'oauth',
-      secret: 'enc',
-      version: 1,
+    mocks.getEffectiveCredentialForUser.mockResolvedValue({
+      source: 'user',
+      credential: {
+        id: 'cred-1',
+        type: 'oauth',
+        secret: 'enc',
+        version: 1,
+      },
     })
     const res = await GET(
       makeRequest('GET', 'http://localhost/api/internal/providers/openai/v1/models', {
@@ -249,6 +263,75 @@ describe('/api/internal/providers/[provider]/[...path]', () => {
         headers: expect.any(Headers),
       }),
     )
+    expect(mocks.recordProviderGatewayRequest).toHaveBeenCalledWith({
+      credentialSource: 'user',
+      isError: false,
+      modelId: null,
+      providerId: 'openai',
+      userId: 'u1',
+    })
+  })
+
+  it('uses organization credentials when the token source and id match', async () => {
+    mocks.verifyGatewayToken.mockReturnValue({
+      ...GATEWAY_PAYLOAD,
+      credentialId: 'org-cred-1',
+      credentialSource: 'organization',
+    })
+    mocks.getEffectiveCredentialForUser.mockResolvedValue({
+      source: 'organization',
+      credential: {
+        id: 'org-cred-1',
+        type: 'api',
+        secret: 'enc-secret',
+        version: 1,
+      },
+    })
+    mocks.decryptProviderSecret.mockReturnValue({ apiKey: 'org-openai-key' })
+    fetchMock.mockResolvedValue(new Response('{}', { status: 200 }))
+
+    const res = await GET(
+      makeRequest('GET', 'http://localhost/api/internal/providers/openai/v1/models', {
+        headers: { authorization: 'Bearer valid-token' },
+      }),
+      { params: Promise.resolve({ provider: 'openai', path: ['v1', 'models'] }) },
+    )
+
+    expect(res.status).toBe(200)
+    const sentHeaders = fetchMock.mock.calls[0][1].headers as Headers
+    expect(sentHeaders.get('authorization')).toBe('Bearer org-openai-key')
+    expect(mocks.markCredentialLastUsed).toHaveBeenCalledWith({
+      credentialId: 'org-cred-1',
+      source: 'organization',
+    })
+  })
+
+  it('rejects organization credentials when the token credential id is stale', async () => {
+    mocks.verifyGatewayToken.mockReturnValue({
+      ...GATEWAY_PAYLOAD,
+      credentialId: 'old-org-cred',
+      credentialSource: 'organization',
+    })
+    mocks.getEffectiveCredentialForUser.mockResolvedValue({
+      source: 'organization',
+      credential: {
+        id: 'org-cred-1',
+        type: 'api',
+        secret: 'enc-secret',
+        version: 1,
+      },
+    })
+
+    const res = await GET(
+      makeRequest('GET', 'http://localhost/api/internal/providers/openai/v1/models', {
+        headers: { authorization: 'Bearer valid-token' },
+      }),
+      { params: Promise.resolve({ provider: 'openai', path: ['v1', 'models'] }) },
+    )
+
+    expect(res.status).toBe(401)
+    const json = await res.json()
+    expect(json.error).toBe('invalid_token')
   })
 
   it('successfully proxies a POST request to OpenAI responses with normalization', async () => {
@@ -292,11 +375,14 @@ describe('/api/internal/providers/[provider]/[...path]', () => {
 
   it('successfully proxies a request to Fireworks stripping display_name', async () => {
     mocks.verifyGatewayToken.mockReturnValue({ ...GATEWAY_PAYLOAD, providerId: 'fireworks' })
-    mocks.getActiveCredentialForUser.mockResolvedValue({
-      id: 'cred-1',
-      type: 'api',
-      secret: 'enc-secret',
-      version: 1,
+    mocks.getEffectiveCredentialForUser.mockResolvedValue({
+      source: 'user',
+      credential: {
+        id: 'cred-1',
+        type: 'api',
+        secret: 'enc-secret',
+        version: 1,
+      },
     })
     mocks.decryptProviderSecret.mockReturnValue({ apiKey: 'fireworks-key' })
     fetchMock.mockResolvedValue(
@@ -319,11 +405,14 @@ describe('/api/internal/providers/[provider]/[...path]', () => {
 
   it('uses x-api-key for Anthropic', async () => {
     mocks.verifyGatewayToken.mockReturnValue({ ...GATEWAY_PAYLOAD, providerId: 'anthropic' })
-    mocks.getActiveCredentialForUser.mockResolvedValue({
-      id: 'cred-1',
-      type: 'api',
-      secret: 'enc-secret',
-      version: 1,
+    mocks.getEffectiveCredentialForUser.mockResolvedValue({
+      source: 'user',
+      credential: {
+        id: 'cred-1',
+        type: 'api',
+        secret: 'enc-secret',
+        version: 1,
+      },
     })
     mocks.decryptProviderSecret.mockReturnValue({ apiKey: 'anthropic-key' })
     fetchMock.mockResolvedValue(

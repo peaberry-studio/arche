@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/providers/store', () => ({
-  getActiveCredentialForUser: vi.fn(),
+  getEffectiveCredentialForUser: vi.fn(),
 }))
 
 vi.mock('@/lib/services', () => ({
@@ -15,10 +15,10 @@ vi.mock('@/lib/providers/tokens', () => ({
 }))
 
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
-import { getActiveCredentialForUser } from '@/lib/providers/store'
+import { getEffectiveCredentialForUser } from '@/lib/providers/store'
 import { issueGatewayToken } from '@/lib/providers/tokens'
 
-const mockGetActiveCredentialForUser = vi.mocked(getActiveCredentialForUser)
+const mockGetEffectiveCredentialForUser = vi.mocked(getEffectiveCredentialForUser)
 const mockIssueGatewayToken = vi.mocked(issueGatewayToken)
 
 const fakeInstance = {
@@ -32,7 +32,7 @@ describe('syncProviderAccessForInstance', () => {
   })
 
   it('returns sync_failed when credential lookup throws', async () => {
-    mockGetActiveCredentialForUser.mockRejectedValue(new Error('db error'))
+    mockGetEffectiveCredentialForUser.mockRejectedValue(new Error('db error'))
 
     const result = await syncProviderAccessForInstance({
       instance: fakeInstance,
@@ -46,9 +46,9 @@ describe('syncProviderAccessForInstance', () => {
   it('sets auth for active credentials and keeps OpenCode gateway auth', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('true', { status: 200 })))
 
-    mockGetActiveCredentialForUser.mockImplementation(async ({ providerId }) => {
+    mockGetEffectiveCredentialForUser.mockImplementation(async ({ providerId }) => {
       if (providerId === 'openai') {
-        return { id: 'cred-1', type: 'api', secret: 'secret', version: 2 }
+        return { source: 'user', credential: { id: 'cred-1', type: 'api', secret: 'secret', version: 2 } }
       }
       return null
     })
@@ -68,6 +68,8 @@ describe('syncProviderAccessForInstance', () => {
       workspaceSlug: 'alice',
       providerId: 'openai',
       version: 2,
+      credentialId: 'cred-1',
+      credentialSource: 'user',
     })
     expect(mockIssueGatewayToken).toHaveBeenCalledWith({
       userId: 'user-1',

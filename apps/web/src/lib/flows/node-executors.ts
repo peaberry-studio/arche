@@ -253,6 +253,7 @@ async function executeAgentNode(params: {
       runId: params.run.id,
       sessionId: params.sessionId,
       slug: params.slug,
+      userId: params.flow.userId,
     })
   } catch (error) {
     const message = errorMessage(error, 'flow_prompt_failed')
@@ -292,6 +293,7 @@ async function executeAgentNode(params: {
         runId: params.run.id,
         sessionId: params.sessionId,
         slug: params.slug,
+        userId: params.flow.userId,
       })
     } catch (error) {
       const message = errorMessage(error, 'flow_prompt_failed')
@@ -437,6 +439,7 @@ async function executeConditionNode(params: {
       runId: params.run.id,
       sessionId: params.sessionId,
       slug: params.slug,
+      userId: params.flow.userId,
     })
   } catch (error) {
     const message = errorMessage(error, 'flow_prompt_failed')
@@ -634,6 +637,7 @@ async function executeCompactionNode(params: {
       runId: params.run.id,
       sessionId: params.sessionId,
       slug: params.slug,
+      userId: params.flow.userId,
     })
   } catch (error) {
     const message = errorMessage(error, 'flow_prompt_failed')
