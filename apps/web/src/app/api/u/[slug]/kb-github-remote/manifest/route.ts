@@ -25,24 +25,25 @@ export async function GET(
   const { slug } = await params
   const url = new URL(request.url)
   const owner = url.searchParams.get('owner')
+  const baseUrl = getPublicBaseUrl(request.headers, request.url)
 
   if (owner && !GITHUB_OWNER_PATTERN.test(owner)) {
     return NextResponse.redirect(
-      new URL(`/u/${slug}/settings/integrations/kb-github-remote?error=invalid_owner`, request.url),
+      new URL(`/u/${slug}/settings/integrations/kb-github-remote?error=invalid_owner`, baseUrl),
     )
   }
 
   const session = await getSession()
   if (!session) {
     return NextResponse.redirect(
-      new URL(`/u/${slug}/settings/integrations/kb-github-remote?error=unauthorized`, request.url),
+      new URL(`/u/${slug}/settings/integrations/kb-github-remote?error=unauthorized`, baseUrl),
     )
   }
 
   const admin = requireKbGithubRemoteAdmin(session.user)
   if (!admin.ok) {
     return NextResponse.redirect(
-      new URL(`/u/${slug}/settings/integrations/kb-github-remote?error=forbidden`, request.url),
+      new URL(`/u/${slug}/settings/integrations/kb-github-remote?error=forbidden`, baseUrl),
     )
   }
 
@@ -52,7 +53,6 @@ export async function GET(
     userId: session.user.id,
   })
 
-  const baseUrl = getPublicBaseUrl(request.headers, request.url)
   const manifest = {
     default_events: [],
     default_permissions: { contents: 'write', metadata: 'read' },
