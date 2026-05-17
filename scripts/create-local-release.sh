@@ -248,7 +248,9 @@ clear_arch_build_artifacts() {
 
   printf '==> Clearing cached build artifacts for %s\n' "$arch"
 
-  rm -rf "$WEB_DIR/.next"
+  shopt -s nullglob
+  rm -rf "$WEB_DIR/.next" "$WEB_DIR"/.next-desktop*
+  shopt -u nullglob
   clear_web_native_artifacts
   rm -f "$DESKTOP_DIR/bin/node" "$DESKTOP_DIR/bin/opencode" "$DESKTOP_DIR/bin/workspace-agent"
 
@@ -333,6 +335,7 @@ build_web_for_arch() {
     cd "$WEB_DIR"
     PATH="$DESKTOP_DIR/bin:$PATH" \
       ARCHE_RUNTIME_MODE='desktop' \
+      ARCHE_DESKTOP_NEXT_DIST_DIR='' \
       ARCHE_DESKTOP_PLATFORM='darwin' \
       ARCHE_DESKTOP_WEB_HOST='127.0.0.1' \
       pnpm build
