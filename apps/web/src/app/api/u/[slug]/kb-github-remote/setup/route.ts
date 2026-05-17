@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
 import { exchangeManifestCode } from '@/lib/git/github-app-auth'
+import { getPublicBaseUrl } from '@/lib/http'
 import { requireKbGithubRemoteAdmin } from '@/lib/kb-github-remote/route-auth'
 import {
   getKbGithubRemoteSetupSession,
@@ -15,20 +16,20 @@ export async function GET(
 ): Promise<Response> {
   const { slug } = await params
   const setupSession = await getKbGithubRemoteSetupSession(request, slug)
-  if (!setupSession.ok) return redirectToManage(request.url, slug, setupSession.error)
+  if (!setupSession.ok) return redirectToManage(request, slug, setupSession.error)
 
   const admin = requireKbGithubRemoteAdmin(setupSession.user)
-  if (!admin.ok) return redirectToManage(request.url, slug, 'forbidden')
+  if (!admin.ok) return redirectToManage(request, slug, 'forbidden')
 
   const url = new URL(request.url)
   const code = url.searchParams.get('code')
   if (!code) {
-    return redirectToManage(request.url, slug, 'missing_code')
+    return redirectToManage(request, slug, 'missing_code')
   }
 
   const result = await exchangeManifestCode(code)
   if (!result.ok) {
-    return redirectToManage(request.url, slug, 'exchange_failed')
+    return redirectToManage(request, slug, 'exchange_failed')
   }
 
   await kbGithubRemoteService.saveAppConfig({
@@ -52,8 +53,9 @@ export async function GET(
   return response
 }
 
-function redirectToManage(requestUrl: string, slug: string, error: string): NextResponse {
-  const url = new URL(`/u/${slug}/settings/integrations/kb-github-remote`, requestUrl)
+function redirectToManage(request: NextRequest, slug: string, error: string): NextResponse {
+  const baseUrl = getPublicBaseUrl(request.headers, request.url)
+  const url = new URL(`/u/${slug}/settings/integrations/kb-github-remote`, baseUrl)
   url.searchParams.set('error', error)
   return NextResponse.redirect(url)
 }

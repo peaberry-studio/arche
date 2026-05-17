@@ -228,10 +228,15 @@ describe('/api/u/[slug]/kb-github-remote/setup', () => {
   it('redirects back to management when the manifest code is missing', async () => {
     const { GET } = await import('./setup/route')
 
-    const response = await GET(request('/api/u/alice/kb-github-remote/setup'), params())
+    const response = await GET(
+      request('/api/u/alice/kb-github-remote/setup', {
+        headers: { 'x-forwarded-host': 'josemi.peaberry.studio', 'x-forwarded-proto': 'https' },
+      }),
+      params(),
+    )
 
     expect(response.status).toBe(307)
-    expect(response.headers.get('location')).toBe('http://localhost/u/alice/settings/integrations/kb-github-remote?error=missing_code')
+    expect(response.headers.get('location')).toBe('https://josemi.peaberry.studio/u/alice/settings/integrations/kb-github-remote?error=missing_code')
   })
 
   it('redirects back to management when GitHub rejects the manifest code', async () => {
@@ -268,10 +273,15 @@ describe('/api/u/[slug]/kb-github-remote/callback', () => {
   it('verifies and stores the installation before redirecting to management', async () => {
     const { GET } = await import('./callback/route')
 
-    const response = await GET(request('/api/u/alice/kb-github-remote/callback?installation_id=123'), params())
+    const response = await GET(
+      request('/api/u/alice/kb-github-remote/callback?installation_id=123', {
+        headers: { 'x-forwarded-host': 'josemi.peaberry.studio', 'x-forwarded-proto': 'https' },
+      }),
+      params(),
+    )
 
     expect(response.status).toBe(307)
-    expect(response.headers.get('location')).toBe('http://localhost/u/alice/settings/integrations/kb-github-remote?installed=true')
+    expect(response.headers.get('location')).toBe('https://josemi.peaberry.studio/u/alice/settings/integrations/kb-github-remote?installed=true')
     expect(verifyInstallationMock).toHaveBeenCalledWith('42', 'private-key', 123)
     expect(saveInstallationMock).toHaveBeenCalledWith({ account: 'acme', installationId: 123 })
   })

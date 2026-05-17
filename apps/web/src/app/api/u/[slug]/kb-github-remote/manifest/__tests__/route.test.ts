@@ -85,7 +85,7 @@ describe('GET /api/u/[slug]/kb-github-remote/manifest', () => {
     const response = await GET(request('/api/u/alice/kb-github-remote/manifest?owner=../bad'), params())
 
     expect(response.status).toBe(307)
-    expect(response.headers.get('location')).toBe('http://localhost/u/alice/settings/integrations/kb-github-remote?error=invalid_owner')
+    expect(response.headers.get('location')).toBe('https://example.com/u/alice/settings/integrations/kb-github-remote?error=invalid_owner')
     expect(createKbGithubRemoteSetupStateMock).not.toHaveBeenCalled()
   })
 
@@ -93,10 +93,15 @@ describe('GET /api/u/[slug]/kb-github-remote/manifest', () => {
     getSessionMock.mockResolvedValue(null)
     const { GET } = await import('../route')
 
-    const response = await GET(request('/api/u/alice/kb-github-remote/manifest'), params())
+    const response = await GET(
+      request('/api/u/alice/kb-github-remote/manifest', {
+        headers: { 'x-forwarded-host': 'josemi.peaberry.studio', 'x-forwarded-proto': 'https' },
+      }),
+      params(),
+    )
 
     expect(response.status).toBe(307)
-    expect(response.headers.get('location')).toBe('http://localhost/u/alice/settings/integrations/kb-github-remote?error=unauthorized')
+    expect(response.headers.get('location')).toBe('https://example.com/u/alice/settings/integrations/kb-github-remote?error=unauthorized')
   })
 
   it('redirects with forbidden for non-admin users', async () => {
@@ -106,6 +111,6 @@ describe('GET /api/u/[slug]/kb-github-remote/manifest', () => {
     const response = await GET(request('/api/u/alice/kb-github-remote/manifest'), params())
 
     expect(response.status).toBe(307)
-    expect(response.headers.get('location')).toBe('http://localhost/u/alice/settings/integrations/kb-github-remote?error=forbidden')
+    expect(response.headers.get('location')).toBe('https://example.com/u/alice/settings/integrations/kb-github-remote?error=forbidden')
   })
 })
