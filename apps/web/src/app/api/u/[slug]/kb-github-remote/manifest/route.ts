@@ -10,6 +10,14 @@ import { getSession } from '@/lib/runtime/session'
 
 const GITHUB_OWNER_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/
 
+function escapeHtmlAttribute(value: string) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> },
@@ -60,6 +68,8 @@ export async function GET(
     : 'https://github.com/settings/apps/new'
 
   const escapedManifest = JSON.stringify(manifest).replace(/</g, '\\u003c')
+  const nonce = request.headers.get('x-nonce')
+  const scriptNonceAttribute = nonce ? ` nonce="${escapeHtmlAttribute(nonce)}"` : ''
   const html = `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><title>Redirecting to GitHub…</title></head>
@@ -67,7 +77,7 @@ export async function GET(
 <form method="post" action="${actionUrl}?state=${encodeURIComponent(state)}">
 <input type="hidden" name="manifest" value='${escapedManifest}'>
 </form>
-<script>document.forms[0].submit()</script>
+<script${scriptNonceAttribute}>document.forms[0].submit()</script>
 </body>
 </html>`
 
