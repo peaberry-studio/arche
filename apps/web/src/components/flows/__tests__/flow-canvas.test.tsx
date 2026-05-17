@@ -3,6 +3,14 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { FlowCanvas } from '@/components/flows/flow-canvas'
+import {
+  FLOW_ADD_MENU_HEIGHT,
+  FLOW_ADD_MENU_MARGIN,
+  FLOW_ADD_MENU_WIDTH,
+  getFlowAddMenuHeight,
+  getFlowAddMenuPosition,
+} from '@/components/flows/flow-canvas-layout'
+import { FLOW_CANVAS_NODE_TYPE_OPTIONS } from '@/lib/flows/node-types'
 import type { FlowDefinition } from '@/lib/flows/types'
 
 const chain = () => {
@@ -122,5 +130,33 @@ describe('FlowCanvas', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Remove connection Agent step to Human step' }))
     expect(onRemoveConnection).toHaveBeenCalledWith('edge-1')
+  })
+
+  it('renders all add node menu options', () => {
+    renderCanvas()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add node after Agent step' }))
+
+    const menuItems = FLOW_CANVAS_NODE_TYPE_OPTIONS.map((option) => (
+      screen.getByRole('button', { name: `Add ${option.label.toLowerCase()} step after Agent step` })
+    ))
+
+    expect(screen.getByRole('button', { name: 'Add compaction step after Agent step' })).toBeTruthy()
+    expect(menuItems).toHaveLength(FLOW_CANVAS_NODE_TYPE_OPTIONS.length)
+  })
+
+  it('sizes the add node menu from the available node type options', () => {
+    expect(FLOW_ADD_MENU_HEIGHT).toBe(getFlowAddMenuHeight(FLOW_CANVAS_NODE_TYPE_OPTIONS.length))
+  })
+
+  it('keeps the add node menu inside visible canvas bounds when possible', () => {
+    const position = getFlowAddMenuPosition(
+      { x: 260, y: 500 },
+      { bottom: 560, left: 0, right: 320, top: 0 },
+    )
+
+    expect(position.x).toBeLessThan(0)
+    expect(260 + position.x + FLOW_ADD_MENU_WIDTH).toBeLessThanOrEqual(320 - FLOW_ADD_MENU_MARGIN)
+    expect(500 + position.y + FLOW_ADD_MENU_HEIGHT).toBeLessThanOrEqual(560 - FLOW_ADD_MENU_MARGIN)
   })
 })

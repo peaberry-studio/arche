@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, type ComponentType, type Dispatch, type SetStateAction } from 'react'
+import { useCallback, useState, type ComponentType, type Dispatch, type SetStateAction } from 'react'
 import {
   Calendar,
   CalendarBlank,
@@ -54,16 +54,126 @@ const hideSpinners =
 const numberInputClass = cn('h-9 w-16 text-center font-medium tabular-nums focus-visible:ring-offset-0', hideSpinners)
 const timeInputClass = cn('h-9 w-14 text-center font-medium tabular-nums focus-visible:ring-offset-0', hideSpinners)
 
+function normalizeIntegerInput(raw: string, min: number, max: number | undefined, fallback: number): number {
+  const value = Number.parseInt(raw, 10)
+  if (Number.isNaN(value)) return fallback
+
+  const floored = Math.floor(value)
+  const minBounded = Math.max(floored, min)
+  return typeof max === 'number' ? Math.min(minBounded, max) : minBounded
+}
+
 function parseTimeDigits(raw: string, max: number): number {
-  const digits = raw.replace(/\D/g, '').slice(-2)
-  if (!digits) return 0
-  const value = Number.parseInt(digits, 10)
+  const draft = formatTimeDraft(raw, max)
+  if (!draft) return 0
+  const value = Number.parseInt(draft, 10)
   if (Number.isNaN(value)) return 0
-  return Math.min(value, max)
+  return value
+}
+
+function formatTimeDraft(raw: string, max: number): string {
+  const digits = raw.replace(/\D/g, '').slice(-2)
+  if (!digits) return ''
+  const value = Number.parseInt(digits, 10)
+  if (Number.isNaN(value)) return ''
+  return String(Math.min(value, max))
 }
 
 function padTwo(value: number): string {
   return String(value).padStart(2, '0')
+}
+
+function NumberInput({
+  ariaLabel,
+  id,
+  max,
+  min,
+  onValueChange,
+  value,
+}: {
+  ariaLabel: string
+  id: string
+  max?: number
+  min: number
+  onValueChange: (value: number) => void
+  value: number
+}) {
+  const [draft, setDraft] = useState<string | null>(null)
+
+  const updateValue = (raw: string) => {
+    const digits = raw.replace(/\D/g, '')
+    setDraft(digits)
+    onValueChange(normalizeIntegerInput(digits, min, max, min))
+  }
+
+  const commitValue = () => {
+    const normalized = normalizeIntegerInput(draft ?? String(value), min, max, min)
+    onValueChange(normalized)
+    setDraft(null)
+  }
+
+  return (
+    <Input
+      id={id}
+      aria-label={ariaLabel}
+      type="text"
+      inputMode="numeric"
+      min={min}
+      max={max}
+      value={draft ?? String(value)}
+      onChange={(event) => updateValue(event.target.value)}
+      onBlur={commitValue}
+      className={numberInputClass}
+    />
+  )
+}
+
+function TimeInput({
+  ariaLabel,
+  id,
+  max,
+  onValueChange,
+  value,
+}: {
+  ariaLabel: string
+  id: string
+  max: number
+  onValueChange: (value: number) => void
+  value: number
+}) {
+  const [isEditing, setIsEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+
+  const updateValue = (raw: string) => {
+    const nextDraft = formatTimeDraft(raw, max)
+    setDraft(nextDraft)
+    onValueChange(parseTimeDigits(nextDraft, max))
+  }
+
+  const commitValue = () => {
+    const nextValue = parseTimeDigits(draft, max)
+    onValueChange(nextValue)
+    setDraft(padTwo(nextValue))
+    setIsEditing(false)
+  }
+
+  return (
+    <Input
+      id={id}
+      aria-label={ariaLabel}
+      type="text"
+      inputMode="numeric"
+      value={isEditing ? draft : padTwo(value)}
+      onFocus={(event) => {
+        setIsEditing(true)
+        setDraft(padTwo(value))
+        event.currentTarget.select()
+      }}
+      onChange={(event) => updateValue(event.target.value)}
+      onBlur={commitValue}
+      className={timeInputClass}
+    />
+  )
 }
 
 function formatRelativeRunTime(date: Date, now: Date): string {
@@ -139,17 +249,15 @@ export function FlowScheduleBuilder({
         {schedule.mode === 'minutes' ? (
           <>
             <span className="text-muted-foreground">every</span>
-            <Input
+            <NumberInput
               id="flow-interval-minutes"
-              aria-label="Every N minutes"
-              type="number"
+              ariaLabel="Every N minutes"
               min={1}
               value={schedule.intervalMinutes}
-              onChange={(event) => updateSchedule((current) => ({
+              onValueChange={(intervalMinutes) => updateSchedule((current) => ({
                 ...current,
-                intervalMinutes: Number.parseInt(event.target.value, 10) || 1,
+                intervalMinutes,
               }))}
-              className={numberInputClass}
             />
             <span className="text-muted-foreground">minute(s)</span>
           </>
@@ -158,31 +266,23 @@ export function FlowScheduleBuilder({
         {schedule.mode === 'hourly' ? (
           <>
             <span className="text-muted-foreground">every</span>
-            <Input
+            <NumberInput
               id="flow-interval-hours"
-              aria-label="Every N hours"
-              type="number"
+              ariaLabel="Every N hours"
               min={1}
               value={schedule.intervalHours}
-              onChange={(event) => updateSchedule((current) => ({
+              onValueChange={(intervalHours) => updateSchedule((current) => ({
                 ...current,
-                intervalHours: Number.parseInt(event.target.value, 10) || 1,
+                intervalHours,
               }))}
-              className={numberInputClass}
             />
             <span className="text-muted-foreground">hour(s) at minute</span>
-            <Input
+            <TimeInput
               id="flow-hourly-minute"
-              aria-label="Minute of the hour"
-              type="text"
-              inputMode="numeric"
-              maxLength={2}
-              value={padTwo(schedule.minute)}
-              onChange={(event) => updateSchedule((current) => ({
-                ...current,
-                minute: parseTimeDigits(event.target.value, 59),
-              }))}
-              className={timeInputClass}
+              ariaLabel="Minute of the hour"
+              max={59}
+              value={schedule.minute}
+              onValueChange={(minute) => updateSchedule((current) => ({ ...current, minute }))}
             />
           </>
         ) : null}
@@ -190,45 +290,31 @@ export function FlowScheduleBuilder({
         {schedule.mode === 'daily' ? (
           <>
             <span className="text-muted-foreground">every</span>
-            <Input
+            <NumberInput
               id="flow-interval-days"
-              aria-label="Every N days"
-              type="number"
+              ariaLabel="Every N days"
               min={1}
               value={schedule.intervalDays}
-              onChange={(event) => updateSchedule((current) => ({
+              onValueChange={(intervalDays) => updateSchedule((current) => ({
                 ...current,
-                intervalDays: Number.parseInt(event.target.value, 10) || 1,
+                intervalDays,
               }))}
-              className={numberInputClass}
             />
             <span className="text-muted-foreground">day(s) at</span>
-            <Input
+            <TimeInput
               id="flow-daily-hour"
-              aria-label="Hour"
-              type="text"
-              inputMode="numeric"
-              maxLength={2}
-              value={padTwo(schedule.hour)}
-              onChange={(event) => updateSchedule((current) => ({
-                ...current,
-                hour: parseTimeDigits(event.target.value, 23),
-              }))}
-              className={timeInputClass}
+              ariaLabel="Hour"
+              max={23}
+              value={schedule.hour}
+              onValueChange={(hour) => updateSchedule((current) => ({ ...current, hour }))}
             />
             <span className="text-muted-foreground">:</span>
-            <Input
+            <TimeInput
               id="flow-daily-minute"
-              aria-label="Minute"
-              type="text"
-              inputMode="numeric"
-              maxLength={2}
-              value={padTwo(schedule.minute)}
-              onChange={(event) => updateSchedule((current) => ({
-                ...current,
-                minute: parseTimeDigits(event.target.value, 59),
-              }))}
-              className={timeInputClass}
+              ariaLabel="Minute"
+              max={59}
+              value={schedule.minute}
+              onValueChange={(minute) => updateSchedule((current) => ({ ...current, minute }))}
             />
           </>
         ) : null}
@@ -236,32 +322,20 @@ export function FlowScheduleBuilder({
         {schedule.mode === 'weekly' ? (
           <>
             <span className="text-muted-foreground">at</span>
-            <Input
+            <TimeInput
               id="flow-weekly-hour"
-              aria-label="Hour"
-              type="text"
-              inputMode="numeric"
-              maxLength={2}
-              value={padTwo(schedule.hour)}
-              onChange={(event) => updateSchedule((current) => ({
-                ...current,
-                hour: parseTimeDigits(event.target.value, 23),
-              }))}
-              className={timeInputClass}
+              ariaLabel="Hour"
+              max={23}
+              value={schedule.hour}
+              onValueChange={(hour) => updateSchedule((current) => ({ ...current, hour }))}
             />
             <span className="text-muted-foreground">:</span>
-            <Input
+            <TimeInput
               id="flow-weekly-minute"
-              aria-label="Minute"
-              type="text"
-              inputMode="numeric"
-              maxLength={2}
-              value={padTwo(schedule.minute)}
-              onChange={(event) => updateSchedule((current) => ({
-                ...current,
-                minute: parseTimeDigits(event.target.value, 59),
-              }))}
-              className={timeInputClass}
+              ariaLabel="Minute"
+              max={59}
+              value={schedule.minute}
+              onValueChange={(minute) => updateSchedule((current) => ({ ...current, minute }))}
             />
             <div className="basis-full" />
             <span className="text-muted-foreground">on</span>
@@ -296,59 +370,43 @@ export function FlowScheduleBuilder({
         {schedule.mode === 'monthly' ? (
           <>
             <span className="text-muted-foreground">every</span>
-            <Input
+            <NumberInput
               id="flow-interval-months"
-              aria-label="Every N months"
-              type="number"
+              ariaLabel="Every N months"
               min={1}
               value={schedule.intervalMonths}
-              onChange={(event) => updateSchedule((current) => ({
+              onValueChange={(intervalMonths) => updateSchedule((current) => ({
                 ...current,
-                intervalMonths: Number.parseInt(event.target.value, 10) || 1,
+                intervalMonths,
               }))}
-              className={numberInputClass}
             />
             <span className="text-muted-foreground">month(s) on day</span>
-            <Input
+            <NumberInput
               id="flow-monthly-day"
-              aria-label="Day of month"
-              type="number"
+              ariaLabel="Day of month"
               min={1}
               max={31}
               value={schedule.dayOfMonth}
-              onChange={(event) => updateSchedule((current) => ({
+              onValueChange={(dayOfMonth) => updateSchedule((current) => ({
                 ...current,
-                dayOfMonth: Number.parseInt(event.target.value, 10) || 1,
+                dayOfMonth,
               }))}
-              className={numberInputClass}
             />
             <span className="text-muted-foreground">at</span>
-            <Input
+            <TimeInput
               id="flow-monthly-hour"
-              aria-label="Hour"
-              type="text"
-              inputMode="numeric"
-              maxLength={2}
-              value={padTwo(schedule.hour)}
-              onChange={(event) => updateSchedule((current) => ({
-                ...current,
-                hour: parseTimeDigits(event.target.value, 23),
-              }))}
-              className={timeInputClass}
+              ariaLabel="Hour"
+              max={23}
+              value={schedule.hour}
+              onValueChange={(hour) => updateSchedule((current) => ({ ...current, hour }))}
             />
             <span className="text-muted-foreground">:</span>
-            <Input
+            <TimeInput
               id="flow-monthly-minute"
-              aria-label="Minute"
-              type="text"
-              inputMode="numeric"
-              maxLength={2}
-              value={padTwo(schedule.minute)}
-              onChange={(event) => updateSchedule((current) => ({
-                ...current,
-                minute: parseTimeDigits(event.target.value, 59),
-              }))}
-              className={timeInputClass}
+              ariaLabel="Minute"
+              max={59}
+              value={schedule.minute}
+              onValueChange={(minute) => updateSchedule((current) => ({ ...current, minute }))}
             />
           </>
         ) : null}

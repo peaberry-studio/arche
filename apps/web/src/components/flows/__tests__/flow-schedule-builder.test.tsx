@@ -93,4 +93,44 @@ describe('FlowScheduleBuilder', () => {
 
     expect(screen.getByText('The cron expression or timezone is invalid.')).toBeTruthy()
   })
+
+  for (const scenario of [
+    { labels: ['Minute of the hour'], mode: 'hourly' as const },
+    { labels: ['Hour', 'Minute'], mode: 'daily' as const },
+    { labels: ['Hour', 'Minute'], mode: 'weekly' as const },
+    { labels: ['Hour', 'Minute'], mode: 'monthly' as const },
+  ]) {
+    it(`allows deleting and typing raw ${scenario.mode} time values before padding on blur`, () => {
+      render(<ScheduleHarness initialSchedule={{ ...baseSchedule, hour: 0, minute: 0, mode: scenario.mode }} />)
+
+      for (const label of scenario.labels) {
+        const input = screen.getByLabelText(label) as HTMLInputElement
+
+        expect(input.value).toBe('00')
+        fireEvent.focus(input)
+        fireEvent.change(input, { target: { value: '' } })
+        expect(input.value).toBe('')
+        fireEvent.change(input, { target: { value: '7' } })
+        expect(input.value).toBe('7')
+        fireEvent.blur(input)
+        expect(input.value).toBe('07')
+      }
+    })
+  }
+
+  it('normalizes numeric schedule inputs on blur without blocking raw typing', () => {
+    render(<ScheduleHarness initialSchedule={{ ...baseSchedule, dayOfMonth: 1, intervalMonths: 1, mode: 'monthly' }} />)
+
+    const dayOfMonthInput = screen.getByLabelText('Day of month') as HTMLInputElement
+    fireEvent.change(dayOfMonthInput, { target: { value: '99' } })
+    expect(dayOfMonthInput.value).toBe('99')
+    fireEvent.blur(dayOfMonthInput)
+    expect(dayOfMonthInput.value).toBe('31')
+
+    const intervalMonthsInput = screen.getByLabelText('Every N months') as HTMLInputElement
+    fireEvent.change(intervalMonthsInput, { target: { value: '0' } })
+    expect(intervalMonthsInput.value).toBe('0')
+    fireEvent.blur(intervalMonthsInput)
+    expect(intervalMonthsInput.value).toBe('1')
+  })
 })
