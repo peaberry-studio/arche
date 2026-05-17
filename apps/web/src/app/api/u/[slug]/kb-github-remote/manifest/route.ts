@@ -71,7 +71,7 @@ export async function GET(
 </body>
 </html>`
 
-  const response = new Response(html, {
+  const response = new NextResponse(html, {
     headers: { 'content-type': 'text/html;charset=utf-8' },
   })
   setKbGithubRemoteSetupCookie(response, state, request.headers)
