@@ -38,8 +38,6 @@ type ScheduleOption = {
   icon: ComponentType<IconProps>
 }
 
-type TimeField = 'hour' | 'minute'
-
 const SCHEDULE_OPTIONS: ScheduleOption[] = [
   { mode: 'minutes', label: 'Every X minutes', icon: Timer },
   { mode: 'hourly', label: 'Hourly', icon: Clock },
@@ -55,6 +53,15 @@ const hideSpinners =
   '[appearance:textfield] [&::-webkit-inner-spin-button]:m-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none'
 const numberInputClass = cn('h-9 w-16 text-center font-medium tabular-nums focus-visible:ring-offset-0', hideSpinners)
 const timeInputClass = cn('h-9 w-14 text-center font-medium tabular-nums focus-visible:ring-offset-0', hideSpinners)
+
+function normalizeIntegerInput(raw: string, min: number, max: number | undefined, fallback: number): number {
+  const value = Number.parseInt(raw, 10)
+  if (Number.isNaN(value)) return fallback
+
+  const floored = Math.floor(value)
+  const minBounded = Math.max(floored, min)
+  return typeof max === 'number' ? Math.min(minBounded, max) : minBounded
+}
 
 function parseTimeDigits(raw: string, max: number): number {
   const draft = formatTimeDraft(raw, max)
@@ -74,6 +81,99 @@ function formatTimeDraft(raw: string, max: number): string {
 
 function padTwo(value: number): string {
   return String(value).padStart(2, '0')
+}
+
+function NumberInput({
+  ariaLabel,
+  id,
+  max,
+  min,
+  onValueChange,
+  value,
+}: {
+  ariaLabel: string
+  id: string
+  max?: number
+  min: number
+  onValueChange: (value: number) => void
+  value: number
+}) {
+  const [draft, setDraft] = useState<string | null>(null)
+
+  const updateValue = (raw: string) => {
+    const digits = raw.replace(/\D/g, '')
+    setDraft(digits)
+    onValueChange(normalizeIntegerInput(digits, min, max, min))
+  }
+
+  const commitValue = () => {
+    const normalized = normalizeIntegerInput(draft ?? String(value), min, max, min)
+    onValueChange(normalized)
+    setDraft(null)
+  }
+
+  return (
+    <Input
+      id={id}
+      aria-label={ariaLabel}
+      type="text"
+      inputMode="numeric"
+      min={min}
+      max={max}
+      value={draft ?? String(value)}
+      onChange={(event) => updateValue(event.target.value)}
+      onBlur={commitValue}
+      className={numberInputClass}
+    />
+  )
+}
+
+function TimeInput({
+  ariaLabel,
+  id,
+  max,
+  onValueChange,
+  value,
+}: {
+  ariaLabel: string
+  id: string
+  max: number
+  onValueChange: (value: number) => void
+  value: number
+}) {
+  const [isEditing, setIsEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+
+  const updateValue = (raw: string) => {
+    const nextDraft = formatTimeDraft(raw, max)
+    setDraft(nextDraft)
+    onValueChange(parseTimeDigits(nextDraft, max))
+  }
+
+  const commitValue = () => {
+    const nextValue = parseTimeDigits(draft, max)
+    onValueChange(nextValue)
+    setDraft(padTwo(nextValue))
+    setIsEditing(false)
+  }
+
+  return (
+    <Input
+      id={id}
+      aria-label={ariaLabel}
+      type="text"
+      inputMode="numeric"
+      value={isEditing ? draft : padTwo(value)}
+      onFocus={(event) => {
+        setIsEditing(true)
+        setDraft(padTwo(value))
+        event.currentTarget.select()
+      }}
+      onChange={(event) => updateValue(event.target.value)}
+      onBlur={commitValue}
+      className={timeInputClass}
+    />
+  )
 }
 
 function formatRelativeRunTime(date: Date, now: Date): string {
@@ -97,50 +197,12 @@ export function FlowScheduleBuilder({
   onChange,
   onTimezoneChange,
 }: FlowScheduleBuilderProps) {
-  const [editingTimeField, setEditingTimeField] = useState<TimeField | null>(null)
-  const [timeDrafts, setTimeDrafts] = useState<Record<TimeField, string>>({ hour: '', minute: '' })
-
   const updateSchedule = useCallback(
     (updater: (current: FlowScheduleFormState) => FlowScheduleFormState) => {
       onChange((current) => updater(current))
     },
     [onChange],
   )
-
-  const getTimeInputValue = (field: TimeField, value: number) => (
-    editingTimeField === field ? timeDrafts[field] : padTwo(value)
-  )
-
-  const startEditingTimeField = (field: TimeField, value: number) => {
-    setEditingTimeField(field)
-    setTimeDrafts((current) => ({ ...current, [field]: padTwo(value) }))
-  }
-
-  const updateTimeField = (field: TimeField, raw: string) => {
-    const max = field === 'hour' ? 23 : 59
-    const draft = formatTimeDraft(raw, max)
-    const value = parseTimeDigits(draft, max)
-
-    setTimeDrafts((current) => ({ ...current, [field]: draft }))
-    updateSchedule((current) => (
-      field === 'hour'
-        ? { ...current, hour: value }
-        : { ...current, minute: value }
-    ))
-  }
-
-  const commitTimeField = (field: TimeField) => {
-    const max = field === 'hour' ? 23 : 59
-    const value = parseTimeDigits(timeDrafts[field], max)
-
-    setTimeDrafts((current) => ({ ...current, [field]: padTwo(value) }))
-    updateSchedule((current) => (
-      field === 'hour'
-        ? { ...current, hour: value }
-        : { ...current, minute: value }
-    ))
-    setEditingTimeField((current) => current === field ? null : current)
-  }
 
   const setScheduleMode = useCallback((nextMode: FlowScheduleBuilderMode) => {
     updateSchedule((current) => ({
@@ -187,17 +249,15 @@ export function FlowScheduleBuilder({
         {schedule.mode === 'minutes' ? (
           <>
             <span className="text-muted-foreground">every</span>
-            <Input
+            <NumberInput
               id="flow-interval-minutes"
-              aria-label="Every N minutes"
-              type="number"
+              ariaLabel="Every N minutes"
               min={1}
               value={schedule.intervalMinutes}
-              onChange={(event) => updateSchedule((current) => ({
+              onValueChange={(intervalMinutes) => updateSchedule((current) => ({
                 ...current,
-                intervalMinutes: Number.parseInt(event.target.value, 10) || 1,
+                intervalMinutes,
               }))}
-              className={numberInputClass}
             />
             <span className="text-muted-foreground">minute(s)</span>
           </>
@@ -206,32 +266,23 @@ export function FlowScheduleBuilder({
         {schedule.mode === 'hourly' ? (
           <>
             <span className="text-muted-foreground">every</span>
-            <Input
+            <NumberInput
               id="flow-interval-hours"
-              aria-label="Every N hours"
-              type="number"
+              ariaLabel="Every N hours"
               min={1}
               value={schedule.intervalHours}
-              onChange={(event) => updateSchedule((current) => ({
+              onValueChange={(intervalHours) => updateSchedule((current) => ({
                 ...current,
-                intervalHours: Number.parseInt(event.target.value, 10) || 1,
+                intervalHours,
               }))}
-              className={numberInputClass}
             />
             <span className="text-muted-foreground">hour(s) at minute</span>
-            <Input
+            <TimeInput
               id="flow-hourly-minute"
-              aria-label="Minute of the hour"
-              type="text"
-              inputMode="numeric"
-              value={getTimeInputValue('minute', schedule.minute)}
-              onFocus={(event) => {
-                startEditingTimeField('minute', schedule.minute)
-                event.currentTarget.select()
-              }}
-              onChange={(event) => updateTimeField('minute', event.target.value)}
-              onBlur={() => commitTimeField('minute')}
-              className={timeInputClass}
+              ariaLabel="Minute of the hour"
+              max={59}
+              value={schedule.minute}
+              onValueChange={(minute) => updateSchedule((current) => ({ ...current, minute }))}
             />
           </>
         ) : null}
@@ -239,47 +290,31 @@ export function FlowScheduleBuilder({
         {schedule.mode === 'daily' ? (
           <>
             <span className="text-muted-foreground">every</span>
-            <Input
+            <NumberInput
               id="flow-interval-days"
-              aria-label="Every N days"
-              type="number"
+              ariaLabel="Every N days"
               min={1}
               value={schedule.intervalDays}
-              onChange={(event) => updateSchedule((current) => ({
+              onValueChange={(intervalDays) => updateSchedule((current) => ({
                 ...current,
-                intervalDays: Number.parseInt(event.target.value, 10) || 1,
+                intervalDays,
               }))}
-              className={numberInputClass}
             />
             <span className="text-muted-foreground">day(s) at</span>
-            <Input
+            <TimeInput
               id="flow-daily-hour"
-              aria-label="Hour"
-              type="text"
-              inputMode="numeric"
-              value={getTimeInputValue('hour', schedule.hour)}
-              onFocus={(event) => {
-                startEditingTimeField('hour', schedule.hour)
-                event.currentTarget.select()
-              }}
-              onChange={(event) => updateTimeField('hour', event.target.value)}
-              onBlur={() => commitTimeField('hour')}
-              className={timeInputClass}
+              ariaLabel="Hour"
+              max={23}
+              value={schedule.hour}
+              onValueChange={(hour) => updateSchedule((current) => ({ ...current, hour }))}
             />
             <span className="text-muted-foreground">:</span>
-            <Input
+            <TimeInput
               id="flow-daily-minute"
-              aria-label="Minute"
-              type="text"
-              inputMode="numeric"
-              value={getTimeInputValue('minute', schedule.minute)}
-              onFocus={(event) => {
-                startEditingTimeField('minute', schedule.minute)
-                event.currentTarget.select()
-              }}
-              onChange={(event) => updateTimeField('minute', event.target.value)}
-              onBlur={() => commitTimeField('minute')}
-              className={timeInputClass}
+              ariaLabel="Minute"
+              max={59}
+              value={schedule.minute}
+              onValueChange={(minute) => updateSchedule((current) => ({ ...current, minute }))}
             />
           </>
         ) : null}
@@ -287,34 +322,20 @@ export function FlowScheduleBuilder({
         {schedule.mode === 'weekly' ? (
           <>
             <span className="text-muted-foreground">at</span>
-            <Input
+            <TimeInput
               id="flow-weekly-hour"
-              aria-label="Hour"
-              type="text"
-              inputMode="numeric"
-              value={getTimeInputValue('hour', schedule.hour)}
-              onFocus={(event) => {
-                startEditingTimeField('hour', schedule.hour)
-                event.currentTarget.select()
-              }}
-              onChange={(event) => updateTimeField('hour', event.target.value)}
-              onBlur={() => commitTimeField('hour')}
-              className={timeInputClass}
+              ariaLabel="Hour"
+              max={23}
+              value={schedule.hour}
+              onValueChange={(hour) => updateSchedule((current) => ({ ...current, hour }))}
             />
             <span className="text-muted-foreground">:</span>
-            <Input
+            <TimeInput
               id="flow-weekly-minute"
-              aria-label="Minute"
-              type="text"
-              inputMode="numeric"
-              value={getTimeInputValue('minute', schedule.minute)}
-              onFocus={(event) => {
-                startEditingTimeField('minute', schedule.minute)
-                event.currentTarget.select()
-              }}
-              onChange={(event) => updateTimeField('minute', event.target.value)}
-              onBlur={() => commitTimeField('minute')}
-              className={timeInputClass}
+              ariaLabel="Minute"
+              max={59}
+              value={schedule.minute}
+              onValueChange={(minute) => updateSchedule((current) => ({ ...current, minute }))}
             />
             <div className="basis-full" />
             <span className="text-muted-foreground">on</span>
@@ -349,61 +370,43 @@ export function FlowScheduleBuilder({
         {schedule.mode === 'monthly' ? (
           <>
             <span className="text-muted-foreground">every</span>
-            <Input
+            <NumberInput
               id="flow-interval-months"
-              aria-label="Every N months"
-              type="number"
+              ariaLabel="Every N months"
               min={1}
               value={schedule.intervalMonths}
-              onChange={(event) => updateSchedule((current) => ({
+              onValueChange={(intervalMonths) => updateSchedule((current) => ({
                 ...current,
-                intervalMonths: Number.parseInt(event.target.value, 10) || 1,
+                intervalMonths,
               }))}
-              className={numberInputClass}
             />
             <span className="text-muted-foreground">month(s) on day</span>
-            <Input
+            <NumberInput
               id="flow-monthly-day"
-              aria-label="Day of month"
-              type="number"
+              ariaLabel="Day of month"
               min={1}
               max={31}
               value={schedule.dayOfMonth}
-              onChange={(event) => updateSchedule((current) => ({
+              onValueChange={(dayOfMonth) => updateSchedule((current) => ({
                 ...current,
-                dayOfMonth: Number.parseInt(event.target.value, 10) || 1,
+                dayOfMonth,
               }))}
-              className={numberInputClass}
             />
             <span className="text-muted-foreground">at</span>
-            <Input
+            <TimeInput
               id="flow-monthly-hour"
-              aria-label="Hour"
-              type="text"
-              inputMode="numeric"
-              value={getTimeInputValue('hour', schedule.hour)}
-              onFocus={(event) => {
-                startEditingTimeField('hour', schedule.hour)
-                event.currentTarget.select()
-              }}
-              onChange={(event) => updateTimeField('hour', event.target.value)}
-              onBlur={() => commitTimeField('hour')}
-              className={timeInputClass}
+              ariaLabel="Hour"
+              max={23}
+              value={schedule.hour}
+              onValueChange={(hour) => updateSchedule((current) => ({ ...current, hour }))}
             />
             <span className="text-muted-foreground">:</span>
-            <Input
+            <TimeInput
               id="flow-monthly-minute"
-              aria-label="Minute"
-              type="text"
-              inputMode="numeric"
-              value={getTimeInputValue('minute', schedule.minute)}
-              onFocus={(event) => {
-                startEditingTimeField('minute', schedule.minute)
-                event.currentTarget.select()
-              }}
-              onChange={(event) => updateTimeField('minute', event.target.value)}
-              onBlur={() => commitTimeField('minute')}
-              className={timeInputClass}
+              ariaLabel="Minute"
+              max={59}
+              value={schedule.minute}
+              onValueChange={(minute) => updateSchedule((current) => ({ ...current, minute }))}
             />
           </>
         ) : null}

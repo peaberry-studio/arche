@@ -6,6 +6,19 @@ import { drag as d3drag } from 'd3-drag'
 import { select } from 'd3-selection'
 import { zoom as d3zoom, zoomIdentity, type D3ZoomEvent, type ZoomBehavior, type ZoomTransform } from 'd3-zoom'
 
+import {
+  FLOW_ADD_MENU_HEIGHT as ADD_MENU_HEIGHT,
+  FLOW_ADD_MENU_ITEM_HEIGHT as ADD_MENU_ITEM_HEIGHT,
+  FLOW_ADD_MENU_ITEM_ROW_HEIGHT as ADD_MENU_ITEM_ROW_HEIGHT,
+  FLOW_ADD_MENU_ITEM_TOP as ADD_MENU_ITEM_TOP,
+  FLOW_ADD_MENU_ITEM_WIDTH as ADD_MENU_ITEM_WIDTH,
+  FLOW_ADD_MENU_ITEM_X as ADD_MENU_ITEM_X,
+  FLOW_ADD_MENU_WIDTH as ADD_MENU_WIDTH,
+  FLOW_CANVAS_NODE_HEIGHT as NODE_HEIGHT,
+  FLOW_CANVAS_NODE_WIDTH as NODE_WIDTH,
+  getFlowAddMenuPosition,
+  type FlowCanvasVisibleBounds,
+} from '@/components/flows/flow-canvas-layout'
 import { FLOW_CANVAS_NODE_TYPE_OPTIONS } from '@/lib/flows/node-types'
 import type { FlowDefinition, FlowLayoutNode, FlowNodeType } from '@/lib/flows/types'
 import { cn } from '@/lib/utils'
@@ -26,19 +39,6 @@ type CanvasNode = FlowLayoutNode & {
   type: string
 }
 
-const NODE_WIDTH = 156
-const NODE_HEIGHT = 56
-const ADD_MENU_WIDTH = 104
-const ADD_MENU_ITEM_X = 8
-const ADD_MENU_ITEM_TOP = 8
-const ADD_MENU_ITEM_WIDTH = 88
-const ADD_MENU_ITEM_HEIGHT = 22
-const ADD_MENU_ITEM_ROW_HEIGHT = 26
-const ADD_MENU_BOTTOM_PADDING = 4
-const ADD_MENU_HEIGHT = ADD_MENU_ITEM_TOP +
-  (FLOW_CANVAS_NODE_TYPE_OPTIONS.length - 1) * ADD_MENU_ITEM_ROW_HEIGHT +
-  ADD_MENU_ITEM_HEIGHT +
-  ADD_MENU_BOTTOM_PADDING
 type PendingConnection = {
   sourceNodeId: string
   x: number
@@ -70,6 +70,7 @@ export function FlowCanvas({
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null)
   const [pendingConnection, setPendingConnection] = useState<PendingConnection | null>(null)
   const [isExpanded, setIsExpanded] = useState(false)
+  const [visibleBounds, setVisibleBounds] = useState<FlowCanvasVisibleBounds | null>(null)
 
   const nodes = useMemo<CanvasNode[]>(() => {
     const layoutByNodeId = new Map(definition.layout?.nodes.map((node) => [node.nodeId, node]) ?? [])
@@ -174,6 +175,36 @@ export function FlowCanvas({
     action()
   }, [])
 
+  const updateVisibleBounds = useCallback((transform: ZoomTransform = zoomTransformRef.current) => {
+    const svg = svgRef.current
+    if (!svg) return
+
+    const rect = svg.getBoundingClientRect()
+    const width = svg.clientWidth || rect.width
+    const height = svg.clientHeight || rect.height
+    if (width <= 0 || height <= 0) {
+      setVisibleBounds(null)
+      return
+    }
+
+    const nextBounds = {
+      bottom: transform.invertY(height),
+      left: transform.invertX(0),
+      right: transform.invertX(width),
+      top: transform.invertY(0),
+    }
+
+    setVisibleBounds((current) => (
+      current &&
+      current.bottom === nextBounds.bottom &&
+      current.left === nextBounds.left &&
+      current.right === nextBounds.right &&
+      current.top === nextBounds.top
+        ? current
+        : nextBounds
+    ))
+  }, [])
+
   useEffect(() => {
     const svg = svgRef.current
     const layer = zoomLayerRef.current
@@ -192,6 +223,7 @@ export function FlowCanvas({
         if (dotPatternRef.current) {
           select(dotPatternRef.current).attr('patternTransform', transformString)
         }
+        updateVisibleBounds(event.transform)
       })
 
     zoomBehaviorRef.current = zoomBehavior
@@ -200,7 +232,15 @@ export function FlowCanvas({
       select(svg).on('.zoom', null)
       zoomBehaviorRef.current = null
     }
-  }, [])
+  }, [updateVisibleBounds])
+
+  useEffect(() => {
+    updateVisibleBounds()
+
+    const handleResize = () => updateVisibleBounds()
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [isExpanded, updateVisibleBounds])
 
   const handleZoomIn = useCallback(() => {
     if (!svgRef.current || !zoomBehaviorRef.current) return
@@ -346,6 +386,9 @@ export function FlowCanvas({
             const showActions = hoveredNodeId === node.nodeId || addMenuNodeId === node.nodeId || pendingConnection?.sourceNodeId === node.nodeId
             const connectionTarget = pendingConnectionTargetId === node.nodeId
             const hiddenAction = showActions ? 'opacity-100' : 'opacity-0 pointer-events-none'
+            const addMenuPosition = addMenuNodeId === node.nodeId
+              ? getFlowAddMenuPosition(node, visibleBounds)
+              : null
             return (
               <g
                 key={node.nodeId}
@@ -446,8 +489,8 @@ export function FlowCanvas({
                     fill="none"
                   />
                 </g>
-                {addMenuNodeId === node.nodeId ? (
-                  <g transform={`translate(${NODE_WIDTH + 40}, -8)`}>
+                {addMenuPosition ? (
+                  <g transform={`translate(${addMenuPosition.x}, ${addMenuPosition.y})`}>
                     <rect width={ADD_MENU_WIDTH} height={ADD_MENU_HEIGHT} rx="10" className="fill-card stroke-border drop-shadow-sm" strokeWidth="1" />
                     {FLOW_CANVAS_NODE_TYPE_OPTIONS.map((item, index) => (
                       <g
