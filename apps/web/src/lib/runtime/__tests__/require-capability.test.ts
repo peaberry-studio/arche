@@ -19,7 +19,7 @@ describe('requireCapability', () => {
     expect(requireCapability('teamManagement')).toBeNull()
     expect(requireCapability('connectors')).toBeNull()
     expect(requireCapability('twoFactor')).toBeNull()
-    expect(requireCapability('autopilot')).toBeNull()
+    expect(requireCapability('flows')).toBeNull()
     expect(requireCapability('googleWorkspaceIntegration')).toBeNull()
   })
 
@@ -67,13 +67,13 @@ describe('requireCapability', () => {
     expect(res!.status).toBe(403)
   })
 
-  it('blocks autopilot in desktop mode', async () => {
+  it('blocks flows in desktop mode', async () => {
     process.env.ARCHE_RUNTIME_MODE = 'desktop'
     process.env.ARCHE_DESKTOP_PLATFORM = 'darwin'
     process.env.ARCHE_DESKTOP_WEB_HOST = '127.0.0.1'
     const { requireCapability } = await import('../require-capability')
 
-    const res = requireCapability('autopilot')
+    const res = requireCapability('flows')
     expect(res).not.toBeNull()
     expect(res!.status).toBe(403)
   })

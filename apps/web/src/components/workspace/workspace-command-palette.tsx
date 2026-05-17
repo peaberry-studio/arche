@@ -7,7 +7,7 @@ import {
   Database,
   File,
   GearSix,
-  Lightning,
+  GitBranch,
   Moon,
   Palette,
   Plugs,
@@ -19,9 +19,9 @@ import { listSessionsAction } from "@/actions/opencode";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
-import { useAutopilotTaskRunner } from "@/hooks/use-autopilot-task-runner";
+import { useFlowRunner } from "@/hooks/use-flow-runner";
 import type { WorkspaceSession } from "@/lib/opencode/types";
-import { isAutopilotSession } from "@/lib/workspace-session-utils";
+import { isFlowSession } from "@/lib/workspace-session-utils";
 import type { WorkspaceThemeId } from "@/lib/workspace-theme";
 import { cn } from "@/lib/utils";
 
@@ -30,7 +30,7 @@ import type { WorkspaceMode } from "./workspace-mode-toggle";
 type WorkspaceCommandPaletteProps = {
   slug: string;
   open: boolean;
-  hideTasks: boolean;
+  hideFlows: boolean;
   onOpenChange: (open: boolean) => void;
   onCreateSession: () => Promise<void> | void;
   onModeChange: (mode: WorkspaceMode) => void;
@@ -65,7 +65,7 @@ function matchesQuery(item: PaletteItem, query: string): boolean {
 export function WorkspaceCommandPalette({
   slug,
   open,
-  hideTasks,
+  hideFlows,
   onOpenChange,
   onCreateSession,
   onModeChange,
@@ -86,13 +86,13 @@ export function WorkspaceCommandPalette({
   const [isSearchingSessions, setIsSearchingSessions] = useState(false);
   const { themes, themeId, setThemeId, toggleDark } = useWorkspaceTheme();
   const {
-    tasks,
-    isLoadingTasks,
-    runningTaskId,
+    flows,
+    isLoadingFlows,
+    runningFlowId,
     runError,
-    loadTasks,
-    runTask,
-  } = useAutopilotTaskRunner({ slug, onRunTaskComplete: onRefreshSessions });
+    loadFlows,
+    runFlow,
+  } = useFlowRunner({ slug, onRunFlowComplete: onRefreshSessions });
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -122,10 +122,10 @@ export function WorkspaceCommandPalette({
   useEffect(() => {
     if (!open) return;
     requestAnimationFrame(() => inputRef.current?.focus());
-    if (!hideTasks) {
-      void loadTasks();
+    if (!hideFlows) {
+      void loadFlows();
     }
-  }, [hideTasks, loadTasks, open]);
+  }, [hideFlows, loadFlows, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -246,15 +246,15 @@ export function WorkspaceCommandPalette({
       },
     ];
 
-    if (!hideTasks) {
+    if (!hideFlows) {
       items.splice(1, 0, {
-        id: "mode-tasks",
-        title: "Go to Tasks mode",
-        subtitle: "Show autopilot task runs",
+        id: "mode-flows",
+        title: "Go to Flows mode",
+        subtitle: "Show flow runs",
         section: "Modes",
-        icon: Lightning,
-        keywords: "autopilot runs",
-        run: () => onModeChange("tasks"),
+        icon: GitBranch,
+        keywords: "flows automation runs",
+        run: () => onModeChange("flows"),
       });
     }
 
@@ -271,47 +271,47 @@ export function WorkspaceCommandPalette({
     }
 
     return items;
-  }, [hideTasks, onCreateSession, onModeChange, onNavigateConnectors, onNavigateProviders, onNavigateSettings, onToggleLeftPanel, onToggleRightPanel, setThemeId, themeId, themes, toggleDark]);
+  }, [hideFlows, onCreateSession, onModeChange, onNavigateConnectors, onNavigateProviders, onNavigateSettings, onToggleLeftPanel, onToggleRightPanel, setThemeId, themeId, themes, toggleDark]);
 
-  const taskItems = useMemo<PaletteItem[]>(() => {
-    if (hideTasks) return [];
-    return tasks.map((task) => ({
-      id: `run-task-${task.id}`,
-      title: `Run task: ${task.name}`,
-      subtitle: task.prompt,
-      section: "Tasks",
-      icon: Lightning,
-      keywords: "autopilot",
+  const flowItems = useMemo<PaletteItem[]>(() => {
+    if (hideFlows) return [];
+    return flows.map((flow) => ({
+      id: `run-flow-${flow.id}`,
+      title: `Run flow: ${flow.name}`,
+      subtitle: flow.description ?? `${flow.definition.nodes.length} nodes`,
+      section: "Flows",
+      icon: GitBranch,
+      keywords: "flows automation",
       run: async () => {
-        onModeChange("tasks");
-        await runTask(task.id);
+        onModeChange("flows");
+        await runFlow(flow.id);
       },
     }));
-  }, [hideTasks, onModeChange, runTask, tasks]);
+  }, [flows, hideFlows, onModeChange, runFlow]);
 
   const sessionItems = useMemo<PaletteItem[]>(() => {
     return sessionResults
-      .filter((session) => !hideTasks || !isAutopilotSession(session))
+      .filter((session) => !hideFlows || !isFlowSession(session))
       .map((session) => {
-        const isTaskRun = isAutopilotSession(session);
+        const isFlowRun = isFlowSession(session);
         return {
           id: `session-${session.id}`,
           title: session.title,
-          subtitle: isTaskRun
-            ? `Task run${session.autopilot?.taskName ? `: ${session.autopilot.taskName}` : ""}`
+          subtitle: isFlowRun
+            ? `Flow run${session.flow?.flowName ? `: ${session.flow.flowName}` : ""}`
             : "Chat session",
-          section: isTaskRun ? "Task runs" : "Chats",
-          icon: isTaskRun ? Lightning : ChatCircle,
-          keywords: session.autopilot?.taskName,
-          run: () => onSelectSession(session.id, isTaskRun ? "tasks" : "chat"),
+          section: isFlowRun ? "Flow runs" : "Chats",
+          icon: isFlowRun ? GitBranch : ChatCircle,
+          keywords: session.flow?.flowName,
+          run: () => onSelectSession(session.id, isFlowRun ? "flows" : "chat"),
         };
       });
-  }, [hideTasks, onSelectSession, sessionResults]);
+  }, [hideFlows, onSelectSession, sessionResults]);
 
   const visibleItems = useMemo(() => {
     const trimmedQuery = query.trim();
-    return [...baseItems, ...taskItems].filter((item) => matchesQuery(item, trimmedQuery)).concat(sessionItems);
-  }, [baseItems, query, sessionItems, taskItems]);
+    return [...baseItems, ...flowItems].filter((item) => matchesQuery(item, trimmedQuery)).concat(sessionItems);
+  }, [baseItems, flowItems, query, sessionItems]);
 
   const boundedActiveIndex = Math.min(activeIndex, Math.max(visibleItems.length - 1, 0));
   const activeItem = visibleItems[boundedActiveIndex] ?? null;
@@ -346,7 +346,7 @@ export function WorkspaceCommandPalette({
       <DialogContent className="top-4 max-w-[calc(100vw-1rem)] translate-y-0 gap-0 overflow-hidden p-0 sm:top-[12vh] sm:max-w-2xl" showCloseButton={false}>
         <DialogTitle className="sr-only">Workspace command palette</DialogTitle>
         <DialogDescription className="sr-only">
-          Search workspace commands, chats, task runs, and settings.
+          Search workspace commands, chats, flow runs, and settings.
         </DialogDescription>
         <div className="border-b border-border/50 p-3">
           <Input
@@ -354,7 +354,7 @@ export function WorkspaceCommandPalette({
             value={query}
             onChange={(event) => handleQueryChange(event.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Search commands, chats, tasks..."
+            placeholder="Search commands, chats, flows..."
             className="h-11 border-0 bg-muted/40 text-base focus-visible:ring-0 focus-visible:ring-offset-0"
           />
         </div>
@@ -416,7 +416,7 @@ export function WorkspaceCommandPalette({
         <div className="flex items-center justify-between border-t border-border/50 px-4 py-2 text-[11px] text-muted-foreground">
           <span>Use arrows to navigate, Enter to run, Escape to close</span>
           <span>
-            {isLoadingTasks ? "Loading tasks" : runningTaskId ? "Running task" : runError ? runError : isSearchingSessions ? "Searching sessions" : null}
+            {isLoadingFlows ? "Loading flows" : runningFlowId ? "Running flow" : runError ? runError : isSearchingSessions ? "Searching sessions" : null}
           </span>
         </div>
       </DialogContent>

@@ -227,7 +227,7 @@ Current line coverage is tracked in `apps/web` with `Vitest`.
 - Unit coverage: `cd apps/web && pnpm coverage:unit`
 - Integration coverage: `cd apps/web && pnpm coverage:integration`
 - Refresh README badges: `cd apps/web && pnpm coverage:refresh`
-- Badge refresh in CI: automatic on every `push` to `main`
+- Badge verification in CI: automatic on pull requests targeting `main`
 
 Browser E2E tests in `apps/web/e2e` and `apps/desktop/e2e` still run with `Playwright`, but they do not publish a reliable line-coverage percentage yet. There are also environment-dependent backend E2E tests in `apps/web/src/**/*.e2e.test.ts` and smoke tests in `apps/desktop`.
 

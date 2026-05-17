@@ -3,8 +3,8 @@ import { redirect } from 'next/navigation'
 
 import { DesktopSettingsDialog } from '@/components/desktop/desktop-settings-dialog'
 import { WorkspaceShell } from '@/components/workspace/workspace-shell'
-import { ensureAutopilotSchedulerStarted } from '@/lib/autopilot/scheduler-bootstrap'
 import { readCommonWorkspaceConfig } from '@/lib/common-workspace-config-store'
+import { ensureFlowSchedulerStarted } from '@/lib/flows/scheduler-bootstrap'
 import type { KnowledgeGraphAgentSource } from '@/lib/kb-graph'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import {
@@ -71,7 +71,7 @@ export default async function WorkspaceHostPage({
   }
 
   const caps = getRuntimeCapabilities()
-  await ensureAutopilotSchedulerStarted()
+  await ensureFlowSchedulerStarted()
   const cookieStore = await cookies()
   const macDesktopWindowInset = shouldUseCurrentMacOsInsetTitleBar()
   const persistenceScope = getWorkspacePersistenceScope(slug)
@@ -82,10 +82,10 @@ export default async function WorkspaceHostPage({
     : null
   const requestedWorkspaceMode = search?.mode === 'knowledge'
     ? 'knowledge'
-    : search?.mode === 'tasks'
-      ? 'tasks'
+    : search?.mode === 'flows'
+      ? 'flows'
       : 'chat'
-  const initialWorkspaceMode = desktopVault && requestedWorkspaceMode === 'tasks'
+  const initialWorkspaceMode = desktopVault && requestedWorkspaceMode === 'flows'
     ? 'chat'
     : requestedWorkspaceMode
   const knowledgeAgentSources = await loadKnowledgeAgentSources()

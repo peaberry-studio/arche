@@ -21,6 +21,7 @@ function renderMessages(props?: Partial<Parameters<typeof ChatPanelMessages>[0]>
     <ChatPanelMessages
       chatContentStyle={{ height: 400 }}
       connectorNamesById={{ "conn-1": "Linear" }}
+      isLoadingMessages={false}
       isStartingNewSession={false}
       messages={[]}
       messagesEndRef={createRef<HTMLDivElement>()}
@@ -68,6 +69,7 @@ describe("ChatPanelMessages", () => {
       <ChatPanelMessages
         chatContentStyle={{}}
         connectorNamesById={{}}
+        isLoadingMessages={false}
         isStartingNewSession={false}
         messages={[]}
         messagesEndRef={createRef<HTMLDivElement>()}
@@ -84,6 +86,25 @@ describe("ChatPanelMessages", () => {
       <ChatPanelMessages
         chatContentStyle={{}}
         connectorNamesById={{}}
+        isLoadingMessages={true}
+        isStartingNewSession={false}
+        messages={[]}
+        messagesEndRef={createRef<HTMLDivElement>()}
+        onOpenFile={() => {}}
+        onScrollContainer={() => {}}
+        scrollContainerRef={createRef<HTMLDivElement>()}
+        sessionTabs={[]}
+      />
+    );
+
+    expect(screen.getByText("Loading conversation...")).toBeTruthy();
+    expect(screen.queryByText("Start a new conversation")).toBeNull();
+
+    rerender(
+      <ChatPanelMessages
+        chatContentStyle={{}}
+        connectorNamesById={{}}
+        isLoadingMessages={true}
         isStartingNewSession={true}
         messages={[]}
         messagesEndRef={createRef<HTMLDivElement>()}

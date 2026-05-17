@@ -1,0 +1,100 @@
+/** @vitest-environment jsdom */
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { FlowRunHistoryView } from '@/components/flows/flow-run-history-view'
+import type { FlowDetail } from '@/lib/flows/types'
+
+const mocks = vi.hoisted(() => ({
+  fetchFlowDetail: vi.fn(),
+  runFlowRequest: vi.fn(),
+}))
+
+vi.mock('@/lib/flows/client', () => ({
+  fetchFlowDetail: mocks.fetchFlowDetail,
+  runFlowRequest: mocks.runFlowRequest,
+}))
+
+vi.mock('@/components/flows/flow-run-history', () => ({
+  FlowRunHistory: ({ flow, slug }: { flow: FlowDetail; slug: string }) => (
+    <div data-testid="flow-history" data-flow-id={flow.id} data-slug={slug}>{flow.name}</div>
+  ),
+}))
+
+const flow: FlowDetail = {
+  createdAt: '2026-05-12T10:00:00.000Z',
+  cronExpression: null,
+  definition: {
+    edges: [],
+    nodes: [{ compactOutput: false, id: 'agent-1', name: 'Agent', promptTemplate: 'Start', targetAgentId: null, type: 'agent' }],
+    startNodeId: 'agent-1',
+    version: 1,
+  },
+  description: null,
+  enabled: false,
+  id: 'flow-1',
+  lastRunAt: null,
+  latestRun: null,
+  name: 'Daily brief',
+  nextRunAt: null,
+  runs: [],
+  timezone: 'UTC',
+  updatedAt: '2026-05-12T10:00:00.000Z',
+}
+
+describe('FlowRunHistoryView', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.fetchFlowDetail.mockResolvedValue({ ok: true, data: { flow } })
+    mocks.runFlowRequest.mockResolvedValue({ ok: true, data: { ok: true } })
+  })
+
+  afterEach(() => cleanup())
+
+  it('loads a flow and renders its run history', async () => {
+    render(<FlowRunHistoryView flowId="flow-1" slug="alice" />)
+
+    expect(screen.getByText('Loading runs...')).toBeTruthy()
+    const history = await screen.findByTestId('flow-history')
+
+    expect(history.dataset.flowId).toBe('flow-1')
+    expect(history.dataset.slug).toBe('alice')
+    expect(screen.getByRole('link', { name: /edit flow/i }).getAttribute('href')).toBe('/u/alice/flows/flow-1')
+  })
+
+  it('runs a flow and reloads history', async () => {
+    render(<FlowRunHistoryView flowId="flow-1" slug="alice" />)
+    await screen.findByTestId('flow-history')
+
+    fireEvent.click(screen.getByRole('button', { name: /run flow/i }))
+
+    await waitFor(() => expect(mocks.runFlowRequest).toHaveBeenCalledWith('alice', 'flow-1'))
+    expect(mocks.fetchFlowDetail).toHaveBeenCalledTimes(2)
+  })
+
+  it('shows load errors and retries', async () => {
+    mocks.fetchFlowDetail
+      .mockResolvedValueOnce({ ok: false, error: 'not_found' })
+      .mockResolvedValueOnce({ ok: true, data: { flow } })
+
+    render(<FlowRunHistoryView flowId="flow-1" slug="alice" />)
+
+    expect(await screen.findByText('Could not load runs')).toBeTruthy()
+    expect(screen.getByText('not_found')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+    expect(await screen.findByTestId('flow-history')).toBeTruthy()
+  })
+
+  it('shows run action errors without clearing loaded history', async () => {
+    mocks.runFlowRequest.mockResolvedValueOnce({ ok: false, error: 'flow_busy' })
+    render(<FlowRunHistoryView flowId="flow-1" slug="alice" />)
+    await screen.findByTestId('flow-history')
+
+    fireEvent.click(screen.getByRole('button', { name: /run flow/i }))
+
+    expect(await screen.findByText('flow_busy')).toBeTruthy()
+    expect(screen.getByTestId('flow-history')).toBeTruthy()
+  })
+})

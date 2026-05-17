@@ -163,7 +163,7 @@ REMOTE MODE:
 LOCAL DEV MODE:
   ./deploy.sh --local-dev
 
-  Runs the local development stack with hot reload via next dev:
+  Runs the local development stack with fast Turbopack dev reloads:
     - App:              http://arche.lvh.me:8080
     - Traefik dashboard: http://localhost:8081
     - Postgres:         localhost:5432
@@ -884,11 +884,13 @@ PLAYBOOK
   info "  Project:          ${LOCAL_DEV_PROJECT_NAME}"
   info "  Network:          ${LOCAL_DEV_NETWORK_NAME}"
   echo ""
-  info "Hot reload is active — edit files in apps/web/src/ and Next.js reloads automatically."
+  info "Turbopack dev reload is active. If Podman misses a file event, reload only Next.js with:"
+  info "  $REPO_ROOT/scripts/reload-web-dev.sh"
   echo ""
   info "Useful commands:"
   info "  Logs:     podman compose -f $COMPOSE_OUT --env-file $LOCAL_DEV_ENV_FILE -p $LOCAL_DEV_PROJECT_NAME logs -f"
   info "  Web logs: podman compose -f $COMPOSE_OUT --env-file $LOCAL_DEV_ENV_FILE -p $LOCAL_DEV_PROJECT_NAME logs -f web"
+  info "  Reload:   $REPO_ROOT/scripts/reload-web-dev.sh"
   info "  Stop:     podman compose -f $COMPOSE_OUT --env-file $LOCAL_DEV_ENV_FILE -p $LOCAL_DEV_PROJECT_NAME down"
   info "  Restart:  podman compose -f $COMPOSE_OUT --env-file $LOCAL_DEV_ENV_FILE -p $LOCAL_DEV_PROJECT_NAME restart"
 }

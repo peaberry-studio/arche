@@ -103,8 +103,8 @@ describe('slack socket utils', () => {
   })
 
   it('maps Slack messages, commands, and error states', () => {
-    expect(mapSlackFailureToMessage('autopilot_run_timeout')).toContain('too long')
-    expect(mapSlackFailureToMessage('autopilot_no_assistant_message')).toContain('could not produce')
+    expect(mapSlackFailureToMessage('flow_run_timeout')).toContain('too long')
+    expect(mapSlackFailureToMessage('flow_no_assistant_message')).toContain('could not produce')
     expect(mapSlackFailureToMessage('provider_auth_missing')).toContain('provider credentials')
     expect(mapSlackFailureToMessage('session_busy')).toContain('already working')
     expect(mapSlackFailureToMessage('other')).toContain('preparing')

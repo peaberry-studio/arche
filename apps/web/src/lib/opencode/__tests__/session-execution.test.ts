@@ -60,7 +60,7 @@ describe('session execution helpers', () => {
 
       await vi.advanceTimersByTimeAsync(16_000)
 
-      await expect(runPromise).resolves.toBe('autopilot_no_assistant_message')
+      await expect(runPromise).resolves.toBe('flow_no_assistant_message')
     } finally {
       vi.useRealTimers()
     }
@@ -287,7 +287,7 @@ describe('session execution helpers', () => {
       } as Parameters<typeof waitForSessionToComplete>[0]['client'],
       sessionId: 'session-1',
       slug: 'slack-bot',
-    })).resolves.toBe('autopilot_no_assistant_message')
+    })).resolves.toBe('flow_no_assistant_message')
   })
 
   it('keeps polling while an idle assistant message still has a running tool', async () => {

@@ -12,15 +12,15 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-const task = {
+const flow = {
   id: "daily-review",
   name: "Daily review",
-  prompt: "Review yesterday's changes",
-  targetAgentId: null,
-  cronExpression: "0 9 * * *",
+  description: "Review yesterday's changes",
+  definition: { version: 1, startNodeId: "node-1", nodes: [], edges: [] },
+  cronExpression: null,
   timezone: "UTC",
   enabled: true,
-  nextRunAt: "2026-05-02T09:00:00.000Z",
+  nextRunAt: null,
   lastRunAt: null,
   createdAt: "2026-05-01T09:00:00.000Z",
   updatedAt: "2026-05-01T09:00:00.000Z",
@@ -32,11 +32,11 @@ describe("WorkspaceSessionsSidebar", () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
 
-      if (url === "/api/u/alice/autopilot") {
-        return jsonResponse({ tasks: [task] });
+      if (url === "/api/u/alice/flows") {
+        return jsonResponse({ flows: [flow] });
       }
 
-      if (url === "/api/u/alice/autopilot/daily-review/run" && init?.method === "POST") {
+      if (url === "/api/u/alice/flows/daily-review/run" && init?.method === "POST") {
         return jsonResponse({ ok: true });
       }
 
@@ -50,13 +50,13 @@ describe("WorkspaceSessionsSidebar", () => {
     vi.unstubAllGlobals();
   });
 
-  it("runs an autopilot task from the inbox Run menu", async () => {
-    const onRunTaskComplete = vi.fn();
+  it("runs a flow from the inbox Run menu", async () => {
+    const onRunFlowComplete = vi.fn();
 
     render(
       <WorkspaceSessionsSidebar
         slug="alice"
-        kind="tasks"
+        kind="flows"
         sessions={[]}
         activeSessionId={null}
         hasMoreSessions={false}
@@ -64,22 +64,22 @@ describe("WorkspaceSessionsSidebar", () => {
         unseenCompletedSessions={new Set<string>()}
         onCreateSession={vi.fn()}
         onLoadMoreSessions={async () => {}}
-        onRunTaskComplete={onRunTaskComplete}
+        onRunFlowComplete={onRunFlowComplete}
         onSelectSession={vi.fn()}
       />
     );
 
-    fireEvent.pointerDown(await screen.findByRole("button", { name: "Run task" }), {
+    fireEvent.pointerDown(await screen.findByRole("button", { name: "Run flow" }), {
       button: 0,
       ctrlKey: false,
     });
     fireEvent.click(await screen.findByText("Daily review"));
 
     await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith("/api/u/alice/autopilot/daily-review/run", {
+      expect(fetch).toHaveBeenCalledWith("/api/u/alice/flows/daily-review/run", {
         method: "POST",
       });
     });
-    expect(onRunTaskComplete).toHaveBeenCalledTimes(1);
+    expect(onRunFlowComplete).toHaveBeenCalledTimes(1);
   });
 });

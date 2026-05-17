@@ -69,8 +69,9 @@ arche/
 | `ExternalIntegration` | Admin-managed integrations stored once for the deployment, such as Slack |
 | `SlackThreadBinding` | Mapping between Slack channel threads and OpenCode sessions |
 | `SlackEventReceipt` | Slack event deduplication receipts |
-| `AutopilotTask` | Scheduled autopilot task definition, target agent, schedule, and lease state |
-| `AutopilotRun` | Autopilot execution history, status, trigger, session binding, and seen state |
+| `Flow` | User-authored flow definition, schedule, and lease state |
+| `FlowRun` | Flow execution history, status, trigger, session binding, and seen state |
+| `FlowRunStep` | Per-node execution state and outputs for a flow run |
 | `AuditEvent` | Action log (actor, action, metadata) |
 | `TwoFactorRecovery` | One-time 2FA recovery codes |
 

@@ -18,6 +18,7 @@ const discardFileChangesMock = vi.fn();
 const readFileMock = vi.fn();
 const refreshDiffsMock = vi.fn();
 const refreshFilesMock = vi.fn();
+const refreshMessagesMock = vi.fn();
 const sendMessageMock = vi.fn().mockResolvedValue(true);
 const writeFileMock = vi.fn();
 let workspaceMockOverrides: Record<string, unknown> = {};
@@ -72,12 +73,13 @@ vi.mock("@/hooks/use-workspace", () => ({
     connection: { status: "connected", error: null },
     refreshDiffs: refreshDiffsMock,
     refreshFiles: refreshFilesMock,
+    refreshMessages: refreshMessagesMock,
     readFile: readFileMock,
     writeFile: writeFileMock,
     discardFileChanges: discardFileChangesMock,
     createSession: createSessionMock,
     deleteSession: vi.fn(),
-    markAutopilotRunSeen: vi.fn(),
+    markFlowRunSeen: vi.fn(),
     renameSession: vi.fn(),
     selectSession: vi.fn(),
     agentCatalog: [
@@ -117,18 +119,23 @@ vi.mock('@/hooks/use-skills-catalog', () => ({
 vi.mock("@/components/workspace/chat-panel", () => ({
   ChatPanel: ({
     attachmentsEnabled = true,
+    flowHumanResponseRunId,
     isReadOnly,
+    onFlowHumanResponseSubmitted,
     onOpenFile,
     onReturnToMainConversation,
   }: {
     attachmentsEnabled?: boolean;
+    flowHumanResponseRunId?: string | null;
     isReadOnly?: boolean;
+    onFlowHumanResponseSubmitted?: () => Promise<void> | void;
     onOpenFile: (path: string) => void;
     onReturnToMainConversation?: () => void;
   }) => (
     <div
       data-testid="chat-panel"
       data-attachments-enabled={String(attachmentsEnabled)}
+      data-flow-human-response-run-id={flowHumanResponseRunId ?? ""}
       data-read-only={String(Boolean(isReadOnly))}
     >
       <span>Chat Panel</span>
@@ -138,6 +145,11 @@ vi.mock("@/components/workspace/chat-panel", () => ({
       {onReturnToMainConversation ? (
         <button type="button" onClick={onReturnToMainConversation}>
           Return to main conversation
+        </button>
+      ) : null}
+      {flowHumanResponseRunId ? (
+        <button type="button" onClick={() => void onFlowHumanResponseSubmitted?.()}>
+          Flow response submitted
         </button>
       ) : null}
     </div>
@@ -277,6 +289,8 @@ describe("WorkspaceShell", () => {
     readFileMock.mockResolvedValue({ content: "# Plan", type: "raw", hash: "hash-plan" });
     refreshDiffsMock.mockClear();
     refreshFilesMock.mockClear();
+    refreshMessagesMock.mockReset();
+    refreshMessagesMock.mockResolvedValue(undefined);
     sendMessageMock.mockClear();
     sendMessageMock.mockResolvedValue(true);
     workspaceMockOverrides = {};
@@ -306,18 +320,18 @@ describe("WorkspaceShell", () => {
         });
       }
 
-      if (url.endsWith("/autopilot")) {
+      if (url.endsWith("/flows")) {
         return jsonResponse({
-          tasks: [
+          flows: [
             {
               id: "daily-review",
               name: "Daily review",
-              prompt: "Review yesterday's changes",
-              targetAgentId: null,
-              cronExpression: "0 9 * * *",
+              description: "Review yesterday's changes",
+              definition: { version: 1, startNodeId: "node-1", nodes: [], edges: [] },
+              cronExpression: null,
               timezone: "UTC",
               enabled: true,
-              nextRunAt: "2026-05-02T09:00:00.000Z",
+              nextRunAt: null,
               lastRunAt: null,
               createdAt: "2026-05-01T09:00:00.000Z",
               updatedAt: "2026-05-01T09:00:00.000Z",
@@ -459,7 +473,7 @@ describe("WorkspaceShell", () => {
     });
 
     expect(screen.getByRole("button", { name: "Knowledge" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Tasks" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Flows" })).toBeTruthy();
 
     fireEvent.pointerDown(screen.getByRole("button", { name: "Workspace account menu" }), {
       button: 0,
@@ -471,7 +485,7 @@ describe("WorkspaceShell", () => {
     expect(screen.getByText("Appearance")).toBeTruthy();
   });
 
-  it("shows unread badges for sessions, tasks, and knowledge modes", async () => {
+  it("shows unread badges for sessions, flows, and knowledge modes", async () => {
     workspaceMockOverrides = {
       sessions: [
         {
@@ -496,28 +510,29 @@ describe("WorkspaceShell", () => {
           updatedAtRaw: 3,
         },
         {
-          id: "task-session",
-          title: "Autopilot | Daily brief",
+          id: "flow-session",
+          title: "Flow | Daily brief",
           status: "idle",
           updatedAt: "now",
           updatedAtRaw: 4,
-          autopilot: {
+          flow: {
             runId: "run-1",
-            taskId: "task-1",
-            taskName: "Daily brief",
+            flowId: "flow-1",
+            flowName: "Daily brief",
+            status: "succeeded",
             trigger: "manual",
             hasUnseenResult: true,
           },
         },
       ],
-      unseenCompletedSessions: new Set(["unread-session-1", "unread-session-2", "task-session"]),
+      unseenCompletedSessions: new Set(["unread-session-1", "unread-session-2", "flow-session"]),
       diffs: [{ path: "docs/a.md" }, { path: "docs/b.md" }, { path: "docs/c.md" }],
     };
 
     render(<WorkspaceShell slug="alice" />);
 
     expect(await screen.findByRole("button", { name: /Sessions.*2 unread/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Tasks.*1 unread/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Flows.*1 unread/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Knowledge.*3 pending/ })).toBeTruthy();
   });
 
@@ -529,12 +544,12 @@ describe("WorkspaceShell", () => {
     });
   });
 
-  it("clamps hidden desktop tasks mode to chat", async () => {
+  it("clamps hidden desktop flows mode to chat", async () => {
     render(
       <WorkspaceShell
         slug="alice"
         currentVault={{ id: "vault-1", name: "Vault", path: "/tmp/vault" }}
-        initialWorkspaceMode="tasks"
+        initialWorkspaceMode="flows"
       />
     );
 
@@ -542,7 +557,7 @@ describe("WorkspaceShell", () => {
       expect(screen.getByRole("button", { name: "Sessions" }).getAttribute("aria-pressed")).toBe("true");
     });
 
-    expect(screen.queryByRole("button", { name: "Tasks" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Flows" })).toBeNull();
     expect(screen.getByText("Chat Panel")).toBeTruthy();
   });
 
@@ -601,31 +616,72 @@ describe("WorkspaceShell", () => {
     expect(selectSession).toHaveBeenCalledWith("root-session");
   });
 
-  it("marks busy autopilot sessions read-only", async () => {
+  it("marks busy flow sessions read-only", async () => {
     workspaceMockOverrides = {
       sessions: [
         {
-          id: "task-session",
-          title: "Autopilot | Daily brief",
+          id: "flow-session",
+          title: "Flow | Daily brief",
           status: "busy",
           updatedAt: "now",
           updatedAtRaw: 1,
-          autopilot: {
+          flow: {
             runId: "run-1",
-            taskId: "task-1",
-            taskName: "Daily brief",
+            flowId: "flow-1",
+            flowName: "Daily brief",
+            status: "running",
             trigger: "manual",
             hasUnseenResult: false,
           },
         },
       ],
-      activeSessionId: "task-session",
+      activeSessionId: "flow-session",
     };
 
     render(<WorkspaceShell slug="alice" />);
 
     expect((await screen.findByTestId("chat-panel")).dataset.readOnly).toBe("true");
+    expect(screen.getByTestId("chat-panel").dataset.flowHumanResponseRunId).toBe("");
     expect(screen.queryByRole("button", { name: "Return to main conversation" })).toBeNull();
+  });
+
+  it("passes waiting flow runs to the chat panel and refreshes after response", async () => {
+    const refreshSessions = vi.fn().mockResolvedValue(undefined);
+    refreshMessagesMock.mockResolvedValue(undefined);
+    workspaceMockOverrides = {
+      refreshSessions,
+      sessions: [
+        {
+          id: "flow-session",
+          title: "Flow | Daily brief",
+          status: "idle",
+          updatedAt: "now",
+          updatedAtRaw: 1,
+          flow: {
+            runId: "run-1",
+            flowId: "flow-1",
+            flowName: "Daily brief",
+            status: "waiting_for_human",
+            trigger: "manual",
+            hasUnseenResult: false,
+          },
+        },
+      ],
+      activeSessionId: "flow-session",
+    };
+
+    render(<WorkspaceShell slug="alice" />);
+
+    const chatPanel = await screen.findByTestId("chat-panel");
+    expect(chatPanel.dataset.readOnly).toBe("true");
+    expect(chatPanel.dataset.flowHumanResponseRunId).toBe("run-1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Flow response submitted" }));
+
+    await waitFor(() => {
+      expect(refreshMessagesMock).toHaveBeenCalledTimes(1);
+    });
+    expect(refreshSessions).toHaveBeenCalledTimes(1);
   });
 
   it("promotes a quickview file into knowledge editing", async () => {
@@ -936,38 +992,36 @@ describe("WorkspaceShell", () => {
     expect(rightPanelWidth).toBeCloseTo(expectedRightWidth, 0);
   });
 
-  it("shows the tasks empty state and settings action in tasks mode", async () => {
+  it("shows the flows empty state in flows mode", async () => {
     render(<WorkspaceShell slug="alice" />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Tasks" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Flows" }));
 
-    expect(await screen.findByText("Run an autopilot task")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Manage autopilot tasks" }));
-    expect(routerPushMock).toHaveBeenCalledWith("/u/alice/autopilot");
+    expect(await screen.findByText("Run a flow")).toBeTruthy();
   });
 
   it("keeps a recent local mode when stale server mode props arrive late", async () => {
     window.history.replaceState(null, "", "/w/alice?mode=knowledge&path=docs/plan.md");
     const { rerender } = render(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Tasks" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Flows" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Tasks" }).getAttribute("aria-pressed")).toBe("true");
+      expect(screen.getByRole("button", { name: "Flows" }).getAttribute("aria-pressed")).toBe("true");
     });
 
     const params = new URLSearchParams(window.location.search);
-    expect(params.get("mode")).toBe("tasks");
+    expect(params.get("mode")).toBe("flows");
     expect(params.get("path")).toBe("docs/plan.md");
 
-    rerender(<WorkspaceShell slug="alice" initialWorkspaceMode="tasks" />);
+    rerender(<WorkspaceShell slug="alice" initialWorkspaceMode="flows" />);
     rerender(<WorkspaceShell slug="alice" initialWorkspaceMode="knowledge" />);
 
     await act(async () => {
       await Promise.resolve();
     });
 
-    expect(screen.getByRole("button", { name: "Tasks" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Flows" }).getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByRole("button", { name: "Knowledge" }).getAttribute("aria-pressed")).toBe("false");
   });
 

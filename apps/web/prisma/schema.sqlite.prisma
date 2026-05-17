@@ -27,7 +27,6 @@ model User {
   twoFactorRecovery  TwoFactorRecovery[]
   connectors         Connector[]
   providerCredentials ProviderCredential[]
-  autopilotTasks      AutopilotTask[]
   slackThreadBindings SlackThreadBinding[]
   slackUserLinks      SlackUserLink[]
   slackDmSessionBindings SlackDmSessionBinding[]
@@ -228,65 +227,6 @@ model MessageRunLock {
   @@id([slug, sessionId])
   @@index([runId])
   @@map("message_run_locks")
-}
-
-model AutopilotTask {
-  id             String   @id @default(cuid())
-  userId         String   @map("user_id")
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  name           String
-  cronExpression String   @map("cron_expression")
-  timezone       String
-  prompt         String
-  targetAgentId  String?  @map("target_agent_id")
-  enabled        Boolean  @default(true)
-  slackNotificationConfig String? @map("slack_notification_config")
-
-  nextRunAt      DateTime @map("next_run_at")
-  lastRunAt      DateTime? @map("last_run_at")
-  leaseOwner     String?  @map("lease_owner")
-  leaseExpiresAt DateTime? @map("lease_expires_at")
-  retryAttempt   Int      @default(0) @map("retry_attempt")
-  retryScheduledFor DateTime? @map("retry_scheduled_for")
-
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
-  deletedAt      DateTime? @map("deleted_at")
-
-  runs           AutopilotRun[]
-
-  @@index([userId])
-  @@index([enabled, nextRunAt])
-  @@index([leaseExpiresAt])
-  @@index([userId, leaseExpiresAt])
-  @@index([retryScheduledFor])
-  @@map("autopilot_tasks")
-}
-
-model AutopilotRun {
-  id              String   @id @default(cuid())
-  taskId          String   @map("task_id")
-  task            AutopilotTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
-
-  status          String
-  trigger         String
-  scheduledFor    DateTime @map("scheduled_for")
-  startedAt       DateTime @default(now()) @map("started_at")
-  finishedAt      DateTime? @map("finished_at")
-  error           String?
-  openCodeSessionId String? @unique @map("opencode_session_id")
-  sessionTitle    String?  @map("session_title")
-  resultSeenAt    DateTime? @map("result_seen_at")
-  attempt          Int      @default(1)
-
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
-
-  @@index([taskId, startedAt])
-  @@index([status])
-  @@index([scheduledFor])
-  @@map("autopilot_runs")
 }
 
 model Connector {

@@ -623,7 +623,7 @@ export function SlackIntegrationPanel({
                 <div className="space-y-1">
                   <h3 className="text-sm font-medium text-foreground">Notification channels</h3>
                   <p className="text-xs text-muted-foreground">
-                    Channels where Autopilot can proactively send notifications. Thread replies work separately whenever Arche is mentioned in a channel where the bot is present.
+                    Channels where Flow Slack message nodes can send notifications. Thread replies work separately whenever Arche is mentioned in a channel where the bot is present.
                   </p>
                 </div>
                 <Button

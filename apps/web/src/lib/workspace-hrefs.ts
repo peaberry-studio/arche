@@ -1,5 +1,5 @@
 type WorkspaceHrefOptions = {
-  mode?: "chat" | "knowledge" | "tasks";
+  mode?: "chat" | "knowledge" | "flows";
   sessionId?: string | null;
   settings?: string | null;
 };

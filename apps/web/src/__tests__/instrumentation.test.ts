@@ -1,16 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const originalNextRuntime = process.env.NEXT_RUNTIME
-const originalNodeEnv = process.env.NODE_ENV
-
 function restoreEnv() {
-  if (originalNextRuntime === undefined) {
-    delete process.env.NEXT_RUNTIME
-  } else {
-    process.env.NEXT_RUNTIME = originalNextRuntime
-  }
-
-  process.env.NODE_ENV = originalNodeEnv
+  vi.unstubAllEnvs()
 }
 
 function mockProcessOnce() {
@@ -25,16 +16,16 @@ function mockProcessOnce() {
 function mockNodeInstrumentationDependencies(options: {
   disconnect?: () => Promise<void>
   isDesktop?: boolean
-  shouldStartInlineAutopilotScheduler?: boolean
-  stopAutopilotScheduler?: () => void
+  shouldStartInlineFlowScheduler?: boolean
+  stopFlowScheduler?: () => void
   stopReaper?: () => void
   stopSlackSocketManager?: () => void
 } = {}) {
   const initWebPrisma = vi.fn(async () => {})
-  const shouldStartInlineAutopilotScheduler = vi.fn(() => options.shouldStartInlineAutopilotScheduler ?? true)
-  const startAutopilotScheduler = vi.fn()
+  const shouldStartInlineFlowScheduler = vi.fn(() => options.shouldStartInlineFlowScheduler ?? true)
+  const startFlowScheduler = vi.fn()
   const startSlackSocketManager = vi.fn()
-  const stopAutopilotScheduler = vi.fn(options.stopAutopilotScheduler ?? (() => {}))
+  const stopFlowScheduler = vi.fn(options.stopFlowScheduler ?? (() => {}))
   const stopReaper = vi.fn(options.stopReaper ?? (() => {}))
   const stopSlackSocketManager = vi.fn(options.stopSlackSocketManager ?? (() => {}))
   const disconnect = vi.fn(options.disconnect ?? (async () => {}))
@@ -46,10 +37,10 @@ function mockNodeInstrumentationDependencies(options: {
     initWebPrisma,
     prisma: { $disconnect: disconnect },
   }))
-  vi.doMock('@/lib/autopilot/scheduler', () => ({
-    shouldStartInlineAutopilotScheduler,
-    startAutopilotScheduler,
-    stopAutopilotScheduler,
+  vi.doMock('@/lib/flows/scheduler', () => ({
+    shouldStartInlineFlowScheduler,
+    startFlowScheduler,
+    stopFlowScheduler,
   }))
   vi.doMock('@/lib/slack/socket-mode', () => ({
     startSlackSocketManager,
@@ -60,10 +51,10 @@ function mockNodeInstrumentationDependencies(options: {
   return {
     disconnect,
     initWebPrisma,
-    shouldStartInlineAutopilotScheduler,
-    startAutopilotScheduler,
+    shouldStartInlineFlowScheduler,
+    startFlowScheduler,
     startSlackSocketManager,
-    stopAutopilotScheduler,
+    stopFlowScheduler,
     stopReaper,
     stopSlackSocketManager,
   }
@@ -80,7 +71,7 @@ describe('Next instrumentation', () => {
   afterEach(() => {
     restoreEnv()
     delete globalThis.archeWebCleanupRegistered
-    vi.doUnmock('@/lib/autopilot/scheduler')
+    vi.doUnmock('@/lib/flows/scheduler')
     vi.doUnmock('@/lib/prisma')
     vi.doUnmock('@/lib/runtime/mode')
     vi.doUnmock('@/lib/slack/socket-mode')
@@ -90,15 +81,15 @@ describe('Next instrumentation', () => {
   })
 
   it('skips registration outside the node runtime', async () => {
-    process.env.NEXT_RUNTIME = 'edge'
+    vi.stubEnv('NEXT_RUNTIME', 'edge')
     const { register } = await import('@/instrumentation')
 
     await expect(register()).resolves.toBeUndefined()
   })
 
   it('starts web runtime services and shuts them down from process hooks', async () => {
-    process.env.NEXT_RUNTIME = 'nodejs'
-    process.env.NODE_ENV = 'production'
+    vi.stubEnv('NEXT_RUNTIME', 'nodejs')
+    vi.stubEnv('NODE_ENV', 'production')
     const deps = mockNodeInstrumentationDependencies()
     const handlers = mockProcessOnce()
     const kill = vi.spyOn(process, 'kill').mockImplementation(() => true)
@@ -107,7 +98,7 @@ describe('Next instrumentation', () => {
     await register()
 
     expect(deps.initWebPrisma).toHaveBeenCalledTimes(1)
-    expect(deps.startAutopilotScheduler).toHaveBeenCalledTimes(1)
+    expect(deps.startFlowScheduler).toHaveBeenCalledTimes(1)
     expect(deps.startSlackSocketManager).toHaveBeenCalledTimes(1)
     expect(handlers.has('SIGTERM')).toBe(true)
     expect(handlers.has('SIGINT')).toBe(true)
@@ -115,7 +106,7 @@ describe('Next instrumentation', () => {
 
     handlers.get('beforeExit')?.()
     await vi.waitFor(() => expect(deps.disconnect).toHaveBeenCalled())
-    expect(deps.stopAutopilotScheduler).toHaveBeenCalled()
+    expect(deps.stopFlowScheduler).toHaveBeenCalled()
     expect(deps.stopSlackSocketManager).toHaveBeenCalled()
     expect(deps.stopReaper).toHaveBeenCalled()
 
@@ -136,23 +127,23 @@ describe('Next instrumentation', () => {
     expect(deps.startSlackSocketManager).not.toHaveBeenCalled()
   })
 
-  it('does not start inline autopilot scheduler in daemon mode', async () => {
-    process.env.NODE_ENV = 'production'
-    const deps = mockNodeInstrumentationDependencies({ shouldStartInlineAutopilotScheduler: false })
+  it('does not start inline flow scheduler in daemon mode', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    const deps = mockNodeInstrumentationDependencies({ shouldStartInlineFlowScheduler: false })
     const { registerNodeInstrumentation } = await import('@/instrumentation-node')
 
     await registerNodeInstrumentation()
 
-    expect(deps.shouldStartInlineAutopilotScheduler).toHaveBeenCalled()
-    expect(deps.startAutopilotScheduler).not.toHaveBeenCalled()
+    expect(deps.shouldStartInlineFlowScheduler).toHaveBeenCalled()
+    expect(deps.startFlowScheduler).not.toHaveBeenCalled()
     expect(deps.startSlackSocketManager).toHaveBeenCalled()
   })
 
   it('logs cleanup failures during graceful shutdown', async () => {
-    process.env.NODE_ENV = 'production'
+    vi.stubEnv('NODE_ENV', 'production')
     const deps = mockNodeInstrumentationDependencies({
       disconnect: async () => { throw new Error('prisma failed') },
-      stopAutopilotScheduler: () => { throw new Error('scheduler failed') },
+      stopFlowScheduler: () => { throw new Error('scheduler failed') },
       stopReaper: () => { throw new Error('reaper failed') },
       stopSlackSocketManager: () => { throw new Error('slack failed') },
     })
@@ -164,7 +155,7 @@ describe('Next instrumentation', () => {
 
     await vi.waitFor(() => expect(deps.disconnect).toHaveBeenCalled())
     expect(console.error).toHaveBeenCalledWith(
-      '[shutdown] Failed to stop autopilot scheduler:',
+      '[shutdown] Failed to stop flow scheduler:',
       expect.any(Error),
     )
     expect(console.error).toHaveBeenCalledWith(

@@ -25,23 +25,39 @@ export function useWorkspaceMessages({
   const [messagesBySession, setMessagesBySession] = useState<
     Record<string, WorkspaceMessage[]>
   >({});
+  const [loadedMessageSessionIds, setLoadedMessageSessionIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const [loadingMessageSessionIds, setLoadingMessageSessionIds] = useState<string[]>([]);
 
   // Source of truth for message state; setState only notifies React after sync ref updates.
   const messagesBySessionRef = useRef<Record<string, WorkspaceMessage[]>>({});
+  const loadedMessageSessionIdsRef = useRef<Set<string>>(new Set());
   const sessionExecutorsRef = useRef(new Map<string, SerialJobExecutor>());
   const resumeFailureStateRef = useRef<Map<string, ResumeFailureState>>(new Map());
+
+  const markSessionMessagesLoaded = useCallback((sessionId: string) => {
+    if (loadedMessageSessionIdsRef.current.has(sessionId)) return;
+
+    const nextLoadedSessionIds = new Set(loadedMessageSessionIdsRef.current);
+    nextLoadedSessionIds.add(sessionId);
+    loadedMessageSessionIdsRef.current = nextLoadedSessionIds;
+    setLoadedMessageSessionIds(nextLoadedSessionIds);
+  }, []);
 
   const updateSessionMessages = useCallback(
     (
       sessionId: string,
       updater: SetStateAction<WorkspaceMessage[]>
     ) => {
-      const previousMessages = messagesBySessionRef.current[sessionId] ?? EMPTY_WORKSPACE_MESSAGES;
+      const previousMessages =
+        messagesBySessionRef.current[sessionId] ?? EMPTY_WORKSPACE_MESSAGES;
       const nextMessages =
         typeof updater === "function"
           ? updater(previousMessages)
           : updater;
+
+      markSessionMessagesLoaded(sessionId);
 
       if (
         nextMessages === previousMessages ||
@@ -57,7 +73,7 @@ export function useWorkspaceMessages({
       messagesBySessionRef.current = nextMessagesBySession;
       setMessagesBySession(nextMessagesBySession);
     },
-    []
+    [markSessionMessagesLoaded]
   );
 
   const getSessionExecutor = useCallback((sessionId: string): SerialJobExecutor => {
@@ -123,6 +139,7 @@ export function useWorkspaceMessages({
           onHydrated?.(targetSessionId, hydratedMessages);
         }
       } finally {
+        markSessionMessagesLoaded(targetSessionId);
         setSessionLoading(targetSessionId, false);
       }
     });
@@ -130,6 +147,7 @@ export function useWorkspaceMessages({
     slug,
     getActiveSessionId,
     getSessionExecutor,
+    markSessionMessagesLoaded,
     setSessionLoading,
     updateSessionMessages,
     onHydrated,
@@ -161,6 +179,19 @@ export function useWorkspaceMessages({
       prev.filter((sessionId) => !sessionIds.has(sessionId))
     );
 
+    setLoadedMessageSessionIds((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const sessionId of sessionIds) {
+        changed = next.delete(sessionId) || changed;
+      }
+
+      if (!changed) return prev;
+
+      loadedMessageSessionIdsRef.current = next;
+      return next;
+    });
+
     for (const messageId of removedMessageIds) {
       resumeFailureStateRef.current.delete(messageId);
     }
@@ -171,9 +202,12 @@ export function useWorkspaceMessages({
   }, []);
 
   const activeSessionId = getActiveSessionId();
-  const messages = activeSessionId ? messagesBySession[activeSessionId] ?? EMPTY_WORKSPACE_MESSAGES : EMPTY_WORKSPACE_MESSAGES;
+  const messages = activeSessionId
+    ? messagesBySession[activeSessionId] ?? EMPTY_WORKSPACE_MESSAGES
+    : EMPTY_WORKSPACE_MESSAGES;
   const isLoadingMessages = activeSessionId
-    ? loadingMessageSessionIds.includes(activeSessionId)
+    ? loadingMessageSessionIds.includes(activeSessionId) ||
+      !loadedMessageSessionIds.has(activeSessionId)
     : false;
 
   return {

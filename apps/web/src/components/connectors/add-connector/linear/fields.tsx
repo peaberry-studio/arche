@@ -1,5 +1,6 @@
 'use client'
 
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -77,9 +78,8 @@ export function LinearOAuthFields({
                 htmlFor={inputId}
                 className="flex items-start gap-3 rounded-lg border border-border/40 bg-background/40 px-3 py-2"
               >
-                <input
+                <Checkbox
                   id={inputId}
-                  type="checkbox"
                   checked={checked}
                   onChange={(event) => {
                     const nextChecked = event.target.checked
@@ -93,7 +93,7 @@ export function LinearOAuthFields({
                           )
                     )
                   }}
-                  className="mt-1 h-4 w-4 rounded border-border text-primary"
+                  className="mt-1"
                 />
                 <span className="space-y-1">
                   <span className="block text-sm font-medium text-foreground">

@@ -124,7 +124,7 @@ describe('POST /api/w/[slug]/chat/stream', () => {
       teamManagement: true,
       connectors: true,
       kickstart: true,
-      autopilot: true,
+      flows: true,
       slackIntegration: true,
     })
     mockGetSession.mockResolvedValue(session('alice'))
@@ -220,7 +220,7 @@ describe('POST /api/w/[slug]/chat/stream', () => {
       teamManagement: false,
       connectors: true,
       kickstart: true,
-      autopilot: false,
+      flows: false,
       slackIntegration: false,
     })
     mockGetSession.mockResolvedValue(session('local', 'ADMIN'))

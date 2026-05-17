@@ -36,15 +36,16 @@ const sessions: WorkspaceSession[] = [
     updatedAtRaw: 4,
   },
   {
-    id: 'task-session',
-    title: 'Autopilot | Daily summary',
+    id: 'flow-session',
+    title: 'Flow | Daily summary',
     status: 'idle',
     updatedAt: '1m',
     updatedAtRaw: 5,
-    autopilot: {
+    flow: {
       runId: 'run-1',
-      taskId: 'task-1',
-      taskName: 'Daily summary',
+      flowId: 'flow-1',
+      flowName: 'Daily summary',
+      status: 'succeeded',
       trigger: 'manual',
       hasUnseenResult: true,
     },
@@ -106,17 +107,17 @@ describe('WorkspaceSessionsRail', () => {
     expect(onSelectSession).toHaveBeenCalledWith('done-chat')
   })
 
-  it('renders task dots and marks unseen autopilot runs as seen', () => {
-    const onMarkAutopilotRunSeen = vi.fn()
+  it('renders flow dots and marks unseen flow runs as seen', () => {
+    const onMarkFlowRunSeen = vi.fn()
     const onSelectSession = vi.fn()
 
     render(
       <WorkspaceSessionsRail
-        kind="tasks"
+        kind="flows"
         sessions={sessions}
         activeSessionId={null}
         unseenCompletedSessions={new Set<string>()}
-        onMarkAutopilotRunSeen={onMarkAutopilotRunSeen}
+        onMarkFlowRunSeen={onMarkFlowRunSeen}
         onSelectSession={onSelectSession}
       />
     )
@@ -126,8 +127,8 @@ describe('WorkspaceSessionsRail', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Daily summary' }))
 
-    expect(onSelectSession).toHaveBeenCalledWith('task-session')
-    expect(onMarkAutopilotRunSeen).toHaveBeenCalledWith('run-1')
+    expect(onSelectSession).toHaveBeenCalledWith('flow-session')
+    expect(onMarkFlowRunSeen).toHaveBeenCalledWith('run-1')
   })
 
   it('magnifies, accents, and spaces dots around the cursor smoothly', async () => {
@@ -219,8 +220,8 @@ describe('WorkspaceSessionsRail', () => {
   it('renders nothing when the selected rail kind has no sessions', () => {
     const { container } = render(
       <WorkspaceSessionsRail
-        kind="tasks"
-        sessions={sessions.filter((session) => !session.autopilot)}
+        kind="flows"
+        sessions={sessions.filter((session) => !session.flow)}
         activeSessionId={null}
         unseenCompletedSessions={new Set<string>()}
         onSelectSession={vi.fn()}

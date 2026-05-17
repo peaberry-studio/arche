@@ -25,12 +25,13 @@ const busySession: WorkspaceSession = {
   updatedAt: "now",
 };
 
-const autopilotBusySession: WorkspaceSession = {
+const flowBusySession: WorkspaceSession = {
   ...busySession,
-  autopilot: {
+  flow: {
     runId: "run-1",
-    taskId: "task-1",
-    taskName: "Daily brief",
+    flowId: "flow-1",
+    flowName: "Daily brief",
+    status: "running",
     trigger: "manual",
     hasUnseenResult: false,
   },
@@ -110,9 +111,9 @@ describe("useWorkspaceResumeEffect", () => {
     expect(streamChat).not.toHaveBeenCalled();
   });
 
-  it("does not resume autopilot-owned sessions", () => {
+  it("does not resume flow-owned sessions", () => {
     const { streamChat } = renderResumeEffect({
-      activeSession: autopilotBusySession,
+      activeSession: flowBusySession,
     });
 
     expect(streamChat).not.toHaveBeenCalled();

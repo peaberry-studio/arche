@@ -207,7 +207,7 @@ async function sendSlackThreadPromptToSession(args: {
     })
 
     if (failure) {
-      if (failure === 'autopilot_run_timeout') {
+      if (failure === 'flow_run_timeout') {
         await args.opencodeClient.session.abort({ sessionID: args.sessionId }).catch(() => undefined)
       }
       await messageRunService.markRunFailed(runId, failure)

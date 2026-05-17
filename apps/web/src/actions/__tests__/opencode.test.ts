@@ -40,7 +40,7 @@ vi.mock('@/lib/providers/store', () => ({
 }))
 
 vi.mock('@/lib/services', () => ({
-  autopilotService: {
+  flowService: {
     findSessionMetadataByUserId: vi.fn().mockResolvedValue([]),
     markRunResultSeenByIdAndUserId: vi.fn(),
   },
@@ -72,7 +72,7 @@ vi.mock('@/lib/workspace-agent/client', () => ({
 
 import { getSession } from '@/lib/runtime/session'
 import { createInstanceClient } from '@/lib/opencode/client'
-import { autopilotService, instanceService, messageRunService, slackService, userService } from '@/lib/services'
+import { flowService, instanceService, messageRunService, slackService, userService } from '@/lib/services'
 import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 
 import {
@@ -90,7 +90,7 @@ import {
   getWorkspaceDiffsAction,
   getSessionDiffsAction,
   listAgentsAction,
-  markAutopilotRunSeenAction,
+  markFlowRunSeenAction,
 } from '../opencode'
 
 // ---------------------------------------------------------------------------
@@ -102,7 +102,7 @@ const mockCreateInstanceClient = vi.mocked(createInstanceClient)
 const mockInstanceService = vi.mocked(instanceService)
 const mockSlackService = vi.mocked(slackService)
 const mockUserService = vi.mocked(userService)
-const mockAutopilotService = vi.mocked(autopilotService)
+const mockFlowService = vi.mocked(flowService)
 const mockMessageRunService = vi.mocked(messageRunService)
 const mockCreateWorkspaceAgentClient = vi.mocked(createWorkspaceAgentClient)
 
@@ -580,38 +580,38 @@ describe('updateSessionAction', () => {
   })
 })
 
-describe('markAutopilotRunSeenAction', () => {
+describe('markFlowRunSeenAction', () => {
   it('returns error when unauthorized', async () => {
     mockGetSession.mockResolvedValue(null)
-    const result = await markAutopilotRunSeenAction('alice', 'run-1')
+    const result = await markFlowRunSeenAction('alice', 'run-1')
     expect(result).toEqual({ ok: false, error: 'unauthorized' })
   })
 
   it('returns error when forbidden', async () => {
-    const result = await markAutopilotRunSeenAction('bob', 'run-1')
+    const result = await markFlowRunSeenAction('bob', 'run-1')
     expect(result).toEqual({ ok: false, error: 'forbidden' })
   })
 
   it('marks run as seen successfully', async () => {
-    mockAutopilotService.markRunResultSeenByIdAndUserId.mockResolvedValue(true as never)
-    const result = await markAutopilotRunSeenAction('alice', 'run-1')
+    mockFlowService.markRunResultSeenByIdAndUserId.mockResolvedValue(true as never)
+    const result = await markFlowRunSeenAction('alice', 'run-1')
     expect(result).toEqual({ ok: true })
   })
 
   it('returns not_found when mark fails', async () => {
-    mockAutopilotService.markRunResultSeenByIdAndUserId.mockResolvedValue(false as never)
-    const result = await markAutopilotRunSeenAction('alice', 'run-1')
+    mockFlowService.markRunResultSeenByIdAndUserId.mockResolvedValue(false as never)
+    const result = await markFlowRunSeenAction('alice', 'run-1')
     expect(result).toEqual({ ok: false, error: 'not_found' })
   })
 
   it('resolves target user for admin accessing another slug', async () => {
     mockGetSession.mockResolvedValue(adminSession)
     mockUserService.findIdBySlug.mockResolvedValue({ id: 'target-user' } as never)
-    mockAutopilotService.markRunResultSeenByIdAndUserId.mockResolvedValue(true as never)
+    mockFlowService.markRunResultSeenByIdAndUserId.mockResolvedValue(true as never)
 
-    const result = await markAutopilotRunSeenAction('alice', 'run-1')
+    const result = await markFlowRunSeenAction('alice', 'run-1')
     expect(result).toEqual({ ok: true })
-    expect(mockAutopilotService.markRunResultSeenByIdAndUserId).toHaveBeenCalledWith(
+    expect(mockFlowService.markRunResultSeenByIdAndUserId).toHaveBeenCalledWith(
       'run-1',
       'target-user',
       expect.any(Date),
@@ -622,7 +622,7 @@ describe('markAutopilotRunSeenAction', () => {
     mockGetSession.mockResolvedValue(adminSession)
     mockUserService.findIdBySlug.mockResolvedValue(null as never)
 
-    const result = await markAutopilotRunSeenAction('alice', 'run-1')
+    const result = await markFlowRunSeenAction('alice', 'run-1')
     expect(result).toEqual({ ok: false, error: 'user_not_found' })
   })
 })

@@ -100,7 +100,7 @@ describe('session-execution extended', () => {
   })
 
   describe('waitForSessionToComplete', () => {
-    it('returns autopilot_run_timeout', async () => {
+    it('returns flow_run_timeout', async () => {
       vi.useFakeTimers()
 
       try {
@@ -123,7 +123,7 @@ describe('session-execution extended', () => {
         await vi.advanceTimersByTimeAsync(30 * 60 * 1000 + 1000)
         const result = await promise
 
-        expect(result).toBe('autopilot_run_timeout')
+        expect(result).toBe('flow_run_timeout')
       } finally {
         vi.useRealTimers()
       }
