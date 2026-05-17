@@ -19,6 +19,14 @@ allowBuilds:
   ssh2: false
   # ESLint's TypeScript import resolver uses this native resolver.
   unrs-resolver: true
+supportedArchitectures:
+  os:
+    - current
+    - darwin
+  cpu:
+    - current
+    - x64
+    - arm64
 overrides:
   tar: 7.5.7
   lodash: 4.17.23
