@@ -93,4 +93,29 @@ describe('FlowScheduleBuilder', () => {
 
     expect(screen.getByText('The cron expression or timezone is invalid.')).toBeTruthy()
   })
+
+  it('allows deleting and typing raw daily time values before padding on blur', () => {
+    render(<ScheduleHarness initialSchedule={{ ...baseSchedule, hour: 0, minute: 0, mode: 'daily' }} />)
+
+    const hourInput = screen.getByLabelText('Hour') as HTMLInputElement
+    const minuteInput = screen.getByLabelText('Minute') as HTMLInputElement
+
+    expect(hourInput.value).toBe('00')
+    fireEvent.focus(hourInput)
+    fireEvent.change(hourInput, { target: { value: '' } })
+    expect(hourInput.value).toBe('')
+    fireEvent.change(hourInput, { target: { value: '7' } })
+    expect(hourInput.value).toBe('7')
+    fireEvent.blur(hourInput)
+    expect(hourInput.value).toBe('07')
+
+    expect(minuteInput.value).toBe('00')
+    fireEvent.focus(minuteInput)
+    fireEvent.change(minuteInput, { target: { value: '' } })
+    expect(minuteInput.value).toBe('')
+    fireEvent.change(minuteInput, { target: { value: '7' } })
+    expect(minuteInput.value).toBe('7')
+    fireEvent.blur(minuteInput)
+    expect(minuteInput.value).toBe('07')
+  })
 })

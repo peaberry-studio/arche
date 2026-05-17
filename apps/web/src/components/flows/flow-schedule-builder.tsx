@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, type ComponentType, type Dispatch, type SetStateAction } from 'react'
+import { useCallback, useState, type ComponentType, type Dispatch, type SetStateAction } from 'react'
 import {
   Calendar,
   CalendarBlank,
@@ -38,6 +38,8 @@ type ScheduleOption = {
   icon: ComponentType<IconProps>
 }
 
+type TimeField = 'hour' | 'minute'
+
 const SCHEDULE_OPTIONS: ScheduleOption[] = [
   { mode: 'minutes', label: 'Every X minutes', icon: Timer },
   { mode: 'hourly', label: 'Hourly', icon: Clock },
@@ -55,11 +57,19 @@ const numberInputClass = cn('h-9 w-16 text-center font-medium tabular-nums focus
 const timeInputClass = cn('h-9 w-14 text-center font-medium tabular-nums focus-visible:ring-offset-0', hideSpinners)
 
 function parseTimeDigits(raw: string, max: number): number {
-  const digits = raw.replace(/\D/g, '').slice(-2)
-  if (!digits) return 0
-  const value = Number.parseInt(digits, 10)
+  const draft = formatTimeDraft(raw, max)
+  if (!draft) return 0
+  const value = Number.parseInt(draft, 10)
   if (Number.isNaN(value)) return 0
-  return Math.min(value, max)
+  return value
+}
+
+function formatTimeDraft(raw: string, max: number): string {
+  const digits = raw.replace(/\D/g, '').slice(-2)
+  if (!digits) return ''
+  const value = Number.parseInt(digits, 10)
+  if (Number.isNaN(value)) return ''
+  return String(Math.min(value, max))
 }
 
 function padTwo(value: number): string {
@@ -87,12 +97,50 @@ export function FlowScheduleBuilder({
   onChange,
   onTimezoneChange,
 }: FlowScheduleBuilderProps) {
+  const [editingTimeField, setEditingTimeField] = useState<TimeField | null>(null)
+  const [timeDrafts, setTimeDrafts] = useState<Record<TimeField, string>>({ hour: '', minute: '' })
+
   const updateSchedule = useCallback(
     (updater: (current: FlowScheduleFormState) => FlowScheduleFormState) => {
       onChange((current) => updater(current))
     },
     [onChange],
   )
+
+  const getTimeInputValue = (field: TimeField, value: number) => (
+    editingTimeField === field ? timeDrafts[field] : padTwo(value)
+  )
+
+  const startEditingTimeField = (field: TimeField, value: number) => {
+    setEditingTimeField(field)
+    setTimeDrafts((current) => ({ ...current, [field]: padTwo(value) }))
+  }
+
+  const updateTimeField = (field: TimeField, raw: string) => {
+    const max = field === 'hour' ? 23 : 59
+    const draft = formatTimeDraft(raw, max)
+    const value = parseTimeDigits(draft, max)
+
+    setTimeDrafts((current) => ({ ...current, [field]: draft }))
+    updateSchedule((current) => (
+      field === 'hour'
+        ? { ...current, hour: value }
+        : { ...current, minute: value }
+    ))
+  }
+
+  const commitTimeField = (field: TimeField) => {
+    const max = field === 'hour' ? 23 : 59
+    const value = parseTimeDigits(timeDrafts[field], max)
+
+    setTimeDrafts((current) => ({ ...current, [field]: padTwo(value) }))
+    updateSchedule((current) => (
+      field === 'hour'
+        ? { ...current, hour: value }
+        : { ...current, minute: value }
+    ))
+    setEditingTimeField((current) => current === field ? null : current)
+  }
 
   const setScheduleMode = useCallback((nextMode: FlowScheduleBuilderMode) => {
     updateSchedule((current) => ({
@@ -176,12 +224,13 @@ export function FlowScheduleBuilder({
               aria-label="Minute of the hour"
               type="text"
               inputMode="numeric"
-              maxLength={2}
-              value={padTwo(schedule.minute)}
-              onChange={(event) => updateSchedule((current) => ({
-                ...current,
-                minute: parseTimeDigits(event.target.value, 59),
-              }))}
+              value={getTimeInputValue('minute', schedule.minute)}
+              onFocus={(event) => {
+                startEditingTimeField('minute', schedule.minute)
+                event.currentTarget.select()
+              }}
+              onChange={(event) => updateTimeField('minute', event.target.value)}
+              onBlur={() => commitTimeField('minute')}
               className={timeInputClass}
             />
           </>
@@ -208,12 +257,13 @@ export function FlowScheduleBuilder({
               aria-label="Hour"
               type="text"
               inputMode="numeric"
-              maxLength={2}
-              value={padTwo(schedule.hour)}
-              onChange={(event) => updateSchedule((current) => ({
-                ...current,
-                hour: parseTimeDigits(event.target.value, 23),
-              }))}
+              value={getTimeInputValue('hour', schedule.hour)}
+              onFocus={(event) => {
+                startEditingTimeField('hour', schedule.hour)
+                event.currentTarget.select()
+              }}
+              onChange={(event) => updateTimeField('hour', event.target.value)}
+              onBlur={() => commitTimeField('hour')}
               className={timeInputClass}
             />
             <span className="text-muted-foreground">:</span>
@@ -222,12 +272,13 @@ export function FlowScheduleBuilder({
               aria-label="Minute"
               type="text"
               inputMode="numeric"
-              maxLength={2}
-              value={padTwo(schedule.minute)}
-              onChange={(event) => updateSchedule((current) => ({
-                ...current,
-                minute: parseTimeDigits(event.target.value, 59),
-              }))}
+              value={getTimeInputValue('minute', schedule.minute)}
+              onFocus={(event) => {
+                startEditingTimeField('minute', schedule.minute)
+                event.currentTarget.select()
+              }}
+              onChange={(event) => updateTimeField('minute', event.target.value)}
+              onBlur={() => commitTimeField('minute')}
               className={timeInputClass}
             />
           </>
@@ -241,12 +292,13 @@ export function FlowScheduleBuilder({
               aria-label="Hour"
               type="text"
               inputMode="numeric"
-              maxLength={2}
-              value={padTwo(schedule.hour)}
-              onChange={(event) => updateSchedule((current) => ({
-                ...current,
-                hour: parseTimeDigits(event.target.value, 23),
-              }))}
+              value={getTimeInputValue('hour', schedule.hour)}
+              onFocus={(event) => {
+                startEditingTimeField('hour', schedule.hour)
+                event.currentTarget.select()
+              }}
+              onChange={(event) => updateTimeField('hour', event.target.value)}
+              onBlur={() => commitTimeField('hour')}
               className={timeInputClass}
             />
             <span className="text-muted-foreground">:</span>
@@ -255,12 +307,13 @@ export function FlowScheduleBuilder({
               aria-label="Minute"
               type="text"
               inputMode="numeric"
-              maxLength={2}
-              value={padTwo(schedule.minute)}
-              onChange={(event) => updateSchedule((current) => ({
-                ...current,
-                minute: parseTimeDigits(event.target.value, 59),
-              }))}
+              value={getTimeInputValue('minute', schedule.minute)}
+              onFocus={(event) => {
+                startEditingTimeField('minute', schedule.minute)
+                event.currentTarget.select()
+              }}
+              onChange={(event) => updateTimeField('minute', event.target.value)}
+              onBlur={() => commitTimeField('minute')}
               className={timeInputClass}
             />
             <div className="basis-full" />
@@ -328,12 +381,13 @@ export function FlowScheduleBuilder({
               aria-label="Hour"
               type="text"
               inputMode="numeric"
-              maxLength={2}
-              value={padTwo(schedule.hour)}
-              onChange={(event) => updateSchedule((current) => ({
-                ...current,
-                hour: parseTimeDigits(event.target.value, 23),
-              }))}
+              value={getTimeInputValue('hour', schedule.hour)}
+              onFocus={(event) => {
+                startEditingTimeField('hour', schedule.hour)
+                event.currentTarget.select()
+              }}
+              onChange={(event) => updateTimeField('hour', event.target.value)}
+              onBlur={() => commitTimeField('hour')}
               className={timeInputClass}
             />
             <span className="text-muted-foreground">:</span>
@@ -342,12 +396,13 @@ export function FlowScheduleBuilder({
               aria-label="Minute"
               type="text"
               inputMode="numeric"
-              maxLength={2}
-              value={padTwo(schedule.minute)}
-              onChange={(event) => updateSchedule((current) => ({
-                ...current,
-                minute: parseTimeDigits(event.target.value, 59),
-              }))}
+              value={getTimeInputValue('minute', schedule.minute)}
+              onFocus={(event) => {
+                startEditingTimeField('minute', schedule.minute)
+                event.currentTarget.select()
+              }}
+              onChange={(event) => updateTimeField('minute', event.target.value)}
+              onBlur={() => commitTimeField('minute')}
               className={timeInputClass}
             />
           </>

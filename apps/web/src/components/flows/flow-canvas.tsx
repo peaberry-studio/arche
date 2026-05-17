@@ -28,6 +28,17 @@ type CanvasNode = FlowLayoutNode & {
 
 const NODE_WIDTH = 156
 const NODE_HEIGHT = 56
+const ADD_MENU_WIDTH = 104
+const ADD_MENU_ITEM_X = 8
+const ADD_MENU_ITEM_TOP = 8
+const ADD_MENU_ITEM_WIDTH = 88
+const ADD_MENU_ITEM_HEIGHT = 22
+const ADD_MENU_ITEM_ROW_HEIGHT = 26
+const ADD_MENU_BOTTOM_PADDING = 4
+const ADD_MENU_HEIGHT = ADD_MENU_ITEM_TOP +
+  (FLOW_CANVAS_NODE_TYPE_OPTIONS.length - 1) * ADD_MENU_ITEM_ROW_HEIGHT +
+  ADD_MENU_ITEM_HEIGHT +
+  ADD_MENU_BOTTOM_PADDING
 type PendingConnection = {
   sourceNodeId: string
   x: number
@@ -437,14 +448,14 @@ export function FlowCanvas({
                 </g>
                 {addMenuNodeId === node.nodeId ? (
                   <g transform={`translate(${NODE_WIDTH + 40}, -8)`}>
-                    <rect width="104" height="138" rx="10" className="fill-card stroke-border drop-shadow-sm" strokeWidth="1" />
+                    <rect width={ADD_MENU_WIDTH} height={ADD_MENU_HEIGHT} rx="10" className="fill-card stroke-border drop-shadow-sm" strokeWidth="1" />
                     {FLOW_CANVAS_NODE_TYPE_OPTIONS.map((item, index) => (
                       <g
                         key={item.type}
                         role="button"
                         tabIndex={0}
                         aria-label={`Add ${item.label.toLowerCase()} step after ${node.label}`}
-                        transform={`translate(8, ${8 + index * 26})`}
+                        transform={`translate(${ADD_MENU_ITEM_X}, ${ADD_MENU_ITEM_TOP + index * ADD_MENU_ITEM_ROW_HEIGHT})`}
                         onClick={(event) => {
                           event.stopPropagation()
                           onAddNodeAfter(node.nodeId, item.type)
@@ -458,7 +469,7 @@ export function FlowCanvas({
                         onTouchStart={stopCanvasAction}
                         className="cursor-pointer outline-none"
                       >
-                        <rect width="88" height="22" rx="8" className="fill-transparent transition-colors hover:fill-muted" />
+                        <rect width={ADD_MENU_ITEM_WIDTH} height={ADD_MENU_ITEM_HEIGHT} rx="8" className="fill-transparent transition-colors hover:fill-muted" />
                         <text x="10" y="14" className="fill-foreground text-[11px] font-medium">{item.label}</text>
                       </g>
                     ))}

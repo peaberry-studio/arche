@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { FlowCanvas } from '@/components/flows/flow-canvas'
+import { FLOW_CANVAS_NODE_TYPE_OPTIONS } from '@/lib/flows/node-types'
 import type { FlowDefinition } from '@/lib/flows/types'
 
 const chain = () => {
@@ -122,5 +123,31 @@ describe('FlowCanvas', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Remove connection Agent step to Human step' }))
     expect(onRemoveConnection).toHaveBeenCalledWith('edge-1')
+  })
+
+  it('sizes the add node menu to contain all node type options', () => {
+    const { container } = renderCanvas()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add node after Agent step' }))
+
+    const menuBackground = container.querySelector('rect[class~="drop-shadow-sm"]')
+    if (!menuBackground) throw new Error('Expected add node menu background to render')
+
+    const menuHeight = Number(menuBackground.getAttribute('height'))
+    const menuItems = FLOW_CANVAS_NODE_TYPE_OPTIONS.map((option) => (
+      screen.getByRole('button', { name: `Add ${option.label.toLowerCase()} step after Agent step` })
+    ))
+    const maxItemBottom = Math.max(...menuItems.map((item) => {
+      const transform = item.getAttribute('transform') ?? ''
+      const yMatch = /translate\(8, (\d+)\)/.exec(transform)
+      const itemBackground = item.querySelector('rect')
+      if (!yMatch || !itemBackground) throw new Error('Expected add node menu item layout attributes')
+
+      return Number(yMatch[1]) + Number(itemBackground.getAttribute('height'))
+    }))
+
+    expect(screen.getByRole('button', { name: 'Add compaction step after Agent step' })).toBeTruthy()
+    expect(menuItems).toHaveLength(FLOW_CANVAS_NODE_TYPE_OPTIONS.length)
+    expect(menuHeight).toBeGreaterThanOrEqual(maxItemBottom)
   })
 })
