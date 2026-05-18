@@ -252,6 +252,7 @@ clear_arch_build_artifacts() {
   rm -rf "$WEB_DIR/.next" "$WEB_DIR"/.next-desktop*
   shopt -u nullglob
   clear_web_native_artifacts
+  rm -rf "$WEB_DIR/node_modules"
   rm -f "$DESKTOP_DIR/bin/node" "$DESKTOP_DIR/bin/opencode" "$DESKTOP_DIR/bin/workspace-agent"
 
   case "$arch" in
@@ -327,6 +328,21 @@ sync_web_dependencies_for_arch() {
   )
 }
 
+verify_web_native_dependencies_for_arch() {
+  local arch="$1"
+
+  printf '==> Verifying web native dependencies for %s\n' "$arch"
+  verify_target_node_runtime "$arch"
+
+  (
+    cd "$WEB_DIR"
+    PATH="$DESKTOP_DIR/bin:$PATH" \
+      npm_config_arch="$arch" \
+      npm_config_target_arch="$arch" \
+      node -e 'require("@tailwindcss/postcss")'
+  ) || fail "Failed to load @tailwindcss/postcss with bundled $arch Node.js. Ensure web dependencies were installed after clearing node_modules for the target architecture."
+}
+
 build_web_for_arch() {
   local arch="$1"
 
@@ -382,6 +398,7 @@ build_arch() {
   clear_arch_build_artifacts "$arch"
   prepare_runtime_binaries_for_arch "$arch" "$runtime_platform" "$goarch"
   sync_web_dependencies_for_arch "$arch"
+  verify_web_native_dependencies_for_arch "$arch"
   build_web_for_arch "$arch"
   repair_web_standalone_symlinks
   sync_desktop_dependencies_for_arch "$arch"
