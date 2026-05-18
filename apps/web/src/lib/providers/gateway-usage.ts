@@ -1,10 +1,11 @@
 import { providerService, providerUsageService } from '@/lib/services'
+import type { ProviderUsageCredentialSource } from '@/lib/services/provider-usage'
 
 import type { ProviderCredentialSource } from './credentials'
 import type { ProviderId } from './types'
 
 export function recordProviderGatewayRequestBestEffort(input: {
-  credentialSource: ProviderCredentialSource
+  credentialSource: ProviderUsageCredentialSource
   isError: boolean
   modelId: string | null
   providerId: ProviderId

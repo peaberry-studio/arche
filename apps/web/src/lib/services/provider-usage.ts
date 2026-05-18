@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client'
 
 import { prisma } from '@/lib/prisma'
 
-export type ProviderUsageCredentialSource = 'user' | 'organization'
+export type ProviderUsageCredentialSource = 'default' | 'organization' | 'user'
 
 export type RecordProviderRunUsageResult =
   | { ok: true; recorded: true }

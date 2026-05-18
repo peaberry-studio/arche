@@ -442,6 +442,34 @@ describe('/api/internal/providers/[provider]/[...path]', () => {
     expect(res.status).toBe(200)
   })
 
+  it('records token-authenticated opencode without managed credentials as default usage', async () => {
+    mocks.verifyGatewayToken.mockReturnValue({ ...GATEWAY_PAYLOAD, providerId: 'opencode', version: 0 })
+    mocks.getEffectiveCredentialForUser.mockResolvedValue(null)
+    fetchMock.mockResolvedValue(
+      new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }),
+    )
+
+    const res = await POST(
+      makeRequest('POST', 'http://localhost/api/internal/providers/opencode/v1/chat/completions', {
+        headers: {
+          authorization: 'Bearer valid-token',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ model: 'zen-model' }),
+      }),
+      { params: Promise.resolve({ provider: 'opencode', path: ['v1', 'chat', 'completions'] }) },
+    )
+
+    expect(res.status).toBe(200)
+    expect(mocks.recordProviderGatewayRequest).toHaveBeenCalledWith({
+      credentialSource: 'default',
+      isError: false,
+      modelId: 'zen-model',
+      providerId: 'opencode',
+      userId: 'u1',
+    })
+  })
+
   it('handles opencode expired token fallback (authorization deleted)', async () => {
     mocks.verifyGatewayToken.mockImplementation(() => {
       throw Object.assign(new Error('token_expired'), { message: 'token_expired' })

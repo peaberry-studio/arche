@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { getCanonicalProviderId } from '@/lib/providers/catalog'
-import type { ProviderCredentialSource } from '@/lib/providers/credentials'
 import { decryptProviderSecret } from '@/lib/providers/crypto'
 import {
   applyProviderAuthHeaders,
@@ -17,6 +16,7 @@ import { getEffectiveCredentialForUser } from '@/lib/providers/store'
 import { verifyGatewayToken } from '@/lib/providers/tokens'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
+import type { ProviderUsageCredentialSource } from '@/lib/services/provider-usage'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -105,7 +105,7 @@ async function handleProxy(
   let payload: ReturnType<typeof verifyGatewayToken> | null = null
   let apiKey: string | null = null
   let allowExpiredGatewayTokenOpencodeFallback = false
-  let credentialSource: ProviderCredentialSource | null = null
+  let credentialSource: ProviderUsageCredentialSource | null = null
 
   if (token) {
     try {
@@ -149,6 +149,7 @@ async function handleProxy(
       if (providerId !== 'opencode') {
         return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
       }
+      credentialSource = 'default'
     } else {
       const payloadCredentialSource = payload.credentialSource ?? 'user'
       const credential = effectiveCredential.credential
