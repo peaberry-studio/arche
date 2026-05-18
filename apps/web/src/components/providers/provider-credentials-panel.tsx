@@ -189,7 +189,10 @@ export function ProviderCredentialsPanel({
           const isBusy = Boolean(providerBusy[provider.providerId])
           const isExpanded = Boolean(expandedProviders[provider.providerId])
           const canSave = Boolean(providerApiKeys[provider.providerId]?.trim())
+          const isInherited = provider.status === 'enabled' && provider.source === 'organization'
           const isInactive = provider.status === 'missing' || provider.status === 'disabled'
+          const rotateLabel = provider.source === 'user' ? 'Rotate override' : 'Rotate key'
+          const removeLabel = provider.source === 'user' ? 'Remove override' : 'Disable'
 
           if (isInactive && !isExpanded) {
             return (
@@ -207,6 +210,36 @@ export function ProviderCredentialsPanel({
                   }
                 >
                   Enable
+                </Button>
+              </div>
+            )
+          }
+
+          if (isInherited && !isExpanded) {
+            return (
+              <div key={provider.providerId} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/60 px-4 py-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-foreground">{getProviderLabel(provider.providerId)}</p>
+                    {provider.version ? (
+                      <span className="text-xs text-muted-foreground">v{provider.version}</span>
+                    ) : null}
+                    <Badge variant="secondary">Inherited</Badge>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Inherited from organization{provider.overrideStatus === 'disabled' ? '; user override removed' : ''}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={isBusy}
+                  onClick={() =>
+                    setExpandedProviders((current) => ({ ...current, [provider.providerId]: true }))
+                  }
+                >
+                  Set user override
                 </Button>
               </div>
             )
@@ -258,6 +291,58 @@ export function ProviderCredentialsPanel({
             )
           }
 
+          if (isInherited && isExpanded) {
+            return (
+              <div key={provider.providerId} className="space-y-3 rounded-xl border border-border/60 px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-foreground">{getProviderLabel(provider.providerId)}</p>
+                      {provider.version ? (
+                        <span className="text-xs text-muted-foreground">v{provider.version}</span>
+                      ) : null}
+                      <Badge variant="secondary">Inherited</Badge>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">Set a user override for this workspace.</p>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={isBusy}
+                    onClick={() => {
+                      setExpandedProviders((current) => ({ ...current, [provider.providerId]: false }))
+                      setProviderApiKeys((current) => ({ ...current, [provider.providerId]: '' }))
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Input
+                    type="password"
+                    value={providerApiKeys[provider.providerId] ?? ''}
+                    onChange={(event) =>
+                      setProviderApiKeys((current) => ({
+                        ...current,
+                        [provider.providerId]: event.target.value,
+                      }))
+                    }
+                    placeholder="Paste user override API key"
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={isBusy || !canSave}
+                    onClick={() => handleSaveProvider(provider.providerId)}
+                  >
+                    {isBusy ? 'Saving...' : 'Set user override'}
+                  </Button>
+                </div>
+              </div>
+            )
+          }
+
           if (!isExpanded) {
             return (
               <div key={provider.providerId} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/60 px-4 py-3">
@@ -266,7 +351,7 @@ export function ProviderCredentialsPanel({
                   {provider.version ? (
                     <span className="text-xs text-muted-foreground">v{provider.version}</span>
                   ) : null}
-                  <Badge variant="default">Enabled</Badge>
+                  <Badge variant="default">User override</Badge>
                 </div>
                 <div className="flex items-center gap-2">
                   <Button
@@ -278,7 +363,7 @@ export function ProviderCredentialsPanel({
                       setExpandedProviders((current) => ({ ...current, [provider.providerId]: true }))
                     }
                   >
-                    Rotate key
+                    {rotateLabel}
                   </Button>
                   <Button
                     type="button"
@@ -287,7 +372,7 @@ export function ProviderCredentialsPanel({
                     disabled={isBusy}
                     onClick={() => handleDisableProvider(provider.providerId)}
                   >
-                    {isBusy ? 'Disabling...' : 'Disable'}
+                    {isBusy ? 'Removing...' : removeLabel}
                   </Button>
                 </div>
               </div>
@@ -302,7 +387,7 @@ export function ProviderCredentialsPanel({
                   {provider.version ? (
                     <span className="text-xs text-muted-foreground">v{provider.version}</span>
                   ) : null}
-                  <Badge variant="default">Enabled</Badge>
+                  <Badge variant="default">User override</Badge>
                 </div>
                 <Button
                   type="button"
@@ -335,7 +420,7 @@ export function ProviderCredentialsPanel({
                   disabled={isBusy || !canSave}
                   onClick={() => handleSaveProvider(provider.providerId)}
                 >
-                  {isBusy ? 'Saving...' : 'Rotate key'}
+                  {isBusy ? 'Saving...' : rotateLabel}
                 </Button>
               </div>
             </div>

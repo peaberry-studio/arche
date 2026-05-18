@@ -16,9 +16,13 @@ const mocks = vi.hoisted(() => ({
     markRunFailed: vi.fn(),
     markRunSucceeded: vi.fn(),
   },
+  providerUsageService: { recordProviderRunUsage: vi.fn() },
   decryptPassword: vi.fn(() => 'secret'),
   getInstanceUrl: vi.fn(() => 'http://test-slug:3000'),
+  ensureProviderAccessFreshForExecution: vi.fn(),
   getWorkspaceAgentUrl: vi.fn(() => 'http://agent:3000'),
+  getEffectiveCredentialForUser: vi.fn(),
+  isProviderId: vi.fn((id: string) => ['openai', 'anthropic', 'fireworks', 'openrouter', 'opencode'].includes(id)),
   normalizeProviderId: vi.fn((id: string) => id),
   resolveRuntimeProviderId: vi.fn((id: string) => id),
 
@@ -65,14 +69,18 @@ vi.mock('@/lib/runtime/desktop/token', () => ({
 vi.mock('@/lib/services', () => ({
   instanceService: mocks.instanceService,
   messageRunService: mocks.messageRunService,
+  providerUsageService: mocks.providerUsageService,
 }))
 vi.mock('@/lib/spawner/crypto', () => ({ decryptPassword: mocks.decryptPassword }))
 vi.mock('@/lib/opencode/client', () => ({ getInstanceUrl: mocks.getInstanceUrl }))
+vi.mock('@/lib/opencode/providers', () => ({ ensureProviderAccessFreshForExecution: mocks.ensureProviderAccessFreshForExecution }))
 vi.mock('@/lib/workspace-agent/client', () => ({ getWorkspaceAgentUrl: mocks.getWorkspaceAgentUrl }))
 vi.mock('@/lib/providers/catalog', () => ({
+  isProviderId: mocks.isProviderId,
   normalizeProviderId: mocks.normalizeProviderId,
   resolveRuntimeProviderId: mocks.resolveRuntimeProviderId,
 }))
+vi.mock('@/lib/providers/store', () => ({ getEffectiveCredentialForUser: mocks.getEffectiveCredentialForUser }))
 vi.mock('@/lib/attachments/pdf-text-extractor', () => ({
   extractPdfText: mocks.extractPdfText,
   isPdfMime: mocks.isPdfMime,
@@ -116,7 +124,13 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     mocks.validateDesktopToken.mockReturnValue(true)
     mocks.decryptPassword.mockReturnValue('secret')
     mocks.getInstanceUrl.mockReturnValue('http://test-slug:3000')
+    mocks.ensureProviderAccessFreshForExecution.mockResolvedValue(undefined)
     mocks.getWorkspaceAgentUrl.mockReturnValue('http://agent:3000')
+    mocks.getEffectiveCredentialForUser.mockResolvedValue({
+      source: 'user',
+      credential: { id: 'cred-1', type: 'api', secret: 'enc', version: 1 },
+    })
+    mocks.isProviderId.mockImplementation((id: string) => ['openai', 'anthropic', 'fireworks', 'openrouter', 'opencode'].includes(id))
     mocks.normalizeProviderId.mockImplementation((id: string) => id)
     mocks.resolveRuntimeProviderId.mockImplementation((id: string) => id)
     mocks.extractPdfText.mockReset()
@@ -171,6 +185,7 @@ describe('POST /api/w/[slug]/chat/stream', () => {
     mocks.messageRunService.markRunAborted.mockResolvedValue(undefined)
     mocks.messageRunService.markRunFailed.mockResolvedValue(undefined)
     mocks.messageRunService.markRunSucceeded.mockResolvedValue(undefined)
+    mocks.providerUsageService.recordProviderRunUsage.mockResolvedValue({ ok: true, recorded: true })
   })
 
   function makePostRequest(body: unknown, slug = 'alice', signal?: AbortSignal) {

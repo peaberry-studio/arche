@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   syncProviderAccessForInstance: vi.fn().mockResolvedValue({ ok: true }),
 
   replaceApiCredential: vi.fn().mockResolvedValue({ id: 'cred-1', type: 'api', version: 1 }),
+  replaceOrganizationApiCredential: vi.fn(),
 
   userService: {
     findIdBySlug: vi.fn().mockResolvedValue({ id: 'u-1' }),
@@ -40,7 +41,10 @@ vi.mock('@/lib/runtime/desktop/token', () => ({
 
 vi.mock('@/lib/opencode/client', () => ({ getInstanceUrl: mocks.getInstanceUrl }))
 vi.mock('@/lib/opencode/providers', () => ({ syncProviderAccessForInstance: mocks.syncProviderAccessForInstance }))
-vi.mock('@/lib/providers/store', () => ({ replaceApiCredential: mocks.replaceApiCredential }))
+vi.mock('@/lib/providers/store', () => ({
+  replaceApiCredential: mocks.replaceApiCredential,
+  replaceOrganizationApiCredential: mocks.replaceOrganizationApiCredential,
+}))
 vi.mock('@/lib/spawner/crypto', () => ({ decryptPassword: mocks.decryptPassword }))
 vi.mock('@/lib/services', () => ({
   providerService: mocks.providerService,

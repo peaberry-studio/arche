@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const touchActivityMock = vi.fn()
+const recordProviderRunUsageMock = vi.fn()
+const getEffectiveCredentialForUserMock = vi.fn()
 
 vi.mock('@/lib/opencode/client', () => ({
   createInstanceClient: vi.fn(),
@@ -14,6 +16,16 @@ vi.mock('@/lib/services', () => ({
   instanceService: {
     touchActivity: (...args: unknown[]) => touchActivityMock(...args),
   },
+  messageRunService: {
+    createActiveRunAfterRuntimeStateCheck: vi.fn(),
+  },
+  providerUsageService: {
+    recordProviderRunUsage: (...args: unknown[]) => recordProviderRunUsageMock(...args),
+  },
+}))
+
+vi.mock('@/lib/providers/store', () => ({
+  getEffectiveCredentialForUser: (...args: unknown[]) => getEffectiveCredentialForUserMock(...args),
 }))
 
 vi.mock('@/lib/spawner/core', () => ({
@@ -25,6 +37,11 @@ describe('session-execution extended', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     touchActivityMock.mockResolvedValue(undefined)
+    recordProviderRunUsageMock.mockResolvedValue({ ok: true, recorded: true })
+    getEffectiveCredentialForUserMock.mockResolvedValue({
+      source: 'user',
+      credential: { id: 'cred-1', type: 'api', secret: 'enc', version: 1 },
+    })
   })
 
   describe('ensureWorkspaceRunningForExecution', () => {

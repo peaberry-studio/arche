@@ -1,11 +1,14 @@
 import Link from 'next/link'
 
 import { ThemePicker } from '@/components/dashboard/theme-picker'
+import { OrganizationProviderCredentialsPanel } from '@/components/providers/organization-provider-credentials-panel'
+import { UsageAnalyticsPanel } from '@/components/providers/usage-analytics-panel'
 import { GoogleWorkspaceIntegrationSummaryCard } from '@/components/settings/google-workspace-integration-summary-card'
 import { KbGithubRemoteSummaryCard } from '@/components/settings/kb-github-remote-summary-card'
 import { SettingsLogoutButton } from '@/components/settings/settings-logout-button'
 import { SettingsSection } from '@/components/settings/settings-section'
 import { SlackIntegrationSummaryCard } from '@/components/settings/slack-integration-summary-card'
+import { TeamPageClient } from '@/components/team/team-page-client'
 import type { GoogleWorkspaceIntegrationSummary } from '@/lib/google-workspace/types'
 import type { KbGithubRemoteIntegrationSummary } from '@/lib/kb-github-remote/types'
 import type { SlackIntegrationSummary } from '@/lib/slack/types'
@@ -21,6 +24,9 @@ type SettingsPageContentProps = {
   slug: string
   availableSections: SettingsSectionName[]
   currentSection: SettingsSectionName
+  isAdmin: boolean
+  currentUserId: string
+  canManageUsers: boolean
   passwordChangeEnabled: boolean
   twoFactorEnabled: boolean
   enabled: boolean
@@ -36,6 +42,9 @@ export function SettingsPageContent({
   slug,
   availableSections,
   currentSection,
+  isAdmin,
+  currentUserId,
+  canManageUsers,
   passwordChangeEnabled,
   twoFactorEnabled,
   enabled,
@@ -122,6 +131,34 @@ export function SettingsPageContent({
               <KbGithubRemoteSummaryCard slug={slug} integration={kbGithubRemoteSummary} />
             ) : null}
           </div>
+        )
+      case 'providers':
+        return (
+          <SettingsSection
+            title="Global Organization-wide Providers"
+            description="Set deployment-wide AI provider credentials inherited by users without overrides. Existing keys are never displayed."
+          >
+            <OrganizationProviderCredentialsPanel slug={slug} />
+          </SettingsSection>
+        )
+      case 'analytics':
+        return (
+          <SettingsSection
+            title="Usage & Analytics"
+            description="Track provider requests, errors, runs, tokens, costs, sessions, and audit activity. Prompts and responses are not captured."
+          >
+            <UsageAnalyticsPanel slug={slug} />
+          </SettingsSection>
+        )
+      case 'team':
+        return (
+          <TeamPageClient
+            slug={slug}
+            isAdmin={isAdmin}
+            currentUserId={currentUserId}
+            canManageUsers={canManageUsers}
+            embedded
+          />
         )
       case 'security':
         return (

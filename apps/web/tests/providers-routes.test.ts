@@ -27,6 +27,7 @@ vi.mock('@/lib/spawner/crypto', () => ({
 const mockFindUnique = vi.fn()
 const mockFindFirst = vi.fn()
 const mockFindMany = vi.fn()
+const mockFindOrganizationMany = vi.fn()
 const mockUpdateMany = vi.fn()
 const mockCreate = vi.fn()
 const mockTransaction = vi.fn()
@@ -44,6 +45,9 @@ vi.mock('@/lib/prisma', () => ({
       findMany: (...args: unknown[]) => mockFindMany(...args),
       updateMany: (...args: unknown[]) => mockUpdateMany(...args),
       create: (...args: unknown[]) => mockCreate(...args),
+    },
+    organizationProviderCredential: {
+      findMany: (...args: unknown[]) => mockFindOrganizationMany(...args),
     },
   },
 }))
@@ -108,6 +112,7 @@ describe('GET /api/u/[slug]/providers', () => {
     vi.clearAllMocks()
     vi.resetModules()
     mockSyncProviderAccessForInstance.mockResolvedValue({ ok: true })
+    mockFindOrganizationMany.mockResolvedValue([])
     mockDecryptPassword.mockImplementation((value: string) => value.replace(/^enc:/, ''))
     mockEncryptPassword.mockImplementation((value: string) => `enc:${value}`)
     mockTransaction.mockImplementation(async (callback: (tx: ReturnType<typeof createProviderTransactionClient>) => unknown) =>
@@ -148,7 +153,14 @@ describe('GET /api/u/[slug]/providers', () => {
     const { status, body } = await callGetProviders('alice')
     expect(status).toBe(200)
     expect(body.providers).toEqual([
-      { providerId: 'openai', status: 'enabled', type: 'api', version: 2 },
+      {
+        providerId: 'openai',
+        status: 'enabled',
+        source: 'user',
+        overrideStatus: 'enabled',
+        type: 'api',
+        version: 2,
+      },
       { providerId: 'anthropic', status: 'missing' },
       { providerId: 'fireworks', status: 'missing' },
       { providerId: 'openrouter', status: 'missing' },

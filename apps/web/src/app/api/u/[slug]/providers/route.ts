@@ -9,6 +9,8 @@ export type ProviderListStatus = 'enabled' | 'disabled' | 'missing'
 export interface ProviderListItem {
   providerId: ProviderId
   status: ProviderListStatus
+  source?: 'user' | 'organization'
+  overrideStatus?: ProviderListStatus
   type?: string
   version?: number
 }
@@ -24,7 +26,10 @@ export const GET = withAuth<ProviderListResponse | { error: string }>(
       return NextResponse.json({ error: 'user_not_found' }, { status: 404 })
     }
 
-    const credentials = await providerService.findCredentialsByUserAndProviders(user.id, [...PROVIDERS])
+    const [credentials, organizationCredentials] = await Promise.all([
+      providerService.findCredentialsByUserAndProviders(user.id, [...PROVIDERS]),
+      providerService.findOrganizationCredentialsByProviders([...PROVIDERS]),
+    ])
 
     const latestByProvider = new Map<ProviderId, (typeof credentials)[number]>()
     for (const credential of credentials) {
@@ -34,18 +39,53 @@ export const GET = withAuth<ProviderListResponse | { error: string }>(
       }
     }
 
+    const latestOrganizationByProvider = new Map<ProviderId, (typeof organizationCredentials)[number]>()
+    for (const credential of organizationCredentials) {
+      const providerId = credential.providerId as ProviderId
+      if (!latestOrganizationByProvider.has(providerId)) {
+        latestOrganizationByProvider.set(providerId, credential)
+      }
+    }
+
     const providers = PROVIDERS.map((providerId) => {
       const credential = latestByProvider.get(providerId)
-      if (!credential) {
-        return { providerId, status: 'missing' as const }
+      const organizationCredential = latestOrganizationByProvider.get(providerId)
+      const overrideStatus = credential?.status as ProviderListStatus | undefined
+
+      if (credential?.status === 'enabled') {
+        return {
+          providerId,
+          status: 'enabled' as const,
+          source: 'user' as const,
+          overrideStatus,
+          type: credential.type ?? undefined,
+          version: credential.version ?? undefined,
+        }
       }
 
-      return {
-        providerId,
-        status: credential.status as ProviderListStatus,
-        type: credential.type ?? undefined,
-        version: credential.version ?? undefined,
+      if (organizationCredential?.status === 'enabled') {
+        return {
+          providerId,
+          status: 'enabled' as const,
+          source: 'organization' as const,
+          overrideStatus,
+          type: organizationCredential.type ?? undefined,
+          version: organizationCredential.version ?? undefined,
+        }
       }
+
+      if (credential) {
+        return {
+          providerId,
+          status: credential.status as ProviderListStatus,
+          source: 'user' as const,
+          overrideStatus,
+          type: credential.type ?? undefined,
+          version: credential.version ?? undefined,
+        }
+      }
+
+      return { providerId, status: 'missing' as const }
     })
 
     return NextResponse.json({ providers })

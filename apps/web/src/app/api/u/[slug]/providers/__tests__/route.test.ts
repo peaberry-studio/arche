@@ -7,7 +7,10 @@ const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
   validateSameOrigin: vi.fn(() => ({ ok: true })),
   validateDesktopToken: vi.fn(() => true),
-  providerService: { findCredentialsByUserAndProviders: vi.fn() },
+  providerService: {
+    findCredentialsByUserAndProviders: vi.fn(),
+    findOrganizationCredentialsByProviders: vi.fn(),
+  },
   userService: { findIdBySlug: vi.fn() },
 }))
 
@@ -45,6 +48,7 @@ describe('GET /api/u/[slug]/providers', () => {
     mocks.getSession.mockResolvedValue(SESSION)
     mocks.userService.findIdBySlug.mockResolvedValue({ id: 'u1' })
     mocks.providerService.findCredentialsByUserAndProviders.mockResolvedValue([])
+    mocks.providerService.findOrganizationCredentialsByProviders.mockResolvedValue([])
   })
 
   it('returns providers list with missing status when no credentials', async () => {

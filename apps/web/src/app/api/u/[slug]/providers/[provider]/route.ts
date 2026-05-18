@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-import { auditEvent } from '@/lib/auth'
-import { getInstanceUrl } from '@/lib/opencode/client'
-import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
-import { replaceApiCredential } from '@/lib/providers/store'
-import { PROVIDERS, type ProviderId } from '@/lib/providers/types'
+import { isProviderId } from '@/lib/providers/catalog'
+import {
+  disableUserProviderApiCredential,
+  replaceUserProviderApiCredential,
+} from '@/lib/providers/credential-mutations'
+import type { ProviderId } from '@/lib/providers/types'
 import { withAuth } from '@/lib/runtime/with-auth'
-import { instanceService, providerService, userService } from '@/lib/services'
-import { decryptPassword } from '@/lib/spawner/crypto'
+import { userService } from '@/lib/services'
 
 export interface CreateProviderCredentialRequest {
   apiKey: string
@@ -30,45 +30,6 @@ export interface DisableProviderCredentialResponse {
   ok: true
   status: 'disabled' | 'missing'
   restartRequired: boolean
-}
-
-function isProviderId(value: string): value is ProviderId {
-  return PROVIDERS.includes(value as ProviderId)
-}
-
-async function syncProviderAccessBestEffort(slug: string, userId: string): Promise<boolean> {
-  try {
-    const instance = await instanceService.findCredentialsBySlug(slug)
-
-    if (!instance || instance.status !== 'running') {
-      await providerService.clearWorkspaceRestartRequired(userId)
-      return false
-    }
-
-    const password = decryptPassword(instance.serverPassword)
-
-    const result = await syncProviderAccessForInstance({
-      instance: {
-        baseUrl: getInstanceUrl(slug),
-        authHeader: `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}`,
-      },
-      slug,
-      userId,
-    })
-    if (!result.ok && result.error !== 'instance_unavailable') {
-      console.error('[providers] Failed to sync provider access', result.error)
-      await providerService.markWorkspaceRestartRequired(userId)
-      return true
-    }
-
-    await providerService.clearWorkspaceRestartRequired(userId)
-  } catch (error) {
-    console.error('[providers] Failed to sync provider access', error)
-    await providerService.markWorkspaceRestartRequired(userId)
-    return true
-  }
-
-  return false
 }
 
 async function getProviderMutationContext(
@@ -149,19 +110,14 @@ export const POST = withAuth<
     )
   }
 
-  const credential = await replaceApiCredential({
-    userId: context.targetUserId,
+  const result = await replaceUserProviderApiCredential({
+    actorUserId: context.sessionUserId,
     providerId: context.provider,
     apiKey,
+    targetSlug: context.targetSlug,
+    targetUserId: context.targetUserId,
   })
-
-  const restartRequired = await syncProviderAccessBestEffort(context.targetSlug, context.targetUserId)
-
-  await auditEvent({
-    actorUserId: context.sessionUserId,
-    action: 'provider_credential.created',
-    metadata: { providerId: context.provider, credentialId: credential.id },
-  })
+  const { credential } = result
 
   return NextResponse.json(
     {
@@ -172,7 +128,7 @@ export const POST = withAuth<
         status: 'enabled',
         version: credential.version,
       },
-      restartRequired,
+      restartRequired: result.restartRequired,
     },
     { status: 201 }
   )
@@ -187,23 +143,16 @@ export const DELETE = withAuth<
     return context.response
   }
 
-  const result = await providerService.disableEnabledForProvider(context.targetUserId, context.provider)
-
-  const restartRequired = await syncProviderAccessBestEffort(context.targetSlug, context.targetUserId)
-
-  await auditEvent({
+  const result = await disableUserProviderApiCredential({
     actorUserId: context.sessionUserId,
-    action: 'provider_credential.disabled',
-    metadata: {
-      providerId: context.provider,
-      disabledCount: result.count,
-      targetSlug: context.targetSlug,
-    },
+    providerId: context.provider,
+    targetSlug: context.targetSlug,
+    targetUserId: context.targetUserId,
   })
 
   return NextResponse.json({
     ok: true,
-    restartRequired,
-    status: result.count > 0 ? 'disabled' : 'missing',
+    restartRequired: result.restartRequired,
+    status: result.disabledCount > 0 ? 'disabled' : 'missing',
   })
 })
