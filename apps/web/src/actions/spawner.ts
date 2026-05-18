@@ -85,29 +85,22 @@ export async function ensureInstanceRunningAction(slug: string): Promise<{
   status: 'running' | 'starting' | 'error'
   error?: string
 }> {
-  console.log('[ensureInstanceRunning] Starting for slug:', slug)
-
   try {
     const session = await getSession()
     if (!session) {
-      console.log('[ensureInstanceRunning] No session - unauthorized')
       return { status: 'error', error: 'unauthorized' }
     }
-    console.log('[ensureInstanceRunning] Session user:', session.user.slug, 'role:', session.user.role)
 
     if (session.user.slug !== slug && session.user.role !== 'ADMIN') {
-      console.log('[ensureInstanceRunning] Forbidden - slug mismatch')
       return { status: 'error', error: 'forbidden' }
     }
 
     const kickstartStatus = await getKickstartStatus()
     if (kickstartStatus !== 'ready') {
-      console.log('[ensureInstanceRunning] Kickstart setup required')
       return { status: 'error', error: 'setup_required' }
     }
 
     const instance = await getWorkspaceStatus(slug)
-    console.log('[ensureInstanceRunning] Current instance status:', instance?.status ?? 'none')
 
     if (instance?.status === 'running') {
       const syncUserId =
@@ -146,9 +139,7 @@ export async function ensureInstanceRunningAction(slug: string): Promise<{
       return { status: 'starting' }
     }
 
-    console.log('[ensureInstanceRunning] Starting instance...')
     const result = await startWorkspace(slug, session.user.id)
-    console.log('[ensureInstanceRunning] Start result:', result)
 
     if (!result.ok) {
       return { status: 'error', error: result.detail ?? result.error }

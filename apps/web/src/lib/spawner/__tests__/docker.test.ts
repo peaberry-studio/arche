@@ -156,6 +156,13 @@ describe('docker', () => {
             '/opt/arche/kb-content:/kb-content',
             '/opt/arche/users/user-slug:/tmp/arche-user-data:ro',
           ],
+          LogConfig: {
+            Type: 'json-file',
+            Config: {
+              'max-size': '10m',
+              'max-file': '3',
+            },
+          },
         },
         Labels: {
           'arche.managed': 'true',

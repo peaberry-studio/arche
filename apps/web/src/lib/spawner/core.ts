@@ -283,20 +283,12 @@ async function waitForHealthy(containerId: string, slug: string, password: strin
 
     if (directBaseUrl === undefined) {
       directBaseUrl = await getContainerHealthBaseUrl(containerId)
-      if (directBaseUrl) {
-        console.log('[spawner] Using direct container IP for initial healthcheck', {
-          baseUrl: directBaseUrl,
-          containerId,
-          slug,
-        })
-      }
     }
 
     if (directBaseUrl && !directHealthy) {
       const directHealth = await isInstanceHealthyWithPassword(slug, password, directBaseUrl)
       if (directHealth.ok) {
         directHealthy = true
-        console.log('[spawner] OpenCode responded on direct container IP', { containerId, slug })
       } else {
         lastHealth = directHealth
       }

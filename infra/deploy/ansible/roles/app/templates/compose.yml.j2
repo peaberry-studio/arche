@@ -5,10 +5,17 @@
 
 name: arche
 
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   traefik:
     image: docker.io/traefik:v3.6.7
     restart: "on-failure:5"
+    logging: *default-logging
     command:
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
@@ -58,6 +65,7 @@ services:
   cloudflared:
     image: {{ cloudflared_image }}
     restart: "on-failure:5"
+    logging: *default-logging
     command:
       - tunnel
       - --no-autoupdate
@@ -73,6 +81,7 @@ services:
   docker-socket-proxy:
     image: ghcr.io/tecnativa/docker-socket-proxy:latest
     restart: "on-failure:5"
+    logging: *default-logging
 {% if deploy_mode == 'local-dev' %}
     user: root
     security_opt:
@@ -98,6 +107,7 @@ services:
   postgres:
     image: docker.io/postgres:16
     restart: "on-failure:5"
+    logging: *default-logging
     environment:
       POSTGRES_DB: arche
       POSTGRES_USER: postgres
@@ -142,6 +152,7 @@ services:
   reaper:
     image: {{ web_image }}
     restart: "on-failure:5"
+    logging: *default-logging
     command:
       - pnpm
       - run
@@ -164,6 +175,7 @@ services:
   flows:
     image: {{ web_image }}
     restart: "unless-stopped"
+    logging: *default-logging
     command:
       - pnpm
       - run
@@ -199,6 +211,7 @@ services:
     image: node:24.14.0-bookworm-slim
     working_dir: /app
     restart: "unless-stopped"
+    logging: *default-logging
     env_file:
       - {{ env_file_name | default('.env') }}
     ports:

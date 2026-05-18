@@ -7,6 +7,11 @@ import { WORKSPACE_ATTACHMENTS_DIR } from "@/lib/workspace-attachments";
  */
 const HIDDEN_PART_TYPES = new Set(["snapshot", "compaction"]);
 
+// Track which unknown part types we have already logged so each new kind only
+// fires once per process. Without this, a single unrecognized part type would
+// log the full object on every streamed message and rapidly fill disk.
+const loggedUnknownPartTypes = new Set<string>();
+
 function resolveFilePartPath(sourcePath: string | undefined, fileUrl: string | undefined): string | undefined {
   if (sourcePath) {
     return sourcePath;
@@ -238,8 +243,13 @@ export function transformParts(parts: unknown[]): MessagePart[] {
         }
 
         default: {
-          // Unknown type - preserve as fallback for debugging
-          console.log("[transformParts] Unknown part type:", partType, part);
+          // Unknown type - preserve as fallback for debugging.
+          // Log only once per kind to avoid flooding logs during streaming.
+          const kind = typeof partType === "string" ? partType : "non-string";
+          if (!loggedUnknownPartTypes.has(kind)) {
+            loggedUnknownPartTypes.add(kind);
+            console.warn("[transformParts] Unknown part type:", kind);
+          }
           const normalizedData = normalizeSerializableValue(part);
           return {
             type: "unknown" as const,
