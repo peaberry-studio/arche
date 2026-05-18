@@ -16,7 +16,6 @@ import {
   Plugs,
   Robot,
   SquaresFour,
-  UsersThree,
   X,
   type Icon,
 } from '@phosphor-icons/react'
@@ -54,7 +53,6 @@ function getWebNavItems(slug: string): DashboardNavItem[] {
     { label: 'Skills', href: `${base}/skills`, icon: Lightning },
     { label: 'Flows', href: `${base}/flows`, icon: GitBranch },
     { label: 'Connectors', href: `${base}/connectors`, icon: Plugs },
-    { label: 'Team', href: `${base}/team`, icon: UsersThree },
     { label: 'Settings', href: `${base}/settings`, icon: GearSix },
   ]
 }

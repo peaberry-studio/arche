@@ -20,6 +20,7 @@ describe('DashboardNav', () => {
 
     expect(screen.getByRole('link', { name: /knowledge/i }).getAttribute('href')).toBe('/w/admin?mode=knowledge')
     expect(screen.getByRole('link', { name: /open workspace/i }).getAttribute('href')).toBe('/w/admin')
+    expect(screen.queryByRole('link', { name: 'Team' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Log out' })).toBeNull()
   })
 

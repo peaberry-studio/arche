@@ -33,6 +33,20 @@ vi.mock('@/components/settings/google-workspace-integration-summary-card', () =>
   ),
 }))
 
+vi.mock('@/components/team/team-page-client', () => ({
+  TeamPageClient: (props: {
+    canManageUsers: boolean
+    currentUserId: string
+    embedded?: boolean
+    isAdmin: boolean
+    slug: string
+  }) => (
+    <div>
+      Team page {props.slug} {props.currentUserId} {String(props.isAdmin)} {String(props.canManageUsers)} {String(props.embedded)}
+    </div>
+  ),
+}))
+
 describe('SettingsPageContent', () => {
   afterEach(() => {
     cleanup()
@@ -44,6 +58,9 @@ describe('SettingsPageContent', () => {
         slug="alice"
         availableSections={['general', 'integrations', 'security']}
         currentSection="integrations"
+        isAdmin={true}
+        currentUserId="admin-1"
+        canManageUsers={true}
         passwordChangeEnabled={true}
         twoFactorEnabled={true}
         enabled={false}
@@ -94,6 +111,9 @@ describe('SettingsPageContent', () => {
         slug="alice"
         availableSections={['general', 'security']}
         currentSection="general"
+        isAdmin={false}
+        currentUserId="user-1"
+        canManageUsers={false}
         passwordChangeEnabled={true}
         twoFactorEnabled={true}
         enabled={false}
@@ -118,6 +138,9 @@ describe('SettingsPageContent', () => {
         slug="alice"
         availableSections={['general', 'integrations', 'security']}
         currentSection="integrations"
+        isAdmin={true}
+        currentUserId="admin-1"
+        canManageUsers={true}
         passwordChangeEnabled={true}
         twoFactorEnabled={true}
         enabled={false}
@@ -138,5 +161,29 @@ describe('SettingsPageContent', () => {
     expect(screen.getByRole('link', { name: 'Integrations' })).toBeTruthy()
     expect(screen.queryByText('Slack integration')).toBeNull()
     expect(screen.getByText('Google Workspace integration Configured')).toBeTruthy()
+  })
+
+  it('renders the team section inside settings', () => {
+    render(
+      <SettingsPageContent
+        slug="alice"
+        availableSections={['general', 'team', 'security']}
+        currentSection="team"
+        isAdmin={true}
+        currentUserId="admin-1"
+        canManageUsers={true}
+        passwordChangeEnabled={true}
+        twoFactorEnabled={true}
+        enabled={false}
+        verifiedAt={null}
+        recoveryCodesRemaining={0}
+        releaseVersion="03"
+        slackIntegrationSummary={null}
+        googleWorkspaceSummary={null}
+      />,
+    )
+
+    expect(screen.getByRole('link', { name: 'Team' }).getAttribute('href')).toBe('/u/alice/settings?section=team')
+    expect(screen.getByText('Team page alice admin-1 true true true')).toBeTruthy()
   })
 })

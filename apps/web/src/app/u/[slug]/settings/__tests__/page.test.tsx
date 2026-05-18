@@ -10,7 +10,10 @@ type CapturedSettingsPageProps = {
   currentSection: string
   enabled: boolean
   googleWorkspaceSummary: unknown
+  isAdmin: boolean
   kbGithubRemoteSummary: unknown
+  canManageUsers: boolean
+  currentUserId: string
   passwordChangeEnabled: boolean
   recoveryCodesRemaining: number
   releaseVersion: string
@@ -105,9 +108,10 @@ describe('SettingsPage', () => {
     isDesktopMock.mockReturnValue(false)
     getCurrentDesktopVaultMock.mockReturnValue(null)
     getDesktopWorkspaceHrefMock.mockReturnValue('/w/local?settings=appearance')
-    getSessionMock.mockResolvedValue({ user: { role: 'ADMIN', slug: 'alice' } })
+    getSessionMock.mockResolvedValue({ user: { id: 'admin-1', role: 'ADMIN', slug: 'alice' } })
     getRuntimeCapabilitiesMock.mockReturnValue({
       auth: true,
+      teamManagement: true,
       googleWorkspaceIntegration: true,
       kbGithubRemoteIntegration: true,
       slackIntegration: true,
@@ -168,8 +172,10 @@ describe('SettingsPage', () => {
 
     expect(screen.getByText('Settings page content alice integrations')).toBeTruthy()
     expect(settingsPageProps.current).toMatchObject({
-      availableSections: ['general', 'providers', 'analytics', 'integrations', 'security'],
+      availableSections: ['general', 'providers', 'analytics', 'team', 'integrations', 'security'],
+      canManageUsers: true,
       currentSection: 'integrations',
+      currentUserId: 'admin-1',
       enabled: true,
       googleWorkspaceSummary: {
         clientId: 'google-client',
@@ -179,6 +185,7 @@ describe('SettingsPage', () => {
         version: 3,
       },
       kbGithubRemoteSummary: { ready: true, repoFullName: 'acme/kb' },
+      isAdmin: true,
       passwordChangeEnabled: true,
       recoveryCodesRemaining: 4,
       releaseVersion: 'sha-123',
@@ -191,9 +198,10 @@ describe('SettingsPage', () => {
   })
 
   it('skips admin-only summaries for regular users', async () => {
-    getSessionMock.mockResolvedValue({ user: { role: 'USER', slug: 'alice' } })
+    getSessionMock.mockResolvedValue({ user: { id: 'user-1', role: 'USER', slug: 'alice' } })
     getRuntimeCapabilitiesMock.mockReturnValue({
       auth: false,
+      teamManagement: true,
       googleWorkspaceIntegration: true,
       kbGithubRemoteIntegration: true,
       slackIntegration: true,
@@ -203,8 +211,11 @@ describe('SettingsPage', () => {
     render(await renderSettingsPage({ section: 'integrations' }))
 
     expect(settingsPageProps.current).toMatchObject({
-      availableSections: ['general'],
+      availableSections: ['general', 'team'],
+      canManageUsers: true,
       currentSection: 'general',
+      currentUserId: 'user-1',
+      isAdmin: false,
       passwordChangeEnabled: false,
       releaseVersion: 'dev',
       twoFactorEnabled: false,
