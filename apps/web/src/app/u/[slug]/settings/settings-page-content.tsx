@@ -31,7 +31,7 @@ type SettingsPageContentProps = {
   mcpEnabled: boolean
   mcpConfigError: string | null
   canManageMcp: boolean
-  mcpBaseUrl: string
+  mcpBaseUrl: string | null
   personalAccessTokens: PersonalAccessTokenItem[]
   releaseVersion: string
   slackIntegrationSummary: SlackIntegrationSummary | null

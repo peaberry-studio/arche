@@ -33,7 +33,7 @@ export const MCP_SCOPE_OPTIONS: Array<{
     value: MCP_SCOPE_AGENTS_READ,
   },
   {
-    description: 'List and trigger Arche Autopilot tasks.',
+    description: 'List and trigger automated Arche flows.',
     label: 'Tasks run',
     value: MCP_SCOPE_TASKS_RUN,
   },

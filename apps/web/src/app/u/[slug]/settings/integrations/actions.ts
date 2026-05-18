@@ -13,11 +13,15 @@ import {
   type McpScope,
 } from '@/lib/mcp/scopes'
 import { readMcpSettings, writeMcpSettings } from '@/lib/mcp/settings'
+import { checkRateLimit } from '@/lib/rate-limit'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { getSession } from '@/lib/runtime/session'
 import { patService } from '@/lib/services'
 
+const MAX_ACTIVE_PAT_COUNT = 10
 const MAX_PAT_TTL_DAYS = 90
+const PAT_CREATION_RATE_LIMIT_MAX = 5
+const PAT_CREATION_RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000
 const PAT_SCOPES = [...DEFAULT_MCP_PAT_SCOPES].sort((left, right) => left.localeCompare(right))
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -109,9 +113,24 @@ export async function createPersonalAccessToken(input: {
     return { ok: false, error: scopesResult.error }
   }
 
+  const createLimit = checkRateLimit(
+    `mcp:pat:create:${session.user.id}`,
+    PAT_CREATION_RATE_LIMIT_MAX,
+    PAT_CREATION_RATE_LIMIT_WINDOW_MS
+  )
+  if (!createLimit.allowed) {
+    return { ok: false, error: 'Too many token creation attempts. Please retry later.' }
+  }
+
+  const now = new Date()
+  const activeCount = await patService.countActiveByUserId(session.user.id, now)
+  if (activeCount >= MAX_ACTIVE_PAT_COUNT) {
+    return { ok: false, error: `You can have at most ${MAX_ACTIVE_PAT_COUNT} active MCP tokens` }
+  }
+
   const token = generatePat()
   const salt = generatePatSalt()
-  const expiresAt = new Date(Date.now() + expiresInDays * DAY_MS)
+  const expiresAt = new Date(now.getTime() + expiresInDays * DAY_MS)
 
   const record = await patService.create({
     userId: session.user.id,

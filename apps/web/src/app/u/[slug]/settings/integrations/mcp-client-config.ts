@@ -7,11 +7,12 @@ export type McpClientSetup = {
   label: string
   description: string
   mode: McpClientSetupMode
+  storesToken: boolean
   value: string
 }
 
 const MCP_SERVER_NAME = 'arche'
-const CODEX_TOKEN_ENV_VAR = 'ARCHE_MCP_TOKEN'
+const MCP_TOKEN_ENV_VAR = 'ARCHE_MCP_TOKEN'
 
 export function buildMcpClientSetup(
   preset: McpClientPreset,
@@ -35,9 +36,15 @@ export function buildMcpClientSetup(
       return {
         preset,
         label: 'Claude Code',
-        description: 'Run once in the project where you want Claude Code to use Arche.',
+        description: 'Run once in the project where you want Claude Code to use Arche. You will paste the token into a hidden prompt.',
         mode: 'command',
-        value: `claude mcp add-json ${MCP_SERVER_NAME} '${prettyJson}'`,
+        storesToken: true,
+        value: [
+          `read -rsp 'Arche MCP token: ' ${MCP_TOKEN_ENV_VAR}`,
+          `export ${MCP_TOKEN_ENV_VAR}`,
+          `printf '\\n'`,
+          `claude mcp add-json ${MCP_SERVER_NAME} ${shellQuote(prettyJson.replace(token, `'"$${MCP_TOKEN_ENV_VAR}"'`))}`,
+        ].join('\n'),
       }
     }
 
@@ -45,13 +52,16 @@ export function buildMcpClientSetup(
       return {
         preset,
         label: 'Codex',
-        description: 'Run in the same shell session you use to start Codex so the token env var is available.',
+        description: 'Run in the same shell session you use to start Codex. You will paste the token into a hidden prompt.',
         mode: 'command',
+        storesToken: false,
         value: [
-          `export ${CODEX_TOKEN_ENV_VAR}=${shellQuote(token)}`,
+          `read -rsp 'Arche MCP token: ' ${MCP_TOKEN_ENV_VAR}`,
+          `export ${MCP_TOKEN_ENV_VAR}`,
+          `printf '\\n'`,
           `codex mcp add ${MCP_SERVER_NAME} \\`,
           `  --url ${shellQuote(url)} \\`,
-          `  --bearer-token-env-var ${CODEX_TOKEN_ENV_VAR}`,
+          `  --bearer-token-env-var ${MCP_TOKEN_ENV_VAR}`,
         ].join('\n'),
       }
 
@@ -60,8 +70,9 @@ export function buildMcpClientSetup(
         preset,
         label: 'Cursor',
         description:
-          'Save as ~/.cursor/mcp.json (all projects) or .cursor/mcp.json in your project. Cursor reloads servers automatically.',
+          'Save as ~/.cursor/mcp.json (all projects) or .cursor/mcp.json in your project. This stores the bearer token in that file.',
         mode: 'config',
+        storesToken: true,
         value: `${JSON.stringify(
           {
             mcpServers: {
@@ -81,8 +92,9 @@ export function buildMcpClientSetup(
       return {
         preset,
         label: 'Manual',
-        description: 'Fallback JSON for any MCP client that accepts manual HTTP server configuration.',
+        description: 'Fallback JSON for any MCP client that accepts manual HTTP server configuration. This stores the bearer token in client config.',
         mode: 'config',
+        storesToken: true,
         value: `${JSON.stringify(
           {
             mcpServers: {

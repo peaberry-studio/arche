@@ -29,7 +29,7 @@ export async function listKbArticles(
       return { ok: false, error: 'invalid_path' }
     }
 
-    args.push(normalizedPath)
+    args.push('--', normalizedPath)
   }
 
   const result = await runGitOnBareRepo(getKbContentRoot(), args)

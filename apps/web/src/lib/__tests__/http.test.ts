@@ -1,6 +1,13 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
-import { firstHeaderValue, getClientIp, getPublicBaseUrl, stripPort } from '../http'
+import {
+  firstHeaderValue,
+  getClientIp,
+  getConfiguredPublicBaseUrl,
+  getPublicBaseUrl,
+  getTrustedPublicBaseUrl,
+  stripPort,
+} from '../http'
 
 describe('firstHeaderValue', () => {
   it('returns null for empty input', () => {
@@ -120,5 +127,49 @@ describe('getPublicBaseUrl', () => {
   it('defaults protocol to http when no fallback has a scheme', () => {
     const headers = new Headers({ host: 'localhost' })
     expect(getPublicBaseUrl(headers, 'bad-value')).toBe('http://localhost')
+  })
+})
+
+describe('getTrustedPublicBaseUrl', () => {
+  const originalBaseUrl = process.env.ARCHE_PUBLIC_BASE_URL
+
+  afterEach(() => {
+    if (originalBaseUrl === undefined) {
+      delete process.env.ARCHE_PUBLIC_BASE_URL
+    } else {
+      process.env.ARCHE_PUBLIC_BASE_URL = originalBaseUrl
+    }
+  })
+
+  it('uses the configured public base URL', () => {
+    process.env.ARCHE_PUBLIC_BASE_URL = 'https://app.example.com/'
+
+    expect(getConfiguredPublicBaseUrl()).toBe('https://app.example.com')
+    expect(getTrustedPublicBaseUrl(new Headers({ host: 'evil.example.com' }), 'http://localhost')).toBe(
+      'https://app.example.com'
+    )
+  })
+
+  it('allows local host fallback without trusting forwarded host', () => {
+    delete process.env.ARCHE_PUBLIC_BASE_URL
+    const headers = new Headers({
+      host: 'localhost:3000',
+      'x-forwarded-host': 'evil.example.com',
+      'x-forwarded-proto': 'https',
+    })
+
+    expect(getTrustedPublicBaseUrl(headers, 'http://localhost')).toBe('https://localhost:3000')
+  })
+
+  it('returns null for non-local hosts when no public base URL is configured', () => {
+    delete process.env.ARCHE_PUBLIC_BASE_URL
+
+    expect(getTrustedPublicBaseUrl(new Headers({ host: 'evil.example.com' }), 'http://localhost')).toBeNull()
+  })
+
+  it('falls back to the local fallback when no host is available', () => {
+    delete process.env.ARCHE_PUBLIC_BASE_URL
+
+    expect(getTrustedPublicBaseUrl(new Headers(), 'http://localhost')).toBe('http://localhost')
   })
 })

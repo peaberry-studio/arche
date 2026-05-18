@@ -249,7 +249,7 @@ function registerTools(
       'list_autopilot_tasks',
       {
         description:
-          'List automated Arche Autopilot tasks for this PAT user. Returns scheduling ' +
+          'List automated Arche flow tasks for this PAT user. Returns scheduling ' +
           'and latest-run metadata without exposing full task prompts.',
       },
       async () => toToolResult(await listAutopilotTasksForMcp({ user }))
@@ -259,7 +259,7 @@ function registerTools(
       'run_autopilot_task',
       {
         description:
-          'Trigger one of this PAT user\'s Arche Autopilot tasks to run now. ' +
+          'Trigger one of this PAT user\'s Arche flow tasks to run now. ' +
           'Returns not_found when the task does not belong to the token user.',
         inputSchema: {
           id: z.string().min(1),

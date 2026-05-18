@@ -2,7 +2,7 @@ import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 
 import type { GoogleWorkspaceIntegrationSummary } from '@/lib/google-workspace/types'
-import { getPublicBaseUrl } from '@/lib/http'
+import { getTrustedPublicBaseUrl } from '@/lib/http'
 import type { KbGithubRemoteIntegrationSummary } from '@/lib/kb-github-remote/types'
 import { readMcpSettings } from '@/lib/mcp/settings'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
@@ -38,8 +38,8 @@ export default async function SettingsPage({
   const caps = getRuntimeCapabilities()
   const requestHeaders = caps.mcp ? await headers() : null
   const baseUrl = requestHeaders
-    ? getPublicBaseUrl(new Headers(requestHeaders), 'http://localhost')
-    : 'http://localhost'
+    ? getTrustedPublicBaseUrl(new Headers(requestHeaders), 'http://localhost')
+    : null
   const [
     status,
     slackIntegrationSummary,

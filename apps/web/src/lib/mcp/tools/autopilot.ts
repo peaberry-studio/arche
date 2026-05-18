@@ -1,14 +1,16 @@
-import { triggerAutopilotTaskNow } from '@/lib/autopilot/runner'
+import { FlowRunTrigger } from '@prisma/client'
+
+import { triggerFlowNow } from '@/lib/flows/runner'
 import type { RuntimeUser } from '@/lib/runtime/types'
-import { autopilotService } from '@/lib/services'
-import type { AutopilotRunRecord, AutopilotTaskListRecord } from '@/lib/services/autopilot'
+import { flowService } from '@/lib/services'
+import type { FlowListRecord, FlowRunRecord } from '@/lib/services/flow'
 
 type AutopilotTaskForMcp = {
   id: string
   name: string
   enabled: boolean
   targetAgentId: string | null
-  nextRunAt: string
+  nextRunAt: string | null
   lastRunAt: string | null
   latestRun: AutopilotRunForMcp | null
 }
@@ -41,7 +43,7 @@ export async function listAutopilotTasksForMcp(
     return { ok: false, error: 'not_authenticated' }
   }
 
-  const tasks = await autopilotService.listTasksByUserId(input.user.id)
+  const tasks = await flowService.listFlowsByUserId(input.user.id)
   return {
     ok: true,
     tasks: tasks.map(serializeTask),
@@ -58,26 +60,36 @@ export async function runAutopilotTaskForMcp(
     return { ok: false, error: 'not_authenticated' }
   }
 
-  return triggerAutopilotTaskNow({
-    taskId: input.id,
-    trigger: 'manual',
+  const result = await triggerFlowNow({
+    flowId: input.id,
+    trigger: FlowRunTrigger.manual,
     userId: input.user.id,
   })
+
+  if (result.ok) {
+    return result
+  }
+
+  if (result.error === 'flow_busy') {
+    return { ok: false, error: 'task_busy' }
+  }
+
+  return { ok: false, error: 'not_found' }
 }
 
-function serializeTask(task: AutopilotTaskListRecord): AutopilotTaskForMcp {
+function serializeTask(task: FlowListRecord): AutopilotTaskForMcp {
   return {
     id: task.id,
     name: task.name,
     enabled: task.enabled,
-    targetAgentId: task.targetAgentId,
-    nextRunAt: task.nextRunAt.toISOString(),
+    targetAgentId: null,
+    nextRunAt: task.nextRunAt ? task.nextRunAt.toISOString() : null,
     lastRunAt: task.lastRunAt ? task.lastRunAt.toISOString() : null,
     latestRun: serializeRun(task.runs[0]),
   }
 }
 
-function serializeRun(run: AutopilotRunRecord | undefined): AutopilotRunForMcp | null {
+function serializeRun(run: FlowRunRecord | undefined): AutopilotRunForMcp | null {
   if (!run) {
     return null
   }

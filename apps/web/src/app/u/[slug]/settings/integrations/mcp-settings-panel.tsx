@@ -48,7 +48,7 @@ type McpSettingsPanelProps = {
   mcpEnabled: boolean
   mcpConfigError: string | null
   canManageMcp: boolean
-  mcpBaseUrl: string
+  mcpBaseUrl: string | null
   personalAccessTokens: PersonalAccessTokenItem[]
 }
 
@@ -381,7 +381,7 @@ function CreateTokenDialog({
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  mcpBaseUrl: string
+  mcpBaseUrl: string | null
   onCreated: (token: PersonalAccessTokenItem) => void
 }) {
   const [tokenName, setTokenName] = useState('')
@@ -479,47 +479,56 @@ function CreateTokenDialog({
                 onCopy={() => copyText(latestToken.token, 'secret')}
               />
 
-              <div className="flex flex-col gap-3">
-                <Label>Quick connect</Label>
-                <Tabs
-                  value={selectedPreset}
-                  onValueChange={(value) => setSelectedPreset(value as McpClientPreset)}
-                >
-                  <TabsList>
+              {mcpBaseUrl ? (
+                <div className="flex flex-col gap-3">
+                  <Label>Quick connect</Label>
+                  <Tabs
+                    value={selectedPreset}
+                    onValueChange={(value) => setSelectedPreset(value as McpClientPreset)}
+                  >
+                    <TabsList>
+                      {QUICK_SETUP_PRESETS.map((preset) => {
+                        const option = buildMcpClientSetup(preset, mcpBaseUrl, latestToken.token)
+                        const Icon = PRESET_ICON[preset]
+                        return (
+                          <TabsTrigger key={preset} value={preset}>
+                            <Icon className="h-3.5 w-3.5" />
+                            <span>{option.label}</span>
+                          </TabsTrigger>
+                        )
+                      })}
+                    </TabsList>
+
                     {QUICK_SETUP_PRESETS.map((preset) => {
                       const option = buildMcpClientSetup(preset, mcpBaseUrl, latestToken.token)
-                      const Icon = PRESET_ICON[preset]
                       return (
-                        <TabsTrigger key={preset} value={preset}>
-                          <Icon className="h-3.5 w-3.5" />
-                          <span>{option.label}</span>
-                        </TabsTrigger>
+                        <TabsContent key={preset} value={preset} className="mt-3 space-y-2">
+                          <p className="text-xs text-muted-foreground">{option.description}</p>
+                          {option.storesToken ? (
+                            <p className="text-xs text-amber-600">This client stores the token locally. Keep that config private.</p>
+                          ) : null}
+                          <div className="relative min-w-0 overflow-hidden rounded-md border border-border/60 bg-background/60">
+                            <pre className="overflow-x-auto whitespace-pre px-3 py-3 pr-12 text-xs leading-6 text-foreground">
+                              <code className="block">{option.value}</code>
+                            </pre>
+                            <div className="absolute right-1.5 top-1.5">
+                              <CopyIconButton
+                                label={option.mode === 'command' ? 'Copy command' : 'Copy config'}
+                                copied={copiedKey === `setup:${option.preset}`}
+                                onClick={() => copyText(option.value, `setup:${option.preset}`)}
+                              />
+                            </div>
+                          </div>
+                        </TabsContent>
                       )
                     })}
-                  </TabsList>
-
-                  {QUICK_SETUP_PRESETS.map((preset) => {
-                    const option = buildMcpClientSetup(preset, mcpBaseUrl, latestToken.token)
-                    return (
-                      <TabsContent key={preset} value={preset} className="mt-3 space-y-2">
-                        <p className="text-xs text-muted-foreground">{option.description}</p>
-                        <div className="relative min-w-0 overflow-hidden rounded-md border border-border/60 bg-background/60">
-                          <pre className="overflow-x-auto whitespace-pre px-3 py-3 pr-12 text-xs leading-6 text-foreground">
-                            <code className="block">{option.value}</code>
-                          </pre>
-                          <div className="absolute right-1.5 top-1.5">
-                            <CopyIconButton
-                              label={option.mode === 'command' ? 'Copy command' : 'Copy config'}
-                              copied={copiedKey === `setup:${option.preset}`}
-                              onClick={() => copyText(option.value, `setup:${option.preset}`)}
-                            />
-                          </div>
-                        </div>
-                      </TabsContent>
-                    )
-                  })}
-                </Tabs>
-              </div>
+                  </Tabs>
+                </div>
+              ) : (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  Quick connect is unavailable because ARCHE_PUBLIC_BASE_URL is not configured. Copy the token above and use your deployment&apos;s /api/mcp URL manually.
+                </div>
+              )}
 
               {dialogError ? (
                 <p className="text-sm text-destructive">{dialogError}</p>

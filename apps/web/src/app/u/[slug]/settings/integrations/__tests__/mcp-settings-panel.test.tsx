@@ -231,7 +231,7 @@ describe('McpSettingsPanel', () => {
 
     fireEvent.mouseDown(screen.getByRole('tab', { name: 'Codex' }))
 
-    expect(screen.getByText(/export ARCHE_MCP_TOKEN='arche_pat_123'/i)).toBeTruthy()
+    expect(screen.getByText(/read -rsp 'Arche MCP token: ' ARCHE_MCP_TOKEN/i)).toBeTruthy()
     expect(screen.getByText(/codex mcp add arche/i)).toBeTruthy()
     expect(screen.getByText(/--url 'http:\/\/arche\.lvh\.me:8080\/api\/mcp'/i)).toBeTruthy()
     expect(screen.getByText(/--bearer-token-env-var ARCHE_MCP_TOKEN/i)).toBeTruthy()
@@ -246,6 +246,28 @@ describe('McpSettingsPanel', () => {
 
     expect(screen.getByText(/"mcpServers"/i)).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Copy config' })).toBeTruthy()
+  })
+
+  it('hides quick connect when no trusted MCP base URL is available', async () => {
+    render(
+      <McpSettingsPanel
+        mcpEnabled={true}
+        mcpConfigError={null}
+        canManageMcp={true}
+        mcpBaseUrl={null}
+        personalAccessTokens={[]}
+      />,
+    )
+
+    openCreateDialog()
+
+    fireEvent.change(screen.getByLabelText('Token name'), {
+      target: { value: 'MacBook Pro - Codex' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create token' }))
+
+    expect(await screen.findByText(/quick connect is unavailable/i)).toBeTruthy()
+    expect(screen.queryByText('Quick connect')).toBeNull()
   })
 
   it('falls back to document.execCommand when navigator.clipboard is unavailable', async () => {

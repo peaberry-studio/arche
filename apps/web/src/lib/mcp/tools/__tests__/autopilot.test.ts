@@ -1,16 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockListTasksByUserId = vi.fn()
-const mockTriggerAutopilotTaskNow = vi.fn()
+const mockTriggerFlowNow = vi.fn()
 
 vi.mock('@/lib/services', () => ({
-  autopilotService: {
-    listTasksByUserId: (...args: unknown[]) => mockListTasksByUserId(...args),
+  flowService: {
+    listFlowsByUserId: (...args: unknown[]) => mockListTasksByUserId(...args),
   },
 }))
 
-vi.mock('@/lib/autopilot/runner', () => ({
-  triggerAutopilotTaskNow: (...args: unknown[]) => mockTriggerAutopilotTaskNow(...args),
+vi.mock('@/lib/flows/runner', () => ({
+  triggerFlowNow: (...args: unknown[]) => mockTriggerFlowNow(...args),
 }))
 
 import {
@@ -50,7 +50,7 @@ describe('Autopilot MCP tools', () => {
         runs: [
           {
             id: 'run-1',
-            taskId: 'task-1',
+            flowId: 'task-1',
             status: 'succeeded',
             trigger: 'schedule',
             scheduledFor: new Date('2026-04-25T09:00:00.000Z'),
@@ -77,7 +77,7 @@ describe('Autopilot MCP tools', () => {
           id: 'task-1',
           name: 'Daily summary',
           enabled: true,
-          targetAgentId: 'assistant',
+          targetAgentId: null,
           nextRunAt: '2026-04-26T09:00:00.000Z',
           lastRunAt: '2026-04-25T09:00:00.000Z',
           latestRun: {
@@ -96,33 +96,33 @@ describe('Autopilot MCP tools', () => {
   })
 
   it('runs a task as the PAT user', async () => {
-    mockTriggerAutopilotTaskNow.mockResolvedValue({ ok: true })
+    mockTriggerFlowNow.mockResolvedValue({ ok: true })
 
     const result = await runAutopilotTaskForMcp({ id: 'task-1', user })
 
     expect(result).toEqual({ ok: true })
-    expect(mockTriggerAutopilotTaskNow).toHaveBeenCalledWith({
-      taskId: 'task-1',
+    expect(mockTriggerFlowNow).toHaveBeenCalledWith({
+      flowId: 'task-1',
       trigger: 'manual',
       userId: 'user-1',
     })
   })
 
   it('returns not_found for a task outside the PAT user', async () => {
-    mockTriggerAutopilotTaskNow.mockResolvedValue({ ok: false, error: 'not_found' })
+    mockTriggerFlowNow.mockResolvedValue({ ok: false, error: 'not_found' })
 
     const result = await runAutopilotTaskForMcp({ id: 'task-from-bob', user })
 
     expect(result).toEqual({ ok: false, error: 'not_found' })
-    expect(mockTriggerAutopilotTaskNow).toHaveBeenCalledWith({
-      taskId: 'task-from-bob',
+    expect(mockTriggerFlowNow).toHaveBeenCalledWith({
+      flowId: 'task-from-bob',
       trigger: 'manual',
       userId: 'user-1',
     })
   })
 
   it('returns task_busy when the task lease is active', async () => {
-    mockTriggerAutopilotTaskNow.mockResolvedValue({ ok: false, error: 'task_busy' })
+    mockTriggerFlowNow.mockResolvedValue({ ok: false, error: 'flow_busy' })
 
     const result = await runAutopilotTaskForMcp({ id: 'task-1', user })
 

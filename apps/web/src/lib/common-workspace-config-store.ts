@@ -88,13 +88,19 @@ export async function writeCommonWorkspaceConfig(
   if (!clone.ok) return { ok: false, error: 'write_failed' }
 
   const configPath = path.join(clone.dir, CONFIG_FILE_NAME)
-  const current = await fs.readFile(configPath, 'utf-8').catch(() => '')
-  if (expectedHash && current && hashContent(current) !== expectedHash) {
-    await cleanupClone(clone)
-    return { ok: false, error: 'conflict' }
-  }
-
   try {
+    const current = await fs.readFile(configPath, 'utf-8').catch((error: unknown) => {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+        return null
+      }
+
+      throw error
+    })
+
+    if (expectedHash && (current === null || hashContent(current) !== expectedHash)) {
+      return { ok: false, error: 'conflict' }
+    }
+
     await fs.mkdir(path.dirname(configPath), { recursive: true })
     await fs.writeFile(configPath, content, 'utf-8')
 
@@ -141,6 +147,8 @@ export async function writeCommonWorkspaceConfig(
     }
 
     return { ok: true, hash: hashContent(content) }
+  } catch {
+    return { ok: false, error: 'write_failed' }
   } finally {
     await cleanupClone(clone)
   }

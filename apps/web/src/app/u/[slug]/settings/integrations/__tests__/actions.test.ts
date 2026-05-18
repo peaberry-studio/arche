@@ -46,10 +46,17 @@ vi.mock('@/lib/mcp/settings', () => ({
   writeMcpSettings: (enabled: boolean, expectedHash?: string) => mockWriteMcpSettings(enabled, expectedHash),
 }))
 
+const mockCheckRateLimit = vi.fn()
+vi.mock('@/lib/rate-limit', () => ({
+  checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
+}))
+
+const mockCountActiveByUserId = vi.fn()
 const mockCreatePat = vi.fn()
 const mockRevokePat = vi.fn()
 vi.mock('@/lib/services', () => ({
   patService: {
+    countActiveByUserId: (userId: string, now: Date) => mockCountActiveByUserId(userId, now),
     create: (data: unknown) => mockCreatePat(data),
     revokeByIdAndUserId: (tokenId: string, userId: string) => mockRevokePat(tokenId, userId),
   },
@@ -96,6 +103,12 @@ describe('MCP integration actions', () => {
     mockGeneratePatSalt.mockReturnValue('salt-123')
     mockHashPatLookup.mockReturnValue('lookup-123')
     mockHashPat.mockReturnValue('token-hash-123')
+    mockCheckRateLimit.mockReturnValue({
+      allowed: true,
+      remaining: 4,
+      resetAt: Date.now() + 60000,
+    })
+    mockCountActiveByUserId.mockResolvedValue(0)
     mockCreatePat.mockResolvedValue({
       id: 'tok-1',
       name: 'Laptop',
@@ -137,6 +150,41 @@ describe('MCP integration actions', () => {
         revokedAt: null,
       },
     })
+  })
+
+  it('rejects token creation when the user has too many active tokens', async () => {
+    mockCountActiveByUserId.mockResolvedValue(10)
+
+    await expect(createPersonalAccessToken({
+      name: 'Laptop',
+      expiresInDays: 30,
+      scopes: ['agents:read'],
+    })).resolves.toEqual({
+      ok: false,
+      error: 'You can have at most 10 active MCP tokens',
+    })
+
+    expect(mockCreatePat).not.toHaveBeenCalled()
+  })
+
+  it('rate limits token creation attempts per user', async () => {
+    mockCheckRateLimit.mockReturnValue({
+      allowed: false,
+      remaining: 0,
+      resetAt: Date.now() + 60000,
+    })
+
+    await expect(createPersonalAccessToken({
+      name: 'Laptop',
+      expiresInDays: 30,
+      scopes: ['agents:read'],
+    })).resolves.toEqual({
+      ok: false,
+      error: 'Too many token creation attempts. Please retry later.',
+    })
+
+    expect(mockCountActiveByUserId).not.toHaveBeenCalled()
+    expect(mockCreatePat).not.toHaveBeenCalled()
   })
 
   it('uses the full default scope set when scopes are omitted', async () => {

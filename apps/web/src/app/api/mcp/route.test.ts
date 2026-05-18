@@ -25,6 +25,7 @@ vi.mock('@/lib/services', () => ({
 const mockGetClientIp = vi.fn(() => '127.0.0.1')
 vi.mock('@/lib/http', () => ({
   getClientIp: (...args: unknown[]) => mockGetClientIp(...args),
+  getConfiguredPublicBaseUrl: () => process.env.ARCHE_PUBLIC_BASE_URL ?? null,
 }))
 
 const mockConnect = vi.fn()
@@ -52,8 +53,15 @@ function makeRequest(body: unknown, headers?: Record<string, string>): Request {
 }
 
 describe('POST /api/mcp', () => {
+  const originalBaseUrl = process.env.ARCHE_PUBLIC_BASE_URL
+
   beforeEach(() => {
     vi.clearAllMocks()
+    if (originalBaseUrl === undefined) {
+      delete process.env.ARCHE_PUBLIC_BASE_URL
+    } else {
+      process.env.ARCHE_PUBLIC_BASE_URL = originalBaseUrl
+    }
     mockReadMcpSettings.mockResolvedValue({
       ok: true,
       enabled: true,
@@ -255,5 +263,60 @@ describe('POST /api/mcp', () => {
     expect(response.status).toBe(202)
     expect(response.headers.get('content-type')).toBe('application/json')
     expect(mockTransportConstructor).not.toHaveBeenCalled()
+  })
+
+  it('does not short-circuit notifications/initialized requests that incorrectly include an id', async () => {
+    const body = {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'notifications/initialized',
+      params: {},
+    }
+
+    const { POST } = await import('./route')
+    const response = await POST(
+      makeRequest(body, {
+        authorization: 'Bearer arche_pat_abc',
+        accept: 'application/json, text/event-stream',
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(mockTransportConstructor).toHaveBeenCalledTimes(1)
+    expect(mockHandleRequest).toHaveBeenCalledWith(expect.any(Request), { parsedBody: body })
+  })
+
+  it('rejects JSON-RPC batch payloads', async () => {
+    const { POST } = await import('./route')
+    const response = await POST(
+      makeRequest([
+        { jsonrpc: '2.0', id: 1, method: 'tools/list' },
+        { jsonrpc: '2.0', id: 2, method: 'tools/list' },
+      ], { authorization: 'Bearer arche_pat_abc' })
+    )
+
+    await expect(response.json()).resolves.toEqual({ error: 'batch_not_supported' })
+    expect(response.status).toBe(400)
+    expect(mockCreateEvent).not.toHaveBeenCalled()
+    expect(mockTransportConstructor).not.toHaveBeenCalled()
+  })
+
+  it('handles CORS preflight for the configured public origin only', async () => {
+    process.env.ARCHE_PUBLIC_BASE_URL = 'https://arche.example.com'
+
+    const { OPTIONS } = await import('./route')
+    const allowed = await OPTIONS(new Request('http://localhost/api/mcp', {
+      method: 'OPTIONS',
+      headers: { origin: 'https://arche.example.com' },
+    }))
+    const denied = await OPTIONS(new Request('http://localhost/api/mcp', {
+      method: 'OPTIONS',
+      headers: { origin: 'https://evil.example.com' },
+    }))
+
+    expect(allowed.status).toBe(204)
+    expect(allowed.headers.get('Access-Control-Allow-Origin')).toBe('https://arche.example.com')
+    expect(allowed.headers.get('Access-Control-Allow-Headers')).toContain('authorization')
+    expect(denied.status).toBe(403)
   })
 })

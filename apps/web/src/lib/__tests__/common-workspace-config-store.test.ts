@@ -278,6 +278,29 @@ describe('writeCommonWorkspaceConfig', () => {
     expect(pushCall).toBeDefined()
     expect(pushCall![0]).toEqual(['push', 'origin', 'HEAD:refs/heads/master'])
   })
+
+  it('returns conflict when expected hash is provided and config is missing', async () => {
+    setupAvailableRepo()
+    const error = Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+    mockReadFile.mockRejectedValue(error)
+
+    const result = await writeCommonWorkspaceConfig('{"new":"config"}', 'previous-hash')
+
+    expect(result).toEqual({ ok: false, error: 'conflict' })
+    expect(mockWriteFile).not.toHaveBeenCalled()
+    expect(mockCleanupClone).toHaveBeenCalled()
+  })
+
+  it('returns write_failed when current config cannot be read', async () => {
+    setupAvailableRepo()
+    mockReadFile.mockRejectedValue(new Error('permission denied'))
+
+    const result = await writeCommonWorkspaceConfig('{"new":"config"}')
+
+    expect(result).toEqual({ ok: false, error: 'write_failed' })
+    expect(mockWriteFile).not.toHaveBeenCalled()
+    expect(mockCleanupClone).toHaveBeenCalled()
+  })
 })
 
 describe('listRecentKbFileUpdates', () => {

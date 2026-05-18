@@ -77,6 +77,16 @@ export function create(data: {
   return prisma.personalAccessToken.create({ data })
 }
 
+export function countActiveByUserId(userId: string, now: Date): Promise<number> {
+  return prisma.personalAccessToken.count({
+    where: {
+      userId,
+      revokedAt: null,
+      expiresAt: { gt: now },
+    },
+  })
+}
+
 export function revokeByIdAndUserId(id: string, userId: string) {
   return prisma.personalAccessToken.updateMany({
     where: { id, userId, revokedAt: null },

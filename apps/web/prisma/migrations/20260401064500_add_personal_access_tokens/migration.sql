@@ -6,7 +6,7 @@ CREATE TABLE "personal_access_tokens" (
     "lookup_hash" TEXT NOT NULL,
     "token_hash" TEXT NOT NULL,
     "salt" TEXT NOT NULL,
-    "scopes" TEXT[] DEFAULT ARRAY['kb:read']::TEXT[],
+    "scopes" TEXT[] NOT NULL DEFAULT ARRAY['kb:read']::TEXT[],
     "expires_at" TIMESTAMP(3) NOT NULL,
     "revoked_at" TIMESTAMP(3),
     "last_used_at" TIMESTAMP(3),

@@ -6,6 +6,7 @@ vi.mock('@/lib/prisma', () => ({
       create: vi.fn(),
       findUnique: vi.fn(),
       findMany: vi.fn(),
+      count: vi.fn(),
       update: vi.fn(),
       updateMany: vi.fn(),
     },
@@ -15,6 +16,7 @@ vi.mock('@/lib/prisma', () => ({
 import { prisma } from '@/lib/prisma'
 import {
   create,
+  countActiveByUserId,
   findByLookupHash,
   findManyByUserId,
   revokeByIdAndUserId,
@@ -22,6 +24,7 @@ import {
 } from '../personal-access-token'
 
 const mockCreate = vi.mocked(prisma.personalAccessToken.create)
+const mockCount = vi.mocked(prisma.personalAccessToken.count)
 const mockFindUnique = vi.mocked(prisma.personalAccessToken.findUnique)
 const mockFindMany = vi.mocked(prisma.personalAccessToken.findMany)
 const mockUpdate = vi.mocked(prisma.personalAccessToken.update)
@@ -91,6 +94,23 @@ describe('personalAccessToken service', () => {
           orderBy: { createdAt: 'desc' },
         })
       )
+    })
+  })
+
+  describe('countActiveByUserId', () => {
+    it('counts unrevoked, unexpired tokens for a user', async () => {
+      const now = new Date('2026-05-01T00:00:00.000Z')
+      mockCount.mockResolvedValue(3 as never)
+
+      await countActiveByUserId('user-1', now)
+
+      expect(mockCount).toHaveBeenCalledWith({
+        where: {
+          userId: 'user-1',
+          revokedAt: null,
+          expiresAt: { gt: now },
+        },
+      })
     })
   })
 

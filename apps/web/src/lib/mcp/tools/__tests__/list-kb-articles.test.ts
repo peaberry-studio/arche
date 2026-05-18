@@ -74,6 +74,7 @@ describe('listKbArticles', () => {
       '-r',
       '--name-only',
       'HEAD',
+      '--',
       'docs',
     ])
     expect(result).toEqual({
@@ -120,5 +121,20 @@ describe('listKbArticles', () => {
     const result = await listKbArticles({})
 
     expect(result).toEqual({ ok: true, entries: [] })
+  })
+
+  it('separates leading-dash paths from git options', async () => {
+    mockRunGit.mockResolvedValue({ ok: true, stdout: '--full-tree/article.md\n' })
+
+    await listKbArticles({ path: '--full-tree' })
+
+    expect(mockRunGit).toHaveBeenCalledWith('/kb-content', [
+      'ls-tree',
+      '-r',
+      '--name-only',
+      'HEAD',
+      '--',
+      '--full-tree',
+    ])
   })
 })

@@ -11,10 +11,12 @@ describe('buildMcpClientSetup', () => {
 
     expect(result.label).toBe('Claude Code')
     expect(result.mode).toBe('command')
-    expect(result.value.startsWith("claude mcp add-json arche '{")).toBe(true)
+    expect(result.storesToken).toBe(true)
+    expect(result.value).toContain("read -rsp 'Arche MCP token: ' ARCHE_MCP_TOKEN")
+    expect(result.value).toContain('claude mcp add-json arche')
     expect(result.value).toContain('\n  "type": "http"')
     expect(result.value).toContain('"url": "https://arche.example.com/api/mcp"')
-    expect(result.value).toContain('"Authorization": "Bearer arche_pat_test"')
+    expect(result.value).not.toContain('arche_pat_test')
   })
 
   it('builds a Codex command with line continuations for readability', () => {
@@ -22,10 +24,12 @@ describe('buildMcpClientSetup', () => {
 
     expect(result.label).toBe('Codex')
     expect(result.mode).toBe('command')
-    expect(result.value).toContain("export ARCHE_MCP_TOKEN='arche_pat_test'")
+    expect(result.storesToken).toBe(false)
+    expect(result.value).toContain("read -rsp 'Arche MCP token: ' ARCHE_MCP_TOKEN")
     expect(result.value).toContain('codex mcp add arche \\')
     expect(result.value).toContain("  --url 'https://arche.example.com/api/mcp' \\")
     expect(result.value).toContain('  --bearer-token-env-var ARCHE_MCP_TOKEN')
+    expect(result.value).not.toContain('arche_pat_test')
   })
 
   it('builds a Cursor mcp.json snippet with instructions on where to save it', () => {
@@ -33,6 +37,7 @@ describe('buildMcpClientSetup', () => {
 
     expect(result.label).toBe('Cursor')
     expect(result.mode).toBe('config')
+    expect(result.storesToken).toBe(true)
     expect(result.description).toContain('~/.cursor/mcp.json')
     expect(result.description).toContain('.cursor/mcp.json')
     expect(result.value).toContain('"mcpServers"')
@@ -45,6 +50,7 @@ describe('buildMcpClientSetup', () => {
 
     expect(result.label).toBe('Manual')
     expect(result.mode).toBe('config')
+    expect(result.storesToken).toBe(true)
     expect(result.value).toContain('"mcpServers"')
     expect(result.value).toContain('"type": "http"')
     expect(result.value).toContain('"url": "https://arche.example.com/api/mcp"')

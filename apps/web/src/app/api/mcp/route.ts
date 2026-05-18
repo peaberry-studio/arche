@@ -1,6 +1,6 @@
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js'
 
-import { getClientIp } from '@/lib/http'
+import { getClientIp, getConfiguredPublicBaseUrl } from '@/lib/http'
 import { authenticatePat } from '@/lib/mcp/auth'
 import { createMcpServer } from '@/lib/mcp/server'
 import { readMcpSettings } from '@/lib/mcp/settings'
@@ -16,9 +16,21 @@ const MCP_PREAUTH_RATE_LIMIT_MAX = 300
 const MCP_PREAUTH_RATE_LIMIT_WINDOW_MS = 60 * 1000
 const MCP_MAX_BODY_BYTES = 64 * 1024
 
+export async function OPTIONS(request: Request): Promise<Response> {
+  const headers = buildCorsHeaders(request)
+  if (!headers) {
+    return new Response(null, { status: 403 })
+  }
+
+  return new Response(null, {
+    status: 204,
+    headers,
+  })
+}
+
 export async function POST(request: Request): Promise<Response> {
   if (isRequestBodyTooLarge(request.headers)) {
-    return Response.json({ error: 'payload_too_large' }, { status: 413 })
+    return jsonResponse(request, { error: 'payload_too_large' }, { status: 413 })
   }
 
   const clientIp = getClientIp(request.headers) ?? 'unknown'
@@ -28,31 +40,32 @@ export async function POST(request: Request): Promise<Response> {
     MCP_PREAUTH_RATE_LIMIT_WINDOW_MS
   )
   if (!preAuthRateLimit.allowed) {
-    return buildRateLimitedResponse(preAuthRateLimit.resetAt)
+    return buildRateLimitedResponse(request, preAuthRateLimit.resetAt)
   }
 
   const auth = await authenticatePat(request)
   if (!auth.ok) {
-    return Response.json({ error: 'unauthorized' }, { status: auth.status })
+    return jsonResponse(request, { error: 'unauthorized' }, { status: auth.status })
   }
 
   const rateLimit = checkRateLimit(`mcp:${auth.tokenId}`, MCP_RATE_LIMIT_MAX, MCP_RATE_LIMIT_WINDOW_MS)
   if (!rateLimit.allowed) {
-    return buildRateLimitedResponse(rateLimit.resetAt)
+    return buildRateLimitedResponse(request, rateLimit.resetAt)
   }
 
   const mcpSettings = await readMcpSettings()
   if (!mcpSettings.ok) {
-    return Response.json({ error: 'mcp_unavailable' }, { status: 503 })
+    return jsonResponse(request, { error: 'mcp_unavailable' }, { status: 503 })
   }
 
   if (!mcpSettings.enabled) {
-    return Response.json({ error: 'unauthorized' }, { status: 401 })
+    return jsonResponse(request, { error: 'unauthorized' }, { status: 401 })
   }
 
   const bodyResult = await readRequestBody(request)
   if (!bodyResult.ok) {
-    return Response.json(
+    return jsonResponse(
+      request,
       { error: bodyResult.error },
       { status: bodyResult.error === 'payload_too_large' ? 413 : 400 }
     )
@@ -60,16 +73,20 @@ export async function POST(request: Request): Promise<Response> {
 
   const parsedBody = parseBody(bodyResult.body)
   if (!parsedBody) {
-    return Response.json({ error: 'invalid_json' }, { status: 400 })
+    return jsonResponse(request, { error: 'invalid_json' }, { status: 400 })
+  }
+
+  if (Array.isArray(parsedBody.value)) {
+    return jsonResponse(request, { error: 'batch_not_supported' }, { status: 400 })
   }
 
   if (isInitializedNotification(parsedBody.value)) {
-    return new Response('', {
+    return withCorsHeaders(request, new Response('', {
       status: 202,
       headers: {
         'content-type': 'application/json',
       },
-    })
+    }))
   }
 
   await auditService.createEvent({
@@ -94,11 +111,12 @@ export async function POST(request: Request): Promise<Response> {
   const forwardedRequest = buildTransportRequest(request, bodyResult.body)
 
   await server.connect(transport)
-  return transport.handleRequest(forwardedRequest, { parsedBody: parsedBody.value })
+  return withCorsHeaders(request, await transport.handleRequest(forwardedRequest, { parsedBody: parsedBody.value }))
 }
 
-function buildRateLimitedResponse(resetAt: number): Response {
-  return Response.json(
+function buildRateLimitedResponse(request: Request, resetAt: number): Response {
+  return jsonResponse(
+    request,
     { error: 'rate_limited' },
     {
       status: 429,
@@ -107,6 +125,48 @@ function buildRateLimitedResponse(resetAt: number): Response {
       },
     }
   )
+}
+
+function jsonResponse(request: Request, body: unknown, init?: ResponseInit): Response {
+  return withCorsHeaders(request, Response.json(body, init))
+}
+
+function withCorsHeaders(request: Request, response: Response): Response {
+  const corsHeaders = buildCorsHeaders(request)
+  if (!corsHeaders) {
+    return response
+  }
+
+  corsHeaders.forEach((value, key) => response.headers.set(key, value))
+  return response
+}
+
+function buildCorsHeaders(request: Request): Headers | null {
+  const origin = request.headers.get('origin')
+  if (!origin || !isAllowedCorsOrigin(origin)) {
+    return null
+  }
+
+  return new Headers({
+    'Access-Control-Allow-Headers': 'accept, authorization, content-type, mcp-session-id',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Max-Age': '600',
+    Vary: 'Origin',
+  })
+}
+
+function isAllowedCorsOrigin(origin: string): boolean {
+  const configured = getConfiguredPublicBaseUrl()
+  if (!configured) {
+    return false
+  }
+
+  try {
+    return new URL(origin).origin === new URL(configured).origin
+  } catch {
+    return false
+  }
 }
 
 function isRequestBodyTooLarge(headers: Headers): boolean {
@@ -207,6 +267,7 @@ function isInitializedNotification(parsedBody: unknown): boolean {
   return Boolean(
     parsedBody &&
       typeof parsedBody === 'object' &&
-      (parsedBody as { method?: unknown }).method === 'notifications/initialized'
+      (parsedBody as { method?: unknown }).method === 'notifications/initialized' &&
+      !('id' in parsedBody)
   )
 }
