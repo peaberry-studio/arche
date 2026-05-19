@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // Mock provider store
 vi.mock('@/lib/providers/store', () => ({
-  getEffectiveCredentialForUser: vi.fn(),
+  getEnabledProviderCredentialsForUser: vi.fn(),
 }))
 
 vi.mock('@/lib/opencode/client', () => ({
@@ -27,16 +27,29 @@ vi.mock('@/lib/providers/tokens', () => ({
 
 import { getInstanceBasicAuth } from '@/lib/opencode/client'
 import { getGatewayTokenTtlSeconds } from '@/lib/providers/config'
-import { getEffectiveCredentialForUser } from '@/lib/providers/store'
+import { getEnabledProviderCredentialsForUser, type EnabledProviderCredentials } from '@/lib/providers/store'
+import type { ProviderId } from '@/lib/providers/types'
 import { instanceService } from '@/lib/services'
 import { issueGatewayToken } from '@/lib/providers/tokens'
 import { ensureProviderAccessFreshForExecution, getProviderSyncHashForUser, syncProviderAccessForInstance } from '../providers'
 
 const mockGetInstanceBasicAuth = vi.mocked(getInstanceBasicAuth)
 const mockGetGatewayTokenTtlSeconds = vi.mocked(getGatewayTokenTtlSeconds)
-const mockGetCredential = vi.mocked(getEffectiveCredentialForUser)
+const mockGetEnabledCredentials = vi.mocked(getEnabledProviderCredentialsForUser)
 const mockInstanceService = vi.mocked(instanceService)
 const mockIssueToken = vi.mocked(issueGatewayToken)
+
+type TestEnabledProviderCredential = {
+  credentialId: string
+  source: 'user' | 'organization'
+  version: number
+}
+
+function enabledCredentials(
+  entries: Array<[ProviderId, TestEnabledProviderCredential]> = [],
+): EnabledProviderCredentials {
+  return new Map(entries)
+}
 
 const fakeInstance = {
   baseUrl: 'http://opencode-alice:4096',
@@ -62,11 +75,10 @@ describe('syncProviderAccessForInstance', () => {
 
     // openai enabled, anthropic enabled, fireworks/openrouter disabled,
     // opencode gets a gateway token even without a stored credential.
-    mockGetCredential.mockImplementation(async ({ providerId }) => {
-      if (providerId === 'openai') return { source: 'user', credential: { id: '1', version: 1 } } as never
-      if (providerId === 'anthropic') return { source: 'organization', credential: { id: '2', version: 2 } } as never
-      return null
-    })
+    mockGetEnabledCredentials.mockResolvedValue(enabledCredentials([
+      ['openai', { credentialId: '1', source: 'user', version: 1 }],
+      ['anthropic', { credentialId: '2', source: 'organization', version: 2 }],
+    ]))
 
     const result = await syncProviderAccessForInstance({
       instance: fakeInstance,
@@ -123,7 +135,7 @@ describe('syncProviderAccessForInstance', () => {
 
   it('disposes instance by default', async () => {
     const mockFetch = vi.mocked(globalThis.fetch)
-    mockGetCredential.mockResolvedValue(null)
+    mockGetEnabledCredentials.mockResolvedValue(enabledCredentials())
 
     await syncProviderAccessForInstance({
       instance: fakeInstance,
@@ -142,7 +154,7 @@ describe('syncProviderAccessForInstance', () => {
 
   it('skips dispose when disposeInstance is false', async () => {
     const mockFetch = vi.mocked(globalThis.fetch)
-    mockGetCredential.mockResolvedValue(null)
+    mockGetEnabledCredentials.mockResolvedValue(enabledCredentials())
 
     await syncProviderAccessForInstance({
       instance: fakeInstance,
@@ -163,7 +175,9 @@ describe('syncProviderAccessForInstance', () => {
   it('returns sync_failed on network error', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNREFUSED')))
 
-    mockGetCredential.mockResolvedValue({ source: 'user', credential: { id: '1', version: 1 } } as never)
+    mockGetEnabledCredentials.mockResolvedValue(enabledCredentials([
+      ['openai', { credentialId: '1', source: 'user', version: 1 }],
+    ]))
 
     const result = await syncProviderAccessForInstance({
       instance: fakeInstance,
@@ -180,7 +194,9 @@ describe('syncProviderAccessForInstance', () => {
       vi.fn().mockResolvedValueOnce(new Response('boom', { status: 500 }))
     )
 
-    mockGetCredential.mockResolvedValue({ source: 'user', credential: { id: '1', version: 1 } } as never)
+    mockGetEnabledCredentials.mockResolvedValue(enabledCredentials([
+      ['openai', { credentialId: '1', source: 'user', version: 1 }],
+    ]))
 
     const result = await syncProviderAccessForInstance({
       instance: fakeInstance,
@@ -192,7 +208,7 @@ describe('syncProviderAccessForInstance', () => {
   })
 
   it('uses the provided instance auth, not a DB lookup', async () => {
-    mockGetCredential.mockResolvedValue(null)
+    mockGetEnabledCredentials.mockResolvedValue(enabledCredentials())
     const mockFetch = vi.mocked(globalThis.fetch)
 
     await syncProviderAccessForInstance({
@@ -212,7 +228,7 @@ describe('syncProviderAccessForInstance', () => {
 
   it('returns success when provider sync state persistence fails after auth succeeds', async () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    mockGetCredential.mockResolvedValue(null)
+    mockGetEnabledCredentials.mockResolvedValue(enabledCredentials())
     mockInstanceService.setProviderSyncState.mockRejectedValue(new Error('db unavailable'))
 
     const result = await syncProviderAccessForInstance({
@@ -231,10 +247,9 @@ describe('syncProviderAccessForInstance', () => {
   })
 
   it('skips provider sync refresh when the running instance already matches the expected hash', async () => {
-    mockGetCredential.mockImplementation(async ({ providerId }) => {
-      if (providerId === 'openai') return { source: 'organization', credential: { id: 'org-1', version: 3 } } as never
-      return null
-    })
+    mockGetEnabledCredentials.mockResolvedValue(enabledCredentials([
+      ['openai', { credentialId: 'org-1', source: 'organization', version: 3 }],
+    ]))
 
     mockInstanceService.findProviderSyncBySlug.mockResolvedValue({
       providerSyncHash: await getProviderSyncHashForUser('user-1'),
@@ -248,10 +263,9 @@ describe('syncProviderAccessForInstance', () => {
   })
 
   it('refreshes provider access when the sync record is stale by age', async () => {
-    mockGetCredential.mockImplementation(async ({ providerId }) => {
-      if (providerId === 'openai') return { source: 'organization', credential: { id: 'org-1', version: 3 } } as never
-      return null
-    })
+    mockGetEnabledCredentials.mockResolvedValue(enabledCredentials([
+      ['openai', { credentialId: 'org-1', source: 'organization', version: 3 }],
+    ]))
     mockGetGatewayTokenTtlSeconds.mockReturnValue(120)
     mockInstanceService.findProviderSyncBySlug.mockResolvedValue({
       providerSyncHash: await getProviderSyncHashForUser('user-1'),

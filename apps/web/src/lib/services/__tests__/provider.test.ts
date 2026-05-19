@@ -95,6 +95,21 @@ describe('providerService', () => {
       expect(result).toEqual({ source: 'organization', credential: cred })
     })
 
+    it('does not let disabled user credentials block organization credentials', async () => {
+      const cred = { id: 'org-p1', type: 'api', secret: 'org-enc', version: 3 }
+      mockPrisma.providerCredential.findFirst.mockResolvedValue(null)
+      mockPrisma.organizationProviderCredential.findFirst.mockResolvedValue(cred)
+
+      const result = await getEffectiveCredentialForUser({ userId: 'u1', providerId: 'openrouter' })
+
+      expect(mockPrisma.providerCredential.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'u1', providerId: 'openrouter', status: 'enabled' },
+        }),
+      )
+      expect(result).toEqual({ source: 'organization', credential: cred })
+    })
+
     it('returns null when neither user nor organization credential exists', async () => {
       mockPrisma.providerCredential.findFirst.mockResolvedValue(null)
       mockPrisma.organizationProviderCredential.findFirst.mockResolvedValue(null)

@@ -21,6 +21,8 @@ vi.mock('@/lib/providers/crypto', () => ({
 
 import {
   getActiveCredentialForUser,
+  getEnabledProviderCredentialsForUser,
+  getEnabledProviderIdsForUser,
   getEffectiveCredentialForUser,
   replaceApiCredential,
   replaceOrganizationApiCredential,
@@ -155,6 +157,69 @@ describe('store', () => {
           version: 3,
         },
       })
+    })
+  })
+
+  describe('getEnabledProviderCredentialsForUser', () => {
+    it('returns enabled credentials keyed by provider id', async () => {
+      mockGetEffectiveCredentialForUser.mockImplementation(async ({ providerId }) => {
+        if (providerId === 'openai') {
+          return {
+            source: 'user',
+            credential: {
+              id: 'user-cred-1',
+              type: 'api',
+              secret: 'encrypted-secret',
+              version: 2,
+            },
+          }
+        }
+
+        if (providerId === 'openrouter') {
+          return {
+            source: 'organization',
+            credential: {
+              id: 'org-cred-1',
+              type: 'api',
+              secret: 'encrypted-secret',
+              version: 4,
+            },
+          }
+        }
+
+        return null
+      })
+
+      const result = await getEnabledProviderCredentialsForUser('u1')
+
+      expect(result).toEqual(new Map([
+        ['openai', { credentialId: 'user-cred-1', source: 'user', version: 2 }],
+        ['openrouter', { credentialId: 'org-cred-1', source: 'organization', version: 4 }],
+      ]))
+    })
+  })
+
+  describe('getEnabledProviderIdsForUser', () => {
+    it('returns enabled provider ids from effective credentials', async () => {
+      mockGetEffectiveCredentialForUser.mockImplementation(async ({ providerId }) => {
+        if (providerId === 'anthropic') {
+          return {
+            source: 'organization',
+            credential: {
+              id: 'org-cred-2',
+              type: 'api',
+              secret: 'encrypted-secret',
+              version: 1,
+            },
+          }
+        }
+
+        return null
+      })
+
+      const result = await getEnabledProviderIdsForUser('u1')
+
+      expect(result).toEqual(new Set(['anthropic']))
     })
   })
 })

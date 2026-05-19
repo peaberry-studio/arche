@@ -17,8 +17,8 @@ import {
   normalizeProviderId,
   resolveRuntimeProviderId,
 } from "@/lib/providers/catalog";
-import { getActiveCredentialForUser } from "@/lib/providers/store";
-import { PROVIDERS, type ProviderId } from "@/lib/providers/types";
+import { getEnabledProviderIdsForUser } from "@/lib/providers/store";
+import type { ProviderId } from "@/lib/providers/types";
 import { getSession } from "@/lib/runtime/session";
 import { flowService, instanceService, messageRunService, slackService, userService } from "@/lib/services";
 import { decryptPassword } from "@/lib/spawner/crypto";
@@ -1159,14 +1159,7 @@ export async function listModelsAction(slug: string): Promise<{
   const client = await createInstanceClient(slug);
   if (!client) return { ok: false, error: "instance_unavailable" };
 
-  const enabledProviderIds = new Set<ProviderId>();
-  for (const providerId of PROVIDERS) {
-    const credential = await getActiveCredentialForUser({
-      userId: ownerUserId,
-      providerId,
-    });
-    if (credential) enabledProviderIds.add(providerId);
-  }
+  const enabledProviderIds = await getEnabledProviderIdsForUser(ownerUserId);
 
   try {
     const result = await client.config.providers();
