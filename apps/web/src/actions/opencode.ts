@@ -17,7 +17,7 @@ import {
   normalizeProviderId,
   resolveRuntimeProviderId,
 } from "@/lib/providers/catalog";
-import { getActiveCredentialForUser } from "@/lib/providers/store";
+import { getEffectiveCredentialForUser } from "@/lib/providers/store";
 import { PROVIDERS, type ProviderId } from "@/lib/providers/types";
 import { getSession } from "@/lib/runtime/session";
 import { flowService, instanceService, messageRunService, slackService, userService } from "@/lib/services";
@@ -1161,11 +1161,11 @@ export async function listModelsAction(slug: string): Promise<{
 
   const enabledProviderIds = new Set<ProviderId>();
   for (const providerId of PROVIDERS) {
-    const credential = await getActiveCredentialForUser({
+    const effectiveCredential = await getEffectiveCredentialForUser({
       userId: ownerUserId,
       providerId,
     });
-    if (credential) enabledProviderIds.add(providerId);
+    if (effectiveCredential) enabledProviderIds.add(providerId);
   }
 
   try {

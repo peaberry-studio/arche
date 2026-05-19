@@ -17,17 +17,17 @@ vi.mock('@/lib/prisma', () => ({
 }))
 
 vi.mock('@/lib/providers/store', () => ({
-  getActiveCredentialForUser: vi.fn(),
+  getEffectiveCredentialForUser: vi.fn(),
 }))
 
 import { getSession } from '@/lib/runtime/session'
 import { createInstanceClient } from '@/lib/opencode/client'
-import { getActiveCredentialForUser } from '@/lib/providers/store'
+import { getEffectiveCredentialForUser } from '@/lib/providers/store'
 import { listModelsAction } from '../opencode'
 
 const mockGetSession = vi.mocked(getSession)
 const mockCreateInstanceClient = vi.mocked(createInstanceClient)
-const mockGetActiveCredentialForUser = vi.mocked(getActiveCredentialForUser)
+const mockGetEffectiveCredentialForUser = vi.mocked(getEffectiveCredentialForUser)
 
 const providersResponse = {
   data: {
@@ -77,7 +77,7 @@ beforeEach(() => {
 
 describe('listModelsAction', () => {
   it('keeps OpenCode Zen models visible without stored credentials', async () => {
-    mockGetActiveCredentialForUser.mockResolvedValue(null)
+    mockGetEffectiveCredentialForUser.mockResolvedValue(null)
 
     const result = await listModelsAction('alice')
 
@@ -96,13 +96,16 @@ describe('listModelsAction', () => {
   })
 
   it('keeps paid providers gated behind active credentials', async () => {
-    mockGetActiveCredentialForUser.mockImplementation(async ({ providerId }) => {
+    mockGetEffectiveCredentialForUser.mockImplementation(async ({ providerId }) => {
       if (providerId === 'openai') {
         return {
-          id: 'cred-openai',
-          type: 'api',
-          secret: 'encrypted',
-          version: 1,
+          source: 'user',
+          credential: {
+            id: 'cred-openai',
+            type: 'api',
+            secret: 'encrypted',
+            version: 1,
+          },
         }
       }
 
@@ -127,13 +130,16 @@ describe('listModelsAction', () => {
   })
 
   it('keeps paid OpenCode Zen models when an OpenCode credential is configured', async () => {
-    mockGetActiveCredentialForUser.mockImplementation(async ({ providerId }) => {
+    mockGetEffectiveCredentialForUser.mockImplementation(async ({ providerId }) => {
       if (providerId === 'opencode') {
         return {
-          id: 'cred-opencode',
-          type: 'api',
-          secret: 'encrypted',
-          version: 1,
+          source: 'user',
+          credential: {
+            id: 'cred-opencode',
+            type: 'api',
+            secret: 'encrypted',
+            version: 1,
+          },
         }
       }
 
@@ -147,6 +153,52 @@ describe('listModelsAction', () => {
       expect.arrayContaining([
         expect.objectContaining({ providerId: 'opencode', modelId: 'scene-free' }),
         expect.objectContaining({ providerId: 'opencode', modelId: 'scene-paid' }),
+      ]),
+    )
+  })
+
+  it('includes models from organization credentials when user has no override', async () => {
+    mockCreateInstanceClient.mockResolvedValue({
+      config: {
+        providers: vi.fn().mockResolvedValue({
+          data: {
+            providers: [
+              {
+                id: 'openrouter',
+                name: 'OpenRouter',
+                models: {
+                  'openrouter/auto': { name: 'OpenRouter Auto' },
+                },
+              },
+            ],
+            default: {},
+          },
+        }),
+      },
+    } as never)
+
+    mockGetEffectiveCredentialForUser.mockImplementation(async ({ providerId }) => {
+      if (providerId === 'openrouter') {
+        return {
+          source: 'organization',
+          credential: {
+            id: 'org-cred-openrouter',
+            type: 'api',
+            secret: 'encrypted',
+            version: 1,
+          },
+        }
+      }
+
+      return null
+    })
+
+    const result = await listModelsAction('alice')
+
+    expect(result.ok).toBe(true)
+    expect(result.models).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ providerId: 'openrouter', modelId: 'openrouter/auto' }),
       ]),
     )
   })
@@ -173,13 +225,16 @@ describe('listModelsAction', () => {
       },
     } as never)
 
-    mockGetActiveCredentialForUser.mockImplementation(async ({ providerId }) => {
+    mockGetEffectiveCredentialForUser.mockImplementation(async ({ providerId }) => {
       if (providerId === 'fireworks') {
         return {
-          id: 'cred-fireworks',
-          type: 'api',
-          secret: 'encrypted',
-          version: 1,
+          source: 'user',
+          credential: {
+            id: 'cred-fireworks',
+            type: 'api',
+            secret: 'encrypted',
+            version: 1,
+          },
         }
       }
 
