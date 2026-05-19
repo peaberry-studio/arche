@@ -4,10 +4,19 @@ import { encryptProviderSecret } from './crypto'
 import type {
   EffectiveProviderCredential,
   ProviderCredentialRecord,
+  ProviderCredentialSource,
 } from './credentials'
-import type { ProviderId } from './types'
+import { PROVIDERS, type ProviderId } from './types'
 
 export type { EffectiveProviderCredential, ProviderCredentialRecord, ProviderCredentialSource } from './credentials'
+
+export type EnabledProviderCredential = {
+  credentialId: string
+  source: ProviderCredentialSource
+  version: number
+}
+
+export type EnabledProviderCredentials = Map<ProviderId, EnabledProviderCredential>
 
 export type ReplaceApiCredentialInput = {
   userId: string
@@ -56,4 +65,30 @@ export async function getEffectiveCredentialForUser(
   input: ActiveCredentialInput,
 ): Promise<EffectiveProviderCredential> {
   return providerService.getEffectiveCredentialForUser(input)
+}
+
+export async function getEnabledProviderCredentialsForUser(userId: string): Promise<EnabledProviderCredentials> {
+  const enabledByProvider: EnabledProviderCredentials = new Map()
+
+  for (const providerId of PROVIDERS) {
+    const effectiveCredential = await getEffectiveCredentialForUser({
+      userId,
+      providerId,
+    })
+    if (!effectiveCredential) {
+      continue
+    }
+
+    enabledByProvider.set(providerId, {
+      credentialId: effectiveCredential.credential.id,
+      source: effectiveCredential.source,
+      version: Number(effectiveCredential.credential.version),
+    })
+  }
+
+  return enabledByProvider
+}
+
+export async function getEnabledProviderIdsForUser(userId: string): Promise<Set<ProviderId>> {
+  return new Set((await getEnabledProviderCredentialsForUser(userId)).keys())
 }

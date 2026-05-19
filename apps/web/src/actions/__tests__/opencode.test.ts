@@ -36,8 +36,7 @@ vi.mock('@/lib/providers/catalog', () => ({
 }))
 
 vi.mock('@/lib/providers/store', () => ({
-  getActiveCredentialForUser: vi.fn(),
-  getEffectiveCredentialForUser: vi.fn(),
+  getEnabledProviderIdsForUser: vi.fn(),
 }))
 
 vi.mock('@/lib/services', () => ({
