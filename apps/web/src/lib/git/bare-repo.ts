@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 
 export type GitResult =
-  | { ok: true; stdout: string }
+  | { ok: true; stdout: string; truncated?: boolean }
   | { ok: false; stderr: string }
 
 export type CloneResult =
@@ -28,7 +28,7 @@ let gitAvailabilityCache: boolean | null = null
 
 export async function runGit(
   args: string[],
-  options?: { cwd?: string; env?: NodeJS.ProcessEnv }
+  options?: { cwd?: string; env?: NodeJS.ProcessEnv; maxBuffer?: number }
 ): Promise<GitResult> {
   try {
     const execFileAsync = await getExecFileAsync()
@@ -36,9 +36,18 @@ export async function runGit(
       cwd: options?.cwd,
       encoding: 'utf-8',
       env: options?.env ? { ...process.env, ...options.env } : process.env,
+      maxBuffer: options?.maxBuffer,
     })
     return { ok: true, stdout: result.stdout ?? '' }
   } catch (error) {
+    if (isMaxBufferError(error)) {
+      return {
+        ok: true,
+        stdout: String((error as { stdout?: string }).stdout ?? ''),
+        truncated: true,
+      }
+    }
+
     if (error && typeof error === 'object' && 'stderr' in error) {
       return {
         ok: false,
@@ -80,7 +89,8 @@ export async function resolveRepoRoot(root: string): Promise<string | null> {
 
 export async function runGitOnBareRepo(
   root: string,
-  args: string[]
+  args: string[],
+  options?: { maxBuffer?: number }
 ): Promise<GitResult> {
   if (!(await hasBareRepoLayout(root))) {
     return { ok: false, stderr: 'not_bare_repository' }
@@ -90,7 +100,16 @@ export async function runGitOnBareRepo(
     return { ok: false, stderr: 'git_unavailable' }
   }
 
-  return runGit(['--git-dir', root, ...args])
+  return runGit(['--git-dir', root, ...args], options)
+}
+
+function isMaxBufferError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false
+  }
+
+  const message = 'message' in error ? String((error as { message?: unknown }).message ?? '') : ''
+  return message.includes('maxBuffer') && 'stdout' in error
 }
 
 export async function cloneRepoToTemp(root: string): Promise<CloneResult> {

@@ -9,6 +9,10 @@ export function stripPort(host: string): string {
 }
 
 export function getClientIp(headers: Headers): string | null {
+  if (process.env.ARCHE_TRUST_PROXY_HEADERS !== 'true') {
+    return null
+  }
+
   const xff = firstHeaderValue(headers.get('x-forwarded-for'))
   if (xff) return xff
   const realIp = firstHeaderValue(headers.get('x-real-ip'))

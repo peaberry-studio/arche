@@ -47,7 +47,28 @@ describe('stripPort', () => {
 })
 
 describe('getClientIp', () => {
-  it('prefers x-forwarded-for over x-real-ip', () => {
+  const originalTrustProxyHeaders = process.env.ARCHE_TRUST_PROXY_HEADERS
+
+  afterEach(() => {
+    if (originalTrustProxyHeaders === undefined) {
+      delete process.env.ARCHE_TRUST_PROXY_HEADERS
+    } else {
+      process.env.ARCHE_TRUST_PROXY_HEADERS = originalTrustProxyHeaders
+    }
+  })
+
+  it('ignores forwarded IP headers unless proxy headers are explicitly trusted', () => {
+    delete process.env.ARCHE_TRUST_PROXY_HEADERS
+    const headers = new Headers({
+      'x-forwarded-for': '203.0.113.1, 192.168.1.1',
+      'x-real-ip': '203.0.113.2',
+    })
+
+    expect(getClientIp(headers)).toBeNull()
+  })
+
+  it('prefers x-forwarded-for over x-real-ip when proxy headers are trusted', () => {
+    process.env.ARCHE_TRUST_PROXY_HEADERS = 'true'
     const headers = new Headers({
       'x-forwarded-for': '203.0.113.1, 192.168.1.1',
       'x-real-ip': '203.0.113.2',
@@ -55,7 +76,8 @@ describe('getClientIp', () => {
     expect(getClientIp(headers)).toBe('203.0.113.1')
   })
 
-  it('falls back to x-real-ip when x-forwarded-for is absent', () => {
+  it('falls back to x-real-ip when trusted x-forwarded-for is absent', () => {
+    process.env.ARCHE_TRUST_PROXY_HEADERS = 'true'
     const headers = new Headers({ 'x-real-ip': '203.0.113.2' })
     expect(getClientIp(headers)).toBe('203.0.113.2')
   })

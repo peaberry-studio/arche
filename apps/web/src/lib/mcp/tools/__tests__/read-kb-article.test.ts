@@ -19,11 +19,16 @@ describe('readKbArticle', () => {
   })
 
   it('reads a markdown file successfully', async () => {
-    mockRunGit.mockResolvedValue({ ok: true, stdout: '# Hello\n\nWorld\n' })
+    mockRunGit
+      .mockResolvedValueOnce({ ok: true, stdout: '15\n' })
+      .mockResolvedValueOnce({ ok: true, stdout: '# Hello\n\nWorld\n' })
 
     const result = await readKbArticle({ path: 'docs/intro.md' })
 
-    expect(mockRunGit).toHaveBeenCalledWith('/kb-content', ['show', 'HEAD:docs/intro.md'])
+    expect(mockRunGit).toHaveBeenNthCalledWith(1, '/kb-content', ['cat-file', '-s', 'HEAD:docs/intro.md'])
+    expect(mockRunGit).toHaveBeenNthCalledWith(2, '/kb-content', ['show', 'HEAD:docs/intro.md'], {
+      maxBuffer: 256 * 1024,
+    })
     expect(result).toEqual({
       ok: true,
       kind: 'text',
@@ -58,7 +63,9 @@ describe('readKbArticle', () => {
 
   it('truncates content beyond maxLines', async () => {
     const longContent = Array.from({ length: 600 }, (_, index) => `Line ${index + 1}`).join('\n')
-    mockRunGit.mockResolvedValue({ ok: true, stdout: longContent })
+    mockRunGit
+      .mockResolvedValueOnce({ ok: true, stdout: String(longContent.length) })
+      .mockResolvedValueOnce({ ok: true, stdout: longContent })
 
     const result = await readKbArticle({ path: 'docs/long.md', maxLines: 500 })
 
@@ -78,11 +85,48 @@ describe('readKbArticle', () => {
   })
 
   it('accepts .yaml, .yml, .json, and .txt extensions', async () => {
-    mockRunGit.mockResolvedValue({ ok: true, stdout: '{}' })
+    mockRunGit
+      .mockResolvedValueOnce({ ok: true, stdout: '2' })
+      .mockResolvedValueOnce({ ok: true, stdout: '{}' })
+      .mockResolvedValueOnce({ ok: true, stdout: '2' })
+      .mockResolvedValueOnce({ ok: true, stdout: '{}' })
+      .mockResolvedValueOnce({ ok: true, stdout: '2' })
+      .mockResolvedValueOnce({ ok: true, stdout: '{}' })
+      .mockResolvedValueOnce({ ok: true, stdout: '2' })
+      .mockResolvedValueOnce({ ok: true, stdout: '{}' })
 
     for (const extension of ['.yaml', '.yml', '.json', '.txt']) {
       const result = await readKbArticle({ path: `file${extension}` })
       expect(result).toMatchObject({ ok: true, kind: 'text' })
     }
+  })
+
+  it('caps oversized maxLines requests', async () => {
+    const longContent = Array.from({ length: 2100 }, (_, index) => `Line ${index + 1}`).join('\n')
+    mockRunGit
+      .mockResolvedValueOnce({ ok: true, stdout: String(longContent.length) })
+      .mockResolvedValueOnce({ ok: true, stdout: longContent })
+
+    const result = await readKbArticle({ path: 'docs/long.md', maxLines: 999999 })
+
+    expect(result).toMatchObject({ ok: true, kind: 'text', truncated: true })
+    if (result.ok && result.kind === 'text') {
+      expect(result.content.split('\n')).toHaveLength(2001)
+    }
+  })
+
+  it('marks text as truncated when git output reaches the byte cap', async () => {
+    mockRunGit
+      .mockResolvedValueOnce({ ok: true, stdout: String(300 * 1024) })
+      .mockResolvedValueOnce({ ok: true, stdout: 'partial', truncated: true })
+
+    const result = await readKbArticle({ path: 'docs/huge.md' })
+
+    expect(result).toEqual({
+      ok: true,
+      kind: 'text',
+      content: 'partial\n[truncated - 307200 bytes total]',
+      truncated: true,
+    })
   })
 })

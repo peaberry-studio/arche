@@ -2,7 +2,7 @@ import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 
-import * as XLSX from 'xlsx'
+import * as XLSX from '@e965/xlsx'
 
 import { resolveAttachmentPath } from '../shared/attachment-tools.js'
 import { inspect, query, sample, stats } from '../tools/spreadsheet.js'
@@ -27,7 +27,7 @@ async function ensureFixture() {
     { region: 'north', revenue: 30, active: true },
   ])
   XLSX.utils.book_append_sheet(workbook, worksheet, 'sales')
-  XLSX.writeFile(workbook, FIXTURE_PATH)
+  await fs.writeFile(FIXTURE_PATH, XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }))
 }
 
 function parseOutput(output) {

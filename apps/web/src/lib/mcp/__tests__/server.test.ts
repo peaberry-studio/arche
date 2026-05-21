@@ -72,7 +72,7 @@ describe('createMcpServer', () => {
   it('registers the full developer-context tool surface for default scopes', async () => {
     const { createMcpServer } = await import('../server')
 
-    createMcpServer()
+    createMcpServer({ scopes: ['kb:read', 'kb:write', 'agents:read', 'tasks:run'] })
 
     expect(registerTool).toHaveBeenCalledTimes(14)
     expect(registerTool).toHaveBeenCalledWith(
@@ -150,7 +150,7 @@ describe('createMcpServer', () => {
   it('registers prompts for default scopes', async () => {
     const { createMcpServer } = await import('../server')
 
-    createMcpServer()
+    createMcpServer({ scopes: ['kb:read', 'kb:write', 'agents:read', 'tasks:run'] })
 
     expect(registerPrompt).toHaveBeenCalledTimes(3)
     expect(registerPrompt).toHaveBeenCalledWith(
@@ -343,6 +343,7 @@ describe('createMcpServer', () => {
 
     const { createMcpServer } = await import('../server')
     createMcpServer({
+      scopes: ['kb:read', 'kb:write', 'agents:read', 'tasks:run'],
       user: { email: 'alice@example.com', id: 'u1', role: 'USER', slug: 'alice' },
     })
 
@@ -404,6 +405,7 @@ describe('createMcpServer', () => {
 
     const { createMcpServer } = await import('../server')
     createMcpServer({
+      scopes: ['kb:read', 'kb:write', 'agents:read', 'tasks:run'],
       user: { email: 'alice@example.com', id: 'u1', role: 'USER', slug: 'alice' },
     })
 
@@ -423,7 +425,7 @@ describe('createMcpServer', () => {
     mockReadAgentsGuide.mockResolvedValue({ ok: false, error: 'kb_unavailable' })
 
     const { createMcpServer } = await import('../server')
-    createMcpServer()
+    createMcpServer({ scopes: ['kb:read', 'kb:write', 'agents:read', 'tasks:run'] })
 
     const handler = registerPrompt.mock.calls.find(
       ([name]: [string]) => name === 'arche-workspace-context'
@@ -453,7 +455,7 @@ describe('createMcpServer', () => {
     })
 
     const { createMcpServer } = await import('../server')
-    createMcpServer()
+    createMcpServer({ scopes: ['kb:read', 'kb:write', 'agents:read', 'tasks:run'] })
 
     const handler = registerPrompt.mock.calls.find(
       ([name]: [string]) => name === 'use-agent'
@@ -477,7 +479,7 @@ describe('createMcpServer', () => {
     mockReadAgent.mockResolvedValue({ ok: false, error: 'not_found' })
 
     const { createMcpServer } = await import('../server')
-    createMcpServer()
+    createMcpServer({ scopes: ['kb:read', 'kb:write', 'agents:read', 'tasks:run'] })
 
     const handler = registerPrompt.mock.calls.find(
       ([name]: [string]) => name === 'use-agent'
@@ -498,7 +500,7 @@ describe('createMcpServer', () => {
     })
 
     const { createMcpServer } = await import('../server')
-    createMcpServer()
+    createMcpServer({ scopes: ['kb:read', 'kb:write', 'agents:read', 'tasks:run'] })
 
     const handler = registerPrompt.mock.calls.find(
       ([name]: [string]) => name === 'use-skill'
@@ -519,7 +521,7 @@ describe('createMcpServer', () => {
     mockReadSkillForMcp.mockResolvedValue({ ok: false, error: 'not_found' })
 
     const { createMcpServer } = await import('../server')
-    createMcpServer()
+    createMcpServer({ scopes: ['kb:read', 'kb:write', 'agents:read', 'tasks:run'] })
 
     const handler = registerPrompt.mock.calls.find(
       ([name]: [string]) => name === 'use-skill'
@@ -527,5 +529,14 @@ describe('createMcpServer', () => {
     const result = await handler?.({ skill_name: 'nope', task: 'anything' })
 
     expect(result.messages[0].content.text).toContain('Skill "nope" not found')
+  })
+
+  it('registers no tools or prompts when scopes are omitted', async () => {
+    const { createMcpServer } = await import('../server')
+
+    createMcpServer()
+
+    expect(registerTool).not.toHaveBeenCalled()
+    expect(registerPrompt).not.toHaveBeenCalled()
   })
 })

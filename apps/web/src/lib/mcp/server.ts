@@ -3,7 +3,6 @@ import { z } from 'zod'
 
 import type { RuntimeUser } from '@/lib/runtime/types'
 import {
-  DEFAULT_MCP_PAT_SCOPES,
   hasMcpScope,
   MCP_SCOPE_AGENTS_READ,
   MCP_SCOPE_KB_READ,
@@ -44,7 +43,7 @@ export function createMcpServer(input: CreateMcpServerInput = {}): McpServer {
     version: process.env.ARCHE_GIT_SHA || 'dev',
   })
 
-  const scopes = input.scopes ?? DEFAULT_MCP_PAT_SCOPES
+  const scopes = input.scopes ?? []
 
   registerTools(server, scopes, input.user)
   registerPrompts(server, scopes, input.user)
@@ -97,7 +96,7 @@ function registerTools(
           'discover available paths.',
         inputSchema: {
           path: z.string(),
-          maxLines: z.number().int().positive().optional(),
+          maxLines: z.number().int().positive().max(2000).optional(),
         },
       },
       async ({ path, maxLines }) => toToolResult(await readKbArticle({ path, maxLines }))
@@ -114,7 +113,7 @@ function registerTools(
           query: z.string(),
           path: z.string().optional(),
           caseSensitive: z.boolean().optional(),
-          limit: z.number().int().positive().optional(),
+          limit: z.number().int().positive().max(100).optional(),
         },
       },
       async ({ query, path, caseSensitive, limit }) => {

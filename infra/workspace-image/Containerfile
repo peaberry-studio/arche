@@ -17,8 +17,8 @@ RUN apk add --no-cache ca-certificates git nodejs npm
 
 # Install global OpenCode custom tools configuration.
 WORKDIR /opt/arche/opencode-config
-COPY opencode-config/package.json /opt/arche/opencode-config/package.json
-RUN npm install --omit=dev
+COPY opencode-config/package.json opencode-config/package-lock.json /opt/arche/opencode-config/
+RUN npm ci --omit=dev
 RUN mkdir -p /opt/arche/opencode-config/shared /opt/arche/opencode-config/tools
 COPY opencode-config/shared/*.js /opt/arche/opencode-config/shared/
 COPY opencode-config/tools/*.js /opt/arche/opencode-config/tools/

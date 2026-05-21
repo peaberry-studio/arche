@@ -33,8 +33,8 @@ function resolveFallbackDesktopOpencodeConfigDir(): string | null {
   }
 
   const candidates = [
-    join(process.cwd(), 'infra', 'workspace-image', 'opencode-config'),
-    join(process.cwd(), '..', '..', 'infra', 'workspace-image', 'opencode-config'),
+    join(/*turbopackIgnore: true*/ process.cwd(), 'infra', 'workspace-image', 'opencode-config'),
+    join(/*turbopackIgnore: true*/ process.cwd(), '..', '..', 'infra', 'workspace-image', 'opencode-config'),
   ]
 
   for (const candidate of candidates) {

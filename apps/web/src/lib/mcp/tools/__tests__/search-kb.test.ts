@@ -26,19 +26,23 @@ describe('searchKb', () => {
 
     const result = await searchKb({ query: 'pricing' })
 
-    expect(mockRunGit).toHaveBeenCalledWith('/kb-content', [
-      'grep',
-      '-n',
-      '-I',
-      '-F',
-      '-C',
-      '3',
-      '--max-count',
-      '20',
-      '-e',
-      'pricing',
-      'HEAD',
-    ])
+    expect(mockRunGit).toHaveBeenCalledWith(
+      '/kb-content',
+      [
+        'grep',
+        '-n',
+        '-I',
+        '-F',
+        '-C',
+        '3',
+        '--max-count',
+        '20',
+        '-e',
+        'pricing',
+        'HEAD',
+      ],
+      { maxBuffer: 128 * 1024 },
+    )
     expect(result).toEqual({
       ok: true,
       matches: [
@@ -56,21 +60,25 @@ describe('searchKb', () => {
 
     await searchKb({ query: 'test', path: 'docs/' })
 
-    expect(mockRunGit).toHaveBeenCalledWith('/kb-content', [
-      'grep',
-      '-n',
-      '-I',
-      '-F',
-      '-C',
-      '3',
-      '--max-count',
-      '20',
-      '-e',
-      'test',
-      'HEAD',
-      '--',
-      'docs',
-    ])
+    expect(mockRunGit).toHaveBeenCalledWith(
+      '/kb-content',
+      [
+        'grep',
+        '-n',
+        '-I',
+        '-F',
+        '-C',
+        '3',
+        '--max-count',
+        '20',
+        '-e',
+        'test',
+        'HEAD',
+        '--',
+        'docs',
+      ],
+      { maxBuffer: 128 * 1024 },
+    )
   })
 
   it('supports case-insensitive search', async () => {
@@ -78,20 +86,24 @@ describe('searchKb', () => {
 
     await searchKb({ query: 'Pricing', caseSensitive: false })
 
-    expect(mockRunGit).toHaveBeenCalledWith('/kb-content', [
-      'grep',
-      '-n',
-      '-I',
-      '-F',
-      '-C',
-      '3',
-      '--max-count',
-      '20',
-      '-i',
-      '-e',
-      'Pricing',
-      'HEAD',
-    ])
+    expect(mockRunGit).toHaveBeenCalledWith(
+      '/kb-content',
+      [
+        'grep',
+        '-n',
+        '-I',
+        '-F',
+        '-C',
+        '3',
+        '--max-count',
+        '20',
+        '-i',
+        '-e',
+        'Pricing',
+        'HEAD',
+      ],
+      { maxBuffer: 128 * 1024 },
+    )
   })
 
   it('rejects path traversal in the path param', async () => {
@@ -121,19 +133,23 @@ describe('searchKb', () => {
 
     await searchKb({ query: 'test', limit: 999 })
 
-    expect(mockRunGit).toHaveBeenCalledWith('/kb-content', [
-      'grep',
-      '-n',
-      '-I',
-      '-F',
-      '-C',
-      '3',
-      '--max-count',
-      '100',
-      '-e',
-      'test',
-      'HEAD',
-    ])
+    expect(mockRunGit).toHaveBeenCalledWith(
+      '/kb-content',
+      [
+        'grep',
+        '-n',
+        '-I',
+        '-F',
+        '-C',
+        '3',
+        '--max-count',
+        '100',
+        '-e',
+        'test',
+        'HEAD',
+      ],
+      { maxBuffer: 128 * 1024 },
+    )
   })
 
   it('treats a leading dash query as literal text instead of a git grep option', async () => {
@@ -141,19 +157,23 @@ describe('searchKb', () => {
 
     await searchKb({ query: '--help' })
 
-    expect(mockRunGit).toHaveBeenCalledWith('/kb-content', [
-      'grep',
-      '-n',
-      '-I',
-      '-F',
-      '-C',
-      '3',
-      '--max-count',
-      '20',
-      '-e',
-      '--help',
-      'HEAD',
-    ])
+    expect(mockRunGit).toHaveBeenCalledWith(
+      '/kb-content',
+      [
+        'grep',
+        '-n',
+        '-I',
+        '-F',
+        '-C',
+        '3',
+        '--max-count',
+        '20',
+        '-e',
+        '--help',
+        'HEAD',
+      ],
+      { maxBuffer: 128 * 1024 },
+    )
   })
 
   it('returns every match line from a grouped git grep block', async () => {
@@ -188,5 +208,39 @@ describe('searchKb', () => {
         },
       ],
     })
+  })
+
+  it('enforces the global result limit even when git returns more matches', async () => {
+    mockRunGit.mockResolvedValue({
+      ok: true,
+      stdout: [
+        'HEAD:docs/one.md:1:pricing',
+        'HEAD:docs/two.md:2:pricing',
+        'HEAD:docs/three.md:3:pricing',
+      ].join('\n'),
+    })
+
+    const result = await searchKb({ query: 'pricing', limit: 2 })
+
+    expect(result).toEqual({
+      ok: true,
+      truncated: true,
+      matches: [
+        { file: 'docs/one.md', line: 1, snippet: 'HEAD:docs/one.md:1:pricing\nHEAD:docs/two.md:2:pricing\nHEAD:docs/three.md:3:pricing' },
+        { file: 'docs/two.md', line: 2, snippet: 'HEAD:docs/one.md:1:pricing\nHEAD:docs/two.md:2:pricing\nHEAD:docs/three.md:3:pricing' },
+      ],
+    })
+  })
+
+  it('marks output as truncated when the git process hits the output byte cap', async () => {
+    mockRunGit.mockResolvedValue({
+      ok: true,
+      stdout: 'HEAD:docs/one.md:1:pricing\n',
+      truncated: true,
+    })
+
+    const result = await searchKb({ query: 'pricing' })
+
+    expect(result).toMatchObject({ ok: true, truncated: true })
   })
 })

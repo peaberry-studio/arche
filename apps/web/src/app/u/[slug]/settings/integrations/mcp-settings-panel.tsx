@@ -182,8 +182,8 @@ export function McpSettingsPanel({
         {mcpConfigError ? (
           <p className="text-sm text-destructive">{mcpConfigError}</p>
         ) : null}
-        {error ? <p className="text-sm text-destructive">{error}</p> : null}
-        {notice ? <p className="text-sm text-emerald-600">{notice}</p> : null}
+        {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+        {notice ? <p role="status" className="text-sm text-emerald-600">{notice}</p> : null}
 
         <PanelBody
           enabled={enabled}
@@ -241,6 +241,7 @@ function PanelHeader({
         </Badge>
         {canManageMcp ? (
           <Switch
+            aria-label="Enable MCP access"
             checked={enabled}
             onCheckedChange={onToggle}
             disabled={hasConfigError || toggling}
@@ -486,7 +487,7 @@ function CreateTokenDialog({
                     value={selectedPreset}
                     onValueChange={(value) => setSelectedPreset(value as McpClientPreset)}
                   >
-                    <TabsList>
+                    <TabsList className="w-full justify-start overflow-x-auto">
                       {QUICK_SETUP_PRESETS.map((preset) => {
                         const option = buildMcpClientSetup(preset, mcpBaseUrl, latestToken.token)
                         const Icon = PRESET_ICON[preset]
@@ -531,7 +532,7 @@ function CreateTokenDialog({
               )}
 
               {dialogError ? (
-                <p className="text-sm text-destructive">{dialogError}</p>
+                <p role="alert" className="text-sm text-destructive">{dialogError}</p>
               ) : null}
             </div>
 
@@ -618,7 +619,7 @@ function CreateTokenDialog({
               </div>
 
               {dialogError ? (
-                <p className="text-sm text-destructive">{dialogError}</p>
+                <p role="alert" className="text-sm text-destructive">{dialogError}</p>
               ) : null}
             </div>
 

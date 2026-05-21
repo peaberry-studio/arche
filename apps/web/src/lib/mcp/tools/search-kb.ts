@@ -4,6 +4,7 @@ import { getKbContentRoot } from '@/lib/runtime/paths'
 
 const DEFAULT_LIMIT = 20
 const MAX_LIMIT = 100
+const MAX_SEARCH_OUTPUT_BYTES = 128 * 1024
 
 export type SearchKbInput = {
   query: string
@@ -19,7 +20,7 @@ export type SearchKbMatch = {
 }
 
 export type SearchKbResult =
-  | { ok: true; matches: SearchKbMatch[] }
+  | { ok: true; matches: SearchKbMatch[]; truncated?: true }
   | { ok: false; error: 'empty_query' | 'invalid_path' | 'kb_unavailable' }
 
 export async function searchKb(input: SearchKbInput): Promise<SearchKbResult> {
@@ -53,7 +54,10 @@ export async function searchKb(input: SearchKbInput): Promise<SearchKbResult> {
     args.push('--', normalizedPath)
   }
 
-  const result = await runGitOnBareRepo(getKbContentRoot(), args)
+  const limit = resolveLimit(input.limit)
+  const result = await runGitOnBareRepo(getKbContentRoot(), args, {
+    maxBuffer: MAX_SEARCH_OUTPUT_BYTES,
+  })
   if (!result.ok) {
     if (!result.stderr.trim()) {
       return { ok: true, matches: [] }
@@ -62,7 +66,13 @@ export async function searchKb(input: SearchKbInput): Promise<SearchKbResult> {
     return { ok: false, error: 'kb_unavailable' }
   }
 
-  return { ok: true, matches: parseGitGrepOutput(result.stdout) }
+  const matches = parseGitGrepOutput(result.stdout)
+  const limitedMatches = matches.slice(0, limit)
+  return {
+    ok: true,
+    matches: limitedMatches,
+    ...(result.truncated || matches.length > limit ? { truncated: true as const } : {}),
+  }
 }
 
 function resolveLimit(limit?: number): number {

@@ -30,8 +30,8 @@ const AGENT_DEFINITION_KEYS = new Set([
 ])
 
 const AGENT_DEFINITION_DIR_CANDIDATES = [
-  join(process.cwd(), 'kickstart/agents/definitions'),
-  join(process.cwd(), 'apps/web/kickstart/agents/definitions'),
+  join(/*turbopackIgnore: true*/ process.cwd(), 'kickstart/agents/definitions'),
+  join(/*turbopackIgnore: true*/ process.cwd(), 'apps/web/kickstart/agents/definitions'),
 ]
 
 const AGENT_TOOL_SET = new Set<string>(OPENCODE_AGENT_TOOLS)

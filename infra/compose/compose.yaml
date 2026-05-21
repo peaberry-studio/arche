@@ -102,6 +102,7 @@ services:
       ARCHE_GATEWAY_TOKEN_SECRET: ${ARCHE_GATEWAY_TOKEN_SECRET:-}
       ARCHE_GATEWAY_TOKEN_TTL_SECONDS: ${ARCHE_GATEWAY_TOKEN_TTL_SECONDS:-}
       ARCHE_GATEWAY_BASE_URL: ${ARCHE_GATEWAY_BASE_URL:-}
+      ARCHE_TRUST_PROXY_HEADERS: "true"
       # Use custom image with git (build with: podman build -t arche-workspace infra/workspace-image)
       OPENCODE_IMAGE: arche-workspace:latest
       OPENCODE_NETWORK: arche-internal

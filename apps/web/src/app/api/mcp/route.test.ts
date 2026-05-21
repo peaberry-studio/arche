@@ -181,6 +181,23 @@ describe('POST /api/mcp', () => {
     expect(mockReadMcpSettings).not.toHaveBeenCalled()
   })
 
+  it('returns 413 when a streamed request body exceeds the configured size limit', async () => {
+    const { POST } = await import('./route')
+    const response = await POST(new Request('http://localhost/api/mcp', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer arche_pat_abc',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ payload: 'x'.repeat(128 * 1024) }),
+    }))
+
+    expect(response.status).toBe(413)
+    expect(mockAuthenticatePat).toHaveBeenCalledTimes(1)
+    expect(mockReadMcpSettings).toHaveBeenCalledTimes(1)
+    expect(mockTransportConstructor).not.toHaveBeenCalled()
+  })
+
   it('connects the server, forwards the parsed request body to the transport, and audits tool calls', async () => {
     const body = {
       jsonrpc: '2.0',

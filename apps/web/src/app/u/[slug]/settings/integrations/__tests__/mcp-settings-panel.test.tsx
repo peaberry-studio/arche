@@ -166,7 +166,7 @@ describe('McpSettingsPanel', () => {
       />,
     )
 
-    expect(screen.getByRole('switch')).toBeTruthy()
+    expect(screen.getByRole('switch', { name: 'Enable MCP access' })).toBeTruthy()
     unmount()
 
     render(
@@ -235,6 +235,7 @@ describe('McpSettingsPanel', () => {
     expect(screen.getByText(/codex mcp add arche/i)).toBeTruthy()
     expect(screen.getByText(/--url 'http:\/\/arche\.lvh\.me:8080\/api\/mcp'/i)).toBeTruthy()
     expect(screen.getByText(/--bearer-token-env-var ARCHE_MCP_TOKEN/i)).toBeTruthy()
+    expect(screen.getByRole('tablist').className).toContain('overflow-x-auto')
 
     fireEvent.mouseDown(screen.getByRole('tab', { name: 'Cursor' }))
 
@@ -422,5 +423,24 @@ describe('McpSettingsPanel', () => {
     })
     expect(screen.queryByText('Existing token')).toBeNull()
     expect(screen.getByText('No tokens created yet.')).toBeTruthy()
+    expect(screen.getByRole('status').textContent).toBe('Token revoked.')
+  })
+
+  it('announces toggle failures to assistive technology', async () => {
+    mockSetMcpEnabled.mockResolvedValue({ ok: false, error: 'Only administrators can change MCP settings' })
+
+    render(
+      <McpSettingsPanel
+        mcpEnabled={true}
+        mcpConfigError={null}
+        canManageMcp={true}
+        mcpBaseUrl="http://arche.lvh.me:8080"
+        personalAccessTokens={[]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Enable MCP access' }))
+
+    expect((await screen.findByRole('alert')).textContent).toBe('Only administrators can change MCP settings')
   })
 })

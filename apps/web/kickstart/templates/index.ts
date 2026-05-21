@@ -8,8 +8,8 @@ import type {
 } from '@/kickstart/types'
 
 const TEMPLATE_DEFINITION_DIR_CANDIDATES = [
-  join(process.cwd(), 'kickstart/templates/definitions'),
-  join(process.cwd(), 'apps/web/kickstart/templates/definitions'),
+  join(/*turbopackIgnore: true*/ process.cwd(), 'kickstart/templates/definitions'),
+  join(/*turbopackIgnore: true*/ process.cwd(), 'apps/web/kickstart/templates/definitions'),
 ]
 
 function loadKickstartTemplates(): KickstartTemplateDefinition[] {

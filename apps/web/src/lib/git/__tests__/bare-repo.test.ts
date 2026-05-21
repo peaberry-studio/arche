@@ -63,6 +63,17 @@ describe('runGit', () => {
     expect(result).toEqual({ ok: false, stderr: 'fatal: bad' })
   })
 
+  it('returns partial stdout as truncated when maxBuffer is exceeded', async () => {
+    mockExecFile.mockRejectedValue({
+      message: 'stdout maxBuffer length exceeded',
+      stdout: 'partial output',
+    })
+
+    const result = await runGit(['show'], { maxBuffer: 10 })
+
+    expect(result).toEqual({ ok: true, stdout: 'partial output', truncated: true })
+  })
+
   it('returns git_failed for errors without stderr', async () => {
     mockExecFile.mockRejectedValue(new Error('ENOENT'))
     const result = await runGit(['status'])
