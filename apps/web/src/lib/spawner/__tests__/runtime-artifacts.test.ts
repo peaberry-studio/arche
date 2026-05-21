@@ -137,6 +137,41 @@ describe('runtime artifacts', () => {
     expect(artifacts.skills[0]?.skill.frontmatter.name).toBe('pdf-processing')
   })
 
+  it('strips MCP settings metadata from generated runtime config', async () => {
+    const { buildWorkspaceRuntimeConfig } = await loadRuntimeArtifactsModule()
+
+    const config = await buildWorkspaceRuntimeConfig('alice', {}, JSON.stringify({
+      $schema: 'https://opencode.ai/config.json',
+      agent: {},
+      mcp: { enabled: true },
+    }))
+
+    expect(config.mcp).toBeUndefined()
+  })
+
+  it('preserves user MCP servers while stripping settings metadata', async () => {
+    const { buildWorkspaceRuntimeConfig } = await loadRuntimeArtifactsModule()
+
+    const config = await buildWorkspaceRuntimeConfig('alice', {}, JSON.stringify({
+      $schema: 'https://opencode.ai/config.json',
+      agent: {},
+      mcp: {
+        enabled: true,
+        external_docs: {
+          type: 'remote',
+          url: 'https://docs.example.com/mcp',
+        },
+      },
+    }))
+
+    expect(config.mcp).toEqual({
+      external_docs: {
+        type: 'remote',
+        url: 'https://docs.example.com/mcp',
+      },
+    })
+  })
+
   it('fails when the snapshot contains a malformed skill bundle', async () => {
     await createRuntimeRepo({
       'CommonWorkspaceConfig.json': createWorkspaceConfig(),

@@ -48,6 +48,24 @@ export type WorkspaceRuntimeArtifacts = {
 
 const COMMON_WORKSPACE_CONFIG_FILE = 'CommonWorkspaceConfig.json'
 
+function stripMcpSettingsMetadata(config: Record<string, unknown>): Record<string, unknown> {
+  const mcp = config.mcp
+  if (!isRecord(mcp) || !('enabled' in mcp)) {
+    return config
+  }
+
+  const nextMcp = { ...mcp }
+  delete nextMcp.enabled
+
+  if (Object.keys(nextMcp).length === 0) {
+    const nextConfig = { ...config }
+    delete nextConfig.mcp
+    return nextConfig
+  }
+
+  return { ...config, mcp: nextMcp }
+}
+
 function normalizeRuntimeConfigForHash(configContent: string): string {
   try {
     const parsed = parseRuntimeConfigContent(configContent)
@@ -153,7 +171,7 @@ async function buildBaseWorkspaceConfig(
 
   if (commonConfigResult?.ok) {
     try {
-      baseConfig = parseRuntimeConfigContent(commonConfigResult.content)
+      baseConfig = stripMcpSettingsMetadata(parseRuntimeConfigContent(commonConfigResult.content))
     } catch {
       console.warn('[workspace-runtime] Failed to parse CommonWorkspaceConfig')
     }

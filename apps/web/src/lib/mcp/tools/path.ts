@@ -15,7 +15,11 @@ export function normalizeKbPath(value: string): string | null {
   }
 
   const normalizedSlashes = trimmed.replace(/\\/g, '/').replace(/\/+$/, '')
-  if (CONTROL_CHARACTER_PATTERN.test(normalizedSlashes) || normalizedSlashes.startsWith('/')) {
+  if (
+    CONTROL_CHARACTER_PATTERN.test(normalizedSlashes) ||
+    normalizedSlashes.startsWith('/') ||
+    normalizedSlashes.startsWith(':')
+  ) {
     return null
   }
 
@@ -46,11 +50,12 @@ export function normalizeKbWritePath(value: string): string | null {
 }
 
 function isUnsafeSegment(segment: string): boolean {
+  const normalizedSegment = segment.toLowerCase()
   return (
     segment.length === 0 ||
     segment === '.' ||
     segment === '..' ||
-    segment === '.git' ||
-    GIT_CONTROL_FILES.has(segment)
+    normalizedSegment === '.git' ||
+    GIT_CONTROL_FILES.has(normalizedSegment)
   )
 }

@@ -16,6 +16,7 @@ describe('buildMcpClientSetup', () => {
     expect(result.value).toContain('claude mcp add-json arche')
     expect(result.value).toContain('\n  "type": "http"')
     expect(result.value).toContain('"url": "https://arche.example.com/api/mcp"')
+    expect(result.value).toContain(`"Authorization": "Bearer '"$ARCHE_MCP_TOKEN"'"`)
     expect(result.value).not.toContain('arche_pat_test')
   })
 

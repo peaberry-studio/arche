@@ -43,7 +43,7 @@ export function buildMcpClientSetup(
           `read -rsp 'Arche MCP token: ' ${MCP_TOKEN_ENV_VAR}`,
           `export ${MCP_TOKEN_ENV_VAR}`,
           `printf '\\n'`,
-          `claude mcp add-json ${MCP_SERVER_NAME} ${shellQuote(prettyJson.replace(token, `'"$${MCP_TOKEN_ENV_VAR}"'`))}`,
+          `claude mcp add-json ${MCP_SERVER_NAME} ${shellQuote(prettyJson).replace(token, `'"$${MCP_TOKEN_ENV_VAR}"'`)}`,
         ].join('\n'),
       }
     }

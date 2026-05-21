@@ -41,7 +41,7 @@ arche_gateway_token_secret: "{{ lookup('env', 'ARCHE_GATEWAY_TOKEN_SECRET') | de
 arche_gateway_token_ttl_seconds: "{{ lookup('env', 'ARCHE_GATEWAY_TOKEN_TTL_SECONDS') | default('', true) }}"
 arche_gateway_base_url: "{{ lookup('env', 'ARCHE_GATEWAY_BASE_URL') | default('', true) }}"
 arche_public_base_url: "{{ lookup('env', 'ARCHE_PUBLIC_BASE_URL') | default('', true) }}"
-arche_trust_proxy_headers: "{{ lookup('env', 'ARCHE_TRUST_PROXY_HEADERS') | default('true', true) }}"
+arche_trust_proxy_headers: "{{ lookup('env', 'ARCHE_TRUST_PROXY_HEADERS') | default('false', true) }}"
 arche_session_ttl_days: "{{ lookup('env', 'ARCHE_SESSION_TTL_DAYS') | default('', true) }}"
 
 # Connector overrides

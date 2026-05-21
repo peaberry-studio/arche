@@ -23,12 +23,19 @@ describe('normalizeKbPath', () => {
 
   it('rejects git control paths, empty segments, and control characters', () => {
     expect(normalizeKbPath('.git/config')).toBeNull()
+    expect(normalizeKbPath('.GIT/config')).toBeNull()
     expect(normalizeKbPath('docs/.git/hooks/pre-commit')).toBeNull()
     expect(normalizeKbPath('.gitmodules')).toBeNull()
+    expect(normalizeKbPath('.GITMODULES')).toBeNull()
     expect(normalizeKbPath('docs//intro.md')).toBeNull()
     expect(normalizeKbPath('docs/./intro.md')).toBeNull()
     expect(normalizeKbPath('docs/intro\n.md')).toBeNull()
     expect(normalizeKbPath('docs/intro\u001f.md')).toBeNull()
+  })
+
+  it('rejects git pathspec magic', () => {
+    expect(normalizeKbPath(':(top)')).toBeNull()
+    expect(normalizeKbPath(':/')).toBeNull()
   })
 })
 

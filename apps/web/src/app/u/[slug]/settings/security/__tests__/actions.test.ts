@@ -435,4 +435,3 @@ describe('get2FAStatus', () => {
     expect(result.ok).toBe(false)
   })
 })
-
