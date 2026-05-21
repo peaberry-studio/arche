@@ -57,6 +57,7 @@ describe('POST /api/mcp', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    mockGetClientIp.mockReturnValue('127.0.0.1')
     if (originalBaseUrl === undefined) {
       delete process.env.ARCHE_PUBLIC_BASE_URL
     } else {
@@ -139,6 +140,17 @@ describe('POST /api/mcp', () => {
     expect(mockAuthenticatePat).not.toHaveBeenCalled()
     expect(mockReadMcpSettings).not.toHaveBeenCalled()
     expect(mockTransportConstructor).not.toHaveBeenCalled()
+  })
+
+  it('skips the pre-auth IP rate limit when no trusted client IP is available', async () => {
+    mockGetClientIp.mockReturnValue(null)
+
+    const { POST } = await import('./route')
+    const response = await POST(makeRequest({ jsonrpc: '2.0' }))
+
+    expect(response.status).toBe(200)
+    expect(mockCheckRateLimit).toHaveBeenCalledTimes(1)
+    expect(mockCheckRateLimit).toHaveBeenCalledWith('mcp:tok-1', 100, 60000)
   })
 
   it('returns 429 before reading MCP settings when the token is rate limited', async () => {

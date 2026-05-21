@@ -11,12 +11,10 @@ import {
 } from '../scopes'
 
 describe('mcp scopes', () => {
-  it('exposes the full default self-service scope set', () => {
+  it('defaults self-service tokens to the read-only scope set', () => {
     expect(DEFAULT_MCP_PAT_SCOPES).toEqual([
       MCP_SCOPE_KB_READ,
-      MCP_SCOPE_KB_WRITE,
       MCP_SCOPE_AGENTS_READ,
-      MCP_SCOPE_TASKS_RUN,
     ])
   })
 

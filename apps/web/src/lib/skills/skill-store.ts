@@ -107,7 +107,7 @@ async function listFilesRecursive(rootDir: string, prefix = ''): Promise<SkillBu
 
 async function loadWorkspaceConfigFromRepoDir(repoDir: string): Promise<CommonWorkspaceConfig> {
   const configPath = path.join(repoDir, COMMON_WORKSPACE_CONFIG_FILE)
-  const raw = await fs.readFile(configPath, 'utf-8').catch((error: unknown) => {
+  const stats = await fs.lstat(configPath).catch((error: unknown) => {
     if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
       return null
     }
@@ -115,9 +115,15 @@ async function loadWorkspaceConfigFromRepoDir(repoDir: string): Promise<CommonWo
     throw error
   })
 
-  if (raw == null) {
+  if (stats?.isSymbolicLink() || (stats && !stats.isFile())) {
+    throw new SkillStoreError('invalid_config')
+  }
+
+  if (stats == null) {
     return createDefaultCommonWorkspaceConfig()
   }
+
+  const raw = await fs.readFile(configPath, 'utf-8')
 
   const parsed = parseCommonWorkspaceConfig(raw)
   if (!parsed.ok) {
@@ -150,7 +156,11 @@ async function loadSkillBundleFromRepoDir(repoDir: string, name: string): Promis
   | { ok: false; error: 'not_found' | 'read_failed' }
 > {
   const skillDir = path.join(repoDir, getSkillConfigDirectory(name))
-  const stats = await fs.stat(skillDir).catch(() => null)
+  const stats = await fs.lstat(skillDir).catch(() => null)
+  if (stats?.isSymbolicLink()) {
+    return { ok: false, error: 'read_failed' }
+  }
+
   if (!stats?.isDirectory()) {
     return { ok: false, error: 'not_found' }
   }

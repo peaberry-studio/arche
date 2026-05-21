@@ -162,6 +162,18 @@ export async function readConfigRepoFileBuffer(
   try {
     const normalizedPath = normalizeRepoRelativePath(filePath)
     const absolutePath = path.join(clone.dir, normalizedPath)
+    const stats = await fs.lstat(absolutePath).catch((error: unknown) => {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+        return null
+      }
+
+      throw error
+    })
+
+    if (!stats?.isFile()) {
+      return { ok: false, error: stats?.isSymbolicLink() ? 'read_failed' : 'not_found' }
+    }
+
     const content = await fs.readFile(absolutePath)
 
     return {
@@ -202,7 +214,17 @@ export async function listConfigRepoFiles(
   try {
     const normalizedPath = normalizeRepoRelativePath(directoryPath)
     const absolutePath = path.join(clone.dir, normalizedPath)
-    const stats = await fs.stat(absolutePath).catch(() => null)
+    const stats = await fs.lstat(absolutePath).catch((error: unknown) => {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+        return null
+      }
+
+      throw error
+    })
+
+    if (stats?.isSymbolicLink()) {
+      return { ok: false, error: 'read_failed' }
+    }
 
     return {
       ok: true,

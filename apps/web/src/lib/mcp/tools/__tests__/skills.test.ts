@@ -84,6 +84,12 @@ describe('mcp skill tools', () => {
     })
   })
 
+  it('rejects traversal-like skill names before hitting the skill store', async () => {
+    await expect(readSkillForMcp('../lint')).resolves.toEqual({ ok: false, error: 'not_found' })
+
+    expect(mockReadSkill).not.toHaveBeenCalled()
+  })
+
   it('reads text resources and truncates them by line count', async () => {
     mockReadSkillBundle.mockResolvedValue({
       ok: true,
@@ -166,6 +172,15 @@ describe('mcp skill tools', () => {
       name: 'lint',
       path: '../secrets.txt',
     })).resolves.toEqual({ ok: false, error: 'invalid_path' })
+  })
+
+  it('rejects traversal-like skill names when reading resources', async () => {
+    await expect(readSkillResource({
+      name: '../lint',
+      path: 'scripts/check.sh',
+    })).resolves.toEqual({ ok: false, error: 'not_found' })
+
+    expect(mockReadSkillBundle).not.toHaveBeenCalled()
   })
 
   it('propagates invalid_config from skill bundle reads', async () => {

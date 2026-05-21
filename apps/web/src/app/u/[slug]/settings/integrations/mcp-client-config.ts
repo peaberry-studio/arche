@@ -13,6 +13,7 @@ export type McpClientSetup = {
 
 const MCP_SERVER_NAME = 'arche'
 const MCP_TOKEN_ENV_VAR = 'ARCHE_MCP_TOKEN'
+const MCP_TOKEN_PROMPT = 'Arche MCP token: '
 
 export function buildMcpClientSetup(
   preset: McpClientPreset,
@@ -40,7 +41,7 @@ export function buildMcpClientSetup(
         mode: 'command',
         storesToken: true,
         value: [
-          `read -rsp 'Arche MCP token: ' ${MCP_TOKEN_ENV_VAR}`,
+          buildHiddenTokenReadCommand(),
           `export ${MCP_TOKEN_ENV_VAR}`,
           `printf '\\n'`,
           `claude mcp add-json ${MCP_SERVER_NAME} ${shellQuote(prettyJson).replace(token, `'"$${MCP_TOKEN_ENV_VAR}"'`)}`,
@@ -56,7 +57,7 @@ export function buildMcpClientSetup(
         mode: 'command',
         storesToken: false,
         value: [
-          `read -rsp 'Arche MCP token: ' ${MCP_TOKEN_ENV_VAR}`,
+          buildHiddenTokenReadCommand(),
           `export ${MCP_TOKEN_ENV_VAR}`,
           `printf '\\n'`,
           `codex mcp add ${MCP_SERVER_NAME} \\`,
@@ -110,6 +111,16 @@ export function buildMcpClientSetup(
         )}\n`,
       }
   }
+}
+
+function buildHiddenTokenReadCommand(): string {
+  return [
+    'if [ -n "${ZSH_VERSION:-}" ]; then',
+    `  read -rs "${MCP_TOKEN_ENV_VAR}?${MCP_TOKEN_PROMPT}"`,
+    'else',
+    `  read -rsp '${MCP_TOKEN_PROMPT}' ${MCP_TOKEN_ENV_VAR}`,
+    'fi',
+  ].join('\n')
 }
 
 function shellQuote(value: string): string {

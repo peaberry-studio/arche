@@ -33,14 +33,16 @@ export async function POST(request: Request): Promise<Response> {
     return jsonResponse(request, { error: 'payload_too_large' }, { status: 413 })
   }
 
-  const clientIp = getClientIp(request.headers) ?? 'unknown'
-  const preAuthRateLimit = checkRateLimit(
-    `mcp:ip:${clientIp}`,
-    MCP_PREAUTH_RATE_LIMIT_MAX,
-    MCP_PREAUTH_RATE_LIMIT_WINDOW_MS
-  )
-  if (!preAuthRateLimit.allowed) {
-    return buildRateLimitedResponse(request, preAuthRateLimit.resetAt)
+  const clientIp = getClientIp(request.headers)
+  if (clientIp) {
+    const preAuthRateLimit = checkRateLimit(
+      `mcp:ip:${clientIp}`,
+      MCP_PREAUTH_RATE_LIMIT_MAX,
+      MCP_PREAUTH_RATE_LIMIT_WINDOW_MS
+    )
+    if (!preAuthRateLimit.allowed) {
+      return buildRateLimitedResponse(request, preAuthRateLimit.resetAt)
+    }
   }
 
   const auth = await authenticatePat(request)

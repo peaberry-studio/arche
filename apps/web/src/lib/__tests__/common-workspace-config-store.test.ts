@@ -17,6 +17,7 @@ const {
   mockReadFile,
   mockWriteFile,
   mockMkdir,
+  mockLstat,
 } = vi.hoisted(() => ({
   mockResolveRepoRoot: vi.fn(),
   mockHasBareRepoLayout: vi.fn(),
@@ -32,6 +33,7 @@ const {
   mockReadFile: vi.fn(),
   mockWriteFile: vi.fn(),
   mockMkdir: vi.fn(),
+  mockLstat: vi.fn(),
 }))
 
 vi.mock('@/lib/git/bare-repo', () => ({
@@ -52,6 +54,7 @@ vi.mock('@/lib/runtime/paths', () => ({
 }))
 
 vi.mock('node:fs/promises', () => ({
+  lstat: mockLstat,
   readFile: mockReadFile,
   writeFile: mockWriteFile,
   mkdir: mockMkdir,
@@ -92,6 +95,11 @@ function setupAvailableRepo() {
   mockHashContent.mockReturnValue('sha256hash')
   mockMkdir.mockResolvedValue(undefined)
   mockWriteFile.mockResolvedValue(undefined)
+  mockLstat.mockResolvedValue({
+    isDirectory: () => false,
+    isFile: () => true,
+    isSymbolicLink: () => false,
+  })
 }
 
 describe('readCommonWorkspaceConfig', () => {
@@ -171,6 +179,20 @@ describe('readCommonWorkspaceConfig', () => {
 
     const result = await readCommonWorkspaceConfig()
     expect(result).toEqual({ ok: false, error: 'read_failed' })
+  })
+
+  it('rejects symlinked config files', async () => {
+    setupAvailableRepo()
+    mockLstat.mockResolvedValue({
+      isDirectory: () => false,
+      isFile: () => false,
+      isSymbolicLink: () => true,
+    })
+
+    const result = await readCommonWorkspaceConfig()
+
+    expect(result).toEqual({ ok: false, error: 'read_failed' })
+    expect(mockReadFile).not.toHaveBeenCalled()
   })
 
   it('always calls cleanupClone after successful clone', async () => {
@@ -260,6 +282,7 @@ describe('writeCommonWorkspaceConfig', () => {
 
   it('writes content and pushes on success', async () => {
     setupAvailableRepo()
+    mockReadFile.mockResolvedValue('{"existing":"config"}')
     mockDetectDefaultBranch.mockResolvedValue('master')
     mockRunGit.mockResolvedValue({ ok: true, stdout: 'M CommonWorkspaceConfig.json' })
 
@@ -282,7 +305,7 @@ describe('writeCommonWorkspaceConfig', () => {
   it('returns conflict when expected hash is provided and config is missing', async () => {
     setupAvailableRepo()
     const error = Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
-    mockReadFile.mockRejectedValue(error)
+    mockLstat.mockRejectedValue(error)
 
     const result = await writeCommonWorkspaceConfig('{"new":"config"}', 'previous-hash')
 
@@ -300,6 +323,20 @@ describe('writeCommonWorkspaceConfig', () => {
     expect(result).toEqual({ ok: false, error: 'write_failed' })
     expect(mockWriteFile).not.toHaveBeenCalled()
     expect(mockCleanupClone).toHaveBeenCalled()
+  })
+
+  it('rejects writing through a symlinked config file', async () => {
+    setupAvailableRepo()
+    mockLstat.mockResolvedValue({
+      isDirectory: () => false,
+      isFile: () => false,
+      isSymbolicLink: () => true,
+    })
+
+    const result = await writeCommonWorkspaceConfig('{"new":"config"}')
+
+    expect(result).toEqual({ ok: false, error: 'write_failed' })
+    expect(mockWriteFile).not.toHaveBeenCalled()
   })
 })
 
@@ -636,6 +673,20 @@ describe('readConfigRepoFile', () => {
 
     const result = await readConfigRepoFile('missing.json')
     expect(result).toEqual({ ok: false })
+  })
+
+  it('rejects symlinked repo files', async () => {
+    setupAvailableRepo()
+    mockLstat.mockResolvedValue({
+      isDirectory: () => false,
+      isFile: () => false,
+      isSymbolicLink: () => true,
+    })
+
+    const result = await readConfigRepoFile('AGENTS.md')
+
+    expect(result).toEqual({ ok: false })
+    expect(mockReadFile).not.toHaveBeenCalled()
   })
 
   it('always calls cleanupClone after successful clone', async () => {

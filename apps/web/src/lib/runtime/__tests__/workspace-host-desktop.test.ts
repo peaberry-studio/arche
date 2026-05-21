@@ -11,6 +11,7 @@ const mockReadFile = vi.fn()
 const mockReadFileSync = vi.fn()
 const mockWriteFileSync = vi.fn()
 const mockRandomBytes = vi.fn()
+const mockLstat = vi.fn()
 const mockMkdir = vi.fn()
 const mockRm = vi.fn()
 const mockWriteFile = vi.fn()
@@ -41,6 +42,7 @@ vi.mock('fs', () => ({
 }))
 
 vi.mock('fs/promises', () => ({
+  lstat: (...args: unknown[]) => mockLstat(...args),
   mkdir: (...args: unknown[]) => mockMkdir(...args),
   readFile: (...args: unknown[]) => mockReadFile(...args),
   rm: (...args: unknown[]) => mockRm(...args),
@@ -48,6 +50,7 @@ vi.mock('fs/promises', () => ({
 }))
 
 vi.mock('node:fs/promises', () => ({
+  lstat: (...args: unknown[]) => mockLstat(...args),
   mkdir: (...args: unknown[]) => mockMkdir(...args),
   readFile: (...args: unknown[]) => mockReadFile(...args),
   rm: (...args: unknown[]) => mockRm(...args),
@@ -237,6 +240,19 @@ describe('desktopWorkspaceHost', () => {
     // @ts-expect-error test isolation
     process.resourcesPath = undefined
     mockExistsSync.mockImplementation((target: string) => target === '/mock/bin/workspace-agent')
+    mockLstat.mockImplementation((target: string) => {
+      if (target.endsWith('/CommonWorkspaceConfig.json')) {
+        return Promise.resolve({
+          isDirectory: () => false,
+          isFile: () => true,
+          isSymbolicLink: () => false,
+        })
+      }
+
+      const error = new Error('ENOENT') as NodeJS.ErrnoException
+      error.code = 'ENOENT'
+      return Promise.reject(error)
+    })
     mockReadFile.mockImplementation((target: string) => {
       if (target.endsWith('/CommonWorkspaceConfig.json')) {
         return Promise.resolve(
@@ -443,6 +459,19 @@ describe('desktopWorkspaceHost', () => {
 
       if (target.endsWith('/AGENTS.md')) {
         return Promise.resolve('# AGENTS\n\nUse these guardrails.')
+      }
+
+      const error = new Error('ENOENT') as NodeJS.ErrnoException
+      error.code = 'ENOENT'
+      return Promise.reject(error)
+    })
+    mockLstat.mockImplementation((target: string) => {
+      if (target.endsWith('/CommonWorkspaceConfig.json') || target.endsWith('/AGENTS.md')) {
+        return Promise.resolve({
+          isDirectory: () => false,
+          isFile: () => true,
+          isSymbolicLink: () => false,
+        })
       }
 
       const error = new Error('ENOENT') as NodeJS.ErrnoException

@@ -136,6 +136,26 @@ describe('skill-store extended', () => {
     })
   })
 
+  it('returns read_failed when the skill directory is a symlink', async () => {
+    await createSkillRepo({
+      'CommonWorkspaceConfig.json': createWorkspaceConfig(),
+    })
+
+    const externalSkillDir = join(repoDir!, '..', 'external-skill')
+    await fs.mkdir(externalSkillDir, { recursive: true })
+    await fs.writeFile(join(externalSkillDir, 'SKILL.md'), createSkillMarkdown(), 'utf-8')
+    await fs.mkdir(join(repoDir!, 'skills'), { recursive: true })
+    await fs.symlink(externalSkillDir, join(repoDir!, 'skills', 'pdf-processing'))
+
+    const { readSkill } = await loadSkillStoreModule()
+    const result = await readSkill('pdf-processing')
+
+    expect(result).toEqual({
+      ok: false,
+      error: 'read_failed',
+    })
+  })
+
   it('reads a skill bundle from listConfigRepoFiles', async () => {
     listConfigRepoFilesMock.mockResolvedValue({
       ok: true,

@@ -57,6 +57,18 @@ export async function readCommonWorkspaceConfig(): Promise<ConfigReadResult> {
   const configPath = path.join(clone.dir, CONFIG_FILE_NAME)
 
   try {
+    const stats = await fs.lstat(configPath).catch((error: unknown) => {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+        return null
+      }
+
+      throw error
+    })
+
+    if (!stats?.isFile()) {
+      return { ok: false, error: stats?.isSymbolicLink() ? 'read_failed' : 'not_found' }
+    }
+
     const content = await fs.readFile(configPath, 'utf-8')
     return { ok: true, content, hash: hashContent(content), path: `${root}#${CONFIG_FILE_NAME}` }
   } catch (error) {
@@ -89,13 +101,19 @@ export async function writeCommonWorkspaceConfig(
 
   const configPath = path.join(clone.dir, CONFIG_FILE_NAME)
   try {
-    const current = await fs.readFile(configPath, 'utf-8').catch((error: unknown) => {
+    const stats = await fs.lstat(configPath).catch((error: unknown) => {
       if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
         return null
       }
 
       throw error
     })
+
+    if (stats?.isSymbolicLink() || (stats && !stats.isFile())) {
+      return { ok: false, error: 'write_failed' }
+    }
+
+    const current = stats ? await fs.readFile(configPath, 'utf-8') : null
 
     if (expectedHash && (current === null || hashContent(current) !== expectedHash)) {
       return { ok: false, error: 'conflict' }
@@ -249,7 +267,20 @@ export async function readConfigRepoFile(
   if (!clone.ok) return { ok: false }
 
   try {
-    const content = await fs.readFile(path.join(clone.dir, fileName), 'utf-8')
+    const filePath = path.join(clone.dir, fileName)
+    const stats = await fs.lstat(filePath).catch((error: unknown) => {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+        return null
+      }
+
+      throw error
+    })
+
+    if (!stats?.isFile() || stats.isSymbolicLink()) {
+      return { ok: false }
+    }
+
+    const content = await fs.readFile(filePath, 'utf-8')
     return { ok: true, content }
   } catch {
     return { ok: false }

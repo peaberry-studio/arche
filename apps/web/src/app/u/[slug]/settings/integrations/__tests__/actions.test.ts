@@ -194,8 +194,31 @@ describe('MCP integration actions', () => {
     })
 
     expect(mockCreatePat).toHaveBeenCalledWith(expect.objectContaining({
-      scopes: ['agents:read', 'kb:read', 'kb:write', 'tasks:run'],
+      scopes: ['agents:read', 'kb:read'],
     }))
+  })
+
+  it('authenticates before reading MCP settings for token creation', async () => {
+    mockGetSession.mockResolvedValue(null)
+
+    const result = await createPersonalAccessToken({
+      name: 'Laptop',
+      expiresInDays: 30,
+      scopes: ['agents:read'],
+    })
+
+    expect(result).toEqual({ ok: false, error: 'Not authenticated' })
+    expect(mockReadMcpSettings).not.toHaveBeenCalled()
+  })
+
+  it('rejects invalid token payloads before reading MCP settings', async () => {
+    const result = await createPersonalAccessToken({
+      name: 42,
+      expiresInDays: 30,
+    } as never)
+
+    expect(result).toEqual({ ok: false, error: 'Invalid token request' })
+    expect(mockReadMcpSettings).not.toHaveBeenCalled()
   })
 
   it('rejects token creation when MCP is disabled', async () => {
@@ -326,6 +349,18 @@ describe('MCP integration actions', () => {
     expect(result).toMatchObject({ ok: false })
   })
 
+  it('rejects setMcpEnabled when the payload is not a boolean', async () => {
+    mockGetSession.mockResolvedValue({
+      user: { id: 'admin-1', email: 'admin@example.com', slug: 'admin', role: 'ADMIN' },
+      sessionId: 'session-1',
+    })
+
+    const result = await setMcpEnabled('true' as never)
+
+    expect(result).toEqual({ ok: false, error: 'Invalid MCP enabled flag' })
+    expect(mockWriteMcpSettings).not.toHaveBeenCalled()
+  })
+
   it('propagates writeMcpSettings conflict error', async () => {
     mockGetSession.mockResolvedValue({
       user: { id: 'admin-1', email: 'admin@example.com', slug: 'admin', role: 'ADMIN' },
@@ -348,6 +383,7 @@ describe('MCP integration actions', () => {
     })
 
     expect(result).toEqual({ ok: false, error: 'Not authenticated' })
+    expect(mockReadMcpSettings).not.toHaveBeenCalled()
   })
 
   it('rejects token with empty name', async () => {

@@ -40,18 +40,28 @@ export async function listSkillsForMcp(): Promise<ListSkillsResult> {
 }
 
 export async function readSkillForMcp(name: string): Promise<ReadSkillResult> {
-  return readSkill(name)
+  const normalizedName = normalizeSkillName(name)
+  if (!normalizedName) {
+    return { ok: false, error: 'not_found' }
+  }
+
+  return readSkill(normalizedName)
 }
 
 export async function readSkillResource(
   input: ReadSkillResourceInput
 ): Promise<ReadSkillResourceResult> {
+  const normalizedName = normalizeSkillName(input.name)
+  if (!normalizedName) {
+    return { ok: false, error: 'not_found' }
+  }
+
   const normalizedPath = normalizeKbPath(input.path)
   if (!normalizedPath) {
     return { ok: false, error: 'invalid_path' }
   }
 
-  const bundle = await readSkillBundle(input.name)
+  const bundle = await readSkillBundle(normalizedName)
   if (!bundle.ok) {
     return bundle
   }
@@ -121,4 +131,17 @@ function toDisplayLines(content: string): string[] {
     lines.pop()
   }
   return lines
+}
+
+function normalizeSkillName(value: string): string | null {
+  const normalized = value.trim()
+  if (!normalized || normalized === '.' || normalized === '..') {
+    return null
+  }
+
+  if (/[/\\]/.test(normalized) || /[\u0000-\u001f\u007f]/.test(normalized)) {
+    return null
+  }
+
+  return normalized
 }

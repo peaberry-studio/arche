@@ -122,13 +122,24 @@ async function getWorkspaceOwner(slug: string): Promise<WorkspaceOwner> {
 }
 
 async function readOptionalRepoTextFile(repoDir: string, filePath: string): Promise<string | null> {
-  return fs.readFile(path.join(repoDir, filePath), 'utf-8').catch((error: unknown) => {
+  const absolutePath = path.join(repoDir, filePath)
+  const stats = await fs.lstat(absolutePath).catch((error: unknown) => {
     if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
       return null
     }
 
     throw error
   })
+
+  if (stats == null) {
+    return null
+  }
+
+  if (stats.isSymbolicLink() || !stats.isFile()) {
+    throw new Error('read_failed')
+  }
+
+  return fs.readFile(absolutePath, 'utf-8')
 }
 
 async function readRuntimeRepoSnapshot(): Promise<{

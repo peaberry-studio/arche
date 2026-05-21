@@ -73,8 +73,6 @@ describe('McpSettingsPanel', () => {
     })
 
     fireEvent.click(getScopeCheckbox('Knowledge base read'))
-    fireEvent.click(getScopeCheckbox('Knowledge base write'))
-    fireEvent.click(getScopeCheckbox('Tasks run'))
     fireEvent.click(screen.getByRole('button', { name: 'Create token' }))
 
     await waitFor(() => {
@@ -100,9 +98,7 @@ describe('McpSettingsPanel', () => {
     openCreateDialog()
 
     fireEvent.click(getScopeCheckbox('Knowledge base read'))
-    fireEvent.click(getScopeCheckbox('Knowledge base write'))
     fireEvent.click(getScopeCheckbox('Agents read'))
-    fireEvent.click(getScopeCheckbox('Tasks run'))
 
     expect((screen.getByRole('button', { name: 'Create token' }) as HTMLButtonElement).disabled).toBe(true)
   })
@@ -231,7 +227,7 @@ describe('McpSettingsPanel', () => {
 
     fireEvent.mouseDown(screen.getByRole('tab', { name: 'Codex' }))
 
-    expect(screen.getByText(/read -rsp 'Arche MCP token: ' ARCHE_MCP_TOKEN/i)).toBeTruthy()
+    expect(screen.getByText(/read -rs "ARCHE_MCP_TOKEN\?Arche MCP token: "/i)).toBeTruthy()
     expect(screen.getByText(/codex mcp add arche/i)).toBeTruthy()
     expect(screen.getByText(/--url 'http:\/\/arche\.lvh\.me:8080\/api\/mcp'/i)).toBeTruthy()
     expect(screen.getByText(/--bearer-token-env-var ARCHE_MCP_TOKEN/i)).toBeTruthy()

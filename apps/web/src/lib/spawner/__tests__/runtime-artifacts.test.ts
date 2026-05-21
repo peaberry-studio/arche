@@ -188,6 +188,25 @@ describe('runtime artifacts', () => {
     ).rejects.toThrow('read_failed')
   })
 
+  it('fails when AGENTS.md is a symlink', async () => {
+    await createRuntimeRepo({
+      'CommonWorkspaceConfig.json': createWorkspaceConfig(),
+    })
+
+    const leakedFile = path.join(repoDir!, '..', 'leaked-agents.md')
+    await fs.writeFile(leakedFile, '# leaked\n', 'utf-8')
+    await fs.symlink(leakedFile, path.join(repoDir!, 'AGENTS.md'))
+
+    const {
+      buildWorkspaceRuntimeArtifacts,
+      getWebProviderGatewayConfig,
+    } = await loadRuntimeArtifactsModule()
+
+    await expect(
+      buildWorkspaceRuntimeArtifacts('alice', getWebProviderGatewayConfig())
+    ).rejects.toThrow('read_failed')
+  })
+
   it('fails when the config repo snapshot cannot be read', async () => {
     readConfigRepoSnapshotMock.mockResolvedValueOnce({ ok: false, error: 'read_failed' })
 

@@ -3,14 +3,19 @@ export const MCP_SCOPE_KB_WRITE = 'kb:write'
 export const MCP_SCOPE_AGENTS_READ = 'agents:read'
 export const MCP_SCOPE_TASKS_RUN = 'tasks:run'
 
-export const DEFAULT_MCP_PAT_SCOPES = [
+export const ALL_MCP_PAT_SCOPES = [
   MCP_SCOPE_KB_READ,
   MCP_SCOPE_KB_WRITE,
   MCP_SCOPE_AGENTS_READ,
   MCP_SCOPE_TASKS_RUN,
 ] as const
 
-export type McpScope = (typeof DEFAULT_MCP_PAT_SCOPES)[number]
+export const DEFAULT_MCP_PAT_SCOPES = [
+  MCP_SCOPE_KB_READ,
+  MCP_SCOPE_AGENTS_READ,
+] as const
+
+export type McpScope = (typeof ALL_MCP_PAT_SCOPES)[number]
 
 export const MCP_SCOPE_OPTIONS: Array<{
   description: string
@@ -44,5 +49,5 @@ export function hasMcpScope(scopes: readonly string[], scope: McpScope): boolean
 }
 
 export function isMcpScope(value: string): value is McpScope {
-  return DEFAULT_MCP_PAT_SCOPES.includes(value as McpScope)
+  return ALL_MCP_PAT_SCOPES.includes(value as McpScope)
 }

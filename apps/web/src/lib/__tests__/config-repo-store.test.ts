@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('node:fs/promises', () => ({
+  lstat: vi.fn(),
   readdir: vi.fn(),
   readFile: vi.fn(),
   stat: vi.fn(),
@@ -46,6 +47,7 @@ const mockCleanupClone = vi.mocked(cleanupClone)
 const mockRunGit = vi.mocked(runGit)
 const mockDetectDefaultBranch = vi.mocked(detectDefaultBranch)
 const mockReaddir = vi.mocked(fs.readdir)
+const mockLstat = vi.mocked(fs.lstat)
 const mockReadFile = vi.mocked(fs.readFile)
 const mockStat = vi.mocked(fs.stat)
 
@@ -61,6 +63,11 @@ function setupAvailableRepo() {
   })
   mockCleanupClone.mockResolvedValue(undefined)
   mockRunGit.mockResolvedValue({ ok: true, stdout: 'abc123\n' })
+  mockLstat.mockResolvedValue({
+    isDirectory: () => false,
+    isFile: () => true,
+    isSymbolicLink: () => false,
+  } as never)
 }
 
 describe('readConfigRepoSnapshot', () => {
@@ -229,6 +236,20 @@ describe('readConfigRepoFileBuffer', () => {
     expect(mockCleanupClone).toHaveBeenCalled()
   })
 
+  it('rejects symlinked files', async () => {
+    setupAvailableRepo()
+    mockLstat.mockResolvedValue({
+      isDirectory: () => false,
+      isFile: () => false,
+      isSymbolicLink: () => true,
+    } as never)
+
+    const result = await readConfigRepoFileBuffer('docs/test.md')
+
+    expect(result).toEqual({ ok: false, error: 'read_failed' })
+    expect(mockReadFile).not.toHaveBeenCalled()
+  })
+
   it('returns read_failed for non-ENOENT errors', async () => {
     setupAvailableRepo()
     mockReadFile.mockRejectedValue(new Error('permission denied'))
@@ -259,7 +280,8 @@ describe('listConfigRepoFiles', () => {
 
   it('returns empty files when directory does not exist', async () => {
     setupAvailableRepo()
-    mockStat.mockRejectedValue(new Error('ENOENT'))
+    const error = Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+    mockLstat.mockRejectedValue(error)
 
     const result = await listConfigRepoFiles('missing-dir')
     expect(result).toEqual({ ok: true, files: [], hash: 'abc123' })
@@ -267,7 +289,11 @@ describe('listConfigRepoFiles', () => {
 
   it('returns empty files when stat is not a directory', async () => {
     setupAvailableRepo()
-    mockStat.mockResolvedValue({ isDirectory: () => false } as never)
+    mockLstat.mockResolvedValue({
+      isDirectory: () => false,
+      isFile: () => true,
+      isSymbolicLink: () => false,
+    } as never)
 
     const result = await listConfigRepoFiles('file.md')
     expect(result).toEqual({ ok: true, files: [], hash: 'abc123' })
@@ -275,7 +301,11 @@ describe('listConfigRepoFiles', () => {
 
   it('lists files recursively from a directory', async () => {
     setupAvailableRepo()
-    mockStat.mockResolvedValue({ isDirectory: () => true } as never)
+    mockLstat.mockResolvedValue({
+      isDirectory: () => true,
+      isFile: () => false,
+      isSymbolicLink: () => false,
+    } as never)
 
     mockReaddir.mockResolvedValueOnce([
       { name: 'article.md', isFile: () => true, isDirectory: () => false },
@@ -303,7 +333,11 @@ describe('listConfigRepoFiles', () => {
 
   it('skips non-file non-directory entries (e.g. symlinks)', async () => {
     setupAvailableRepo()
-    mockStat.mockResolvedValue({ isDirectory: () => true } as never)
+    mockLstat.mockResolvedValue({
+      isDirectory: () => true,
+      isFile: () => false,
+      isSymbolicLink: () => false,
+    } as never)
 
     mockReaddir.mockResolvedValueOnce([
       { name: 'symlink', isFile: () => false, isDirectory: () => false },
@@ -311,6 +345,20 @@ describe('listConfigRepoFiles', () => {
 
     const result = await listConfigRepoFiles('docs')
     expect(result).toEqual({ ok: true, files: [], hash: 'abc123' })
+  })
+
+  it('rejects symlinked directories', async () => {
+    setupAvailableRepo()
+    mockLstat.mockResolvedValue({
+      isDirectory: () => false,
+      isFile: () => false,
+      isSymbolicLink: () => true,
+    } as never)
+
+    const result = await listConfigRepoFiles('docs')
+
+    expect(result).toEqual({ ok: false, error: 'read_failed' })
+    expect(mockReaddir).not.toHaveBeenCalled()
   })
 })
 
