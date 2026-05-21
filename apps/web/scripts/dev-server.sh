@@ -31,7 +31,7 @@ if [ -d "$PNPM_STORE_DIR" ]; then
   pnpm config set store-dir "$PNPM_STORE_DIR" >/dev/null 2>&1 || true
 fi
 
-pnpm install --prefer-offline
+pnpm install --prefer-offline --config.confirmModulesPurge=false
 pnpm prisma generate
 pnpm prisma:generate:desktop
 

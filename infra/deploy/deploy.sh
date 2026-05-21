@@ -394,8 +394,13 @@ fi
 
 log "Validation passed, MODE=$MODE"
 
-if [[ "$MODE" == "remote" && "$EXPOSURE_MODE" == "cloudflare-tunnel" && -z "${ARCHE_PUBLIC_BASE_URL:-}" ]]; then
+if [[ "$MODE" == "remote" && -z "${ARCHE_PUBLIC_BASE_URL:-}" ]]; then
   export ARCHE_PUBLIC_BASE_URL="https://${DEPLOY_DOMAIN}"
+  log "Using ARCHE_PUBLIC_BASE_URL=$ARCHE_PUBLIC_BASE_URL"
+fi
+
+if [[ "$MODE" == "local-dev" && -z "${ARCHE_PUBLIC_BASE_URL:-}" ]]; then
+  export ARCHE_PUBLIC_BASE_URL="http://${LOCAL_DOMAIN}:8080"
   log "Using ARCHE_PUBLIC_BASE_URL=$ARCHE_PUBLIC_BASE_URL"
 fi
 
@@ -583,6 +588,7 @@ vars = {
     "arche_gateway_token_ttl_seconds": os.environ.get("ARCHE_GATEWAY_TOKEN_TTL_SECONDS", ""),
     "arche_gateway_base_url": os.environ.get("ARCHE_GATEWAY_BASE_URL", ""),
     "arche_public_base_url": os.environ.get("ARCHE_PUBLIC_BASE_URL", ""),
+    "arche_trust_proxy_headers": os.environ.get("ARCHE_TRUST_PROXY_HEADERS", "false"),
     "arche_session_ttl_days": os.environ.get("ARCHE_SESSION_TTL_DAYS", ""),
     "arche_connector_gateway_base_url": os.environ.get("ARCHE_CONNECTOR_GATEWAY_BASE_URL", ""),
     "arche_connector_gateway_token_secret": os.environ.get("ARCHE_CONNECTOR_GATEWAY_TOKEN_SECRET", ""),
@@ -767,6 +773,7 @@ vars = {
     "arche_gateway_token_ttl_seconds": os.environ.get("ARCHE_GATEWAY_TOKEN_TTL_SECONDS", ""),
     "arche_gateway_base_url": os.environ.get("ARCHE_GATEWAY_BASE_URL", ""),
     "arche_public_base_url": os.environ.get("ARCHE_PUBLIC_BASE_URL", ""),
+    "arche_trust_proxy_headers": os.environ.get("ARCHE_TRUST_PROXY_HEADERS", "false"),
     "arche_session_ttl_days": os.environ.get("ARCHE_SESSION_TTL_DAYS", ""),
     "arche_connector_gateway_base_url": os.environ.get("ARCHE_CONNECTOR_GATEWAY_BASE_URL", ""),
     "arche_connector_gateway_token_secret": os.environ.get("ARCHE_CONNECTOR_GATEWAY_TOKEN_SECRET", ""),

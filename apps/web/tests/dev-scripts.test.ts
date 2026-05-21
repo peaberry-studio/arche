@@ -55,6 +55,7 @@ describe('web dev scripts', () => {
     expect(reloadWebDev).toContain('/tmp/arche-next-dev.pid')
     expect(reloadWebDev).toContain('up -d --no-deps --force-recreate web')
     expect(composeTemplate).not.toContain('pnpm install --prefer-offline --force')
+    expect(devServer).toContain('pnpm install --prefer-offline --config.confirmModulesPurge=false')
     expect(composeTemplate).toContain('NODE_COMPILE_CACHE: "/tmp/node-compile-cache"')
     expect(composeTemplate).toContain('restart: "unless-stopped"')
     expect(composeTemplate).toContain('name: arche')
@@ -121,9 +122,11 @@ describe('web dev scripts', () => {
     }
 
     expect(deployScript).toContain('arche_connector_gateway_base_url')
+    expect(deployScript).toContain('arche_trust_proxy_headers')
     expect(deployScript).toContain('ARCHE_CONNECTOR_GOOGLE_CLIENT_ID')
     expect(deployScript).toContain('ARCHE_CONNECTOR_META_ADS_GRAPH_API_VERSION')
     expect(deployScript).toContain('ARCHE_USERS_PATH')
+    expect(deployScript).toContain('export ARCHE_PUBLIC_BASE_URL="http://${LOCAL_DOMAIN}:8080"')
   })
 
   it('keeps Cloudflare Tunnel exposure mode wired through deploy templates', () => {
