@@ -16,6 +16,7 @@ type TeamPageClientProps = {
   isAdmin: boolean
   currentUserId: string | null
   canManageUsers: boolean
+  embedded?: boolean
 }
 
 function formatCreatedAt(value: string): string {
@@ -70,6 +71,7 @@ export function TeamPageClient({
   isAdmin,
   currentUserId,
   canManageUsers,
+  embedded = false,
 }: TeamPageClientProps) {
   const [users, setUsers] = useState<TeamUser[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -166,15 +168,20 @@ export function TeamPageClient({
     }
   }, [])
 
-  return (
-    <main className="relative mx-auto max-w-6xl px-6 py-10">
-      <div className="space-y-8">
+  const content = (
+    <div className={embedded ? 'space-y-4' : 'space-y-8'}>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="space-y-2">
-            <h1 className="type-display text-3xl font-semibold tracking-tight">
-              Team
-            </h1>
-            <p className="text-muted-foreground">
+            {embedded ? (
+              <h2 className="text-lg font-medium">
+                Team
+              </h2>
+            ) : (
+              <h1 className="type-display text-3xl font-semibold tracking-tight">
+                Team
+              </h1>
+            )}
+            <p className={embedded ? 'text-sm text-muted-foreground' : 'text-muted-foreground'}>
               Directory of all users in this Arche installation.
             </p>
           </div>
@@ -266,6 +273,19 @@ export function TeamPageClient({
           />
         ) : null}
       </div>
+  )
+
+  if (embedded) {
+    return (
+      <section className="space-y-4 rounded-lg border border-border/60 bg-card/50 p-6">
+        {content}
+      </section>
+    )
+  }
+
+  return (
+    <main className="relative mx-auto max-w-6xl px-6 py-10">
+      {content}
     </main>
   )
 }

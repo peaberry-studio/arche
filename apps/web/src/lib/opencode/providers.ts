@@ -1,11 +1,11 @@
 import crypto from 'node:crypto'
 
 import { getInstanceBasicAuth } from '@/lib/opencode/client'
-import { getGatewayTokenTtlSeconds } from '@/lib/providers/config'
 import { toRuntimeProviderId } from '@/lib/providers/catalog'
-import { getActiveCredentialForUser } from '@/lib/providers/store'
+import { getGatewayTokenTtlSeconds } from '@/lib/providers/config'
+import { getEnabledProviderCredentialsForUser, type EnabledProviderCredentials } from '@/lib/providers/store'
 import { issueGatewayToken } from '@/lib/providers/tokens'
-import { PROVIDERS, type ProviderId } from '@/lib/providers/types'
+import { PROVIDERS } from '@/lib/providers/types'
 import { instanceService } from '@/lib/services'
 
 export type SyncProviderAccessResult =
@@ -24,34 +24,19 @@ type SyncProviderAccessInput = {
 const PROVIDER_SYNC_REFRESH_SKEW_MS = 60_000
 const providerSyncLocks = new Map<string, Promise<void>>()
 
-type EnabledProviderVersions = Map<ProviderId, { version: number }>
-
-function buildProviderSyncHash(enabledByProvider: EnabledProviderVersions): string {
+function buildProviderSyncHash(enabledByProvider: EnabledProviderCredentials): string {
   // Only configured providers affect runtime auth. Missing credentials and
   // providers that require no managed sync intentionally hash to the same state.
   const payload = Array.from(enabledByProvider.entries())
-    .map(([providerId, value]) => ({ providerId, version: value.version }))
+    .map(([providerId, value]) => ({
+      credentialId: value.credentialId,
+      providerId,
+      source: value.source,
+      version: value.version,
+    }))
     .sort((left, right) => left.providerId.localeCompare(right.providerId))
 
   return crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex')
-}
-
-async function loadEnabledProviderVersions(userId: string): Promise<EnabledProviderVersions> {
-  const enabledByProvider = new Map<ProviderId, { version: number }>()
-
-  for (const providerId of PROVIDERS) {
-    const credential = await getActiveCredentialForUser({
-      userId,
-      providerId,
-    })
-    if (!credential) {
-      continue
-    }
-
-    enabledByProvider.set(providerId, { version: Number(credential.version) })
-  }
-
-  return enabledByProvider
 }
 
 function shouldRefreshProviderAccess(args: {
@@ -94,7 +79,7 @@ async function withProviderSyncLock<T>(slug: string, work: () => Promise<T>): Pr
 }
 
 export async function getProviderSyncHashForUser(userId: string): Promise<string> {
-  return buildProviderSyncHash(await loadEnabledProviderVersions(userId))
+  return buildProviderSyncHash(await getEnabledProviderCredentialsForUser(userId))
 }
 
 export async function ensureProviderAccessFreshForExecution(args: {
@@ -152,7 +137,7 @@ export async function syncProviderAccessForInstance(
   const instance = input.instance
 
   try {
-    const enabledByProvider = await loadEnabledProviderVersions(input.userId)
+    const enabledByProvider = await getEnabledProviderCredentialsForUser(input.userId)
     const providerSyncHash = buildProviderSyncHash(enabledByProvider)
 
     for (const providerId of PROVIDERS) {
@@ -201,6 +186,8 @@ export async function syncProviderAccessForInstance(
         workspaceSlug: input.slug,
         providerId,
         version: enabled.version,
+        credentialId: enabled.credentialId,
+        credentialSource: enabled.source,
       })
 
       await fetchRequired(url, {

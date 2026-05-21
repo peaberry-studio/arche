@@ -7,6 +7,12 @@ const mockPrisma = vi.hoisted(() => ({
     updateMany: vi.fn(),
     create: vi.fn(),
   },
+  organizationProviderCredential: {
+    findFirst: vi.fn(),
+    findMany: vi.fn(),
+    updateMany: vi.fn(),
+    create: vi.fn(),
+  },
   $transaction: vi.fn(),
 }))
 
@@ -15,11 +21,16 @@ vi.mock('@/lib/prisma', () => ({ prisma: mockPrisma }))
 import {
   clearWorkspaceRestartRequired,
   disableEnabledForProvider,
+  disableEnabledOrganizationProvider,
   findActiveCredential,
+  findActiveOrganizationCredential,
   findCredentialsByUserAndProviders,
+  findOrganizationCredentialsByProviders,
+  getEffectiveCredentialForUser,
   hasPendingRestartByUserId,
   markWorkspaceRestartRequired,
   replaceCredential,
+  replaceOrganizationCredential,
 } from '../provider'
 
 describe('providerService', () => {
@@ -45,6 +56,70 @@ describe('providerService', () => {
     })
   })
 
+  describe('findActiveOrganizationCredential', () => {
+    it('returns the latest enabled organization credential for a provider', async () => {
+      const cred = { id: 'org-p1', type: 'api', secret: 'enc', version: 4 }
+      mockPrisma.organizationProviderCredential.findFirst.mockResolvedValue(cred)
+
+      const result = await findActiveOrganizationCredential('openai')
+
+      expect(result).toEqual(cred)
+      expect(mockPrisma.organizationProviderCredential.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { providerId: 'openai', status: 'enabled' },
+          orderBy: { version: 'desc' },
+          select: { id: true, type: true, secret: true, version: true },
+        }),
+      )
+    })
+  })
+
+  describe('getEffectiveCredentialForUser', () => {
+    it('returns the user credential when the user has an active override', async () => {
+      const cred = { id: 'user-p1', type: 'api', secret: 'user-enc', version: 2 }
+      mockPrisma.providerCredential.findFirst.mockResolvedValue(cred)
+
+      const result = await getEffectiveCredentialForUser({ userId: 'u1', providerId: 'openai' })
+
+      expect(result).toEqual({ source: 'user', credential: cred })
+      expect(mockPrisma.organizationProviderCredential.findFirst).not.toHaveBeenCalled()
+    })
+
+    it('returns the organization credential when the user has no active override', async () => {
+      const cred = { id: 'org-p1', type: 'api', secret: 'org-enc', version: 3 }
+      mockPrisma.providerCredential.findFirst.mockResolvedValue(null)
+      mockPrisma.organizationProviderCredential.findFirst.mockResolvedValue(cred)
+
+      const result = await getEffectiveCredentialForUser({ userId: 'u1', providerId: 'openai' })
+
+      expect(result).toEqual({ source: 'organization', credential: cred })
+    })
+
+    it('does not let disabled user credentials block organization credentials', async () => {
+      const cred = { id: 'org-p1', type: 'api', secret: 'org-enc', version: 3 }
+      mockPrisma.providerCredential.findFirst.mockResolvedValue(null)
+      mockPrisma.organizationProviderCredential.findFirst.mockResolvedValue(cred)
+
+      const result = await getEffectiveCredentialForUser({ userId: 'u1', providerId: 'openrouter' })
+
+      expect(mockPrisma.providerCredential.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'u1', providerId: 'openrouter', status: 'enabled' },
+        }),
+      )
+      expect(result).toEqual({ source: 'organization', credential: cred })
+    })
+
+    it('returns null when neither user nor organization credential exists', async () => {
+      mockPrisma.providerCredential.findFirst.mockResolvedValue(null)
+      mockPrisma.organizationProviderCredential.findFirst.mockResolvedValue(null)
+
+      const result = await getEffectiveCredentialForUser({ userId: 'u1', providerId: 'openai' })
+
+      expect(result).toBeNull()
+    })
+  })
+
   describe('findCredentialsByUserAndProviders', () => {
     it('returns credential summaries for the given providers', async () => {
       const rows = [
@@ -60,6 +135,27 @@ describe('providerService', () => {
         expect.objectContaining({
           where: { userId: 'u1', providerId: { in: ['openai', 'anthropic'] } },
           select: { providerId: true, status: true, type: true, version: true },
+          orderBy: { version: 'desc' },
+        }),
+      )
+    })
+  })
+
+  describe('findOrganizationCredentialsByProviders', () => {
+    it('returns organization credential summaries for the given providers', async () => {
+      const rows = [
+        { id: 'org-p1', providerId: 'openai', status: 'enabled', type: 'api', version: 1, lastUsedAt: null },
+        { id: 'org-p2', providerId: 'anthropic', status: 'disabled', type: 'api', version: 2, lastUsedAt: new Date('2026-01-01T00:00:00.000Z') },
+      ]
+      mockPrisma.organizationProviderCredential.findMany.mockResolvedValue(rows)
+
+      const result = await findOrganizationCredentialsByProviders(['openai', 'anthropic'])
+
+      expect(result).toEqual(rows)
+      expect(mockPrisma.organizationProviderCredential.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { providerId: { in: ['openai', 'anthropic'] } },
+          select: { id: true, providerId: true, status: true, type: true, version: true, lastUsedAt: true },
           orderBy: { version: 'desc' },
         }),
       )
@@ -155,6 +251,42 @@ describe('providerService', () => {
     })
   })
 
+  describe('replaceOrganizationCredential', () => {
+    it('disables previous organization versions and creates the next version', async () => {
+      const txClient = {
+        organizationProviderCredential: {
+          findFirst: vi.fn().mockResolvedValue({ version: 2 }),
+          updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+          create: vi.fn().mockResolvedValue({ id: 'org-p3', type: 'api', secret: 'enc', version: 3 }),
+        },
+      }
+      mockPrisma.$transaction.mockImplementation(async (cb: (tx: typeof txClient) => unknown) => cb(txClient))
+
+      const result = await replaceOrganizationCredential({ providerId: 'openai', type: 'api', secret: 'enc' })
+
+      expect(result).toEqual({ id: 'org-p3', type: 'api', secret: 'enc', version: 3 })
+      expect(txClient.organizationProviderCredential.findFirst).toHaveBeenCalledWith({
+        where: { providerId: 'openai' },
+        orderBy: { version: 'desc' },
+        select: { version: true },
+      })
+      expect(txClient.organizationProviderCredential.updateMany).toHaveBeenCalledWith({
+        where: { providerId: 'openai' },
+        data: { status: 'disabled' },
+      })
+      expect(txClient.organizationProviderCredential.create).toHaveBeenCalledWith({
+        data: {
+          providerId: 'openai',
+          type: 'api',
+          status: 'enabled',
+          version: 3,
+          secret: 'enc',
+        },
+        select: { id: true, type: true, secret: true, version: true },
+      })
+    })
+  })
+
   describe('disableEnabledForProvider', () => {
     it('disables all enabled credentials for a user and provider', async () => {
       mockPrisma.providerCredential.updateMany.mockResolvedValue({ count: 2 })
@@ -163,6 +295,19 @@ describe('providerService', () => {
 
       expect(mockPrisma.providerCredential.updateMany).toHaveBeenCalledWith({
         where: { userId: 'u1', providerId: 'openai', status: 'enabled' },
+        data: { status: 'disabled' },
+      })
+    })
+  })
+
+  describe('disableEnabledOrganizationProvider', () => {
+    it('disables all enabled organization credentials for a provider', async () => {
+      mockPrisma.organizationProviderCredential.updateMany.mockResolvedValue({ count: 1 })
+
+      await disableEnabledOrganizationProvider('openai')
+
+      expect(mockPrisma.organizationProviderCredential.updateMany).toHaveBeenCalledWith({
+        where: { providerId: 'openai', status: 'enabled' },
         data: { status: 'disabled' },
       })
     })

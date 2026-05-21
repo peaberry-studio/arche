@@ -1,45 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { decryptProviderSecret } from '@/lib/providers/crypto'
-import { getE2eFakeProviderUrl } from '@/lib/e2e/runtime'
+
 import { getCanonicalProviderId } from '@/lib/providers/catalog'
-import { getActiveCredentialForUser } from '@/lib/providers/store'
+import { decryptProviderSecret } from '@/lib/providers/crypto'
+import {
+  applyProviderAuthHeaders,
+  buildUpstreamUrl,
+  getProviderGatewayAdapter,
+} from '@/lib/providers/gateway-adapters'
+import { fetchWithRetry, getFetchErrorCode } from '@/lib/providers/gateway-fetch'
+import {
+  markCredentialLastUsedBestEffort,
+  recordProviderGatewayRequestBestEffort,
+} from '@/lib/providers/gateway-usage'
+import { getEffectiveCredentialForUser } from '@/lib/providers/store'
 import { verifyGatewayToken } from '@/lib/providers/tokens'
-import type { ProviderId } from '@/lib/providers/types'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
+import type { ProviderUsageCredentialSource } from '@/lib/services/provider-usage'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-
-const PROVIDER_BASE_URL: Record<ProviderId, string> = {
-  openai: 'https://api.openai.com/v1',
-  anthropic: 'https://api.anthropic.com/v1',
-  fireworks: 'https://api.fireworks.ai/inference/v1',
-  openrouter: 'https://openrouter.ai/api/v1',
-  opencode: 'https://opencode.ai/zen/v1',
-}
-
-function getProviderBaseUrl(providerId: ProviderId): string {
-  if (providerId === 'openai') {
-    const fakeProviderUrl = getE2eFakeProviderUrl()
-    if (fakeProviderUrl) {
-      return fakeProviderUrl
-    }
-  }
-
-  return PROVIDER_BASE_URL[providerId]
-}
-
-const OPENAI_RESPONSES_MAX_FETCH_ATTEMPTS = 3
-const OPENAI_RESPONSES_RETRY_DELAY_MS = 250
-const RETRYABLE_FETCH_ERROR_CODES = new Set([
-  'UND_ERR_CONNECT_TIMEOUT',
-  'UND_ERR_HEADERS_TIMEOUT',
-  'UND_ERR_SOCKET',
-  'ECONNRESET',
-  'EPIPE',
-  'ETIMEDOUT',
-])
 
 const HOP_BY_HOP_HEADERS = [
   'connection',
@@ -54,181 +34,35 @@ const HOP_BY_HOP_HEADERS = [
   'upgrade',
 ]
 
-function extractGatewayToken(providerId: ProviderId, headers: Headers): string | null {
-  if (providerId === 'openai' || providerId === 'fireworks' || providerId === 'openrouter') {
-    const header = headers.get('authorization')
-    if (!header) return null
-    const match = header.match(/^Bearer\s+(.+)$/i)
-    return match?.[1]?.trim() || null
-  }
-
-  if (providerId === 'opencode') {
-    const authHeader = headers.get('authorization')
-    if (authHeader) {
-      const match = authHeader.match(/^Bearer\s+(.+)$/i)
-      const bearerToken = match?.[1]?.trim() || null
-      if (bearerToken) return bearerToken
-    }
-
-    // OpenCode may send gateway credentials via x-api-key for some provider
-    // formats (e.g. messages). Accept both to keep web/desktop behavior aligned.
-    const apiKey = headers.get('x-api-key')
-    return apiKey?.trim() || null
-  }
-
-  const apiKey = headers.get('x-api-key')
-  return apiKey?.trim() || null
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
-function buildUpstreamUrl(base: string, path: string[] | string | undefined, requestUrl: URL): string {
-  const segments = Array.isArray(path) ? [...path] : path ? [path] : []
-  const upstream = new URL(base)
-  const basePath = upstream.pathname === '/' ? '' : upstream.pathname.replace(/\/$/, '')
-
-  if (segments.length > 0 && basePath.endsWith('/v1') && segments[0] === 'v1') {
-    segments.shift()
-  }
-
-  const normalizedSuffix = segments.length > 0 ? `/${segments.join('/')}` : ''
-  upstream.pathname = `${basePath}${normalizedSuffix}` || '/'
-  upstream.search = requestUrl.search
-  return upstream.toString()
-}
-
-function normalizeOpenAiResponsesPayload(payload: unknown): unknown {
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    return payload
-  }
-
-  const body = payload as Record<string, unknown>
-  let normalizedBody: Record<string, unknown> | null = null
-
-  const ensureNormalizedBody = (): Record<string, unknown> => {
-    if (normalizedBody) {
-      return normalizedBody
-    }
-    normalizedBody = { ...body }
-    return normalizedBody
-  }
-
-  const text = body.text
-
-  if (text && typeof text === 'object' && !Array.isArray(text)) {
-    const textObject = text as Record<string, unknown>
-    if (textObject.verbosity === 'low') {
-      ensureNormalizedBody().text = {
-        ...textObject,
-        verbosity: 'medium',
-      }
-    }
-  }
-
-  const reasoning = body.reasoning
-  if (reasoning && typeof reasoning === 'object' && !Array.isArray(reasoning)) {
-    const reasoningObject = reasoning as Record<string, unknown>
-    if (reasoningObject.effort === 'low') {
-      ensureNormalizedBody().reasoning = {
-        ...reasoningObject,
-        effort: 'medium',
-      }
-    }
-  }
-
-  if (body.reasoning_effort === 'low') {
-    ensureNormalizedBody().reasoning_effort = 'medium'
-  }
-
-  return normalizedBody ?? payload
-}
-
-function stripObjectKeys(payload: unknown, keysToStrip: ReadonlySet<string>): unknown {
-  if (Array.isArray(payload)) {
-    let changed = false
-    const next = payload.map((value) => {
-      const normalized = stripObjectKeys(value, keysToStrip)
-      if (normalized !== value) {
-        changed = true
-      }
-      return normalized
-    })
-
-    return changed ? next : payload
-  }
-
-  if (!payload || typeof payload !== 'object') {
-    return payload
-  }
-
-  const record = payload as Record<string, unknown>
-  let changed = false
-  const nextEntries: Array<[string, unknown]> = []
-
-  for (const [key, value] of Object.entries(record)) {
-    if (keysToStrip.has(key)) {
-      changed = true
-      continue
-    }
-
-    const normalized = stripObjectKeys(value, keysToStrip)
-    if (normalized !== value) {
-      changed = true
-    }
-    nextEntries.push([key, normalized])
-  }
-
-  return changed ? Object.fromEntries(nextEntries) : payload
-}
-
-function normalizeFireworksPayload(payload: unknown): unknown {
-  // Fireworks rejects OpenCode metadata fields like `display_name` that are
-  // not part of the OpenAI-compatible request schema.
-  return stripObjectKeys(payload, new Set(['display_name']))
-}
-
-function isRetryableFetchError(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false
-  }
-
-  const directCode = (error as Error & { code?: string }).code
-  if (directCode && RETRYABLE_FETCH_ERROR_CODES.has(directCode)) {
-    return true
-  }
-
-  const causeCode = (error as Error & { cause?: { code?: string } }).cause?.code
-  return Boolean(causeCode && RETRYABLE_FETCH_ERROR_CODES.has(causeCode))
-}
-
-function getFetchErrorCode(error: unknown): string | null {
-  if (!(error instanceof Error)) {
+async function extractRequestModelId(request: NextRequest, contentType: string): Promise<string | null> {
+  if (request.method === 'GET' || request.method === 'HEAD' || !contentType.includes('application/json')) {
     return null
   }
 
-  const directCode = (error as Error & { code?: string }).code
-  if (directCode) {
-    return directCode
-  }
+  try {
+    const payload: unknown = await request.clone().json()
+    if (!isRecord(payload)) return null
 
-  const causeCode = (error as Error & { cause?: { code?: string } }).cause?.code
-  return causeCode ?? null
-}
-
-async function fetchWithRetry(url: string, init: RequestInit, maxAttempts: number): Promise<Response> {
-  let attempt = 1
-
-  while (true) {
-    try {
-      return await fetch(url, init)
-    } catch (error) {
-      if (attempt >= maxAttempts || !isRetryableFetchError(error)) {
-        throw error
-      }
-
-      const backoffMs = OPENAI_RESPONSES_RETRY_DELAY_MS * attempt
-      await new Promise((resolve) => setTimeout(resolve, backoffMs))
-      attempt += 1
+    const directModel = payload.model
+    if (typeof directModel === 'string' && directModel.trim()) {
+      return directModel.trim()
     }
+
+    if (isRecord(directModel)) {
+      const modelId = directModel.modelId ?? directModel.modelID
+      if (typeof modelId === 'string' && modelId.trim()) {
+        return modelId.trim()
+      }
+    }
+  } catch {
+    return null
   }
+
+  return null
 }
 
 function stripHopByHopHeaders(headers: Headers): void {
@@ -259,8 +93,9 @@ async function handleProxy(
     return NextResponse.json({ error: 'invalid_provider' }, { status: 400 })
   }
 
+  const adapter = getProviderGatewayAdapter(providerId)
   const caps = getRuntimeCapabilities()
-  const token = extractGatewayToken(providerId, request.headers)
+  const token = adapter.extractGatewayToken(request.headers)
   const allowAnonymousOpencode = providerId === 'opencode' && !caps.auth
 
   if (!token && !allowAnonymousOpencode) {
@@ -270,6 +105,7 @@ async function handleProxy(
   let payload: ReturnType<typeof verifyGatewayToken> | null = null
   let apiKey: string | null = null
   let allowExpiredGatewayTokenOpencodeFallback = false
+  let credentialSource: ProviderUsageCredentialSource | null = null
 
   if (token) {
     try {
@@ -304,17 +140,33 @@ async function handleProxy(
       return NextResponse.json({ error: 'provider_mismatch' }, { status: 403 })
     }
 
-    const credential = await getActiveCredentialForUser({
+    const effectiveCredential = await getEffectiveCredentialForUser({
       userId: payload.userId,
       providerId,
     })
 
-    if (!credential) {
+    if (!effectiveCredential) {
       if (providerId !== 'opencode') {
         return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
       }
+      credentialSource = 'default'
     } else {
-      if (payload && payload.version !== credential.version) {
+      const payloadCredentialSource = payload.credentialSource ?? 'user'
+      const credential = effectiveCredential.credential
+
+      if (payloadCredentialSource !== effectiveCredential.source) {
+        return NextResponse.json({ error: 'invalid_token' }, { status: 401 })
+      }
+
+      if (payload.credentialId && payload.credentialId !== credential.id) {
+        return NextResponse.json({ error: 'invalid_token' }, { status: 401 })
+      }
+
+      if (effectiveCredential.source === 'organization' && payload.credentialId !== credential.id) {
+        return NextResponse.json({ error: 'invalid_token' }, { status: 401 })
+      }
+
+      if (payload.version !== credential.version) {
         return NextResponse.json({ error: 'invalid_token' }, { status: 401 })
       }
 
@@ -334,6 +186,9 @@ async function handleProxy(
       }
 
       apiKey = secret.apiKey.trim()
+      credentialSource = effectiveCredential.source
+      const credentialId = credential.id
+      markCredentialLastUsedBestEffort({ credentialId, source: credentialSource })
     }
   }
 
@@ -344,7 +199,7 @@ async function handleProxy(
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
-  const upstreamUrl = buildUpstreamUrl(getProviderBaseUrl(providerId), pathSegments, new URL(request.url))
+  const upstreamUrl = buildUpstreamUrl(adapter.baseUrl(), pathSegments, new URL(request.url))
 
   const headers = new Headers(request.headers)
   stripHopByHopHeaders(headers)
@@ -357,25 +212,8 @@ async function handleProxy(
   // downstream clients to attempt decoding a second time.
   headers.set('accept-encoding', 'identity')
 
-  if (
-    providerId === 'openai' ||
-    providerId === 'fireworks' ||
-    providerId === 'openrouter' ||
-    providerId === 'opencode'
-  ) {
-    if (!apiKey) {
-      headers.delete('authorization')
-    } else {
-      headers.set('authorization', `Bearer ${apiKey}`)
-    }
-  } else {
-    if (!apiKey) {
-      return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
-    }
-    headers.set('x-api-key', apiKey)
-    if (!headers.has('anthropic-version')) {
-      headers.set('anthropic-version', '2023-06-01')
-    }
+  if (!applyProviderAuthHeaders(headers, adapter, apiKey)) {
+    return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
   const hasBody = request.method !== 'GET' && request.method !== 'HEAD' && request.body
@@ -385,20 +223,14 @@ async function handleProxy(
   }
 
   const contentType = headers.get('content-type') ?? ''
-  const isOpenAiResponsesRequest =
-    providerId === 'openai' &&
-    request.method === 'POST' &&
-    pathSegments[0] === 'responses' &&
-    contentType.includes('application/json')
-  const isFireworksJsonRequest = providerId === 'fireworks' && contentType.includes('application/json')
+  const requestModelId = await extractRequestModelId(request, contentType)
+  const requestContext = { contentType, method: request.method, pathSegments }
 
   if (hasBody) {
-    if (isOpenAiResponsesRequest || isFireworksJsonRequest) {
+    if (adapter.shouldNormalizeJsonPayload(requestContext)) {
       try {
         const parsedBody = await request.clone().json()
-        const normalizedBody = isOpenAiResponsesRequest
-          ? normalizeOpenAiResponsesPayload(parsedBody)
-          : normalizeFireworksPayload(parsedBody)
+        const normalizedBody = adapter.normalizeJsonPayload(parsedBody, requestContext)
         init.body = JSON.stringify(normalizedBody)
       } catch {
         init.body = await request.arrayBuffer()
@@ -409,7 +241,7 @@ async function handleProxy(
     }
   }
 
-  const maxAttempts = isOpenAiResponsesRequest ? OPENAI_RESPONSES_MAX_FETCH_ATTEMPTS : 1
+  const maxAttempts = adapter.maxFetchAttempts(requestContext)
 
   let upstreamResponse: Response
   try {
@@ -421,7 +253,26 @@ async function handleProxy(
       code: getFetchErrorCode(error),
       message: error instanceof Error ? error.message : 'unknown_error',
     })
+    if (payload && credentialSource) {
+      recordProviderGatewayRequestBestEffort({
+        credentialSource,
+        isError: true,
+        modelId: requestModelId,
+        providerId,
+        userId: payload.userId,
+      })
+    }
     return NextResponse.json({ error: 'provider_unavailable' }, { status: 502 })
+  }
+
+  if (payload && credentialSource) {
+    recordProviderGatewayRequestBestEffort({
+      credentialSource,
+      isError: upstreamResponse.status >= 400,
+      modelId: requestModelId,
+      providerId,
+      userId: payload.userId,
+    })
   }
 
   const responseHeaders = new Headers(upstreamResponse.headers)

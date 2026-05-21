@@ -83,6 +83,8 @@ model User {
   twoFactorRecovery  TwoFactorRecovery[]
   connectors         Connector[]
   providerCredentials ProviderCredential[]
+  providerUsageDaily  ProviderUsageDaily[]
+  providerUsageRuns   ProviderUsageRun[]
   flows               Flow[]
   slackThreadBindings SlackThreadBinding[]
   slackUserLinks      SlackUserLink[]
@@ -293,6 +295,7 @@ model MessageRun {
   updatedAt  DateTime @updatedAt @map("updated_at")
 
   lock       MessageRunLock?
+  providerUsageRun ProviderUsageRun?
 
   @@index([slug, sessionId, status])
   @@index([startedAt])
@@ -435,6 +438,69 @@ model ProviderCredential {
   @@index([userId])
   @@index([providerId])
   @@map("provider_credentials")
+}
+
+model OrganizationProviderCredential {
+  id         String                   @id @default(cuid())
+  providerId String                   @map("provider_id")
+  type       String
+  status     ProviderCredentialStatus @default(enabled)
+  version    Int
+  secret     String
+  lastError  String?                  @map("last_error")
+  lastUsedAt DateTime?                @map("last_used_at")
+  createdAt  DateTime                 @default(now()) @map("created_at")
+  updatedAt  DateTime                 @updatedAt @map("updated_at")
+
+  @@index([providerId])
+  @@map("organization_provider_credentials")
+}
+
+model ProviderUsageDaily {
+  id               String   @id @default(cuid())
+  bucketDate       DateTime @map("bucket_date") @db.Date
+  userId           String   @map("user_id")
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  providerId       String   @map("provider_id")
+  modelId          String   @default("") @map("model_id")
+  source           String
+  credentialSource String   @map("credential_source")
+  requestCount     Int      @default(0) @map("request_count")
+  errorCount       Int      @default(0) @map("error_count")
+  runCount         Int      @default(0) @map("run_count")
+  inputTokens      Int      @default(0) @map("input_tokens")
+  outputTokens     Int      @default(0) @map("output_tokens")
+  costUsd          Decimal  @default(0) @map("cost_usd") @db.Decimal(18, 8)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@unique([bucketDate, userId, providerId, modelId, source, credentialSource], map: "provider_usage_daily_bucket_user_provider_model_source_key")
+  @@index([bucketDate])
+  @@index([userId])
+  @@index([providerId, modelId])
+  @@map("provider_usage_daily")
+}
+
+model ProviderUsageRun {
+  id               String     @id @default(cuid())
+  messageRunId     String     @unique @map("message_run_id")
+  messageRun       MessageRun @relation(fields: [messageRunId], references: [id], onDelete: Cascade)
+  userId           String     @map("user_id")
+  user             User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  providerId       String     @map("provider_id")
+  modelId          String     @default("") @map("model_id")
+  source           String
+  credentialSource String     @map("credential_source")
+  inputTokens      Int        @default(0) @map("input_tokens")
+  outputTokens     Int        @default(0) @map("output_tokens")
+  costUsd          Decimal    @default(0) @map("cost_usd") @db.Decimal(18, 8)
+  createdAt        DateTime   @default(now()) @map("created_at")
+  updatedAt        DateTime   @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([providerId, modelId])
+  @@index([createdAt])
+  @@map("provider_usage_runs")
 }
 
 model TwoFactorRecovery {

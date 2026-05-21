@@ -6,8 +6,13 @@ vi.mock('@/lib/providers/tokens', () => ({
 }))
 
 const mockGetActiveCredentialForUser = vi.fn()
+const mockGetEffectiveCredentialForUser = vi.fn(async (...args: unknown[]) => {
+  const credential = await mockGetActiveCredentialForUser(...args)
+  return credential ? { source: 'user', credential } : null
+})
 vi.mock('@/lib/providers/store', () => ({
   getActiveCredentialForUser: (...args: unknown[]) => mockGetActiveCredentialForUser(...args),
+  getEffectiveCredentialForUser: (...args: unknown[]) => mockGetEffectiveCredentialForUser(...args),
 }))
 
 const mockDecryptProviderSecret = vi.fn()
@@ -18,6 +23,17 @@ vi.mock('@/lib/providers/crypto', () => ({
 const mockGetRuntimeCapabilities = vi.fn()
 vi.mock('@/lib/runtime/capabilities', () => ({
   getRuntimeCapabilities: (...args: unknown[]) => mockGetRuntimeCapabilities(...args),
+}))
+
+const mockMarkCredentialLastUsed = vi.fn(() => Promise.resolve())
+const mockRecordProviderGatewayRequest = vi.fn(() => Promise.resolve())
+vi.mock('@/lib/services', () => ({
+  providerService: {
+    markCredentialLastUsed: (...args: unknown[]) => mockMarkCredentialLastUsed(...args),
+  },
+  providerUsageService: {
+    recordProviderGatewayRequest: (...args: unknown[]) => mockRecordProviderGatewayRequest(...args),
+  },
 }))
 
 type ProxyCallInput = {

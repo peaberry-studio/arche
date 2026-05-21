@@ -1,12 +1,17 @@
 import crypto from 'node:crypto'
+
 import type { ProviderId } from './types'
 import { getGatewayTokenSecret, getGatewayTokenTtlSeconds } from './config'
+
+export type GatewayCredentialSource = 'user' | 'organization'
 
 export type GatewayTokenPayload = {
   userId: string
   workspaceSlug: string
   providerId: ProviderId
   version: number
+  credentialSource?: GatewayCredentialSource
+  credentialId?: string
   exp: number
 }
 
@@ -30,6 +35,9 @@ function timingSafeMatch(expected: string, actual: string): boolean {
 }
 
 function isValidPayload(payload: GatewayTokenPayload): boolean {
+  const credentialSource = payload.credentialSource
+  const credentialId = payload.credentialId
+
   return (
     typeof payload.userId === 'string' &&
     payload.userId.length > 0 &&
@@ -39,6 +47,8 @@ function isValidPayload(payload: GatewayTokenPayload): boolean {
     payload.providerId.length > 0 &&
     typeof payload.version === 'number' &&
     Number.isFinite(payload.version) &&
+    (credentialSource === undefined || credentialSource === 'user' || credentialSource === 'organization') &&
+    (credentialId === undefined || (typeof credentialId === 'string' && credentialId.length > 0)) &&
     typeof payload.exp === 'number' &&
     Number.isFinite(payload.exp)
   )

@@ -101,6 +101,7 @@ export async function handleSlackThreadEvent(args: {
           prompt,
           sessionId,
           slug: serviceUser.user.slug,
+          userId: serviceUser.user.id,
         })
       } catch (error) {
         if (!isOpenCodeSessionNotFoundError(error)) {
@@ -126,6 +127,7 @@ export async function handleSlackThreadEvent(args: {
           prompt,
           sessionId,
           slug: serviceUser.user.slug,
+          userId: serviceUser.user.id,
         })
       }
 
@@ -176,6 +178,7 @@ async function sendSlackThreadPromptToSession(args: {
   prompt: string
   sessionId: string
   slug: string
+  userId: string
 }): Promise<string> {
   const runResult = await createSessionPromptRun({
     client: args.opencodeClient,
@@ -204,6 +207,7 @@ async function sendSlackThreadPromptToSession(args: {
       cursor: sessionCursor,
       sessionId: args.sessionId,
       slug: args.slug,
+      usage: { messageRunId: runId, source: 'slack_thread', userId: args.userId },
     })
 
     if (failure) {

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/providers/store', () => ({
-  getActiveCredentialForUser: vi.fn(),
+  getEnabledProviderCredentialsForUser: vi.fn(),
 }))
 
 vi.mock('@/lib/services', () => ({
@@ -15,11 +15,24 @@ vi.mock('@/lib/providers/tokens', () => ({
 }))
 
 import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
-import { getActiveCredentialForUser } from '@/lib/providers/store'
+import { getEnabledProviderCredentialsForUser, type EnabledProviderCredentials } from '@/lib/providers/store'
 import { issueGatewayToken } from '@/lib/providers/tokens'
+import type { ProviderId } from '@/lib/providers/types'
 
-const mockGetActiveCredentialForUser = vi.mocked(getActiveCredentialForUser)
+const mockGetEnabledProviderCredentialsForUser = vi.mocked(getEnabledProviderCredentialsForUser)
 const mockIssueGatewayToken = vi.mocked(issueGatewayToken)
+
+type TestEnabledProviderCredential = {
+  credentialId: string
+  source: 'user' | 'organization'
+  version: number
+}
+
+function enabledCredentials(
+  entries: Array<[ProviderId, TestEnabledProviderCredential]> = [],
+): EnabledProviderCredentials {
+  return new Map(entries)
+}
 
 const fakeInstance = {
   baseUrl: 'http://opencode-alice:4096',
@@ -32,7 +45,7 @@ describe('syncProviderAccessForInstance', () => {
   })
 
   it('returns sync_failed when credential lookup throws', async () => {
-    mockGetActiveCredentialForUser.mockRejectedValue(new Error('db error'))
+    mockGetEnabledProviderCredentialsForUser.mockRejectedValue(new Error('db error'))
 
     const result = await syncProviderAccessForInstance({
       instance: fakeInstance,
@@ -46,12 +59,9 @@ describe('syncProviderAccessForInstance', () => {
   it('sets auth for active credentials and keeps OpenCode gateway auth', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('true', { status: 200 })))
 
-    mockGetActiveCredentialForUser.mockImplementation(async ({ providerId }) => {
-      if (providerId === 'openai') {
-        return { id: 'cred-1', type: 'api', secret: 'secret', version: 2 }
-      }
-      return null
-    })
+    mockGetEnabledProviderCredentialsForUser.mockResolvedValue(enabledCredentials([
+      ['openai', { credentialId: 'cred-1', source: 'user', version: 2 }],
+    ]))
 
     mockIssueGatewayToken.mockImplementation(
       ({ providerId }) => `token-${providerId}`
@@ -68,6 +78,8 @@ describe('syncProviderAccessForInstance', () => {
       workspaceSlug: 'alice',
       providerId: 'openai',
       version: 2,
+      credentialId: 'cred-1',
+      credentialSource: 'user',
     })
     expect(mockIssueGatewayToken).toHaveBeenCalledWith({
       userId: 'user-1',

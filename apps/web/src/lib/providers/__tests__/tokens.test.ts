@@ -55,6 +55,24 @@ describe('tokens', () => {
 
       expect(payload.exp).toBe(1704067200 + 300)
     })
+
+    it('includes credential source and id when provided', () => {
+      const input: GatewayTokenInput = {
+        userId: 'u1',
+        workspaceSlug: 'ws1',
+        providerId: 'openai',
+        version: 1,
+        credentialSource: 'organization',
+        credentialId: 'org-cred-1',
+      }
+
+      const token = issueGatewayToken(input)
+      const [encoded] = token.split('.')
+      const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'))
+
+      expect(payload.credentialSource).toBe('organization')
+      expect(payload.credentialId).toBe('org-cred-1')
+    })
   })
 
   describe('verifyGatewayToken', () => {
@@ -76,6 +94,21 @@ describe('tokens', () => {
         version: 1,
       })
       expect(payload.exp).toBeTypeOf('number')
+    })
+
+    it('accepts legacy tokens without credential source', () => {
+      const input: GatewayTokenInput = {
+        userId: 'u1',
+        workspaceSlug: 'ws1',
+        providerId: 'openai',
+        version: 1,
+      }
+
+      const token = issueGatewayToken(input)
+      const payload = verifyGatewayToken(token)
+
+      expect(payload.credentialSource ?? 'user').toBe('user')
+      expect(payload.credentialId).toBeUndefined()
     })
 
     it('throws invalid_token for malformed token', () => {

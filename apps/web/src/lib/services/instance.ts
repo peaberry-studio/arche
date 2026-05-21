@@ -251,6 +251,15 @@ export function setProviderSyncState(slug: string, providerSyncHash: string, pro
   })
 }
 
+export function invalidateProviderSyncStateForAllInstances() {
+  return prisma.instance.updateMany({
+    data: {
+      providerSyncHash: null,
+      providerSyncedAt: null,
+    },
+  })
+}
+
 export function correctToRunning(slug: string) {
   return prisma.instance.update({
     where: { slug },

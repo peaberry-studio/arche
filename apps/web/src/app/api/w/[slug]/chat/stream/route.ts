@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getIdleFinalizationOutcome, getSilentStreamOutcome } from '@/app/api/w/[slug]/chat/stream/watchdog'
 import { createUpstreamSessionStatusReader } from '@/app/api/w/[slug]/chat/stream/status-reader'
 import { getInstanceUrl } from '@/lib/opencode/client'
+import { ensureProviderAccessFreshForExecution } from '@/lib/opencode/providers'
 import {
   buildWorkspacePromptParts,
   normalizeContextPaths,
@@ -10,7 +11,8 @@ import {
   type MessageAttachmentInput,
   type OpenCodePromptPart,
 } from '@/lib/opencode/workspace-prompt'
-import { normalizeProviderId, resolveRuntimeProviderId } from '@/lib/providers/catalog'
+import { isProviderId, normalizeProviderId, resolveRuntimeProviderId } from '@/lib/providers/catalog'
+import { recordProviderRunUsageBestEffort } from '@/lib/providers/run-usage'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { instanceService, messageRunService } from '@/lib/services'
 import { MESSAGE_RUN_TIMEOUT_MS, type ActiveRunRuntimeState } from '@/lib/services/message-run'
@@ -43,6 +45,12 @@ type PromptBody = {
   model?: { providerID: string; modelID: string }
 }
 
+type StepFinishUsage = {
+  costUsd: number
+  inputTokens: number
+  outputTokens: number
+}
+
 function jsonErrorResponse(status: number, error: string) {
   return NextResponse.json({ error }, { status })
 }
@@ -61,6 +69,35 @@ function isAbortError(error: unknown): boolean {
 
 function isTimeoutError(error: unknown): boolean {
   return error instanceof Error && error.name === 'TimeoutError'
+}
+
+function getNumber(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+function readStepFinishUsage(part: unknown): StepFinishUsage | null {
+  if (!isRecord(part) || part.type !== 'step-finish') return null
+
+  const tokens = isRecord(part.tokens) ? part.tokens : {}
+  return {
+    costUsd: getNumber(part.cost),
+    inputTokens: getNumber(tokens.input),
+    outputTokens: getNumber(tokens.output),
+  }
+}
+
+function sumStepFinishUsage(usages: Iterable<StepFinishUsage>): StepFinishUsage {
+  const total = { costUsd: 0, inputTokens: 0, outputTokens: 0 }
+  for (const usage of usages) {
+    total.costUsd += usage.costUsd
+    total.inputTokens += usage.inputTokens
+    total.outputTokens += usage.outputTokens
+  }
+  return total
+}
+
+function hasUsage(usage: StepFinishUsage): boolean {
+  return usage.costUsd > 0 || usage.inputTokens > 0 || usage.outputTokens > 0
 }
 
 function createSseResponse(events: Array<{ event: string; data: unknown }>): Response {
@@ -173,7 +210,7 @@ async function readRuntimeSessionState(params: {
  */
 export const POST = withAuth(
   { csrf: true },
-  async (request: NextRequest, { slug }) => {
+  async (request: NextRequest, { slug, user }) => {
     // Get instance credentials
     const instance = await instanceService.findCredentialsBySlug(slug)
 
@@ -291,6 +328,16 @@ export const POST = withAuth(
             modelID: model.modelId,
           },
         }),
+      }
+
+      try {
+        await ensureProviderAccessFreshForExecution({ slug, userId: user.id })
+      } catch (error) {
+        await messageRunService.markRunFailed(
+          activeRunId,
+          error instanceof Error ? error.message : 'provider_sync_failed',
+        ).catch(() => undefined)
+        return jsonErrorResponse(503, 'provider_sync_failed')
       }
     }
 
@@ -451,8 +498,11 @@ export const POST = withAuth(
         const pendingPermissionIds = new Set<string>()
         let assistantMessageSeen = typeof assistantMessageId === 'string'
         let assistantPartSeen = false
+        let runProviderId = model?.providerId && isProviderId(model.providerId) ? model.providerId : null
+        let runModelId = model?.modelId ?? null
         let lastRelevantEventAt = Date.now()
         let lastStreamActivityAt = lastRelevantEventAt
+        const stepFinishUsageByPart = new Map<string, StepFinishUsage>()
         const relevantEventTimeoutMs = resume
           ? RESUME_STREAM_RELEVANT_EVENT_TIMEOUT_MS
           : SEND_STREAM_RELEVANT_EVENT_TIMEOUT_MS
@@ -480,6 +530,26 @@ export const POST = withAuth(
             ? `${partMessageId}:${partId}`
             : null
 
+        const recordRunUsage = () => {
+          if (!activeRunId || !runProviderId) return
+
+          const usage = sumStepFinishUsage(stepFinishUsageByPart.values())
+          if (!hasUsage(usage)) return
+
+          const messageRunId = activeRunId
+          const providerId = runProviderId
+          recordProviderRunUsageBestEffort({
+            costUsd: usage.costUsd,
+            inputTokens: usage.inputTokens,
+            messageRunId,
+            modelId: runModelId,
+            outputTokens: usage.outputTokens,
+            providerId,
+            source: 'web',
+            userId: user.id,
+          }, '[chat/stream]')
+        }
+
         const finalizeFromIdle = () => {
           if (aborted) return
 
@@ -504,6 +574,7 @@ export const POST = withAuth(
 
           emitStatus('complete')
           sendEvent('done', { refresh: true })
+          recordRunUsage()
           markRunSucceeded()
           aborted = true
         }
@@ -753,6 +824,15 @@ export const POST = withAuth(
                         modelID: info.modelID,
                         agent: info.agent
                       })
+                      if (typeof info.providerID === 'string') {
+                        const normalizedProviderId = normalizeProviderId(info.providerID)
+                        if (isProviderId(normalizedProviderId)) {
+                          runProviderId = normalizedProviderId
+                        }
+                      }
+                      if (typeof info.modelID === 'string' && info.modelID.trim()) {
+                        runModelId = info.modelID.trim()
+                      }
                     }
                     break
                   }
@@ -813,6 +893,15 @@ export const POST = withAuth(
                       }
 
                       case 'step-start': {
+                        emitStatus('thinking')
+                        break
+                      }
+
+                      case 'step-finish': {
+                        const stepUsage = readStepFinishUsage(part)
+                        if (partKey && stepUsage) {
+                          stepFinishUsageByPart.set(partKey, stepUsage)
+                        }
                         emitStatus('thinking')
                         break
                       }
