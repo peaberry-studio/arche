@@ -10,9 +10,9 @@ vi.mock('@/lib/mcp/settings', () => ({
   readMcpSettings: (...args: unknown[]) => mockReadMcpSettings(...args),
 }))
 
-const mockCheckRateLimit = vi.fn()
-vi.mock('@/lib/rate-limit', () => ({
-  checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
+const mockCheckMcpRateLimit = vi.fn()
+vi.mock('@/lib/mcp/rate-limit', () => ({
+  checkMcpRateLimit: (...args: unknown[]) => mockCheckMcpRateLimit(...args),
 }))
 
 const mockCreateEvent = vi.fn()
@@ -74,7 +74,7 @@ describe('POST /api/mcp', () => {
       tokenId: 'tok-1',
       user: { id: 'u1', email: 'a@b.com', slug: 'alice', role: 'USER' },
     })
-    mockCheckRateLimit.mockReturnValue({
+    mockCheckMcpRateLimit.mockResolvedValue({
       allowed: true,
       remaining: 99,
       resetAt: Date.now() + 60000,
@@ -126,7 +126,7 @@ describe('POST /api/mcp', () => {
   })
 
   it('applies pre-auth rate limiting before PAT authentication', async () => {
-    mockCheckRateLimit.mockReturnValueOnce({
+    mockCheckMcpRateLimit.mockResolvedValueOnce({
       allowed: false,
       remaining: 0,
       resetAt: Date.now() + 2500,
@@ -142,6 +142,16 @@ describe('POST /api/mcp', () => {
     expect(mockTransportConstructor).not.toHaveBeenCalled()
   })
 
+  it('returns 503 when the shared rate limiter is unavailable', async () => {
+    mockCheckMcpRateLimit.mockRejectedValueOnce(new Error('db down'))
+
+    const { POST } = await import('./route')
+    const response = await POST(makeRequest({ jsonrpc: '2.0' }))
+
+    expect(response.status).toBe(503)
+    expect(mockAuthenticatePat).not.toHaveBeenCalled()
+  })
+
   it('skips the pre-auth IP rate limit when no trusted client IP is available', async () => {
     mockGetClientIp.mockReturnValue(null)
 
@@ -149,18 +159,18 @@ describe('POST /api/mcp', () => {
     const response = await POST(makeRequest({ jsonrpc: '2.0' }))
 
     expect(response.status).toBe(200)
-    expect(mockCheckRateLimit).toHaveBeenCalledTimes(1)
-    expect(mockCheckRateLimit).toHaveBeenCalledWith('mcp:tok-1', 100, 60000)
+    expect(mockCheckMcpRateLimit).toHaveBeenCalledTimes(1)
+    expect(mockCheckMcpRateLimit).toHaveBeenCalledWith('mcp:tok-1', 100, 60000)
   })
 
   it('returns 429 before reading MCP settings when the token is rate limited', async () => {
-    mockCheckRateLimit
-      .mockReturnValueOnce({
+    mockCheckMcpRateLimit
+      .mockResolvedValueOnce({
         allowed: true,
         remaining: 299,
         resetAt: Date.now() + 60000,
       })
-      .mockReturnValueOnce({
+      .mockResolvedValueOnce({
         allowed: false,
         remaining: 0,
         resetAt: Date.now() + 4500,

@@ -2,9 +2,9 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 
 import { getClientIp, getConfiguredPublicBaseUrl } from '@/lib/http'
 import { authenticatePat } from '@/lib/mcp/auth'
+import { checkMcpRateLimit } from '@/lib/mcp/rate-limit'
 import { createMcpServer } from '@/lib/mcp/server'
 import { readMcpSettings } from '@/lib/mcp/settings'
-import { checkRateLimit } from '@/lib/rate-limit'
 import { auditService } from '@/lib/services'
 
 export const runtime = 'nodejs'
@@ -35,11 +35,14 @@ export async function POST(request: Request): Promise<Response> {
 
   const clientIp = getClientIp(request.headers)
   if (clientIp) {
-    const preAuthRateLimit = checkRateLimit(
+    const preAuthRateLimit = await checkMcpRateLimit(
       `mcp:ip:${clientIp}`,
       MCP_PREAUTH_RATE_LIMIT_MAX,
       MCP_PREAUTH_RATE_LIMIT_WINDOW_MS
-    )
+    ).catch(() => null)
+    if (!preAuthRateLimit) {
+      return jsonResponse(request, { error: 'mcp_unavailable' }, { status: 503 })
+    }
     if (!preAuthRateLimit.allowed) {
       return buildRateLimitedResponse(request, preAuthRateLimit.resetAt)
     }
@@ -50,7 +53,14 @@ export async function POST(request: Request): Promise<Response> {
     return jsonResponse(request, { error: 'unauthorized' }, { status: auth.status })
   }
 
-  const rateLimit = checkRateLimit(`mcp:${auth.tokenId}`, MCP_RATE_LIMIT_MAX, MCP_RATE_LIMIT_WINDOW_MS)
+  const rateLimit = await checkMcpRateLimit(
+    `mcp:${auth.tokenId}`,
+    MCP_RATE_LIMIT_MAX,
+    MCP_RATE_LIMIT_WINDOW_MS
+  ).catch(() => null)
+  if (!rateLimit) {
+    return jsonResponse(request, { error: 'mcp_unavailable' }, { status: 503 })
+  }
   if (!rateLimit.allowed) {
     return buildRateLimitedResponse(request, rateLimit.resetAt)
   }

@@ -268,6 +268,17 @@ model PersonalAccessToken {
   @@map("personal_access_tokens")
 }
 
+model McpRateLimitBucket {
+  key       String   @id
+  count     Int
+  resetAt   DateTime @map("reset_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([resetAt])
+  @@map("mcp_rate_limit_buckets")
+}
+
 model AuditEvent {
   id          String   @id @default(cuid())
   actorUserId String?  @map("actor_user_id")
