@@ -57,10 +57,22 @@ describe('flow route auth', () => {
   it('resolves the route context without lookup when the actor owns the slug', async () => {
     const result = await resolveFlowRouteContext('alice', {
       id: 'user-1',
+      role: 'USER',
       slug: 'alice',
     })
 
     expect(result).toMatchObject({ actorUserId: 'user-1', workspaceUserId: 'user-1' })
+    expect(findIdBySlugMock).not.toHaveBeenCalled()
+  })
+
+  it('does not resolve another route workspace for members', async () => {
+    const result = await resolveFlowRouteContext('alice', {
+      id: 'user-2',
+      role: 'USER',
+      slug: 'bob',
+    })
+
+    expect(result).toBeNull()
     expect(findIdBySlugMock).not.toHaveBeenCalled()
   })
 
@@ -69,6 +81,7 @@ describe('flow route auth', () => {
 
     const result = await resolveFlowRouteContext('alice', {
       id: 'admin-1',
+      role: 'ADMIN',
       slug: 'admin',
     })
 
@@ -81,6 +94,7 @@ describe('flow route auth', () => {
 
     const result = await resolveFlowRouteContext('missing', {
       id: 'admin-1',
+      role: 'ADMIN',
       slug: 'admin',
     })
 

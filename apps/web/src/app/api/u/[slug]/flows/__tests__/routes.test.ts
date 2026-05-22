@@ -215,6 +215,13 @@ describe('Flow API routes', () => {
     expect(mocks.listFlowsByUserId).toHaveBeenCalledWith('user-1')
   })
 
+  it('blocks non-admin actors from another user flow workspace', async () => {
+    const response = await GET_FLOWS(request('/api/u/bob/flows'), params({ slug: 'bob' }))
+
+    expect(response.status).toBe(403)
+    expect(mocks.listFlowsByUserId).not.toHaveBeenCalled()
+  })
+
   it('creates flows and audits the write', async () => {
     const flow = createFlowRecord()
     mocks.createFlow.mockResolvedValue(flow)
@@ -395,6 +402,22 @@ describe('Flow API routes', () => {
     expect(response.status).toBe(202)
     expect(mocks.checkMissingConnectorRequirements).toHaveBeenCalledWith([{ capabilityId: 'globalzendesk' }], 'user-1')
     expect(mocks.triggerFlowNow).toHaveBeenCalledWith({ executionUserId: 'user-1', flowId: 'flow-1', trigger: 'manual' })
+  })
+
+  it('blocks runnable team flows when Slack targets are forbidden for the execution user', async () => {
+    mocks.findFlowByIdAndUserId.mockResolvedValue({
+      ...createFlowRecord(),
+      organizationCanRun: true,
+      userId: 'user-2',
+      visibility: 'team',
+    })
+    mocks.validateFlowSlackNodeAccess.mockResolvedValueOnce({ ok: false, error: 'slack_notification_dm_target_forbidden', status: 403 })
+
+    const response = await POST_RUN_FLOW(request('/api/u/alice/flows/flow-1/run', 'POST'), params({ id: 'flow-1', slug: 'alice' }))
+
+    expect(response.status).toBe(403)
+    expect(mocks.getFlowConnectorRequirements).not.toHaveBeenCalled()
+    expect(mocks.triggerFlowNow).not.toHaveBeenCalled()
   })
 
   it('blocks runs when the execution user is missing required connectors', async () => {

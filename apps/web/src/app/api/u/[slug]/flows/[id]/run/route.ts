@@ -7,6 +7,7 @@ import {
   getFlowConnectorRequirements,
 } from '@/lib/flows/connector-requirements'
 import { canRunFlow } from '@/lib/flows/permissions'
+import { validateFlowSlackNodeAccess } from '@/lib/flows/route-auth'
 import { triggerFlowNow } from '@/lib/flows/runner'
 import { validateFlowDefinition } from '@/lib/flows/validation'
 import { requireCapability } from '@/lib/runtime/require-capability'
@@ -33,6 +34,16 @@ export const POST = withAuth<{ ok: true } | { error: string }, FlowRunRouteParam
 
     const definition = validateFlowDefinition(flow.definition)
     if (!definition.ok) return NextResponse.json({ error: definition.error }, { status: 400 })
+
+    if (flow.userId !== user.id) {
+      const slackNodeAccess = await validateFlowSlackNodeAccess(definition.definition, user, user.id)
+      if (!slackNodeAccess.ok) {
+        return NextResponse.json(
+          { error: slackNodeAccess.error },
+          { status: slackNodeAccess.status },
+        )
+      }
+    }
 
     const requirements = await getFlowConnectorRequirements(definition.definition)
     if (!requirements.ok) {

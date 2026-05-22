@@ -8,6 +8,7 @@ import { formatFlowRunDate } from '@/lib/flows/cron'
 import { getFlowNodeById, getFlowOutgoingTargets } from '@/lib/flows/graph'
 import { executeFlowNode } from '@/lib/flows/node-executors'
 import { planFlowRetry } from '@/lib/flows/retry-policy'
+import { validateFlowSlackNodeAccess } from '@/lib/flows/route-auth'
 import { serializeFlowRun } from '@/lib/flows/serializers'
 import {
   createFlowLeaseOwner,
@@ -30,6 +31,12 @@ type FlowExecutionOutcome =
   | { status: 'succeeded' }
   | { status: 'waiting_for_human'; nodeId: string }
   | { status: 'failed'; error: string }
+
+type FlowExecutionUser = {
+  id: string
+  role: string
+  slug: string
+}
 
 function buildFlowSessionTitle(flow: FlowRecord, scheduledFor: Date): string {
   return `Flow | ${flow.name} | ${formatFlowRunDate(scheduledFor, flow.timezone)}`
@@ -57,6 +64,25 @@ function getPreviousOutputForRetry(run: FlowRunRecord & { steps?: FlowRunStepRec
   }
 
   return null
+}
+
+async function validateFlowDefinitionForExecution(
+  flow: FlowRecord,
+  executionUser: FlowExecutionUser,
+): Promise<{ ok: true; definition: FlowDefinition } | { ok: false; error: string }> {
+  const definitionResult = validateFlowDefinition(flow.definition)
+  if (!definitionResult.ok) return { ok: false, error: definitionResult.error }
+
+  if (executionUser.id === flow.userId) return { ok: true, definition: definitionResult.definition }
+
+  const slackNodeAccess = await validateFlowSlackNodeAccess(
+    definitionResult.definition,
+    executionUser,
+    executionUser.id,
+  )
+  if (!slackNodeAccess.ok) return { ok: false, error: slackNodeAccess.error }
+
+  return { ok: true, definition: definitionResult.definition }
 }
 
 async function isRunCancelled(runId: string): Promise<boolean> {
@@ -146,6 +172,7 @@ async function executeFlowNodes(params: {
 
 async function continueRun(params: {
   client: SessionExecutionClient
+  definition: FlowDefinition
   flow: FlowRecord
   executionUserId: string
   leaseOwner: string
@@ -155,14 +182,9 @@ async function continueRun(params: {
   slug: string
   startNodeId: string | null
 }): Promise<FlowExecutionOutcome> {
-  const definitionResult = validateFlowDefinition(params.flow.definition)
-  if (!definitionResult.ok) {
-    return { status: 'failed', error: definitionResult.error }
-  }
-
   return executeFlowNodes({
     client: params.client,
-    definition: definitionResult.definition,
+    definition: params.definition,
     executionUserId: params.executionUserId,
     flow: params.flow,
     leaseOwner: params.leaseOwner,
@@ -187,6 +209,7 @@ async function finalizeRun(params: {
 }): Promise<{ retryScheduled: boolean }> {
   if (!await hasActiveFlowLease(params.flow.id, params.leaseOwner)) return { retryScheduled: false }
 
+  const executionUserId = params.run.executionUserId ?? params.flow.userId
   const currentRun = await flowService.findRunByIdAndUserId(params.run.id, params.flow.userId)
   if (params.outcome.status === 'cancelled' || currentRun?.status === FlowRunStatus.cancelled) {
     return { retryScheduled: false }
@@ -195,10 +218,12 @@ async function finalizeRun(params: {
   if (params.outcome.status === 'waiting_for_human') {
     await auditService.createEvent({
       action: 'flows.run_waiting_for_human',
-      actorUserId: params.flow.userId,
+      actorUserId: executionUserId,
       metadata: {
+        executionUserId,
         flowId: params.flow.id,
         nodeId: params.outcome.nodeId,
+        ownerUserId: params.flow.userId,
         runId: params.run.id,
         sessionId: params.sessionId,
         slug: params.slug,
@@ -219,9 +244,11 @@ async function finalizeRun(params: {
     if (result.count !== 1) return { retryScheduled: false }
     await auditService.createEvent({
       action: 'flows.run_succeeded',
-      actorUserId: params.flow.userId,
+      actorUserId: executionUserId,
       metadata: {
+        executionUserId,
         flowId: params.flow.id,
+        ownerUserId: params.flow.userId,
         runId: params.run.id,
         sessionId: params.sessionId,
         slug: params.slug,
@@ -259,12 +286,14 @@ async function finalizeRun(params: {
 
     await auditService.createEvent({
       action: 'flows.run_failed',
-      actorUserId: params.flow.userId,
+      actorUserId: executionUserId,
       metadata: {
         attempt: params.run.attempt,
         error: params.outcome.error,
+        executionUserId,
         flowId: params.flow.id,
         maxAttempts: retryPlan.maxAttempts,
+        ownerUserId: params.flow.userId,
         retryAt: retryPlan.retryAt.toISOString(),
         runId: params.run.id,
         sessionId: params.sessionId,
@@ -285,11 +314,13 @@ async function finalizeRun(params: {
   if (result.count !== 1) return { retryScheduled: false }
   await auditService.createEvent({
     action: 'flows.run_failed',
-    actorUserId: params.flow.userId,
+    actorUserId: executionUserId,
     metadata: {
       error: params.outcome.error,
+      executionUserId,
       flowId: params.flow.id,
       maxAttempts: retryPlan.maxAttempts,
+      ownerUserId: params.flow.userId,
       retryReason: retryPlan.reason,
       runId: params.run.id,
       sessionId: params.sessionId,
@@ -314,10 +345,20 @@ async function executeClaimedFlowRun(
 
   try {
     const executionUserId = run.executionUserId ?? flow.userId
-    const executionUser = await userService.findByIdSelect(executionUserId, { slug: true })
+    const executionUser = await userService.findByIdSelect(executionUserId, { role: true, slug: true })
     if (!executionUser) throw new Error('flow_execution_user_not_found')
 
     slug = executionUser.slug
+    const definitionResult = await validateFlowDefinitionForExecution(flow, {
+      id: executionUserId,
+      role: executionUser.role,
+      slug: executionUser.slug,
+    })
+    if (!definitionResult.ok) {
+      outcome = { status: 'failed', error: definitionResult.error }
+      return
+    }
+
     await ensureWorkspaceRunningForExecution(slug, executionUserId)
     await instanceService.touchActivity(slug).catch(() => undefined)
 
@@ -337,9 +378,9 @@ async function executeClaimedFlowRun(
       sessionTitle = buildFlowSessionTitle(flow, flow.scheduledFor)
     }
 
-    const definitionResult = validateFlowDefinition(flow.definition)
     outcome = await continueRun({
       client,
+      definition: definitionResult.definition,
       executionUserId,
       flow,
       leaseOwner: flow.leaseOwner ?? '',
@@ -347,7 +388,7 @@ async function executeClaimedFlowRun(
       run,
       sessionId,
       slug,
-      startNodeId: run.currentNodeId ?? (definitionResult.ok ? definitionResult.definition.startNodeId : null),
+      startNodeId: run.currentNodeId ?? definitionResult.definition.startNodeId,
     })
   } catch (error) {
     outcome = { status: 'failed', error: error instanceof Error ? error.message : 'flow_run_failed' }
@@ -528,12 +569,22 @@ async function resumeClaimedFlowRun(params: {
 
   try {
     const executionUserId = params.run.executionUserId ?? params.flow.userId
-    const executionUser = await userService.findByIdSelect(executionUserId, { slug: true })
+    const executionUser = await userService.findByIdSelect(executionUserId, { role: true, slug: true })
     if (!executionUser) throw new Error('flow_execution_user_not_found')
 
     slug = executionUser.slug
     if (!params.startNodeId) {
       outcome = { status: 'succeeded' }
+      return
+    }
+
+    const definitionResult = await validateFlowDefinitionForExecution(params.flow, {
+      id: executionUserId,
+      role: executionUser.role,
+      slug: executionUser.slug,
+    })
+    if (!definitionResult.ok) {
+      outcome = { status: 'failed', error: definitionResult.error }
       return
     }
 
@@ -543,6 +594,7 @@ async function resumeClaimedFlowRun(params: {
 
     outcome = await continueRun({
       client,
+      definition: definitionResult.definition,
       executionUserId,
       flow: params.flow,
       leaseOwner: params.flow.leaseOwner ?? '',

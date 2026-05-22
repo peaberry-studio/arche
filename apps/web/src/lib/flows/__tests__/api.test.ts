@@ -18,7 +18,7 @@ describe('flow API helpers', () => {
   })
 
   it('uses the actor as the workspace user when the slug already matches', async () => {
-    await expect(resolveFlowRouteContext('alice', { id: 'user-1', slug: 'alice' })).resolves.toEqual({
+    await expect(resolveFlowRouteContext('alice', { id: 'user-1', role: 'USER', slug: 'alice' })).resolves.toEqual({
       actorSlug: 'alice',
       actorUserId: 'user-1',
       workspaceSlug: 'alice',
@@ -27,10 +27,16 @@ describe('flow API helpers', () => {
     expect(mocks.findIdBySlug).not.toHaveBeenCalled()
   })
 
+  it('does not resolve another workspace for non-admin actors', async () => {
+    await expect(resolveFlowRouteContext('alice', { id: 'user-2', role: 'USER', slug: 'bob' }))
+      .resolves.toBeNull()
+    expect(mocks.findIdBySlug).not.toHaveBeenCalled()
+  })
+
   it('resolves another workspace slug through userService', async () => {
     mocks.findIdBySlug.mockResolvedValue({ id: 'owner-1' })
 
-    await expect(resolveFlowRouteContext('bob', { id: 'admin-1', slug: 'admin' })).resolves.toEqual({
+    await expect(resolveFlowRouteContext('bob', { id: 'admin-1', role: 'ADMIN', slug: 'admin' })).resolves.toEqual({
       actorSlug: 'admin',
       actorUserId: 'admin-1',
       workspaceSlug: 'bob',

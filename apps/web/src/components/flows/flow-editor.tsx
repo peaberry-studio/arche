@@ -722,9 +722,9 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
         <section className="rounded-xl border border-border/60 bg-card/40 p-5">
           <div className="mb-4">
             <h2 className="text-sm font-semibold text-foreground">Flow canvas</h2>
-              <p className="text-xs text-muted-foreground">
-                {isReadOnly ? 'Review the flow graph. Copy the flow to make editable changes.' : 'Hover a step to edit it, drag from its connector dot, or use + to add the next step.'}
-              </p>
+            <p className="text-xs text-muted-foreground">
+              {isReadOnly ? 'Review the flow graph. Copy the flow to make editable changes.' : 'Hover a step to edit it, drag from its connector dot, or use + to add the next step.'}
+            </p>
           </div>
           <FlowCanvas
             definition={definition}

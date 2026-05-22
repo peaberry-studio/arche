@@ -244,6 +244,7 @@ describe('flowService', () => {
     }))
     expect(prismaMock.flow.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
       data: expect.objectContaining({ organizationCanRun: false }),
+      where: expect.objectContaining({ visibility: 'private' }),
     }))
   })
 

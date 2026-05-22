@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => ({
   updateRunCurrentNode: vi.fn(),
   upsertRunStep: vi.fn(),
   userFindByIdSelect: vi.fn(),
+  validateFlowSlackNodeAccess: vi.fn(),
 }))
 
 vi.mock('@/lib/flows/session-executor', () => ({
@@ -37,6 +38,10 @@ vi.mock('@/lib/flows/session-executor', () => ({
   FLOW_RUN_CANCELLED_ERROR: 'flow_run_cancelled',
   createFlowLeaseOwner: mocks.createFlowLeaseOwner,
   runFlowPromptAndReadOutput: mocks.runFlowPromptAndReadOutput,
+}))
+
+vi.mock('@/lib/flows/route-auth', () => ({
+  validateFlowSlackNodeAccess: mocks.validateFlowSlackNodeAccess,
 }))
 
 vi.mock('@/lib/opencode/client', () => ({
@@ -239,6 +244,7 @@ describe('triggerFlowNow', () => {
     mocks.auditCreateEvent.mockResolvedValue(undefined)
     mocks.touchActivity.mockResolvedValue(undefined)
     mocks.userFindByIdSelect.mockResolvedValue(null)
+    mocks.validateFlowSlackNodeAccess.mockResolvedValue({ ok: true })
   })
 
   it('returns not_found when the requested flow does not exist', async () => {
@@ -348,7 +354,7 @@ describe('triggerFlowNow', () => {
   it('runs shared manual flows in the execution user workspace', async () => {
     mocks.claimFlowForImmediateRun.mockResolvedValue(createClaimedFlow())
     mocks.createRun.mockResolvedValue(createRunRecord({ executionUserId: 'user-2' }))
-    mocks.userFindByIdSelect.mockResolvedValue({ slug: 'bob' })
+    mocks.userFindByIdSelect.mockResolvedValue({ role: 'USER', slug: 'bob' })
 
     await expect(triggerFlowNow({
       executionUserId: 'user-2',
@@ -367,6 +373,47 @@ describe('triggerFlowNow', () => {
       slug: 'bob',
       userId: 'user-2',
     })))
+    expect(mocks.validateFlowSlackNodeAccess).toHaveBeenCalledWith(
+      expect.objectContaining({ startNodeId: 'agent-1' }),
+      { id: 'user-2', role: 'USER', slug: 'bob' },
+      'user-2',
+    )
+    await vi.waitFor(() => expect(mocks.auditCreateEvent).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'flows.run_succeeded',
+      actorUserId: 'user-2',
+      metadata: expect.objectContaining({ executionUserId: 'user-2', ownerUserId: 'user-1' }),
+    })))
+  })
+
+  it('fails shared Slack runs before starting the executor workspace when the target is forbidden', async () => {
+    const flow = createClaimedFlow()
+    flow.definition = {
+      edges: [],
+      nodes: [{ id: 'slack-1', messageMode: 'fixed', messageTemplate: 'Fixed update', name: 'Slack', target: { type: 'dm', userId: 'user-1' }, type: 'slack' }],
+      startNodeId: 'slack-1',
+      version: 1,
+    }
+    mocks.claimFlowForImmediateRun.mockResolvedValue(flow)
+    mocks.createRun.mockResolvedValue(createRunRecord({ executionUserId: 'user-2', id: 'run-shared-slack' }))
+    mocks.userFindByIdSelect.mockResolvedValue({ role: 'USER', slug: 'bob' })
+    mocks.validateFlowSlackNodeAccess.mockResolvedValueOnce({ ok: false, error: 'slack_notification_dm_target_forbidden', status: 403 })
+
+    await expect(triggerFlowNow({
+      executionUserId: 'user-2',
+      flowId: 'flow-1',
+      trigger: FlowRunTrigger.manual,
+    })).resolves.toEqual({ ok: true })
+
+    await vi.waitFor(() => expect(mocks.markRunFailed).toHaveBeenCalledWith('run-shared-slack', expect.objectContaining({
+      error: 'slack_notification_dm_target_forbidden',
+    })))
+    expect(mocks.validateFlowSlackNodeAccess).toHaveBeenCalledWith(
+      expect.objectContaining({ startNodeId: 'slack-1' }),
+      { id: 'user-2', role: 'USER', slug: 'bob' },
+      'user-2',
+    )
+    expect(mocks.ensureWorkspaceRunningForExecution).not.toHaveBeenCalled()
+    expect(mocks.sendSlackNotifications).not.toHaveBeenCalled()
   })
 
   it('runs Slack message nodes with fixed, previous output, and template messages', async () => {

@@ -1,3 +1,5 @@
+import type { FlowVisibility } from '@/lib/flows/types'
+
 type FlowPermissionActor = {
   id: string
   role: string
@@ -6,7 +8,7 @@ type FlowPermissionActor = {
 type FlowPermissionRecord = {
   organizationCanRun: boolean
   userId: string
-  visibility: string
+  visibility: FlowVisibility
 }
 
 type FlowRunPermissionRecord = {

@@ -2,6 +2,7 @@ import { userService } from '@/lib/services'
 
 export type FlowRouteUser = {
   id: string
+  role: string
   slug: string
 }
 
@@ -21,6 +22,8 @@ export async function resolveFlowRouteContext(slug: string, actor: FlowRouteUser
       workspaceUserId: actor.id,
     }
   }
+
+  if (actor.role !== 'ADMIN') return null
 
   const workspaceUser = await userService.findIdBySlug(slug)
   if (!workspaceUser) return null

@@ -302,7 +302,7 @@ export async function updateFlowByIdAndUserId(
 
   const result = await prisma.flow.updateMany({
     data: normalizedData,
-    where: { deletedAt: null, id, userId },
+    where: { deletedAt: null, id, userId, visibility: existing.visibility },
   })
   if (result.count === 0) return null
   return prisma.flow.findFirst({ where: { deletedAt: null, id, userId } })
