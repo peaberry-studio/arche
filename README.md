@@ -18,7 +18,7 @@ Arche also works with the tools you already use. Built-in connectors cover Googl
 
 ## See Arche
 
-![Arche Desktop screenshot](resources/arche_desktop.jpeg)
+![Arche demo](resources/arche.gif)
 
 Arche usually fits one of these patterns:
 
