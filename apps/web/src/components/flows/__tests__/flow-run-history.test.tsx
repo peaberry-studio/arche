@@ -16,9 +16,14 @@ const flow: FlowDetail = {
   latestRun: null,
   name: 'Flow',
   nextRunAt: null,
+  organizationCanRun: false,
+  owner: { email: 'alice@example.com', slug: 'alice' },
+  permissions: { canCopy: true, canEdit: true, canManage: true, canRun: true, canView: true, isOwner: true },
   runs: [{
     currentNodeId: null,
     error: null,
+    executionUser: null,
+    executionUserId: null,
     finishedAt: '2026-05-12T10:02:00.000Z',
     flowId: 'flow-1',
     id: 'run-1',
@@ -50,6 +55,7 @@ const flow: FlowDetail = {
   }],
   timezone: 'UTC',
   updatedAt: '2026-05-12T10:00:00.000Z',
+  visibility: 'private',
 }
 
 describe('FlowRunHistory', () => {

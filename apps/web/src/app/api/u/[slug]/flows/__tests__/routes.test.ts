@@ -7,11 +7,13 @@ import { createDefaultFlowDefinition } from '@/lib/flows/validation'
 const mocks = vi.hoisted(() => ({
   auditEvent: vi.fn(),
   cancelRunByIdAndUserId: vi.fn(),
+  checkMissingConnectorRequirements: vi.fn(),
   createFlow: vi.fn(),
   deleteFlowByIdAndUserId: vi.fn(),
   findFlowByIdAndUserId: vi.fn(),
   findIdBySlug: vi.fn(),
   findRunByIdAndUserId: vi.fn(),
+  getFlowConnectorRequirements: vi.fn(),
   getRuntimeCapabilities: vi.fn(),
   getSession: vi.fn(),
   isDesktop: vi.fn(),
@@ -35,6 +37,10 @@ vi.mock('@/lib/runtime/desktop/token', () => ({
   validateDesktopToken: mocks.validateDesktopToken,
 }))
 vi.mock('@/lib/auth', () => ({ auditEvent: mocks.auditEvent }))
+vi.mock('@/lib/flows/connector-requirements', () => ({
+  checkMissingConnectorRequirements: mocks.checkMissingConnectorRequirements,
+  getFlowConnectorRequirements: mocks.getFlowConnectorRequirements,
+}))
 vi.mock('@/lib/flows/payload', () => ({ validateFlowPayload: mocks.validateFlowPayload }))
 vi.mock('@/lib/flows/route-auth', () => ({ validateFlowSlackNodeAccess: mocks.validateFlowSlackNodeAccess }))
 vi.mock('@/lib/flows/runner', () => ({
@@ -57,6 +63,7 @@ vi.mock('@/lib/services', () => ({
 
 import { GET as GET_FLOWS, POST as POST_FLOW } from '../route'
 import { DELETE as DELETE_FLOW, GET as GET_FLOW, PATCH as PATCH_FLOW } from '../[id]/route'
+import { POST as POST_COPY_FLOW } from '../[id]/copy/route'
 import { POST as POST_RUN_FLOW } from '../[id]/run/route'
 import { GET as GET_FLOW_RUNS } from '../[id]/runs/route'
 import { POST as POST_CANCEL_RUN } from '../runs/[runId]/cancel/route'
@@ -83,10 +90,13 @@ function createFlowRecord() {
     leaseOwner: null,
     name: 'Flow',
     nextRunAt: null,
+    organizationCanRun: false,
     runs: [createRunRecord()],
     timezone: 'UTC',
     updatedAt: now,
+    user: { email: 'alice@example.com', slug: 'alice' },
     userId: 'user-1',
+    visibility: 'private',
   }
 }
 
@@ -109,14 +119,19 @@ function createRunRecord() {
       leaseOwner: null,
       name: 'Flow',
       nextRunAt: null,
+      organizationCanRun: false,
       timezone: 'UTC',
       updatedAt: now,
+      user: { email: 'alice@example.com', slug: 'alice' },
       userId: 'user-1',
+      visibility: 'private',
     },
     flowId: 'flow-1',
     id: 'run-1',
     attempt: 1,
     lastRetryError: null,
+    executionUser: null,
+    executionUserId: null,
     openCodeSessionId: 'opencode-1',
     retryScheduledFor: null,
     resultSeenAt: null,
@@ -167,7 +182,10 @@ describe('Flow API routes', () => {
     mocks.validateDesktopToken.mockReturnValue(true)
     mocks.validateSameOrigin.mockReturnValue({ ok: true })
     mocks.validateFlowSlackNodeAccess.mockResolvedValue({ ok: true })
+    mocks.getFlowConnectorRequirements.mockResolvedValue({ ok: true, requirements: [] })
+    mocks.checkMissingConnectorRequirements.mockResolvedValue([])
     mocks.findIdBySlug.mockResolvedValue({ id: 'user-1' })
+    mocks.findFlowByIdAndUserId.mockResolvedValue(createFlowRecord())
     mocks.auditEvent.mockResolvedValue(undefined)
     mocks.validateFlowPayload.mockResolvedValue({
       ok: true,
@@ -177,7 +195,9 @@ describe('Flow API routes', () => {
         description: null,
         enabled: false,
         name: 'Flow',
+        organizationCanRun: false,
         timezone: 'UTC',
+        visibility: 'private',
       },
     })
   })
@@ -225,7 +245,7 @@ describe('Flow API routes', () => {
     const response = await POST_FLOW(request('/api/u/alice/flows', 'POST', { name: 'Flow' }), params({ slug: 'alice' }))
 
     expect(response.status).toBe(201)
-    expect(mocks.triggerFlowNow).toHaveBeenCalledWith({ flowId: 'flow-1', trigger: 'on_create', userId: 'user-1' })
+    expect(mocks.triggerFlowNow).toHaveBeenCalledWith({ executionUserId: 'user-1', flowId: 'flow-1', trigger: 'on_create', userId: 'user-1' })
     expect(consoleError).toHaveBeenCalledWith('[flows] Failed to trigger initial flow run', expect.objectContaining({ flowId: 'flow-1', reason: 'flow_busy' }))
   })
 
@@ -297,6 +317,20 @@ describe('Flow API routes', () => {
       .toBe(403)
   })
 
+  it('blocks non-owners from updating team-visible flows', async () => {
+    mocks.findFlowByIdAndUserId.mockResolvedValue({
+      ...createFlowRecord(),
+      organizationCanRun: true,
+      userId: 'user-2',
+      visibility: 'team',
+    })
+
+    const response = await PATCH_FLOW(request('/api/u/alice/flows/flow-1', 'PATCH', { name: 'Flow' }), params({ id: 'flow-1', slug: 'alice' }))
+
+    expect(response.status).toBe(403)
+    expect(mocks.updateFlowByIdAndUserId).not.toHaveBeenCalled()
+  })
+
   it('clears schedules on update', async () => {
     const flow = { ...createFlowRecord(), cronExpression: '0 9 * * 1', enabled: true }
     const updated = { ...flow, cronExpression: null, enabled: false, nextRunAt: null }
@@ -327,6 +361,7 @@ describe('Flow API routes', () => {
       .toBe(404)
 
     mocks.deleteFlowByIdAndUserId.mockResolvedValue({ count: 0 })
+    mocks.findFlowByIdAndUserId.mockResolvedValue(flow)
     expect((await DELETE_FLOW(request('/api/u/alice/flows/flow-1', 'DELETE'), params({ id: 'flow-1', slug: 'alice' }))).status)
       .toBe(404)
   })
@@ -339,6 +374,79 @@ describe('Flow API routes', () => {
 
     expect(accepted.status).toBe(202)
     expect(busy.status).toBe(409)
+  })
+
+  it('runs runnable team flows as the current user after connector checks', async () => {
+    mocks.findFlowByIdAndUserId.mockResolvedValue({
+      ...createFlowRecord(),
+      organizationCanRun: true,
+      userId: 'user-2',
+      visibility: 'team',
+    })
+    mocks.getFlowConnectorRequirements.mockResolvedValue({ ok: true, requirements: [{ capabilityId: 'globalzendesk' }] })
+    mocks.checkMissingConnectorRequirements.mockResolvedValue([])
+    mocks.triggerFlowNow.mockResolvedValue({ ok: true })
+
+    const response = await POST_RUN_FLOW(request('/api/u/alice/flows/flow-1/run', 'POST'), params({ id: 'flow-1', slug: 'alice' }))
+
+    expect(response.status).toBe(202)
+    expect(mocks.checkMissingConnectorRequirements).toHaveBeenCalledWith([{ capabilityId: 'globalzendesk' }], 'user-1')
+    expect(mocks.triggerFlowNow).toHaveBeenCalledWith({ executionUserId: 'user-1', flowId: 'flow-1', trigger: 'manual' })
+  })
+
+  it('blocks runs when the execution user is missing required connectors', async () => {
+    mocks.findFlowByIdAndUserId.mockResolvedValue({
+      ...createFlowRecord(),
+      organizationCanRun: true,
+      userId: 'user-2',
+      visibility: 'team',
+    })
+    mocks.getFlowConnectorRequirements.mockResolvedValue({ ok: true, requirements: [{ capabilityId: 'globalzendesk' }] })
+    mocks.checkMissingConnectorRequirements.mockResolvedValue([{ capabilityId: 'globalzendesk', connectorType: 'zendesk' }])
+
+    const response = await POST_RUN_FLOW(request('/api/u/alice/flows/flow-1/run', 'POST'), params({ id: 'flow-1', slug: 'alice' }))
+    const body = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(body).toMatchObject({ error: 'missing_connectors' })
+    expect(mocks.triggerFlowNow).not.toHaveBeenCalled()
+  })
+
+  it('copies visible flows into a private unscheduled flow owned by the actor', async () => {
+    const source = {
+      ...createFlowRecord(),
+      organizationCanRun: true,
+      userId: 'user-2',
+      visibility: 'team',
+    }
+    const copy = {
+      ...createFlowRecord(),
+      cronExpression: null,
+      enabled: false,
+      id: 'copy-1',
+      name: 'Copy of Flow',
+      nextRunAt: null,
+      organizationCanRun: false,
+      userId: 'user-1',
+      visibility: 'private',
+    }
+    mocks.findFlowByIdAndUserId.mockResolvedValueOnce(source).mockResolvedValueOnce(copy)
+    mocks.createFlow.mockResolvedValue(copy)
+
+    const response = await POST_COPY_FLOW(request('/api/u/alice/flows/flow-1/copy', 'POST'), params({ id: 'flow-1', slug: 'alice' }))
+    const body = await response.json()
+
+    expect(response.status).toBe(201)
+    expect(body.flow.id).toBe('copy-1')
+    expect(mocks.createFlow).toHaveBeenCalledWith(expect.objectContaining({
+      cronExpression: null,
+      enabled: false,
+      name: 'Copy of Flow',
+      nextRunAt: null,
+      organizationCanRun: false,
+      userId: 'user-1',
+      visibility: 'private',
+    }))
   })
 
   it('lists run history and reads run detail', async () => {

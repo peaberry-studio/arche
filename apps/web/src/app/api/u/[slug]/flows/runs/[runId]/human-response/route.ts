@@ -37,7 +37,7 @@ export const POST = withAuth<{ ok: true } | { error: string }, FlowHumanResponse
       return NextResponse.json({ error: 'invalid_response' }, { status: 400 })
     }
 
-    const result = await resumeFlowRun({ humanResponse: response, runId, userId })
+    const result = await resumeFlowRun({ humanResponse: response, runId, userId: user.id })
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: flowRunActionStatus(result.error) })
     }

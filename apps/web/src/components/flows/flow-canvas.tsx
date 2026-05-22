@@ -25,6 +25,7 @@ import { cn } from '@/lib/utils'
 
 type FlowCanvasProps = {
   definition: FlowDefinition
+  readOnly?: boolean
   selectedNodeId: string | null
   onAddNodeAfter: (sourceNodeId: string, type: FlowNodeType) => void
   onConnectNodes: (sourceNodeId: string, targetNodeId: string) => void
@@ -52,6 +53,7 @@ function stopCanvasAction(event: MouseEvent<SVGGElement> | PointerEvent<SVGGElem
 
 export function FlowCanvas({
   definition,
+  readOnly = false,
   selectedNodeId,
   onAddNodeAfter,
   onConnectNodes,
@@ -87,19 +89,20 @@ export function FlowCanvas({
   }, [definition])
 
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.nodeId, node])), [nodes])
+  const activePendingConnection = readOnly ? null : pendingConnection
   const pendingConnectionTargetId = useMemo(() => {
-    if (!pendingConnection) return null
+    if (!activePendingConnection) return null
 
     const target = nodes.find((node) => (
-      node.nodeId !== pendingConnection.sourceNodeId &&
-      pendingConnection.x >= node.x &&
-      pendingConnection.x <= node.x + NODE_WIDTH &&
-      pendingConnection.y >= node.y &&
-      pendingConnection.y <= node.y + NODE_HEIGHT
+      node.nodeId !== activePendingConnection.sourceNodeId &&
+      activePendingConnection.x >= node.x &&
+      activePendingConnection.x <= node.x + NODE_WIDTH &&
+      activePendingConnection.y >= node.y &&
+      activePendingConnection.y <= node.y + NODE_HEIGHT
     ))
 
     return target?.nodeId ?? null
-  }, [nodes, pendingConnection])
+  }, [activePendingConnection, nodes])
 
   const getCanvasPoint = useCallback((clientX: number, clientY: number) => {
     const svg = svgRef.current
@@ -139,6 +142,7 @@ export function FlowCanvas({
   }, [])
 
   const startConnection = useCallback((node: CanvasNode, event: PointerEvent<SVGGElement>) => {
+    if (readOnly) return
     stopCanvasAction(event)
     setAddMenuNodeId(null)
     setPendingConnection({
@@ -149,23 +153,23 @@ export function FlowCanvas({
     if (typeof svgRef.current?.setPointerCapture === 'function') {
       svgRef.current.setPointerCapture(event.pointerId)
     }
-  }, [])
+  }, [readOnly])
 
   const handlePointerMove = useCallback((event: PointerEvent<SVGSVGElement>) => {
-    if (!pendingConnection) return
+    if (readOnly || !pendingConnection) return
 
     const point = getCanvasPoint(event.clientX, event.clientY)
     setPendingConnection((current) => current ? { ...current, x: point.x, y: point.y } : null)
-  }, [getCanvasPoint, pendingConnection])
+  }, [getCanvasPoint, pendingConnection, readOnly])
 
   const handlePointerUp = useCallback((event: PointerEvent<SVGSVGElement>) => {
-    if (!pendingConnection) return
+    if (readOnly || !pendingConnection) return
 
     const point = getCanvasPoint(event.clientX, event.clientY)
     const target = findNodeAtPoint(point.x, point.y, pendingConnection.sourceNodeId)
     if (target) onConnectNodes(pendingConnection.sourceNodeId, target.nodeId)
     setPendingConnection(null)
-  }, [findNodeAtPoint, getCanvasPoint, onConnectNodes, pendingConnection])
+  }, [findNodeAtPoint, getCanvasPoint, onConnectNodes, pendingConnection, readOnly])
 
   const handleActionKeyDown = useCallback((event: KeyboardEvent<SVGGElement>, action: () => void) => {
     if (event.key !== 'Enter' && event.key !== ' ') return
@@ -267,6 +271,8 @@ export function FlowCanvas({
   }, [isExpanded])
 
   useEffect(() => {
+    if (readOnly) return
+
     const currentNodeRefs = nodeRefs.current
 
     nodes.forEach((node) => {
@@ -284,7 +290,7 @@ export function FlowCanvas({
     return () => {
       currentNodeRefs.forEach((element) => select(element).on('.drag', null))
     }
-  }, [nodes, onMoveNode])
+  }, [nodes, onMoveNode, readOnly])
 
   return (
     <div
@@ -348,42 +354,44 @@ export function FlowCanvas({
                     {edge.label}
                   </text>
                 ) : null}
-                <g
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`Remove connection ${source.label} to ${target.label}`}
-                  transform={`translate(${midX}, ${(startY + endY) / 2})`}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    onRemoveConnection(edge.id)
-                  }}
-                  onKeyDown={(event) => handleActionKeyDown(event, () => onRemoveConnection(edge.id))}
-                  onMouseDown={stopCanvasAction}
-                  onTouchStart={stopCanvasAction}
-                  className="cursor-pointer opacity-0 outline-none transition-opacity group-hover:opacity-100 focus:opacity-100"
-                >
-                  <circle r="9" className="fill-card stroke-border" strokeWidth="1.2" />
-                  <text textAnchor="middle" dominantBaseline="central" className="fill-muted-foreground text-[11px] font-semibold">×</text>
-                </g>
+                {!readOnly ? (
+                  <g
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Remove connection ${source.label} to ${target.label}`}
+                    transform={`translate(${midX}, ${(startY + endY) / 2})`}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onRemoveConnection(edge.id)
+                    }}
+                    onKeyDown={(event) => handleActionKeyDown(event, () => onRemoveConnection(edge.id))}
+                    onMouseDown={stopCanvasAction}
+                    onTouchStart={stopCanvasAction}
+                    className="cursor-pointer opacity-0 outline-none transition-opacity group-hover:opacity-100 focus:opacity-100"
+                  >
+                    <circle r="9" className="fill-card stroke-border" strokeWidth="1.2" />
+                    <text textAnchor="middle" dominantBaseline="central" className="fill-muted-foreground text-[11px] font-semibold">×</text>
+                  </g>
+                ) : null}
               </g>
             )
           })}
 
-          {pendingConnection ? (() => {
-            const source = nodeById.get(pendingConnection.sourceNodeId)
+          {activePendingConnection ? (() => {
+            const source = nodeById.get(activePendingConnection.sourceNodeId)
             if (!source) return null
 
             const startX = source.x + NODE_WIDTH
             const startY = source.y + NODE_HEIGHT / 2
-            const midX = (startX + pendingConnection.x) / 2
-            const path = `M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${pendingConnection.y}, ${pendingConnection.x} ${pendingConnection.y}`
+            const midX = (startX + activePendingConnection.x) / 2
+            const path = `M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${activePendingConnection.y}, ${activePendingConnection.x} ${activePendingConnection.y}`
 
             return <path d={path} fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="5 5" className="text-primary" />
           })() : null}
 
           {nodes.map((node) => {
             const selected = selectedNodeId === node.nodeId
-            const showActions = hoveredNodeId === node.nodeId || addMenuNodeId === node.nodeId || pendingConnection?.sourceNodeId === node.nodeId
+            const showActions = hoveredNodeId === node.nodeId || addMenuNodeId === node.nodeId || activePendingConnection?.sourceNodeId === node.nodeId
             const connectionTarget = pendingConnectionTargetId === node.nodeId
             const hiddenAction = showActions ? 'opacity-100' : 'opacity-0 pointer-events-none'
             const addMenuPosition = addMenuNodeId === node.nodeId
@@ -435,61 +443,65 @@ export function FlowCanvas({
                 <text x="14" y="41" className="fill-muted-foreground text-[10px] uppercase tracking-wide">
                   {node.type}
                 </text>
-                <g
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`Edit ${node.label}`}
-                  transform={`translate(${NODE_WIDTH - 54}, -28)`}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    onEditNode(node.nodeId)
-                  }}
-                  onKeyDown={(event) => handleActionKeyDown(event, () => onEditNode(node.nodeId))}
-                  onMouseDown={stopCanvasAction}
-                  onTouchStart={stopCanvasAction}
-                  className={cn('group/edit cursor-pointer outline-none transition-opacity focus:opacity-100', hiddenAction)}
-                >
-                  <rect width="54" height="22" rx="11" className="fill-card stroke-border transition-colors group-hover/edit:fill-muted group-hover/edit:stroke-primary/50" strokeWidth="1" />
-                  <text x="27" y="14" textAnchor="middle" className="fill-foreground text-[10px] font-medium">Edit</text>
-                </g>
-                <g
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`Connect from ${node.label}`}
-                  transform={`translate(${NODE_WIDTH + 4}, ${NODE_HEIGHT / 2})`}
-                  onPointerDown={(event) => startConnection(node, event)}
-                  onMouseDown={stopCanvasAction}
-                  onTouchStart={stopCanvasAction}
-                  onKeyDown={(event) => handleActionKeyDown(event, () => setAddMenuNodeId(node.nodeId))}
-                  className={cn('group/dot cursor-crosshair outline-none transition-opacity focus:opacity-100', hiddenAction)}
-                >
-                  <circle r="5.5" className="fill-card stroke-primary/70 transition-colors group-hover/dot:stroke-primary" strokeWidth="1.5" />
-                  <circle r="2" className="fill-primary" />
-                </g>
-                <g
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`Add node after ${node.label}`}
-                  transform={`translate(${NODE_WIDTH + 24}, ${NODE_HEIGHT / 2})`}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    setAddMenuNodeId((current) => current === node.nodeId ? null : node.nodeId)
-                  }}
-                  onKeyDown={(event) => handleActionKeyDown(event, () => setAddMenuNodeId((current) => current === node.nodeId ? null : node.nodeId))}
-                  onMouseDown={stopCanvasAction}
-                  onTouchStart={stopCanvasAction}
-                  className={cn('group/add cursor-pointer outline-none transition-opacity focus:opacity-100', hiddenAction)}
-                >
-                  <circle r="9" className="fill-card stroke-border transition-colors group-hover/add:fill-muted group-hover/add:stroke-primary/60" strokeWidth="1" />
-                  <path
-                    d="M -3.5 0 L 3.5 0 M 0 -3.5 L 0 3.5"
-                    className="stroke-muted-foreground transition-colors group-hover/add:stroke-foreground"
-                    strokeWidth="1.6"
-                    strokeLinecap="round"
-                    fill="none"
-                  />
-                </g>
-                {addMenuPosition ? (
+                {!readOnly ? (
+                  <>
+                    <g
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Edit ${node.label}`}
+                      transform={`translate(${NODE_WIDTH - 54}, -28)`}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        onEditNode(node.nodeId)
+                      }}
+                      onKeyDown={(event) => handleActionKeyDown(event, () => onEditNode(node.nodeId))}
+                      onMouseDown={stopCanvasAction}
+                      onTouchStart={stopCanvasAction}
+                      className={cn('group/edit cursor-pointer outline-none transition-opacity focus:opacity-100', hiddenAction)}
+                    >
+                      <rect width="54" height="22" rx="11" className="fill-card stroke-border transition-colors group-hover/edit:fill-muted group-hover/edit:stroke-primary/50" strokeWidth="1" />
+                      <text x="27" y="14" textAnchor="middle" className="fill-foreground text-[10px] font-medium">Edit</text>
+                    </g>
+                    <g
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Connect from ${node.label}`}
+                      transform={`translate(${NODE_WIDTH + 4}, ${NODE_HEIGHT / 2})`}
+                      onPointerDown={(event) => startConnection(node, event)}
+                      onMouseDown={stopCanvasAction}
+                      onTouchStart={stopCanvasAction}
+                      onKeyDown={(event) => handleActionKeyDown(event, () => setAddMenuNodeId(node.nodeId))}
+                      className={cn('group/dot cursor-crosshair outline-none transition-opacity focus:opacity-100', hiddenAction)}
+                    >
+                      <circle r="5.5" className="fill-card stroke-primary/70 transition-colors group-hover/dot:stroke-primary" strokeWidth="1.5" />
+                      <circle r="2" className="fill-primary" />
+                    </g>
+                    <g
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Add node after ${node.label}`}
+                      transform={`translate(${NODE_WIDTH + 24}, ${NODE_HEIGHT / 2})`}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setAddMenuNodeId((current) => current === node.nodeId ? null : node.nodeId)
+                      }}
+                      onKeyDown={(event) => handleActionKeyDown(event, () => setAddMenuNodeId((current) => current === node.nodeId ? null : node.nodeId))}
+                      onMouseDown={stopCanvasAction}
+                      onTouchStart={stopCanvasAction}
+                      className={cn('group/add cursor-pointer outline-none transition-opacity focus:opacity-100', hiddenAction)}
+                    >
+                      <circle r="9" className="fill-card stroke-border transition-colors group-hover/add:fill-muted group-hover/add:stroke-primary/60" strokeWidth="1" />
+                      <path
+                        d="M -3.5 0 L 3.5 0 M 0 -3.5 L 0 3.5"
+                        className="stroke-muted-foreground transition-colors group-hover/add:stroke-foreground"
+                        strokeWidth="1.6"
+                        strokeLinecap="round"
+                        fill="none"
+                      />
+                    </g>
+                  </>
+                ) : null}
+                {!readOnly && addMenuPosition ? (
                   <g transform={`translate(${addMenuPosition.x}, ${addMenuPosition.y})`}>
                     <rect width={ADD_MENU_WIDTH} height={ADD_MENU_HEIGHT} rx="10" className="fill-card stroke-border drop-shadow-sm" strokeWidth="1" />
                     {FLOW_CANVAS_NODE_TYPE_OPTIONS.map((item, index) => (

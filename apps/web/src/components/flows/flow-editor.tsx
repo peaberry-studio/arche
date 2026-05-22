@@ -15,7 +15,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { useAgentsCatalog } from '@/hooks/use-agents-catalog'
-import { createFlowRequest, deleteFlowRequest, fetchFlowDetail, runFlowRequest, updateFlowRequest } from '@/lib/flows/client'
+import { copyFlowRequest, createFlowRequest, deleteFlowRequest, fetchFlowDetail, runFlowRequest, updateFlowRequest } from '@/lib/flows/client'
 import { getFlowTimeZoneOptions } from '@/lib/flows/cron'
 import {
   getDefaultFlowScheduleFormState,
@@ -23,7 +23,7 @@ import {
   inferFlowScheduleFormState,
   type FlowScheduleFormState,
 } from '@/lib/flows/schedule-form'
-import type { FlowDefinition, FlowNode } from '@/lib/flows/types'
+import type { FlowConnectorRequirementSummary, FlowDefinition, FlowDetail, FlowNode, FlowPermissions, FlowUserSummary, FlowVisibility } from '@/lib/flows/types'
 import { createDefaultFlowDefinition, validateFlowDefinition } from '@/lib/flows/validation'
 import { cn } from '@/lib/utils'
 
@@ -193,15 +193,39 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
   const [schedule, setSchedule] = useState<FlowScheduleFormState>(() => getDefaultFlowScheduleFormState())
   const [timezone, setTimezone] = useState('UTC')
   const [enabled, setEnabled] = useState(false)
+  const [visibility, setVisibility] = useState<FlowVisibility>('private')
+  const [organizationCanRun, setOrganizationCanRun] = useState(false)
+  const [permissions, setPermissions] = useState<FlowPermissions | null>(null)
+  const [owner, setOwner] = useState<FlowUserSummary | null>(null)
+  const [missingConnectorRequirements, setMissingConnectorRequirements] = useState<FlowConnectorRequirementSummary[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(mode === 'edit')
   const [isSaving, setIsSaving] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isRunning, setIsRunning] = useState(false)
+  const [isCopying, setIsCopying] = useState(false)
   const [slackIntegrationEnabled, setSlackIntegrationEnabled] = useState(false)
   const [teamMembers, setTeamMembers] = useState<SlackTargetUser[]>([])
   const [slackChannels, setSlackChannels] = useState<SlackTargetChannel[]>([])
+
+  const isReadOnly = mode === 'edit' && permissions ? !permissions.canEdit : false
+
+  const applyLoadedFlow = useCallback((flow: FlowDetail) => {
+    setName(flow.name)
+    setDescription(flow.description ?? '')
+    setDefinition(flow.definition)
+    setSelectedNodeId(flow.definition.startNodeId)
+    setEditingNodeId(null)
+    setSchedule(inferFlowScheduleFormState(flow.cronExpression))
+    setTimezone(flow.timezone)
+    setEnabled(flow.enabled)
+    setVisibility(flow.visibility)
+    setOrganizationCanRun(flow.visibility === 'team' ? flow.organizationCanRun : false)
+    setPermissions(flow.permissions)
+    setOwner(flow.owner)
+    setMissingConnectorRequirements(flow.missingConnectorRequirements ?? [])
+  }, [])
 
   const loadFlow = useCallback(async () => {
     if (mode !== 'edit' || !flowId) return
@@ -215,20 +239,13 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
         return
       }
 
-      setName(result.data.flow.name)
-      setDescription(result.data.flow.description ?? '')
-      setDefinition(result.data.flow.definition)
-      setSelectedNodeId(result.data.flow.definition.startNodeId)
-      setEditingNodeId(null)
-      setSchedule(inferFlowScheduleFormState(result.data.flow.cronExpression))
-      setTimezone(result.data.flow.timezone)
-      setEnabled(result.data.flow.enabled)
+      applyLoadedFlow(result.data.flow)
     } catch {
       setLoadError('network_error')
     } finally {
       setIsLoading(false)
     }
-  }, [flowId, mode, slug])
+  }, [applyLoadedFlow, flowId, mode, slug])
 
   useEffect(() => {
     if (mode !== 'edit' || !flowId) return
@@ -246,14 +263,7 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
           return
         }
 
-        setName(result.data.flow.name)
-        setDescription(result.data.flow.description ?? '')
-        setDefinition(result.data.flow.definition)
-        setSelectedNodeId(result.data.flow.definition.startNodeId)
-        setEditingNodeId(null)
-        setSchedule(inferFlowScheduleFormState(result.data.flow.cronExpression))
-        setTimezone(result.data.flow.timezone)
-        setEnabled(result.data.flow.enabled)
+        applyLoadedFlow(result.data.flow)
       } catch {
         if (!cancelled) {
           setLoadError('network_error')
@@ -270,7 +280,7 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
     return () => {
       cancelled = true
     }
-  }, [flowId, mode, slug])
+  }, [applyLoadedFlow, flowId, mode, slug])
 
   useEffect(() => {
     let cancelled = false
@@ -319,14 +329,18 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
   const isScheduleValid = !enabled || schedulePreview.isValid
 
   const updateDefinition = useCallback((nextDefinition: FlowDefinition) => {
+    if (isReadOnly) return
+
     setDefinition(nextDefinition)
     if (selectedNodeId && !nextDefinition.nodes.some((node) => node.id === selectedNodeId)) {
       setSelectedNodeId((nextDefinition.startNodeId || nextDefinition.nodes[0]?.id) ?? null)
     }
     setEditingNodeId((current) => current && !nextDefinition.nodes.some((node) => node.id === current) ? null : current)
-  }, [selectedNodeId])
+  }, [isReadOnly, selectedNodeId])
 
   const updateNode = useCallback((node: FlowNode) => {
+    if (isReadOnly) return
+
     const previousNode = definition.nodes.find((candidate) => candidate.id === node.id)
     if (!previousNode) return
 
@@ -365,9 +379,11 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
       setSelectedNodeId(nextNodeId)
       setEditingNodeId(nextNodeId)
     }
-  }, [definition, updateDefinition])
+  }, [definition, isReadOnly, updateDefinition])
 
   const deleteNode = useCallback((nodeId: string) => {
+    if (isReadOnly) return
+
     const nextNodes = definition.nodes.filter((node) => node.id !== nodeId)
     if (nextNodes.length === 0) return
 
@@ -382,9 +398,11 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
       startNodeId: nextStartNodeId,
     })
     setEditingNodeId((current) => current === nodeId ? null : current)
-  }, [definition, updateDefinition])
+  }, [definition, isReadOnly, updateDefinition])
 
   const moveNode = useCallback((nodeId: string, x: number, y: number) => {
+    if (isReadOnly) return
+
     setDefinition((current) => {
       const layoutNodes = current.layout?.nodes ?? []
       const exists = layoutNodes.some((node) => node.nodeId === nodeId)
@@ -397,9 +415,11 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
         },
       }
     })
-  }, [])
+  }, [isReadOnly])
 
   const addNodeAfter = useCallback((sourceNodeId: string, type: FlowNode['type']) => {
+    if (isReadOnly) return
+
     const sourceNode = definition.nodes.find((node) => node.id === sourceNodeId)
     if (!sourceNode) return
 
@@ -439,9 +459,11 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
     })
     setSelectedNodeId(node.id)
     setEditingNodeId(node.id)
-  }, [definition, updateDefinition])
+  }, [definition, isReadOnly, updateDefinition])
 
   const connectNodes = useCallback((sourceNodeId: string, targetNodeId: string) => {
+    if (isReadOnly) return
+
     if (sourceNodeId === targetNodeId) return
 
     const sourceNode = definition.nodes.find((node) => node.id === sourceNodeId)
@@ -460,13 +482,17 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
       ],
     })
     setSelectedNodeId(targetNodeId)
-  }, [definition, updateDefinition])
+  }, [definition, isReadOnly, updateDefinition])
 
   const removeConnection = useCallback((edgeId: string) => {
+    if (isReadOnly) return
+
     updateDefinition({ ...definition, edges: definition.edges.filter((edge) => edge.id !== edgeId) })
-  }, [definition, updateDefinition])
+  }, [definition, isReadOnly, updateDefinition])
 
   const saveFlow = useCallback(async () => {
+    if (isReadOnly) return
+
     setIsSaving(true)
     setFormError(null)
 
@@ -484,7 +510,9 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
         description: description.trim() ? description : null,
         enabled,
         name,
+        organizationCanRun: visibility === 'team' ? organizationCanRun : false,
         timezone,
+        visibility,
       }
       const result = mode === 'create'
         ? await createFlowRequest(slug, payload)
@@ -507,10 +535,10 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
     } finally {
       setIsSaving(false)
     }
-  }, [definition, description, enabled, flowId, loadFlow, mode, name, router, schedulePreview, slug, timezone])
+  }, [definition, description, enabled, flowId, isReadOnly, loadFlow, mode, name, organizationCanRun, router, schedulePreview, slug, timezone, visibility])
 
   const deleteFlow = useCallback(async () => {
-    if (mode !== 'edit' || !flowId) return
+    if (mode !== 'edit' || !flowId || !permissions?.canManage) return
 
     setIsDeleting(true)
     setFormError(null)
@@ -527,10 +555,14 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
     } finally {
       setIsDeleting(false)
     }
-  }, [flowId, mode, router, slug])
+  }, [flowId, mode, permissions?.canManage, router, slug])
 
   const runFlow = useCallback(async () => {
-    if (mode !== 'edit' || !flowId) return
+    if (mode !== 'edit' || !flowId || !permissions?.canRun) return
+    if (missingConnectorRequirements.length > 0) {
+      setFormError('missing_connectors')
+      return
+    }
 
     setIsRunning(true)
     setFormError(null)
@@ -547,7 +579,27 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
     } finally {
       setIsRunning(false)
     }
-  }, [flowId, loadFlow, mode, slug])
+  }, [flowId, loadFlow, missingConnectorRequirements.length, mode, permissions?.canRun, slug])
+
+  const copyFlow = useCallback(async () => {
+    if (mode !== 'edit' || !flowId || !permissions?.canCopy) return
+
+    setIsCopying(true)
+    setFormError(null)
+    try {
+      const result = await copyFlowRequest(slug, flowId)
+      if (!result.ok) {
+        setFormError(result.error)
+        return
+      }
+
+      router.push(`/u/${slug}/flows/${result.data.flow.id}`)
+    } catch {
+      setFormError('network_error')
+    } finally {
+      setIsCopying(false)
+    }
+  }, [flowId, mode, permissions?.canCopy, router, slug])
 
   if (isLoading) {
     return (
@@ -578,14 +630,61 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
     <div className="space-y-8">
       <div className="space-y-6">
         <section className="rounded-xl border border-border/60 bg-card/40 px-5 pb-5 pt-4">
+          {isReadOnly ? (
+            <div className="mb-4 rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+              This team flow is read-only. It runs in your workspace when execution is enabled by the owner.
+            </div>
+          ) : null}
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2 md:col-span-2">
               <Label htmlFor="flow-name">Flow name</Label>
-              <Input id="flow-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Weekly GTM review" />
+              <Input id="flow-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Weekly GTM review" disabled={isReadOnly} />
             </div>
             <div className="space-y-2 md:col-span-2">
               <Label htmlFor="flow-description">Description</Label>
-              <Input id="flow-description" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="What this flow automates" />
+              <Input id="flow-description" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="What this flow automates" disabled={isReadOnly} />
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-border/60 bg-card/40 p-5">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h2 className="text-sm font-semibold text-foreground">Sharing</h2>
+              <p className="text-xs text-muted-foreground">
+                {isReadOnly && owner ? `Shared by ${owner.slug}. Copy it to create your own editable version.` : 'Choose whether teammates can view or run this flow.'}
+              </p>
+            </div>
+            <div className="grid w-full gap-3 md:w-auto md:min-w-[280px]">
+              <div className="space-y-2">
+                <Label htmlFor="flow-visibility">Visibility</Label>
+                <select
+                  id="flow-visibility"
+                  value={visibility}
+                  onChange={(event) => {
+                    const nextVisibility = event.target.value === 'team' ? 'team' : 'private'
+                    setVisibility(nextVisibility)
+                    if (nextVisibility === 'private') setOrganizationCanRun(false)
+                  }}
+                  disabled={isReadOnly}
+                  className="flex h-10 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <option value="private">Private</option>
+                  <option value="team">Team visible</option>
+                </select>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Team can run</p>
+                  <p className="text-xs text-muted-foreground">Runs use each teammate&apos;s workspace and connectors.</p>
+                </div>
+                <Switch
+                  checked={visibility === 'team' && organizationCanRun}
+                  disabled={isReadOnly || visibility !== 'team'}
+                  onCheckedChange={setOrganizationCanRun}
+                  aria-label="Allow team to run flow"
+                />
+              </div>
             </div>
           </div>
         </section>
@@ -596,7 +695,7 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
               <h2 className="text-sm font-semibold text-foreground">Schedule</h2>
               <p className="text-xs text-muted-foreground">Run this flow automatically on a recurring schedule. Enabled flows also run once after creation.</p>
             </div>
-            <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="Enable scheduled flow" />
+            <Switch checked={enabled} onCheckedChange={setEnabled} aria-label="Enable scheduled flow" disabled={isReadOnly} />
           </div>
           <div
             aria-hidden={!enabled}
@@ -606,14 +705,16 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
             )}
           >
             <div className="overflow-hidden">
-              <FlowScheduleBuilder
-                preview={schedulePreview}
-                schedule={schedule}
-                timezone={timezone}
-                timezoneOptions={timezoneOptions}
-                onChange={setSchedule}
-                onTimezoneChange={setTimezone}
-              />
+              <div className={cn(isReadOnly && 'pointer-events-none opacity-60')}>
+                <FlowScheduleBuilder
+                  preview={schedulePreview}
+                  schedule={schedule}
+                  timezone={timezone}
+                  timezoneOptions={timezoneOptions}
+                  onChange={setSchedule}
+                  onTimezoneChange={setTimezone}
+                />
+              </div>
             </div>
           </div>
         </section>
@@ -621,10 +722,13 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
         <section className="rounded-xl border border-border/60 bg-card/40 p-5">
           <div className="mb-4">
             <h2 className="text-sm font-semibold text-foreground">Flow canvas</h2>
-            <p className="text-xs text-muted-foreground">Hover a step to edit it, drag from its connector dot, or use + to add the next step.</p>
+              <p className="text-xs text-muted-foreground">
+                {isReadOnly ? 'Review the flow graph. Copy the flow to make editable changes.' : 'Hover a step to edit it, drag from its connector dot, or use + to add the next step.'}
+              </p>
           </div>
           <FlowCanvas
             definition={definition}
+            readOnly={isReadOnly}
             selectedNodeId={selectedNodeId}
             onAddNodeAfter={addNodeAfter}
             onConnectNodes={connectNodes}
@@ -639,7 +743,7 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
         </section>
       </div>
 
-      {mode === 'edit' ? (
+      {mode === 'edit' && permissions?.canManage ? (
         <section className="rounded-xl border border-destructive/30 bg-destructive/5 p-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="space-y-1">
@@ -663,20 +767,32 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
             {formError ? <p className="text-sm text-destructive">{formError}</p> : null}
           </div>
         ) : null}
+        {missingConnectorRequirements.length > 0 ? (
+          <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
+            Missing connectors: {missingConnectorRequirements.map((requirement) => requirement.connectorType).join(', ')}. Configure them before running this flow.
+          </div>
+        ) : null}
         <div className="flex flex-wrap items-center justify-end gap-2">
           <Button variant="outline" asChild><Link href={`/u/${slug}/flows`}>Back to list</Link></Button>
-          {mode === 'edit' ? (
-            <Button variant="outline" onClick={() => void runFlow()} disabled={isRunning}>
+          {mode === 'edit' && permissions?.canCopy ? (
+            <Button variant="outline" onClick={() => void copyFlow()} disabled={isCopying}>
+              {isCopying ? 'Copying...' : 'Copy flow'}
+            </Button>
+          ) : null}
+          {mode === 'edit' && permissions?.canRun ? (
+            <Button variant="outline" onClick={() => void runFlow()} disabled={isRunning || missingConnectorRequirements.length > 0}>
               {isRunning ? 'Starting...' : 'Run flow'}
             </Button>
           ) : null}
-          <Button onClick={() => void saveFlow()} disabled={isSaving || !validation.ok || !isScheduleValid}>
-            {isSaving ? 'Saving...' : mode === 'create' ? 'Create flow' : 'Save changes'}
-          </Button>
+          {!isReadOnly ? (
+            <Button onClick={() => void saveFlow()} disabled={isSaving || !validation.ok || !isScheduleValid}>
+              {isSaving ? 'Saving...' : mode === 'create' ? 'Create flow' : 'Save changes'}
+            </Button>
+          ) : null}
         </div>
       </div>
 
-      <Dialog open={Boolean(editingNode)} onOpenChange={(open) => {
+      <Dialog open={Boolean(editingNode) && !isReadOnly} onOpenChange={(open) => {
         if (!open) setEditingNodeId(null)
       }}>
         <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">

@@ -3,9 +3,17 @@ import { Prisma } from '@prisma/client'
 import type {
   FlowDetail,
   FlowListItem,
+  FlowPermissions,
   FlowRunListItem,
   FlowRunStepListItem,
 } from '@/lib/flows/types'
+import {
+  canCopyFlow,
+  canEditFlow,
+  canManageFlow,
+  canRunFlow,
+  canViewFlow,
+} from '@/lib/flows/permissions'
 import { validateFlowDefinition } from '@/lib/flows/validation'
 import type {
   FlowDetailRecord,
@@ -14,6 +22,11 @@ import type {
   FlowRunRecord,
   FlowRunStepRecord,
 } from '@/lib/services/flow'
+
+type FlowPermissionActor = {
+  id: string
+  role: string
+}
 
 export function toPrismaJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue
@@ -45,6 +58,8 @@ function serializeRun(run: (FlowRunRecord & { steps: FlowRunStepRecord[] }) | Fl
     currentNodeId: run.currentNodeId,
     attempt: run.attempt,
     error: run.error,
+    executionUser: run.executionUser ?? null,
+    executionUserId: run.executionUserId ?? null,
     finishedAt: run.finishedAt ? run.finishedAt.toISOString() : null,
     flowId: run.flowId,
     id: run.id,
@@ -60,6 +75,19 @@ function serializeRun(run: (FlowRunRecord & { steps: FlowRunStepRecord[] }) | Fl
   }
 }
 
+function getPermissions(flow: FlowListRecord | FlowDetailRecord, actor?: FlowPermissionActor): FlowPermissions {
+  const permissionActor = actor ?? { id: flow.userId, role: 'USER' }
+
+  return {
+    canCopy: canCopyFlow(permissionActor, flow),
+    canEdit: canEditFlow(permissionActor, flow),
+    canManage: canManageFlow(permissionActor, flow),
+    canRun: canRunFlow(permissionActor, flow),
+    canView: canViewFlow(permissionActor, flow),
+    isOwner: permissionActor.id === flow.userId,
+  }
+}
+
 function parseDefinition(definition: unknown) {
   const result = validateFlowDefinition(definition)
   if (result.ok) return result.definition
@@ -71,7 +99,7 @@ function parseDefinition(definition: unknown) {
   }
 }
 
-export function serializeFlowListItem(flow: FlowListRecord): FlowListItem {
+export function serializeFlowListItem(flow: FlowListRecord, actor?: FlowPermissionActor): FlowListItem {
   return {
     createdAt: flow.createdAt.toISOString(),
     cronExpression: flow.cronExpression,
@@ -83,14 +111,18 @@ export function serializeFlowListItem(flow: FlowListRecord): FlowListItem {
     latestRun: serializeRun(flow.runs[0]),
     name: flow.name,
     nextRunAt: flow.nextRunAt ? flow.nextRunAt.toISOString() : null,
+    organizationCanRun: flow.organizationCanRun,
+    owner: flow.user ?? null,
+    permissions: getPermissions(flow, actor),
     timezone: flow.timezone,
     updatedAt: flow.updatedAt.toISOString(),
+    visibility: flow.visibility,
   }
 }
 
-export function serializeFlowDetail(flow: FlowDetailRecord): FlowDetail {
+export function serializeFlowDetail(flow: FlowDetailRecord, actor?: FlowPermissionActor): FlowDetail {
   return {
-    ...serializeFlowListItem(flow),
+    ...serializeFlowListItem(flow, actor),
     runs: flow.runs.map((run) => serializeRun(run)).filter((run): run is FlowRunListItem => run !== null),
   }
 }

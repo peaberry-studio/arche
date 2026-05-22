@@ -82,6 +82,7 @@ async function hasActiveFlowLease(flowId: string, leaseOwner: string): Promise<b
 async function executeFlowNodes(params: {
   client: SessionExecutionClient
   definition: FlowDefinition
+  executionUserId: string
   flow: FlowRecord
   leaseOwner: string
   previousOutput: string | null
@@ -120,6 +121,7 @@ async function executeFlowNodes(params: {
     const result = await executeFlowNode({
       client: params.client,
       definition: params.definition,
+      executionUserId: params.executionUserId,
       flow: params.flow,
       leaseOwner: params.leaseOwner,
       node,
@@ -145,6 +147,7 @@ async function executeFlowNodes(params: {
 async function continueRun(params: {
   client: SessionExecutionClient
   flow: FlowRecord
+  executionUserId: string
   leaseOwner: string
   previousOutput: string | null
   run: FlowRunRecord & { steps?: FlowRunStepRecord[] }
@@ -160,6 +163,7 @@ async function continueRun(params: {
   return executeFlowNodes({
     client: params.client,
     definition: definitionResult.definition,
+    executionUserId: params.executionUserId,
     flow: params.flow,
     leaseOwner: params.leaseOwner,
     previousOutput: params.previousOutput,
@@ -309,11 +313,12 @@ async function executeClaimedFlowRun(
   let finalization: { retryScheduled: boolean } = { retryScheduled: false }
 
   try {
-    const owner = await userService.findByIdSelect(flow.userId, { slug: true })
-    if (!owner) throw new Error('flow_user_not_found')
+    const executionUserId = run.executionUserId ?? flow.userId
+    const executionUser = await userService.findByIdSelect(executionUserId, { slug: true })
+    if (!executionUser) throw new Error('flow_execution_user_not_found')
 
-    slug = owner.slug
-    await ensureWorkspaceRunningForExecution(slug, flow.userId)
+    slug = executionUser.slug
+    await ensureWorkspaceRunningForExecution(slug, executionUserId)
     await instanceService.touchActivity(slug).catch(() => undefined)
 
     const client = await createInstanceClient(slug)
@@ -335,6 +340,7 @@ async function executeClaimedFlowRun(
     const definitionResult = validateFlowDefinition(flow.definition)
     outcome = await continueRun({
       client,
+      executionUserId,
       flow,
       leaseOwner: flow.leaseOwner ?? '',
       previousOutput: run.currentNodeId ? getPreviousOutputForRetry(run) : null,
@@ -373,6 +379,7 @@ export async function runClaimedFlow(
   trigger: FlowRunTrigger,
 ): Promise<void> {
   const run = await flowService.createRun({
+    executionUserId: flow.userId,
     flowId: flow.id,
     scheduledFor: flow.scheduledFor,
     trigger,
@@ -384,8 +391,10 @@ export async function runClaimedFlow(
 export async function dispatchClaimedFlowRun(
   flow: FlowClaimedRecord,
   trigger: FlowRunTrigger,
+  executionUserId = flow.userId,
 ): Promise<{ ok: true; runId: string }> {
   const run = await flowService.createRun({
+    executionUserId,
     flowId: flow.id,
     scheduledFor: flow.scheduledFor,
     trigger,
@@ -419,6 +428,7 @@ export async function dispatchClaimedFlowRetryRun(
 }
 
 export async function triggerFlowNow(params: {
+  executionUserId?: string
   flowId: string
   trigger: FlowRunTrigger
   userId?: string
@@ -441,7 +451,7 @@ export async function triggerFlowNow(params: {
     return { ok: false, error: 'flow_busy' }
   }
 
-  await dispatchClaimedFlowRun(claimed, params.trigger)
+  await dispatchClaimedFlowRun(claimed, params.trigger, params.executionUserId ?? claimed.userId)
 
   return { ok: true }
 }
@@ -453,6 +463,8 @@ export async function resumeFlowRun(params: {
 }): Promise<{ ok: true; run: ReturnType<typeof serializeFlowRun> } | { ok: false; error: 'invalid_response' | 'invalid_state' | 'not_found' | 'flow_busy' }> {
   const run = await flowService.findRunByIdAndUserId(params.runId, params.userId)
   if (!run) return { ok: false, error: 'not_found' }
+  const executionUserId = run.executionUserId ?? run.flow.userId
+  if (executionUserId !== params.userId) return { ok: false, error: 'not_found' }
   if (run.status !== FlowRunStatus.waiting_for_human || !run.currentNodeId || !run.openCodeSessionId) {
     return { ok: false, error: 'invalid_state' }
   }
@@ -472,7 +484,7 @@ export async function resumeFlowRun(params: {
     leaseMs: FLOW_LEASE_MS,
     leaseOwner,
     now: new Date(),
-    userId: params.userId,
+    userId: run.flow.userId,
   })
   if (!claimedFlow) return { ok: false, error: 'flow_busy' }
 
@@ -515,21 +527,23 @@ async function resumeClaimedFlowRun(params: {
   let finalization: { retryScheduled: boolean } = { retryScheduled: false }
 
   try {
-    const owner = await userService.findByIdSelect(params.flow.userId, { slug: true })
-    if (!owner) throw new Error('flow_user_not_found')
+    const executionUserId = params.run.executionUserId ?? params.flow.userId
+    const executionUser = await userService.findByIdSelect(executionUserId, { slug: true })
+    if (!executionUser) throw new Error('flow_execution_user_not_found')
 
-    slug = owner.slug
+    slug = executionUser.slug
     if (!params.startNodeId) {
       outcome = { status: 'succeeded' }
       return
     }
 
-    await ensureWorkspaceRunningForExecution(slug, params.flow.userId)
+    await ensureWorkspaceRunningForExecution(slug, executionUserId)
     const client = await createInstanceClient(slug)
     if (!client) throw new Error('instance_unavailable')
 
     outcome = await continueRun({
       client,
+      executionUserId,
       flow: params.flow,
       leaseOwner: params.flow.leaseOwner ?? '',
       previousOutput: params.previousOutput,

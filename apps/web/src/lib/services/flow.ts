@@ -3,6 +3,7 @@ import {
   FlowRunStatus,
   FlowRunStepStatus,
   FlowRunTrigger,
+  FlowVisibility,
   Prisma,
 } from '@prisma/client'
 
@@ -11,12 +12,15 @@ import { prisma } from '@/lib/prisma'
 export type FlowRecord = {
   id: string
   userId: string
+  user?: FlowUserRecord
   name: string
   description: string | null
   definition: unknown
   cronExpression: string | null
   timezone: string
   enabled: boolean
+  visibility: FlowVisibility
+  organizationCanRun: boolean
   nextRunAt: Date | null
   lastRunAt: Date | null
   leaseOwner: string | null
@@ -24,6 +28,11 @@ export type FlowRecord = {
   createdAt: Date
   updatedAt: Date
   deletedAt: Date | null
+}
+
+export type FlowUserRecord = {
+  email: string
+  slug: string
 }
 
 export type FlowRunStepRecord = {
@@ -47,6 +56,8 @@ export type FlowRunStepRecord = {
 export type FlowRunRecord = {
   id: string
   flowId: string
+  executionUserId: string | null
+  executionUser?: FlowUserRecord | null
   status: FlowRunStatus
   trigger: FlowRunTrigger
   scheduledFor: Date
@@ -105,32 +116,65 @@ const ACTIVE_RUN_STATUSES: FlowRunStatus[] = [
   FlowRunStatus.waiting_for_human,
 ]
 
-const FLOW_RUN_INCLUDE = {
-  runs: {
-    include: {
-      steps: {
-        orderBy: { createdAt: 'asc' as const },
-      },
-    },
-    orderBy: { startedAt: 'desc' as const },
-    take: 1,
-  },
+const FLOW_USER_SELECT = {
+  email: true,
+  slug: true,
 }
 
-const FLOW_DETAIL_INCLUDE = {
-  runs: {
-    include: {
-      steps: {
-        orderBy: { createdAt: 'asc' as const },
+function runVisibleToUserWhere(userId: string) {
+  return {
+    OR: [
+      { flow: { userId } },
+      { executionUserId: userId },
+    ],
+  }
+}
+
+function runExecutesInUserWorkspaceWhere(userId: string) {
+  return {
+    OR: [
+      { executionUserId: userId },
+      { executionUserId: null, flow: { userId } },
+    ],
+  }
+}
+
+function flowVisibleToUserWhere(userId: string) {
+  return {
+    deletedAt: null,
+    OR: [
+      { userId },
+      { visibility: FlowVisibility.team },
+    ],
+  }
+}
+
+function flowRunInclude(userId: string, take: number) {
+  return {
+    runs: {
+      include: {
+        executionUser: {
+          select: FLOW_USER_SELECT,
+        },
+        steps: {
+          orderBy: { createdAt: 'asc' as const },
+        },
       },
+      orderBy: { startedAt: 'desc' as const },
+      take,
+      where: runVisibleToUserWhere(userId),
     },
-    orderBy: { startedAt: 'desc' as const },
-    take: 50,
-  },
+    user: {
+      select: FLOW_USER_SELECT,
+    },
+  }
 }
 
 const FLOW_RETRY_RUN_INCLUDE = {
   flow: true,
+  executionUser: {
+    select: FLOW_USER_SELECT,
+  },
   steps: {
     orderBy: { createdAt: 'asc' as const },
   },
@@ -177,20 +221,20 @@ export async function recoverStaleRunningRuns(now: Date): Promise<number> {
 
 export async function listFlowsByUserId(userId: string): Promise<FlowListRecord[]> {
   return prisma.flow.findMany({
-    include: FLOW_RUN_INCLUDE,
+    include: flowRunInclude(userId, 1),
     orderBy: [
       { enabled: 'desc' },
       { updatedAt: 'desc' },
       { createdAt: 'asc' },
     ],
-    where: { deletedAt: null, userId },
+    where: flowVisibleToUserWhere(userId),
   })
 }
 
 export async function findFlowByIdAndUserId(id: string, userId: string): Promise<FlowDetailRecord | null> {
   return prisma.flow.findFirst({
-    include: FLOW_DETAIL_INCLUDE,
-    where: { deletedAt: null, id, userId },
+    include: flowRunInclude(userId, 50),
+    where: { ...flowVisibleToUserWhere(userId), id },
   })
 }
 
@@ -201,8 +245,10 @@ export async function createFlow(data: {
   enabled: boolean
   name: string
   nextRunAt?: Date | null
+  organizationCanRun?: boolean
   timezone: string
   userId: string
+  visibility?: FlowVisibility
 }): Promise<FlowRecord> {
   return prisma.flow.create({
     data: {
@@ -212,8 +258,10 @@ export async function createFlow(data: {
       enabled: data.enabled,
       name: data.name,
       nextRunAt: data.nextRunAt ?? null,
+      organizationCanRun: data.organizationCanRun ?? false,
       timezone: data.timezone,
       userId: data.userId,
+      visibility: data.visibility ?? FlowVisibility.private,
     },
   })
 }
@@ -228,7 +276,9 @@ export async function updateFlowByIdAndUserId(
     enabled?: boolean
     name?: string
     nextRunAt?: Date | null
+    organizationCanRun?: boolean
     timezone?: string
+    visibility?: FlowVisibility
   },
 ): Promise<FlowRecord | null> {
   const result = await prisma.flow.updateMany({
@@ -524,6 +574,7 @@ export function releaseFlowLease(id: string, leaseOwner: string, lastRunAt?: Dat
 
 export function createRun(data: {
   attempt?: number
+  executionUserId?: string | null
   flowId: string
   scheduledFor: Date
   status?: FlowRunStatus
@@ -531,8 +582,9 @@ export function createRun(data: {
 }): Promise<FlowRunRecord> {
   return prisma.flowRun.create({
     data: {
-      flowId: data.flowId,
       attempt: data.attempt ?? 1,
+      executionUserId: data.executionUserId ?? null,
+      flowId: data.flowId,
       scheduledFor: data.scheduledFor,
       status: data.status ?? FlowRunStatus.running,
       trigger: data.trigger,
@@ -633,8 +685,8 @@ export async function cancelRunByIdAndUserId(id: string, userId: string, cancell
       status: FlowRunStatus.cancelled,
     },
     where: {
-      flow: { userId },
       id,
+      ...runVisibleToUserWhere(userId),
       status: { in: ACTIVE_RUN_STATUSES },
     },
   })
@@ -726,14 +778,23 @@ export function updateRunStepByRunIdAndNodeId(
 export async function findRunByIdAndUserId(id: string, userId: string): Promise<FlowRunDetailRecord | null> {
   return prisma.flowRun.findFirst({
     include: {
-      flow: true,
+      executionUser: {
+        select: FLOW_USER_SELECT,
+      },
+      flow: {
+        include: {
+          user: {
+            select: FLOW_USER_SELECT,
+          },
+        },
+      },
       steps: {
         orderBy: { createdAt: 'asc' },
       },
     },
     where: {
-      flow: { userId },
       id,
+      ...runVisibleToUserWhere(userId),
     },
   })
 }
@@ -741,7 +802,16 @@ export async function findRunByIdAndUserId(id: string, userId: string): Promise<
 export async function listRunsByFlowIdAndUserId(flowId: string, userId: string): Promise<FlowRunDetailRecord[]> {
   return prisma.flowRun.findMany({
     include: {
-      flow: true,
+      executionUser: {
+        select: FLOW_USER_SELECT,
+      },
+      flow: {
+        include: {
+          user: {
+            select: FLOW_USER_SELECT,
+          },
+        },
+      },
       steps: {
         orderBy: { createdAt: 'asc' },
       },
@@ -749,8 +819,8 @@ export async function listRunsByFlowIdAndUserId(flowId: string, userId: string):
     orderBy: { startedAt: 'desc' },
     take: 50,
     where: {
-      flow: { userId },
       flowId,
+      ...runVisibleToUserWhere(userId),
     },
   })
 }
@@ -763,8 +833,8 @@ export async function markRunResultSeenByIdAndUserId(id: string, userId: string,
       status: true,
     },
     where: {
-      flow: { userId },
       id,
+      ...runVisibleToUserWhere(userId),
     },
   })
 
@@ -774,9 +844,9 @@ export async function markRunResultSeenByIdAndUserId(id: string, userId: string,
   const result = await prisma.flowRun.updateMany({
     data: { resultSeenAt: seenAt },
     where: {
-      flow: { userId },
       id,
       resultSeenAt: null,
+      ...runVisibleToUserWhere(userId),
     },
   })
 
@@ -794,6 +864,7 @@ export async function findSessionMetadataByUserId(userId: string, sessionIds: st
           name: true,
         },
       },
+      executionUserId: true,
       id: true,
       openCodeSessionId: true,
       resultSeenAt: true,
@@ -801,7 +872,7 @@ export async function findSessionMetadataByUserId(userId: string, sessionIds: st
       trigger: true,
     },
     where: {
-      flow: { userId },
+      ...runExecutesInUserWorkspaceWhere(userId),
       openCodeSessionId: {
         in: sessionIds,
       },

@@ -91,9 +91,13 @@ function createFlowDetail(): FlowDetail {
     latestRun: null,
     name: 'Existing flow',
     nextRunAt: null,
+    organizationCanRun: false,
+    owner: { email: 'alice@example.com', slug: 'alice' },
+    permissions: { canCopy: true, canEdit: true, canManage: true, canRun: true, canView: true, isOwner: true },
     runs: [],
     timezone: 'UTC',
     updatedAt: '2026-05-12T10:00:00.000Z',
+    visibility: 'private',
   }
 }
 

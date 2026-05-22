@@ -211,6 +211,7 @@ function extractAiTarget(rawOutput: string, targetNodeIds: string[]): string | n
 
 async function executeAgentNode(params: {
   client: SessionExecutionClient
+  executionUserId: string
   flow: FlowRecord
   leaseOwner: string
   node: Extract<FlowNode, { type: 'agent' }>
@@ -253,7 +254,7 @@ async function executeAgentNode(params: {
       runId: params.run.id,
       sessionId: params.sessionId,
       slug: params.slug,
-      userId: params.flow.userId,
+      userId: params.executionUserId,
     })
   } catch (error) {
     const message = errorMessage(error, 'flow_prompt_failed')
@@ -293,7 +294,7 @@ async function executeAgentNode(params: {
         runId: params.run.id,
         sessionId: params.sessionId,
         slug: params.slug,
-        userId: params.flow.userId,
+        userId: params.executionUserId,
       })
     } catch (error) {
       const message = errorMessage(error, 'flow_prompt_failed')
@@ -352,6 +353,7 @@ function resolveRuleVariable(params: {
 async function executeConditionNode(params: {
   client: SessionExecutionClient
   definition: FlowDefinition
+  executionUserId: string
   flow: FlowRecord
   leaseOwner: string
   node: ConditionFlowNode
@@ -439,7 +441,7 @@ async function executeConditionNode(params: {
       runId: params.run.id,
       sessionId: params.sessionId,
       slug: params.slug,
-      userId: params.flow.userId,
+      userId: params.executionUserId,
     })
   } catch (error) {
     const message = errorMessage(error, 'flow_prompt_failed')
@@ -596,6 +598,7 @@ async function executeHumanNode(params: {
 
 async function executeCompactionNode(params: {
   client: SessionExecutionClient
+  executionUserId: string
   flow: FlowRecord
   leaseOwner: string
   node: Extract<FlowNode, { type: 'compaction' }>
@@ -637,7 +640,7 @@ async function executeCompactionNode(params: {
       runId: params.run.id,
       sessionId: params.sessionId,
       slug: params.slug,
-      userId: params.flow.userId,
+      userId: params.executionUserId,
     })
   } catch (error) {
     const message = errorMessage(error, 'flow_prompt_failed')
@@ -688,6 +691,7 @@ async function executeMergeNode(params: {
 export async function executeFlowNode(params: {
   client: SessionExecutionClient
   definition: FlowDefinition
+  executionUserId: string
   flow: FlowRecord
   leaseOwner: string
   node: FlowNode

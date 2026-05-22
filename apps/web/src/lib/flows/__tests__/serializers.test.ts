@@ -12,6 +12,8 @@ function createRun(): FlowRunDetailRecord {
     createdAt: now,
     currentNodeId: null,
     error: null,
+    executionUser: null,
+    executionUserId: null,
     finishedAt: now,
     flow: createFlow([]),
     flowId: 'flow-1',
@@ -63,10 +65,13 @@ function createFlow(runs: FlowRunDetailRecord[]): FlowDetailRecord {
     leaseOwner: null,
     name: 'Flow',
     nextRunAt: null,
+    organizationCanRun: false,
     runs,
     timezone: 'UTC',
     updatedAt: now,
+    user: { email: 'alice@example.com', slug: 'alice' },
     userId: 'user-1',
+    visibility: 'private',
   }
 }
 

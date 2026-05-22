@@ -190,6 +190,8 @@ function RunCard({
   const relative = formatRelativeTime(startedDate, now)
   const absolute = formatFlowRunDate(startedDate, flow.timezone)
   const duration = formatDuration(run.startedAt, run.finishedAt)
+  const executionUser = run.executionUser ?? flow.owner
+  const canOpenSession = Boolean(run.openCodeSessionId && (!executionUser || executionUser.slug === slug))
 
   return (
     <li className="rounded-xl border border-border/60 bg-card/40 p-5">
@@ -212,6 +214,7 @@ function RunCard({
               {TRIGGER_LABEL[run.trigger]}
             </span>
           </div>
+          {executionUser ? <p className="ml-[22px] text-xs text-muted-foreground">Executed by {executionUser.slug}</p> : null}
           {run.error ? <p className="ml-[22px] text-xs text-destructive">{run.error}</p> : null}
           {run.retryScheduledFor ? (
             <p className="ml-[22px] flex items-center gap-1 text-xs text-muted-foreground">
@@ -224,7 +227,7 @@ function RunCard({
           ) : null}
         </div>
 
-        {run.openCodeSessionId ? (
+        {canOpenSession && run.openCodeSessionId ? (
           <Link
             href={getWorkspaceHref(slug, { mode: 'flows', sessionId: run.openCodeSessionId })}
             className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
@@ -249,7 +252,7 @@ function RunCard({
         </div>
       ) : null}
 
-      {run.status === 'waiting_for_human' ? (
+      {run.status === 'waiting_for_human' && (!executionUser || executionUser.slug === slug) ? (
         <div className="mt-4">
           <HumanStepResponseCard run={run} slug={slug} onSubmitted={onRefresh} />
         </div>

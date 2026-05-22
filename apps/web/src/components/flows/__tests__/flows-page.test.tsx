@@ -7,11 +7,17 @@ import { FlowsPage } from '@/components/flows/flows-page'
 import type { FlowListItem } from '@/lib/flows/types'
 
 const clientMocks = vi.hoisted(() => ({
+  copyFlowRequest: vi.fn(),
   fetchFlowList: vi.fn(),
+  push: vi.fn(),
+  runFlowRequest: vi.fn(),
 }))
 
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: clientMocks.push }) }))
 vi.mock('@/lib/flows/client', () => ({
+  copyFlowRequest: clientMocks.copyFlowRequest,
   fetchFlowList: clientMocks.fetchFlowList,
+  runFlowRequest: clientMocks.runFlowRequest,
 }))
 
 const flow: FlowListItem = {
@@ -25,8 +31,12 @@ const flow: FlowListItem = {
   latestRun: null,
   name: 'Weekly Review',
   nextRunAt: '2026-05-18T09:00:00.000Z',
+  organizationCanRun: false,
+  owner: { email: 'alice@example.com', slug: 'alice' },
+  permissions: { canCopy: true, canEdit: true, canManage: true, canRun: true, canView: true, isOwner: true },
   timezone: 'UTC',
   updatedAt: '2026-05-12T10:00:00.000Z',
+  visibility: 'private',
 }
 
 function createRun(status: FlowRunStatus): FlowListItem['latestRun'] {
@@ -35,6 +45,8 @@ function createRun(status: FlowRunStatus): FlowListItem['latestRun'] {
     createdAt: '2026-05-12T10:00:00.000Z',
     currentNodeId: null,
     error: null,
+    executionUser: { email: 'alice@example.com', slug: 'alice' },
+    executionUserId: 'user-1',
     finishedAt: null,
     flowId: 'flow-1',
     id: `run-${status}`,
@@ -60,6 +72,8 @@ describe('FlowsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     clientMocks.fetchFlowList.mockResolvedValue({ ok: true, data: { flows: [flow] } })
+    clientMocks.copyFlowRequest.mockResolvedValue({ ok: true, data: { flow } })
+    clientMocks.runFlowRequest.mockResolvedValue({ ok: true, data: { ok: true } })
   })
 
   afterEach(() => {

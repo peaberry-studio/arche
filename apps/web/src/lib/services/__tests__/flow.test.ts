@@ -42,9 +42,11 @@ function createFlowRecord(overrides: Record<string, unknown> = {}) {
     leaseOwner: null,
     name: 'Flow',
     nextRunAt: null,
+    organizationCanRun: false,
     timezone: 'UTC',
     updatedAt: now,
     userId: 'user-1',
+    visibility: 'private',
     ...overrides,
   }
 }
@@ -54,6 +56,7 @@ function createRunRecord(overrides: Record<string, unknown> = {}) {
     createdAt: now,
     currentNodeId: null,
     error: null,
+    executionUserId: null,
     finishedAt: null,
     flowId: 'flow-1',
     id: 'run-1',
@@ -136,7 +139,15 @@ describe('flowService', () => {
     await expect(flowService.createFlow({ definition: { version: 1 }, enabled: false, name: 'Flow', timezone: 'UTC', userId: 'user-1' })).resolves.toEqual(flow)
     await expect(flowService.updateFlowByIdAndUserId('flow-1', 'user-1', { name: 'Updated' })).resolves.toEqual(flow)
     await expect(flowService.deleteFlowByIdAndUserId('flow-1', 'user-1')).resolves.toEqual({ count: 1 })
-    expect(prismaMock.flow.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { deletedAt: null, userId: 'user-1' } }))
+    expect(prismaMock.flow.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        deletedAt: null,
+        OR: [
+          { userId: 'user-1' },
+          { visibility: 'team' },
+        ],
+      },
+    }))
     expect(prismaMock.flow.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
       data: expect.objectContaining({ deletedAt: expect.any(Date), enabled: false, leaseExpiresAt: null, leaseOwner: null, nextRunAt: null }),
       where: { deletedAt: null, id: 'flow-1', userId: 'user-1' },
@@ -144,6 +155,25 @@ describe('flowService', () => {
     expect(prismaMock.flowRun.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ currentNodeId: null, retryScheduledFor: null, status: FlowRunStatus.cancelled }),
       where: { flowId: 'flow-1', status: { in: [FlowRunStatus.running, FlowRunStatus.waiting_for_human] } },
+    }))
+  })
+
+  it('lists owned flows and team-visible flows for the actor', async () => {
+    prismaMock.flow.findMany.mockResolvedValue([
+      createFlowRecord({ id: 'owned-flow', userId: 'user-1' }),
+      createFlowRecord({ id: 'team-flow', userId: 'user-2', visibility: 'team' }),
+    ])
+
+    await expect(flowService.listFlowsByUserId('user-1')).resolves.toHaveLength(2)
+
+    expect(prismaMock.flow.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        deletedAt: null,
+        OR: [
+          { userId: 'user-1' },
+          { visibility: 'team' },
+        ],
+      },
     }))
   })
 
@@ -176,7 +206,10 @@ describe('flowService', () => {
 
     await flowService.extendFlowLease('flow-1', 'worker-1', now)
     await flowService.releaseFlowLease('flow-1', 'worker-1', now)
-    await expect(flowService.createRun({ flowId: 'flow-1', scheduledFor: now, trigger: FlowRunTrigger.manual })).resolves.toEqual(run)
+    await expect(flowService.createRun({ executionUserId: 'user-2', flowId: 'flow-1', scheduledFor: now, trigger: FlowRunTrigger.manual })).resolves.toEqual(run)
+    expect(prismaMock.flowRun.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ executionUserId: 'user-2' }),
+    }))
     await flowService.attachRunSession('run-1', { openCodeSessionId: 'session-1', sessionTitle: 'Title' })
     await flowService.updateRunCurrentNode('run-1', 'agent-1')
     await flowService.markRunWaitingForHuman('run-1', 'human-1')
@@ -309,7 +342,10 @@ describe('flowService', () => {
     expect(prismaMock.flowRun.updateMany).toHaveBeenCalledWith({
       data: { resultSeenAt: now },
       where: {
-        flow: { userId: 'user-1' },
+        OR: [
+          { flow: { userId: 'user-1' } },
+          { executionUserId: 'user-1' },
+        ],
         id: 'run-1',
         resultSeenAt: null,
       },

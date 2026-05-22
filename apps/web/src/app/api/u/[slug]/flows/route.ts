@@ -27,7 +27,7 @@ export const GET = withAuth<FlowListResponse | { error: string }>(
     if (!userId) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
     const flows = await flowService.listFlowsByUserId(userId)
-    return NextResponse.json({ flows: flows.map(serializeFlowListItem) })
+    return NextResponse.json({ flows: flows.map((flow) => serializeFlowListItem(flow, user)) })
   },
 )
 
@@ -72,7 +72,11 @@ export const POST = withAuth<{ flow: FlowDetail } | { error: string }>(
       const definition = payload.value.definition
       const enabled = payload.value.enabled ?? false
       const name = payload.value.name
+      const organizationCanRun = payload.value.visibility === 'team'
+        ? payload.value.organizationCanRun ?? false
+        : false
       const timezone = payload.value.timezone ?? 'UTC'
+      const visibility = payload.value.visibility ?? 'private'
       if (!definition || !name) {
         return NextResponse.json({ error: 'invalid_body' }, { status: 400 })
       }
@@ -84,8 +88,10 @@ export const POST = withAuth<{ flow: FlowDetail } | { error: string }>(
         enabled,
         name,
         nextRunAt: enabled && cronExpression ? getNextFlowRunAt(cronExpression, timezone, new Date()) : null,
+        organizationCanRun,
         timezone,
         userId,
+        visibility,
       })
 
       await auditEvent({
@@ -97,6 +103,7 @@ export const POST = withAuth<{ flow: FlowDetail } | { error: string }>(
       if (flow.enabled) {
         const triggerResult = await triggerFlowNow({
           flowId: flow.id,
+          executionUserId: userId,
           trigger: 'on_create',
           userId,
         })
@@ -113,7 +120,7 @@ export const POST = withAuth<{ flow: FlowDetail } | { error: string }>(
       const detail = await flowService.findFlowByIdAndUserId(flow.id, userId)
       if (!detail) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
-      return NextResponse.json({ flow: serializeFlowDetail(detail) }, { status: 201 })
+      return NextResponse.json({ flow: serializeFlowDetail(detail, user) }, { status: 201 })
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         return NextResponse.json({ error: 'flow_name_exists' }, { status: 409 })

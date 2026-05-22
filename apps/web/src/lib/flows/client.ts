@@ -88,6 +88,11 @@ export async function runFlowRequest(slug: string, flowId: string): Promise<Flow
   return result.ok ? ensureOk(result.data) : result
 }
 
+export async function copyFlowRequest(slug: string, flowId: string): Promise<FlowClientResult<{ flow: FlowDetail }>> {
+  const result = await readFlowJson<{ flow?: FlowDetail }>(await fetch(`/api/u/${slug}/flows/${flowId}/copy`, { method: 'POST' }))
+  return result.ok ? ensureFlowDetail(result.data) : result
+}
+
 export async function cancelFlowRunRequest(slug: string, runId: string): Promise<FlowClientResult<{ ok: true }>> {
   const result = await readFlowJson<{ ok?: boolean }>(await fetch(`/api/u/${slug}/flows/runs/${runId}/cancel`, { method: 'POST' }))
   return result.ok ? ensureOk(result.data) : result

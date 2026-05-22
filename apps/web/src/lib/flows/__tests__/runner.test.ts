@@ -94,10 +94,12 @@ function createClaimedFlow() {
     leaseOwner: 'worker-1',
     name: 'Flow',
     nextRunAt: null,
+    organizationCanRun: false,
     scheduledFor: now,
     timezone: 'UTC',
     updatedAt: now,
     userId: 'user-1',
+    visibility: 'private',
   }
 }
 
@@ -106,6 +108,7 @@ function createRunRecord(overrides: Record<string, unknown> = {}) {
     createdAt: now,
     currentNodeId: null,
     error: null,
+    executionUserId: null,
     finishedAt: null,
     flowId: 'flow-1',
     id: 'run-1',
@@ -271,6 +274,7 @@ describe('triggerFlowNow', () => {
       .resolves.toEqual({ ok: true })
 
     expect(mocks.createRun).toHaveBeenCalledWith({
+      executionUserId: 'user-1',
       flowId: 'flow-1',
       scheduledFor: now,
       trigger: FlowRunTrigger.manual,
@@ -285,6 +289,7 @@ describe('triggerFlowNow', () => {
       .resolves.toEqual({ ok: true, runId: 'run-dispatched' })
 
     expect(mocks.createRun).toHaveBeenCalledWith({
+      executionUserId: 'user-1',
       flowId: 'flow-1',
       scheduledFor: now,
       trigger: FlowRunTrigger.manual,
@@ -296,7 +301,7 @@ describe('triggerFlowNow', () => {
     const waitingRun = createWaitingRun()
     mocks.findRunByIdAndUserId
       .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(createRunRecord())
+      .mockResolvedValueOnce({ ...createRunRecord(), flow: createClaimedFlow() })
       .mockResolvedValueOnce(waitingRun)
       .mockResolvedValueOnce(waitingRun)
     mocks.claimFlowLeaseById.mockResolvedValue(createClaimedFlow())
@@ -338,6 +343,30 @@ describe('triggerFlowNow', () => {
 
     expect(mocks.ensureWorkspaceRunningForExecution).toHaveBeenCalledWith('alice', 'user-1')
     expect(mocks.markRunSucceeded).toHaveBeenCalledWith('run-1', expect.objectContaining({ openCodeSessionId: 'session-1' }))
+  })
+
+  it('runs shared manual flows in the execution user workspace', async () => {
+    mocks.claimFlowForImmediateRun.mockResolvedValue(createClaimedFlow())
+    mocks.createRun.mockResolvedValue(createRunRecord({ executionUserId: 'user-2' }))
+    mocks.userFindByIdSelect.mockResolvedValue({ slug: 'bob' })
+
+    await expect(triggerFlowNow({
+      executionUserId: 'user-2',
+      flowId: 'flow-1',
+      trigger: FlowRunTrigger.manual,
+    })).resolves.toEqual({ ok: true })
+
+    expect(mocks.createRun).toHaveBeenCalledWith({
+      executionUserId: 'user-2',
+      flowId: 'flow-1',
+      scheduledFor: now,
+      trigger: FlowRunTrigger.manual,
+    })
+    await vi.waitFor(() => expect(mocks.ensureWorkspaceRunningForExecution).toHaveBeenCalledWith('bob', 'user-2'))
+    await vi.waitFor(() => expect(mocks.runFlowPromptAndReadOutput).toHaveBeenCalledWith(expect.objectContaining({
+      slug: 'bob',
+      userId: 'user-2',
+    })))
   })
 
   it('runs Slack message nodes with fixed, previous output, and template messages', async () => {

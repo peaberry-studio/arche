@@ -149,6 +149,26 @@ export async function validateFlowPayload(
     value.enabled = body.enabled
   }
 
+  if (mode === 'create' || 'visibility' in body) {
+    if (body.visibility === undefined && mode === 'create') {
+      value.visibility = 'private'
+    } else if (body.visibility === 'private' || body.visibility === 'team') {
+      value.visibility = body.visibility
+    } else {
+      return { ok: false, error: 'invalid_visibility', status: 400 }
+    }
+  }
+
+  if (mode === 'create' || 'organizationCanRun' in body) {
+    if (body.organizationCanRun === undefined && mode === 'create') {
+      value.organizationCanRun = false
+    } else if (typeof body.organizationCanRun === 'boolean') {
+      value.organizationCanRun = body.organizationCanRun
+    } else {
+      return { ok: false, error: 'invalid_organization_can_run', status: 400 }
+    }
+  }
+
   const enabled = value.enabled ?? false
   if (enabled && value.cronExpression === null) {
     return { ok: false, error: 'schedule_required', status: 400 }

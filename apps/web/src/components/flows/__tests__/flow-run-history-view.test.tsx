@@ -6,11 +6,13 @@ import { FlowRunHistoryView } from '@/components/flows/flow-run-history-view'
 import type { FlowDetail } from '@/lib/flows/types'
 
 const mocks = vi.hoisted(() => ({
+  copyFlowRequest: vi.fn(),
   fetchFlowDetail: vi.fn(),
   runFlowRequest: vi.fn(),
 }))
 
 vi.mock('@/lib/flows/client', () => ({
+  copyFlowRequest: mocks.copyFlowRequest,
   fetchFlowDetail: mocks.fetchFlowDetail,
   runFlowRequest: mocks.runFlowRequest,
 }))
@@ -37,15 +39,20 @@ const flow: FlowDetail = {
   latestRun: null,
   name: 'Daily brief',
   nextRunAt: null,
+  organizationCanRun: false,
+  owner: { email: 'alice@example.com', slug: 'alice' },
+  permissions: { canCopy: true, canEdit: true, canManage: true, canRun: true, canView: true, isOwner: true },
   runs: [],
   timezone: 'UTC',
   updatedAt: '2026-05-12T10:00:00.000Z',
+  visibility: 'private',
 }
 
 describe('FlowRunHistoryView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.fetchFlowDetail.mockResolvedValue({ ok: true, data: { flow } })
+    mocks.copyFlowRequest.mockResolvedValue({ ok: true, data: { flow } })
     mocks.runFlowRequest.mockResolvedValue({ ok: true, data: { ok: true } })
   })
 
