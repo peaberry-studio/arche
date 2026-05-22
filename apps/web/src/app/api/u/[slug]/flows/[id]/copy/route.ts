@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client'
 import { NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
-import { resolveFlowOwnerUserId } from '@/lib/flows/api'
+import { resolveFlowRouteContext } from '@/lib/flows/api'
 import { canCopyFlow } from '@/lib/flows/permissions'
 import { serializeFlowDetail, toPrismaJson } from '@/lib/flows/serializers'
 import type { FlowDetail } from '@/lib/flows/types'
@@ -22,10 +22,10 @@ export const POST = withAuth<{ flow: FlowDetail } | { error: string }, FlowCopyR
     const denied = requireCapability('flows')
     if (denied) return denied
 
-    const userId = await resolveFlowOwnerUserId(slug, user)
-    if (!userId) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    const routeContext = await resolveFlowRouteContext(slug, user)
+    if (!routeContext) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
-    const source = await flowService.findFlowByIdAndUserId(id, userId)
+    const source = await flowService.findFlowByIdAndUserId(id, routeContext.workspaceUserId)
     if (!source) return NextResponse.json({ error: 'not_found' }, { status: 404 })
     if (!canCopyFlow(user, source)) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 

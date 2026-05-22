@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client'
 import { NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
-import { resolveFlowOwnerUserId } from '@/lib/flows/api'
+import { resolveFlowRouteContext } from '@/lib/flows/api'
 import { getNextFlowRunAt } from '@/lib/flows/cron'
 import { validateFlowPayload } from '@/lib/flows/payload'
 import { validateFlowSlackNodeAccess } from '@/lib/flows/route-auth'
@@ -23,10 +23,10 @@ export const GET = withAuth<FlowListResponse | { error: string }>(
     const denied = requireCapability('flows')
     if (denied) return denied
 
-    const userId = await resolveFlowOwnerUserId(slug, user)
-    if (!userId) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    const routeContext = await resolveFlowRouteContext(slug, user)
+    if (!routeContext) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
-    const flows = await flowService.listFlowsByUserId(userId)
+    const flows = await flowService.listFlowsByUserId(routeContext.workspaceUserId)
     return NextResponse.json({ flows: flows.map((flow) => serializeFlowListItem(flow, user)) })
   },
 )
@@ -52,13 +52,13 @@ export const POST = withAuth<{ flow: FlowDetail } | { error: string }>(
       return NextResponse.json({ error: payload.error }, { status: payload.status })
     }
 
-    const userId = await resolveFlowOwnerUserId(slug, user)
-    if (!userId) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    const routeContext = await resolveFlowRouteContext(slug, user)
+    if (!routeContext) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
     const slackNodeAccess = await validateFlowSlackNodeAccess(
       payload.value.definition,
       user,
-      userId,
+      routeContext.workspaceUserId,
     )
     if (!slackNodeAccess.ok) {
       return NextResponse.json(
@@ -90,7 +90,7 @@ export const POST = withAuth<{ flow: FlowDetail } | { error: string }>(
         nextRunAt: enabled && cronExpression ? getNextFlowRunAt(cronExpression, timezone, new Date()) : null,
         organizationCanRun,
         timezone,
-        userId,
+        userId: routeContext.workspaceUserId,
         visibility,
       })
 
@@ -103,21 +103,21 @@ export const POST = withAuth<{ flow: FlowDetail } | { error: string }>(
       if (flow.enabled) {
         const triggerResult = await triggerFlowNow({
           flowId: flow.id,
-          executionUserId: userId,
+          executionUserId: routeContext.workspaceUserId,
           trigger: 'on_create',
-          userId,
+          userId: routeContext.workspaceUserId,
         })
         if (!triggerResult.ok) {
           console.error('[flows] Failed to trigger initial flow run', {
             flowId: flow.id,
             reason: triggerResult.error,
             slug,
-            userId,
+            userId: routeContext.workspaceUserId,
           })
         }
       }
 
-      const detail = await flowService.findFlowByIdAndUserId(flow.id, userId)
+      const detail = await flowService.findFlowByIdAndUserId(flow.id, routeContext.workspaceUserId)
       if (!detail) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
       return NextResponse.json({ flow: serializeFlowDetail(detail, user) }, { status: 201 })

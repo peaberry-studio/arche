@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 
-import { resolveFlowOwnerUserId } from '@/lib/flows/api'
+import { resolveFlowRouteContext } from '@/lib/flows/api'
+import { canViewFlowRun } from '@/lib/flows/permissions'
 import { serializeFlowRun } from '@/lib/flows/serializers'
 import type { FlowRunListItem } from '@/lib/flows/types'
 import { requireCapability } from '@/lib/runtime/require-capability'
@@ -18,11 +19,12 @@ export const GET = withAuth<{ run: FlowRunListItem } | { error: string }, FlowRu
     const denied = requireCapability('flows')
     if (denied) return denied
 
-    const userId = await resolveFlowOwnerUserId(slug, user)
-    if (!userId) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    const routeContext = await resolveFlowRouteContext(slug, user)
+    if (!routeContext) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
-    const run = await flowService.findRunByIdAndUserId(runId, userId)
+    const run = await flowService.findRunByIdAndUserId(runId, routeContext.workspaceUserId)
     if (!run) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    if (!canViewFlowRun(user, run)) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
     return NextResponse.json({ run: serializeFlowRun(run) })
   },

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
-import { resolveFlowOwnerUserId } from '@/lib/flows/api'
+import { resolveFlowRouteContext } from '@/lib/flows/api'
 import {
   checkMissingConnectorRequirements,
   getFlowConnectorRequirements,
@@ -24,10 +24,10 @@ export const POST = withAuth<{ ok: true } | { error: string }, FlowRunRouteParam
     const denied = requireCapability('flows')
     if (denied) return denied
 
-    const userId = await resolveFlowOwnerUserId(slug, user)
-    if (!userId) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    const routeContext = await resolveFlowRouteContext(slug, user)
+    if (!routeContext) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
-    const flow = await flowService.findFlowByIdAndUserId(id, userId)
+    const flow = await flowService.findFlowByIdAndUserId(id, routeContext.workspaceUserId)
     if (!flow) return NextResponse.json({ error: 'not_found' }, { status: 404 })
     if (!canRunFlow(user, flow)) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
 

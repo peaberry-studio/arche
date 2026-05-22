@@ -6,7 +6,7 @@ import { createDefaultFlowDefinition } from '@/lib/flows/validation'
 
 const mocks = vi.hoisted(() => ({
   auditEvent: vi.fn(),
-  cancelRunByIdAndUserId: vi.fn(),
+  cancelRunById: vi.fn(),
   checkMissingConnectorRequirements: vi.fn(),
   createFlow: vi.fn(),
   deleteFlowByIdAndUserId: vi.fn(),
@@ -49,7 +49,7 @@ vi.mock('@/lib/flows/runner', () => ({
 }))
 vi.mock('@/lib/services', () => ({
   flowService: {
-    cancelRunByIdAndUserId: mocks.cancelRunByIdAndUserId,
+    cancelRunById: mocks.cancelRunById,
     createFlow: mocks.createFlow,
     deleteFlowByIdAndUserId: mocks.deleteFlowByIdAndUserId,
     findFlowByIdAndUserId: mocks.findFlowByIdAndUserId,
@@ -100,7 +100,7 @@ function createFlowRecord() {
   }
 }
 
-function createRunRecord() {
+function createRunRecord(overrides: Record<string, unknown> = {}) {
   return {
     createdAt: now,
     currentNodeId: null,
@@ -158,6 +158,7 @@ function createRunRecord() {
     }],
     trigger: FlowRunTrigger.manual,
     updatedAt: now,
+    ...overrides,
   }
 }
 
@@ -186,6 +187,8 @@ describe('Flow API routes', () => {
     mocks.checkMissingConnectorRequirements.mockResolvedValue([])
     mocks.findIdBySlug.mockResolvedValue({ id: 'user-1' })
     mocks.findFlowByIdAndUserId.mockResolvedValue(createFlowRecord())
+    mocks.findRunByIdAndUserId.mockResolvedValue(createRunRecord())
+    mocks.cancelRunById.mockResolvedValue(true)
     mocks.auditEvent.mockResolvedValue(undefined)
     mocks.validateFlowPayload.mockResolvedValue({
       ok: true,
@@ -463,13 +466,63 @@ describe('Flow API routes', () => {
   })
 
   it('cancels runs and resumes human responses', async () => {
-    mocks.cancelRunByIdAndUserId.mockResolvedValue(true)
+    mocks.cancelRunById.mockResolvedValue(true)
     mocks.resumeFlowRun.mockResolvedValue({ ok: true, run: createRunRecord() })
 
     expect((await POST_CANCEL_RUN(request('/api/u/alice/flows/runs/run-1/cancel', 'POST'), params({ runId: 'run-1', slug: 'alice' }))).status)
       .toBe(200)
+    expect(mocks.cancelRunById).toHaveBeenCalledWith('run-1', expect.any(Date))
     expect((await POST_HUMAN_RESPONSE(request('/api/u/alice/flows/runs/run-1/human-response', 'POST', { response: 'Approved' }), params({ runId: 'run-1', slug: 'alice' }))).status)
       .toBe(202)
+  })
+
+  it('lets execution users read and cancel their own shared flow runs', async () => {
+    mocks.findRunByIdAndUserId.mockResolvedValue(createRunRecord({
+      executionUserId: 'user-1',
+      flow: {
+        ...createFlowRecord(),
+        organizationCanRun: true,
+        userId: 'user-2',
+        visibility: 'team',
+      },
+    }))
+
+    expect((await GET_RUN(request('/api/u/alice/flows/runs/run-1'), params({ runId: 'run-1', slug: 'alice' }))).status)
+      .toBe(200)
+    expect((await POST_CANCEL_RUN(request('/api/u/alice/flows/runs/run-1/cancel', 'POST'), params({ runId: 'run-1', slug: 'alice' }))).status)
+      .toBe(200)
+  })
+
+  it('blocks members from mutating other users shared flow runs', async () => {
+    mocks.findRunByIdAndUserId.mockResolvedValue(createRunRecord({
+      executionUserId: 'user-2',
+      flow: {
+        ...createFlowRecord(),
+        organizationCanRun: true,
+        userId: 'user-3',
+        visibility: 'team',
+      },
+    }))
+
+    expect((await GET_RUN(request('/api/u/alice/flows/runs/run-1'), params({ runId: 'run-1', slug: 'alice' }))).status)
+      .toBe(404)
+    expect((await POST_CANCEL_RUN(request('/api/u/alice/flows/runs/run-1/cancel', 'POST'), params({ runId: 'run-1', slug: 'alice' }))).status)
+      .toBe(403)
+    expect(mocks.cancelRunById).not.toHaveBeenCalled()
+  })
+
+  it('lets admins read and cancel runs in another user workspace', async () => {
+    mocks.getSession.mockResolvedValue({
+      sessionId: 'session-admin',
+      user: { email: 'admin@example.com', id: 'admin-1', role: 'ADMIN', slug: 'admin' },
+    })
+    mocks.findIdBySlug.mockResolvedValue({ id: 'user-1' })
+    mocks.findRunByIdAndUserId.mockResolvedValue(createRunRecord({ executionUserId: 'user-2' }))
+
+    expect((await GET_RUN(request('/api/u/alice/flows/runs/run-1'), params({ runId: 'run-1', slug: 'alice' }))).status)
+      .toBe(200)
+    expect((await POST_CANCEL_RUN(request('/api/u/alice/flows/runs/run-1/cancel', 'POST'), params({ runId: 'run-1', slug: 'alice' }))).status)
+      .toBe(200)
   })
 
   it('rejects invalid human responses and maps resume failures', async () => {

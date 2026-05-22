@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client'
 import { NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
-import { resolveFlowOwnerUserId } from '@/lib/flows/api'
+import { resolveFlowRouteContext } from '@/lib/flows/api'
 import {
   checkMissingConnectorRequirements,
   getFlowConnectorRequirements,
@@ -44,10 +44,10 @@ export const GET = withAuth<{ flow: FlowDetail } | { error: string }, FlowRouteP
     const denied = requireCapability('flows')
     if (denied) return denied
 
-    const userId = await resolveFlowOwnerUserId(slug, user)
-    if (!userId) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    const routeContext = await resolveFlowRouteContext(slug, user)
+    if (!routeContext) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
-    const flow = await flowService.findFlowByIdAndUserId(id, userId)
+    const flow = await flowService.findFlowByIdAndUserId(id, routeContext.workspaceUserId)
     if (!flow) return NextResponse.json({ error: 'not_found' }, { status: 404 })
     if (!canViewFlow(user, flow)) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
@@ -61,10 +61,10 @@ export const PATCH = withAuth<{ flow: FlowDetail } | { error: string }, FlowRout
     const denied = requireCapability('flows')
     if (denied) return denied
 
-    const userId = await resolveFlowOwnerUserId(slug, user)
-    if (!userId) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    const routeContext = await resolveFlowRouteContext(slug, user)
+    if (!routeContext) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
-    const existing = await flowService.findFlowByIdAndUserId(id, userId)
+    const existing = await flowService.findFlowByIdAndUserId(id, routeContext.workspaceUserId)
     if (!existing) return NextResponse.json({ error: 'not_found' }, { status: 404 })
     if (!canEditFlow(user, existing)) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
 
@@ -184,10 +184,10 @@ export const DELETE = withAuth<{ ok: true } | { error: string }, FlowRouteParams
     const denied = requireCapability('flows')
     if (denied) return denied
 
-    const userId = await resolveFlowOwnerUserId(slug, user)
-    if (!userId) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    const routeContext = await resolveFlowRouteContext(slug, user)
+    if (!routeContext) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
-    const existing = await flowService.findFlowByIdAndUserId(id, userId)
+    const existing = await flowService.findFlowByIdAndUserId(id, routeContext.workspaceUserId)
     if (!existing) return NextResponse.json({ error: 'not_found' }, { status: 404 })
     if (!canManageFlow(user, existing)) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
 

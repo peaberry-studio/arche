@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
-import { canEditFlow, canManageFlow, canRunFlow, canViewFlow } from '@/lib/flows/permissions'
+import {
+  canCancelFlowRun,
+  canEditFlow,
+  canManageFlow,
+  canRunFlow,
+  canViewFlow,
+  canViewFlowRun,
+} from '@/lib/flows/permissions'
 
 const owner = { id: 'owner-1', role: 'USER' }
 const member = { id: 'member-1', role: 'USER' }
@@ -51,5 +58,23 @@ describe('flow permissions', () => {
   it('allows regular members to run team flows only when organization execution is enabled', () => {
     expect(canRunFlow(member, flow({ organizationCanRun: false, visibility: 'team' }))).toBe(false)
     expect(canRunFlow(member, flow({ organizationCanRun: true, visibility: 'team' }))).toBe(true)
+  })
+
+  it('separates run visibility and mutation from flow visibility', () => {
+    const teamFlowRun = {
+      executionUserId: 'member-1',
+      flow: flow({ organizationCanRun: true, visibility: 'team' }),
+    }
+    const otherMember = { id: 'member-2', role: 'USER' }
+
+    expect(canViewFlowRun(member, teamFlowRun)).toBe(true)
+    expect(canCancelFlowRun(member, teamFlowRun)).toBe(true)
+    expect(canViewFlowRun(owner, teamFlowRun)).toBe(true)
+    expect(canCancelFlowRun(owner, teamFlowRun)).toBe(true)
+    expect(canViewFlowRun(admin, teamFlowRun)).toBe(true)
+    expect(canCancelFlowRun(admin, teamFlowRun)).toBe(true)
+    expect(canViewFlow(otherMember, teamFlowRun.flow)).toBe(true)
+    expect(canViewFlowRun(otherMember, teamFlowRun)).toBe(false)
+    expect(canCancelFlowRun(otherMember, teamFlowRun)).toBe(false)
   })
 })

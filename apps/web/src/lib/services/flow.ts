@@ -199,6 +199,11 @@ function noActiveRun() {
   }
 }
 
+function normalizeOrganizationCanRun(visibility: FlowVisibility, organizationCanRun: boolean | undefined): boolean | undefined {
+  if (visibility !== FlowVisibility.team) return false
+  return organizationCanRun
+}
+
 export async function recoverStaleRunningRuns(now: Date): Promise<number> {
   const result = await prisma.flowRun.updateMany({
     data: {
@@ -250,6 +255,8 @@ export async function createFlow(data: {
   userId: string
   visibility?: FlowVisibility
 }): Promise<FlowRecord> {
+  const visibility = data.visibility ?? FlowVisibility.private
+
   return prisma.flow.create({
     data: {
       cronExpression: data.cronExpression ?? null,
@@ -258,10 +265,10 @@ export async function createFlow(data: {
       enabled: data.enabled,
       name: data.name,
       nextRunAt: data.nextRunAt ?? null,
-      organizationCanRun: data.organizationCanRun ?? false,
+      organizationCanRun: normalizeOrganizationCanRun(visibility, data.organizationCanRun) ?? false,
       timezone: data.timezone,
       userId: data.userId,
-      visibility: data.visibility ?? FlowVisibility.private,
+      visibility,
     },
   })
 }
@@ -281,8 +288,20 @@ export async function updateFlowByIdAndUserId(
     visibility?: FlowVisibility
   },
 ): Promise<FlowRecord | null> {
+  const existing = await prisma.flow.findFirst({
+    select: { visibility: true },
+    where: { deletedAt: null, id, userId },
+  })
+  if (!existing) return null
+
+  const nextVisibility = data.visibility ?? existing.visibility
+  const normalizedData = {
+    ...data,
+    organizationCanRun: normalizeOrganizationCanRun(nextVisibility, data.organizationCanRun),
+  }
+
   const result = await prisma.flow.updateMany({
-    data,
+    data: normalizedData,
     where: { deletedAt: null, id, userId },
   })
   if (result.count === 0) return null
@@ -687,6 +706,21 @@ export async function cancelRunByIdAndUserId(id: string, userId: string, cancell
     where: {
       id,
       ...runVisibleToUserWhere(userId),
+      status: { in: ACTIVE_RUN_STATUSES },
+    },
+  })
+
+  return result.count === 1
+}
+
+export async function cancelRunById(id: string, cancelledAt: Date): Promise<boolean> {
+  const result = await prisma.flowRun.updateMany({
+    data: {
+      finishedAt: cancelledAt,
+      status: FlowRunStatus.cancelled,
+    },
+    where: {
+      id,
       status: { in: ACTIVE_RUN_STATUSES },
     },
   })

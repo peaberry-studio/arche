@@ -219,6 +219,32 @@ describe('flowService', () => {
     await flowService.markRunRetryScheduled('run-1', { attempt: 2, error: 'instance_unavailable', retryAt: now })
     await expect(flowService.findRunStatusById('run-1')).resolves.toEqual({ status: FlowRunStatus.running })
     await expect(flowService.cancelRunByIdAndUserId('run-1', 'user-1', now)).resolves.toBe(true)
+    await expect(flowService.cancelRunById('run-1', now)).resolves.toBe(true)
+  })
+
+  it('normalizes private flow organization execution in the service layer', async () => {
+    const flow = createFlowRecord()
+    prismaMock.flow.create.mockResolvedValue(flow)
+    prismaMock.flow.findFirst.mockResolvedValue(flow)
+    prismaMock.flow.updateMany.mockResolvedValue({ count: 1 })
+
+    await flowService.createFlow({
+      definition: { version: 1 },
+      enabled: false,
+      name: 'Flow',
+      organizationCanRun: true,
+      timezone: 'UTC',
+      userId: 'user-1',
+      visibility: 'private',
+    })
+    await flowService.updateFlowByIdAndUserId('flow-1', 'user-1', { organizationCanRun: true })
+
+    expect(prismaMock.flow.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ organizationCanRun: false, visibility: 'private' }),
+    }))
+    expect(prismaMock.flow.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ organizationCanRun: false }),
+    }))
   })
 
   it('claims due retry runs without requiring the flow to be enabled', async () => {

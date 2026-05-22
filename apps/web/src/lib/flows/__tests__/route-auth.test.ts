@@ -23,7 +23,7 @@ vi.mock('@/lib/services', () => ({
   },
 }))
 
-import { resolveFlowOwnerUserId } from '@/lib/flows/api'
+import { resolveFlowRouteContext } from '@/lib/flows/api'
 import { validateFlowSlackNodeAccess } from '@/lib/flows/route-auth'
 import type { FlowDefinition, FlowSlackTarget } from '@/lib/flows/types'
 
@@ -54,32 +54,32 @@ describe('flow route auth', () => {
     ])
   })
 
-  it('resolves the workspace owner without lookup when context user owns the slug', async () => {
-    const result = await resolveFlowOwnerUserId('alice', {
+  it('resolves the route context without lookup when the actor owns the slug', async () => {
+    const result = await resolveFlowRouteContext('alice', {
       id: 'user-1',
       slug: 'alice',
     })
 
-    expect(result).toBe('user-1')
+    expect(result).toMatchObject({ actorUserId: 'user-1', workspaceUserId: 'user-1' })
     expect(findIdBySlugMock).not.toHaveBeenCalled()
   })
 
-  it('resolves another workspace owner by slug', async () => {
+  it('resolves another route workspace by slug', async () => {
     findIdBySlugMock.mockResolvedValue({ id: 'owner-1' })
 
-    const result = await resolveFlowOwnerUserId('alice', {
+    const result = await resolveFlowRouteContext('alice', {
       id: 'admin-1',
       slug: 'admin',
     })
 
-    expect(result).toBe('owner-1')
+    expect(result).toMatchObject({ actorUserId: 'admin-1', workspaceUserId: 'owner-1' })
     expect(findIdBySlugMock).toHaveBeenCalledWith('alice')
   })
 
   it('returns null when the target slug is unknown', async () => {
     findIdBySlugMock.mockResolvedValue(null)
 
-    const result = await resolveFlowOwnerUserId('missing', {
+    const result = await resolveFlowRouteContext('missing', {
       id: 'admin-1',
       slug: 'admin',
     })

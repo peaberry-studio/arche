@@ -9,6 +9,11 @@ type FlowPermissionRecord = {
   visibility: string
 }
 
+type FlowRunPermissionRecord = {
+  executionUserId: string | null
+  flow: FlowPermissionRecord
+}
+
 function isAdmin(actor: FlowPermissionActor): boolean {
   return actor.role === 'ADMIN'
 }
@@ -35,4 +40,12 @@ export function canManageFlow(actor: FlowPermissionActor, flow: FlowPermissionRe
 
 export function canCopyFlow(actor: FlowPermissionActor, flow: FlowPermissionRecord): boolean {
   return canViewFlow(actor, flow)
+}
+
+export function canViewFlowRun(actor: FlowPermissionActor, run: FlowRunPermissionRecord): boolean {
+  return canManageFlow(actor, run.flow) || run.executionUserId === actor.id
+}
+
+export function canCancelFlowRun(actor: FlowPermissionActor, run: FlowRunPermissionRecord): boolean {
+  return canManageFlow(actor, run.flow) || run.executionUserId === actor.id
 }

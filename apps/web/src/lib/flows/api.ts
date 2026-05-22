@@ -5,11 +5,32 @@ export type FlowRouteUser = {
   slug: string
 }
 
-export async function resolveFlowOwnerUserId(slug: string, contextUser: FlowRouteUser): Promise<string | null> {
-  if (contextUser.slug === slug) return contextUser.id
+export type FlowRouteContext = {
+  actorUserId: string
+  actorSlug: string
+  workspaceSlug: string
+  workspaceUserId: string
+}
 
-  const owner = await userService.findIdBySlug(slug)
-  return owner?.id ?? null
+export async function resolveFlowRouteContext(slug: string, actor: FlowRouteUser): Promise<FlowRouteContext | null> {
+  if (actor.slug === slug) {
+    return {
+      actorSlug: actor.slug,
+      actorUserId: actor.id,
+      workspaceSlug: slug,
+      workspaceUserId: actor.id,
+    }
+  }
+
+  const workspaceUser = await userService.findIdBySlug(slug)
+  if (!workspaceUser) return null
+
+  return {
+    actorSlug: actor.slug,
+    actorUserId: actor.id,
+    workspaceSlug: slug,
+    workspaceUserId: workspaceUser.id,
+  }
 }
 
 export function flowRunActionStatus(error: string): number {

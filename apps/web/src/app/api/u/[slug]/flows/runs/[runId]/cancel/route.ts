@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
-import { resolveFlowOwnerUserId } from '@/lib/flows/api'
+import { resolveFlowRouteContext } from '@/lib/flows/api'
+import { canCancelFlowRun } from '@/lib/flows/permissions'
 import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { flowService } from '@/lib/services'
@@ -17,10 +18,14 @@ export const POST = withAuth<{ ok: true } | { error: string }, FlowCancelRunRout
     const denied = requireCapability('flows')
     if (denied) return denied
 
-    const userId = await resolveFlowOwnerUserId(slug, user)
-    if (!userId) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    const routeContext = await resolveFlowRouteContext(slug, user)
+    if (!routeContext) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
-    const cancelled = await flowService.cancelRunByIdAndUserId(runId, userId, new Date())
+    const run = await flowService.findRunByIdAndUserId(runId, routeContext.workspaceUserId)
+    if (!run) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    if (!canCancelFlowRun(user, run)) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
+
+    const cancelled = await flowService.cancelRunById(runId, new Date())
     if (!cancelled) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
     await auditEvent({
