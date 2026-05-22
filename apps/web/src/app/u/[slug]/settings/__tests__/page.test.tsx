@@ -172,7 +172,7 @@ describe('SettingsPage', () => {
 
     expect(screen.getByText('Settings page content alice integrations')).toBeTruthy()
     expect(settingsPageProps.current).toMatchObject({
-      availableSections: ['general', 'providers', 'analytics', 'team', 'integrations', 'security'],
+      availableSections: ['general', 'providers', 'analytics', 'team', 'mcp', 'integrations', 'security'],
       canManageUsers: true,
       currentSection: 'integrations',
       currentUserId: 'admin-1',
@@ -211,7 +211,7 @@ describe('SettingsPage', () => {
     render(await renderSettingsPage({ section: 'integrations' }))
 
     expect(settingsPageProps.current).toMatchObject({
-      availableSections: ['general', 'team'],
+      availableSections: ['general', 'team', 'mcp'],
       canManageUsers: true,
       currentSection: 'general',
       currentUserId: 'user-1',

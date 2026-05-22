@@ -8,7 +8,14 @@ export function stripPort(host: string): string {
   return host.replace(/:\d+$/, '')
 }
 
+export function shouldTrustProxyHeaders(): boolean {
+  const value = process.env.ARCHE_TRUST_PROXY_HEADERS?.trim().toLowerCase()
+  return value === '1' || value === 'true'
+}
+
 export function getClientIp(headers: Headers): string | null {
+  if (!shouldTrustProxyHeaders()) return null
+
   const xff = firstHeaderValue(headers.get('x-forwarded-for'))
   if (xff) return xff
   const realIp = firstHeaderValue(headers.get('x-real-ip'))
@@ -40,8 +47,9 @@ export function getPublicBaseUrl(headers: Headers, fallbackOrigin: string): stri
 
   const fallback = normalizeBaseUrl(fallbackOrigin)
   const fallbackProtocol = fallback ? new URL(fallback).protocol.replace(':', '') : 'http'
-  const proto = firstHeaderValue(headers.get('x-forwarded-proto')) || fallbackProtocol
-  const forwardedHost = firstHeaderValue(headers.get('x-forwarded-host'))
+  const trustProxyHeaders = shouldTrustProxyHeaders()
+  const proto = trustProxyHeaders ? firstHeaderValue(headers.get('x-forwarded-proto')) || fallbackProtocol : fallbackProtocol
+  const forwardedHost = trustProxyHeaders ? firstHeaderValue(headers.get('x-forwarded-host')) : null
   if (forwardedHost && !isBindAddress(forwardedHost)) {
     return `${proto}://${forwardedHost}`
   }

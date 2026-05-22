@@ -1,6 +1,7 @@
 import Link from 'next/link'
 
 import { ThemePicker } from '@/components/dashboard/theme-picker'
+import { McpSettingsPanel } from '@/components/mcp/mcp-settings-panel'
 import { OrganizationProviderCredentialsPanel } from '@/components/providers/organization-provider-credentials-panel'
 import { UsageAnalyticsPanel } from '@/components/providers/usage-analytics-panel'
 import { GoogleWorkspaceIntegrationSummaryCard } from '@/components/settings/google-workspace-integration-summary-card'
@@ -159,6 +160,15 @@ export function SettingsPageContent({
             canManageUsers={canManageUsers}
             embedded
           />
+        )
+      case 'mcp':
+        return (
+          <SettingsSection
+            title="MCP Access"
+            description="Connect external MCP clients to Arche workspace context with scoped personal access tokens."
+          >
+            <McpSettingsPanel slug={slug} isAdmin={isAdmin} />
+          </SettingsSection>
         )
       case 'security':
         return (

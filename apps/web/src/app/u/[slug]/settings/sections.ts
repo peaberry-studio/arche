@@ -3,6 +3,7 @@ export const SETTINGS_SECTIONS = [
   'providers',
   'analytics',
   'team',
+  'mcp',
   'integrations',
   'security',
 ] as const
@@ -14,6 +15,7 @@ export const SETTINGS_SECTION_LABELS: Record<SettingsSection, string> = {
   providers: 'Providers',
   analytics: 'Analytics',
   team: 'Team',
+  mcp: 'MCP',
   integrations: 'Integrations',
   security: 'Security',
 }
@@ -43,6 +45,7 @@ export function getAvailableSettingsSections({
   }
 
   sections.push('team')
+  sections.push('mcp')
 
   if (isAdmin && (slackIntegrationEnabled || googleWorkspaceIntegrationEnabled || kbGithubRemoteIntegrationEnabled)) {
     sections.push('integrations')

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const auditEventMock = vi.fn()
 const clearIntegrationMock = vi.fn()
@@ -20,6 +20,15 @@ const authState = {
   user: { email: 'admin@example.com', id: 'admin-1', role: 'ADMIN', slug: 'alice' },
 }
 let hasSession = true
+const originalTrustProxyHeaders = process.env.ARCHE_TRUST_PROXY_HEADERS
+
+afterEach(() => {
+  if (originalTrustProxyHeaders === undefined) {
+    delete process.env.ARCHE_TRUST_PROXY_HEADERS
+  } else {
+    process.env.ARCHE_TRUST_PROXY_HEADERS = originalTrustProxyHeaders
+  }
+})
 
 vi.mock('@/lib/auth', () => ({
   auditEvent: (...args: unknown[]) => auditEventMock(...args),
@@ -226,6 +235,7 @@ describe('/api/u/[slug]/kb-github-remote/setup', () => {
   })
 
   it('redirects back to management when the manifest code is missing', async () => {
+    process.env.ARCHE_TRUST_PROXY_HEADERS = '1'
     const { GET } = await import('./setup/route')
 
     const response = await GET(
@@ -271,6 +281,7 @@ describe('/api/u/[slug]/kb-github-remote/callback', () => {
   })
 
   it('verifies and stores the installation before redirecting to management', async () => {
+    process.env.ARCHE_TRUST_PROXY_HEADERS = '1'
     const { GET } = await import('./callback/route')
 
     const response = await GET(
