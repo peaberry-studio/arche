@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { SpinnerGap } from '@phosphor-icons/react'
+import { Lock, SpinnerGap, UsersThree } from '@phosphor-icons/react'
 
 import { FlowCanvas } from '@/components/flows/flow-canvas'
 import { FlowNodeInspector } from '@/components/flows/flow-node-inspector'
@@ -655,26 +655,54 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
                 {isReadOnly && owner ? `Shared by ${owner.slug}. Copy it to create your own editable version.` : 'Choose whether teammates can view or run this flow.'}
               </p>
             </div>
-            <div className="grid w-full gap-3 md:w-auto md:min-w-[280px]">
-              <div className="space-y-2">
-                <Label htmlFor="flow-visibility">Visibility</Label>
-                <select
-                  id="flow-visibility"
-                  value={visibility}
-                  onChange={(event) => {
-                    const nextVisibility = event.target.value === 'team' ? 'team' : 'private'
-                    setVisibility(nextVisibility)
-                    if (nextVisibility === 'private') setOrganizationCanRun(false)
-                  }}
-                  disabled={isReadOnly}
-                  className="flex h-10 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <option value="private">Private</option>
-                  <option value="team">Team visible</option>
-                </select>
-              </div>
-              <div className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2">
-                <div>
+            <div
+              role="radiogroup"
+              aria-label="Flow visibility"
+              className={cn(
+                'inline-flex h-9 items-center rounded-lg border border-border/70 bg-background/60 p-0.5 text-sm',
+                isReadOnly && 'pointer-events-none opacity-60',
+              )}
+            >
+              {[
+                { value: 'private' as const, label: 'Private', icon: Lock },
+                { value: 'team' as const, label: 'Team', icon: UsersThree },
+              ].map(({ value, label, icon: Icon }) => {
+                const active = visibility === value
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    disabled={isReadOnly}
+                    onClick={() => {
+                      setVisibility(value)
+                      if (value === 'private') setOrganizationCanRun(false)
+                    }}
+                    className={cn(
+                      'inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors',
+                      active
+                        ? 'bg-primary/10 text-primary shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    <Icon size={14} weight={active ? 'fill' : 'regular'} />
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <div
+            aria-hidden={visibility !== 'team'}
+            className={cn(
+              'grid transition-[grid-template-rows,margin-top,opacity] duration-300 ease-out',
+              visibility === 'team' ? 'mt-4 grid-rows-[1fr] opacity-100' : 'mt-0 grid-rows-[0fr] opacity-0',
+            )}
+          >
+            <div className="overflow-hidden">
+              <div className="flex items-center justify-between gap-4 rounded-lg border border-border/60 bg-background/40 px-4 py-3">
+                <div className="min-w-0">
                   <p className="text-sm font-medium text-foreground">Team can run</p>
                   <p className="text-xs text-muted-foreground">Runs use each teammate&apos;s workspace and connectors.</p>
                 </div>
