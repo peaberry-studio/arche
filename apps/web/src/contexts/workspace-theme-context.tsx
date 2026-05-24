@@ -183,6 +183,7 @@ export function WorkspaceThemeProvider({
   const darkModeStorageKey = useMemo(() => getWorkspaceDarkModeStorageKey(storageScope), [storageScope]);
   const storageKey = useMemo(() => getWorkspaceThemeStorageKey(storageScope), [storageScope]);
   const rootThemeOwnerId = useId();
+  const [hydratedStorageScope, setHydratedStorageScope] = useState<string | null>(null)
 
   const [chatFontFamily, setChatFontFamilyState] = useState<WorkspaceChatFontFamily>(initialChatFontFamily)
   const [chatFontSize, setChatFontSizeState] = useState<WorkspaceChatFontSize>(initialChatFontSize)
@@ -273,48 +274,35 @@ export function WorkspaceThemeProvider({
   const theme = WORKSPACE_THEMES[themeId];
   const themes = useMemo(() => Object.values(WORKSPACE_THEMES), []);
 
-  // Reconcile localStorage → state on mount (chat font family)
+  // Reconcile localStorage before persisting, otherwise server cookie/defaults can overwrite
+  // client preferences and then ping-pong with them on the next render.
   useEffect(() => {
-    const storedChatFontFamily = readStoredChatFontFamily(chatFontFamilyStorageKey)
-    if (!storedChatFontFamily || storedChatFontFamily === chatFontFamily) return
+    const nextChatFontFamily = readStoredChatFontFamily(chatFontFamilyStorageKey) ?? initialChatFontFamily
+    const nextChatFontSize = readStoredChatFontSize(chatFontSizeStorageKey) ?? initialChatFontSize
+    const nextThemeId = readStoredThemeId(storageKey) ?? initialThemeId
+    const nextIsDark = readStoredDarkMode(darkModeStorageKey) ?? initialIsDark
 
-    queueMicrotask(() => {
-      setChatFontFamilyState((current) => current === storedChatFontFamily ? current : storedChatFontFamily)
-    })
-  }, [chatFontFamilyStorageKey, chatFontFamily])
-
-  // Reconcile localStorage → state on mount (chat font size)
-  useEffect(() => {
-    const storedChatFontSize = readStoredChatFontSize(chatFontSizeStorageKey)
-    if (!storedChatFontSize || storedChatFontSize === chatFontSize) return
-
-    queueMicrotask(() => {
-      setChatFontSizeState((current) => current === storedChatFontSize ? current : storedChatFontSize)
-    })
-  }, [chatFontSizeStorageKey, chatFontSize])
-
-  // Reconcile localStorage → state on mount (theme ID)
-  useEffect(() => {
-    const storedThemeId = readStoredThemeId(storageKey)
-    if (!storedThemeId || storedThemeId === themeId) return
-
-    queueMicrotask(() => {
-      setThemeIdState((current) => current === storedThemeId ? current : storedThemeId)
-    })
-  }, [storageKey, themeId])
-
-  // Reconcile localStorage → state on mount (dark mode)
-  useEffect(() => {
-    const storedDarkMode = readStoredDarkMode(darkModeStorageKey)
-    if (storedDarkMode === null || storedDarkMode === isDark) return
-
-    queueMicrotask(() => {
-      setDarkState((current) => current === storedDarkMode ? current : storedDarkMode)
-    })
-  }, [darkModeStorageKey, isDark])
+    setChatFontFamilyState((current) => current === nextChatFontFamily ? current : nextChatFontFamily)
+    setChatFontSizeState((current) => current === nextChatFontSize ? current : nextChatFontSize)
+    setThemeIdState((current) => current === nextThemeId ? current : nextThemeId)
+    setDarkState((current) => current === nextIsDark ? current : nextIsDark)
+    setHydratedStorageScope(storageScope)
+  }, [
+    chatFontFamilyStorageKey,
+    chatFontSizeStorageKey,
+    darkModeStorageKey,
+    initialChatFontFamily,
+    initialChatFontSize,
+    initialIsDark,
+    initialThemeId,
+    storageKey,
+    storageScope,
+  ])
 
   // Persist chat font family
   useEffect(() => {
+    if (hydratedStorageScope !== storageScope) return
+
     try {
       window.localStorage.setItem(chatFontFamilyStorageKey, chatFontFamily)
     } catch {
@@ -322,10 +310,12 @@ export function WorkspaceThemeProvider({
     }
 
     persistChatFontFamilyCookie(storageScope, chatFontFamily)
-  }, [chatFontFamily, chatFontFamilyStorageKey, storageScope])
+  }, [chatFontFamily, chatFontFamilyStorageKey, hydratedStorageScope, storageScope])
 
   // Persist chat font size
   useEffect(() => {
+    if (hydratedStorageScope !== storageScope) return
+
     try {
       window.localStorage.setItem(chatFontSizeStorageKey, String(chatFontSize))
     } catch {
@@ -333,10 +323,12 @@ export function WorkspaceThemeProvider({
     }
 
     persistChatFontSizeCookie(storageScope, chatFontSize)
-  }, [chatFontSize, chatFontSizeStorageKey, storageScope])
+  }, [chatFontSize, chatFontSizeStorageKey, hydratedStorageScope, storageScope])
 
   // Persist theme ID
   useEffect(() => {
+    if (hydratedStorageScope !== storageScope) return
+
     try {
       window.localStorage.setItem(storageKey, themeId)
     } catch {
@@ -344,10 +336,12 @@ export function WorkspaceThemeProvider({
     }
 
     persistThemeCookie(storageScope, themeId)
-  }, [storageKey, storageScope, themeId])
+  }, [hydratedStorageScope, storageKey, storageScope, themeId])
 
   // Persist dark mode
   useEffect(() => {
+    if (hydratedStorageScope !== storageScope) return
+
     try {
       window.localStorage.setItem(darkModeStorageKey, String(isDark))
     } catch {
@@ -355,7 +349,7 @@ export function WorkspaceThemeProvider({
     }
 
     persistDarkModeCookie(storageScope, isDark)
-  }, [darkModeStorageKey, isDark, storageScope])
+  }, [darkModeStorageKey, hydratedStorageScope, isDark, storageScope])
 
   // Cross-tab sync via storage events
   useEffect(() => {
