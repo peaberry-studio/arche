@@ -282,11 +282,20 @@ export function WorkspaceThemeProvider({
     const nextThemeId = readStoredThemeId(storageKey) ?? initialThemeId
     const nextIsDark = readStoredDarkMode(darkModeStorageKey) ?? initialIsDark
 
-    setChatFontFamilyState((current) => current === nextChatFontFamily ? current : nextChatFontFamily)
-    setChatFontSizeState((current) => current === nextChatFontSize ? current : nextChatFontSize)
-    setThemeIdState((current) => current === nextThemeId ? current : nextThemeId)
-    setDarkState((current) => current === nextIsDark ? current : nextIsDark)
-    setHydratedStorageScope(storageScope)
+    let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+
+      setChatFontFamilyState((current) => current === nextChatFontFamily ? current : nextChatFontFamily)
+      setChatFontSizeState((current) => current === nextChatFontSize ? current : nextChatFontSize)
+      setThemeIdState((current) => current === nextThemeId ? current : nextThemeId)
+      setDarkState((current) => current === nextIsDark ? current : nextIsDark)
+      setHydratedStorageScope(storageScope)
+    })
+
+    return () => {
+      cancelled = true
+    }
   }, [
     chatFontFamilyStorageKey,
     chatFontSizeStorageKey,
