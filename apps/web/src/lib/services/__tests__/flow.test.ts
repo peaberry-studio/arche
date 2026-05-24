@@ -370,8 +370,8 @@ describe('flowService', () => {
       data: { resultSeenAt: now },
       where: {
         OR: [
-          { flow: { userId: 'user-1' } },
           { executionUserId: 'user-1' },
+          { executionUserId: null, flow: { userId: 'user-1' } },
         ],
         id: 'run-1',
         resultSeenAt: null,

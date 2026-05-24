@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { resolveFlowRouteContext } from '@/lib/flows/api'
-import { canManageFlow, canViewFlow } from '@/lib/flows/permissions'
+import { canManageFlow, canViewFlow, canViewFlowRun } from '@/lib/flows/permissions'
 import { serializeFlowRun } from '@/lib/flows/serializers'
 import type { FlowRunListItem } from '@/lib/flows/types'
 import { requireCapability } from '@/lib/runtime/require-capability'
@@ -26,7 +26,8 @@ export const GET = withAuth<{ runs: FlowRunListItem[] } | { error: string }, Flo
     if (!flow) return NextResponse.json({ error: 'not_found' }, { status: 404 })
     if (!canViewFlow(user, flow)) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
-    const runs = await flowService.listRunsByFlowIdAndUserId(id, canManageFlow(user, flow) ? flow.userId : user.id)
-    return NextResponse.json({ runs: runs.map(serializeFlowRun) })
+    const runScopeUserId = canManageFlow(user, flow) && user.role === 'ADMIN' ? flow.userId : user.id
+    const runs = await flowService.listRunsByFlowIdAndUserId(id, runScopeUserId)
+    return NextResponse.json({ runs: runs.filter((run) => canViewFlowRun(user, run)).map(serializeFlowRun) })
   },
 )

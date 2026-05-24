@@ -13,6 +13,7 @@ import {
   canManageFlow,
   canRunFlow,
   canViewFlow,
+  canViewFlowRun,
 } from '@/lib/flows/permissions'
 import { validateFlowDefinition } from '@/lib/flows/validation'
 import type {
@@ -88,6 +89,14 @@ function getPermissions(flow: FlowListRecord | FlowDetailRecord, actor?: FlowPer
   }
 }
 
+function isRunVisibleToActor(
+  flow: FlowListRecord | FlowDetailRecord,
+  run: FlowRunRecord & { steps: FlowRunStepRecord[] },
+  actor: FlowPermissionActor,
+): boolean {
+  return canViewFlowRun(actor, { executionUserId: run.executionUserId, flow })
+}
+
 function parseDefinition(definition: unknown) {
   const result = validateFlowDefinition(definition)
   if (result.ok) return result.definition
@@ -100,6 +109,9 @@ function parseDefinition(definition: unknown) {
 }
 
 export function serializeFlowListItem(flow: FlowListRecord, actor?: FlowPermissionActor): FlowListItem {
+  const permissionActor = actor ?? { id: flow.userId, role: 'USER' }
+  const latestRun = flow.runs.find((run) => isRunVisibleToActor(flow, run, permissionActor))
+
   return {
     createdAt: flow.createdAt.toISOString(),
     cronExpression: flow.cronExpression,
@@ -108,7 +120,7 @@ export function serializeFlowListItem(flow: FlowListRecord, actor?: FlowPermissi
     enabled: flow.enabled,
     id: flow.id,
     lastRunAt: flow.lastRunAt ? flow.lastRunAt.toISOString() : null,
-    latestRun: serializeRun(flow.runs[0]),
+    latestRun: serializeRun(latestRun),
     name: flow.name,
     nextRunAt: flow.nextRunAt ? flow.nextRunAt.toISOString() : null,
     organizationCanRun: flow.organizationCanRun,
@@ -121,9 +133,14 @@ export function serializeFlowListItem(flow: FlowListRecord, actor?: FlowPermissi
 }
 
 export function serializeFlowDetail(flow: FlowDetailRecord, actor?: FlowPermissionActor): FlowDetail {
+  const permissionActor = actor ?? { id: flow.userId, role: 'USER' }
+
   return {
     ...serializeFlowListItem(flow, actor),
-    runs: flow.runs.map((run) => serializeRun(run)).filter((run): run is FlowRunListItem => run !== null),
+    runs: flow.runs
+      .filter((run) => isRunVisibleToActor(flow, run, permissionActor))
+      .map((run) => serializeRun(run))
+      .filter((run): run is FlowRunListItem => run !== null),
   }
 }
 

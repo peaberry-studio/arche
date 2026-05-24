@@ -24,6 +24,10 @@ function isOwner(actor: FlowPermissionActor, flow: FlowPermissionRecord): boolea
   return actor.id === flow.userId
 }
 
+function isExecutionUser(actor: FlowPermissionActor, run: FlowRunPermissionRecord): boolean {
+  return actor.id === (run.executionUserId ?? run.flow.userId)
+}
+
 export function canViewFlow(actor: FlowPermissionActor, flow: FlowPermissionRecord): boolean {
   return isOwner(actor, flow) || isAdmin(actor) || flow.visibility === 'team'
 }
@@ -45,9 +49,9 @@ export function canCopyFlow(actor: FlowPermissionActor, flow: FlowPermissionReco
 }
 
 export function canViewFlowRun(actor: FlowPermissionActor, run: FlowRunPermissionRecord): boolean {
-  return canManageFlow(actor, run.flow) || run.executionUserId === actor.id
+  return isAdmin(actor) || isExecutionUser(actor, run)
 }
 
 export function canCancelFlowRun(actor: FlowPermissionActor, run: FlowRunPermissionRecord): boolean {
-  return canManageFlow(actor, run.flow) || run.executionUserId === actor.id
+  return isAdmin(actor) || isExecutionUser(actor, run)
 }

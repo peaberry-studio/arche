@@ -73,8 +73,6 @@ async function validateFlowDefinitionForExecution(
   const definitionResult = validateFlowDefinition(flow.definition)
   if (!definitionResult.ok) return { ok: false, error: definitionResult.error }
 
-  if (executionUser.id === flow.userId) return { ok: true, definition: definitionResult.definition }
-
   const slackNodeAccess = await validateFlowSlackNodeAccess(
     definitionResult.definition,
     executionUser,

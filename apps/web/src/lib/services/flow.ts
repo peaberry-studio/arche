@@ -705,7 +705,7 @@ export async function cancelRunByIdAndUserId(id: string, userId: string, cancell
     },
     where: {
       id,
-      ...runVisibleToUserWhere(userId),
+      ...runExecutesInUserWorkspaceWhere(userId),
       status: { in: ACTIVE_RUN_STATUSES },
     },
   })
@@ -868,7 +868,7 @@ export async function markRunResultSeenByIdAndUserId(id: string, userId: string,
     },
     where: {
       id,
-      ...runVisibleToUserWhere(userId),
+      ...runExecutesInUserWorkspaceWhere(userId),
     },
   })
 
@@ -880,7 +880,7 @@ export async function markRunResultSeenByIdAndUserId(id: string, userId: string,
     where: {
       id,
       resultSeenAt: null,
-      ...runVisibleToUserWhere(userId),
+      ...runExecutesInUserWorkspaceWhere(userId),
     },
   })
 

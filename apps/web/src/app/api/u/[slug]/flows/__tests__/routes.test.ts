@@ -1,4 +1,4 @@
-import { FlowNodeType, FlowRunStatus, FlowRunStepStatus, FlowRunTrigger } from '@prisma/client'
+import { FlowNodeType, FlowRunStatus, FlowRunStepStatus, FlowRunTrigger, Prisma } from '@prisma/client'
 import { NextRequest } from 'next/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -7,6 +7,7 @@ import { createDefaultFlowDefinition } from '@/lib/flows/validation'
 const mocks = vi.hoisted(() => ({
   auditEvent: vi.fn(),
   cancelRunById: vi.fn(),
+  cancelRunByIdAndUserId: vi.fn(),
   checkMissingConnectorRequirements: vi.fn(),
   createFlow: vi.fn(),
   deleteFlowByIdAndUserId: vi.fn(),
@@ -50,6 +51,7 @@ vi.mock('@/lib/flows/runner', () => ({
 vi.mock('@/lib/services', () => ({
   flowService: {
     cancelRunById: mocks.cancelRunById,
+    cancelRunByIdAndUserId: mocks.cancelRunByIdAndUserId,
     createFlow: mocks.createFlow,
     deleteFlowByIdAndUserId: mocks.deleteFlowByIdAndUserId,
     findFlowByIdAndUserId: mocks.findFlowByIdAndUserId,
@@ -76,7 +78,7 @@ const SESSION = {
 }
 const now = new Date('2026-05-12T10:00:00.000Z')
 
-function createFlowRecord() {
+function createFlowRecord(overrides: Record<string, unknown> = {}) {
   return {
     createdAt: now,
     cronExpression: null,
@@ -97,6 +99,7 @@ function createFlowRecord() {
     user: { email: 'alice@example.com', slug: 'alice' },
     userId: 'user-1',
     visibility: 'private',
+    ...overrides,
   }
 }
 
@@ -189,6 +192,7 @@ describe('Flow API routes', () => {
     mocks.findFlowByIdAndUserId.mockResolvedValue(createFlowRecord())
     mocks.findRunByIdAndUserId.mockResolvedValue(createRunRecord())
     mocks.cancelRunById.mockResolvedValue(true)
+    mocks.cancelRunByIdAndUserId.mockResolvedValue(true)
     mocks.auditEvent.mockResolvedValue(undefined)
     mocks.validateFlowPayload.mockResolvedValue({
       ok: true,
@@ -420,6 +424,20 @@ describe('Flow API routes', () => {
     expect(mocks.triggerFlowNow).not.toHaveBeenCalled()
   })
 
+  it('validates Slack node targets for owned manual runs', async () => {
+    mocks.validateFlowSlackNodeAccess.mockResolvedValueOnce({ ok: false, error: 'slack_notification_dm_target_forbidden', status: 403 })
+
+    const response = await POST_RUN_FLOW(request('/api/u/alice/flows/flow-1/run', 'POST'), params({ id: 'flow-1', slug: 'alice' }))
+
+    expect(response.status).toBe(403)
+    expect(mocks.validateFlowSlackNodeAccess).toHaveBeenCalledWith(
+      expect.objectContaining({ startNodeId: 'agent-1' }),
+      SESSION.user,
+      'user-1',
+    )
+    expect(mocks.triggerFlowNow).not.toHaveBeenCalled()
+  })
+
   it('blocks runs when the execution user is missing required connectors', async () => {
     mocks.findFlowByIdAndUserId.mockResolvedValue({
       ...createFlowRecord(),
@@ -475,6 +493,27 @@ describe('Flow API routes', () => {
     }))
   })
 
+  it('blocks copies when Slack targets are forbidden for the actor', async () => {
+    mocks.validateFlowSlackNodeAccess.mockResolvedValueOnce({ ok: false, error: 'slack_notification_dm_target_forbidden', status: 403 })
+
+    const response = await POST_COPY_FLOW(request('/api/u/alice/flows/flow-1/copy', 'POST'), params({ id: 'flow-1', slug: 'alice' }))
+
+    expect(response.status).toBe(403)
+    expect(mocks.createFlow).not.toHaveBeenCalled()
+  })
+
+  it('maps duplicate copied flow names to conflict responses', async () => {
+    mocks.createFlow.mockRejectedValue(new Prisma.PrismaClientKnownRequestError('flow_name_exists', {
+      clientVersion: 'test',
+      code: 'P2002',
+    }))
+
+    const response = await POST_COPY_FLOW(request('/api/u/alice/flows/flow-1/copy', 'POST'), params({ id: 'flow-1', slug: 'alice' }))
+
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toEqual({ error: 'flow_name_exists' })
+  })
+
   it('lists run history and reads run detail', async () => {
     const flow = createFlowRecord()
     const run = createRunRecord()
@@ -488,13 +527,26 @@ describe('Flow API routes', () => {
       .resolves.toMatchObject({ run: { id: 'run-1' } })
   })
 
+  it('redacts other users shared executions from owner run history', async () => {
+    const flow = createFlowRecord({ organizationCanRun: true, visibility: 'team' })
+    const ownerRun = createRunRecord({ id: 'run-owner' })
+    const memberRun = createRunRecord({ executionUserId: 'user-2', id: 'run-member' })
+    mocks.findFlowByIdAndUserId.mockResolvedValue(flow)
+    mocks.listRunsByFlowIdAndUserId.mockResolvedValue([memberRun, ownerRun])
+
+    const response = await GET_FLOW_RUNS(request('/api/u/alice/flows/flow-1/runs'), params({ id: 'flow-1', slug: 'alice' }))
+    const body = await response.json()
+
+    expect(body.runs).toEqual([expect.objectContaining({ id: 'run-owner' })])
+  })
+
   it('cancels runs and resumes human responses', async () => {
     mocks.cancelRunById.mockResolvedValue(true)
     mocks.resumeFlowRun.mockResolvedValue({ ok: true, run: createRunRecord() })
 
     expect((await POST_CANCEL_RUN(request('/api/u/alice/flows/runs/run-1/cancel', 'POST'), params({ runId: 'run-1', slug: 'alice' }))).status)
       .toBe(200)
-    expect(mocks.cancelRunById).toHaveBeenCalledWith('run-1', expect.any(Date))
+    expect(mocks.cancelRunByIdAndUserId).toHaveBeenCalledWith('run-1', 'user-1', expect.any(Date))
     expect((await POST_HUMAN_RESPONSE(request('/api/u/alice/flows/runs/run-1/human-response', 'POST', { response: 'Approved' }), params({ runId: 'run-1', slug: 'alice' }))).status)
       .toBe(202)
   })

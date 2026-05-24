@@ -25,7 +25,9 @@ export const POST = withAuth<{ ok: true } | { error: string }, FlowCancelRunRout
     if (!run) return NextResponse.json({ error: 'not_found' }, { status: 404 })
     if (!canCancelFlowRun(user, run)) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
 
-    const cancelled = await flowService.cancelRunById(runId, new Date())
+    const cancelled = user.role === 'ADMIN'
+      ? await flowService.cancelRunById(runId, new Date())
+      : await flowService.cancelRunByIdAndUserId(runId, user.id, new Date())
     if (!cancelled) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
     await auditEvent({

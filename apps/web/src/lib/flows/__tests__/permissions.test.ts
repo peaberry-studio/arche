@@ -69,12 +69,24 @@ describe('flow permissions', () => {
 
     expect(canViewFlowRun(member, teamFlowRun)).toBe(true)
     expect(canCancelFlowRun(member, teamFlowRun)).toBe(true)
-    expect(canViewFlowRun(owner, teamFlowRun)).toBe(true)
-    expect(canCancelFlowRun(owner, teamFlowRun)).toBe(true)
+    expect(canViewFlowRun(owner, teamFlowRun)).toBe(false)
+    expect(canCancelFlowRun(owner, teamFlowRun)).toBe(false)
     expect(canViewFlowRun(admin, teamFlowRun)).toBe(true)
     expect(canCancelFlowRun(admin, teamFlowRun)).toBe(true)
     expect(canViewFlow(otherMember, teamFlowRun.flow)).toBe(true)
     expect(canViewFlowRun(otherMember, teamFlowRun)).toBe(false)
     expect(canCancelFlowRun(otherMember, teamFlowRun)).toBe(false)
+  })
+
+  it('allows owners to access legacy runs without an execution user', () => {
+    const legacyRun = {
+      executionUserId: null,
+      flow: flow(),
+    }
+
+    expect(canViewFlowRun(owner, legacyRun)).toBe(true)
+    expect(canCancelFlowRun(owner, legacyRun)).toBe(true)
+    expect(canViewFlowRun(member, legacyRun)).toBe(false)
+    expect(canCancelFlowRun(member, legacyRun)).toBe(false)
   })
 })

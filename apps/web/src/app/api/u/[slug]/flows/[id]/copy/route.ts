@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 import { auditEvent } from '@/lib/auth'
 import { resolveFlowRouteContext } from '@/lib/flows/api'
 import { canCopyFlow } from '@/lib/flows/permissions'
+import { validateFlowSlackNodeAccess } from '@/lib/flows/route-auth'
 import { serializeFlowDetail, toPrismaJson } from '@/lib/flows/serializers'
 import type { FlowDetail } from '@/lib/flows/types'
 import { validateFlowDefinition } from '@/lib/flows/validation'
@@ -31,6 +32,14 @@ export const POST = withAuth<{ flow: FlowDetail } | { error: string }, FlowCopyR
 
     const definition = validateFlowDefinition(source.definition)
     if (!definition.ok) return NextResponse.json({ error: definition.error }, { status: 400 })
+
+    const slackNodeAccess = await validateFlowSlackNodeAccess(definition.definition, user, user.id)
+    if (!slackNodeAccess.ok) {
+      return NextResponse.json(
+        { error: slackNodeAccess.error },
+        { status: slackNodeAccess.status },
+      )
+    }
 
     try {
       const copy = await flowService.createFlow({

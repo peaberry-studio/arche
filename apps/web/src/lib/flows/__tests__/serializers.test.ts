@@ -91,6 +91,26 @@ describe('flow serializers', () => {
     })
   })
 
+  it('redacts runs that are not visible to the actor', () => {
+    const ownerRun = createRun()
+    const memberRun = {
+      ...createRun(),
+      executionUser: { email: 'bob@example.com', slug: 'bob' },
+      executionUserId: 'user-2',
+      id: 'run-2',
+    }
+    const flow = createFlow([memberRun, ownerRun])
+
+    const ownerDetail = serializeFlowDetail(flow, { id: 'user-1', role: 'USER' })
+    const adminDetail = serializeFlowDetail(flow, { id: 'admin-1', role: 'ADMIN' })
+    const ownerListItem = serializeFlowListItem(flow, { id: 'user-1', role: 'USER' })
+
+    expect(ownerDetail.runs).toHaveLength(1)
+    expect(ownerDetail.runs[0].id).toBe('run-1')
+    expect(ownerListItem.latestRun?.id).toBe('run-1')
+    expect(adminDetail.runs.map((run) => run.id)).toEqual(['run-2', 'run-1'])
+  })
+
   it('falls back to an empty definition when stored JSON is invalid', () => {
     const flow: FlowListRecord = {
       ...createFlow([]),
