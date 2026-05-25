@@ -32,7 +32,7 @@ const flow: FlowListItem = {
   name: 'Weekly Review',
   nextRunAt: '2026-05-18T09:00:00.000Z',
   organizationCanRun: false,
-  owner: { email: 'alice@example.com', slug: 'alice' },
+  owner: { slug: 'alice' },
   permissions: { canCopy: true, canEdit: true, canManage: true, canRun: true, canView: true, isOwner: true },
   timezone: 'UTC',
   updatedAt: '2026-05-12T10:00:00.000Z',
@@ -45,7 +45,7 @@ function createRun(status: FlowRunStatus): FlowListItem['latestRun'] {
     createdAt: '2026-05-12T10:00:00.000Z',
     currentNodeId: null,
     error: null,
-    executionUser: { email: 'alice@example.com', slug: 'alice' },
+    executionUser: { slug: 'alice' },
     executionUserId: 'user-1',
     finishedAt: null,
     flowId: 'flow-1',
@@ -123,7 +123,7 @@ describe('FlowsPage', () => {
 
     render(<FlowsPage slug="alice" />)
 
-    await waitFor(() => expect(screen.getByText('network_error')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Network error. Try again.')).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
 
     await waitFor(() => expect(screen.getByText('Weekly Review')).toBeTruthy())
@@ -178,10 +178,10 @@ describe('FlowsPage', () => {
     await waitFor(() => expect(screen.getByText('Weekly Review')).toBeTruthy())
 
     fireEvent.click(screen.getByRole('button', { name: 'Run' }))
-    expect(await screen.findByText('flow_busy')).toBeTruthy()
+    expect(await screen.findByText('This flow already has a run in progress. Try again after it finishes.')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
-    expect(await screen.findByText('network_error')).toBeTruthy()
+    expect(await screen.findByText('Network error. Try again.')).toBeTruthy()
   })
 
   it('separates owned and team flows and hides unavailable actions', async () => {
@@ -194,7 +194,7 @@ describe('FlowsPage', () => {
             id: 'team',
             name: 'Team flow',
             organizationCanRun: true,
-            owner: { email: 'bob@example.com', slug: 'bob' },
+            owner: { slug: 'bob' },
             permissions: { canCopy: false, canEdit: false, canManage: false, canRun: false, canView: true, isOwner: false },
             visibility: 'team',
           }),

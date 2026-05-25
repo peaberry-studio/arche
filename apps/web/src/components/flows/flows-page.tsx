@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { copyFlowRequest, fetchFlowList, runFlowRequest } from '@/lib/flows/client'
 import { formatFlowRunDate } from '@/lib/flows/cron'
+import { getFlowErrorMessage } from '@/lib/flows/errors'
 import type { FlowListItem } from '@/lib/flows/types'
 import { cn } from '@/lib/utils'
 
@@ -227,13 +228,13 @@ export function FlowsPage({ slug }: FlowsPageProps) {
         <Card>
           <CardHeader>
             <CardTitle>Could not load flows</CardTitle>
-            <CardDescription>{loadError}</CardDescription>
+            <CardDescription>{getFlowErrorMessage(loadError)}</CardDescription>
           </CardHeader>
           <CardContent><Button variant="outline" onClick={() => void loadFlows()}>Retry</Button></CardContent>
         </Card>
       ) : null}
 
-      {actionError ? <p className="text-sm text-destructive">{actionError}</p> : null}
+      {actionError ? <p className="text-sm text-destructive">{getFlowErrorMessage(actionError)}</p> : null}
 
       {!isLoading && !loadError && sortedFlows.length === 0 ? (
         <DashboardEmptyState

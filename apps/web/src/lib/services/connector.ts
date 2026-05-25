@@ -18,7 +18,14 @@ export type ConnectorListEntry = {
 export type ConnectorEnabledEntry = {
   id: string
   type: string
+  name: string
   enabled: boolean
+}
+
+export type ConnectorNameEntry = {
+  id: string
+  type: string
+  name: string
 }
 
 export type ConnectorMcpEntry = {
@@ -73,7 +80,7 @@ export function findManyByUserId(userId: string): Promise<ConnectorListEntry[]> 
 export function findEnabledByUserId(userId: string): Promise<ConnectorEnabledEntry[]> {
   return prisma.connector.findMany({
     where: { userId, enabled: true },
-    select: { id: true, type: true, enabled: true },
+    select: { id: true, type: true, name: true, enabled: true },
   })
 }
 
@@ -108,6 +115,26 @@ export function findCapabilityInventoryEntries(): Promise<ConnectorCapabilityInv
     },
     orderBy: [
       { type: 'asc' },
+      { name: 'asc' },
+      { id: 'asc' },
+    ],
+  })
+}
+
+export function findManyByIds(ids: string[]): Promise<ConnectorNameEntry[]> {
+  if (ids.length === 0) return Promise.resolve([])
+
+  return prisma.connector.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, type: true, name: true },
+  })
+}
+
+export function findNameEntriesByType(type: string): Promise<ConnectorNameEntry[]> {
+  return prisma.connector.findMany({
+    where: { type },
+    select: { id: true, type: true, name: true },
+    orderBy: [
       { name: 'asc' },
       { id: 'asc' },
     ],

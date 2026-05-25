@@ -40,7 +40,7 @@ const flow: FlowDetail = {
   name: 'Daily brief',
   nextRunAt: null,
   organizationCanRun: false,
-  owner: { email: 'alice@example.com', slug: 'alice' },
+  owner: { slug: 'alice' },
   permissions: { canCopy: true, canEdit: true, canManage: true, canRun: true, canView: true, isOwner: true },
   runs: [],
   timezone: 'UTC',
@@ -101,7 +101,7 @@ describe('FlowRunHistoryView', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /run flow/i }))
 
-    expect(await screen.findByText('flow_busy')).toBeTruthy()
+    expect(await screen.findByText('This flow already has a run in progress. Try again after it finishes.')).toBeTruthy()
     expect(screen.getByTestId('flow-history')).toBeTruthy()
   })
 
@@ -132,7 +132,7 @@ describe('FlowRunHistoryView', () => {
   it('shows copy errors and blocks runs with missing connectors', async () => {
     mocks.fetchFlowDetail.mockResolvedValueOnce({
       ok: true,
-      data: { flow: { ...flow, missingConnectorRequirements: [{ connectorType: 'slack' }] } },
+      data: { flow: { ...flow, missingConnectorRequirements: [{ agentId: 'agent-1', agentName: 'Agent', capabilityId: 'slack', connectorName: null, connectorType: 'slack' }] } },
     })
     mocks.copyFlowRequest.mockResolvedValueOnce({ ok: false, error: 'copy_failed' })
 

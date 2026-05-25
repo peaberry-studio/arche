@@ -4,6 +4,7 @@ import type { FlowDefinition } from '@/lib/flows/types'
 
 const mocks = vi.hoisted(() => ({
   findEnabledByUserId: vi.fn(),
+  findManyByIds: vi.fn(),
   readCommonWorkspaceConfig: vi.fn(),
 }))
 
@@ -14,6 +15,7 @@ vi.mock('@/lib/common-workspace-config-store', () => ({
 vi.mock('@/lib/services', () => ({
   connectorService: {
     findEnabledByUserId: mocks.findEnabledByUserId,
+    findManyByIds: mocks.findManyByIds,
   },
 }))
 
@@ -67,6 +69,7 @@ describe('flow connector requirements', () => {
         },
       }),
     })
+    mocks.findManyByIds.mockResolvedValue([{ id: 'custom1', name: 'Acme MCP', type: 'custom' }])
   })
 
   it('infers requirements from primary and targeted agent capabilities', async () => {
@@ -76,7 +79,7 @@ describe('flow connector requirements', () => {
       ok: true,
       requirements: [
         expect.objectContaining({ agentId: 'assistant', agentName: 'Assistant', capabilityId: 'globalzendesk', connectorType: 'zendesk' }),
-        expect.objectContaining({ agentId: 'researcher', agentName: 'Researcher', capabilityId: 'custom1', connectorType: 'custom' }),
+        expect.objectContaining({ agentId: 'researcher', agentName: 'Researcher', capabilityId: 'custom1', connectorName: 'Acme MCP', connectorType: 'custom' }),
       ],
     })
   })
@@ -87,14 +90,14 @@ describe('flow connector requirements', () => {
     if (!requirementsResult.ok) return
 
     mocks.findEnabledByUserId.mockResolvedValue([
-      { enabled: true, id: 'zendesk-1', type: 'zendesk' },
-      { enabled: true, id: 'custom1', type: 'custom' },
+      { enabled: true, id: 'zendesk-1', name: 'Zendesk', type: 'zendesk' },
+      { enabled: true, id: 'custom2', name: 'Acme MCP', type: 'custom' },
     ])
 
     await expect(checkMissingConnectorRequirements(requirementsResult.requirements, 'user-1'))
       .resolves.toEqual([])
 
-    mocks.findEnabledByUserId.mockResolvedValue([{ enabled: true, id: 'zendesk-1', type: 'zendesk' }])
+    mocks.findEnabledByUserId.mockResolvedValue([{ enabled: true, id: 'zendesk-1', name: 'Zendesk', type: 'zendesk' }])
 
     await expect(checkMissingConnectorRequirements(requirementsResult.requirements, 'user-1'))
       .resolves.toEqual([expect.objectContaining({ capabilityId: 'custom1', connectorType: 'custom' })])

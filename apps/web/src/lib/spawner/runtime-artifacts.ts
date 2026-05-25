@@ -166,6 +166,7 @@ async function buildBaseWorkspaceConfig(
         baseConfig,
         userMcpKeys,
         mcpResult.connectorToolPermissions,
+        mcpResult.connectorAliases,
       )
       baseConfig = { ...baseConfig, mcp: mcpResult.mcpConfig.mcp }
     } else {

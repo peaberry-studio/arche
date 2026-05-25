@@ -28,7 +28,6 @@ export type FlowRecord = {
 }
 
 export type FlowUserRecord = {
-  email: string
   slug: string
 }
 
@@ -114,7 +113,6 @@ export const ACTIVE_RUN_STATUSES: FlowRunStatus[] = [
 ]
 
 export const FLOW_USER_SELECT = {
-  email: true,
   slug: true,
 }
 

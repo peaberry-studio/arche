@@ -7,6 +7,7 @@ import { Lightning, PencilSimple, SpinnerGap } from '@phosphor-icons/react'
 import { FlowRunHistory } from '@/components/flows/flow-run-history'
 import { Button } from '@/components/ui/button'
 import { copyFlowRequest, fetchFlowDetail, runFlowRequest } from '@/lib/flows/client'
+import { formatConnectorRequirement, getFlowErrorMessage } from '@/lib/flows/errors'
 import type { FlowDetail } from '@/lib/flows/types'
 
 type FlowRunHistoryViewProps = {
@@ -145,10 +146,10 @@ export function FlowRunHistoryView({ flowId, slug }: FlowRunHistoryViewProps) {
         </div>
       </div>
 
-      {actionError ? <p className="text-sm text-destructive">{actionError}</p> : null}
+      {actionError ? <p className="text-sm text-destructive">{getFlowErrorMessage(actionError)}</p> : null}
       {flow && (flow.missingConnectorRequirements ?? []).length > 0 ? (
         <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
-          Missing connectors: {(flow.missingConnectorRequirements ?? []).map((requirement) => requirement.connectorType).join(', ')}.
+          Missing connectors: {(flow.missingConnectorRequirements ?? []).map(formatConnectorRequirement).join(', ')}.
         </p>
       ) : null}
 
@@ -164,7 +165,7 @@ export function FlowRunHistoryView({ flowId, slug }: FlowRunHistoryViewProps) {
       {!isLoading && !flow ? (
         <div className="rounded-xl border border-border/60 bg-card/40 p-5">
           <p className="text-sm font-semibold text-foreground">Could not load runs</p>
-          <p className="mt-1 text-sm text-muted-foreground">{error ?? 'not_found'}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{getFlowErrorMessage(error ?? 'not_found')}</p>
           <Button variant="outline" size="sm" className="mt-3" onClick={() => void loadFlow()}>Retry</Button>
         </div>
       ) : null}

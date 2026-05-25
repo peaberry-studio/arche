@@ -17,6 +17,7 @@ import { Switch } from '@/components/ui/switch'
 import { useAgentsCatalog } from '@/hooks/use-agents-catalog'
 import { copyFlowRequest, createFlowRequest, deleteFlowRequest, fetchFlowDetail, runFlowRequest, updateFlowRequest } from '@/lib/flows/client'
 import { getFlowTimeZoneOptions } from '@/lib/flows/cron'
+import { formatConnectorRequirement, getFlowErrorMessage } from '@/lib/flows/errors'
 import {
   addFlowDefinitionNodeAfter,
   connectFlowDefinitionNodes,
@@ -390,11 +391,11 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
 
   if (loadError) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Could not load flow</CardTitle>
-          <CardDescription>{loadError}</CardDescription>
-        </CardHeader>
+        <Card>
+          <CardHeader>
+            <CardTitle>Could not load flow</CardTitle>
+            <CardDescription>{getFlowErrorMessage(loadError)}</CardDescription>
+          </CardHeader>
         <CardContent>
           <Button variant="outline" onClick={() => void loadFlow()}>Retry</Button>
         </CardContent>
@@ -568,12 +569,12 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
           <div className="mb-3 space-y-1">
             {!validation.ok ? <p className="text-sm text-destructive">Definition error: {validation.error}</p> : null}
             {!isScheduleValid ? <p className="text-sm text-destructive">Schedule error: invalid_cron_expression</p> : null}
-            {formError ? <p className="text-sm text-destructive">{formError}</p> : null}
+            {formError ? <p className="text-sm text-destructive">{getFlowErrorMessage(formError)}</p> : null}
           </div>
         ) : null}
         {missingConnectorRequirements.length > 0 ? (
           <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
-            Missing connectors: {missingConnectorRequirements.map((requirement) => requirement.connectorType).join(', ')}. Configure them before running this flow.
+            Missing connectors: {missingConnectorRequirements.map(formatConnectorRequirement).join(', ')}. Configure them before running this flow.
           </div>
         ) : null}
         <div className="flex flex-wrap items-center justify-end gap-2">

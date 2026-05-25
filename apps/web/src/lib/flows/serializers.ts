@@ -6,6 +6,7 @@ import type {
   FlowPermissions,
   FlowRunListItem,
   FlowRunStepListItem,
+  FlowUserSummary,
 } from '@/lib/flows/types'
 import {
   canCopyFlow,
@@ -22,6 +23,7 @@ import type {
   FlowRunDetailRecord,
   FlowRunRecord,
   FlowRunStepRecord,
+  FlowUserRecord,
 } from '@/lib/services/flow'
 
 type FlowPermissionActor = {
@@ -52,6 +54,10 @@ function serializeStep(step: FlowRunStepRecord): FlowRunStepListItem {
   }
 }
 
+function serializeUserSummary(user: FlowUserRecord | null | undefined): FlowUserSummary | null {
+  return user ? { slug: user.slug } : null
+}
+
 function serializeRun(run: (FlowRunRecord & { steps: FlowRunStepRecord[] }) | FlowRunDetailRecord | null | undefined): FlowRunListItem | null {
   if (!run) return null
 
@@ -59,7 +65,7 @@ function serializeRun(run: (FlowRunRecord & { steps: FlowRunStepRecord[] }) | Fl
     currentNodeId: run.currentNodeId,
     attempt: run.attempt,
     error: run.error,
-    executionUser: run.executionUser ?? null,
+    executionUser: serializeUserSummary(run.executionUser),
     executionUserId: run.executionUserId ?? null,
     finishedAt: run.finishedAt ? run.finishedAt.toISOString() : null,
     flowId: run.flowId,
@@ -124,7 +130,7 @@ export function serializeFlowListItem(flow: FlowListRecord, actor?: FlowPermissi
     name: flow.name,
     nextRunAt: flow.nextRunAt ? flow.nextRunAt.toISOString() : null,
     organizationCanRun: flow.organizationCanRun,
-    owner: flow.user ?? null,
+    owner: serializeUserSummary(flow.user),
     permissions: getPermissions(flow, actor),
     timezone: flow.timezone,
     updatedAt: flow.updatedAt.toISOString(),

@@ -4,7 +4,7 @@ import { CONNECTOR_TYPES, isSingleInstanceConnectorType, type ConnectorType } fr
 import { isRecord } from '@/lib/records'
 
 const CONNECTOR_TYPE_PATTERN = CONNECTOR_TYPES.join('|')
-const MCP_SERVER_KEY_PATTERN = new RegExp(`^arche_(${CONNECTOR_TYPE_PATTERN})_([a-z0-9]+)$`)
+const MCP_SERVER_KEY_PATTERN = new RegExp(`^arche_(${CONNECTOR_TYPE_PATTERN})_([^_]+)$`)
 const ALWAYS_ENABLED_TOOLS = ['email_draft', 'chart_create', 'diagram_create'] as const
 
 function isToolMap(value: unknown): value is Record<string, boolean> {
@@ -174,6 +174,7 @@ export function remapAgentConnectorTools(
   config: Record<string, unknown>,
   userMcpKeys: Set<string>,
   connectorToolPermissions?: Record<string, ConnectorToolPermissionMap>,
+  connectorAliases?: Record<string, string>,
 ): Record<string, unknown> {
   const agents = config.agent as Record<string, Record<string, unknown>> | undefined
   if (!agents || typeof agents !== 'object') return config
@@ -236,16 +237,25 @@ export function remapAgentConnectorTools(
       }
 
       const [, type, adminId] = match
+      const sourceServerKey = `arche_${type}_${adminId}`
 
       if (!isSingleInstanceConnectorType(type as ConnectorType)) {
-        const serverKey = `arche_${type}_${adminId}`
-        if (userMcpKeys.has(serverKey)) {
+        const serverKey = userMcpKeys.has(sourceServerKey)
+          ? sourceServerKey
+          : connectorAliases?.[sourceServerKey]
+
+        if (serverKey && userMcpKeys.has(serverKey)) {
           if (connectorToolPermissions?.[serverKey]) {
             applyConnectorToolPolicy(serverKey, enabled)
             continue
           }
 
-          nextTools[toolKey] = enabled
+          if (serverKey === sourceServerKey) {
+            nextTools[toolKey] = enabled
+          } else {
+            nextTools[`${serverKey}_*`] = enabled
+            toolsChanged = true
+          }
           continue
         }
 
@@ -261,7 +271,7 @@ export function remapAgentConnectorTools(
       }
 
       if (userIds.length === 1 && userIds[0] === adminId) {
-        const serverKey = `arche_${type}_${adminId}`
+        const serverKey = sourceServerKey
         if (connectorToolPermissions?.[serverKey]) {
           applyConnectorToolPolicy(serverKey, enabled)
         } else {

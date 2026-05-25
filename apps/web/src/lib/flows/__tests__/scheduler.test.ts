@@ -105,16 +105,29 @@ describe('flow scheduler', () => {
     expect(mocks.dispatchClaimedFlowRun).toHaveBeenCalledWith(secondFlow, 'schedule')
   })
 
-  it('records scheduled dispatch failures before rethrowing', async () => {
-    const flow = createClaimedFlow('flow-1')
+  it('records scheduled dispatch failures and continues the batch', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const firstFlow = createClaimedFlow('flow-1')
+    const secondFlow = createClaimedFlow('flow-2')
     mocks.createFlowLeaseOwner.mockResolvedValue('worker-1')
     mocks.claimNextRetryRun.mockResolvedValue(null)
-    mocks.claimNextDueFlow.mockResolvedValueOnce(flow)
-    mocks.dispatchClaimedFlowRun.mockRejectedValue(new Error('dispatch failed'))
+    mocks.claimNextDueFlow
+      .mockResolvedValueOnce(firstFlow)
+      .mockResolvedValueOnce(secondFlow)
+      .mockResolvedValueOnce(null)
+    mocks.dispatchClaimedFlowRun
+      .mockRejectedValueOnce(new Error('dispatch failed'))
+      .mockResolvedValueOnce({ ok: true, runId: 'run-2' })
 
-    await expect(dispatchDueFlows(1)).rejects.toThrow('dispatch failed')
+    await expect(dispatchDueFlows(3)).resolves.toBe(2)
 
     expect(getFlowSchedulerStatus().lastDispatchError).toBe('dispatch failed')
+    expect(mocks.dispatchClaimedFlowRun).toHaveBeenCalledWith(secondFlow, 'schedule')
+    expect(consoleError).toHaveBeenCalledWith('[flows] Failed to dispatch claimed flow run', {
+      error: 'dispatch failed',
+      flowId: 'flow-1',
+    })
+    consoleError.mockRestore()
   })
 
   it('records dispatch errors before rethrowing', async () => {

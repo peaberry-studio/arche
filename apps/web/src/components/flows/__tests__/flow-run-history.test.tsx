@@ -17,7 +17,7 @@ const flow: FlowDetail = {
   name: 'Flow',
   nextRunAt: null,
   organizationCanRun: false,
-  owner: { email: 'alice@example.com', slug: 'alice' },
+  owner: { slug: 'alice' },
   permissions: { canCopy: true, canEdit: true, canManage: true, canRun: true, canView: true, isOwner: true },
   runs: [{
     currentNodeId: null,

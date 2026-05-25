@@ -69,7 +69,7 @@ function createFlow(runs: FlowRunDetailRecord[]): FlowDetailRecord {
     runs,
     timezone: 'UTC',
     updatedAt: now,
-    user: { email: 'alice@example.com', slug: 'alice' },
+    user: { slug: 'alice' },
     userId: 'user-1',
     visibility: 'private',
   }
@@ -95,7 +95,7 @@ describe('flow serializers', () => {
     const ownerRun = createRun()
     const memberRun = {
       ...createRun(),
-      executionUser: { email: 'bob@example.com', slug: 'bob' },
+      executionUser: { slug: 'bob' },
       executionUserId: 'user-2',
       id: 'run-2',
     }

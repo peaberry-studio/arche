@@ -9,7 +9,6 @@ export type FlowNodeType = 'agent' | 'human' | 'condition' | 'slack' | 'merge' |
 export type FlowVisibility = 'private' | 'team'
 
 export type FlowUserSummary = {
-  email: string
   slug: string
 }
 
@@ -26,6 +25,7 @@ export type FlowConnectorRequirementSummary = {
   agentId: string
   agentName: string
   capabilityId: string
+  connectorName: string | null
   connectorType: string
 }
 

@@ -408,6 +408,35 @@ describe('Flow API routes', () => {
     expect(mocks.triggerFlowNow).toHaveBeenCalledWith({ executionUserId: 'user-1', flowId: 'flow-1', trigger: 'manual' })
   })
 
+  it('runs admin-triggered manual runs as the admin invoker', async () => {
+    mocks.getSession.mockResolvedValue({
+      sessionId: 'session-admin',
+      user: { email: 'admin@example.com', id: 'admin-1', role: 'ADMIN', slug: 'admin' },
+    })
+    mocks.findIdBySlug.mockResolvedValue({ id: 'owner-1' })
+    mocks.findFlowByIdForScope.mockResolvedValue({
+      ...createFlowRecord(),
+      userId: 'owner-1',
+    })
+    mocks.getFlowConnectorRequirements.mockResolvedValue({ ok: true, requirements: [{ capabilityId: 'globalzendesk' }] })
+    mocks.checkMissingConnectorRequirements.mockResolvedValue([])
+    mocks.triggerFlowNow.mockResolvedValue({ ok: true })
+
+    const response = await POST_RUN_FLOW(request('/api/u/alice/flows/flow-1/run', 'POST'), params({ id: 'flow-1', slug: 'alice' }))
+
+    expect(response.status).toBe(202)
+    expect(mocks.validateFlowSlackNodeAccess).toHaveBeenCalledWith(
+      expect.objectContaining({ startNodeId: 'agent-1' }),
+      expect.objectContaining({ id: 'admin-1', role: 'ADMIN', slug: 'admin' }),
+      'admin-1',
+    )
+    expect(mocks.checkMissingConnectorRequirements).toHaveBeenCalledWith([{ capabilityId: 'globalzendesk' }], 'admin-1')
+    expect(mocks.triggerFlowNow).toHaveBeenCalledWith({ executionUserId: 'admin-1', flowId: 'flow-1', trigger: 'manual' })
+    expect(mocks.auditEvent).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: expect.objectContaining({ executionUserId: 'admin-1', ownerUserId: 'owner-1' }),
+    }))
+  })
+
   it('blocks runnable team flows when Slack targets are forbidden for the execution user', async () => {
     mocks.findFlowByIdForScope.mockResolvedValue({
       ...createFlowRecord(),
