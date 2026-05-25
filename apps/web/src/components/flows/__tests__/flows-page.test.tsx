@@ -154,4 +154,61 @@ describe('FlowsPage', () => {
     expect(screen.getAllByText('Last run failed')).toHaveLength(2)
     expect(screen.getByText('Waiting for human')).toBeTruthy()
   })
+
+  it('runs and copies flows from the list', async () => {
+    clientMocks.copyFlowRequest.mockResolvedValueOnce({ ok: true, data: { flow: { ...flow, id: 'copy-1' } } })
+
+    render(<FlowsPage slug="alice" />)
+    await waitFor(() => expect(screen.getByText('Weekly Review')).toBeTruthy())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }))
+    await waitFor(() => expect(clientMocks.runFlowRequest).toHaveBeenCalledWith('alice', 'flow-1'))
+    expect(clientMocks.fetchFlowList).toHaveBeenCalledTimes(2)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
+    await waitFor(() => expect(clientMocks.copyFlowRequest).toHaveBeenCalledWith('alice', 'flow-1'))
+    expect(clientMocks.push).toHaveBeenCalledWith('/u/alice/flows/copy-1')
+  })
+
+  it('shows action errors from run, copy, and network failures', async () => {
+    clientMocks.runFlowRequest.mockResolvedValueOnce({ ok: false, error: 'flow_busy' })
+    clientMocks.copyFlowRequest.mockRejectedValueOnce(new Error('offline'))
+
+    render(<FlowsPage slug="alice" />)
+    await waitFor(() => expect(screen.getByText('Weekly Review')).toBeTruthy())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }))
+    expect(await screen.findByText('flow_busy')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
+    expect(await screen.findByText('network_error')).toBeTruthy()
+  })
+
+  it('separates owned and team flows and hides unavailable actions', async () => {
+    clientMocks.fetchFlowList.mockResolvedValue({
+      ok: true,
+      data: {
+        flows: [
+          createFlow({ id: 'owned', name: 'Owned flow' }),
+          createFlow({
+            id: 'team',
+            name: 'Team flow',
+            organizationCanRun: true,
+            owner: { email: 'bob@example.com', slug: 'bob' },
+            permissions: { canCopy: false, canEdit: false, canManage: false, canRun: false, canView: true, isOwner: false },
+            visibility: 'team',
+          }),
+        ],
+      },
+    })
+
+    render(<FlowsPage slug="alice" />)
+
+    await waitFor(() => expect(screen.getByText('Team flow')).toBeTruthy())
+    expect(screen.getByText('My flows')).toBeTruthy()
+    expect(screen.getByText('Team flows')).toBeTruthy()
+    expect(screen.getByText('Shared by bob')).toBeTruthy()
+    expect(screen.getByText('Runnable')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'View Team flow' }).getAttribute('href')).toBe('/u/alice/flows/team')
+  })
 })
