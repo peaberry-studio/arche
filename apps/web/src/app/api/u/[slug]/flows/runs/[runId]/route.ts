@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { resolveFlowRouteContext } from '@/lib/flows/api'
+import { createFlowActorScope } from '@/lib/flows/authorization'
 import { canViewFlowRun } from '@/lib/flows/permissions'
 import { serializeFlowRun } from '@/lib/flows/serializers'
 import type { FlowRunListItem } from '@/lib/flows/types'
@@ -22,7 +23,7 @@ export const GET = withAuth<{ run: FlowRunListItem } | { error: string }, FlowRu
     const routeContext = await resolveFlowRouteContext(slug, user)
     if (!routeContext) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
-    const run = await flowService.findRunByIdAndUserId(runId, routeContext.workspaceUserId)
+    const run = await flowService.findRunByIdForScope(runId, createFlowActorScope(user, routeContext.workspaceUserId))
     if (!run) return NextResponse.json({ error: 'not_found' }, { status: 404 })
     if (!canViewFlowRun(user, run)) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 

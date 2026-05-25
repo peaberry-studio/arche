@@ -7,22 +7,22 @@ import { createDefaultFlowDefinition } from '@/lib/flows/validation'
 const mocks = vi.hoisted(() => ({
   auditEvent: vi.fn(),
   cancelRunById: vi.fn(),
-  cancelRunByIdAndUserId: vi.fn(),
+  cancelRunByIdForScope: vi.fn(),
   checkMissingConnectorRequirements: vi.fn(),
   createFlow: vi.fn(),
-  deleteFlowByIdAndUserId: vi.fn(),
-  findFlowByIdAndUserId: vi.fn(),
+  deleteFlowByIdAndOwnerId: vi.fn(),
+  findFlowByIdForScope: vi.fn(),
   findIdBySlug: vi.fn(),
-  findRunByIdAndUserId: vi.fn(),
+  findRunByIdForScope: vi.fn(),
   getFlowConnectorRequirements: vi.fn(),
   getRuntimeCapabilities: vi.fn(),
   getSession: vi.fn(),
   isDesktop: vi.fn(),
-  listFlowsByUserId: vi.fn(),
-  listRunsByFlowIdAndUserId: vi.fn(),
+  listFlowsForScope: vi.fn(),
+  listRunsByFlowIdForScope: vi.fn(),
   resumeFlowRun: vi.fn(),
   triggerFlowNow: vi.fn(),
-  updateFlowByIdAndUserId: vi.fn(),
+  updateFlowByIdAndOwnerId: vi.fn(),
   validateDesktopToken: vi.fn(),
   validateFlowPayload: vi.fn(),
   validateFlowSlackNodeAccess: vi.fn(),
@@ -51,14 +51,14 @@ vi.mock('@/lib/flows/runner', () => ({
 vi.mock('@/lib/services', () => ({
   flowService: {
     cancelRunById: mocks.cancelRunById,
-    cancelRunByIdAndUserId: mocks.cancelRunByIdAndUserId,
+    cancelRunByIdForScope: mocks.cancelRunByIdForScope,
     createFlow: mocks.createFlow,
-    deleteFlowByIdAndUserId: mocks.deleteFlowByIdAndUserId,
-    findFlowByIdAndUserId: mocks.findFlowByIdAndUserId,
-    findRunByIdAndUserId: mocks.findRunByIdAndUserId,
-    listFlowsByUserId: mocks.listFlowsByUserId,
-    listRunsByFlowIdAndUserId: mocks.listRunsByFlowIdAndUserId,
-    updateFlowByIdAndUserId: mocks.updateFlowByIdAndUserId,
+    deleteFlowByIdAndOwnerId: mocks.deleteFlowByIdAndOwnerId,
+    findFlowByIdForScope: mocks.findFlowByIdForScope,
+    findRunByIdForScope: mocks.findRunByIdForScope,
+    listFlowsForScope: mocks.listFlowsForScope,
+    listRunsByFlowIdForScope: mocks.listRunsByFlowIdForScope,
+    updateFlowByIdAndOwnerId: mocks.updateFlowByIdAndOwnerId,
   },
   userService: { findIdBySlug: mocks.findIdBySlug },
 }))
@@ -189,10 +189,10 @@ describe('Flow API routes', () => {
     mocks.getFlowConnectorRequirements.mockResolvedValue({ ok: true, requirements: [] })
     mocks.checkMissingConnectorRequirements.mockResolvedValue([])
     mocks.findIdBySlug.mockResolvedValue({ id: 'user-1' })
-    mocks.findFlowByIdAndUserId.mockResolvedValue(createFlowRecord())
-    mocks.findRunByIdAndUserId.mockResolvedValue(createRunRecord())
+    mocks.findFlowByIdForScope.mockResolvedValue(createFlowRecord())
+    mocks.findRunByIdForScope.mockResolvedValue(createRunRecord())
     mocks.cancelRunById.mockResolvedValue(true)
-    mocks.cancelRunByIdAndUserId.mockResolvedValue(true)
+    mocks.cancelRunByIdForScope.mockResolvedValue(true)
     mocks.auditEvent.mockResolvedValue(undefined)
     mocks.validateFlowPayload.mockResolvedValue({
       ok: true,
@@ -210,26 +210,26 @@ describe('Flow API routes', () => {
   })
 
   it('lists flows for the authenticated owner', async () => {
-    mocks.listFlowsByUserId.mockResolvedValue([createFlowRecord()])
+    mocks.listFlowsForScope.mockResolvedValue([createFlowRecord()])
 
     const response = await GET_FLOWS(request('/api/u/alice/flows'), params({ slug: 'alice' }))
     const body = await response.json()
 
     expect(body.flows).toHaveLength(1)
-    expect(mocks.listFlowsByUserId).toHaveBeenCalledWith('user-1')
+    expect(mocks.listFlowsForScope).toHaveBeenCalledWith(expect.objectContaining({ workspaceUserId: 'user-1' }))
   })
 
   it('blocks non-admin actors from another user flow workspace', async () => {
     const response = await GET_FLOWS(request('/api/u/bob/flows'), params({ slug: 'bob' }))
 
     expect(response.status).toBe(403)
-    expect(mocks.listFlowsByUserId).not.toHaveBeenCalled()
+    expect(mocks.listFlowsForScope).not.toHaveBeenCalled()
   })
 
   it('creates flows and audits the write', async () => {
     const flow = createFlowRecord()
     mocks.createFlow.mockResolvedValue(flow)
-    mocks.findFlowByIdAndUserId.mockResolvedValue(flow)
+    mocks.findFlowByIdForScope.mockResolvedValue(flow)
 
     const response = await POST_FLOW(request('/api/u/alice/flows', 'POST', { name: 'Flow' }), params({ slug: 'alice' }))
 
@@ -253,13 +253,13 @@ describe('Flow API routes', () => {
       },
     })
     mocks.createFlow.mockResolvedValue(flow)
-    mocks.findFlowByIdAndUserId.mockResolvedValue(flow)
+    mocks.findFlowByIdForScope.mockResolvedValue(flow)
     mocks.triggerFlowNow.mockResolvedValue({ ok: false, error: 'flow_busy' })
 
     const response = await POST_FLOW(request('/api/u/alice/flows', 'POST', { name: 'Flow' }), params({ slug: 'alice' }))
 
     expect(response.status).toBe(201)
-    expect(mocks.triggerFlowNow).toHaveBeenCalledWith({ executionUserId: 'user-1', flowId: 'flow-1', trigger: 'on_create', userId: 'user-1' })
+    expect(mocks.triggerFlowNow).toHaveBeenCalledWith({ executionUserId: 'user-1', flowId: 'flow-1', ownerUserId: 'user-1', trigger: 'on_create' })
     expect(consoleError).toHaveBeenCalledWith('[flows] Failed to trigger initial flow run', expect.objectContaining({ flowId: 'flow-1', reason: 'flow_busy' }))
   })
 
@@ -276,15 +276,15 @@ describe('Flow API routes', () => {
     expect((await POST_FLOW(request('/api/u/alice/flows', 'POST', { name: 'Flow' }), params({ slug: 'alice' }))).status).toBe(400)
 
     mocks.createFlow.mockResolvedValue(flow)
-    mocks.findFlowByIdAndUserId.mockResolvedValue(null)
+    mocks.findFlowByIdForScope.mockResolvedValue(null)
     expect((await POST_FLOW(request('/api/u/alice/flows', 'POST', { name: 'Flow' }), params({ slug: 'alice' }))).status).toBe(404)
   })
 
   it('reads, updates, and deletes a flow', async () => {
     const flow = createFlowRecord()
-    mocks.findFlowByIdAndUserId.mockResolvedValue(flow)
-    mocks.updateFlowByIdAndUserId.mockResolvedValue(flow)
-    mocks.deleteFlowByIdAndUserId.mockResolvedValue({ count: 1 })
+    mocks.findFlowByIdForScope.mockResolvedValue(flow)
+    mocks.updateFlowByIdAndOwnerId.mockResolvedValue(flow)
+    mocks.deleteFlowByIdAndOwnerId.mockResolvedValue({ count: 1 })
 
     await expect((await GET_FLOW(request('/api/u/alice/flows/flow-1'), params({ id: 'flow-1', slug: 'alice' }))).json())
       .resolves.toMatchObject({ flow: { id: 'flow-1' } })
@@ -296,7 +296,7 @@ describe('Flow API routes', () => {
 
   it('rejects invalid updates before writing', async () => {
     const flow = createFlowRecord()
-    mocks.findFlowByIdAndUserId.mockResolvedValue(flow)
+    mocks.findFlowByIdForScope.mockResolvedValue(flow)
     mocks.validateFlowPayload.mockResolvedValueOnce({ ok: false, error: 'invalid_name', status: 400 })
 
     expect((await PATCH_FLOW(request('/api/u/alice/flows/flow-1', 'PATCH', { name: '' }), params({ id: 'flow-1', slug: 'alice' }))).status)
@@ -307,7 +307,7 @@ describe('Flow API routes', () => {
 
   it('validates update schedules and Slack node targets', async () => {
     const flow = createFlowRecord()
-    mocks.findFlowByIdAndUserId.mockResolvedValue(flow)
+    mocks.findFlowByIdForScope.mockResolvedValue(flow)
     mocks.validateFlowPayload.mockResolvedValueOnce({
       ok: true,
       value: { enabled: true, name: 'Flow' },
@@ -332,7 +332,7 @@ describe('Flow API routes', () => {
   })
 
   it('blocks non-owners from updating team-visible flows', async () => {
-    mocks.findFlowByIdAndUserId.mockResolvedValue({
+    mocks.findFlowByIdForScope.mockResolvedValue({
       ...createFlowRecord(),
       organizationCanRun: true,
       userId: 'user-2',
@@ -342,14 +342,14 @@ describe('Flow API routes', () => {
     const response = await PATCH_FLOW(request('/api/u/alice/flows/flow-1', 'PATCH', { name: 'Flow' }), params({ id: 'flow-1', slug: 'alice' }))
 
     expect(response.status).toBe(403)
-    expect(mocks.updateFlowByIdAndUserId).not.toHaveBeenCalled()
+    expect(mocks.updateFlowByIdAndOwnerId).not.toHaveBeenCalled()
   })
 
   it('clears schedules on update', async () => {
     const flow = { ...createFlowRecord(), cronExpression: '0 9 * * 1', enabled: true }
     const updated = { ...flow, cronExpression: null, enabled: false, nextRunAt: null }
-    mocks.findFlowByIdAndUserId.mockResolvedValueOnce(flow).mockResolvedValueOnce(updated)
-    mocks.updateFlowByIdAndUserId.mockResolvedValue(updated)
+    mocks.findFlowByIdForScope.mockResolvedValueOnce(flow).mockResolvedValueOnce(updated)
+    mocks.updateFlowByIdAndOwnerId.mockResolvedValue(updated)
     mocks.validateFlowPayload.mockResolvedValue({
       ok: true,
       value: { cronExpression: null, enabled: false, name: 'Flow' },
@@ -358,24 +358,24 @@ describe('Flow API routes', () => {
     const response = await PATCH_FLOW(request('/api/u/alice/flows/flow-1', 'PATCH', { enabled: false }), params({ id: 'flow-1', slug: 'alice' }))
 
     expect(response.status).toBe(200)
-    expect(mocks.updateFlowByIdAndUserId).toHaveBeenCalledWith('flow-1', 'user-1', expect.objectContaining({
+    expect(mocks.updateFlowByIdAndOwnerId).toHaveBeenCalledWith('flow-1', 'user-1', expect.objectContaining({
       nextRunAt: null,
     }))
   })
 
   it('maps update and delete misses to not found', async () => {
     const flow = createFlowRecord()
-    mocks.findFlowByIdAndUserId.mockResolvedValueOnce(null)
+    mocks.findFlowByIdForScope.mockResolvedValueOnce(null)
     expect((await PATCH_FLOW(request('/api/u/alice/flows/flow-1', 'PATCH', { name: 'Flow' }), params({ id: 'flow-1', slug: 'alice' }))).status)
       .toBe(404)
 
-    mocks.findFlowByIdAndUserId.mockResolvedValueOnce(flow).mockResolvedValueOnce(null)
-    mocks.updateFlowByIdAndUserId.mockResolvedValue(flow)
+    mocks.findFlowByIdForScope.mockResolvedValueOnce(flow).mockResolvedValueOnce(null)
+    mocks.updateFlowByIdAndOwnerId.mockResolvedValue(flow)
     expect((await PATCH_FLOW(request('/api/u/alice/flows/flow-1', 'PATCH', { name: 'Flow' }), params({ id: 'flow-1', slug: 'alice' }))).status)
       .toBe(404)
 
-    mocks.deleteFlowByIdAndUserId.mockResolvedValue({ count: 0 })
-    mocks.findFlowByIdAndUserId.mockResolvedValue(flow)
+    mocks.deleteFlowByIdAndOwnerId.mockResolvedValue({ count: 0 })
+    mocks.findFlowByIdForScope.mockResolvedValue(flow)
     expect((await DELETE_FLOW(request('/api/u/alice/flows/flow-1', 'DELETE'), params({ id: 'flow-1', slug: 'alice' }))).status)
       .toBe(404)
   })
@@ -391,7 +391,7 @@ describe('Flow API routes', () => {
   })
 
   it('runs runnable team flows as the current user after connector checks', async () => {
-    mocks.findFlowByIdAndUserId.mockResolvedValue({
+    mocks.findFlowByIdForScope.mockResolvedValue({
       ...createFlowRecord(),
       organizationCanRun: true,
       userId: 'user-2',
@@ -409,7 +409,7 @@ describe('Flow API routes', () => {
   })
 
   it('blocks runnable team flows when Slack targets are forbidden for the execution user', async () => {
-    mocks.findFlowByIdAndUserId.mockResolvedValue({
+    mocks.findFlowByIdForScope.mockResolvedValue({
       ...createFlowRecord(),
       organizationCanRun: true,
       userId: 'user-2',
@@ -439,7 +439,7 @@ describe('Flow API routes', () => {
   })
 
   it('blocks runs when the execution user is missing required connectors', async () => {
-    mocks.findFlowByIdAndUserId.mockResolvedValue({
+    mocks.findFlowByIdForScope.mockResolvedValue({
       ...createFlowRecord(),
       organizationCanRun: true,
       userId: 'user-2',
@@ -474,7 +474,7 @@ describe('Flow API routes', () => {
       userId: 'user-1',
       visibility: 'private',
     }
-    mocks.findFlowByIdAndUserId.mockResolvedValueOnce(source).mockResolvedValueOnce(copy)
+    mocks.findFlowByIdForScope.mockResolvedValueOnce(source).mockResolvedValueOnce(copy)
     mocks.createFlow.mockResolvedValue(copy)
 
     const response = await POST_COPY_FLOW(request('/api/u/alice/flows/flow-1/copy', 'POST'), params({ id: 'flow-1', slug: 'alice' }))
@@ -517,9 +517,9 @@ describe('Flow API routes', () => {
   it('lists run history and reads run detail', async () => {
     const flow = createFlowRecord()
     const run = createRunRecord()
-    mocks.findFlowByIdAndUserId.mockResolvedValue(flow)
-    mocks.listRunsByFlowIdAndUserId.mockResolvedValue([run])
-    mocks.findRunByIdAndUserId.mockResolvedValue(run)
+    mocks.findFlowByIdForScope.mockResolvedValue(flow)
+    mocks.listRunsByFlowIdForScope.mockResolvedValue([run])
+    mocks.findRunByIdForScope.mockResolvedValue(run)
 
     await expect((await GET_FLOW_RUNS(request('/api/u/alice/flows/flow-1/runs'), params({ id: 'flow-1', slug: 'alice' }))).json())
       .resolves.toMatchObject({ runs: [{ id: 'run-1' }] })
@@ -531,8 +531,8 @@ describe('Flow API routes', () => {
     const flow = createFlowRecord({ organizationCanRun: true, visibility: 'team' })
     const ownerRun = createRunRecord({ id: 'run-owner' })
     const memberRun = createRunRecord({ executionUserId: 'user-2', id: 'run-member' })
-    mocks.findFlowByIdAndUserId.mockResolvedValue(flow)
-    mocks.listRunsByFlowIdAndUserId.mockResolvedValue([memberRun, ownerRun])
+    mocks.findFlowByIdForScope.mockResolvedValue(flow)
+    mocks.listRunsByFlowIdForScope.mockResolvedValue([memberRun, ownerRun])
 
     const response = await GET_FLOW_RUNS(request('/api/u/alice/flows/flow-1/runs'), params({ id: 'flow-1', slug: 'alice' }))
     const body = await response.json()
@@ -546,13 +546,13 @@ describe('Flow API routes', () => {
 
     expect((await POST_CANCEL_RUN(request('/api/u/alice/flows/runs/run-1/cancel', 'POST'), params({ runId: 'run-1', slug: 'alice' }))).status)
       .toBe(200)
-    expect(mocks.cancelRunByIdAndUserId).toHaveBeenCalledWith('run-1', 'user-1', expect.any(Date))
+    expect(mocks.cancelRunByIdForScope).toHaveBeenCalledWith('run-1', expect.objectContaining({ workspaceUserId: 'user-1' }), expect.any(Date))
     expect((await POST_HUMAN_RESPONSE(request('/api/u/alice/flows/runs/run-1/human-response', 'POST', { response: 'Approved' }), params({ runId: 'run-1', slug: 'alice' }))).status)
       .toBe(202)
   })
 
   it('lets execution users read and cancel their own shared flow runs', async () => {
-    mocks.findRunByIdAndUserId.mockResolvedValue(createRunRecord({
+    mocks.findRunByIdForScope.mockResolvedValue(createRunRecord({
       executionUserId: 'user-1',
       flow: {
         ...createFlowRecord(),
@@ -569,7 +569,7 @@ describe('Flow API routes', () => {
   })
 
   it('blocks members from mutating other users shared flow runs', async () => {
-    mocks.findRunByIdAndUserId.mockResolvedValue(createRunRecord({
+    mocks.findRunByIdForScope.mockResolvedValue(createRunRecord({
       executionUserId: 'user-2',
       flow: {
         ...createFlowRecord(),
@@ -592,7 +592,7 @@ describe('Flow API routes', () => {
       user: { email: 'admin@example.com', id: 'admin-1', role: 'ADMIN', slug: 'admin' },
     })
     mocks.findIdBySlug.mockResolvedValue({ id: 'user-1' })
-    mocks.findRunByIdAndUserId.mockResolvedValue(createRunRecord({ executionUserId: 'user-2' }))
+    mocks.findRunByIdForScope.mockResolvedValue(createRunRecord({ executionUserId: 'user-2' }))
 
     expect((await GET_RUN(request('/api/u/alice/flows/runs/run-1'), params({ runId: 'run-1', slug: 'alice' }))).status)
       .toBe(200)

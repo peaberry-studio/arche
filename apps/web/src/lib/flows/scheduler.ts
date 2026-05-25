@@ -78,13 +78,7 @@ export async function dispatchDueFlows(limit = FLOW_SCHEDULER_BATCH_LIMIT): Prom
 
       if (retry) {
         claimedCount += 1
-        void dispatchClaimedFlowRetryRun(retry).catch((error) => {
-          console.error('[flows] Failed to execute scheduled flow retry', {
-            error,
-            flowId: retry.id,
-            runId: retry.retryRun.id,
-          })
-        })
+        await dispatchClaimedFlowRetryRun(retry)
         continue
       }
 
@@ -100,12 +94,7 @@ export async function dispatchDueFlows(limit = FLOW_SCHEDULER_BATCH_LIMIT): Prom
       if (!claimed) break
 
       claimedCount += 1
-      void dispatchClaimedFlowRun(claimed, 'schedule').catch((error) => {
-        console.error('[flows] Failed to execute scheduled flow run', {
-          error,
-          flowId: claimed.id,
-        })
-      })
+      await dispatchClaimedFlowRun(claimed, 'schedule')
     }
 
     lastDispatchError = null

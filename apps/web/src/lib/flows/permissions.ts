@@ -1,43 +1,22 @@
-import type { FlowVisibility } from '@/lib/flows/types'
-
-type FlowPermissionActor = {
-  id: string
-  role: string
-}
-
-type FlowPermissionRecord = {
-  organizationCanRun: boolean
-  userId: string
-  visibility: FlowVisibility
-}
-
-type FlowRunPermissionRecord = {
-  executionUserId: string | null
-  flow: FlowPermissionRecord
-}
-
-function isAdmin(actor: FlowPermissionActor): boolean {
-  return actor.role === 'ADMIN'
-}
-
-function isOwner(actor: FlowPermissionActor, flow: FlowPermissionRecord): boolean {
-  return actor.id === flow.userId
-}
-
-function isExecutionUser(actor: FlowPermissionActor, run: FlowRunPermissionRecord): boolean {
-  return actor.id === (run.executionUserId ?? run.flow.userId)
-}
+import {
+  isAdminFlowActor,
+  isFlowOwner,
+  isFlowRunExecutionUser,
+  type FlowPermissionActor,
+  type FlowPermissionRecord,
+  type FlowRunPermissionRecord,
+} from '@/lib/flows/authorization'
 
 export function canViewFlow(actor: FlowPermissionActor, flow: FlowPermissionRecord): boolean {
-  return isOwner(actor, flow) || isAdmin(actor) || flow.visibility === 'team'
+  return isFlowOwner(actor, flow) || isAdminFlowActor(actor) || flow.visibility === 'team'
 }
 
 export function canRunFlow(actor: FlowPermissionActor, flow: FlowPermissionRecord): boolean {
-  return isOwner(actor, flow) || isAdmin(actor) || (flow.visibility === 'team' && flow.organizationCanRun)
+  return isFlowOwner(actor, flow) || isAdminFlowActor(actor) || (flow.visibility === 'team' && flow.organizationCanRun)
 }
 
 export function canEditFlow(actor: FlowPermissionActor, flow: FlowPermissionRecord): boolean {
-  return isOwner(actor, flow) || isAdmin(actor)
+  return isFlowOwner(actor, flow) || isAdminFlowActor(actor)
 }
 
 export function canManageFlow(actor: FlowPermissionActor, flow: FlowPermissionRecord): boolean {
@@ -49,9 +28,9 @@ export function canCopyFlow(actor: FlowPermissionActor, flow: FlowPermissionReco
 }
 
 export function canViewFlowRun(actor: FlowPermissionActor, run: FlowRunPermissionRecord): boolean {
-  return isAdmin(actor) || isExecutionUser(actor, run)
+  return isAdminFlowActor(actor) || isFlowRunExecutionUser(actor, run)
 }
 
 export function canCancelFlowRun(actor: FlowPermissionActor, run: FlowRunPermissionRecord): boolean {
-  return isAdmin(actor) || isExecutionUser(actor, run)
+  return isAdminFlowActor(actor) || isFlowRunExecutionUser(actor, run)
 }

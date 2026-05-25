@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
 import { resolveFlowRouteContext } from '@/lib/flows/api'
+import { createFlowActorScope } from '@/lib/flows/authorization'
 import {
   checkMissingConnectorRequirements,
   getFlowConnectorRequirements,
@@ -24,7 +25,7 @@ type FlowRouteParams = {
 }
 
 async function serializeFlowDetailForUser(
-  flow: Awaited<ReturnType<typeof flowService.findFlowByIdAndUserId>> & {},
+  flow: Awaited<ReturnType<typeof flowService.findFlowByIdForScope>> & {},
   user: { id: string; role: string },
 ): Promise<FlowDetail> {
   const detail = serializeFlowDetail(flow, user)
@@ -46,8 +47,9 @@ export const GET = withAuth<{ flow: FlowDetail } | { error: string }, FlowRouteP
 
     const routeContext = await resolveFlowRouteContext(slug, user)
     if (!routeContext) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    const scope = createFlowActorScope(user, routeContext.workspaceUserId)
 
-    const flow = await flowService.findFlowByIdAndUserId(id, routeContext.workspaceUserId)
+    const flow = await flowService.findFlowByIdForScope(id, scope)
     if (!flow) return NextResponse.json({ error: 'not_found' }, { status: 404 })
     if (!canViewFlow(user, flow)) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
@@ -63,8 +65,9 @@ export const PATCH = withAuth<{ flow: FlowDetail } | { error: string }, FlowRout
 
     const routeContext = await resolveFlowRouteContext(slug, user)
     if (!routeContext) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    const scope = createFlowActorScope(user, routeContext.workspaceUserId)
 
-    const existing = await flowService.findFlowByIdAndUserId(id, routeContext.workspaceUserId)
+    const existing = await flowService.findFlowByIdForScope(id, scope)
     if (!existing) return NextResponse.json({ error: 'not_found' }, { status: 404 })
     if (!canEditFlow(user, existing)) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
 
@@ -154,7 +157,7 @@ export const PATCH = withAuth<{ flow: FlowDetail } | { error: string }, FlowRout
     }
 
     try {
-      const updated = await flowService.updateFlowByIdAndUserId(id, existing.userId, updateData)
+      const updated = await flowService.updateFlowByIdAndOwnerId(id, existing.userId, updateData)
 
       if (!updated) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
@@ -164,7 +167,7 @@ export const PATCH = withAuth<{ flow: FlowDetail } | { error: string }, FlowRout
         metadata: { flowId: id, slug },
       })
 
-      const detail = await flowService.findFlowByIdAndUserId(id, existing.userId)
+      const detail = await flowService.findFlowByIdForScope(id, createFlowActorScope(user, existing.userId))
       if (!detail) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
       return NextResponse.json({ flow: await serializeFlowDetailForUser(detail, user) })
@@ -186,12 +189,13 @@ export const DELETE = withAuth<{ ok: true } | { error: string }, FlowRouteParams
 
     const routeContext = await resolveFlowRouteContext(slug, user)
     if (!routeContext) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    const scope = createFlowActorScope(user, routeContext.workspaceUserId)
 
-    const existing = await flowService.findFlowByIdAndUserId(id, routeContext.workspaceUserId)
+    const existing = await flowService.findFlowByIdForScope(id, scope)
     if (!existing) return NextResponse.json({ error: 'not_found' }, { status: 404 })
     if (!canManageFlow(user, existing)) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
 
-    const deleted = await flowService.deleteFlowByIdAndUserId(id, existing.userId)
+    const deleted = await flowService.deleteFlowByIdAndOwnerId(id, existing.userId)
     if (deleted.count === 0) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
     await auditEvent({

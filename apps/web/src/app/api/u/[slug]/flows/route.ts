@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
 import { resolveFlowRouteContext } from '@/lib/flows/api'
+import { createFlowActorScope } from '@/lib/flows/authorization'
 import { getNextFlowRunAt } from '@/lib/flows/cron'
 import { validateFlowPayload } from '@/lib/flows/payload'
 import { validateFlowSlackNodeAccess } from '@/lib/flows/route-auth'
@@ -26,7 +27,7 @@ export const GET = withAuth<FlowListResponse | { error: string }>(
     const routeContext = await resolveFlowRouteContext(slug, user)
     if (!routeContext) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
-    const flows = await flowService.listFlowsByUserId(routeContext.workspaceUserId)
+    const flows = await flowService.listFlowsForScope(createFlowActorScope(user, routeContext.workspaceUserId))
     return NextResponse.json({ flows: flows.map((flow) => serializeFlowListItem(flow, user)) })
   },
 )
@@ -104,8 +105,8 @@ export const POST = withAuth<{ flow: FlowDetail } | { error: string }>(
         const triggerResult = await triggerFlowNow({
           flowId: flow.id,
           executionUserId: routeContext.workspaceUserId,
+          ownerUserId: routeContext.workspaceUserId,
           trigger: 'on_create',
-          userId: routeContext.workspaceUserId,
         })
         if (!triggerResult.ok) {
           console.error('[flows] Failed to trigger initial flow run', {
@@ -117,7 +118,10 @@ export const POST = withAuth<{ flow: FlowDetail } | { error: string }>(
         }
       }
 
-      const detail = await flowService.findFlowByIdAndUserId(flow.id, routeContext.workspaceUserId)
+      const detail = await flowService.findFlowByIdForScope(
+        flow.id,
+        createFlowActorScope(user, routeContext.workspaceUserId),
+      )
       if (!detail) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
       return NextResponse.json({ flow: serializeFlowDetail(detail, user) }, { status: 201 })

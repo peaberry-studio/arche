@@ -14,8 +14,8 @@ const mocks = vi.hoisted(() => ({
   createRun: vi.fn(),
   extendFlowLease: vi.fn(),
   ensureWorkspaceRunningForExecution: vi.fn(),
-  findFlowByIdAndUserId: vi.fn(),
-  findRunByIdAndUserId: vi.fn(),
+  findFlowByIdForScope: vi.fn(),
+  findRunByIdForScope: vi.fn(),
   findRunStatusById: vi.fn(),
   markRunFailed: vi.fn(),
   markRunRunning: vi.fn(),
@@ -60,8 +60,8 @@ vi.mock('@/lib/services', () => ({
     claimFlowForImmediateRun: mocks.claimFlowForImmediateRun,
     createRun: mocks.createRun,
     extendFlowLease: mocks.extendFlowLease,
-    findFlowByIdAndUserId: mocks.findFlowByIdAndUserId,
-    findRunByIdAndUserId: mocks.findRunByIdAndUserId,
+    findFlowByIdForScope: mocks.findFlowByIdForScope,
+    findRunByIdForScope: mocks.findRunByIdForScope,
     findRunStatusById: mocks.findRunStatusById,
     markRunFailed: mocks.markRunFailed,
     markRunRunning: mocks.markRunRunning,
@@ -211,7 +211,7 @@ describe('triggerFlowNow', () => {
       trigger: FlowRunTrigger.manual,
       updatedAt: now,
     })
-    mocks.findRunByIdAndUserId.mockResolvedValue(null)
+    mocks.findRunByIdForScope.mockResolvedValue(null)
     mocks.findRunStatusById.mockResolvedValue({ status: FlowRunStatus.running })
     mocks.extendFlowLease.mockResolvedValue({ count: 1 })
     mocks.ensureWorkspaceRunningForExecution.mockResolvedValue(undefined)
@@ -249,18 +249,18 @@ describe('triggerFlowNow', () => {
 
   it('returns not_found when the requested flow does not exist', async () => {
     mocks.claimFlowForImmediateRun.mockResolvedValue(null)
-    mocks.findFlowByIdAndUserId.mockResolvedValue(null)
+    mocks.findFlowByIdForScope.mockResolvedValue(null)
 
-    await expect(triggerFlowNow({ flowId: 'flow-1', trigger: FlowRunTrigger.manual, userId: 'user-1' }))
+    await expect(triggerFlowNow({ flowId: 'flow-1', ownerUserId: 'user-1', trigger: FlowRunTrigger.manual }))
       .resolves.toEqual({ ok: false, error: 'not_found' })
     expect(mocks.createRun).not.toHaveBeenCalled()
   })
 
   it('returns flow_busy when the flow exists but cannot be claimed', async () => {
     mocks.claimFlowForImmediateRun.mockResolvedValue(null)
-    mocks.findFlowByIdAndUserId.mockResolvedValue(createClaimedFlow())
+    mocks.findFlowByIdForScope.mockResolvedValue(createClaimedFlow())
 
-    await expect(triggerFlowNow({ flowId: 'flow-1', trigger: FlowRunTrigger.manual, userId: 'user-1' }))
+    await expect(triggerFlowNow({ flowId: 'flow-1', ownerUserId: 'user-1', trigger: FlowRunTrigger.manual }))
       .resolves.toEqual({ ok: false, error: 'flow_busy' })
   })
 
@@ -269,14 +269,14 @@ describe('triggerFlowNow', () => {
 
     await expect(triggerFlowNow({ flowId: 'flow-1', trigger: FlowRunTrigger.manual }))
       .resolves.toEqual({ ok: false, error: 'flow_busy' })
-    expect(mocks.findFlowByIdAndUserId).not.toHaveBeenCalled()
+    expect(mocks.findFlowByIdForScope).not.toHaveBeenCalled()
   })
 
   it('creates a durable run before returning success', async () => {
     const claimedFlow = createClaimedFlow()
     mocks.claimFlowForImmediateRun.mockResolvedValue(claimedFlow)
 
-    await expect(triggerFlowNow({ flowId: 'flow-1', trigger: FlowRunTrigger.manual, userId: 'user-1' }))
+    await expect(triggerFlowNow({ flowId: 'flow-1', ownerUserId: 'user-1', trigger: FlowRunTrigger.manual }))
       .resolves.toEqual({ ok: true })
 
     expect(mocks.createRun).toHaveBeenCalledWith({
@@ -305,7 +305,7 @@ describe('triggerFlowNow', () => {
 
   it('validates human resume state and dispatches valid responses', async () => {
     const waitingRun = createWaitingRun()
-    mocks.findRunByIdAndUserId
+    mocks.findRunByIdForScope
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({ ...createRunRecord(), flow: createClaimedFlow() })
       .mockResolvedValueOnce(waitingRun)
@@ -852,7 +852,7 @@ describe('triggerFlowNow', () => {
 
   it('rejects empty required human responses and busy resumes', async () => {
     const waitingRun = createWaitingRun()
-    mocks.findRunByIdAndUserId.mockResolvedValue(waitingRun)
+    mocks.findRunByIdForScope.mockResolvedValue(waitingRun)
 
     await expect(resumeFlowRun({ humanResponse: '   ', runId: 'run-1', userId: 'user-1' }))
       .resolves.toEqual({ ok: false, error: 'invalid_response' })
@@ -878,7 +878,7 @@ describe('triggerFlowNow', () => {
         }),
       ],
     }
-    mocks.findRunByIdAndUserId
+    mocks.findRunByIdForScope
       .mockResolvedValueOnce(waitingRun)
       .mockResolvedValueOnce(refreshedRun)
       .mockResolvedValue(null)
@@ -905,7 +905,7 @@ describe('triggerFlowNow', () => {
 
     const cancelledFlow = createClaimedFlow()
     mocks.createRun.mockResolvedValueOnce(createRunRecord({ id: 'run-cancelled' }))
-    mocks.findRunByIdAndUserId.mockResolvedValueOnce(createRunRecord({ id: 'run-cancelled', status: FlowRunStatus.cancelled }))
+    mocks.findRunByIdForScope.mockResolvedValueOnce(createRunRecord({ id: 'run-cancelled', status: FlowRunStatus.cancelled }))
     mocks.runFlowPromptAndReadOutput.mockResolvedValueOnce({ ok: true, output: 'done' })
 
     await runClaimedFlow(cancelledFlow, FlowRunTrigger.manual)

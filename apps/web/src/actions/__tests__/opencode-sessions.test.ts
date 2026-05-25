@@ -11,7 +11,7 @@ vi.mock("@/lib/opencode/client", () => ({
 
 vi.mock("@/lib/services", () => ({
   flowService: {
-    findSessionMetadataByUserId: vi.fn(),
+    findSessionMetadataForWorkspace: vi.fn(),
   },
   userService: {
     findIdBySlug: vi.fn(),
@@ -28,7 +28,7 @@ import {
 
 const mockGetSession = vi.mocked(getSession);
 const mockCreateInstanceClient = vi.mocked(createInstanceClient);
-const mockFindSessionMetadataByUserId = vi.mocked(flowService.findSessionMetadataByUserId);
+const mockFindSessionMetadataForWorkspace = vi.mocked(flowService.findSessionMetadataForWorkspace);
 const mockSessionList = vi.fn();
 const mockSessionStatus = vi.fn();
 const mockSessionGet = vi.fn();
@@ -61,7 +61,7 @@ beforeEach(() => {
   mockSessionGet.mockResolvedValue({ data: null });
   mockSessionChildren.mockResolvedValue({ data: [] });
 
-  mockFindSessionMetadataByUserId.mockResolvedValue([
+  mockFindSessionMetadataForWorkspace.mockResolvedValue([
     {
       openCodeSessionId: "root",
       trigger: "schedule",

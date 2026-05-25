@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
 import { resolveFlowRouteContext } from '@/lib/flows/api'
+import { createFlowActorScope } from '@/lib/flows/authorization'
 import { canCopyFlow } from '@/lib/flows/permissions'
 import { validateFlowSlackNodeAccess } from '@/lib/flows/route-auth'
 import { serializeFlowDetail, toPrismaJson } from '@/lib/flows/serializers'
@@ -25,8 +26,9 @@ export const POST = withAuth<{ flow: FlowDetail } | { error: string }, FlowCopyR
 
     const routeContext = await resolveFlowRouteContext(slug, user)
     if (!routeContext) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    const scope = createFlowActorScope(user, routeContext.workspaceUserId)
 
-    const source = await flowService.findFlowByIdAndUserId(id, routeContext.workspaceUserId)
+    const source = await flowService.findFlowByIdForScope(id, scope)
     if (!source) return NextResponse.json({ error: 'not_found' }, { status: 404 })
     if (!canCopyFlow(user, source)) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
@@ -61,7 +63,7 @@ export const POST = withAuth<{ flow: FlowDetail } | { error: string }, FlowCopyR
         metadata: { copiedFlowId: copy.id, sourceFlowId: source.id, slug },
       })
 
-      const detail = await flowService.findFlowByIdAndUserId(copy.id, user.id)
+      const detail = await flowService.findFlowByIdForScope(copy.id, createFlowActorScope(user, user.id))
       if (!detail) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
       return NextResponse.json({ flow: serializeFlowDetail(detail, user) }, { status: 201 })

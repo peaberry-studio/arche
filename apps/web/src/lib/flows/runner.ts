@@ -4,7 +4,9 @@ import {
   FlowRunTrigger,
 } from '@prisma/client'
 
+import { createFlowActorScope } from '@/lib/flows/authorization'
 import { formatFlowRunDate } from '@/lib/flows/cron'
+import { dispatchFlowExecution } from '@/lib/flows/execution-dispatcher'
 import { getFlowNodeById, getFlowOutgoingTargets } from '@/lib/flows/graph'
 import { executeFlowNode } from '@/lib/flows/node-executors'
 import { planFlowRetry } from '@/lib/flows/retry-policy'
@@ -208,7 +210,10 @@ async function finalizeRun(params: {
   if (!await hasActiveFlowLease(params.flow.id, params.leaseOwner)) return { retryScheduled: false }
 
   const executionUserId = params.run.executionUserId ?? params.flow.userId
-  const currentRun = await flowService.findRunByIdAndUserId(params.run.id, params.flow.userId)
+  const currentRun = await flowService.findRunByIdForScope(
+    params.run.id,
+    createFlowActorScope({ id: params.flow.userId, role: 'USER' }, params.flow.userId),
+  )
   if (params.outcome.status === 'cancelled' || currentRun?.status === FlowRunStatus.cancelled) {
     return { retryScheduled: false }
   }
@@ -439,14 +444,10 @@ export async function dispatchClaimedFlowRun(
     trigger,
   })
 
-  void executeClaimedFlowRun(flow, trigger, run).catch((error) => {
-    console.error('[flows] Failed to execute dispatched flow run', {
-      error,
-      flowId: flow.id,
-      runId: run.id,
-      trigger,
-    })
-  })
+  dispatchFlowExecution(
+    { flowId: flow.id, runId: run.id, trigger, type: 'run' },
+    () => executeClaimedFlowRun(flow, trigger, run),
+  )
 
   return { ok: true, runId: run.id }
 }
@@ -454,14 +455,10 @@ export async function dispatchClaimedFlowRun(
 export async function dispatchClaimedFlowRetryRun(
   flow: FlowRetryClaimedRecord,
 ): Promise<{ ok: true; runId: string }> {
-  void executeClaimedFlowRun(flow, flow.retryRun.trigger, flow.retryRun).catch((error) => {
-    console.error('[flows] Failed to execute dispatched flow retry', {
-      error,
-      flowId: flow.id,
-      runId: flow.retryRun.id,
-      trigger: flow.retryRun.trigger,
-    })
-  })
+  dispatchFlowExecution(
+    { flowId: flow.id, runId: flow.retryRun.id, trigger: flow.retryRun.trigger, type: 'retry' },
+    () => executeClaimedFlowRun(flow, flow.retryRun.trigger, flow.retryRun),
+  )
 
   return { ok: true, runId: flow.retryRun.id }
 }
@@ -469,8 +466,8 @@ export async function dispatchClaimedFlowRetryRun(
 export async function triggerFlowNow(params: {
   executionUserId?: string
   flowId: string
+  ownerUserId?: string
   trigger: FlowRunTrigger
-  userId?: string
 }): Promise<{ ok: true } | { ok: false; error: 'not_found' | 'flow_busy' }> {
   const now = new Date()
   const leaseOwner = await createFlowLeaseOwner()
@@ -479,14 +476,17 @@ export async function triggerFlowNow(params: {
     leaseMs: FLOW_LEASE_MS,
     leaseOwner,
     now,
-    userId: params.userId,
+    ownerUserId: params.ownerUserId,
   })
 
   if (!claimed) {
-    const flow = params.userId
-      ? await flowService.findFlowByIdAndUserId(params.flowId, params.userId)
+    const flow = params.ownerUserId
+      ? await flowService.findFlowByIdForScope(
+        params.flowId,
+        createFlowActorScope({ id: params.ownerUserId, role: 'USER' }, params.ownerUserId),
+      )
       : null
-    if (!flow && params.userId) return { ok: false, error: 'not_found' }
+    if (!flow && params.ownerUserId) return { ok: false, error: 'not_found' }
     return { ok: false, error: 'flow_busy' }
   }
 
@@ -500,7 +500,8 @@ export async function resumeFlowRun(params: {
   runId: string
   userId: string
 }): Promise<{ ok: true; run: ReturnType<typeof serializeFlowRun> } | { ok: false; error: 'invalid_response' | 'invalid_state' | 'not_found' | 'flow_busy' }> {
-  const run = await flowService.findRunByIdAndUserId(params.runId, params.userId)
+  const scope = createFlowActorScope({ id: params.userId, role: 'USER' }, params.userId)
+  const run = await flowService.findRunByIdForScope(params.runId, scope)
   if (!run) return { ok: false, error: 'not_found' }
   const executionUserId = run.executionUserId ?? run.flow.userId
   if (executionUserId !== params.userId) return { ok: false, error: 'not_found' }
@@ -523,7 +524,7 @@ export async function resumeFlowRun(params: {
     leaseMs: FLOW_LEASE_MS,
     leaseOwner,
     now: new Date(),
-    userId: run.flow.userId,
+    ownerUserId: run.flow.userId,
   })
   if (!claimedFlow) return { ok: false, error: 'flow_busy' }
 
@@ -536,21 +537,18 @@ export async function resumeFlowRun(params: {
   await flowService.updateRunCurrentNode(run.id, nextNodeId)
   await flowService.markRunRunning(run.id)
 
-  const refreshedRun = await flowService.findRunByIdAndUserId(run.id, params.userId)
+  const refreshedRun = await flowService.findRunByIdForScope(run.id, scope)
   if (!refreshedRun) return { ok: false, error: 'not_found' }
 
-  void resumeClaimedFlowRun({
-    flow: claimedFlow,
-    previousOutput: response,
-    run: refreshedRun,
-    startNodeId: nextNodeId,
-  }).catch((error) => {
-    console.error('[flows] Failed to resume flow run', {
-      error,
-      flowId: claimedFlow.id,
-      runId: run.id,
-    })
-  })
+  dispatchFlowExecution(
+    { flowId: claimedFlow.id, runId: run.id, trigger: FlowRunTrigger.resume, type: 'resume' },
+    () => resumeClaimedFlowRun({
+      flow: claimedFlow,
+      previousOutput: response,
+      run: refreshedRun,
+      startNodeId: nextNodeId,
+    }),
+  )
 
   return { ok: true, run: serializeFlowRun(refreshedRun) }
 }

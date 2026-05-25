@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
 import { resolveFlowRouteContext } from '@/lib/flows/api'
+import { createFlowActorScope } from '@/lib/flows/authorization'
 import {
   checkMissingConnectorRequirements,
   getFlowConnectorRequirements,
@@ -27,8 +28,9 @@ export const POST = withAuth<{ ok: true } | { error: string }, FlowRunRouteParam
 
     const routeContext = await resolveFlowRouteContext(slug, user)
     if (!routeContext) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    const scope = createFlowActorScope(user, routeContext.workspaceUserId)
 
-    const flow = await flowService.findFlowByIdAndUserId(id, routeContext.workspaceUserId)
+    const flow = await flowService.findFlowByIdForScope(id, scope)
     if (!flow) return NextResponse.json({ error: 'not_found' }, { status: 404 })
     if (!canRunFlow(user, flow)) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
 
