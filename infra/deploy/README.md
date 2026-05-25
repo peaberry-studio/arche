@@ -6,8 +6,8 @@ Deploy Arche to a VPS or run the local development stack with hot reload.
 
 ```
 Local Machine
-  ./deploy.sh --ip X --domain Y --ssh-key K --acme-email E
-  ./deploy.sh --ip X --domain Y --ssh-key K --cloudflare-tunnel
+  ./deploy.sh --ip X --domain Y [--ssh-key K] --acme-email E
+  ./deploy.sh --ip X --domain Y [--ssh-key K] --cloudflare-tunnel
               │ SSH (Ansible)
               ▼
 Remote VPS (/opt/arche)
@@ -92,6 +92,16 @@ Deploys to a VPS via SSH using Ansible. The playbook provisions Podman (if missi
 
 Remote deployments support two exposure modes: direct exposure with Traefik and ACME, or Cloudflare Tunnel with the origin ports closed.
 
+If `--ssh-key` is omitted, the deployer lets OpenSSH and Ansible use your normal SSH setup: ssh-agent, 1Password SSH agent, `~/.ssh/config`, and default key discovery. Pass `--ssh-key` only when you want to force a specific local private key file.
+
+```bash
+# Use ssh-agent, 1Password SSH agent, ~/.ssh/config, or default OpenSSH keys
+./deploy.sh --ip 203.0.113.50 --domain arche.example.com --cloudflare-tunnel
+
+# Force a specific key file
+./deploy.sh --ip 203.0.113.50 --domain arche.example.com --ssh-key ~/.ssh/id_ed25519 --cloudflare-tunnel
+```
+
 #### Direct exposure (default)
 
 - Domain: any single hostname (apex or subdomain), with TLS via ACME HTTP challenge
@@ -107,7 +117,6 @@ cp .env.example .env
 ./deploy.sh \
   --ip 203.0.113.50 \
   --domain arche.example.com \
-  --ssh-key ~/.ssh/id_rsa \
   --acme-email admin@example.com \
   --skip-ensure-dns-record
 ```
@@ -130,7 +139,6 @@ cp .env.example .env
 ./deploy.sh \
   --ip 203.0.113.50 \
   --domain arche.example.com \
-  --ssh-key ~/.ssh/id_rsa \
   --cloudflare-tunnel
 ```
 
@@ -144,7 +152,7 @@ Create and configure the tunnel in the Cloudflare dashboard before deploying. Th
 |------|----------|-------------|
 | `--ip` | Yes | VPS IP address |
 | `--domain` | Yes | Production domain |
-| `--ssh-key` | Yes | Path to SSH private key |
+| `--ssh-key` | No | Path to SSH private key. Omit to use ssh-agent, 1Password SSH agent, `~/.ssh/config`, or default OpenSSH keys |
 | `--acme-email` | Direct only | Let's Encrypt ACME email |
 | `--cloudflare-tunnel` | No | Use Cloudflare Tunnel instead of public `80/443` and ACME |
 | `--version` | No | Web image tag to deploy (default: `latest`) |
@@ -273,7 +281,10 @@ HTTP-01 challenge is used in direct remote mode. Make sure your domain resolves 
 ## Maintenance
 
 ```bash
-# SSH into VPS
+# SSH into VPS using ssh-agent/OpenSSH defaults
+ssh root@<IP>
+
+# Or force a specific key file
 ssh -i ~/.ssh/id_rsa root@<IP>
 
 # View logs
@@ -291,15 +302,15 @@ podman ps -a --filter label=arche.role=web
 podman ps -a --filter label=arche.managed=true
 
 # Re-deploy (from local machine)
-./deploy.sh --ip <IP> --domain <DOMAIN> --ssh-key <KEY> --acme-email <EMAIL> [--skip-ensure-dns-record]
+./deploy.sh --ip <IP> --domain <DOMAIN> [--ssh-key <KEY>] --acme-email <EMAIL> [--skip-ensure-dns-record]
 
 # Re-deploy in Cloudflare Tunnel mode (from local machine)
-./deploy.sh --ip <IP> --domain <DOMAIN> --ssh-key <KEY> --cloudflare-tunnel
+./deploy.sh --ip <IP> --domain <DOMAIN> [--ssh-key <KEY>] --cloudflare-tunnel
 ```
 
 ## Troubleshooting
 
-**SSH connection fails**: Ensure the SSH key has access and the user can log in (`ssh -i <key> <user>@<ip>`).
+**SSH connection fails**: Ensure OpenSSH can log in with the same user and host (`ssh <user>@<ip>`), or force a key file with `ssh -i <key> <user>@<ip>` and `--ssh-key <key>`.
 
 **ACME certificate not issued**: Check Traefik logs (`podman compose logs traefik`). Verify domain A/AAAA records point to the VPS and ports `80/443` are reachable.
 

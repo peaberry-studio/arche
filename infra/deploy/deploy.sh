@@ -3,8 +3,8 @@ set -euo pipefail
 
 # Arche One-Click Deployer
 # Usage:
-#   Remote:    ./deploy.sh --ip <IP> --domain <DOMAIN> --ssh-key <KEY> --acme-email <EMAIL>
-#   Tunnel:    ./deploy.sh --ip <IP> --domain <DOMAIN> --ssh-key <KEY> --cloudflare-tunnel
+#   Remote:    ./deploy.sh --ip <IP> --domain <DOMAIN> [--ssh-key <KEY>] --acme-email <EMAIL>
+#   Tunnel:    ./deploy.sh --ip <IP> --domain <DOMAIN> [--ssh-key <KEY>] --cloudflare-tunnel
 #   Local dev: ./deploy.sh --local-dev
 #   Local dev down: ./deploy.sh --local-dev-down
 
@@ -84,6 +84,11 @@ prepare_remote_workspace_image() {
 
   local repo_root="$REPO_ROOT"
   local workspace_src="$repo_root/infra/workspace-image"
+  local ssh_opts=(-o BatchMode=yes -o ConnectTimeout=10)
+
+  if [[ -n "$SSH_KEY" ]]; then
+    ssh_opts+=(-i "$SSH_KEY")
+  fi
 
   if [[ ! -f "$workspace_src/Containerfile" ]]; then
     err "Cannot find infra/workspace-image/Containerfile in $repo_root"
@@ -93,11 +98,11 @@ prepare_remote_workspace_image() {
 
   log "Syncing workspace image sources to remote host..."
   tar -C "$repo_root" -czf - infra/workspace-image | \
-    ssh -o BatchMode=yes -o ConnectTimeout=10 -i "$SSH_KEY" "${SSH_USER}@${DEPLOY_IP}" \
+    ssh "${ssh_opts[@]}" "${SSH_USER}@${DEPLOY_IP}" \
       "rm -rf /tmp/arche-workspace-image-src && mkdir -p /tmp/arche-workspace-image-src && tar -xzf - -C /tmp/arche-workspace-image-src --strip-components=2"
 
   log "Building workspace image on remote host: arche-workspace:latest"
-  ssh -o BatchMode=yes -o ConnectTimeout=10 -i "$SSH_KEY" "${SSH_USER}@${DEPLOY_IP}" \
+  ssh "${ssh_opts[@]}" "${SSH_USER}@${DEPLOY_IP}" \
     "cd /tmp/arche-workspace-image-src && podman build --build-arg OPENCODE_VERSION=$RESOLVED_OPENCODE_VERSION -t arche-workspace:latest ."
 }
 
@@ -115,6 +120,11 @@ prepare_remote_web_image() {
   local repo_root="$SCRIPT_DIR/../.."
   repo_root="$(cd "$repo_root" && pwd)"
   local web_src="$repo_root/apps/web"
+  local ssh_opts=(-o BatchMode=yes -o ConnectTimeout=10)
+
+  if [[ -n "$SSH_KEY" ]]; then
+    ssh_opts+=(-i "$SSH_KEY")
+  fi
 
   if [[ ! -f "$web_src/Containerfile" ]]; then
     err "Cannot find apps/web/Containerfile in $repo_root"
@@ -124,11 +134,11 @@ prepare_remote_web_image() {
 
   log "Syncing web image sources to remote host..."
   tar -C "$repo_root" -czf - apps/web | \
-    ssh -o BatchMode=yes -o ConnectTimeout=10 -i "$SSH_KEY" "${SSH_USER}@${DEPLOY_IP}" \
+    ssh "${ssh_opts[@]}" "${SSH_USER}@${DEPLOY_IP}" \
       "rm -rf /tmp/arche-web-src && mkdir -p /tmp/arche-web-src && tar -xzf - -C /tmp/arche-web-src --strip-components=2"
 
   log "Building web image on remote host: arche-web:latest"
-  ssh -o BatchMode=yes -o ConnectTimeout=10 -i "$SSH_KEY" "${SSH_USER}@${DEPLOY_IP}" \
+  ssh "${ssh_opts[@]}" "${SSH_USER}@${DEPLOY_IP}" \
     "cd /tmp/arche-web-src && podman build -t arche-web:latest ."
 }
 
@@ -137,16 +147,16 @@ usage() {
 Arche One-Click Deployer
 
 REMOTE MODE:
-  ./deploy.sh --ip <IP> --domain <DOMAIN> --ssh-key <KEY> --acme-email <EMAIL> [OPTIONS]
-  ./deploy.sh --ip <IP> --domain <DOMAIN> --ssh-key <KEY> --cloudflare-tunnel [OPTIONS]
+  ./deploy.sh --ip <IP> --domain <DOMAIN> [--ssh-key <KEY>] --acme-email <EMAIL> [OPTIONS]
+  ./deploy.sh --ip <IP> --domain <DOMAIN> [--ssh-key <KEY>] --cloudflare-tunnel [OPTIONS]
 
   Required:
     --ip            VPS IP address (IPv4 or IPv6)
     --domain        Production domain (e.g. arche.example.com or app.arche.example.com)
-    --ssh-key       Path to SSH private key
     --acme-email    Email for Let's Encrypt ACME account (direct mode only)
 
   Optional:
+    --ssh-key       Path to SSH private key (omit to use ssh-agent, ~/.ssh/config, or default OpenSSH keys)
     --cloudflare-tunnel  Use Cloudflare Tunnel instead of public 80/443 + ACME
     --version       Web image tag to deploy (default: latest)
     --user          SSH user (default: root)
@@ -302,7 +312,6 @@ validate_remote() {
 
   [[ -z "$DEPLOY_IP" ]]    && ERRORS+=("--ip is required")
   [[ -z "$DEPLOY_DOMAIN" ]] && ERRORS+=("--domain is required")
-  [[ -z "$SSH_KEY" ]]       && ERRORS+=("--ssh-key is required")
 
   if [[ "$EXPOSURE_MODE" == "direct" ]]; then
     [[ -z "$ACME_EMAIL" ]] && ERRORS+=("--acme-email is required")
@@ -523,6 +532,11 @@ ensure_dns_record() {
 # ---------------------------------------------------------------------------
 deploy_remote() {
   log "Deploying to $DEPLOY_IP ($DEPLOY_DOMAIN) via Ansible"
+  local ssh_opts=(-o BatchMode=yes -o ConnectTimeout=10)
+
+  if [[ -n "$SSH_KEY" ]]; then
+    ssh_opts+=(-i "$SSH_KEY")
+  fi
 
   # Check prerequisites
   if ! command -v ansible-playbook &>/dev/null; then
@@ -532,8 +546,8 @@ deploy_remote() {
 
   # Test SSH connectivity
   log "Testing SSH connectivity..."
-  if ! ssh -o BatchMode=yes -o ConnectTimeout=10 -i "$SSH_KEY" "${SSH_USER}@${DEPLOY_IP}" true 2>/dev/null; then
-    err "Cannot connect via SSH to ${SSH_USER}@${DEPLOY_IP} with key $SSH_KEY"
+  if ! ssh "${ssh_opts[@]}" "${SSH_USER}@${DEPLOY_IP}" true 2>/dev/null; then
+    err "Cannot connect via SSH to ${SSH_USER}@${DEPLOY_IP}${SSH_KEY:+ with key $SSH_KEY}"
     exit 1
   fi
   log "SSH connection OK"
@@ -552,10 +566,14 @@ deploy_remote() {
   EXTRA_VARS_FILE=$(mktemp)
   trap 'rm -f "$INVENTORY" "$EXTRA_VARS_FILE"' EXIT
 
-  cat > "$INVENTORY" <<EOF
-[arche]
-${DEPLOY_IP} ansible_user=${SSH_USER} ansible_ssh_private_key_file=${SSH_KEY}
-EOF
+  {
+    printf '[arche]\n'
+    printf '%s ansible_user=%s' "$DEPLOY_IP" "$SSH_USER"
+    if [[ -n "$SSH_KEY" ]]; then
+      printf ' ansible_ssh_private_key_file=%s' "$SSH_KEY"
+    fi
+    printf '\n'
+  } > "$INVENTORY"
 
   # Export variables so python3 subprocess can read them
   export DEPLOY_DOMAIN ACME_EMAIL IMAGE_PREFIX WEB_VERSION WEB_IMAGE OPENCODE_IMAGE EXPOSURE_MODE CLOUDFLARED_TUNNEL_TOKEN CLOUDFLARED_IMAGE
