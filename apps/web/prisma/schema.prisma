@@ -55,6 +55,11 @@ enum FlowNodeType {
   compaction
 }
 
+enum FlowVisibility {
+  private
+  team
+}
+
 enum SlackPendingDecisionStatus {
   pending
   continued
@@ -85,6 +90,7 @@ model User {
   providerUsageDaily  ProviderUsageDaily[]
   providerUsageRuns   ProviderUsageRun[]
   flows               Flow[]
+  flowRunsExecuted    FlowRun[] @relation("FlowRunExecutionUser")
   slackThreadBindings SlackThreadBinding[]
   slackUserLinks      SlackUserLink[]
   slackDmSessionBindings SlackDmSessionBinding[]
@@ -306,6 +312,8 @@ model Flow {
   cronExpression String?        @map("cron_expression")
   timezone       String         @default("UTC")
   enabled        Boolean        @default(false)
+  visibility     FlowVisibility @default(private)
+  organizationCanRun Boolean    @default(false) @map("organization_can_run")
 
   nextRunAt      DateTime?      @map("next_run_at")
   lastRunAt      DateTime?      @map("last_run_at")
@@ -320,6 +328,8 @@ model Flow {
 
   @@index([userId])
   @@index([userId, name])
+  @@index([visibility])
+  @@index([visibility, organizationCanRun])
   @@index([enabled, nextRunAt])
   @@index([leaseExpiresAt])
   @@index([userId, leaseExpiresAt])
@@ -330,6 +340,8 @@ model FlowRun {
   id                String        @id @default(cuid())
   flowId            String        @map("flow_id")
   flow              Flow          @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  executionUserId   String?       @map("execution_user_id")
+  executionUser     User?         @relation("FlowRunExecutionUser", fields: [executionUserId], references: [id], onDelete: SetNull)
 
   status            FlowRunStatus
   trigger           FlowRunTrigger
@@ -351,6 +363,7 @@ model FlowRun {
   steps             FlowRunStep[]
 
   @@index([flowId, startedAt])
+  @@index([executionUserId])
   @@index([status])
   @@index([scheduledFor])
   @@index([retryScheduledFor])

@@ -110,6 +110,7 @@ describe("MarkdownEditor", () => {
     cleanup();
     capturedEditorOptions = null;
     fakeMarkdown = "";
+    vi.useRealTimers();
   });
 
   it("does not intercept standard markdown links as internal KB links", () => {
@@ -257,15 +258,21 @@ describe("MarkdownEditor", () => {
   });
 
   it("uses raw YAML mode for unsupported frontmatter", () => {
+    const onChange = vi.fn();
+
     render(
       <MarkdownEditor
         value={["---", "seo:", "  title: Alpha", "---", "# Body"].join("\n")}
-        onChange={vi.fn()}
+        onChange={onChange}
         saveState="saved"
       />
     );
 
-    expect(screen.getByLabelText("YAML frontmatter")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("YAML frontmatter"), {
+      target: { value: "seo:\n  title: Beta" },
+    });
+
+    expect(onChange).toHaveBeenCalledWith(["---", "seo:", "  title: Beta", "---", "# Body"].join("\n"));
     expect(screen.getByText(/raw mode/i)).toBeTruthy();
   });
 
@@ -372,6 +379,82 @@ describe("MarkdownEditor", () => {
       capturedEditorOptions?.onBlur?.();
     });
     expect(screen.queryByRole("button", { name: "Edit link" })).toBeNull();
+  });
+
+  it("hides hovered internal links after leaving the workspace", () => {
+    vi.useFakeTimers();
+
+    render(
+      <MarkdownEditor
+        value="[[Notes/Alpha.md]]"
+        onChange={vi.fn()}
+        saveState="saved"
+        internalLinkPaths={["Notes/Alpha.md"]}
+      />
+    );
+
+    const scroller = document.querySelector(".workspace-tiptap") as HTMLElement;
+    configureScroller(scroller);
+    const link = createInternalLinkElement("Notes/Alpha.md");
+    scroller.appendChild(link);
+
+    fireEvent.mouseMove(link);
+    expect(screen.getByRole("button", { name: "Edit link" })).toBeTruthy();
+
+    fireEvent.mouseMove(scroller);
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(screen.queryByRole("button", { name: "Edit link" })).toBeNull();
+  });
+
+  it("clears autocomplete when selection state cannot produce suggestions", async () => {
+    render(
+      <MarkdownEditor
+        value="[[Al"
+        onChange={vi.fn()}
+        saveState="saved"
+        internalLinkPaths={["Docs/Alpha.md"]}
+      />
+    );
+
+    const dispatch = vi.fn();
+    const focus = vi.fn();
+    const insertText = vi.fn(() => ({ type: "transaction" }));
+    const keyView = { dispatch, focus, state: { tr: { insertText } } };
+    const arrowDown = { key: "ArrowDown", preventDefault: vi.fn() } as unknown as KeyboardEvent;
+
+    expect(capturedEditorOptions?.editorProps?.handleKeyDown?.(keyView, arrowDown)).toBe(false);
+
+    fakeEditor.state.selection.empty = false;
+    await act(async () => {
+      capturedEditorOptions?.onSelectionUpdate?.({ editor: fakeEditor });
+    });
+
+    fakeEditor.state.selection.empty = true;
+    fakeEditor.state.selection.$from.parent.textContent = "plain text";
+    fakeEditor.state.selection.$from.parentOffset = 10;
+    await act(async () => {
+      capturedEditorOptions?.onSelectionUpdate?.({ editor: fakeEditor });
+    });
+
+    fakeEditor.state.selection.$from.parent.textContent = "[[Z";
+    fakeEditor.state.selection.$from.parentOffset = 3;
+    fakeEditor.state.selection.from = 3;
+    await act(async () => {
+      capturedEditorOptions?.onSelectionUpdate?.({ editor: fakeEditor });
+    });
+
+    fakeEditor.state.selection.$from.parent.textContent = "[[Al";
+    fakeEditor.state.selection.$from.parentOffset = 4;
+    fakeEditor.state.selection.from = 4;
+    fakeEditor.view.dom = document.createElement("div");
+    await act(async () => {
+      capturedEditorOptions?.onSelectionUpdate?.({ editor: fakeEditor });
+    });
+
+    expect(screen.queryByText("Alpha")).toBeNull();
   });
 
   it("applies internal link autocomplete suggestions by keyboard and mouse", async () => {

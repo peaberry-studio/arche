@@ -1,6 +1,7 @@
 "use server";
 
 import { createInstanceClient, getInstanceUrl } from "@/lib/opencode/client";
+import { createFlowActorScope } from "@/lib/flows/authorization";
 import { extractTextContent, transformParts } from "@/lib/opencode/transform";
 import type {
   AvailableModel,
@@ -380,7 +381,7 @@ function toBusyStatus(type: unknown): "active" | "idle" | "busy" | "error" {
 function toWorkspaceSessions(
   sessions: WorkspaceSessionListEntry[],
   statuses: Record<string, { type?: string }>,
-  flowBySessionId: Map<string, Awaited<ReturnType<typeof flowService.findSessionMetadataByUserId>>[number]>,
+  flowBySessionId: Map<string, Awaited<ReturnType<typeof flowService.findSessionMetadataForWorkspace>>[number]>,
 ): WorkspaceSession[] {
   return sessions.map((session) => {
     const flow = flowBySessionId.get(session.id);
@@ -443,7 +444,7 @@ async function getWorkspaceSessionMetadata(
   const statuses = statusResult?.data ?? {};
   const targetUserId = workspaceUser.ok ? workspaceUser.userId : null;
   const flowMetadata = targetUserId
-    ? await flowService.findSessionMetadataByUserId(targetUserId, sessionIds)
+    ? await flowService.findSessionMetadataForWorkspace(targetUserId, sessionIds)
     : [];
 
   return {
@@ -674,9 +675,9 @@ export async function markFlowRunSeenAction(
     return { ok: false, error: workspaceUser.error };
   }
 
-  const marked = await flowService.markRunResultSeenByIdAndUserId(
+  const marked = await flowService.markRunResultSeenByIdForScope(
     runId,
-    workspaceUser.userId,
+    createFlowActorScope({ id: workspaceUser.userId, role: "USER" }, workspaceUser.userId),
     new Date(),
   );
 

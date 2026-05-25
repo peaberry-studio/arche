@@ -91,9 +91,13 @@ function createFlowDetail(): FlowDetail {
     latestRun: null,
     name: 'Existing flow',
     nextRunAt: null,
+    organizationCanRun: false,
+    owner: { slug: 'alice' },
+    permissions: { canCopy: true, canEdit: true, canManage: true, canRun: true, canView: true, isOwner: true },
     runs: [],
     timezone: 'UTC',
     updatedAt: '2026-05-12T10:00:00.000Z',
+    visibility: 'private',
   }
 }
 
@@ -209,7 +213,7 @@ describe('FlowEditor', () => {
 
     await waitFor(() => expect(screen.getByDisplayValue('Existing flow')).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: 'Run flow' }))
-    await waitFor(() => expect(screen.getByText('flow_busy')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('This flow already has a run in progress. Try again after it finishes.')).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: 'Delete flow' }))
     await waitFor(() => expect(screen.getByText('not_found')).toBeTruthy())
   })
@@ -218,7 +222,7 @@ describe('FlowEditor', () => {
     mocks.fetchFlowDetail.mockRejectedValueOnce(new Error('offline'))
     render(<FlowEditor slug="alice" mode="edit" flowId="flow-1" />)
 
-    await waitFor(() => expect(screen.getByText('network_error')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Network error. Try again.')).toBeTruthy())
     cleanup()
 
     mocks.createFlowRequest.mockRejectedValueOnce(new Error('offline'))
@@ -226,7 +230,7 @@ describe('FlowEditor', () => {
     fireEvent.change(screen.getByLabelText('Flow name'), { target: { value: 'Network flow' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create flow' }))
 
-    await waitFor(() => expect(screen.getByText('network_error')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Network error. Try again.')).toBeTruthy())
   })
 
   it('renders network errors while running and deleting', async () => {
@@ -237,9 +241,9 @@ describe('FlowEditor', () => {
 
     await waitFor(() => expect(screen.getByDisplayValue('Existing flow')).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: 'Run flow' }))
-    await waitFor(() => expect(screen.getByText('network_error')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Network error. Try again.')).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: 'Delete flow' }))
-    await waitFor(() => expect(screen.getByText('network_error')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Network error. Try again.')).toBeTruthy())
   })
 
   it('continues when Slack target loading returns an error response', async () => {

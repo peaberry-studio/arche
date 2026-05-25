@@ -265,6 +265,80 @@ describe('session execution helpers', () => {
     })).resolves.toBeNull()
   })
 
+  it('records provider run usage from completed assistant step-finish parts', async () => {
+    const status = vi.fn().mockResolvedValue({
+      data: {
+        'session-1': { type: 'idle' },
+      },
+    })
+    const messages = vi.fn().mockResolvedValue({
+      data: [
+        {
+          info: { role: 'user' },
+          parts: [{ id: 'user-part', text: 'Go', type: 'text' }],
+        },
+        {
+          info: {
+            modelID: ' gpt-5.5 ',
+            providerID: 'openai',
+            role: 'assistant',
+            time: { completed: 1 },
+          },
+          parts: [
+            { cost: 0.25, id: 'finish-1', reason: 'end_turn', tokens: { input: 100, output: 50 }, type: 'step-finish' },
+            { cost: 0.5, id: 'finish-2', reason: 'end_turn', tokens: { input: 20, output: 30 }, type: 'step-finish' },
+          ],
+        },
+      ],
+    })
+
+    const { waitForSessionToComplete } = await import('../session-execution')
+
+    await expect(waitForSessionToComplete({
+      client: {
+        session: { messages, status },
+      } as Parameters<typeof waitForSessionToComplete>[0]['client'],
+      sessionId: 'session-1',
+      slug: 'slack-bot',
+      usage: { messageRunId: 'message-run-1', source: 'flow', userId: 'user-1' },
+    })).resolves.toBeNull()
+
+    await vi.waitFor(() => expect(recordProviderRunUsageMock).toHaveBeenCalledWith({
+      costUsd: 0.75,
+      credentialSource: 'user',
+      inputTokens: 120,
+      messageRunId: 'message-run-1',
+      modelId: 'gpt-5.5',
+      outputTokens: 80,
+      providerId: 'openai',
+      source: 'flow',
+      userId: 'user-1',
+    }))
+  })
+
+  it('does not record usage without a supported provider or billable tokens', async () => {
+    const status = vi.fn().mockResolvedValue({ data: { 'session-1': { type: 'idle' } } })
+    const messages = vi.fn().mockResolvedValue({
+      data: [
+        {
+          info: { providerID: 'unknown-provider', role: 'assistant', time: { completed: 1 } },
+          parts: [{ cost: 0, id: 'finish-1', tokens: { input: 0, output: 0 }, type: 'step-finish' }],
+        },
+      ],
+    })
+
+    const { waitForSessionToComplete } = await import('../session-execution')
+
+    await expect(waitForSessionToComplete({
+      client: { session: { messages, status } } as Parameters<typeof waitForSessionToComplete>[0]['client'],
+      sessionId: 'session-1',
+      slug: 'slack-bot',
+      usage: { messageRunId: 'message-run-1', source: 'flow', userId: 'user-1' },
+    })).resolves.toBeNull()
+
+    expect(recordProviderRunUsageMock).not.toHaveBeenCalled()
+  })
+
   it('reports no assistant message when the idle outcome has only non-assistant messages', async () => {
     const status = vi.fn().mockResolvedValue({
       data: {

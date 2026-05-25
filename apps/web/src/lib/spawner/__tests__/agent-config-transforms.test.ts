@@ -304,6 +304,29 @@ describe('remapAgentConnectorTools', () => {
     expect(tools['arche_custom_admin1_*']).toBeUndefined()
   })
 
+  it('remaps custom connector access through explicit aliases', () => {
+    const config = {
+      agent: {
+        worker: {
+          tools: {
+            'arche_custom_owner-connector_*': true,
+          },
+        },
+      },
+    }
+
+    const result = remapAgentConnectorTools(
+      config,
+      new Set(['arche_custom_user-connector']),
+      undefined,
+      { 'arche_custom_owner-connector': 'arche_custom_user-connector' },
+    )
+    const tools = (result.agent as Record<string, Record<string, unknown>>).worker.tools as Record<string, boolean>
+
+    expect(tools['arche_custom_user-connector_*']).toBe(true)
+    expect(tools['arche_custom_owner-connector_*']).toBeUndefined()
+  })
+
   it('preserves custom connector access when the exact connector exists', () => {
     const config = {
       agent: {

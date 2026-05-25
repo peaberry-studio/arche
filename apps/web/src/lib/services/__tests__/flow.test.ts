@@ -24,9 +24,14 @@ const prismaMock = vi.hoisted(() => ({
 
 vi.mock('@/lib/prisma', () => ({ prisma: prismaMock }))
 
+import { createFlowActorScope } from '@/lib/flows/authorization'
 import * as flowService from '@/lib/services/flow'
 
 const now = new Date('2026-05-12T10:00:00.000Z')
+
+function createScope(userId = 'user-1') {
+  return createFlowActorScope({ id: userId, role: 'USER' }, userId)
+}
 
 function createFlowRecord(overrides: Record<string, unknown> = {}) {
   return {
@@ -42,9 +47,11 @@ function createFlowRecord(overrides: Record<string, unknown> = {}) {
     leaseOwner: null,
     name: 'Flow',
     nextRunAt: null,
+    organizationCanRun: false,
     timezone: 'UTC',
     updatedAt: now,
     userId: 'user-1',
+    visibility: 'private',
     ...overrides,
   }
 }
@@ -54,6 +61,7 @@ function createRunRecord(overrides: Record<string, unknown> = {}) {
     createdAt: now,
     currentNodeId: null,
     error: null,
+    executionUserId: null,
     finishedAt: null,
     flowId: 'flow-1',
     id: 'run-1',
@@ -110,7 +118,7 @@ describe('flowService', () => {
       leaseMs: 900_000,
       leaseOwner: 'worker-1',
       now,
-      userId: 'user-1',
+      ownerUserId: 'user-1',
     })
 
     expect(result).toMatchObject({
@@ -131,12 +139,20 @@ describe('flowService', () => {
     prismaMock.flow.updateMany.mockResolvedValue({ count: 1 })
     prismaMock.flowRun.updateMany.mockResolvedValue({ count: 1 })
 
-    await expect(flowService.listFlowsByUserId('user-1')).resolves.toEqual([flow])
-    await expect(flowService.findFlowByIdAndUserId('flow-1', 'user-1')).resolves.toEqual(flow)
+    await expect(flowService.listFlowsForScope(createScope())).resolves.toEqual([flow])
+    await expect(flowService.findFlowByIdForScope('flow-1', createScope())).resolves.toEqual(flow)
     await expect(flowService.createFlow({ definition: { version: 1 }, enabled: false, name: 'Flow', timezone: 'UTC', userId: 'user-1' })).resolves.toEqual(flow)
-    await expect(flowService.updateFlowByIdAndUserId('flow-1', 'user-1', { name: 'Updated' })).resolves.toEqual(flow)
-    await expect(flowService.deleteFlowByIdAndUserId('flow-1', 'user-1')).resolves.toEqual({ count: 1 })
-    expect(prismaMock.flow.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { deletedAt: null, userId: 'user-1' } }))
+    await expect(flowService.updateFlowByIdAndOwnerId('flow-1', 'user-1', { name: 'Updated' })).resolves.toEqual(flow)
+    await expect(flowService.deleteFlowByIdAndOwnerId('flow-1', 'user-1')).resolves.toEqual({ count: 1 })
+    expect(prismaMock.flow.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        deletedAt: null,
+        OR: [
+          { userId: 'user-1' },
+          { visibility: 'team' },
+        ],
+      },
+    }))
     expect(prismaMock.flow.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
       data: expect.objectContaining({ deletedAt: expect.any(Date), enabled: false, leaseExpiresAt: null, leaseOwner: null, nextRunAt: null }),
       where: { deletedAt: null, id: 'flow-1', userId: 'user-1' },
@@ -144,6 +160,25 @@ describe('flowService', () => {
     expect(prismaMock.flowRun.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ currentNodeId: null, retryScheduledFor: null, status: FlowRunStatus.cancelled }),
       where: { flowId: 'flow-1', status: { in: [FlowRunStatus.running, FlowRunStatus.waiting_for_human] } },
+    }))
+  })
+
+  it('lists owned flows and team-visible flows for the actor', async () => {
+    prismaMock.flow.findMany.mockResolvedValue([
+      createFlowRecord({ id: 'owned-flow', userId: 'user-1' }),
+      createFlowRecord({ id: 'team-flow', userId: 'user-2', visibility: 'team' }),
+    ])
+
+    await expect(flowService.listFlowsForScope(createScope())).resolves.toHaveLength(2)
+
+    expect(prismaMock.flow.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        deletedAt: null,
+        OR: [
+          { userId: 'user-1' },
+          { visibility: 'team' },
+        ],
+      },
     }))
   })
 
@@ -162,7 +197,7 @@ describe('flowService', () => {
       resolveNextRunAt: () => new Date('2026-05-13T10:00:00.000Z'),
     })).resolves.toMatchObject({ id: 'flow-1', scheduledFor: now })
 
-    await expect(flowService.claimFlowLeaseById({ id: 'flow-1', leaseMs: 900_000, leaseOwner: 'worker-2', now, userId: 'user-1' }))
+    await expect(flowService.claimFlowLeaseById({ id: 'flow-1', leaseMs: 900_000, leaseOwner: 'worker-2', now, ownerUserId: 'user-1' }))
       .resolves.toMatchObject({ id: 'flow-1', leaseOwner: 'worker-2' })
   })
 
@@ -176,7 +211,10 @@ describe('flowService', () => {
 
     await flowService.extendFlowLease('flow-1', 'worker-1', now)
     await flowService.releaseFlowLease('flow-1', 'worker-1', now)
-    await expect(flowService.createRun({ flowId: 'flow-1', scheduledFor: now, trigger: FlowRunTrigger.manual })).resolves.toEqual(run)
+    await expect(flowService.createRun({ executionUserId: 'user-2', flowId: 'flow-1', scheduledFor: now, trigger: FlowRunTrigger.manual })).resolves.toEqual(run)
+    expect(prismaMock.flowRun.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ executionUserId: 'user-2' }),
+    }))
     await flowService.attachRunSession('run-1', { openCodeSessionId: 'session-1', sessionTitle: 'Title' })
     await flowService.updateRunCurrentNode('run-1', 'agent-1')
     await flowService.markRunWaitingForHuman('run-1', 'human-1')
@@ -185,7 +223,34 @@ describe('flowService', () => {
     await flowService.markRunFailed('run-1', { error: 'failed', finishedAt: now })
     await flowService.markRunRetryScheduled('run-1', { attempt: 2, error: 'instance_unavailable', retryAt: now })
     await expect(flowService.findRunStatusById('run-1')).resolves.toEqual({ status: FlowRunStatus.running })
-    await expect(flowService.cancelRunByIdAndUserId('run-1', 'user-1', now)).resolves.toBe(true)
+    await expect(flowService.cancelRunByIdForScope('run-1', createScope(), now)).resolves.toBe(true)
+    await expect(flowService.cancelRunById('run-1', now)).resolves.toBe(true)
+  })
+
+  it('normalizes private flow organization execution in the service layer', async () => {
+    const flow = createFlowRecord()
+    prismaMock.flow.create.mockResolvedValue(flow)
+    prismaMock.flow.findFirst.mockResolvedValue(flow)
+    prismaMock.flow.updateMany.mockResolvedValue({ count: 1 })
+
+    await flowService.createFlow({
+      definition: { version: 1 },
+      enabled: false,
+      name: 'Flow',
+      organizationCanRun: true,
+      timezone: 'UTC',
+      userId: 'user-1',
+      visibility: 'private',
+    })
+    await flowService.updateFlowByIdAndOwnerId('flow-1', 'user-1', { organizationCanRun: true })
+
+    expect(prismaMock.flow.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ organizationCanRun: false, visibility: 'private' }),
+    }))
+    expect(prismaMock.flow.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ organizationCanRun: false }),
+      where: expect.objectContaining({ visibility: 'private' }),
+    }))
   })
 
   it('claims due retry runs without requiring the flow to be enabled', async () => {
@@ -303,18 +368,21 @@ describe('flowService', () => {
       }])
     prismaMock.flowRun.updateMany.mockResolvedValue({ count: 1 })
 
-    await expect(flowService.findRunByIdAndUserId('run-1', 'user-1')).resolves.toEqual(run)
-    await expect(flowService.listRunsByFlowIdAndUserId('flow-1', 'user-1')).resolves.toEqual([run])
-    await expect(flowService.markRunResultSeenByIdAndUserId('run-1', 'user-1', now)).resolves.toBe(true)
+    await expect(flowService.findRunByIdForScope('run-1', createScope())).resolves.toEqual(run)
+    await expect(flowService.listRunsByFlowIdForScope('flow-1', createScope())).resolves.toEqual([run])
+    await expect(flowService.markRunResultSeenByIdForScope('run-1', createScope(), now)).resolves.toBe(true)
     expect(prismaMock.flowRun.updateMany).toHaveBeenCalledWith({
       data: { resultSeenAt: now },
       where: {
-        flow: { userId: 'user-1' },
+        OR: [
+          { executionUserId: 'user-1' },
+          { executionUserId: null, flow: { userId: 'user-1' } },
+        ],
         id: 'run-1',
         resultSeenAt: null,
       },
     })
-    await expect(flowService.findSessionMetadataByUserId('user-1', ['session-1'])).resolves.toEqual([{
+    await expect(flowService.findSessionMetadataForWorkspace('user-1', ['session-1'])).resolves.toEqual([{
       flowId: 'flow-1',
       flowName: 'Flow',
       hasUnseenResult: true,

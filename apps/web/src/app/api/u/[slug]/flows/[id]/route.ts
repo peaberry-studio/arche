@@ -2,9 +2,15 @@ import { Prisma } from '@prisma/client'
 import { NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
-import { resolveFlowOwnerUserId } from '@/lib/flows/api'
+import { resolveFlowRouteContext } from '@/lib/flows/api'
+import { createFlowActorScope } from '@/lib/flows/authorization'
+import {
+  checkMissingConnectorRequirements,
+  getFlowConnectorRequirements,
+} from '@/lib/flows/connector-requirements'
 import { getNextFlowRunAt, validateFlowCronExpression } from '@/lib/flows/cron'
 import { validateFlowPayload } from '@/lib/flows/payload'
+import { canEditFlow, canManageFlow, canViewFlow } from '@/lib/flows/permissions'
 import { validateFlowSlackNodeAccess } from '@/lib/flows/route-auth'
 import { serializeFlowDetail, toPrismaJson } from '@/lib/flows/serializers'
 import type { FlowDetail } from '@/lib/flows/types'
@@ -18,19 +24,36 @@ type FlowRouteParams = {
   slug: string
 }
 
+async function serializeFlowDetailForUser(
+  flow: Awaited<ReturnType<typeof flowService.findFlowByIdForScope>> & {},
+  user: { id: string; role: string },
+): Promise<FlowDetail> {
+  const detail = serializeFlowDetail(flow, user)
+  if (!detail.permissions.canRun) return detail
+
+  const requirements = await getFlowConnectorRequirements(detail.definition)
+  if (!requirements.ok) return detail
+
+  detail.connectorRequirements = requirements.requirements
+  detail.missingConnectorRequirements = await checkMissingConnectorRequirements(requirements.requirements, user.id)
+  return detail
+}
+
 export const GET = withAuth<{ flow: FlowDetail } | { error: string }, FlowRouteParams>(
   { csrf: false },
   async (_request, { params: { id }, slug, user }) => {
     const denied = requireCapability('flows')
     if (denied) return denied
 
-    const userId = await resolveFlowOwnerUserId(slug, user)
-    if (!userId) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    const routeContext = await resolveFlowRouteContext(slug, user)
+    if (!routeContext) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    const scope = createFlowActorScope(user, routeContext.workspaceUserId)
 
-    const flow = await flowService.findFlowByIdAndUserId(id, userId)
+    const flow = await flowService.findFlowByIdForScope(id, scope)
     if (!flow) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    if (!canViewFlow(user, flow)) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
-    return NextResponse.json({ flow: serializeFlowDetail(flow) })
+    return NextResponse.json({ flow: await serializeFlowDetailForUser(flow, user) })
   },
 )
 
@@ -40,11 +63,13 @@ export const PATCH = withAuth<{ flow: FlowDetail } | { error: string }, FlowRout
     const denied = requireCapability('flows')
     if (denied) return denied
 
-    const userId = await resolveFlowOwnerUserId(slug, user)
-    if (!userId) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    const routeContext = await resolveFlowRouteContext(slug, user)
+    if (!routeContext) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    const scope = createFlowActorScope(user, routeContext.workspaceUserId)
 
-    const existing = await flowService.findFlowByIdAndUserId(id, userId)
+    const existing = await flowService.findFlowByIdForScope(id, scope)
     if (!existing) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    if (!canEditFlow(user, existing)) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
 
     let body: unknown
     try {
@@ -66,6 +91,10 @@ export const PATCH = withAuth<{ flow: FlowDetail } | { error: string }, FlowRout
       ? existing.cronExpression
       : payload.value.cronExpression
     const nextEnabled = payload.value.enabled ?? existing.enabled
+    const nextVisibility = payload.value.visibility ?? existing.visibility
+    const nextOrganizationCanRun = nextVisibility === 'team'
+      ? payload.value.organizationCanRun ?? existing.organizationCanRun
+      : false
 
     if (nextEnabled && !nextCronExpression) {
       return NextResponse.json({ error: 'schedule_required' }, { status: 400 })
@@ -94,7 +123,9 @@ export const PATCH = withAuth<{ flow: FlowDetail } | { error: string }, FlowRout
       enabled?: boolean
       name?: string
       nextRunAt?: Date | null
+      organizationCanRun?: boolean
       timezone?: string
+      visibility?: 'private' | 'team'
     } = {
       cronExpression: payload.value.cronExpression,
       definition: payload.value.definition ? toPrismaJson(payload.value.definition) : undefined,
@@ -102,7 +133,11 @@ export const PATCH = withAuth<{ flow: FlowDetail } | { error: string }, FlowRout
       enabled: payload.value.enabled,
       name: payload.value.name,
       nextRunAt,
+      organizationCanRun: payload.value.organizationCanRun !== undefined || payload.value.visibility !== undefined
+        ? nextOrganizationCanRun
+        : undefined,
       timezone: payload.value.timezone,
+      visibility: payload.value.visibility,
     }
     const existingDefinition = validateFlowDefinition(existing.definition)
     if (!payload.value.definition && !existingDefinition.ok) {
@@ -112,7 +147,7 @@ export const PATCH = withAuth<{ flow: FlowDetail } | { error: string }, FlowRout
     const slackNodeAccess = await validateFlowSlackNodeAccess(
       payload.value.definition ?? (existingDefinition.ok ? existingDefinition.definition : null),
       user,
-      userId,
+      existing.userId,
     )
     if (!slackNodeAccess.ok) {
       return NextResponse.json(
@@ -122,7 +157,7 @@ export const PATCH = withAuth<{ flow: FlowDetail } | { error: string }, FlowRout
     }
 
     try {
-      const updated = await flowService.updateFlowByIdAndUserId(id, userId, updateData)
+      const updated = await flowService.updateFlowByIdAndOwnerId(id, existing.userId, updateData)
 
       if (!updated) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
@@ -132,10 +167,10 @@ export const PATCH = withAuth<{ flow: FlowDetail } | { error: string }, FlowRout
         metadata: { flowId: id, slug },
       })
 
-      const detail = await flowService.findFlowByIdAndUserId(id, userId)
+      const detail = await flowService.findFlowByIdForScope(id, createFlowActorScope(user, existing.userId))
       if (!detail) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
-      return NextResponse.json({ flow: serializeFlowDetail(detail) })
+      return NextResponse.json({ flow: await serializeFlowDetailForUser(detail, user) })
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         return NextResponse.json({ error: 'flow_name_exists' }, { status: 409 })
@@ -152,10 +187,15 @@ export const DELETE = withAuth<{ ok: true } | { error: string }, FlowRouteParams
     const denied = requireCapability('flows')
     if (denied) return denied
 
-    const userId = await resolveFlowOwnerUserId(slug, user)
-    if (!userId) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    const routeContext = await resolveFlowRouteContext(slug, user)
+    if (!routeContext) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    const scope = createFlowActorScope(user, routeContext.workspaceUserId)
 
-    const deleted = await flowService.deleteFlowByIdAndUserId(id, userId)
+    const existing = await flowService.findFlowByIdForScope(id, scope)
+    if (!existing) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    if (!canManageFlow(user, existing)) return NextResponse.json({ error: 'forbidden' }, { status: 403 })
+
+    const deleted = await flowService.deleteFlowByIdAndOwnerId(id, existing.userId)
     if (deleted.count === 0) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
     await auditEvent({

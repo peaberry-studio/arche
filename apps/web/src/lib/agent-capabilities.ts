@@ -84,7 +84,7 @@ const SINGLE_INSTANCE_AGENT_CONNECTOR_CAPABILITY_IDS = {
 
 const TOOL_SET = new Set<string>(OPENCODE_AGENT_TOOLS)
 const CONNECTOR_TYPE_PATTERN = CONNECTOR_TYPES.join('|')
-export const MCP_TOOL_PATTERN = new RegExp(`^arche_(${CONNECTOR_TYPE_PATTERN})_([a-z0-9]+)_\\*$`)
+export const MCP_TOOL_PATTERN = new RegExp(`^arche_(${CONNECTOR_TYPE_PATTERN})_([^_]+)_\\*$`)
 
 function buildMcpServerKey(type: ConnectorType, id: string): string {
   return `arche_${type}_${id}`

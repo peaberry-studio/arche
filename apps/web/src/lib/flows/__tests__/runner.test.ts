@@ -14,8 +14,8 @@ const mocks = vi.hoisted(() => ({
   createRun: vi.fn(),
   extendFlowLease: vi.fn(),
   ensureWorkspaceRunningForExecution: vi.fn(),
-  findFlowByIdAndUserId: vi.fn(),
-  findRunByIdAndUserId: vi.fn(),
+  findFlowByIdForScope: vi.fn(),
+  findRunByIdForScope: vi.fn(),
   findRunStatusById: vi.fn(),
   markRunFailed: vi.fn(),
   markRunRunning: vi.fn(),
@@ -30,6 +30,7 @@ const mocks = vi.hoisted(() => ({
   updateRunCurrentNode: vi.fn(),
   upsertRunStep: vi.fn(),
   userFindByIdSelect: vi.fn(),
+  validateFlowSlackNodeAccess: vi.fn(),
 }))
 
 vi.mock('@/lib/flows/session-executor', () => ({
@@ -37,6 +38,10 @@ vi.mock('@/lib/flows/session-executor', () => ({
   FLOW_RUN_CANCELLED_ERROR: 'flow_run_cancelled',
   createFlowLeaseOwner: mocks.createFlowLeaseOwner,
   runFlowPromptAndReadOutput: mocks.runFlowPromptAndReadOutput,
+}))
+
+vi.mock('@/lib/flows/route-auth', () => ({
+  validateFlowSlackNodeAccess: mocks.validateFlowSlackNodeAccess,
 }))
 
 vi.mock('@/lib/opencode/client', () => ({
@@ -55,8 +60,8 @@ vi.mock('@/lib/services', () => ({
     claimFlowForImmediateRun: mocks.claimFlowForImmediateRun,
     createRun: mocks.createRun,
     extendFlowLease: mocks.extendFlowLease,
-    findFlowByIdAndUserId: mocks.findFlowByIdAndUserId,
-    findRunByIdAndUserId: mocks.findRunByIdAndUserId,
+    findFlowByIdForScope: mocks.findFlowByIdForScope,
+    findRunByIdForScope: mocks.findRunByIdForScope,
     findRunStatusById: mocks.findRunStatusById,
     markRunFailed: mocks.markRunFailed,
     markRunRunning: mocks.markRunRunning,
@@ -94,10 +99,12 @@ function createClaimedFlow() {
     leaseOwner: 'worker-1',
     name: 'Flow',
     nextRunAt: null,
+    organizationCanRun: false,
     scheduledFor: now,
     timezone: 'UTC',
     updatedAt: now,
     userId: 'user-1',
+    visibility: 'private',
   }
 }
 
@@ -106,6 +113,7 @@ function createRunRecord(overrides: Record<string, unknown> = {}) {
     createdAt: now,
     currentNodeId: null,
     error: null,
+    executionUserId: null,
     finishedAt: null,
     flowId: 'flow-1',
     id: 'run-1',
@@ -203,7 +211,7 @@ describe('triggerFlowNow', () => {
       trigger: FlowRunTrigger.manual,
       updatedAt: now,
     })
-    mocks.findRunByIdAndUserId.mockResolvedValue(null)
+    mocks.findRunByIdForScope.mockResolvedValue(null)
     mocks.findRunStatusById.mockResolvedValue({ status: FlowRunStatus.running })
     mocks.extendFlowLease.mockResolvedValue({ count: 1 })
     mocks.ensureWorkspaceRunningForExecution.mockResolvedValue(undefined)
@@ -236,22 +244,23 @@ describe('triggerFlowNow', () => {
     mocks.auditCreateEvent.mockResolvedValue(undefined)
     mocks.touchActivity.mockResolvedValue(undefined)
     mocks.userFindByIdSelect.mockResolvedValue(null)
+    mocks.validateFlowSlackNodeAccess.mockResolvedValue({ ok: true })
   })
 
   it('returns not_found when the requested flow does not exist', async () => {
     mocks.claimFlowForImmediateRun.mockResolvedValue(null)
-    mocks.findFlowByIdAndUserId.mockResolvedValue(null)
+    mocks.findFlowByIdForScope.mockResolvedValue(null)
 
-    await expect(triggerFlowNow({ flowId: 'flow-1', trigger: FlowRunTrigger.manual, userId: 'user-1' }))
+    await expect(triggerFlowNow({ flowId: 'flow-1', ownerUserId: 'user-1', trigger: FlowRunTrigger.manual }))
       .resolves.toEqual({ ok: false, error: 'not_found' })
     expect(mocks.createRun).not.toHaveBeenCalled()
   })
 
   it('returns flow_busy when the flow exists but cannot be claimed', async () => {
     mocks.claimFlowForImmediateRun.mockResolvedValue(null)
-    mocks.findFlowByIdAndUserId.mockResolvedValue(createClaimedFlow())
+    mocks.findFlowByIdForScope.mockResolvedValue(createClaimedFlow())
 
-    await expect(triggerFlowNow({ flowId: 'flow-1', trigger: FlowRunTrigger.manual, userId: 'user-1' }))
+    await expect(triggerFlowNow({ flowId: 'flow-1', ownerUserId: 'user-1', trigger: FlowRunTrigger.manual }))
       .resolves.toEqual({ ok: false, error: 'flow_busy' })
   })
 
@@ -260,17 +269,18 @@ describe('triggerFlowNow', () => {
 
     await expect(triggerFlowNow({ flowId: 'flow-1', trigger: FlowRunTrigger.manual }))
       .resolves.toEqual({ ok: false, error: 'flow_busy' })
-    expect(mocks.findFlowByIdAndUserId).not.toHaveBeenCalled()
+    expect(mocks.findFlowByIdForScope).not.toHaveBeenCalled()
   })
 
   it('creates a durable run before returning success', async () => {
     const claimedFlow = createClaimedFlow()
     mocks.claimFlowForImmediateRun.mockResolvedValue(claimedFlow)
 
-    await expect(triggerFlowNow({ flowId: 'flow-1', trigger: FlowRunTrigger.manual, userId: 'user-1' }))
+    await expect(triggerFlowNow({ flowId: 'flow-1', ownerUserId: 'user-1', trigger: FlowRunTrigger.manual }))
       .resolves.toEqual({ ok: true })
 
     expect(mocks.createRun).toHaveBeenCalledWith({
+      executionUserId: 'user-1',
       flowId: 'flow-1',
       scheduledFor: now,
       trigger: FlowRunTrigger.manual,
@@ -285,6 +295,7 @@ describe('triggerFlowNow', () => {
       .resolves.toEqual({ ok: true, runId: 'run-dispatched' })
 
     expect(mocks.createRun).toHaveBeenCalledWith({
+      executionUserId: 'user-1',
       flowId: 'flow-1',
       scheduledFor: now,
       trigger: FlowRunTrigger.manual,
@@ -294,9 +305,9 @@ describe('triggerFlowNow', () => {
 
   it('validates human resume state and dispatches valid responses', async () => {
     const waitingRun = createWaitingRun()
-    mocks.findRunByIdAndUserId
+    mocks.findRunByIdForScope
       .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(createRunRecord())
+      .mockResolvedValueOnce({ ...createRunRecord(), flow: createClaimedFlow() })
       .mockResolvedValueOnce(waitingRun)
       .mockResolvedValueOnce(waitingRun)
     mocks.claimFlowLeaseById.mockResolvedValue(createClaimedFlow())
@@ -338,6 +349,71 @@ describe('triggerFlowNow', () => {
 
     expect(mocks.ensureWorkspaceRunningForExecution).toHaveBeenCalledWith('alice', 'user-1')
     expect(mocks.markRunSucceeded).toHaveBeenCalledWith('run-1', expect.objectContaining({ openCodeSessionId: 'session-1' }))
+  })
+
+  it('runs shared manual flows in the execution user workspace', async () => {
+    mocks.claimFlowForImmediateRun.mockResolvedValue(createClaimedFlow())
+    mocks.createRun.mockResolvedValue(createRunRecord({ executionUserId: 'user-2' }))
+    mocks.userFindByIdSelect.mockResolvedValue({ role: 'USER', slug: 'bob' })
+
+    await expect(triggerFlowNow({
+      executionUserId: 'user-2',
+      flowId: 'flow-1',
+      trigger: FlowRunTrigger.manual,
+    })).resolves.toEqual({ ok: true })
+
+    expect(mocks.createRun).toHaveBeenCalledWith({
+      executionUserId: 'user-2',
+      flowId: 'flow-1',
+      scheduledFor: now,
+      trigger: FlowRunTrigger.manual,
+    })
+    await vi.waitFor(() => expect(mocks.ensureWorkspaceRunningForExecution).toHaveBeenCalledWith('bob', 'user-2'))
+    await vi.waitFor(() => expect(mocks.runFlowPromptAndReadOutput).toHaveBeenCalledWith(expect.objectContaining({
+      slug: 'bob',
+      userId: 'user-2',
+    })))
+    expect(mocks.validateFlowSlackNodeAccess).toHaveBeenCalledWith(
+      expect.objectContaining({ startNodeId: 'agent-1' }),
+      { id: 'user-2', role: 'USER', slug: 'bob' },
+      'user-2',
+    )
+    await vi.waitFor(() => expect(mocks.auditCreateEvent).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'flows.run_succeeded',
+      actorUserId: 'user-2',
+      metadata: expect.objectContaining({ executionUserId: 'user-2', ownerUserId: 'user-1' }),
+    })))
+  })
+
+  it('fails shared Slack runs before starting the executor workspace when the target is forbidden', async () => {
+    const flow = createClaimedFlow()
+    flow.definition = {
+      edges: [],
+      nodes: [{ id: 'slack-1', messageMode: 'fixed', messageTemplate: 'Fixed update', name: 'Slack', target: { type: 'dm', userId: 'user-1' }, type: 'slack' }],
+      startNodeId: 'slack-1',
+      version: 1,
+    }
+    mocks.claimFlowForImmediateRun.mockResolvedValue(flow)
+    mocks.createRun.mockResolvedValue(createRunRecord({ executionUserId: 'user-2', id: 'run-shared-slack' }))
+    mocks.userFindByIdSelect.mockResolvedValue({ role: 'USER', slug: 'bob' })
+    mocks.validateFlowSlackNodeAccess.mockResolvedValueOnce({ ok: false, error: 'slack_notification_dm_target_forbidden', status: 403 })
+
+    await expect(triggerFlowNow({
+      executionUserId: 'user-2',
+      flowId: 'flow-1',
+      trigger: FlowRunTrigger.manual,
+    })).resolves.toEqual({ ok: true })
+
+    await vi.waitFor(() => expect(mocks.markRunFailed).toHaveBeenCalledWith('run-shared-slack', expect.objectContaining({
+      error: 'slack_notification_dm_target_forbidden',
+    })))
+    expect(mocks.validateFlowSlackNodeAccess).toHaveBeenCalledWith(
+      expect.objectContaining({ startNodeId: 'slack-1' }),
+      { id: 'user-2', role: 'USER', slug: 'bob' },
+      'user-2',
+    )
+    expect(mocks.ensureWorkspaceRunningForExecution).not.toHaveBeenCalled()
+    expect(mocks.sendSlackNotifications).not.toHaveBeenCalled()
   })
 
   it('runs Slack message nodes with fixed, previous output, and template messages', async () => {
@@ -776,7 +852,7 @@ describe('triggerFlowNow', () => {
 
   it('rejects empty required human responses and busy resumes', async () => {
     const waitingRun = createWaitingRun()
-    mocks.findRunByIdAndUserId.mockResolvedValue(waitingRun)
+    mocks.findRunByIdForScope.mockResolvedValue(waitingRun)
 
     await expect(resumeFlowRun({ humanResponse: '   ', runId: 'run-1', userId: 'user-1' }))
       .resolves.toEqual({ ok: false, error: 'invalid_response' })
@@ -802,7 +878,7 @@ describe('triggerFlowNow', () => {
         }),
       ],
     }
-    mocks.findRunByIdAndUserId
+    mocks.findRunByIdForScope
       .mockResolvedValueOnce(waitingRun)
       .mockResolvedValueOnce(refreshedRun)
       .mockResolvedValue(null)
@@ -829,7 +905,7 @@ describe('triggerFlowNow', () => {
 
     const cancelledFlow = createClaimedFlow()
     mocks.createRun.mockResolvedValueOnce(createRunRecord({ id: 'run-cancelled' }))
-    mocks.findRunByIdAndUserId.mockResolvedValueOnce(createRunRecord({ id: 'run-cancelled', status: FlowRunStatus.cancelled }))
+    mocks.findRunByIdForScope.mockResolvedValueOnce(createRunRecord({ id: 'run-cancelled', status: FlowRunStatus.cancelled }))
     mocks.runFlowPromptAndReadOutput.mockResolvedValueOnce({ ok: true, output: 'done' })
 
     await runClaimedFlow(cancelledFlow, FlowRunTrigger.manual)

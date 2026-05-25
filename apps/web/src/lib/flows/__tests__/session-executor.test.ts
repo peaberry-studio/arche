@@ -66,6 +66,8 @@ describe('runFlowPromptAndReadOutput', () => {
     mocks.readLatestAssistantText.mockResolvedValue('assistant output')
     mocks.extendFlowLease.mockResolvedValue({ count: 1 })
     mocks.findRunStatusById.mockResolvedValue({ status: FlowRunStatus.running })
+    mocks.messageRunService.markRunFailed.mockResolvedValue(undefined)
+    mocks.messageRunService.markRunSucceeded.mockResolvedValue(undefined)
   })
 
   it('sends the prompt and returns the latest assistant output', async () => {
@@ -91,6 +93,57 @@ describe('runFlowPromptAndReadOutput', () => {
       { throwOnError: true },
     )
     expect(mocks.readLatestAssistantText).toHaveBeenCalledWith(client, 'session-1', { messageCount: 3 })
+  })
+
+  it('records message run usage when an execution user is provided', async () => {
+    const client = createClient()
+    client.session.status = vi.fn().mockResolvedValue({ data: { 'session-1': { type: 'idle' } } })
+    mocks.messageRunService.createActiveRunAfterRuntimeStateCheck.mockImplementation(async (input) => {
+      await input.readRuntimeSessionState()
+      return { ok: true, run: { id: 'message-run-1' } }
+    })
+    mocks.waitForSessionToComplete.mockImplementation(async (params) => {
+      expect(params.usage).toEqual({ messageRunId: 'message-run-1', source: 'flow', userId: 'user-1' })
+      return null
+    })
+
+    await expect(runFlowPromptAndReadOutput({
+      client,
+      flowId: 'flow-1',
+      leaseOwner: 'worker-1',
+      prompt: 'Do work',
+      runId: 'run-1',
+      sessionId: 'session-1',
+      slug: 'alice',
+      userId: 'user-1',
+    })).resolves.toEqual({ ok: true, output: 'assistant output' })
+
+    expect(mocks.messageRunService.createActiveRunAfterRuntimeStateCheck).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 'session-1',
+      slug: 'alice',
+      source: 'flow',
+    }))
+    expect(mocks.messageRunService.markRunSucceeded).toHaveBeenCalledWith('message-run-1')
+  })
+
+  it('returns session_busy when message run tracking cannot start', async () => {
+    const client = createClient()
+    client.session.status = vi.fn().mockResolvedValue({ data: { 'session-1': { type: 'busy' } } })
+    mocks.messageRunService.createActiveRunAfterRuntimeStateCheck.mockResolvedValue({ ok: false, error: 'session_busy' })
+
+    await expect(runFlowPromptAndReadOutput({
+      client,
+      flowId: 'flow-1',
+      leaseOwner: 'worker-1',
+      prompt: 'Do work',
+      runId: 'run-1',
+      sessionId: 'session-1',
+      slug: 'alice',
+      userId: 'user-1',
+    })).resolves.toEqual({ ok: false, error: 'session_busy' })
+
+    expect(mocks.captureSessionMessageCursor).not.toHaveBeenCalled()
+    expect(client.session.promptAsync).not.toHaveBeenCalled()
   })
 
   it('does not send a prompt when the run was already cancelled', async () => {
@@ -131,6 +184,22 @@ describe('runFlowPromptAndReadOutput', () => {
 
     expect(mocks.captureSessionMessageCursor).not.toHaveBeenCalled()
     expect(client.session.promptAsync).not.toHaveBeenCalled()
+  })
+
+  it('continues when runtime agent metadata cannot be read', async () => {
+    const client = createClient({ agents: [null, { model: { modelID: 9 }, name: 7 }] })
+    client.app.agents.mockRejectedValue(new Error('runtime unavailable'))
+
+    await expect(runFlowPromptAndReadOutput({
+      agent: 'writer',
+      client,
+      flowId: 'flow-1',
+      leaseOwner: 'worker-1',
+      prompt: 'Do work',
+      runId: 'run-1',
+      sessionId: 'session-1',
+      slug: 'alice',
+    })).resolves.toEqual({ ok: true, output: 'assistant output' })
   })
 
   it('aborts the OpenCode session when cancellation is detected while waiting', async () => {
@@ -211,6 +280,46 @@ describe('runFlowPromptAndReadOutput', () => {
     })).resolves.toEqual({ ok: false, error: 'flow_run_timeout' })
 
     expect(mocks.readLatestAssistantText).not.toHaveBeenCalled()
+  })
+
+  it('marks tracked message runs failed when prompt dispatch fails', async () => {
+    const client = createClient()
+    client.session.status = vi.fn().mockResolvedValue({ data: { 'session-1': { type: 'idle' } } })
+    client.session.promptAsync.mockRejectedValue(new Error('prompt failed'))
+    mocks.messageRunService.createActiveRunAfterRuntimeStateCheck.mockResolvedValue({ ok: true, run: { id: 'message-run-1' } })
+
+    await expect(runFlowPromptAndReadOutput({
+      client,
+      flowId: 'flow-1',
+      leaseOwner: 'worker-1',
+      prompt: 'Do work',
+      runId: 'run-1',
+      sessionId: 'session-1',
+      slug: 'alice',
+      userId: 'user-1',
+    })).rejects.toThrow('prompt failed')
+
+    expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith('message-run-1', 'prompt failed')
+  })
+
+  it('marks tracked message runs failed when completion returns a failure reason', async () => {
+    const client = createClient()
+    client.session.status = vi.fn().mockResolvedValue({ data: { 'session-1': { type: 'idle' } } })
+    mocks.messageRunService.createActiveRunAfterRuntimeStateCheck.mockResolvedValue({ ok: true, run: { id: 'message-run-1' } })
+    mocks.waitForSessionToComplete.mockResolvedValue('flow_run_timeout')
+
+    await expect(runFlowPromptAndReadOutput({
+      client,
+      flowId: 'flow-1',
+      leaseOwner: 'worker-1',
+      prompt: 'Do work',
+      runId: 'run-1',
+      sessionId: 'session-1',
+      slug: 'alice',
+      userId: 'user-1',
+    })).resolves.toEqual({ ok: false, error: 'flow_run_timeout' })
+
+    expect(mocks.messageRunService.markRunFailed).toHaveBeenCalledWith('message-run-1', 'flow_run_timeout')
   })
 
   it('returns an error when no assistant output is available', async () => {

@@ -39,7 +39,9 @@ describe('validateFlowPayload', () => {
         description: 'Does work',
         enabled: true,
         name: 'Weekly Flow',
+        organizationCanRun: false,
         timezone: 'UTC',
+        visibility: 'private',
       },
     })
   })

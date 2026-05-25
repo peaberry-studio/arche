@@ -66,6 +66,7 @@ export function getFlowSchedulerStatus() {
 export async function dispatchDueFlows(limit = FLOW_SCHEDULER_BATCH_LIMIT): Promise<number> {
   lastDispatchStartedAt = new Date()
   let claimedCount = 0
+  let dispatchError: string | null = null
 
   try {
     while (claimedCount < limit) {
@@ -78,13 +79,12 @@ export async function dispatchDueFlows(limit = FLOW_SCHEDULER_BATCH_LIMIT): Prom
 
       if (retry) {
         claimedCount += 1
-        void dispatchClaimedFlowRetryRun(retry).catch((error) => {
-          console.error('[flows] Failed to execute scheduled flow retry', {
-            error,
-            flowId: retry.id,
-            runId: retry.retryRun.id,
-          })
-        })
+        try {
+          await dispatchClaimedFlowRetryRun(retry)
+        } catch (error) {
+          dispatchError = getErrorMessage(error)
+          console.error('[flows] Failed to dispatch claimed retry run', { error: dispatchError, flowId: retry.id, runId: retry.retryRun.id })
+        }
         continue
       }
 
@@ -100,15 +100,15 @@ export async function dispatchDueFlows(limit = FLOW_SCHEDULER_BATCH_LIMIT): Prom
       if (!claimed) break
 
       claimedCount += 1
-      void dispatchClaimedFlowRun(claimed, 'schedule').catch((error) => {
-        console.error('[flows] Failed to execute scheduled flow run', {
-          error,
-          flowId: claimed.id,
-        })
-      })
+      try {
+        await dispatchClaimedFlowRun(claimed, 'schedule')
+      } catch (error) {
+        dispatchError = getErrorMessage(error)
+        console.error('[flows] Failed to dispatch claimed flow run', { error: dispatchError, flowId: claimed.id })
+      }
     }
 
-    lastDispatchError = null
+    lastDispatchError = dispatchError
     return claimedCount
   } catch (error) {
     lastDispatchError = getErrorMessage(error)

@@ -25,6 +25,7 @@ const serviceMocks = vi.hoisted(() => ({
   },
   connectorService: {
     findEnabledMcpByUserId: vi.fn(),
+    findNameEntriesByType: vi.fn(),
   },
 }))
 
@@ -664,6 +665,7 @@ describe('mcp-config', () => {
       connectorMocks.issueConnectorGatewayToken.mockReturnValue('gw-token-123')
       connectorMocks.validateConnectorType.mockReturnValue(true)
       connectorMocks.validateConnectorConfig.mockReturnValue({ valid: true })
+      serviceMocks.connectorService.findNameEntriesByType.mockResolvedValue([])
     })
 
     it('returns null when user is not found', async () => {
@@ -832,6 +834,28 @@ describe('mcp-config', () => {
         userId: 'user-1',
         workspaceSlug: 'my-slug',
         connectorId: 'c1',
+      })
+    })
+
+    it('aliases shared custom connector tools to the user connector with the same name', async () => {
+      serviceMocks.userService.findIdBySlug.mockResolvedValue({ id: 'user-1' })
+
+      const connector = makeConnector({ id: 'user-custom', name: 'Acme MCP', type: 'custom' })
+      serviceMocks.connectorService.findEnabledMcpByUserId.mockResolvedValue([connector])
+      serviceMocks.connectorService.findNameEntriesByType.mockResolvedValue([
+        { id: 'owner-custom', name: 'Acme MCP', type: 'custom' },
+        { id: 'other-custom', name: 'Other MCP', type: 'custom' },
+        { id: 'user-custom', name: 'Acme MCP', type: 'custom' },
+      ])
+
+      connectorMocks.decryptConfig.mockReturnValue({ auth: 'token', endpoint: 'https://custom-server.com/mcp' })
+      connectorMocks.getConnectorAuthType.mockReturnValue('manual')
+      connectorMocks.validateConnectorConfig.mockReturnValue({ valid: true })
+
+      const result = await buildMcpConfigForSlug('my-slug')
+
+      expect(result?.connectorAliases).toEqual({
+        'arche_custom_owner-custom': 'arche_custom_user-custom',
       })
     })
 

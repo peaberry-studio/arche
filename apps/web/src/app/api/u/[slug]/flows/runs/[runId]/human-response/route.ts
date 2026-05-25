@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
-import { flowRunActionStatus, resolveFlowOwnerUserId } from '@/lib/flows/api'
+import { flowRunActionStatus, resolveFlowRouteContext } from '@/lib/flows/api'
 import { resumeFlowRun } from '@/lib/flows/runner'
 import { requireCapability } from '@/lib/runtime/require-capability'
 import { withAuth } from '@/lib/runtime/with-auth'
@@ -17,8 +17,8 @@ export const POST = withAuth<{ ok: true } | { error: string }, FlowHumanResponse
     const denied = requireCapability('flows')
     if (denied) return denied
 
-    const userId = await resolveFlowOwnerUserId(slug, user)
-    if (!userId) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    const routeContext = await resolveFlowRouteContext(slug, user)
+    if (!routeContext) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
     let body: unknown
     try {
@@ -37,7 +37,7 @@ export const POST = withAuth<{ ok: true } | { error: string }, FlowHumanResponse
       return NextResponse.json({ error: 'invalid_response' }, { status: 400 })
     }
 
-    const result = await resumeFlowRun({ humanResponse: response, runId, userId })
+    const result = await resumeFlowRun({ humanResponse: response, runId, userId: routeContext.actorUserId })
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: flowRunActionStatus(result.error) })
     }

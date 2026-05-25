@@ -49,9 +49,11 @@ function createFlowRecord(definition: FlowDefinition): FlowRecord {
     leaseOwner: 'worker-1',
     name: 'Flow',
     nextRunAt: null,
+    organizationCanRun: false,
     timezone: 'UTC',
     updatedAt: now,
     userId: 'user-1',
+    visibility: 'private',
   }
 }
 
@@ -61,6 +63,7 @@ function createRunRecord(): FlowRunRecord {
     createdAt: now,
     currentNodeId: null,
     error: null,
+    executionUserId: null,
     finishedAt: null,
     flowId: 'flow-1',
     id: 'run-1',
@@ -111,6 +114,7 @@ function createParams(definition: FlowDefinition, node: FlowNode, steps: FlowRun
   return {
     client,
     definition,
+    executionUserId: 'user-1',
     flow: createFlowRecord(definition),
     leaseOwner: 'worker-1',
     node,

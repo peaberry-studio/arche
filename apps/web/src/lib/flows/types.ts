@@ -6,6 +6,29 @@ export type FlowRunStepStatus = 'pending' | 'running' | 'waiting_for_human' | 's
 
 export type FlowNodeType = 'agent' | 'human' | 'condition' | 'slack' | 'merge' | 'compaction'
 
+export type FlowVisibility = 'private' | 'team'
+
+export type FlowUserSummary = {
+  slug: string
+}
+
+export type FlowPermissions = {
+  canCopy: boolean
+  canEdit: boolean
+  canManage: boolean
+  canRun: boolean
+  canView: boolean
+  isOwner: boolean
+}
+
+export type FlowConnectorRequirementSummary = {
+  agentId: string
+  agentName: string
+  capabilityId: string
+  connectorName: string | null
+  connectorType: string
+}
+
 export type FlowSlackTarget =
   | { type: 'dm'; userId: string }
   | { type: 'channel'; channelId: string }
@@ -133,6 +156,8 @@ export type FlowRunStepListItem = {
 export type FlowRunListItem = {
   id: string
   flowId: string
+  executionUserId: string | null
+  executionUser: FlowUserSummary | null
   status: FlowRunStatus
   trigger: FlowRunTrigger
   scheduledFor: string
@@ -150,12 +175,16 @@ export type FlowRunListItem = {
 
 export type FlowListItem = {
   id: string
+  owner: FlowUserSummary | null
   name: string
   description: string | null
   definition: FlowDefinition
   cronExpression: string | null
   timezone: string
   enabled: boolean
+  visibility: FlowVisibility
+  organizationCanRun: boolean
+  permissions: FlowPermissions
   nextRunAt: string | null
   lastRunAt: string | null
   createdAt: string
@@ -164,6 +193,8 @@ export type FlowListItem = {
 }
 
 export type FlowDetail = FlowListItem & {
+  connectorRequirements?: FlowConnectorRequirementSummary[]
+  missingConnectorRequirements?: FlowConnectorRequirementSummary[]
   runs: FlowRunListItem[]
 }
 
@@ -174,6 +205,8 @@ export type FlowPayload = {
   cronExpression: string | null
   timezone: string
   enabled: boolean
+  visibility?: FlowVisibility
+  organizationCanRun?: boolean
 }
 
 export type FlowSessionMetadata = {

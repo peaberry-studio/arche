@@ -41,8 +41,8 @@ vi.mock('@/lib/providers/store', () => ({
 
 vi.mock('@/lib/services', () => ({
   flowService: {
-    findSessionMetadataByUserId: vi.fn().mockResolvedValue([]),
-    markRunResultSeenByIdAndUserId: vi.fn(),
+    findSessionMetadataForWorkspace: vi.fn().mockResolvedValue([]),
+    markRunResultSeenByIdForScope: vi.fn(),
   },
   instanceService: {
     findCredentialsBySlug: vi.fn(),
@@ -593,13 +593,13 @@ describe('markFlowRunSeenAction', () => {
   })
 
   it('marks run as seen successfully', async () => {
-    mockFlowService.markRunResultSeenByIdAndUserId.mockResolvedValue(true as never)
+    mockFlowService.markRunResultSeenByIdForScope.mockResolvedValue(true as never)
     const result = await markFlowRunSeenAction('alice', 'run-1')
     expect(result).toEqual({ ok: true })
   })
 
   it('returns not_found when mark fails', async () => {
-    mockFlowService.markRunResultSeenByIdAndUserId.mockResolvedValue(false as never)
+    mockFlowService.markRunResultSeenByIdForScope.mockResolvedValue(false as never)
     const result = await markFlowRunSeenAction('alice', 'run-1')
     expect(result).toEqual({ ok: false, error: 'not_found' })
   })
@@ -607,13 +607,13 @@ describe('markFlowRunSeenAction', () => {
   it('resolves target user for admin accessing another slug', async () => {
     mockGetSession.mockResolvedValue(adminSession)
     mockUserService.findIdBySlug.mockResolvedValue({ id: 'target-user' } as never)
-    mockFlowService.markRunResultSeenByIdAndUserId.mockResolvedValue(true as never)
+    mockFlowService.markRunResultSeenByIdForScope.mockResolvedValue(true as never)
 
     const result = await markFlowRunSeenAction('alice', 'run-1')
     expect(result).toEqual({ ok: true })
-    expect(mockFlowService.markRunResultSeenByIdAndUserId).toHaveBeenCalledWith(
+    expect(mockFlowService.markRunResultSeenByIdForScope).toHaveBeenCalledWith(
       'run-1',
-      'target-user',
+      expect.objectContaining({ workspaceUserId: 'target-user' }),
       expect.any(Date),
     )
   })

@@ -2,7 +2,8 @@ import { Prisma } from '@prisma/client'
 import { NextResponse } from 'next/server'
 
 import { auditEvent } from '@/lib/auth'
-import { resolveFlowOwnerUserId } from '@/lib/flows/api'
+import { resolveFlowRouteContext } from '@/lib/flows/api'
+import { createFlowActorScope } from '@/lib/flows/authorization'
 import { getNextFlowRunAt } from '@/lib/flows/cron'
 import { validateFlowPayload } from '@/lib/flows/payload'
 import { validateFlowSlackNodeAccess } from '@/lib/flows/route-auth'
@@ -23,11 +24,11 @@ export const GET = withAuth<FlowListResponse | { error: string }>(
     const denied = requireCapability('flows')
     if (denied) return denied
 
-    const userId = await resolveFlowOwnerUserId(slug, user)
-    if (!userId) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    const routeContext = await resolveFlowRouteContext(slug, user)
+    if (!routeContext) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
-    const flows = await flowService.listFlowsByUserId(userId)
-    return NextResponse.json({ flows: flows.map(serializeFlowListItem) })
+    const flows = await flowService.listFlowsForScope(createFlowActorScope(user, routeContext.workspaceUserId))
+    return NextResponse.json({ flows: flows.map((flow) => serializeFlowListItem(flow, user)) })
   },
 )
 
@@ -52,13 +53,13 @@ export const POST = withAuth<{ flow: FlowDetail } | { error: string }>(
       return NextResponse.json({ error: payload.error }, { status: payload.status })
     }
 
-    const userId = await resolveFlowOwnerUserId(slug, user)
-    if (!userId) return NextResponse.json({ error: 'not_found' }, { status: 404 })
+    const routeContext = await resolveFlowRouteContext(slug, user)
+    if (!routeContext) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
     const slackNodeAccess = await validateFlowSlackNodeAccess(
       payload.value.definition,
       user,
-      userId,
+      routeContext.workspaceUserId,
     )
     if (!slackNodeAccess.ok) {
       return NextResponse.json(
@@ -72,7 +73,11 @@ export const POST = withAuth<{ flow: FlowDetail } | { error: string }>(
       const definition = payload.value.definition
       const enabled = payload.value.enabled ?? false
       const name = payload.value.name
+      const organizationCanRun = payload.value.visibility === 'team'
+        ? payload.value.organizationCanRun ?? false
+        : false
       const timezone = payload.value.timezone ?? 'UTC'
+      const visibility = payload.value.visibility ?? 'private'
       if (!definition || !name) {
         return NextResponse.json({ error: 'invalid_body' }, { status: 400 })
       }
@@ -84,8 +89,10 @@ export const POST = withAuth<{ flow: FlowDetail } | { error: string }>(
         enabled,
         name,
         nextRunAt: enabled && cronExpression ? getNextFlowRunAt(cronExpression, timezone, new Date()) : null,
+        organizationCanRun,
         timezone,
-        userId,
+        userId: routeContext.workspaceUserId,
+        visibility,
       })
 
       await auditEvent({
@@ -97,23 +104,27 @@ export const POST = withAuth<{ flow: FlowDetail } | { error: string }>(
       if (flow.enabled) {
         const triggerResult = await triggerFlowNow({
           flowId: flow.id,
+          executionUserId: routeContext.workspaceUserId,
+          ownerUserId: routeContext.workspaceUserId,
           trigger: 'on_create',
-          userId,
         })
         if (!triggerResult.ok) {
           console.error('[flows] Failed to trigger initial flow run', {
             flowId: flow.id,
             reason: triggerResult.error,
             slug,
-            userId,
+            userId: routeContext.workspaceUserId,
           })
         }
       }
 
-      const detail = await flowService.findFlowByIdAndUserId(flow.id, userId)
+      const detail = await flowService.findFlowByIdForScope(
+        flow.id,
+        createFlowActorScope(user, routeContext.workspaceUserId),
+      )
       if (!detail) return NextResponse.json({ error: 'not_found' }, { status: 404 })
 
-      return NextResponse.json({ flow: serializeFlowDetail(detail) }, { status: 201 })
+      return NextResponse.json({ flow: serializeFlowDetail(detail, user) }, { status: 201 })
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         return NextResponse.json({ error: 'flow_name_exists' }, { status: 409 })

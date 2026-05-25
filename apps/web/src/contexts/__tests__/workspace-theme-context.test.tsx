@@ -24,6 +24,12 @@ function DarkModeDisplay() {
   return <div data-testid="is-dark">{String(isDark)}</div>;
 }
 
+function DarkModeRecorder({ history }: { history: string[] }) {
+  const { isDark } = useWorkspaceTheme();
+  history.push(String(isDark));
+  return <div data-testid="is-dark">{String(isDark)}</div>;
+}
+
 function ThemeSetter({ id }: { id: string }) {
   const { setThemeId, themeId } = useWorkspaceTheme();
   return (
@@ -221,6 +227,34 @@ describe("WorkspaceThemeProvider", () => {
       })
       container.remove()
     }
+  });
+
+  it("keeps localStorage dark mode stable when the server default differs", async () => {
+    const history: string[] = []
+    localStorage.setItem("arche.workspace.alice.dark-mode", "true");
+
+    render(
+      <WorkspaceThemeProvider storageScope="alice" initialIsDark={false}>
+        <DarkModeRecorder history={history} />
+      </WorkspaceThemeProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("is-dark").textContent).toBe("true");
+    })
+
+    await act(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0))
+      await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    })
+
+    const firstStoredValueRender = history.indexOf("true")
+
+    expect(firstStoredValueRender).toBeGreaterThanOrEqual(0)
+    expect(history.slice(firstStoredValueRender)).not.toContain("false")
+    expect(screen.getByTestId("is-dark").textContent).toBe("true")
+    expect(localStorage.getItem("arche.workspace.alice.dark-mode")).toBe("true")
+    expect(document.cookie).toContain("arche-workspace-dark-mode-alice=true")
   });
 
   it("applies correct html classes and removes dark class on theme change", () => {

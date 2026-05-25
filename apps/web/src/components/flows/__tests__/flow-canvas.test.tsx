@@ -132,6 +132,68 @@ describe('FlowCanvas', () => {
     expect(onRemoveConnection).toHaveBeenCalledWith('edge-1')
   })
 
+  it('handles keyboard controls, zoom actions, and expanded escape state', () => {
+    const onAddNodeAfter = vi.fn()
+    const onEditNode = vi.fn()
+    const onRemoveConnection = vi.fn()
+    renderCanvas({ onAddNodeAfter, onEditNode, onRemoveConnection })
+
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Edit Agent step' }), { key: 'Tab' })
+    expect(onEditNode).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Edit Agent step' }), { key: 'Enter' })
+    expect(onEditNode).toHaveBeenCalledWith('agent-1')
+
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Remove connection Agent step to Human step' }), { key: ' ' })
+    expect(onRemoveConnection).toHaveBeenCalledWith('edge-1')
+
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Add node after Agent step' }), { key: 'Enter' })
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Add condition step after Agent step' }), { key: ' ' })
+    expect(onAddNodeAfter).toHaveBeenCalledWith('agent-1', 'condition')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom out' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reset zoom' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Maximize canvas' }))
+    expect(screen.getByRole('button', { name: 'Minimize canvas' })).toBeTruthy()
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.getByRole('button', { name: 'Maximize canvas' })).toBeTruthy()
+  })
+
+  it('tracks pending connections through SVG coordinate transforms', () => {
+    const onConnectNodes = vi.fn()
+    renderCanvas({ onConnectNodes })
+
+    const svg = screen.getByRole('img', { name: 'Flow diagram editor' }) as SVGSVGElement
+    const point = {
+      x: 0,
+      y: 0,
+      matrixTransform: () => ({ x: point.x, y: point.y }),
+    }
+    Object.defineProperty(svg, 'createSVGPoint', { value: () => point })
+    Object.defineProperty(svg, 'getScreenCTM', { value: () => ({ inverse: () => ({}) }) })
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Connect from Agent step' }), {
+      clientX: 166,
+      clientY: 48,
+      pointerId: 1,
+    })
+    fireEvent.pointerMove(svg, {
+      clientX: 230,
+      clientY: 48,
+      pointerId: 1,
+    })
+    fireEvent.pointerUp(svg, {
+      clientX: 230,
+      clientY: 48,
+      pointerId: 1,
+    })
+
+    expect(onConnectNodes).toHaveBeenCalledWith('agent-1', 'human-1')
+  })
+
   it('renders all add node menu options', () => {
     renderCanvas()
 

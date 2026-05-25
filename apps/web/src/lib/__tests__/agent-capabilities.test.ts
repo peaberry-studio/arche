@@ -403,12 +403,12 @@ describe('extractAgentCapabilitiesFromTools', () => {
   it('extracts MCP connector ids from arche_ patterns', () => {
     const result = extractAgentCapabilitiesFromTools({
       'arche_*': false,
-      'arche_custom_conn123_*': true,
+      'arche_custom_conn-123_*': true,
       'arche_linear_globallinear_*': true,
     })
-    // custom type: returns the id directly (conn123)
+    // custom type: returns the id directly (conn-123)
     // linear type: returns the global id via getConnectorCapabilityId
-    expect(result.mcpConnectorIds).toEqual(['conn123', 'globallinear'])
+    expect(result.mcpConnectorIds).toEqual(['conn-123', 'globallinear'])
   })
 
   it('ignores disabled MCP connector tools', () => {

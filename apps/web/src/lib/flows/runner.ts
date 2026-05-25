@@ -4,10 +4,13 @@ import {
   FlowRunTrigger,
 } from '@prisma/client'
 
+import { createFlowActorScope } from '@/lib/flows/authorization'
 import { formatFlowRunDate } from '@/lib/flows/cron'
+import { dispatchFlowExecution } from '@/lib/flows/execution-dispatcher'
 import { getFlowNodeById, getFlowOutgoingTargets } from '@/lib/flows/graph'
 import { executeFlowNode } from '@/lib/flows/node-executors'
 import { planFlowRetry } from '@/lib/flows/retry-policy'
+import { validateFlowSlackNodeAccess } from '@/lib/flows/route-auth'
 import { serializeFlowRun } from '@/lib/flows/serializers'
 import {
   createFlowLeaseOwner,
@@ -30,6 +33,12 @@ type FlowExecutionOutcome =
   | { status: 'succeeded' }
   | { status: 'waiting_for_human'; nodeId: string }
   | { status: 'failed'; error: string }
+
+type FlowExecutionUser = {
+  id: string
+  role: string
+  slug: string
+}
 
 function buildFlowSessionTitle(flow: FlowRecord, scheduledFor: Date): string {
   return `Flow | ${flow.name} | ${formatFlowRunDate(scheduledFor, flow.timezone)}`
@@ -59,6 +68,23 @@ function getPreviousOutputForRetry(run: FlowRunRecord & { steps?: FlowRunStepRec
   return null
 }
 
+async function validateFlowDefinitionForExecution(
+  flow: FlowRecord,
+  executionUser: FlowExecutionUser,
+): Promise<{ ok: true; definition: FlowDefinition } | { ok: false; error: string }> {
+  const definitionResult = validateFlowDefinition(flow.definition)
+  if (!definitionResult.ok) return { ok: false, error: definitionResult.error }
+
+  const slackNodeAccess = await validateFlowSlackNodeAccess(
+    definitionResult.definition,
+    executionUser,
+    executionUser.id,
+  )
+  if (!slackNodeAccess.ok) return { ok: false, error: slackNodeAccess.error }
+
+  return { ok: true, definition: definitionResult.definition }
+}
+
 async function isRunCancelled(runId: string): Promise<boolean> {
   const run = await flowService.findRunStatusById(runId)
   return run?.status === FlowRunStatus.cancelled
@@ -82,6 +108,7 @@ async function hasActiveFlowLease(flowId: string, leaseOwner: string): Promise<b
 async function executeFlowNodes(params: {
   client: SessionExecutionClient
   definition: FlowDefinition
+  executionUserId: string
   flow: FlowRecord
   leaseOwner: string
   previousOutput: string | null
@@ -120,6 +147,7 @@ async function executeFlowNodes(params: {
     const result = await executeFlowNode({
       client: params.client,
       definition: params.definition,
+      executionUserId: params.executionUserId,
       flow: params.flow,
       leaseOwner: params.leaseOwner,
       node,
@@ -144,7 +172,9 @@ async function executeFlowNodes(params: {
 
 async function continueRun(params: {
   client: SessionExecutionClient
+  definition: FlowDefinition
   flow: FlowRecord
+  executionUserId: string
   leaseOwner: string
   previousOutput: string | null
   run: FlowRunRecord & { steps?: FlowRunStepRecord[] }
@@ -152,14 +182,10 @@ async function continueRun(params: {
   slug: string
   startNodeId: string | null
 }): Promise<FlowExecutionOutcome> {
-  const definitionResult = validateFlowDefinition(params.flow.definition)
-  if (!definitionResult.ok) {
-    return { status: 'failed', error: definitionResult.error }
-  }
-
   return executeFlowNodes({
     client: params.client,
-    definition: definitionResult.definition,
+    definition: params.definition,
+    executionUserId: params.executionUserId,
     flow: params.flow,
     leaseOwner: params.leaseOwner,
     previousOutput: params.previousOutput,
@@ -183,7 +209,11 @@ async function finalizeRun(params: {
 }): Promise<{ retryScheduled: boolean }> {
   if (!await hasActiveFlowLease(params.flow.id, params.leaseOwner)) return { retryScheduled: false }
 
-  const currentRun = await flowService.findRunByIdAndUserId(params.run.id, params.flow.userId)
+  const executionUserId = params.run.executionUserId ?? params.flow.userId
+  const currentRun = await flowService.findRunByIdForScope(
+    params.run.id,
+    createFlowActorScope({ id: params.flow.userId, role: 'USER' }, params.flow.userId),
+  )
   if (params.outcome.status === 'cancelled' || currentRun?.status === FlowRunStatus.cancelled) {
     return { retryScheduled: false }
   }
@@ -191,10 +221,12 @@ async function finalizeRun(params: {
   if (params.outcome.status === 'waiting_for_human') {
     await auditService.createEvent({
       action: 'flows.run_waiting_for_human',
-      actorUserId: params.flow.userId,
+      actorUserId: executionUserId,
       metadata: {
+        executionUserId,
         flowId: params.flow.id,
         nodeId: params.outcome.nodeId,
+        ownerUserId: params.flow.userId,
         runId: params.run.id,
         sessionId: params.sessionId,
         slug: params.slug,
@@ -215,9 +247,11 @@ async function finalizeRun(params: {
     if (result.count !== 1) return { retryScheduled: false }
     await auditService.createEvent({
       action: 'flows.run_succeeded',
-      actorUserId: params.flow.userId,
+      actorUserId: executionUserId,
       metadata: {
+        executionUserId,
         flowId: params.flow.id,
+        ownerUserId: params.flow.userId,
         runId: params.run.id,
         sessionId: params.sessionId,
         slug: params.slug,
@@ -255,12 +289,14 @@ async function finalizeRun(params: {
 
     await auditService.createEvent({
       action: 'flows.run_failed',
-      actorUserId: params.flow.userId,
+      actorUserId: executionUserId,
       metadata: {
         attempt: params.run.attempt,
         error: params.outcome.error,
+        executionUserId,
         flowId: params.flow.id,
         maxAttempts: retryPlan.maxAttempts,
+        ownerUserId: params.flow.userId,
         retryAt: retryPlan.retryAt.toISOString(),
         runId: params.run.id,
         sessionId: params.sessionId,
@@ -281,11 +317,13 @@ async function finalizeRun(params: {
   if (result.count !== 1) return { retryScheduled: false }
   await auditService.createEvent({
     action: 'flows.run_failed',
-    actorUserId: params.flow.userId,
+    actorUserId: executionUserId,
     metadata: {
       error: params.outcome.error,
+      executionUserId,
       flowId: params.flow.id,
       maxAttempts: retryPlan.maxAttempts,
+      ownerUserId: params.flow.userId,
       retryReason: retryPlan.reason,
       runId: params.run.id,
       sessionId: params.sessionId,
@@ -309,11 +347,22 @@ async function executeClaimedFlowRun(
   let finalization: { retryScheduled: boolean } = { retryScheduled: false }
 
   try {
-    const owner = await userService.findByIdSelect(flow.userId, { slug: true })
-    if (!owner) throw new Error('flow_user_not_found')
+    const executionUserId = run.executionUserId ?? flow.userId
+    const executionUser = await userService.findByIdSelect(executionUserId, { role: true, slug: true })
+    if (!executionUser) throw new Error('flow_execution_user_not_found')
 
-    slug = owner.slug
-    await ensureWorkspaceRunningForExecution(slug, flow.userId)
+    slug = executionUser.slug
+    const definitionResult = await validateFlowDefinitionForExecution(flow, {
+      id: executionUserId,
+      role: executionUser.role,
+      slug: executionUser.slug,
+    })
+    if (!definitionResult.ok) {
+      outcome = { status: 'failed', error: definitionResult.error }
+      return
+    }
+
+    await ensureWorkspaceRunningForExecution(slug, executionUserId)
     await instanceService.touchActivity(slug).catch(() => undefined)
 
     const client = await createInstanceClient(slug)
@@ -332,16 +381,17 @@ async function executeClaimedFlowRun(
       sessionTitle = buildFlowSessionTitle(flow, flow.scheduledFor)
     }
 
-    const definitionResult = validateFlowDefinition(flow.definition)
     outcome = await continueRun({
       client,
+      definition: definitionResult.definition,
+      executionUserId,
       flow,
       leaseOwner: flow.leaseOwner ?? '',
       previousOutput: run.currentNodeId ? getPreviousOutputForRetry(run) : null,
       run,
       sessionId,
       slug,
-      startNodeId: run.currentNodeId ?? (definitionResult.ok ? definitionResult.definition.startNodeId : null),
+      startNodeId: run.currentNodeId ?? definitionResult.definition.startNodeId,
     })
   } catch (error) {
     outcome = { status: 'failed', error: error instanceof Error ? error.message : 'flow_run_failed' }
@@ -373,6 +423,7 @@ export async function runClaimedFlow(
   trigger: FlowRunTrigger,
 ): Promise<void> {
   const run = await flowService.createRun({
+    executionUserId: flow.userId,
     flowId: flow.id,
     scheduledFor: flow.scheduledFor,
     trigger,
@@ -384,21 +435,19 @@ export async function runClaimedFlow(
 export async function dispatchClaimedFlowRun(
   flow: FlowClaimedRecord,
   trigger: FlowRunTrigger,
+  executionUserId = flow.userId,
 ): Promise<{ ok: true; runId: string }> {
   const run = await flowService.createRun({
+    executionUserId,
     flowId: flow.id,
     scheduledFor: flow.scheduledFor,
     trigger,
   })
 
-  void executeClaimedFlowRun(flow, trigger, run).catch((error) => {
-    console.error('[flows] Failed to execute dispatched flow run', {
-      error,
-      flowId: flow.id,
-      runId: run.id,
-      trigger,
-    })
-  })
+  dispatchFlowExecution(
+    { flowId: flow.id, runId: run.id, trigger, type: 'run' },
+    () => executeClaimedFlowRun(flow, trigger, run),
+  )
 
   return { ok: true, runId: run.id }
 }
@@ -406,22 +455,19 @@ export async function dispatchClaimedFlowRun(
 export async function dispatchClaimedFlowRetryRun(
   flow: FlowRetryClaimedRecord,
 ): Promise<{ ok: true; runId: string }> {
-  void executeClaimedFlowRun(flow, flow.retryRun.trigger, flow.retryRun).catch((error) => {
-    console.error('[flows] Failed to execute dispatched flow retry', {
-      error,
-      flowId: flow.id,
-      runId: flow.retryRun.id,
-      trigger: flow.retryRun.trigger,
-    })
-  })
+  dispatchFlowExecution(
+    { flowId: flow.id, runId: flow.retryRun.id, trigger: flow.retryRun.trigger, type: 'retry' },
+    () => executeClaimedFlowRun(flow, flow.retryRun.trigger, flow.retryRun),
+  )
 
   return { ok: true, runId: flow.retryRun.id }
 }
 
 export async function triggerFlowNow(params: {
+  executionUserId?: string
   flowId: string
+  ownerUserId?: string
   trigger: FlowRunTrigger
-  userId?: string
 }): Promise<{ ok: true } | { ok: false; error: 'not_found' | 'flow_busy' }> {
   const now = new Date()
   const leaseOwner = await createFlowLeaseOwner()
@@ -430,18 +476,21 @@ export async function triggerFlowNow(params: {
     leaseMs: FLOW_LEASE_MS,
     leaseOwner,
     now,
-    userId: params.userId,
+    ownerUserId: params.ownerUserId,
   })
 
   if (!claimed) {
-    const flow = params.userId
-      ? await flowService.findFlowByIdAndUserId(params.flowId, params.userId)
+    const flow = params.ownerUserId
+      ? await flowService.findFlowByIdForScope(
+        params.flowId,
+        createFlowActorScope({ id: params.ownerUserId, role: 'USER' }, params.ownerUserId),
+      )
       : null
-    if (!flow && params.userId) return { ok: false, error: 'not_found' }
+    if (!flow && params.ownerUserId) return { ok: false, error: 'not_found' }
     return { ok: false, error: 'flow_busy' }
   }
 
-  await dispatchClaimedFlowRun(claimed, params.trigger)
+  await dispatchClaimedFlowRun(claimed, params.trigger, params.executionUserId ?? claimed.userId)
 
   return { ok: true }
 }
@@ -451,8 +500,11 @@ export async function resumeFlowRun(params: {
   runId: string
   userId: string
 }): Promise<{ ok: true; run: ReturnType<typeof serializeFlowRun> } | { ok: false; error: 'invalid_response' | 'invalid_state' | 'not_found' | 'flow_busy' }> {
-  const run = await flowService.findRunByIdAndUserId(params.runId, params.userId)
+  const scope = createFlowActorScope({ id: params.userId, role: 'USER' }, params.userId)
+  const run = await flowService.findRunByIdForScope(params.runId, scope)
   if (!run) return { ok: false, error: 'not_found' }
+  const executionUserId = run.executionUserId ?? run.flow.userId
+  if (executionUserId !== params.userId) return { ok: false, error: 'not_found' }
   if (run.status !== FlowRunStatus.waiting_for_human || !run.currentNodeId || !run.openCodeSessionId) {
     return { ok: false, error: 'invalid_state' }
   }
@@ -472,7 +524,7 @@ export async function resumeFlowRun(params: {
     leaseMs: FLOW_LEASE_MS,
     leaseOwner,
     now: new Date(),
-    userId: params.userId,
+    ownerUserId: run.flow.userId,
   })
   if (!claimedFlow) return { ok: false, error: 'flow_busy' }
 
@@ -485,21 +537,18 @@ export async function resumeFlowRun(params: {
   await flowService.updateRunCurrentNode(run.id, nextNodeId)
   await flowService.markRunRunning(run.id)
 
-  const refreshedRun = await flowService.findRunByIdAndUserId(run.id, params.userId)
+  const refreshedRun = await flowService.findRunByIdForScope(run.id, scope)
   if (!refreshedRun) return { ok: false, error: 'not_found' }
 
-  void resumeClaimedFlowRun({
-    flow: claimedFlow,
-    previousOutput: response,
-    run: refreshedRun,
-    startNodeId: nextNodeId,
-  }).catch((error) => {
-    console.error('[flows] Failed to resume flow run', {
-      error,
-      flowId: claimedFlow.id,
-      runId: run.id,
-    })
-  })
+  dispatchFlowExecution(
+    { flowId: claimedFlow.id, runId: run.id, trigger: FlowRunTrigger.resume, type: 'resume' },
+    () => resumeClaimedFlowRun({
+      flow: claimedFlow,
+      previousOutput: response,
+      run: refreshedRun,
+      startNodeId: nextNodeId,
+    }),
+  )
 
   return { ok: true, run: serializeFlowRun(refreshedRun) }
 }
@@ -515,21 +564,34 @@ async function resumeClaimedFlowRun(params: {
   let finalization: { retryScheduled: boolean } = { retryScheduled: false }
 
   try {
-    const owner = await userService.findByIdSelect(params.flow.userId, { slug: true })
-    if (!owner) throw new Error('flow_user_not_found')
+    const executionUserId = params.run.executionUserId ?? params.flow.userId
+    const executionUser = await userService.findByIdSelect(executionUserId, { role: true, slug: true })
+    if (!executionUser) throw new Error('flow_execution_user_not_found')
 
-    slug = owner.slug
+    slug = executionUser.slug
     if (!params.startNodeId) {
       outcome = { status: 'succeeded' }
       return
     }
 
-    await ensureWorkspaceRunningForExecution(slug, params.flow.userId)
+    const definitionResult = await validateFlowDefinitionForExecution(params.flow, {
+      id: executionUserId,
+      role: executionUser.role,
+      slug: executionUser.slug,
+    })
+    if (!definitionResult.ok) {
+      outcome = { status: 'failed', error: definitionResult.error }
+      return
+    }
+
+    await ensureWorkspaceRunningForExecution(slug, executionUserId)
     const client = await createInstanceClient(slug)
     if (!client) throw new Error('instance_unavailable')
 
     outcome = await continueRun({
       client,
+      definition: definitionResult.definition,
+      executionUserId,
       flow: params.flow,
       leaseOwner: params.flow.leaseOwner ?? '',
       previousOutput: params.previousOutput,

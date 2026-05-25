@@ -20,6 +20,8 @@ import {
   findEnabledMcpByUserId,
   findHashEntriesByUserId,
   findCapabilityInventoryEntries,
+  findManyByIds,
+  findNameEntriesByType,
   findByIdAndUserId,
   findByIdAndUserIdSelect,
   findById,
@@ -54,7 +56,7 @@ describe('connectorService', () => {
       await findEnabledByUserId('u1')
       expect(mockPrisma.connector.findMany).toHaveBeenCalledWith({
         where: { userId: 'u1', enabled: true },
-        select: { id: true, type: true, enabled: true },
+        select: { id: true, type: true, name: true, enabled: true },
       })
     })
   })
@@ -91,6 +93,29 @@ describe('connectorService', () => {
           user: { select: { kind: true, slug: true } },
         }),
         orderBy: [{ type: 'asc' }, { name: 'asc' }, { id: 'asc' }],
+      })
+    })
+  })
+
+  describe('findManyByIds', () => {
+    it('selects connector names by id', async () => {
+      mockPrisma.connector.findMany.mockResolvedValue([])
+      await findManyByIds(['c1', 'c2'])
+      expect(mockPrisma.connector.findMany).toHaveBeenCalledWith({
+        where: { id: { in: ['c1', 'c2'] } },
+        select: { id: true, type: true, name: true },
+      })
+    })
+  })
+
+  describe('findNameEntriesByType', () => {
+    it('selects connector names by type deterministically', async () => {
+      mockPrisma.connector.findMany.mockResolvedValue([])
+      await findNameEntriesByType('custom')
+      expect(mockPrisma.connector.findMany).toHaveBeenCalledWith({
+        where: { type: 'custom' },
+        select: { id: true, type: true, name: true },
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
       })
     })
   })

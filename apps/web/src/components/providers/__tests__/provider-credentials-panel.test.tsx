@@ -140,4 +140,75 @@ describe('ProviderCredentialsPanel', () => {
 
     expect(await screen.findByRole('button', { name: 'Enable' })).toBeTruthy()
   })
+
+  it('sets and removes user overrides for inherited organization credentials', async () => {
+    const fetchMock = vi.fn()
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          providers: [{
+            overrideStatus: 'disabled',
+            providerId: 'anthropic',
+            source: 'organization',
+            status: 'enabled',
+            version: 5,
+          }],
+        }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({}) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          providers: [{
+            providerId: 'anthropic',
+            source: 'user',
+            status: 'enabled',
+            version: 6,
+          }],
+        }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({}) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          providers: [{
+            providerId: 'anthropic',
+            source: 'organization',
+            status: 'enabled',
+            version: 5,
+          }],
+        }),
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<ProviderCredentialsPanel slug="local" />)
+
+    expect(await screen.findByText('Inherited')).toBeTruthy()
+    expect(screen.getByText('Inherited from organization; user override removed')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Set user override' }))
+    fireEvent.change(screen.getByPlaceholderText('Paste user override API key'), {
+      target: { value: ' override-key ' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Set user override' }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/u/local/providers/anthropic', {
+        body: JSON.stringify({ apiKey: 'override-key' }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      })
+    })
+    expect(await screen.findByText('User override')).toBeTruthy()
+    expect(screen.getByText('v6')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove override' }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/u/local/providers/anthropic', { method: 'DELETE' })
+    })
+    expect(await screen.findByText('Inherited')).toBeTruthy()
+  })
 })

@@ -31,6 +31,7 @@ export type McpConfig = {
 }
 
 export type McpConfigBuildResult = {
+  connectorAliases: Record<string, string>
   mcpConfig: McpConfig
   connectorToolPermissions: Record<string, ConnectorToolPermissionMap>
 }
@@ -56,6 +57,7 @@ export function buildMcpConfigFromConnectors(
   connectors: ConnectorRecord[],
   options?: { gatewayTargets?: Record<string, GatewayTarget> },
 ): McpConfigBuildResult {
+  const connectorAliases: Record<string, string> = {}
   const mcp: Record<string, McpServerConfig> = {}
   const connectorToolPermissions: Record<string, ConnectorToolPermissionMap> = {}
 
@@ -91,12 +93,44 @@ export function buildMcpConfigFromConnectors(
   }
 
   return {
+    connectorAliases,
     mcpConfig: {
       $schema: OPENCODE_CONFIG_SCHEMA,
       mcp,
     },
     connectorToolPermissions,
   }
+}
+
+function buildCustomConnectorAliases(input: {
+  sourceConnectors: Array<{ id: string; name: string; type: string }>
+  userConnectors: ConnectorRecord[]
+}): Record<string, string> {
+  const aliases: Record<string, string> = {}
+  const userCustomByName = new Map<string, string>()
+
+  const userCustomConnectors = input.userConnectors
+    .filter((connector) => connector.type === 'custom')
+    .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id))
+
+  for (const connector of userCustomConnectors) {
+    const name = connector.name.trim()
+    if (!name || userCustomByName.has(name)) continue
+    userCustomByName.set(name, connector.id)
+  }
+
+  if (userCustomByName.size === 0) return aliases
+
+  for (const connector of input.sourceConnectors) {
+    if (connector.type !== 'custom') continue
+
+    const userConnectorId = userCustomByName.get(connector.name.trim())
+    if (!userConnectorId || userConnectorId === connector.id) continue
+
+    aliases[buildMcpServerKey('custom', connector.id)] = buildMcpServerKey('custom', userConnectorId)
+  }
+
+  return aliases
 }
 
 export async function buildMcpConfigForSlug(slug: string): Promise<McpConfigBuildResult | null> {
@@ -136,5 +170,14 @@ export async function buildMcpConfigForSlug(slug: string): Promise<McpConfigBuil
   const result = buildMcpConfigFromConnectors(connectors, {
     gatewayTargets,
   })
-  return Object.keys(result.mcpConfig.mcp).length ? result : null
+  if (Object.keys(result.mcpConfig.mcp).length === 0) return null
+
+  const sourceCustomConnectors = connectors.some((connector) => connector.type === 'custom')
+    ? await connectorService.findNameEntriesByType('custom')
+    : []
+  result.connectorAliases = buildCustomConnectorAliases({
+    sourceConnectors: sourceCustomConnectors,
+    userConnectors: connectors,
+  })
+  return result
 }
