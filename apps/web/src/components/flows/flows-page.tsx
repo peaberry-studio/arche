@@ -2,14 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
-import { ClockCountdown, GitBranch, PencilSimple, SpinnerGap, TreeStructure } from '@phosphor-icons/react'
+import { ClockCountdown, ClockCounterClockwise, DotsThreeVertical, GitBranch, PencilSimple, Play, SpinnerGap, TreeStructure } from '@phosphor-icons/react'
 
 import { DashboardEmptyState } from '@/components/dashboard/dashboard-empty-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { copyFlowRequest, fetchFlowList, runFlowRequest } from '@/lib/flows/client'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { fetchFlowList, runFlowRequest } from '@/lib/flows/client'
 import { formatFlowRunDate } from '@/lib/flows/cron'
 import { getFlowErrorMessage } from '@/lib/flows/errors'
 import type { FlowListItem } from '@/lib/flows/types'
@@ -38,12 +38,10 @@ function getRunBadgeLabel(flow: FlowListItem): string {
 }
 
 export function FlowsPage({ slug }: FlowsPageProps) {
-  const router = useRouter()
   const [flows, setFlows] = useState<FlowListItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
-  const [copyingFlowId, setCopyingFlowId] = useState<string | null>(null)
   const [runningFlowId, setRunningFlowId] = useState<string | null>(null)
 
   const loadFlows = useCallback(async () => {
@@ -81,24 +79,6 @@ export function FlowsPage({ slug }: FlowsPageProps) {
       setRunningFlowId(null)
     }
   }, [loadFlows, slug])
-
-  const copyFlow = useCallback(async (flowId: string) => {
-    setCopyingFlowId(flowId)
-    setActionError(null)
-    try {
-      const result = await copyFlowRequest(slug, flowId)
-      if (!result.ok) {
-        setActionError(result.error)
-        return
-      }
-
-      router.push(`/u/${slug}/flows/${result.data.flow.id}`)
-    } catch {
-      setActionError('network_error')
-    } finally {
-      setCopyingFlowId(null)
-    }
-  }, [router, slug])
 
   useEffect(() => {
     let cancelled = false
@@ -139,64 +119,92 @@ export function FlowsPage({ slug }: FlowsPageProps) {
   function renderFlowGrid(items: FlowListItem[]) {
     return (
       <div className="grid gap-4 lg:grid-cols-2">
-        {items.map((flow) => (
-          <article
-            key={flow.id}
-            className={cn(
-              'group rounded-xl border border-border/60 bg-card/50 p-5 transition-all hover:border-border hover:bg-card/80 hover:shadow-sm',
-              !flow.enabled && 'opacity-80',
-            )}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Link href={`/u/${slug}/flows/${flow.id}/runs`} className="truncate text-sm font-semibold text-foreground hover:underline">
-                    {flow.name}
-                  </Link>
-                  <Badge variant={getRunBadgeVariant(flow)} className="shrink-0">{getRunBadgeLabel(flow)}</Badge>
-                  <Badge variant={flow.visibility === 'team' ? 'default' : 'secondary'} className="shrink-0">
-                    {flow.visibility === 'team' ? 'Team' : 'Private'}
-                  </Badge>
-                  {flow.visibility === 'team' && flow.organizationCanRun ? <Badge variant="success" className="shrink-0">Runnable</Badge> : null}
+        {items.map((flow) => {
+          const editLabel = flow.permissions.canEdit ? 'Edit' : 'View'
+          const isRunning = runningFlowId === flow.id
+
+          return (
+            <article
+              key={flow.id}
+              className={cn(
+                'group flex flex-col gap-4 rounded-xl border border-border/60 bg-card/50 p-5 transition-all hover:border-border hover:bg-card/80 hover:shadow-sm',
+                !flow.enabled && 'opacity-80',
+              )}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                    <Link
+                      href={`/u/${slug}/flows/${flow.id}/runs`}
+                      className="truncate text-sm font-semibold text-foreground transition-colors hover:text-foreground/80 hover:underline"
+                    >
+                      {flow.name}
+                    </Link>
+                    <Badge variant={getRunBadgeVariant(flow)} className="shrink-0">{getRunBadgeLabel(flow)}</Badge>
+                    <Badge variant={flow.visibility === 'team' ? 'default' : 'secondary'} className="shrink-0">
+                      {flow.visibility === 'team' ? 'Team' : 'Private'}
+                    </Badge>
+                    {flow.visibility === 'team' && flow.organizationCanRun ? <Badge variant="success" className="shrink-0">Runnable</Badge> : null}
+                  </div>
+                  <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                    {flow.description ?? `${flow.definition.nodes.length} nodes, ${flow.definition.edges.length} edges`}
+                  </p>
+                  {!flow.permissions.isOwner && flow.owner ? (
+                    <p className="text-xs text-muted-foreground/80">Shared by {flow.owner.slug}</p>
+                  ) : null}
                 </div>
-                <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">
-                  {flow.description ?? `${flow.definition.nodes.length} nodes, ${flow.definition.edges.length} edges`}
-                </p>
-                {!flow.permissions.isOwner && flow.owner ? (
-                  <p className="mt-1 text-xs text-muted-foreground">Shared by {flow.owner.slug}</p>
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`More actions for ${flow.name}`}
+                      className="-mr-1.5 -mt-1.5 h-8 w-8 shrink-0 rounded-md text-muted-foreground hover:text-foreground data-[state=open]:bg-muted/60 data-[state=open]:text-foreground"
+                    >
+                      <DotsThreeVertical size={18} weight="bold" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-44">
+                    <DropdownMenuItem asChild>
+                      <Link href={`/u/${slug}/flows/${flow.id}`} aria-label={`${editLabel} ${flow.name}`}>
+                        <PencilSimple size={15} weight="bold" /> {editLabel}
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link href={`/u/${slug}/flows/${flow.id}/runs`} aria-label={`View run history for ${flow.name}`}>
+                        <ClockCounterClockwise size={15} weight="bold" /> History
+                      </Link>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+
+              <div className="flex items-end justify-between gap-3">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                  <span className="inline-flex items-center gap-1"><TreeStructure size={13} weight="bold" />{flow.definition.nodes.length} nodes</span>
+                  <span className="inline-flex items-center gap-1"><GitBranch size={13} weight="bold" />{flow.definition.edges.length} edges</span>
+                  <span className="inline-flex items-center gap-1">
+                    <ClockCountdown size={13} weight="bold" />
+                    {flow.nextRunAt ? formatFlowRunDate(new Date(flow.nextRunAt), flow.timezone) : 'Manual'}
+                  </span>
+                </div>
+
+                {flow.permissions.canRun ? (
+                  <Button
+                    size="sm"
+                    onClick={() => void runFlow(flow.id)}
+                    disabled={isRunning}
+                    className="h-8 shrink-0 gap-1.5 px-3.5"
+                  >
+                    {isRunning ? <SpinnerGap size={14} className="animate-spin" /> : <Play size={14} weight="fill" />}
+                    {isRunning ? 'Starting' : 'Run'}
+                  </Button>
                 ) : null}
               </div>
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
-              <span className="inline-flex items-center gap-1"><TreeStructure size={13} weight="bold" />{flow.definition.nodes.length} nodes</span>
-              <span className="inline-flex items-center gap-1"><GitBranch size={13} weight="bold" />{flow.definition.edges.length} edges</span>
-              <span className="inline-flex items-center gap-1">
-                <ClockCountdown size={13} weight="bold" />
-                {flow.nextRunAt ? formatFlowRunDate(new Date(flow.nextRunAt), flow.timezone) : 'Manual'}
-              </span>
-            </div>
-
-            <div className="mt-4 flex flex-wrap justify-end gap-2">
-              <Button variant="outline" size="sm" asChild>
-                <Link href={`/u/${slug}/flows/${flow.id}`} aria-label={`${flow.permissions.canEdit ? 'Edit' : 'View'} ${flow.name}`}>{flow.permissions.canEdit ? 'Edit' : 'View'}</Link>
-              </Button>
-              {flow.permissions.canCopy ? (
-                <Button variant="outline" size="sm" onClick={() => void copyFlow(flow.id)} disabled={copyingFlowId === flow.id}>
-                  {copyingFlowId === flow.id ? 'Copying...' : 'Copy'}
-                </Button>
-              ) : null}
-              {flow.permissions.canRun ? (
-                <Button variant="outline" size="sm" onClick={() => void runFlow(flow.id)} disabled={runningFlowId === flow.id}>
-                  {runningFlowId === flow.id ? 'Starting...' : 'Run'}
-                </Button>
-              ) : null}
-              <Button variant="ghost" size="sm" asChild className="gap-1 text-muted-foreground">
-                <Link href={`/u/${slug}/flows/${flow.id}/runs`} aria-label={`View run history for ${flow.name}`}><PencilSimple size={12} weight="bold" /> History</Link>
-              </Button>
-            </div>
-          </article>
-        ))}
+            </article>
+          )
+        })}
       </div>
     )
   }

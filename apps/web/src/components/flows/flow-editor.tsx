@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Lock, SpinnerGap, UsersThree } from '@phosphor-icons/react'
 
@@ -577,18 +576,19 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
             Missing connectors: {missingConnectorRequirements.map(formatConnectorRequirement).join(', ')}. Configure them before running this flow.
           </div>
         ) : null}
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button variant="outline" asChild><Link href={`/u/${slug}/flows`}>Back to list</Link></Button>
-          {mode === 'edit' && permissions?.canCopy ? (
-            <Button variant="outline" onClick={() => void copyFlow()} disabled={isCopying}>
-              {isCopying ? 'Copying...' : 'Copy flow'}
-            </Button>
-          ) : null}
-          {mode === 'edit' && permissions?.canRun ? (
-            <Button variant="outline" onClick={() => void runFlow()} disabled={isRunning || missingConnectorRequirements.length > 0}>
-              {isRunning ? 'Starting...' : 'Run flow'}
-            </Button>
-          ) : null}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {mode === 'edit' && permissions?.canCopy ? (
+              <Button variant="outline" onClick={() => void copyFlow()} disabled={isCopying}>
+                {isCopying ? 'Duplicating...' : 'Duplicate flow'}
+              </Button>
+            ) : null}
+            {mode === 'edit' && permissions?.canRun ? (
+              <Button variant="outline" onClick={() => void runFlow()} disabled={isRunning || missingConnectorRequirements.length > 0}>
+                {isRunning ? 'Starting...' : 'Run flow'}
+              </Button>
+            ) : null}
+          </div>
           {!isReadOnly ? (
             <Button onClick={() => void saveFlow()} disabled={isSaving || !validation.ok || !isScheduleValid}>
               {isSaving ? 'Saving...' : mode === 'create' ? 'Create flow' : 'Save changes'}

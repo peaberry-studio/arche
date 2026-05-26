@@ -6,7 +6,7 @@ import { Lightning, PencilSimple, SpinnerGap } from '@phosphor-icons/react'
 
 import { FlowRunHistory } from '@/components/flows/flow-run-history'
 import { Button } from '@/components/ui/button'
-import { copyFlowRequest, fetchFlowDetail, runFlowRequest } from '@/lib/flows/client'
+import { fetchFlowDetail, runFlowRequest } from '@/lib/flows/client'
 import { formatConnectorRequirement, getFlowErrorMessage } from '@/lib/flows/errors'
 import type { FlowDetail } from '@/lib/flows/types'
 
@@ -21,7 +21,6 @@ export function FlowRunHistoryView({ flowId, slug }: FlowRunHistoryViewProps) {
   const [error, setError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [isRunning, setIsRunning] = useState(false)
-  const [isCopying, setIsCopying] = useState(false)
 
   const loadFlow = useCallback(async () => {
     setError(null)
@@ -93,25 +92,6 @@ export function FlowRunHistoryView({ flowId, slug }: FlowRunHistoryViewProps) {
     }
   }, [flow, flowId, loadFlow, slug])
 
-  const copyFlow = useCallback(async () => {
-    if (!flow?.permissions.canCopy) return
-
-    setIsCopying(true)
-    setActionError(null)
-    try {
-      const result = await copyFlowRequest(slug, flowId)
-      if (!result.ok) {
-        setActionError(result.error)
-        return
-      }
-      window.location.href = `/u/${slug}/flows/${result.data.flow.id}`
-    } catch {
-      setActionError('network_error')
-    } finally {
-      setIsCopying(false)
-    }
-  }, [flow, flowId, slug])
-
   const editHref = `/u/${slug}/flows/${flowId}`
 
   return (
@@ -130,11 +110,6 @@ export function FlowRunHistoryView({ flowId, slug }: FlowRunHistoryViewProps) {
               {flow?.permissions.canEdit ? 'Edit flow' : 'View flow'}
             </Link>
           </Button>
-          {flow?.permissions.canCopy ? (
-            <Button variant="outline" onClick={() => void copyFlow()} disabled={isCopying}>
-              {isCopying ? 'Copying...' : 'Copy flow'}
-            </Button>
-          ) : null}
           <Button
             onClick={() => void runFlow()}
             disabled={isRunning || !flow?.permissions.canRun || (flow.missingConnectorRequirements ?? []).length > 0}

@@ -7,7 +7,6 @@ import { FlowsPage } from '@/components/flows/flows-page'
 import type { FlowListItem } from '@/lib/flows/types'
 
 const clientMocks = vi.hoisted(() => ({
-  copyFlowRequest: vi.fn(),
   fetchFlowList: vi.fn(),
   push: vi.fn(),
   runFlowRequest: vi.fn(),
@@ -15,7 +14,6 @@ const clientMocks = vi.hoisted(() => ({
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: clientMocks.push }) }))
 vi.mock('@/lib/flows/client', () => ({
-  copyFlowRequest: clientMocks.copyFlowRequest,
   fetchFlowList: clientMocks.fetchFlowList,
   runFlowRequest: clientMocks.runFlowRequest,
 }))
@@ -72,7 +70,6 @@ describe('FlowsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     clientMocks.fetchFlowList.mockResolvedValue({ ok: true, data: { flows: [flow] } })
-    clientMocks.copyFlowRequest.mockResolvedValue({ ok: true, data: { flow } })
     clientMocks.runFlowRequest.mockResolvedValue({ ok: true, data: { ok: true } })
   })
 
@@ -96,15 +93,20 @@ describe('FlowsPage', () => {
     await waitFor(() => expect(screen.getByText('No flows yet')).toBeTruthy())
   })
 
-  it('links each card to history and edit', async () => {
+  it('links the title to history and exposes edit and history in the actions menu', async () => {
     render(<FlowsPage slug="alice" />)
     await waitFor(() => expect(screen.getByText('Weekly Review')).toBeTruthy())
 
-    const historyLink = screen.getByRole('link', { name: 'View run history for Weekly Review' })
-    expect(historyLink.getAttribute('href')).toBe('/u/alice/flows/flow-1/runs')
+    const titleLink = screen.getByRole('link', { name: 'Weekly Review' })
+    expect(titleLink.getAttribute('href')).toBe('/u/alice/flows/flow-1/runs')
 
-    const editLink = screen.getByRole('link', { name: 'Edit Weekly Review' })
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'More actions for Weekly Review' }), { button: 0, ctrlKey: false })
+
+    const editLink = await screen.findByRole('menuitem', { name: 'Edit Weekly Review' })
     expect(editLink.getAttribute('href')).toBe('/u/alice/flows/flow-1')
+
+    const historyLink = screen.getByRole('menuitem', { name: 'View run history for Weekly Review' })
+    expect(historyLink.getAttribute('href')).toBe('/u/alice/flows/flow-1/runs')
   })
 
   it('shows load errors', async () => {
@@ -155,24 +157,19 @@ describe('FlowsPage', () => {
     expect(screen.getByText('Waiting for human')).toBeTruthy()
   })
 
-  it('runs and copies flows from the list', async () => {
-    clientMocks.copyFlowRequest.mockResolvedValueOnce({ ok: true, data: { flow: { ...flow, id: 'copy-1' } } })
-
+  it('runs flows from the list', async () => {
     render(<FlowsPage slug="alice" />)
     await waitFor(() => expect(screen.getByText('Weekly Review')).toBeTruthy())
 
     fireEvent.click(screen.getByRole('button', { name: 'Run' }))
     await waitFor(() => expect(clientMocks.runFlowRequest).toHaveBeenCalledWith('alice', 'flow-1'))
     expect(clientMocks.fetchFlowList).toHaveBeenCalledTimes(2)
-
-    fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
-    await waitFor(() => expect(clientMocks.copyFlowRequest).toHaveBeenCalledWith('alice', 'flow-1'))
-    expect(clientMocks.push).toHaveBeenCalledWith('/u/alice/flows/copy-1')
   })
 
-  it('shows action errors from run, copy, and network failures', async () => {
-    clientMocks.runFlowRequest.mockResolvedValueOnce({ ok: false, error: 'flow_busy' })
-    clientMocks.copyFlowRequest.mockRejectedValueOnce(new Error('offline'))
+  it('shows action errors from run and network failures', async () => {
+    clientMocks.runFlowRequest
+      .mockResolvedValueOnce({ ok: false, error: 'flow_busy' })
+      .mockRejectedValueOnce(new Error('offline'))
 
     render(<FlowsPage slug="alice" />)
     await waitFor(() => expect(screen.getByText('Weekly Review')).toBeTruthy())
@@ -180,7 +177,7 @@ describe('FlowsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Run' }))
     expect(await screen.findByText('This flow already has a run in progress. Try again after it finishes.')).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }))
     expect(await screen.findByText('Network error. Try again.')).toBeTruthy()
   })
 
@@ -209,6 +206,12 @@ describe('FlowsPage', () => {
     expect(screen.getByText('Team flows')).toBeTruthy()
     expect(screen.getByText('Shared by bob')).toBeTruthy()
     expect(screen.getByText('Runnable')).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'View Team flow' }).getAttribute('href')).toBe('/u/alice/flows/team')
+
+    // Only the owned flow (canRun) renders a Run button; the view-only team flow does not.
+    expect(screen.getAllByRole('button', { name: 'Run' })).toHaveLength(1)
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'More actions for Team flow' }), { button: 0, ctrlKey: false })
+    const viewLink = await screen.findByRole('menuitem', { name: 'View Team flow' })
+    expect(viewLink.getAttribute('href')).toBe('/u/alice/flows/team')
   })
 })
