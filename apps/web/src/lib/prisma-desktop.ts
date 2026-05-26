@@ -27,7 +27,34 @@ const SCHEMA_DDL = [
     "totp_secret" TEXT,
     "totp_verified_at" DATETIME,
     "totp_last_used_at" DATETIME,
+    "mcp_allowed" BOOLEAN NOT NULL DEFAULT false,
     "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" DATETIME NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS "mcp_settings" (
+    "id" TEXT NOT NULL PRIMARY KEY DEFAULT 'global',
+    "enabled" BOOLEAN NOT NULL DEFAULT false,
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" DATETIME NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS "personal_access_tokens" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "user_id" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "lookup_hash" TEXT NOT NULL,
+    "token_hash" TEXT NOT NULL,
+    "salt" TEXT NOT NULL,
+    "scopes" JSONB NOT NULL DEFAULT '["kb:read"]',
+    "expires_at" DATETIME NOT NULL,
+    "revoked_at" DATETIME,
+    "last_used_at" DATETIME,
+    "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "personal_access_tokens_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS "rate_limit_buckets" (
+    "key" TEXT NOT NULL PRIMARY KEY,
+    "count" INTEGER NOT NULL,
+    "reset_at" DATETIME NOT NULL,
     "updated_at" DATETIME NOT NULL
   )`,
   `CREATE TABLE IF NOT EXISTS "instances" (
@@ -307,6 +334,11 @@ const SCHEMA_DDL = [
   `CREATE UNIQUE INDEX IF NOT EXISTS "sessions_token_hash_key" ON "sessions"("token_hash")`,
   `CREATE INDEX IF NOT EXISTS "sessions_user_id_idx" ON "sessions"("user_id")`,
   `CREATE INDEX IF NOT EXISTS "sessions_expires_at_idx" ON "sessions"("expires_at")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "personal_access_tokens_lookup_hash_key" ON "personal_access_tokens"("lookup_hash")`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS "personal_access_tokens_token_hash_key" ON "personal_access_tokens"("token_hash")`,
+  `CREATE INDEX IF NOT EXISTS "personal_access_tokens_user_id_idx" ON "personal_access_tokens"("user_id")`,
+  `CREATE INDEX IF NOT EXISTS "personal_access_tokens_expires_at_idx" ON "personal_access_tokens"("expires_at")`,
+  `CREATE INDEX IF NOT EXISTS "rate_limit_buckets_reset_at_idx" ON "rate_limit_buckets"("reset_at")`,
   `CREATE INDEX IF NOT EXISTS "audit_events_actor_user_id_idx" ON "audit_events"("actor_user_id")`,
   `CREATE INDEX IF NOT EXISTS "audit_events_created_at_idx" ON "audit_events"("created_at")`,
   `CREATE INDEX IF NOT EXISTS "message_runs_slug_opencode_session_id_status_idx" ON "message_runs"("slug", "opencode_session_id", "status")`,
@@ -381,6 +413,7 @@ async function ensureColumn(
 
 async function ensureDesktopSchemaColumns(client: DesktopPrismaClient): Promise<void> {
   await ensureColumn(client, 'users', 'kind', 'ALTER TABLE "users" ADD COLUMN "kind" TEXT NOT NULL DEFAULT \'HUMAN\'')
+  await ensureColumn(client, 'users', 'mcp_allowed', 'ALTER TABLE "users" ADD COLUMN "mcp_allowed" BOOLEAN NOT NULL DEFAULT false')
   await ensureColumn(client, 'instances', 'provider_sync_hash', 'ALTER TABLE "instances" ADD COLUMN "provider_sync_hash" TEXT')
   await ensureColumn(client, 'instances', 'provider_synced_at', 'ALTER TABLE "instances" ADD COLUMN "provider_synced_at" DATETIME')
 }

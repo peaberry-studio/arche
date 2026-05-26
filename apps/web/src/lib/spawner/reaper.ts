@@ -1,4 +1,4 @@
-import { auditService, instanceService, messageRunService } from '@/lib/services'
+import { auditService, instanceService, messageRunService, rateLimitService } from '@/lib/services'
 import { getIdleTimeoutMinutes } from './config'
 
 export const REAPER_INTERVAL_MS = 5 * 60 * 1000
@@ -60,6 +60,11 @@ export async function reapStaleMessageRuns(): Promise<number> {
   return messageRunService.reapStaleRuns()
 }
 
+export async function reapExpiredRateLimitBuckets(): Promise<number> {
+  const result = await rateLimitService.deleteExpiredRateLimitBuckets()
+  return result.count
+}
+
 export function getReaperStatus(): ReaperStatus {
   return {
     lastRunError,
@@ -76,6 +81,7 @@ async function runReaperCycle(): Promise<void> {
     const [instanceCount, messageRunCount] = await Promise.all([
       reapIdleInstances(),
       reapStaleMessageRuns(),
+      reapExpiredRateLimitBuckets(),
     ])
     lastRunError = null
 

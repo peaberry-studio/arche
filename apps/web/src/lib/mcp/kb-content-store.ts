@@ -62,32 +62,7 @@ export async function listKbArticles(input: { path?: string } = {}): Promise<
   | { ok: true; articles: KbArticleListItem[] }
   | { ok: false; error: KbReadError }
 > {
-  return readContentRepo(async ({ repoDir }) => {
-    let basePath = ''
-    if (input.path) {
-      const normalizedPath = normalizeKbPath(input.path)
-      if (normalizedPath === null) return { ok: false, error: 'invalid_path' }
-      basePath = normalizedPath
-    }
-
-    let rootPath = repoDir
-    if (basePath) {
-      const resolved = await resolveSafeExistingPath(repoDir, basePath)
-      if (!resolved.ok) return resolved
-      rootPath = resolved.path
-    }
-
-    const stats = await fs.lstat(rootPath).catch(() => null)
-    if (!stats) return { ok: false, error: 'not_found' }
-
-    const articles = stats.isDirectory()
-      ? await listMarkdownFiles(repoDir, rootPath, basePath)
-      : stats.isFile() && Boolean(basePath) && basePath.toLowerCase().endsWith('.md')
-        ? [{ path: basePath, size: stats.size }]
-        : []
-
-    return { ok: true, articles }
-  })
+  return readContentRepo(({ repoDir }) => listKbArticlesInRepo(repoDir, input))
 }
 
 export async function readKbArticle(input: { path: string; maxLines?: number }): Promise<
@@ -97,23 +72,7 @@ export async function readKbArticle(input: { path: string; maxLines?: number }):
   const articlePath = normalizeKbArticlePath(input.path)
   if (!articlePath) return { ok: false, error: 'invalid_path' }
 
-  return readContentRepo(async ({ repoDir }) => {
-    const resolved = await resolveSafeExistingPath(repoDir, articlePath)
-    if (!resolved.ok) return resolved
-
-    const content = await fs.readFile(resolved.path, 'utf-8').catch(() => null)
-    if (content === null) return { ok: false, error: 'read_failed' }
-
-    const maxLines = input.maxLines && input.maxLines > 0 ? Math.min(input.maxLines, 2000) : 2000
-    const lines = content.split('\n')
-    const truncated = lines.length > maxLines
-    return {
-      ok: true,
-      path: articlePath,
-      content: truncated ? lines.slice(0, maxLines).join('\n') : content,
-      truncated,
-    }
-  })
+  return readContentRepo(({ repoDir }) => readKbArticleInRepo(repoDir, articlePath, input.maxLines))
 }
 
 export async function searchKb(input: { query: string; path?: string; limit?: number }): Promise<
@@ -123,27 +82,80 @@ export async function searchKb(input: { query: string; path?: string; limit?: nu
   const query = input.query.trim().toLowerCase()
   if (!query) return { ok: false, error: 'invalid_query' }
 
-  const listResult = await listKbArticles({ path: input.path })
-  if (!listResult.ok) return listResult
+  return readContentRepo(async ({ repoDir }) => {
+    const listResult = await listKbArticlesInRepo(repoDir, { path: input.path })
+    if (!listResult.ok) return listResult
 
-  const limit = Math.min(Math.max(input.limit ?? 50, 1), 100)
-  const matches: KbSearchMatch[] = []
+    const limit = Math.min(Math.max(input.limit ?? 50, 1), 100)
+    const matches: KbSearchMatch[] = []
 
-  for (const article of listResult.articles) {
-    if (matches.length >= limit) break
-
-    const readResult = await readKbArticle({ path: article.path })
-    if (!readResult.ok) continue
-
-    const lines = readResult.content.split('\n')
-    for (let index = 0; index < lines.length; index += 1) {
-      if (!lines[index].toLowerCase().includes(query)) continue
-      matches.push({ path: article.path, line: index + 1, text: lines[index].trim() })
+    for (const article of listResult.articles) {
       if (matches.length >= limit) break
+
+      const readResult = await readKbArticleInRepo(repoDir, article.path)
+      if (!readResult.ok) continue
+
+      const lines = readResult.content.split('\n')
+      for (let index = 0; index < lines.length; index += 1) {
+        if (!lines[index].toLowerCase().includes(query)) continue
+        matches.push({ path: article.path, line: index + 1, text: lines[index].trim() })
+        if (matches.length >= limit) break
+      }
     }
+
+    return { ok: true, matches }
+  })
+}
+
+async function listKbArticlesInRepo(repoDir: string, input: { path?: string } = {}): Promise<
+  | { ok: true; articles: KbArticleListItem[] }
+  | { ok: false; error: KbReadError }
+> {
+  let basePath = ''
+  if (input.path) {
+    const normalizedPath = normalizeKbPath(input.path)
+    if (normalizedPath === null) return { ok: false, error: 'invalid_path' }
+    basePath = normalizedPath
   }
 
-  return { ok: true, matches }
+  let rootPath = repoDir
+  if (basePath) {
+    const resolved = await resolveSafeExistingPath(repoDir, basePath)
+    if (!resolved.ok) return resolved
+    rootPath = resolved.path
+  }
+
+  const stats = await fs.lstat(rootPath).catch(() => null)
+  if (!stats) return { ok: false, error: 'not_found' }
+
+  const articles = stats.isDirectory()
+    ? await listMarkdownFiles(repoDir, rootPath, basePath)
+    : stats.isFile() && Boolean(basePath) && basePath.toLowerCase().endsWith('.md')
+      ? [{ path: basePath, size: stats.size }]
+      : []
+
+  return { ok: true, articles }
+}
+
+async function readKbArticleInRepo(repoDir: string, articlePath: string, maxLineCount?: number): Promise<
+  | { ok: true; path: string; content: string; truncated: boolean }
+  | { ok: false; error: KbReadError }
+> {
+  const resolved = await resolveSafeExistingPath(repoDir, articlePath)
+  if (!resolved.ok) return resolved
+
+  const content = await fs.readFile(resolved.path, 'utf-8').catch(() => null)
+  if (content === null) return { ok: false, error: 'read_failed' }
+
+  const maxLines = maxLineCount && maxLineCount > 0 ? Math.min(maxLineCount, 2000) : 2000
+  const lines = content.split('\n')
+  const truncated = lines.length > maxLines
+  return {
+    ok: true,
+    path: articlePath,
+    content: truncated ? lines.slice(0, maxLines).join('\n') : content,
+    truncated,
+  }
 }
 
 export async function createKbArticle(input: { path: string; content: string }): Promise<
