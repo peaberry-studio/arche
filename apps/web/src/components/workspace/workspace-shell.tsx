@@ -243,11 +243,7 @@ export function WorkspaceShell({
   const resolvedPersistenceScope = persistenceScope ?? slug;
   const layoutCookieName = getWorkspaceLayoutCookieName(resolvedPersistenceScope);
   const layoutStorageKey = getWorkspaceLayoutStorageKey(resolvedPersistenceScope);
-  const hasDesktopVault = Boolean(currentVault);
-  const availableInitialWorkspaceMode = hasDesktopVault && initialWorkspaceMode === "flows"
-    ? "chat"
-    : initialWorkspaceMode;
-  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(availableInitialWorkspaceMode);
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(initialWorkspaceMode);
   const isKnowledgeMode = workspaceMode === "knowledge";
   const isFlowsMode = workspaceMode === "flows";
   const lastSessionByModeRef = useRef<{ chat: string | null; flows: string | null }>({
@@ -657,7 +653,7 @@ export function WorkspaceShell({
 
   const handleWorkspaceModeChange = useCallback(
     (nextMode: WorkspaceMode) => {
-      const resolvedNextMode = hasDesktopVault && nextMode === "flows" ? "chat" : nextMode;
+      const resolvedNextMode = nextMode;
       const prevMode = workspaceMode;
       setWorkspaceMode(resolvedNextMode);
 
@@ -706,7 +702,7 @@ export function WorkspaceShell({
       const query = params.toString();
       window.history.replaceState(window.history.state, "", query ? `/w/${slug}?${query}` : `/w/${slug}`);
     },
-    [hasDesktopVault, isCompactLayout, sessionsById, slug, workspace, workspaceMode]
+    [isCompactLayout, sessionsById, slug, workspace, workspaceMode]
   );
 
   const handleCreateSession = useCallback(async () => {
@@ -1884,7 +1880,7 @@ export function WorkspaceShell({
       <WorkspaceCommandPalette
         slug={slug}
         open={commandPaletteOpen}
-        hideFlows={hasDesktopVault}
+        hideFlows={false}
         onOpenChange={setCommandPaletteOpen}
         onCreateSession={handleCreateSession}
         onModeChange={handleWorkspaceModeChange}
@@ -1904,7 +1900,6 @@ export function WorkspaceShell({
         flowsUnreadCount={flowsUnreadCount}
         knowledgePendingCount={workspace.diffs.length}
         macDesktopWindowInset={macDesktopWindowInset}
-        hideFlowsMode={hasDesktopVault}
         onModeChange={handleWorkspaceModeChange}
         onNavigateConnectors={navigateConnectors}
         onNavigateProviders={navigateProviders}

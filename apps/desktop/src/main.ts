@@ -174,6 +174,7 @@ function setDesktopEnv(): void {
   process.env.ARCHE_RUNTIME_MODE = 'desktop'
   process.env.ARCHE_DESKTOP_PLATFORM = process.platform
   process.env.ARCHE_DESKTOP_WEB_HOST = LOOPBACK_HOST
+  process.env.ARCHE_FLOW_SCHEDULER_MODE = 'inline'
   if (app.isPackaged) {
     process.env.NODE_ENV = 'production'
   }

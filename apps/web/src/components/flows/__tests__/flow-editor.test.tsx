@@ -257,6 +257,32 @@ describe('FlowEditor', () => {
     await waitFor(() => expect(screen.getByLabelText('Flow name')).toBeTruthy())
   })
 
+  it('uses private-only sharing and skips Slack targets when desktop disables team and Slack', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <FlowEditor
+        slug="local"
+        mode="create"
+        slackIntegrationAvailable={false}
+        teamVisibilityAvailable={false}
+      />,
+    )
+
+    expect(screen.queryByRole('radio', { name: 'Team' })).toBeNull()
+    expect(screen.getByRole('radio', { name: 'Private' })).toBeTruthy()
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByLabelText('Flow name'), { target: { value: 'Desktop flow' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create flow' }))
+
+    await waitFor(() => expect(mocks.createFlowRequest).toHaveBeenCalledWith('local', expect.objectContaining({
+      organizationCanRun: false,
+      visibility: 'private',
+    })))
+  })
+
   it('renders load errors', async () => {
     mocks.fetchFlowDetail.mockResolvedValue({ ok: false, error: 'not_found' })
 

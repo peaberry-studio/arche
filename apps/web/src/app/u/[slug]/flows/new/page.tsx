@@ -3,8 +3,6 @@ import { redirect } from 'next/navigation'
 
 import { FlowEditor } from '@/components/flows/flow-editor'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
-import { getCurrentDesktopVault } from '@/lib/runtime/desktop/current-vault'
-import { isDesktop } from '@/lib/runtime/mode'
 
 export default async function NewFlowPage({
   params,
@@ -12,14 +10,9 @@ export default async function NewFlowPage({
   params: Promise<{ slug: string }>
 }) {
   const { slug } = await params
+  const capabilities = getRuntimeCapabilities()
 
-  if (isDesktop()) {
-    const vault = getCurrentDesktopVault()
-    if (!vault) redirect('/')
-    redirect(`/u/${slug}`)
-  }
-
-  if (!getRuntimeCapabilities().flows) {
+  if (!capabilities.flows) {
     redirect(`/u/${slug}`)
   }
 
@@ -38,7 +31,12 @@ export default async function NewFlowPage({
           </div>
         </div>
 
-        <FlowEditor slug={slug} mode="create" />
+        <FlowEditor
+          slug={slug}
+          mode="create"
+          slackIntegrationAvailable={capabilities.slackIntegration}
+          teamVisibilityAvailable={capabilities.teamManagement}
+        />
       </div>
     </main>
   )

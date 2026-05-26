@@ -3,8 +3,6 @@ import { redirect } from 'next/navigation'
 import { FlowsPage } from '@/components/flows/flows-page'
 import { ensureFlowSchedulerStarted } from '@/lib/flows/scheduler-bootstrap'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
-import { getCurrentDesktopVault } from '@/lib/runtime/desktop/current-vault'
-import { isDesktop } from '@/lib/runtime/mode'
 
 export default async function FlowsListPage({
   params,
@@ -12,14 +10,9 @@ export default async function FlowsListPage({
   params: Promise<{ slug: string }>
 }) {
   const { slug } = await params
+  const capabilities = getRuntimeCapabilities()
 
-  if (isDesktop()) {
-    const vault = getCurrentDesktopVault()
-    if (!vault) redirect('/')
-    redirect(`/u/${slug}`)
-  }
-
-  if (!getRuntimeCapabilities().flows) {
+  if (!capabilities.flows) {
     redirect(`/u/${slug}`)
   }
 

@@ -42,14 +42,14 @@ describe('FlowRunsPage', () => {
     await expect(Page({ params: Promise.resolve({ id: 'flow-1', slug: 'alice' }) })).rejects.toThrow('REDIRECT:/u/alice')
   })
 
-  it('redirects desktop run history back to the workspace', async () => {
+  it('renders desktop run history when flows are available', async () => {
     mocks.isDesktop.mockReturnValue(true)
-    mocks.getCurrentDesktopVault.mockReturnValue({ path: '/vault' })
+    mocks.getRuntimeCapabilities.mockReturnValue({ flows: true })
     const Page = (await import('../page')).default
 
-    await expect(Page({ params: Promise.resolve({ id: 'flow-1', slug: 'alice' }) })).rejects.toThrow('REDIRECT:/u/alice')
+    const result = await Page({ params: Promise.resolve({ id: 'flow-1', slug: 'alice' }) })
 
-    mocks.getCurrentDesktopVault.mockReturnValue(null)
-    await expect(Page({ params: Promise.resolve({ id: 'flow-1', slug: 'alice' }) })).rejects.toThrow('REDIRECT:/')
+    expect(result.type).toBe('main')
+    expect(mocks.redirect).not.toHaveBeenCalled()
   })
 })

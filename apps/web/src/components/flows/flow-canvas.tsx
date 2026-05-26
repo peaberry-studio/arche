@@ -7,7 +7,6 @@ import { select } from 'd3-selection'
 import { zoom as d3zoom, zoomIdentity, type D3ZoomEvent, type ZoomBehavior, type ZoomTransform } from 'd3-zoom'
 
 import {
-  FLOW_ADD_MENU_HEIGHT as ADD_MENU_HEIGHT,
   FLOW_ADD_MENU_ITEM_HEIGHT as ADD_MENU_ITEM_HEIGHT,
   FLOW_ADD_MENU_ITEM_ROW_HEIGHT as ADD_MENU_ITEM_ROW_HEIGHT,
   FLOW_ADD_MENU_ITEM_TOP as ADD_MENU_ITEM_TOP,
@@ -16,6 +15,7 @@ import {
   FLOW_ADD_MENU_WIDTH as ADD_MENU_WIDTH,
   FLOW_CANVAS_NODE_HEIGHT as NODE_HEIGHT,
   FLOW_CANVAS_NODE_WIDTH as NODE_WIDTH,
+  getFlowAddMenuHeight,
   getFlowAddMenuPosition,
   type FlowCanvasVisibleBounds,
 } from '@/components/flows/flow-canvas-layout'
@@ -33,6 +33,7 @@ type FlowCanvasProps = {
   onMoveNode: (nodeId: string, x: number, y: number) => void
   onRemoveConnection: (edgeId: string) => void
   onSelectNode: (nodeId: string) => void
+  slackNodesAvailable?: boolean
 }
 
 type CanvasNode = FlowLayoutNode & {
@@ -61,6 +62,7 @@ export function FlowCanvas({
   onMoveNode,
   onRemoveConnection,
   onSelectNode,
+  slackNodesAvailable = true,
 }: FlowCanvasProps) {
   const svgRef = useRef<SVGSVGElement | null>(null)
   const zoomLayerRef = useRef<SVGGElement | null>(null)
@@ -73,6 +75,13 @@ export function FlowCanvas({
   const [pendingConnection, setPendingConnection] = useState<PendingConnection | null>(null)
   const [isExpanded, setIsExpanded] = useState(false)
   const [visibleBounds, setVisibleBounds] = useState<FlowCanvasVisibleBounds | null>(null)
+  const nodeTypeOptions = useMemo(
+    () => slackNodesAvailable
+      ? FLOW_CANVAS_NODE_TYPE_OPTIONS
+      : FLOW_CANVAS_NODE_TYPE_OPTIONS.filter((option) => option.type !== 'slack'),
+    [slackNodesAvailable],
+  )
+  const addMenuHeight = useMemo(() => getFlowAddMenuHeight(nodeTypeOptions.length), [nodeTypeOptions.length])
 
   const nodes = useMemo<CanvasNode[]>(() => {
     const layoutByNodeId = new Map(definition.layout?.nodes.map((node) => [node.nodeId, node]) ?? [])
@@ -395,7 +404,7 @@ export function FlowCanvas({
             const connectionTarget = pendingConnectionTargetId === node.nodeId
             const hiddenAction = showActions ? 'opacity-100' : 'opacity-0 pointer-events-none'
             const addMenuPosition = addMenuNodeId === node.nodeId
-              ? getFlowAddMenuPosition(node, visibleBounds)
+              ? getFlowAddMenuPosition(node, visibleBounds, nodeTypeOptions.length)
               : null
             return (
               <g
@@ -503,8 +512,8 @@ export function FlowCanvas({
                 ) : null}
                 {!readOnly && addMenuPosition ? (
                   <g transform={`translate(${addMenuPosition.x}, ${addMenuPosition.y})`}>
-                    <rect width={ADD_MENU_WIDTH} height={ADD_MENU_HEIGHT} rx="10" className="fill-card stroke-border drop-shadow-sm" strokeWidth="1" />
-                    {FLOW_CANVAS_NODE_TYPE_OPTIONS.map((item, index) => (
+                    <rect width={ADD_MENU_WIDTH} height={addMenuHeight} rx="10" className="fill-card stroke-border drop-shadow-sm" strokeWidth="1" />
+                    {nodeTypeOptions.map((item, index) => (
                       <g
                         key={item.type}
                         role="button"

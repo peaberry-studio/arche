@@ -28,9 +28,9 @@ vi.mock('@/lib/providers/store', () => ({
   getEffectiveCredentialForUser: (...args: unknown[]) => getEffectiveCredentialForUserMock(...args),
 }))
 
-vi.mock('@/lib/spawner/core', () => ({
-  getInstanceStatus: vi.fn(),
-  startInstance: vi.fn(),
+vi.mock('@/lib/runtime/workspace-host', () => ({
+  getWorkspaceStatus: vi.fn(),
+  startWorkspace: vi.fn(),
 }))
 
 describe('session execution helpers', () => {
@@ -474,9 +474,9 @@ describe('session execution helpers', () => {
 
   it('refreshes provider access when execution reuses a running workspace', async () => {
     const { ensureProviderAccessFreshForExecution } = await import('@/lib/opencode/providers')
-    const { getInstanceStatus } = await import('@/lib/spawner/core')
+    const { getWorkspaceStatus } = await import('@/lib/runtime/workspace-host')
 
-    vi.mocked(getInstanceStatus).mockResolvedValue({ status: 'running' } as never)
+    vi.mocked(getWorkspaceStatus).mockResolvedValue({ status: 'running' } as never)
 
     const { ensureWorkspaceRunningForExecution } = await import('../session-execution')
     await ensureWorkspaceRunningForExecution('slack-bot', 'user-1')
@@ -492,9 +492,9 @@ describe('session execution helpers', () => {
 
     try {
       const { ensureProviderAccessFreshForExecution } = await import('@/lib/opencode/providers')
-      const { getInstanceStatus } = await import('@/lib/spawner/core')
+      const { getWorkspaceStatus } = await import('@/lib/runtime/workspace-host')
 
-      vi.mocked(getInstanceStatus)
+      vi.mocked(getWorkspaceStatus)
         .mockResolvedValueOnce({ status: 'starting' } as never)
         .mockResolvedValueOnce({ status: 'running' } as never)
 
@@ -517,9 +517,9 @@ describe('session execution helpers', () => {
     vi.useFakeTimers()
 
     try {
-      const { getInstanceStatus } = await import('@/lib/spawner/core')
+      const { getWorkspaceStatus } = await import('@/lib/runtime/workspace-host')
 
-      vi.mocked(getInstanceStatus).mockResolvedValue({ status: 'starting' } as never)
+      vi.mocked(getWorkspaceStatus).mockResolvedValue({ status: 'starting' } as never)
 
       const { ensureWorkspaceRunningForExecution } = await import('../session-execution')
       const promise = ensureWorkspaceRunningForExecution('slack-bot', 'user-1')

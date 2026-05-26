@@ -544,7 +544,7 @@ describe("WorkspaceShell", () => {
     });
   });
 
-  it("clamps hidden desktop flows mode to chat", async () => {
+  it("allows desktop vaults to start in flows mode", async () => {
     render(
       <WorkspaceShell
         slug="alice"
@@ -554,11 +554,10 @@ describe("WorkspaceShell", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Sessions" }).getAttribute("aria-pressed")).toBe("true");
+      expect(screen.getByRole("button", { name: "Flows" }).getAttribute("aria-pressed")).toBe("true");
     });
 
-    expect(screen.queryByRole("button", { name: "Flows" })).toBeNull();
-    expect(screen.getByText("Chat Panel")).toBeTruthy();
+    expect(screen.getByText("Run a flow")).toBeTruthy();
   });
 
   it("passes disabled workspace-agent capabilities into chat and knowledge panels", async () => {
