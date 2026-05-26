@@ -51,6 +51,40 @@ describe('handleMcpJsonRpcRequest', () => {
     expect(body.error.message).toBe('Unknown tool')
   })
 
+  it('rejects invalid required tool arguments before handlers run', async () => {
+    const response = await handleMcpJsonRpcRequest({
+      body: {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { name: 'read_kb_article', arguments: { path: 123 } },
+      },
+      scopes: [MCP_SCOPE_KB_READ],
+      user,
+    })
+    const body = await response.json() as { error: { message: string } }
+
+    expect(response.status).toBe(400)
+    expect(body.error.message).toBe('Invalid tool arguments')
+  })
+
+  it('rejects invalid optional tool arguments instead of silently defaulting them', async () => {
+    const response = await handleMcpJsonRpcRequest({
+      body: {
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { name: 'search_kb', arguments: { query: 'roadmap', limit: '10' } },
+      },
+      scopes: [MCP_SCOPE_KB_READ],
+      user,
+    })
+    const body = await response.json() as { error: { message: string } }
+
+    expect(response.status).toBe(400)
+    expect(body.error.message).toBe('Invalid tool arguments')
+  })
+
   it('includes canonical proactive single-agent guidance', async () => {
     const response = await handleMcpJsonRpcRequest({
       body: { jsonrpc: '2.0', id: 1, method: 'prompts/get', params: { name: 'arche-workspace-context' } },

@@ -4,16 +4,15 @@ import * as path from 'node:path'
 import {
   cleanupClone,
   cloneRepoToTemp,
-  detectDefaultBranch,
   hasBareRepoLayout,
   isGitAvailable,
+  mutateBareRepo,
   resolveRepoRoot,
-  runGit,
 } from '@/lib/git/bare-repo'
 import { getKbContentRoot } from '@/lib/runtime/paths'
 
 type KbReadError = 'invalid_path' | 'kb_unavailable' | 'not_found' | 'read_failed'
-type KbWriteError = 'article_exists' | 'invalid_path' | 'kb_unavailable' | 'not_found' | 'write_failed'
+type KbWriteError = 'article_exists' | 'conflict' | 'invalid_path' | 'kb_unavailable' | 'not_found' | 'write_failed'
 
 type CloneContext = {
   repoDir: string
@@ -242,45 +241,28 @@ async function mutateContentRepo<T extends { ok: boolean }>(
 ): Promise<T | { ok: false; error: KbWriteError }> {
   const root = await resolveContentRepoRoot()
   if (!root) return { ok: false, error: 'kb_unavailable' }
-  if (!(await hasBareRepoLayout(root))) return { ok: false, error: 'kb_unavailable' }
-  if (!(await isGitAvailable())) return { ok: false, error: 'write_failed' }
 
-  const clone = await cloneRepoToTemp(root)
-  if (!clone.ok) return { ok: false, error: 'write_failed' }
+  const result = await mutateBareRepo<T, KbWriteError>({
+    root,
+    commitMessage,
+    gitAuthorName: 'Arche MCP',
+    gitAuthorEmail: 'mcp@arche.local',
+    mutate,
+  })
 
-  try {
-    const result = await mutate({ repoDir: clone.dir, gitEnv: clone.gitEnv })
-    if (!result.ok) return result
+  if (result.ok) return result.data
 
-    const add = await runGit(['add', '-A', '--', ...result.changedPaths], {
-      cwd: clone.dir,
-      env: clone.gitEnv,
-    })
-    if (!add.ok) return { ok: false, error: 'write_failed' }
-
-    const status = await runGit(['status', '--porcelain', '--', ...result.changedPaths], {
-      cwd: clone.dir,
-      env: clone.gitEnv,
-    })
-    if (!status.ok) return { ok: false, error: 'write_failed' }
-    if (!status.stdout.trim()) return result.data
-
-    const commit = await runGit(
-      ['-c', 'user.name=Arche MCP', '-c', 'user.email=mcp@arche.local', 'commit', '-m', commitMessage],
-      { cwd: clone.dir, env: clone.gitEnv }
-    )
-    if (!commit.ok) return { ok: false, error: 'write_failed' }
-
-    const branch = await detectDefaultBranch(clone.dir, clone.gitEnv)
-    const push = await runGit(['push', 'origin', `HEAD:refs/heads/${branch}`], {
-      cwd: clone.dir,
-      env: clone.gitEnv,
-    })
-    if (!push.ok) return { ok: false, error: 'write_failed' }
-
-    return result.data
-  } finally {
-    await cleanupClone(clone)
+  switch (result.error) {
+    case 'repo_unavailable':
+      return { ok: false, error: 'kb_unavailable' }
+    case 'clone_failed':
+    case 'git_unavailable':
+    case 'write_failed':
+      return { ok: false, error: 'write_failed' }
+    case 'conflict':
+      return { ok: false, error: 'conflict' }
+    default:
+      return { ok: false, error: result.error }
   }
 }
 

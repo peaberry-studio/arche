@@ -1,5 +1,11 @@
 import { prisma } from '@/lib/prisma'
 
+type RateLimitBucketRow = {
+  count: number
+  resetAt?: Date | string | number
+  reset_at?: Date | string | number
+}
+
 export async function checkDbRateLimit(
   key: string,
   maxAttempts: number,
@@ -8,41 +14,46 @@ export async function checkDbRateLimit(
   const now = new Date()
   const resetAt = new Date(now.getTime() + windowMs)
 
-  const incremented = await prisma.rateLimitBucket.updateMany({
-    where: {
-      key,
-      resetAt: { gt: now },
-      count: { lt: maxAttempts },
-    },
-    data: {
-      count: { increment: 1 },
-    },
-  })
+  const rows = await prisma.$queryRaw<RateLimitBucketRow[]>`
+    INSERT INTO "rate_limit_buckets" ("key", "count", "reset_at", "updated_at")
+    VALUES (${key}, 1, ${resetAt}, ${now})
+    ON CONFLICT ("key") DO UPDATE SET
+      "count" = CASE
+        WHEN "rate_limit_buckets"."reset_at" <= ${now} THEN 1
+        WHEN "rate_limit_buckets"."count" < ${maxAttempts} THEN "rate_limit_buckets"."count" + 1
+        ELSE ${maxAttempts + 1}
+      END,
+      "reset_at" = CASE
+        WHEN "rate_limit_buckets"."reset_at" <= ${now} THEN ${resetAt}
+        ELSE "rate_limit_buckets"."reset_at"
+      END,
+      "updated_at" = ${now}
+    RETURNING "count", "reset_at" AS "resetAt"
+  `
 
-  if (incremented.count > 0) {
-    const bucket = await prisma.rateLimitBucket.findUnique({ where: { key } })
-    const count = bucket?.count ?? maxAttempts
-    const resetTime = bucket?.resetAt.getTime() ?? resetAt.getTime()
-    return { allowed: true, remaining: Math.max(0, maxAttempts - count), resetAt: resetTime }
+  const bucket = rows[0]
+  if (!bucket) {
+    throw new Error('rate_limit_transition_failed')
   }
 
-  const active = await prisma.rateLimitBucket.findFirst({
-    where: { key, resetAt: { gt: now } },
-  })
-
-  if (active && active.count >= maxAttempts) {
-    return { allowed: false, remaining: 0, resetAt: active.resetAt.getTime() }
+  return {
+    allowed: bucket.count <= maxAttempts,
+    remaining: Math.max(0, maxAttempts - bucket.count),
+    resetAt: parseResetAt(bucket),
   }
-
-  const created = await prisma.rateLimitBucket.upsert({
-    where: { key },
-    update: { count: 1, resetAt },
-    create: { key, count: 1, resetAt },
-  })
-
-  return { allowed: true, remaining: maxAttempts - 1, resetAt: created.resetAt.getTime() }
 }
 
 export function deleteExpiredRateLimitBuckets(now = new Date()) {
   return prisma.rateLimitBucket.deleteMany({ where: { resetAt: { lte: now } } })
+}
+
+function parseResetAt(bucket: RateLimitBucketRow): number {
+  const value = bucket.resetAt ?? bucket.reset_at
+  if (value instanceof Date) return value.getTime()
+  if (typeof value === 'string' || typeof value === 'number') {
+    const timestamp = new Date(value).getTime()
+    if (Number.isFinite(timestamp)) return timestamp
+  }
+
+  throw new Error('rate_limit_transition_invalid_reset')
 }
