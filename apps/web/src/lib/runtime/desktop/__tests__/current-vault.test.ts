@@ -163,8 +163,8 @@ describe('current-vault', () => {
       expect(getDesktopFlowsHref('alice', 'list')).toBe('/w/alice?flows=list')
     })
 
-    it('includes flow id and optional run id for detail views', () => {
-      expect(getDesktopFlowsHref('alice', 'runs', 'flow-1', 'run-1')).toBe('/w/alice?flows=runs&flowId=flow-1&run=run-1')
+    it('includes flow id for detail views', () => {
+      expect(getDesktopFlowsHref('alice', 'runs', 'flow-1')).toBe('/w/alice?flows=runs&flowId=flow-1')
     })
   })
 

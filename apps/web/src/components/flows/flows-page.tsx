@@ -19,7 +19,7 @@ import { cn } from '@/lib/utils'
 type FlowsPageProps = {
   buildCreateHref?: () => string
   buildEditHref?: (flowId: string) => string
-  buildHistoryHref?: (flowId: string, runId?: string) => string
+  buildHistoryHref?: (flowId: string) => string
   slug: string
 }
 
@@ -68,9 +68,9 @@ export function FlowsPage({ buildCreateHref, buildEditHref, buildHistoryHref, sl
   }, [slug])
 
   const getHistoryHref = useCallback(
-    (flowId: string, runId?: string) => buildHistoryHref
-      ? buildHistoryHref(flowId, runId)
-      : `/u/${slug}/flows/${flowId}/runs${runId ? `?run=${runId}` : ''}`,
+    (flowId: string) => buildHistoryHref
+      ? buildHistoryHref(flowId)
+      : `/u/${slug}/flows/${flowId}/runs`,
     [buildHistoryHref, slug],
   )
 
@@ -87,7 +87,7 @@ export function FlowsPage({ buildCreateHref, buildEditHref, buildHistoryHref, sl
         return
       }
 
-      router.push(getHistoryHref(flowId, result.data.runId))
+      router.push(getHistoryHref(flowId))
     } catch {
       setActionError('network_error')
     } finally {

@@ -57,7 +57,7 @@ export function DesktopFlowsDialog({
   const activeLabel = currentView ? VIEW_LABELS[currentView] : VIEW_LABELS.list
 
   const updateView = useCallback(
-    (view: DesktopFlowsView | null, nextFlowId?: string | null, runId?: string | null) => {
+    (view: DesktopFlowsView | null, nextFlowId?: string | null) => {
       const params = new URLSearchParams(searchParams.toString())
 
       if (view) {
@@ -68,11 +68,7 @@ export function DesktopFlowsDialog({
         } else {
           params.delete('flowId')
         }
-        if (runId) {
-          params.set('run', runId)
-        } else {
-          params.delete('run')
-        }
+        params.delete('run')
       } else {
         params.delete('flows')
         params.delete('flowId')
@@ -87,7 +83,7 @@ export function DesktopFlowsDialog({
 
   const buildCreateHref = useCallback(() => getDesktopFlowsHref(slug, 'new'), [slug])
   const buildEditHref = useCallback((id: string) => getDesktopFlowsHref(slug, 'edit', id), [slug])
-  const buildHistoryHref = useCallback((id: string, runId?: string) => getDesktopFlowsHref(slug, 'runs', id, runId), [slug])
+  const buildHistoryHref = useCallback((id: string) => getDesktopFlowsHref(slug, 'runs', id), [slug])
   const listHref = getDesktopFlowsHref(slug, 'list')
 
   function renderMissingFlow() {

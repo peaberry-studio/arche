@@ -71,6 +71,24 @@ describe('GET /api/u/[slug]/providers', () => {
     expect(anthropic.type).toBe('api_key')
   })
 
+  it('falls back to organization credentials when the user has no enabled override', async () => {
+    mocks.providerService.findCredentialsByUserAndProviders.mockResolvedValue([
+      { providerId: 'anthropic', status: 'disabled', type: 'api_key', version: 2 },
+    ])
+    mocks.providerService.findOrganizationCredentialsByProviders.mockResolvedValue([
+      { providerId: 'openai', status: 'enabled', type: 'api_key', version: 3 },
+      { providerId: 'openai', status: 'disabled', type: 'api_key', version: 1 },
+    ])
+
+    const res = await GET(makeRequest(), params('admin'))
+    const body = await res.json()
+    const openai = body.providers.find((p: { providerId: string }) => p.providerId === 'openai')
+    const anthropic = body.providers.find((p: { providerId: string }) => p.providerId === 'anthropic')
+
+    expect(openai).toMatchObject({ providerId: 'openai', source: 'organization', status: 'enabled', type: 'api_key', version: 3 })
+    expect(anthropic).toMatchObject({ providerId: 'anthropic', overrideStatus: 'disabled', source: 'user', status: 'disabled', type: 'api_key', version: 2 })
+  })
+
   it('returns 404 when user not found', async () => {
     mocks.userService.findIdBySlug.mockResolvedValue(null)
     const res = await GET(makeRequest(), params('admin'))

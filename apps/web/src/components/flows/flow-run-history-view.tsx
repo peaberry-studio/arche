@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { Lightning, PencilSimple, SpinnerGap } from '@phosphor-icons/react'
 
@@ -24,53 +24,48 @@ export function FlowRunHistoryView({ editHref, flowId, slug }: FlowRunHistoryVie
   const [error, setError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [isRunning, setIsRunning] = useState(false)
+  const loadRequestIdRef = useRef(0)
+  const mountedRef = useRef(false)
 
-  const loadFlow = useCallback(async () => {
+  useEffect(() => {
+    mountedRef.current = true
+
+    return () => {
+      mountedRef.current = false
+      loadRequestIdRef.current += 1
+    }
+  }, [])
+
+  const loadFlow = useCallback(async ({ resetFlow = false, showLoading = false }: { resetFlow?: boolean; showLoading?: boolean } = {}) => {
+    const requestId = loadRequestIdRef.current + 1
+    loadRequestIdRef.current = requestId
+    if (showLoading) setIsLoading(true)
+    if (resetFlow) setFlow(null)
     setError(null)
     try {
       const result = await fetchFlowDetail(slug, flowId)
+      if (!mountedRef.current || loadRequestIdRef.current !== requestId) return
+
       if (!result.ok) {
         setError(result.error)
         return
       }
+
       setFlow(result.data.flow)
     } catch {
+      if (!mountedRef.current || loadRequestIdRef.current !== requestId) return
+
       setError('network_error')
     } finally {
-      setIsLoading(false)
+      if (mountedRef.current && loadRequestIdRef.current === requestId) {
+        setIsLoading(false)
+      }
     }
   }, [flowId, slug])
 
   useEffect(() => {
-    let cancelled = false
-
-    async function loadInitialFlow() {
-      try {
-        const result = await fetchFlowDetail(slug, flowId)
-        if (cancelled) return
-
-        if (!result.ok) {
-          setError(result.error)
-          return
-        }
-        setFlow(result.data.flow)
-      } catch {
-        if (!cancelled) {
-          setError('network_error')
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false)
-        }
-      }
-    }
-
-    void loadInitialFlow()
-
-    return () => {
-      cancelled = true
-    }
-  }, [flowId, slug])
+    void loadFlow({ resetFlow: true, showLoading: true })
+  }, [loadFlow])
 
   useEffect(() => {
     if (!flow?.runs.some((run) => run.status === 'running')) return
@@ -154,11 +149,11 @@ export function FlowRunHistoryView({ editHref, flowId, slug }: FlowRunHistoryVie
         <div className="rounded-xl border border-border/60 bg-card/40 p-5">
           <p className="text-sm font-semibold text-foreground">Could not load runs</p>
           <p className="mt-1 text-sm text-muted-foreground">{getFlowErrorMessage(error ?? 'not_found')}</p>
-          <Button variant="outline" size="sm" className="mt-3" onClick={() => void loadFlow()}>Retry</Button>
+          <Button variant="outline" size="sm" className="mt-3" onClick={() => void loadFlow({ resetFlow: true, showLoading: true })}>Retry</Button>
         </div>
       ) : null}
 
-      {flow ? <FlowRunHistory flow={flow} slug={slug} onRefresh={loadFlow} /> : null}
+      {flow ? <FlowRunHistory flow={flow} slug={slug} onRefresh={() => loadFlow()} /> : null}
     </div>
   )
 }

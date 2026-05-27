@@ -75,10 +75,8 @@ export function getDesktopFlowsHref(
   slug: string,
   view: DesktopFlowsView,
   flowId?: string | null,
-  runId?: string | null,
 ): string {
   const params = new URLSearchParams({ flows: view })
   if (flowId) params.set('flowId', flowId)
-  if (runId) params.set('run', runId)
   return `/w/${slug}?${params.toString()}`
 }

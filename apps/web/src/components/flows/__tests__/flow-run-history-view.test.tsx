@@ -46,6 +46,17 @@ const flow: FlowDetail = {
   visibility: 'private',
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve
+    reject = promiseReject
+  })
+
+  return { promise, reject, resolve }
+}
+
 describe('FlowRunHistoryView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -116,6 +127,35 @@ describe('FlowRunHistoryView', () => {
     })
 
     expect(mocks.fetchFlowDetail).toHaveBeenCalledTimes(2)
+  })
+
+  it('ignores stale flow loads after the flow id changes', async () => {
+    const firstLoad = createDeferred<{ ok: true; data: { flow: FlowDetail } }>()
+    const secondLoad = createDeferred<{ ok: true; data: { flow: FlowDetail } }>()
+    mocks.fetchFlowDetail
+      .mockReturnValueOnce(firstLoad.promise)
+      .mockReturnValueOnce(secondLoad.promise)
+
+    const { rerender } = render(<FlowRunHistoryView flowId="flow-1" slug="alice" />)
+    await waitFor(() => expect(mocks.fetchFlowDetail).toHaveBeenCalledWith('alice', 'flow-1'))
+
+    rerender(<FlowRunHistoryView flowId="flow-2" slug="alice" />)
+    await waitFor(() => expect(mocks.fetchFlowDetail).toHaveBeenCalledWith('alice', 'flow-2'))
+
+    await act(async () => {
+      secondLoad.resolve({ ok: true, data: { flow: { ...flow, id: 'flow-2', name: 'Fresh flow' } } })
+      await Promise.resolve()
+    })
+
+    expect(screen.getByText('Fresh flow')).toBeTruthy()
+
+    await act(async () => {
+      firstLoad.resolve({ ok: true, data: { flow: { ...flow, id: 'flow-1', name: 'Stale flow' } } })
+      await Promise.resolve()
+    })
+
+    expect(screen.queryByText('Stale flow')).toBeNull()
+    expect(screen.getByTestId('flow-history').dataset.flowId).toBe('flow-2')
   })
 
   it('shows load errors and retries', async () => {
