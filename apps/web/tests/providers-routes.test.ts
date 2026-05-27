@@ -1,4 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { encryptProviderSecret } from '@/lib/providers/crypto'
 
 const mockGetAuthenticatedUser = vi.fn()
 const mockAuditEvent = vi.fn()
@@ -65,6 +67,10 @@ function createProviderTransactionClient() {
 function session(slug: string, role = 'USER') {
   return { user: { id: 'user-1', email: 'a@b.com', slug, role }, sessionId: 's1' }
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 async function callGetProviders(slug = 'alice') {
   const { GET } = await import('@/app/api/u/[slug]/providers/route')
@@ -165,6 +171,8 @@ describe('GET /api/u/[slug]/providers', () => {
       { providerId: 'fireworks', status: 'missing' },
       { providerId: 'openrouter', status: 'missing' },
       { providerId: 'opencode', status: 'missing' },
+      { providerId: 'opencode-go', status: 'missing' },
+      { providerId: 'ollama', status: 'missing' },
     ])
   })
 })
@@ -299,6 +307,50 @@ describe('POST /api/u/[slug]/providers/[provider]', () => {
       where: { userId: 'user-1' },
       data: { lastError: 'workspace_restart_required' },
     })
+  })
+
+  it('refreshes an existing Ollama credential before saving it', async () => {
+    mockGetAuthenticatedUser.mockResolvedValue(session('admin', 'ADMIN'))
+    mockFindUnique.mockResolvedValueOnce({ id: 'user-1' })
+    mockFindUnique.mockResolvedValueOnce(null)
+    mockFindFirst.mockResolvedValueOnce({
+      id: 'ollama-cred-1',
+      type: 'api',
+      secret: encryptProviderSecret({
+        baseUrl: 'http://127.0.0.1:11434/v1',
+        discoveredAt: '2026-05-27T00:00:00.000Z',
+        mode: 'local',
+        models: [{ id: 'old-model', name: 'old-model' }],
+      }),
+      version: 1,
+    })
+    mockFindFirst.mockResolvedValueOnce({ version: 1 })
+    mockUpdateMany.mockResolvedValue({ count: 1 })
+    mockCreate.mockResolvedValue({
+      id: 'ollama-cred-2',
+      providerId: 'ollama',
+      type: 'api',
+      status: 'enabled',
+      version: 2,
+    })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ data: [{ id: 'llama3.2' }] }), { status: 200 }),
+    ))
+
+    const { status, body } = await callPostProvider('alice', 'ollama', { refresh: true })
+
+    expect(status).toBe(201)
+    expect(body.credential).toEqual({
+      id: 'ollama-cred-2',
+      providerId: 'ollama',
+      type: 'api',
+      status: 'enabled',
+      version: 2,
+    })
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://127.0.0.1:11434/v1/models',
+      expect.objectContaining({ redirect: 'error' }),
+    )
   })
 })
 

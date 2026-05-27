@@ -1,4 +1,5 @@
 import type { ProviderId } from '@/lib/providers/types'
+import type { OllamaPublicDetails } from '@/lib/providers/ollama'
 
 export type TeamUserRole = 'USER' | 'ADMIN'
 
@@ -20,4 +21,5 @@ export type TeamProviderStatus = {
   overrideStatus?: ProviderStatus
   type?: string
   version?: number
+  details?: OllamaPublicDetails
 }

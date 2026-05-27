@@ -7,6 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const buildMcpConfigForSlugMock = vi.fn()
 const readConfigRepoSnapshotMock = vi.fn()
 const findIdentityBySlugMock = vi.fn()
+const getEnabledProviderCredentialsForUserMock = vi.fn()
+const getEffectiveCredentialForUserMock = vi.fn()
+const decryptProviderSecretMock = vi.fn()
 
 let repoDir: string | null = null
 
@@ -48,6 +51,13 @@ async function loadRuntimeArtifactsModule() {
       findIdentityBySlug: (...args: unknown[]) => findIdentityBySlugMock(...args),
     },
   }))
+  vi.doMock('@/lib/providers/store', () => ({
+    getEnabledProviderCredentialsForUser: (...args: unknown[]) => getEnabledProviderCredentialsForUserMock(...args),
+    getEffectiveCredentialForUser: (...args: unknown[]) => getEffectiveCredentialForUserMock(...args),
+  }))
+  vi.doMock('@/lib/providers/crypto', () => ({
+    decryptProviderSecret: (...args: unknown[]) => decryptProviderSecretMock(...args),
+  }))
   vi.doMock('@/lib/spawner/mcp-config', () => ({
     buildMcpConfigForSlug: (...args: unknown[]) => buildMcpConfigForSlugMock(...args),
   }))
@@ -59,6 +69,9 @@ describe('runtime artifacts', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     buildMcpConfigForSlugMock.mockResolvedValue(null)
+    getEnabledProviderCredentialsForUserMock.mockResolvedValue(new Map())
+    getEffectiveCredentialForUserMock.mockResolvedValue(null)
+    decryptProviderSecretMock.mockReturnValue({ apiKey: 'unused' })
     findIdentityBySlugMock.mockResolvedValue({
       id: 'user-1',
       slug: 'alice',
@@ -89,6 +102,8 @@ describe('runtime artifacts', () => {
     }
 
     vi.unmock('@/lib/config-repo-store')
+    vi.unmock('@/lib/providers/crypto')
+    vi.unmock('@/lib/providers/store')
     vi.unmock('@/lib/services')
     vi.unmock('@/lib/spawner/mcp-config')
     vi.resetModules()
@@ -131,10 +146,61 @@ describe('runtime artifacts', () => {
     expect(config.provider?.['fireworks-ai']?.options?.baseURL).toBe(
       'http://web:3000/api/internal/providers/fireworks'
     )
+    expect(config.provider?.ollama).toBeUndefined()
+    expect(config.provider?.['opencode-go']).toBeUndefined()
     expect(artifacts.agentsMd).toContain('Slug: alice')
     expect(artifacts.agentsMd).toContain('Email: alice@example.com')
     expect(artifacts.skills).toHaveLength(1)
     expect(artifacts.skills[0]?.skill.frontmatter.name).toBe('pdf-processing')
+  })
+
+  it('adds configured Ollama models to the runtime provider config', async () => {
+    await createRuntimeRepo({
+      'CommonWorkspaceConfig.json': createWorkspaceConfig(),
+    })
+    getEnabledProviderCredentialsForUserMock.mockResolvedValue(new Map([
+      ['ollama', { credentialId: 'ollama-1', source: 'user', version: 1 }],
+      ['opencode-go', { credentialId: 'go-1', source: 'user', version: 1 }],
+    ]))
+    getEffectiveCredentialForUserMock.mockImplementation(async ({ providerId }) => {
+      if (providerId !== 'ollama') return null
+      return {
+        source: 'user',
+        credential: {
+          id: 'ollama-1',
+          secret: 'encrypted-ollama',
+          type: 'api',
+          version: 1,
+        },
+      }
+    })
+    decryptProviderSecretMock.mockReturnValue({
+      baseUrl: 'http://host.containers.internal:11434/v1',
+      discoveredAt: '2026-05-27T00:00:00.000Z',
+      mode: 'local',
+      models: [{ id: 'qwen3-coder', name: 'Qwen 3 Coder' }],
+    })
+
+    const {
+      buildWorkspaceRuntimeArtifacts,
+      getWebProviderGatewayConfig,
+    } = await loadRuntimeArtifactsModule()
+
+    const artifacts = await buildWorkspaceRuntimeArtifacts('alice', getWebProviderGatewayConfig())
+    const config = JSON.parse(artifacts.opencodeConfigContent) as {
+      provider?: {
+        ollama?: { models?: Record<string, { name?: string }>; options?: { baseURL?: string } }
+        'opencode-go'?: { options?: { baseURL?: string } }
+      }
+    }
+
+    expect(config.provider?.ollama?.options?.baseURL).toBe('http://web:3000/api/internal/providers/ollama')
+    expect(config.provider?.ollama?.models).toEqual({
+      'qwen3-coder': { name: 'Qwen 3 Coder' },
+    })
+    expect(config.provider?.['opencode-go']?.options?.baseURL).toBe(
+      'http://web:3000/api/internal/providers/opencode-go'
+    )
   })
 
   it('fails when the snapshot contains a malformed skill bundle', async () => {

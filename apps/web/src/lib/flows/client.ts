@@ -52,6 +52,12 @@ function ensureOk(data: { ok?: boolean }): FlowClientResult<{ ok: true }> {
     : { ok: false, error: 'invalid_response' }
 }
 
+function ensureFlowRunStarted(data: { ok?: boolean; runId?: string }): FlowClientResult<{ ok: true; runId: string }> {
+  return data.ok === true && typeof data.runId === 'string' && data.runId.length > 0
+    ? { ok: true, data: { ok: true, runId: data.runId } }
+    : { ok: false, error: 'invalid_response' }
+}
+
 export async function fetchFlowList(slug: string): Promise<FlowClientResult<{ flows: FlowListItem[] }>> {
   const result = await readFlowJson<{ flows?: FlowListItem[] }>(await fetch(`/api/u/${slug}/flows`, { cache: 'no-store' }))
   return result.ok ? ensureFlowList(result.data) : result
@@ -110,9 +116,9 @@ export async function deleteFlowRequest(slug: string, flowId: string): Promise<F
   return result.ok ? ensureOk(result.data) : result
 }
 
-export async function runFlowRequest(slug: string, flowId: string): Promise<FlowClientResult<{ ok: true }>> {
-  const result = await readFlowJson<{ ok?: boolean }>(await fetch(`/api/u/${slug}/flows/${flowId}/run`, { method: 'POST' }))
-  return result.ok ? ensureOk(result.data) : result
+export async function runFlowRequest(slug: string, flowId: string): Promise<FlowClientResult<{ ok: true; runId: string }>> {
+  const result = await readFlowJson<{ ok?: boolean; runId?: string }>(await fetch(`/api/u/${slug}/flows/${flowId}/run`, { method: 'POST' }))
+  return result.ok ? ensureFlowRunStarted(result.data) : result
 }
 
 export async function copyFlowRequest(slug: string, flowId: string): Promise<FlowClientResult<{ flow: FlowDetail }>> {

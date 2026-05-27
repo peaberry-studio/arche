@@ -1,6 +1,7 @@
 import { getE2eFakeProviderUrl } from '@/lib/e2e/runtime'
+import { getOllamaBaseUrlFromSecret, isOllamaSecret } from '@/lib/providers/ollama'
 
-import type { ProviderId } from './types'
+import { isPlainApiSecret, type ProviderId, type ProviderSecret } from './types'
 
 type ProviderAuthScheme = 'bearer' | 'x-api-key'
 
@@ -10,13 +11,18 @@ type ProviderRequestContext = {
   pathSegments: string[]
 }
 
+type ProviderCredentialAuthResult =
+  | { ok: true; allowMissingApiKey: boolean; apiKey: string | null }
+  | { ok: false }
+
 export type ProviderGatewayAdapter = {
   authScheme: ProviderAuthScheme
-  baseUrl: () => string
+  baseUrl: (secret?: ProviderSecret) => string
   defaultHeaders?: Record<string, string>
   extractGatewayToken: (headers: Headers) => string | null
   maxFetchAttempts: (context: ProviderRequestContext) => number
   normalizeJsonPayload: (payload: unknown, context: ProviderRequestContext) => unknown
+  resolveCredentialAuth: (secret: ProviderSecret) => ProviderCredentialAuthResult
   shouldNormalizeJsonPayload: (context: ProviderRequestContext) => boolean
 }
 
@@ -28,11 +34,36 @@ const PROVIDER_BASE_URL: Record<ProviderId, string> = {
   fireworks: 'https://api.fireworks.ai/inference/v1',
   openrouter: 'https://openrouter.ai/api/v1',
   opencode: 'https://opencode.ai/zen/v1',
+  'opencode-go': 'https://opencode.ai/zen/go/v1',
+  ollama: 'http://127.0.0.1:11434/v1',
+}
+
+function resolvePlainApiCredentialAuth(secret: ProviderSecret): ProviderCredentialAuthResult {
+  if (!isPlainApiSecret(secret)) {
+    return { ok: false }
+  }
+
+  const apiKey = secret.apiKey.trim()
+  return apiKey ? { ok: true, allowMissingApiKey: false, apiKey } : { ok: false }
+}
+
+function resolveOllamaCredentialAuth(secret: ProviderSecret): ProviderCredentialAuthResult {
+  if (!isOllamaSecret(secret)) {
+    return { ok: false }
+  }
+
+  if (secret.mode === 'local') {
+    return { ok: true, allowMissingApiKey: true, apiKey: null }
+  }
+
+  const apiKey = secret.apiKey.trim()
+  return apiKey ? { ok: true, allowMissingApiKey: false, apiKey } : { ok: false }
 }
 
 const DEFAULT_PROVIDER_ADAPTER: Omit<ProviderGatewayAdapter, 'authScheme' | 'baseUrl' | 'extractGatewayToken'> = {
   maxFetchAttempts: () => 1,
   normalizeJsonPayload: (payload) => payload,
+  resolveCredentialAuth: resolvePlainApiCredentialAuth,
   shouldNormalizeJsonPayload: () => false,
 }
 
@@ -60,6 +91,10 @@ function openAiBaseUrl(): string {
 
 function staticBaseUrl(providerId: ProviderId): () => string {
   return () => PROVIDER_BASE_URL[providerId]
+}
+
+function ollamaBaseUrl(secret?: ProviderSecret): string {
+  return getOllamaBaseUrlFromSecret(secret) ?? PROVIDER_BASE_URL.ollama
 }
 
 function normalizeOpenAiResponsesPayload(payload: unknown): unknown {
@@ -199,16 +234,56 @@ const PROVIDER_ADAPTERS: Record<ProviderId, ProviderGatewayAdapter> = {
     baseUrl: staticBaseUrl('opencode'),
     extractGatewayToken: extractOpencodeGatewayToken,
   },
+  'opencode-go': {
+    ...DEFAULT_PROVIDER_ADAPTER,
+    authScheme: 'bearer',
+    baseUrl: staticBaseUrl('opencode-go'),
+    extractGatewayToken: extractBearerToken,
+  },
+  ollama: {
+    ...DEFAULT_PROVIDER_ADAPTER,
+    authScheme: 'bearer',
+    baseUrl: ollamaBaseUrl,
+    extractGatewayToken: extractBearerToken,
+    resolveCredentialAuth: resolveOllamaCredentialAuth,
+  },
 }
 
 export function getProviderGatewayAdapter(providerId: ProviderId): ProviderGatewayAdapter {
   return PROVIDER_ADAPTERS[providerId]
 }
 
-export function buildUpstreamUrl(base: string, path: string[] | string | undefined, requestUrl: URL): string {
+function hasUnsafePathSegment(segment: string): boolean {
+  const lowered = segment.toLowerCase()
+  if (
+    !segment ||
+    lowered.includes('%2e') ||
+    lowered.includes('%2f') ||
+    lowered.includes('%5c') ||
+    segment.includes('/') ||
+    segment.includes('\\')
+  ) {
+    return true
+  }
+
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(segment)
+  } catch {
+    return true
+  }
+
+  return decoded === '.' || decoded === '..' || decoded.includes('/') || decoded.includes('\\')
+}
+
+export function buildUpstreamUrl(base: string, path: string[] | string | undefined, requestUrl: URL): string | null {
   const segments = Array.isArray(path) ? [...path] : path ? [path] : []
   const upstream = new URL(base)
   const basePath = upstream.pathname === '/' ? '' : upstream.pathname.replace(/\/$/, '')
+
+  if (segments.some(hasUnsafePathSegment)) {
+    return null
+  }
 
   if (segments.length > 0 && basePath.endsWith('/v1') && segments[0] === 'v1') {
     segments.shift()
@@ -216,6 +291,10 @@ export function buildUpstreamUrl(base: string, path: string[] | string | undefin
 
   const normalizedSuffix = segments.length > 0 ? `/${segments.join('/')}` : ''
   upstream.pathname = `${basePath}${normalizedSuffix}` || '/'
+  if (basePath && upstream.pathname !== basePath && !upstream.pathname.startsWith(`${basePath}/`)) {
+    return null
+  }
+
   upstream.search = requestUrl.search
   return upstream.toString()
 }

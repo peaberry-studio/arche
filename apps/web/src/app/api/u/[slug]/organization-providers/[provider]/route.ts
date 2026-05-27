@@ -4,13 +4,18 @@ import { isProviderId } from '@/lib/providers/catalog'
 import {
   disableOrganizationProviderApiCredential,
   replaceOrganizationProviderApiCredential,
+  replaceOrganizationProviderCredentialValue,
 } from '@/lib/providers/credential-mutations'
+import {
+  getOllamaSecretFromRequest,
+  type OllamaCredentialRequestBody,
+  type OllamaCredentialRequestError,
+} from '@/lib/providers/ollama-credential-request'
+import { getActiveOrganizationCredential } from '@/lib/providers/store'
 import type { ProviderId } from '@/lib/providers/types'
 import { withAuth } from '@/lib/runtime/with-auth'
 
-export type CreateOrganizationProviderCredentialRequest = {
-  apiKey: string
-}
+export type CreateOrganizationProviderCredentialRequest = OllamaCredentialRequestBody
 
 export type OrganizationProviderCredentialSummary = {
   id: string
@@ -53,6 +58,16 @@ async function getOrganizationProviderMutationContext(
   return { ok: true, sessionUserId: user.id, provider }
 }
 
+function getOllamaCredentialErrorResponse(
+  response: OllamaCredentialRequestError,
+): NextResponse<{ error: string; message?: string }> {
+  const body = response.message
+    ? { error: response.error, message: response.message }
+    : { error: response.error }
+
+  return NextResponse.json(body, { status: response.status })
+}
+
 export const POST = withAuth<
   CreateOrganizationProviderCredentialResponse | { error: string; message?: string },
   { slug: string; provider: string }
@@ -79,6 +94,38 @@ export const POST = withAuth<
     return NextResponse.json(
       { error: 'invalid_body', message: 'Request body must be a JSON object' },
       { status: 400 },
+    )
+  }
+
+  if (context.provider === 'ollama') {
+    const secretResult = await getOllamaSecretFromRequest({
+      body,
+      getExistingCredential: getActiveOrganizationCredential,
+      providerId: context.provider,
+    })
+
+    if (!secretResult.ok) {
+      return getOllamaCredentialErrorResponse(secretResult.response)
+    }
+
+    const result = await replaceOrganizationProviderCredentialValue({
+      actorUserId: context.sessionUserId,
+      providerId: context.provider,
+      secret: secretResult.secret,
+    })
+    const { credential } = result
+
+    return NextResponse.json(
+      {
+        credential: {
+          id: credential.id,
+          providerId: context.provider,
+          type: credential.type,
+          status: 'enabled',
+          version: credential.version,
+        },
+      },
+      { status: 201 },
     )
   }
 

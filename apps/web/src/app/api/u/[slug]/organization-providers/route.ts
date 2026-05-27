@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 
+import { decryptProviderSecret } from '@/lib/providers/crypto'
+import { getOllamaPublicDetails, type OllamaPublicDetails } from '@/lib/providers/ollama'
 import { PROVIDERS, type ProviderId } from '@/lib/providers/types'
 import { withAuth } from '@/lib/runtime/with-auth'
 import { providerService } from '@/lib/services'
@@ -13,9 +15,27 @@ export type OrganizationProviderListItem = {
   type?: string
   version?: number
   lastUsedAt?: string | null
+  details?: OllamaPublicDetails
 }
 
 type OrganizationProviderListResponse = { providers: OrganizationProviderListItem[] }
+
+type OrganizationCredentialWithSecret = {
+  providerId: string
+  secret?: string
+}
+
+function getProviderDetails(credential: OrganizationCredentialWithSecret | undefined): OllamaPublicDetails | undefined {
+  if (credential?.providerId !== 'ollama' || !credential.secret) {
+    return undefined
+  }
+
+  try {
+    return getOllamaPublicDetails(decryptProviderSecret(credential.secret)) ?? undefined
+  } catch {
+    return undefined
+  }
+}
 
 export const GET = withAuth<OrganizationProviderListResponse | { error: string }>(
   { csrf: false },
@@ -47,6 +67,7 @@ export const GET = withAuth<OrganizationProviderListResponse | { error: string }
         type: credential.type,
         version: credential.version,
         lastUsedAt: credential.lastUsedAt?.toISOString() ?? null,
+        details: getProviderDetails(credential),
       }
     })
 

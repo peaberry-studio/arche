@@ -22,6 +22,14 @@ export function getTeamErrorMessage(error: string): string {
       return 'The selected user was not found.'
     case 'invalid_provider':
       return 'The selected provider is invalid.'
+    case 'invalid_endpoint':
+      return 'Enter a valid HTTPS endpoint.'
+    case 'blocked_endpoint':
+      return 'That endpoint is not allowed.'
+    case 'ollama_discovery_failed':
+      return 'Could not connect to Ollama or list models.'
+    case 'missing_credential':
+      return 'No credential is configured for that provider.'
     case 'missing_fields':
       return 'Required fields are missing.'
     case 'invalid_json':

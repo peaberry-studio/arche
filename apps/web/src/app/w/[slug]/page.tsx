@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 
+import { DesktopFlowsDialog } from '@/components/desktop/desktop-flows-dialog'
 import { DesktopSettingsDialog } from '@/components/desktop/desktop-settings-dialog'
 import { WorkspaceShell } from '@/components/workspace/workspace-shell'
 import { readCommonWorkspaceConfig } from '@/lib/common-workspace-config-store'
@@ -10,6 +11,7 @@ import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import {
   getCurrentDesktopVault,
   getWorkspacePersistenceScope,
+  isDesktopFlowsView,
   isDesktopSettingsSection,
 } from '@/lib/runtime/desktop/current-vault'
 import { shouldUseCurrentMacOsInsetTitleBar } from '@/lib/runtime/desktop-window-chrome'
@@ -41,7 +43,7 @@ export default async function WorkspaceHostPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>
-  searchParams?: Promise<{ mode?: string; path?: string; session?: string; settings?: string }>
+  searchParams?: Promise<{ flowId?: string; flows?: string; mode?: string; path?: string; session?: string; settings?: string }>
 }) {
   const { slug } = await params
   const search = await searchParams
@@ -77,7 +79,13 @@ export default async function WorkspaceHostPage({
   const persistenceScope = getWorkspacePersistenceScope(slug)
   const initialLayoutCookie = cookieStore.get(getWorkspaceLayoutCookieName(persistenceScope))?.value
   const initialLayoutState = initialLayoutCookie ? parseWorkspaceLayoutState(initialLayoutCookie) : null
-  const initialSettingsSection = desktopVault && isDesktopSettingsSection(search?.settings)
+  const initialFlowsView = desktopVault && isDesktopFlowsView(search?.flows)
+    ? search.flows
+    : null
+  const initialFlowId = desktopVault && search?.flowId
+    ? search.flowId
+    : null
+  const initialSettingsSection = desktopVault && !initialFlowsView && isDesktopSettingsSection(search?.settings)
     ? search.settings
     : null
   const requestedWorkspaceMode = search?.mode === 'knowledge'
@@ -105,7 +113,18 @@ export default async function WorkspaceHostPage({
         workspaceAgentEnabled={caps.workspaceAgent}
         reaperEnabled={caps.reaper}
       />
-      {desktopVault ? <DesktopSettingsDialog slug={slug} currentSection={initialSettingsSection} /> : null}
+      {desktopVault ? (
+        <>
+          <DesktopSettingsDialog slug={slug} currentSection={initialSettingsSection} />
+          <DesktopFlowsDialog
+            slug={slug}
+            currentView={initialFlowsView}
+            flowId={initialFlowId}
+            slackIntegrationAvailable={caps.slackIntegration}
+            teamVisibilityAvailable={caps.teamManagement}
+          />
+        </>
+      ) : null}
     </>
   )
 }

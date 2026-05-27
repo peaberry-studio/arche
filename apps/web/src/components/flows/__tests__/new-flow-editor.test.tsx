@@ -56,7 +56,9 @@ describe('NewFlowEditor', () => {
     expect(mocks.flowEditorProps).toHaveBeenLastCalledWith({
       initialTemplate: template,
       mode: 'create',
+      slackIntegrationAvailable: undefined,
       slug: 'alice',
+      teamVisibilityAvailable: undefined,
     })
     expect(window.sessionStorage.getItem('arche:flow-template')).toBeNull()
   })

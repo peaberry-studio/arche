@@ -29,6 +29,8 @@ model User {
   providerCredentials ProviderCredential[]
   providerUsageDaily  ProviderUsageDaily[]
   providerUsageRuns   ProviderUsageRun[]
+  flows               Flow[]
+  flowRunsExecuted    FlowRun[] @relation("FlowRunExecutionUser")
   slackThreadBindings SlackThreadBinding[]
   slackUserLinks      SlackUserLink[]
   slackDmSessionBindings SlackDmSessionBinding[]
@@ -230,6 +232,101 @@ model MessageRunLock {
   @@id([slug, sessionId])
   @@index([runId])
   @@map("message_run_locks")
+}
+
+model Flow {
+  id             String   @id @default(cuid())
+  userId         String   @map("user_id")
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name           String
+  description    String?
+  definition     Json
+  cronExpression String?  @map("cron_expression")
+  timezone       String   @default("UTC")
+  enabled        Boolean  @default(false)
+  visibility     String   @default("private")
+  organizationCanRun Boolean @default(false) @map("organization_can_run")
+
+  nextRunAt      DateTime? @map("next_run_at")
+  lastRunAt      DateTime? @map("last_run_at")
+  leaseOwner     String?   @map("lease_owner")
+  leaseExpiresAt DateTime? @map("lease_expires_at")
+
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  runs           FlowRun[]
+
+  @@index([userId])
+  @@index([userId, name])
+  @@index([visibility])
+  @@index([visibility, organizationCanRun])
+  @@index([enabled, nextRunAt])
+  @@index([leaseExpiresAt])
+  @@index([userId, leaseExpiresAt])
+  @@map("flows")
+}
+
+model FlowRun {
+  id                String   @id @default(cuid())
+  flowId            String   @map("flow_id")
+  flow              Flow     @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  executionUserId   String?  @map("execution_user_id")
+  executionUser     User?    @relation("FlowRunExecutionUser", fields: [executionUserId], references: [id], onDelete: SetNull)
+
+  status            String
+  trigger           String
+  scheduledFor      DateTime @map("scheduled_for")
+  startedAt         DateTime @default(now()) @map("started_at")
+  finishedAt        DateTime? @map("finished_at")
+  error             String?
+  openCodeSessionId String?  @unique @map("opencode_session_id")
+  sessionTitle      String?  @map("session_title")
+  currentNodeId     String?  @map("current_node_id")
+  resultSeenAt      DateTime? @map("result_seen_at")
+  attempt           Int      @default(1)
+  retryScheduledFor DateTime? @map("retry_scheduled_for")
+  lastRetryError    String?  @map("last_retry_error")
+
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  steps             FlowRunStep[]
+
+  @@index([flowId, startedAt])
+  @@index([executionUserId])
+  @@index([status])
+  @@index([scheduledFor])
+  @@index([retryScheduledFor])
+  @@map("flow_runs")
+}
+
+model FlowRunStep {
+  id              String   @id @default(cuid())
+  runId           String   @map("run_id")
+  run             FlowRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  nodeId          String   @map("node_id")
+  nodeName        String?  @map("node_name")
+  nodeType        String   @map("node_type")
+  status          String
+  input           Json?
+  rawOutput       String?  @map("raw_output")
+  compactedOutput String?  @map("compacted_output")
+  humanResponse   String?  @map("human_response")
+  error           String?
+  startedAt       DateTime? @map("started_at")
+  finishedAt      DateTime? @map("finished_at")
+
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@unique([runId, nodeId])
+  @@index([runId])
+  @@index([status])
+  @@map("flow_run_steps")
 }
 
 model Connector {

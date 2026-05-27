@@ -1,27 +1,29 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
+  decryptProviderSecret: vi.fn(),
   getRuntimeCapabilities: vi.fn(() => ({ csrf: false })),
-  isDesktop: vi.fn(() => false),
   getSession: vi.fn(),
-  validateSameOrigin: vi.fn(() => ({ ok: true })),
-  validateDesktopToken: vi.fn(() => true),
+  isDesktop: vi.fn(() => false),
   providerService: {
     findCredentialsByUserAndProviders: vi.fn(),
     findOrganizationCredentialsByProviders: vi.fn(),
   },
   userService: { findIdBySlug: vi.fn() },
+  validateDesktopToken: vi.fn(() => true),
+  validateSameOrigin: vi.fn(() => ({ ok: true })),
 }))
 
-vi.mock('@/lib/runtime/capabilities', () => ({ getRuntimeCapabilities: mocks.getRuntimeCapabilities }))
-vi.mock('@/lib/runtime/mode', () => ({ isDesktop: mocks.isDesktop }))
-vi.mock('@/lib/runtime/session', () => ({ getSession: mocks.getSession }))
 vi.mock('@/lib/csrf', () => ({ validateSameOrigin: mocks.validateSameOrigin }))
+vi.mock('@/lib/providers/crypto', () => ({ decryptProviderSecret: mocks.decryptProviderSecret }))
+vi.mock('@/lib/runtime/capabilities', () => ({ getRuntimeCapabilities: mocks.getRuntimeCapabilities }))
 vi.mock('@/lib/runtime/desktop/token', () => ({
   DESKTOP_TOKEN_HEADER: 'x-arche-desktop-token',
   validateDesktopToken: mocks.validateDesktopToken,
 }))
+vi.mock('@/lib/runtime/mode', () => ({ isDesktop: mocks.isDesktop }))
+vi.mock('@/lib/runtime/session', () => ({ getSession: mocks.getSession }))
 vi.mock('@/lib/services', () => ({
   providerService: mocks.providerService,
   userService: mocks.userService,
@@ -34,8 +36,8 @@ const SESSION = {
   sessionId: 's1',
 }
 
-function makeRequest() {
-  return new NextRequest('http://localhost/api/u/admin/providers', { method: 'GET' })
+function makeRequest(slug = 'admin') {
+  return new NextRequest(`http://localhost/api/u/${slug}/providers`, { method: 'GET' })
 }
 
 function params(slug: string) {
@@ -46,6 +48,13 @@ describe('GET /api/u/[slug]/providers', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.getSession.mockResolvedValue(SESSION)
+    mocks.decryptProviderSecret.mockReturnValue({
+      apiKey: 'ollama-token',
+      baseUrl: 'https://ollama.example.com/v1',
+      discoveredAt: '2026-05-27T00:00:00.000Z',
+      mode: 'remote',
+      models: [{ id: 'gpt-oss:20b-cloud', name: 'gpt-oss:20b-cloud' }],
+    })
     mocks.userService.findIdBySlug.mockResolvedValue({ id: 'u1' })
     mocks.providerService.findCredentialsByUserAndProviders.mockResolvedValue([])
     mocks.providerService.findOrganizationCredentialsByProviders.mockResolvedValue([])
@@ -69,6 +78,69 @@ describe('GET /api/u/[slug]/providers', () => {
     const anthropic = body.providers.find((p: { providerId: string }) => p.providerId === 'anthropic')
     expect(anthropic.status).toBe('enabled')
     expect(anthropic.type).toBe('api_key')
+  })
+
+  it('falls back to organization credentials when the user has no enabled override', async () => {
+    mocks.providerService.findCredentialsByUserAndProviders.mockResolvedValue([
+      { providerId: 'anthropic', status: 'disabled', type: 'api_key', version: 2 },
+    ])
+    mocks.providerService.findOrganizationCredentialsByProviders.mockResolvedValue([
+      { providerId: 'openai', status: 'enabled', type: 'api_key', version: 3 },
+      { providerId: 'openai', status: 'disabled', type: 'api_key', version: 1 },
+    ])
+
+    const res = await GET(makeRequest(), params('admin'))
+    const body = await res.json()
+    const openai = body.providers.find((p: { providerId: string }) => p.providerId === 'openai')
+    const anthropic = body.providers.find((p: { providerId: string }) => p.providerId === 'anthropic')
+
+    expect(openai).toMatchObject({
+      providerId: 'openai',
+      source: 'organization',
+      status: 'enabled',
+      type: 'api_key',
+      version: 3,
+    })
+    expect(anthropic).toMatchObject({
+      overrideStatus: 'disabled',
+      providerId: 'anthropic',
+      source: 'user',
+      status: 'disabled',
+      type: 'api_key',
+      version: 2,
+    })
+  })
+
+  it('omits inherited organization Ollama base URLs for non-admin users', async () => {
+    mocks.getSession.mockResolvedValue({
+      user: { id: 'u1', email: 'alice@test.com', slug: 'alice', role: 'USER' },
+      sessionId: 's-user',
+    })
+    mocks.providerService.findOrganizationCredentialsByProviders.mockResolvedValue([
+      { providerId: 'ollama', status: 'enabled', type: 'api', version: 1, secret: 'encrypted' },
+    ])
+
+    const res = await GET(makeRequest('alice'), params('alice'))
+    const body = await res.json()
+    const ollama = body.providers.find((p: { providerId: string }) => p.providerId === 'ollama')
+
+    expect(ollama.details).toEqual({
+      discoveredAt: '2026-05-27T00:00:00.000Z',
+      mode: 'remote',
+      models: [{ id: 'gpt-oss:20b-cloud', name: 'gpt-oss:20b-cloud' }],
+    })
+  })
+
+  it('includes organization Ollama base URLs for admins', async () => {
+    mocks.providerService.findOrganizationCredentialsByProviders.mockResolvedValue([
+      { providerId: 'ollama', status: 'enabled', type: 'api', version: 1, secret: 'encrypted' },
+    ])
+
+    const res = await GET(makeRequest(), params('admin'))
+    const body = await res.json()
+    const ollama = body.providers.find((p: { providerId: string }) => p.providerId === 'ollama')
+
+    expect(ollama.details.baseUrl).toBe('https://ollama.example.com/v1')
   })
 
   it('returns 404 when user not found', async () => {

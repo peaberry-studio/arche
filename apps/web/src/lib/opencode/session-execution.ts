@@ -5,9 +5,9 @@ import type { MessagePart } from '@/lib/opencode/types'
 import { isProviderId, normalizeProviderId } from '@/lib/providers/catalog'
 import { recordProviderRunUsageBestEffort } from '@/lib/providers/run-usage'
 import type { ProviderId } from '@/lib/providers/types'
+import { getWorkspaceStatus, startWorkspace } from '@/lib/runtime/workspace-host'
 import { instanceService, messageRunService } from '@/lib/services'
 import type { ActiveRunRuntimeState } from '@/lib/services/message-run'
-import { getInstanceStatus, startInstance } from '@/lib/spawner/core'
 import { deriveWorkspaceMessageRuntimeState } from '@/lib/workspace-message-state'
 
 const RUN_POLL_INTERVAL_MS = 2_000
@@ -271,7 +271,7 @@ async function inspectSessionOutcome(
 }
 
 export async function ensureWorkspaceRunningForExecution(slug: string, userId: string): Promise<void> {
-  const current = await getInstanceStatus(slug)
+  const current = await getWorkspaceStatus(slug)
   if (current?.status === 'running') {
     await ensureProviderAccessFreshForExecution({ slug, userId })
     return
@@ -281,7 +281,7 @@ export async function ensureWorkspaceRunningForExecution(slug: string, userId: s
     const deadline = Date.now() + RUN_TIMEOUT_MS
     while (Date.now() < deadline) {
       await sleep(INSTANCE_START_POLL_INTERVAL_MS)
-      const next = await getInstanceStatus(slug)
+      const next = await getWorkspaceStatus(slug)
       if (next?.status === 'running') {
         await ensureProviderAccessFreshForExecution({ slug, userId })
         return
@@ -291,7 +291,7 @@ export async function ensureWorkspaceRunningForExecution(slug: string, userId: s
     throw new Error('instance_start_timeout')
   }
 
-  const startResult = await startInstance(slug, userId)
+  const startResult = await startWorkspace(slug, userId)
   if (!startResult.ok && startResult.error !== 'already_running') {
     throw new Error(startResult.detail ?? startResult.error)
   }

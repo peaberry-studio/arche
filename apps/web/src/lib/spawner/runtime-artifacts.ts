@@ -5,6 +5,9 @@ import * as path from 'node:path'
 import { readConfigRepoSnapshot } from '@/lib/config-repo-store'
 import { readCommonWorkspaceConfig, readConfigRepoFile } from '@/lib/common-workspace-config-store'
 import { getConnectorGatewayBaseUrl } from '@/lib/connectors/gateway-config'
+import { decryptProviderSecret } from '@/lib/providers/crypto'
+import { isOllamaSecret } from '@/lib/providers/ollama'
+import { getEffectiveCredentialForUser, getEnabledProviderCredentialsForUser } from '@/lib/providers/store'
 import { isRecord } from '@/lib/records'
 import { readSkillBundlesFromRepoDir } from '@/lib/skills/skill-store'
 import type { SkillBundle } from '@/lib/skills/types'
@@ -46,6 +49,9 @@ export type WorkspaceRuntimeArtifacts = {
 }
 
 const COMMON_WORKSPACE_CONFIG_FILE = 'CommonWorkspaceConfig.json'
+const CONFIGURED_ONLY_RUNTIME_PROVIDER_IDS = ['ollama', 'opencode-go'] as const
+
+type ConfiguredOnlyRuntimeProviderId = (typeof CONFIGURED_ONLY_RUNTIME_PROVIDER_IDS)[number]
 
 function normalizeRuntimeConfigForHash(configContent: string): string {
   try {
@@ -182,15 +188,104 @@ async function buildBaseWorkspaceConfig(
   return injectSelfDelegationGuards(baseConfig)
 }
 
+function cloneProviderGatewayConfig(providerGatewayConfig: Record<string, unknown>): Record<string, unknown> {
+  const provider = isRecord(providerGatewayConfig.provider)
+    ? { ...providerGatewayConfig.provider }
+    : undefined
+
+  return provider ? { ...providerGatewayConfig, provider } : { ...providerGatewayConfig }
+}
+
+function removeRuntimeProvider(provider: Record<string, unknown>, providerId: ConfiguredOnlyRuntimeProviderId): void {
+  delete provider[providerId]
+}
+
+function getOllamaRuntimeModels(secret: unknown): Record<string, { name: string }> | null {
+  if (!isOllamaSecret(secret)) {
+    return null
+  }
+
+  return Object.fromEntries(secret.models.map((model) => [model.id, { name: model.name }]))
+}
+
+async function applyOllamaRuntimeModels(
+  provider: Record<string, unknown>,
+  owner: NonNullable<WorkspaceOwner>,
+): Promise<void> {
+  if (!isRecord(provider.ollama)) {
+    return
+  }
+
+  try {
+    const credential = await getEffectiveCredentialForUser({
+      providerId: 'ollama',
+      userId: owner.id,
+    })
+    const models = credential ? getOllamaRuntimeModels(decryptProviderSecret(credential.credential.secret)) : null
+    if (!models) {
+      return
+    }
+
+    provider.ollama = {
+      ...provider.ollama,
+      models,
+    }
+  } catch {
+    removeRuntimeProvider(provider, 'ollama')
+  }
+}
+
+async function applyCredentialScopedProviderConfig(
+  providerGatewayConfig: Record<string, unknown>,
+  owner: WorkspaceOwner,
+): Promise<Record<string, unknown>> {
+  const nextConfig = cloneProviderGatewayConfig(providerGatewayConfig)
+  if (!isRecord(nextConfig.provider)) {
+    return nextConfig
+  }
+
+  if (!owner) {
+    for (const providerId of CONFIGURED_ONLY_RUNTIME_PROVIDER_IDS) {
+      removeRuntimeProvider(nextConfig.provider, providerId)
+    }
+    return nextConfig
+  }
+
+  let enabledProviders: Awaited<ReturnType<typeof getEnabledProviderCredentialsForUser>>
+  try {
+    enabledProviders = await getEnabledProviderCredentialsForUser(owner.id)
+  } catch {
+    for (const providerId of CONFIGURED_ONLY_RUNTIME_PROVIDER_IDS) {
+      removeRuntimeProvider(nextConfig.provider, providerId)
+    }
+    return nextConfig
+  }
+
+  for (const providerId of CONFIGURED_ONLY_RUNTIME_PROVIDER_IDS) {
+    if (!enabledProviders.has(providerId)) {
+      removeRuntimeProvider(nextConfig.provider, providerId)
+    }
+  }
+
+  if (enabledProviders.has('ollama')) {
+    await applyOllamaRuntimeModels(nextConfig.provider, owner)
+  }
+
+  return nextConfig
+}
+
 export async function buildWorkspaceRuntimeConfig(
   slug: string,
   providerGatewayConfig: Record<string, unknown>,
-  commonConfigContent?: string | null
+  commonConfigContent?: string | null,
+  owner?: WorkspaceOwner,
 ): Promise<Record<string, unknown>> {
   const baseConfig = await buildBaseWorkspaceConfig(slug, commonConfigContent)
+  const resolvedOwner = typeof owner === 'undefined' ? await getWorkspaceOwner(slug) : owner
+  const scopedProviderGatewayConfig = await applyCredentialScopedProviderConfig(providerGatewayConfig, resolvedOwner)
   return withWorkspacePermissionGuards({
     ...baseConfig,
-    ...providerGatewayConfig,
+    ...scopedProviderGatewayConfig,
   })
 }
 
@@ -225,7 +320,8 @@ export async function buildWorkspaceRuntimeArtifacts(
   const config = await buildWorkspaceRuntimeConfig(
     slug,
     providerGatewayConfig,
-    repoSnapshot.commonConfigContent
+    repoSnapshot.commonConfigContent,
+    owner
   )
   const agentsMd = await buildWorkspaceAgentsMd(slug, owner, repoSnapshot.agentsMdContent)
 

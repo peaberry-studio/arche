@@ -44,7 +44,9 @@
     ".next-desktop-launcher/types/**/*.ts",
     ".next-desktop-launcher/dev/types/**/*.ts",
     ".next-desktop-vault-*/types/**/*.ts",
-    ".next-desktop-vault-*/dev/types/**/*.ts"
+    ".next-desktop-vault-*/dev/types/**/*.ts",
+    ".next-desktop-vault-b1b146d6-06fd-4d83-9cd1-10313e414762/types/**/*.ts",
+    ".next-desktop-vault-b1b146d6-06fd-4d83-9cd1-10313e414762/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

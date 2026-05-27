@@ -3,10 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   disableOrganizationProviderApiCredential: vi.fn(),
+  createOllamaProviderSecret: vi.fn(),
   getRuntimeCapabilities: vi.fn(() => ({ csrf: false })),
   getSession: vi.fn(),
   isDesktop: vi.fn(() => false),
   replaceOrganizationProviderApiCredential: vi.fn(),
+  replaceOrganizationProviderCredentialValue: vi.fn(),
+  refreshOllamaProviderSecret: vi.fn(),
   validateDesktopToken: vi.fn(() => true),
   validateSameOrigin: vi.fn(() => ({ ok: true })),
 }))
@@ -22,6 +25,12 @@ vi.mock('@/lib/runtime/desktop/token', () => ({
 vi.mock('@/lib/providers/credential-mutations', () => ({
   disableOrganizationProviderApiCredential: mocks.disableOrganizationProviderApiCredential,
   replaceOrganizationProviderApiCredential: mocks.replaceOrganizationProviderApiCredential,
+  replaceOrganizationProviderCredentialValue: mocks.replaceOrganizationProviderCredentialValue,
+}))
+vi.mock('@/lib/providers/ollama', () => ({
+  createOllamaProviderSecret: mocks.createOllamaProviderSecret,
+  isOllamaSecret: vi.fn(() => true),
+  refreshOllamaProviderSecret: mocks.refreshOllamaProviderSecret,
 }))
 
 import { DELETE, POST } from '../route'
@@ -60,11 +69,29 @@ describe('/api/u/[slug]/organization-providers/[provider]', () => {
     mocks.getRuntimeCapabilities.mockReturnValue({ csrf: false })
     mocks.getSession.mockResolvedValue(ADMIN_SESSION)
     mocks.isDesktop.mockReturnValue(false)
+    mocks.createOllamaProviderSecret.mockResolvedValue({
+      ok: true,
+      secret: {
+        baseUrl: 'https://ollama.example.com/v1',
+        discoveredAt: '2026-05-27T00:00:00.000Z',
+        mode: 'remote',
+        models: [{ id: 'gpt-oss:20b-cloud', name: 'gpt-oss:20b-cloud' }],
+        apiKey: 'ollama-token',
+      },
+    })
     mocks.replaceOrganizationProviderApiCredential.mockResolvedValue({
       credential: {
         id: 'org-cred-1',
         type: 'api',
         version: 4,
+      },
+      invalidatedInstanceCount: 2,
+    })
+    mocks.replaceOrganizationProviderCredentialValue.mockResolvedValue({
+      credential: {
+        id: 'org-ollama-1',
+        type: 'api',
+        version: 1,
       },
       invalidatedInstanceCount: 2,
     })
@@ -154,6 +181,51 @@ describe('/api/u/[slug]/organization-providers/[provider]', () => {
 
       expect(response.status).toBe(400)
       expect(body.error).toBe('missing_fields')
+    })
+
+    it('creates an organization Ollama remote credential after discovery', async () => {
+      const response = await POST(
+        makePostRequest('ollama', {
+          baseUrl: 'https://ollama.example.com/v1',
+          mode: 'remote',
+          token: ' ollama-token ',
+        }),
+        routeParams('ollama'),
+      )
+      const body = await response.json()
+
+      expect(response.status).toBe(201)
+      expect(mocks.createOllamaProviderSecret).toHaveBeenCalledWith({
+        apiKey: 'ollama-token',
+        baseUrl: 'https://ollama.example.com/v1',
+        mode: 'remote',
+      })
+      expect(mocks.replaceOrganizationProviderCredentialValue).toHaveBeenCalledWith({
+        actorUserId: 'admin-1',
+        providerId: 'ollama',
+        secret: {
+          apiKey: 'ollama-token',
+          baseUrl: 'https://ollama.example.com/v1',
+          discoveredAt: '2026-05-27T00:00:00.000Z',
+          mode: 'remote',
+          models: [{ id: 'gpt-oss:20b-cloud', name: 'gpt-oss:20b-cloud' }],
+        },
+      })
+      expect(body.credential.providerId).toBe('ollama')
+    })
+
+    it('does not save organization Ollama credentials when discovery fails', async () => {
+      mocks.createOllamaProviderSecret.mockResolvedValue({ ok: false, error: 'blocked_url' })
+
+      const response = await POST(
+        makePostRequest('ollama', { baseUrl: 'https://127.0.0.1/v1', mode: 'remote', token: 'token' }),
+        routeParams('ollama'),
+      )
+      const body = await response.json()
+
+      expect(response.status).toBe(400)
+      expect(body.error).toBe('blocked_endpoint')
+      expect(mocks.replaceOrganizationProviderCredentialValue).not.toHaveBeenCalled()
     })
   })
 

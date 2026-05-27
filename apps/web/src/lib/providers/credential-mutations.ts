@@ -5,8 +5,13 @@ import { instanceService, providerService } from '@/lib/services'
 import { decryptPassword } from '@/lib/spawner/crypto'
 
 import type { ProviderCredentialRecord } from './credentials'
-import { replaceApiCredential, replaceOrganizationApiCredential } from './store'
-import type { ProviderId } from './types'
+import {
+  replaceApiCredential,
+  replaceOrganizationApiCredential,
+  replaceOrganizationProviderCredential,
+  replaceProviderCredential,
+} from './store'
+import { isPlainApiSecret, type ProviderId, type ProviderSecret } from './types'
 
 export type UserProviderCredentialMutationResult = {
   credential: ProviderCredentialRecord
@@ -28,7 +33,11 @@ export type DisableOrganizationProviderCredentialResult = {
   invalidatedInstanceCount: number
 }
 
-async function syncUserWorkspaceProviderAccessBestEffort(slug: string, userId: string): Promise<boolean> {
+async function syncUserWorkspaceProviderAccessBestEffort(
+  slug: string,
+  userId: string,
+  options: { forceRestartRequired?: boolean } = {},
+): Promise<boolean> {
   try {
     const instance = await instanceService.findCredentialsBySlug(slug)
 
@@ -49,6 +58,11 @@ async function syncUserWorkspaceProviderAccessBestEffort(slug: string, userId: s
     })
     if (!result.ok && result.error !== 'instance_unavailable') {
       console.error('[providers] Failed to sync provider access', result.error)
+      await providerService.markWorkspaceRestartRequired(userId)
+      return true
+    }
+
+    if (options.forceRestartRequired) {
       await providerService.markWorkspaceRestartRequired(userId)
       return true
     }
@@ -75,13 +89,39 @@ export async function replaceUserProviderApiCredential(input: {
   targetSlug: string
   targetUserId: string
 }): Promise<UserProviderCredentialMutationResult> {
-  const credential = await replaceApiCredential({
-    userId: input.targetUserId,
+  return replaceUserProviderCredential({
+    actorUserId: input.actorUserId,
     providerId: input.providerId,
-    apiKey: input.apiKey,
+    secret: { apiKey: input.apiKey },
+    targetSlug: input.targetSlug,
+    targetUserId: input.targetUserId,
   })
+}
 
-  const restartRequired = await syncUserWorkspaceProviderAccessBestEffort(input.targetSlug, input.targetUserId)
+export async function replaceUserProviderCredential(input: {
+  actorUserId: string
+  providerId: ProviderId
+  secret: ProviderSecret
+  targetSlug: string
+  targetUserId: string
+}): Promise<UserProviderCredentialMutationResult> {
+  const credential = isPlainApiSecret(input.secret)
+    ? await replaceApiCredential({
+      apiKey: input.secret.apiKey,
+      providerId: input.providerId,
+      userId: input.targetUserId,
+    })
+    : await replaceProviderCredential({
+      providerId: input.providerId,
+      secret: input.secret,
+      userId: input.targetUserId,
+    })
+
+  const restartRequired = await syncUserWorkspaceProviderAccessBestEffort(
+    input.targetSlug,
+    input.targetUserId,
+    { forceRestartRequired: input.providerId === 'ollama' },
+  )
 
   await auditEvent({
     actorUserId: input.actorUserId,
@@ -119,10 +159,27 @@ export async function replaceOrganizationProviderApiCredential(input: {
   apiKey: string
   providerId: ProviderId
 }): Promise<OrganizationProviderCredentialMutationResult> {
-  const credential = await replaceOrganizationApiCredential({
+  return replaceOrganizationProviderCredentialValue({
+    actorUserId: input.actorUserId,
     providerId: input.providerId,
-    apiKey: input.apiKey,
+    secret: { apiKey: input.apiKey },
   })
+}
+
+export async function replaceOrganizationProviderCredentialValue(input: {
+  actorUserId: string
+  providerId: ProviderId
+  secret: ProviderSecret
+}): Promise<OrganizationProviderCredentialMutationResult> {
+  const credential = isPlainApiSecret(input.secret)
+    ? await replaceOrganizationApiCredential({
+      apiKey: input.secret.apiKey,
+      providerId: input.providerId,
+    })
+    : await replaceOrganizationProviderCredential({
+      providerId: input.providerId,
+      secret: input.secret,
+    })
   const invalidatedInstanceCount = await invalidateOrganizationProviderSyncState()
 
   await auditEvent({

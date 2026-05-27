@@ -12,7 +12,9 @@ export type EffectiveProviderCredential =
   | null
 
 export type ProviderCredentialSummary = {
+  id: string
   providerId: string
+  secret: string
   status: string
   type: string
   version: number

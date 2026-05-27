@@ -20,7 +20,7 @@ type FlowRunRouteParams = {
   slug: string
 }
 
-export const POST = withAuth<{ ok: true } | { error: string }, FlowRunRouteParams>(
+export const POST = withAuth<{ ok: true; runId: string } | { error: string }, FlowRunRouteParams>(
   { csrf: true },
   async (_request, { params: { id }, slug, user }) => {
     const denied = requireCapability('flows')
@@ -69,6 +69,6 @@ export const POST = withAuth<{ ok: true } | { error: string }, FlowRunRouteParam
       metadata: { executionUserId: user.id, flowId: id, ownerUserId: flow.userId, slug },
     })
 
-    return NextResponse.json({ ok: true }, { status: 202 })
+    return NextResponse.json({ ok: true, runId: result.runId }, { status: 202 })
   },
 )
