@@ -1486,7 +1486,7 @@ export function WorkspaceShell({
         <div className="flex h-full flex-col p-3">
           {showInstanceHeader && (
             <div className="flex items-center gap-2 p-4">
-              <span className="type-display text-base font-semibold tracking-tight">Archē</span>
+              <span className="type-display text-base font-semibold tracking-tight">Arche</span>
               <span className="text-sm text-muted-foreground">/</span>
               <span className="text-sm text-muted-foreground">{slug}</span>
               <Circle size={8} weight="fill" className={cn(loadingStyle.color, loadingStyle.pulse && "animate-pulse")} />
@@ -1558,7 +1558,7 @@ export function WorkspaceShell({
         <div className="flex h-full flex-col p-3">
           {showConnectingHeader && (
             <div className="flex items-center gap-2 p-4">
-              <span className="type-display text-base font-semibold tracking-tight">Archē</span>
+              <span className="type-display text-base font-semibold tracking-tight">Arche</span>
               <span className="text-sm text-muted-foreground">/</span>
               <span className="text-sm text-muted-foreground">{slug}</span>
               <Circle size={8} weight="fill" className={cn(connectingStyle.color, connectingStyle.pulse && "animate-pulse")} />

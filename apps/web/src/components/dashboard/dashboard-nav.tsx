@@ -178,7 +178,7 @@ export function DashboardNav({
       <nav className="glass-bar flex h-14 items-center rounded-2xl border-border/40 bg-card/65 pl-5 pr-2 text-card-foreground shadow-none md:hidden">
         <div className="flex min-w-0 items-center">
           <Link href="/" className="type-display mr-2 text-base font-semibold">
-            Archē
+            Arche
           </Link>
           <span className="truncate text-sm text-muted-foreground">/&nbsp;{displayLabel ?? slug}</span>
         </div>

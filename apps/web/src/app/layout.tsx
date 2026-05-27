@@ -27,32 +27,33 @@ const tinos = Tinos({
 });
 
 export const metadata: Metadata = {
-  title: "Archē",
+  title: "Arche",
   description: "Enterprise AI that learns and specializes for your company",
   icons: {
     icon: [
       {
-        url: "/favicon-96x96.png?v=2",
-        sizes: "96x96",
+        url: "/favicon-32x32.png?v=3",
+        sizes: "32x32",
         type: "image/png",
       },
       {
-        url: "/favicon.svg?v=2",
-        type: "image/svg+xml",
+        url: "/favicon-16x16.png?v=3",
+        sizes: "16x16",
+        type: "image/png",
       },
     ],
-    shortcut: "/favicon.ico?v=2",
+    shortcut: "/favicon.ico?v=3",
     apple: [
       {
-        url: "/apple-touch-icon.png?v=2",
+        url: "/apple-touch-icon.png?v=3",
         sizes: "180x180",
       },
     ],
   },
   appleWebApp: {
-    title: "Archē",
+    title: "Arche",
   },
-  manifest: "/site.webmanifest?v=2",
+  manifest: "/site.webmanifest?v=3",
 };
 
 export const viewport: Viewport = {
