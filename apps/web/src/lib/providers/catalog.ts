@@ -2,6 +2,8 @@ import { PROVIDERS, type ProviderId } from '@/lib/providers/types'
 
 type ProviderMetadata = {
   label: string
+  requiresCredential: boolean
+  runtimeConfig?: Omit<ProviderRuntimeConfig, 'options'>
   runtimeId: string
   gatewayPath: ProviderId
 }
@@ -18,36 +20,44 @@ type ProviderRuntimeConfig = {
 const PROVIDER_METADATA: Record<ProviderId, ProviderMetadata> = {
   openai: {
     label: 'OpenAI',
+    requiresCredential: true,
     runtimeId: 'openai',
     gatewayPath: 'openai',
   },
   anthropic: {
     label: 'Anthropic',
+    requiresCredential: true,
     runtimeId: 'anthropic',
     gatewayPath: 'anthropic',
   },
   fireworks: {
     label: 'Fireworks AI',
+    requiresCredential: true,
     runtimeId: 'fireworks-ai',
     gatewayPath: 'fireworks',
   },
   openrouter: {
     label: 'OpenRouter',
+    requiresCredential: true,
     runtimeId: 'openrouter',
     gatewayPath: 'openrouter',
   },
   opencode: {
     label: 'OpenCode Zen',
+    requiresCredential: false,
     runtimeId: 'opencode',
     gatewayPath: 'opencode',
   },
   'opencode-go': {
     label: 'OpenCode Go',
+    requiresCredential: true,
     runtimeId: 'opencode-go',
     gatewayPath: 'opencode-go',
   },
   ollama: {
     label: 'Ollama',
+    requiresCredential: true,
+    runtimeConfig: { name: 'Ollama', npm: '@ai-sdk/openai-compatible' },
     runtimeId: 'ollama',
     gatewayPath: 'ollama',
   },
@@ -106,6 +116,10 @@ export function getProviderGatewayPath(providerId: ProviderId): ProviderId {
   return PROVIDER_METADATA[providerId].gatewayPath
 }
 
+export function providerRequiresCredential(providerId: ProviderId): boolean {
+  return PROVIDER_METADATA[providerId].requiresCredential
+}
+
 export function buildProviderGatewayConfig(gatewayRoot: string): {
   provider: Record<string, ProviderRuntimeConfig>
 } {
@@ -114,9 +128,10 @@ export function buildProviderGatewayConfig(gatewayRoot: string): {
 
   for (const providerId of PROVIDERS) {
     const baseURL = `${normalizedGatewayRoot}/${getProviderGatewayPath(providerId)}`
+    const metadata = PROVIDER_METADATA[providerId]
     for (const runtimeProviderId of getRuntimeConfigProviderIds(providerId)) {
       provider[runtimeProviderId] = {
-        ...(providerId === 'ollama' ? { name: 'Ollama', npm: '@ai-sdk/openai-compatible' } : {}),
+        ...metadata.runtimeConfig,
         options: { baseURL },
       }
     }

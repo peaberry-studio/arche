@@ -208,6 +208,33 @@ function getOllamaRuntimeModels(secret: unknown): Record<string, { name: string 
   return Object.fromEntries(secret.models.map((model) => [model.id, { name: model.name }]))
 }
 
+async function applyOllamaRuntimeModels(
+  provider: Record<string, unknown>,
+  owner: NonNullable<WorkspaceOwner>,
+): Promise<void> {
+  if (!isRecord(provider.ollama)) {
+    return
+  }
+
+  try {
+    const credential = await getEffectiveCredentialForUser({
+      providerId: 'ollama',
+      userId: owner.id,
+    })
+    const models = credential ? getOllamaRuntimeModels(decryptProviderSecret(credential.credential.secret)) : null
+    if (!models) {
+      return
+    }
+
+    provider.ollama = {
+      ...provider.ollama,
+      models,
+    }
+  } catch {
+    removeRuntimeProvider(provider, 'ollama')
+  }
+}
+
 async function applyCredentialScopedProviderConfig(
   providerGatewayConfig: Record<string, unknown>,
   owner: WorkspaceOwner,
@@ -240,22 +267,8 @@ async function applyCredentialScopedProviderConfig(
     }
   }
 
-  if (enabledProviders.has('ollama') && isRecord(nextConfig.provider.ollama)) {
-    try {
-      const credential = await getEffectiveCredentialForUser({
-        providerId: 'ollama',
-        userId: owner.id,
-      })
-      const models = credential ? getOllamaRuntimeModels(decryptProviderSecret(credential.credential.secret)) : null
-      if (models) {
-        nextConfig.provider.ollama = {
-          ...nextConfig.provider.ollama,
-          models,
-        }
-      }
-    } catch {
-      removeRuntimeProvider(nextConfig.provider, 'ollama')
-    }
+  if (enabledProviders.has('ollama')) {
+    await applyOllamaRuntimeModels(nextConfig.provider, owner)
   }
 
   return nextConfig

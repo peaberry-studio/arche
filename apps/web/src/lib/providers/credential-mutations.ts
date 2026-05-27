@@ -11,7 +11,7 @@ import {
   replaceOrganizationProviderCredential,
   replaceProviderCredential,
 } from './store'
-import type { ApiSecret, ProviderId, ProviderSecret } from './types'
+import { isPlainApiSecret, type ProviderId, type ProviderSecret } from './types'
 
 export type UserProviderCredentialMutationResult = {
   credential: ProviderCredentialRecord
@@ -71,10 +71,6 @@ async function syncUserWorkspaceProviderAccessBestEffort(slug: string, userId: s
 async function invalidateOrganizationProviderSyncState(): Promise<number> {
   const result = await instanceService.invalidateProviderSyncStateForAllInstances()
   return result.count
-}
-
-function isPlainApiSecret(secret: ProviderSecret): secret is ApiSecret {
-  return 'apiKey' in secret && Object.keys(secret).length === 1 && typeof secret.apiKey === 'string'
 }
 
 export async function replaceUserProviderApiCredential(input: {

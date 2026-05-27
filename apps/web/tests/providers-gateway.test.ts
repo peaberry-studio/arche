@@ -191,6 +191,27 @@ describe('providers gateway', () => {
     expect(headers.get('accept-encoding')).toBe('identity')
   })
 
+  it('rejects upstream path traversal before proxying', async () => {
+    mockGetActiveCredentialForUser.mockResolvedValue({
+      id: 'cred-1',
+      type: 'api',
+      secret: 'encrypted',
+      version: 1,
+    })
+    mockDecryptProviderSecret.mockReturnValue({ apiKey: 'sk-real' })
+
+    const response = await callProxy({
+      provider: 'openai',
+      headers: { Authorization: 'Bearer internal-token' },
+      path: ['v1', '..', 'api', 'delete'],
+    })
+    const body = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(body.error).toBe('invalid_path')
+    expect(global.fetch).not.toHaveBeenCalled()
+  })
+
   it('proxies to local Ollama without forwarding an upstream auth header', async () => {
     mockVerifyGatewayToken.mockReturnValue({
       userId: 'user-1',

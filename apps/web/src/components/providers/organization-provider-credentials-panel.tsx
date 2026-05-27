@@ -2,6 +2,16 @@
 
 import { useCallback, useEffect, useState } from 'react'
 
+import {
+  OllamaCredentialDetails,
+  OllamaCredentialForm,
+  buildOllamaCredentialSaveBody,
+  canSaveOllamaCredential,
+  getOllamaCredentialForm,
+  resetOllamaCredentialForm,
+  updateOllamaCredentialForms,
+  type OllamaCredentialFormState,
+} from '@/components/providers/ollama-provider-form'
 import { getTeamErrorMessage } from '@/components/team/error-messages'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -24,18 +34,6 @@ type OrganizationProvider = {
 
 type OrganizationProviderCredentialsPanelProps = {
   slug: string
-}
-
-type OllamaFormState = {
-  baseUrl: string
-  mode: 'local' | 'remote'
-  token: string
-}
-
-const DEFAULT_OLLAMA_FORM: OllamaFormState = {
-  baseUrl: '',
-  mode: 'local',
-  token: '',
 }
 
 async function fetchOrganizationProviders(slug: string): Promise<{
@@ -62,7 +60,7 @@ async function fetchOrganizationProviders(slug: string): Promise<{
 export function OrganizationProviderCredentialsPanel({ slug }: OrganizationProviderCredentialsPanelProps) {
   const [providers, setProviders] = useState<OrganizationProvider[]>([])
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({})
-  const [ollamaForms, setOllamaForms] = useState<Record<string, OllamaFormState>>({})
+  const [ollamaForms, setOllamaForms] = useState<Record<string, OllamaCredentialFormState>>({})
   const [busy, setBusy] = useState<Record<string, boolean>>({})
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
@@ -119,20 +117,13 @@ export function OrganizationProviderCredentialsPanel({ slug }: OrganizationProvi
     }
   }, [slug])
 
-  function getOllamaForm(providerId: ProviderId): OllamaFormState {
-    return ollamaForms[providerId] ?? DEFAULT_OLLAMA_FORM
-  }
-
-  function updateOllamaForm(providerId: ProviderId, patch: Partial<OllamaFormState>) {
-    setOllamaForms((current) => ({
-      ...current,
-      [providerId]: { ...DEFAULT_OLLAMA_FORM, ...current[providerId], ...patch },
-    }))
+  function updateOllamaForm(providerId: ProviderId, patch: Partial<OllamaCredentialFormState>) {
+    setOllamaForms((current) => updateOllamaCredentialForms(current, providerId, patch))
   }
 
   function clearInputs(providerId: ProviderId) {
     setApiKeys((current) => ({ ...current, [providerId]: '' }))
-    setOllamaForms((current) => ({ ...current, [providerId]: DEFAULT_OLLAMA_FORM }))
+    setOllamaForms((current) => resetOllamaCredentialForm(current, providerId))
   }
 
   function canSaveProvider(providerId: ProviderId): boolean {
@@ -140,22 +131,7 @@ export function OrganizationProviderCredentialsPanel({ slug }: OrganizationProvi
       return Boolean(apiKeys[providerId]?.trim())
     }
 
-    const form = getOllamaForm(providerId)
-    return form.mode === 'local' || (Boolean(form.baseUrl.trim()) && Boolean(form.token.trim()))
-  }
-
-  function getOllamaSaveBody(providerId: ProviderId): Record<string, string> {
-    const form = getOllamaForm(providerId)
-    if (form.mode === 'local') {
-      const baseUrl = form.baseUrl.trim()
-      return baseUrl ? { baseUrl, mode: 'local' } : { mode: 'local' }
-    }
-
-    return {
-      baseUrl: form.baseUrl.trim(),
-      mode: 'remote',
-      token: form.token.trim(),
-    }
+    return canSaveOllamaCredential(getOllamaCredentialForm(ollamaForms, providerId))
   }
 
   async function saveProviderRequest(providerId: ProviderId, body: Record<string, string | boolean>) {
@@ -177,7 +153,9 @@ export function OrganizationProviderCredentialsPanel({ slug }: OrganizationProvi
     try {
       const response = await saveProviderRequest(
         providerId,
-        providerId === 'ollama' ? getOllamaSaveBody(providerId) : { apiKey },
+        providerId === 'ollama'
+          ? buildOllamaCredentialSaveBody(getOllamaCredentialForm(ollamaForms, providerId))
+          : { apiKey },
       )
       const data = (await response.json().catch(() => null)) as { error?: string } | null
 
@@ -242,86 +220,22 @@ export function OrganizationProviderCredentialsPanel({ slug }: OrganizationProvi
     }
   }
 
-  function renderOllamaDetails(provider: OrganizationProvider) {
-    if (provider.providerId !== 'ollama' || !provider.details) return null
-
-    const modeLabel = provider.details.mode === 'local' ? 'Local' : 'Remote'
-    const modelLabels = provider.details.models.map((model) => model.name || model.id)
-
-    return (
-      <div className="mt-1 space-y-1 text-xs text-muted-foreground">
-        <p>{modeLabel}: {provider.details.baseUrl}</p>
-        <p>
-          {modelLabels.length} model{modelLabels.length === 1 ? '' : 's'} discovered
-          {modelLabels.length > 0 ? `: ${modelLabels.slice(0, 4).join(', ')}` : ''}
-        </p>
-      </div>
-    )
-  }
-
   function renderCredentialForm(provider: OrganizationProvider) {
     const isBusy = Boolean(busy[provider.providerId])
     const canSave = canSaveProvider(provider.providerId)
     const isEnabled = provider.status === 'enabled'
 
     if (provider.providerId === 'ollama') {
-      const form = getOllamaForm(provider.providerId)
+      const form = getOllamaCredentialForm(ollamaForms, provider.providerId)
 
       return (
-        <div className="space-y-3">
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant={form.mode === 'local' ? 'default' : 'outline'}
-              disabled={isBusy}
-              onClick={() => updateOllamaForm(provider.providerId, { mode: 'local' })}
-            >
-              Local
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant={form.mode === 'remote' ? 'default' : 'outline'}
-              disabled={isBusy}
-              onClick={() => updateOllamaForm(provider.providerId, { mode: 'remote' })}
-            >
-              Remote
-            </Button>
-          </div>
-          {form.mode === 'local' ? (
-            <div className="space-y-2">
-              <Input
-                value={form.baseUrl}
-                onChange={(event) => updateOllamaForm(provider.providerId, { baseUrl: event.target.value })}
-                placeholder="Optional local URL, auto-detect if blank"
-              />
-              <p className="text-xs text-muted-foreground">Detects Ollama from the Arche server and saves only when models can be listed.</p>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Input
-                value={form.baseUrl}
-                onChange={(event) => updateOllamaForm(provider.providerId, { baseUrl: event.target.value })}
-                placeholder="https://ollama.example.com/v1"
-              />
-              <Input
-                type="password"
-                value={form.token}
-                onChange={(event) => updateOllamaForm(provider.providerId, { token: event.target.value })}
-                placeholder="Bearer token"
-              />
-            </div>
-          )}
-          <Button
-            type="button"
-            size="sm"
-            disabled={isBusy || !canSave}
-            onClick={() => handleSave(provider.providerId)}
-          >
-            {isBusy ? 'Saving...' : form.mode === 'local' ? 'Detect Ollama' : isEnabled ? 'Rotate key' : 'Set key'}
-          </Button>
-        </div>
+        <OllamaCredentialForm
+          actionLabel={isEnabled ? 'Rotate key' : 'Set key'}
+          form={form}
+          isBusy={isBusy}
+          onChange={(patch) => updateOllamaForm(provider.providerId, patch)}
+          onSave={() => handleSave(provider.providerId)}
+        />
       )
     }
 
@@ -374,7 +288,7 @@ export function OrganizationProviderCredentialsPanel({ slug }: OrganizationProvi
                   <p className="mt-1 text-xs text-muted-foreground">
                     {provider.lastUsedAt ? `Last used ${new Date(provider.lastUsedAt).toLocaleString()}` : 'No recorded usage'}
                   </p>
-                  {renderOllamaDetails(provider)}
+                  {provider.providerId === 'ollama' ? <OllamaCredentialDetails details={provider.details} /> : null}
                 </div>
                 <div className="flex items-center gap-2">
                   {provider.providerId === 'ollama' && isEnabled ? (

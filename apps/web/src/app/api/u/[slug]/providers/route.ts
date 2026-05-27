@@ -25,13 +25,16 @@ type ProviderCredentialWithSecret = {
   secret?: string
 }
 
-function getProviderDetails(credential: ProviderCredentialWithSecret | undefined): OllamaPublicDetails | undefined {
+function getProviderDetails(
+  credential: ProviderCredentialWithSecret | undefined,
+  options: { includeBaseUrl?: boolean } = {},
+): OllamaPublicDetails | undefined {
   if (credential?.providerId !== 'ollama' || !credential.secret) {
     return undefined
   }
 
   try {
-    return getOllamaPublicDetails(decryptProviderSecret(credential.secret)) ?? undefined
+    return getOllamaPublicDetails(decryptProviderSecret(credential.secret), options) ?? undefined
   } catch {
     return undefined
   }
@@ -39,7 +42,7 @@ function getProviderDetails(credential: ProviderCredentialWithSecret | undefined
 
 export const GET = withAuth<ProviderListResponse | { error: string }>(
   { csrf: false },
-  async (_request, { slug }) => {
+    async (_request, { slug, user: sessionUser }) => {
     const user = await userService.findIdBySlug(slug)
 
     if (!user) {
@@ -92,7 +95,7 @@ export const GET = withAuth<ProviderListResponse | { error: string }>(
           overrideStatus,
           type: organizationCredential.type ?? undefined,
           version: organizationCredential.version ?? undefined,
-          details: getProviderDetails(organizationCredential),
+          details: getProviderDetails(organizationCredential, { includeBaseUrl: sessionUser.role === 'ADMIN' }),
         }
       }
 

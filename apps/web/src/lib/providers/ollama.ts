@@ -32,7 +32,7 @@ type CreateOllamaProviderSecretInput =
   | { apiKey: string; baseUrl: string; mode: 'remote' }
 
 export type OllamaPublicDetails = {
-  baseUrl: string
+  baseUrl?: string
   discoveredAt: string
   mode: OllamaMode
   models: OllamaDiscoveredModel[]
@@ -47,11 +47,17 @@ function normalizeBaseUrl(rawUrl: string): string | null {
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
       return null
     }
+    url.hash = ''
+    url.search = ''
     return url.toString().replace(/\/+$/, '')
   } catch {
     return null
   }
 }
+
+const ALLOWED_OLLAMA_LOCAL_BASE_URLS = new Set(
+  OLLAMA_LOCAL_BASE_URL_CANDIDATES.map((candidate) => normalizeBaseUrl(candidate)).filter((url) => url !== null),
+)
 
 function buildModelsUrl(baseUrl: string): string {
   return `${baseUrl.replace(/\/+$/, '')}/models`
@@ -67,9 +73,9 @@ function createAbortSignal(timeoutMs: number): { signal: AbortSignal; cleanup: (
   }
 }
 
-function parseModelsPayload(payload: unknown): OllamaDiscoveredModel[] {
+function parseModelsPayload(payload: unknown): OllamaDiscoveredModel[] | null {
   if (!isRecord(payload) || !Array.isArray(payload.data)) {
-    return []
+    return null
   }
 
   const models: OllamaDiscoveredModel[] = []
@@ -113,7 +119,12 @@ async function fetchOllamaModels(
     }
 
     const payload: unknown = await response.json()
-    return { ok: true, baseUrl, models: parseModelsPayload(payload) }
+    const models = parseModelsPayload(payload)
+    if (!models) {
+      return { ok: false, error: 'unavailable' }
+    }
+
+    return { ok: true, baseUrl, models }
   } catch {
     return { ok: false, error: 'unavailable' }
   } finally {
@@ -138,16 +149,29 @@ export async function validateOllamaURL(
   return { ok: true, baseUrl: result.url.toString().replace(/\/+$/, '') }
 }
 
-export async function discoverOllamaLocal(
-  rawBaseUrl: string,
-  options: OllamaDiscoveryOptions = {},
-): Promise<OllamaDiscoveryResult> {
-  const baseUrl = normalizeBaseUrl(rawBaseUrl)
+function validateOllamaLocalURL(rawUrl: string): { ok: true; baseUrl: string } | { ok: false; error: 'invalid_url' | 'blocked_url' } {
+  const baseUrl = normalizeBaseUrl(rawUrl)
   if (!baseUrl) {
     return { ok: false, error: 'invalid_url' }
   }
 
-  return fetchOllamaModels(baseUrl, null, options)
+  if (!ALLOWED_OLLAMA_LOCAL_BASE_URLS.has(baseUrl)) {
+    return { ok: false, error: 'blocked_url' }
+  }
+
+  return { ok: true, baseUrl }
+}
+
+export async function discoverOllamaLocal(
+  rawBaseUrl: string,
+  options: OllamaDiscoveryOptions = {},
+): Promise<OllamaDiscoveryResult> {
+  const validation = validateOllamaLocalURL(rawBaseUrl)
+  if (!validation.ok) {
+    return validation
+  }
+
+  return fetchOllamaModels(validation.baseUrl, null, options)
 }
 
 export async function discoverOllamaLocalCandidates(
@@ -198,13 +222,25 @@ export async function createOllamaProviderSecret(
     return discovery
   }
 
+  if (input.mode === 'remote') {
+    return {
+      ok: true,
+      secret: {
+        apiKey: input.apiKey.trim(),
+        baseUrl: discovery.baseUrl,
+        discoveredAt: new Date().toISOString(),
+        mode: 'remote',
+        models: discovery.models,
+      },
+    }
+  }
+
   return {
     ok: true,
     secret: {
-      ...(input.mode === 'remote' ? { apiKey: input.apiKey.trim() } : {}),
       baseUrl: discovery.baseUrl,
       discoveredAt: new Date().toISOString(),
-      mode: input.mode,
+      mode: 'local',
       models: discovery.models,
     },
   }
@@ -216,19 +252,31 @@ export async function refreshOllamaProviderSecret(
 ): Promise<OllamaSecretResult> {
   const discovery = secret.mode === 'local'
     ? await discoverOllamaLocal(secret.baseUrl, options)
-    : await discoverOllamaRemote(secret.baseUrl, secret.apiKey ?? '', options)
+    : await discoverOllamaRemote(secret.baseUrl, secret.apiKey, options)
 
   if (!discovery.ok) {
     return discovery
   }
 
+  if (secret.mode === 'remote') {
+    return {
+      ok: true,
+      secret: {
+        apiKey: secret.apiKey,
+        baseUrl: discovery.baseUrl,
+        discoveredAt: new Date().toISOString(),
+        mode: 'remote',
+        models: discovery.models,
+      },
+    }
+  }
+
   return {
     ok: true,
     secret: {
-      ...(secret.mode === 'remote' ? { apiKey: secret.apiKey } : {}),
       baseUrl: discovery.baseUrl,
       discoveredAt: new Date().toISOString(),
-      mode: secret.mode,
+      mode: 'local',
       models: discovery.models,
     },
   }
@@ -243,8 +291,7 @@ export function isOllamaSecret(secret: unknown): secret is OllamaSecret {
   const models = secret.models
   const apiKey = secret.apiKey
 
-  return (
-    (mode === 'local' || mode === 'remote') &&
+  const hasValidCommonFields = (
     typeof baseUrl === 'string' &&
     baseUrl.trim().length > 0 &&
     typeof discoveredAt === 'string' &&
@@ -254,24 +301,36 @@ export function isOllamaSecret(secret: unknown): secret is OllamaSecret {
       typeof model.id === 'string' &&
       model.id.trim().length > 0 &&
       typeof model.name === 'string'
-    )) &&
-    (apiKey === undefined || typeof apiKey === 'string')
+    ))
   )
+
+  if (!hasValidCommonFields) {
+    return false
+  }
+
+  if (mode === 'local') {
+    return apiKey === undefined
+  }
+
+  return mode === 'remote' && typeof apiKey === 'string' && apiKey.trim().length > 0
 }
 
 export function getOllamaBaseUrlFromSecret(secret: unknown): string | null {
   return isOllamaSecret(secret) ? secret.baseUrl : null
 }
 
-export function getOllamaPublicDetails(secret: unknown): OllamaPublicDetails | null {
+export function getOllamaPublicDetails(
+  secret: unknown,
+  options: { includeBaseUrl?: boolean } = {},
+): OllamaPublicDetails | null {
   if (!isOllamaSecret(secret)) {
     return null
   }
 
   return {
-    baseUrl: secret.baseUrl,
     discoveredAt: secret.discoveredAt,
     mode: secret.mode,
     models: secret.models,
+    ...(options.includeBaseUrl === false ? {} : { baseUrl: secret.baseUrl }),
   }
 }

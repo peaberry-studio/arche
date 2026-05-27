@@ -4,6 +4,7 @@ import {
   buildProviderGatewayConfig,
   getCanonicalProviderId,
   getProviderLabel,
+  providerRequiresCredential,
   resolveRuntimeProviderId,
   toRuntimeProviderId,
 } from '@/lib/providers/catalog'
@@ -39,8 +40,17 @@ describe('providers catalog', () => {
     expect(config.provider.ollama?.options.baseURL).toBe(
       'http://web:3000/api/internal/providers/ollama',
     )
+    expect(config.provider.ollama?.name).toBe('Ollama')
+    expect(config.provider.ollama?.npm).toBe('@ai-sdk/openai-compatible')
     expect(getProviderLabel('fireworks-ai')).toBe('Fireworks AI')
     expect(getProviderLabel('opencode-go')).toBe('OpenCode Go')
     expect(getProviderLabel('ollama')).toBe('Ollama')
+  })
+
+  it('declares which providers require managed credentials', () => {
+    expect(providerRequiresCredential('openai')).toBe(true)
+    expect(providerRequiresCredential('opencode')).toBe(false)
+    expect(providerRequiresCredential('opencode-go')).toBe(true)
+    expect(providerRequiresCredential('ollama')).toBe(true)
   })
 })
