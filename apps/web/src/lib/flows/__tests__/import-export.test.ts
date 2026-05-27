@@ -165,4 +165,44 @@ describe('flow import/export helpers', () => {
       timezone: 'UTC',
     })).resolves.toEqual({ ok: false, error: 'invalid_cron_expression' })
   })
+
+  it('rejects malformed template fields before creating drafts', async () => {
+    const base = {
+      cronExpression: null,
+      definition: createDefaultFlowDefinition(),
+      enabled: false,
+      format: FLOW_TEMPLATE_FORMAT,
+      name: 'Flow',
+      timezone: 'UTC',
+    }
+
+    const cases = [
+      { error: 'invalid_name', input: { ...base, name: '   ' } },
+      { error: 'invalid_cron_expression', input: { ...base, cronExpression: 42 } },
+      { error: 'invalid_timezone', input: { ...base, timezone: 42 } },
+      { error: 'invalid_timezone', input: { ...base, timezone: 'Mars/Base' } },
+      { error: 'invalid_enabled', input: { ...base, enabled: 'yes' } },
+    ]
+
+    for (const testCase of cases) {
+      await expect(validateFlowTemplateImport(testCase.input))
+        .resolves.toEqual({ ok: false, error: testCase.error })
+    }
+  })
+
+  it('returns payload validation errors after parsing the template source', async () => {
+    const definition = createDefaultFlowDefinition()
+    definition.nodes = definition.nodes.map((node) => (
+      node.type === 'agent' ? { ...node, promptTemplate: '{{steps.missing.output}}' } : node
+    ))
+
+    await expect(validateFlowTemplateImport({
+      cronExpression: null,
+      definition,
+      enabled: false,
+      format: FLOW_TEMPLATE_FORMAT,
+      name: 'Flow',
+      timezone: 'UTC',
+    })).resolves.toEqual({ ok: false, error: 'unknown_template_variable:steps.missing.output' })
+  })
 })

@@ -37,6 +37,7 @@ describe('current-vault', () => {
         'providers',
         'connectors',
         'agents',
+        'flows',
         'skills',
         'appearance',
         'advanced',

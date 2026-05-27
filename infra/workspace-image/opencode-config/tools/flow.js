@@ -3,9 +3,18 @@ import { z } from 'zod'
 import { toToolOutput } from '../shared/attachment-tools.js'
 
 const FLOW_TEMPLATE_FORMAT = 'arche-flow-template/v1'
+const FLOW_AUTHORING_SKILL_NAME = 'arche-flow-authoring'
 const MAX_NAME_CHARS = 160
 const MAX_DESCRIPTION_CHARS = 1000
 const MAX_PROMPT_CHARS = 20000
+const FLOW_NODE_TYPES = ['agent', 'human', 'condition', 'slack', 'merge', 'compaction']
+const FLOW_TEMPLATE_VARIABLES = [
+  '{{previous.output}}',
+  '{{flow.name}}',
+  '{{run.id}}',
+  '{{steps.<nodeId>.output}}',
+  '{{human.<nodeId>.response}}',
+]
 const CONDITION_OPERATORS = new Set([
   'contains',
   'ends_with',
@@ -50,12 +59,45 @@ const proposeArgsSchema = z.object({
   timezone: z.string().max(100).optional(),
 }).strict()
 
+function getInvalidFlowProposalHint(error) {
+  if (error === 'invalid_definition_version') {
+    return 'Pass only FlowDefinition as definition: { version: 1, startNodeId, nodes, edges, layout? }. Do not pass the full template or format field as definition.'
+  }
+
+  if (error === 'invalid_flow_nodes') {
+    return 'Each node needs id, name, and one supported type: agent, human, condition, slack, merge, or compaction. See help.nodeTypes for required fields.'
+  }
+
+  if (error === 'invalid_flow_edges') {
+    return 'Each edge needs id, sourceNodeId, and targetNodeId. Source and target must reference existing node ids.'
+  }
+
+  if (error.startsWith('unknown_template_variable:')) {
+    return 'Use only supported template variables such as {{previous.output}}, {{flow.name}}, {{steps.<nodeId>.output}}, and {{human.<nodeId>.response}}.'
+  }
+
+  return 'Use the arche-flow-authoring skill for the FlowDefinition schema, supported node types, agent targeting rules, and template variables.'
+}
+
 function invalidFlowProposal(error) {
+  const hint = getInvalidFlowProposalHint(error)
   return toToolOutput({
     ok: false,
     error,
     format: FLOW_TEMPLATE_FORMAT,
-    validation: { ok: false, error },
+    help: {
+      definition: {
+        required: ['version', 'startNodeId', 'nodes', 'edges'],
+        version: 1,
+      },
+      nodeTypes: FLOW_NODE_TYPES,
+      portableAgentTarget: 'Set agent targetAgentId to null unless the user explicitly plans to remap agents later.',
+      skill: FLOW_AUTHORING_SKILL_NAME,
+      templateVariables: FLOW_TEMPLATE_VARIABLES,
+    },
+    helpSkill: FLOW_AUTHORING_SKILL_NAME,
+    hint,
+    validation: { ok: false, error, hint },
   })
 }
 
@@ -409,11 +451,11 @@ function normalizeCronExpression(value) {
 }
 
 export const propose = {
-  description: 'Propose a portable Arche flow template. This validates and normalizes the flow definition, but only returns a draft template for the user to review and create in the Flows editor. Set targetAgentId to null for agent steps unless the user explicitly plans to remap agents later.',
+  description: 'Propose a portable Arche flow template. Use the arche-flow-authoring skill for the FlowDefinition schema before calling this tool. This validates and normalizes the flow definition, but only returns a draft template for the user to review and create in the Flows editor. Set targetAgentId to null for agent steps unless the user explicitly plans to remap agents later.',
   args: {
     name: z.string().min(1).max(MAX_NAME_CHARS).describe('Flow name.'),
     description: z.string().max(MAX_DESCRIPTION_CHARS).nullable().optional().describe('Optional flow description.'),
-    definition: z.unknown().describe('FlowDefinition JSON with version, startNodeId, nodes, edges, and optional layout.'),
+    definition: z.unknown().describe('FlowDefinition JSON only, not the full template: { version: 1, startNodeId, nodes, edges, layout? }. Supported node types: agent, human, condition, slack, merge, compaction. Use targetAgentId: null for portable agent nodes.'),
     enabled: z.boolean().optional().describe('Whether the imported draft should have scheduling enabled.'),
     cronExpression: z.string().max(100).nullable().optional().describe('Optional 5-field cron expression to preserve in the draft.'),
     timezone: z.string().max(100).optional().describe('IANA timezone for the schedule. Defaults to UTC.'),

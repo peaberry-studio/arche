@@ -369,6 +369,43 @@ describe('Flow API routes', () => {
     ])
   })
 
+  it('returns import warnings when agent availability cannot be checked', async () => {
+    const definition = createDefaultFlowDefinition()
+    definition.nodes = definition.nodes.map((node) => (
+      node.type === 'agent' ? { ...node, targetAgentId: 'agent-1' } : node
+    ))
+    mocks.listFlowAgentOptions.mockResolvedValueOnce({ ok: false, error: 'kb_unavailable' })
+
+    const response = await POST_IMPORT_VALIDATE(request('/api/u/alice/flows/import/validate', 'POST', {
+      cronExpression: null,
+      definition,
+      enabled: false,
+      format: 'arche-flow-template/v1',
+      name: 'Agent check',
+      timezone: 'UTC',
+    }), params({ slug: 'alice' }))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.warnings).toContainEqual(expect.objectContaining({ code: 'agent_options_unavailable' }))
+  })
+
+  it('maps invalid import bodies to bad requests', async () => {
+    const invalidJson = await POST_IMPORT_VALIDATE(new NextRequest('http://localhost/api/u/alice/flows/import/validate', {
+      body: '{not json',
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    }), params({ slug: 'alice' }))
+    const invalidTemplate = await POST_IMPORT_VALIDATE(request('/api/u/alice/flows/import/validate', 'POST', {
+      format: 'other',
+    }), params({ slug: 'alice' }))
+
+    expect(invalidJson.status).toBe(400)
+    await expect(invalidJson.json()).resolves.toEqual({ error: 'invalid_json' })
+    expect(invalidTemplate.status).toBe(400)
+    await expect(invalidTemplate.json()).resolves.toEqual({ error: 'invalid_flow_template_format' })
+  })
+
   it('returns Slack import warnings from the shared Slack target analysis', async () => {
     const definition = createDefaultFlowDefinition()
     definition.nodes = [{
@@ -399,6 +436,104 @@ describe('Flow API routes', () => {
       nodeId: 'slack-1',
       value: 'C-private',
     }))
+  })
+
+  it('returns Slack import warning variants for unavailable targets', async () => {
+    const definition = createDefaultFlowDefinition()
+    definition.nodes = [
+      {
+        id: 'slack-dm',
+        messageMode: 'fixed',
+        messageTemplate: 'DM update',
+        name: 'Notify DM',
+        target: { type: 'dm', userId: 'user-2' },
+        type: 'slack',
+      },
+      {
+        id: 'slack-channel',
+        messageMode: 'fixed',
+        messageTemplate: 'Channel update',
+        name: 'Notify channel',
+        target: { channelId: 'C-missing', type: 'channel' },
+        type: 'slack',
+      },
+    ]
+    definition.layout = { nodes: [] }
+    definition.startNodeId = 'slack-dm'
+
+    const response = await POST_IMPORT_VALIDATE(request('/api/u/alice/flows/import/validate', 'POST', {
+      cronExpression: null,
+      definition,
+      enabled: false,
+      format: 'arche-flow-template/v1',
+      name: 'Slack targets',
+      timezone: 'UTC',
+    }), params({ slug: 'alice' }))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.warnings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'slack_dm_target_forbidden', nodeId: 'slack-dm', value: 'user-2' }),
+      expect.objectContaining({ code: 'unknown_slack_channel_target', nodeId: 'slack-channel', value: 'C-missing' }),
+    ]))
+  })
+
+  it('returns Slack import warnings when integration or admin DM targets are unavailable', async () => {
+    const disabledDefinition = createDefaultFlowDefinition()
+    disabledDefinition.nodes = [{
+      id: 'slack-1',
+      messageMode: 'fixed',
+      messageTemplate: 'Heads up',
+      name: 'Notify Slack',
+      target: { channelId: 'C1', type: 'channel' },
+      type: 'slack',
+    }]
+    disabledDefinition.layout = { nodes: [] }
+    disabledDefinition.startNodeId = 'slack-1'
+    mocks.findIntegration.mockResolvedValueOnce({ enabled: false, slackTeamId: null })
+
+    const disabledResponse = await POST_IMPORT_VALIDATE(request('/api/u/alice/flows/import/validate', 'POST', {
+      cronExpression: null,
+      definition: disabledDefinition,
+      enabled: false,
+      format: 'arche-flow-template/v1',
+      name: 'Slack disabled',
+      timezone: 'UTC',
+    }), params({ slug: 'alice' }))
+    const disabledBody = await disabledResponse.json()
+
+    mocks.getSession.mockResolvedValue({
+      sessionId: 'session-admin',
+      user: { email: 'admin@example.com', id: 'admin-1', role: 'ADMIN', slug: 'admin' },
+    })
+    mocks.findTeamMemberById.mockResolvedValueOnce(null)
+
+    const dmDefinition = createDefaultFlowDefinition()
+    dmDefinition.nodes = [{
+      id: 'slack-dm',
+      messageMode: 'fixed',
+      messageTemplate: 'DM update',
+      name: 'Notify DM',
+      target: { type: 'dm', userId: 'missing-user' },
+      type: 'slack',
+    }]
+    dmDefinition.layout = { nodes: [] }
+    dmDefinition.startNodeId = 'slack-dm'
+
+    const dmResponse = await POST_IMPORT_VALIDATE(request('/api/u/alice/flows/import/validate', 'POST', {
+      cronExpression: null,
+      definition: dmDefinition,
+      enabled: false,
+      format: 'arche-flow-template/v1',
+      name: 'Slack DM',
+      timezone: 'UTC',
+    }), params({ slug: 'alice' }))
+    const dmBody = await dmResponse.json()
+
+    expect(disabledResponse.status).toBe(200)
+    expect(disabledBody.warnings).toContainEqual(expect.objectContaining({ code: 'slack_integration_disabled' }))
+    expect(dmResponse.status).toBe(200)
+    expect(dmBody.warnings).toContainEqual(expect.objectContaining({ code: 'unknown_slack_dm_target', nodeId: 'slack-dm', value: 'missing-user' }))
   })
 
   it('rejects invalid updates before writing', async () => {

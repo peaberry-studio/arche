@@ -8,6 +8,104 @@ describe('validateFlowDefinition', () => {
     expect(validateFlowDefinition(createDefaultFlowDefinition()).ok).toBe(true)
   })
 
+  it('rejects malformed nodes, edges, and layout metadata', () => {
+    const base = createDefaultFlowDefinition()
+
+    const cases = [
+      {
+        error: 'invalid_flow_nodes',
+        input: {
+          ...base,
+          nodes: [{ id: 'custom-1', name: 'Custom', type: 'custom' }],
+          startNodeId: 'custom-1',
+        },
+      },
+      {
+        error: 'invalid_flow_nodes',
+        input: {
+          ...base,
+          nodes: [
+            {
+              id: 'condition-1',
+              mode: 'rules',
+              name: 'Condition',
+              rules: [{ id: 'rule-1', operator: 'unknown', targetNodeId: 'agent-1', variable: 'previous.output' }],
+              type: 'condition',
+            },
+            base.nodes[0],
+          ],
+          startNodeId: 'condition-1',
+        },
+      },
+      {
+        error: 'invalid_flow_nodes',
+        input: {
+          ...base,
+          nodes: [{ id: 'slack-1', messageMode: 'fixed', messageTemplate: 'Hi', name: 'Notify', target: { type: 'group' }, type: 'slack' }],
+          startNodeId: 'slack-1',
+        },
+      },
+      {
+        error: 'invalid_flow_edges',
+        input: { ...base, edges: [{ id: 'edge-1', sourceNodeId: 'agent-1' }] },
+      },
+      {
+        error: 'invalid_flow_layout',
+        input: { ...base, layout: { nodes: [{ nodeId: 'agent-1', x: 'bad', y: 0 }] } },
+      },
+    ]
+
+    for (const testCase of cases) {
+      expect(validateFlowDefinition(testCase.input)).toEqual({ ok: false, error: testCase.error })
+    }
+  })
+
+  it('rejects duplicate and unknown graph references', () => {
+    const base = createDefaultFlowDefinition()
+    const secondAgent = {
+      compactOutput: false,
+      id: 'agent-2',
+      name: 'Second agent step',
+      promptTemplate: 'Continue',
+      targetAgentId: null,
+      type: 'agent',
+    }
+
+    const cases = [
+      {
+        error: 'duplicate_flow_node_id',
+        input: { ...base, nodes: [base.nodes[0], { ...secondAgent, id: 'agent-1' }] },
+      },
+      {
+        error: 'unknown_start_node',
+        input: { ...base, startNodeId: 'missing' },
+      },
+      {
+        error: 'duplicate_flow_edge_id',
+        input: {
+          ...base,
+          edges: [
+            { id: 'edge-1', sourceNodeId: 'agent-1', targetNodeId: 'agent-2' },
+            { id: 'edge-1', sourceNodeId: 'agent-2', targetNodeId: 'agent-1' },
+          ],
+          nodes: [base.nodes[0], secondAgent],
+        },
+      },
+      {
+        error: 'unknown_flow_edge_node',
+        input: { ...base, edges: [{ id: 'edge-1', sourceNodeId: 'agent-1', targetNodeId: 'missing' }] },
+      },
+      {
+        error: 'cyclic_flow',
+        input: { ...base, edges: [{ id: 'edge-1', sourceNodeId: 'agent-1', targetNodeId: 'agent-1' }] },
+      },
+    ]
+
+    for (const testCase of cases) {
+      expect(validateFlowDefinition(testCase.input)).toEqual({ ok: false, error: testCase.error })
+    }
+  })
+
   it('rejects cycles created by condition rule targets through graph edges', () => {
     const definition: FlowDefinition = {
       edges: [

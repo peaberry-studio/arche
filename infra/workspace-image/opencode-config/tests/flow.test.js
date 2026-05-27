@@ -91,7 +91,30 @@ test('flow_propose rejects invalid definitions', async () => {
   assert.equal(output.ok, false)
   assert.equal(output.format, 'arche-flow-template/v1')
   assert.equal(output.error, 'unknown_start_node')
-  assert.deepEqual(output.validation, { ok: false, error: 'unknown_start_node' })
+  assert.equal(output.helpSkill, 'arche-flow-authoring')
+  assert.equal(output.help.definition.version, 1)
+  assert.deepEqual(output.help.nodeTypes, ['agent', 'human', 'condition', 'slack', 'merge', 'compaction'])
+  assert.deepEqual(output.validation, {
+    ok: false,
+    error: 'unknown_start_node',
+    hint: 'Use the arche-flow-authoring skill for the FlowDefinition schema, supported node types, agent targeting rules, and template variables.',
+  })
+})
+
+test('flow_propose returns actionable help for invalid definition version', async () => {
+  const output = parseToolOutput(await propose.execute({
+    name: 'Broken flow',
+    definition: {
+      format: 'arche-flow-template/v1',
+      name: 'Wrong nesting',
+    },
+  }))
+
+  assert.equal(output.ok, false)
+  assert.equal(output.error, 'invalid_definition_version')
+  assert.equal(output.helpSkill, 'arche-flow-authoring')
+  assert.match(output.hint, /Pass only FlowDefinition as definition/)
+  assert.ok(output.help.templateVariables.includes('{{previous.output}}'))
 })
 
 test('flow_propose matches the shared flow template contract fixtures', async () => {
