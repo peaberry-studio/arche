@@ -592,6 +592,7 @@ describe('desktopWorkspaceHost', () => {
     expect(runtimeConfig.permission?.bash?.['npm install*']).toBe('deny')
     expect(runtimeConfig.mcp?.arche_linear_user999).toBeDefined()
     expect(runtimeConfig.agent?.assistant?.tools?.email_draft).toBe(true)
+    expect(runtimeConfig.agent?.assistant?.tools?.flow_propose).toBe(true)
     expect(runtimeConfig.agent?.linear?.tools?.['arche_linear_user999_*']).toBe(true)
     expect(runtimeConfig.agent?.linear?.tools?.['arche_linear_admin111_*']).toBeUndefined()
     expect(runtimeConfig.agent?.linear?.prompt).toContain('## Delegation constraint')

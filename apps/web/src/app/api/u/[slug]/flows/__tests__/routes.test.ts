@@ -13,11 +13,15 @@ const mocks = vi.hoisted(() => ({
   deleteFlowByIdAndOwnerId: vi.fn(),
   findFlowByIdForScope: vi.fn(),
   findIdBySlug: vi.fn(),
+  findIntegration: vi.fn(),
   findRunByIdForScope: vi.fn(),
+  findTeamMemberById: vi.fn(),
   getFlowConnectorRequirements: vi.fn(),
   getRuntimeCapabilities: vi.fn(),
   getSession: vi.fn(),
   isDesktop: vi.fn(),
+  listEnabledNotificationChannels: vi.fn(),
+  listFlowAgentOptions: vi.fn(),
   listFlowsForScope: vi.fn(),
   listRunsByFlowIdForScope: vi.fn(),
   resumeFlowRun: vi.fn(),
@@ -42,6 +46,7 @@ vi.mock('@/lib/flows/connector-requirements', () => ({
   checkMissingConnectorRequirements: mocks.checkMissingConnectorRequirements,
   getFlowConnectorRequirements: mocks.getFlowConnectorRequirements,
 }))
+vi.mock('@/lib/flows/agents', () => ({ listFlowAgentOptions: mocks.listFlowAgentOptions }))
 vi.mock('@/lib/flows/payload', () => ({ validateFlowPayload: mocks.validateFlowPayload }))
 vi.mock('@/lib/flows/route-auth', () => ({ validateFlowSlackNodeAccess: mocks.validateFlowSlackNodeAccess }))
 vi.mock('@/lib/flows/runner', () => ({
@@ -60,14 +65,23 @@ vi.mock('@/lib/services', () => ({
     listRunsByFlowIdForScope: mocks.listRunsByFlowIdForScope,
     updateFlowByIdAndOwnerId: mocks.updateFlowByIdAndOwnerId,
   },
-  userService: { findIdBySlug: mocks.findIdBySlug },
+  slackService: {
+    findIntegration: mocks.findIntegration,
+    listEnabledNotificationChannels: mocks.listEnabledNotificationChannels,
+  },
+  userService: {
+    findIdBySlug: mocks.findIdBySlug,
+    findTeamMemberById: mocks.findTeamMemberById,
+  },
 }))
 
 import { GET as GET_FLOWS, POST as POST_FLOW } from '../route'
 import { DELETE as DELETE_FLOW, GET as GET_FLOW, PATCH as PATCH_FLOW } from '../[id]/route'
 import { POST as POST_COPY_FLOW } from '../[id]/copy/route'
+import { GET as GET_FLOW_EXPORT } from '../[id]/export/route'
 import { POST as POST_RUN_FLOW } from '../[id]/run/route'
 import { GET as GET_FLOW_RUNS } from '../[id]/runs/route'
+import { POST as POST_IMPORT_VALIDATE } from '../import/validate/route'
 import { POST as POST_CANCEL_RUN } from '../runs/[runId]/cancel/route'
 import { POST as POST_HUMAN_RESPONSE } from '../runs/[runId]/human-response/route'
 import { GET as GET_RUN } from '../runs/[runId]/route'
@@ -189,8 +203,13 @@ describe('Flow API routes', () => {
     mocks.getFlowConnectorRequirements.mockResolvedValue({ ok: true, requirements: [] })
     mocks.checkMissingConnectorRequirements.mockResolvedValue([])
     mocks.findIdBySlug.mockResolvedValue({ id: 'user-1' })
+    mocks.findIntegration.mockResolvedValue({ enabled: true, slackTeamId: 'T123' })
     mocks.findFlowByIdForScope.mockResolvedValue(createFlowRecord())
+    mocks.findTeamMemberById.mockResolvedValue({ id: 'user-1' })
     mocks.findRunByIdForScope.mockResolvedValue(createRunRecord())
+    mocks.listEnabledNotificationChannels.mockResolvedValue([])
+    mocks.listFlowAgentOptions.mockResolvedValue({ ok: true, agents: [] })
+    mocks.listFlowsForScope.mockResolvedValue([])
     mocks.cancelRunById.mockResolvedValue(true)
     mocks.cancelRunByIdForScope.mockResolvedValue(true)
     mocks.auditEvent.mockResolvedValue(undefined)
@@ -292,6 +311,62 @@ describe('Flow API routes', () => {
       .toBe(200)
     expect((await DELETE_FLOW(request('/api/u/alice/flows/flow-1', 'DELETE'), params({ id: 'flow-1', slug: 'alice' }))).status)
       .toBe(200)
+  })
+
+  it('exports visible flows as portable JSON templates and audits the export', async () => {
+    const flow = createFlowRecord({
+      cronExpression: '0 9 * * 1',
+      enabled: true,
+      name: 'Weekly Review',
+      timezone: 'Europe/Madrid',
+    })
+    mocks.findFlowByIdForScope.mockResolvedValue(flow)
+
+    const response = await GET_FLOW_EXPORT(request('/api/u/alice/flows/flow-1/export'), params({ id: 'flow-1', slug: 'alice' }))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-disposition')).toContain('weekly-review-template.json')
+    expect(body).toMatchObject({
+      cronExpression: '0 9 * * 1',
+      enabled: true,
+      format: 'arche-flow-template/v1',
+      name: 'Weekly Review',
+      timezone: 'Europe/Madrid',
+    })
+    expect(body).not.toHaveProperty('id')
+    expect(mocks.auditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'flows.flow_exported' }))
+  })
+
+  it('validates imported flow templates and returns draft warnings', async () => {
+    const definition = createDefaultFlowDefinition()
+    definition.nodes = definition.nodes.map((node) => (
+      node.type === 'agent' ? { ...node, targetAgentId: 'missing-agent' } : node
+    ))
+    mocks.listFlowsForScope.mockResolvedValue([createFlowRecord({ name: 'Flow' })])
+
+    const response = await POST_IMPORT_VALIDATE(request('/api/u/alice/flows/import/validate', 'POST', {
+      cronExpression: null,
+      definition,
+      enabled: true,
+      format: 'arche-flow-template/v1',
+      name: 'Flow',
+      timezone: 'UTC',
+    }), params({ slug: 'alice' }))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.payload).toMatchObject({
+      enabled: true,
+      name: 'Flow',
+      organizationCanRun: false,
+      visibility: 'private',
+    })
+    expect(body.warnings.map((warning: { code: string }) => warning.code)).toEqual([
+      'schedule_required',
+      'flow_name_exists',
+      'unknown_target_agent',
+    ])
   })
 
   it('rejects invalid updates before writing', async () => {

@@ -1,0 +1,89 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+
+import { propose } from '../tools/flow.js'
+
+function parseToolOutput(output) {
+  return JSON.parse(output)
+}
+
+function createDefinition(overrides = {}) {
+  return {
+    version: 1,
+    startNodeId: 'agent-1',
+    nodes: [
+      {
+        id: 'agent-1',
+        type: 'agent',
+        name: 'Draft summary',
+        targetAgentId: 'workspace-specific-agent',
+        promptTemplate: 'Summarize the latest weekly metrics.',
+        compactOutput: false,
+      },
+    ],
+    edges: [],
+    layout: { nodes: [{ nodeId: 'agent-1', x: 120, y: 120 }] },
+    ...overrides,
+  }
+}
+
+test('flow_propose returns a portable validated flow template', async () => {
+  const output = parseToolOutput(await propose.execute({
+    name: ' Weekly review ',
+    description: ' Draft and review weekly metrics ',
+    definition: createDefinition(),
+    enabled: true,
+    cronExpression: '0 9 * * 1',
+    timezone: 'UTC',
+  }))
+
+  assert.equal(output.ok, true)
+  assert.equal(output.format, 'arche-flow-template/v1')
+  assert.deepEqual(output.validation, { ok: true })
+  assert.equal(output.template.format, 'arche-flow-template/v1')
+  assert.equal(output.template.name, 'Weekly review')
+  assert.equal(output.template.description, 'Draft and review weekly metrics')
+  assert.equal(output.template.enabled, true)
+  assert.equal(output.template.cronExpression, '0 9 * * 1')
+  assert.equal(output.template.timezone, 'UTC')
+  assert.equal(output.template.definition.nodes[0].targetAgentId, null)
+  assert.equal(output.warnings[0].code, 'target_agent_reset')
+})
+
+test('flow_propose warns when enabled schedules are incomplete', async () => {
+  const output = parseToolOutput(await propose.execute({
+    name: 'Needs schedule',
+    definition: createDefinition({ nodes: [
+      {
+        id: 'agent-1',
+        type: 'agent',
+        name: 'Draft summary',
+        targetAgentId: null,
+        promptTemplate: 'Summarize the latest weekly metrics.',
+        compactOutput: false,
+      },
+    ] }),
+    enabled: true,
+    timezone: 'UTC',
+  }))
+
+  assert.equal(output.ok, true)
+  assert.equal(output.template.enabled, true)
+  assert.equal(output.template.cronExpression, null)
+  assert.deepEqual(output.warnings, [{
+    code: 'schedule_required',
+    message: 'This template is enabled but has no cron schedule. Add a schedule or disable it before saving.',
+  }])
+})
+
+test('flow_propose rejects invalid definitions', async () => {
+  const output = parseToolOutput(await propose.execute({
+    name: 'Broken flow',
+    definition: createDefinition({ startNodeId: 'missing' }),
+  }))
+
+  assert.equal(output.ok, false)
+  assert.equal(output.format, 'arche-flow-template/v1')
+  assert.equal(output.error, 'unknown_start_node')
+  assert.deepEqual(output.validation, { ok: false, error: 'unknown_start_node' })
+})
