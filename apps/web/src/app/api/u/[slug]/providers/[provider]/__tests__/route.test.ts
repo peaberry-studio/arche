@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   syncProviderAccessForInstance: vi.fn().mockResolvedValue({ ok: true }),
 
   createOllamaProviderSecret: vi.fn(),
+  getActiveCredentialForUser: vi.fn(),
   refreshOllamaProviderSecret: vi.fn(),
 
   replaceApiCredential: vi.fn().mockResolvedValue({ id: 'cred-1', type: 'api', version: 1 }),
@@ -51,6 +52,7 @@ vi.mock('@/lib/providers/ollama', () => ({
   refreshOllamaProviderSecret: mocks.refreshOllamaProviderSecret,
 }))
 vi.mock('@/lib/providers/store', () => ({
+  getActiveCredentialForUser: mocks.getActiveCredentialForUser,
   replaceApiCredential: mocks.replaceApiCredential,
   replaceOrganizationApiCredential: mocks.replaceOrganizationApiCredential,
   replaceProviderCredential: mocks.replaceProviderCredential,
@@ -94,6 +96,7 @@ describe('/api/u/[slug]/providers/[provider]', () => {
         models: [{ id: 'llama3.2', name: 'llama3.2' }],
       },
     })
+    mocks.getActiveCredentialForUser.mockResolvedValue(null)
     mocks.auditEvent.mockResolvedValue(undefined)
   })
 

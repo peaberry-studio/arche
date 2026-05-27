@@ -264,7 +264,7 @@ describe('providers gateway', () => {
     })
     mockDecryptProviderSecret.mockReturnValue({
       apiKey: 'remote-token',
-      baseUrl: 'https://ollama.example.com/v1',
+      baseUrl: 'https://203.0.113.10/v1',
       discoveredAt: '2026-05-27T00:00:00.000Z',
       mode: 'remote',
       models: [{ id: 'gpt-oss:20b-cloud', name: 'gpt-oss:20b-cloud' }],
@@ -281,8 +281,43 @@ describe('providers gateway', () => {
 
     expect(response.status).toBe(200)
     const [url, options] = (global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]
-    expect(url).toBe('https://ollama.example.com/v1/models?foo=bar')
+    expect(url).toBe('https://203.0.113.10/v1/models?foo=bar')
+    expect(options.redirect).toBe('error')
     expect((options.headers as Headers).get('authorization')).toBe('Bearer remote-token')
+  })
+
+  it('blocks remote Ollama credentials that resolve to private upstreams', async () => {
+    mockVerifyGatewayToken.mockReturnValue({
+      userId: 'user-1',
+      workspaceSlug: 'ws',
+      providerId: 'ollama',
+      version: 1,
+      exp: Math.floor(Date.now() / 1000) + 1000,
+    })
+    mockGetActiveCredentialForUser.mockResolvedValue({
+      id: 'ollama-cred-1',
+      type: 'api',
+      secret: 'encrypted',
+      version: 1,
+    })
+    mockDecryptProviderSecret.mockReturnValue({
+      apiKey: 'remote-token',
+      baseUrl: 'https://127.0.0.1/v1',
+      discoveredAt: '2026-05-27T00:00:00.000Z',
+      mode: 'remote',
+      models: [{ id: 'gpt-oss:20b-cloud', name: 'gpt-oss:20b-cloud' }],
+    })
+
+    const response = await callProxy({
+      provider: 'ollama',
+      headers: { Authorization: 'Bearer internal-token' },
+      path: ['v1', 'models'],
+    })
+    const body = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(body.error).toBe('blocked_endpoint')
+    expect(global.fetch).not.toHaveBeenCalled()
   })
 
   it('ignores the fake OpenAI base URL override without the explicit hook flag', async () => {

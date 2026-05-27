@@ -1,7 +1,7 @@
 import { isRecord } from '@/lib/records'
 import { validateConnectorTestEndpoint, type LookupHost } from '@/lib/security/ssrf'
 
-import type { OllamaDiscoveredModel, OllamaMode, OllamaSecret } from './types'
+import type { OllamaDiscoveredModel, OllamaMode, OllamaSecret, ProviderSecret } from './types'
 
 export const OLLAMA_LOCAL_BASE_URL_CANDIDATES = [
   'http://127.0.0.1:11434/v1',
@@ -111,6 +111,7 @@ async function fetchOllamaModels(
       cache: 'no-store',
       headers,
       method: 'GET',
+      redirect: 'error',
       signal,
     })
 
@@ -177,17 +178,12 @@ export async function discoverOllamaLocal(
 export async function discoverOllamaLocalCandidates(
   options: OllamaDiscoveryOptions = {},
 ): Promise<OllamaDiscoveryResult> {
-  let lastResult: OllamaDiscoveryResult = { ok: false, error: 'unavailable' }
+  const results = await Promise.all(
+    OLLAMA_LOCAL_BASE_URL_CANDIDATES.map((baseUrl) => discoverOllamaLocal(baseUrl, options)),
+  )
 
-  for (const baseUrl of OLLAMA_LOCAL_BASE_URL_CANDIDATES) {
-    const result = await discoverOllamaLocal(baseUrl, options)
-    if (result.ok) {
-      return result
-    }
-    lastResult = result
-  }
-
-  return lastResult
+  const discovered = results.find((result) => result.ok)
+  return discovered ?? results[results.length - 1] ?? { ok: false, error: 'unavailable' }
 }
 
 export async function discoverOllamaRemote(
@@ -317,6 +313,19 @@ export function isOllamaSecret(secret: unknown): secret is OllamaSecret {
 
 export function getOllamaBaseUrlFromSecret(secret: unknown): string | null {
   return isOllamaSecret(secret) ? secret.baseUrl : null
+}
+
+export async function validateOllamaProxyBaseUrl(
+  secret: ProviderSecret | undefined,
+  options: { lookupHost?: LookupHost } = {},
+): Promise<{ ok: true; baseUrl: string } | { ok: false; error: 'invalid_url' | 'blocked_url' }> {
+  if (!isOllamaSecret(secret)) {
+    return { ok: false, error: 'invalid_url' }
+  }
+
+  return secret.mode === 'local'
+    ? validateOllamaLocalURL(secret.baseUrl)
+    : validateOllamaURL(secret.baseUrl, options)
 }
 
 export function getOllamaPublicDetails(

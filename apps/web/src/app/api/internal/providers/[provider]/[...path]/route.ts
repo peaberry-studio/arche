@@ -12,6 +12,7 @@ import {
   markCredentialLastUsedBestEffort,
   recordProviderGatewayRequestBestEffort,
 } from '@/lib/providers/gateway-usage'
+import { validateOllamaProxyBaseUrl } from '@/lib/providers/ollama'
 import { getEffectiveCredentialForUser } from '@/lib/providers/store'
 import { verifyGatewayToken } from '@/lib/providers/tokens'
 import type { ProviderSecret } from '@/lib/providers/types'
@@ -80,6 +81,13 @@ function stripHopByHopHeaders(headers: Headers): void {
   for (const headerName of HOP_BY_HOP_HEADERS) {
     headers.delete(headerName)
   }
+}
+
+function getOllamaProxyValidationResponse(error: 'invalid_url' | 'blocked_url'): NextResponse<{ error: string }> {
+  return NextResponse.json(
+    { error: error === 'blocked_url' ? 'blocked_endpoint' : 'invalid_endpoint' },
+    { status: 400 },
+  )
 }
 
 async function handleProxy(
@@ -211,6 +219,13 @@ async function handleProxy(
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
+  if (providerId === 'ollama') {
+    const validation = await validateOllamaProxyBaseUrl(providerSecret)
+    if (!validation.ok) {
+      return getOllamaProxyValidationResponse(validation.error)
+    }
+  }
+
   const upstreamUrl = buildUpstreamUrl(adapter.baseUrl(providerSecret), pathSegments, new URL(request.url))
   if (!upstreamUrl) {
     return NextResponse.json({ error: 'invalid_path' }, { status: 400 })
@@ -235,6 +250,10 @@ async function handleProxy(
   const init: RequestInit & { duplex?: 'half' } = {
     method: request.method,
     headers,
+  }
+
+  if (providerId === 'ollama') {
+    init.redirect = 'error'
   }
 
   const contentType = headers.get('content-type') ?? ''

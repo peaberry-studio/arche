@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   getE2eFakeProviderUrl: vi.fn(),
   getCanonicalProviderId: vi.fn((id: string) =>
-    ['openai', 'anthropic', 'fireworks', 'openrouter', 'opencode'].includes(id) ? id : null,
+    ['openai', 'anthropic', 'fireworks', 'openrouter', 'opencode', 'ollama'].includes(id) ? id : null,
   ),
   getEffectiveCredentialForUser: vi.fn(),
   verifyGatewayToken: vi.fn(),
@@ -49,7 +49,7 @@ describe('/api/internal/providers/[provider]/[...path]', () => {
     mocks.checkRateLimit.mockReturnValue({ allowed: true, remaining: 99, resetAt: Date.now() + 60_000 })
     mocks.getRuntimeCapabilities.mockReturnValue({ auth: true })
     mocks.getCanonicalProviderId.mockImplementation((id: string) =>
-      ['openai', 'anthropic', 'fireworks', 'openrouter', 'opencode'].includes(id) ? id : null,
+      ['openai', 'anthropic', 'fireworks', 'openrouter', 'opencode', 'ollama'].includes(id) ? id : null,
     )
     fetchMock = vi.fn()
     global.fetch = fetchMock
@@ -531,5 +531,77 @@ describe('/api/internal/providers/[provider]/[...path]', () => {
     expect(sentHeaders.get('x-custom')).toBeNull()
     expect(sentHeaders.get('keep-alive')).toBeNull()
     expect(sentHeaders.get('accept-encoding')).toBe('identity')
+  })
+
+  it('revalidates remote Ollama credentials and disables redirect following before proxying', async () => {
+    mocks.verifyGatewayToken.mockReturnValue({ ...GATEWAY_PAYLOAD, providerId: 'ollama' })
+    mocks.decryptProviderSecret.mockReturnValue({
+      apiKey: 'ollama-token',
+      baseUrl: 'https://203.0.113.10/v1',
+      discoveredAt: '2026-05-27T00:00:00.000Z',
+      mode: 'remote',
+      models: [{ id: 'llama3.2', name: 'llama3.2' }],
+    })
+    fetchMock.mockResolvedValue(new Response('{}', { status: 200 }))
+
+    const res = await GET(
+      makeRequest('GET', 'http://localhost/api/internal/providers/ollama/v1/models', {
+        headers: { authorization: 'Bearer valid-token' },
+      }),
+      { params: Promise.resolve({ provider: 'ollama', path: ['v1', 'models'] }) },
+    )
+
+    expect(res.status).toBe(200)
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://203.0.113.10/v1/models',
+      expect.objectContaining({ redirect: 'error' }),
+    )
+    const sentHeaders = fetchMock.mock.calls[0][1].headers as Headers
+    expect(sentHeaders.get('authorization')).toBe('Bearer ollama-token')
+  })
+
+  it('blocks unsafe Ollama remote credentials before fetching upstream', async () => {
+    mocks.verifyGatewayToken.mockReturnValue({ ...GATEWAY_PAYLOAD, providerId: 'ollama' })
+    mocks.decryptProviderSecret.mockReturnValue({
+      apiKey: 'ollama-token',
+      baseUrl: 'https://127.0.0.1/v1',
+      discoveredAt: '2026-05-27T00:00:00.000Z',
+      mode: 'remote',
+      models: [{ id: 'llama3.2', name: 'llama3.2' }],
+    })
+
+    const res = await GET(
+      makeRequest('GET', 'http://localhost/api/internal/providers/ollama/v1/models', {
+        headers: { authorization: 'Bearer valid-token' },
+      }),
+      { params: Promise.resolve({ provider: 'ollama', path: ['v1', 'models'] }) },
+    )
+
+    expect(res.status).toBe(400)
+    const json = await res.json()
+    expect(json.error).toBe('blocked_endpoint')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('blocks unsafe Ollama local credentials before fetching upstream', async () => {
+    mocks.verifyGatewayToken.mockReturnValue({ ...GATEWAY_PAYLOAD, providerId: 'ollama' })
+    mocks.decryptProviderSecret.mockReturnValue({
+      baseUrl: 'http://169.254.169.254/v1',
+      discoveredAt: '2026-05-27T00:00:00.000Z',
+      mode: 'local',
+      models: [{ id: 'llama3.2', name: 'llama3.2' }],
+    })
+
+    const res = await GET(
+      makeRequest('GET', 'http://localhost/api/internal/providers/ollama/v1/models', {
+        headers: { authorization: 'Bearer valid-token' },
+      }),
+      { params: Promise.resolve({ provider: 'ollama', path: ['v1', 'models'] }) },
+    )
+
+    expect(res.status).toBe(400)
+    const json = await res.json()
+    expect(json.error).toBe('blocked_endpoint')
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })

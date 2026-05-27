@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createOllamaProviderSecret,
   discoverOllamaLocal,
+  discoverOllamaLocalCandidates,
   discoverOllamaRemote,
   getOllamaBaseUrlFromSecret,
   getOllamaPublicDetails,
   isOllamaSecret,
   refreshOllamaProviderSecret,
+  validateOllamaProxyBaseUrl,
   validateOllamaURL,
 } from '@/lib/providers/ollama'
 
@@ -39,6 +41,27 @@ describe('ollama provider helpers', () => {
     const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit]
     expect(fetchImpl.mock.calls[0]?.[0]).toBe('http://127.0.0.1:11434/v1/models')
     expect(new Headers(init.headers).has('authorization')).toBe(false)
+    expect(init.redirect).toBe('error')
+  })
+
+  it('checks local Ollama candidates concurrently', async () => {
+    const responders: Array<(response: Response) => void> = []
+    const fetchImpl = vi.fn(() => new Promise<Response>((resolve) => {
+      responders.push(resolve)
+    }))
+
+    const resultPromise = discoverOllamaLocalCandidates({ fetchImpl, timeoutMs: 1_000 })
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(3))
+
+    responders[0]?.(new Response('', { status: 503 }))
+    responders[1]?.(new Response('', { status: 503 }))
+    responders[2]?.(new Response(JSON.stringify({ data: [{ id: 'llama3.2' }] }), { status: 200 }))
+
+    await expect(resultPromise).resolves.toEqual({
+      ok: true,
+      baseUrl: 'http://host.containers.internal:11434/v1',
+      models: [{ id: 'llama3.2', name: 'llama3.2' }],
+    })
   })
 
   it('blocks custom local Ollama URLs outside the explicit local allowlist', async () => {
@@ -90,6 +113,7 @@ describe('ollama provider helpers', () => {
     })
     const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit]
     expect(new Headers(init.headers).get('authorization')).toBe('Bearer ollama-token')
+    expect(init.redirect).toBe('error')
   })
 
   it('does not create a local secret when discovery fails', async () => {
@@ -241,5 +265,29 @@ describe('ollama provider helpers', () => {
     expect(getOllamaBaseUrlFromSecret(secret)).toBe('https://ollama.example.com/v1')
     expect(getOllamaBaseUrlFromSecret({ apiKey: 'plain-secret' })).toBeNull()
     expect(getOllamaPublicDetails({ apiKey: 'plain-secret' })).toBeNull()
+  })
+
+  it('validates Ollama proxy base URLs from stored secrets', async () => {
+    await expect(validateOllamaProxyBaseUrl({
+      baseUrl: 'http://localhost:11434/v1',
+      discoveredAt: '2026-01-01T00:00:00.000Z',
+      mode: 'local',
+      models: [{ id: 'llama3.2', name: 'llama3.2' }],
+    })).resolves.toEqual({ ok: true, baseUrl: 'http://localhost:11434/v1' })
+
+    await expect(validateOllamaProxyBaseUrl({
+      baseUrl: 'http://169.254.169.254/v1',
+      discoveredAt: '2026-01-01T00:00:00.000Z',
+      mode: 'local',
+      models: [{ id: 'llama3.2', name: 'llama3.2' }],
+    })).resolves.toEqual({ ok: false, error: 'blocked_url' })
+
+    await expect(validateOllamaProxyBaseUrl({
+      apiKey: 'remote-token',
+      baseUrl: 'https://remote.example.com/v1',
+      discoveredAt: '2026-01-01T00:00:00.000Z',
+      mode: 'remote',
+      models: [{ id: 'gpt-oss:20b-cloud', name: 'gpt-oss:20b-cloud' }],
+    }, { lookupHost: PUBLIC_LOOKUP })).resolves.toEqual({ ok: true, baseUrl: 'https://remote.example.com/v1' })
   })
 })
