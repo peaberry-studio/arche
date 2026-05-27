@@ -1587,7 +1587,7 @@ export function WorkspaceShell({
 
   const navigateSettings = () => {
     router.push(
-      currentVault ? getDesktopWorkspaceHref(slug, 'appearance') : `/u/${slug}/settings`,
+      currentVault ? getDesktopWorkspaceHref(slug, 'providers') : `/u/${slug}/settings`,
     );
   };
 

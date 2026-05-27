@@ -9,6 +9,7 @@ import { ProviderCredentialsPanel } from '@/components/providers/provider-creden
 import { AdvancedSettingsPanel } from '@/components/settings/advanced-settings-panel'
 import { AgentsSettingsPanel } from '@/components/settings/agents-settings-panel'
 import { AppearanceSettingsPanel } from '@/components/settings/appearance-settings-panel'
+import { FlowsSettingsPanel } from '@/components/settings/flows-settings-panel'
 import { SkillsSettingsPanel } from '@/components/settings/skills-settings-panel'
 import { Button } from '@/components/ui/button'
 import {
@@ -32,6 +33,7 @@ const SECTION_LABELS: Record<DesktopSettingsSection, string> = {
   providers: 'Providers',
   connectors: 'Connectors',
   agents: 'Agents',
+  flows: 'Flows',
   skills: 'Skills',
   appearance: 'Appearance',
   advanced: 'Advanced',
@@ -77,6 +79,8 @@ export function DesktopSettingsDialog({ slug, currentSection }: DesktopSettingsD
         return <AppearanceSettingsPanel />
       case 'agents':
         return <AgentsSettingsPanel slug={slug} />
+      case 'flows':
+        return <FlowsSettingsPanel slug={slug} />
       case 'skills':
         return <SkillsSettingsPanel slug={slug} />
       case 'advanced':
@@ -113,12 +117,6 @@ export function DesktopSettingsDialog({ slug, currentSection }: DesktopSettingsD
 
           <div className="grid min-h-0 flex-1 grid-cols-[220px_minmax(0,1fr)]">
             <aside className="border-r border-border/60 bg-muted/20 p-4">
-              <div>
-                <p className="pb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                  Sections
-                </p>
-              </div>
-
               <nav className="space-y-1">
                 {DESKTOP_SETTINGS_SECTIONS.map((section) => (
                   <button

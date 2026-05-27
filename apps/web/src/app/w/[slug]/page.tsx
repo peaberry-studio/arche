@@ -120,6 +120,7 @@ export default async function WorkspaceHostPage({
             slug={slug}
             currentView={initialFlowsView}
             flowId={initialFlowId}
+            macDesktopWindowInset={macDesktopWindowInset}
             slackIntegrationAvailable={caps.slackIntegration}
             teamVisibilityAvailable={caps.teamManagement}
           />
