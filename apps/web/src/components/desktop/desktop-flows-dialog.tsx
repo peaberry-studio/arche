@@ -115,6 +115,7 @@ export function DesktopFlowsDialog({
             buildCreateHref={buildCreateHref}
             buildEditHref={buildEditHref}
             buildHistoryHref={buildHistoryHref}
+            hideHeader
             navigateToHistoryOnRun
           />
         )
@@ -184,15 +185,22 @@ export function DesktopFlowsDialog({
               <p className="text-sm font-medium text-foreground">{activeLabel.title}</p>
               <p className="text-xs text-muted-foreground">{activeLabel.description}</p>
             </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={() => updateView(null)}
-              aria-label="Close flows"
-            >
-              <X size={16} weight="bold" />
-            </Button>
+            <div className="flex items-center gap-2">
+              {currentView === 'list' ? (
+                <Button asChild variant="outline" size="sm">
+                  <Link href={buildCreateHref()}>Create flow</Link>
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => updateView(null)}
+                aria-label="Close flows"
+              >
+                <X size={16} weight="bold" />
+              </Button>
+            </div>
           </div>
 
           <div className="scrollbar-custom min-h-0 flex-1 overflow-y-auto px-6 py-6">

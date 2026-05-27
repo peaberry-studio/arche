@@ -20,6 +20,7 @@ type FlowsPageProps = {
   buildCreateHref?: () => string
   buildEditHref?: (flowId: string) => string
   buildHistoryHref?: (flowId: string) => string
+  hideHeader?: boolean
   navigateToHistoryOnRun?: boolean
   slug: string
 }
@@ -42,7 +43,7 @@ function getRunBadgeLabel(flow: FlowListItem): string {
   return 'Last run failed'
 }
 
-export function FlowsPage({ buildCreateHref, buildEditHref, buildHistoryHref, navigateToHistoryOnRun = false, slug }: FlowsPageProps) {
+export function FlowsPage({ buildCreateHref, buildEditHref, buildHistoryHref, hideHeader = false, navigateToHistoryOnRun = false, slug }: FlowsPageProps) {
   const router = useRouter()
   const [flows, setFlows] = useState<FlowListItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -232,18 +233,20 @@ export function FlowsPage({ buildCreateHref, buildEditHref, buildHistoryHref, na
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="space-y-2">
-          <h1 className="type-display text-3xl font-semibold tracking-tight">Flows</h1>
-          <p className="text-muted-foreground">
-            Build multi-step automations with agent steps, human pauses, conditions and visual routing.
-          </p>
-        </div>
+      {hideHeader ? null : (
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-2">
+            <h1 className="type-display text-3xl font-semibold tracking-tight">Flows</h1>
+            <p className="text-muted-foreground">
+              Build multi-step automations with agent steps, human pauses, conditions and visual routing.
+            </p>
+          </div>
 
-        <Button variant="outline" asChild>
-          <Link href={createHref}>Create flow</Link>
-        </Button>
-      </div>
+          <Button variant="outline" asChild>
+            <Link href={createHref}>Create flow</Link>
+          </Button>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="flex min-h-[220px] items-center justify-center">
