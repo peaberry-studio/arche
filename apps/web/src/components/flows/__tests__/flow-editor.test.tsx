@@ -111,7 +111,7 @@ describe('FlowEditor', () => {
     mocks.createFlowRequest.mockResolvedValue({ ok: true, data: { flow } })
     mocks.updateFlowRequest.mockResolvedValue({ ok: true, data: { flow } })
     mocks.deleteFlowRequest.mockResolvedValue({ ok: true, data: { ok: true } })
-    mocks.runFlowRequest.mockResolvedValue({ ok: true, data: { ok: true } })
+    mocks.runFlowRequest.mockResolvedValue({ ok: true, data: { ok: true, runId: 'run-1' } })
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       json: vi.fn().mockResolvedValue({ channels: [], integrationEnabled: false, users: [] }),
       ok: true,
@@ -255,6 +255,32 @@ describe('FlowEditor', () => {
     render(<FlowEditor slug="alice" mode="create" />)
 
     await waitFor(() => expect(screen.getByLabelText('Flow name')).toBeTruthy())
+  })
+
+  it('uses private-only sharing and skips Slack targets when desktop disables team and Slack', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <FlowEditor
+        slug="local"
+        mode="create"
+        slackIntegrationAvailable={false}
+        teamVisibilityAvailable={false}
+      />,
+    )
+
+    expect(screen.queryByRole('radio', { name: 'Team' })).toBeNull()
+    expect(screen.getByRole('radio', { name: 'Private' })).toBeTruthy()
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByLabelText('Flow name'), { target: { value: 'Desktop flow' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create flow' }))
+
+    await waitFor(() => expect(mocks.createFlowRequest).toHaveBeenCalledWith('local', expect.objectContaining({
+      organizationCanRun: false,
+      visibility: 'private',
+    })))
   })
 
   it('renders load errors', async () => {

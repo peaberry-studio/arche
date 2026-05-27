@@ -468,7 +468,7 @@ export async function triggerFlowNow(params: {
   flowId: string
   ownerUserId?: string
   trigger: FlowRunTrigger
-}): Promise<{ ok: true } | { ok: false; error: 'not_found' | 'flow_busy' }> {
+}): Promise<{ ok: true; runId: string } | { ok: false; error: 'not_found' | 'flow_busy' }> {
   const now = new Date()
   const leaseOwner = await createFlowLeaseOwner()
   const claimed = await flowService.claimFlowForImmediateRun({
@@ -490,9 +490,7 @@ export async function triggerFlowNow(params: {
     return { ok: false, error: 'flow_busy' }
   }
 
-  await dispatchClaimedFlowRun(claimed, params.trigger, params.executionUserId ?? claimed.userId)
-
-  return { ok: true }
+  return dispatchClaimedFlowRun(claimed, params.trigger, params.executionUserId ?? claimed.userId)
 }
 
 export async function resumeFlowRun(params: {

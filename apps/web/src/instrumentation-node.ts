@@ -5,14 +5,12 @@ declare global {
 async function gracefulShutdown(): Promise<void> {
   console.log('[shutdown] Graceful shutdown initiated')
 
-  if (process.env.NODE_ENV === 'production') {
-    try {
-      const { stopFlowScheduler } = await import('@/lib/flows/scheduler')
-      stopFlowScheduler()
-      console.log('[shutdown] Flow scheduler stopped')
-    } catch (err) {
-      console.error('[shutdown] Failed to stop flow scheduler:', err)
-    }
+  try {
+    const { stopFlowScheduler } = await import('@/lib/flows/scheduler')
+    stopFlowScheduler()
+    console.log('[shutdown] Flow scheduler stopped')
+  } catch (err) {
+    console.error('[shutdown] Failed to stop flow scheduler:', err)
   }
 
   try {
@@ -59,10 +57,33 @@ function registerShutdownHooks(): void {
   })
 }
 
+function hasActiveDesktopVault(): boolean {
+  return Boolean(process.env.ARCHE_DATA_DIR?.trim())
+}
+
+async function startInlineFlowSchedulerBestEffort(): Promise<void> {
+  try {
+    const { shouldStartInlineFlowScheduler, startFlowScheduler } = await import('@/lib/flows/scheduler')
+    if (shouldStartInlineFlowScheduler()) {
+      startFlowScheduler()
+    }
+  } catch (error) {
+    console.error('[flows] Failed to start scheduler', error)
+  }
+}
+
 export async function registerNodeInstrumentation() {
   const { isDesktop } = await import('@/lib/runtime/mode')
 
   if (isDesktop()) {
+    if (!hasActiveDesktopVault()) {
+      return
+    }
+
+    const { initDesktopPrisma } = await import('@/lib/prisma-desktop-init')
+    await initDesktopPrisma()
+    await startInlineFlowSchedulerBestEffort()
+    registerShutdownHooks()
     return
   }
 
@@ -70,14 +91,7 @@ export async function registerNodeInstrumentation() {
   await initWebPrisma()
 
   if (process.env.NODE_ENV === 'production') {
-    try {
-      const { shouldStartInlineFlowScheduler, startFlowScheduler } = await import('@/lib/flows/scheduler')
-      if (shouldStartInlineFlowScheduler()) {
-        startFlowScheduler()
-      }
-    } catch (error) {
-      console.error('[flows] Failed to start scheduler', error)
-    }
+    await startInlineFlowSchedulerBestEffort()
   }
 
   const { startSlackSocketManager } = await import('@/lib/slack/socket-mode')

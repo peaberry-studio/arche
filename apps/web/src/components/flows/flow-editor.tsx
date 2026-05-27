@@ -36,9 +36,13 @@ import { createDefaultFlowDefinition, validateFlowDefinition } from '@/lib/flows
 import { cn } from '@/lib/utils'
 
 type FlowEditorProps = {
+  buildFlowHref?: (flowId: string) => string
   flowId?: string
+  flowListHref?: string
   mode: 'create' | 'edit'
+  slackIntegrationAvailable?: boolean
   slug: string
+  teamVisibilityAvailable?: boolean
 }
 
 type SlackTargetUser = {
@@ -53,7 +57,15 @@ type SlackTargetChannel = {
   name: string
 }
 
-export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
+export function FlowEditor({
+  buildFlowHref,
+  flowId,
+  flowListHref,
+  mode,
+  slackIntegrationAvailable = true,
+  slug,
+  teamVisibilityAvailable = true,
+}: FlowEditorProps) {
   const router = useRouter()
   const { agents } = useAgentsCatalog(slug)
   const timezoneOptions = useMemo(() => getFlowTimeZoneOptions(), [])
@@ -92,12 +104,13 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
     setSchedule(inferFlowScheduleFormState(flow.cronExpression))
     setTimezone(flow.timezone)
     setEnabled(flow.enabled)
-    setVisibility(flow.visibility)
-    setOrganizationCanRun(flow.visibility === 'team' ? flow.organizationCanRun : false)
+    const nextVisibility = teamVisibilityAvailable ? flow.visibility : 'private'
+    setVisibility(nextVisibility)
+    setOrganizationCanRun(nextVisibility === 'team' ? flow.organizationCanRun : false)
     setPermissions(flow.permissions)
     setOwner(flow.owner)
     setMissingConnectorRequirements(flow.missingConnectorRequirements ?? [])
-  }, [])
+  }, [teamVisibilityAvailable])
 
   const loadFlow = useCallback(async () => {
     if (mode !== 'edit' || !flowId) return
@@ -158,6 +171,13 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
     let cancelled = false
 
     async function loadInitialSlackTargets() {
+      if (!slackIntegrationAvailable) {
+        setSlackIntegrationEnabled(false)
+        setTeamMembers([])
+        setSlackChannels([])
+        return
+      }
+
       try {
         const response = await fetch(`/api/u/${slug}/flows/slack-targets`, { cache: 'no-store' })
         const data = (await response.json().catch(() => null)) as
@@ -190,7 +210,7 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
     return () => {
       cancelled = true
     }
-  }, [slug])
+  }, [slackIntegrationAvailable, slug])
 
   const editingNode = useMemo(
     () => definition.nodes.find((node) => node.id === editingNodeId) ?? null,
@@ -280,15 +300,16 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
 
     try {
       const payloadCronExpression = schedulePreview.isValid ? schedulePreview.cronExpression : null
+      const payloadVisibility: FlowVisibility = teamVisibilityAvailable ? visibility : 'private'
       const payload = {
         cronExpression: enabled ? schedulePreview.cronExpression : payloadCronExpression,
         definition,
         description: description.trim() ? description : null,
         enabled,
         name,
-        organizationCanRun: visibility === 'team' ? organizationCanRun : false,
+        organizationCanRun: payloadVisibility === 'team' ? organizationCanRun : false,
         timezone,
-        visibility,
+        visibility: payloadVisibility,
       }
       const result = mode === 'create'
         ? await createFlowRequest(slug, payload)
@@ -301,7 +322,7 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
       }
 
       if (mode === 'create') {
-        router.push(`/u/${slug}/flows/${result.data.flow.id}`)
+        router.push(buildFlowHref ? buildFlowHref(result.data.flow.id) : `/u/${slug}/flows/${result.data.flow.id}`)
         return
       }
 
@@ -311,7 +332,7 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
     } finally {
       setIsSaving(false)
     }
-  }, [definition, description, enabled, flowId, isReadOnly, loadFlow, mode, name, organizationCanRun, router, schedulePreview, slug, timezone, visibility])
+  }, [buildFlowHref, definition, description, enabled, flowId, isReadOnly, loadFlow, mode, name, organizationCanRun, router, schedulePreview, slug, teamVisibilityAvailable, timezone, visibility])
 
   const deleteFlow = useCallback(async () => {
     if (mode !== 'edit' || !flowId || !permissions?.canManage) return
@@ -325,13 +346,13 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
         return
       }
 
-      router.push(`/u/${slug}/flows`)
+      router.push(flowListHref ?? `/u/${slug}/flows`)
     } catch {
       setFormError('network_error')
     } finally {
       setIsDeleting(false)
     }
-  }, [flowId, mode, permissions?.canManage, router, slug])
+  }, [flowId, flowListHref, mode, permissions?.canManage, router, slug])
 
   const runFlow = useCallback(async () => {
     if (mode !== 'edit' || !flowId || !permissions?.canRun) return
@@ -369,13 +390,13 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
         return
       }
 
-      router.push(`/u/${slug}/flows/${result.data.flow.id}`)
+      router.push(buildFlowHref ? buildFlowHref(result.data.flow.id) : `/u/${slug}/flows/${result.data.flow.id}`)
     } catch {
       setFormError('network_error')
     } finally {
       setIsCopying(false)
     }
-  }, [flowId, mode, permissions?.canCopy, router, slug])
+  }, [buildFlowHref, flowId, mode, permissions?.canCopy, router, slug])
 
   if (isLoading) {
     return (
@@ -428,7 +449,11 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
             <div>
               <h2 className="text-sm font-semibold text-foreground">Sharing</h2>
               <p className="text-xs text-muted-foreground">
-                {isReadOnly && owner ? `Shared by ${owner.slug}. Copy it to create your own editable version.` : 'Choose whether teammates can view or run this flow.'}
+                {teamVisibilityAvailable
+                  ? isReadOnly && owner
+                    ? `Shared by ${owner.slug}. Copy it to create your own editable version.`
+                    : 'Choose whether teammates can view or run this flow.'
+                  : 'Desktop flows stay private in this local workspace.'}
               </p>
             </div>
             <div
@@ -441,7 +466,7 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
             >
               {[
                 { value: 'private' as const, label: 'Private', icon: Lock },
-                { value: 'team' as const, label: 'Team', icon: UsersThree },
+                ...(teamVisibilityAvailable ? [{ value: 'team' as const, label: 'Team', icon: UsersThree }] : []),
               ].map(({ value, label, icon: Icon }) => {
                 const active = visibility === value
                 return (
@@ -469,28 +494,30 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
               })}
             </div>
           </div>
-          <div
-            aria-hidden={visibility !== 'team'}
-            className={cn(
-              'grid transition-[grid-template-rows,margin-top,opacity] duration-300 ease-out',
-              visibility === 'team' ? 'mt-4 grid-rows-[1fr] opacity-100' : 'mt-0 grid-rows-[0fr] opacity-0',
-            )}
-          >
-            <div className="overflow-hidden">
-              <div className="flex items-center justify-between gap-4 rounded-lg border border-border/60 bg-background/40 px-4 py-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground">Team can run</p>
-                  <p className="text-xs text-muted-foreground">Runs use each teammate&apos;s workspace and connectors.</p>
+          {teamVisibilityAvailable ? (
+            <div
+              aria-hidden={visibility !== 'team'}
+              className={cn(
+                'grid transition-[grid-template-rows,margin-top,opacity] duration-300 ease-out',
+                visibility === 'team' ? 'mt-4 grid-rows-[1fr] opacity-100' : 'mt-0 grid-rows-[0fr] opacity-0',
+              )}
+            >
+              <div className="overflow-hidden">
+                <div className="flex items-center justify-between gap-4 rounded-lg border border-border/60 bg-background/40 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-foreground">Team can run</p>
+                    <p className="text-xs text-muted-foreground">Runs use each teammate&apos;s workspace and connectors.</p>
+                  </div>
+                  <Switch
+                    checked={visibility === 'team' && organizationCanRun}
+                    disabled={isReadOnly || visibility !== 'team'}
+                    onCheckedChange={setOrganizationCanRun}
+                    aria-label="Allow team to run flow"
+                  />
                 </div>
-                <Switch
-                  checked={visibility === 'team' && organizationCanRun}
-                  disabled={isReadOnly || visibility !== 'team'}
-                  onCheckedChange={setOrganizationCanRun}
-                  aria-label="Allow team to run flow"
-                />
               </div>
             </div>
-          </div>
+          ) : null}
         </section>
 
         <section className="rounded-xl border border-border/60 bg-card/40 p-5">
@@ -534,6 +561,7 @@ export function FlowEditor({ flowId, mode, slug }: FlowEditorProps) {
             definition={definition}
             readOnly={isReadOnly}
             selectedNodeId={selectedNodeId}
+            slackNodesAvailable={slackIntegrationAvailable}
             onAddNodeAfter={addNodeAfter}
             onConnectNodes={connectNodes}
             onEditNode={(nodeId) => {

@@ -37,7 +37,7 @@ describe("WorkspaceSessionsSidebar", () => {
       }
 
       if (url === "/api/u/alice/flows/daily-review/run" && init?.method === "POST") {
-        return jsonResponse({ ok: true });
+        return jsonResponse({ ok: true, runId: "run-1" });
       }
 
       return jsonResponse({ error: "not_found" }, 404);

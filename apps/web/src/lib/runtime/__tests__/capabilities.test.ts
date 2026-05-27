@@ -50,7 +50,7 @@ describe('runtime capabilities', () => {
     expect(caps.teamManagement).toBe(false)
     expect(caps.connectors).toBe(true)
     expect(caps.kickstart).toBe(true)
-    expect(caps.flows).toBe(false)
+    expect(caps.flows).toBe(true)
     expect(caps.slackIntegration).toBe(false)
     expect(caps.googleWorkspaceIntegration).toBe(false)
     expect(caps.kbGithubRemoteIntegration).toBe(false)

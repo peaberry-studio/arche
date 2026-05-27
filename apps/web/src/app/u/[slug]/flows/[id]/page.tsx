@@ -4,7 +4,7 @@ import { ClockCounterClockwise } from '@phosphor-icons/react/dist/ssr/ClockCount
 
 import { FlowEditor } from '@/components/flows/flow-editor'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
-import { getCurrentDesktopVault } from '@/lib/runtime/desktop/current-vault'
+import { getCurrentDesktopVault, getDesktopFlowsHref } from '@/lib/runtime/desktop/current-vault'
 import { isDesktop } from '@/lib/runtime/mode'
 
 export default async function EditFlowPage({
@@ -13,14 +13,15 @@ export default async function EditFlowPage({
   params: Promise<{ id: string; slug: string }>
 }) {
   const { id, slug } = await params
+  const capabilities = getRuntimeCapabilities()
 
   if (isDesktop()) {
     const vault = getCurrentDesktopVault()
     if (!vault) redirect('/')
-    redirect(`/u/${slug}`)
+    redirect(getDesktopFlowsHref('local', 'edit', id))
   }
 
-  if (!getRuntimeCapabilities().flows) {
+  if (!capabilities.flows) {
     redirect(`/u/${slug}`)
   }
 
@@ -48,7 +49,13 @@ export default async function EditFlowPage({
           </div>
         </div>
 
-        <FlowEditor slug={slug} mode="edit" flowId={id} />
+        <FlowEditor
+          slug={slug}
+          mode="edit"
+          flowId={id}
+          slackIntegrationAvailable={capabilities.slackIntegration}
+          teamVisibilityAvailable={capabilities.teamManagement}
+        />
       </div>
     </main>
   )

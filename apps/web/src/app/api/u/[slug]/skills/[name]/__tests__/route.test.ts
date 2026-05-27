@@ -289,6 +289,31 @@ describe('/api/u/[slug]/skills/[name]', () => {
       )
     })
 
+    it('updates body and normalizes assigned agents when provided', async () => {
+      mocks.readSkill
+        .mockResolvedValueOnce({
+          ok: true,
+          data: sampleSkillDetail,
+          hash: 'old-hash',
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          data: { ...sampleSkillDetail, assignedAgentIds: ['agent-1', 'agent-2'], body: '# Updated' },
+          hash: 'new-hash',
+        })
+      mocks.saveSkillDocument.mockResolvedValue({ ok: true, hash: 'new-hash' })
+
+      const { PATCH } = await import('../route')
+      const request = buildPatchRequest({ assignedAgentIds: ['agent-2', 'agent-1', 'agent-2'], body: '# Updated' })
+      const response = await PATCH(request, buildParams())
+
+      expect(response.status).toBe(200)
+      expect(mocks.saveSkillDocument).toHaveBeenCalledWith(expect.objectContaining({
+        assignedAgentIds: ['agent-1', 'agent-2'],
+        body: '# Updated',
+      }))
+    })
+
     it('rejects non-admin users with 403', async () => {
       mocks.getSession.mockResolvedValue(memberSession)
 
@@ -333,6 +358,20 @@ describe('/api/u/[slug]/skills/[name]', () => {
       const json = await response.json()
       expect(json).toEqual({ error: 'not_found' })
       expect(mocks.saveSkillDocument).not.toHaveBeenCalled()
+    })
+
+    it('returns 503 when kb is unavailable while reading before update', async () => {
+      mocks.readSkill.mockResolvedValue({
+        ok: false,
+        error: 'kb_unavailable',
+      })
+
+      const { PATCH } = await import('../route')
+      const request = buildPatchRequest({ description: 'Updated' })
+      const response = await PATCH(request, buildParams())
+
+      expect(response.status).toBe(503)
+      await expect(response.json()).resolves.toEqual({ error: 'kb_unavailable' })
     })
 
     it('returns 400 for empty description', async () => {
@@ -495,6 +534,25 @@ describe('/api/u/[slug]/skills/[name]', () => {
       expect(json).toEqual({ error: 'kb_unavailable' })
     })
 
+    it('returns 500 for unexpected save errors', async () => {
+      mocks.readSkill.mockResolvedValueOnce({
+        ok: true,
+        data: sampleSkillDetail,
+        hash: 'old-hash',
+      })
+      mocks.saveSkillDocument.mockResolvedValue({
+        ok: false,
+        error: 'write_failed',
+      })
+
+      const { PATCH } = await import('../route')
+      const request = buildPatchRequest({ description: 'Updated' })
+      const response = await PATCH(request, buildParams())
+
+      expect(response.status).toBe(500)
+      await expect(response.json()).resolves.toEqual({ error: 'write_failed' })
+    })
+
     it('returns 500 when readSkill fails after successful save', async () => {
       mocks.readSkill
         .mockResolvedValueOnce({
@@ -606,6 +664,20 @@ describe('/api/u/[slug]/skills/[name]', () => {
       expect(response.status).toBe(503)
       const json = await response.json()
       expect(json).toEqual({ error: 'kb_unavailable' })
+    })
+
+    it('returns 500 for unexpected delete errors', async () => {
+      mocks.deleteSkill.mockResolvedValue({
+        ok: false,
+        error: 'delete_failed',
+      })
+
+      const { DELETE } = await import('../route')
+      const request = buildDeleteRequest()
+      const response = await DELETE(request, buildParams())
+
+      expect(response.status).toBe(500)
+      await expect(response.json()).resolves.toEqual({ error: 'delete_failed' })
     })
 
     it('handles missing request body gracefully', async () => {

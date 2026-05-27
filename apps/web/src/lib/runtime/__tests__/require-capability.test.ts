@@ -67,15 +67,13 @@ describe('requireCapability', () => {
     expect(res!.status).toBe(403)
   })
 
-  it('blocks flows in desktop mode', async () => {
+  it('allows flows in desktop mode', async () => {
     process.env.ARCHE_RUNTIME_MODE = 'desktop'
     process.env.ARCHE_DESKTOP_PLATFORM = 'darwin'
     process.env.ARCHE_DESKTOP_WEB_HOST = '127.0.0.1'
     const { requireCapability } = await import('../require-capability')
 
-    const res = requireCapability('flows')
-    expect(res).not.toBeNull()
-    expect(res!.status).toBe(403)
+    expect(requireCapability('flows')).toBeNull()
   })
 
   it('blocks googleWorkspaceIntegration in desktop mode', async () => {

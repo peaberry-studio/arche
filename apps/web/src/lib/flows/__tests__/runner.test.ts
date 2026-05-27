@@ -277,7 +277,7 @@ describe('triggerFlowNow', () => {
     mocks.claimFlowForImmediateRun.mockResolvedValue(claimedFlow)
 
     await expect(triggerFlowNow({ flowId: 'flow-1', ownerUserId: 'user-1', trigger: FlowRunTrigger.manual }))
-      .resolves.toEqual({ ok: true })
+      .resolves.toEqual({ ok: true, runId: 'run-1' })
 
     expect(mocks.createRun).toHaveBeenCalledWith({
       executionUserId: 'user-1',
@@ -360,7 +360,7 @@ describe('triggerFlowNow', () => {
       executionUserId: 'user-2',
       flowId: 'flow-1',
       trigger: FlowRunTrigger.manual,
-    })).resolves.toEqual({ ok: true })
+    })).resolves.toEqual({ ok: true, runId: 'run-1' })
 
     expect(mocks.createRun).toHaveBeenCalledWith({
       executionUserId: 'user-2',
@@ -402,7 +402,7 @@ describe('triggerFlowNow', () => {
       executionUserId: 'user-2',
       flowId: 'flow-1',
       trigger: FlowRunTrigger.manual,
-    })).resolves.toEqual({ ok: true })
+    })).resolves.toEqual({ ok: true, runId: 'run-shared-slack' })
 
     await vi.waitFor(() => expect(mocks.markRunFailed).toHaveBeenCalledWith('run-shared-slack', expect.objectContaining({
       error: 'slack_notification_dm_target_forbidden',

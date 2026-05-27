@@ -50,6 +50,7 @@ function renderCanvas(overrides?: {
   onMoveNode?: (nodeId: string, x: number, y: number) => void
   onRemoveConnection?: (edgeId: string) => void
   onSelectNode?: (nodeId: string) => void
+  slackNodesAvailable?: boolean
 }) {
   return render(
     <FlowCanvas
@@ -61,6 +62,7 @@ function renderCanvas(overrides?: {
       onMoveNode={overrides?.onMoveNode ?? vi.fn()}
       onRemoveConnection={overrides?.onRemoveConnection ?? vi.fn()}
       onSelectNode={overrides?.onSelectNode ?? vi.fn()}
+      slackNodesAvailable={overrides?.slackNodesAvailable}
     />,
   )
 }
@@ -205,6 +207,15 @@ describe('FlowCanvas', () => {
 
     expect(screen.getByRole('button', { name: 'Add compaction step after Agent step' })).toBeTruthy()
     expect(menuItems).toHaveLength(FLOW_CANVAS_NODE_TYPE_OPTIONS.length)
+  })
+
+  it('hides Slack from add node options when Slack nodes are unavailable', () => {
+    renderCanvas({ slackNodesAvailable: false })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add node after Agent step' }))
+
+    expect(screen.queryByRole('button', { name: 'Add slack step after Agent step' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Add agent step after Agent step' })).toBeTruthy()
   })
 
   it('sizes the add node menu from the available node type options', () => {

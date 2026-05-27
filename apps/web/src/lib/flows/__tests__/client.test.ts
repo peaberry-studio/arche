@@ -91,7 +91,7 @@ describe('flow client helpers', () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ flow: detail }))
       .mockResolvedValueOnce(jsonResponse({ ok: true }))
-      .mockResolvedValueOnce(jsonResponse({ ok: true }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true, runId: 'run-1' }))
       .mockResolvedValueOnce(jsonResponse({ ok: true }))
       .mockResolvedValueOnce(jsonResponse({ ok: true }))
     vi.stubGlobal('fetch', fetchMock)
@@ -105,7 +105,7 @@ describe('flow client helpers', () => {
       timezone: 'UTC',
     })).resolves.toEqual({ ok: true, data: { flow: detail } })
     await expect(deleteFlowRequest('alice', 'flow-1')).resolves.toEqual({ ok: true, data: { ok: true } })
-    await expect(runFlowRequest('alice', 'flow-1')).resolves.toEqual({ ok: true, data: { ok: true } })
+    await expect(runFlowRequest('alice', 'flow-1')).resolves.toEqual({ ok: true, data: { ok: true, runId: 'run-1' } })
     await expect(cancelFlowRunRequest('alice', 'run-1')).resolves.toEqual({ ok: true, data: { ok: true } })
     await expect(submitHumanResponseRequest('alice', 'run-1', 'Approved')).resolves.toEqual({ ok: true, data: { ok: true } })
   })

@@ -47,7 +47,7 @@ const DESKTOP_CAPABILITIES: RuntimeCapabilities = {
   teamManagement: false,
   connectors: true,
   kickstart: true,
-  flows: false,
+  flows: true,
   slackIntegration: false,
   googleWorkspaceIntegration: false,
   kbGithubRemoteIntegration: false,

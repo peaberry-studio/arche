@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const initWebPrismaMock = vi.fn()
+const initDesktopPrismaMock = vi.fn()
 const isDesktopMock = vi.fn()
 const shouldStartInlineFlowSchedulerMock = vi.fn()
 const startFlowSchedulerMock = vi.fn()
@@ -16,6 +17,10 @@ vi.mock('@/lib/flows/scheduler', () => ({
 vi.mock('@/lib/prisma', () => ({
   initWebPrisma: (...args: unknown[]) => initWebPrismaMock(...args),
   prisma: { $disconnect: vi.fn() },
+}))
+
+vi.mock('@/lib/prisma-desktop-init', () => ({
+  initDesktopPrisma: (...args: unknown[]) => initDesktopPrismaMock(...args),
 }))
 
 vi.mock('@/lib/runtime/mode', () => ({
@@ -39,6 +44,7 @@ describe('registerNodeInstrumentation', () => {
     delete globalThis.archeWebCleanupRegistered
     isDesktopMock.mockReturnValue(false)
     shouldStartInlineFlowSchedulerMock.mockReturnValue(true)
+    initDesktopPrismaMock.mockResolvedValue(undefined)
     initWebPrismaMock.mockResolvedValue(undefined)
     vi.stubEnv('NODE_ENV', 'production')
   })
@@ -114,17 +120,35 @@ describe('registerNodeInstrumentation', () => {
     processOnceSpy.mockRestore()
   })
 
-  it('returns early in desktop mode', async () => {
+  it('starts desktop Prisma and inline flow scheduler for active desktop vaults', async () => {
+    isDesktopMock.mockReturnValue(true)
+    vi.stubEnv('ARCHE_DATA_DIR', '/vault')
+    const processOnceSpy = vi.spyOn(process, 'once').mockImplementation(() => process)
+
+    const { registerNodeInstrumentation } = await import('./instrumentation-node')
+    await registerNodeInstrumentation()
+
+    expect(initDesktopPrismaMock).toHaveBeenCalledTimes(1)
+    expect(initWebPrismaMock).not.toHaveBeenCalled()
+    expect(startReaperMock).not.toHaveBeenCalled()
+    expect(startSlackSocketManagerMock).not.toHaveBeenCalled()
+    expect(startFlowSchedulerMock).toHaveBeenCalledTimes(1)
+    expect(processOnceSpy).toHaveBeenCalledTimes(3)
+
+    processOnceSpy.mockRestore()
+  })
+
+  it('skips desktop service startup when no desktop vault is active', async () => {
     isDesktopMock.mockReturnValue(true)
     const processOnceSpy = vi.spyOn(process, 'once').mockImplementation(() => process)
 
     const { registerNodeInstrumentation } = await import('./instrumentation-node')
     await registerNodeInstrumentation()
 
+    expect(initDesktopPrismaMock).not.toHaveBeenCalled()
     expect(initWebPrismaMock).not.toHaveBeenCalled()
-    expect(startReaperMock).not.toHaveBeenCalled()
-    expect(startSlackSocketManagerMock).not.toHaveBeenCalled()
     expect(startFlowSchedulerMock).not.toHaveBeenCalled()
+    expect(startSlackSocketManagerMock).not.toHaveBeenCalled()
     expect(processOnceSpy).not.toHaveBeenCalled()
 
     processOnceSpy.mockRestore()

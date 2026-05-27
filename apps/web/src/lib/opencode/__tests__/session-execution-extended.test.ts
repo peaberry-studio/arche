@@ -28,9 +28,9 @@ vi.mock('@/lib/providers/store', () => ({
   getEffectiveCredentialForUser: (...args: unknown[]) => getEffectiveCredentialForUserMock(...args),
 }))
 
-vi.mock('@/lib/spawner/core', () => ({
-  getInstanceStatus: vi.fn(),
-  startInstance: vi.fn(),
+vi.mock('@/lib/runtime/workspace-host', () => ({
+  getWorkspaceStatus: vi.fn(),
+  startWorkspace: vi.fn(),
 }))
 
 describe('session-execution extended', () => {
@@ -45,36 +45,36 @@ describe('session-execution extended', () => {
   })
 
   describe('ensureWorkspaceRunningForExecution', () => {
-    it('starts a stopped workspace', async () => {
+    it('starts a stopped workspace through the runtime workspace host', async () => {
       const { ensureProviderAccessFreshForExecution } = await import(
         '@/lib/opencode/providers'
       )
-      const { getInstanceStatus, startInstance } = await import('@/lib/spawner/core')
-      const { getInstanceStatus: mockedGetInstanceStatus, startInstance: mockedStartInstance } =
-        vi.mocked({ getInstanceStatus, startInstance })
+      const { getWorkspaceStatus, startWorkspace } = await import('@/lib/runtime/workspace-host')
+      const { getWorkspaceStatus: mockedGetWorkspaceStatus, startWorkspace: mockedStartWorkspace } =
+        vi.mocked({ getWorkspaceStatus, startWorkspace })
 
-      mockedGetInstanceStatus.mockResolvedValueOnce({ status: 'stopped' } as never)
-      mockedStartInstance.mockResolvedValueOnce({ ok: true } as never)
+      mockedGetWorkspaceStatus.mockResolvedValueOnce({ status: 'stopped' } as never)
+      mockedStartWorkspace.mockResolvedValueOnce({ ok: true } as never)
 
       const { ensureWorkspaceRunningForExecution } = await import(
         '@/lib/opencode/session-execution'
       )
       await ensureWorkspaceRunningForExecution('slack-bot', 'user-1')
 
-      expect(mockedStartInstance).toHaveBeenCalledWith('slack-bot', 'user-1')
+      expect(mockedStartWorkspace).toHaveBeenCalledWith('slack-bot', 'user-1')
       expect(ensureProviderAccessFreshForExecution).toHaveBeenCalledWith({
         slug: 'slack-bot',
         userId: 'user-1',
       })
     })
 
-    it('throws when startInstance fails with unexpected error', async () => {
-      const { getInstanceStatus, startInstance } = await import('@/lib/spawner/core')
-      const { getInstanceStatus: mockedGetInstanceStatus, startInstance: mockedStartInstance } =
-        vi.mocked({ getInstanceStatus, startInstance })
+    it('throws when startWorkspace fails with unexpected error', async () => {
+      const { getWorkspaceStatus, startWorkspace } = await import('@/lib/runtime/workspace-host')
+      const { getWorkspaceStatus: mockedGetWorkspaceStatus, startWorkspace: mockedStartWorkspace } =
+        vi.mocked({ getWorkspaceStatus, startWorkspace })
 
-      mockedGetInstanceStatus.mockResolvedValueOnce({ status: 'stopped' } as never)
-      mockedStartInstance.mockResolvedValueOnce({
+      mockedGetWorkspaceStatus.mockResolvedValueOnce({ status: 'stopped' } as never)
+      mockedStartWorkspace.mockResolvedValueOnce({
         ok: false,
         error: 'insufficient_capacity',
         detail: 'No resources',
