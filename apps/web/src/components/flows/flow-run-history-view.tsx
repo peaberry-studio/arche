@@ -39,6 +39,8 @@ export function FlowRunHistoryView({ editHref, flowId, slug }: FlowRunHistoryVie
   const loadFlow = useCallback(async ({ resetFlow = false, showLoading = false }: { resetFlow?: boolean; showLoading?: boolean } = {}) => {
     const requestId = loadRequestIdRef.current + 1
     loadRequestIdRef.current = requestId
+    if (!mountedRef.current || loadRequestIdRef.current !== requestId) return
+
     if (showLoading) setIsLoading(true)
     if (resetFlow) setFlow(null)
     setError(null)
@@ -64,7 +66,15 @@ export function FlowRunHistoryView({ editHref, flowId, slug }: FlowRunHistoryVie
   }, [flowId, slug])
 
   useEffect(() => {
-    void loadFlow({ resetFlow: true, showLoading: true })
+    let cancelled = false
+
+    queueMicrotask(() => {
+      if (!cancelled) void loadFlow({ resetFlow: true, showLoading: true })
+    })
+
+    return () => {
+      cancelled = true
+    }
   }, [loadFlow])
 
   useEffect(() => {
