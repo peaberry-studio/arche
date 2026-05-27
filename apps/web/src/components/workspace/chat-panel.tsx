@@ -1093,6 +1093,7 @@ export function ChatPanel({
         onSelectSessionTab={onSelectSessionTab}
         scrollContainerRef={scrollContainerRef}
         sessionTabs={sessionTabs}
+        slug={slug}
         workspaceRoot={workspaceRoot}
       />
 

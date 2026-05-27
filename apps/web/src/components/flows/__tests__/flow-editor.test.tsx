@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { FlowEditor } from '@/components/flows/flow-editor'
+import type { FlowTemplate } from '@/lib/flows/import-export'
 import type { FlowDefinition, FlowDetail, FlowNode } from '@/lib/flows/types'
 import { createDefaultFlowDefinition } from '@/lib/flows/validation'
 
@@ -132,6 +133,57 @@ describe('FlowEditor', () => {
 
     await waitFor(() => expect(mocks.createFlowRequest).toHaveBeenCalledWith('alice', expect.objectContaining({ name: 'New flow' })))
     expect(mocks.push).toHaveBeenCalledWith('/u/alice/flows/flow-1')
+  })
+
+  it('loads an initial imported template as an unsaved draft', async () => {
+    const definition = createDefaultFlowDefinition()
+    const template: FlowTemplate = {
+      cronExpression: null,
+      definition,
+      description: 'Imported description',
+      enabled: false,
+      format: 'arche-flow-template/v1',
+      name: 'Imported flow',
+      timezone: 'UTC',
+    }
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/flows/import/validate')) {
+        return Promise.resolve({
+          json: vi.fn().mockResolvedValue({
+            payload: {
+              cronExpression: null,
+              definition,
+              description: 'Imported description',
+              enabled: false,
+              name: 'Imported flow',
+              organizationCanRun: false,
+              timezone: 'UTC',
+              visibility: 'private',
+            },
+            template,
+            warnings: [{ code: 'unknown_target_agent', message: 'Review target agents before saving.' }],
+          }),
+          ok: true,
+        })
+      }
+
+      return Promise.resolve({
+        json: vi.fn().mockResolvedValue({ channels: [], integrationEnabled: false, users: [] }),
+        ok: true,
+      })
+    }))
+
+    render(<FlowEditor slug="alice" mode="create" initialTemplate={template} />)
+
+    await waitFor(() => expect(screen.getByDisplayValue('Imported flow')).toBeTruthy())
+    expect(screen.getByText('Review target agents before saving.')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create flow' }))
+    await waitFor(() => expect(mocks.createFlowRequest).toHaveBeenCalledWith('alice', expect.objectContaining({
+      description: 'Imported description',
+      name: 'Imported flow',
+    })))
   })
 
   it('keeps step ids readable when renaming nodes', async () => {

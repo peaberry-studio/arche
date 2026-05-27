@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ClockCountdown, ClockCounterClockwise, DotsThreeVertical, GitBranch, PencilSimple, Play, SpinnerGap, TreeStructure } from '@phosphor-icons/react'
+import { ClockCountdown, ClockCounterClockwise, DotsThreeVertical, DownloadSimple, GitBranch, PencilSimple, Play, SpinnerGap, TreeStructure } from '@phosphor-icons/react'
 
 import { DashboardEmptyState } from '@/components/dashboard/dashboard-empty-state'
 import { Badge } from '@/components/ui/badge'
@@ -175,6 +175,11 @@ export function FlowsPage({ slug }: FlowsPageProps) {
                       <Link href={`/u/${slug}/flows/${flow.id}/runs`} aria-label={`View run history for ${flow.name}`}>
                         <ClockCounterClockwise size={15} weight="bold" /> History
                       </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <a href={`/api/u/${slug}/flows/${flow.id}/export`} download aria-label={`Export ${flow.name} as JSON`}>
+                        <DownloadSimple size={15} weight="bold" /> Export JSON
+                      </a>
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>

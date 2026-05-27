@@ -36,6 +36,11 @@ import {
   parseEmailDraftOutput,
   type EmailDraftOutput,
 } from '@/components/workspace/chat-panel/email-draft'
+import {
+  FlowProposalCard,
+  parseFlowProposalOutput,
+  type FlowProposalOutput,
+} from '@/components/workspace/chat-panel/flow-proposal'
 import { PermissionCard } from '@/components/workspace/chat-panel/permission-card'
 import type { SessionTabInfo } from '@/components/workspace/chat-panel/types'
 import { workspaceMarkdownComponents } from '@/components/workspace/markdown-components'
@@ -68,6 +73,7 @@ type MessagePartRendererProps = {
   onSelectSessionTab?: (id: string) => void
   part: MessagePart
   sessionTabs: SessionTabInfo[]
+  slug?: string
   workspaceRoot?: string
 }
 
@@ -85,6 +91,7 @@ const TOOL_LABELS: Record<string, string> = {
   email_draft: 'Drafting email',
   chart_create: 'Creating chart',
   diagram_create: 'Creating diagram',
+  flow_propose: 'Proposing flow',
   todowrite: 'Planning',
   todoread: 'Reviewing plan',
 }
@@ -255,6 +262,13 @@ function getToolDisplay(
       return {
         summary: title || fallbackTitle,
         label: title || fallbackTitle,
+      }
+    }
+    case 'flow_propose': {
+      const name = getString(input?.name)
+      return {
+        summary: name || fallbackTitle,
+        label: name || fallbackTitle,
       }
     }
     default:
@@ -575,6 +589,7 @@ export function ToolGroup({
   connectorNamesById,
   sessionTabs,
   onSelectSessionTab,
+  slug,
   workspaceRoot,
 }: {
   tool: string
@@ -583,6 +598,7 @@ export function ToolGroup({
   connectorNamesById?: Record<string, string>
   sessionTabs: SessionTabInfo[]
   onSelectSessionTab?: (id: string) => void
+  slug?: string
   workspaceRoot?: string
 }) {
   const runningCount = parts.filter((part) => part.state.status === 'running' || part.state.status === 'pending').length
@@ -654,6 +670,25 @@ export function ToolGroup({
 
     if (latestDiagram) {
       return <DiagramCard diagram={latestDiagram} isRunning={isRunning} />
+    }
+  }
+
+  if (tool === 'flow_propose') {
+    let latestProposal: FlowProposalOutput | null = null
+
+    for (let index = parts.length - 1; index >= 0; index -= 1) {
+      const part = parts[index]
+      if (part.state.status !== 'completed') continue
+
+      const parsedProposal = parseFlowProposalOutput(part.state.output)
+      if (!parsedProposal) continue
+
+      latestProposal = parsedProposal
+      break
+    }
+
+    if (latestProposal) {
+      return <FlowProposalCard proposal={latestProposal} isRunning={isRunning} slug={slug} />
     }
   }
 
@@ -840,6 +875,7 @@ export function MessagePartRenderer({
   onSelectSessionTab,
   part,
   sessionTabs,
+  slug,
   workspaceRoot,
 }: MessagePartRendererProps) {
   switch (part.type) {
@@ -864,6 +900,7 @@ export function MessagePartRenderer({
           connectorNamesById={connectorNamesById}
           sessionTabs={sessionTabs}
           onSelectSessionTab={onSelectSessionTab}
+          slug={slug}
           workspaceRoot={workspaceRoot}
         />
       )

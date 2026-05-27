@@ -30,6 +30,7 @@ function renderMessages(props?: Partial<Parameters<typeof ChatPanelMessages>[0]>
       onSelectSessionTab={onSelectSessionTab}
       scrollContainerRef={createRef<HTMLDivElement>()}
       sessionTabs={[{ id: "root", title: "Main", status: "idle", depth: 0 }, { id: "sub", title: "Reviewer task", status: "busy", depth: 1 }]}
+      slug="alice"
       workspaceRoot="/workspace/project"
       {...props}
     />
@@ -77,6 +78,7 @@ describe("ChatPanelMessages", () => {
         onScrollContainer={() => {}}
         scrollContainerRef={createRef<HTMLDivElement>()}
         sessionTabs={[]}
+        slug="alice"
       />
     );
 
@@ -94,6 +96,7 @@ describe("ChatPanelMessages", () => {
         onScrollContainer={() => {}}
         scrollContainerRef={createRef<HTMLDivElement>()}
         sessionTabs={[]}
+        slug="alice"
       />
     );
 
@@ -112,6 +115,7 @@ describe("ChatPanelMessages", () => {
         onScrollContainer={() => {}}
         scrollContainerRef={createRef<HTMLDivElement>()}
         sessionTabs={[]}
+        slug="alice"
       />
     );
 
