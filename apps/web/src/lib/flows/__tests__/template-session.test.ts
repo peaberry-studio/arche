@@ -5,7 +5,7 @@ import { FLOW_TEMPLATE_FORMAT, type FlowTemplate } from '@/lib/flows/import-expo
 import { consumeFlowTemplateDraft, storeFlowTemplateDraft } from '@/lib/flows/template-session'
 import { createDefaultFlowDefinition } from '@/lib/flows/validation'
 
-function createTemplate(): FlowTemplate {
+function createTemplate(overrides: Partial<FlowTemplate> = {}): FlowTemplate {
   return {
     cronExpression: null,
     definition: createDefaultFlowDefinition(),
@@ -14,6 +14,7 @@ function createTemplate(): FlowTemplate {
     format: FLOW_TEMPLATE_FORMAT,
     name: 'Imported flow',
     timezone: 'UTC',
+    ...overrides,
   }
 }
 
@@ -29,6 +30,21 @@ describe('flow template session storage', () => {
 
     expect(consumeFlowTemplateDraft()).toEqual(template)
     expect(consumeFlowTemplateDraft()).toBeNull()
+  })
+
+  it('clears stale keyed drafts before storing a new draft', () => {
+    const latest = createTemplate({ name: 'Latest flow' })
+    window.sessionStorage.setItem('arche:flow-template:stale', JSON.stringify(createTemplate({ name: 'Stale flow' })))
+    window.sessionStorage.setItem('arche:flow-template', 'stale')
+
+    storeFlowTemplateDraft(latest)
+
+    const storedDraftKeys = Array.from({ length: window.sessionStorage.length }, (_, index) => (
+      window.sessionStorage.key(index)
+    )).filter((key) => key?.startsWith('arche:flow-template:'))
+    expect(storedDraftKeys).toHaveLength(1)
+    expect(window.sessionStorage.getItem('arche:flow-template:stale')).toBeNull()
+    expect(consumeFlowTemplateDraft()).toEqual(latest)
   })
 
   it('rejects invalid session drafts and removes the pointer', () => {

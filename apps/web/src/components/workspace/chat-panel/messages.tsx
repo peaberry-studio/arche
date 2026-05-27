@@ -425,11 +425,11 @@ export function ChatPanelMessages({
                                     parts={group.parts}
                                     onOpenFile={onOpenFile}
                                     connectorNamesById={connectorNamesById}
-                                     sessionTabs={sessionTabs}
-                                     onSelectSessionTab={onSelectSessionTab}
-                                     slug={slug}
-                                     workspaceRoot={workspaceRoot}
-                                   />
+                                    sessionTabs={sessionTabs}
+                                    onSelectSessionTab={onSelectSessionTab}
+                                    slug={slug}
+                                    workspaceRoot={workspaceRoot}
+                                  />
                                 );
                               }
 
@@ -450,11 +450,11 @@ export function ChatPanelMessages({
                                   onAnswerPermission={onAnswerPermission}
                                   part={group.part}
                                   onOpenFile={onOpenFile}
-                                   sessionTabs={sessionTabs}
-                                   onSelectSessionTab={onSelectSessionTab}
-                                   slug={slug}
-                                   workspaceRoot={workspaceRoot}
-                                 />
+                                  sessionTabs={sessionTabs}
+                                  onSelectSessionTab={onSelectSessionTab}
+                                  slug={slug}
+                                  workspaceRoot={workspaceRoot}
+                                />
                               );
                             })}
                           </div>

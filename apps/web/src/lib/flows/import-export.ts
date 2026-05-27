@@ -32,7 +32,6 @@ export type FlowTemplateImportWarning = {
   code: FlowTemplateImportWarningCode
   message: string
   nodeId?: string
-  severity: 'blocking' | 'review'
   value?: string
 }
 
@@ -89,7 +88,6 @@ function scheduleRequiredWarning(): FlowTemplateImportWarning {
   return {
     code: 'schedule_required',
     message: 'This template is enabled but has no cron schedule. Add a schedule or disable it before saving.',
-    severity: 'review',
   }
 }
 

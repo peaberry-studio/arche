@@ -14,7 +14,7 @@ describe('FlowImportTemplatePanel', () => {
     const onImportError = vi.fn()
     const { container } = render(
       <FlowImportTemplatePanel
-        importWarnings={[{ code: 'unknown_target_agent', message: 'Review target agents.', severity: 'blocking' }]}
+        importWarnings={[{ code: 'unknown_target_agent', message: 'Review target agents.' }]}
         isImporting={false}
         onImportError={onImportError}
         onImportTemplate={onImportTemplate}

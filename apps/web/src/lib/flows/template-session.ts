@@ -27,9 +27,21 @@ function parseFlowTemplate(value: string | null): FlowTemplate | null {
   return parsed as FlowTemplate
 }
 
+function clearStoredFlowTemplateDrafts(): void {
+  window.sessionStorage.removeItem(FLOW_TEMPLATE_SESSION_KEY)
+
+  for (let index = window.sessionStorage.length - 1; index >= 0; index -= 1) {
+    const key = window.sessionStorage.key(index)
+    if (key?.startsWith(FLOW_TEMPLATE_SESSION_KEY_PREFIX)) {
+      window.sessionStorage.removeItem(key)
+    }
+  }
+}
+
 export function storeFlowTemplateDraft(template: FlowTemplate): void {
   if (typeof window === 'undefined') return
 
+  clearStoredFlowTemplateDrafts()
   const id = createTemplateSessionId()
   const key = `${FLOW_TEMPLATE_SESSION_KEY_PREFIX}${id}`
   window.sessionStorage.setItem(key, JSON.stringify(template))

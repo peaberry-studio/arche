@@ -114,7 +114,7 @@ describe('flow import/export helpers', () => {
     expect(result).toMatchObject({
       ok: true,
       draftPayload: { cronExpression: null, enabled: true, name: 'Needs schedule' },
-      warnings: [{ code: 'schedule_required', severity: 'review' }],
+      warnings: [{ code: 'schedule_required' }],
     })
   })
 

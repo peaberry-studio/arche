@@ -163,7 +163,7 @@ describe('FlowEditor', () => {
           visibility: 'private',
         },
         template,
-        warnings: [{ code: 'unknown_target_agent', message: 'Review target agents before saving.', severity: 'blocking' }],
+        warnings: [{ code: 'unknown_target_agent', message: 'Review target agents before saving.' }],
       },
     })
 

@@ -367,11 +367,6 @@ describe('Flow API routes', () => {
       'flow_name_exists',
       'unknown_target_agent',
     ])
-    expect(body.warnings.map((warning: { severity: string }) => warning.severity)).toEqual([
-      'review',
-      'blocking',
-      'blocking',
-    ])
   })
 
   it('returns Slack import warnings from the shared Slack target analysis', async () => {
@@ -402,7 +397,6 @@ describe('Flow API routes', () => {
     expect(body.warnings).toContainEqual(expect.objectContaining({
       code: 'slack_private_channel_forbidden',
       nodeId: 'slack-1',
-      severity: 'blocking',
       value: 'C-private',
     }))
   })

@@ -29,7 +29,6 @@ function getUnknownAgentWarnings(definition: FlowDefinition, knownAgentIds: Read
       code: 'unknown_target_agent',
       message: `Agent step "${node.name}" targets an agent that is not available in this workspace.`,
       nodeId: node.id,
-      severity: 'blocking',
       value: node.targetAgentId,
     }]
   })
@@ -46,7 +45,6 @@ async function collectAgentWarnings(definition: FlowDefinition): Promise<FlowTem
     return [{
       code: 'agent_options_unavailable',
       message: 'Agent availability could not be checked. Review target agents before saving.',
-      severity: 'review',
     }]
   }
 
@@ -61,7 +59,6 @@ function slackIssueWarning(issue: FlowSlackTargetIssue): FlowTemplateImportWarni
     return {
       code: issue.code,
       message: 'Slack is not enabled in this workspace. Review Slack steps before saving.',
-      severity: 'blocking',
     }
   }
 
@@ -71,7 +68,6 @@ function slackIssueWarning(issue: FlowSlackTargetIssue): FlowTemplateImportWarni
       code: issue.code,
       message: `Slack step "${stepName}" targets a user that is not available in this workspace.`,
       nodeId: issue.nodeId,
-      severity: 'blocking',
       value: issue.value,
     }
   }
@@ -80,7 +76,6 @@ function slackIssueWarning(issue: FlowSlackTargetIssue): FlowTemplateImportWarni
       code: issue.code,
       message: `Slack step "${stepName}" targets another user's DM. Choose a permitted target before saving.`,
       nodeId: issue.nodeId,
-      severity: 'blocking',
       value: issue.value,
     }
   }
@@ -89,7 +84,6 @@ function slackIssueWarning(issue: FlowSlackTargetIssue): FlowTemplateImportWarni
       code: issue.code,
       message: `Slack step "${stepName}" targets a channel that is not available in this workspace.`,
       nodeId: issue.nodeId,
-      severity: 'blocking',
       value: issue.value,
     }
   }
@@ -98,7 +92,6 @@ function slackIssueWarning(issue: FlowSlackTargetIssue): FlowTemplateImportWarni
     code: issue.code,
     message: `Slack step "${stepName}" targets a private channel. Choose a permitted target before saving.`,
     nodeId: issue.nodeId,
-    severity: 'blocking',
     value: issue.value,
   }
 }
@@ -126,7 +119,6 @@ async function collectNameConflictWarnings(
   return [{
     code: 'flow_name_exists',
     message: 'A flow with this name already exists. Rename the draft before saving if needed.',
-    severity: 'blocking',
     value: name,
   }]
 }
@@ -156,11 +148,16 @@ export const POST = withAuth<FlowImportValidateResponse, FlowImportValidateRoute
     }
 
     const scope = createFlowActorScope(user, routeContext.workspaceUserId)
+    const [nameConflictWarnings, agentWarnings, slackWarnings] = await Promise.all([
+      collectNameConflictWarnings(validation.draftPayload.name, scope, routeContext.workspaceUserId),
+      collectAgentWarnings(validation.draftPayload.definition),
+      collectSlackWarnings(validation.draftPayload.definition, user, routeContext.workspaceUserId),
+    ])
     const warnings = [
       ...validation.warnings,
-      ...await collectNameConflictWarnings(validation.draftPayload.name, scope, routeContext.workspaceUserId),
-      ...await collectAgentWarnings(validation.draftPayload.definition),
-      ...await collectSlackWarnings(validation.draftPayload.definition, user, routeContext.workspaceUserId),
+      ...nameConflictWarnings,
+      ...agentWarnings,
+      ...slackWarnings,
     ]
 
     return NextResponse.json({

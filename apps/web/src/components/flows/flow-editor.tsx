@@ -440,11 +440,11 @@ export function FlowEditor({ flowId, initialTemplate, mode, slug }: FlowEditorPr
 
   if (loadError) {
     return (
-        <Card>
-          <CardHeader>
-            <CardTitle>Could not load flow</CardTitle>
-            <CardDescription>{getFlowErrorMessage(loadError)}</CardDescription>
-          </CardHeader>
+      <Card>
+        <CardHeader>
+          <CardTitle>Could not load flow</CardTitle>
+          <CardDescription>{getFlowErrorMessage(loadError)}</CardDescription>
+        </CardHeader>
         <CardContent>
           <Button variant="outline" onClick={() => void loadFlow()}>Retry</Button>
         </CardContent>

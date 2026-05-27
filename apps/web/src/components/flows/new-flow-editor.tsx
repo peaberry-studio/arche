@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { FlowEditor } from '@/components/flows/flow-editor'
 import type { FlowTemplate } from '@/lib/flows/import-export'
@@ -11,7 +11,15 @@ type NewFlowEditorProps = {
 }
 
 export function NewFlowEditor({ slug }: NewFlowEditorProps) {
-  const [initialTemplate] = useState<FlowTemplate | null>(() => consumeFlowTemplateDraft())
+  const consumedTemplateRef = useRef(false)
+  const [initialTemplate, setInitialTemplate] = useState<FlowTemplate | null>(null)
+
+  useEffect(() => {
+    if (consumedTemplateRef.current) return
+
+    consumedTemplateRef.current = true
+    setInitialTemplate(consumeFlowTemplateDraft())
+  }, [])
 
   return <FlowEditor slug={slug} mode="create" initialTemplate={initialTemplate ?? undefined} />
 }
