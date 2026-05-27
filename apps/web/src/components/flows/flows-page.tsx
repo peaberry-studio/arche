@@ -20,6 +20,7 @@ type FlowsPageProps = {
   buildCreateHref?: () => string
   buildEditHref?: (flowId: string) => string
   buildHistoryHref?: (flowId: string) => string
+  navigateToHistoryOnRun?: boolean
   slug: string
 }
 
@@ -41,7 +42,7 @@ function getRunBadgeLabel(flow: FlowListItem): string {
   return 'Last run failed'
 }
 
-export function FlowsPage({ buildCreateHref, buildEditHref, buildHistoryHref, slug }: FlowsPageProps) {
+export function FlowsPage({ buildCreateHref, buildEditHref, buildHistoryHref, navigateToHistoryOnRun = false, slug }: FlowsPageProps) {
   const router = useRouter()
   const [flows, setFlows] = useState<FlowListItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -87,13 +88,18 @@ export function FlowsPage({ buildCreateHref, buildEditHref, buildHistoryHref, sl
         return
       }
 
-      router.push(getHistoryHref(flowId))
+      if (navigateToHistoryOnRun) {
+        router.push(getHistoryHref(flowId))
+        return
+      }
+
+      await loadFlows()
     } catch {
       setActionError('network_error')
     } finally {
       setRunningFlowId(null)
     }
-  }, [getHistoryHref, router, slug])
+  }, [getHistoryHref, loadFlows, navigateToHistoryOnRun, router, slug])
 
   useEffect(() => {
     let cancelled = false

@@ -115,6 +115,7 @@ export function DesktopFlowsDialog({
             buildCreateHref={buildCreateHref}
             buildEditHref={buildEditHref}
             buildHistoryHref={buildHistoryHref}
+            navigateToHistoryOnRun
           />
         )
       case 'new':
