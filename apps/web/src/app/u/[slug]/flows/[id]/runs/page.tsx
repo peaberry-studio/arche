@@ -3,6 +3,8 @@ import { redirect } from 'next/navigation'
 
 import { FlowRunHistoryView } from '@/components/flows/flow-run-history-view'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
+import { getCurrentDesktopVault, getDesktopFlowsHref } from '@/lib/runtime/desktop/current-vault'
+import { isDesktop } from '@/lib/runtime/mode'
 
 export default async function FlowRunsPage({
   params,
@@ -11,6 +13,12 @@ export default async function FlowRunsPage({
 }) {
   const { id, slug } = await params
   const capabilities = getRuntimeCapabilities()
+
+  if (isDesktop()) {
+    const vault = getCurrentDesktopVault()
+    if (!vault) redirect('/')
+    redirect(getDesktopFlowsHref('local', 'runs', id))
+  }
 
   if (!capabilities.flows) {
     redirect(`/u/${slug}`)

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { ClockCountdown, ClockCounterClockwise, DotsThreeVertical, GitBranch, PencilSimple, Play, SpinnerGap, TreeStructure } from '@phosphor-icons/react'
 
 import { DashboardEmptyState } from '@/components/dashboard/dashboard-empty-state'
@@ -16,6 +17,9 @@ import type { FlowListItem } from '@/lib/flows/types'
 import { cn } from '@/lib/utils'
 
 type FlowsPageProps = {
+  buildCreateHref?: () => string
+  buildEditHref?: (flowId: string) => string
+  buildHistoryHref?: (flowId: string, runId?: string) => string
   slug: string
 }
 
@@ -37,7 +41,8 @@ function getRunBadgeLabel(flow: FlowListItem): string {
   return 'Last run failed'
 }
 
-export function FlowsPage({ slug }: FlowsPageProps) {
+export function FlowsPage({ buildCreateHref, buildEditHref, buildHistoryHref, slug }: FlowsPageProps) {
+  const router = useRouter()
   const [flows, setFlows] = useState<FlowListItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -62,6 +67,16 @@ export function FlowsPage({ slug }: FlowsPageProps) {
     }
   }, [slug])
 
+  const getHistoryHref = useCallback(
+    (flowId: string, runId?: string) => buildHistoryHref
+      ? buildHistoryHref(flowId, runId)
+      : `/u/${slug}/flows/${flowId}/runs${runId ? `?run=${runId}` : ''}`,
+    [buildHistoryHref, slug],
+  )
+
+  const createHref = buildCreateHref ? buildCreateHref() : `/u/${slug}/flows/new`
+  const getEditHref = buildEditHref ?? ((flowId: string) => `/u/${slug}/flows/${flowId}`)
+
   const runFlow = useCallback(async (flowId: string) => {
     setRunningFlowId(flowId)
     setActionError(null)
@@ -72,13 +87,13 @@ export function FlowsPage({ slug }: FlowsPageProps) {
         return
       }
 
-      await loadFlows()
+      router.push(getHistoryHref(flowId, result.data.runId))
     } catch {
       setActionError('network_error')
     } finally {
       setRunningFlowId(null)
     }
-  }, [loadFlows, slug])
+  }, [getHistoryHref, router, slug])
 
   useEffect(() => {
     let cancelled = false
@@ -135,7 +150,7 @@ export function FlowsPage({ slug }: FlowsPageProps) {
                 <div className="min-w-0 flex-1 space-y-2">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
                     <Link
-                      href={`/u/${slug}/flows/${flow.id}/runs`}
+                      href={getHistoryHref(flow.id)}
                       className="truncate text-sm font-semibold text-foreground transition-colors hover:text-foreground/80 hover:underline"
                     >
                       {flow.name}
@@ -167,12 +182,12 @@ export function FlowsPage({ slug }: FlowsPageProps) {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-44">
                     <DropdownMenuItem asChild>
-                      <Link href={`/u/${slug}/flows/${flow.id}`} aria-label={`${editLabel} ${flow.name}`}>
+                      <Link href={getEditHref(flow.id)} aria-label={`${editLabel} ${flow.name}`}>
                         <PencilSimple size={15} weight="bold" /> {editLabel}
                       </Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                      <Link href={`/u/${slug}/flows/${flow.id}/runs`} aria-label={`View run history for ${flow.name}`}>
+                      <Link href={getHistoryHref(flow.id)} aria-label={`View run history for ${flow.name}`}>
                         <ClockCounterClockwise size={15} weight="bold" /> History
                       </Link>
                     </DropdownMenuItem>
@@ -220,7 +235,7 @@ export function FlowsPage({ slug }: FlowsPageProps) {
         </div>
 
         <Button variant="outline" asChild>
-          <Link href={`/u/${slug}/flows/new`}>Create flow</Link>
+          <Link href={createHref}>Create flow</Link>
         </Button>
       </div>
 
@@ -249,7 +264,7 @@ export function FlowsPage({ slug }: FlowsPageProps) {
           icon={GitBranch}
           title="No flows yet"
           description="Create a flow to run linear automations, pause for human input, branch on conditions and keep every run in one OpenCode session."
-          primaryAction={{ href: `/u/${slug}/flows/new`, label: 'Create your first flow' }}
+          primaryAction={{ href: createHref, label: 'Create your first flow' }}
         />
       ) : null}
 

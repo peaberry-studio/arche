@@ -70,7 +70,7 @@ describe('FlowsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     clientMocks.fetchFlowList.mockResolvedValue({ ok: true, data: { flows: [flow] } })
-    clientMocks.runFlowRequest.mockResolvedValue({ ok: true, data: { ok: true } })
+    clientMocks.runFlowRequest.mockResolvedValue({ ok: true, data: { ok: true, runId: 'run-1' } })
   })
 
   afterEach(() => {
@@ -163,7 +163,7 @@ describe('FlowsPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Run' }))
     await waitFor(() => expect(clientMocks.runFlowRequest).toHaveBeenCalledWith('alice', 'flow-1'))
-    expect(clientMocks.fetchFlowList).toHaveBeenCalledTimes(2)
+    expect(clientMocks.push).toHaveBeenCalledWith('/u/alice/flows/flow-1/runs?run=run-1')
   })
 
   it('shows action errors from run and network failures', async () => {

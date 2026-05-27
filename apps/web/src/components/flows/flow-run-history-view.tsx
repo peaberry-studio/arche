@@ -11,11 +11,14 @@ import { formatConnectorRequirement, getFlowErrorMessage } from '@/lib/flows/err
 import type { FlowDetail } from '@/lib/flows/types'
 
 type FlowRunHistoryViewProps = {
+  editHref?: string
   flowId: string
   slug: string
 }
 
-export function FlowRunHistoryView({ flowId, slug }: FlowRunHistoryViewProps) {
+const RUN_HISTORY_POLL_INTERVAL_MS = 3000
+
+export function FlowRunHistoryView({ editHref, flowId, slug }: FlowRunHistoryViewProps) {
   const [flow, setFlow] = useState<FlowDetail | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -69,6 +72,16 @@ export function FlowRunHistoryView({ flowId, slug }: FlowRunHistoryViewProps) {
     }
   }, [flowId, slug])
 
+  useEffect(() => {
+    if (!flow?.runs.some((run) => run.status === 'running')) return
+
+    const interval = window.setInterval(() => {
+      void loadFlow()
+    }, RUN_HISTORY_POLL_INTERVAL_MS)
+
+    return () => window.clearInterval(interval)
+  }, [flow, loadFlow])
+
   const runFlow = useCallback(async () => {
     if (!flow?.permissions.canRun) return
     if ((flow.missingConnectorRequirements ?? []).length > 0) {
@@ -92,7 +105,7 @@ export function FlowRunHistoryView({ flowId, slug }: FlowRunHistoryViewProps) {
     }
   }, [flow, flowId, loadFlow, slug])
 
-  const editHref = `/u/${slug}/flows/${flowId}`
+  const resolvedEditHref = editHref ?? `/u/${slug}/flows/${flowId}`
 
   return (
     <div className="space-y-6">
@@ -105,7 +118,7 @@ export function FlowRunHistoryView({ flowId, slug }: FlowRunHistoryViewProps) {
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           <Button variant="outline" asChild className="gap-2">
-            <Link href={editHref}>
+            <Link href={resolvedEditHref}>
               <PencilSimple size={14} weight="bold" />
               {flow?.permissions.canEdit ? 'Edit flow' : 'View flow'}
             </Link>

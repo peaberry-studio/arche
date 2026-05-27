@@ -4,6 +4,8 @@ import { ClockCounterClockwise } from '@phosphor-icons/react/dist/ssr/ClockCount
 
 import { FlowEditor } from '@/components/flows/flow-editor'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
+import { getCurrentDesktopVault, getDesktopFlowsHref } from '@/lib/runtime/desktop/current-vault'
+import { isDesktop } from '@/lib/runtime/mode'
 
 export default async function EditFlowPage({
   params,
@@ -12,6 +14,12 @@ export default async function EditFlowPage({
 }) {
   const { id, slug } = await params
   const capabilities = getRuntimeCapabilities()
+
+  if (isDesktop()) {
+    const vault = getCurrentDesktopVault()
+    if (!vault) redirect('/')
+    redirect(getDesktopFlowsHref('local', 'edit', id))
+  }
 
   if (!capabilities.flows) {
     redirect(`/u/${slug}`)

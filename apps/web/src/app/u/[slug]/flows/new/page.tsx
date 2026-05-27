@@ -3,6 +3,8 @@ import { redirect } from 'next/navigation'
 
 import { FlowEditor } from '@/components/flows/flow-editor'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
+import { getCurrentDesktopVault, getDesktopFlowsHref } from '@/lib/runtime/desktop/current-vault'
+import { isDesktop } from '@/lib/runtime/mode'
 
 export default async function NewFlowPage({
   params,
@@ -11,6 +13,12 @@ export default async function NewFlowPage({
 }) {
   const { slug } = await params
   const capabilities = getRuntimeCapabilities()
+
+  if (isDesktop()) {
+    const vault = getCurrentDesktopVault()
+    if (!vault) redirect('/')
+    redirect(getDesktopFlowsHref('local', 'new'))
+  }
 
   if (!capabilities.flows) {
     redirect(`/u/${slug}`)

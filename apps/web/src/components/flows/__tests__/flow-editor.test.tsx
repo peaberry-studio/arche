@@ -111,7 +111,7 @@ describe('FlowEditor', () => {
     mocks.createFlowRequest.mockResolvedValue({ ok: true, data: { flow } })
     mocks.updateFlowRequest.mockResolvedValue({ ok: true, data: { flow } })
     mocks.deleteFlowRequest.mockResolvedValue({ ok: true, data: { ok: true } })
-    mocks.runFlowRequest.mockResolvedValue({ ok: true, data: { ok: true } })
+    mocks.runFlowRequest.mockResolvedValue({ ok: true, data: { ok: true, runId: 'run-1' } })
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       json: vi.fn().mockResolvedValue({ channels: [], integrationEnabled: false, users: [] }),
       ok: true,

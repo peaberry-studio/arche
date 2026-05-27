@@ -36,7 +36,9 @@ import { createDefaultFlowDefinition, validateFlowDefinition } from '@/lib/flows
 import { cn } from '@/lib/utils'
 
 type FlowEditorProps = {
+  buildFlowHref?: (flowId: string) => string
   flowId?: string
+  flowListHref?: string
   mode: 'create' | 'edit'
   slackIntegrationAvailable?: boolean
   slug: string
@@ -56,7 +58,9 @@ type SlackTargetChannel = {
 }
 
 export function FlowEditor({
+  buildFlowHref,
   flowId,
+  flowListHref,
   mode,
   slackIntegrationAvailable = true,
   slug,
@@ -318,7 +322,7 @@ export function FlowEditor({
       }
 
       if (mode === 'create') {
-        router.push(`/u/${slug}/flows/${result.data.flow.id}`)
+        router.push(buildFlowHref ? buildFlowHref(result.data.flow.id) : `/u/${slug}/flows/${result.data.flow.id}`)
         return
       }
 
@@ -328,7 +332,7 @@ export function FlowEditor({
     } finally {
       setIsSaving(false)
     }
-  }, [definition, description, enabled, flowId, isReadOnly, loadFlow, mode, name, organizationCanRun, router, schedulePreview, slug, teamVisibilityAvailable, timezone, visibility])
+  }, [buildFlowHref, definition, description, enabled, flowId, isReadOnly, loadFlow, mode, name, organizationCanRun, router, schedulePreview, slug, teamVisibilityAvailable, timezone, visibility])
 
   const deleteFlow = useCallback(async () => {
     if (mode !== 'edit' || !flowId || !permissions?.canManage) return
@@ -342,13 +346,13 @@ export function FlowEditor({
         return
       }
 
-      router.push(`/u/${slug}/flows`)
+      router.push(flowListHref ?? `/u/${slug}/flows`)
     } catch {
       setFormError('network_error')
     } finally {
       setIsDeleting(false)
     }
-  }, [flowId, mode, permissions?.canManage, router, slug])
+  }, [flowId, flowListHref, mode, permissions?.canManage, router, slug])
 
   const runFlow = useCallback(async () => {
     if (mode !== 'edit' || !flowId || !permissions?.canRun) return
@@ -386,13 +390,13 @@ export function FlowEditor({
         return
       }
 
-      router.push(`/u/${slug}/flows/${result.data.flow.id}`)
+      router.push(buildFlowHref ? buildFlowHref(result.data.flow.id) : `/u/${slug}/flows/${result.data.flow.id}`)
     } catch {
       setFormError('network_error')
     } finally {
       setIsCopying(false)
     }
-  }, [flowId, mode, permissions?.canCopy, router, slug])
+  }, [buildFlowHref, flowId, mode, permissions?.canCopy, router, slug])
 
   if (isLoading) {
     return (

@@ -10,7 +10,7 @@ import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { useWorkspace } from "@/hooks/use-workspace";
 import type { KnowledgeGraphAgentSource } from "@/lib/kb-graph";
 import type { WorkspaceFileNode, WorkspaceSession } from "@/lib/opencode/types";
-import { getDesktopWorkspaceHref } from '@/lib/runtime/desktop/current-vault'
+import { getDesktopFlowsHref, getDesktopWorkspaceHref } from "@/lib/runtime/desktop/current-vault";
 import {
   isProtectedWorkspacePath,
   normalizeWorkspacePath,
@@ -1620,7 +1620,7 @@ export function WorkspaceShell({
   const flowsSettingsButton = !isCompactLayout && isFlowsMode ? (
     <button
       type="button"
-      onClick={() => router.push(`/u/${slug}/flows`)}
+      onClick={() => router.push(currentVault ? getDesktopFlowsHref(slug, 'list') : `/u/${slug}/flows`)}
       className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground/80 transition-colors hover:bg-foreground/5 hover:text-foreground"
       aria-label="Manage flows"
       title="Manage flows"

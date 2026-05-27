@@ -26,6 +26,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { getDesktopFlowsHref } from '@/lib/runtime/desktop/current-vault'
 import { cn } from '@/lib/utils'
 import { getWorkspaceHref } from '@/lib/workspace-hrefs'
 
@@ -62,6 +63,7 @@ function getDesktopNavItems(slug: string): DashboardNavItem[] {
     { label: 'Workspace', href: getWorkspaceHref(slug), activeHref: getWorkspaceHref(slug), exact: true, icon: SquaresFour },
     { label: 'Knowledge', href: getWorkspaceHref(slug, { mode: 'knowledge' }), icon: Database },
     { label: 'Agents', href: `/u/${slug}/agents`, icon: Robot },
+    { label: 'Flows', href: getDesktopFlowsHref(slug, 'list'), icon: GitBranch },
     { label: 'Skills', href: getWorkspaceHref(slug, { settings: 'skills' }), icon: Lightning },
     { label: 'Connectors', href: getWorkspaceHref(slug, { settings: 'connectors' }), icon: Plugs },
     { label: 'Providers', href: getWorkspaceHref(slug, { settings: 'providers' }), icon: Cpu },
