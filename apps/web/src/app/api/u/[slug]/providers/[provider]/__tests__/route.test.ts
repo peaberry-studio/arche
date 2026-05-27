@@ -204,8 +204,10 @@ describe('/api/u/[slug]/providers/[provider]', () => {
 
     it('creates an Ollama local credential only after successful discovery', async () => {
       const res = await POST(makePostRequest('ollama', { mode: 'local' }), routeParams('admin', 'ollama'))
+      const json = await res.json()
 
       expect(res.status).toBe(201)
+      expect(json.restartRequired).toBe(true)
       expect(mocks.createOllamaProviderSecret).toHaveBeenCalledWith({ mode: 'local' })
       expect(mocks.replaceProviderCredential).toHaveBeenCalledWith({
         providerId: 'ollama',
@@ -217,6 +219,7 @@ describe('/api/u/[slug]/providers/[provider]', () => {
         },
         userId: 'u-1',
       })
+      expect(mocks.providerService.markWorkspaceRestartRequired).toHaveBeenCalledWith('u-1')
     })
 
     it('does not save an Ollama local credential when discovery fails', async () => {

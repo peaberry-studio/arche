@@ -33,7 +33,11 @@ export type DisableOrganizationProviderCredentialResult = {
   invalidatedInstanceCount: number
 }
 
-async function syncUserWorkspaceProviderAccessBestEffort(slug: string, userId: string): Promise<boolean> {
+async function syncUserWorkspaceProviderAccessBestEffort(
+  slug: string,
+  userId: string,
+  options: { forceRestartRequired?: boolean } = {},
+): Promise<boolean> {
   try {
     const instance = await instanceService.findCredentialsBySlug(slug)
 
@@ -54,6 +58,11 @@ async function syncUserWorkspaceProviderAccessBestEffort(slug: string, userId: s
     })
     if (!result.ok && result.error !== 'instance_unavailable') {
       console.error('[providers] Failed to sync provider access', result.error)
+      await providerService.markWorkspaceRestartRequired(userId)
+      return true
+    }
+
+    if (options.forceRestartRequired) {
       await providerService.markWorkspaceRestartRequired(userId)
       return true
     }
@@ -108,7 +117,11 @@ export async function replaceUserProviderCredential(input: {
       userId: input.targetUserId,
     })
 
-  const restartRequired = await syncUserWorkspaceProviderAccessBestEffort(input.targetSlug, input.targetUserId)
+  const restartRequired = await syncUserWorkspaceProviderAccessBestEffort(
+    input.targetSlug,
+    input.targetUserId,
+    { forceRestartRequired: input.providerId === 'ollama' },
+  )
 
   await auditEvent({
     actorUserId: input.actorUserId,
