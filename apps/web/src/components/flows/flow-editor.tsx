@@ -1,10 +1,11 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { DownloadSimple, Lock, SpinnerGap, UploadSimple, UsersThree } from '@phosphor-icons/react'
+import { DownloadSimple, Lock, SpinnerGap, UsersThree } from '@phosphor-icons/react'
 
 import { FlowCanvas } from '@/components/flows/flow-canvas'
+import { FlowImportTemplatePanel } from '@/components/flows/flow-import-template-panel'
 import { FlowNodeInspector } from '@/components/flows/flow-node-inspector'
 import { FlowScheduleBuilder } from '@/components/flows/flow-schedule-builder'
 import { Button } from '@/components/ui/button'
@@ -14,7 +15,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { useAgentsCatalog } from '@/hooks/use-agents-catalog'
-import { copyFlowRequest, createFlowRequest, deleteFlowRequest, fetchFlowDetail, runFlowRequest, updateFlowRequest } from '@/lib/flows/client'
+import { copyFlowRequest, createFlowRequest, deleteFlowRequest, fetchFlowDetail, runFlowRequest, updateFlowRequest, validateFlowImportRequest } from '@/lib/flows/client'
 import { getFlowTimeZoneOptions } from '@/lib/flows/cron'
 import {
   addFlowDefinitionNodeAfter,
@@ -34,7 +35,6 @@ import {
 } from '@/lib/flows/schedule-form'
 import type { FlowConnectorRequirementSummary, FlowDefinition, FlowDetail, FlowNode, FlowPayload, FlowPermissions, FlowUserSummary, FlowVisibility } from '@/lib/flows/types'
 import { createDefaultFlowDefinition, validateFlowDefinition } from '@/lib/flows/validation'
-import { isRecord } from '@/lib/records'
 import { cn } from '@/lib/utils'
 
 type FlowEditorProps = {
@@ -56,17 +56,8 @@ type SlackTargetChannel = {
   name: string
 }
 
-function isFlowImportValidateSuccess(value: unknown): value is { payload: FlowPayload; warnings: FlowTemplateImportWarning[] } {
-  return isRecord(value) && isRecord(value.payload) && Array.isArray(value.warnings)
-}
-
-function readFlowImportValidateError(value: unknown): string {
-  return isRecord(value) && typeof value.error === 'string' ? value.error : 'invalid_flow_template'
-}
-
 export function FlowEditor({ flowId, initialTemplate, mode, slug }: FlowEditorProps) {
   const router = useRouter()
-  const importInputRef = useRef<HTMLInputElement | null>(null)
   const initialTemplateAppliedRef = useRef(false)
   const { agents } = useAgentsCatalog(slug)
   const timezoneOptions = useMemo(() => getFlowTimeZoneOptions(), [])
@@ -136,20 +127,14 @@ export function FlowEditor({ flowId, initialTemplate, mode, slug }: FlowEditorPr
     setIsImporting(true)
     setFormError(null)
     try {
-      const response = await fetch(`/api/u/${slug}/flows/import/validate`, {
-        body: JSON.stringify(template),
-        headers: { 'Content-Type': 'application/json' },
-        method: 'POST',
-      })
-      const data = await response.json().catch(() => null)
-
-      if (!response.ok || !isFlowImportValidateSuccess(data)) {
-        setFormError(readFlowImportValidateError(data))
+      const result = await validateFlowImportRequest(slug, template)
+      if (!result.ok) {
+        setFormError(result.error)
         return
       }
 
-      applyDraftPayload(data.payload)
-      setImportWarnings(data.warnings)
+      applyDraftPayload(result.data.draftPayload)
+      setImportWarnings(result.data.warnings)
     } catch {
       setFormError('network_error')
     } finally {
@@ -218,23 +203,6 @@ export function FlowEditor({ flowId, initialTemplate, mode, slug }: FlowEditorPr
     initialTemplateAppliedRef.current = true
     void validateAndApplyTemplate(initialTemplate)
   }, [initialTemplate, mode, validateAndApplyTemplate])
-
-  const importTemplateFile = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    event.target.value = ''
-    if (!file) return
-
-    setFormError(null)
-    let parsed: unknown
-    try {
-      parsed = JSON.parse(await file.text())
-    } catch {
-      setFormError('invalid_json')
-      return
-    }
-
-    await validateAndApplyTemplate(parsed)
-  }, [validateAndApplyTemplate])
 
   useEffect(() => {
     let cancelled = false
@@ -488,41 +456,12 @@ export function FlowEditor({ flowId, initialTemplate, mode, slug }: FlowEditorPr
     <div className="space-y-8">
       <div className="space-y-6">
         {mode === 'create' ? (
-          <section className="rounded-xl border border-border/60 bg-card/40 p-5">
-            <input
-              ref={importInputRef}
-              type="file"
-              accept="application/json,.json"
-              className="hidden"
-              onChange={(event) => void importTemplateFile(event)}
-            />
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <h2 className="text-sm font-semibold text-foreground">Import template</h2>
-                <p className="text-xs text-muted-foreground">Load a flow JSON template as an unsaved draft, then review it before creating.</p>
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => importInputRef.current?.click()}
-                disabled={isImporting}
-              >
-                {isImporting ? <SpinnerGap size={14} className="mr-1.5 animate-spin" /> : <UploadSimple size={14} className="mr-1.5" />}
-                {isImporting ? 'Importing...' : 'Import template'}
-              </Button>
-            </div>
-          </section>
-        ) : null}
-
-        {importWarnings.length > 0 ? (
-          <section className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-5 text-sm text-amber-800 dark:text-amber-200">
-            <h2 className="text-sm font-semibold">Review imported template</h2>
-            <ul className="mt-2 list-disc space-y-1 pl-4">
-              {importWarnings.map((warning, index) => (
-                <li key={`${warning.code}-${warning.nodeId ?? warning.value ?? index}`}>{warning.message}</li>
-              ))}
-            </ul>
-          </section>
+          <FlowImportTemplatePanel
+            importWarnings={importWarnings}
+            isImporting={isImporting}
+            onImportError={setFormError}
+            onImportTemplate={validateAndApplyTemplate}
+          />
         ) : null}
 
         <section className="rounded-xl border border-border/60 bg-card/40 px-5 pb-5 pt-4">

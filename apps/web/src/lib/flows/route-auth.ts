@@ -1,14 +1,25 @@
-import type { FlowDefinition, FlowSlackTarget } from '@/lib/flows/types'
-import { slackService, userService } from '@/lib/services'
+import { analyzeFlowSlackTargets, type FlowSlackTargetIssue } from '@/lib/flows/slack-targets'
+import type { FlowDefinition } from '@/lib/flows/types'
 
 type FlowSlackNodeAccessResult =
   | { ok: true }
   | { ok: false; error: string; status: 400 | 403 }
 
-function getSlackTargets(definition: FlowDefinition | null | undefined): FlowSlackTarget[] {
-  if (!definition) return []
+function slackIssueRouteError(issue: FlowSlackTargetIssue): { error: string; status: 400 | 403 } {
+  if (issue.code === 'slack_dm_target_forbidden') {
+    return { error: 'slack_notification_dm_target_forbidden', status: 403 }
+  }
+  if (issue.code === 'slack_private_channel_forbidden') {
+    return { error: 'slack_notification_channel_target_forbidden', status: 403 }
+  }
+  if (issue.code === 'unknown_slack_channel_target') {
+    return { error: 'unknown_slack_notification_channel_target', status: 400 }
+  }
+  if (issue.code === 'unknown_slack_dm_target') {
+    return { error: 'unknown_slack_notification_dm_target', status: 400 }
+  }
 
-  return definition.nodes.flatMap((node) => node.type === 'slack' ? [node.target] : [])
+  return { error: 'slack_integration_disabled', status: 400 }
 }
 
 export async function validateFlowSlackNodeAccess(
@@ -16,52 +27,8 @@ export async function validateFlowSlackNodeAccess(
   contextUser: { id: string; role: string },
   flowOwnerUserId: string,
 ): Promise<FlowSlackNodeAccessResult> {
-  const targets = getSlackTargets(definition)
-  if (targets.length === 0) return { ok: true }
+  const [issue] = await analyzeFlowSlackTargets(definition, contextUser, flowOwnerUserId)
+  if (!issue) return { ok: true }
 
-  const integration = await slackService.findIntegration()
-  if (!integration?.enabled || !integration.slackTeamId) {
-    return { ok: false, error: 'slack_integration_disabled', status: 400 }
-  }
-
-  for (const target of targets) {
-    if (target.type !== 'dm') {
-      continue
-    }
-
-    if (contextUser.role !== 'ADMIN') {
-      if (target.userId !== flowOwnerUserId) {
-        return { ok: false, error: 'slack_notification_dm_target_forbidden', status: 403 }
-      }
-      continue
-    }
-
-    const member = await userService.findTeamMemberById(target.userId)
-    if (!member) {
-      return { ok: false, error: 'unknown_slack_notification_dm_target', status: 400 }
-    }
-  }
-
-  const channelTargets = targets.flatMap((target) => (
-    target.type === 'channel' ? [target] : []
-  ))
-  if (channelTargets.length === 0) {
-    return { ok: true }
-  }
-
-  const channels = await slackService.listEnabledNotificationChannels(integration.slackTeamId)
-  const channelsById = new Map(channels.map((channel) => [channel.channelId, channel]))
-
-  for (const target of channelTargets) {
-    const channel = channelsById.get(target.channelId)
-    if (!channel) {
-      return { ok: false, error: 'unknown_slack_notification_channel_target', status: 400 }
-    }
-
-    if (contextUser.role !== 'ADMIN' && channel.isPrivate) {
-      return { ok: false, error: 'slack_notification_channel_target_forbidden', status: 403 }
-    }
-  }
-
-  return { ok: true }
+  return { ok: false, ...slackIssueRouteError(issue) }
 }

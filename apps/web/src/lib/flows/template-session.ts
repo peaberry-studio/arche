@@ -1,4 +1,5 @@
 import type { FlowTemplate } from '@/lib/flows/import-export'
+import { FLOW_TEMPLATE_FORMAT } from '@/lib/flows/template-format'
 import { isRecord } from '@/lib/records'
 
 const FLOW_TEMPLATE_SESSION_KEY = 'arche:flow-template'
@@ -22,7 +23,7 @@ function parseFlowTemplate(value: string | null): FlowTemplate | null {
     return null
   }
 
-  if (!isRecord(parsed) || parsed.format !== 'arche-flow-template/v1') return null
+  if (!isRecord(parsed) || parsed.format !== FLOW_TEMPLATE_FORMAT) return null
   return parsed as FlowTemplate
 }
 

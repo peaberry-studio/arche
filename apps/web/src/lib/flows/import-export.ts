@@ -1,10 +1,11 @@
 import { assertValidFlowTimeZone, validateFlowCronExpression } from '@/lib/flows/cron'
 import { validateFlowPayload } from '@/lib/flows/payload'
+import { FLOW_TEMPLATE_FORMAT } from '@/lib/flows/template-format'
 import type { FlowDefinition, FlowNode, FlowPayload } from '@/lib/flows/types'
 import { validateFlowDefinition } from '@/lib/flows/validation'
 import { isRecord } from '@/lib/records'
 
-export const FLOW_TEMPLATE_FORMAT = 'arche-flow-template/v1'
+export { FLOW_TEMPLATE_FORMAT }
 
 export type FlowTemplate = {
   format: typeof FLOW_TEMPLATE_FORMAT
@@ -31,11 +32,12 @@ export type FlowTemplateImportWarning = {
   code: FlowTemplateImportWarningCode
   message: string
   nodeId?: string
+  severity: 'blocking' | 'review'
   value?: string
 }
 
 export type FlowTemplateImportValidationResult =
-  | { ok: true; payload: FlowPayload; template: FlowTemplate; warnings: FlowTemplateImportWarning[] }
+  | { ok: true; draftPayload: FlowPayload; template: FlowTemplate; warnings: FlowTemplateImportWarning[] }
   | { ok: false; error: string }
 
 type FlowTemplateSource = {
@@ -87,6 +89,7 @@ function scheduleRequiredWarning(): FlowTemplateImportWarning {
   return {
     code: 'schedule_required',
     message: 'This template is enabled but has no cron schedule. Add a schedule or disable it before saving.',
+    severity: 'review',
   }
 }
 
@@ -177,7 +180,7 @@ export async function validateFlowTemplateImport(value: unknown): Promise<FlowTe
 
   return {
     ok: true,
-    payload: {
+    draftPayload: {
       cronExpression: source.cronExpression,
       definition: source.definition,
       description: source.description,

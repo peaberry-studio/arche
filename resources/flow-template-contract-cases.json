@@ -1,0 +1,111 @@
+[
+  {
+    "name": "valid weekly schedule",
+    "input": {
+      "name": "Weekly review",
+      "description": "Draft and review weekly metrics",
+      "enabled": true,
+      "cronExpression": "0 9 * * 1",
+      "timezone": "UTC",
+      "definition": {
+        "version": 1,
+        "startNodeId": "agent-1",
+        "nodes": [
+          {
+            "id": "agent-1",
+            "type": "agent",
+            "name": "Draft summary",
+            "targetAgentId": null,
+            "promptTemplate": "Summarize the latest weekly metrics.",
+            "compactOutput": false
+          }
+        ],
+        "edges": [],
+        "layout": { "nodes": [{ "nodeId": "agent-1", "x": 120, "y": 120 }] }
+      }
+    },
+    "expected": { "ok": true, "cronExpression": "0 9 * * 1" }
+  },
+  {
+    "name": "invalid five field cron",
+    "input": {
+      "name": "Broken schedule",
+      "enabled": true,
+      "cronExpression": "99 99 * * *",
+      "timezone": "UTC",
+      "definition": {
+        "version": 1,
+        "startNodeId": "agent-1",
+        "nodes": [
+          {
+            "id": "agent-1",
+            "type": "agent",
+            "name": "Draft summary",
+            "targetAgentId": null,
+            "promptTemplate": "Summarize the latest weekly metrics.",
+            "compactOutput": false
+          }
+        ],
+        "edges": []
+      }
+    },
+    "expected": { "ok": false, "error": "invalid_cron_expression" }
+  },
+  {
+    "name": "condition generated edge id collision",
+    "input": {
+      "name": "Conditional routing",
+      "enabled": false,
+      "cronExpression": null,
+      "timezone": "UTC",
+      "definition": {
+        "version": 1,
+        "startNodeId": "condition-1",
+        "nodes": [
+          {
+            "id": "condition-1",
+            "type": "condition",
+            "name": "Route summary",
+            "mode": "rules",
+            "rules": [
+              {
+                "id": "route",
+                "variable": "previous.output",
+                "operator": "contains",
+                "value": "urgent",
+                "targetNodeId": "agent-2"
+              }
+            ]
+          },
+          {
+            "id": "agent-2",
+            "type": "agent",
+            "name": "Urgent follow-up",
+            "targetAgentId": null,
+            "promptTemplate": "Handle urgent items.",
+            "compactOutput": false
+          },
+          {
+            "id": "agent-3",
+            "type": "agent",
+            "name": "Default follow-up",
+            "targetAgentId": null,
+            "promptTemplate": "Handle everything else.",
+            "compactOutput": false
+          }
+        ],
+        "edges": [
+          {
+            "id": "condition-rule-route",
+            "sourceNodeId": "condition-1",
+            "targetNodeId": "agent-3"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "ok": true,
+      "edgeIds": ["condition-rule-route", "condition-rule-route-2"]
+    }
+  }
+]

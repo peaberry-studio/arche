@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises'
+
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
@@ -10,6 +12,22 @@ vi.mock('@/lib/flows/agents', () => ({
 
 import { createFlowTemplate, FLOW_TEMPLATE_FORMAT, validateFlowTemplateImport } from '@/lib/flows/import-export'
 import { createDefaultFlowDefinition } from '@/lib/flows/validation'
+
+type FlowTemplateContractCase = {
+  expected: {
+    cronExpression?: string | null
+    edgeIds?: string[]
+    error?: string
+    ok: boolean
+  }
+  input: Record<string, unknown>
+  name: string
+}
+
+async function readFlowTemplateContractCases(): Promise<FlowTemplateContractCase[]> {
+  const file = new URL('../../../../../../resources/flow-template-contract-cases.json', import.meta.url)
+  return JSON.parse(await readFile(file, 'utf8')) as FlowTemplateContractCase[]
+}
 
 describe('flow import/export helpers', () => {
   beforeEach(() => {
@@ -59,7 +77,7 @@ describe('flow import/export helpers', () => {
 
     expect(result).toEqual({
       ok: true,
-      payload: {
+      draftPayload: {
         cronExpression: '0 9 * * 1',
         definition,
         description: 'Imported description',
@@ -95,9 +113,34 @@ describe('flow import/export helpers', () => {
 
     expect(result).toMatchObject({
       ok: true,
-      payload: { cronExpression: null, enabled: true, name: 'Needs schedule' },
-      warnings: [{ code: 'schedule_required' }],
+      draftPayload: { cronExpression: null, enabled: true, name: 'Needs schedule' },
+      warnings: [{ code: 'schedule_required', severity: 'review' }],
     })
+  })
+
+  it('matches the shared flow template contract fixtures', async () => {
+    const cases = await readFlowTemplateContractCases()
+
+    for (const contractCase of cases) {
+      const result = await validateFlowTemplateImport({
+        format: FLOW_TEMPLATE_FORMAT,
+        ...contractCase.input,
+      })
+
+      expect(result.ok, contractCase.name).toBe(contractCase.expected.ok)
+      if (!contractCase.expected.ok) {
+        expect(result, contractCase.name).toEqual({ ok: false, error: contractCase.expected.error })
+        continue
+      }
+
+      expect(result.ok, contractCase.name).toBe(true)
+      if (!result.ok) continue
+      expect(result.draftPayload.cronExpression, contractCase.name).toBe(contractCase.expected.cronExpression ?? null)
+      if (contractCase.expected.edgeIds) {
+        expect(result.draftPayload.definition.edges.map((edge) => edge.id), contractCase.name)
+          .toEqual(contractCase.expected.edgeIds)
+      }
+    }
   })
 
   it('rejects invalid templates before creating drafts', async () => {

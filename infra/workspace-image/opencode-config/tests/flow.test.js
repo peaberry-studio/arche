@@ -1,7 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs/promises'
 
 import { propose } from '../tools/flow.js'
+
+async function readFlowTemplateContractCases() {
+  const file = new URL('../../../../resources/flow-template-contract-cases.json', import.meta.url)
+  return JSON.parse(await fs.readFile(file, 'utf8'))
+}
 
 function parseToolOutput(output) {
   return JSON.parse(output)
@@ -86,4 +92,22 @@ test('flow_propose rejects invalid definitions', async () => {
   assert.equal(output.format, 'arche-flow-template/v1')
   assert.equal(output.error, 'unknown_start_node')
   assert.deepEqual(output.validation, { ok: false, error: 'unknown_start_node' })
+})
+
+test('flow_propose matches the shared flow template contract fixtures', async () => {
+  const cases = await readFlowTemplateContractCases()
+
+  for (const contractCase of cases) {
+    const output = parseToolOutput(await propose.execute(contractCase.input))
+    assert.equal(output.ok, contractCase.expected.ok, contractCase.name)
+    if (!contractCase.expected.ok) {
+      assert.equal(output.error, contractCase.expected.error, contractCase.name)
+      continue
+    }
+
+    assert.equal(output.template.cronExpression, contractCase.expected.cronExpression ?? null, contractCase.name)
+    if (contractCase.expected.edgeIds) {
+      assert.deepEqual(output.template.definition.edges.map((edge) => edge.id), contractCase.expected.edgeIds, contractCase.name)
+    }
+  }
 })

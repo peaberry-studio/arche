@@ -17,6 +17,29 @@ const CONDITION_OPERATORS = new Set([
   'starts_with',
 ])
 const SLACK_MESSAGE_MODES = new Set(['fixed', 'previous_output', 'template'])
+const MONTH_NAMES = new Map([
+  ['JAN', 1],
+  ['FEB', 2],
+  ['MAR', 3],
+  ['APR', 4],
+  ['MAY', 5],
+  ['JUN', 6],
+  ['JUL', 7],
+  ['AUG', 8],
+  ['SEP', 9],
+  ['OCT', 10],
+  ['NOV', 11],
+  ['DEC', 12],
+])
+const WEEKDAY_NAMES = new Map([
+  ['SUN', 0],
+  ['MON', 1],
+  ['TUE', 2],
+  ['WED', 3],
+  ['THU', 4],
+  ['FRI', 5],
+  ['SAT', 6],
+])
 
 const proposeArgsSchema = z.object({
   name: z.string().min(1).max(MAX_NAME_CHARS),
@@ -217,6 +240,19 @@ function edgeKey(sourceNodeId, targetNodeId) {
   return `${sourceNodeId}\0${targetNodeId}`
 }
 
+function createConditionRuleEdgeId(edgeIds, rule) {
+  const base = `condition-rule-${rule.id}`
+  let candidate = base
+  let suffix = 2
+
+  while (edgeIds.has(candidate)) {
+    candidate = `${base}-${suffix}`
+    suffix += 1
+  }
+
+  return candidate
+}
+
 function traversalTargets(definition, nodeId) {
   const node = definition.nodes.find((candidate) => candidate.id === nodeId)
   if (node?.type === 'condition') return (node.rules || []).map((rule) => rule.targetNodeId)
@@ -288,7 +324,7 @@ function normalizeFlowDefinition(value, warnings) {
       if (rule.targetNodeId === node.id) return { ok: false, error: 'cyclic_flow' }
       const key = edgeKey(node.id, rule.targetNodeId)
       if (!edgeKeys.has(key)) {
-        const edgeId = `condition-rule-${rule.id}`
+        const edgeId = createConditionRuleEdgeId(edgeIds, rule)
         definition.edges.push({ id: edgeId, sourceNodeId: node.id, targetNodeId: rule.targetNodeId })
         edgeIds.add(edgeId)
         edgeKeys.add(key)
@@ -318,13 +354,58 @@ function normalizeTimezone(value) {
   }
 }
 
+function parseCronFieldValue(value, min, max, aliases = new Map()) {
+  const alias = aliases.get(value.toUpperCase())
+  if (alias !== undefined) return alias
+  if (!/^\d+$/.test(value)) return null
+
+  const parsed = Number.parseInt(value, 10)
+  return parsed >= min && parsed <= max ? parsed : null
+}
+
+function isValidCronFieldRange(value, min, max, aliases) {
+  if (value === '*') return true
+
+  const [start, end] = value.split('-')
+  if (!end) return parseCronFieldValue(start, min, max, aliases) !== null
+
+  const startValue = parseCronFieldValue(start, min, max, aliases)
+  const endValue = parseCronFieldValue(end, min, max, aliases)
+  return startValue !== null && endValue !== null && startValue <= endValue
+}
+
+function isValidCronFieldPart(part, min, max, aliases = new Map()) {
+  const [range, step, extra] = part.split('/')
+  if (!range || extra !== undefined) return false
+
+  if (step !== undefined) {
+    if (!/^\d+$/.test(step)) return false
+    const stepValue = Number.parseInt(step, 10)
+    if (stepValue < 1) return false
+  }
+
+  return isValidCronFieldRange(range, min, max, aliases)
+}
+
+function isValidCronField(field, min, max, aliases) {
+  return field.split(',').every((part) => isValidCronFieldPart(part, min, max, aliases))
+}
+
 function normalizeCronExpression(value) {
   if (value === null || value === undefined || value === '') return { ok: true, cronExpression: null }
   const cronExpression = normalizeText(value, 100)
   if (!cronExpression) return { ok: false }
-  return cronExpression.split(/\s+/).length === 5
-    ? { ok: true, cronExpression }
-    : { ok: false }
+  const fields = cronExpression.split(/\s+/)
+  if (fields.length !== 5) return { ok: false }
+
+  const [minute, hour, dayOfMonth, month, dayOfWeek] = fields
+  if (!isValidCronField(minute, 0, 59)) return { ok: false }
+  if (!isValidCronField(hour, 0, 23)) return { ok: false }
+  if (!isValidCronField(dayOfMonth, 1, 31)) return { ok: false }
+  if (!isValidCronField(month, 1, 12, MONTH_NAMES)) return { ok: false }
+  if (!isValidCronField(dayOfWeek, 0, 7, WEEKDAY_NAMES)) return { ok: false }
+
+  return { ok: true, cronExpression }
 }
 
 export const propose = {

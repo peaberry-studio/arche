@@ -356,7 +356,7 @@ describe('Flow API routes', () => {
     const body = await response.json()
 
     expect(response.status).toBe(200)
-    expect(body.payload).toMatchObject({
+    expect(body.draftPayload).toMatchObject({
       enabled: true,
       name: 'Flow',
       organizationCanRun: false,
@@ -367,6 +367,44 @@ describe('Flow API routes', () => {
       'flow_name_exists',
       'unknown_target_agent',
     ])
+    expect(body.warnings.map((warning: { severity: string }) => warning.severity)).toEqual([
+      'review',
+      'blocking',
+      'blocking',
+    ])
+  })
+
+  it('returns Slack import warnings from the shared Slack target analysis', async () => {
+    const definition = createDefaultFlowDefinition()
+    definition.nodes = [{
+      id: 'slack-1',
+      messageMode: 'fixed',
+      messageTemplate: 'Heads up',
+      name: 'Notify private channel',
+      target: { channelId: 'C-private', type: 'channel' },
+      type: 'slack',
+    }]
+    definition.layout = { nodes: [{ nodeId: 'slack-1', x: 120, y: 120 }] }
+    definition.startNodeId = 'slack-1'
+    mocks.listEnabledNotificationChannels.mockResolvedValue([{ channelId: 'C-private', isPrivate: true }])
+
+    const response = await POST_IMPORT_VALIDATE(request('/api/u/alice/flows/import/validate', 'POST', {
+      cronExpression: null,
+      definition,
+      enabled: false,
+      format: 'arche-flow-template/v1',
+      name: 'Slack flow',
+      timezone: 'UTC',
+    }), params({ slug: 'alice' }))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.warnings).toContainEqual(expect.objectContaining({
+      code: 'slack_private_channel_forbidden',
+      nodeId: 'slack-1',
+      severity: 'blocking',
+      value: 'C-private',
+    }))
   })
 
   it('rejects invalid updates before writing', async () => {

@@ -4,6 +4,7 @@ import { GitBranch, SpinnerGap, WarningCircle } from '@phosphor-icons/react'
 
 import { Button } from '@/components/ui/button'
 import type { FlowTemplate } from '@/lib/flows/import-export'
+import { FLOW_TEMPLATE_FORMAT } from '@/lib/flows/template-format'
 import { storeFlowTemplateDraft } from '@/lib/flows/template-session'
 import { isRecord } from '@/lib/records'
 
@@ -17,8 +18,6 @@ type FlowProposalCardProps = {
   proposal: FlowProposalOutput
   slug?: string
 }
-
-const FLOW_TEMPLATE_FORMAT = 'arche-flow-template/v1'
 
 function isFlowTemplate(value: unknown): value is FlowTemplate {
   return (

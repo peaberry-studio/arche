@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { cancelFlowRunRequest, createFlowRequest, deleteFlowRequest, fetchFlowDetail, fetchFlowList, fetchFlowRunRequest, runFlowRequest, submitHumanResponseRequest, updateFlowRequest } from '@/lib/flows/client'
+import { cancelFlowRunRequest, createFlowRequest, deleteFlowRequest, fetchFlowDetail, fetchFlowList, fetchFlowRunRequest, runFlowRequest, submitHumanResponseRequest, updateFlowRequest, validateFlowImportRequest } from '@/lib/flows/client'
 import type { FlowDetail, FlowListItem, FlowRunListItem } from '@/lib/flows/types'
 
 const flow: FlowListItem = {
@@ -108,5 +108,28 @@ describe('flow client helpers', () => {
     await expect(runFlowRequest('alice', 'flow-1')).resolves.toEqual({ ok: true, data: { ok: true } })
     await expect(cancelFlowRunRequest('alice', 'run-1')).resolves.toEqual({ ok: true, data: { ok: true } })
     await expect(submitHumanResponseRequest('alice', 'run-1', 'Approved')).resolves.toEqual({ ok: true, data: { ok: true } })
+  })
+
+  it('validates import templates through the shared client result wrapper', async () => {
+    const draftPayload = {
+      cronExpression: null,
+      definition: flow.definition,
+      description: null,
+      enabled: false,
+      name: 'Imported flow',
+      timezone: 'UTC',
+    }
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ draftPayload, template: { format: 'arche-flow-template/v1' }, warnings: [] }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(validateFlowImportRequest('alice', { format: 'arche-flow-template/v1' })).resolves.toEqual({
+      ok: true,
+      data: { draftPayload, template: { format: 'arche-flow-template/v1' }, warnings: [] },
+    })
+    expect(fetchMock).toHaveBeenCalledWith('/api/u/alice/flows/import/validate', {
+      body: JSON.stringify({ format: 'arche-flow-template/v1' }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    })
   })
 })

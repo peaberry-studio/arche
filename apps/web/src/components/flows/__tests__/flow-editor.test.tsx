@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   runFlowRequest: vi.fn(),
   updateFlowRequest: vi.fn(),
+  validateFlowImportRequest: vi.fn(),
 }))
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }))
@@ -24,6 +25,7 @@ vi.mock('@/lib/flows/client', () => ({
   fetchFlowDetail: mocks.fetchFlowDetail,
   runFlowRequest: mocks.runFlowRequest,
   updateFlowRequest: mocks.updateFlowRequest,
+  validateFlowImportRequest: mocks.validateFlowImportRequest,
 }))
 vi.mock('@/components/flows/flow-canvas', () => ({
   FlowCanvas: ({
@@ -113,6 +115,7 @@ describe('FlowEditor', () => {
     mocks.updateFlowRequest.mockResolvedValue({ ok: true, data: { flow } })
     mocks.deleteFlowRequest.mockResolvedValue({ ok: true, data: { ok: true } })
     mocks.runFlowRequest.mockResolvedValue({ ok: true, data: { ok: true } })
+    mocks.validateFlowImportRequest.mockResolvedValue({ ok: false, error: 'invalid_flow_template' })
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       json: vi.fn().mockResolvedValue({ channels: [], integrationEnabled: false, users: [] }),
       ok: true,
@@ -146,37 +149,28 @@ describe('FlowEditor', () => {
       name: 'Imported flow',
       timezone: 'UTC',
     }
-    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
-      const url = String(input)
-      if (url.includes('/flows/import/validate')) {
-        return Promise.resolve({
-          json: vi.fn().mockResolvedValue({
-            payload: {
-              cronExpression: null,
-              definition,
-              description: 'Imported description',
-              enabled: false,
-              name: 'Imported flow',
-              organizationCanRun: false,
-              timezone: 'UTC',
-              visibility: 'private',
-            },
-            template,
-            warnings: [{ code: 'unknown_target_agent', message: 'Review target agents before saving.' }],
-          }),
-          ok: true,
-        })
-      }
-
-      return Promise.resolve({
-        json: vi.fn().mockResolvedValue({ channels: [], integrationEnabled: false, users: [] }),
-        ok: true,
-      })
-    }))
+    mocks.validateFlowImportRequest.mockResolvedValue({
+      ok: true,
+      data: {
+        draftPayload: {
+          cronExpression: null,
+          definition,
+          description: 'Imported description',
+          enabled: false,
+          name: 'Imported flow',
+          organizationCanRun: false,
+          timezone: 'UTC',
+          visibility: 'private',
+        },
+        template,
+        warnings: [{ code: 'unknown_target_agent', message: 'Review target agents before saving.', severity: 'blocking' }],
+      },
+    })
 
     render(<FlowEditor slug="alice" mode="create" initialTemplate={template} />)
 
     await waitFor(() => expect(screen.getByDisplayValue('Imported flow')).toBeTruthy())
+    expect(mocks.validateFlowImportRequest).toHaveBeenCalledWith('alice', template)
     expect(screen.getByText('Review target agents before saving.')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: 'Create flow' }))
