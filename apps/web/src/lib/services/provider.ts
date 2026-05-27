@@ -73,7 +73,7 @@ export function findCredentialsByUserAndProviders(
 ): Promise<ProviderCredentialSummary[]> {
   return prisma.providerCredential.findMany({
     where: { userId, providerId: { in: providerIds } },
-    select: { providerId: true, status: true, type: true, version: true },
+    select: { id: true, providerId: true, secret: true, status: true, type: true, version: true },
     orderBy: { version: 'desc' },
   })
 }
@@ -83,7 +83,7 @@ export function findOrganizationCredentialsByProviders(
 ): Promise<OrganizationProviderCredentialSummary[]> {
   return prisma.organizationProviderCredential.findMany({
     where: { providerId: { in: providerIds } },
-    select: { id: true, providerId: true, status: true, type: true, version: true, lastUsedAt: true },
+    select: { id: true, providerId: true, secret: true, status: true, type: true, version: true, lastUsedAt: true },
     orderBy: { version: 'desc' },
   })
 }

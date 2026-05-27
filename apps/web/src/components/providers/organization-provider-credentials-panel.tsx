@@ -2,11 +2,22 @@
 
 import { useCallback, useEffect, useState } from 'react'
 
+import {
+  OllamaCredentialDetails,
+  OllamaCredentialForm,
+  buildOllamaCredentialSaveBody,
+  canSaveOllamaCredential,
+  getOllamaCredentialForm,
+  resetOllamaCredentialForm,
+  updateOllamaCredentialForms,
+  type OllamaCredentialFormState,
+} from '@/components/providers/ollama-provider-form'
 import { getTeamErrorMessage } from '@/components/team/error-messages'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { getProviderLabel } from '@/lib/providers/catalog'
+import type { OllamaPublicDetails } from '@/lib/providers/ollama'
 import type { ProviderId } from '@/lib/providers/types'
 import { notifyWorkspaceConfigChanged } from '@/lib/runtime/config-status-events'
 
@@ -18,6 +29,7 @@ type OrganizationProvider = {
   type?: string
   version?: number
   lastUsedAt?: string | null
+  details?: OllamaPublicDetails
 }
 
 type OrganizationProviderCredentialsPanelProps = {
@@ -48,6 +60,7 @@ async function fetchOrganizationProviders(slug: string): Promise<{
 export function OrganizationProviderCredentialsPanel({ slug }: OrganizationProviderCredentialsPanelProps) {
   const [providers, setProviders] = useState<OrganizationProvider[]>([])
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({})
+  const [ollamaForms, setOllamaForms] = useState<Record<string, OllamaCredentialFormState>>({})
   const [busy, setBusy] = useState<Record<string, boolean>>({})
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [error, setError] = useState<string | null>(null)
@@ -104,19 +117,46 @@ export function OrganizationProviderCredentialsPanel({ slug }: OrganizationProvi
     }
   }, [slug])
 
+  function updateOllamaForm(providerId: ProviderId, patch: Partial<OllamaCredentialFormState>) {
+    setOllamaForms((current) => updateOllamaCredentialForms(current, providerId, patch))
+  }
+
+  function clearInputs(providerId: ProviderId) {
+    setApiKeys((current) => ({ ...current, [providerId]: '' }))
+    setOllamaForms((current) => resetOllamaCredentialForm(current, providerId))
+  }
+
+  function canSaveProvider(providerId: ProviderId): boolean {
+    if (providerId !== 'ollama') {
+      return Boolean(apiKeys[providerId]?.trim())
+    }
+
+    return canSaveOllamaCredential(getOllamaCredentialForm(ollamaForms, providerId))
+  }
+
+  async function saveProviderRequest(providerId: ProviderId, body: Record<string, string | boolean>) {
+    return fetch(`/api/u/${slug}/organization-providers/${providerId}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  }
+
   async function handleSave(providerId: ProviderId) {
     const apiKey = apiKeys[providerId]?.trim() ?? ''
-    if (!apiKey) return
+    if (providerId !== 'ollama' && !apiKey) return
+    if (providerId === 'ollama' && !canSaveProvider(providerId)) return
 
     setBusy((current) => ({ ...current, [providerId]: true }))
     setError(null)
 
     try {
-      const response = await fetch(`/api/u/${slug}/organization-providers/${providerId}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ apiKey }),
-      })
+      const response = await saveProviderRequest(
+        providerId,
+        providerId === 'ollama'
+          ? buildOllamaCredentialSaveBody(getOllamaCredentialForm(ollamaForms, providerId))
+          : { apiKey },
+      )
       const data = (await response.json().catch(() => null)) as { error?: string } | null
 
       if (!response.ok) {
@@ -124,7 +164,7 @@ export function OrganizationProviderCredentialsPanel({ slug }: OrganizationProvi
         return
       }
 
-      setApiKeys((current) => ({ ...current, [providerId]: '' }))
+      clearInputs(providerId)
       setExpanded((current) => ({ ...current, [providerId]: false }))
       await loadProviders()
       notifyWorkspaceConfigChanged()
@@ -158,6 +198,69 @@ export function OrganizationProviderCredentialsPanel({ slug }: OrganizationProvi
     }
   }
 
+  async function handleRefreshOllama(providerId: ProviderId) {
+    setBusy((current) => ({ ...current, [providerId]: true }))
+    setError(null)
+
+    try {
+      const response = await saveProviderRequest(providerId, { refresh: true })
+      const data = (await response.json().catch(() => null)) as { error?: string } | null
+
+      if (!response.ok) {
+        setError(getTeamErrorMessage(data?.error ?? 'provider_update_failed'))
+        return
+      }
+
+      await loadProviders()
+      notifyWorkspaceConfigChanged()
+    } catch {
+      setError(getTeamErrorMessage('network_error'))
+    } finally {
+      setBusy((current) => ({ ...current, [providerId]: false }))
+    }
+  }
+
+  function renderCredentialForm(provider: OrganizationProvider) {
+    const isBusy = Boolean(busy[provider.providerId])
+    const canSave = canSaveProvider(provider.providerId)
+    const isEnabled = provider.status === 'enabled'
+
+    if (provider.providerId === 'ollama') {
+      const form = getOllamaCredentialForm(ollamaForms, provider.providerId)
+
+      return (
+        <OllamaCredentialForm
+          actionLabel={isEnabled ? 'Rotate key' : 'Set key'}
+          form={form}
+          isBusy={isBusy}
+          onChange={(patch) => updateOllamaForm(provider.providerId, patch)}
+          onSave={() => handleSave(provider.providerId)}
+        />
+      )
+    }
+
+    return (
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Input
+          type="password"
+          value={apiKeys[provider.providerId] ?? ''}
+          onChange={(event) =>
+            setApiKeys((current) => ({ ...current, [provider.providerId]: event.target.value }))
+          }
+          placeholder="Paste API key"
+        />
+        <Button
+          type="button"
+          size="sm"
+          disabled={isBusy || !canSave}
+          onClick={() => handleSave(provider.providerId)}
+        >
+          {isBusy ? 'Saving...' : isEnabled ? 'Rotate key' : 'Set key'}
+        </Button>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4">
@@ -171,7 +274,6 @@ export function OrganizationProviderCredentialsPanel({ slug }: OrganizationProvi
         {providers.map((provider) => {
           const isBusy = Boolean(busy[provider.providerId])
           const isExpanded = Boolean(expanded[provider.providerId])
-          const canSave = Boolean(apiKeys[provider.providerId]?.trim())
           const isEnabled = provider.status === 'enabled'
 
           return (
@@ -186,8 +288,20 @@ export function OrganizationProviderCredentialsPanel({ slug }: OrganizationProvi
                   <p className="mt-1 text-xs text-muted-foreground">
                     {provider.lastUsedAt ? `Last used ${new Date(provider.lastUsedAt).toLocaleString()}` : 'No recorded usage'}
                   </p>
+                  {provider.providerId === 'ollama' ? <OllamaCredentialDetails details={provider.details} /> : null}
                 </div>
                 <div className="flex items-center gap-2">
+                  {provider.providerId === 'ollama' && isEnabled ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isBusy}
+                      onClick={() => handleRefreshOllama(provider.providerId)}
+                    >
+                      {isBusy ? 'Refreshing...' : 'Refresh Models'}
+                    </Button>
+                  ) : null}
                   <Button
                     type="button"
                     size="sm"
@@ -212,24 +326,7 @@ export function OrganizationProviderCredentialsPanel({ slug }: OrganizationProvi
               </div>
 
               {isExpanded ? (
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <Input
-                    type="password"
-                    value={apiKeys[provider.providerId] ?? ''}
-                    onChange={(event) =>
-                      setApiKeys((current) => ({ ...current, [provider.providerId]: event.target.value }))
-                    }
-                    placeholder="Paste API key"
-                  />
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={isBusy || !canSave}
-                    onClick={() => handleSave(provider.providerId)}
-                  >
-                    {isBusy ? 'Saving...' : isEnabled ? 'Rotate key' : 'Set key'}
-                  </Button>
-                </div>
+                renderCredentialForm(provider)
               ) : null}
             </div>
           )

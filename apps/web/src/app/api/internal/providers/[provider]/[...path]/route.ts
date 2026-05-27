@@ -12,8 +12,10 @@ import {
   markCredentialLastUsedBestEffort,
   recordProviderGatewayRequestBestEffort,
 } from '@/lib/providers/gateway-usage'
+import { validateOllamaProxyBaseUrl } from '@/lib/providers/ollama'
 import { getEffectiveCredentialForUser } from '@/lib/providers/store'
 import { verifyGatewayToken } from '@/lib/providers/tokens'
+import type { ProviderSecret } from '@/lib/providers/types'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import type { ProviderUsageCredentialSource } from '@/lib/services/provider-usage'
@@ -81,6 +83,13 @@ function stripHopByHopHeaders(headers: Headers): void {
   }
 }
 
+function getOllamaProxyValidationResponse(error: 'invalid_url' | 'blocked_url'): NextResponse<{ error: string }> {
+  return NextResponse.json(
+    { error: error === 'blocked_url' ? 'blocked_endpoint' : 'invalid_endpoint' },
+    { status: 400 },
+  )
+}
+
 async function handleProxy(
   request: NextRequest,
   { params }: { params: Promise<{ provider: string; path?: string[] | string }> }
@@ -106,6 +115,8 @@ async function handleProxy(
   let apiKey: string | null = null
   let allowExpiredGatewayTokenOpencodeFallback = false
   let credentialSource: ProviderUsageCredentialSource | null = null
+  let credentialAllowsMissingApiKey = false
+  let providerSecret: ProviderSecret | undefined
 
   if (token) {
     try {
@@ -174,18 +185,22 @@ async function handleProxy(
         return NextResponse.json({ error: 'unsupported_credential' }, { status: 501 })
       }
 
-      let secret: ReturnType<typeof decryptProviderSecret>
+      let secret: ProviderSecret
       try {
         secret = decryptProviderSecret(credential.secret)
       } catch {
         return NextResponse.json({ error: 'invalid_credentials' }, { status: 500 })
       }
+      providerSecret = secret
 
-      if (!('apiKey' in secret) || typeof secret.apiKey !== 'string' || !secret.apiKey.trim()) {
+      const credentialAuth = adapter.resolveCredentialAuth(secret)
+      if (!credentialAuth.ok) {
         return NextResponse.json({ error: 'unsupported_credential' }, { status: 501 })
       }
 
-      apiKey = secret.apiKey.trim()
+      apiKey = credentialAuth.apiKey
+      credentialAllowsMissingApiKey = credentialAuth.allowMissingApiKey
+
       credentialSource = effectiveCredential.source
       const credentialId = credential.id
       markCredentialLastUsedBestEffort({ credentialId, source: credentialSource })
@@ -195,11 +210,26 @@ async function handleProxy(
   const allowTokenAuthenticatedOpencodeWithoutCredential =
     providerId === 'opencode' && (Boolean(payload) || allowExpiredGatewayTokenOpencodeFallback)
 
-  if (!apiKey && !allowAnonymousOpencode && !allowTokenAuthenticatedOpencodeWithoutCredential) {
+  if (
+    !apiKey &&
+    !allowAnonymousOpencode &&
+    !allowTokenAuthenticatedOpencodeWithoutCredential &&
+    !credentialAllowsMissingApiKey
+  ) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
-  const upstreamUrl = buildUpstreamUrl(adapter.baseUrl(), pathSegments, new URL(request.url))
+  if (providerId === 'ollama') {
+    const validation = await validateOllamaProxyBaseUrl(providerSecret)
+    if (!validation.ok) {
+      return getOllamaProxyValidationResponse(validation.error)
+    }
+  }
+
+  const upstreamUrl = buildUpstreamUrl(adapter.baseUrl(providerSecret), pathSegments, new URL(request.url))
+  if (!upstreamUrl) {
+    return NextResponse.json({ error: 'invalid_path' }, { status: 400 })
+  }
 
   const headers = new Headers(request.headers)
   stripHopByHopHeaders(headers)
@@ -220,6 +250,10 @@ async function handleProxy(
   const init: RequestInit & { duplex?: 'half' } = {
     method: request.method,
     headers,
+  }
+
+  if (providerId === 'ollama') {
+    init.redirect = 'error'
   }
 
   const contentType = headers.get('content-type') ?? ''

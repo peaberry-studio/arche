@@ -97,9 +97,16 @@ describe('provider gateway adapters', () => {
   it('applies bearer auth headers and supports Opencode x-api-key fallback', () => {
     const openRouter = getProviderGatewayAdapter('openrouter')
     const opencode = getProviderGatewayAdapter('opencode')
+    const opencodeGo = getProviderGatewayAdapter('opencode-go')
     const headers = new Headers({ authorization: 'Bearer old-key' })
 
     expect(openRouter.baseUrl()).toBe('https://openrouter.ai/api/v1')
+    expect(openRouter.resolveCredentialAuth({ apiKey: ' provider-key ' })).toEqual({
+      ok: true,
+      allowMissingApiKey: false,
+      apiKey: 'provider-key',
+    })
+    expect(openRouter.resolveCredentialAuth({ apiKey: ' ' })).toEqual({ ok: false })
     expect(applyProviderAuthHeaders(headers, openRouter, null)).toBe(true)
     expect(headers.has('authorization')).toBe(false)
     expect(applyProviderAuthHeaders(headers, openRouter, 'new-key')).toBe(true)
@@ -107,6 +114,38 @@ describe('provider gateway adapters', () => {
 
     expect(opencode.baseUrl()).toBe('https://opencode.ai/zen/v1')
     expect(opencode.extractGatewayToken(new Headers({ 'x-api-key': 'gateway-key' }))).toBe('gateway-key')
+    expect(opencodeGo.baseUrl()).toBe('https://opencode.ai/zen/go/v1')
+  })
+
+  it('uses Ollama credential base URLs and optional bearer auth', () => {
+    const ollama = getProviderGatewayAdapter('ollama')
+    const localHeaders = new Headers({ authorization: 'Bearer gateway-token' })
+    const remoteHeaders = new Headers()
+
+    expect(ollama.baseUrl({
+      baseUrl: 'http://host.containers.internal:11434/v1',
+      discoveredAt: '2026-01-01T00:00:00.000Z',
+      mode: 'local',
+      models: [{ id: 'llama3.2', name: 'llama3.2' }],
+    })).toBe('http://host.containers.internal:11434/v1')
+    expect(ollama.resolveCredentialAuth({
+      baseUrl: 'http://host.containers.internal:11434/v1',
+      discoveredAt: '2026-01-01T00:00:00.000Z',
+      mode: 'local',
+      models: [{ id: 'llama3.2', name: 'llama3.2' }],
+    })).toEqual({ ok: true, allowMissingApiKey: true, apiKey: null })
+    expect(ollama.resolveCredentialAuth({
+      apiKey: ' remote-token ',
+      baseUrl: 'https://ollama.example.com/v1',
+      discoveredAt: '2026-01-01T00:00:00.000Z',
+      mode: 'remote',
+      models: [{ id: 'gpt-oss:20b-cloud', name: 'gpt-oss:20b-cloud' }],
+    })).toEqual({ ok: true, allowMissingApiKey: false, apiKey: 'remote-token' })
+    expect(applyProviderAuthHeaders(localHeaders, ollama, null)).toBe(true)
+    expect(localHeaders.has('authorization')).toBe(false)
+
+    expect(applyProviderAuthHeaders(remoteHeaders, ollama, 'remote-token')).toBe(true)
+    expect(remoteHeaders.get('authorization')).toBe('Bearer remote-token')
   })
 
   it('builds upstream URLs without duplicating the provider v1 prefix', () => {
@@ -118,5 +157,16 @@ describe('provider gateway adapters', () => {
       .toBe('https://api.openai.com/v1/models')
     expect(buildUpstreamUrl('https://api.openai.com/v1', undefined, new URL('https://arche.local/api?limit=1')))
       .toBe('https://api.openai.com/v1?limit=1')
+  })
+
+  it('rejects upstream URL path traversal segments', () => {
+    const requestUrl = new URL('https://arche.local/api/providers/openai/v1/../api/delete')
+
+    expect(buildUpstreamUrl('http://127.0.0.1:11434/v1', ['v1', '..', 'api', 'delete'], requestUrl))
+      .toBeNull()
+    expect(buildUpstreamUrl('http://127.0.0.1:11434/v1', ['v1', '%2e%2e', 'api', 'delete'], requestUrl))
+      .toBeNull()
+    expect(buildUpstreamUrl('http://127.0.0.1:11434/v1', ['v1', 'chat%2fcompletions'], requestUrl))
+      .toBeNull()
   })
 })

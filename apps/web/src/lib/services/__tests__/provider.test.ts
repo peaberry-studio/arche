@@ -134,7 +134,7 @@ describe('providerService', () => {
       expect(mockPrisma.providerCredential.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { userId: 'u1', providerId: { in: ['openai', 'anthropic'] } },
-          select: { providerId: true, status: true, type: true, version: true },
+          select: { id: true, providerId: true, secret: true, status: true, type: true, version: true },
           orderBy: { version: 'desc' },
         }),
       )
@@ -155,7 +155,7 @@ describe('providerService', () => {
       expect(mockPrisma.organizationProviderCredential.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { providerId: { in: ['openai', 'anthropic'] } },
-          select: { id: true, providerId: true, status: true, type: true, version: true, lastUsedAt: true },
+          select: { id: true, providerId: true, secret: true, status: true, type: true, version: true, lastUsedAt: true },
           orderBy: { version: 'desc' },
         }),
       )

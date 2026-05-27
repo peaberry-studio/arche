@@ -16,10 +16,10 @@ import {
   getCanonicalProviderId,
   getProviderLabel,
   normalizeProviderId,
+  providerRequiresCredential,
   resolveRuntimeProviderId,
 } from "@/lib/providers/catalog";
 import { getEnabledProviderIdsForUser } from "@/lib/providers/store";
-import type { ProviderId } from "@/lib/providers/types";
 import { getSession } from "@/lib/runtime/session";
 import { flowService, instanceService, messageRunService, slackService, userService } from "@/lib/services";
 import { decryptPassword } from "@/lib/spawner/crypto";
@@ -29,13 +29,6 @@ import {
   isHiddenWorkspacePath,
   isProtectedWorkspacePath,
 } from "@/lib/workspace-paths";
-
-const CREDENTIAL_REQUIRED_PROVIDER_IDS = new Set<ProviderId>([
-  "openai",
-  "anthropic",
-  "fireworks",
-  "openrouter",
-]);
 
 function isFreeOpencodeModel(model: unknown): boolean {
   if (!model || typeof model !== "object" || Array.isArray(model)) {
@@ -1181,7 +1174,7 @@ export async function listModelsAction(slug: string): Promise<{
       // an Arche-managed API credential.
       if (
         canonicalProviderId &&
-        CREDENTIAL_REQUIRED_PROVIDER_IDS.has(canonicalProviderId) &&
+        providerRequiresCredential(canonicalProviderId) &&
         !enabledProviderIds.has(canonicalProviderId)
       ) {
         continue;

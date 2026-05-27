@@ -18,50 +18,54 @@ const mocks = vi.hoisted(() => ({
   validateSameOrigin: vi.fn(() => ({ ok: true })),
 }))
 
-vi.mock('@/lib/runtime/capabilities', () => ({ getRuntimeCapabilities: mocks.getRuntimeCapabilities }))
-vi.mock('@/lib/runtime/mode', () => ({ isDesktop: mocks.isDesktop }))
-vi.mock('@/lib/runtime/session', () => ({ getSession: mocks.getSession }))
 vi.mock('@/lib/csrf', () => ({ validateSameOrigin: mocks.validateSameOrigin }))
+vi.mock('@/lib/runtime/capabilities', () => ({ getRuntimeCapabilities: mocks.getRuntimeCapabilities }))
 vi.mock('@/lib/runtime/desktop/token', () => ({
   DESKTOP_TOKEN_HEADER: 'x-arche-desktop-token',
   validateDesktopToken: mocks.validateDesktopToken,
 }))
+vi.mock('@/lib/runtime/mode', () => ({ isDesktop: mocks.isDesktop }))
+vi.mock('@/lib/runtime/session', () => ({ getSession: mocks.getSession }))
 vi.mock('@/lib/services', () => ({
   providerUsageService: mocks.providerUsageService,
   usageDashboardService: mocks.usageDashboardService,
 }))
 
-import { GET as GET_AUDIT } from '../audit/route'
-import { GET as GET_PROVIDERS } from '../providers/route'
-import { GET as GET_SESSIONS } from '../sessions/route'
-import { GET as GET_SUMMARY } from '../summary/route'
-import { GET as GET_USERS } from '../users/route'
-
-const ADMIN_SESSION = {
-  sessionId: 'session-1',
-  user: { email: 'admin@example.com', id: 'admin-1', role: 'ADMIN', slug: 'admin' },
-}
-
-const USER_SESSION = {
-  sessionId: 'session-2',
-  user: { email: 'user@example.com', id: 'user-1', role: 'USER', slug: 'admin' },
-}
+import { GET as getAudit } from '../audit/route'
+import { GET as getProviders } from '../providers/route'
+import { GET as getSessions } from '../sessions/route'
+import { GET as getSummary } from '../summary/route'
+import { GET as getUsers } from '../users/route'
 
 type UsageRouteHandler = (
   request: NextRequest,
   context: { params: Promise<{ slug: string }> },
 ) => Promise<Response>
 
-function request(path: string): NextRequest {
-  return new NextRequest(`http://localhost/api/u/admin/usage/${path}`, { method: 'GET' })
+const ADMIN_SESSION = {
+  sessionId: 'session-admin',
+  user: { email: 'admin@test.com', id: 'admin-1', role: 'ADMIN', slug: 'admin' },
 }
 
-function params() {
+const USER_SESSION = {
+  sessionId: 'session-user',
+  user: { email: 'user@test.com', id: 'user-1', role: 'USER', slug: 'admin' },
+}
+
+function requestFor(path: string, query = ''): NextRequest {
+  return new NextRequest(`http://localhost/api/u/admin/usage/${path}${query}`, { method: 'GET' })
+}
+
+function routeParams() {
   return { params: Promise.resolve({ slug: 'admin' }) }
 }
 
-async function readJson(response: Response): Promise<unknown> {
-  return response.json()
+function expectDate(value: unknown, expected: string): void {
+  expect(value).toBeInstanceOf(Date)
+  if (!(value instanceof Date)) {
+    throw new Error('Expected Date')
+  }
+  expect(value.toISOString()).toBe(expected)
 }
 
 describe('usage API routes', () => {
@@ -77,27 +81,35 @@ describe('usage API routes', () => {
 
   it('rejects non-admin users for every usage route', async () => {
     mocks.getSession.mockResolvedValue(USER_SESSION)
-    const routes: UsageRouteHandler[] = [GET_AUDIT, GET_PROVIDERS, GET_SESSIONS, GET_SUMMARY, GET_USERS]
+    const routes: Array<{ handler: UsageRouteHandler; path: string }> = [
+      { handler: getAudit, path: 'audit' },
+      { handler: getProviders, path: 'providers' },
+      { handler: getSessions, path: 'sessions' },
+      { handler: getSummary, path: 'summary' },
+      { handler: getUsers, path: 'users' },
+    ]
 
     for (const route of routes) {
-      const response = await route(request('summary'), params())
-      await expect(readJson(response)).resolves.toEqual({ error: 'forbidden' })
+      const response = await route.handler(requestFor(route.path), routeParams())
+      await expect(response.json()).resolves.toEqual({ error: 'forbidden' })
       expect(response.status).toBe(403)
     }
   })
 
   it('returns provider usage data with parsed provider filters', async () => {
-    const query = 'from=2026-01-01T00%3A00%3A00.000Z&to=not-a-date&userId=user-1&providerId=openai&modelId=gpt-4o'
+    const query = '?from=2026-01-01T00:00:00.000Z&to=not-a-date&userId= user-1 &providerId=openai&modelId=gpt-4o'
 
-    const summary = await GET_SUMMARY(request(`summary?${query}`), params())
-    const providers = await GET_PROVIDERS(request(`providers?${query}`), params())
-    const users = await GET_USERS(request(`users?${query}`), params())
+    const summary = await getSummary(requestFor('summary', query), routeParams())
+    const providers = await getProviders(requestFor('providers', query), routeParams())
+    const users = await getUsers(requestFor('users', query), routeParams())
 
-    await expect(readJson(summary)).resolves.toEqual({ summary: { requests: 3 } })
-    await expect(readJson(providers)).resolves.toEqual({ providers: [{ providerId: 'openai' }] })
-    await expect(readJson(users)).resolves.toEqual({ users: [{ userId: 'user-1' }] })
-    expect(mocks.providerUsageService.getProviderUsageSummary).toHaveBeenCalledWith({
-      from: new Date('2026-01-01T00:00:00.000Z'),
+    await expect(summary.json()).resolves.toEqual({ summary: { requests: 3 } })
+    await expect(providers.json()).resolves.toEqual({ providers: [{ providerId: 'openai' }] })
+    await expect(users.json()).resolves.toEqual({ users: [{ userId: 'user-1' }] })
+
+    const summaryFilters = mocks.providerUsageService.getProviderUsageSummary.mock.calls[0]?.[0]
+    expectDate(summaryFilters.from, '2026-01-01T00:00:00.000Z')
+    expect(summaryFilters).toMatchObject({
       modelId: 'gpt-4o',
       providerId: 'openai',
       to: undefined,
@@ -108,24 +120,25 @@ describe('usage API routes', () => {
   })
 
   it('returns session and audit data with parsed dashboard filters', async () => {
-    const sessionQuery = 'from=bad-date&to=2026-02-01T00%3A00%3A00.000Z&userId=%20%20'
+    const sessionQuery = '?from=bad-date&to=2026-02-01T00:00:00.000Z&userId=%20%20'
     const auditQuery = `${sessionQuery}&providerId=anthropic&modelId=claude`
 
-    const sessions = await GET_SESSIONS(request(`sessions?${sessionQuery}`), params())
-    const audit = await GET_AUDIT(request(`audit?${auditQuery}`), params())
+    const sessions = await getSessions(requestFor('sessions', sessionQuery), routeParams())
+    const audit = await getAudit(requestFor('audit', auditQuery), routeParams())
 
-    await expect(readJson(sessions)).resolves.toEqual({ sessions: [{ sessionId: 'session-1' }] })
-    await expect(readJson(audit)).resolves.toEqual({ auditEvents: [{ id: 'audit-1' }] })
-    expect(mocks.usageDashboardService.listUsageSessions).toHaveBeenCalledWith({
-      from: undefined,
-      to: new Date('2026-02-01T00:00:00.000Z'),
-      userId: undefined,
-    })
-    expect(mocks.usageDashboardService.listUsageAuditEvents).toHaveBeenCalledWith({
+    await expect(sessions.json()).resolves.toEqual({ sessions: [{ sessionId: 'session-1' }] })
+    await expect(audit.json()).resolves.toEqual({ auditEvents: [{ id: 'audit-1' }] })
+
+    const sessionFilters = mocks.usageDashboardService.listUsageSessions.mock.calls[0]?.[0]
+    expectDate(sessionFilters.to, '2026-02-01T00:00:00.000Z')
+    expect(sessionFilters).toMatchObject({ from: undefined, userId: undefined })
+
+    const auditFilters = mocks.usageDashboardService.listUsageAuditEvents.mock.calls[0]?.[0]
+    expectDate(auditFilters.to, '2026-02-01T00:00:00.000Z')
+    expect(auditFilters).toMatchObject({
       from: undefined,
       modelId: 'claude',
       providerId: 'anthropic',
-      to: new Date('2026-02-01T00:00:00.000Z'),
       userId: undefined,
     })
   })
