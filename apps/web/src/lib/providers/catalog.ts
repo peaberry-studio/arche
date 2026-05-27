@@ -7,6 +7,9 @@ type ProviderMetadata = {
 }
 
 type ProviderRuntimeConfig = {
+  models?: Record<string, { name?: string }>
+  name?: string
+  npm?: string
   options: {
     baseURL: string
   }
@@ -37,6 +40,16 @@ const PROVIDER_METADATA: Record<ProviderId, ProviderMetadata> = {
     label: 'OpenCode Zen',
     runtimeId: 'opencode',
     gatewayPath: 'opencode',
+  },
+  'opencode-go': {
+    label: 'OpenCode Go',
+    runtimeId: 'opencode-go',
+    gatewayPath: 'opencode-go',
+  },
+  ollama: {
+    label: 'Ollama',
+    runtimeId: 'ollama',
+    gatewayPath: 'ollama',
   },
 }
 
@@ -103,6 +116,7 @@ export function buildProviderGatewayConfig(gatewayRoot: string): {
     const baseURL = `${normalizedGatewayRoot}/${getProviderGatewayPath(providerId)}`
     for (const runtimeProviderId of getRuntimeConfigProviderIds(providerId)) {
       provider[runtimeProviderId] = {
+        ...(providerId === 'ollama' ? { name: 'Ollama', npm: '@ai-sdk/openai-compatible' } : {}),
         options: { baseURL },
       }
     }

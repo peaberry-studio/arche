@@ -211,4 +211,85 @@ describe('ProviderCredentialsPanel', () => {
     })
     expect(await screen.findByText('Inherited')).toBeTruthy()
   })
+
+  it('detects local Ollama and shows discovered models', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ providers: [{ providerId: 'ollama', status: 'missing' }] }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({}) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          providers: [{
+            details: {
+              baseUrl: 'http://127.0.0.1:11434/v1',
+              discoveredAt: '2026-05-27T00:00:00.000Z',
+              mode: 'local',
+              models: [{ id: 'llama3.2', name: 'llama3.2' }],
+            },
+            providerId: 'ollama',
+            source: 'user',
+            status: 'enabled',
+            version: 1,
+          }],
+        }),
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<ProviderCredentialsPanel slug="local" />)
+
+    expect(await screen.findByText('Ollama')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Enable' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Detect Ollama' }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/u/local/providers/ollama', {
+        body: JSON.stringify({ mode: 'local' }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      })
+    })
+    expect(await screen.findByText(/1 model discovered: llama3.2/)).toBeTruthy()
+  })
+
+  it('saves remote Ollama settings with token auth', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ providers: [{ providerId: 'ollama', status: 'missing' }] }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({}) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ providers: [{ providerId: 'ollama', source: 'user', status: 'enabled', version: 1 }] }),
+      })
+
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<ProviderCredentialsPanel slug="local" />)
+
+    expect(await screen.findByText('Ollama')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Enable' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Remote' }))
+    fireEvent.change(screen.getByPlaceholderText('https://ollama.example.com/v1'), {
+      target: { value: 'https://ollama.example.com/v1' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('Bearer token'), { target: { value: 'ollama-token' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Set key' }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/u/local/providers/ollama', {
+        body: JSON.stringify({
+          baseUrl: 'https://ollama.example.com/v1',
+          mode: 'remote',
+          token: 'ollama-token',
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      })
+    })
+  })
 })

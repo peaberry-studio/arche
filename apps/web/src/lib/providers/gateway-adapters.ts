@@ -1,6 +1,7 @@
 import { getE2eFakeProviderUrl } from '@/lib/e2e/runtime'
+import { getOllamaBaseUrlFromSecret } from '@/lib/providers/ollama'
 
-import type { ProviderId } from './types'
+import type { ProviderId, ProviderSecret } from './types'
 
 type ProviderAuthScheme = 'bearer' | 'x-api-key'
 
@@ -12,7 +13,7 @@ type ProviderRequestContext = {
 
 export type ProviderGatewayAdapter = {
   authScheme: ProviderAuthScheme
-  baseUrl: () => string
+  baseUrl: (secret?: ProviderSecret) => string
   defaultHeaders?: Record<string, string>
   extractGatewayToken: (headers: Headers) => string | null
   maxFetchAttempts: (context: ProviderRequestContext) => number
@@ -28,6 +29,8 @@ const PROVIDER_BASE_URL: Record<ProviderId, string> = {
   fireworks: 'https://api.fireworks.ai/inference/v1',
   openrouter: 'https://openrouter.ai/api/v1',
   opencode: 'https://opencode.ai/zen/v1',
+  'opencode-go': 'https://opencode.ai/zen/go/v1',
+  ollama: 'http://127.0.0.1:11434/v1',
 }
 
 const DEFAULT_PROVIDER_ADAPTER: Omit<ProviderGatewayAdapter, 'authScheme' | 'baseUrl' | 'extractGatewayToken'> = {
@@ -60,6 +63,10 @@ function openAiBaseUrl(): string {
 
 function staticBaseUrl(providerId: ProviderId): () => string {
   return () => PROVIDER_BASE_URL[providerId]
+}
+
+function ollamaBaseUrl(secret?: ProviderSecret): string {
+  return getOllamaBaseUrlFromSecret(secret) ?? PROVIDER_BASE_URL.ollama
 }
 
 function normalizeOpenAiResponsesPayload(payload: unknown): unknown {
@@ -198,6 +205,18 @@ const PROVIDER_ADAPTERS: Record<ProviderId, ProviderGatewayAdapter> = {
     authScheme: 'bearer',
     baseUrl: staticBaseUrl('opencode'),
     extractGatewayToken: extractOpencodeGatewayToken,
+  },
+  'opencode-go': {
+    ...DEFAULT_PROVIDER_ADAPTER,
+    authScheme: 'bearer',
+    baseUrl: staticBaseUrl('opencode-go'),
+    extractGatewayToken: extractBearerToken,
+  },
+  ollama: {
+    ...DEFAULT_PROVIDER_ADAPTER,
+    authScheme: 'bearer',
+    baseUrl: ollamaBaseUrl,
+    extractGatewayToken: extractBearerToken,
   },
 }
 

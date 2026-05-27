@@ -7,6 +7,7 @@ import type {
   ProviderCredentialSource,
 } from './credentials'
 import { PROVIDERS, type ProviderId } from './types'
+import type { ProviderSecret } from './types'
 
 export type { EffectiveProviderCredential, ProviderCredentialRecord, ProviderCredentialSource } from './credentials'
 
@@ -24,8 +25,16 @@ export type ReplaceApiCredentialInput = {
   apiKey: string
 }
 
-export async function replaceApiCredential(input: ReplaceApiCredentialInput): Promise<ProviderCredentialRecord> {
-  const secret = encryptProviderSecret({ apiKey: input.apiKey })
+export type ReplaceProviderCredentialInput = {
+  userId: string
+  providerId: ProviderId
+  secret: ProviderSecret
+}
+
+export async function replaceProviderCredential(
+  input: ReplaceProviderCredentialInput,
+): Promise<ProviderCredentialRecord> {
+  const secret = encryptProviderSecret(input.secret)
   return providerService.replaceCredential({
     userId: input.userId,
     providerId: input.providerId,
@@ -34,19 +43,41 @@ export async function replaceApiCredential(input: ReplaceApiCredentialInput): Pr
   })
 }
 
+export async function replaceApiCredential(input: ReplaceApiCredentialInput): Promise<ProviderCredentialRecord> {
+  return replaceProviderCredential({
+    userId: input.userId,
+    providerId: input.providerId,
+    secret: { apiKey: input.apiKey },
+  })
+}
+
 export type ReplaceOrganizationApiCredentialInput = {
   providerId: ProviderId
   apiKey: string
 }
 
-export async function replaceOrganizationApiCredential(
-  input: ReplaceOrganizationApiCredentialInput,
+export type ReplaceOrganizationProviderCredentialInput = {
+  providerId: ProviderId
+  secret: ProviderSecret
+}
+
+export async function replaceOrganizationProviderCredential(
+  input: ReplaceOrganizationProviderCredentialInput,
 ): Promise<ProviderCredentialRecord> {
-  const secret = encryptProviderSecret({ apiKey: input.apiKey })
+  const secret = encryptProviderSecret(input.secret)
   return providerService.replaceOrganizationCredential({
     providerId: input.providerId,
     type: 'api',
     secret,
+  })
+}
+
+export async function replaceOrganizationApiCredential(
+  input: ReplaceOrganizationApiCredentialInput,
+): Promise<ProviderCredentialRecord> {
+  return replaceOrganizationProviderCredential({
+    providerId: input.providerId,
+    secret: { apiKey: input.apiKey },
   })
 }
 
@@ -65,6 +96,12 @@ export async function getEffectiveCredentialForUser(
   input: ActiveCredentialInput,
 ): Promise<EffectiveProviderCredential> {
   return providerService.getEffectiveCredentialForUser(input)
+}
+
+export async function getActiveOrganizationCredential(
+  providerId: ProviderId,
+): Promise<ProviderCredentialRecord | null> {
+  return providerService.findActiveOrganizationCredential(providerId)
 }
 
 export async function getEnabledProviderCredentialsForUser(userId: string): Promise<EnabledProviderCredentials> {

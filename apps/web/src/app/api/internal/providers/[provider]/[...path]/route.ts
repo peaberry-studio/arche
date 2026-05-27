@@ -8,6 +8,7 @@ import {
   getProviderGatewayAdapter,
 } from '@/lib/providers/gateway-adapters'
 import { fetchWithRetry, getFetchErrorCode } from '@/lib/providers/gateway-fetch'
+import { isOllamaSecret } from '@/lib/providers/ollama'
 import {
   markCredentialLastUsedBestEffort,
   recordProviderGatewayRequestBestEffort,
@@ -17,6 +18,7 @@ import { verifyGatewayToken } from '@/lib/providers/tokens'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import type { ProviderUsageCredentialSource } from '@/lib/services/provider-usage'
+import type { ProviderSecret } from '@/lib/providers/types'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -106,6 +108,7 @@ async function handleProxy(
   let apiKey: string | null = null
   let allowExpiredGatewayTokenOpencodeFallback = false
   let credentialSource: ProviderUsageCredentialSource | null = null
+  let providerSecret: ProviderSecret | undefined
 
   if (token) {
     try {
@@ -174,18 +177,31 @@ async function handleProxy(
         return NextResponse.json({ error: 'unsupported_credential' }, { status: 501 })
       }
 
-      let secret: ReturnType<typeof decryptProviderSecret>
+      let secret: ProviderSecret
       try {
         secret = decryptProviderSecret(credential.secret)
       } catch {
         return NextResponse.json({ error: 'invalid_credentials' }, { status: 500 })
       }
+      providerSecret = secret
 
-      if (!('apiKey' in secret) || typeof secret.apiKey !== 'string' || !secret.apiKey.trim()) {
-        return NextResponse.json({ error: 'unsupported_credential' }, { status: 501 })
+      if (providerId === 'ollama') {
+        if (!isOllamaSecret(secret)) {
+          return NextResponse.json({ error: 'unsupported_credential' }, { status: 501 })
+        }
+
+        apiKey = secret.mode === 'remote' ? secret.apiKey?.trim() ?? '' : null
+        if (secret.mode === 'remote' && !apiKey) {
+          return NextResponse.json({ error: 'unsupported_credential' }, { status: 501 })
+        }
+      } else {
+        if (!('apiKey' in secret) || typeof secret.apiKey !== 'string' || !secret.apiKey.trim()) {
+          return NextResponse.json({ error: 'unsupported_credential' }, { status: 501 })
+        }
+
+        apiKey = secret.apiKey.trim()
       }
 
-      apiKey = secret.apiKey.trim()
       credentialSource = effectiveCredential.source
       const credentialId = credential.id
       markCredentialLastUsedBestEffort({ credentialId, source: credentialSource })
@@ -194,12 +210,18 @@ async function handleProxy(
 
   const allowTokenAuthenticatedOpencodeWithoutCredential =
     providerId === 'opencode' && (Boolean(payload) || allowExpiredGatewayTokenOpencodeFallback)
+  const allowCredentialWithoutProviderApiKey = providerId === 'ollama' && Boolean(providerSecret)
 
-  if (!apiKey && !allowAnonymousOpencode && !allowTokenAuthenticatedOpencodeWithoutCredential) {
+  if (
+    !apiKey &&
+    !allowAnonymousOpencode &&
+    !allowTokenAuthenticatedOpencodeWithoutCredential &&
+    !allowCredentialWithoutProviderApiKey
+  ) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 
-  const upstreamUrl = buildUpstreamUrl(adapter.baseUrl(), pathSegments, new URL(request.url))
+  const upstreamUrl = buildUpstreamUrl(adapter.baseUrl(providerSecret), pathSegments, new URL(request.url))
 
   const headers = new Headers(request.headers)
   stripHopByHopHeaders(headers)

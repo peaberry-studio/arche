@@ -73,7 +73,7 @@ describe('syncProviderAccessForInstance', () => {
   it('calls provider auth endpoints for each enabled provider', async () => {
     const mockFetch = vi.mocked(globalThis.fetch)
 
-    // openai enabled, anthropic enabled, fireworks/openrouter disabled,
+    // openai enabled, anthropic enabled, fireworks/openrouter/opencode-go/ollama disabled,
     // opencode gets a gateway token even without a stored credential.
     mockGetEnabledCredentials.mockResolvedValue(enabledCredentials([
       ['openai', { credentialId: '1', source: 'user', version: 1 }],
@@ -101,9 +101,11 @@ describe('syncProviderAccessForInstance', () => {
     const deleteCalls = mockFetch.mock.calls.filter(
       (call) => (call[1] as RequestInit)?.method === 'DELETE',
     )
-    expect(deleteCalls).toHaveLength(2)
+    expect(deleteCalls).toHaveLength(4)
     expect(deleteCalls[0]![0]).toBe(`${fakeInstance.baseUrl}/auth/fireworks-ai`)
     expect(deleteCalls[1]![0]).toBe(`${fakeInstance.baseUrl}/auth/openrouter`)
+    expect(deleteCalls[2]![0]).toBe(`${fakeInstance.baseUrl}/auth/opencode-go`)
+    expect(deleteCalls[3]![0]).toBe(`${fakeInstance.baseUrl}/auth/ollama`)
 
     // Verify gateway tokens were issued for enabled providers
     expect(mockIssueToken).toHaveBeenCalledTimes(3)

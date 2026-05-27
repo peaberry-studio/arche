@@ -17,6 +17,8 @@ describe('providers catalog', () => {
 
   it('maps canonical provider ids to the runtime provider ids used by OpenCode', () => {
     expect(toRuntimeProviderId('fireworks')).toBe('fireworks-ai')
+    expect(toRuntimeProviderId('opencode-go')).toBe('opencode-go')
+    expect(toRuntimeProviderId('ollama')).toBe('ollama')
     expect(resolveRuntimeProviderId('fireworks')).toBe('fireworks-ai')
     expect(resolveRuntimeProviderId('fireworks-ai')).toBe('fireworks-ai')
     expect(resolveRuntimeProviderId('openai')).toBe('openai')
@@ -31,6 +33,14 @@ describe('providers catalog', () => {
     expect(config.provider['fireworks-ai']?.options.baseURL).toBe(
       'http://web:3000/api/internal/providers/fireworks',
     )
+    expect(config.provider['opencode-go']?.options.baseURL).toBe(
+      'http://web:3000/api/internal/providers/opencode-go',
+    )
+    expect(config.provider.ollama?.options.baseURL).toBe(
+      'http://web:3000/api/internal/providers/ollama',
+    )
     expect(getProviderLabel('fireworks-ai')).toBe('Fireworks AI')
+    expect(getProviderLabel('opencode-go')).toBe('OpenCode Go')
+    expect(getProviderLabel('ollama')).toBe('Ollama')
   })
 })

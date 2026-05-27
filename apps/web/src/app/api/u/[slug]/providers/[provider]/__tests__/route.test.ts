@@ -11,7 +11,11 @@ const mocks = vi.hoisted(() => ({
   getInstanceUrl: vi.fn(() => 'http://test:3000'),
   syncProviderAccessForInstance: vi.fn().mockResolvedValue({ ok: true }),
 
+  createOllamaProviderSecret: vi.fn(),
+  refreshOllamaProviderSecret: vi.fn(),
+
   replaceApiCredential: vi.fn().mockResolvedValue({ id: 'cred-1', type: 'api', version: 1 }),
+  replaceProviderCredential: vi.fn().mockResolvedValue({ id: 'cred-ollama', type: 'api', version: 1 }),
   replaceOrganizationApiCredential: vi.fn(),
 
   userService: {
@@ -41,9 +45,15 @@ vi.mock('@/lib/runtime/desktop/token', () => ({
 
 vi.mock('@/lib/opencode/client', () => ({ getInstanceUrl: mocks.getInstanceUrl }))
 vi.mock('@/lib/opencode/providers', () => ({ syncProviderAccessForInstance: mocks.syncProviderAccessForInstance }))
+vi.mock('@/lib/providers/ollama', () => ({
+  createOllamaProviderSecret: mocks.createOllamaProviderSecret,
+  isOllamaSecret: vi.fn(() => true),
+  refreshOllamaProviderSecret: mocks.refreshOllamaProviderSecret,
+}))
 vi.mock('@/lib/providers/store', () => ({
   replaceApiCredential: mocks.replaceApiCredential,
   replaceOrganizationApiCredential: mocks.replaceOrganizationApiCredential,
+  replaceProviderCredential: mocks.replaceProviderCredential,
 }))
 vi.mock('@/lib/spawner/crypto', () => ({ decryptPassword: mocks.decryptPassword }))
 vi.mock('@/lib/services', () => ({
@@ -74,6 +84,16 @@ describe('/api/u/[slug]/providers/[provider]', () => {
     mocks.providerService.clearWorkspaceRestartRequired.mockResolvedValue(undefined)
     mocks.syncProviderAccessForInstance.mockResolvedValue({ ok: true })
     mocks.replaceApiCredential.mockResolvedValue({ id: 'cred-1', type: 'api', version: 1 })
+    mocks.replaceProviderCredential.mockResolvedValue({ id: 'cred-ollama', type: 'api', version: 1 })
+    mocks.createOllamaProviderSecret.mockResolvedValue({
+      ok: true,
+      secret: {
+        baseUrl: 'http://127.0.0.1:11434/v1',
+        discoveredAt: '2026-05-27T00:00:00.000Z',
+        mode: 'local',
+        models: [{ id: 'llama3.2', name: 'llama3.2' }],
+      },
+    })
     mocks.auditEvent.mockResolvedValue(undefined)
   })
 
@@ -180,6 +200,34 @@ describe('/api/u/[slug]/providers/[provider]', () => {
       expect(res.status).toBe(201)
       const json = await res.json()
       expect(json.restartRequired).toBe(true)
+    })
+
+    it('creates an Ollama local credential only after successful discovery', async () => {
+      const res = await POST(makePostRequest('ollama', { mode: 'local' }), routeParams('admin', 'ollama'))
+
+      expect(res.status).toBe(201)
+      expect(mocks.createOllamaProviderSecret).toHaveBeenCalledWith({ mode: 'local' })
+      expect(mocks.replaceProviderCredential).toHaveBeenCalledWith({
+        providerId: 'ollama',
+        secret: {
+          baseUrl: 'http://127.0.0.1:11434/v1',
+          discoveredAt: '2026-05-27T00:00:00.000Z',
+          mode: 'local',
+          models: [{ id: 'llama3.2', name: 'llama3.2' }],
+        },
+        userId: 'u-1',
+      })
+    })
+
+    it('does not save an Ollama local credential when discovery fails', async () => {
+      mocks.createOllamaProviderSecret.mockResolvedValue({ ok: false, error: 'unavailable' })
+
+      const res = await POST(makePostRequest('ollama', { mode: 'local' }), routeParams('admin', 'ollama'))
+      const json = await res.json()
+
+      expect(res.status).toBe(400)
+      expect(json.error).toBe('ollama_discovery_failed')
+      expect(mocks.replaceProviderCredential).not.toHaveBeenCalled()
     })
   })
 

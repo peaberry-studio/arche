@@ -97,6 +97,7 @@ describe('provider gateway adapters', () => {
   it('applies bearer auth headers and supports Opencode x-api-key fallback', () => {
     const openRouter = getProviderGatewayAdapter('openrouter')
     const opencode = getProviderGatewayAdapter('opencode')
+    const opencodeGo = getProviderGatewayAdapter('opencode-go')
     const headers = new Headers({ authorization: 'Bearer old-key' })
 
     expect(openRouter.baseUrl()).toBe('https://openrouter.ai/api/v1')
@@ -107,6 +108,25 @@ describe('provider gateway adapters', () => {
 
     expect(opencode.baseUrl()).toBe('https://opencode.ai/zen/v1')
     expect(opencode.extractGatewayToken(new Headers({ 'x-api-key': 'gateway-key' }))).toBe('gateway-key')
+    expect(opencodeGo.baseUrl()).toBe('https://opencode.ai/zen/go/v1')
+  })
+
+  it('uses Ollama credential base URLs and optional bearer auth', () => {
+    const ollama = getProviderGatewayAdapter('ollama')
+    const localHeaders = new Headers({ authorization: 'Bearer gateway-token' })
+    const remoteHeaders = new Headers()
+
+    expect(ollama.baseUrl({
+      baseUrl: 'http://host.containers.internal:11434/v1',
+      discoveredAt: '2026-01-01T00:00:00.000Z',
+      mode: 'local',
+      models: [{ id: 'llama3.2', name: 'llama3.2' }],
+    })).toBe('http://host.containers.internal:11434/v1')
+    expect(applyProviderAuthHeaders(localHeaders, ollama, null)).toBe(true)
+    expect(localHeaders.has('authorization')).toBe(false)
+
+    expect(applyProviderAuthHeaders(remoteHeaders, ollama, 'remote-token')).toBe(true)
+    expect(remoteHeaders.get('authorization')).toBe('Bearer remote-token')
   })
 
   it('builds upstream URLs without duplicating the provider v1 prefix', () => {

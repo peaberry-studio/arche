@@ -88,8 +88,10 @@ describe('GET /api/u/[slug]/organization-providers', () => {
       'fireworks',
       'openrouter',
       'opencode',
+      'opencode-go',
+      'ollama',
     ])
-    expect(body.providers).toHaveLength(5)
+    expect(body.providers).toHaveLength(7)
     expect(body.providers.find((provider: { providerId: string }) => provider.providerId === 'openai')).toEqual({
       id: 'cred-openai-current',
       lastUsedAt: '2026-05-01T12:00:00.000Z',

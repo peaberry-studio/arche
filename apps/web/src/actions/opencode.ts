@@ -35,6 +35,8 @@ const CREDENTIAL_REQUIRED_PROVIDER_IDS = new Set<ProviderId>([
   "anthropic",
   "fireworks",
   "openrouter",
+  "opencode-go",
+  "ollama",
 ]);
 
 function isFreeOpencodeModel(model: unknown): boolean {

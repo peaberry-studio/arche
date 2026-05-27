@@ -54,6 +54,20 @@ const providersResponse = {
           'scene-paid': { name: 'Scene Paid', cost: { input: 1, output: 1 } },
         },
       },
+      {
+        id: 'opencode-go',
+        name: 'OpenCode Go',
+        models: {
+          'go-model': { name: 'Go Model' },
+        },
+      },
+      {
+        id: 'ollama',
+        name: 'Ollama',
+        models: {
+          'llama3.2': { name: 'Llama 3.2' },
+        },
+      },
     ],
     default: {
       openai: 'gpt-5.2',
@@ -94,12 +108,10 @@ describe('listModelsAction', () => {
         expect.objectContaining({ providerId: 'opencode', modelId: 'scene-free' }),
       ]),
     )
-    expect(result.models).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ providerId: 'openai', modelId: 'gpt-5.2' }),
-        expect.objectContaining({ providerId: 'opencode', modelId: 'scene-paid' }),
-      ]),
-    )
+    expect(result.models).not.toEqual(expect.arrayContaining([expect.objectContaining({ providerId: 'openai', modelId: 'gpt-5.2' })]))
+    expect(result.models).not.toEqual(expect.arrayContaining([expect.objectContaining({ providerId: 'opencode-go', modelId: 'go-model' })]))
+    expect(result.models).not.toEqual(expect.arrayContaining([expect.objectContaining({ providerId: 'ollama', modelId: 'llama3.2' })]))
+    expect(result.models).not.toEqual(expect.arrayContaining([expect.objectContaining({ providerId: 'opencode', modelId: 'scene-paid' })]))
   })
 
   it('keeps paid providers gated behind active credentials', async () => {
@@ -132,6 +144,26 @@ describe('listModelsAction', () => {
       expect.arrayContaining([
         expect.objectContaining({ providerId: 'opencode', modelId: 'scene-free' }),
         expect.objectContaining({ providerId: 'opencode', modelId: 'scene-paid' }),
+      ]),
+    )
+  })
+
+  it('includes OpenCode Go and Ollama only when credentials are configured', async () => {
+    mockGetEnabledProviderIdsForUser.mockResolvedValue(enabledProviders('opencode-go', 'ollama'))
+
+    const result = await listModelsAction('alice')
+
+    expect(result.ok).toBe(true)
+    expect(result.models).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ providerId: 'opencode-go', modelId: 'go-model' }),
+        expect.objectContaining({ providerId: 'ollama', modelId: 'llama3.2' }),
+        expect.objectContaining({ providerId: 'opencode', modelId: 'scene-free' }),
+      ]),
+    )
+    expect(result.models).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ providerId: 'openai', modelId: 'gpt-5.2' }),
       ]),
     )
   })
