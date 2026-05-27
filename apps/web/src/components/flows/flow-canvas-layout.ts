@@ -48,6 +48,7 @@ function clampToRange(value: number, min: number, max: number): number {
 export function getFlowAddMenuPosition(
   anchor: FlowAddMenuAnchor,
   bounds: FlowCanvasVisibleBounds | null,
+  optionCount = FLOW_CANVAS_NODE_TYPE_OPTIONS.length,
 ): FlowAddMenuPosition {
   if (!bounds) {
     return { x: FLOW_ADD_MENU_DEFAULT_X, y: FLOW_ADD_MENU_DEFAULT_Y }
@@ -59,7 +60,7 @@ export function getFlowAddMenuPosition(
   const preferredX = FLOW_ADD_MENU_DEFAULT_X > maxX ? preferredLeftX : FLOW_ADD_MENU_DEFAULT_X
 
   const minY = bounds.top + FLOW_ADD_MENU_MARGIN - anchor.y
-  const maxY = bounds.bottom - FLOW_ADD_MENU_MARGIN - FLOW_ADD_MENU_HEIGHT - anchor.y
+  const maxY = bounds.bottom - FLOW_ADD_MENU_MARGIN - getFlowAddMenuHeight(optionCount) - anchor.y
 
   return {
     x: clampToRange(preferredX, minX, maxX),

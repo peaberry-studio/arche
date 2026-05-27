@@ -32,8 +32,8 @@ function isReactElement<TProps>(element: ReactNode): element is ReactElement<TPr
 
 describe('RootLayout', () => {
   it('exports app metadata and viewport settings', () => {
-    expect(metadata.title).toBe('Archē')
-    expect(metadata.manifest).toBe('/site.webmanifest?v=2')
+    expect(metadata.title).toBe('Arche')
+    expect(metadata.manifest).toBe('/site.webmanifest?v=3')
     expect(viewport).toMatchObject({
       initialScale: 1,
       maximumScale: 1,

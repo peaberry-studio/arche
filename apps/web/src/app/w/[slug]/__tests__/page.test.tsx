@@ -29,6 +29,7 @@ const getRuntimeCapabilitiesMock = vi.hoisted(() => vi.fn())
 const getCurrentDesktopVaultMock = vi.hoisted(() => vi.fn())
 const getWorkspacePersistenceScopeMock = vi.hoisted(() => vi.fn())
 const isDesktopSettingsSectionMock = vi.hoisted(() => vi.fn())
+const isDesktopFlowsViewMock = vi.hoisted(() => vi.fn())
 const shouldUseCurrentMacOsInsetTitleBarMock = vi.hoisted(() => vi.fn())
 const isDesktopMock = vi.hoisted(() => vi.fn())
 const getSessionMock = vi.hoisted(() => vi.fn())
@@ -59,6 +60,12 @@ vi.mock('@/components/desktop/desktop-settings-dialog', () => ({
   ),
 }))
 
+vi.mock('@/components/desktop/desktop-flows-dialog', () => ({
+  DesktopFlowsDialog: ({ currentView, flowId }: { currentView: string | null; flowId: string | null }) => (
+    <div>Desktop flows: {currentView ?? 'none'} {flowId ?? 'none'}</div>
+  ),
+}))
+
 vi.mock('@/lib/flows/scheduler-bootstrap', () => ({
   ensureFlowSchedulerStarted: () => ensureFlowSchedulerStartedMock(),
 }))
@@ -74,6 +81,7 @@ vi.mock('@/lib/runtime/capabilities', () => ({
 vi.mock('@/lib/runtime/desktop/current-vault', () => ({
   getCurrentDesktopVault: () => getCurrentDesktopVaultMock(),
   getWorkspacePersistenceScope: (...args: unknown[]) => getWorkspacePersistenceScopeMock(...args),
+  isDesktopFlowsView: (...args: unknown[]) => isDesktopFlowsViewMock(...args),
   isDesktopSettingsSection: (...args: unknown[]) => isDesktopSettingsSectionMock(...args),
 }))
 
@@ -103,7 +111,7 @@ vi.mock('@/lib/workspace-panel-state', () => ({
   parseWorkspaceLayoutState: (...args: unknown[]) => parseWorkspaceLayoutStateMock(...args),
 }))
 
-function renderHostPage(search?: { mode?: string; path?: string; session?: string; settings?: string }) {
+function renderHostPage(search?: { flowId?: string; flows?: string; mode?: string; path?: string; session?: string; settings?: string }) {
   return WorkspaceHostPage({
     params: Promise.resolve({ slug: 'alice' }),
     searchParams: Promise.resolve(search ?? {}),
@@ -125,6 +133,7 @@ describe('WorkspaceHostPage', () => {
     getRuntimeCapabilitiesMock.mockReturnValue({ workspaceAgent: true, reaper: false })
     getCurrentDesktopVaultMock.mockReturnValue(null)
     getWorkspacePersistenceScopeMock.mockReturnValue('scope-alice')
+    isDesktopFlowsViewMock.mockImplementation((value) => ['edit', 'list', 'new', 'runs'].includes(value as string))
     isDesktopSettingsSectionMock.mockReturnValue(true)
     shouldUseCurrentMacOsInsetTitleBarMock.mockReturnValue(true)
     isDesktopMock.mockReturnValue(false)
@@ -189,5 +198,23 @@ describe('WorkspaceHostPage', () => {
     })
     expect(getWorkspacePersistenceScopeMock).toHaveBeenCalledWith('alice')
     expect(parseWorkspaceLayoutStateMock).toHaveBeenCalledWith('layout-cookie')
+  })
+
+  it('renders desktop flow dialog state from the workspace query string', async () => {
+    isDesktopMock.mockReturnValue(true)
+    getCurrentDesktopVaultMock.mockReturnValue({
+      vaultId: 'vault-1',
+      vaultName: 'Arche Vault',
+      vaultPath: '/tmp/arche',
+    })
+
+    render(await renderHostPage({
+      flowId: 'flow-1',
+      flows: 'runs',
+      settings: 'appearance',
+    }))
+
+    expect(screen.getByText('Desktop flows: runs flow-1')).toBeTruthy()
+    expect(screen.getByText('Desktop settings: none')).toBeTruthy()
   })
 })

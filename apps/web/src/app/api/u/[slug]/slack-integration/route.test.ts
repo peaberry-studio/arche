@@ -233,4 +233,201 @@ describe('/api/u/[slug]/slack-integration', () => {
     await expect(response.json()).resolves.toEqual({ error: 'cannot_reconnect_disabled' })
     expect(testSlackCredentialsMock).not.toHaveBeenCalled()
   })
+
+  it('returns agent option load errors before saving settings', async () => {
+    loadSlackAgentOptionsMock.mockResolvedValueOnce({ ok: false, error: 'kb_unavailable' })
+
+    const { PUT } = await import('./route')
+    const response = await PUT(
+      new Request('http://localhost/api/u/alice/slack-integration', {
+        body: JSON.stringify({ defaultAgentId: 'assistant', enabled: false }),
+        headers: { 'content-type': 'application/json' },
+        method: 'PUT',
+      }) as never,
+      { params: Promise.resolve({ slug: 'alice' }) },
+    )
+
+    expect(response.status).toBe(503)
+    await expect(response.json()).resolves.toEqual({ error: 'kb_unavailable' })
+    expect(saveIntegrationConfigMock).not.toHaveBeenCalled()
+  })
+
+  it('reports corrupted saved tokens when enabling without replacement tokens', async () => {
+    findIntegrationMock.mockResolvedValue({
+      appTokenSecret: null,
+      botTokenSecret: null,
+      configCorrupted: true,
+      createdAt: new Date(),
+      defaultAgentId: 'assistant',
+      enabled: false,
+      lastError: null,
+      lastEventAt: null,
+      lastSocketConnectedAt: null,
+      singletonKey: 'default',
+      slackAppId: null,
+      slackBotUserId: null,
+      slackTeamId: null,
+      updatedAt: new Date(),
+      version: 1,
+    })
+
+    const { PUT } = await import('./route')
+    const response = await PUT(
+      new Request('http://localhost/api/u/alice/slack-integration', {
+        body: JSON.stringify({ defaultAgentId: 'assistant', enabled: true }),
+        headers: { 'content-type': 'application/json' },
+        method: 'PUT',
+      }) as never,
+      { params: Promise.resolve({ slug: 'alice' }) },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: 'invalid_saved_tokens',
+      message: 'Saved Slack tokens are corrupted. Re-enter tokens and save.',
+    })
+  })
+
+  it('clears Slack identity fields when replacing tokens on a disabled integration', async () => {
+    const { PUT } = await import('./route')
+    const response = await PUT(
+      new Request('http://localhost/api/u/alice/slack-integration', {
+        body: JSON.stringify({ appToken: 'xapp-new', botToken: 'xoxb-new', defaultAgentId: null, enabled: false }),
+        headers: { 'content-type': 'application/json' },
+        method: 'PUT',
+      }) as never,
+      { params: Promise.resolve({ slug: 'alice' }) },
+    )
+
+    expect(response.status).toBe(200)
+    expect(saveIntegrationConfigMock).toHaveBeenCalledWith(expect.objectContaining({
+      slackAppId: null,
+      slackBotUserId: null,
+      slackTeamId: null,
+    }))
+    expect(testSlackCredentialsMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects invalid JSON and non-object bodies', async () => {
+    const { PUT } = await import('./route')
+    const invalidJson = await PUT(
+      new Request('http://localhost/api/u/alice/slack-integration', {
+        body: 'not json{',
+        headers: { 'content-type': 'application/json' },
+        method: 'PUT',
+      }) as never,
+      { params: Promise.resolve({ slug: 'alice' }) },
+    )
+    const invalidBody = await PUT(
+      new Request('http://localhost/api/u/alice/slack-integration', {
+        body: JSON.stringify(['not', 'an', 'object']),
+        headers: { 'content-type': 'application/json' },
+        method: 'PUT',
+      }) as never,
+      { params: Promise.resolve({ slug: 'alice' }) },
+    )
+
+    expect(invalidJson.status).toBe(400)
+    await expect(invalidJson.json()).resolves.toEqual({ error: 'invalid_json' })
+    expect(invalidBody.status).toBe(400)
+    await expect(invalidBody.json()).resolves.toEqual({ error: 'invalid_body' })
+  })
+
+  it('rethrows non-syntax JSON parse failures', async () => {
+    const { PUT } = await import('./route')
+    const request = {
+      json: vi.fn().mockRejectedValue(new Error('body stream failed')),
+    } as unknown as Request
+
+    await expect(PUT(request as never, { params: Promise.resolve({ slug: 'alice' }) })).rejects.toThrow(
+      'body stream failed',
+    )
+  })
+
+  it('rejects unknown agents and malformed tokens', async () => {
+    const { PUT } = await import('./route')
+    const unknownAgent = await PUT(
+      new Request('http://localhost/api/u/alice/slack-integration', {
+        body: JSON.stringify({ defaultAgentId: 'missing-agent' }),
+        headers: { 'content-type': 'application/json' },
+        method: 'PUT',
+      }) as never,
+      { params: Promise.resolve({ slug: 'alice' }) },
+    )
+    const invalidBotToken = await PUT(
+      new Request('http://localhost/api/u/alice/slack-integration', {
+        body: JSON.stringify({ botToken: 'bad-token', defaultAgentId: 'assistant' }),
+        headers: { 'content-type': 'application/json' },
+        method: 'PUT',
+      }) as never,
+      { params: Promise.resolve({ slug: 'alice' }) },
+    )
+    const invalidAppToken = await PUT(
+      new Request('http://localhost/api/u/alice/slack-integration', {
+        body: JSON.stringify({ appToken: 'bad-token', defaultAgentId: 'assistant' }),
+        headers: { 'content-type': 'application/json' },
+        method: 'PUT',
+      }) as never,
+      { params: Promise.resolve({ slug: 'alice' }) },
+    )
+
+    expect(unknownAgent.status).toBe(400)
+    await expect(unknownAgent.json()).resolves.toEqual({ error: 'unknown_agent' })
+    expect(invalidBotToken.status).toBe(400)
+    await expect(invalidBotToken.json()).resolves.toEqual({ error: 'invalid_bot_token', message: 'Bot token must start with xoxb-.' })
+    expect(invalidAppToken.status).toBe(400)
+    await expect(invalidAppToken.json()).resolves.toEqual({ error: 'invalid_app_token', message: 'App token must start with xapp-.' })
+  })
+
+  it('surfaces service user and Slack credential validation failures', async () => {
+    const { PUT } = await import('./route')
+    ensureSlackServiceUserMock.mockResolvedValueOnce({ ok: false, error: 'service_user_unavailable' })
+    const serviceUserFailure = await PUT(
+      new Request('http://localhost/api/u/alice/slack-integration', {
+        body: JSON.stringify({ defaultAgentId: 'assistant', enabled: true }),
+        headers: { 'content-type': 'application/json' },
+        method: 'PUT',
+      }) as never,
+      { params: Promise.resolve({ slug: 'alice' }) },
+    )
+    testSlackCredentialsMock.mockRejectedValueOnce(new Error('Slack auth failed'))
+    const credentialFailure = await PUT(
+      new Request('http://localhost/api/u/alice/slack-integration', {
+        body: JSON.stringify({ defaultAgentId: 'assistant', enabled: true }),
+        headers: { 'content-type': 'application/json' },
+        method: 'PUT',
+      }) as never,
+      { params: Promise.resolve({ slug: 'alice' }) },
+    )
+
+    expect(serviceUserFailure.status).toBe(409)
+    await expect(serviceUserFailure.json()).resolves.toEqual({ error: 'service_user_unavailable' })
+    expect(credentialFailure.status).toBe(400)
+    await expect(credentialFailure.json()).resolves.toEqual({ error: 'slack_test_failed', message: 'Slack auth failed' })
+  })
+
+  it('returns load errors after save or delete when settings cannot be reloaded', async () => {
+    const { DELETE, PUT } = await import('./route')
+    loadSlackAgentOptionsMock
+      .mockResolvedValueOnce({ agents: [{ displayName: 'Assistant', id: 'assistant', isPrimary: true }], ok: true, primaryAgentId: 'assistant' })
+      .mockResolvedValueOnce({ ok: false, error: 'kb_unavailable' })
+      .mockResolvedValueOnce({ ok: false, error: 'load_failed' })
+
+    const saveResponse = await PUT(
+      new Request('http://localhost/api/u/alice/slack-integration', {
+        body: JSON.stringify({ defaultAgentId: 'assistant', enabled: false }),
+        headers: { 'content-type': 'application/json' },
+        method: 'PUT',
+      }) as never,
+      { params: Promise.resolve({ slug: 'alice' }) },
+    )
+    const deleteResponse = await DELETE(new Request('http://localhost/api/u/alice/slack-integration', { method: 'DELETE' }) as never, {
+      params: Promise.resolve({ slug: 'alice' }),
+    })
+
+    expect(saveResponse.status).toBe(503)
+    await expect(saveResponse.json()).resolves.toEqual({ error: 'kb_unavailable' })
+    expect(deleteResponse.status).toBe(500)
+    await expect(deleteResponse.json()).resolves.toEqual({ error: 'load_failed' })
+  })
 })

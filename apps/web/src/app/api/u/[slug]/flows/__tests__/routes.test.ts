@@ -381,12 +381,13 @@ describe('Flow API routes', () => {
   })
 
   it('starts manual runs and maps busy responses', async () => {
-    mocks.triggerFlowNow.mockResolvedValueOnce({ ok: true }).mockResolvedValueOnce({ ok: false, error: 'flow_busy' })
+    mocks.triggerFlowNow.mockResolvedValueOnce({ ok: true, runId: 'run-1' }).mockResolvedValueOnce({ ok: false, error: 'flow_busy' })
 
     const accepted = await POST_RUN_FLOW(request('/api/u/alice/flows/flow-1/run', 'POST'), params({ id: 'flow-1', slug: 'alice' }))
     const busy = await POST_RUN_FLOW(request('/api/u/alice/flows/flow-1/run', 'POST'), params({ id: 'flow-1', slug: 'alice' }))
 
     expect(accepted.status).toBe(202)
+    await expect(accepted.json()).resolves.toEqual({ ok: true, runId: 'run-1' })
     expect(busy.status).toBe(409)
   })
 
@@ -399,7 +400,7 @@ describe('Flow API routes', () => {
     })
     mocks.getFlowConnectorRequirements.mockResolvedValue({ ok: true, requirements: [{ capabilityId: 'globalzendesk' }] })
     mocks.checkMissingConnectorRequirements.mockResolvedValue([])
-    mocks.triggerFlowNow.mockResolvedValue({ ok: true })
+    mocks.triggerFlowNow.mockResolvedValue({ ok: true, runId: 'run-1' })
 
     const response = await POST_RUN_FLOW(request('/api/u/alice/flows/flow-1/run', 'POST'), params({ id: 'flow-1', slug: 'alice' }))
 
@@ -420,7 +421,7 @@ describe('Flow API routes', () => {
     })
     mocks.getFlowConnectorRequirements.mockResolvedValue({ ok: true, requirements: [{ capabilityId: 'globalzendesk' }] })
     mocks.checkMissingConnectorRequirements.mockResolvedValue([])
-    mocks.triggerFlowNow.mockResolvedValue({ ok: true })
+    mocks.triggerFlowNow.mockResolvedValue({ ok: true, runId: 'run-1' })
 
     const response = await POST_RUN_FLOW(request('/api/u/alice/flows/flow-1/run', 'POST'), params({ id: 'flow-1', slug: 'alice' }))
 

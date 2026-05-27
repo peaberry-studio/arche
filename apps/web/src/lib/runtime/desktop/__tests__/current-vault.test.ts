@@ -10,9 +10,12 @@ vi.mock('@/lib/runtime/mode', () => ({
 
 import {
   getCurrentDesktopVault,
+  getDesktopFlowsHref,
   getWorkspacePersistenceScope,
   getDesktopWorkspaceHref,
+  isDesktopFlowsView,
   isDesktopSettingsSection,
+  DESKTOP_FLOWS_VIEWS,
   DESKTOP_SETTINGS_SECTIONS,
 } from '../current-vault'
 
@@ -38,6 +41,12 @@ describe('current-vault', () => {
         'appearance',
         'advanced',
       ])
+    })
+  })
+
+  describe('DESKTOP_FLOWS_VIEWS', () => {
+    it('contains expected views', () => {
+      expect(DESKTOP_FLOWS_VIEWS).toEqual(['list', 'new', 'edit', 'runs'])
     })
   })
 
@@ -146,6 +155,23 @@ describe('current-vault', () => {
       for (const section of DESKTOP_SETTINGS_SECTIONS) {
         expect(getDesktopWorkspaceHref('alice', section)).toBe(`/w/alice?settings=${section}`)
       }
+    })
+  })
+
+  describe('getDesktopFlowsHref', () => {
+    it('returns flow dialog list path', () => {
+      expect(getDesktopFlowsHref('alice', 'list')).toBe('/w/alice?flows=list')
+    })
+
+    it('includes flow id for detail views', () => {
+      expect(getDesktopFlowsHref('alice', 'runs', 'flow-1')).toBe('/w/alice?flows=runs&flowId=flow-1')
+    })
+  })
+
+  describe('isDesktopFlowsView', () => {
+    it('accepts known views only', () => {
+      expect(isDesktopFlowsView('list')).toBe(true)
+      expect(isDesktopFlowsView('settings')).toBe(false)
     })
   })
 })

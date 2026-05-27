@@ -10,7 +10,15 @@ export const DESKTOP_SETTINGS_SECTIONS = [
   'advanced',
 ] as const
 
+export const DESKTOP_FLOWS_VIEWS = [
+  'list',
+  'new',
+  'edit',
+  'runs',
+] as const
+
 export type DesktopSettingsSection = (typeof DESKTOP_SETTINGS_SECTIONS)[number]
+export type DesktopFlowsView = (typeof DESKTOP_FLOWS_VIEWS)[number]
 
 export type CurrentDesktopVault = {
   vaultId: string
@@ -25,6 +33,10 @@ function readDesktopEnv(name: string): string | null {
 
 export function isDesktopSettingsSection(value: string | null | undefined): value is DesktopSettingsSection {
   return DESKTOP_SETTINGS_SECTIONS.includes(value as DesktopSettingsSection)
+}
+
+export function isDesktopFlowsView(value: string | null | undefined): value is DesktopFlowsView {
+  return DESKTOP_FLOWS_VIEWS.includes(value as DesktopFlowsView)
 }
 
 export function getCurrentDesktopVault(): CurrentDesktopVault | null {
@@ -57,4 +69,14 @@ export function getDesktopWorkspaceHref(
   section?: DesktopSettingsSection | null,
 ): string {
   return getWorkspaceHref(slug, { settings: section })
+}
+
+export function getDesktopFlowsHref(
+  slug: string,
+  view: DesktopFlowsView,
+  flowId?: string | null,
+): string {
+  const params = new URLSearchParams({ flows: view })
+  if (flowId) params.set('flowId', flowId)
+  return `/w/${slug}?${params.toString()}`
 }

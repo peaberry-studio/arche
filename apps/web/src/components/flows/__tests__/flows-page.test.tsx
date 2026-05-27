@@ -70,7 +70,7 @@ describe('FlowsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     clientMocks.fetchFlowList.mockResolvedValue({ ok: true, data: { flows: [flow] } })
-    clientMocks.runFlowRequest.mockResolvedValue({ ok: true, data: { ok: true } })
+    clientMocks.runFlowRequest.mockResolvedValue({ ok: true, data: { ok: true, runId: 'run-1' } })
   })
 
   afterEach(() => {
@@ -157,13 +157,29 @@ describe('FlowsPage', () => {
     expect(screen.getByText('Waiting for human')).toBeTruthy()
   })
 
-  it('runs flows from the list', async () => {
+  it('runs flows from the web list and refreshes in place', async () => {
+    clientMocks.fetchFlowList
+      .mockResolvedValueOnce({ ok: true, data: { flows: [flow] } })
+      .mockResolvedValueOnce({ ok: true, data: { flows: [createFlow({ latestRun: createRun(FlowRunStatus.running) })] } })
+
     render(<FlowsPage slug="alice" />)
     await waitFor(() => expect(screen.getByText('Weekly Review')).toBeTruthy())
 
     fireEvent.click(screen.getByRole('button', { name: 'Run' }))
     await waitFor(() => expect(clientMocks.runFlowRequest).toHaveBeenCalledWith('alice', 'flow-1'))
-    expect(clientMocks.fetchFlowList).toHaveBeenCalledTimes(2)
+    await waitFor(() => expect(clientMocks.fetchFlowList).toHaveBeenCalledTimes(2))
+    expect(clientMocks.push).not.toHaveBeenCalled()
+    expect(screen.getByText('Running')).toBeTruthy()
+  })
+
+  it('runs flows from the desktop list and navigates to history', async () => {
+    render(<FlowsPage slug="alice" navigateToHistoryOnRun />)
+    await waitFor(() => expect(screen.getByText('Weekly Review')).toBeTruthy())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }))
+    await waitFor(() => expect(clientMocks.runFlowRequest).toHaveBeenCalledWith('alice', 'flow-1'))
+    expect(clientMocks.push).toHaveBeenCalledWith('/u/alice/flows/flow-1/runs')
+    expect(clientMocks.fetchFlowList).toHaveBeenCalledTimes(1)
   })
 
   it('shows action errors from run and network failures', async () => {

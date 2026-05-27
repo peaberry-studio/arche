@@ -18,7 +18,7 @@ describe('useFlowRunner', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     clientMocks.fetchFlowList.mockResolvedValue({ ok: true, data: { flows: [] } })
-    clientMocks.runFlowRequest.mockResolvedValue({ ok: true, data: { ok: true } })
+    clientMocks.runFlowRequest.mockResolvedValue({ ok: true, data: { ok: true, runId: 'run-1' } })
   })
 
   afterEach(() => cleanup())

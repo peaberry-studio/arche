@@ -10,7 +10,7 @@ import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { useWorkspace } from "@/hooks/use-workspace";
 import type { KnowledgeGraphAgentSource } from "@/lib/kb-graph";
 import type { WorkspaceFileNode, WorkspaceSession } from "@/lib/opencode/types";
-import { getDesktopWorkspaceHref } from '@/lib/runtime/desktop/current-vault'
+import { getDesktopFlowsHref, getDesktopWorkspaceHref } from "@/lib/runtime/desktop/current-vault";
 import {
   isProtectedWorkspacePath,
   normalizeWorkspacePath,
@@ -243,11 +243,7 @@ export function WorkspaceShell({
   const resolvedPersistenceScope = persistenceScope ?? slug;
   const layoutCookieName = getWorkspaceLayoutCookieName(resolvedPersistenceScope);
   const layoutStorageKey = getWorkspaceLayoutStorageKey(resolvedPersistenceScope);
-  const hasDesktopVault = Boolean(currentVault);
-  const availableInitialWorkspaceMode = hasDesktopVault && initialWorkspaceMode === "flows"
-    ? "chat"
-    : initialWorkspaceMode;
-  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(availableInitialWorkspaceMode);
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(initialWorkspaceMode);
   const isKnowledgeMode = workspaceMode === "knowledge";
   const isFlowsMode = workspaceMode === "flows";
   const lastSessionByModeRef = useRef<{ chat: string | null; flows: string | null }>({
@@ -657,7 +653,7 @@ export function WorkspaceShell({
 
   const handleWorkspaceModeChange = useCallback(
     (nextMode: WorkspaceMode) => {
-      const resolvedNextMode = hasDesktopVault && nextMode === "flows" ? "chat" : nextMode;
+      const resolvedNextMode = nextMode;
       const prevMode = workspaceMode;
       setWorkspaceMode(resolvedNextMode);
 
@@ -706,7 +702,7 @@ export function WorkspaceShell({
       const query = params.toString();
       window.history.replaceState(window.history.state, "", query ? `/w/${slug}?${query}` : `/w/${slug}`);
     },
-    [hasDesktopVault, isCompactLayout, sessionsById, slug, workspace, workspaceMode]
+    [isCompactLayout, sessionsById, slug, workspace, workspaceMode]
   );
 
   const handleCreateSession = useCallback(async () => {
@@ -1490,7 +1486,7 @@ export function WorkspaceShell({
         <div className="flex h-full flex-col p-3">
           {showInstanceHeader && (
             <div className="flex items-center gap-2 p-4">
-              <span className="type-display text-base font-semibold tracking-tight">Archē</span>
+              <span className="type-display text-base font-semibold tracking-tight">Arche</span>
               <span className="text-sm text-muted-foreground">/</span>
               <span className="text-sm text-muted-foreground">{slug}</span>
               <Circle size={8} weight="fill" className={cn(loadingStyle.color, loadingStyle.pulse && "animate-pulse")} />
@@ -1562,7 +1558,7 @@ export function WorkspaceShell({
         <div className="flex h-full flex-col p-3">
           {showConnectingHeader && (
             <div className="flex items-center gap-2 p-4">
-              <span className="type-display text-base font-semibold tracking-tight">Archē</span>
+              <span className="type-display text-base font-semibold tracking-tight">Arche</span>
               <span className="text-sm text-muted-foreground">/</span>
               <span className="text-sm text-muted-foreground">{slug}</span>
               <Circle size={8} weight="fill" className={cn(connectingStyle.color, connectingStyle.pulse && "animate-pulse")} />
@@ -1624,7 +1620,7 @@ export function WorkspaceShell({
   const flowsSettingsButton = !isCompactLayout && isFlowsMode ? (
     <button
       type="button"
-      onClick={() => router.push(`/u/${slug}/flows`)}
+      onClick={() => router.push(currentVault ? getDesktopFlowsHref(slug, 'list') : `/u/${slug}/flows`)}
       className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground/80 transition-colors hover:bg-foreground/5 hover:text-foreground"
       aria-label="Manage flows"
       title="Manage flows"
@@ -1884,7 +1880,7 @@ export function WorkspaceShell({
       <WorkspaceCommandPalette
         slug={slug}
         open={commandPaletteOpen}
-        hideFlows={hasDesktopVault}
+        hideFlows={false}
         onOpenChange={setCommandPaletteOpen}
         onCreateSession={handleCreateSession}
         onModeChange={handleWorkspaceModeChange}
@@ -1904,7 +1900,6 @@ export function WorkspaceShell({
         flowsUnreadCount={flowsUnreadCount}
         knowledgePendingCount={workspace.diffs.length}
         macDesktopWindowInset={macDesktopWindowInset}
-        hideFlowsMode={hasDesktopVault}
         onModeChange={handleWorkspaceModeChange}
         onNavigateConnectors={navigateConnectors}
         onNavigateProviders={navigateProviders}

@@ -186,7 +186,7 @@ export function WorkspaceTopNav({
         <div className="flex min-w-0 items-center" />
       ) : (
         <div className="hidden min-w-0 items-center sm:flex">
-          <span className="type-display truncate text-base font-semibold tracking-tight">Archē</span>
+          <span className="type-display truncate text-base font-semibold tracking-tight">Arche</span>
         </div>
       )}
 

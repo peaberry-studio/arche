@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { FlowRunHistoryView } from '@/components/flows/flow-run-history-view'
@@ -46,14 +46,28 @@ const flow: FlowDetail = {
   visibility: 'private',
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve
+    reject = promiseReject
+  })
+
+  return { promise, reject, resolve }
+}
+
 describe('FlowRunHistoryView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.fetchFlowDetail.mockResolvedValue({ ok: true, data: { flow } })
-    mocks.runFlowRequest.mockResolvedValue({ ok: true, data: { ok: true } })
+    mocks.runFlowRequest.mockResolvedValue({ ok: true, data: { ok: true, runId: 'run-1' } })
   })
 
-  afterEach(() => cleanup())
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
 
   it('loads a flow and renders its run history', async () => {
     render(<FlowRunHistoryView flowId="flow-1" slug="alice" />)
@@ -74,6 +88,74 @@ describe('FlowRunHistoryView', () => {
 
     await waitFor(() => expect(mocks.runFlowRequest).toHaveBeenCalledWith('alice', 'flow-1'))
     expect(mocks.fetchFlowDetail).toHaveBeenCalledTimes(2)
+  })
+
+  it('polls run history while a run is active', async () => {
+    vi.useFakeTimers()
+    const activeRun = {
+      attempt: 1,
+      currentNodeId: 'agent-1',
+      error: null,
+      executionUser: { slug: 'alice' },
+      executionUserId: 'user-1',
+      finishedAt: null,
+      flowId: 'flow-1',
+      id: 'run-1',
+      lastRetryError: null,
+      openCodeSessionId: null,
+      retryScheduledFor: null,
+      scheduledFor: '2026-05-12T10:00:00.000Z',
+      sessionTitle: null,
+      startedAt: '2026-05-12T10:00:00.000Z',
+      status: 'running' as const,
+      steps: [],
+      trigger: 'manual' as const,
+    }
+    mocks.fetchFlowDetail
+      .mockResolvedValueOnce({ ok: true, data: { flow: { ...flow, runs: [activeRun] } } })
+      .mockResolvedValueOnce({ ok: true, data: { flow: { ...flow, runs: [{ ...activeRun, finishedAt: '2026-05-12T10:01:00.000Z', status: 'succeeded' as const }] } } })
+
+    render(<FlowRunHistoryView flowId="flow-1" slug="alice" />)
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(screen.getByTestId('flow-history')).toBeTruthy()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000)
+    })
+
+    expect(mocks.fetchFlowDetail).toHaveBeenCalledTimes(2)
+  })
+
+  it('ignores stale flow loads after the flow id changes', async () => {
+    const firstLoad = createDeferred<{ ok: true; data: { flow: FlowDetail } }>()
+    const secondLoad = createDeferred<{ ok: true; data: { flow: FlowDetail } }>()
+    mocks.fetchFlowDetail
+      .mockReturnValueOnce(firstLoad.promise)
+      .mockReturnValueOnce(secondLoad.promise)
+
+    const { rerender } = render(<FlowRunHistoryView flowId="flow-1" slug="alice" />)
+    await waitFor(() => expect(mocks.fetchFlowDetail).toHaveBeenCalledWith('alice', 'flow-1'))
+
+    rerender(<FlowRunHistoryView flowId="flow-2" slug="alice" />)
+    await waitFor(() => expect(mocks.fetchFlowDetail).toHaveBeenCalledWith('alice', 'flow-2'))
+
+    await act(async () => {
+      secondLoad.resolve({ ok: true, data: { flow: { ...flow, id: 'flow-2', name: 'Fresh flow' } } })
+      await Promise.resolve()
+    })
+
+    expect(screen.getByText('Fresh flow')).toBeTruthy()
+
+    await act(async () => {
+      firstLoad.resolve({ ok: true, data: { flow: { ...flow, id: 'flow-1', name: 'Stale flow' } } })
+      await Promise.resolve()
+    })
+
+    expect(screen.queryByText('Stale flow')).toBeNull()
+    expect(screen.getByTestId('flow-history').dataset.flowId).toBe('flow-2')
   })
 
   it('shows load errors and retries', async () => {
@@ -111,7 +193,7 @@ describe('FlowRunHistoryView', () => {
     render(<FlowRunHistoryView flowId="flow-1" slug="alice" />)
     await screen.findByTestId('flow-history')
 
-    expect(screen.getByText('Missing connectors: slack.')).toBeTruthy()
+    expect(screen.getByText((_, element) => element?.textContent === 'Missing connectors: slack.')).toBeTruthy()
     expect(screen.getByRole('button', { name: /run flow/i })).toHaveProperty('disabled', true)
   })
 
