@@ -1,9 +1,12 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { DesktopFlowsDialog } from '@/components/desktop/desktop-flows-dialog'
+import { FLOW_TEMPLATE_FORMAT, type FlowTemplate } from '@/lib/flows/import-export'
+import { storeFlowTemplateDraft } from '@/lib/flows/template-session'
+import { createDefaultFlowDefinition } from '@/lib/flows/validation'
 
 const navigation = vi.hoisted(() => ({
   replace: vi.fn(),
@@ -41,6 +44,7 @@ vi.mock('@/components/flows/flow-editor', () => ({
     buildFlowHref,
     flowId,
     flowListHref,
+    initialTemplate,
     mode,
     slackIntegrationAvailable,
     teamVisibilityAvailable,
@@ -48,6 +52,7 @@ vi.mock('@/components/flows/flow-editor', () => ({
     buildFlowHref?: (flowId: string) => string
     flowId?: string
     flowListHref?: string
+    initialTemplate?: FlowTemplate
     mode: 'create' | 'edit'
     slackIntegrationAvailable?: boolean
     teamVisibilityAvailable?: boolean
@@ -60,6 +65,7 @@ vi.mock('@/components/flows/flow-editor', () => ({
       data-mode={mode}
       data-slack={String(slackIntegrationAvailable)}
       data-team={String(teamVisibilityAvailable)}
+      data-template-name={initialTemplate?.name ?? ''}
     />
   ),
 }))
@@ -70,10 +76,23 @@ vi.mock('@/components/flows/flow-run-history-view', () => ({
   ),
 }))
 
+function createTemplate(): FlowTemplate {
+  return {
+    cronExpression: null,
+    definition: createDefaultFlowDefinition(),
+    description: 'Imported desktop template',
+    enabled: false,
+    format: FLOW_TEMPLATE_FORMAT,
+    name: 'Imported desktop flow',
+    timezone: 'UTC',
+  }
+}
+
 describe('DesktopFlowsDialog', () => {
   beforeEach(() => {
     navigation.replace.mockReset()
     navigation.search = 'flows=list'
+    window.sessionStorage.clear()
   })
 
   afterEach(() => {
@@ -115,6 +134,15 @@ describe('DesktopFlowsDialog', () => {
     expect(editor.dataset.buildFlowHref).toBe('/w/local?flows=edit&flowId=created-flow')
     expect(editor.dataset.slack).toBe('true')
     expect(editor.dataset.team).toBe('true')
+  })
+
+  it('consumes stored template drafts when rendering the desktop create view', async () => {
+    storeFlowTemplateDraft(createTemplate())
+
+    render(<DesktopFlowsDialog slug="local" currentView="new" flowId={null} />)
+
+    await waitFor(() => expect(screen.getByTestId('flow-editor').dataset.templateName).toBe('Imported desktop flow'))
+    expect(window.sessionStorage.getItem('arche:flow-template')).toBeNull()
   })
 
   it('renders edit view with a run history link', () => {

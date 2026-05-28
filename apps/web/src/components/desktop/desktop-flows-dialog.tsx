@@ -8,6 +8,7 @@ import { ClockCounterClockwise, X } from '@phosphor-icons/react'
 import { FlowEditor } from '@/components/flows/flow-editor'
 import { FlowRunHistoryView } from '@/components/flows/flow-run-history-view'
 import { FlowsPage } from '@/components/flows/flows-page'
+import { NewFlowEditor } from '@/components/flows/new-flow-editor'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -126,9 +127,8 @@ export function DesktopFlowsDialog({
         return (
           <div className="space-y-8">
             {renderBackLink()}
-            <FlowEditor
+            <NewFlowEditor
               slug={slug}
-              mode="create"
               buildFlowHref={buildEditHref}
               flowListHref={listHref}
               slackIntegrationAvailable={slackIntegrationAvailable}

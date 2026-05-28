@@ -54,6 +54,8 @@ describe('NewFlowEditor', () => {
 
     await waitFor(() => expect(screen.getByTestId('flow-editor').textContent).toBe('Imported flow'))
     expect(mocks.flowEditorProps).toHaveBeenLastCalledWith({
+      buildFlowHref: undefined,
+      flowListHref: undefined,
       initialTemplate: template,
       mode: 'create',
       slackIntegrationAvailable: undefined,

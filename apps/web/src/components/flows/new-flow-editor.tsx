@@ -7,12 +7,20 @@ import type { FlowTemplate } from '@/lib/flows/import-export'
 import { consumeFlowTemplateDraft } from '@/lib/flows/template-session'
 
 type NewFlowEditorProps = {
+  buildFlowHref?: (flowId: string) => string
+  flowListHref?: string
   slackIntegrationAvailable?: boolean
   slug: string
   teamVisibilityAvailable?: boolean
 }
 
-export function NewFlowEditor({ slackIntegrationAvailable, slug, teamVisibilityAvailable }: NewFlowEditorProps) {
+export function NewFlowEditor({
+  buildFlowHref,
+  flowListHref,
+  slackIntegrationAvailable,
+  slug,
+  teamVisibilityAvailable,
+}: NewFlowEditorProps) {
   const consumedTemplateRef = useRef(false)
   const [initialTemplate, setInitialTemplate] = useState<FlowTemplate | null>(null)
 
@@ -27,6 +35,8 @@ export function NewFlowEditor({ slackIntegrationAvailable, slug, teamVisibilityA
     <FlowEditor
       slug={slug}
       mode="create"
+      buildFlowHref={buildFlowHref}
+      flowListHref={flowListHref}
       initialTemplate={initialTemplate ?? undefined}
       slackIntegrationAvailable={slackIntegrationAvailable}
       teamVisibilityAvailable={teamVisibilityAvailable}
