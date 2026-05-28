@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import {
   CaretDown,
   Cpu,
+  FolderOpen,
   GearSix,
   Minus,
   Moon,
@@ -11,6 +12,7 @@ import {
   Plugs,
   Plus,
   Sun,
+  Vault,
 } from '@phosphor-icons/react'
 
 import {
@@ -26,6 +28,7 @@ import { useWorkspaceTheme } from '@/contexts/workspace-theme-context'
 import type { SyncKbResult } from '@/app/api/instances/[slug]/sync-kb/route'
 import {
   getOptionalDesktopBridge,
+  type DesktopApiResult,
   type DesktopVaultSummary,
 } from '@/lib/runtime/desktop/client'
 import { cn } from '@/lib/utils'
@@ -47,16 +50,6 @@ type ProviderSummary = {
   status: 'enabled' | 'disabled' | 'missing'
   type?: string
   version?: number
-}
-
-type RecentVaultsState = {
-  vaultPath: string | null
-  vaults: DesktopVaultSummary[]
-}
-
-type VaultActionErrorState = {
-  vaultPath: string | null
-  error: string | null
 }
 
 function getVaultActionErrorMessage(error: string): string {
@@ -152,15 +145,12 @@ export function WorkspaceTopNav({
   const [providers, setProviders] = useState<ProviderSummary[]>([])
   const [isLoadingConnectors, setIsLoadingConnectors] = useState(true)
   const [isLoadingProviders, setIsLoadingProviders] = useState(true)
-  const [recentVaultsState, setRecentVaultsState] = useState<RecentVaultsState>({ vaultPath: null, vaults: [] })
-  const [vaultActionErrorState, setVaultActionErrorState] = useState<VaultActionErrorState>({
-    vaultPath: null,
-    error: null,
-  })
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false)
+  const [recentVaults, setRecentVaults] = useState<DesktopVaultSummary[]>([])
+  const [vaultActionError, setVaultActionError] = useState<string | null>(null)
   const themeOptions = themes ?? []
   const currentVaultPath = currentVault?.path ?? null
-  const recentVaults = recentVaultsState.vaultPath === currentVaultPath ? recentVaultsState.vaults : []
-  const vaultActionError = vaultActionErrorState.vaultPath === currentVaultPath ? vaultActionErrorState.error : null
+  const desktopBridge = currentVaultPath ? getOptionalDesktopBridge() : null
 
   useEffect(() => {
     let cancelled = false
@@ -199,78 +189,70 @@ export function WorkspaceTopNav({
 
   useEffect(() => {
     let cancelled = false
+    setRecentVaults([])
+    setVaultActionError(null)
 
-    if (!currentVaultPath) {
+    if (!currentVaultPath || !desktopBridge) {
       return () => {
         cancelled = true
       }
     }
 
-    const bridge = getOptionalDesktopBridge()
-    if (!bridge) {
-      return () => {
-        cancelled = true
-      }
-    }
-
-    void bridge
+    void desktopBridge
       .listRecentVaults()
       .then((vaults) => {
         if (!cancelled) {
-          setRecentVaultsState({
-            vaultPath: currentVaultPath,
-            vaults: vaults.filter((vault) => vault.path !== currentVaultPath),
-          })
+          setRecentVaults(vaults.filter((vault) => vault.path !== currentVaultPath))
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setRecentVaultsState({ vaultPath: currentVaultPath, vaults: [] })
+          setRecentVaults([])
         }
       })
 
     return () => {
       cancelled = true
     }
-  }, [currentVaultPath])
+  }, [currentVaultPath, desktopBridge])
+
+  function handleVaultActionResult(result: DesktopApiResult) {
+    const nextError = result.ok ? null : getVaultActionErrorMessage(result.error) || null
+    setVaultActionError(nextError)
+
+    if (result.ok || !nextError) {
+      setAccountMenuOpen(false)
+    }
+  }
 
   async function handleOpenVault(vaultPath: string) {
-    const bridge = getOptionalDesktopBridge()
-    if (!bridge) {
+    if (!desktopBridge) {
+      setVaultActionError('Desktop bridge is unavailable.')
       return
     }
 
-    const result = await bridge.openVault(vaultPath)
-    setVaultActionErrorState({
-      vaultPath: currentVaultPath,
-      error: result.ok ? null : getVaultActionErrorMessage(result.error) || null,
-    })
+    const result = await desktopBridge.openVault(vaultPath)
+    handleVaultActionResult(result)
   }
 
   async function handleOpenExistingVault() {
-    const bridge = getOptionalDesktopBridge()
-    if (!bridge) {
+    if (!desktopBridge) {
+      setVaultActionError('Desktop bridge is unavailable.')
       return
     }
 
-    const result = await bridge.openExistingVault()
-    setVaultActionErrorState({
-      vaultPath: currentVaultPath,
-      error: result.ok ? null : getVaultActionErrorMessage(result.error) || null,
-    })
+    const result = await desktopBridge.openExistingVault()
+    handleVaultActionResult(result)
   }
 
   async function handleCreateNewVault() {
-    const bridge = getOptionalDesktopBridge()
-    if (!bridge) {
+    if (!desktopBridge) {
+      setVaultActionError('Desktop bridge is unavailable.')
       return
     }
 
-    const result = await bridge.openVaultLauncher()
-    setVaultActionErrorState({
-      vaultPath: currentVaultPath,
-      error: result.ok ? null : getVaultActionErrorMessage(result.error) || null,
-    })
+    const result = await desktopBridge.openVaultLauncher()
+    handleVaultActionResult(result)
   }
 
   const activeConnectors = connectors.filter((connector) => connector.status === 'ready').length
@@ -317,7 +299,7 @@ export function WorkspaceTopNav({
       />
 
       <div className="flex min-w-0 justify-end">
-        <DropdownMenu>
+        <DropdownMenu open={accountMenuOpen} onOpenChange={setAccountMenuOpen}>
           <DropdownMenuTrigger asChild>
             <button
               type="button"
@@ -354,8 +336,9 @@ export function WorkspaceTopNav({
                           event.preventDefault()
                           void handleOpenVault(vault.path)
                         }}
-                        className="rounded-lg px-2.5 py-2"
+                        className="gap-2 rounded-lg px-2.5 py-2"
                       >
+                        <Vault size={15} weight="bold" className="shrink-0 text-muted-foreground" />
                         <div className="min-w-0">
                           <div className="truncate text-sm text-foreground">{vault.name}</div>
                           <div className="truncate text-xs text-muted-foreground">{vault.path}</div>
@@ -370,18 +353,20 @@ export function WorkspaceTopNav({
                     event.preventDefault()
                     void handleCreateNewVault()
                   }}
-                  className="rounded-lg px-2.5 py-2"
+                  className="gap-2 rounded-lg px-2.5 py-2"
                 >
-                  Create New Vault...
+                  <Plus size={15} weight="bold" className="text-muted-foreground" />
+                  <span>Create New Vault...</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onSelect={(event) => {
                     event.preventDefault()
                     void handleOpenExistingVault()
                   }}
-                  className="rounded-lg px-2.5 py-2"
+                  className="gap-2 rounded-lg px-2.5 py-2"
                 >
-                  Open Vault...
+                  <FolderOpen size={15} weight="bold" className="text-muted-foreground" />
+                  <span>Open Vault...</span>
                 </DropdownMenuItem>
                 {vaultActionError ? (
                   <div className="px-2 py-1 text-xs text-destructive">{vaultActionError}</div>

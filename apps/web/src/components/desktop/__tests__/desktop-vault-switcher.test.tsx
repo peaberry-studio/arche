@@ -149,6 +149,30 @@ describe("WorkspaceTopNav desktop vault menu", () => {
     });
   });
 
+  it("closes the workspace menu without an error when opening a vault is cancelled", async () => {
+    desktopBridgeMocks.openExistingVault.mockResolvedValueOnce({ ok: false, error: "cancelled" });
+
+    renderTopNav();
+
+    await waitFor(() => {
+      expect(desktopBridgeMocks.listRecentVaults).toHaveBeenCalledTimes(1);
+    });
+
+    openWorkspaceMenu();
+
+    expect(await screen.findByText("Open Vault...")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Open Vault..."));
+
+    await waitFor(() => {
+      expect(desktopBridgeMocks.openExistingVault).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Current vault")).toBeNull();
+    });
+    expect(screen.queryByText("cancelled")).toBeNull();
+  });
+
   it("renders without recent vaults when the desktop bridge is unavailable", async () => {
     desktopBridgeMocks.getOptionalDesktopBridge.mockReturnValue(null);
 
