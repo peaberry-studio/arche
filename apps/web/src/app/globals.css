@@ -1031,9 +1031,23 @@
   }
 }
 
-@keyframes cosmic-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+/* Brand loader — opacity wave that cascades bottom-to-top through the three
+   isologo arcs (see arc-loader.tsx). Held static when reduced motion is set. */
+@keyframes arc-wave {
+  0%, 70%, 100% { opacity: 0.18; }
+  25% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .arc-wave > path {
+    /* `backwards` holds the first keyframe (0.18) during the delay, so the logo
+       doesn't flash at full opacity before the wave starts. */
+    animation: arc-wave 1.6s ease-in-out infinite backwards;
+  }
+  /* Paths are ordered top → bottom; delay them in reverse so the wave rises. */
+  .arc-wave > path:nth-child(1) { animation-delay: 0.4s; }
+  .arc-wave > path:nth-child(2) { animation-delay: 0.2s; }
+  .arc-wave > path:nth-child(3) { animation-delay: 0s; }
 }
 
 @keyframes progress-sweep {

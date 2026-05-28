@@ -41,7 +41,7 @@ import { useSkillsCatalog } from '@/hooks/use-skills-catalog'
 
 import { ChatPanel } from "./chat-panel";
 import { ConfigChangeBanner } from "./config-change-banner";
-import { CosmicLoader } from "./cosmic-loader";
+import { ArcLoader } from "./arc-loader";
 import { FilePreviewPanel } from "./file-preview-panel";
 import { InspectorPanel } from "./inspector-panel";
 import { KnowledgeEmptyState } from "./knowledge-empty-state";
@@ -1527,7 +1527,7 @@ export function WorkspaceShell({
               )}
               {instanceStatus === null && (
                 <>
-                  <CosmicLoader />
+                  <ArcLoader />
                   <div className="space-y-2">
                     <h2 className="type-display text-xl font-semibold">
                       Connecting...
@@ -1567,7 +1567,7 @@ export function WorkspaceShell({
 
           <div className="relative z-10 flex flex-1 items-center justify-center">
             <div className="flex flex-col items-center gap-6 text-center">
-              <CosmicLoader />
+              <ArcLoader />
               <div className="space-y-2">
                 <h2 className="type-display text-xl font-semibold">
                   Connecting to OpenCode

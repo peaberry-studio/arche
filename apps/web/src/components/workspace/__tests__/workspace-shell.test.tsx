@@ -156,8 +156,8 @@ vi.mock("@/components/workspace/chat-panel", () => ({
   ),
 }));
 
-vi.mock("@/components/workspace/cosmic-loader", () => ({
-  CosmicLoader: () => <div>Loader</div>,
+vi.mock("@/components/workspace/arc-loader", () => ({
+  ArcLoader: () => <div>Loader</div>,
 }));
 
 vi.mock("@/components/workspace/inspector-panel", () => ({
