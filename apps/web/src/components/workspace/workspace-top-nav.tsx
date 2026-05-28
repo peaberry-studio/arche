@@ -146,11 +146,20 @@ export function WorkspaceTopNav({
   const [isLoadingConnectors, setIsLoadingConnectors] = useState(true)
   const [isLoadingProviders, setIsLoadingProviders] = useState(true)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
-  const [recentVaults, setRecentVaults] = useState<DesktopVaultSummary[]>([])
-  const [vaultActionError, setVaultActionError] = useState<string | null>(null)
+  const [recentVaultsState, setRecentVaultsState] = useState<{
+    currentVaultPath: string | null
+    vaults: DesktopVaultSummary[]
+  }>({ currentVaultPath: null, vaults: [] })
+  const [vaultActionErrorState, setVaultActionErrorState] = useState<{
+    currentVaultPath: string | null
+    message: string
+  } | null>(null)
   const themeOptions = themes ?? []
   const currentVaultPath = currentVault?.path ?? null
   const desktopBridge = currentVaultPath ? getOptionalDesktopBridge() : null
+  const recentVaults = recentVaultsState.currentVaultPath === currentVaultPath ? recentVaultsState.vaults : []
+  const vaultActionError =
+    vaultActionErrorState?.currentVaultPath === currentVaultPath ? vaultActionErrorState.message : null
 
   useEffect(() => {
     let cancelled = false
@@ -189,8 +198,6 @@ export function WorkspaceTopNav({
 
   useEffect(() => {
     let cancelled = false
-    setRecentVaults([])
-    setVaultActionError(null)
 
     if (!currentVaultPath || !desktopBridge) {
       return () => {
@@ -202,12 +209,15 @@ export function WorkspaceTopNav({
       .listRecentVaults()
       .then((vaults) => {
         if (!cancelled) {
-          setRecentVaults(vaults.filter((vault) => vault.path !== currentVaultPath))
+          setRecentVaultsState({
+            currentVaultPath,
+            vaults: vaults.filter((vault) => vault.path !== currentVaultPath),
+          })
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setRecentVaults([])
+          setRecentVaultsState({ currentVaultPath, vaults: [] })
         }
       })
 
@@ -218,7 +228,7 @@ export function WorkspaceTopNav({
 
   function handleVaultActionResult(result: DesktopApiResult) {
     const nextError = result.ok ? null : getVaultActionErrorMessage(result.error) || null
-    setVaultActionError(nextError)
+    setVaultActionErrorState(nextError ? { currentVaultPath, message: nextError } : null)
 
     if (result.ok || !nextError) {
       setAccountMenuOpen(false)
@@ -227,7 +237,7 @@ export function WorkspaceTopNav({
 
   async function handleOpenVault(vaultPath: string) {
     if (!desktopBridge) {
-      setVaultActionError('Desktop bridge is unavailable.')
+      setVaultActionErrorState({ currentVaultPath, message: 'Desktop bridge is unavailable.' })
       return
     }
 
@@ -237,7 +247,7 @@ export function WorkspaceTopNav({
 
   async function handleOpenExistingVault() {
     if (!desktopBridge) {
-      setVaultActionError('Desktop bridge is unavailable.')
+      setVaultActionErrorState({ currentVaultPath, message: 'Desktop bridge is unavailable.' })
       return
     }
 
@@ -247,7 +257,7 @@ export function WorkspaceTopNav({
 
   async function handleCreateNewVault() {
     if (!desktopBridge) {
-      setVaultActionError('Desktop bridge is unavailable.')
+      setVaultActionErrorState({ currentVaultPath, message: 'Desktop bridge is unavailable.' })
       return
     }
 
