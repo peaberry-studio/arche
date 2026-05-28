@@ -11,6 +11,14 @@ const { ensureInstanceRunningActionMock } = vi.hoisted(() => ({
   ensureInstanceRunningActionMock: vi.fn().mockResolvedValue({ status: "running" }),
 }));
 
+const desktopBridgeMocks = vi.hoisted(() => ({
+  getOptionalDesktopBridge: vi.fn(),
+  listRecentVaults: vi.fn(),
+  openExistingVault: vi.fn(),
+  openVault: vi.fn(),
+  openVaultLauncher: vi.fn(),
+}));
+
 const routerPushMock = vi.fn();
 const routerReplaceMock = vi.fn();
 const createSessionMock = vi.fn().mockResolvedValue(undefined);
@@ -104,6 +112,10 @@ vi.mock("@/hooks/use-workspace", () => ({
     diffsError: null,
     ...workspaceMockOverrides,
   }),
+}));
+
+vi.mock("@/lib/runtime/desktop/client", () => ({
+  getOptionalDesktopBridge: desktopBridgeMocks.getOptionalDesktopBridge,
 }));
 
 vi.mock('@/hooks/use-skills-catalog', () => ({
@@ -296,6 +308,21 @@ describe("WorkspaceShell", () => {
     workspaceMockOverrides = {};
     writeFileMock.mockReset();
     writeFileMock.mockResolvedValue({ ok: true, hash: "hash-updated" });
+    desktopBridgeMocks.listRecentVaults.mockReset();
+    desktopBridgeMocks.listRecentVaults.mockResolvedValue([]);
+    desktopBridgeMocks.openExistingVault.mockReset();
+    desktopBridgeMocks.openExistingVault.mockResolvedValue({ ok: true });
+    desktopBridgeMocks.openVault.mockReset();
+    desktopBridgeMocks.openVault.mockResolvedValue({ ok: true });
+    desktopBridgeMocks.openVaultLauncher.mockReset();
+    desktopBridgeMocks.openVaultLauncher.mockResolvedValue({ ok: true });
+    desktopBridgeMocks.getOptionalDesktopBridge.mockReset();
+    desktopBridgeMocks.getOptionalDesktopBridge.mockReturnValue({
+      listRecentVaults: desktopBridgeMocks.listRecentVaults,
+      openExistingVault: desktopBridgeMocks.openExistingVault,
+      openVault: desktopBridgeMocks.openVault,
+      openVaultLauncher: desktopBridgeMocks.openVaultLauncher,
+    });
     ensureInstanceRunningActionMock.mockReset();
     ensureInstanceRunningActionMock.mockResolvedValue({ status: "running" });
     window.history.replaceState(null, "", "/w/alice");
@@ -475,7 +502,10 @@ describe("WorkspaceShell", () => {
     expect(screen.getByRole("button", { name: "Knowledge" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Flows" })).toBeTruthy();
 
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Workspace account menu" }), {
+    const accountMenuButton = screen.getByRole("button", { name: "Workspace account menu" });
+    expect(accountMenuButton.textContent).toContain("alice");
+
+    fireEvent.pointerDown(accountMenuButton, {
       button: 0,
       ctrlKey: false,
     });
@@ -483,6 +513,45 @@ describe("WorkspaceShell", () => {
     expect(await screen.findByText("Settings")).toBeTruthy();
     expect(await screen.findAllByText("1 active")).toHaveLength(2);
     expect(screen.getByText("Appearance")).toBeTruthy();
+    expect(screen.queryByText("Current vault")).toBeNull();
+  });
+
+  it("shows the desktop vault name and vault section in the account menu", async () => {
+    desktopBridgeMocks.listRecentVaults.mockResolvedValue([
+      { id: "current", name: "Personal Vault", path: "/vaults/personal" },
+      { id: "team", name: "Team Vault", path: "/vaults/team" },
+    ]);
+
+    render(
+      <WorkspaceShell
+        slug="local"
+        currentVault={{ id: "current", name: "Personal Vault", path: "/vaults/personal" }}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Sessions" })).toBeTruthy();
+    });
+
+    const accountMenuButton = screen.getByRole("button", { name: "Workspace account menu" });
+    expect(accountMenuButton.textContent).toContain("Personal Vault");
+    expect(accountMenuButton.textContent).not.toContain("local");
+
+    fireEvent.pointerDown(accountMenuButton, {
+      button: 0,
+      ctrlKey: false,
+    });
+
+    expect(await screen.findByText("Current vault")).toBeTruthy();
+    expect(screen.getByText("/vaults/personal")).toBeTruthy();
+    expect(await screen.findByText("Team Vault")).toBeTruthy();
+    expect(screen.getByText("/vaults/team")).toBeTruthy();
+    expect(screen.getByText("Connectors")).toBeTruthy();
+    expect(screen.getByText("Providers")).toBeTruthy();
+    expect(screen.getByText("Appearance")).toBeTruthy();
+    expect(screen.getByText("Settings")).toBeTruthy();
+
+    expect(desktopBridgeMocks.listRecentVaults).toHaveBeenCalledTimes(1);
   });
 
   it("shows unread badges for sessions, flows, and knowledge modes", async () => {

@@ -24,6 +24,10 @@ import {
 import { Button } from '@/components/ui/button'
 import { useWorkspaceTheme } from '@/contexts/workspace-theme-context'
 import type { SyncKbResult } from '@/app/api/instances/[slug]/sync-kb/route'
+import {
+  getOptionalDesktopBridge,
+  type DesktopVaultSummary,
+} from '@/lib/runtime/desktop/client'
 import { cn } from '@/lib/utils'
 
 import { SyncKbButton } from './sync-kb-button'
@@ -43,6 +47,31 @@ type ProviderSummary = {
   status: 'enabled' | 'disabled' | 'missing'
   type?: string
   version?: number
+}
+
+type RecentVaultsState = {
+  vaultPath: string | null
+  vaults: DesktopVaultSummary[]
+}
+
+type VaultActionErrorState = {
+  vaultPath: string | null
+  error: string | null
+}
+
+function getVaultActionErrorMessage(error: string): string {
+  switch (error) {
+    case 'cancelled':
+      return ''
+    case 'invalid_vault':
+      return 'The selected folder is not a valid Arche vault.'
+    case 'vault_already_open':
+      return 'That vault is already open in another Arche process.'
+    case 'vault_launch_failed':
+      return 'Arche could not open the selected vault.'
+    default:
+      return error
+  }
 }
 
 async function fetchIntegrationSummaries(slug: string): Promise<{
@@ -74,6 +103,7 @@ async function fetchIntegrationSummaries(slug: string): Promise<{
 
 type WorkspaceTopNavProps = {
   slug: string
+  currentVault?: DesktopVaultSummary | null
   mode: WorkspaceMode
   status: 'active' | 'provisioning' | 'offline'
   sessionsUnreadCount?: number
@@ -90,6 +120,7 @@ type WorkspaceTopNavProps = {
 
 export function WorkspaceTopNav({
   slug,
+  currentVault = null,
   mode,
   status,
   sessionsUnreadCount = 0,
@@ -121,7 +152,15 @@ export function WorkspaceTopNav({
   const [providers, setProviders] = useState<ProviderSummary[]>([])
   const [isLoadingConnectors, setIsLoadingConnectors] = useState(true)
   const [isLoadingProviders, setIsLoadingProviders] = useState(true)
+  const [recentVaultsState, setRecentVaultsState] = useState<RecentVaultsState>({ vaultPath: null, vaults: [] })
+  const [vaultActionErrorState, setVaultActionErrorState] = useState<VaultActionErrorState>({
+    vaultPath: null,
+    error: null,
+  })
   const themeOptions = themes ?? []
+  const currentVaultPath = currentVault?.path ?? null
+  const recentVaults = recentVaultsState.vaultPath === currentVaultPath ? recentVaultsState.vaults : []
+  const vaultActionError = vaultActionErrorState.vaultPath === currentVaultPath ? vaultActionErrorState.error : null
 
   useEffect(() => {
     let cancelled = false
@@ -158,6 +197,82 @@ export function WorkspaceTopNav({
     }
   }, [slug])
 
+  useEffect(() => {
+    let cancelled = false
+
+    if (!currentVaultPath) {
+      return () => {
+        cancelled = true
+      }
+    }
+
+    const bridge = getOptionalDesktopBridge()
+    if (!bridge) {
+      return () => {
+        cancelled = true
+      }
+    }
+
+    void bridge
+      .listRecentVaults()
+      .then((vaults) => {
+        if (!cancelled) {
+          setRecentVaultsState({
+            vaultPath: currentVaultPath,
+            vaults: vaults.filter((vault) => vault.path !== currentVaultPath),
+          })
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRecentVaultsState({ vaultPath: currentVaultPath, vaults: [] })
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [currentVaultPath])
+
+  async function handleOpenVault(vaultPath: string) {
+    const bridge = getOptionalDesktopBridge()
+    if (!bridge) {
+      return
+    }
+
+    const result = await bridge.openVault(vaultPath)
+    setVaultActionErrorState({
+      vaultPath: currentVaultPath,
+      error: result.ok ? null : getVaultActionErrorMessage(result.error) || null,
+    })
+  }
+
+  async function handleOpenExistingVault() {
+    const bridge = getOptionalDesktopBridge()
+    if (!bridge) {
+      return
+    }
+
+    const result = await bridge.openExistingVault()
+    setVaultActionErrorState({
+      vaultPath: currentVaultPath,
+      error: result.ok ? null : getVaultActionErrorMessage(result.error) || null,
+    })
+  }
+
+  async function handleCreateNewVault() {
+    const bridge = getOptionalDesktopBridge()
+    if (!bridge) {
+      return
+    }
+
+    const result = await bridge.openVaultLauncher()
+    setVaultActionErrorState({
+      vaultPath: currentVaultPath,
+      error: result.ok ? null : getVaultActionErrorMessage(result.error) || null,
+    })
+  }
+
   const activeConnectors = connectors.filter((connector) => connector.status === 'ready').length
   const pendingConnectors = connectors.filter((connector) => connector.status === 'pending').length
   const activeProviders = providers.filter((provider) => provider.status === 'enabled').length
@@ -172,6 +287,7 @@ export function WorkspaceTopNav({
           : 'bg-rose-500'
 
   const providerDotClass = activeProviders > 0 ? 'bg-emerald-500' : 'bg-muted-foreground/40'
+  const accountMenuLabel = currentVault ? currentVault.name : slug
 
   return (
     <header
@@ -211,11 +327,70 @@ export function WorkspaceTopNav({
               )}
               aria-label="Workspace account menu"
             >
-              <span className="max-w-[6rem] truncate font-medium sm:max-w-none">{slug}</span>
+              <span className="max-w-[6rem] truncate font-medium sm:max-w-none">{accountMenuLabel}</span>
               <CaretDown size={13} weight="bold" className="shrink-0 text-muted-foreground" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-64 p-1.5">
+            {currentVault ? (
+              <>
+                <DropdownMenuLabel className="px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Vault
+                </DropdownMenuLabel>
+                <div className="px-2 pb-2">
+                  <div className="text-xs font-medium text-foreground">Current vault</div>
+                  <div className="truncate text-xs text-muted-foreground">{currentVault.path}</div>
+                </div>
+
+                {recentVaults.length > 0 ? (
+                  <>
+                    <DropdownMenuLabel className="px-2 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Recent vaults
+                    </DropdownMenuLabel>
+                    {recentVaults.map((vault) => (
+                      <DropdownMenuItem
+                        key={vault.path}
+                        onSelect={(event) => {
+                          event.preventDefault()
+                          void handleOpenVault(vault.path)
+                        }}
+                        className="rounded-lg px-2.5 py-2"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate text-sm text-foreground">{vault.name}</div>
+                          <div className="truncate text-xs text-muted-foreground">{vault.path}</div>
+                        </div>
+                      </DropdownMenuItem>
+                    ))}
+                  </>
+                ) : null}
+
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault()
+                    void handleCreateNewVault()
+                  }}
+                  className="rounded-lg px-2.5 py-2"
+                >
+                  Create New Vault...
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault()
+                    void handleOpenExistingVault()
+                  }}
+                  className="rounded-lg px-2.5 py-2"
+                >
+                  Open Vault...
+                </DropdownMenuItem>
+                {vaultActionError ? (
+                  <div className="px-2 py-1 text-xs text-destructive">{vaultActionError}</div>
+                ) : null}
+
+                <DropdownMenuSeparator className="my-1.5" />
+              </>
+            ) : null}
+
             {onNavigateConnectors ? (
               <DropdownMenuItem onSelect={onNavigateConnectors} className="gap-2 rounded-lg px-2.5 py-2">
                 <Plugs size={15} weight="bold" className="text-muted-foreground" />

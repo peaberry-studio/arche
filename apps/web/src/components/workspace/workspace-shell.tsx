@@ -1894,6 +1894,7 @@ export function WorkspaceShell({
       />
       <WorkspaceTopNav
         slug={slug}
+        currentVault={currentVault}
         mode={workspaceMode}
         status="active"
         sessionsUnreadCount={sessionsUnreadCount}
