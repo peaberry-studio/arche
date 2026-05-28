@@ -50,7 +50,10 @@ export async function POST(request: Request): Promise<Response> {
     MCP_TOKEN_RATE_LIMIT_MAX,
     MCP_TOKEN_RATE_LIMIT_WINDOW_MS
   )
-  if (!tokenRateLimit.allowed) return rateLimitedResponse(tokenRateLimit.resetAt)
+  if (!tokenRateLimit.allowed) {
+    await auditMcpRequest(request, auth, { method: null, toolName: null })
+    return rateLimitedResponse(tokenRateLimit.resetAt)
+  }
 
   const bodyResult = await readRequestBody(request)
   if (!bodyResult.ok) {
@@ -63,7 +66,10 @@ export async function POST(request: Request): Promise<Response> {
     await auditMcpRequest(request, auth, { method: null, toolName: null })
     return jsonResponse({ error: 'invalid_json' }, { status: 400 })
   }
-  if (Array.isArray(parsedBody.body)) return jsonResponse({ error: 'batch_not_supported' }, { status: 400 })
+  if (Array.isArray(parsedBody.body)) {
+    await auditMcpRequest(request, auth, { method: null, toolName: null })
+    return jsonResponse({ error: 'batch_not_supported' }, { status: 400 })
+  }
 
   const metadata = getMcpRequestMetadata(parsedBody.body)
   await auditMcpRequest(request, auth, metadata)

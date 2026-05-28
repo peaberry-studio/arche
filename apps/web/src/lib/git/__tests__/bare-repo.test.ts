@@ -20,7 +20,6 @@ import {
   isGitAvailable,
   hasBareRepoLayout,
   resolveRepoRoot,
-  runGitOnBareRepo,
   detectDefaultBranch,
   hashContent,
   mutateBareRepo,
@@ -194,6 +193,9 @@ describe('mutateBareRepo', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks()
+    mockExecFile.mockResolvedValueOnce({ stdout: 'git version 2.0.0\n' })
+    await isGitAvailable()
+    vi.clearAllMocks()
     tempDir = await fs.mkdtemp(path.join(tmpdir(), 'bare-mutate-test-'))
     await fs.writeFile(path.join(tempDir, 'HEAD'), 'ref: refs/heads/main\n')
     await fs.mkdir(path.join(tempDir, 'objects'))
@@ -206,7 +208,6 @@ describe('mutateBareRepo', () => {
 
   it('maps non-fast-forward push failures to conflict and cleans up clone dirs', async () => {
     mockExecFile
-      .mockResolvedValueOnce({ stdout: 'git version 2.0.0\n' })
       .mockResolvedValueOnce({ stdout: '' })
       .mockResolvedValueOnce({ stdout: 'abc123\n' })
       .mockResolvedValueOnce({ stdout: '' })
@@ -231,5 +232,32 @@ describe('mutateBareRepo', () => {
     const safeConfigPath = cloneCall?.[2].env.GIT_CONFIG_GLOBAL
     await expect(fs.stat(String(cloneDir))).rejects.toMatchObject({ code: 'ENOENT' })
     await expect(fs.stat(path.dirname(String(safeConfigPath)))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('maps fetch-first push failures to conflict', async () => {
+    mockExecFile.mockImplementation(async (_command: string, args: string[]) => {
+      if (args[0] === 'rev-parse') return { stdout: 'abc123\n' }
+      if (args[0] === 'status') return { stdout: 'M file.md\n' }
+      if (args[0] === 'symbolic-ref') return { stdout: 'origin/main\n' }
+      if (args[0] === 'push') {
+        throw { stderr: [
+          '! [rejected] HEAD -> main (fetch first)',
+          'error: failed to push some refs',
+          'hint: Updates were rejected because the remote contains work that you do not have locally.',
+        ].join('\n') }
+      }
+
+      return { stdout: '' }
+    })
+
+    const result = await mutateBareRepo({
+      root: tempDir,
+      commitMessage: 'Update file',
+      gitAuthorName: 'Arche Test',
+      gitAuthorEmail: 'test@arche.local',
+      mutate: async () => ({ ok: true, changedPaths: ['file.md'], data: 'updated' }),
+    })
+
+    expect(result).toEqual({ ok: false, error: 'conflict' })
   })
 })

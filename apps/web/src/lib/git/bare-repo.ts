@@ -289,5 +289,10 @@ export function hashContent(content: string): string {
 }
 
 function isNonFastForward(stderr: string): boolean {
-  return stderr.includes('non-fast-forward')
+  const normalized = stderr.toLowerCase()
+  return normalized.includes('non-fast-forward') ||
+    normalized.includes('not fast-forward') ||
+    normalized.includes('fetch first') ||
+    normalized.includes('stale info') ||
+    normalized.includes('remote contains work that you do not have locally')
 }

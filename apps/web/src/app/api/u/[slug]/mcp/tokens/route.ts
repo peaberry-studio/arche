@@ -97,11 +97,16 @@ export const POST = withAuth<CreateTokenResponse | { error: string }>(
       expiresAt: new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000),
     })
 
-    await auditEvent({
-      actorUserId: user.id,
-      action: 'mcp.token_created',
-      metadata: { tokenId: record.id, scopes: record.scopes },
-    })
+    try {
+      await auditEvent({
+        actorUserId: user.id,
+        action: 'mcp.token_created',
+        metadata: { tokenId: record.id, scopes: record.scopes },
+      })
+    } catch (error) {
+      await patService.revokeById(record.id).catch(() => {})
+      throw error
+    }
 
     return NextResponse.json({ token, record: serializeToken(record) }, { status: 201 })
   }

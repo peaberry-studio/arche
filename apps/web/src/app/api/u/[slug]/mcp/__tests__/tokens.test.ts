@@ -56,6 +56,7 @@ describe('/api/u/[slug]/mcp/tokens', () => {
     mocks.user.email = 'alice@example.com'
     mocks.user.slug = 'alice'
     mocks.user.role = 'USER'
+    mocks.auditEvent.mockResolvedValue(undefined)
     mocks.getSettings.mockResolvedValue({ enabled: true })
     mocks.isUserAllowed.mockResolvedValue(true)
     mocks.createToken.mockResolvedValue(createTokenRecord())
@@ -79,6 +80,14 @@ describe('/api/u/[slug]/mcp/tokens', () => {
     expect(response.status).toBe(201)
     expect(mocks.createToken).toHaveBeenCalledWith(expect.objectContaining({ scopes: ['kb:read'] }))
     await expect(response.json()).resolves.toMatchObject({ record: { scopes: ['kb:read'] } })
+  })
+
+  it('revokes a created token when audit fails before returning the one-time secret', async () => {
+    mocks.auditEvent.mockRejectedValue(new Error('audit_failed'))
+
+    await expect(POST(createPostRequest({ name: 'MCP', expiresInDays: 30 }), routeContext())).rejects.toThrow('audit_failed')
+    expect(mocks.createToken).toHaveBeenCalled()
+    expect(mocks.revokeById).toHaveBeenCalledWith('pat-1')
   })
 
   it('allows admins to revoke any token', async () => {

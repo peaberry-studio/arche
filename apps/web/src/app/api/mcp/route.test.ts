@@ -98,7 +98,24 @@ describe('POST /api/mcp', () => {
 
     expect(response.status).toBe(429)
     await expect(response.json()).resolves.toEqual({ error: 'rate_limited' })
-    expect(mocks.auditCreateEvent).not.toHaveBeenCalled()
+    expect(mocks.auditCreateEvent).toHaveBeenCalledWith(expect.objectContaining({
+      actorUserId: 'u1',
+      action: 'mcp.request',
+      metadata: expect.objectContaining({ tokenId: 'pat-1' }),
+    }))
+    expect(mocks.handleMcpJsonRpcRequest).not.toHaveBeenCalled()
+  })
+
+  it('audits authenticated batch requests before rejecting them', async () => {
+    const response = await POST(createRequest({ body: [{ jsonrpc: '2.0', id: 1, method: 'tools/list' }] }))
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ error: 'batch_not_supported' })
+    expect(mocks.auditCreateEvent).toHaveBeenCalledWith(expect.objectContaining({
+      actorUserId: 'u1',
+      action: 'mcp.request',
+      metadata: expect.objectContaining({ tokenId: 'pat-1' }),
+    }))
     expect(mocks.handleMcpJsonRpcRequest).not.toHaveBeenCalled()
   })
 
@@ -122,7 +139,7 @@ describe('POST /api/mcp', () => {
   })
 })
 
-function createRequest(input: { headers?: Record<string, string> } = {}): Request {
+function createRequest(input: { body?: unknown; headers?: Record<string, string> } = {}): Request {
   return new Request('https://arche.example.com/api/mcp', {
     method: 'POST',
     headers: {
@@ -131,6 +148,6 @@ function createRequest(input: { headers?: Record<string, string> } = {}): Reques
       'user-agent': 'vitest',
       ...input.headers,
     },
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+    body: JSON.stringify(input.body ?? { jsonrpc: '2.0', id: 1, method: 'tools/list' }),
   })
 }
