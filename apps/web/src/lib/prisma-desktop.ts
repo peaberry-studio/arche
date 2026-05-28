@@ -44,7 +44,7 @@ const SCHEMA_DDL = [
     "lookup_hash" TEXT NOT NULL,
     "token_hash" TEXT NOT NULL,
     "salt" TEXT NOT NULL,
-    "scopes" JSONB NOT NULL DEFAULT '["kb:read"]',
+    "scopes" TEXT NOT NULL DEFAULT '["kb:read"]',
     "expires_at" DATETIME NOT NULL,
     "revoked_at" DATETIME,
     "last_used_at" DATETIME,
