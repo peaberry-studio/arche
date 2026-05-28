@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { FlowEditor } from '@/components/flows/flow-editor'
+import type { FlowTemplate } from '@/lib/flows/import-export'
 import type { FlowDefinition, FlowDetail, FlowNode } from '@/lib/flows/types'
 import { createDefaultFlowDefinition } from '@/lib/flows/validation'
 
@@ -13,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   runFlowRequest: vi.fn(),
   updateFlowRequest: vi.fn(),
+  validateFlowImportRequest: vi.fn(),
 }))
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }))
@@ -23,6 +25,7 @@ vi.mock('@/lib/flows/client', () => ({
   fetchFlowDetail: mocks.fetchFlowDetail,
   runFlowRequest: mocks.runFlowRequest,
   updateFlowRequest: mocks.updateFlowRequest,
+  validateFlowImportRequest: mocks.validateFlowImportRequest,
 }))
 vi.mock('@/components/flows/flow-canvas', () => ({
   FlowCanvas: ({
@@ -111,6 +114,7 @@ describe('FlowEditor', () => {
     mocks.createFlowRequest.mockResolvedValue({ ok: true, data: { flow } })
     mocks.updateFlowRequest.mockResolvedValue({ ok: true, data: { flow } })
     mocks.deleteFlowRequest.mockResolvedValue({ ok: true, data: { ok: true } })
+    mocks.validateFlowImportRequest.mockResolvedValue({ ok: false, error: 'invalid_flow_template' })
     mocks.runFlowRequest.mockResolvedValue({ ok: true, data: { ok: true, runId: 'run-1' } })
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       json: vi.fn().mockResolvedValue({ channels: [], integrationEnabled: false, users: [] }),
@@ -132,6 +136,48 @@ describe('FlowEditor', () => {
 
     await waitFor(() => expect(mocks.createFlowRequest).toHaveBeenCalledWith('alice', expect.objectContaining({ name: 'New flow' })))
     expect(mocks.push).toHaveBeenCalledWith('/u/alice/flows/flow-1')
+  })
+
+  it('loads an initial imported template as an unsaved draft', async () => {
+    const definition = createDefaultFlowDefinition()
+    const template: FlowTemplate = {
+      cronExpression: null,
+      definition,
+      description: 'Imported description',
+      enabled: false,
+      format: 'arche-flow-template/v1',
+      name: 'Imported flow',
+      timezone: 'UTC',
+    }
+    mocks.validateFlowImportRequest.mockResolvedValue({
+      ok: true,
+      data: {
+        draftPayload: {
+          cronExpression: null,
+          definition,
+          description: 'Imported description',
+          enabled: false,
+          name: 'Imported flow',
+          organizationCanRun: false,
+          timezone: 'UTC',
+          visibility: 'private',
+        },
+        template,
+        warnings: [{ code: 'unknown_target_agent', message: 'Review target agents before saving.' }],
+      },
+    })
+
+    render(<FlowEditor slug="alice" mode="create" initialTemplate={template} />)
+
+    await waitFor(() => expect(screen.getByDisplayValue('Imported flow')).toBeTruthy())
+    expect(mocks.validateFlowImportRequest).toHaveBeenCalledWith('alice', template)
+    expect(screen.getByText('Review target agents before saving.')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create flow' }))
+    await waitFor(() => expect(mocks.createFlowRequest).toHaveBeenCalledWith('alice', expect.objectContaining({
+      description: 'Imported description',
+      name: 'Imported flow',
+    })))
   })
 
   it('keeps step ids readable when renaming nodes', async () => {

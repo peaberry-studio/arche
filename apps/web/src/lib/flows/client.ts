@@ -1,3 +1,4 @@
+import type { FlowTemplate, FlowTemplateImportWarning } from '@/lib/flows/import-export'
 import type { FlowDetail, FlowListItem, FlowPayload, FlowRunListItem } from '@/lib/flows/types'
 
 export type FlowClientResult<T> =
@@ -26,6 +27,16 @@ function ensureFlowList(data: { flows?: FlowListItem[] }): FlowClientResult<{ fl
 function ensureFlowDetail(data: { flow?: FlowDetail }): FlowClientResult<{ flow: FlowDetail }> {
   return data.flow
     ? { ok: true, data: { flow: data.flow } }
+    : { ok: false, error: 'invalid_response' }
+}
+
+function ensureFlowImportValidation(data: {
+  draftPayload?: FlowPayload
+  template?: FlowTemplate
+  warnings?: FlowTemplateImportWarning[]
+}): FlowClientResult<{ draftPayload: FlowPayload; template: FlowTemplate; warnings: FlowTemplateImportWarning[] }> {
+  return data.draftPayload && data.template && Array.isArray(data.warnings)
+    ? { ok: true, data: { draftPayload: data.draftPayload, template: data.template, warnings: data.warnings } }
     : { ok: false, error: 'invalid_response' }
 }
 
@@ -69,6 +80,22 @@ export async function createFlowRequest(slug: string, payload: FlowPayload): Pro
     method: 'POST',
   }))
   return result.ok ? ensureFlowDetail(result.data) : result
+}
+
+export async function validateFlowImportRequest(
+  slug: string,
+  template: unknown,
+): Promise<FlowClientResult<{ draftPayload: FlowPayload; template: FlowTemplate; warnings: FlowTemplateImportWarning[] }>> {
+  const result = await readFlowJson<{
+    draftPayload?: FlowPayload
+    template?: FlowTemplate
+    warnings?: FlowTemplateImportWarning[]
+  }>(await fetch(`/api/u/${slug}/flows/import/validate`, {
+    body: JSON.stringify(template),
+    headers: { 'Content-Type': 'application/json' },
+    method: 'POST',
+  }))
+  return result.ok ? ensureFlowImportValidation(result.data) : result
 }
 
 export async function updateFlowRequest(

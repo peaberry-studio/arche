@@ -107,6 +107,9 @@ describe('FlowsPage', () => {
 
     const historyLink = screen.getByRole('menuitem', { name: 'View run history for Weekly Review' })
     expect(historyLink.getAttribute('href')).toBe('/u/alice/flows/flow-1/runs')
+
+    const exportLink = screen.getByRole('menuitem', { name: 'Export Weekly Review as JSON' })
+    expect(exportLink.getAttribute('href')).toBe('/api/u/alice/flows/flow-1/export')
   })
 
   it('shows load errors', async () => {

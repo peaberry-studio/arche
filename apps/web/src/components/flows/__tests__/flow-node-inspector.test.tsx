@@ -13,6 +13,7 @@ const definition: FlowDefinition = {
     { id: 'condition-1', mode: 'rules', name: 'Condition', rules: [{ id: 'rule-1', operator: 'contains', targetNodeId: 'merge-1', value: 'yes', variable: 'previous.output' }], type: 'condition' },
     { id: 'slack-1', messageMode: 'fixed', messageTemplate: 'Hello', name: 'Slack', target: { type: 'dm', userId: 'user-1' }, type: 'slack' },
     { id: 'merge-1', name: 'Merge', type: 'merge' },
+    { id: 'compaction-1', name: 'Compact', promptTemplate: 'Summarize this', type: 'compaction' },
   ],
   startNodeId: 'agent-1',
   version: 1,
@@ -67,8 +68,21 @@ describe('FlowNodeInspector', () => {
       />,
     )
 
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Writer step' } })
+    expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({ name: 'Writer step' }))
+
     fireEvent.change(screen.getByLabelText('Target agent'), { target: { value: 'writer' } })
     expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({ targetAgentId: 'writer' }))
+
+    fireEvent.change(screen.getByLabelText('Prompt template'), { target: { value: 'Draft this' } })
+    expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({ promptTemplate: 'Draft this' }))
+
+    fireEvent.click(screen.getByRole('button', { name: /Flow name/ }))
+    expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({ promptTemplate: 'Prompt {{flow.name}}' }))
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Compact agent output' }))
+    expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({ compactOutput: true }))
+
     expect(screen.getByText('Create or remove step connections directly on the canvas.')).toBeTruthy()
   })
 
@@ -102,11 +116,26 @@ describe('FlowNodeInspector', () => {
 
   it('updates condition rules and mode', () => {
     const onUpdateNode = vi.fn()
-    renderInspector({ selectedNode: definition.nodes[2], onUpdateNode })
+    renderInspector({ definition: connectedDefinition, selectedNode: connectedDefinition.nodes[2], onUpdateNode })
 
     fireEvent.change(screen.getByDisplayValue('previous.output'), { target: { value: 'flow.name' } })
     expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({
       rules: [expect.objectContaining({ variable: 'flow.name' })],
+    }))
+
+    fireEvent.change(screen.getByDisplayValue('contains'), { target: { value: 'equals' } })
+    expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({
+      rules: [expect.objectContaining({ operator: 'equals' })],
+    }))
+
+    fireEvent.change(screen.getByDisplayValue('yes'), { target: { value: 'approved' } })
+    expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({
+      rules: [expect.objectContaining({ value: 'approved' })],
+    }))
+
+    fireEvent.change(screen.getByDisplayValue('Merge'), { target: { value: 'merge-1' } })
+    expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({
+      rules: [expect.objectContaining({ targetNodeId: 'merge-1' })],
     }))
 
     fireEvent.change(screen.getByLabelText('Mode'), { target: { value: 'ai' } })
@@ -128,11 +157,17 @@ describe('FlowNodeInspector', () => {
     renderInspector({ selectedNode: aiCondition, onUpdateNode })
     fireEvent.change(screen.getByLabelText('Evaluator prompt'), { target: { value: 'Choose carefully' } })
     expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({ evaluatorPrompt: 'Choose carefully' }))
+
+    fireEvent.click(screen.getByRole('button', { name: /Run id/ }))
+    expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({ evaluatorPrompt: 'Pick one {{run.id}}' }))
   })
 
   it('updates Slack node target and message settings', () => {
     const onUpdateNode = vi.fn()
     renderInspector({ selectedNode: definition.nodes[3], onUpdateNode })
+
+    fireEvent.change(screen.getByLabelText('Slack DM target'), { target: { value: 'user-1' } })
+    expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({ target: { type: 'dm', userId: 'user-1' } }))
 
     fireEvent.change(screen.getByLabelText('Target type'), { target: { value: 'channel' } })
     expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({ target: { type: 'channel', channelId: 'C1' } }))
@@ -146,6 +181,22 @@ describe('FlowNodeInspector', () => {
     expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({ target: { type: 'channel', channelId: 'C1' } }))
     expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({ messageMode: 'template' }))
     expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({ messageTemplate: 'Report: {{previous.output}}' }))
+
+    cleanup()
+    renderInspector({ selectedNode: { ...definition.nodes[3], messageMode: 'template', target: { type: 'channel', channelId: 'C1' } }, onUpdateNode })
+    fireEvent.click(screen.getByRole('button', { name: /Flow name/ }))
+    expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({ messageTemplate: 'Hello {{flow.name}}' }))
+  })
+
+  it('updates compaction prompts', () => {
+    const onUpdateNode = vi.fn()
+    renderInspector({ selectedNode: definition.nodes[5], onUpdateNode })
+
+    fireEvent.change(screen.getByLabelText('Compaction prompt'), { target: { value: 'Keep only decisions' } })
+    expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({ promptTemplate: 'Keep only decisions' }))
+
+    fireEvent.click(screen.getByRole('button', { name: /Previous output/ }))
+    expect(onUpdateNode).toHaveBeenCalledWith(expect.objectContaining({ promptTemplate: 'Summarize this {{previous.output}}' }))
   })
 
   it('documents merge nodes as pass-through markers', () => {

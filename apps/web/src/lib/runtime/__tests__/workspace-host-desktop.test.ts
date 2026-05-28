@@ -478,6 +478,10 @@ describe('desktopWorkspaceHost', () => {
       '/tmp/arche/.runtime/opencode/.config/opencode/skills/pdf-processing/SKILL.md',
       expect.any(Buffer)
     )
+    expect(mockWriteFile).toHaveBeenCalledWith(
+      '/tmp/arche/.runtime/opencode/.config/opencode/skills/arche-flow-authoring/SKILL.md',
+      expect.any(Buffer)
+    )
   })
 
   it('writes desktop provider gateway config with the IPv4 loopback host', async () => {
@@ -566,7 +570,11 @@ describe('desktopWorkspaceHost', () => {
       (call: unknown[]) => typeof call[0] === 'string' && String(call[0]).endsWith('/opencode.json'),
     )
     const runtimeConfig = JSON.parse(String(configCall?.[1])) as {
-      agent?: Record<string, { prompt?: string; tools?: Record<string, boolean> }>
+      agent?: Record<string, {
+        permission?: { skill?: Record<string, string> }
+        prompt?: string
+        tools?: Record<string, boolean>
+      }>
       mcp?: Record<string, unknown>
       permission?: {
         edit?: Record<string, string>
@@ -592,8 +600,13 @@ describe('desktopWorkspaceHost', () => {
     expect(runtimeConfig.permission?.bash?.['npm install*']).toBe('deny')
     expect(runtimeConfig.mcp?.arche_linear_user999).toBeDefined()
     expect(runtimeConfig.agent?.assistant?.tools?.email_draft).toBe(true)
+    expect(runtimeConfig.agent?.assistant?.tools?.flow_propose).toBe(true)
+    expect(runtimeConfig.agent?.assistant?.tools?.skill).toBe(true)
+    expect(runtimeConfig.agent?.assistant?.permission?.skill?.['arche-flow-authoring']).toBe('allow')
     expect(runtimeConfig.agent?.linear?.tools?.['arche_linear_user999_*']).toBe(true)
     expect(runtimeConfig.agent?.linear?.tools?.['arche_linear_admin111_*']).toBeUndefined()
+    expect(runtimeConfig.agent?.linear?.tools?.skill).toBe(true)
+    expect(runtimeConfig.agent?.linear?.permission?.skill?.['arche-flow-authoring']).toBe('allow')
     expect(runtimeConfig.agent?.linear?.prompt).toContain('## Delegation constraint')
   })
 

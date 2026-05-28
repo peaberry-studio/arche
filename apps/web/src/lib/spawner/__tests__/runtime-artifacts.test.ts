@@ -150,8 +150,43 @@ describe('runtime artifacts', () => {
     expect(config.provider?.['opencode-go']).toBeUndefined()
     expect(artifacts.agentsMd).toContain('Slug: alice')
     expect(artifacts.agentsMd).toContain('Email: alice@example.com')
-    expect(artifacts.skills).toHaveLength(1)
-    expect(artifacts.skills[0]?.skill.frontmatter.name).toBe('pdf-processing')
+    expect(artifacts.skills.map((skill) => skill.skill.frontmatter.name)).toEqual([
+      'pdf-processing',
+      'arche-flow-authoring',
+    ])
+  })
+
+  it('injects the built-in flow authoring skill and grants runtime agent access', async () => {
+    await createRuntimeRepo({
+      'CommonWorkspaceConfig.json': JSON.stringify({
+        $schema: 'https://opencode.ai/config.json',
+        default_agent: 'assistant',
+        agent: {
+          assistant: {
+            mode: 'primary',
+            tools: { task: true },
+          },
+        },
+      }),
+    })
+
+    const {
+      buildWorkspaceRuntimeArtifacts,
+      getWebProviderGatewayConfig,
+    } = await loadRuntimeArtifactsModule()
+
+    const artifacts = await buildWorkspaceRuntimeArtifacts('alice', getWebProviderGatewayConfig())
+    const config = JSON.parse(artifacts.opencodeConfigContent) as {
+      agent?: Record<string, {
+        permission?: { skill?: Record<string, string> }
+        tools?: Record<string, boolean>
+      }>
+    }
+
+    expect(artifacts.skills.map((skill) => skill.skill.frontmatter.name)).toEqual(['arche-flow-authoring'])
+    expect(artifacts.skills[0]?.skill.raw).toContain('FlowDefinition')
+    expect(config.agent?.assistant?.tools?.skill).toBe(true)
+    expect(config.agent?.assistant?.permission?.skill?.['arche-flow-authoring']).toBe('allow')
   })
 
   it('adds configured Ollama models to the runtime provider config', async () => {

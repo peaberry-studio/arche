@@ -2,9 +2,9 @@ import { NextRequest } from 'next/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
-  getRuntimeCapabilities: vi.fn(() => ({ csrf: false })),
+  getRuntimeCapabilities: vi.fn(),
   getSession: vi.fn(),
-  isDesktop: vi.fn(() => false),
+  isDesktop: vi.fn(),
   providerUsageService: {
     getProviderUsageSummary: vi.fn(),
     listProviderUsageProviders: vi.fn(),
@@ -14,8 +14,8 @@ const mocks = vi.hoisted(() => ({
     listUsageAuditEvents: vi.fn(),
     listUsageSessions: vi.fn(),
   },
-  validateDesktopToken: vi.fn(() => true),
-  validateSameOrigin: vi.fn(() => ({ ok: true })),
+  validateDesktopToken: vi.fn(),
+  validateSameOrigin: vi.fn(),
 }))
 
 vi.mock('@/lib/csrf', () => ({ validateSameOrigin: mocks.validateSameOrigin }))
@@ -71,12 +71,16 @@ function expectDate(value: unknown, expected: string): void {
 describe('usage API routes', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.getRuntimeCapabilities.mockReturnValue({ csrf: true, flows: true })
     mocks.getSession.mockResolvedValue(ADMIN_SESSION)
+    mocks.isDesktop.mockReturnValue(false)
     mocks.providerUsageService.getProviderUsageSummary.mockResolvedValue({ requests: 3 })
     mocks.providerUsageService.listProviderUsageProviders.mockResolvedValue([{ providerId: 'openai' }])
     mocks.providerUsageService.listProviderUsageUsers.mockResolvedValue([{ userId: 'user-1' }])
     mocks.usageDashboardService.listUsageAuditEvents.mockResolvedValue([{ id: 'audit-1' }])
     mocks.usageDashboardService.listUsageSessions.mockResolvedValue([{ sessionId: 'session-1' }])
+    mocks.validateDesktopToken.mockReturnValue(true)
+    mocks.validateSameOrigin.mockReturnValue({ ok: true })
   })
 
   it('rejects non-admin users for every usage route', async () => {
@@ -94,6 +98,12 @@ describe('usage API routes', () => {
       await expect(response.json()).resolves.toEqual({ error: 'forbidden' })
       expect(response.status).toBe(403)
     }
+
+    expect(mocks.providerUsageService.getProviderUsageSummary).not.toHaveBeenCalled()
+    expect(mocks.providerUsageService.listProviderUsageProviders).not.toHaveBeenCalled()
+    expect(mocks.providerUsageService.listProviderUsageUsers).not.toHaveBeenCalled()
+    expect(mocks.usageDashboardService.listUsageAuditEvents).not.toHaveBeenCalled()
+    expect(mocks.usageDashboardService.listUsageSessions).not.toHaveBeenCalled()
   })
 
   it('returns provider usage data with parsed provider filters', async () => {
@@ -107,38 +117,35 @@ describe('usage API routes', () => {
     await expect(providers.json()).resolves.toEqual({ providers: [{ providerId: 'openai' }] })
     await expect(users.json()).resolves.toEqual({ users: [{ userId: 'user-1' }] })
 
-    const summaryFilters = mocks.providerUsageService.getProviderUsageSummary.mock.calls[0]?.[0]
-    expectDate(summaryFilters.from, '2026-01-01T00:00:00.000Z')
-    expect(summaryFilters).toMatchObject({
+    const expectedFilters = {
+      from: new Date('2026-01-01T00:00:00.000Z'),
       modelId: 'gpt-4o',
       providerId: 'openai',
       to: undefined,
       userId: 'user-1',
-    })
-    expect(mocks.providerUsageService.listProviderUsageProviders).toHaveBeenCalledWith(expect.objectContaining({ providerId: 'openai' }))
-    expect(mocks.providerUsageService.listProviderUsageUsers).toHaveBeenCalledWith(expect.objectContaining({ modelId: 'gpt-4o' }))
+    }
+    expect(mocks.providerUsageService.getProviderUsageSummary).toHaveBeenCalledWith(expectedFilters)
+    expect(mocks.providerUsageService.listProviderUsageProviders).toHaveBeenCalledWith(expectedFilters)
+    expect(mocks.providerUsageService.listProviderUsageUsers).toHaveBeenCalledWith(expectedFilters)
   })
 
   it('returns session and audit data with parsed dashboard filters', async () => {
-    const sessionQuery = '?from=bad-date&to=2026-02-01T00:00:00.000Z&userId=%20%20'
-    const auditQuery = `${sessionQuery}&providerId=anthropic&modelId=claude`
-
-    const sessions = await getSessions(requestFor('sessions', sessionQuery), routeParams())
-    const audit = await getAudit(requestFor('audit', auditQuery), routeParams())
+    const sessions = await getSessions(requestFor('sessions', '?from=bad-date&to=2026-05-31T00:00:00.000Z&userId=user-1'), routeParams())
+    const audit = await getAudit(requestFor('audit', '?from=2026-05-01T00:00:00.000Z&to=invalid&userId=%20&providerId=anthropic&modelId=claude'), routeParams())
 
     await expect(sessions.json()).resolves.toEqual({ sessions: [{ sessionId: 'session-1' }] })
     await expect(audit.json()).resolves.toEqual({ auditEvents: [{ id: 'audit-1' }] })
 
     const sessionFilters = mocks.usageDashboardService.listUsageSessions.mock.calls[0]?.[0]
-    expectDate(sessionFilters.to, '2026-02-01T00:00:00.000Z')
-    expect(sessionFilters).toMatchObject({ from: undefined, userId: undefined })
+    expectDate(sessionFilters.to, '2026-05-31T00:00:00.000Z')
+    expect(sessionFilters).toMatchObject({ from: undefined, userId: 'user-1' })
 
     const auditFilters = mocks.usageDashboardService.listUsageAuditEvents.mock.calls[0]?.[0]
-    expectDate(auditFilters.to, '2026-02-01T00:00:00.000Z')
+    expectDate(auditFilters.from, '2026-05-01T00:00:00.000Z')
     expect(auditFilters).toMatchObject({
-      from: undefined,
       modelId: 'claude',
       providerId: 'anthropic',
+      to: undefined,
       userId: undefined,
     })
   })

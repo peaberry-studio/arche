@@ -44,6 +44,7 @@ type ChatPanelMessagesProps = {
   onSelectSessionTab?: (id: string) => void;
   scrollContainerRef: RefObject<HTMLDivElement | null>;
   sessionTabs: SessionTabInfo[];
+  slug: string;
   workspaceRoot?: string;
 };
 
@@ -347,6 +348,7 @@ export function ChatPanelMessages({
   onSelectSessionTab,
   scrollContainerRef,
   sessionTabs,
+  slug,
   workspaceRoot,
 }: ChatPanelMessagesProps) {
   const isLoadingConversation = isLoadingMessages && messages.length === 0;
@@ -425,6 +427,7 @@ export function ChatPanelMessages({
                                     connectorNamesById={connectorNamesById}
                                     sessionTabs={sessionTabs}
                                     onSelectSessionTab={onSelectSessionTab}
+                                    slug={slug}
                                     workspaceRoot={workspaceRoot}
                                   />
                                 );
@@ -449,6 +452,7 @@ export function ChatPanelMessages({
                                   onOpenFile={onOpenFile}
                                   sessionTabs={sessionTabs}
                                   onSelectSessionTab={onSelectSessionTab}
+                                  slug={slug}
                                   workspaceRoot={workspaceRoot}
                                 />
                               );

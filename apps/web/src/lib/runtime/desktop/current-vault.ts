@@ -5,6 +5,7 @@ export const DESKTOP_SETTINGS_SECTIONS = [
   'providers',
   'connectors',
   'agents',
+  'flows',
   'skills',
   'appearance',
   'advanced',

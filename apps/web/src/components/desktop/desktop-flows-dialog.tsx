@@ -8,6 +8,7 @@ import { ClockCounterClockwise, X } from '@phosphor-icons/react'
 import { FlowEditor } from '@/components/flows/flow-editor'
 import { FlowRunHistoryView } from '@/components/flows/flow-run-history-view'
 import { FlowsPage } from '@/components/flows/flows-page'
+import { NewFlowEditor } from '@/components/flows/new-flow-editor'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -16,10 +17,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { getDesktopFlowsHref, type DesktopFlowsView } from '@/lib/runtime/desktop/current-vault'
+import { cn } from '@/lib/utils'
 
 type DesktopFlowsDialogProps = {
   currentView: DesktopFlowsView | null
   flowId: string | null
+  macDesktopWindowInset?: boolean
   slackIntegrationAvailable?: boolean
   slug: string
   teamVisibilityAvailable?: boolean
@@ -47,6 +50,7 @@ const VIEW_LABELS: Record<DesktopFlowsView, { description: string; title: string
 export function DesktopFlowsDialog({
   currentView,
   flowId,
+  macDesktopWindowInset = false,
   slackIntegrationAvailable = false,
   slug,
   teamVisibilityAvailable = false,
@@ -123,9 +127,8 @@ export function DesktopFlowsDialog({
         return (
           <div className="space-y-8">
             {renderBackLink()}
-            <FlowEditor
+            <NewFlowEditor
               slug={slug}
-              mode="create"
               buildFlowHref={buildEditHref}
               flowListHref={listHref}
               slackIntegrationAvailable={slackIntegrationAvailable}
@@ -173,19 +176,27 @@ export function DesktopFlowsDialog({
 
   return (
     <Dialog open={Boolean(currentView)} onOpenChange={(open) => !open && updateView(null)}>
-      <DialogContent showCloseButton={false} className="h-[90vh] max-h-[94vh] w-[96vw] max-w-[96rem] overflow-hidden p-0">
+      <DialogContent
+        showCloseButton={false}
+        className="inset-0 left-0 top-0 h-screen w-screen max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-none border-0 p-0 sm:rounded-none"
+      >
         <DialogTitle className="sr-only">Desktop flows</DialogTitle>
         <DialogDescription className="sr-only">
           Create, run, and manage desktop workspace flows.
         </DialogDescription>
 
         <div className="flex h-full min-h-0 flex-col">
-          <div className="flex items-center justify-between gap-3 border-b border-border/60 px-6 py-4">
+          <div
+            className={cn(
+              'flex items-center justify-between gap-3 border-b border-border/60 px-6 py-4',
+              macDesktopWindowInset && 'desktop-titlebar-drag h-[56px] py-0 pl-[88px]',
+            )}
+          >
             <div>
               <p className="text-sm font-medium text-foreground">{activeLabel.title}</p>
               <p className="text-xs text-muted-foreground">{activeLabel.description}</p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className={cn('flex items-center gap-2', macDesktopWindowInset && 'desktop-titlebar-no-drag')}>
               {currentView === 'list' ? (
                 <Button asChild variant="outline" size="sm">
                   <Link href={buildCreateHref()}>Create flow</Link>

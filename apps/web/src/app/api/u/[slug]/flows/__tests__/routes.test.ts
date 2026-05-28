@@ -13,11 +13,15 @@ const mocks = vi.hoisted(() => ({
   deleteFlowByIdAndOwnerId: vi.fn(),
   findFlowByIdForScope: vi.fn(),
   findIdBySlug: vi.fn(),
+  findIntegration: vi.fn(),
   findRunByIdForScope: vi.fn(),
+  findTeamMemberById: vi.fn(),
   getFlowConnectorRequirements: vi.fn(),
   getRuntimeCapabilities: vi.fn(),
   getSession: vi.fn(),
   isDesktop: vi.fn(),
+  listEnabledNotificationChannels: vi.fn(),
+  listFlowAgentOptions: vi.fn(),
   listFlowsForScope: vi.fn(),
   listRunsByFlowIdForScope: vi.fn(),
   resumeFlowRun: vi.fn(),
@@ -42,6 +46,7 @@ vi.mock('@/lib/flows/connector-requirements', () => ({
   checkMissingConnectorRequirements: mocks.checkMissingConnectorRequirements,
   getFlowConnectorRequirements: mocks.getFlowConnectorRequirements,
 }))
+vi.mock('@/lib/flows/agents', () => ({ listFlowAgentOptions: mocks.listFlowAgentOptions }))
 vi.mock('@/lib/flows/payload', () => ({ validateFlowPayload: mocks.validateFlowPayload }))
 vi.mock('@/lib/flows/route-auth', () => ({ validateFlowSlackNodeAccess: mocks.validateFlowSlackNodeAccess }))
 vi.mock('@/lib/flows/runner', () => ({
@@ -60,14 +65,23 @@ vi.mock('@/lib/services', () => ({
     listRunsByFlowIdForScope: mocks.listRunsByFlowIdForScope,
     updateFlowByIdAndOwnerId: mocks.updateFlowByIdAndOwnerId,
   },
-  userService: { findIdBySlug: mocks.findIdBySlug },
+  slackService: {
+    findIntegration: mocks.findIntegration,
+    listEnabledNotificationChannels: mocks.listEnabledNotificationChannels,
+  },
+  userService: {
+    findIdBySlug: mocks.findIdBySlug,
+    findTeamMemberById: mocks.findTeamMemberById,
+  },
 }))
 
 import { GET as GET_FLOWS, POST as POST_FLOW } from '../route'
 import { DELETE as DELETE_FLOW, GET as GET_FLOW, PATCH as PATCH_FLOW } from '../[id]/route'
 import { POST as POST_COPY_FLOW } from '../[id]/copy/route'
+import { GET as GET_FLOW_EXPORT } from '../[id]/export/route'
 import { POST as POST_RUN_FLOW } from '../[id]/run/route'
 import { GET as GET_FLOW_RUNS } from '../[id]/runs/route'
+import { POST as POST_IMPORT_VALIDATE } from '../import/validate/route'
 import { POST as POST_CANCEL_RUN } from '../runs/[runId]/cancel/route'
 import { POST as POST_HUMAN_RESPONSE } from '../runs/[runId]/human-response/route'
 import { GET as GET_RUN } from '../runs/[runId]/route'
@@ -189,8 +203,13 @@ describe('Flow API routes', () => {
     mocks.getFlowConnectorRequirements.mockResolvedValue({ ok: true, requirements: [] })
     mocks.checkMissingConnectorRequirements.mockResolvedValue([])
     mocks.findIdBySlug.mockResolvedValue({ id: 'user-1' })
+    mocks.findIntegration.mockResolvedValue({ enabled: true, slackTeamId: 'T123' })
     mocks.findFlowByIdForScope.mockResolvedValue(createFlowRecord())
+    mocks.findTeamMemberById.mockResolvedValue({ id: 'user-1' })
     mocks.findRunByIdForScope.mockResolvedValue(createRunRecord())
+    mocks.listEnabledNotificationChannels.mockResolvedValue([])
+    mocks.listFlowAgentOptions.mockResolvedValue({ ok: true, agents: [] })
+    mocks.listFlowsForScope.mockResolvedValue([])
     mocks.cancelRunById.mockResolvedValue(true)
     mocks.cancelRunByIdForScope.mockResolvedValue(true)
     mocks.auditEvent.mockResolvedValue(undefined)
@@ -292,6 +311,229 @@ describe('Flow API routes', () => {
       .toBe(200)
     expect((await DELETE_FLOW(request('/api/u/alice/flows/flow-1', 'DELETE'), params({ id: 'flow-1', slug: 'alice' }))).status)
       .toBe(200)
+  })
+
+  it('exports visible flows as portable JSON templates and audits the export', async () => {
+    const flow = createFlowRecord({
+      cronExpression: '0 9 * * 1',
+      enabled: true,
+      name: 'Weekly Review',
+      timezone: 'Europe/Madrid',
+    })
+    mocks.findFlowByIdForScope.mockResolvedValue(flow)
+
+    const response = await GET_FLOW_EXPORT(request('/api/u/alice/flows/flow-1/export'), params({ id: 'flow-1', slug: 'alice' }))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-disposition')).toContain('weekly-review-template.json')
+    expect(body).toMatchObject({
+      cronExpression: '0 9 * * 1',
+      enabled: true,
+      format: 'arche-flow-template/v1',
+      name: 'Weekly Review',
+      timezone: 'Europe/Madrid',
+    })
+    expect(body).not.toHaveProperty('id')
+    expect(mocks.auditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'flows.flow_exported' }))
+  })
+
+  it('validates imported flow templates and returns draft warnings', async () => {
+    const definition = createDefaultFlowDefinition()
+    definition.nodes = definition.nodes.map((node) => (
+      node.type === 'agent' ? { ...node, targetAgentId: 'missing-agent' } : node
+    ))
+    mocks.listFlowsForScope.mockResolvedValue([createFlowRecord({ name: 'Flow' })])
+
+    const response = await POST_IMPORT_VALIDATE(request('/api/u/alice/flows/import/validate', 'POST', {
+      cronExpression: null,
+      definition,
+      enabled: true,
+      format: 'arche-flow-template/v1',
+      name: 'Flow',
+      timezone: 'UTC',
+    }), params({ slug: 'alice' }))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.draftPayload).toMatchObject({
+      enabled: true,
+      name: 'Flow',
+      organizationCanRun: false,
+      visibility: 'private',
+    })
+    expect(body.warnings.map((warning: { code: string }) => warning.code)).toEqual([
+      'schedule_required',
+      'flow_name_exists',
+      'unknown_target_agent',
+    ])
+  })
+
+  it('returns import warnings when agent availability cannot be checked', async () => {
+    const definition = createDefaultFlowDefinition()
+    definition.nodes = definition.nodes.map((node) => (
+      node.type === 'agent' ? { ...node, targetAgentId: 'agent-1' } : node
+    ))
+    mocks.listFlowAgentOptions.mockResolvedValueOnce({ ok: false, error: 'kb_unavailable' })
+
+    const response = await POST_IMPORT_VALIDATE(request('/api/u/alice/flows/import/validate', 'POST', {
+      cronExpression: null,
+      definition,
+      enabled: false,
+      format: 'arche-flow-template/v1',
+      name: 'Agent check',
+      timezone: 'UTC',
+    }), params({ slug: 'alice' }))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.warnings).toContainEqual(expect.objectContaining({ code: 'agent_options_unavailable' }))
+  })
+
+  it('maps invalid import bodies to bad requests', async () => {
+    const invalidJson = await POST_IMPORT_VALIDATE(new NextRequest('http://localhost/api/u/alice/flows/import/validate', {
+      body: '{not json',
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    }), params({ slug: 'alice' }))
+    const invalidTemplate = await POST_IMPORT_VALIDATE(request('/api/u/alice/flows/import/validate', 'POST', {
+      format: 'other',
+    }), params({ slug: 'alice' }))
+
+    expect(invalidJson.status).toBe(400)
+    await expect(invalidJson.json()).resolves.toEqual({ error: 'invalid_json' })
+    expect(invalidTemplate.status).toBe(400)
+    await expect(invalidTemplate.json()).resolves.toEqual({ error: 'invalid_flow_template_format' })
+  })
+
+  it('returns Slack import warnings from the shared Slack target analysis', async () => {
+    const definition = createDefaultFlowDefinition()
+    definition.nodes = [{
+      id: 'slack-1',
+      messageMode: 'fixed',
+      messageTemplate: 'Heads up',
+      name: 'Notify private channel',
+      target: { channelId: 'C-private', type: 'channel' },
+      type: 'slack',
+    }]
+    definition.layout = { nodes: [{ nodeId: 'slack-1', x: 120, y: 120 }] }
+    definition.startNodeId = 'slack-1'
+    mocks.listEnabledNotificationChannels.mockResolvedValue([{ channelId: 'C-private', isPrivate: true }])
+
+    const response = await POST_IMPORT_VALIDATE(request('/api/u/alice/flows/import/validate', 'POST', {
+      cronExpression: null,
+      definition,
+      enabled: false,
+      format: 'arche-flow-template/v1',
+      name: 'Slack flow',
+      timezone: 'UTC',
+    }), params({ slug: 'alice' }))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.warnings).toContainEqual(expect.objectContaining({
+      code: 'slack_private_channel_forbidden',
+      nodeId: 'slack-1',
+      value: 'C-private',
+    }))
+  })
+
+  it('returns Slack import warning variants for unavailable targets', async () => {
+    const definition = createDefaultFlowDefinition()
+    definition.nodes = [
+      {
+        id: 'slack-dm',
+        messageMode: 'fixed',
+        messageTemplate: 'DM update',
+        name: 'Notify DM',
+        target: { type: 'dm', userId: 'user-2' },
+        type: 'slack',
+      },
+      {
+        id: 'slack-channel',
+        messageMode: 'fixed',
+        messageTemplate: 'Channel update',
+        name: 'Notify channel',
+        target: { channelId: 'C-missing', type: 'channel' },
+        type: 'slack',
+      },
+    ]
+    definition.layout = { nodes: [] }
+    definition.startNodeId = 'slack-dm'
+
+    const response = await POST_IMPORT_VALIDATE(request('/api/u/alice/flows/import/validate', 'POST', {
+      cronExpression: null,
+      definition,
+      enabled: false,
+      format: 'arche-flow-template/v1',
+      name: 'Slack targets',
+      timezone: 'UTC',
+    }), params({ slug: 'alice' }))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.warnings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'slack_dm_target_forbidden', nodeId: 'slack-dm', value: 'user-2' }),
+      expect.objectContaining({ code: 'unknown_slack_channel_target', nodeId: 'slack-channel', value: 'C-missing' }),
+    ]))
+  })
+
+  it('returns Slack import warnings when integration or admin DM targets are unavailable', async () => {
+    const disabledDefinition = createDefaultFlowDefinition()
+    disabledDefinition.nodes = [{
+      id: 'slack-1',
+      messageMode: 'fixed',
+      messageTemplate: 'Heads up',
+      name: 'Notify Slack',
+      target: { channelId: 'C1', type: 'channel' },
+      type: 'slack',
+    }]
+    disabledDefinition.layout = { nodes: [] }
+    disabledDefinition.startNodeId = 'slack-1'
+    mocks.findIntegration.mockResolvedValueOnce({ enabled: false, slackTeamId: null })
+
+    const disabledResponse = await POST_IMPORT_VALIDATE(request('/api/u/alice/flows/import/validate', 'POST', {
+      cronExpression: null,
+      definition: disabledDefinition,
+      enabled: false,
+      format: 'arche-flow-template/v1',
+      name: 'Slack disabled',
+      timezone: 'UTC',
+    }), params({ slug: 'alice' }))
+    const disabledBody = await disabledResponse.json()
+
+    mocks.getSession.mockResolvedValue({
+      sessionId: 'session-admin',
+      user: { email: 'admin@example.com', id: 'admin-1', role: 'ADMIN', slug: 'admin' },
+    })
+    mocks.findTeamMemberById.mockResolvedValueOnce(null)
+
+    const dmDefinition = createDefaultFlowDefinition()
+    dmDefinition.nodes = [{
+      id: 'slack-dm',
+      messageMode: 'fixed',
+      messageTemplate: 'DM update',
+      name: 'Notify DM',
+      target: { type: 'dm', userId: 'missing-user' },
+      type: 'slack',
+    }]
+    dmDefinition.layout = { nodes: [] }
+    dmDefinition.startNodeId = 'slack-dm'
+
+    const dmResponse = await POST_IMPORT_VALIDATE(request('/api/u/alice/flows/import/validate', 'POST', {
+      cronExpression: null,
+      definition: dmDefinition,
+      enabled: false,
+      format: 'arche-flow-template/v1',
+      name: 'Slack DM',
+      timezone: 'UTC',
+    }), params({ slug: 'alice' }))
+    const dmBody = await dmResponse.json()
+
+    expect(disabledResponse.status).toBe(200)
+    expect(disabledBody.warnings).toContainEqual(expect.objectContaining({ code: 'slack_integration_disabled' }))
+    expect(dmResponse.status).toBe(200)
+    expect(dmBody.warnings).toContainEqual(expect.objectContaining({ code: 'unknown_slack_dm_target', nodeId: 'slack-dm', value: 'missing-user' }))
   })
 
   it('rejects invalid updates before writing', async () => {

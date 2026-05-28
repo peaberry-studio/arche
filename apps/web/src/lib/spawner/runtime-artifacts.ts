@@ -10,12 +10,17 @@ import { isOllamaSecret } from '@/lib/providers/ollama'
 import { getEffectiveCredentialForUser, getEnabledProviderCredentialsForUser } from '@/lib/providers/store'
 import { isRecord } from '@/lib/records'
 import { readSkillBundlesFromRepoDir } from '@/lib/skills/skill-store'
+import {
+  SYSTEM_FLOW_AUTHORING_SKILL_NAME,
+  withSystemSkillBundles,
+} from '@/lib/skills/system-skills'
 import type { SkillBundle } from '@/lib/skills/types'
 import { userService } from '@/lib/services'
 import {
   applyDefaultAgentModel,
   injectAlwaysOnAgentTools,
   injectSelfDelegationGuards,
+  injectSystemSkillAccess,
   remapAgentConnectorTools,
 } from '@/lib/spawner/agent-config-transforms'
 import { buildMcpConfigForSlug } from '@/lib/spawner/mcp-config'
@@ -184,6 +189,7 @@ async function buildBaseWorkspaceConfig(
   }
 
   baseConfig = injectAlwaysOnAgentTools(baseConfig)
+  baseConfig = injectSystemSkillAccess(baseConfig, [SYSTEM_FLOW_AUTHORING_SKILL_NAME])
   baseConfig = applyDefaultAgentModel(baseConfig)
   return injectSelfDelegationGuards(baseConfig)
 }
@@ -324,9 +330,10 @@ export async function buildWorkspaceRuntimeArtifacts(
     owner
   )
   const agentsMd = await buildWorkspaceAgentsMd(slug, owner, repoSnapshot.agentsMdContent)
+  const skills = withSystemSkillBundles(repoSnapshot.skills)
 
   return {
-    skills: repoSnapshot.skills,
+    skills,
     owner,
     opencodeConfigContent: serializeRuntimeConfig(config),
     ...(agentsMd ? { agentsMd } : {}),

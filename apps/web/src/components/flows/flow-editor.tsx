@@ -1,10 +1,12 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Lock, SpinnerGap, UsersThree } from '@phosphor-icons/react'
+
+import { DownloadSimple, Lock, SpinnerGap, UsersThree } from '@phosphor-icons/react'
 
 import { FlowCanvas } from '@/components/flows/flow-canvas'
+import { FlowImportTemplatePanel } from '@/components/flows/flow-import-template-panel'
 import { FlowNodeInspector } from '@/components/flows/flow-node-inspector'
 import { FlowScheduleBuilder } from '@/components/flows/flow-schedule-builder'
 import { Button } from '@/components/ui/button'
@@ -14,9 +16,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { useAgentsCatalog } from '@/hooks/use-agents-catalog'
-import { copyFlowRequest, createFlowRequest, deleteFlowRequest, fetchFlowDetail, runFlowRequest, updateFlowRequest } from '@/lib/flows/client'
+import { copyFlowRequest, createFlowRequest, deleteFlowRequest, fetchFlowDetail, runFlowRequest, updateFlowRequest, validateFlowImportRequest } from '@/lib/flows/client'
 import { getFlowTimeZoneOptions } from '@/lib/flows/cron'
-import { formatConnectorRequirement, getFlowErrorMessage } from '@/lib/flows/errors'
 import {
   addFlowDefinitionNodeAfter,
   connectFlowDefinitionNodes,
@@ -25,19 +26,22 @@ import {
   removeFlowDefinitionConnection,
   updateFlowDefinitionNode,
 } from '@/lib/flows/editor-graph'
+import { formatConnectorRequirement, getFlowErrorMessage } from '@/lib/flows/errors'
+import type { FlowTemplate, FlowTemplateImportWarning } from '@/lib/flows/import-export'
 import {
   getDefaultFlowScheduleFormState,
   getFlowSchedulePreview,
   inferFlowScheduleFormState,
   type FlowScheduleFormState,
 } from '@/lib/flows/schedule-form'
-import type { FlowConnectorRequirementSummary, FlowDefinition, FlowDetail, FlowNode, FlowPermissions, FlowUserSummary, FlowVisibility } from '@/lib/flows/types'
+import type { FlowConnectorRequirementSummary, FlowDefinition, FlowDetail, FlowNode, FlowPayload, FlowPermissions, FlowUserSummary, FlowVisibility } from '@/lib/flows/types'
 import { createDefaultFlowDefinition, validateFlowDefinition } from '@/lib/flows/validation'
 import { cn } from '@/lib/utils'
 
 type FlowEditorProps = {
   buildFlowHref?: (flowId: string) => string
   flowId?: string
+  initialTemplate?: FlowTemplate
   flowListHref?: string
   mode: 'create' | 'edit'
   slackIntegrationAvailable?: boolean
@@ -61,12 +65,14 @@ export function FlowEditor({
   buildFlowHref,
   flowId,
   flowListHref,
+  initialTemplate,
   mode,
   slackIntegrationAvailable = true,
   slug,
   teamVisibilityAvailable = true,
 }: FlowEditorProps) {
   const router = useRouter()
+  const initialTemplateAppliedRef = useRef(false)
   const { agents } = useAgentsCatalog(slug)
   const timezoneOptions = useMemo(() => getFlowTimeZoneOptions(), [])
   const [definition, setDefinition] = useState<FlowDefinition>(() => createDefaultFlowDefinition())
@@ -89,6 +95,8 @@ export function FlowEditor({
   const [isDeleting, setIsDeleting] = useState(false)
   const [isRunning, setIsRunning] = useState(false)
   const [isCopying, setIsCopying] = useState(false)
+  const [isImporting, setIsImporting] = useState(false)
+  const [importWarnings, setImportWarnings] = useState<FlowTemplateImportWarning[]>([])
   const [slackIntegrationEnabled, setSlackIntegrationEnabled] = useState(false)
   const [teamMembers, setTeamMembers] = useState<SlackTargetUser[]>([])
   const [slackChannels, setSlackChannels] = useState<SlackTargetChannel[]>([])
@@ -111,6 +119,43 @@ export function FlowEditor({
     setOwner(flow.owner)
     setMissingConnectorRequirements(flow.missingConnectorRequirements ?? [])
   }, [teamVisibilityAvailable])
+
+  const applyDraftPayload = useCallback((payload: FlowPayload) => {
+    setName(payload.name)
+    setDescription(payload.description ?? '')
+    setDefinition(payload.definition)
+    setSelectedNodeId(payload.definition.startNodeId)
+    setEditingNodeId(null)
+    setSchedule(inferFlowScheduleFormState(payload.cronExpression))
+    setTimezone(payload.timezone)
+    setEnabled(payload.enabled)
+    setVisibility(payload.visibility ?? 'private')
+    setOrganizationCanRun(payload.visibility === 'team' ? payload.organizationCanRun ?? false : false)
+    setPermissions(null)
+    setOwner(null)
+    setMissingConnectorRequirements([])
+  }, [])
+
+  const validateAndApplyTemplate = useCallback(async (template: unknown) => {
+    if (mode !== 'create') return
+
+    setIsImporting(true)
+    setFormError(null)
+    try {
+      const result = await validateFlowImportRequest(slug, template)
+      if (!result.ok) {
+        setFormError(result.error)
+        return
+      }
+
+      applyDraftPayload(result.data.draftPayload)
+      setImportWarnings(result.data.warnings)
+    } catch {
+      setFormError('network_error')
+    } finally {
+      setIsImporting(false)
+    }
+  }, [applyDraftPayload, mode, slug])
 
   const loadFlow = useCallback(async () => {
     if (mode !== 'edit' || !flowId) return
@@ -166,6 +211,13 @@ export function FlowEditor({
       cancelled = true
     }
   }, [applyLoadedFlow, flowId, mode, slug])
+
+  useEffect(() => {
+    if (mode !== 'create' || !initialTemplate || initialTemplateAppliedRef.current) return
+
+    initialTemplateAppliedRef.current = true
+    void validateAndApplyTemplate(initialTemplate)
+  }, [initialTemplate, mode, validateAndApplyTemplate])
 
   useEffect(() => {
     let cancelled = false
@@ -411,11 +463,11 @@ export function FlowEditor({
 
   if (loadError) {
     return (
-        <Card>
-          <CardHeader>
-            <CardTitle>Could not load flow</CardTitle>
-            <CardDescription>{getFlowErrorMessage(loadError)}</CardDescription>
-          </CardHeader>
+      <Card>
+        <CardHeader>
+          <CardTitle>Could not load flow</CardTitle>
+          <CardDescription>{getFlowErrorMessage(loadError)}</CardDescription>
+        </CardHeader>
         <CardContent>
           <Button variant="outline" onClick={() => void loadFlow()}>Retry</Button>
         </CardContent>
@@ -426,6 +478,15 @@ export function FlowEditor({
   return (
     <div className="space-y-8">
       <div className="space-y-6">
+        {mode === 'create' ? (
+          <FlowImportTemplatePanel
+            importWarnings={importWarnings}
+            isImporting={isImporting}
+            onImportError={setFormError}
+            onImportTemplate={validateAndApplyTemplate}
+          />
+        ) : null}
+
         <section className="rounded-xl border border-border/60 bg-card/40 px-5 pb-5 pt-4">
           {isReadOnly ? (
             <div className="mb-4 rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
@@ -611,6 +672,13 @@ export function FlowEditor({
                 {isCopying ? 'Duplicating...' : 'Duplicate flow'}
               </Button>
             ) : null}
+            {mode === 'edit' && flowId && permissions?.canView ? (
+              <Button variant="outline" asChild>
+                <a href={`/api/u/${slug}/flows/${flowId}/export`} download>
+                  <DownloadSimple size={14} className="mr-1.5" /> Export JSON
+                </a>
+              </Button>
+            ) : null}
             {mode === 'edit' && permissions?.canRun ? (
               <Button variant="outline" onClick={() => void runFlow()} disabled={isRunning || missingConnectorRequirements.length > 0}>
                 {isRunning ? 'Starting...' : 'Run flow'}
@@ -618,7 +686,7 @@ export function FlowEditor({
             ) : null}
           </div>
           {!isReadOnly ? (
-            <Button onClick={() => void saveFlow()} disabled={isSaving || !validation.ok || !isScheduleValid}>
+            <Button onClick={() => void saveFlow()} disabled={isSaving || isImporting || !validation.ok || !isScheduleValid}>
               {isSaving ? 'Saving...' : mode === 'create' ? 'Create flow' : 'Save changes'}
             </Button>
           ) : null}

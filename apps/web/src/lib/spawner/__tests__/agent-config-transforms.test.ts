@@ -5,6 +5,7 @@ import {
   applyDefaultAgentModel,
   injectAlwaysOnAgentTools,
   injectSelfDelegationGuards,
+  injectSystemSkillAccess,
   remapAgentConnectorTools,
 } from '../agent-config-transforms'
 
@@ -84,9 +85,11 @@ describe('injectAlwaysOnAgentTools', () => {
     expect(assistantTools.email_draft).toBe(true)
     expect(assistantTools.chart_create).toBe(true)
     expect(assistantTools.diagram_create).toBe(true)
+    expect(assistantTools.flow_propose).toBe(true)
     expect(supportTools.email_draft).toBe(true)
     expect(supportTools.chart_create).toBe(true)
     expect(supportTools.diagram_create).toBe(true)
+    expect(supportTools.flow_propose).toBe(true)
   })
 
   it('skips agents that do not define explicit tools', () => {
@@ -105,12 +108,98 @@ describe('injectAlwaysOnAgentTools', () => {
       agent: {
         assistant: {
           mode: 'primary',
-          tools: { email_draft: true, chart_create: true, diagram_create: true },
+          tools: { email_draft: true, chart_create: true, diagram_create: true, flow_propose: true },
         },
       },
     }
 
     const result = injectAlwaysOnAgentTools(config)
+    expect(result).toBe(config)
+  })
+})
+
+describe('injectSystemSkillAccess', () => {
+  it('enables system skills for agents with explicit tools', () => {
+    const config = {
+      agent: {
+        assistant: { mode: 'primary', tools: { task: true } },
+        support: { mode: 'subagent', tools: { read: true } },
+      },
+    }
+
+    const result = injectSystemSkillAccess(config, ['arche-flow-authoring'])
+    const agents = result.agent as Record<string, Record<string, unknown>>
+    const assistantTools = agents.assistant.tools as Record<string, boolean>
+    const assistantPermission = agents.assistant.permission as Record<string, Record<string, string>>
+    const supportTools = agents.support.tools as Record<string, boolean>
+    const supportPermission = agents.support.permission as Record<string, Record<string, string>>
+
+    expect(assistantTools.skill).toBe(true)
+    expect(assistantPermission.skill).toEqual({
+      '*': 'deny',
+      'arche-flow-authoring': 'allow',
+    })
+    expect(supportTools.skill).toBe(true)
+    expect(supportPermission.skill['arche-flow-authoring']).toBe('allow')
+  })
+
+  it('preserves existing skill permissions while adding system skills', () => {
+    const config = {
+      agent: {
+        assistant: {
+          mode: 'primary',
+          permission: {
+            skill: {
+              '*': 'deny',
+              'pdf-processing': 'allow',
+            },
+          },
+          tools: { skill: true, task: true },
+        },
+      },
+    }
+
+    const result = injectSystemSkillAccess(config, ['arche-flow-authoring'])
+    const agents = result.agent as Record<string, Record<string, unknown>>
+    const permission = agents.assistant.permission as Record<string, Record<string, string>>
+
+    expect(permission.skill).toEqual({
+      '*': 'deny',
+      'arche-flow-authoring': 'allow',
+      'pdf-processing': 'allow',
+    })
+  })
+
+  it('preserves global string permissions when adding system skill access', () => {
+    const config = {
+      agent: {
+        assistant: {
+          mode: 'primary',
+          permission: 'ask',
+          tools: { task: true },
+        },
+      },
+    }
+
+    const result = injectSystemSkillAccess(config, ['arche-flow-authoring'])
+    const agents = result.agent as Record<string, Record<string, unknown>>
+    const permission = agents.assistant.permission as Record<string, Record<string, string> | string>
+
+    expect(permission['*']).toBe('ask')
+    expect(permission.skill).toEqual({
+      '*': 'ask',
+      'arche-flow-authoring': 'allow',
+    })
+  })
+
+  it('skips agents without explicit tools', () => {
+    const config = {
+      agent: {
+        assistant: { mode: 'primary', prompt: 'You are helpful.' },
+      },
+    }
+
+    const result = injectSystemSkillAccess(config, ['arche-flow-authoring'])
     expect(result).toBe(config)
   })
 })

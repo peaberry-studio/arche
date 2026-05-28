@@ -265,7 +265,13 @@ describe('startInstance', () => {
     expect(typeof configContent).toBe('string')
     expect(configContent).toContain('"$schema":"https://opencode.ai/config.json"')
     expect(typeof agentsMd).toBe('string')
-    expect(skills).toEqual([])
+    expect(skills).toEqual([
+      expect.objectContaining({
+        skill: expect.objectContaining({
+          frontmatter: expect.objectContaining({ name: 'arche-flow-authoring' }),
+        }),
+      }),
+    ])
     expect(gitAuthor).toEqual({ name: 'alice', email: 'alice@example.com' })
     expect(mockDocker.startContainer).toHaveBeenCalledWith('container-123')
     expect(mockSync).toHaveBeenCalledWith({
@@ -736,9 +742,15 @@ describe('startInstance - agent config transforms', () => {
     expect(linearTools['arche_linear_admin111_*']).toBeUndefined()
     expect(linearTools['arche_*']).toBe(false)
     expect(linearTools.email_draft).toBe(true)
+    expect(linearTools.flow_propose).toBe(true)
+    expect(linearTools.skill).toBe(true)
+    expect(parsed.agent.linear.permission.skill['arche-flow-authoring']).toBe('allow')
 
     const assistantTools = parsed.agent.assistant.tools
     expect(assistantTools.email_draft).toBe(true)
+    expect(assistantTools.flow_propose).toBe(true)
+    expect(assistantTools.skill).toBe(true)
+    expect(parsed.agent.assistant.permission.skill['arche-flow-authoring']).toBe('allow')
 
     const linearPrompt = parsed.agent.linear.prompt as string
     expect(linearPrompt).toContain('## Delegation constraint')

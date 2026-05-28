@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
-import { FlowEditor } from '@/components/flows/flow-editor'
+import { NewFlowEditor } from '@/components/flows/new-flow-editor'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
 import { getCurrentDesktopVault, getDesktopFlowsHref } from '@/lib/runtime/desktop/current-vault'
 import { isDesktop } from '@/lib/runtime/mode'
@@ -39,9 +39,8 @@ export default async function NewFlowPage({
           </div>
         </div>
 
-        <FlowEditor
+        <NewFlowEditor
           slug={slug}
-          mode="create"
           slackIntegrationAvailable={capabilities.slackIntegration}
           teamVisibilityAvailable={capabilities.teamManagement}
         />
