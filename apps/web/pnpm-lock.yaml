@@ -14,136 +14,136 @@ importers:
   .:
     dependencies:
       '@opencode-ai/sdk':
-        specifier: ^1.1.48
+        specifier: 1.1.48
         version: 1.1.48
       '@phosphor-icons/react':
-        specifier: ^2.1.10
+        specifier: 2.1.10
         version: 2.1.10(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@prisma/adapter-better-sqlite3':
-        specifier: ^7.5.0
+        specifier: 7.5.0
         version: 7.5.0
       '@prisma/adapter-pg':
-        specifier: ^7.3.0
+        specifier: 7.3.0
         version: 7.3.0
       '@prisma/client':
-        specifier: ^7.3.0
+        specifier: 7.3.0
         version: 7.3.0(prisma@7.3.0(@types/react@19.2.10)(better-sqlite3@12.6.2)(magicast@0.3.5)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(typescript@5.9.3))(typescript@5.9.3)
       '@prisma/client-runtime-utils':
-        specifier: ^7.3.0
+        specifier: 7.3.0
         version: 7.3.0
       '@radix-ui/react-dialog':
-        specifier: ^1.1.15
+        specifier: 1.1.15
         version: 1.1.15(@types/react-dom@19.2.3(@types/react@19.2.10))(@types/react@19.2.10)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@radix-ui/react-dropdown-menu':
-        specifier: ^2.1.16
+        specifier: 2.1.16
         version: 2.1.16(@types/react-dom@19.2.3(@types/react@19.2.10))(@types/react@19.2.10)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@radix-ui/react-label':
-        specifier: ^2.1.8
+        specifier: 2.1.8
         version: 2.1.8(@types/react-dom@19.2.3(@types/react@19.2.10))(@types/react@19.2.10)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@radix-ui/react-slot':
-        specifier: ^1.2.4
+        specifier: 1.2.4
         version: 1.2.4(@types/react@19.2.10)(react@19.2.3)
       '@radix-ui/react-tooltip':
-        specifier: ^1.2.8
+        specifier: 1.2.8
         version: 1.2.8(@types/react-dom@19.2.3(@types/react@19.2.10))(@types/react@19.2.10)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@slack/bolt':
-        specifier: ^4.6.0
+        specifier: 4.7.0
         version: 4.7.0(@types/express@5.0.6)
       '@tiptap/core':
-        specifier: ^3.19.0
+        specifier: 3.19.0
         version: 3.19.0(@tiptap/pm@3.19.0)
       '@tiptap/extension-link':
-        specifier: ^3.19.0
+        specifier: 3.19.0
         version: 3.19.0(@tiptap/core@3.19.0(@tiptap/pm@3.19.0))(@tiptap/pm@3.19.0)
       '@tiptap/extension-placeholder':
-        specifier: ^3.19.0
+        specifier: 3.19.0
         version: 3.19.0(@tiptap/extensions@3.19.0(@tiptap/core@3.19.0(@tiptap/pm@3.19.0))(@tiptap/pm@3.19.0))
       '@tiptap/extension-table':
-        specifier: ^3.19.0
+        specifier: 3.19.0
         version: 3.19.0(@tiptap/core@3.19.0(@tiptap/pm@3.19.0))(@tiptap/pm@3.19.0)
       '@tiptap/extension-table-cell':
-        specifier: ^3.19.0
+        specifier: 3.19.0
         version: 3.19.0(@tiptap/extension-table@3.19.0(@tiptap/core@3.19.0(@tiptap/pm@3.19.0))(@tiptap/pm@3.19.0))
       '@tiptap/extension-table-header':
-        specifier: ^3.19.0
+        specifier: 3.19.0
         version: 3.19.0(@tiptap/extension-table@3.19.0(@tiptap/core@3.19.0(@tiptap/pm@3.19.0))(@tiptap/pm@3.19.0))
       '@tiptap/extension-table-row':
-        specifier: ^3.19.0
+        specifier: 3.19.0
         version: 3.19.0(@tiptap/extension-table@3.19.0(@tiptap/core@3.19.0(@tiptap/pm@3.19.0))(@tiptap/pm@3.19.0))
       '@tiptap/extension-task-item':
-        specifier: ^3.19.0
+        specifier: 3.19.0
         version: 3.19.0(@tiptap/extension-list@3.19.0(@tiptap/core@3.19.0(@tiptap/pm@3.19.0))(@tiptap/pm@3.19.0))
       '@tiptap/extension-task-list':
-        specifier: ^3.19.0
+        specifier: 3.19.0
         version: 3.19.0(@tiptap/extension-list@3.19.0(@tiptap/core@3.19.0(@tiptap/pm@3.19.0))(@tiptap/pm@3.19.0))
       '@tiptap/markdown':
-        specifier: ^3.19.0
+        specifier: 3.19.0
         version: 3.19.0(@tiptap/core@3.19.0(@tiptap/pm@3.19.0))(@tiptap/pm@3.19.0)
       '@tiptap/pm':
-        specifier: ^3.19.0
+        specifier: 3.19.0
         version: 3.19.0
       '@tiptap/react':
-        specifier: ^3.19.0
+        specifier: 3.19.0
         version: 3.19.0(@floating-ui/dom@1.7.5)(@tiptap/core@3.19.0(@tiptap/pm@3.19.0))(@tiptap/pm@3.19.0)(@types/react-dom@19.2.3(@types/react@19.2.10))(@types/react@19.2.10)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@tiptap/starter-kit':
-        specifier: ^3.19.0
+        specifier: 3.19.0
         version: 3.19.0
       argon2:
-        specifier: ^0.31.2
+        specifier: 0.31.2
         version: 0.31.2
       better-sqlite3:
-        specifier: ^12.6.2
+        specifier: 12.6.2
         version: 12.6.2
       class-variance-authority:
-        specifier: ^0.7.1
+        specifier: 0.7.1
         version: 0.7.1
       clsx:
-        specifier: ^2.1.1
+        specifier: 2.1.1
         version: 2.1.1
       cron-parser:
-        specifier: ^5.5.0
+        specifier: 5.5.0
         version: 5.5.0
       d3-drag:
-        specifier: ^3.0.0
+        specifier: 3.0.0
         version: 3.0.0
       d3-force:
-        specifier: ^3.0.0
+        specifier: 3.0.0
         version: 3.0.0
       d3-selection:
-        specifier: ^3.0.0
+        specifier: 3.0.0
         version: 3.0.0
       d3-zoom:
-        specifier: ^3.0.0
+        specifier: 3.0.0
         version: 3.0.0
       dockerode:
-        specifier: ^4.0.9
+        specifier: 4.0.9
         version: 4.0.9
       dompurify:
-        specifier: ^3.4.2
+        specifier: 3.4.2
         version: 3.4.2
       fflate:
-        specifier: ^0.8.2
+        specifier: 0.8.2
         version: 0.8.2
       lucide-react:
-        specifier: ^0.563.0
+        specifier: 0.563.0
         version: 0.563.0(react@19.2.3)
       mermaid:
-        specifier: ^11.14.0
+        specifier: 11.14.0
         version: 11.14.0
       next:
         specifier: 16.2.6
         version: 16.2.6(@babel/core@7.29.0)(@playwright/test@1.59.1)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       otpauth:
-        specifier: ^9.4.1
+        specifier: 9.4.1
         version: 9.4.1
       pdf-parse:
-        specifier: ^1.1.1
+        specifier: 1.1.4
         version: 1.1.4
       pg:
-        specifier: ^8.18.0
+        specifier: 8.18.0
         version: 8.18.0
       qrcode.react:
-        specifier: ^4.2.0
+        specifier: 4.2.0
         version: 4.2.0(react@19.2.3)
       react:
         specifier: 19.2.3
@@ -152,104 +152,104 @@ importers:
         specifier: 19.2.3
         version: 19.2.3(react@19.2.3)
       react-markdown:
-        specifier: ^10.1.0
+        specifier: 10.1.0
         version: 10.1.0(@types/react@19.2.10)(react@19.2.3)
       remark-gfm:
-        specifier: ^4.0.1
+        specifier: 4.0.1
         version: 4.0.1
       tailwind-merge:
-        specifier: ^2.6.1
+        specifier: 2.6.1
         version: 2.6.1
       tailwindcss-animate:
-        specifier: ^1.0.7
+        specifier: 1.0.7
         version: 1.0.7(tailwindcss@4.1.18)
       vega:
-        specifier: ^6.2.0
+        specifier: 6.2.0
         version: 6.2.0
       vega-embed:
-        specifier: ^7.1.0
+        specifier: 7.1.0
         version: 7.1.0(vega-lite@6.4.3(vega@6.2.0))(vega@6.2.0)
       vega-lite:
-        specifier: ^6.4.3
+        specifier: 6.4.3
         version: 6.4.3(vega@6.2.0)
       yaml:
-        specifier: ^2.8.3
+        specifier: 2.8.3
         version: 2.8.3
     devDependencies:
       '@playwright/test':
-        specifier: ^1.59.1
+        specifier: 1.59.1
         version: 1.59.1
       '@tailwindcss/postcss':
-        specifier: ^4.1.18
+        specifier: 4.1.18
         version: 4.1.18
       '@tailwindcss/typography':
-        specifier: ^0.5.19
+        specifier: 0.5.19
         version: 0.5.19(tailwindcss@4.1.18)
       '@testing-library/react':
-        specifier: ^16.3.2
+        specifier: 16.3.2
         version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.10))(@types/react@19.2.10)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@types/better-sqlite3':
-        specifier: ^7.6.13
+        specifier: 7.6.13
         version: 7.6.13
       '@types/d3-drag':
-        specifier: ^3.0.7
+        specifier: 3.0.7
         version: 3.0.7
       '@types/d3-force':
-        specifier: ^3.0.10
+        specifier: 3.0.10
         version: 3.0.10
       '@types/d3-selection':
-        specifier: ^3.0.11
+        specifier: 3.0.11
         version: 3.0.11
       '@types/d3-zoom':
-        specifier: ^3.0.8
+        specifier: 3.0.8
         version: 3.0.8
       '@types/dockerode':
-        specifier: ^4.0.1
+        specifier: 4.0.1
         version: 4.0.1
       '@types/node':
-        specifier: ^20.19.30
+        specifier: 20.19.30
         version: 20.19.30
       '@types/pg':
-        specifier: ^8.16.0
+        specifier: 8.16.0
         version: 8.16.0
       '@types/react':
-        specifier: ^19.2.10
+        specifier: 19.2.10
         version: 19.2.10
       '@types/react-dom':
-        specifier: ^19.2.3
+        specifier: 19.2.3
         version: 19.2.3(@types/react@19.2.10)
       '@vitest/coverage-v8':
-        specifier: ^3.2.4
+        specifier: 3.2.4
         version: 3.2.4(vitest@3.2.4(@types/debug@4.1.12)(@types/node@20.19.30)(jiti@2.6.1)(jsdom@28.0.0(@noble/hashes@1.8.0))(lightningcss@1.30.2)(tsx@4.21.0)(yaml@2.8.3))
       dotenv:
         specifier: 16.6.1
         version: 16.6.1
       eslint:
-        specifier: ^9.39.2
+        specifier: 9.39.2
         version: 9.39.2(jiti@2.6.1)
       eslint-config-next:
         specifier: 16.2.6
         version: 16.2.6(@typescript-eslint/parser@8.59.3(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)
       jsdom:
-        specifier: ^28.0.0
+        specifier: 28.0.0
         version: 28.0.0(@noble/hashes@1.8.0)
       playwright:
-        specifier: ^1.59.1
+        specifier: 1.59.1
         version: 1.59.1
       prisma:
-        specifier: ^7.3.0
+        specifier: 7.3.0
         version: 7.3.0(@types/react@19.2.10)(better-sqlite3@12.6.2)(magicast@0.3.5)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(typescript@5.9.3)
       tailwindcss:
-        specifier: ^4.1.18
+        specifier: 4.1.18
         version: 4.1.18
       tsx:
-        specifier: ^4.21.0
+        specifier: 4.21.0
         version: 4.21.0
       typescript:
-        specifier: ^5.9.3
+        specifier: 5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^3.2.4
+        specifier: 3.2.4
         version: 3.2.4(@types/debug@4.1.12)(@types/node@20.19.30)(jiti@2.6.1)(jsdom@28.0.0(@noble/hashes@1.8.0))(lightningcss@1.30.2)(tsx@4.21.0)(yaml@2.8.3)
 
 packages:
