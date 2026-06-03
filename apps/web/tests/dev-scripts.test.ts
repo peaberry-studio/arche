@@ -148,6 +148,10 @@ describe('web dev scripts', () => {
       resolve(repoRoot, 'infra', 'deploy', 'ansible', 'roles', 'app', 'templates', 'arche-autostart.sh.j2'),
       'utf8',
     )
+    const autostartServiceTemplate = readFileSync(
+      resolve(repoRoot, 'infra', 'deploy', 'ansible', 'roles', 'app', 'templates', 'arche-autostart.service.j2'),
+      'utf8',
+    )
     const deployScript = readFileSync(resolve(repoRoot, 'infra', 'deploy', 'deploy.sh'), 'utf8')
 
     const tunnelEntrypointStart = composeTemplate.indexOf(
@@ -172,6 +176,9 @@ describe('web dev scripts', () => {
     expect(composeTemplate).toContain('cloudflared:')
     expect(composeTemplate).toContain('image: {{ cloudflared_image }}')
     expect(composeTemplate).toContain('TUNNEL_TOKEN: "${CLOUDFLARED_TUNNEL_TOKEN}"')
+    expect(composeTemplate).toContain('- ./node_modules/.bin/tsx')
+    expect(composeTemplate).toContain('- src/reaper-daemon.ts')
+    expect(composeTemplate).toContain('- src/flow-daemon.ts')
     expect(composeTemplate).toContain("{% if deploy_mode == 'remote' and exposure_mode == 'direct' %}")
     expect(tunnelEntrypointBlock).not.toContain('letsencrypt')
     expect(tunnelEntrypointBlock).not.toContain('websecure')
@@ -180,5 +187,7 @@ describe('web dev scripts', () => {
     expect(appTasks).toContain("cloudflared{% endif %}")
     expect(commonTasks).toContain("when: exposure_mode == 'direct'")
     expect(autostartTemplate).toContain("cloudflared{% endif %}")
+    expect(autostartServiceTemplate).toContain('KillMode=process')
+    expect(autostartServiceTemplate).toContain('TimeoutStartSec=600s')
   })
 })

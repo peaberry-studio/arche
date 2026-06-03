@@ -11,7 +11,8 @@ RemainAfterExit=yes
 ExecStart=/usr/local/bin/arche-autostart
 Restart=on-failure
 RestartSec=20s
-TimeoutStartSec=180s
+KillMode=process
+TimeoutStartSec=600s
 
 [Install]
 WantedBy=multi-user.target

@@ -143,9 +143,8 @@ services:
     image: {{ web_image }}
     restart: "on-failure:5"
     command:
-      - pnpm
-      - run
-      - start:reaper
+      - ./node_modules/.bin/tsx
+      - src/reaper-daemon.ts
     env_file:
       - {{ env_file_name | default('.env') }}
     # Reaper only reconciles database state with container lifecycle via Docker.
@@ -165,9 +164,8 @@ services:
     image: {{ web_image }}
     restart: "unless-stopped"
     command:
-      - pnpm
-      - run
-      - start:flows
+      - ./node_modules/.bin/tsx
+      - src/flow-daemon.ts
     env_file:
       - {{ env_file_name | default('.env') }}
     networks:
