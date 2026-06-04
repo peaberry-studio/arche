@@ -191,7 +191,7 @@ describe("SessionsPanel", () => {
 
     vi.stubGlobal(
       "IntersectionObserver",
-      vi.fn((nextCallback: IntersectionObserverCallback) => {
+      vi.fn(function IntersectionObserver(nextCallback: IntersectionObserverCallback) {
         callback = nextCallback;
         return {
           observe,

@@ -8,6 +8,10 @@
   },
   "scripts": {
     "postinstall": "pnpm prisma:generate",
+    "pretest": "pnpm prisma:generate:all",
+    "precoverage": "pnpm prisma:generate:all",
+    "precoverage:unit": "pnpm prisma:generate:all",
+    "precoverage:integration": "pnpm prisma:generate:all",
     "predev": "pnpm prisma:generate:all",
     "dev": "next dev --turbopack -H 0.0.0.0 -p 3000",
     "predev:webpack": "pnpm prisma:generate:all",

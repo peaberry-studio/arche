@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mockPrismaClient = vi.fn().mockImplementation(() => ({ _isMockClient: true }))
+const mockPrismaClient = vi.fn(function PrismaClient() {
+  return { _isMockClient: true }
+})
 const mockPrismaPg = vi.fn()
 const mockPool = vi.fn()
 
