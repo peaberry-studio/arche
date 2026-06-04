@@ -72,12 +72,14 @@ prepare_opencode_config_dir() {
   local should_install=0
 
   if [[ ! -f "$OPENCODE_CONFIG_OUTPUT_DIR/package.json" ]] || \
-    ! cmp -s "$OPENCODE_CONFIG_SOURCE_DIR/package.json" "$OPENCODE_CONFIG_OUTPUT_DIR/package.json"; then
+    ! cmp -s "$OPENCODE_CONFIG_SOURCE_DIR/package.json" "$OPENCODE_CONFIG_OUTPUT_DIR/package.json" || \
+    ! cmp -s "$OPENCODE_CONFIG_SOURCE_DIR/package-lock.json" "$OPENCODE_CONFIG_OUTPUT_DIR/package-lock.json"; then
     should_install=1
   fi
 
   mkdir -p "$OPENCODE_CONFIG_OUTPUT_DIR"
   cp "$OPENCODE_CONFIG_SOURCE_DIR/package.json" "$OPENCODE_CONFIG_OUTPUT_DIR/package.json"
+  cp "$OPENCODE_CONFIG_SOURCE_DIR/package-lock.json" "$OPENCODE_CONFIG_OUTPUT_DIR/package-lock.json"
 
   rm -rf "$OPENCODE_CONFIG_OUTPUT_DIR/shared"
   mkdir -p "$OPENCODE_CONFIG_OUTPUT_DIR/shared"
@@ -88,7 +90,7 @@ prepare_opencode_config_dir() {
   cp "$OPENCODE_CONFIG_SOURCE_DIR/tools/"*.js "$OPENCODE_CONFIG_OUTPUT_DIR/tools/"
 
   if [[ "${FORCE_DOWNLOAD:-0}" == "1" ]]; then
-    rm -rf "$OPENCODE_CONFIG_OUTPUT_DIR/node_modules" "$OPENCODE_CONFIG_OUTPUT_DIR/package-lock.json"
+    rm -rf "$OPENCODE_CONFIG_OUTPUT_DIR/node_modules"
     should_install=1
   fi
 
@@ -99,7 +101,7 @@ prepare_opencode_config_dir() {
   if [[ "$should_install" == "1" ]]; then
     (
       cd "$OPENCODE_CONFIG_OUTPUT_DIR"
-      npm install --omit=dev
+      npm ci --omit=dev --ignore-scripts
     )
   fi
 }

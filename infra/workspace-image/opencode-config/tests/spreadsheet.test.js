@@ -1,5 +1,6 @@
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
+import * as nodeFs from 'node:fs'
 import fs from 'node:fs/promises'
 
 import * as XLSX from 'xlsx'
@@ -9,6 +10,8 @@ import { inspect, query, sample, stats } from '../tools/spreadsheet.js'
 import { createWorkspaceTestEnv } from './workspace-test-env.js'
 
 const workspace = await createWorkspaceTestEnv('arche-spreadsheet-test-')
+
+XLSX.set_fs(nodeFs)
 
 after(async () => {
   await workspace.cleanup()
