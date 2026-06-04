@@ -5,3 +5,14 @@ allowBuilds:
   dugite: true
   electron: true
   electron-winstaller: true
+overrides:
+  # Advisory lists fix as 4.17.24 (never published); lodash shipped 4.18.x instead.
+  lodash: 4.18.1
+  '@xmldom/xmldom': 0.8.13
+  tmp: 0.2.6
+  ip-address: 10.1.1
+  'minimatch@3': 3.1.4
+  'picomatch@4': 4.0.4
+  'brace-expansion@1': 1.1.13
+  'brace-expansion@2': 2.0.3
+  'brace-expansion@5': 5.0.6

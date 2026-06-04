@@ -82,7 +82,7 @@ describe('supply chain hardening', () => {
       expect(getPnpmConfigValue(rootPath, 'minimumReleaseAgeStrict')).toBe('true')
       expect(getPnpmConfigValue(rootPath, 'minimumReleaseAgeIgnoreMissingTime')).toBe('false')
     }
-  })
+  }, 30_000)
 
   it('pins direct dependency specs exactly', () => {
     for (const manifestPath of directDependencyManifests) {

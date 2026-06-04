@@ -31,6 +31,28 @@ supportedArchitectures:
     - x64
     - arm64
 overrides:
-  tar: 7.5.7
-  lodash: 4.17.23
-  hono: 4.11.7
+  # Advisory lists fix as 4.17.24 (never published); lodash shipped 4.18.x instead.
+  lodash: 4.18.1
+  tar: 7.5.11
+  hono: 4.12.18
+  '@hono/node-server': 1.19.13
+  protobufjs: 7.5.8
+  '@protobufjs/utf8': 1.1.1
+  axios: 1.16.0
+  defu: 6.1.5
+  flatted: 3.4.2
+  qs: 6.15.2
+  ws: 8.20.1
+  postcss: 8.5.10
+  vite: 7.3.2
+  undici: 7.27.0
+  rollup: 4.61.0
+  effect: 3.21.2
+  'ajv@6': 6.14.0
+  # dockerode pulls uuid@10 (no patched 10.x); 11.1.1 is API-compatible.
+  uuid: 11.1.1
+  'minimatch@3': 3.1.4
+  'picomatch@4': 4.0.4
+  'brace-expansion@1': 1.1.13
+  'brace-expansion@2': 2.0.3
+  'brace-expansion@5': 5.0.6

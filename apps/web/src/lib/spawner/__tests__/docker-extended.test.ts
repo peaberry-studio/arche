@@ -15,7 +15,9 @@ const mockDockerInstance = {
   createVolume: vi.fn().mockResolvedValue({}),
 }
 
-const mockDockerConstructor = vi.fn(() => mockDockerInstance)
+const mockDockerConstructor = vi.fn(function Docker() {
+  return mockDockerInstance
+})
 
 vi.mock('dockerode', () => ({
   default: mockDockerConstructor,
