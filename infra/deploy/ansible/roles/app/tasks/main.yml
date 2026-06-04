@@ -16,6 +16,7 @@
 #   6. Wait for new container to pass health checks
 #   7. Stop and remove old web container
 #   8. Record deployed version
+#   9. Cleanup old web images
 #
 # On failure at step 6:
 #   - Remove the new container
@@ -358,6 +359,28 @@
   ansible.builtin.set_fact:
     old_web_containers: "{{ old_web_result.stdout_lines | default([]) }}"
 
+- name: Capture old web image IDs
+  ansible.builtin.command:
+    cmd: podman inspect --format '{{ '{{' }}.Image{{ '}}' }}' {{ item }}
+  loop: "{{ old_web_containers | default([]) }}"
+  register: old_web_image_result
+  changed_when: false
+  failed_when: false
+  when: old_web_containers | default([]) | length > 0
+
+- name: Set old web image ID list
+  ansible.builtin.set_fact:
+    old_web_image_ids: >-
+      {{
+        ((old_web_image_result | default({})).results | default([]))
+        | selectattr('stdout', 'defined')
+        | map(attribute='stdout')
+        | map('trim')
+        | reject('equalto', '')
+        | unique
+        | list
+      }}
+
 - name: Display blue-green status
   ansible.builtin.debug:
     msg: "Old container(s): {{ old_web_containers | default(['none']) | join(', ') }} → New container: {{ new_web_container }}"
@@ -558,3 +581,76 @@
     owner: deploy
     group: deploy
     mode: "0644"
+
+# ---------------------------------------------------------------------------
+# Step 8: Cleanup old Podman images
+# ---------------------------------------------------------------------------
+- name: Get current web image ID
+  ansible.builtin.command:
+    cmd: podman image inspect {{ web_image }} --format '{{ '{{' }}.Id{{ '}}' }}'
+  register: current_web_image_result
+  changed_when: false
+  failed_when: false
+
+- name: Find image IDs used by running containers
+  ansible.builtin.shell:
+    cmd: |
+      podman ps --format '{{ '{{' }}.ID{{ '}}' }}' \
+        | xargs -r podman inspect --format '{{ '{{' }}.Image{{ '}}' }}' \
+        | sed "/^$/d" \
+        | sort -u
+  register: running_image_result
+  changed_when: false
+  failed_when: false
+
+- name: Set web image keep-list
+  ansible.builtin.set_fact:
+    web_image_keep_ids: >-
+      {{
+        ([current_web_image_result.stdout | trim] + (old_web_image_ids | default([])) + (running_image_result.stdout_lines | default([])))
+        | map('trim')
+        | reject('equalto', '')
+        | unique
+        | list
+      }}
+
+- name: Find old web images to remove
+  ansible.builtin.shell:
+    cmd: |
+      set -euo pipefail
+      keep_file="$(mktemp)"
+      trap 'rm -f "$keep_file"' EXIT
+
+      {% for image_id in web_image_keep_ids | default([]) %}
+      printf '%s\n' '{{ image_id }}' >> "$keep_file"
+      {% endfor %}
+
+      podman images --filter "reference=ghcr.io/peaberry-studio/arche/web:*" --format '{{ '{{' }}.ID{{ '}}' }}' \
+        | while IFS= read -r image_id; do
+            full_id="$(podman image inspect "$image_id" --format '{{ '{{' }}.Id{{ '}}' }}' 2>/dev/null || true)"
+            [ -n "$full_id" ] || continue
+            if ! grep -Fxq "$full_id" "$keep_file"; then
+              printf '%s\n' "$full_id"
+            fi
+          done \
+        | sort -u
+  args:
+    executable: /bin/bash
+  register: web_images_to_remove
+  changed_when: false
+  failed_when: false
+
+- name: Remove old web images
+  ansible.builtin.command:
+    cmd: podman image rm {{ item }}
+  loop: "{{ web_images_to_remove.stdout_lines | default([]) }}"
+  when: web_images_to_remove.stdout_lines | default([]) | length > 0
+  changed_when: true
+  failed_when: false
+
+- name: Prune dangling Podman images
+  ansible.builtin.command:
+    cmd: podman image prune -f
+  register: dangling_image_prune_result
+  changed_when: dangling_image_prune_result.stdout | trim | length > 0
+  failed_when: false
