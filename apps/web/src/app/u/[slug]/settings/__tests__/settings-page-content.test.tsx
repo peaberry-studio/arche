@@ -47,6 +47,19 @@ vi.mock('@/components/team/team-page-client', () => ({
   ),
 }))
 
+vi.mock('@/components/mcp/mcp-settings-panel', () => ({
+  McpSettingsPanel: (props: {
+    currentUserEmail: string
+    currentUserId: string
+    currentUserSlug: string
+    isAdmin: boolean
+  }) => (
+    <div>
+      MCP panel {props.currentUserId} {props.currentUserEmail} {props.currentUserSlug} {String(props.isAdmin)}
+    </div>
+  ),
+}))
+
 describe('SettingsPageContent', () => {
   afterEach(() => {
     cleanup()
@@ -60,6 +73,8 @@ describe('SettingsPageContent', () => {
         currentSection="integrations"
         isAdmin={true}
         currentUserId="admin-1"
+        currentUserEmail="admin@example.com"
+        currentUserSlug="admin"
         canManageUsers={true}
         passwordChangeEnabled={true}
         twoFactorEnabled={true}
@@ -113,6 +128,8 @@ describe('SettingsPageContent', () => {
         currentSection="general"
         isAdmin={false}
         currentUserId="user-1"
+        currentUserEmail="alice@example.com"
+        currentUserSlug="alice"
         canManageUsers={false}
         passwordChangeEnabled={true}
         twoFactorEnabled={true}
@@ -140,6 +157,8 @@ describe('SettingsPageContent', () => {
         currentSection="integrations"
         isAdmin={true}
         currentUserId="admin-1"
+        currentUserEmail="admin@example.com"
+        currentUserSlug="admin"
         canManageUsers={true}
         passwordChangeEnabled={true}
         twoFactorEnabled={true}
@@ -171,6 +190,8 @@ describe('SettingsPageContent', () => {
         currentSection="team"
         isAdmin={true}
         currentUserId="admin-1"
+        currentUserEmail="admin@example.com"
+        currentUserSlug="admin"
         canManageUsers={true}
         passwordChangeEnabled={true}
         twoFactorEnabled={true}
@@ -185,5 +206,30 @@ describe('SettingsPageContent', () => {
 
     expect(screen.getByRole('link', { name: 'Team' }).getAttribute('href')).toBe('/u/alice/settings?section=team')
     expect(screen.getByText('Team page alice admin-1 true true true')).toBeTruthy()
+  })
+
+  it('passes the authenticated user identity to the MCP panel instead of the viewed settings slug', () => {
+    render(
+      <SettingsPageContent
+        slug="alice"
+        availableSections={['general', 'mcp', 'security']}
+        currentSection="mcp"
+        isAdmin={true}
+        currentUserId="admin-1"
+        currentUserEmail="admin@example.com"
+        currentUserSlug="admin"
+        canManageUsers={true}
+        passwordChangeEnabled={true}
+        twoFactorEnabled={true}
+        enabled={false}
+        verifiedAt={null}
+        recoveryCodesRemaining={0}
+        releaseVersion="03"
+        slackIntegrationSummary={null}
+        googleWorkspaceSummary={null}
+      />,
+    )
+
+    expect(screen.getByText('MCP panel admin-1 admin@example.com admin true')).toBeTruthy()
   })
 })

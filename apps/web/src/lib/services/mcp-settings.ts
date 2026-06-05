@@ -2,6 +2,8 @@ import { prisma } from '@/lib/prisma'
 
 const MCP_SETTINGS_ID = 'global'
 
+type McpSettingsClient = Pick<typeof prisma, 'mcpSettings' | 'user'>
+
 export type McpUserAccess = {
   id: string
   email: string
@@ -19,8 +21,11 @@ export async function getSettings(): Promise<{ enabled: boolean }> {
   return { enabled: settings?.enabled ?? false }
 }
 
-export async function setEnabled(enabled: boolean): Promise<{ enabled: boolean }> {
-  const settings = await prisma.mcpSettings.upsert({
+export async function setEnabled(
+  enabled: boolean,
+  client: McpSettingsClient = prisma,
+): Promise<{ enabled: boolean }> {
+  const settings = await client.mcpSettings.upsert({
     where: { id: MCP_SETTINGS_ID },
     update: { enabled },
     create: { id: MCP_SETTINGS_ID, enabled },
@@ -38,8 +43,12 @@ export function listUserAccess(): Promise<McpUserAccess[]> {
   })
 }
 
-export function setUserAllowed(userId: string, mcpAllowed: boolean): Promise<McpUserAccess> {
-  return prisma.user.update({
+export function setUserAllowed(
+  userId: string,
+  mcpAllowed: boolean,
+  client: McpSettingsClient = prisma,
+): Promise<McpUserAccess> {
+  return client.user.update({
     where: { id: userId },
     data: { mcpAllowed },
     select: { id: true, email: true, slug: true, role: true, mcpAllowed: true },

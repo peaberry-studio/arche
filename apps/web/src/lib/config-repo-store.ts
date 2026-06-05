@@ -4,9 +4,9 @@ import * as path from 'node:path'
 import {
   cleanupClone,
   cloneRepoToTemp,
-  detectDefaultBranch,
   hasBareRepoLayout,
   isGitAvailable,
+  mutateBareRepo,
   resolveRepoRoot,
   runGit,
 } from '@/lib/git/bare-repo'
@@ -224,78 +224,29 @@ export async function mutateConfigRepo({
   const root = await resolveConfigRepoRoot()
   if (!root) return { ok: false, error: 'kb_unavailable' }
 
-  if (!(await hasBareRepoLayout(root))) {
-    return { ok: false, error: 'kb_unavailable' }
-  }
+  const result = await mutateBareRepo<void>({
+    root,
+    commitMessage,
+    expectedHash,
+    gitAuthorName: 'Arche Config',
+    gitAuthorEmail: 'config@arche.local',
+    mutate: async ({ repoDir }) => ({
+      ok: true,
+      changedPaths: await mutate({ repoDir }),
+      data: undefined,
+    }),
+  })
 
-  if (!(await isGitAvailable())) {
-    return { ok: false, error: 'write_failed' }
-  }
+  if (result.ok) return { ok: true, hash: result.hash ?? '' }
 
-  const clone = await cloneRepoToTemp(root)
-  if (!clone.ok) {
-    return { ok: false, error: 'write_failed' }
-  }
-
-  try {
-    const currentHash = await getCloneHeadHash(clone.dir, clone.gitEnv)
-    if (expectedHash && currentHash && expectedHash !== currentHash) {
+  switch (result.error) {
+    case 'repo_unavailable':
+      return { ok: false, error: 'kb_unavailable' }
+    case 'conflict':
       return { ok: false, error: 'conflict' }
-    }
-
-    const changedPaths = Array.from(new Set((await mutate({ repoDir: clone.dir })).map(normalizeRepoRelativePath)))
-    if (changedPaths.length === 0) {
-      return { ok: true, hash: currentHash ?? '' }
-    }
-
-    const add = await runGit(['add', '-A', '--', ...changedPaths], {
-      cwd: clone.dir,
-      env: clone.gitEnv,
-    })
-    if (!add.ok) {
+    case 'clone_failed':
+    case 'git_unavailable':
+    case 'write_failed':
       return { ok: false, error: 'write_failed' }
-    }
-
-    const status = await runGit(['status', '--porcelain', '--', ...changedPaths], {
-      cwd: clone.dir,
-      env: clone.gitEnv,
-    })
-    if (!status.ok) {
-      return { ok: false, error: 'write_failed' }
-    }
-
-    if (!status.stdout.trim()) {
-      return { ok: true, hash: currentHash ?? '' }
-    }
-
-    const commit = await runGit(
-      [
-        '-c', 'user.name=Arche Config',
-        '-c', 'user.email=config@arche.local',
-        'commit',
-        '-m', commitMessage,
-      ],
-      { cwd: clone.dir, env: clone.gitEnv }
-    )
-    if (!commit.ok) {
-      return { ok: false, error: 'write_failed' }
-    }
-
-    const branch = await detectDefaultBranch(clone.dir, clone.gitEnv)
-    const push = await runGit(['push', 'origin', `HEAD:refs/heads/${branch}`], {
-      cwd: clone.dir,
-      env: clone.gitEnv,
-    })
-    if (!push.ok) {
-      if (push.stderr.includes('non-fast-forward')) {
-        return { ok: false, error: 'conflict' }
-      }
-
-      return { ok: false, error: 'write_failed' }
-    }
-
-    return { ok: true, hash: (await getCloneHeadHash(clone.dir, clone.gitEnv)) ?? '' }
-  } finally {
-    await cleanupClone(clone)
   }
 }

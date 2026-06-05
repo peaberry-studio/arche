@@ -95,7 +95,7 @@ async function createBareContentRepo(): Promise<{ barePath: string; outsidePath:
 }
 
 function runGit(args: string[], cwd: string): void {
-  execFileSync('git', args, {
+  execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], {
     cwd,
     stdio: 'ignore',
     env: {

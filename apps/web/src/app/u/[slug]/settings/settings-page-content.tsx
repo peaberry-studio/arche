@@ -27,6 +27,8 @@ type SettingsPageContentProps = {
   currentSection: SettingsSectionName
   isAdmin: boolean
   currentUserId: string
+  currentUserEmail: string
+  currentUserSlug: string
   canManageUsers: boolean
   passwordChangeEnabled: boolean
   twoFactorEnabled: boolean
@@ -45,6 +47,8 @@ export function SettingsPageContent({
   currentSection,
   isAdmin,
   currentUserId,
+  currentUserEmail,
+  currentUserSlug,
   canManageUsers,
   passwordChangeEnabled,
   twoFactorEnabled,
@@ -167,7 +171,12 @@ export function SettingsPageContent({
             title="MCP Access"
             description="Connect external MCP clients to Arche workspace context with scoped personal access tokens."
           >
-            <McpSettingsPanel slug={slug} isAdmin={isAdmin} />
+            <McpSettingsPanel
+              currentUserEmail={currentUserEmail}
+              currentUserId={currentUserId}
+              currentUserSlug={currentUserSlug}
+              isAdmin={isAdmin}
+            />
           </SettingsSection>
         )
       case 'security':

@@ -210,6 +210,13 @@ describe('service layer', () => {
       expect(warnSpy).toHaveBeenCalledWith('audit event failed:', 'user.login', expect.any(Error))
       warnSpy.mockRestore()
     })
+
+    it('createEventStrict propagates prisma failures for strict audit boundaries', async () => {
+      mockPrisma.auditEvent.create.mockRejectedValue(new Error('db down'))
+
+      const { auditService } = await import('../index')
+      await expect(auditService.createEventStrict({ action: 'mcp.token_created' })).rejects.toThrow('db down')
+    })
   })
 
   describe('connectorService', () => {

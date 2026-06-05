@@ -1,5 +1,7 @@
 import { prisma } from '@/lib/prisma'
 
+type PersonalAccessTokenClient = Pick<typeof prisma, 'personalAccessToken'>
+
 export type PatWithUser = {
   id: string
   scopes: string[]
@@ -106,15 +108,19 @@ export function create(data: {
   return prisma.personalAccessToken.create({ data })
 }
 
-export function revokeByIdAndUserId(id: string, userId: string) {
-  return prisma.personalAccessToken.updateMany({
+export function revokeByIdAndUserId(
+  id: string,
+  userId: string,
+  client: PersonalAccessTokenClient = prisma,
+) {
+  return client.personalAccessToken.updateMany({
     where: { id, userId, revokedAt: null },
     data: { revokedAt: new Date() },
   })
 }
 
-export function revokeById(id: string) {
-  return prisma.personalAccessToken.updateMany({
+export function revokeById(id: string, client: PersonalAccessTokenClient = prisma) {
+  return client.personalAccessToken.updateMany({
     where: { id, revokedAt: null },
     data: { revokedAt: new Date() },
   })
