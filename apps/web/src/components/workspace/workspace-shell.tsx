@@ -45,6 +45,7 @@ import { ArcLoader } from "./arc-loader";
 import { FilePreviewPanel } from "./file-preview-panel";
 import { InspectorPanel } from "./inspector-panel";
 import { KnowledgeEmptyState } from "./knowledge-empty-state";
+import { KnowledgeCuratorPanel } from "./knowledge-curator-panel";
 import { KnowledgeNavigationPanel, type KnowledgeNavigationView } from "./knowledge-navigation-panel";
 import { FlowsEmptyState } from "./flows-empty-state";
 import { WorkspaceCommandPalette } from "./workspace-command-palette";
@@ -1379,6 +1380,18 @@ export function WorkspaceShell({
     [workspace]
   );
 
+  const handleLearnSession = useCallback(
+    async (session: { id: string; title: string }) => {
+      await fetch(`/api/u/${slug}/learning`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceSessionId: session.id, title: session.title }),
+      });
+      setRightCollapsedForMode(workspaceMode, false);
+    },
+    [setRightCollapsedForMode, slug, workspaceMode]
+  );
+
   const handleFlowHumanResponseSubmitted = useCallback(async () => {
     await Promise.all([
       workspace.refreshMessages(),
@@ -1746,6 +1759,7 @@ export function WorkspaceShell({
       sessionTabs={activeSessionTabs}
       openFilePaths={openFilePaths}
       onCloseSession={handleCloseSession}
+      onLearnSession={handleLearnSession}
       onRenameSession={handleRenameSession}
       onSelectSessionTab={handleSelectSessionTab}
       onOpenFile={handleOpenFile}
@@ -1856,8 +1870,12 @@ export function WorkspaceShell({
     />
   ) : null;
   const hasPreviewPanel = !isKnowledgeMode && previewFilePath !== null;
-  const hasRightPanel = isKnowledgeMode || hasPreviewPanel;
-  const rightPanelContent = hasPreviewPanel ? previewPanelElement : reviewPanelElement;
+  const hasRightPanel = isKnowledgeMode || hasPreviewPanel || workspaceMode === "chat";
+  const rightPanelContent = hasPreviewPanel
+    ? previewPanelElement
+    : isKnowledgeMode
+      ? reviewPanelElement
+      : <KnowledgeCuratorPanel slug={slug} />;
 
   const isLeftPanelActive = mobileView === "left";
   const isChatActive = mobileView === "chat";

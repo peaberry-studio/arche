@@ -92,6 +92,8 @@ const TOOL_LABELS: Record<string, string> = {
   chart_create: 'Creating chart',
   diagram_create: 'Creating diagram',
   flow_propose: 'Proposing flow',
+  learning_propose: 'Proposing KB learning',
+  session_history_query: 'Querying session history',
   todowrite: 'Planning',
   todoread: 'Reviewing plan',
 }

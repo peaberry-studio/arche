@@ -1220,7 +1220,7 @@ describe("WorkspaceShell", () => {
     });
 
     expect(screen.getByText("Chat Panel")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Open review panel" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Open review panel" })).toBeTruthy();
   });
 
   it("switches to full-screen left panel and back in compact layout", async () => {

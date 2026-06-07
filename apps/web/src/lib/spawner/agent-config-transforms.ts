@@ -5,7 +5,7 @@ import { isRecord } from '@/lib/records'
 
 const CONNECTOR_TYPE_PATTERN = CONNECTOR_TYPES.join('|')
 const MCP_SERVER_KEY_PATTERN = new RegExp(`^arche_(${CONNECTOR_TYPE_PATTERN})_([^_]+)$`)
-const ALWAYS_ENABLED_TOOLS = ['email_draft', 'chart_create', 'diagram_create', 'flow_propose'] as const
+const ALWAYS_ENABLED_TOOLS = ['email_draft', 'chart_create', 'diagram_create', 'flow_propose', 'session_history_query', 'learning_propose'] as const
 const PERMISSION_ACTIONS = new Set(['allow', 'ask', 'deny'])
 
 function isToolMap(value: unknown): value is Record<string, boolean> {

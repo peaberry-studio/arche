@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { getIdleFinalizationOutcome, getSilentStreamOutcome } from '@/app/api/w/[slug]/chat/stream/watchdog'
 import { createUpstreamSessionStatusReader } from '@/app/api/w/[slug]/chat/stream/status-reader'
+import { maybeQueueAutoLearningRun } from '@/lib/learning/service'
 import { getInstanceUrl } from '@/lib/opencode/client'
 import { ensureProviderAccessFreshForExecution } from '@/lib/opencode/providers'
 import {
@@ -194,6 +195,43 @@ async function readRuntimeSessionState(params: {
     return 'unknown'
   } catch {
     return 'unknown'
+  }
+}
+
+async function queueAutoLearningBestEffort(params: {
+  authHeader: string
+  baseUrl: string
+  sessionId: string
+  slug: string
+  userId: string
+}): Promise<void> {
+  try {
+    const [sessionResponse, messagesResponse] = await Promise.all([
+      fetch(`${params.baseUrl}/session/${params.sessionId}`, {
+        headers: { Authorization: params.authHeader, Accept: 'application/json' },
+        cache: 'no-store',
+      }),
+      fetch(`${params.baseUrl}/session/${params.sessionId}/message`, {
+        headers: { Authorization: params.authHeader, Accept: 'application/json' },
+        cache: 'no-store',
+      }),
+    ])
+    const sessionData: unknown = await sessionResponse.json().catch(() => null)
+    const messagesData: unknown = await messagesResponse.json().catch(() => null)
+    const sessionTitle = isRecord(sessionData) && typeof sessionData.title === 'string'
+      ? sessionData.title
+      : 'Session'
+    const messageCount = Array.isArray(messagesData) ? messagesData.length : 0
+
+    await maybeQueueAutoLearningRun({
+      userId: params.userId,
+      slug: params.slug,
+      sessionId: params.sessionId,
+      sessionTitle,
+      messageCount,
+    })
+  } catch {
+    // Auto-learning is best-effort and must not affect chat streaming.
   }
 }
 
@@ -576,6 +614,7 @@ export const POST = withAuth(
           sendEvent('done', { refresh: true })
           recordRunUsage()
           markRunSucceeded()
+          void queueAutoLearningBestEffort({ authHeader, baseUrl, sessionId, slug, userId: user.id })
           aborted = true
         }
 

@@ -67,6 +67,39 @@ enum SlackPendingDecisionStatus {
   expired
 }
 
+enum KnowledgeLearningRunStatus {
+  pending
+  running
+  succeeded
+  failed
+}
+
+enum KnowledgeLearningTrigger {
+  manual
+  auto
+  flow
+  agent
+}
+
+enum KnowledgeLearningProposalStatus {
+  pending
+  rejected
+  applied
+}
+
+enum KnowledgeLearningProposalType {
+  fact
+  preference
+  process
+  correction
+  other
+}
+
+enum KnowledgeLearningOperation {
+  create
+  update
+}
+
 model User {
   id           String      @id @default(cuid())
   email        String      @unique
@@ -91,6 +124,8 @@ model User {
   providerUsageRuns   ProviderUsageRun[]
   flows               Flow[]
   flowRunsExecuted    FlowRun[] @relation("FlowRunExecutionUser")
+  knowledgeLearningRuns KnowledgeLearningRun[]
+  knowledgeLearningProposals KnowledgeLearningProposal[]
   slackThreadBindings SlackThreadBinding[]
   slackUserLinks      SlackUserLink[]
   slackDmSessionBindings SlackDmSessionBinding[]
@@ -299,6 +334,58 @@ model MessageRunLock {
   @@id([slug, sessionId])
   @@index([runId])
   @@map("message_run_locks")
+}
+
+model KnowledgeLearningRun {
+  id                    String                     @id @default(cuid())
+  userId                String                     @map("user_id")
+  user                  User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceSessionId       String?                    @map("source_session_id")
+  internalSessionId     String?                    @map("internal_session_id")
+  title                 String
+  trigger               KnowledgeLearningTrigger
+  status                KnowledgeLearningRunStatus @default(pending)
+  error                 String?
+  messageCount          Int                        @default(0) @map("message_count")
+  startedAt             DateTime?                  @map("started_at")
+  finishedAt            DateTime?                  @map("finished_at")
+  createdAt             DateTime                   @default(now()) @map("created_at")
+  updatedAt             DateTime                   @updatedAt @map("updated_at")
+
+  proposals             KnowledgeLearningProposal[]
+
+  @@index([userId, createdAt])
+  @@index([userId, sourceSessionId])
+  @@index([status])
+  @@map("knowledge_learning_runs")
+}
+
+model KnowledgeLearningProposal {
+  id                String                          @id @default(cuid())
+  userId            String                          @map("user_id")
+  user              User                            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  runId             String?                         @map("run_id")
+  run               KnowledgeLearningRun?           @relation(fields: [runId], references: [id], onDelete: SetNull)
+  status            KnowledgeLearningProposalStatus @default(pending)
+  title             String
+  type              KnowledgeLearningProposalType   @default(other)
+  confidence        Float
+  evidence          Json
+  kbPath            String                          @map("kb_path")
+  operation         KnowledgeLearningOperation
+  proposedContent   String                          @map("proposed_content")
+  currentFileHash   String?                         @map("current_file_hash")
+  internalSessionId String?                         @map("internal_session_id")
+  trigger           KnowledgeLearningTrigger
+  appliedAt         DateTime?                       @map("applied_at")
+  rejectedAt        DateTime?                       @map("rejected_at")
+  createdAt         DateTime                        @default(now()) @map("created_at")
+  updatedAt         DateTime                        @updatedAt @map("updated_at")
+
+  @@index([userId, status, createdAt])
+  @@index([runId])
+  @@index([kbPath])
+  @@map("knowledge_learning_proposals")
 }
 
 model Flow {

@@ -90,6 +90,8 @@ describe('injectAlwaysOnAgentTools', () => {
     expect(supportTools.chart_create).toBe(true)
     expect(supportTools.diagram_create).toBe(true)
     expect(supportTools.flow_propose).toBe(true)
+    expect(supportTools.learning_propose).toBe(true)
+    expect(supportTools.session_history_query).toBe(true)
   })
 
   it('skips agents that do not define explicit tools', () => {
@@ -108,7 +110,14 @@ describe('injectAlwaysOnAgentTools', () => {
       agent: {
         assistant: {
           mode: 'primary',
-          tools: { email_draft: true, chart_create: true, diagram_create: true, flow_propose: true },
+          tools: {
+            email_draft: true,
+            chart_create: true,
+            diagram_create: true,
+            flow_propose: true,
+            learning_propose: true,
+            session_history_query: true,
+          },
         },
       },
     }

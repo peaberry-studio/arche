@@ -191,6 +191,8 @@ export async function createContainer(
     `OPENCODE_SERVER_PASSWORD=${password}`,
     `OPENCODE_SERVER_USERNAME=opencode`,
     `OPENCODE_CONFIG_DIR=/opt/arche/opencode-config`,
+    `ARCHE_WORKSPACE_SLUG=${slug}`,
+    `ARCHE_INTERNAL_API_BASE_URL=${process.env.ARCHE_INTERNAL_API_BASE_URL ?? 'http://web:3000'}`,
     // The workspace image runs as root for Podman volume compatibility.
     // Force HOME/XDG to mounted /home/workspace paths so session data persists.
     `HOME=/home/workspace`,

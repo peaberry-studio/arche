@@ -1,7 +1,8 @@
 "use server";
 
-import { createInstanceClient, getInstanceUrl } from "@/lib/opencode/client";
 import { createFlowActorScope } from "@/lib/flows/authorization";
+import { isLearningSessionTitle } from "@/lib/learning/session-title";
+import { createInstanceClient, getInstanceUrl } from "@/lib/opencode/client";
 import { extractTextContent, transformParts } from "@/lib/opencode/transform";
 import type {
   AvailableModel,
@@ -467,7 +468,7 @@ async function listWorkspaceSessionsFromApi(
     roots: options.rootsOnly ? true : undefined,
     start: requestedStart,
   });
-  const sessions = (result.data ?? []).map(mapApiSession);
+  const sessions = (result.data ?? []).map(mapApiSession).filter((session) => !isLearningSessionTitle(session.title));
   const metadata = await getWorkspaceSessionMetadata(slug, client, sessions.map((session) => session.id));
   const workspaceSessions = toWorkspaceSessions(sessions, metadata.statuses, metadata.flowBySessionId);
 

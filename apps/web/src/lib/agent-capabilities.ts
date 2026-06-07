@@ -27,6 +27,7 @@ export const OPENCODE_AGENT_TOOLS = [
   'spreadsheet_sample',
   'spreadsheet_query',
   'spreadsheet_stats',
+  'session_history_query',
 ] as const
 
 export type OpenCodeAgentToolId = (typeof OPENCODE_AGENT_TOOLS)[number]
@@ -55,6 +56,7 @@ export const OPENCODE_AGENT_TOOL_OPTIONS: Array<{
   { id: 'spreadsheet_sample', label: 'Sample spreadsheet rows' },
   { id: 'spreadsheet_query', label: 'Query spreadsheet data' },
   { id: 'spreadsheet_stats', label: 'Spreadsheet statistics' },
+  { id: 'session_history_query', label: 'Query session history' },
 ]
 
 export type AgentCapabilities = {
