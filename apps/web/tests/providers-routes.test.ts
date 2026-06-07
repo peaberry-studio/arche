@@ -169,6 +169,7 @@ describe('GET /api/u/[slug]/providers', () => {
       },
       { providerId: 'anthropic', status: 'missing' },
       { providerId: 'fireworks', status: 'missing' },
+      { providerId: 'huggingface', status: 'missing' },
       { providerId: 'openrouter', status: 'missing' },
       { providerId: 'opencode', status: 'missing' },
       { providerId: 'opencode-go', status: 'missing' },
@@ -281,6 +282,44 @@ describe('POST /api/u/[slug]/providers/[provider]', () => {
       instance: { baseUrl: 'http://alice.test', authHeader: 'Basic b3BlbmNvZGU6c2VjcmV0' },
       slug: 'alice',
       userId: 'user-1',
+    })
+  })
+
+  it('creates and enables a Hugging Face credential', async () => {
+    mockGetAuthenticatedUser.mockResolvedValue(session('admin', 'ADMIN'))
+    mockFindUnique.mockResolvedValueOnce({ id: 'user-1' })
+    mockFindUnique.mockResolvedValueOnce(null)
+    mockFindFirst.mockResolvedValue({ version: 0 })
+    mockUpdateMany.mockResolvedValue({ count: 1 })
+    mockCreate.mockResolvedValue({
+      id: 'cred-hf',
+      providerId: 'huggingface',
+      type: 'api',
+      status: 'enabled',
+      version: 1,
+    })
+
+    const { status, body } = await callPostProvider('alice', 'huggingface', { apiKey: 'hf-token' })
+
+    expect(status).toBe(201)
+    expect(body).toEqual({
+      credential: {
+        id: 'cred-hf',
+        providerId: 'huggingface',
+        type: 'api',
+        status: 'enabled',
+        version: 1,
+      },
+      restartRequired: false,
+    })
+    expect(mockUpdateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1', providerId: 'huggingface' },
+      data: { status: 'disabled' },
+    })
+    expect(mockAuditEvent).toHaveBeenCalledWith({
+      actorUserId: 'user-1',
+      action: 'provider_credential.created',
+      metadata: { providerId: 'huggingface', credentialId: 'cred-hf' },
     })
   })
 

@@ -86,12 +86,13 @@ describe('GET /api/u/[slug]/organization-providers', () => {
       'openai',
       'anthropic',
       'fireworks',
+      'huggingface',
       'openrouter',
       'opencode',
       'opencode-go',
       'ollama',
     ])
-    expect(body.providers).toHaveLength(7)
+    expect(body.providers).toHaveLength(8)
     expect(body.providers.find((provider: { providerId: string }) => provider.providerId === 'openai')).toEqual({
       id: 'cred-openai-current',
       lastUsedAt: '2026-05-01T12:00:00.000Z',
@@ -110,6 +111,10 @@ describe('GET /api/u/[slug]/organization-providers', () => {
     })
     expect(body.providers.find((provider: { providerId: string }) => provider.providerId === 'fireworks')).toEqual({
       providerId: 'fireworks',
+      status: 'missing',
+    })
+    expect(body.providers.find((provider: { providerId: string }) => provider.providerId === 'huggingface')).toEqual({
+      providerId: 'huggingface',
       status: 'missing',
     })
   })

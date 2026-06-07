@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   getE2eFakeProviderUrl: vi.fn(),
   getCanonicalProviderId: vi.fn((id: string) =>
-    ['openai', 'anthropic', 'fireworks', 'openrouter', 'opencode', 'ollama'].includes(id) ? id : null,
+    ['openai', 'anthropic', 'fireworks', 'huggingface', 'openrouter', 'opencode', 'ollama'].includes(id) ? id : null,
   ),
   getEffectiveCredentialForUser: vi.fn(),
   verifyGatewayToken: vi.fn(),
@@ -49,7 +49,7 @@ describe('/api/internal/providers/[provider]/[...path]', () => {
     mocks.checkRateLimit.mockReturnValue({ allowed: true, remaining: 99, resetAt: Date.now() + 60_000 })
     mocks.getRuntimeCapabilities.mockReturnValue({ auth: true })
     mocks.getCanonicalProviderId.mockImplementation((id: string) =>
-      ['openai', 'anthropic', 'fireworks', 'openrouter', 'opencode', 'ollama'].includes(id) ? id : null,
+      ['openai', 'anthropic', 'fireworks', 'huggingface', 'openrouter', 'opencode', 'ollama'].includes(id) ? id : null,
     )
     fetchMock = vi.fn()
     global.fetch = fetchMock
@@ -428,6 +428,29 @@ describe('/api/internal/providers/[provider]/[...path]', () => {
     const sentHeaders = fetchMock.mock.calls[0][1].headers as Headers
     expect(sentHeaders.get('x-api-key')).toBe('anthropic-key')
     expect(sentHeaders.get('anthropic-version')).toBe('2023-06-01')
+  })
+
+  it('successfully proxies a Hugging Face models request with bearer auth', async () => {
+    mocks.verifyGatewayToken.mockReturnValue({ ...GATEWAY_PAYLOAD, providerId: 'huggingface' })
+    mocks.decryptProviderSecret.mockReturnValue({ apiKey: 'hf-token' })
+    fetchMock.mockResolvedValue(
+      new Response('{"data":[]}', { status: 200, headers: { 'content-type': 'application/json' } }),
+    )
+
+    const res = await GET(
+      makeRequest('GET', 'http://localhost/api/internal/providers/huggingface/v1/models', {
+        headers: { authorization: 'Bearer valid-token' },
+      }),
+      { params: Promise.resolve({ provider: 'huggingface', path: ['v1', 'models'] }) },
+    )
+
+    expect(res.status).toBe(200)
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://router.huggingface.co/v1/models',
+      expect.objectContaining({ method: 'GET' }),
+    )
+    const sentHeaders = fetchMock.mock.calls[0][1].headers as Headers
+    expect(sentHeaders.get('authorization')).toBe('Bearer hf-token')
   })
 
   it('allows anonymous opencode when auth capability is off', async () => {

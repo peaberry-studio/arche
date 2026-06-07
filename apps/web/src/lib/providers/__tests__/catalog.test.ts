@@ -18,6 +18,7 @@ describe('providers catalog', () => {
 
   it('maps canonical provider ids to the runtime provider ids used by OpenCode', () => {
     expect(toRuntimeProviderId('fireworks')).toBe('fireworks-ai')
+    expect(toRuntimeProviderId('huggingface')).toBe('huggingface')
     expect(toRuntimeProviderId('opencode-go')).toBe('opencode-go')
     expect(toRuntimeProviderId('ollama')).toBe('ollama')
     expect(resolveRuntimeProviderId('fireworks')).toBe('fireworks-ai')
@@ -40,15 +41,20 @@ describe('providers catalog', () => {
     expect(config.provider.ollama?.options.baseURL).toBe(
       'http://web:3000/api/internal/providers/ollama',
     )
+    expect(config.provider.huggingface?.options.baseURL).toBe(
+      'http://web:3000/api/internal/providers/huggingface',
+    )
     expect(config.provider.ollama?.name).toBe('Ollama')
     expect(config.provider.ollama?.npm).toBe('@ai-sdk/openai-compatible')
     expect(getProviderLabel('fireworks-ai')).toBe('Fireworks AI')
+    expect(getProviderLabel('huggingface')).toBe('Hugging Face')
     expect(getProviderLabel('opencode-go')).toBe('OpenCode Go')
     expect(getProviderLabel('ollama')).toBe('Ollama')
   })
 
   it('declares which providers require managed credentials', () => {
     expect(providerRequiresCredential('openai')).toBe(true)
+    expect(providerRequiresCredential('huggingface')).toBe(true)
     expect(providerRequiresCredential('opencode')).toBe(false)
     expect(providerRequiresCredential('opencode-go')).toBe(true)
     expect(providerRequiresCredential('ollama')).toBe(true)
