@@ -1,8 +1,8 @@
 import { auditEvent } from '@/lib/auth'
 import {
   findPendingLearningProposal,
-  updateLearningProposalApplied,
-  updateLearningProposalRejected,
+  updatePendingLearningProposalApplied,
+  updatePendingLearningProposalRejected,
 } from '@/lib/learning/repository'
 import { createWorkspaceAgentClient } from '@/lib/workspace-agent/client'
 import { workspaceAgentFetch } from '@/lib/workspace-agent-client'
@@ -30,7 +30,9 @@ export async function rejectLearningProposal(args: {
   if (!proposal) return { ok: false, error: 'not_found' }
   if (proposal.status !== 'pending') return { ok: false, error: 'not_pending' }
 
-  const updated = await updateLearningProposalRejected(proposal.id)
+  const updated = await updatePendingLearningProposalRejected({ proposalId: proposal.id, userId: args.userId })
+  if (!updated) return { ok: false, error: 'not_pending' }
+
   await auditEvent({ actorUserId: args.userId, action: 'learning.proposal_rejected', metadata: { proposalId: proposal.id } })
   return { ok: true, proposal: updated }
 }
@@ -49,7 +51,10 @@ export async function applyLearningProposal(args: {
   if (!agent) return { ok: false, error: 'workspace_agent_unavailable' }
 
   const read = await workspaceAgentFetch<FileReadResponse>(agent, '/files/read', { path: proposal.kbPath })
-  if (proposal.operation === 'update') {
+  if (proposal.operation === 'create') {
+    if (read.ok) return { ok: false, error: 'file_exists' }
+    if (read.status !== 404) return { ok: false, error: read.error }
+  } else {
     if (!read.ok) return { ok: false, error: read.error }
     if (proposal.currentFileHash && read.data.hash !== proposal.currentFileHash) {
       return { ok: false, error: 'hash_conflict' }
@@ -66,7 +71,9 @@ export async function applyLearningProposal(args: {
   })
   if (!write.ok) return { ok: false, error: write.error }
 
-  const updated = await updateLearningProposalApplied({ proposalId: proposal.id, content })
+  const updated = await updatePendingLearningProposalApplied({ proposalId: proposal.id, userId: args.userId, content })
+  if (!updated) return { ok: false, error: 'not_pending' }
+
   await auditEvent({
     actorUserId: args.userId,
     action: 'learning.proposal_applied',

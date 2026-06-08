@@ -41,11 +41,19 @@ export function KnowledgeCuratorPanel({ slug }: KnowledgeCuratorPanelProps) {
 
   const actOnProposal = useCallback(
     async (proposalId: string, action: "apply" | "reject", content?: string) => {
-      await fetch(`/api/u/${slug}/learning/proposals`, {
+      const response = await fetch(`/api/u/${slug}/learning/proposals`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, proposalId, content }),
       });
+      const json = (await response.json().catch(() => null)) as { error?: string } | null;
+      if (!response.ok) {
+        await refresh();
+        setError(json?.error ?? "learning_action_failed");
+        return;
+      }
+
+      setError(null);
       await refresh();
       setEdits((current) => {
         const next = { ...current };

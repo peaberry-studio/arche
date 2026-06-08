@@ -1,6 +1,7 @@
 import type { Prisma } from '@prisma/client'
 
 import { prisma } from '@/lib/prisma'
+import { isDesktop } from '@/lib/runtime/mode'
 import type {
   LearningEvidence,
   LearningProposal,
@@ -55,7 +56,15 @@ export function mapRun(run: {
   }
 }
 
-export function parseEvidence(value: Prisma.JsonValue): LearningEvidence {
+export function parseEvidence(value: Prisma.JsonValue | string): LearningEvidence {
+  if (typeof value === 'string') {
+    try {
+      return parseEvidence(JSON.parse(value) as Prisma.JsonValue)
+    } catch {
+      return {}
+    }
+  }
+
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {}
   }
@@ -178,20 +187,41 @@ export async function findPendingLearningProposal(args: { userId: string; propos
   })
 }
 
-export async function updateLearningProposalRejected(proposalId: string): Promise<LearningProposal> {
-  const updated = await prisma.knowledgeLearningProposal.update({
-    where: { id: proposalId },
+export async function updatePendingLearningProposalRejected(args: {
+  proposalId: string
+  userId: string
+}): Promise<LearningProposal | null> {
+  const result = await prisma.knowledgeLearningProposal.updateMany({
+    where: { id: args.proposalId, userId: args.userId, status: 'pending' },
     data: { status: 'rejected', rejectedAt: new Date() },
   })
+  if (result.count !== 1) return null
+
+  const updated = await prisma.knowledgeLearningProposal.findUnique({ where: { id: args.proposalId } })
+  if (!updated) return null
+
   return mapProposal(updated)
 }
 
-export async function updateLearningProposalApplied(args: { proposalId: string; content: string }): Promise<LearningProposal> {
-  const updated = await prisma.knowledgeLearningProposal.update({
-    where: { id: args.proposalId },
+export async function updatePendingLearningProposalApplied(args: {
+  proposalId: string
+  userId: string
+  content: string
+}): Promise<LearningProposal | null> {
+  const result = await prisma.knowledgeLearningProposal.updateMany({
+    where: { id: args.proposalId, userId: args.userId, status: 'pending' },
     data: { status: 'applied', appliedAt: new Date(), proposedContent: args.content },
   })
+  if (result.count !== 1) return null
+
+  const updated = await prisma.knowledgeLearningProposal.findUnique({ where: { id: args.proposalId } })
+  if (!updated) return null
+
   return mapProposal(updated)
+}
+
+function serializeEvidenceForStorage(evidence: LearningEvidence): Prisma.InputJsonValue {
+  return isDesktop() ? JSON.stringify(evidence) : evidence
 }
 
 export async function createLearningProposal(userId: string, input: ProposalInput): Promise<LearningProposal> {
@@ -202,7 +232,7 @@ export async function createLearningProposal(userId: string, input: ProposalInpu
       title: input.title,
       type: input.type ?? 'other',
       confidence: input.confidence,
-      evidence: input.evidence,
+      evidence: serializeEvidenceForStorage(input.evidence),
       kbPath: input.kbPath,
       operation: input.operation,
       proposedContent: input.proposedContent,

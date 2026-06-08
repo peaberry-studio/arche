@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { getIdleFinalizationOutcome, getSilentStreamOutcome } from '@/app/api/w/[slug]/chat/stream/watchdog'
 import { createUpstreamSessionStatusReader } from '@/app/api/w/[slug]/chat/stream/status-reader'
-import { maybeQueueAutoLearningRun } from '@/lib/learning/service'
+import { canQueueAutoLearningRun, maybeQueueAutoLearningRun } from '@/lib/learning/service'
 import { getInstanceUrl } from '@/lib/opencode/client'
 import { ensureProviderAccessFreshForExecution } from '@/lib/opencode/providers'
 import {
@@ -206,6 +206,8 @@ async function queueAutoLearningBestEffort(params: {
   userId: string
 }): Promise<void> {
   try {
+    if (!(await canQueueAutoLearningRun({ userId: params.userId, sessionId: params.sessionId }))) return
+
     const [sessionResponse, messagesResponse] = await Promise.all([
       fetch(`${params.baseUrl}/session/${params.sessionId}`, {
         headers: { Authorization: params.authHeader, Accept: 'application/json' },

@@ -8,6 +8,7 @@ export {
   listLearningRuns,
 } from '@/lib/learning/repository'
 export {
+  canQueueAutoLearningRun,
   createLearningRun,
   markLearningRunFailed,
   markLearningRunRunning,

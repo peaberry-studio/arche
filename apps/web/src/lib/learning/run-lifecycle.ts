@@ -69,10 +69,7 @@ export async function maybeQueueAutoLearningRun(args: {
 }): Promise<void> {
   if (args.messageCount < AUTO_LEARNING_MIN_MESSAGES) return
 
-  if (await hasActiveLearningRun({ userId: args.userId, sessionId: args.sessionId })) return
-
-  const cooldown = new Date(Date.now() - AUTO_LEARNING_COOLDOWN_MS)
-  if (await hasRecentLearningRun({ userId: args.userId, sessionId: args.sessionId, since: cooldown })) return
+  if (!(await canQueueAutoLearningRun({ userId: args.userId, sessionId: args.sessionId }))) return
 
   const run = await createLearningRun({
     userId: args.userId,
@@ -84,4 +81,13 @@ export async function maybeQueueAutoLearningRun(args: {
   if (run.ok) {
     await setLearningRunMessageCount({ runId: run.run.id, messageCount: args.messageCount })
   }
+}
+
+export async function canQueueAutoLearningRun(args: { userId: string; sessionId: string }): Promise<boolean> {
+  if (await hasActiveLearningRun({ userId: args.userId, sessionId: args.sessionId })) return false
+
+  const cooldown = new Date(Date.now() - AUTO_LEARNING_COOLDOWN_MS)
+  if (await hasRecentLearningRun({ userId: args.userId, sessionId: args.sessionId, since: cooldown })) return false
+
+  return true
 }

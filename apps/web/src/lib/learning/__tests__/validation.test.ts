@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { parseEvidence } from '@/lib/learning/repository'
 import { parseProposalRequest } from '@/lib/learning/validation'
 
 const validPayload = {
@@ -40,5 +41,18 @@ describe('parseProposalRequest', () => {
   it('rejects invalid evidence', () => {
     expect(parseProposalRequest({ ...validPayload, evidence: { quote: 1 } })).toEqual({ ok: false })
     expect(parseProposalRequest({ ...validPayload, evidence: { source: 'x'.repeat(501) } })).toEqual({ ok: false })
+  })
+})
+
+describe('parseEvidence', () => {
+  it('parses SQLite string evidence values', () => {
+    expect(parseEvidence(JSON.stringify({ quote: 'Use concise answers', source: 'session' }))).toEqual({
+      quote: 'Use concise answers',
+      source: 'session',
+    })
+  })
+
+  it('returns empty evidence for invalid string values', () => {
+    expect(parseEvidence('not-json')).toEqual({})
   })
 })
