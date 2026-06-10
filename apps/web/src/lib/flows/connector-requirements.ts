@@ -122,14 +122,15 @@ export async function checkMissingConnectorRequirements(
 
   const connectors = await connectorService.findEnabledByUserId(executionUserId)
   const availableCapabilityIds = new Set<string>()
-  const availableCustomNames = new Set<string>()
+  const availableCustomNameCounts = new Map<string, number>()
 
   for (const connector of connectors) {
     if (!validateConnectorType(connector.type)) continue
     availableCapabilityIds.add(getConnectorCapabilityId(connector.type, connector.id))
 
     if (connector.type === 'custom') {
-      availableCustomNames.add(connector.name.trim())
+      const name = connector.name.trim()
+      availableCustomNameCounts.set(name, (availableCustomNameCounts.get(name) ?? 0) + 1)
     }
   }
 
@@ -137,6 +138,6 @@ export async function checkMissingConnectorRequirements(
     if (availableCapabilityIds.has(requirement.capabilityId)) return false
     if (requirement.connectorType !== 'custom' || !requirement.connectorName) return true
 
-    return !availableCustomNames.has(requirement.connectorName.trim())
+    return (availableCustomNameCounts.get(requirement.connectorName.trim()) ?? 0) !== 1
   })
 }

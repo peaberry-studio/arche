@@ -185,6 +185,7 @@ export const POST = withAuth<ConnectorResponse | { error: string; message?: stri
         { status: 400 }
       )
     }
+    const connectorName = name.trim()
 
     if (!validateConnectorType(type)) {
       return NextResponse.json(
@@ -219,6 +220,21 @@ export const POST = withAuth<ConnectorResponse | { error: string; message?: stri
           { status: 409 }
         )
       }
+    } else if (type === 'custom') {
+      const existing = await connectorService.findFirstByUserIdTypeAndName(
+        targetUser.id,
+        type,
+        connectorName,
+      )
+      if (existing) {
+        return NextResponse.json(
+          {
+            error: 'connector_name_exists',
+            message: 'Custom connector name already exists for this workspace',
+          },
+          { status: 409 }
+        )
+      }
     }
 
     let encryptedConfig: string
@@ -235,7 +251,7 @@ export const POST = withAuth<ConnectorResponse | { error: string; message?: stri
     const connector = await connectorService.create({
       userId: targetUser.id,
       type,
-      name: name.trim(),
+      name: connectorName,
       config: encryptedConfig,
       enabled: true,
     })
