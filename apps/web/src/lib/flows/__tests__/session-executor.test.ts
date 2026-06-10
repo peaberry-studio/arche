@@ -1,5 +1,5 @@
 import { FlowRunStatus } from '@prisma/client'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   captureSessionMessageCursor: vi.fn(),
@@ -33,7 +33,8 @@ import { createFlowLeaseOwner, runFlowPromptAndReadOutput } from '@/lib/flows/se
 type FlowPromptClient = Parameters<typeof runFlowPromptAndReadOutput>[0]['client']
 type TestFlowPromptClient = FlowPromptClient & {
   app: { agents: ReturnType<typeof vi.fn> }
-  config: { providers: ReturnType<typeof vi.fn> }
+  config: { get: ReturnType<typeof vi.fn>; providers: ReturnType<typeof vi.fn> }
+  mcp: { status: ReturnType<typeof vi.fn> }
   session: FlowPromptClient['session'] & {
     abort: ReturnType<typeof vi.fn>
     promptAsync: ReturnType<typeof vi.fn>
@@ -42,6 +43,8 @@ type TestFlowPromptClient = FlowPromptClient & {
 
 function createClient(params: {
   agents?: unknown[]
+  config?: unknown
+  mcpStatus?: unknown
   providers?: unknown[]
 } = {}): TestFlowPromptClient {
   return {
@@ -49,7 +52,11 @@ function createClient(params: {
       agents: vi.fn().mockResolvedValue({ data: params.agents ?? [] }),
     },
     config: {
+      get: vi.fn().mockResolvedValue({ data: params.config ?? {} }),
       providers: vi.fn().mockResolvedValue({ data: { providers: params.providers ?? [] } }),
+    },
+    mcp: {
+      status: vi.fn().mockResolvedValue({ data: params.mcpStatus ?? {} }),
     },
     session: {
       abort: vi.fn(),
@@ -59,6 +66,10 @@ function createClient(params: {
 }
 
 describe('runFlowPromptAndReadOutput', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.captureSessionMessageCursor.mockResolvedValue({ messageCount: 3 })
@@ -200,6 +211,187 @@ describe('runFlowPromptAndReadOutput', () => {
       sessionId: 'session-1',
       slug: 'alice',
     })).resolves.toEqual({ ok: true, output: 'assistant output' })
+  })
+
+  it('waits for required MCP connectors before sending the prompt', async () => {
+    const client = createClient({
+      config: {
+        agent: {
+          growth: {
+            prompt: [
+              'Investigate growth anomalies.',
+              '',
+              '## Available custom connectors',
+              '',
+              '- Mixpanel: available through MCP tools prefixed with `arche_custom_mixpanel_`.',
+              '  Use these tools for Mixpanel queries before declaring Mixpanel unavailable.',
+            ].join('\n'),
+            tools: {
+              'arche_custom_mixpanel_*': true,
+            },
+          },
+        },
+        default_agent: 'growth',
+        mcp: {
+          arche_custom_mixpanel: { enabled: true, type: 'remote', url: 'https://mixpanel.example/mcp' },
+        },
+      },
+    })
+    client.mcp.status
+      .mockResolvedValueOnce({ data: { arche_custom_mixpanel: { status: 'failed', error: 'not ready' } } })
+      .mockResolvedValueOnce({ data: { arche_custom_mixpanel: { status: 'connected' } } })
+
+    await expect(runFlowPromptAndReadOutput({
+      agent: null,
+      client,
+      flowId: 'flow-1',
+      leaseOwner: 'worker-1',
+      mcpReadinessInitialDelayMs: 1,
+      mcpReadinessTimeoutMs: 50,
+      prompt: 'Do work',
+      runId: 'run-1',
+      sessionId: 'session-1',
+      slug: 'alice',
+    })).resolves.toEqual({ ok: true, output: 'assistant output' })
+
+    expect(client.mcp.status).toHaveBeenCalledTimes(2)
+    expect(client.session.promptAsync).toHaveBeenCalled()
+  })
+
+  it('returns an explicit connector unavailable error when MCP readiness times out', async () => {
+    const client = createClient({
+      config: {
+        agent: {
+          growth: {
+            prompt: [
+              'Investigate growth anomalies.',
+              '',
+              '## Available custom connectors',
+              '',
+              '- Mixpanel: available through MCP tools prefixed with `arche_custom_mixpanel_`.',
+              '  Use these tools for Mixpanel queries before declaring Mixpanel unavailable.',
+            ].join('\n'),
+            tools: {
+              arche_custom_mixpanel_query: true,
+            },
+          },
+        },
+        default_agent: 'growth',
+        mcp: {
+          arche_custom_mixpanel: { enabled: true, type: 'remote', url: 'https://mixpanel.example/mcp' },
+        },
+      },
+      mcpStatus: {
+        arche_custom_mixpanel: { status: 'failed', error: 'not ready' },
+      },
+    })
+
+    await expect(runFlowPromptAndReadOutput({
+      client,
+      flowId: 'flow-1',
+      leaseOwner: 'worker-1',
+      mcpReadinessTimeoutMs: 0,
+      prompt: 'Do work',
+      runId: 'run-1',
+      sessionId: 'session-1',
+      slug: 'alice',
+    })).resolves.toEqual({ ok: false, error: 'flow_mcp_connector_unavailable:Mixpanel' })
+
+    expect(mocks.captureSessionMessageCursor).not.toHaveBeenCalled()
+    expect(client.session.promptAsync).not.toHaveBeenCalled()
+  })
+
+  it('returns connector unavailable when MCP status does not answer', async () => {
+    vi.useFakeTimers()
+    const client = createClient({
+      config: {
+        agent: {
+          growth: {
+            prompt: [
+              'Investigate growth anomalies.',
+              '',
+              '## Available custom connectors',
+              '',
+              '- Mixpanel: available through MCP tools prefixed with `arche_custom_mixpanel_`.',
+            ].join('\n'),
+            tools: {
+              arche_custom_mixpanel_query: true,
+            },
+          },
+        },
+        default_agent: 'growth',
+        mcp: {
+          arche_custom_mixpanel: { enabled: true, type: 'remote', url: 'https://mixpanel.example/mcp' },
+        },
+      },
+    })
+    client.mcp.status.mockReturnValue(new Promise(() => undefined))
+
+    const resultPromise = runFlowPromptAndReadOutput({
+      client,
+      flowId: 'flow-1',
+      leaseOwner: 'worker-1',
+      mcpReadinessStatusTimeoutMs: 1,
+      mcpReadinessTimeoutMs: 0,
+      prompt: 'Do work',
+      runId: 'run-1',
+      sessionId: 'session-1',
+      slug: 'alice',
+    })
+
+    await vi.advanceTimersByTimeAsync(1)
+
+    await expect(resultPromise).resolves.toEqual({ ok: false, error: 'flow_mcp_connector_unavailable:Mixpanel' })
+    expect(mocks.captureSessionMessageCursor).not.toHaveBeenCalled()
+    expect(client.session.promptAsync).not.toHaveBeenCalled()
+  })
+
+  it('stops polling MCP readiness after the maximum attempts', async () => {
+    vi.useFakeTimers()
+    const client = createClient({
+      config: {
+        agent: {
+          growth: {
+            prompt: [
+              'Investigate growth anomalies.',
+              '',
+              '## Available custom connectors',
+              '',
+              '- Mixpanel: available through MCP tools prefixed with `arche_custom_mixpanel_`.',
+            ].join('\n'),
+            tools: {
+              arche_custom_mixpanel_query: true,
+            },
+          },
+        },
+        default_agent: 'growth',
+        mcp: {
+          arche_custom_mixpanel: { enabled: true, type: 'remote', url: 'https://mixpanel.example/mcp' },
+        },
+      },
+      mcpStatus: {
+        arche_custom_mixpanel: { status: 'failed', error: 'not ready' },
+      },
+    })
+
+    const resultPromise = runFlowPromptAndReadOutput({
+      client,
+      flowId: 'flow-1',
+      leaseOwner: 'worker-1',
+      mcpReadinessInitialDelayMs: 1,
+      mcpReadinessMaxAttempts: 2,
+      mcpReadinessTimeoutMs: 1_000,
+      prompt: 'Do work',
+      runId: 'run-1',
+      sessionId: 'session-1',
+      slug: 'alice',
+    })
+
+    await vi.advanceTimersByTimeAsync(1)
+
+    await expect(resultPromise).resolves.toEqual({ ok: false, error: 'flow_mcp_connector_unavailable:Mixpanel' })
+    expect(client.mcp.status).toHaveBeenCalledTimes(2)
+    expect(client.session.promptAsync).not.toHaveBeenCalled()
   })
 
   it('aborts the OpenCode session when cancellation is detected while waiting', async () => {
