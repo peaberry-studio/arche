@@ -1,0 +1,148 @@
+import {
+  claimLearningRunForExecution,
+  markLearningRunFailed,
+  setLearningRunInternalSessionId,
+  markLearningRunSucceeded,
+} from '@/lib/learning/repository'
+import { createInstanceClient } from '@/lib/opencode/client'
+import {
+  captureSessionMessageCursor,
+  createSessionPromptRun,
+  ensureWorkspaceRunningForExecution,
+  waitForSessionToComplete,
+} from '@/lib/opencode/session-execution'
+import { messageRunService } from '@/lib/services'
+import type { LearningTrigger } from '@/types/learning'
+
+const LEARNING_SESSION_TITLE_MAX_LENGTH = 160
+
+export type LearningRunExecutionInput = {
+  runId: string
+  slug: string
+  userId: string
+  sourceSessionId: string | null
+  title: string
+  trigger: LearningTrigger
+}
+
+export type LearningRunExecutionResult =
+  | { ok: true }
+  | { ok: false; error: string }
+
+function buildLearningSessionTitle(title: string): string {
+  const base = `Learning | ${title.trim() || 'Session'}`
+  return base.length > LEARNING_SESSION_TITLE_MAX_LENGTH
+    ? `${base.slice(0, LEARNING_SESSION_TITLE_MAX_LENGTH - 1)}…`
+    : base
+}
+
+export function buildCuratorPrompt(input: LearningRunExecutionInput): string {
+  const sourceInstruction = input.sourceSessionId
+    ? `Use the \`session_history_query\` tool to read the source session (sessionIds: ["${input.sourceSessionId}"], includeMessages: true).`
+    : 'Use the `session_history_query` tool to review the most recent sessions (includeMessages: true).'
+
+  return [
+    'You are the Arche knowledge curator. Review workspace activity and capture durable knowledge as Knowledge Base proposals.',
+    '',
+    `Learning run id: ${input.runId}`,
+    `Source session: ${input.sourceSessionId ?? 'none (review recent sessions)'}`,
+    '',
+    'Instructions:',
+    `1. ${sourceInstruction}`,
+    '2. Inspect the existing Knowledge Base files in the workspace (read, glob, grep) so proposals reuse the existing structure and naming, and so you can decide between updating an existing file or creating a new one.',
+    '3. For each durable fact, preference, process, or correction worth keeping, call `learning_propose` with:',
+    `   - runId: "${input.runId}"`,
+    `   - trigger: "${input.trigger}"`,
+    '   - operation "update" (full updated file content) or "create" (full new file content)',
+    '   - kbPath relative to the workspace root',
+    '   - a short title, type, confidence, and evidence quoting the session when possible',
+    '4. Never write Knowledge Base files directly; proposals are reviewed and applied by the user.',
+    '5. Skip transient, task-specific, or sensitive details. If there is nothing durable to learn, create no proposals.',
+    '',
+    'Finish with a one-paragraph summary of the proposals you created (or why none were needed).',
+  ].join('\n')
+}
+
+export async function executeLearningRun(input: LearningRunExecutionInput): Promise<LearningRunExecutionResult> {
+  // Another dispatch (e.g. a concurrent retry) already owns this run.
+  if (!(await claimLearningRunForExecution(input.runId))) {
+    return { ok: false, error: 'run_not_claimable' }
+  }
+
+  try {
+    await ensureWorkspaceRunningForExecution(input.slug, input.userId)
+
+    const client = await createInstanceClient(input.slug)
+    if (!client) {
+      throw new Error('instance_unavailable')
+    }
+
+    const sessionResult = await client.session.create(
+      { title: buildLearningSessionTitle(input.title) },
+      { throwOnError: true },
+    )
+    const sessionId = sessionResult.data?.id
+    if (!sessionId) {
+      throw new Error('learning_session_create_failed')
+    }
+
+    await setLearningRunInternalSessionId({ runId: input.runId, internalSessionId: sessionId })
+
+    const promptRun = await createSessionPromptRun({
+      client,
+      sessionId,
+      slug: input.slug,
+      source: 'learning',
+    })
+    if (!promptRun.ok) {
+      throw new Error('session_busy')
+    }
+
+    let failure: string | null
+    try {
+      const cursor = await captureSessionMessageCursor(client, sessionId)
+      await client.session.promptAsync(
+        {
+          parts: [{ text: buildCuratorPrompt(input), type: 'text' }],
+          sessionID: sessionId,
+        },
+        { throwOnError: true },
+      )
+
+      failure = await waitForSessionToComplete({
+        client,
+        cursor,
+        sessionId,
+        slug: input.slug,
+        usage: { messageRunId: promptRun.run.id, source: 'learning', userId: input.userId },
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'learning_prompt_failed'
+      await messageRunService.markRunFailed(promptRun.run.id, message).catch(() => undefined)
+      throw error
+    }
+
+    if (failure) {
+      await messageRunService.markRunFailed(promptRun.run.id, failure).catch(() => undefined)
+      await markLearningRunFailed({ runId: input.runId, error: failure })
+      return { ok: false, error: failure }
+    }
+
+    await messageRunService.markRunSucceeded(promptRun.run.id).catch(() => undefined)
+    await markLearningRunSucceeded(input.runId)
+    return { ok: true }
+  } catch (error) {
+    const message = error instanceof Error && error.message ? error.message : 'learning_run_failed'
+    await markLearningRunFailed({ runId: input.runId, error: message }).catch(() => undefined)
+    return { ok: false, error: message }
+  }
+}
+
+export function dispatchLearningRunExecution(input: LearningRunExecutionInput): void {
+  void executeLearningRun(input).catch((error) => {
+    console.error('[learning/run-executor] Unexpected learning run failure', {
+      runId: input.runId,
+      error,
+    })
+  })
+}

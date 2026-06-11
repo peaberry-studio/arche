@@ -4,10 +4,15 @@ export {
 } from '@/lib/learning/proposal-application'
 export {
   createLearningProposal,
+  findLearningRunForUser,
   learningRunBelongsToUser,
   listLearningProposals,
   listLearningRuns,
 } from '@/lib/learning/repository'
+export {
+  dispatchLearningRunExecution,
+  executeLearningRun,
+} from '@/lib/learning/run-executor'
 export {
   AUTO_LEARNING_MIN_MESSAGES,
   canQueueAutoLearningRun,
