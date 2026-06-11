@@ -124,4 +124,33 @@ describe('learning repository', () => {
     await expect(updatePendingLearningProposalApplied({ proposalId: 'proposal-1', userId: 'user-1', content: 'new' })).resolves.toBeNull()
     expect(mocks.prisma.knowledgeLearningProposal.findUnique).not.toHaveBeenCalled()
   })
+
+  it('treats running runs and only fresh pending runs as active', async () => {
+    const { hasActiveLearningRun } = await import('@/lib/learning/repository')
+    mocks.prisma.knowledgeLearningRun.findFirst.mockResolvedValue(runRecord)
+    const pendingSince = new Date('2026-01-01T00:00:00.000Z')
+
+    await expect(hasActiveLearningRun({ userId: 'user-1', sessionId: 'session-1', pendingSince })).resolves.toBe(true)
+    expect(mocks.prisma.knowledgeLearningRun.findFirst).toHaveBeenCalledWith({
+      where: {
+        userId: 'user-1',
+        sourceSessionId: 'session-1',
+        OR: [
+          { status: 'running' },
+          { status: 'pending', createdAt: { gte: pendingSince } },
+        ],
+      },
+    })
+  })
+
+  it('checks learning run ownership', async () => {
+    const { learningRunBelongsToUser } = await import('@/lib/learning/repository')
+    mocks.prisma.knowledgeLearningRun.findFirst.mockResolvedValue(null)
+
+    await expect(learningRunBelongsToUser({ userId: 'user-1', runId: 'run-other' })).resolves.toBe(false)
+    expect(mocks.prisma.knowledgeLearningRun.findFirst).toHaveBeenCalledWith({
+      where: { id: 'run-other', userId: 'user-1' },
+      select: { id: true },
+    })
+  })
 })

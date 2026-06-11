@@ -27,6 +27,12 @@ export type LearningProposalRequest = {
   trigger?: LearningTrigger
 }
 
+export type LearningProposalActionRequest = {
+  action: 'apply' | 'reject'
+  proposalId: string
+  content?: string
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
@@ -49,6 +55,19 @@ function isOperation(value: unknown): value is LearningProposalOperation {
 
 function isTrigger(value: unknown): value is LearningTrigger {
   return typeof value === 'string' && LEARNING_TRIGGERS.includes(value as LearningTrigger)
+}
+
+// Mirrors the workspace agent's resolvePath rules so invalid paths fail at
+// proposal creation instead of surfacing as an agent error on Apply.
+export function isValidKbPath(value: unknown): value is string {
+  if (!isBoundedString(value, LEARNING_KB_PATH_MAX_LENGTH)) return false
+  if (value.includes('\0') || value.includes('\\')) return false
+
+  const segments = value.split('/')
+  if (segments.some((segment) => segment === '' || segment === '.' || segment === '..')) return false
+  if (segments[0] === '.git') return false
+
+  return true
 }
 
 function parseEvidence(value: unknown): LearningEvidence | null | undefined {
@@ -81,7 +100,7 @@ export function parseProposalRequest(body: unknown):
   | { ok: false } {
   if (!isRecord(body)) return { ok: false }
   if (!isBoundedString(body.title, LEARNING_TITLE_MAX_LENGTH)) return { ok: false }
-  if (!isBoundedString(body.kbPath, LEARNING_KB_PATH_MAX_LENGTH)) return { ok: false }
+  if (!isValidKbPath(body.kbPath)) return { ok: false }
   if (!isBoundedString(body.proposedContent, LEARNING_PROPOSED_CONTENT_MAX_LENGTH)) return { ok: false }
   if (!isOperation(body.operation)) return { ok: false }
   if (!isOptionalStringOrNull(body.runId)) return { ok: false }
@@ -115,6 +134,26 @@ export function parseProposalRequest(body: unknown):
       currentFileHash: body.currentFileHash ?? null,
       internalSessionId: body.internalSessionId ?? null,
       trigger: body.trigger,
+    },
+  }
+}
+
+export function parseProposalActionRequest(body: unknown):
+  | { ok: true; value: LearningProposalActionRequest }
+  | { ok: false } {
+  if (!isRecord(body)) return { ok: false }
+  if (typeof body.proposalId !== 'string' || body.proposalId.trim().length === 0) return { ok: false }
+  if (body.action !== 'apply' && body.action !== 'reject') return { ok: false }
+  if (body.content !== undefined && !isBoundedString(body.content, LEARNING_PROPOSED_CONTENT_MAX_LENGTH)) {
+    return { ok: false }
+  }
+
+  return {
+    ok: true,
+    value: {
+      action: body.action,
+      proposalId: body.proposalId,
+      content: typeof body.content === 'string' ? body.content : undefined,
     },
   }
 }

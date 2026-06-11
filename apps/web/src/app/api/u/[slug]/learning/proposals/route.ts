@@ -1,34 +1,27 @@
 import { NextResponse } from 'next/server'
 
 import { applyLearningProposal, rejectLearningProposal } from '@/lib/learning/service'
+import { parseProposalActionRequest } from '@/lib/learning/validation'
 import { withAuth } from '@/lib/runtime/with-auth'
 import type { LearningProposal } from '@/types/learning'
-
-type ProposalActionRequest = {
-  action?: string
-  content?: string
-  proposalId?: string
-}
 
 export const POST = withAuth<{ proposal: LearningProposal } | { error: string }>(
   { csrf: true },
   async (request, context) => {
-    const body = (await request.json().catch(() => null)) as ProposalActionRequest | null
-    if (!body?.proposalId) {
+    const body = await request.json().catch(() => null)
+    const parsed = parseProposalActionRequest(body)
+    if (!parsed.ok) {
       return NextResponse.json({ error: 'invalid_request' }, { status: 400 })
     }
 
-    if (body.action !== 'apply' && body.action !== 'reject') {
-      return NextResponse.json({ error: 'invalid_request' }, { status: 400 })
-    }
-
-    const result = body.action === 'reject'
-      ? await rejectLearningProposal({ userId: context.user.id, proposalId: body.proposalId })
+    const { action, proposalId, content } = parsed.value
+    const result = action === 'reject'
+      ? await rejectLearningProposal({ userId: context.user.id, proposalId })
       : await applyLearningProposal({
           userId: context.user.id,
           slug: context.slug,
-          proposalId: body.proposalId,
-          content: body.content,
+          proposalId,
+          content,
         })
 
     if (!result.ok) {

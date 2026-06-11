@@ -229,6 +229,35 @@ describe("session listing actions", () => {
     ]);
   });
 
+  it("keeps hasMore when hidden learning sessions shrink a full page", async () => {
+    mockSessionList.mockResolvedValue({
+      data: [
+        {
+          id: "chat",
+          parentID: undefined,
+          time: { created: 25, updated: 50 },
+          title: "Regular chat",
+          version: "1",
+        },
+        {
+          id: "learning",
+          parentID: undefined,
+          time: { created: 26, updated: 51 },
+          title: "Learning | Regular chat",
+          version: "1",
+        },
+      ],
+    });
+
+    const result = await listSessionsAction("alice", { limit: 2, rootsOnly: true });
+
+    expect(result).toMatchObject({
+      ok: true,
+      hasMore: true,
+      sessions: [expect.objectContaining({ id: "chat" })],
+    });
+  });
+
   it("searches up to 100 recent root sessions by title and task name", async () => {
     mockSessionList.mockResolvedValue({
       data: [

@@ -1,4 +1,3 @@
-import { getLearningSessionTitle } from '@/lib/learning/session-title'
 import {
   createLearningRunRecord,
   hasActiveLearningRun,
@@ -8,19 +7,22 @@ import {
   markLearningRunSucceeded as markLearningRunSucceededRecord,
   setLearningRunMessageCount,
 } from '@/lib/learning/repository'
-import { createInstanceClient } from '@/lib/opencode/client'
 import type { LearningRun, LearningTrigger } from '@/types/learning'
 
-const AUTO_LEARNING_MIN_MESSAGES = 12
+export const AUTO_LEARNING_MIN_MESSAGES = 12
 const AUTO_LEARNING_COOLDOWN_MS = 24 * 60 * 60 * 1000
+const STALE_PENDING_RUN_MS = 6 * 60 * 60 * 1000
 
 /*
  * Learning run lifecycle owner.
  *
- * `pending` currently means the learning run has been created and associated with an
- * internal OpenCode session, but curator-agent execution is not wired yet. Keep run
- * status mutations in this module so the future execution path has one place to own
- * pending -> running -> succeeded/failed transitions.
+ * `pending` currently means the learning run is queued but curator-agent execution is
+ * not wired yet. The internal OpenCode session is created by the execution path (not
+ * here), so queued runs do not accumulate orphaned sessions. Pending runs older than
+ * STALE_PENDING_RUN_MS no longer count as active, so a stuck run cannot block
+ * auto-learning indefinitely. Keep run status mutations in this module so the future
+ * execution path has one place to own pending -> running -> succeeded/failed
+ * transitions.
  */
 
 export async function createLearningRun(args: {
@@ -30,18 +32,11 @@ export async function createLearningRun(args: {
   title?: string
   trigger: LearningTrigger
 }): Promise<{ ok: true; run: LearningRun } | { ok: false; error: string }> {
-  const client = await createInstanceClient(args.slug)
-  if (!client) {
-    return { ok: false, error: 'instance_unavailable' }
-  }
-
-  const sourceTitle = args.title ?? 'Session'
-  const createdSession = await client.session.create({ title: getLearningSessionTitle(sourceTitle) })
   const run = await createLearningRunRecord({
     userId: args.userId,
     sourceSessionId: args.sourceSessionId ?? null,
-    internalSessionId: createdSession.data?.id ?? null,
-    title: sourceTitle,
+    internalSessionId: null,
+    title: args.title ?? 'Session',
     trigger: args.trigger,
   })
 
@@ -84,7 +79,8 @@ export async function maybeQueueAutoLearningRun(args: {
 }
 
 export async function canQueueAutoLearningRun(args: { userId: string; sessionId: string }): Promise<boolean> {
-  if (await hasActiveLearningRun({ userId: args.userId, sessionId: args.sessionId })) return false
+  const pendingSince = new Date(Date.now() - STALE_PENDING_RUN_MS)
+  if (await hasActiveLearningRun({ userId: args.userId, sessionId: args.sessionId, pendingSince })) return false
 
   const cooldown = new Date(Date.now() - AUTO_LEARNING_COOLDOWN_MS)
   if (await hasRecentLearningRun({ userId: args.userId, sessionId: args.sessionId, since: cooldown })) return false

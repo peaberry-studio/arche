@@ -368,6 +368,10 @@ describe("WorkspaceShell", () => {
         });
       }
 
+      if (url.endsWith("/learning")) {
+        return jsonResponse({ runs: [], proposals: [] });
+      }
+
       return jsonResponse({ ok: true });
     }));
     Object.defineProperty(HTMLElement.prototype, "setPointerCapture", {
@@ -1209,6 +1213,18 @@ describe("WorkspaceShell", () => {
     });
 
     expect(readCookieValue("arche-workspace-layout-alice")).toContain('"leftCollapsed":true');
+  });
+
+  it("starts with the curator panel collapsed in chat mode and expands it on demand", async () => {
+    render(<WorkspaceShell slug="alice" />);
+
+    const expandButton = await screen.findByRole("button", { name: "Expand curator panel" });
+    expect(screen.queryByText("Knowledge Curator")).toBeNull();
+
+    fireEvent.click(expandButton);
+
+    expect(await screen.findByText("Knowledge Curator")).toBeTruthy();
+    expect(await screen.findByText("No pending proposals.")).toBeTruthy();
   });
 
   it("shows chat as default view in compact layout", async () => {

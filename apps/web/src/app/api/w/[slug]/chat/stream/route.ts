@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { getIdleFinalizationOutcome, getSilentStreamOutcome } from '@/app/api/w/[slug]/chat/stream/watchdog'
 import { createUpstreamSessionStatusReader } from '@/app/api/w/[slug]/chat/stream/status-reader'
-import { canQueueAutoLearningRun, maybeQueueAutoLearningRun } from '@/lib/learning/service'
+import { AUTO_LEARNING_MIN_MESSAGES, canQueueAutoLearningRun, maybeQueueAutoLearningRun } from '@/lib/learning/service'
 import { getInstanceUrl } from '@/lib/opencode/client'
 import { ensureProviderAccessFreshForExecution } from '@/lib/opencode/providers'
 import {
@@ -208,22 +208,27 @@ async function queueAutoLearningBestEffort(params: {
   try {
     if (!(await canQueueAutoLearningRun({ userId: params.userId, sessionId: params.sessionId }))) return
 
-    const [sessionResponse, messagesResponse] = await Promise.all([
-      fetch(`${params.baseUrl}/session/${params.sessionId}`, {
+    // Fetch only enough messages to know whether the threshold is met; the full
+    // list can be large and this helper runs after every successful completion.
+    const messagesResponse = await fetch(
+      `${params.baseUrl}/session/${params.sessionId}/message?limit=${AUTO_LEARNING_MIN_MESSAGES}`,
+      {
         headers: { Authorization: params.authHeader, Accept: 'application/json' },
         cache: 'no-store',
-      }),
-      fetch(`${params.baseUrl}/session/${params.sessionId}/message`, {
-        headers: { Authorization: params.authHeader, Accept: 'application/json' },
-        cache: 'no-store',
-      }),
-    ])
-    const sessionData: unknown = await sessionResponse.json().catch(() => null)
+      },
+    )
     const messagesData: unknown = await messagesResponse.json().catch(() => null)
+    const messageCount = Array.isArray(messagesData) ? messagesData.length : 0
+    if (messageCount < AUTO_LEARNING_MIN_MESSAGES) return
+
+    const sessionResponse = await fetch(`${params.baseUrl}/session/${params.sessionId}`, {
+      headers: { Authorization: params.authHeader, Accept: 'application/json' },
+      cache: 'no-store',
+    })
+    const sessionData: unknown = await sessionResponse.json().catch(() => null)
     const sessionTitle = isRecord(sessionData) && typeof sessionData.title === 'string'
       ? sessionData.title
       : 'Session'
-    const messageCount = Array.isArray(messagesData) ? messagesData.length : 0
 
     await maybeQueueAutoLearningRun({
       userId: params.userId,

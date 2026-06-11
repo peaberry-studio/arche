@@ -4,10 +4,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   createLearningProposal: vi.fn(),
   getInternalLearningContext: vi.fn(),
+  learningRunBelongsToUser: vi.fn(),
 }))
 
 vi.mock('@/app/api/internal/learning/auth', () => ({ getInternalLearningContext: mocks.getInternalLearningContext }))
-vi.mock('@/lib/learning/service', () => ({ createLearningProposal: mocks.createLearningProposal }))
+vi.mock('@/lib/learning/service', () => ({
+  createLearningProposal: mocks.createLearningProposal,
+  learningRunBelongsToUser: mocks.learningRunBelongsToUser,
+}))
 
 import { POST } from '../route'
 
@@ -35,6 +39,7 @@ describe('POST /api/internal/learning/proposals', () => {
     vi.clearAllMocks()
     mocks.getInternalLearningContext.mockResolvedValue({ ok: true, userId: 'user-1', slug: 'alice' })
     mocks.createLearningProposal.mockResolvedValue({ id: 'proposal-1' })
+    mocks.learningRunBelongsToUser.mockResolvedValue(true)
   })
 
   it('returns auth errors from the internal context', async () => {
@@ -51,6 +56,23 @@ describe('POST /api/internal/learning/proposals', () => {
 
     expect(response.status).toBe(400)
     await expect(response.json()).resolves.toEqual({ error: 'invalid_request' })
+  })
+
+  it('rejects run ids that do not belong to the workspace user', async () => {
+    mocks.learningRunBelongsToUser.mockResolvedValue(false)
+
+    const response = await POST(makeRequest({ ...validBody, runId: 'run-other' }))
+
+    expect(response.status).toBe(400)
+    expect(mocks.learningRunBelongsToUser).toHaveBeenCalledWith({ userId: 'user-1', runId: 'run-other' })
+    expect(mocks.createLearningProposal).not.toHaveBeenCalled()
+  })
+
+  it('skips the ownership check when no run id is provided', async () => {
+    const response = await POST(makeRequest(validBody))
+
+    expect(response.status).toBe(200)
+    expect(mocks.learningRunBelongsToUser).not.toHaveBeenCalled()
   })
 
   it('creates a learning proposal for valid payloads', async () => {

@@ -48,7 +48,7 @@ describe('KnowledgeCuratorPanel', () => {
     vi.unstubAllGlobals()
   })
 
-  it('surfaces proposal action errors', async () => {
+  it('surfaces proposal action errors with readable labels', async () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse(learningResponse))
       .mockResolvedValueOnce(jsonResponse({ error: 'hash_conflict' }, { status: 409 }))
@@ -59,7 +59,58 @@ describe('KnowledgeCuratorPanel', () => {
     expect(await screen.findByText('Remember preference')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
 
-    expect(await screen.findByText('hash_conflict')).toBeTruthy()
+    expect(await screen.findByText('The target file changed since this proposal was created. Review it before applying.')).toBeTruthy()
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+  })
+
+  it('shows a readable error when loading fails on the network', async () => {
+    fetchMock.mockRejectedValueOnce(new Error('network down'))
+
+    render(<KnowledgeCuratorPanel slug="alice" />)
+
+    expect(await screen.findByText('Could not load learning data.')).toBeTruthy()
+  })
+
+  it('disables action buttons while an action is in flight', async () => {
+    let resolveAction: ((response: Response) => void) | undefined
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(learningResponse))
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { resolveAction = resolve }))
+      .mockResolvedValueOnce(jsonResponse({ runs: [], proposals: [] }))
+
+    render(<KnowledgeCuratorPanel slug="alice" />)
+
+    expect(await screen.findByText('Remember preference')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+
+    await waitFor(() => {
+      expect((screen.getByRole('button', { name: 'Apply' }) as HTMLButtonElement).disabled).toBe(true)
+      expect((screen.getByRole('button', { name: 'Reject' }) as HTMLButtonElement).disabled).toBe(true)
+    })
+
+    resolveAction?.(jsonResponse({ proposal: { id: 'proposal-1' } }))
+
+    expect(await screen.findByText('No pending proposals.')).toBeTruthy()
+  })
+
+  it('refetches when refreshKey changes', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(learningResponse))
+
+    const { rerender } = render(<KnowledgeCuratorPanel slug="alice" refreshKey={0} />)
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+
+    rerender(<KnowledgeCuratorPanel slug="alice" refreshKey={1} />)
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+  })
+
+  it('renders a collapsed rail that expands through the toggle', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(learningResponse))
+    const onToggleCollapse = vi.fn()
+
+    render(<KnowledgeCuratorPanel slug="alice" collapsed onToggleCollapse={onToggleCollapse} />)
+
+    expect(screen.queryByText('Knowledge Curator')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Expand curator panel' }))
+    expect(onToggleCollapse).toHaveBeenCalledTimes(1)
   })
 })

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { parseEvidence } from '@/lib/learning/repository'
-import { parseProposalRequest } from '@/lib/learning/validation'
+import { isValidKbPath, parseProposalActionRequest, parseProposalRequest } from '@/lib/learning/validation'
 
 const validPayload = {
   title: 'Remember preference',
@@ -41,6 +41,57 @@ describe('parseProposalRequest', () => {
   it('rejects invalid evidence', () => {
     expect(parseProposalRequest({ ...validPayload, evidence: { quote: 1 } })).toEqual({ ok: false })
     expect(parseProposalRequest({ ...validPayload, evidence: { source: 'x'.repeat(501) } })).toEqual({ ok: false })
+  })
+
+  it('rejects unsafe kb paths', () => {
+    for (const kbPath of ['../secrets.md', 'notes/../../etc/passwd', '/absolute.md', 'notes//double.md', './relative.md', '.git/config', 'notes\\windows.md', 'trailing/']) {
+      expect(parseProposalRequest({ ...validPayload, kbPath })).toEqual({ ok: false })
+    }
+  })
+})
+
+describe('isValidKbPath', () => {
+  it('accepts plain relative paths', () => {
+    expect(isValidKbPath('Preferences/Answers.md')).toBe(true)
+    expect(isValidKbPath('notes.md')).toBe(true)
+    expect(isValidKbPath('a/b/c.md')).toBe(true)
+  })
+
+  it('rejects traversal, absolute, and git paths', () => {
+    expect(isValidKbPath('../escape.md')).toBe(false)
+    expect(isValidKbPath('a/../b.md')).toBe(false)
+    expect(isValidKbPath('/etc/passwd')).toBe(false)
+    expect(isValidKbPath('.git/config')).toBe(false)
+    expect(isValidKbPath('a\\b.md')).toBe(false)
+    expect(isValidKbPath('a/\0b.md')).toBe(false)
+    expect(isValidKbPath('')).toBe(false)
+    expect(isValidKbPath('x'.repeat(501))).toBe(false)
+  })
+})
+
+describe('parseProposalActionRequest', () => {
+  it('accepts apply and reject actions', () => {
+    expect(parseProposalActionRequest({ proposalId: 'proposal-1', action: 'apply', content: 'edited' })).toEqual({
+      ok: true,
+      value: { action: 'apply', proposalId: 'proposal-1', content: 'edited' },
+    })
+    expect(parseProposalActionRequest({ proposalId: 'proposal-1', action: 'reject' })).toEqual({
+      ok: true,
+      value: { action: 'reject', proposalId: 'proposal-1', content: undefined },
+    })
+  })
+
+  it('rejects unknown actions and invalid proposal ids', () => {
+    expect(parseProposalActionRequest({ proposalId: 'proposal-1', action: 'delete' })).toEqual({ ok: false })
+    expect(parseProposalActionRequest({ proposalId: '', action: 'apply' })).toEqual({ ok: false })
+    expect(parseProposalActionRequest({ proposalId: 42, action: 'apply' })).toEqual({ ok: false })
+    expect(parseProposalActionRequest(null)).toEqual({ ok: false })
+  })
+
+  it('rejects empty or oversized content', () => {
+    expect(parseProposalActionRequest({ proposalId: 'proposal-1', action: 'apply', content: '' })).toEqual({ ok: false })
+    expect(parseProposalActionRequest({ proposalId: 'proposal-1', action: 'apply', content: '   ' })).toEqual({ ok: false })
+    expect(parseProposalActionRequest({ proposalId: 'proposal-1', action: 'apply', content: 'x'.repeat(200_001) })).toEqual({ ok: false })
   })
 })
 

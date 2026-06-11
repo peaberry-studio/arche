@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { getInternalLearningContext } from '@/app/api/internal/learning/auth'
-import { createLearningProposal } from '@/lib/learning/service'
+import { createLearningProposal, learningRunBelongsToUser } from '@/lib/learning/service'
 import { parseProposalRequest } from '@/lib/learning/validation'
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -17,6 +17,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const input = parsed.value
+  if (input.runId && !(await learningRunBelongsToUser({ userId: context.userId, runId: input.runId }))) {
+    return NextResponse.json({ error: 'invalid_request' }, { status: 400 })
+  }
+
   const proposal = await createLearningProposal(context.userId, {
     runId: input.runId ?? null,
     title: input.title,

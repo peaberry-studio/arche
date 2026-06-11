@@ -159,15 +159,31 @@ export async function setLearningRunMessageCount(args: { runId: string; messageC
   })
 }
 
-export async function hasActiveLearningRun(args: { userId: string; sessionId: string }): Promise<boolean> {
+export async function hasActiveLearningRun(args: {
+  userId: string
+  sessionId: string
+  pendingSince: Date
+}): Promise<boolean> {
   const activeRun = await prisma.knowledgeLearningRun.findFirst({
     where: {
       userId: args.userId,
       sourceSessionId: args.sessionId,
-      status: { in: ['pending', 'running'] },
+      OR: [
+        { status: 'running' },
+        // Pending runs older than the staleness window no longer block new runs.
+        { status: 'pending', createdAt: { gte: args.pendingSince } },
+      ],
     },
   })
   return Boolean(activeRun)
+}
+
+export async function learningRunBelongsToUser(args: { userId: string; runId: string }): Promise<boolean> {
+  const run = await prisma.knowledgeLearningRun.findFirst({
+    where: { id: args.runId, userId: args.userId },
+    select: { id: true },
+  })
+  return Boolean(run)
 }
 
 export async function hasRecentLearningRun(args: { userId: string; sessionId: string; since: Date }): Promise<boolean> {

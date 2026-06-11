@@ -44,6 +44,34 @@ describe('POST /api/u/[slug]/learning/proposals', () => {
     expect(mocks.rejectLearningProposal).not.toHaveBeenCalled()
   })
 
+  it('rejects invalid edited content without applying', async () => {
+    for (const content of ['', '   ', 'x'.repeat(200_001), 42]) {
+      const response = await POST(makeRequest({ proposalId: 'proposal-1', action: 'apply', content }))
+      expect(response.status).toBe(400)
+    }
+
+    expect(mocks.applyLearningProposal).not.toHaveBeenCalled()
+  })
+
+  it('rejects non-string proposal ids', async () => {
+    const response = await POST(makeRequest({ proposalId: 42, action: 'apply' }))
+
+    expect(response.status).toBe(400)
+    expect(mocks.applyLearningProposal).not.toHaveBeenCalled()
+  })
+
+  it('applies without content using the stored proposal content', async () => {
+    const response = await POST(makeRequest({ proposalId: 'proposal-1', action: 'apply' }))
+
+    expect(response.status).toBe(200)
+    expect(mocks.applyLearningProposal).toHaveBeenCalledWith({
+      userId: 'user-1',
+      slug: 'alice',
+      proposalId: 'proposal-1',
+      content: undefined,
+    })
+  })
+
   it('applies only when action is apply', async () => {
     const response = await POST(makeRequest({ proposalId: 'proposal-1', action: 'apply', content: 'edited' }))
 

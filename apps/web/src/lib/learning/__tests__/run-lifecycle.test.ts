@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
-  createInstanceClient: vi.fn(),
   createLearningRunRecord: vi.fn(),
   hasActiveLearningRun: vi.fn(),
   hasRecentLearningRun: vi.fn(),
@@ -11,7 +10,6 @@ const mocks = vi.hoisted(() => ({
   setLearningRunMessageCount: vi.fn(),
 }))
 
-vi.mock('@/lib/opencode/client', () => ({ createInstanceClient: mocks.createInstanceClient }))
 vi.mock('@/lib/learning/repository', () => ({
   createLearningRunRecord: mocks.createLearningRunRecord,
   hasActiveLearningRun: mocks.hasActiveLearningRun,
@@ -25,7 +23,7 @@ vi.mock('@/lib/learning/repository', () => ({
 const run = {
   id: 'run-1',
   sourceSessionId: 'session-1',
-  internalSessionId: 'learning-session-1',
+  internalSessionId: null,
   title: 'Source session',
   trigger: 'auto',
   status: 'pending',
@@ -41,15 +39,14 @@ describe('learning run lifecycle', () => {
     mocks.hasActiveLearningRun.mockResolvedValue(false)
     mocks.hasRecentLearningRun.mockResolvedValue(false)
     mocks.createLearningRunRecord.mockResolvedValue(run)
-    mocks.createInstanceClient.mockResolvedValue({ session: { create: vi.fn().mockResolvedValue({ data: { id: 'learning-session-1' } }) } })
   })
 
-  it('creates an internal learning session and run record', async () => {
+  it('creates a queued run record without an internal session', async () => {
     const { createLearningRun } = await import('@/lib/learning/run-lifecycle')
 
     await expect(createLearningRun({ userId: 'user-1', slug: 'alice', sourceSessionId: 'session-1', title: 'Source session', trigger: 'auto' })).resolves.toEqual({ ok: true, run })
     expect(mocks.createLearningRunRecord).toHaveBeenCalledWith(expect.objectContaining({
-      internalSessionId: 'learning-session-1',
+      internalSessionId: null,
       sourceSessionId: 'session-1',
     }))
   })
@@ -60,7 +57,7 @@ describe('learning run lifecycle', () => {
     await maybeQueueAutoLearningRun({ userId: 'user-1', slug: 'alice', sessionId: 'session-1', sessionTitle: 'Source session', messageCount: 11 })
 
     expect(mocks.hasActiveLearningRun).not.toHaveBeenCalled()
-    expect(mocks.createInstanceClient).not.toHaveBeenCalled()
+    expect(mocks.createLearningRunRecord).not.toHaveBeenCalled()
   })
 
   it('skips auto-learning when active or inside cooldown', async () => {
@@ -71,6 +68,19 @@ describe('learning run lifecycle', () => {
     mocks.hasActiveLearningRun.mockResolvedValueOnce(false)
     mocks.hasRecentLearningRun.mockResolvedValueOnce(true)
     await expect(canQueueAutoLearningRun({ userId: 'user-1', sessionId: 'session-1' })).resolves.toBe(false)
+  })
+
+  it('treats only fresh pending runs as active', async () => {
+    const { canQueueAutoLearningRun } = await import('@/lib/learning/run-lifecycle')
+    const before = Date.now()
+
+    await canQueueAutoLearningRun({ userId: 'user-1', sessionId: 'session-1' })
+
+    const args = mocks.hasActiveLearningRun.mock.calls[0][0]
+    expect(args.pendingSince).toBeInstanceOf(Date)
+    const staleWindowMs = before - args.pendingSince.getTime()
+    expect(staleWindowMs).toBeGreaterThanOrEqual(6 * 60 * 60 * 1000 - 1000)
+    expect(staleWindowMs).toBeLessThanOrEqual(6 * 60 * 60 * 1000 + 1000)
   })
 
   it('queues auto-learning and stores message count when eligible', async () => {
