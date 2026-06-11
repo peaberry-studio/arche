@@ -85,6 +85,29 @@ export async function findActiveRun(
   return lock?.run ? toRunRecord(lock.run) : null
 }
 
+export async function hasActiveRunForSlug(
+  slug: string,
+  options: { ignoreRunId?: string } = {},
+): Promise<boolean> {
+  // Locks left behind by crashed runs stop counting after the run timeout so
+  // they cannot defer provider syncs forever.
+  const threshold = new Date(Date.now() - MESSAGE_RUN_TIMEOUT_MS)
+  const lock = await prisma.messageRunLock.findFirst({
+    where: {
+      slug,
+      ...(options.ignoreRunId ? { runId: { not: options.ignoreRunId } } : {}),
+      run: {
+        is: {
+          startedAt: { gt: threshold },
+          status: 'running',
+        },
+      },
+    },
+    select: { runId: true },
+  })
+  return lock !== null
+}
+
 export async function createActiveRun(params: {
   slug: string
   sessionId: string

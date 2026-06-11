@@ -265,6 +265,76 @@ describe('session execution helpers', () => {
     })).resolves.toBeNull()
   })
 
+  it('surfaces the runtime error when the assistant failed without visible output', async () => {
+    const status = vi.fn().mockResolvedValue({
+      data: {
+        'session-1': { type: 'idle' },
+      },
+    })
+    const messages = vi.fn().mockResolvedValue({
+      data: [
+        {
+          info: {
+            role: 'assistant',
+            time: { completed: 1 },
+            error: {
+              data: {
+                message: 'The operation was aborted.',
+              },
+              name: 'MessageAbortedError',
+            },
+          },
+          parts: [],
+        },
+      ],
+    })
+
+    const { waitForSessionToComplete } = await import('../session-execution')
+
+    await expect(waitForSessionToComplete({
+      client: {
+        session: { messages, status },
+      } as Parameters<typeof waitForSessionToComplete>[0]['client'],
+      sessionId: 'session-1',
+      slug: 'slack-bot',
+    })).resolves.toBe('MessageAbortedError: The operation was aborted.')
+  })
+
+  it('surfaces provider 400 errors with their message detail', async () => {
+    const status = vi.fn().mockResolvedValue({
+      data: {
+        'session-1': { type: 'idle' },
+      },
+    })
+    const messages = vi.fn().mockResolvedValue({
+      data: [
+        {
+          info: {
+            role: 'assistant',
+            time: { completed: 1 },
+            error: {
+              data: {
+                message: 'Provider returned error 400: The referenced name `#/$defs/CustomGroupOperator` does not match a display_name.',
+              },
+              name: 'APIError',
+            },
+          },
+          parts: [],
+        },
+      ],
+    })
+
+    const { waitForSessionToComplete } = await import('../session-execution')
+
+    await expect(waitForSessionToComplete({
+      client: {
+        session: { messages, status },
+      } as Parameters<typeof waitForSessionToComplete>[0]['client'],
+      sessionId: 'session-1',
+      slug: 'slack-bot',
+    })).resolves.toBe('APIError: Provider returned error 400: The referenced name `#/$defs/CustomGroupOperator` does not match a display_name.')
+  })
+
   it('records provider run usage from completed assistant step-finish parts', async () => {
     const status = vi.fn().mockResolvedValue({
       data: {

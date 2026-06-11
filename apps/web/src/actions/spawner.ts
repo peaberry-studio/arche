@@ -1,8 +1,8 @@
 'use server'
 
-import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
+import { ensureProviderAccessFreshForExecution } from '@/lib/opencode/providers'
 import { getSession } from '@/lib/runtime/session'
-import { getWorkspaceConnection, getWorkspaceStatus, startWorkspace, stopWorkspace } from '@/lib/runtime/workspace-host'
+import { getWorkspaceStatus, startWorkspace, stopWorkspace } from '@/lib/runtime/workspace-host'
 import { providerService, userService } from '@/lib/services'
 import { isSlowStart, listActiveInstances } from '@/lib/spawner/core'
 import { getKickstartStatus } from '@/kickstart/status'
@@ -116,21 +116,12 @@ export async function ensureInstanceRunningAction(slug: string): Promise<{
           : (await userService.findIdBySlug(slug))?.id
 
       try {
-        const instanceConn = await getWorkspaceConnection(slug)
-        if (instanceConn && syncUserId) {
-          const syncResult = await syncProviderAccessForInstance({
-            instance: instanceConn,
-            slug,
-            userId: syncUserId,
-          })
-          if (!syncResult.ok) {
-            await providerService.markWorkspaceRestartRequired(syncUserId)
-            console.error('[ensureInstanceRunning] Failed to sync OpenCode providers', syncResult.error)
-          } else {
-            await providerService.clearWorkspaceRestartRequired(syncUserId)
-          }
-        } else if (syncUserId) {
-          await providerService.markWorkspaceRestartRequired(syncUserId)
+        if (syncUserId) {
+          // Hash/TTL-guarded: only syncs (and disposes OpenCode) when provider
+          // credentials changed or the gateway token aged out, and defers while
+          // the workspace has active runs so generations are never aborted.
+          await ensureProviderAccessFreshForExecution({ slug, userId: syncUserId })
+          await providerService.clearWorkspaceRestartRequired(syncUserId)
         }
       } catch (err) {
         if (syncUserId) {

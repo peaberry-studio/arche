@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import type { LearningProposal, LearningRun } from "@/types/learning";
+import { cn } from "@/lib/utils";
+import type { LearningProposal, LearningRun, LearningRunStatus } from "@/types/learning";
 
 type KnowledgeCuratorPanelProps = {
   slug: string;
@@ -30,6 +31,33 @@ const ERROR_LABELS: Record<string, string> = {
 
 function errorLabel(code: string): string {
   return ERROR_LABELS[code] ?? code;
+}
+
+const RUN_STATUS_LABELS: Record<LearningRunStatus, string> = {
+  pending: "Queued",
+  running: "Running",
+  succeeded: "Succeeded",
+  failed: "Failed",
+};
+
+const RUN_STATUS_CLASSES: Record<LearningRunStatus, string> = {
+  pending: "bg-muted/60 text-muted-foreground",
+  running: "bg-primary/15 text-primary",
+  succeeded: "bg-emerald-500/15 text-emerald-500",
+  failed: "bg-destructive/15 text-destructive",
+};
+
+function RunStatusBadge({ status }: { status: LearningRunStatus }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-none",
+        RUN_STATUS_CLASSES[status] ?? RUN_STATUS_CLASSES.pending,
+      )}
+    >
+      {RUN_STATUS_LABELS[status] ?? status}
+    </span>
+  );
 }
 
 export function KnowledgeCuratorPanel({ slug, collapsed = false, onToggleCollapse, refreshKey = 0 }: KnowledgeCuratorPanelProps) {
@@ -96,27 +124,25 @@ export function KnowledgeCuratorPanel({ slug, collapsed = false, onToggleCollaps
 
   if (collapsed) {
     return (
-      <aside className="h-full border-l border-border/60 bg-card/80 text-card-foreground">
-        <button
-          type="button"
-          onClick={onToggleCollapse}
-          aria-label="Expand curator panel"
-          className="group flex h-full w-full cursor-pointer flex-col items-center gap-3 py-4 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+      <button
+        type="button"
+        onClick={onToggleCollapse}
+        aria-label="Expand curator panel"
+        className="group flex h-full w-full cursor-pointer flex-col items-center gap-3 py-4 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+      >
+        <span
+          className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground/80 transition-colors group-hover:text-foreground"
+          style={{ writingMode: "vertical-rl" }}
         >
-          <span
-            className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground/80 transition-colors group-hover:text-foreground"
-            style={{ writingMode: "vertical-rl" }}
-          >
-            Curator
-          </span>
-        </button>
-      </aside>
+          Curator
+        </span>
+      </button>
     );
   }
 
   return (
-    <aside className="flex h-full min-h-0 flex-col border-l border-border/60 bg-card/80 text-card-foreground">
-      <div className="flex items-start justify-between border-b border-border/60 px-4 py-3">
+    <aside className="flex h-full min-h-0 flex-col text-card-foreground">
+      <div className="flex items-start justify-between border-b border-border/30 px-4 py-3">
         <div>
           <h2 className="text-sm font-semibold">Knowledge Curator</h2>
           <p className="text-xs text-muted-foreground">Review learning runs and pending KB proposals.</p>
@@ -179,11 +205,20 @@ export function KnowledgeCuratorPanel({ slug, collapsed = false, onToggleCollaps
         <section className="space-y-2">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Recent runs</h3>
           {data.runs.map((run) => (
-            <div key={run.id} className="rounded-md border border-border/60 p-2 text-xs">
-              <p className="font-medium">{run.title}</p>
-              <p className="text-muted-foreground">{run.trigger} · {run.status}</p>
+            <div key={run.id} className="space-y-1 rounded-md border border-border/60 p-2 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <p className="min-w-0 truncate font-medium">{run.title}</p>
+                <RunStatusBadge status={run.status} />
+              </div>
+              <p className="text-muted-foreground">{run.trigger}</p>
+              {run.status === "failed" && run.error ? (
+                <p className="text-destructive">{errorLabel(run.error)}</p>
+              ) : null}
             </div>
           ))}
+          {data.runs.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No learning runs yet.</p>
+          ) : null}
         </section>
       </div>
     </aside>

@@ -376,7 +376,7 @@ export const POST = withAuth(
       }
 
       try {
-        await ensureProviderAccessFreshForExecution({ slug, userId: user.id })
+        await ensureProviderAccessFreshForExecution({ slug, userId: user.id, ignoreActiveRunId: activeRunId })
       } catch (error) {
         await messageRunService.markRunFailed(
           activeRunId,
