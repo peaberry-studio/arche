@@ -103,6 +103,21 @@ describe('flow connector requirements', () => {
       .resolves.toEqual([expect.objectContaining({ capabilityId: 'custom1', connectorType: 'custom' })])
   })
 
+  it('treats duplicate custom connector name matches as missing', async () => {
+    const requirementsResult = await getFlowConnectorRequirements(definition)
+    expect(requirementsResult.ok).toBe(true)
+    if (!requirementsResult.ok) return
+
+    mocks.findEnabledByUserId.mockResolvedValue([
+      { enabled: true, id: 'zendesk-1', name: 'Zendesk', type: 'zendesk' },
+      { enabled: true, id: 'custom2', name: 'Acme MCP', type: 'custom' },
+      { enabled: true, id: 'custom3', name: 'Acme MCP', type: 'custom' },
+    ])
+
+    await expect(checkMissingConnectorRequirements(requirementsResult.requirements, 'user-1'))
+      .resolves.toEqual([expect.objectContaining({ capabilityId: 'custom1', connectorType: 'custom' })])
+  })
+
   it('surfaces config loading failures instead of silently allowing runs', async () => {
     mocks.readCommonWorkspaceConfig.mockResolvedValue({ ok: false, error: 'kb_unavailable' })
 

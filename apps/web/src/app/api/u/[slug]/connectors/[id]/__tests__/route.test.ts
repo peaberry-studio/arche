@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => {
   const findIdBySlugMock = vi.fn()
   const findByIdAndUserIdMock = vi.fn()
   const findByIdMock = vi.fn()
+  const findFirstByUserIdTypeAndNameMock = vi.fn()
   const updateManyByIdAndUserIdMock = vi.fn()
   const deleteManyByIdAndUserIdMock = vi.fn()
   const auditEventMock = vi.fn()
@@ -26,6 +27,7 @@ const mocks = vi.hoisted(() => {
     findIdBySlugMock,
     findByIdAndUserIdMock,
     findByIdMock,
+    findFirstByUserIdTypeAndNameMock,
     updateManyByIdAndUserIdMock,
     deleteManyByIdAndUserIdMock,
     auditEventMock,
@@ -83,6 +85,8 @@ vi.mock('@/lib/services', () => ({
   connectorService: {
     findByIdAndUserId: (...args: unknown[]) => mocks.findByIdAndUserIdMock(...args),
     findById: (...args: unknown[]) => mocks.findByIdMock(...args),
+    findFirstByUserIdTypeAndName: (...args: unknown[]) =>
+      mocks.findFirstByUserIdTypeAndNameMock(...args),
     updateManyByIdAndUserId: (...args: unknown[]) => mocks.updateManyByIdAndUserIdMock(...args),
     deleteManyByIdAndUserId: (...args: unknown[]) => mocks.deleteManyByIdAndUserIdMock(...args),
   },
@@ -160,6 +164,7 @@ function setupDefaultMocks() {
   mocks.findIdBySlugMock.mockResolvedValue({ id: 'user-1' })
   mocks.findByIdAndUserIdMock.mockResolvedValue(makeConnectorRecord())
   mocks.findByIdMock.mockResolvedValue(makeConnectorRecord())
+  mocks.findFirstByUserIdTypeAndNameMock.mockResolvedValue(null)
   mocks.updateManyByIdAndUserIdMock.mockResolvedValue({ count: 1 })
   mocks.deleteManyByIdAndUserIdMock.mockResolvedValue({ count: 1 })
   mocks.auditEventMock.mockResolvedValue(undefined)
@@ -292,6 +297,34 @@ describe('PATCH /api/u/[slug]/connectors/[id]', () => {
       action: 'connector.updated',
       metadata: { connectorId: 'conn-1', fields: ['name'] },
     })
+  })
+
+  it('returns 409 when renaming a custom connector to an existing custom name', async () => {
+    mocks.findByIdAndUserIdMock.mockResolvedValue(
+      makeConnectorRecord({ id: 'conn-1', name: 'Source', type: 'custom' }),
+    )
+    mocks.findFirstByUserIdTypeAndNameMock.mockResolvedValue({ id: 'conn-2' })
+
+    const { PATCH } = await import('../route')
+    const res = await PATCH(
+      makeRequest('http://localhost/api/u/alice/connectors/conn-1', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: ' Existing Custom ' }),
+      }),
+      idParams(),
+    )
+
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    expect(body.error).toBe('connector_name_exists')
+    expect(mocks.findFirstByUserIdTypeAndNameMock).toHaveBeenCalledWith(
+      'user-1',
+      'custom',
+      'Existing Custom',
+      'conn-1',
+    )
+    expect(mocks.updateManyByIdAndUserIdMock).not.toHaveBeenCalled()
   })
 
   it('updates enabled flag', async () => {

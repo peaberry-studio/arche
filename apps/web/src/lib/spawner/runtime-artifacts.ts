@@ -19,6 +19,7 @@ import { userService } from '@/lib/services'
 import {
   applyDefaultAgentModel,
   injectAlwaysOnAgentTools,
+  injectCustomConnectorHints,
   injectSelfDelegationGuards,
   injectSystemSkillAccess,
   remapAgentConnectorTools,
@@ -179,6 +180,7 @@ async function buildBaseWorkspaceConfig(
         mcpResult.connectorToolPermissions,
         mcpResult.connectorAliases,
       )
+      baseConfig = injectCustomConnectorHints(baseConfig, mcpResult.connectorDisplayNames)
       baseConfig = { ...baseConfig, mcp: mcpResult.mcpConfig.mcp }
     } else {
       baseConfig = remapAgentConnectorTools(baseConfig, new Set())

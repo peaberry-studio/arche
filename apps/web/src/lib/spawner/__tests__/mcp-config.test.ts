@@ -163,6 +163,17 @@ describe('mcp-config', () => {
       expect(result.mcpConfig.mcp).toEqual({})
     })
 
+    it('returns connector display names by MCP server key', () => {
+      passGates({ apiKey: 'lin_key_123' })
+      const connector = makeConnector({ id: 'l1', name: 'Linear Production', type: 'linear' })
+
+      const result = buildMcpConfigFromConnectors([connector])
+
+      expect(result.connectorDisplayNames).toEqual({
+        arche_linear_l1: 'Linear Production',
+      })
+    })
+
     // -----------------------------------------------------------------------
     // Notion connector
     // -----------------------------------------------------------------------
@@ -857,6 +868,29 @@ describe('mcp-config', () => {
       expect(result?.connectorAliases).toEqual({
         'arche_custom_owner-custom': 'arche_custom_user-custom',
       })
+    })
+
+    it('does not alias custom connector tools when the user has duplicate matching names', async () => {
+      serviceMocks.userService.findIdBySlug.mockResolvedValue({ id: 'user-1' })
+
+      const connectors = [
+        makeConnector({ id: 'user-custom-1', name: 'Acme MCP', type: 'custom' }),
+        makeConnector({ id: 'user-custom-2', name: 'Acme MCP', type: 'custom' }),
+      ]
+      serviceMocks.connectorService.findEnabledMcpByUserId.mockResolvedValue(connectors)
+      serviceMocks.connectorService.findNameEntriesByType.mockResolvedValue([
+        { id: 'owner-custom', name: 'Acme MCP', type: 'custom' },
+        { id: 'user-custom-1', name: 'Acme MCP', type: 'custom' },
+        { id: 'user-custom-2', name: 'Acme MCP', type: 'custom' },
+      ])
+
+      connectorMocks.decryptConfig.mockReturnValue({ auth: 'token', endpoint: 'https://custom-server.com/mcp' })
+      connectorMocks.getConnectorAuthType.mockReturnValue('manual')
+      connectorMocks.validateConnectorConfig.mockReturnValue({ valid: true })
+
+      const result = await buildMcpConfigForSlug('my-slug')
+
+      expect(result?.connectorAliases).toEqual({})
     })
 
     it('skips embedded connectors whose parser returns ok: false', async () => {
