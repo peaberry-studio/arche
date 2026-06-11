@@ -161,7 +161,7 @@ describe('loadConnectorToolInventory', () => {
       expect.objectContaining({
         method: 'POST',
         headers: {
-          accept: 'application/json',
+          accept: 'application/json, text/event-stream',
           'content-type': 'application/json',
           'x-extra': 'yes',
           Authorization: 'Bearer linear-key',
@@ -252,6 +252,68 @@ describe('loadConnectorToolInventory', () => {
         headers: expect.objectContaining({ Authorization: 'Bearer custom-token' }),
       }),
     )
+  })
+
+  it('loads custom remote tools from SSE MCP responses', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: { get: (key: string) => key.toLowerCase() === 'content-type' ? 'text/event-stream' : null },
+      text: async () => [
+        'event: message',
+        'data: {"jsonrpc":"2.0","id":"tools-list","result":{"tools":[{"name":"query_events","description":"Query events"}]}}',
+        '',
+      ].join('\n'),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await loadConnectorToolInventory({
+      type: 'custom',
+      config: { auth: 'custom-token' },
+    })
+
+    expect(result).toEqual({
+      ok: true,
+      tools: [{ name: 'query_events', title: 'Query events', description: 'Query events' }],
+    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://validated.example/rpc',
+      expect.objectContaining({
+        headers: expect.objectContaining({ accept: 'application/json, text/event-stream' }),
+      }),
+    )
+  })
+
+  it('loads remote tools from streamed JSON MCP responses', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      result: {
+        tools: [{ name: 'streamed_tool', description: 'Streamed tool' }],
+      },
+    }), {
+      headers: { 'content-type': 'application/json' },
+    })))
+
+    await expect(loadConnectorToolInventory({
+      type: 'custom',
+      config: { auth: 'custom-token' },
+    })).resolves.toEqual({
+      ok: true,
+      tools: [{ name: 'streamed_tool', title: 'Streamed tool', description: 'Streamed tool' }],
+    })
+  })
+
+  it('rejects oversized remote MCP responses', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('x'.repeat(1024 * 1024 + 1), {
+      headers: { 'content-type': 'text/event-stream' },
+    })))
+
+    await expect(loadConnectorToolInventory({
+      type: 'custom',
+      config: { auth: 'custom-token' },
+    })).resolves.toEqual({
+      ok: false,
+      tools: [],
+      message: 'Remote MCP server response was too large.',
+    })
   })
 
   it('returns remote connector setup and authentication errors', async () => {

@@ -9,6 +9,13 @@ import {
 import { flowService, messageRunService } from '@/lib/services'
 
 const LEASE_EXTENSION_INTERVAL_MS = 60_000
+const FLOW_MCP_READINESS_DIRECTORY = '/workspace'
+const FLOW_MCP_READINESS_INITIAL_DELAY_MS = 250
+const FLOW_MCP_READINESS_MAX_ATTEMPTS = 30
+const FLOW_MCP_READINESS_MAX_DELAY_MS = 2_000
+const FLOW_MCP_READINESS_MAX_TIMEOUT_MS = 30_000
+const FLOW_MCP_READINESS_STATUS_TIMEOUT_MS = 2_000
+const FLOW_MCP_READINESS_TIMEOUT_MS = 15_000
 export const FLOW_LEASE_MS = 15 * 60 * 1000
 export const FLOW_RUN_CANCELLED_ERROR = 'flow_run_cancelled'
 
@@ -22,6 +29,17 @@ type RuntimeAgent = {
   name?: string
 }
 
+type RuntimeAgentConfig = {
+  prompt?: string
+  tools?: Record<string, boolean>
+}
+
+type RuntimeConfig = {
+  agents: Record<string, RuntimeAgentConfig>
+  defaultAgent?: string
+  mcpServerKeys: string[]
+}
+
 type RuntimeProvider = {
   id?: string
   models?: Record<string, unknown>
@@ -32,7 +50,11 @@ type RuntimeClientWithConfig = SessionExecutionClient & {
     agents?: (parameters?: unknown, options?: unknown) => Promise<{ data?: unknown }>
   }
   config?: {
+    get?: (parameters?: unknown, options?: unknown) => Promise<{ data?: unknown }>
     providers?: (parameters?: unknown, options?: unknown) => Promise<{ data?: unknown }>
+  }
+  mcp?: {
+    status?: (parameters?: unknown, options?: unknown) => Promise<{ data?: unknown }>
   }
 }
 
@@ -81,6 +103,221 @@ function readRuntimeProviders(data: unknown): RuntimeProvider[] {
   })
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error('operation_timeout')), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timeout) clearTimeout(timeout)
+  }
+}
+
+function readRuntimeAgentConfig(value: unknown): RuntimeAgentConfig | null {
+  if (!isRecord(value)) return null
+
+  const prompt = typeof value.prompt === 'string' ? value.prompt : undefined
+  const tools: Record<string, boolean> = {}
+  if (isRecord(value.tools)) {
+    for (const [toolKey, enabled] of Object.entries(value.tools)) {
+      if (typeof enabled === 'boolean') {
+        tools[toolKey] = enabled
+      }
+    }
+  }
+
+  return {
+    ...(prompt ? { prompt } : {}),
+    ...(Object.keys(tools).length > 0 ? { tools } : {}),
+  }
+}
+
+function readRuntimeConfig(data: unknown): RuntimeConfig {
+  if (!isRecord(data)) return { agents: {}, mcpServerKeys: [] }
+
+  const agents: Record<string, RuntimeAgentConfig> = {}
+  if (isRecord(data.agent)) {
+    for (const [agentId, agent] of Object.entries(data.agent)) {
+      const config = readRuntimeAgentConfig(agent)
+      if (config) {
+        agents[agentId] = config
+      }
+    }
+  }
+
+  return {
+    agents,
+    ...(typeof data.default_agent === 'string' && data.default_agent.trim()
+      ? { defaultAgent: data.default_agent.trim() }
+      : {}),
+    mcpServerKeys: isRecord(data.mcp)
+      ? Object.keys(data.mcp).filter((serverKey) => serverKey.startsWith('arche_')).sort()
+      : [],
+  }
+}
+
+function resolveRuntimeAgentId(input: {
+  agent: string | null | undefined
+  config: RuntimeConfig
+}): string {
+  const requestedAgent = typeof input.agent === 'string' && input.agent.trim()
+    ? input.agent.trim()
+    : undefined
+  return requestedAgent ?? input.config.defaultAgent ?? 'build'
+}
+
+function extractRequiredMcpServerKeys(input: {
+  agent: RuntimeAgentConfig
+  mcpServerKeys: string[]
+}): string[] {
+  if (!input.agent.tools || input.mcpServerKeys.length === 0) return []
+
+  const required = new Set<string>()
+  for (const [toolKey, enabled] of Object.entries(input.agent.tools)) {
+    if (enabled !== true) continue
+
+    for (const serverKey of input.mcpServerKeys) {
+      if (toolKey.startsWith(`${serverKey}_`)) {
+        required.add(serverKey)
+      }
+    }
+  }
+
+  return Array.from(required).sort()
+}
+
+function readConnectorNameHints(input: {
+  prompt?: string
+  serverKeys: string[]
+}): Map<string, string> {
+  const names = new Map<string, string>()
+  if (!input.prompt) return names
+
+  const prefixToServerKey = new Map(input.serverKeys.map((serverKey) => [`${serverKey}_`, serverKey]))
+  const marker = ': available through MCP tools prefixed with `'
+
+  for (const line of input.prompt.split('\n')) {
+    if (!line.startsWith('- ')) continue
+
+    const markerIndex = line.indexOf(marker)
+    if (markerIndex === -1) continue
+
+    const displayName = line.slice(2, markerIndex).trim()
+    const prefixStart = markerIndex + marker.length
+    const prefixEnd = line.indexOf('`', prefixStart)
+    if (!displayName || prefixEnd === -1) continue
+
+    const prefix = line.slice(prefixStart, prefixEnd)
+    const serverKey = prefixToServerKey.get(prefix)
+    if (serverKey) {
+      names.set(serverKey, displayName)
+    }
+  }
+
+  return names
+}
+
+function getUnavailableMcpServerKeys(data: unknown, serverKeys: string[]): string[] {
+  const status = isRecord(data) ? data : {}
+  return serverKeys.filter((serverKey) => {
+    const entry = status[serverKey]
+    return !isRecord(entry) || entry.status !== 'connected'
+  })
+}
+
+async function getUnavailableMcpConnectorError(params: {
+  agent: string | null | undefined
+  client: SessionExecutionClient
+  maxAttempts?: number
+  initialDelayMs?: number
+  statusTimeoutMs?: number
+  timeoutMs?: number
+}): Promise<string | null> {
+  const client = params.client as RuntimeClientWithConfig
+  if (!client.config?.get || !client.mcp?.status) return null
+
+  let runtimeConfig: RuntimeConfig
+  try {
+    const configResult = await client.config.get(
+      { directory: FLOW_MCP_READINESS_DIRECTORY },
+      { throwOnError: true },
+    )
+    runtimeConfig = readRuntimeConfig(configResult.data)
+  } catch {
+    return null
+  }
+
+  const agentId = resolveRuntimeAgentId({ agent: params.agent, config: runtimeConfig })
+  const agent = runtimeConfig.agents[agentId]
+  if (!agent) return null
+
+  const requiredServerKeys = extractRequiredMcpServerKeys({
+    agent,
+    mcpServerKeys: runtimeConfig.mcpServerKeys,
+  })
+  if (requiredServerKeys.length === 0) return null
+
+  const connectorNameHints = readConnectorNameHints({
+    prompt: agent.prompt,
+    serverKeys: requiredServerKeys,
+  })
+  const timeoutMs = Math.min(
+    FLOW_MCP_READINESS_MAX_TIMEOUT_MS,
+    Math.max(0, params.timeoutMs ?? FLOW_MCP_READINESS_TIMEOUT_MS),
+  )
+  const initialDelayMs = Math.max(1, params.initialDelayMs ?? FLOW_MCP_READINESS_INITIAL_DELAY_MS)
+  const maxAttempts = Math.min(
+    FLOW_MCP_READINESS_MAX_ATTEMPTS,
+    Math.max(1, params.maxAttempts ?? FLOW_MCP_READINESS_MAX_ATTEMPTS),
+  )
+  const statusTimeoutMs = Math.min(
+    FLOW_MCP_READINESS_STATUS_TIMEOUT_MS,
+    Math.max(1, params.statusTimeoutMs ?? FLOW_MCP_READINESS_STATUS_TIMEOUT_MS),
+  )
+  const deadline = Date.now() + timeoutMs
+  let delayMs = initialDelayMs
+  let unavailableServerKeys = requiredServerKeys
+  let attempts = 0
+
+  while (attempts < maxAttempts) {
+    attempts += 1
+    try {
+      const statusResult = await withTimeout(
+        client.mcp.status(
+          { directory: FLOW_MCP_READINESS_DIRECTORY },
+          { throwOnError: true },
+        ),
+        statusTimeoutMs,
+      )
+      unavailableServerKeys = getUnavailableMcpServerKeys(statusResult.data, requiredServerKeys)
+      if (unavailableServerKeys.length === 0) return null
+    } catch {
+      unavailableServerKeys = requiredServerKeys
+    }
+
+    const remainingMs = deadline - Date.now()
+    if (remainingMs <= 0 || attempts >= maxAttempts) {
+      const serverKey = unavailableServerKeys[0] ?? requiredServerKeys[0]
+      return `flow_mcp_connector_unavailable:${connectorNameHints.get(serverKey) ?? serverKey}`
+    }
+
+    await sleep(Math.min(delayMs, remainingMs))
+    delayMs = Math.min(delayMs * 2, FLOW_MCP_READINESS_MAX_DELAY_MS)
+  }
+
+  const serverKey = unavailableServerKeys[0] ?? requiredServerKeys[0]
+  return `flow_mcp_connector_unavailable:${connectorNameHints.get(serverKey) ?? serverKey}`
+}
+
 async function getUnavailableAgentModelError(params: {
   agent: string | null | undefined
   client: SessionExecutionClient
@@ -122,6 +359,10 @@ export async function runFlowPromptAndReadOutput(params: {
   sessionId: string
   slug: string
   userId?: string
+  mcpReadinessMaxAttempts?: number
+  mcpReadinessInitialDelayMs?: number
+  mcpReadinessStatusTimeoutMs?: number
+  mcpReadinessTimeoutMs?: number
 }): Promise<{ ok: true; output: string } | { ok: false; error: string }> {
   const existingRun = await flowService.findRunStatusById(params.runId)
   if (existingRun?.status === FlowRunStatus.cancelled) {
@@ -134,6 +375,18 @@ export async function runFlowPromptAndReadOutput(params: {
   })
   if (unavailableAgentModel) {
     return { ok: false, error: unavailableAgentModel }
+  }
+
+  const unavailableMcpConnector = await getUnavailableMcpConnectorError({
+    agent: params.agent,
+    client: params.client,
+    initialDelayMs: params.mcpReadinessInitialDelayMs,
+    maxAttempts: params.mcpReadinessMaxAttempts,
+    statusTimeoutMs: params.mcpReadinessStatusTimeoutMs,
+    timeoutMs: params.mcpReadinessTimeoutMs,
+  })
+  if (unavailableMcpConnector) {
+    return { ok: false, error: unavailableMcpConnector }
   }
 
   let messageRunId: string | null = null

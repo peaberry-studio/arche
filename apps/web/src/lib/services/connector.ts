@@ -141,6 +141,23 @@ export function findNameEntriesByType(type: string): Promise<ConnectorNameEntry[
   })
 }
 
+export function findFirstByUserIdTypeAndName(
+  userId: string,
+  type: string,
+  name: string,
+  excludeId?: string,
+): Promise<{ id: string } | null> {
+  return prisma.connector.findFirst({
+    where: {
+      userId,
+      type,
+      name,
+      ...(excludeId ? { id: { not: excludeId } } : {}),
+    },
+    select: { id: true },
+  })
+}
+
 export function findByIdAndUserId(id: string, userId: string): Promise<ConnectorFullRecord | null> {
   return prisma.connector.findFirst({ where: { id, userId } })
 }

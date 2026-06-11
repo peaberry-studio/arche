@@ -706,6 +706,9 @@ describe('startInstance - agent config transforms', () => {
     )
 
     mockBuildMcpConfigForSlug.mockResolvedValue({
+      connectorAliases: {},
+      connectorDisplayNames: {},
+      connectorToolPermissions: {},
       mcpConfig: {
         $schema: 'https://opencode.ai/config.json',
         mcp: {
@@ -718,7 +721,6 @@ describe('startInstance - agent config transforms', () => {
           },
         },
       },
-      connectorToolPermissions: {},
     })
 
     mockInstance.findBySlug.mockResolvedValue(null)

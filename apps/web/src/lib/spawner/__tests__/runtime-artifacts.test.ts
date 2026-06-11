@@ -189,6 +189,64 @@ describe('runtime artifacts', () => {
     expect(config.agent?.assistant?.permission?.skill?.['arche-flow-authoring']).toBe('allow')
   })
 
+  it('injects custom connector hints after remapping runtime connector tools', async () => {
+    await createRuntimeRepo({
+      'CommonWorkspaceConfig.json': JSON.stringify({
+        $schema: 'https://opencode.ai/config.json',
+        default_agent: 'growth',
+        agent: {
+          growth: {
+            mode: 'primary',
+            prompt: 'Investigate growth anomalies.',
+            tools: {
+              'arche_custom_owner-mixpanel_*': true,
+            },
+          },
+        },
+      }),
+    })
+    buildMcpConfigForSlugMock.mockResolvedValue({
+      connectorAliases: {
+        'arche_custom_owner-mixpanel': 'arche_custom_user-mixpanel',
+      },
+      connectorDisplayNames: {
+        'arche_custom_user-mixpanel': 'Mixpanel',
+      },
+      connectorToolPermissions: {},
+      mcpConfig: {
+        $schema: 'https://opencode.ai/config.json',
+        mcp: {
+          'arche_custom_user-mixpanel': {
+            enabled: true,
+            headers: { Authorization: 'Bearer token' },
+            oauth: false,
+            type: 'remote',
+            url: 'https://custom.example/mcp',
+          },
+        },
+      },
+    })
+
+    const {
+      buildWorkspaceRuntimeArtifacts,
+      getWebProviderGatewayConfig,
+    } = await loadRuntimeArtifactsModule()
+
+    const artifacts = await buildWorkspaceRuntimeArtifacts('alice', getWebProviderGatewayConfig())
+    const config = JSON.parse(artifacts.opencodeConfigContent) as {
+      agent?: Record<string, {
+        prompt?: string
+        tools?: Record<string, boolean>
+      }>
+    }
+
+    expect(config.agent?.growth?.tools?.['arche_custom_user-mixpanel_*']).toBe(true)
+    expect(config.agent?.growth?.prompt).toContain('## Available custom connectors')
+    expect(config.agent?.growth?.prompt).toContain(
+      '- Mixpanel: available through MCP tools prefixed with `arche_custom_user-mixpanel_`.'
+    )
+  })
+
   it('adds configured Ollama models to the runtime provider config', async () => {
     await createRuntimeRepo({
       'CommonWorkspaceConfig.json': createWorkspaceConfig(),
