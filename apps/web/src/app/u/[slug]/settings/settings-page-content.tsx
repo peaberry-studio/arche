@@ -135,6 +135,17 @@ export function SettingsPageContent({
             {kbGithubRemoteSummary ? (
               <KbGithubRemoteSummaryCard slug={slug} integration={kbGithubRemoteSummary} />
             ) : null}
+            <SettingsSection
+              title="MCP Access"
+              description="Connect external MCP clients to Arche workspace context with scoped personal access tokens."
+            >
+              <McpSettingsPanel
+                currentUserEmail={currentUserEmail}
+                currentUserId={currentUserId}
+                currentUserSlug={currentUserSlug}
+                isAdmin={isAdmin}
+              />
+            </SettingsSection>
           </div>
         )
       case 'providers':
@@ -164,20 +175,6 @@ export function SettingsPageContent({
             canManageUsers={canManageUsers}
             embedded
           />
-        )
-      case 'mcp':
-        return (
-          <SettingsSection
-            title="MCP Access"
-            description="Connect external MCP clients to Arche workspace context with scoped personal access tokens."
-          >
-            <McpSettingsPanel
-              currentUserEmail={currentUserEmail}
-              currentUserId={currentUserId}
-              currentUserSlug={currentUserSlug}
-              isAdmin={isAdmin}
-            />
-          </SettingsSection>
         )
       case 'security':
         return (

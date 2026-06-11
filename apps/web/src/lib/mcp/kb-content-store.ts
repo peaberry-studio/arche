@@ -8,6 +8,7 @@ import {
   isGitAvailable,
   mutateBareRepo,
   resolveRepoRoot,
+  runGit,
 } from '@/lib/git/bare-repo'
 import { getKbContentRoot } from '@/lib/runtime/paths'
 
@@ -78,32 +79,50 @@ export async function searchKb(input: { query: string; path?: string; limit?: nu
   | { ok: true; matches: KbSearchMatch[] }
   | { ok: false; error: KbReadError | 'invalid_query' }
 > {
-  const query = input.query.trim().toLowerCase()
+  const query = input.query.trim()
   if (!query) return { ok: false, error: 'invalid_query' }
 
-  return readContentRepo(async ({ repoDir }) => {
-    const listResult = await listKbArticlesInRepo(repoDir, { path: input.path })
-    if (!listResult.ok) return listResult
+  let normalizedPath: string | undefined
+  if (input.path) {
+    normalizedPath = normalizeKbPath(input.path) ?? undefined
+    if (!normalizedPath) return { ok: false, error: 'invalid_path' as KbReadError }
+  }
+
+  return readContentRepo(async ({ repoDir, gitEnv }) => {
+    const pathspecs = normalizedPath ? [`${normalizedPath}/`] : []
+    const result = await runGit(
+      ['grep', '-n', '-i', '--fixed-strings', '--', query, ...pathspecs],
+      { cwd: repoDir, env: gitEnv }
+    )
+
+    if (!result.ok) {
+      return result.stderr ? { ok: false, error: 'read_failed' as KbReadError } : { ok: true, matches: [] }
+    }
 
     const limit = Math.min(Math.max(input.limit ?? 50, 1), 100)
     const matches: KbSearchMatch[] = []
 
-    for (const article of listResult.articles) {
-      if (matches.length >= limit) break
-
-      const readResult = await readKbArticleInRepo(repoDir, article.path)
-      if (!readResult.ok) continue
-
-      const lines = readResult.content.split('\n')
-      for (let index = 0; index < lines.length; index += 1) {
-        if (!lines[index].toLowerCase().includes(query)) continue
-        matches.push({ path: article.path, line: index + 1, text: lines[index].trim() })
-        if (matches.length >= limit) break
-      }
+    for (const line of result.stdout.split('\n')) {
+      if (!line || matches.length >= limit) continue
+      const match = parseGitGrepLine(line)
+      if (match && match.path.toLowerCase().endsWith('.md')) matches.push(match)
     }
 
     return { ok: true, matches }
   })
+}
+
+function parseGitGrepLine(line: string): KbSearchMatch | null {
+  const firstColon = line.indexOf(':')
+  if (firstColon < 0) return null
+  const secondColon = line.indexOf(':', firstColon + 1)
+  if (secondColon < 0) return null
+
+  const filePath = line.slice(0, firstColon)
+  const lineNumber = Number(line.slice(firstColon + 1, secondColon))
+  if (!Number.isFinite(lineNumber) || lineNumber < 1) return null
+
+  return { path: filePath, line: lineNumber, text: line.slice(secondColon + 1).trim() }
 }
 
 async function listKbArticlesInRepo(repoDir: string, input: { path?: string } = {}): Promise<
@@ -351,10 +370,7 @@ async function listMarkdownFiles(repoDir: string, rootDir: string, prefix: strin
 
     if (!entry.isFile() || !relativePath.toLowerCase().endsWith('.md')) continue
 
-    const safePath = await resolveSafeExistingPath(repoDir, relativePath)
-    if (!safePath.ok) continue
-
-    const stats = await fs.lstat(safePath.path).catch(() => null)
+    const stats = await fs.lstat(absolutePath).catch(() => null)
     if (stats?.isFile()) articles.push({ path: relativePath, size: stats.size })
   }
 

@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { isDesktop } from '@/lib/runtime/mode'
 
 type RateLimitBucketRow = {
   count: number
@@ -11,6 +12,10 @@ export async function checkDbRateLimit(
   maxAttempts: number,
   windowMs: number
 ): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
+  if (isDesktop()) {
+    return { allowed: true, remaining: maxAttempts, resetAt: Date.now() + windowMs }
+  }
+
   const now = new Date()
   const resetAt = new Date(now.getTime() + windowMs)
 

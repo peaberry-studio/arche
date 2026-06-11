@@ -1,7 +1,7 @@
 import { readConfigRepoFileBuffer } from '@/lib/config-repo-store'
 import { readCommonWorkspaceConfig } from '@/lib/common-workspace-config-store'
 import type { RuntimeUser } from '@/lib/runtime/types'
-import { listSkills, readSkill, readSkillBundle } from '@/lib/skills/skill-store'
+import { readSkillBundle } from '@/lib/skills/skill-store'
 import { withWorkspaceIdentity } from '@/lib/spawner/runtime-config-utils'
 import {
   type CommonWorkspaceConfig,
@@ -48,14 +48,6 @@ export async function readAgent(id: string): Promise<
   if (!agent) return { ok: false, error: 'not_found' }
 
   return { ok: true, agent }
-}
-
-export async function listSkillsForMcp(): Promise<Awaited<ReturnType<typeof listSkills>>> {
-  return listSkills()
-}
-
-export async function readSkillForMcp(name: string): Promise<Awaited<ReturnType<typeof readSkill>>> {
-  return readSkill(name)
 }
 
 export async function readSkillResource(input: { name: string; path: string; maxLines?: number }): Promise<

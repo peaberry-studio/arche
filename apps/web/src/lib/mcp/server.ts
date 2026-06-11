@@ -14,28 +14,25 @@ import {
 } from '@/lib/mcp/scopes'
 import {
   listAgents,
-  listSkillsForMcp,
   readAgent,
   readAgentsGuide,
-  readSkillForMcp,
   readSkillResource,
 } from '@/lib/mcp/workspace-tools'
 import { isRecord } from '@/lib/records'
 import type { RuntimeUser } from '@/lib/runtime/types'
+import { listSkills, readSkill } from '@/lib/skills/skill-store'
 
 type JsonRpcId = string | number | null
 type DecodedToolArgs = Record<string, number | string | undefined>
-type DecodeToolArgsResult =
-  | { ok: true; value: DecodedToolArgs }
-  | { ok: false }
-type ToolHandler = (args: DecodedToolArgs) => Promise<unknown>
+
+type ToolArgSpec = { type: 'string' | 'number'; required?: boolean }
 
 type ToolDefinition = {
   name: string
   description: string
   inputSchema: Record<string, unknown>
-  decodeArgs: (args: unknown) => DecodeToolArgsResult
-  handler: ToolHandler
+  decodeArgs: (args: unknown) => { ok: true; value: DecodedToolArgs } | { ok: false }
+  handler: (args: DecodedToolArgs) => Promise<unknown>
 }
 
 export type McpRequestMetadata = {
@@ -149,108 +146,85 @@ function buildToolDefinitions(scopes: readonly string[], user: RuntimeUser): Too
 
   if (hasMcpScope(scopes, MCP_SCOPE_AGENTS_READ)) {
     tools.push(
-      {
+      defineTool({
         name: 'read_agents_guide',
         description: 'Read AGENTS.md, the primary workspace guide. Use this first for workspace-related tasks.',
-        inputSchema: emptySchema(),
-        decodeArgs: decodeEmptyArgs,
         handler: () => readAgentsGuide({ user }),
-      },
-      {
+      }),
+      defineTool({
         name: 'list_agents',
         description: 'List configured Arche workspace agents and their capabilities.',
-        inputSchema: emptySchema(),
-        decodeArgs: decodeEmptyArgs,
         handler: () => listAgents(),
-      },
-      {
+      }),
+      defineTool({
         name: 'read_agent',
         description: 'Read one workspace agent definition by id.',
-        inputSchema: objectSchema({ id: { type: 'string' } }, ['id']),
-        decodeArgs: (args) => decodeObjectArgs(args, { id: 'string' }, ['id']),
-        handler: (args) => readAgent(getDecodedStringArg(args, 'id')),
-      },
-      {
+        args: { id: { type: 'string', required: true } },
+        handler: (a) => readAgent(str(a, 'id')),
+      }),
+      defineTool({
         name: 'list_skills',
         description: 'List workspace skills and assigned agents.',
-        inputSchema: emptySchema(),
-        decodeArgs: decodeEmptyArgs,
-        handler: () => listSkillsForMcp(),
-      },
-      {
+        handler: () => listSkills(),
+      }),
+      defineTool({
         name: 'read_skill',
         description: 'Read a workspace skill document by name.',
-        inputSchema: objectSchema({ name: { type: 'string' } }, ['name']),
-        decodeArgs: (args) => decodeObjectArgs(args, { name: 'string' }, ['name']),
-        handler: (args) => readSkillForMcp(getDecodedStringArg(args, 'name')),
-      },
-      {
+        args: { name: { type: 'string', required: true } },
+        handler: (a) => readSkill(str(a, 'name')),
+      }),
+      defineTool({
         name: 'read_skill_resource',
         description: 'Read a supporting resource file bundled with a workspace skill.',
-        inputSchema: objectSchema({ name: { type: 'string' }, path: { type: 'string' }, maxLines: { type: 'number' } }, ['name', 'path']),
-        decodeArgs: (args) => decodeObjectArgs(args, { name: 'string', path: 'string', maxLines: 'number' }, ['name', 'path']),
-        handler: (args) => readSkillResource({
-          name: getDecodedStringArg(args, 'name'),
-          path: getDecodedStringArg(args, 'path'),
-          maxLines: getDecodedNumberArg(args, 'maxLines'),
-        }),
-      }
+        args: { name: { type: 'string', required: true }, path: { type: 'string', required: true }, maxLines: { type: 'number' } },
+        handler: (a) => readSkillResource({ name: str(a, 'name'), path: str(a, 'path'), maxLines: optNum(a, 'maxLines') }),
+      }),
     )
   }
 
   if (hasMcpScope(scopes, MCP_SCOPE_KB_READ)) {
     tools.push(
-      {
+      defineTool({
         name: 'list_kb_articles',
         description: 'List markdown knowledge-base article paths. Use this for discovery before targeted reads.',
-        inputSchema: objectSchema({ path: { type: 'string' } }),
-        decodeArgs: (args) => decodeObjectArgs(args, { path: 'string' }),
-        handler: (args) => listKbArticles({ path: getDecodedOptionalStringArg(args, 'path') }),
-      },
-      {
+        args: { path: { type: 'string' } },
+        handler: (a) => listKbArticles({ path: optStr(a, 'path') }),
+      }),
+      defineTool({
         name: 'read_kb_article',
         description: 'Read a markdown knowledge-base article by path.',
-        inputSchema: objectSchema({ path: { type: 'string' }, maxLines: { type: 'number' } }, ['path']),
-        decodeArgs: (args) => decodeObjectArgs(args, { path: 'string', maxLines: 'number' }, ['path']),
-        handler: (args) => readKbArticle({ path: getDecodedStringArg(args, 'path'), maxLines: getDecodedNumberArg(args, 'maxLines') }),
-      },
-      {
+        args: { path: { type: 'string', required: true }, maxLines: { type: 'number' } },
+        handler: (a) => readKbArticle({ path: str(a, 'path'), maxLines: optNum(a, 'maxLines') }),
+      }),
+      defineTool({
         name: 'search_kb',
         description: 'Search markdown knowledge-base articles by text. Use this when the relevant article is unknown.',
-        inputSchema: objectSchema({ query: { type: 'string' }, path: { type: 'string' }, limit: { type: 'number' } }, ['query']),
-        decodeArgs: (args) => decodeObjectArgs(args, { query: 'string', path: 'string', limit: 'number' }, ['query']),
-        handler: (args) => searchKb({
-          query: getDecodedStringArg(args, 'query'),
-          path: getDecodedOptionalStringArg(args, 'path'),
-          limit: getDecodedNumberArg(args, 'limit'),
-        }),
-      }
+        args: { query: { type: 'string', required: true }, path: { type: 'string' }, limit: { type: 'number' } },
+        handler: (a) => searchKb({ query: str(a, 'query'), path: optStr(a, 'path'), limit: optNum(a, 'limit') }),
+      }),
     )
   }
 
   if (hasMcpScope(scopes, MCP_SCOPE_KB_WRITE)) {
     tools.push(
-      {
+      defineTool({
         name: 'create_kb_article',
         description: 'Create a new markdown knowledge-base article. Requires kb:write.',
-        inputSchema: objectSchema({ path: { type: 'string' }, content: { type: 'string' } }, ['path', 'content']),
-        decodeArgs: (args) => decodeObjectArgs(args, { path: 'string', content: 'string' }, ['path', 'content']),
-        handler: (args) => createKbArticle({ path: getDecodedStringArg(args, 'path'), content: getDecodedStringArg(args, 'content') }),
-      },
-      {
+        args: { path: { type: 'string', required: true }, content: { type: 'string', required: true } },
+        handler: (a) => createKbArticle({ path: str(a, 'path'), content: str(a, 'content') }),
+      }),
+      defineTool({
         name: 'update_kb_article',
         description: 'Update an existing markdown knowledge-base article. Requires kb:write.',
-        inputSchema: objectSchema({ path: { type: 'string' }, content: { type: 'string' } }, ['path', 'content']),
-        decodeArgs: (args) => decodeObjectArgs(args, { path: 'string', content: 'string' }, ['path', 'content']),
-        handler: (args) => updateKbArticle({ path: getDecodedStringArg(args, 'path'), content: getDecodedStringArg(args, 'content') }),
-      },
-      {
+        args: { path: { type: 'string', required: true }, content: { type: 'string', required: true } },
+        handler: (a) => updateKbArticle({ path: str(a, 'path'), content: str(a, 'content') }),
+      }),
+      defineTool({
         name: 'delete_kb_article',
         description: 'Delete a markdown knowledge-base article. Requires kb:write.',
-        inputSchema: objectSchema({ path: { type: 'string' } }, ['path']),
-        decodeArgs: (args) => decodeObjectArgs(args, { path: 'string' }, ['path']),
-        handler: (args) => deleteKbArticle({ path: getDecodedStringArg(args, 'path') }),
-      }
+        args: { path: { type: 'string', required: true } },
+        handler: (a) => deleteKbArticle({ path: str(a, 'path') }),
+      }),
     )
   }
 
@@ -292,66 +266,63 @@ function toJsonRpcId(value: unknown): JsonRpcId {
   return null
 }
 
-function emptySchema(): Record<string, unknown> {
-  return objectSchema({})
-}
+function defineTool(spec: {
+  name: string
+  description: string
+  args?: Record<string, ToolArgSpec>
+  handler: (args: DecodedToolArgs) => Promise<unknown>
+}): ToolDefinition {
+  const args = spec.args ?? {}
+  const properties: Record<string, unknown> = {}
+  const required: string[] = []
 
-function objectSchema(properties: Record<string, unknown>, required: string[] = []): Record<string, unknown> {
-  return { type: 'object', properties, required, additionalProperties: false }
-}
-
-function decodeEmptyArgs(args: unknown): DecodeToolArgsResult {
-  return decodeObjectArgs(args, {})
-}
-
-function decodeObjectArgs(
-  args: unknown,
-  fields: Record<string, 'number' | 'string'>,
-  required: string[] = []
-): DecodeToolArgsResult {
-  const value = args === undefined ? {} : args
-  if (!isRecord(value)) return { ok: false }
-
-  const allowedKeys = new Set(Object.keys(fields))
-  if (Object.keys(value).some((key) => !allowedKeys.has(key))) {
-    return { ok: false }
+  for (const [key, config] of Object.entries(args)) {
+    properties[key] = { type: config.type }
+    if (config.required) required.push(key)
   }
 
-  const decoded: DecodedToolArgs = {}
-  for (const [key, type] of Object.entries(fields)) {
-    const rawValue = value[key]
-    if (rawValue === undefined) {
-      if (required.includes(key)) return { ok: false }
-      continue
-    }
+  return {
+    name: spec.name,
+    description: spec.description,
+    inputSchema: { type: 'object', properties, required, additionalProperties: false },
+    decodeArgs: (raw) => {
+      const value = raw === undefined ? {} : raw
+      if (!isRecord(value)) return { ok: false }
 
-    if (type === 'string') {
-      if (typeof rawValue !== 'string') return { ok: false }
-      decoded[key] = rawValue.trim()
-      continue
-    }
+      const allowedKeys = new Set(Object.keys(args))
+      if (Object.keys(value).some((key) => !allowedKeys.has(key))) return { ok: false }
 
-    if (typeof rawValue !== 'number' || !Number.isFinite(rawValue)) {
-      return { ok: false }
-    }
-    decoded[key] = rawValue
+      const decoded: DecodedToolArgs = {}
+      for (const [key, config] of Object.entries(args)) {
+        const rawValue = value[key]
+        if (rawValue === undefined) {
+          if (config.required) return { ok: false }
+          continue
+        }
+        if (config.type === 'string') {
+          if (typeof rawValue !== 'string') return { ok: false }
+          decoded[key] = rawValue.trim()
+        } else {
+          if (typeof rawValue !== 'number' || !Number.isFinite(rawValue)) return { ok: false }
+          decoded[key] = rawValue
+        }
+      }
+      return { ok: true, value: decoded }
+    },
+    handler: spec.handler,
   }
-
-  return { ok: true, value: decoded }
 }
 
-function getDecodedStringArg(args: DecodedToolArgs, key: string): string {
-  const value = args[key]
-  if (typeof value !== 'string') throw new Error('invalid_decoded_tool_args')
-  return value
+function str(args: DecodedToolArgs, key: string): string {
+  return args[key] as string
 }
 
-function getDecodedOptionalStringArg(args: DecodedToolArgs, key: string): string | undefined {
+function optStr(args: DecodedToolArgs, key: string): string | undefined {
   const value = args[key]
   return typeof value === 'string' && value ? value : undefined
 }
 
-function getDecodedNumberArg(args: DecodedToolArgs, key: string): number | undefined {
+function optNum(args: DecodedToolArgs, key: string): number | undefined {
   const value = args[key]
   return typeof value === 'number' ? value : undefined
 }

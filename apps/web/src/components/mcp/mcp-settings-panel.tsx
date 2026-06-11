@@ -2,14 +2,14 @@
 
 import { useCallback, useEffect, useState } from 'react'
 
+import { buildMcpQuickConnects } from '@/lib/mcp/client-config'
+import { MCP_SCOPE_AGENTS_READ, MCP_SCOPE_KB_READ, MCP_SCOPE_KB_WRITE } from '@/lib/mcp/scopes'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
-import { buildMcpClientConfigs } from '@/lib/mcp/client-config'
-import { MCP_SCOPE_AGENTS_READ, MCP_SCOPE_KB_READ, MCP_SCOPE_KB_WRITE } from '@/lib/mcp/scopes'
 import {
   isMcpErrorResponse,
   parseMcpAdminSettingsResponse,
@@ -67,7 +67,7 @@ export function McpSettingsPanel({ currentUserEmail, currentUserId, currentUserS
   const [saving, setSaving] = useState(false)
 
   const endpoint = typeof window === 'undefined' ? '/api/mcp' : `${window.location.origin}/api/mcp`
-  const quickConnectConfigs = createdToken ? buildMcpClientConfigs({ endpoint, token: createdToken }) : []
+  const quickConnects = createdToken ? buildMcpQuickConnects({ endpoint, token: createdToken }) : []
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -308,13 +308,15 @@ export function McpSettingsPanel({ currentUserEmail, currentUserId, currentUserS
             <CardTitle>Token Shown Once</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <textarea readOnly value={createdToken} className="min-h-20 w-full rounded-lg border border-border bg-background p-3 font-mono text-xs" />
-            <div className="grid gap-3 md:grid-cols-2">
-              {quickConnectConfigs.map((config) => (
-                <div key={config.id} className="space-y-2 rounded-lg border border-border/60 p-3">
-                  <p className="text-sm font-medium">{config.label}</p>
-                  <p className="text-xs text-muted-foreground">{config.description}</p>
-                  <textarea readOnly value={config.content} className="min-h-36 w-full rounded-md border border-border bg-background p-2 font-mono text-xs" />
+            <input readOnly value={createdToken} className="w-full rounded-lg border border-border bg-background p-3 font-mono text-xs" />
+            <div className="space-y-3">
+              {quickConnects.map((entry) => (
+                <div key={entry.id} className="space-y-1">
+                  <p className="text-sm font-medium">{entry.label}</p>
+                  <div className="flex items-center gap-2">
+                    <input readOnly value={entry.command} className="flex-1 rounded-md border border-border bg-background p-2 font-mono text-xs" />
+                    <Button variant="outline" size="sm" onClick={() => navigator.clipboard.writeText(entry.command)}>Copy</Button>
+                  </div>
                 </div>
               ))}
             </div>
