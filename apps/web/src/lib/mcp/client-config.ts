@@ -15,7 +15,7 @@ export function buildMcpQuickConnects(input: McpClientConfigInput): McpQuickConn
     {
       id: 'claude-code',
       label: 'Claude Code',
-      command: `claude mcp add arche --transport http "${input.endpoint}" -h "Authorization: ${bearer}"`,
+      command: `claude mcp add arche --transport http "${input.endpoint}" -H "Authorization: ${bearer}"`,
     },
     {
       id: 'codex',
