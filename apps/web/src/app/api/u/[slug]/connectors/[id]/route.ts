@@ -175,7 +175,25 @@ export const PATCH = withAuth<
         { status: 400 }
       )
     }
-    updateData.name = (name as string).trim()
+    const connectorName = (name as string).trim()
+    if (existingConnector.type === 'custom') {
+      const existing = await connectorService.findFirstByUserIdTypeAndName(
+        targetUser.id,
+        existingConnector.type,
+        connectorName,
+        existingConnector.id,
+      )
+      if (existing) {
+        return NextResponse.json(
+          {
+            error: 'connector_name_exists',
+            message: 'Custom connector name already exists for this workspace',
+          },
+          { status: 409 }
+        )
+      }
+    }
+    updateData.name = connectorName
   }
 
   if (enabled !== undefined) {

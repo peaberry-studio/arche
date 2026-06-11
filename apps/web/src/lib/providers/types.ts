@@ -4,6 +4,7 @@ export const PROVIDERS = [
   'openai',
   'anthropic',
   'fireworks',
+  'huggingface',
   'openrouter',
   'opencode',
   'opencode-go',

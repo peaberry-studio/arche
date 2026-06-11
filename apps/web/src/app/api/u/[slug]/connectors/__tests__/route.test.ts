@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => {
   const findIdBySlugMock = vi.fn()
   const findManyByUserIdMock = vi.fn()
   const findFirstByUserIdAndTypeMock = vi.fn()
+  const findFirstByUserIdTypeAndNameMock = vi.fn()
   const createMock = vi.fn()
   const auditEventMock = vi.fn()
   const decryptConfigMock = vi.fn()
@@ -19,6 +20,7 @@ const mocks = vi.hoisted(() => {
     findIdBySlugMock,
     findManyByUserIdMock,
     findFirstByUserIdAndTypeMock,
+    findFirstByUserIdTypeAndNameMock,
     createMock,
     auditEventMock,
     decryptConfigMock,
@@ -69,6 +71,8 @@ vi.mock('@/lib/services', () => ({
   connectorService: {
     findManyByUserId: (...args: unknown[]) => mocks.findManyByUserIdMock(...args),
     findFirstByUserIdAndType: (...args: unknown[]) => mocks.findFirstByUserIdAndTypeMock(...args),
+    findFirstByUserIdTypeAndName: (...args: unknown[]) =>
+      mocks.findFirstByUserIdTypeAndNameMock(...args),
     create: (...args: unknown[]) => mocks.createMock(...args),
   },
   userService: {
@@ -266,6 +270,7 @@ describe('POST /api/u/[slug]/connectors', () => {
     mocks.findIdBySlugMock.mockResolvedValue({ id: 'user-1' })
     mocks.encryptConfigMock.mockReturnValue('encrypted-config')
     mocks.findFirstByUserIdAndTypeMock.mockResolvedValue(null)
+    mocks.findFirstByUserIdTypeAndNameMock.mockResolvedValue(null)
     mocks.auditEventMock.mockResolvedValue(undefined)
     mocks.validateConnectorConfigMock.mockReturnValue({ valid: true })
     mocks.createMock.mockResolvedValue({
@@ -443,7 +448,7 @@ describe('POST /api/u/[slug]/connectors', () => {
     expect(body.error).toBe('connector_already_exists')
   })
 
-  it('allows duplicate custom connectors (multi-instance type)', async () => {
+  it('allows multiple custom connectors with distinct names', async () => {
     mocks.createMock.mockResolvedValue({
       id: 'conn-custom-2',
       type: 'custom',
@@ -469,6 +474,39 @@ describe('POST /api/u/[slug]/connectors', () => {
     expect(res.status).toBe(201)
     // findFirstByUserIdAndType should NOT be called for multi-instance types
     expect(mocks.findFirstByUserIdAndTypeMock).not.toHaveBeenCalled()
+    expect(mocks.findFirstByUserIdTypeAndNameMock).toHaveBeenCalledWith(
+      'user-1',
+      'custom',
+      'Custom 2',
+    )
+  })
+
+  it('returns 409 for duplicate custom connector name', async () => {
+    mocks.findFirstByUserIdTypeAndNameMock.mockResolvedValue({ id: 'existing-custom' })
+
+    const { POST } = await import('../route')
+    const res = await POST(
+      makeRequest('http://localhost/api/u/alice/connectors', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          type: 'custom',
+          name: ' Existing Custom ',
+          config: { endpoint: 'https://example.com' },
+        }),
+      }),
+      slugParams(),
+    )
+
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    expect(body.error).toBe('connector_name_exists')
+    expect(mocks.findFirstByUserIdTypeAndNameMock).toHaveBeenCalledWith(
+      'user-1',
+      'custom',
+      'Existing Custom',
+    )
+    expect(mocks.createMock).not.toHaveBeenCalled()
   })
 
   it('returns 400 when encryption fails', async () => {

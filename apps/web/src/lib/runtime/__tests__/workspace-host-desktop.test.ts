@@ -548,6 +548,9 @@ describe('desktopWorkspaceHost', () => {
 
     const { buildMcpConfigForSlug } = await import('@/lib/spawner/mcp-config')
     vi.mocked(buildMcpConfigForSlug).mockResolvedValue({
+      connectorAliases: {},
+      connectorDisplayNames: {},
+      connectorToolPermissions: {},
       mcpConfig: {
         $schema: 'https://opencode.ai/config.json',
         mcp: {
@@ -560,7 +563,6 @@ describe('desktopWorkspaceHost', () => {
           },
         },
       },
-      connectorToolPermissions: {},
     })
 
     const { desktopWorkspaceHost } = await import('../workspace-host-desktop')

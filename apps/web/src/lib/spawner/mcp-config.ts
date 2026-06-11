@@ -32,6 +32,7 @@ export type McpConfig = {
 
 export type McpConfigBuildResult = {
   connectorAliases: Record<string, string>
+  connectorDisplayNames: Record<string, string>
   mcpConfig: McpConfig
   connectorToolPermissions: Record<string, ConnectorToolPermissionMap>
 }
@@ -58,6 +59,7 @@ export function buildMcpConfigFromConnectors(
   options?: { gatewayTargets?: Record<string, GatewayTarget> },
 ): McpConfigBuildResult {
   const connectorAliases: Record<string, string> = {}
+  const connectorDisplayNames: Record<string, string> = {}
   const mcp: Record<string, McpServerConfig> = {}
   const connectorToolPermissions: Record<string, ConnectorToolPermissionMap> = {}
 
@@ -84,6 +86,7 @@ export function buildMcpConfigFromConnectors(
     if (serverConfig) {
       const serverKey = buildMcpServerKey(connector.type, connector.id)
       mcp[serverKey] = serverConfig
+      connectorDisplayNames[serverKey] = connector.name.trim() || connector.id
 
       const toolPermissions = getStoredConnectorToolPermissions(config)
       if (toolPermissions) {
@@ -94,6 +97,7 @@ export function buildMcpConfigFromConnectors(
 
   return {
     connectorAliases,
+    connectorDisplayNames,
     mcpConfig: {
       $schema: OPENCODE_CONFIG_SCHEMA,
       mcp,
@@ -107,7 +111,7 @@ function buildCustomConnectorAliases(input: {
   userConnectors: ConnectorRecord[]
 }): Record<string, string> {
   const aliases: Record<string, string> = {}
-  const userCustomByName = new Map<string, string>()
+  const userCustomIdsByName = new Map<string, string[]>()
 
   const userCustomConnectors = input.userConnectors
     .filter((connector) => connector.type === 'custom')
@@ -115,16 +119,22 @@ function buildCustomConnectorAliases(input: {
 
   for (const connector of userCustomConnectors) {
     const name = connector.name.trim()
-    if (!name || userCustomByName.has(name)) continue
-    userCustomByName.set(name, connector.id)
+    if (!name) continue
+
+    const ids = userCustomIdsByName.get(name) ?? []
+    ids.push(connector.id)
+    userCustomIdsByName.set(name, ids)
   }
 
-  if (userCustomByName.size === 0) return aliases
+  if (userCustomIdsByName.size === 0) return aliases
 
   for (const connector of input.sourceConnectors) {
     if (connector.type !== 'custom') continue
 
-    const userConnectorId = userCustomByName.get(connector.name.trim())
+    const userConnectorIds = userCustomIdsByName.get(connector.name.trim()) ?? []
+    if (userConnectorIds.length !== 1) continue
+
+    const userConnectorId = userConnectorIds[0]
     if (!userConnectorId || userConnectorId === connector.id) continue
 
     aliases[buildMcpServerKey('custom', connector.id)] = buildMcpServerKey('custom', userConnectorId)

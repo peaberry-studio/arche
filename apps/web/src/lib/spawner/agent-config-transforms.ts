@@ -7,6 +7,7 @@ const CONNECTOR_TYPE_PATTERN = CONNECTOR_TYPES.join('|')
 const MCP_SERVER_KEY_PATTERN = new RegExp(`^arche_(${CONNECTOR_TYPE_PATTERN})_([^_]+)$`)
 const ALWAYS_ENABLED_TOOLS = ['email_draft', 'chart_create', 'diagram_create', 'flow_propose', 'session_history_query', 'learning_propose'] as const
 const PERMISSION_ACTIONS = new Set(['allow', 'ask', 'deny'])
+const CUSTOM_CONNECTOR_KEY_PREFIX = 'arche_custom_'
 
 function isToolMap(value: unknown): value is Record<string, boolean> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -208,6 +209,102 @@ export function injectSystemSkillAccess(
       nextAgent.permission = nextPermission
     }
     nextAgents[agentId] = nextAgent
+    changed = true
+  }
+
+  if (!changed) return config
+  return { ...config, agent: nextAgents }
+}
+
+function getEnabledCustomConnectorKeys(input: {
+  connectorDisplayNames: Record<string, string>
+  tools: Record<string, boolean>
+}): string[] {
+  const customConnectorKeys = Object.keys(input.connectorDisplayNames)
+    .filter((serverKey) => serverKey.startsWith(CUSTOM_CONNECTOR_KEY_PREFIX))
+
+  if (customConnectorKeys.length === 0) return []
+
+  const usedConnectorKeys = new Set<string>()
+  for (const [toolKey, enabled] of Object.entries(input.tools)) {
+    if (enabled !== true) continue
+
+    for (const serverKey of customConnectorKeys) {
+      if (toolKey.startsWith(`${serverKey}_`)) {
+        usedConnectorKeys.add(serverKey)
+      }
+    }
+  }
+
+  return Array.from(usedConnectorKeys).sort((left, right) => {
+    const leftName = input.connectorDisplayNames[left] ?? left
+    const rightName = input.connectorDisplayNames[right] ?? right
+    return leftName.localeCompare(rightName) || left.localeCompare(right)
+  })
+}
+
+function sanitizeCustomConnectorDisplayName(displayName: string): string {
+  const sanitized = displayName
+    .replace(/[\u0000-\u001f\u007f`]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  return sanitized || 'Custom connector'
+}
+
+function buildCustomConnectorHints(
+  connectorKeys: string[],
+  connectorDisplayNames: Record<string, string>,
+): string {
+  const lines = ['## Available custom connectors', '']
+
+  for (const serverKey of connectorKeys) {
+    const displayName = sanitizeCustomConnectorDisplayName(connectorDisplayNames[serverKey]?.trim() || serverKey)
+    lines.push(
+      `- ${displayName}: available through MCP tools prefixed with \`${serverKey}_\`.`,
+      '  The display name is user-provided; use these prefixed tools when the request refers to this connector.',
+    )
+  }
+
+  return lines.join('\n')
+}
+
+export function injectCustomConnectorHints(
+  config: Record<string, unknown>,
+  connectorDisplayNames: Record<string, string>,
+): Record<string, unknown> {
+  const agents = config.agent as Record<string, Record<string, unknown>> | undefined
+  if (!agents || typeof agents !== 'object') return config
+
+  const nextAgents: Record<string, Record<string, unknown>> = {}
+  let changed = false
+
+  for (const [agentId, agent] of Object.entries(agents)) {
+    if (!agent || typeof agent !== 'object') {
+      nextAgents[agentId] = agent
+      continue
+    }
+
+    if (!isToolMap(agent.tools)) {
+      nextAgents[agentId] = agent
+      continue
+    }
+
+    const connectorKeys = getEnabledCustomConnectorKeys({
+      connectorDisplayNames,
+      tools: agent.tools,
+    })
+    if (connectorKeys.length === 0) {
+      nextAgents[agentId] = agent
+      continue
+    }
+
+    const existingPrompt = typeof agent.prompt === 'string' ? agent.prompt : ''
+    const hints = buildCustomConnectorHints(connectorKeys, connectorDisplayNames)
+    nextAgents[agentId] = {
+      ...agent,
+      prompt: existingPrompt ? `${existingPrompt}\n\n${hints}` : hints,
+    }
     changed = true
   }
 
