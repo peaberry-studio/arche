@@ -69,8 +69,6 @@ export default async function SettingsPage({
       currentSection={currentSection}
       isAdmin={session.user.role === 'ADMIN'}
       currentUserId={session.user.id}
-      currentUserEmail={session.user.email}
-      currentUserSlug={session.user.slug}
       canManageUsers={caps.teamManagement}
       passwordChangeEnabled={caps.auth}
       twoFactorEnabled={caps.twoFactor}

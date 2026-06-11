@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useState } from 'react'
 
+import { Check, Copy } from '@phosphor-icons/react'
+
 import { buildMcpQuickConnects } from '@/lib/mcp/client-config'
+import { copyTextToClipboard } from '@/lib/clipboard'
 import { MCP_SCOPE_AGENTS_READ, MCP_SCOPE_KB_READ, MCP_SCOPE_KB_WRITE } from '@/lib/mcp/scopes'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -65,9 +68,17 @@ export function McpSettingsPanel({ currentUserEmail, currentUserId, currentUserS
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [copiedId, setCopiedId] = useState<string | null>(null)
 
   const endpoint = typeof window === 'undefined' ? '/api/mcp' : `${window.location.origin}/api/mcp`
   const quickConnects = createdToken ? buildMcpQuickConnects({ endpoint, token: createdToken }) : []
+
+  const handleCopy = useCallback(async (id: string, text: string) => {
+    const ok = await copyTextToClipboard(text).catch(() => false)
+    if (!ok) return
+    setCopiedId(id)
+    window.setTimeout(() => setCopiedId((current) => (current === id ? null : current)), 2000)
+  }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -308,14 +319,17 @@ export function McpSettingsPanel({ currentUserEmail, currentUserId, currentUserS
             <CardTitle>Token Shown Once</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <input readOnly value={createdToken} className="w-full rounded-lg border border-border bg-background p-3 font-mono text-xs" />
+            <div className="flex items-center gap-2">
+              <input readOnly value={createdToken} className="flex-1 rounded-lg border border-border bg-background p-3 font-mono text-xs" />
+              <CopyButton copied={copiedId === 'token'} onClick={() => void handleCopy('token', createdToken)} />
+            </div>
             <div className="space-y-3">
               {quickConnects.map((entry) => (
                 <div key={entry.id} className="space-y-1">
                   <p className="text-sm font-medium">{entry.label}</p>
                   <div className="flex items-center gap-2">
                     <input readOnly value={entry.command} className="flex-1 rounded-md border border-border bg-background p-2 font-mono text-xs" />
-                    <Button variant="outline" size="sm" onClick={() => navigator.clipboard.writeText(entry.command)}>Copy</Button>
+                    <CopyButton copied={copiedId === entry.id} onClick={() => void handleCopy(entry.id, entry.command)} />
                   </div>
                 </div>
               ))}
@@ -425,4 +439,19 @@ async function readMcpOkResponse(response: Response): Promise<McpOkResponse | Mc
 
 async function readMcpJsonData(response: Response): Promise<unknown> {
   return response.json().catch(() => null)
+}
+
+function CopyButton({ copied, onClick }: { copied: boolean; onClick: () => void }) {
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={onClick}
+      aria-label={copied ? 'Copied' : 'Copy'}
+      className="gap-1.5"
+    >
+      {copied ? <Check size={14} weight="bold" /> : <Copy size={14} />}
+      {copied ? 'Copied' : 'Copy'}
+    </Button>
+  )
 }

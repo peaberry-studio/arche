@@ -1,7 +1,7 @@
 import Link from 'next/link'
 
 import { ThemePicker } from '@/components/dashboard/theme-picker'
-import { McpSettingsPanel } from '@/components/mcp/mcp-settings-panel'
+import { McpIntegrationSummaryCard } from '@/components/mcp/mcp-integration-summary-card'
 import { OrganizationProviderCredentialsPanel } from '@/components/providers/organization-provider-credentials-panel'
 import { UsageAnalyticsPanel } from '@/components/providers/usage-analytics-panel'
 import { GoogleWorkspaceIntegrationSummaryCard } from '@/components/settings/google-workspace-integration-summary-card'
@@ -27,8 +27,6 @@ type SettingsPageContentProps = {
   currentSection: SettingsSectionName
   isAdmin: boolean
   currentUserId: string
-  currentUserEmail: string
-  currentUserSlug: string
   canManageUsers: boolean
   passwordChangeEnabled: boolean
   twoFactorEnabled: boolean
@@ -47,8 +45,6 @@ export function SettingsPageContent({
   currentSection,
   isAdmin,
   currentUserId,
-  currentUserEmail,
-  currentUserSlug,
   canManageUsers,
   passwordChangeEnabled,
   twoFactorEnabled,
@@ -135,17 +131,7 @@ export function SettingsPageContent({
             {kbGithubRemoteSummary ? (
               <KbGithubRemoteSummaryCard slug={slug} integration={kbGithubRemoteSummary} />
             ) : null}
-            <SettingsSection
-              title="MCP Access"
-              description="Connect external MCP clients to Arche workspace context with scoped personal access tokens."
-            >
-              <McpSettingsPanel
-                currentUserEmail={currentUserEmail}
-                currentUserId={currentUserId}
-                currentUserSlug={currentUserSlug}
-                isAdmin={isAdmin}
-              />
-            </SettingsSection>
+            <McpIntegrationSummaryCard slug={slug} />
           </div>
         )
       case 'providers':
