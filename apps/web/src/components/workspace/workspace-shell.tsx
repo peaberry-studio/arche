@@ -45,6 +45,7 @@ import { ArcLoader } from "./arc-loader";
 import { FilePreviewPanel } from "./file-preview-panel";
 import { InspectorPanel } from "./inspector-panel";
 import { KnowledgeEmptyState } from "./knowledge-empty-state";
+import { KnowledgeCuratorPanel } from "./knowledge-curator-panel";
 import { KnowledgeNavigationPanel, type KnowledgeNavigationView } from "./knowledge-navigation-panel";
 import { FlowsEmptyState } from "./flows-empty-state";
 import { WorkspaceCommandPalette } from "./workspace-command-palette";
@@ -473,12 +474,16 @@ export function WorkspaceShell({
   // Layout state
   const [minCenterWidth, setMinCenterWidth] = useState(MIN_CENTER_PX);
   const buildInitialCollapseByMode = useCallback(
-    (legacy?: boolean, byMode?: Record<string, boolean>): Record<WorkspaceMode, boolean> => {
-      const fallback = legacy ?? false;
+    (
+      legacy?: boolean,
+      byMode?: Record<string, boolean>,
+      defaults?: Partial<Record<WorkspaceMode, boolean>>
+    ): Record<WorkspaceMode, boolean> => {
+      const pickMode = (mode: WorkspaceMode) => byMode?.[mode] ?? legacy ?? defaults?.[mode] ?? false;
       return {
-        chat: byMode?.chat ?? fallback,
-        flows: byMode?.flows ?? fallback,
-        knowledge: byMode?.knowledge ?? fallback,
+        chat: pickMode("chat"),
+        flows: pickMode("flows"),
+        knowledge: pickMode("knowledge"),
       };
     },
     []
@@ -504,7 +509,9 @@ export function WorkspaceShell({
     buildInitialCollapseByMode(initialLayoutState?.leftCollapsed, initialLayoutState?.leftCollapsedByMode)
   );
   const [rightCollapsedByMode, setRightCollapsedByMode] = useState<Record<WorkspaceMode, boolean>>(() =>
-    buildInitialCollapseByMode(initialLayoutState?.rightCollapsed, initialLayoutState?.rightCollapsedByMode)
+    // The chat-mode right panel (Knowledge Curator) starts collapsed so it does
+    // not take space away from the conversation by default.
+    buildInitialCollapseByMode(initialLayoutState?.rightCollapsed, initialLayoutState?.rightCollapsedByMode, { chat: true })
   );
   const [leftWidthByMode, setLeftWidthByMode] = useState<Record<WorkspaceMode, number>>(() =>
     buildInitialWidthByMode(initialLayoutState?.leftWidth, initialLayoutState?.leftWidthByMode, MIN_LEFT_PX)
@@ -1102,7 +1109,7 @@ export function WorkspaceShell({
       stored?.rightCollapsedByMode
     ) {
       setRightCollapsedByMode(
-        buildInitialCollapseByMode(stored?.rightCollapsed, stored?.rightCollapsedByMode)
+        buildInitialCollapseByMode(stored?.rightCollapsed, stored?.rightCollapsedByMode, { chat: true })
       );
     }
     if (
@@ -1377,6 +1384,26 @@ export function WorkspaceShell({
       return workspace.renameSession(sessionId, title);
     },
     [workspace]
+  );
+
+  const [learningRefreshKey, setLearningRefreshKey] = useState(0);
+
+  const handleLearnSession = useCallback(
+    async (session: { id: string; title: string }) => {
+      try {
+        await fetch(`/api/u/${slug}/learning`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sourceSessionId: session.id, title: session.title }),
+        });
+      } catch {
+        // The curator panel reflects server state on refresh; a failed enqueue
+        // simply shows no new run.
+      }
+      setLearningRefreshKey((current) => current + 1);
+      setRightCollapsedForMode(workspaceMode, false);
+    },
+    [setRightCollapsedForMode, slug, workspaceMode]
   );
 
   const handleFlowHumanResponseSubmitted = useCallback(async () => {
@@ -1746,6 +1773,7 @@ export function WorkspaceShell({
       sessionTabs={activeSessionTabs}
       openFilePaths={openFilePaths}
       onCloseSession={handleCloseSession}
+      onLearnSession={handleLearnSession}
       onRenameSession={handleRenameSession}
       onSelectSessionTab={handleSelectSessionTab}
       onOpenFile={handleOpenFile}
@@ -1856,8 +1884,19 @@ export function WorkspaceShell({
     />
   ) : null;
   const hasPreviewPanel = !isKnowledgeMode && previewFilePath !== null;
-  const hasRightPanel = isKnowledgeMode || hasPreviewPanel;
-  const rightPanelContent = hasPreviewPanel ? previewPanelElement : reviewPanelElement;
+  const hasRightPanel = isKnowledgeMode || hasPreviewPanel || workspaceMode === "chat";
+  const rightPanelContent = hasPreviewPanel
+    ? previewPanelElement
+    : isKnowledgeMode
+      ? reviewPanelElement
+      : (
+          <KnowledgeCuratorPanel
+            slug={slug}
+            collapsed={isCompactLayout ? false : rightCollapsed}
+            onToggleCollapse={isCompactLayout ? handleShowChat : handleToggleRight}
+            refreshKey={learningRefreshKey}
+          />
+        );
 
   const isLeftPanelActive = mobileView === "left";
   const isChatActive = mobileView === "chat";

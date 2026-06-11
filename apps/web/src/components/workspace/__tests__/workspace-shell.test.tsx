@@ -368,6 +368,10 @@ describe("WorkspaceShell", () => {
         });
       }
 
+      if (url.endsWith("/learning")) {
+        return jsonResponse({ runs: [], proposals: [] });
+      }
+
       return jsonResponse({ ok: true });
     }));
     Object.defineProperty(HTMLElement.prototype, "setPointerCapture", {
@@ -1211,6 +1215,18 @@ describe("WorkspaceShell", () => {
     expect(readCookieValue("arche-workspace-layout-alice")).toContain('"leftCollapsed":true');
   });
 
+  it("starts with the curator panel collapsed in chat mode and expands it on demand", async () => {
+    render(<WorkspaceShell slug="alice" />);
+
+    const expandButton = await screen.findByRole("button", { name: "Expand curator panel" });
+    expect(screen.queryByText("Knowledge Curator")).toBeNull();
+
+    fireEvent.click(expandButton);
+
+    expect(await screen.findByText("Knowledge Curator")).toBeTruthy();
+    expect(await screen.findByText("No pending proposals.")).toBeTruthy();
+  });
+
   it("shows chat as default view in compact layout", async () => {
     setViewportWidth(720);
     render(<WorkspaceShell slug="alice" />);
@@ -1220,7 +1236,7 @@ describe("WorkspaceShell", () => {
     });
 
     expect(screen.getByText("Chat Panel")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Open review panel" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Open review panel" })).toBeTruthy();
   });
 
   it("switches to full-screen left panel and back in compact layout", async () => {

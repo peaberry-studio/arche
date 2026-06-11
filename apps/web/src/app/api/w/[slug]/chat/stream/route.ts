@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { getIdleFinalizationOutcome, getSilentStreamOutcome } from '@/app/api/w/[slug]/chat/stream/watchdog'
 import { createUpstreamSessionStatusReader } from '@/app/api/w/[slug]/chat/stream/status-reader'
+import { AUTO_LEARNING_MIN_MESSAGES, canQueueAutoLearningRun, maybeQueueAutoLearningRun } from '@/lib/learning/service'
 import { getInstanceUrl } from '@/lib/opencode/client'
 import { ensureProviderAccessFreshForExecution } from '@/lib/opencode/providers'
 import {
@@ -194,6 +195,50 @@ async function readRuntimeSessionState(params: {
     return 'unknown'
   } catch {
     return 'unknown'
+  }
+}
+
+async function queueAutoLearningBestEffort(params: {
+  authHeader: string
+  baseUrl: string
+  sessionId: string
+  slug: string
+  userId: string
+}): Promise<void> {
+  try {
+    if (!(await canQueueAutoLearningRun({ userId: params.userId, sessionId: params.sessionId }))) return
+
+    // Fetch only enough messages to know whether the threshold is met; the full
+    // list can be large and this helper runs after every successful completion.
+    const messagesResponse = await fetch(
+      `${params.baseUrl}/session/${params.sessionId}/message?limit=${AUTO_LEARNING_MIN_MESSAGES}`,
+      {
+        headers: { Authorization: params.authHeader, Accept: 'application/json' },
+        cache: 'no-store',
+      },
+    )
+    const messagesData: unknown = await messagesResponse.json().catch(() => null)
+    const messageCount = Array.isArray(messagesData) ? messagesData.length : 0
+    if (messageCount < AUTO_LEARNING_MIN_MESSAGES) return
+
+    const sessionResponse = await fetch(`${params.baseUrl}/session/${params.sessionId}`, {
+      headers: { Authorization: params.authHeader, Accept: 'application/json' },
+      cache: 'no-store',
+    })
+    const sessionData: unknown = await sessionResponse.json().catch(() => null)
+    const sessionTitle = isRecord(sessionData) && typeof sessionData.title === 'string'
+      ? sessionData.title
+      : 'Session'
+
+    await maybeQueueAutoLearningRun({
+      userId: params.userId,
+      slug: params.slug,
+      sessionId: params.sessionId,
+      sessionTitle,
+      messageCount,
+    })
+  } catch {
+    // Auto-learning is best-effort and must not affect chat streaming.
   }
 }
 
@@ -576,6 +621,7 @@ export const POST = withAuth(
           sendEvent('done', { refresh: true })
           recordRunUsage()
           markRunSucceeded()
+          void queueAutoLearningBestEffort({ authHeader, baseUrl, sessionId, slug, userId: user.id })
           aborted = true
         }
 

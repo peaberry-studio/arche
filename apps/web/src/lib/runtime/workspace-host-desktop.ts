@@ -396,6 +396,8 @@ const desktopWorkspaceHostReal: WorkspaceHost = {
           ...safeEnv,
           OPENCODE_SERVER_PASSWORD: password,
           OPENCODE_SERVER_USERNAME: DEFAULT_USERNAME,
+          ARCHE_WORKSPACE_SLUG: slug,
+          ARCHE_INTERNAL_API_BASE_URL: process.env.ARCHE_INTERNAL_API_BASE_URL ?? `http://${LOOPBACK_HOST}:3000`,
           ...(opencodeConfigDir ? { OPENCODE_CONFIG_DIR: opencodeConfigDir } : {}),
           WORKSPACE_DIR: workspaceDir,
           HOME: archeDataDir,

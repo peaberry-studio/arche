@@ -86,6 +86,7 @@ type ChatPanelProps = {
   sessionTabs?: SessionTabInfo[];
   openFilePaths: string[];
   onCloseSession: (id: string) => void;
+  onLearnSession?: (session: ChatSession) => Promise<void> | void;
   onRenameSession?: (id: string, title: string) => Promise<boolean>;
   onSelectSessionTab?: (id: string) => void;
   onOpenFile: (path: string) => void;
@@ -210,6 +211,7 @@ export function ChatPanel({
   sessionTabs = EMPTY_SESSION_TABS,
   openFilePaths,
   onCloseSession,
+  onLearnSession,
   onRenameSession,
   onSelectSessionTab,
   onOpenFile,
@@ -1065,6 +1067,7 @@ export function ChatPanel({
         isSavingTitle={isSavingTitle}
         onCloseSession={onCloseSession}
         onExportSessionMarkdown={handleExportSessionMarkdown}
+        onLearnSession={activeSession && onLearnSession ? () => onLearnSession(activeSession) : undefined}
         onStartSessionRename={startSessionRename}
         onSubmitSessionRename={submitSessionRename}
         onTitleInputChange={(nextTitle) => {

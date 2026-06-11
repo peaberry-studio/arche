@@ -31,6 +31,7 @@ type ChatPanelSessionHeaderProps = {
   isSavingTitle: boolean;
   onCloseSession: (id: string) => void;
   onExportSessionMarkdown: () => void;
+  onLearnSession?: () => void;
   onStartSessionRename: () => void;
   onSubmitSessionRename: (rawTitle?: string) => Promise<void> | void;
   onTitleInputChange: (value: string) => void;
@@ -51,6 +52,7 @@ export function ChatPanelSessionHeader({
   isSavingTitle,
   onCloseSession,
   onExportSessionMarkdown,
+  onLearnSession,
   onStartSessionRename,
   onSubmitSessionRename,
   onTitleInputChange,
@@ -135,6 +137,11 @@ export function ChatPanelSessionHeader({
                       <DownloadSimple size={14} />
                       Export to MD
                     </DropdownMenuItem>
+                    {onLearnSession ? (
+                      <DropdownMenuItem onSelect={onLearnSession}>
+                        Learn
+                      </DropdownMenuItem>
+                    ) : null}
                     {canDeleteSession ? (
                       <>
                         <DropdownMenuSeparator />

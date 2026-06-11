@@ -1,7 +1,8 @@
 "use server";
 
-import { createInstanceClient, getInstanceUrl } from "@/lib/opencode/client";
 import { createFlowActorScope } from "@/lib/flows/authorization";
+import { isLearningSessionTitle } from "@/lib/learning/session-title";
+import { createInstanceClient, getInstanceUrl } from "@/lib/opencode/client";
 import { extractTextContent, transformParts } from "@/lib/opencode/transform";
 import type {
   AvailableModel,
@@ -467,7 +468,8 @@ async function listWorkspaceSessionsFromApi(
     roots: options.rootsOnly ? true : undefined,
     start: requestedStart,
   });
-  const sessions = (result.data ?? []).map(mapApiSession);
+  const rawSessions = result.data ?? [];
+  const sessions = rawSessions.map(mapApiSession).filter((session) => !isLearningSessionTitle(session.title));
   const metadata = await getWorkspaceSessionMetadata(slug, client, sessions.map((session) => session.id));
   const workspaceSessions = toWorkspaceSessions(sessions, metadata.statuses, metadata.flowBySessionId);
 
@@ -487,7 +489,9 @@ async function listWorkspaceSessionsFromApi(
 
   return {
     ok: true,
-    hasMore: requestedLimit ? sessions.length >= requestedLimit : false,
+    // Use the pre-filter count: a page whose tail was filtered out (hidden
+    // learning sessions) can still have more results upstream.
+    hasMore: requestedLimit ? rawSessions.length >= requestedLimit : false,
     sessions: workspaceSessions,
   };
 }

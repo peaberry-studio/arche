@@ -9,7 +9,7 @@ export type AgentResponse<T> =
   | { ok: true; data: T; status: number }
   | { ok: false; error: string; status: number }
 
-export async function workspaceAgentFetch<T extends JsonObject>(
+export async function workspaceAgentFetch<T>(
   agent: WorkspaceAgent,
   endpoint: string,
   body?: Record<string, unknown>,
