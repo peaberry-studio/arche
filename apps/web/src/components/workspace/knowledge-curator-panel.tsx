@@ -27,7 +27,14 @@ const ERROR_LABELS: Record<string, string> = {
   invalid_request: "The request was invalid.",
   learning_load_failed: "Could not load learning data.",
   learning_action_failed: "The action failed. Try again.",
+  run_not_retryable: "This run is already executing.",
+  instance_unavailable: "The workspace instance is unavailable. Try again later.",
 };
+
+const ACTIVE_RUN_POLL_INTERVAL_MS = 5_000;
+// Dispatch happens right after a run is created, so a run still pending after
+// this window lost its executor (e.g. a server restart) and can be retried.
+const STALE_PENDING_RUN_MS = 2 * 60 * 1000;
 
 function errorLabel(code: string): string {
   return ERROR_LABELS[code] ?? code;
@@ -65,6 +72,8 @@ export function KnowledgeCuratorPanel({ slug, collapsed = false, onToggleCollaps
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [busyProposalId, setBusyProposalId] = useState<string | null>(null);
+  const [busyRunId, setBusyRunId] = useState<string | null>(null);
+  const [refreshedAt, setRefreshedAt] = useState(0);
 
   const refresh = useCallback(async () => {
     try {
@@ -77,6 +86,7 @@ export function KnowledgeCuratorPanel({ slug, collapsed = false, onToggleCollaps
       }
       setError(null);
       setData(json);
+      setRefreshedAt(Date.now());
     } catch {
       setError("learning_load_failed");
     }
@@ -89,6 +99,43 @@ export function KnowledgeCuratorPanel({ slug, collapsed = false, onToggleCollaps
 
     return () => window.clearTimeout(timeout);
   }, [refresh, refreshKey]);
+
+  const hasActiveRun = data.runs.some((run) => run.status === "pending" || run.status === "running");
+
+  useEffect(() => {
+    if (collapsed || !hasActiveRun) return;
+
+    const interval = window.setInterval(() => {
+      void refresh();
+    }, ACTIVE_RUN_POLL_INTERVAL_MS);
+
+    return () => window.clearInterval(interval);
+  }, [collapsed, hasActiveRun, refresh]);
+
+  const retryRun = useCallback(
+    async (runId: string) => {
+      setBusyRunId(runId);
+      try {
+        const response = await fetch(`/api/u/${slug}/learning`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ runId }),
+        });
+        const json = (await response.json().catch(() => null)) as { error?: string } | null;
+        if (!response.ok) {
+          setError(json?.error ?? "learning_action_failed");
+        } else {
+          setError(null);
+        }
+        await refresh();
+      } catch {
+        setError("learning_action_failed");
+      } finally {
+        setBusyRunId(null);
+      }
+    },
+    [refresh, slug]
+  );
 
   const actOnProposal = useCallback(
     async (proposalId: string, action: "apply" | "reject", content?: string) => {
@@ -204,18 +251,36 @@ export function KnowledgeCuratorPanel({ slug, collapsed = false, onToggleCollaps
         </section>
         <section className="space-y-2">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Recent runs</h3>
-          {data.runs.map((run) => (
-            <div key={run.id} className="space-y-1 rounded-md border border-border/60 p-2 text-xs">
-              <div className="flex items-center justify-between gap-2">
-                <p className="min-w-0 truncate font-medium">{run.title}</p>
-                <RunStatusBadge status={run.status} />
+          {data.runs.map((run) => {
+            const isStalePending =
+              run.status === "pending" && refreshedAt - Date.parse(run.createdAt) > STALE_PENDING_RUN_MS;
+            const isRetryable = run.status === "failed" || isStalePending;
+            return (
+              <div key={run.id} className="space-y-1 rounded-md border border-border/60 p-2 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="min-w-0 truncate font-medium">{run.title}</p>
+                  <RunStatusBadge status={run.status} />
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-muted-foreground">{run.trigger}</p>
+                  {isRetryable ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 px-2 text-[11px]"
+                      disabled={busyRunId !== null}
+                      onClick={() => void retryRun(run.id)}
+                    >
+                      {run.status === "failed" ? "Retry" : "Run now"}
+                    </Button>
+                  ) : null}
+                </div>
+                {run.status === "failed" && run.error ? (
+                  <p className="text-destructive">{errorLabel(run.error)}</p>
+                ) : null}
               </div>
-              <p className="text-muted-foreground">{run.trigger}</p>
-              {run.status === "failed" && run.error ? (
-                <p className="text-destructive">{errorLabel(run.error)}</p>
-              ) : null}
-            </div>
-          ))}
+            );
+          })}
           {data.runs.length === 0 ? (
             <p className="text-xs text-muted-foreground">No learning runs yet.</p>
           ) : null}

@@ -16,13 +16,12 @@ const STALE_PENDING_RUN_MS = 6 * 60 * 60 * 1000
 /*
  * Learning run lifecycle owner.
  *
- * `pending` currently means the learning run is queued but curator-agent execution is
- * not wired yet. The internal OpenCode session is created by the execution path (not
- * here), so queued runs do not accumulate orphaned sessions. Pending runs older than
- * STALE_PENDING_RUN_MS no longer count as active, so a stuck run cannot block
- * auto-learning indefinitely. Keep run status mutations in this module so the future
- * execution path has one place to own pending -> running -> succeeded/failed
- * transitions.
+ * Runs are created as `pending`; callers dispatch them to the curator executor
+ * (`@/lib/learning/run-executor`), which claims the run (pending/failed ->
+ * running), creates the internal OpenCode session, and finishes it as
+ * succeeded/failed. Pending runs older than STALE_PENDING_RUN_MS no longer
+ * count as active, so a stuck run cannot block auto-learning indefinitely and
+ * can be retried from the curator panel.
  */
 
 export async function createLearningRun(args: {
@@ -61,10 +60,10 @@ export async function maybeQueueAutoLearningRun(args: {
   sessionId: string
   sessionTitle: string
   messageCount: number
-}): Promise<void> {
-  if (args.messageCount < AUTO_LEARNING_MIN_MESSAGES) return
+}): Promise<LearningRun | null> {
+  if (args.messageCount < AUTO_LEARNING_MIN_MESSAGES) return null
 
-  if (!(await canQueueAutoLearningRun({ userId: args.userId, sessionId: args.sessionId }))) return
+  if (!(await canQueueAutoLearningRun({ userId: args.userId, sessionId: args.sessionId }))) return null
 
   const run = await createLearningRun({
     userId: args.userId,
@@ -73,9 +72,10 @@ export async function maybeQueueAutoLearningRun(args: {
     title: args.sessionTitle,
     trigger: 'auto',
   })
-  if (run.ok) {
-    await setLearningRunMessageCount({ runId: run.run.id, messageCount: args.messageCount })
-  }
+  if (!run.ok) return null
+
+  await setLearningRunMessageCount({ runId: run.run.id, messageCount: args.messageCount })
+  return run.run
 }
 
 export async function canQueueAutoLearningRun(args: { userId: string; sessionId: string }): Promise<boolean> {
