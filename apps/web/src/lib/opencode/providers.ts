@@ -6,7 +6,7 @@ import { getGatewayTokenTtlSeconds } from '@/lib/providers/config'
 import { getEnabledProviderCredentialsForUser, type EnabledProviderCredentials } from '@/lib/providers/store'
 import { issueGatewayToken } from '@/lib/providers/tokens'
 import { PROVIDERS } from '@/lib/providers/types'
-import { instanceService } from '@/lib/services'
+import { instanceService, messageRunService } from '@/lib/services'
 
 export type SyncProviderAccessResult =
   | { ok: true }
@@ -85,6 +85,7 @@ export async function getProviderSyncHashForUser(userId: string): Promise<string
 export async function ensureProviderAccessFreshForExecution(args: {
   slug: string
   userId: string
+  ignoreActiveRunId?: string
 }): Promise<void> {
   await withProviderSyncLock(args.slug, async () => {
     const expectedHash = await getProviderSyncHashForUser(args.userId)
@@ -98,6 +99,16 @@ export async function ensureProviderAccessFreshForExecution(args: {
         providerSyncedAt: current.providerSyncedAt,
       })
     ) {
+      return
+    }
+
+    // Syncing disposes the OpenCode instance, which aborts any in-flight
+    // generation. Defer the refresh while other runs are active; a later
+    // call retries once the workspace is idle.
+    if (await messageRunService.hasActiveRunForSlug(args.slug, { ignoreRunId: args.ignoreActiveRunId })) {
+      console.warn('[opencode/providers] Deferred provider sync while workspace runs are active', {
+        slug: args.slug,
+      })
       return
     }
 

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 import { getIdleFinalizationOutcome, getSilentStreamOutcome } from '@/app/api/w/[slug]/chat/stream/watchdog'
 import { createUpstreamSessionStatusReader } from '@/app/api/w/[slug]/chat/stream/status-reader'
-import { AUTO_LEARNING_MIN_MESSAGES, canQueueAutoLearningRun, maybeQueueAutoLearningRun } from '@/lib/learning/service'
+import { AUTO_LEARNING_MIN_MESSAGES, canQueueAutoLearningRun, dispatchLearningRunExecution, maybeQueueAutoLearningRun } from '@/lib/learning/service'
 import { getInstanceUrl } from '@/lib/opencode/client'
 import { ensureProviderAccessFreshForExecution } from '@/lib/opencode/providers'
 import {
@@ -230,13 +230,23 @@ async function queueAutoLearningBestEffort(params: {
       ? sessionData.title
       : 'Session'
 
-    await maybeQueueAutoLearningRun({
+    const queuedRun = await maybeQueueAutoLearningRun({
       userId: params.userId,
       slug: params.slug,
       sessionId: params.sessionId,
       sessionTitle,
       messageCount,
     })
+    if (queuedRun) {
+      dispatchLearningRunExecution({
+        runId: queuedRun.id,
+        slug: params.slug,
+        userId: params.userId,
+        sourceSessionId: queuedRun.sourceSessionId,
+        title: queuedRun.title,
+        trigger: 'auto',
+      })
+    }
   } catch {
     // Auto-learning is best-effort and must not affect chat streaming.
   }
@@ -376,7 +386,7 @@ export const POST = withAuth(
       }
 
       try {
-        await ensureProviderAccessFreshForExecution({ slug, userId: user.id })
+        await ensureProviderAccessFreshForExecution({ slug, userId: user.id, ignoreActiveRunId: activeRunId })
       } catch (error) {
         await messageRunService.markRunFailed(
           activeRunId,

@@ -198,6 +198,8 @@ function extractAssistantReplyText(parts: unknown[]): string {
     .trim()
 }
 
+const ASSISTANT_FAILURE_DETAIL_MAX_LENGTH = 400
+
 function extractAssistantFailure(messages: ReturnType<typeof getMessagesSinceCursor>): string | null {
   const assistantMessages = messages.filter((message) => normalizeRole(message.info.role) === 'assistant')
   const latestAssistant = assistantMessages[assistantMessages.length - 1]
@@ -225,7 +227,22 @@ function extractAssistantFailure(messages: ReturnType<typeof getMessagesSinceCur
     return 'provider_auth_missing'
   }
 
-  return null
+  if (!errorName && !errorMessage) {
+    return null
+  }
+
+  // Errors that still produced visible output (e.g. a transient retry) keep
+  // the previous tolerant behavior and do not fail the run.
+  if (extractAssistantReplyText(latestAssistant.parts ?? [])) {
+    return null
+  }
+
+  // Surface the runtime error (MessageAbortedError, APIError 400s, ...) so
+  // callers store the real failure instead of a generic stream_incomplete.
+  const detail = [errorName, errorMessage].filter(Boolean).join(': ')
+  return detail.length > ASSISTANT_FAILURE_DETAIL_MAX_LENGTH
+    ? `${detail.slice(0, ASSISTANT_FAILURE_DETAIL_MAX_LENGTH)}…`
+    : detail
 }
 
 async function inspectSessionOutcome(

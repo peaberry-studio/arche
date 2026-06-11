@@ -159,6 +159,36 @@ export async function setLearningRunMessageCount(args: { runId: string; messageC
   })
 }
 
+export async function setLearningRunInternalSessionId(args: {
+  runId: string
+  internalSessionId: string
+}): Promise<void> {
+  await prisma.knowledgeLearningRun.update({
+    where: { id: args.runId },
+    data: { internalSessionId: args.internalSessionId },
+  })
+}
+
+export async function findLearningRunForUser(args: {
+  runId: string
+  userId: string
+}): Promise<LearningRun | null> {
+  const run = await prisma.knowledgeLearningRun.findFirst({
+    where: { id: args.runId, userId: args.userId },
+  })
+  return run ? mapRun(run) : null
+}
+
+export async function claimLearningRunForExecution(runId: string): Promise<boolean> {
+  // Atomic pending/failed -> running transition so concurrent dispatches
+  // (create + manual retry) cannot execute the same run twice.
+  const result = await prisma.knowledgeLearningRun.updateMany({
+    where: { id: runId, status: { in: ['pending', 'failed'] } },
+    data: { status: 'running', error: null },
+  })
+  return result.count === 1
+}
+
 export async function hasActiveLearningRun(args: {
   userId: string
   sessionId: string

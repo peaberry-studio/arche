@@ -32,7 +32,7 @@ vi.mock('@/lib/prisma', () => ({
 
 // Mock provider sync (imported by ensureInstanceRunningAction)
 vi.mock('@/lib/opencode/providers', () => ({
-  syncProviderAccessForInstance: vi.fn().mockResolvedValue({ ok: true }),
+  ensureProviderAccessFreshForExecution: vi.fn().mockResolvedValue(undefined),
 }))
 
 // Mock spawner core (only isSlowStart is still imported from here)
@@ -47,9 +47,9 @@ vi.mock('@/kickstart/status', () => ({
 }))
 
 import { getSession } from '@/lib/runtime/session'
-import { startWorkspace, stopWorkspace, getWorkspaceStatus, getWorkspaceConnection } from '@/lib/runtime/workspace-host'
+import { startWorkspace, stopWorkspace, getWorkspaceStatus } from '@/lib/runtime/workspace-host'
 import { prisma } from '@/lib/prisma'
-import { syncProviderAccessForInstance } from '@/lib/opencode/providers'
+import { ensureProviderAccessFreshForExecution } from '@/lib/opencode/providers'
 import { listActiveInstances, isSlowStart } from '@/lib/spawner/core'
 import { startInstanceAction, stopInstanceAction, getInstanceStatusAction, ensureInstanceRunningAction, listActiveInstancesAction } from '../spawner'
 
@@ -58,8 +58,7 @@ const mockStart = vi.mocked(startWorkspace)
 const mockStop = vi.mocked(stopWorkspace)
 const mockStatus = vi.mocked(getWorkspaceStatus)
 const mockPrisma = vi.mocked(prisma)
-const mockGetWorkspaceConnection = vi.mocked(getWorkspaceConnection)
-const mockSync = vi.mocked(syncProviderAccessForInstance)
+const mockSync = vi.mocked(ensureProviderAccessFreshForExecution)
 const mockIsSlowStart = vi.mocked(isSlowStart)
 const mockListActiveInstances = vi.mocked(listActiveInstances)
 
@@ -244,23 +243,18 @@ describe('ensureInstanceRunningAction', () => {
     expect(mockStatus).not.toHaveBeenCalled()
   })
 
-  it('returns running and syncs providers when instance is already running (own slug)', async () => {
+  it('returns running and refreshes provider access when instance is already running (own slug)', async () => {
     mockGetSession.mockResolvedValue(fakeSession)
     mockStatus.mockResolvedValue({ status: 'running' } as never)
 
     const result = await ensureInstanceRunningAction('alice')
 
     expect(result).toEqual({ status: 'running' })
-    expect(mockGetWorkspaceConnection).toHaveBeenCalledWith('alice')
-    expect(mockSync).toHaveBeenCalledWith({
-      instance: expect.objectContaining({ baseUrl: expect.any(String), authHeader: expect.any(String) }),
-      slug: 'alice',
-      userId: 'user-1',
-    })
+    expect(mockSync).toHaveBeenCalledWith({ slug: 'alice', userId: 'user-1' })
     expect(mockPrisma.user.findUnique).not.toHaveBeenCalled()
   })
 
-  it('syncs providers even when instance just started', async () => {
+  it('refreshes provider access even when instance just started', async () => {
     mockGetSession.mockResolvedValue(fakeSession)
     mockStatus.mockResolvedValue({
       status: 'running',
@@ -270,14 +264,10 @@ describe('ensureInstanceRunningAction', () => {
     const result = await ensureInstanceRunningAction('alice')
 
     expect(result).toEqual({ status: 'running' })
-    expect(mockSync).toHaveBeenCalledWith({
-      instance: expect.objectContaining({ baseUrl: expect.any(String), authHeader: expect.any(String) }),
-      slug: 'alice',
-      userId: 'user-1',
-    })
+    expect(mockSync).toHaveBeenCalledWith({ slug: 'alice', userId: 'user-1' })
   })
 
-  it('syncs providers against the workspace owner when admin opens another slug', async () => {
+  it('refreshes provider access against the workspace owner when admin opens another slug', async () => {
     mockGetSession.mockResolvedValue(adminSession)
     mockStatus.mockResolvedValue({ status: 'running' } as never)
     mockPrisma.user.findUnique.mockResolvedValue({ id: 'user-alice' } as never)
@@ -286,17 +276,13 @@ describe('ensureInstanceRunningAction', () => {
 
     expect(result).toEqual({ status: 'running' })
     expect(mockPrisma.user.findUnique).toHaveBeenCalledWith({ where: { slug: 'alice' }, select: { id: true } })
-    expect(mockSync).toHaveBeenCalledWith({
-      instance: expect.objectContaining({ baseUrl: expect.any(String), authHeader: expect.any(String) }),
-      slug: 'alice',
-      userId: 'user-alice',
-    })
+    expect(mockSync).toHaveBeenCalledWith({ slug: 'alice', userId: 'user-alice' })
   })
 
   it('marks a restart as required when provider sync fails', async () => {
     mockGetSession.mockResolvedValue(fakeSession)
     mockStatus.mockResolvedValue({ status: 'running' } as never)
-    mockSync.mockResolvedValue({ ok: false, error: 'sync_failed' } as never)
+    mockSync.mockRejectedValueOnce(new Error('sync_failed'))
 
     const result = await ensureInstanceRunningAction('alice')
 
@@ -310,7 +296,7 @@ describe('ensureInstanceRunningAction', () => {
   it('marks a restart as required when a running workspace has no connection', async () => {
     mockGetSession.mockResolvedValue(fakeSession)
     mockStatus.mockResolvedValue({ status: 'running' } as never)
-    mockGetWorkspaceConnection.mockResolvedValueOnce(null)
+    mockSync.mockRejectedValueOnce(new Error('instance_unavailable'))
 
     const result = await ensureInstanceRunningAction('alice')
 

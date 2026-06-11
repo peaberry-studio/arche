@@ -18,6 +18,9 @@ vi.mock('@/lib/services', () => ({
     findProviderSyncBySlug: vi.fn(),
     setProviderSyncState: vi.fn(),
   },
+  messageRunService: {
+    hasActiveRunForSlug: vi.fn(),
+  },
 }))
 
 // Mock provider tokens
@@ -29,7 +32,7 @@ import { getInstanceBasicAuth } from '@/lib/opencode/client'
 import { getGatewayTokenTtlSeconds } from '@/lib/providers/config'
 import { getEnabledProviderCredentialsForUser, type EnabledProviderCredentials } from '@/lib/providers/store'
 import type { ProviderId } from '@/lib/providers/types'
-import { instanceService } from '@/lib/services'
+import { instanceService, messageRunService } from '@/lib/services'
 import { issueGatewayToken } from '@/lib/providers/tokens'
 import { ensureProviderAccessFreshForExecution, getProviderSyncHashForUser, syncProviderAccessForInstance } from '../providers'
 
@@ -37,6 +40,7 @@ const mockGetInstanceBasicAuth = vi.mocked(getInstanceBasicAuth)
 const mockGetGatewayTokenTtlSeconds = vi.mocked(getGatewayTokenTtlSeconds)
 const mockGetEnabledCredentials = vi.mocked(getEnabledProviderCredentialsForUser)
 const mockInstanceService = vi.mocked(instanceService)
+const mockMessageRunService = vi.mocked(messageRunService)
 const mockIssueToken = vi.mocked(issueGatewayToken)
 
 type TestEnabledProviderCredential = {
@@ -67,6 +71,7 @@ beforeEach(() => {
     status: 'running',
   })
   mockInstanceService.setProviderSyncState.mockResolvedValue(undefined)
+  mockMessageRunService.hasActiveRunForSlug.mockResolvedValue(false)
 })
 
 describe('syncProviderAccessForInstance', () => {
@@ -278,6 +283,48 @@ describe('syncProviderAccessForInstance', () => {
 
     await ensureProviderAccessFreshForExecution({ slug: 'alice', userId: 'user-1' })
 
+    expect(mockGetInstanceBasicAuth).toHaveBeenCalledWith('alice')
+  })
+
+  it('defers a stale refresh while the workspace has active runs', async () => {
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    mockGetEnabledCredentials.mockResolvedValue(enabledCredentials([
+      ['openai', { credentialId: 'org-1', source: 'organization', version: 3 }],
+    ]))
+    mockGetGatewayTokenTtlSeconds.mockReturnValue(120)
+    mockInstanceService.findProviderSyncBySlug.mockResolvedValue({
+      providerSyncHash: await getProviderSyncHashForUser('user-1'),
+      providerSyncedAt: new Date(Date.now() - 120_000),
+      status: 'running',
+    })
+    mockMessageRunService.hasActiveRunForSlug.mockResolvedValue(true)
+
+    await ensureProviderAccessFreshForExecution({ slug: 'alice', userId: 'user-1' })
+
+    expect(mockGetInstanceBasicAuth).not.toHaveBeenCalled()
+    expect(mockInstanceService.setProviderSyncState).not.toHaveBeenCalled()
+
+    consoleWarnSpy.mockRestore()
+  })
+
+  it('excludes the caller run when checking for active runs', async () => {
+    mockGetEnabledCredentials.mockResolvedValue(enabledCredentials([
+      ['openai', { credentialId: 'org-1', source: 'organization', version: 3 }],
+    ]))
+    mockGetGatewayTokenTtlSeconds.mockReturnValue(120)
+    mockInstanceService.findProviderSyncBySlug.mockResolvedValue({
+      providerSyncHash: await getProviderSyncHashForUser('user-1'),
+      providerSyncedAt: new Date(Date.now() - 120_000),
+      status: 'running',
+    })
+
+    await ensureProviderAccessFreshForExecution({
+      slug: 'alice',
+      userId: 'user-1',
+      ignoreActiveRunId: 'run-self',
+    })
+
+    expect(mockMessageRunService.hasActiveRunForSlug).toHaveBeenCalledWith('alice', { ignoreRunId: 'run-self' })
     expect(mockGetInstanceBasicAuth).toHaveBeenCalledWith('alice')
   })
 })
