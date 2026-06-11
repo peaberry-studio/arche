@@ -36,6 +36,12 @@ const PROVIDER_METADATA: Record<ProviderId, ProviderMetadata> = {
     runtimeId: 'fireworks-ai',
     gatewayPath: 'fireworks',
   },
+  huggingface: {
+    label: 'Hugging Face',
+    requiresCredential: true,
+    runtimeId: 'huggingface',
+    gatewayPath: 'huggingface',
+  },
   openrouter: {
     label: 'OpenRouter',
     requiresCredential: true,

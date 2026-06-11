@@ -90,6 +90,7 @@ describe('docker', () => {
         provider?: {
           fireworks?: { options?: { baseURL?: string } }
           'fireworks-ai'?: { options?: { baseURL?: string } }
+          huggingface?: { options?: { baseURL?: string } }
         }
       }
       expect(writtenConfig.permission?.edit).toMatchObject({
@@ -113,6 +114,9 @@ describe('docker', () => {
       )
       expect(writtenConfig.provider?.['fireworks-ai']?.options?.baseURL).toBe(
         'http://web:3000/api/internal/providers/fireworks'
+      )
+      expect(writtenConfig.provider?.huggingface?.options?.baseURL).toBe(
+        'http://web:3000/api/internal/providers/huggingface'
       )
 
       expect(mockDockerConstructor).toHaveBeenCalledWith({

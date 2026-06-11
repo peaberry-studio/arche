@@ -32,6 +32,7 @@ const PROVIDER_BASE_URL: Record<ProviderId, string> = {
   openai: 'https://api.openai.com/v1',
   anthropic: 'https://api.anthropic.com/v1',
   fireworks: 'https://api.fireworks.ai/inference/v1',
+  huggingface: 'https://router.huggingface.co/v1',
   openrouter: 'https://openrouter.ai/api/v1',
   opencode: 'https://opencode.ai/zen/v1',
   'opencode-go': 'https://opencode.ai/zen/go/v1',
@@ -221,6 +222,12 @@ const PROVIDER_ADAPTERS: Record<ProviderId, ProviderGatewayAdapter> = {
     extractGatewayToken: extractBearerToken,
     normalizeJsonPayload: normalizeFireworksPayload,
     shouldNormalizeJsonPayload: isFireworksJsonRequest,
+  },
+  huggingface: {
+    ...DEFAULT_PROVIDER_ADAPTER,
+    authScheme: 'bearer',
+    baseUrl: staticBaseUrl('huggingface'),
+    extractGatewayToken: extractBearerToken,
   },
   openrouter: {
     ...DEFAULT_PROVIDER_ADAPTER,

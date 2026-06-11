@@ -47,6 +47,13 @@ const providersResponse = {
         },
       },
       {
+        id: 'huggingface',
+        name: 'Hugging Face',
+        models: {
+          'openai/gpt-oss-120b': { name: 'GPT OSS 120B' },
+        },
+      },
+      {
         id: 'opencode',
         name: 'OpenCode Zen',
         models: {
@@ -109,6 +116,7 @@ describe('listModelsAction', () => {
       ]),
     )
     expect(result.models).not.toEqual(expect.arrayContaining([expect.objectContaining({ providerId: 'openai', modelId: 'gpt-5.2' })]))
+    expect(result.models).not.toEqual(expect.arrayContaining([expect.objectContaining({ providerId: 'huggingface', modelId: 'openai/gpt-oss-120b' })]))
     expect(result.models).not.toEqual(expect.arrayContaining([expect.objectContaining({ providerId: 'opencode-go', modelId: 'go-model' })]))
     expect(result.models).not.toEqual(expect.arrayContaining([expect.objectContaining({ providerId: 'ollama', modelId: 'llama3.2' })]))
     expect(result.models).not.toEqual(expect.arrayContaining([expect.objectContaining({ providerId: 'opencode', modelId: 'scene-paid' })]))
@@ -148,8 +156,8 @@ describe('listModelsAction', () => {
     )
   })
 
-  it('includes OpenCode Go and Ollama only when credentials are configured', async () => {
-    mockGetEnabledProviderIdsForUser.mockResolvedValue(enabledProviders('opencode-go', 'ollama'))
+  it('includes Hugging Face, OpenCode Go, and Ollama only when credentials are configured', async () => {
+    mockGetEnabledProviderIdsForUser.mockResolvedValue(enabledProviders('huggingface', 'opencode-go', 'ollama'))
 
     const result = await listModelsAction('alice')
 
@@ -157,6 +165,7 @@ describe('listModelsAction', () => {
     expect(result.models).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ providerId: 'opencode-go', modelId: 'go-model' }),
+        expect.objectContaining({ providerId: 'huggingface', modelId: 'openai/gpt-oss-120b' }),
         expect.objectContaining({ providerId: 'ollama', modelId: 'llama3.2' }),
         expect.objectContaining({ providerId: 'opencode', modelId: 'scene-free' }),
       ]),
