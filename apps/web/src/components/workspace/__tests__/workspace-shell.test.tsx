@@ -27,9 +27,11 @@ const readFileMock = vi.fn();
 const refreshDiffsMock = vi.fn();
 const refreshFilesMock = vi.fn();
 const refreshMessagesMock = vi.fn();
+const selectSessionMock = vi.fn();
 const sendMessageMock = vi.fn().mockResolvedValue(true);
 const writeFileMock = vi.fn();
 let workspaceMockOverrides: Record<string, unknown> = {};
+let learningApiResponse: unknown = { runs: [], proposals: [] };
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
@@ -89,7 +91,7 @@ vi.mock("@/hooks/use-workspace", () => ({
     deleteSession: vi.fn(),
     markFlowRunSeen: vi.fn(),
     renameSession: vi.fn(),
-    selectSession: vi.fn(),
+    selectSession: selectSessionMock,
     agentCatalog: [
       { id: "assistant", displayName: "Assistant", isPrimary: true },
       { id: "ads-scripts", displayName: "Ads Scripts", isPrimary: false },
@@ -305,7 +307,9 @@ describe("WorkspaceShell", () => {
     refreshMessagesMock.mockResolvedValue(undefined);
     sendMessageMock.mockClear();
     sendMessageMock.mockResolvedValue(true);
+    selectSessionMock.mockClear();
     workspaceMockOverrides = {};
+    learningApiResponse = { runs: [], proposals: [] };
     writeFileMock.mockReset();
     writeFileMock.mockResolvedValue({ ok: true, hash: "hash-updated" });
     desktopBridgeMocks.listRecentVaults.mockReset();
@@ -369,7 +373,7 @@ describe("WorkspaceShell", () => {
       }
 
       if (url.endsWith("/learning")) {
-        return jsonResponse({ runs: [], proposals: [] });
+        return jsonResponse(learningApiResponse);
       }
 
       return jsonResponse({ ok: true });
@@ -1225,6 +1229,34 @@ describe("WorkspaceShell", () => {
 
     expect(await screen.findByText("Knowledge Curator")).toBeTruthy();
     expect(await screen.findByText("No pending proposals.")).toBeTruthy();
+  });
+
+  it("opens a curator learning run in the workspace session", async () => {
+    learningApiResponse = {
+      runs: [
+        {
+          id: "run-1",
+          sourceSessionId: "root-session",
+          internalSessionId: "internal-session-1",
+          title: "Learning from session",
+          trigger: "manual",
+          status: "running",
+          error: null,
+          messageCount: 10,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+      proposals: [],
+    };
+
+    render(<WorkspaceShell slug="alice" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Expand curator panel" }));
+    expect(await screen.findByText("Learning from session")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open session" }));
+
+    expect(selectSessionMock).toHaveBeenCalledWith("internal-session-1");
   });
 
   it("shows chat as default view in compact layout", async () => {

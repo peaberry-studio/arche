@@ -170,6 +170,15 @@ describe('learning repository', () => {
     })
   })
 
+  it('returns null when no active learning run is cancelled', async () => {
+    const { cancelLearningRun } = await import('@/lib/learning/repository')
+    mocks.prisma.knowledgeLearningRun.updateMany.mockResolvedValue({ count: 0 })
+
+    await expect(cancelLearningRun({ runId: 'run-1', userId: 'user-1' })).resolves.toBeNull()
+
+    expect(mocks.prisma.knowledgeLearningRun.findFirst).not.toHaveBeenCalled()
+  })
+
   it('guards terminal learning run transitions from overwriting cancellations', async () => {
     const { markLearningRunFailed, markLearningRunSucceeded } = await import('@/lib/learning/repository')
 

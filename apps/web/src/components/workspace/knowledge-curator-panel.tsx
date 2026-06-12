@@ -162,7 +162,9 @@ export function KnowledgeCuratorPanel({ slug, collapsed = false, onToggleCollaps
         });
         const json = (await response.json().catch(() => null)) as { error?: string } | null;
         if (!response.ok) {
+          await refresh();
           setError(json?.error ?? "cancel_failed");
+          return;
         } else {
           setError(null);
         }

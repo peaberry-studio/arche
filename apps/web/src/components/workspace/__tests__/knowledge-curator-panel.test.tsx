@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { KnowledgeCuratorPanel } from '@/components/workspace/knowledge-curator-panel'
@@ -58,6 +58,7 @@ describe('KnowledgeCuratorPanel', () => {
 
   afterEach(() => {
     cleanup()
+    vi.useRealTimers()
     vi.unstubAllGlobals()
   })
 
@@ -142,6 +143,52 @@ describe('KnowledgeCuratorPanel', () => {
     expect(await screen.findByText('99+')).toBeTruthy()
   })
 
+  it('refreshes the pending proposal badge while collapsed', async () => {
+    vi.useFakeTimers()
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ runs: [], proposals: [] }))
+      .mockResolvedValueOnce(jsonResponse(learningResponse))
+
+    render(<KnowledgeCuratorPanel slug="alice" collapsed />)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText('1')).toBeNull()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(45_000)
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(screen.getByText('1')).toBeTruthy()
+  })
+
+  it('keeps active learning runs polling while collapsed', async () => {
+    vi.useFakeTimers()
+    fetchMock.mockResolvedValue(jsonResponse({ runs: [runningRun], proposals: [] }))
+
+    render(<KnowledgeCuratorPanel slug="alice" collapsed />)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_999)
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1)
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('opens a learning run internal session', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ runs: [runningRun], proposals: [] }))
     const onOpenSession = vi.fn()
@@ -171,6 +218,20 @@ describe('KnowledgeCuratorPanel', () => {
       })
     })
     expect(await screen.findByText('Cancelled')).toBeTruthy()
+  })
+
+  it('shows a readable error when cancelling a run is rejected', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ runs: [runningRun], proposals: [] }))
+      .mockResolvedValueOnce(jsonResponse({ error: 'run_not_cancelable' }, { status: 400 }))
+      .mockResolvedValueOnce(jsonResponse({ runs: [runningRun], proposals: [] }))
+
+    render(<KnowledgeCuratorPanel slug="alice" />)
+
+    expect(await screen.findByText('Learning from session')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(await screen.findByText('This run cannot be cancelled.')).toBeTruthy()
   })
 
   it('uses the simplified header with the standard collapse button', async () => {

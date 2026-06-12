@@ -104,6 +104,53 @@ describe('/api/u/[slug]/learning/runs/[runId]/cancel', () => {
     })
   })
 
+  it('uses the persisted internal session id when cancellation wins a creation race', async () => {
+    mocks.findLearningRunForUser.mockResolvedValue({ ...runningRun, internalSessionId: null })
+    mocks.cancelLearningRun.mockResolvedValue({ ...runningRun, internalSessionId: 'late-session', status: 'cancelled' })
+
+    const response = await POST(makeRequest(), routeContext())
+
+    expect(response.status).toBe(200)
+    const client = await mocks.createInstanceClient.mock.results[0].value
+    expect(client.session.abort).toHaveBeenCalledWith({ sessionID: 'late-session' })
+    expect(mocks.abortActiveRun).toHaveBeenCalledWith('alice', 'late-session')
+  })
+
+  it('keeps cancellation successful when runtime aborts fail', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const client = {
+      session: {
+        abort: vi.fn().mockRejectedValue(new Error('abort failed')),
+      },
+    }
+    mocks.createInstanceClient.mockResolvedValue(client)
+    mocks.abortActiveRun.mockRejectedValue(new Error('message abort failed'))
+
+    try {
+      const response = await POST(makeRequest(), routeContext())
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ run: { ...runningRun, status: 'cancelled' } })
+      expect(client.session.abort).toHaveBeenCalledWith({ sessionID: 'internal-session-1' })
+      expect(mocks.abortActiveRun).toHaveBeenCalledWith('alice', 'internal-session-1')
+      expect(mocks.auditEvent).toHaveBeenCalledWith(expect.objectContaining({ action: 'learning.run_cancelled' }))
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('returns not cancelable when the guarded cancel update loses a race', async () => {
+    mocks.cancelLearningRun.mockResolvedValue(null)
+
+    const response = await POST(makeRequest(), routeContext())
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ error: 'run_not_cancelable' })
+    expect(mocks.createInstanceClient).not.toHaveBeenCalled()
+    expect(mocks.abortActiveRun).not.toHaveBeenCalled()
+    expect(mocks.auditEvent).not.toHaveBeenCalled()
+  })
+
   it('returns not found for runs outside the user', async () => {
     mocks.findLearningRunForUser.mockResolvedValue(null)
 
