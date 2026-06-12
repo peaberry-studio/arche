@@ -185,6 +185,22 @@ func TestValidateTemplates(t *testing.T) {
 	}
 }
 
+func TestValidateTemplatesAcceptsPRVersion(t *testing.T) {
+	t.Parallel()
+
+	if err := validateTemplates("pr-361"); err != nil {
+		t.Fatalf("validateTemplates() error = %v", err)
+	}
+}
+
+func TestValidateVersionAcceptsPRVersion(t *testing.T) {
+	t.Parallel()
+
+	if err := validateVersion("pr-361"); err != nil {
+		t.Fatalf("validateVersion() error = %v", err)
+	}
+}
+
 func TestRenderCloudInitUsesDeployUserInsteadOfRoot(t *testing.T) {
 	t.Parallel()
 

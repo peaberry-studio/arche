@@ -661,7 +661,7 @@ func parseArgs(argv []string) (cliArgs, error) {
 	flags.BoolVar(&args.validateOnly, "validate-only", false, "Render and validate generated templates, then exit")
 	flags.BoolVar(&args.verbose, "vv", args.verbose, "Show SSH/bootstrap logs")
 	flags.BoolVar(&args.verbose, "verbose", args.verbose, "Show SSH/bootstrap logs")
-	flags.StringVar(&args.version, "version", defaultVersion, "Arche image version tag, for example v1.2.3 or latest")
+	flags.StringVar(&args.version, "version", defaultVersion, "Arche image version tag, for example v1.2.3, pr-361, or latest")
 
 	switch args.command {
 	case "install":
@@ -695,19 +695,19 @@ func parseArgs(argv []string) (cliArgs, error) {
 		return args, fmt.Errorf("unexpected argument %q", flags.Arg(0))
 	}
 	if args.command == "update" && args.version == defaultVersion {
-		return args, errors.New("update requires --version vX.X.X")
+		return args, errors.New("update requires --version with a pinned tag such as v1.2.3 or pr-361")
 	}
 	return args, nil
 }
 
 func printUsage(w io.Writer) {
 	fmt.Fprintln(w, `Usage:
-  archectl install [--token TOKEN] --email EMAIL [--version vX.X.X] [-vv]
-  archectl update --token TOKEN --version vX.X.X [--state PATH] [-vv]
+  archectl install [--token TOKEN] --email EMAIL [--version vX.X.X|pr-361] [-vv]
+  archectl update --token TOKEN --version vX.X.X|pr-361 [--state PATH] [-vv]
   archectl destroy --token TOKEN [--state PATH] [--yes]
 
 Recovery without a state file:
-  archectl update --token TOKEN --version vX.X.X --ip IP (--ssh-key PATH | --ssh-password PASSWORD) [--url URL]
+  archectl update --token TOKEN --version vX.X.X|pr-361 --ip IP (--ssh-key PATH | --ssh-password PASSWORD) [--url URL]
   archectl destroy --token TOKEN --droplet-id ID [--firewall-id ID] --yes
 
 If no command is provided, archectl defaults to install for curl|bash compatibility.
@@ -2372,12 +2372,12 @@ func validateVersion(version string) error {
 	if version == defaultVersion {
 		return nil
 	}
-	matched, err := regexp.MatchString(`^v[0-9]+\.[0-9]+\.[0-9]+([-.+][A-Za-z0-9][A-Za-z0-9.-]*)?$`, version)
+	matched, err := regexp.MatchString(`^(v[0-9]+\.[0-9]+\.[0-9]+([-.+][A-Za-z0-9][A-Za-z0-9.-]*)?|pr-[0-9]+)$`, version)
 	if err != nil {
 		return err
 	}
 	if !matched {
-		return fmt.Errorf("version must be %q or a tag like v1.2.3", defaultVersion)
+		return fmt.Errorf("version must be %q, a release tag like v1.2.3, or a PR tag like pr-361", defaultVersion)
 	}
 	return nil
 }
