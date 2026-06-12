@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
       findFirst: vi.fn(),
       findMany: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn(),
     },
   },
 }))
@@ -151,6 +152,37 @@ describe('learning repository', () => {
     expect(mocks.prisma.knowledgeLearningRun.findFirst).toHaveBeenCalledWith({
       where: { id: 'run-other', userId: 'user-1' },
       select: { id: true },
+    })
+  })
+
+  it('cancels only active learning runs for the owning user', async () => {
+    const { cancelLearningRun } = await import('@/lib/learning/repository')
+    mocks.prisma.knowledgeLearningRun.updateMany.mockResolvedValue({ count: 1 })
+    mocks.prisma.knowledgeLearningRun.findFirst.mockResolvedValue({ ...runRecord, status: 'cancelled' })
+
+    await expect(cancelLearningRun({ runId: 'run-1', userId: 'user-1' })).resolves.toEqual(
+      expect.objectContaining({ id: 'run-1', status: 'cancelled' }),
+    )
+
+    expect(mocks.prisma.knowledgeLearningRun.updateMany).toHaveBeenCalledWith({
+      where: { id: 'run-1', userId: 'user-1', status: { in: ['pending', 'running'] } },
+      data: { error: null, finishedAt: expect.any(Date), status: 'cancelled' },
+    })
+  })
+
+  it('guards terminal learning run transitions from overwriting cancellations', async () => {
+    const { markLearningRunFailed, markLearningRunSucceeded } = await import('@/lib/learning/repository')
+
+    await markLearningRunSucceeded('run-1')
+    await markLearningRunFailed({ runId: 'run-1', error: 'provider_failed' })
+
+    expect(mocks.prisma.knowledgeLearningRun.updateMany).toHaveBeenCalledWith({
+      where: { id: 'run-1', status: 'running' },
+      data: { finishedAt: expect.any(Date), status: 'succeeded' },
+    })
+    expect(mocks.prisma.knowledgeLearningRun.updateMany).toHaveBeenCalledWith({
+      where: { id: 'run-1', status: 'running' },
+      data: { error: 'provider_failed', finishedAt: expect.any(Date), status: 'failed' },
     })
   })
 })

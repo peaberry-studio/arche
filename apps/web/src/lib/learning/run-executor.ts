@@ -1,8 +1,9 @@
 import {
   claimLearningRunForExecution,
+  findLearningRunForUser,
   markLearningRunFailed,
-  setLearningRunInternalSessionId,
   markLearningRunSucceeded,
+  setLearningRunInternalSessionId,
 } from '@/lib/learning/repository'
 import { createInstanceClient } from '@/lib/opencode/client'
 import {
@@ -15,6 +16,7 @@ import { messageRunService } from '@/lib/services'
 import type { LearningTrigger } from '@/types/learning'
 
 const LEARNING_SESSION_TITLE_MAX_LENGTH = 160
+const LEARNING_RUN_CANCELLED_ERROR = 'learning_run_cancelled'
 
 export type LearningRunExecutionInput = {
   runId: string
@@ -88,6 +90,20 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
 
     await setLearningRunInternalSessionId({ runId: input.runId, internalSessionId: sessionId })
 
+    const abortIfCancelled = async (): Promise<string | null> => {
+      const run = await findLearningRunForUser({ runId: input.runId, userId: input.userId })
+      if (run?.status !== 'cancelled') return null
+
+      await Promise.resolve(client.session.abort({ sessionID: sessionId })).catch((error) => {
+        console.warn('[learning/run-executor] Failed to abort cancelled learning session', {
+          error,
+          runId: input.runId,
+          sessionId,
+        })
+      })
+      return LEARNING_RUN_CANCELLED_ERROR
+    }
+
     const promptRun = await createSessionPromptRun({
       client,
       sessionId,
@@ -112,6 +128,7 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
       failure = await waitForSessionToComplete({
         client,
         cursor,
+        onPulse: abortIfCancelled,
         sessionId,
         slug: input.slug,
         usage: { messageRunId: promptRun.run.id, source: 'learning', userId: input.userId },
@@ -123,6 +140,11 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
     }
 
     if (failure) {
+      if (failure === LEARNING_RUN_CANCELLED_ERROR) {
+        await messageRunService.markRunAborted(promptRun.run.id).catch(() => undefined)
+        return { ok: false, error: failure }
+      }
+
       await messageRunService.markRunFailed(promptRun.run.id, failure).catch(() => undefined)
       await markLearningRunFailed({ runId: input.runId, error: failure })
       return { ok: false, error: failure }
@@ -133,7 +155,9 @@ export async function executeLearningRun(input: LearningRunExecutionInput): Prom
     return { ok: true }
   } catch (error) {
     const message = error instanceof Error && error.message ? error.message : 'learning_run_failed'
-    await markLearningRunFailed({ runId: input.runId, error: message }).catch(() => undefined)
+    if (message !== LEARNING_RUN_CANCELLED_ERROR) {
+      await markLearningRunFailed({ runId: input.runId, error: message }).catch(() => undefined)
+    }
     return { ok: false, error: message }
   }
 }
