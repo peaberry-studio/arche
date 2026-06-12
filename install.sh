@@ -16,6 +16,37 @@ main() {
   note() { printf '==> %s\n' "$1"; }
   fail() { printf 'Error: %s\n' "$1" >&2; exit 1; }
 
+  extract_release_version_from_url() {
+    printf '%s\n' "$1" | sed -nE 's#^.*/releases/download/([^/]+)/[^/]+$#\1#p'
+  }
+
+  resolve_release_version() {
+    local base_url="$1" artifact_name="$2" download_target="$3" headers location version
+    version="$(extract_release_version_from_url "${base_url%/}/${artifact_name}")"
+    if [ -n "$version" ]; then
+      printf '%s' "$version"
+      return
+    fi
+
+    headers="$(curl --silent --show-error --head --connect-timeout 10 "$download_target")" || return 1
+    location="$(printf '%s\n' "$headers" | awk 'BEGIN { IGNORECASE = 1 } /^location:/ { sub(/\r$/, "", $2); print $2; exit }')"
+    version="$(extract_release_version_from_url "$location")"
+    [ -n "$version" ] || return 1
+    printf '%s' "$version"
+  }
+
+  has_explicit_version_flag() {
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --version|--version=*)
+          return 0
+          ;;
+      esac
+      shift
+    done
+    return 1
+  }
+
   require_command() {
     command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1"
   }
@@ -52,7 +83,7 @@ main() {
   require_command curl
   require_tty
 
-  local os arch artifact release_base_url download_url bin_dir target tmp_dir tmp_bin
+  local os arch artifact release_base_url release_version download_url bin_dir target tmp_dir tmp_bin
   os="$(detect_os)"
   arch="$(detect_arch)"
   artifact="${TOOL_NAME}_${os}_${arch}"
@@ -85,8 +116,30 @@ main() {
 
   exec </dev/tty
   case "${1:-}" in
-    ""|-* ) exec "$target" install "$@" ;;
-    install|update|destroy|help|--help|-h) exec "$target" "$@" ;;
+    ""|-* )
+      if ! has_explicit_version_flag "$@"; then
+        if release_version="$(resolve_release_version "$release_base_url" "$artifact" "$download_url")"; then
+          note "Installing Arche version ${release_version}"
+          exec "$target" install --version "$release_version" "$@"
+        fi
+        note "Could not resolve the latest GitHub release tag; falling back to Arche version latest"
+        exec "$target" install "$@"
+      fi
+      exec "$target" install "$@"
+      ;;
+    install)
+      shift
+      if ! has_explicit_version_flag "$@"; then
+        if release_version="$(resolve_release_version "$release_base_url" "$artifact" "$download_url")"; then
+          note "Installing Arche version ${release_version}"
+          exec "$target" install --version "$release_version" "$@"
+        fi
+        note "Could not resolve the latest GitHub release tag; falling back to Arche version latest"
+        exec "$target" install "$@"
+      fi
+      exec "$target" install "$@"
+      ;;
+    update|destroy|help|--help|-h) exec "$target" "$@" ;;
     *) fail "Unknown command: $1" ;;
   esac
 }
