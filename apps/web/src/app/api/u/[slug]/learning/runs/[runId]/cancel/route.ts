@@ -12,20 +12,24 @@ type CancelRunParams = {
   runId: string
 }
 
+function cancellationLogError(error: unknown): string {
+  return error instanceof Error && error.name ? error.name : 'unknown_error'
+}
+
 async function abortInternalSessionBestEffort(slug: string, runId: string, sessionId: string): Promise<void> {
   const client = await createInstanceClient(slug).catch((error) => {
-    console.warn('[learning/cancel] Failed to create OpenCode client', { error, runId, sessionId })
+    console.warn('[learning/cancel] Failed to create OpenCode client', { error: cancellationLogError(error), runId })
     return null
   })
 
   if (client) {
     await Promise.resolve(client.session.abort({ sessionID: sessionId })).catch((error) => {
-      console.warn('[learning/cancel] Failed to abort OpenCode session', { error, runId, sessionId })
+      console.warn('[learning/cancel] Failed to abort OpenCode session', { error: cancellationLogError(error), runId })
     })
   }
 
   await messageRunService.abortActiveRun(slug, sessionId).catch((error) => {
-    console.warn('[learning/cancel] Failed to abort active message run', { error, runId, sessionId })
+    console.warn('[learning/cancel] Failed to abort active message run', { error: cancellationLogError(error), runId })
   })
 }
 
@@ -46,15 +50,17 @@ export const POST = withAuth<{ run: LearningRun } | { error: string }, CancelRun
       return NextResponse.json({ error: 'run_not_cancelable' }, { status: 400 })
     }
 
-    if (run.internalSessionId) {
-      await abortInternalSessionBestEffort(context.slug, run.id, run.internalSessionId)
+    const internalSessionId = cancelledRun.internalSessionId ?? run.internalSessionId
+
+    if (internalSessionId) {
+      await abortInternalSessionBestEffort(context.slug, run.id, internalSessionId)
     }
 
     await auditEvent({
       actorUserId: context.user.id,
       action: 'learning.run_cancelled',
       metadata: {
-        internalSessionId: run.internalSessionId,
+        internalSessionId,
         runId: run.id,
         sourceSessionId: run.sourceSessionId,
       },
