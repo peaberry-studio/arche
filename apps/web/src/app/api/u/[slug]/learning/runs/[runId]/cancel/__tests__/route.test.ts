@@ -2,11 +2,15 @@ import { NextRequest } from 'next/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
-  auditCreateEvent: vi.fn(),
   abortActiveRun: vi.fn(),
+  auditEvent: vi.fn(),
   cancelLearningRun: vi.fn(),
   createInstanceClient: vi.fn(),
   findLearningRunForUser: vi.fn(),
+}))
+
+vi.mock('@/lib/auth', () => ({
+  auditEvent: mocks.auditEvent,
 }))
 
 vi.mock('@/lib/learning/service', () => ({
@@ -19,9 +23,6 @@ vi.mock('@/lib/opencode/client', () => ({
 }))
 
 vi.mock('@/lib/services', () => ({
-  auditService: {
-    createEvent: mocks.auditCreateEvent,
-  },
   messageRunService: {
     abortActiveRun: mocks.abortActiveRun,
   },
@@ -72,7 +73,7 @@ describe('/api/u/[slug]/learning/runs/[runId]/cancel', () => {
     vi.clearAllMocks()
     mocks.findLearningRunForUser.mockResolvedValue(runningRun)
     mocks.cancelLearningRun.mockResolvedValue({ ...runningRun, status: 'cancelled' })
-    mocks.auditCreateEvent.mockResolvedValue(undefined)
+    mocks.auditEvent.mockResolvedValue(undefined)
     mocks.abortActiveRun.mockResolvedValue(undefined)
     mocks.createInstanceClient.mockResolvedValue({
       session: {
@@ -92,7 +93,7 @@ describe('/api/u/[slug]/learning/runs/[runId]/cancel', () => {
     const client = await mocks.createInstanceClient.mock.results[0].value
     expect(client.session.abort).toHaveBeenCalledWith({ sessionID: 'internal-session-1' })
     expect(mocks.abortActiveRun).toHaveBeenCalledWith('alice', 'internal-session-1')
-    expect(mocks.auditCreateEvent).toHaveBeenCalledWith({
+    expect(mocks.auditEvent).toHaveBeenCalledWith({
       actorUserId: 'user-1',
       action: 'learning.run_cancelled',
       metadata: {

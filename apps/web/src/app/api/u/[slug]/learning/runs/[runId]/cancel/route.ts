@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server'
 
+import { auditEvent } from '@/lib/auth'
 import { cancelLearningRun, findLearningRunForUser } from '@/lib/learning/service'
 import { createInstanceClient } from '@/lib/opencode/client'
 import { withAuth } from '@/lib/runtime/with-auth'
-import { auditService, messageRunService } from '@/lib/services'
+import { messageRunService } from '@/lib/services'
 import type { LearningRun } from '@/types/learning'
 
 type CancelRunParams = {
@@ -49,7 +50,7 @@ export const POST = withAuth<{ run: LearningRun } | { error: string }, CancelRun
       await abortInternalSessionBestEffort(context.slug, run.id, run.internalSessionId)
     }
 
-    await auditService.createEvent({
+    await auditEvent({
       actorUserId: context.user.id,
       action: 'learning.run_cancelled',
       metadata: {
