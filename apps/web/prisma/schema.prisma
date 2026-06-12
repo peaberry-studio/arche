@@ -72,6 +72,7 @@ enum KnowledgeLearningRunStatus {
   running
   succeeded
   failed
+  cancelled
 }
 
 enum KnowledgeLearningTrigger {

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   claimLearningRunForExecution: vi.fn(),
+  findLearningRunForUser: vi.fn(),
   markLearningRunFailed: vi.fn(),
   markLearningRunSucceeded: vi.fn(),
   setLearningRunInternalSessionId: vi.fn(),
@@ -11,11 +12,13 @@ const mocks = vi.hoisted(() => ({
   captureSessionMessageCursor: vi.fn(),
   waitForSessionToComplete: vi.fn(),
   markRunFailed: vi.fn(),
+  markRunAborted: vi.fn(),
   markRunSucceeded: vi.fn(),
 }))
 
 vi.mock('@/lib/learning/repository', () => ({
   claimLearningRunForExecution: mocks.claimLearningRunForExecution,
+  findLearningRunForUser: mocks.findLearningRunForUser,
   markLearningRunFailed: mocks.markLearningRunFailed,
   markLearningRunSucceeded: mocks.markLearningRunSucceeded,
   setLearningRunInternalSessionId: mocks.setLearningRunInternalSessionId,
@@ -34,6 +37,7 @@ vi.mock('@/lib/opencode/session-execution', () => ({
 
 vi.mock('@/lib/services', () => ({
   messageRunService: {
+    markRunAborted: mocks.markRunAborted,
     markRunFailed: mocks.markRunFailed,
     markRunSucceeded: mocks.markRunSucceeded,
   },
@@ -53,6 +57,7 @@ const baseInput = {
 function makeClient() {
   return {
     session: {
+      abort: vi.fn().mockResolvedValue({ data: {} }),
       create: vi.fn().mockResolvedValue({ data: { id: 'internal-session-1' } }),
       promptAsync: vi.fn().mockResolvedValue({ data: {} }),
     },
@@ -66,6 +71,8 @@ describe('executeLearningRun', () => {
     mocks.markLearningRunFailed.mockResolvedValue(undefined)
     mocks.markLearningRunSucceeded.mockResolvedValue(undefined)
     mocks.setLearningRunInternalSessionId.mockResolvedValue(undefined)
+    mocks.findLearningRunForUser.mockResolvedValue(null)
+    mocks.markRunAborted.mockResolvedValue(undefined)
     mocks.markRunFailed.mockResolvedValue(undefined)
     mocks.markRunSucceeded.mockResolvedValue(undefined)
     mocks.ensureWorkspaceRunningForExecution.mockResolvedValue(undefined)
@@ -147,6 +154,31 @@ describe('executeLearningRun', () => {
     await expect(executeLearningRun(baseInput)).resolves.toEqual({ ok: false, error: 'instance_start_timeout' })
 
     expect(mocks.markLearningRunFailed).toHaveBeenCalledWith({ runId: 'run-1', error: 'instance_start_timeout' })
+  })
+
+  it('aborts the internal session and does not overwrite a cancelled run during polling', async () => {
+    const client = makeClient()
+    mocks.createInstanceClient.mockResolvedValue(client)
+    mocks.findLearningRunForUser.mockResolvedValue({
+      ...baseInput,
+      error: null,
+      internalSessionId: 'internal-session-1',
+      messageCount: 10,
+      status: 'cancelled',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    })
+    mocks.waitForSessionToComplete.mockImplementationOnce(
+      async (params: { onPulse?: () => Promise<string | null | void> }) => (await params.onPulse?.()) ?? null,
+    )
+
+    await expect(executeLearningRun(baseInput)).resolves.toEqual({ ok: false, error: 'learning_run_cancelled' })
+
+    expect(mocks.findLearningRunForUser).toHaveBeenCalledWith({ runId: 'run-1', userId: 'user-1' })
+    expect(client.session.abort).toHaveBeenCalledWith({ sessionID: 'internal-session-1' })
+    expect(mocks.markRunAborted).toHaveBeenCalledWith('message-run-1')
+    expect(mocks.markLearningRunFailed).not.toHaveBeenCalled()
+    expect(mocks.markLearningRunSucceeded).not.toHaveBeenCalled()
   })
 })
 

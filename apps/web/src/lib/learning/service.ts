@@ -3,6 +3,7 @@ export {
   rejectLearningProposal,
 } from '@/lib/learning/proposal-application'
 export {
+  cancelLearningRun,
   createLearningProposal,
   findLearningRunForUser,
   learningRunBelongsToUser,

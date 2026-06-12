@@ -9,7 +9,7 @@ export const LEARNING_EVIDENCE_QUOTE_MAX_LENGTH = 4_000
 export const LEARNING_EVIDENCE_SOURCE_MAX_LENGTH = 500
 
 export type LearningTrigger = (typeof LEARNING_TRIGGERS)[number]
-export type LearningRunStatus = 'pending' | 'running' | 'succeeded' | 'failed'
+export type LearningRunStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled'
 export type LearningProposalStatus = 'pending' | 'rejected' | 'applied'
 export type LearningProposalType = (typeof LEARNING_PROPOSAL_TYPES)[number]
 export type LearningProposalOperation = (typeof LEARNING_OPERATIONS)[number]

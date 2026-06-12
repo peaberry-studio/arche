@@ -184,9 +184,25 @@ export async function claimLearningRunForExecution(runId: string): Promise<boole
   // (create + manual retry) cannot execute the same run twice.
   const result = await prisma.knowledgeLearningRun.updateMany({
     where: { id: runId, status: { in: ['pending', 'failed'] } },
-    data: { status: 'running', error: null },
+    data: { status: 'running', error: null, finishedAt: null, startedAt: new Date() },
   })
   return result.count === 1
+}
+
+export async function cancelLearningRun(args: {
+  runId: string
+  userId: string
+}): Promise<LearningRun | null> {
+  const result = await prisma.knowledgeLearningRun.updateMany({
+    where: { id: args.runId, userId: args.userId, status: { in: ['pending', 'running'] } },
+    data: { error: null, finishedAt: new Date(), status: 'cancelled' },
+  })
+  if (result.count !== 1) return null
+
+  const updated = await prisma.knowledgeLearningRun.findFirst({
+    where: { id: args.runId, userId: args.userId },
+  })
+  return updated ? mapRun(updated) : null
 }
 
 export async function hasActiveLearningRun(args: {
@@ -291,13 +307,22 @@ export async function createLearningProposal(userId: string, input: ProposalInpu
 }
 
 export async function markLearningRunRunning(runId: string): Promise<void> {
-  await prisma.knowledgeLearningRun.update({ where: { id: runId }, data: { status: 'running' } })
+  await prisma.knowledgeLearningRun.update({
+    where: { id: runId },
+    data: { error: null, finishedAt: null, startedAt: new Date(), status: 'running' },
+  })
 }
 
 export async function markLearningRunSucceeded(runId: string): Promise<void> {
-  await prisma.knowledgeLearningRun.update({ where: { id: runId }, data: { status: 'succeeded' } })
+  await prisma.knowledgeLearningRun.updateMany({
+    where: { id: runId, status: 'running' },
+    data: { finishedAt: new Date(), status: 'succeeded' },
+  })
 }
 
 export async function markLearningRunFailed(args: { runId: string; error: string }): Promise<void> {
-  await prisma.knowledgeLearningRun.update({ where: { id: args.runId }, data: { status: 'failed', error: args.error } })
+  await prisma.knowledgeLearningRun.updateMany({
+    where: { id: args.runId, status: 'running' },
+    data: { error: args.error, finishedAt: new Date(), status: 'failed' },
+  })
 }

@@ -1894,6 +1894,7 @@ export function WorkspaceShell({
             slug={slug}
             collapsed={isCompactLayout ? false : rightCollapsed}
             onToggleCollapse={isCompactLayout ? handleShowChat : handleToggleRight}
+            onOpenSession={handleSelectSession}
             refreshKey={learningRefreshKey}
           />
         );
