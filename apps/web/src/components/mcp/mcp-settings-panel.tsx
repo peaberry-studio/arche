@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import {
   isMcpErrorResponse,
@@ -41,14 +42,6 @@ type McpSettingsPanelProps = {
   isAdmin: boolean
 }
 
-type TokenListCardProps = {
-  emptyMessage: string
-  onRevoke: (tokenId: string) => void
-  saving: boolean
-  title: string
-  tokens: McpTokenDto[]
-}
-
 const SCOPE_OPTIONS = [
   { id: MCP_SCOPE_KB_READ, label: 'Read KB' },
   { id: MCP_SCOPE_KB_WRITE, label: 'Write KB' },
@@ -62,7 +55,7 @@ export function McpSettingsPanel({ currentUserEmail, currentUserId, currentUserS
   const [users, setUsers] = useState<McpUserAccessDto[]>([])
   const [tokens, setTokens] = useState<McpTokenDto[]>([])
   const [tokenName, setTokenName] = useState('Arche MCP')
-  const [expiresInDays, setExpiresInDays] = useState('30')
+  const [expiresInDays, setExpiresInDays] = useState(30)
   const [scopes, setScopes] = useState<string[]>([MCP_SCOPE_KB_READ])
   const [createdToken, setCreatedToken] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -72,6 +65,9 @@ export function McpSettingsPanel({ currentUserEmail, currentUserId, currentUserS
 
   const endpoint = typeof window === 'undefined' ? '/api/mcp' : `${window.location.origin}/api/mcp`
   const quickConnects = createdToken ? buildMcpQuickConnects({ endpoint, token: createdToken }) : []
+
+  const activeToken = tokens.find((t) => !t.revokedAt && new Date(t.expiresAt) > new Date())
+  const hasActiveToken = Boolean(activeToken)
 
   const handleCopy = useCallback(async (id: string, text: string) => {
     const ok = await copyTextToClipboard(text).catch(() => false)
@@ -180,17 +176,27 @@ export function McpSettingsPanel({ currentUserEmail, currentUserId, currentUserS
       const response = await fetch(`/api/u/${currentUserSlug}/mcp/tokens`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: tokenName, scopes, expiresInDays: Number(expiresInDays) }),
+        body: JSON.stringify({ name: tokenName, scopes, expiresInDays }),
       })
       const data = await readMcpCreateTokenResponse(response)
       if (!response.ok || !data || isMcpErrorResponse(data)) throw new Error(readMcpError(data, 'create_failed'))
       setCreatedToken(data.token)
-      setTokens((current) => [data.record, ...current])
+      setTokens((current) => [
+        data.record,
+        ...current.map((t) => (t.revokedAt ? t : { ...t, revokedAt: new Date().toISOString() })),
+      ])
       if (isAdmin) {
-        setAdminTokens((current) => [{
-          ...data.record,
-          user: { id: currentUserId, email: currentUserEmail, slug: currentUserSlug },
-        }, ...current])
+        setAdminTokens((current) => [
+          {
+            ...data.record,
+            user: { id: currentUserId, email: currentUserEmail, slug: currentUserSlug },
+          },
+          ...current.map((t) =>
+            !t.revokedAt && t.user?.id === currentUserId
+              ? { ...t, revokedAt: new Date().toISOString() }
+              : t
+          ),
+        ])
       }
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : 'create_failed')
@@ -283,15 +289,33 @@ export function McpSettingsPanel({ currentUserEmail, currentUserId, currentUserS
 
       <Card className="bg-card/50">
         <CardHeader>
-          <CardTitle>Create Personal Access Token</CardTitle>
+          <CardTitle>Personal Access Token</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <p className="text-sm text-muted-foreground">Tokens created here belong to {currentUserEmail}.</p>
+          <p className="text-sm text-muted-foreground">
+            {hasActiveToken
+              ? 'You have an active token. Creating a new one will revoke it.'
+              : `Create a token for ${currentUserEmail}. Only one active token is allowed at a time.`}
+          </p>
           {!enabled ? <p className="text-sm text-muted-foreground">MCP is disabled by an admin.</p> : null}
           {enabled && !mcpAllowed ? <p className="text-sm text-muted-foreground">Your user is not allowed to create MCP tokens yet.</p> : null}
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Input value={tokenName} disabled={!enabled || !mcpAllowed || saving} onChange={(event) => setTokenName(event.target.value)} placeholder="Token name" />
-            <Input value={expiresInDays} disabled={!enabled || !mcpAllowed || saving} onChange={(event) => setExpiresInDays(event.target.value)} inputMode="numeric" placeholder="Expires in days" />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="mcp-token-name">Token name</Label>
+              <Input id="mcp-token-name" value={tokenName} disabled={!enabled || !mcpAllowed || saving} onChange={(event) => setTokenName(event.target.value)} placeholder="e.g. Arche MCP" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="mcp-token-expiry">Expires in (days)</Label>
+              <Input
+                id="mcp-token-expiry"
+                type="number"
+                min={1}
+                max={365}
+                value={expiresInDays}
+                disabled={!enabled || !mcpAllowed || saving}
+                onChange={(event) => setExpiresInDays(Math.max(1, Math.min(365, Number(event.target.value) || 1)))}
+              />
+            </div>
           </div>
           <div className="flex flex-wrap gap-3">
             {SCOPE_OPTIONS.map((scope) => (
@@ -309,27 +333,46 @@ export function McpSettingsPanel({ currentUserEmail, currentUserId, currentUserS
               </label>
             ))}
           </div>
-          <Button disabled={!enabled || !mcpAllowed || saving || scopes.length === 0} onClick={createToken}>Create token</Button>
+          <Button disabled={!enabled || !mcpAllowed || saving || scopes.length === 0} onClick={createToken}>
+            {hasActiveToken ? 'Replace token' : 'Create token'}
+          </Button>
         </CardContent>
       </Card>
 
       {createdToken ? (
-        <Card className="border-primary/40 bg-primary/5">
+        <Card className="border-primary/30 bg-card/50">
           <CardHeader>
-            <CardTitle>Token Shown Once</CardTitle>
+            <CardTitle className="text-base">New Token</CardTitle>
+            <p className="text-sm text-muted-foreground">Copy it now — it won't be shown again.</p>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center gap-2">
-              <input readOnly value={createdToken} className="flex-1 rounded-lg border border-border bg-background p-3 font-mono text-xs" />
-              <CopyButton copied={copiedId === 'token'} onClick={() => void handleCopy('token', createdToken)} />
+          <CardContent className="space-y-5">
+            <div className="group relative">
+              <pre className="overflow-x-auto rounded-lg border border-border bg-background p-3 pr-12 font-mono text-xs leading-relaxed text-foreground">{createdToken}</pre>
+              <button
+                type="button"
+                onClick={() => void handleCopy('token', createdToken)}
+                className="absolute right-2 top-2 rounded-md border border-border/60 bg-background p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                aria-label={copiedId === 'token' ? 'Copied' : 'Copy token'}
+              >
+                {copiedId === 'token' ? <Check size={14} weight="bold" className="text-emerald-500" /> : <Copy size={14} />}
+              </button>
             </div>
+
             <div className="space-y-3">
+              <p className="text-sm font-medium text-muted-foreground">Quick connect</p>
               {quickConnects.map((entry) => (
                 <div key={entry.id} className="space-y-1">
-                  <p className="text-sm font-medium">{entry.label}</p>
-                  <div className="flex items-center gap-2">
-                    <input readOnly value={entry.command} className="flex-1 rounded-md border border-border bg-background p-2 font-mono text-xs" />
-                    <CopyButton copied={copiedId === entry.id} onClick={() => void handleCopy(entry.id, entry.command)} />
+                  <p className="text-xs font-medium text-foreground">{entry.label}</p>
+                  <div className="group relative">
+                    <pre className="overflow-x-auto rounded-lg border border-border bg-background p-2.5 pr-12 font-mono text-xs leading-relaxed text-foreground/80">{entry.command}</pre>
+                    <button
+                      type="button"
+                      onClick={() => void handleCopy(entry.id, entry.command)}
+                      className="absolute right-1.5 top-1.5 rounded-md border border-border/60 bg-background p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      aria-label={copiedId === entry.id ? 'Copied' : `Copy ${entry.label} command`}
+                    >
+                      {copiedId === entry.id ? <Check size={12} weight="bold" className="text-emerald-500" /> : <Copy size={12} />}
+                    </button>
                   </div>
                 </div>
               ))}
@@ -357,6 +400,14 @@ export function McpSettingsPanel({ currentUserEmail, currentUserId, currentUserS
       ) : null}
     </div>
   )
+}
+
+type TokenListCardProps = {
+  emptyMessage: string
+  onRevoke: (tokenId: string) => void
+  saving: boolean
+  title: string
+  tokens: McpTokenDto[]
 }
 
 function TokenListCard({ emptyMessage, onRevoke, saving, title, tokens }: TokenListCardProps) {
@@ -439,19 +490,4 @@ async function readMcpOkResponse(response: Response): Promise<McpOkResponse | Mc
 
 async function readMcpJsonData(response: Response): Promise<unknown> {
   return response.json().catch(() => null)
-}
-
-function CopyButton({ copied, onClick }: { copied: boolean; onClick: () => void }) {
-  return (
-    <Button
-      variant="outline"
-      size="sm"
-      onClick={onClick}
-      aria-label={copied ? 'Copied' : 'Copy'}
-      className="gap-1.5"
-    >
-      {copied ? <Check size={14} weight="bold" /> : <Copy size={14} />}
-      {copied ? 'Copied' : 'Copy'}
-    </Button>
-  )
 }

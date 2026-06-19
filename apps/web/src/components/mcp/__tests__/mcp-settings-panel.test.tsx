@@ -23,7 +23,7 @@ describe('McpSettingsPanel', () => {
 
     render(<McpSettingsPanel currentUserEmail="admin@example.com" currentUserId="admin-1" currentUserSlug="admin" isAdmin />)
 
-    expect(await screen.findByText('Tokens created here belong to admin@example.com.')).toBeTruthy()
+    expect(await screen.findByText(/admin@example\.com/)).toBeTruthy()
     expect(fetchMock).toHaveBeenCalledWith('/api/u/admin/mcp/settings', { cache: 'no-store' })
     expect(fetchMock).toHaveBeenCalledWith('/api/u/admin/mcp/tokens', { cache: 'no-store' })
     expect(fetchMock).toHaveBeenCalledWith('/api/mcp/admin/settings', { cache: 'no-store' })

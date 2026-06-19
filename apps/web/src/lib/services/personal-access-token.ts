@@ -108,6 +108,16 @@ export function create(data: {
   return prisma.personalAccessToken.create({ data })
 }
 
+export function revokeAllActiveByUserId(
+  userId: string,
+  client: PersonalAccessTokenClient = prisma,
+) {
+  return client.personalAccessToken.updateMany({
+    where: { userId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  })
+}
+
 export function revokeByIdAndUserId(
   id: string,
   userId: string,

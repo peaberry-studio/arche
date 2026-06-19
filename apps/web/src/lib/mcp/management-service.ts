@@ -65,6 +65,8 @@ export async function createUserMcpToken(input: McpUserScopedInput & {
 
   try {
     const record = await prisma.$transaction(async (tx) => {
+      await patService.revokeAllActiveByUserId(input.actor.id, tx)
+
       const created = await tx.personalAccessToken.create({
         data: {
           userId: input.actor.id,
