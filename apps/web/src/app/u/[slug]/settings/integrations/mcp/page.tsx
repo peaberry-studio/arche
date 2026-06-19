@@ -5,7 +5,7 @@ import { McpSettingsPanel } from '@/components/mcp/mcp-settings-panel'
 import { isDesktop } from '@/lib/runtime/mode'
 import { getSession } from '@/lib/runtime/session'
 import { getRuntimeCapabilities } from '@/lib/runtime/capabilities'
-import { get2FAStatus } from '../../../security/actions'
+import { get2FAStatus } from '../../security/actions'
 
 export default async function McpIntegrationSettingsPage({
   params,
