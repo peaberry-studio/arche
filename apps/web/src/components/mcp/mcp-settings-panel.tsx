@@ -343,7 +343,7 @@ export function McpSettingsPanel({ currentUserEmail, currentUserId, currentUserS
         <Card className="border-primary/30 bg-card/50">
           <CardHeader>
             <CardTitle className="text-base">New Token</CardTitle>
-            <p className="text-sm text-muted-foreground">Copy it now — it won't be shown again.</p>
+            <p className="text-sm text-muted-foreground">Copy it now — it will not be shown again.</p>
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="group relative">
