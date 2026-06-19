@@ -16,7 +16,7 @@ export type McpTokenDto = {
   id: string
   name: string
   scopes: string[]
-  expiresAt: string
+  expiresAt: string | null
   revokedAt: string | null
   lastUsedAt: string | null
   createdAt: string
@@ -71,7 +71,7 @@ export type SerializableMcpToken = {
   id: string
   name: string
   scopes: string[]
-  expiresAt: Date
+  expiresAt: Date | null
   revokedAt: Date | null
   lastUsedAt: Date | null
   createdAt: Date
@@ -83,7 +83,7 @@ export function serializeMcpToken(token: SerializableMcpToken): McpTokenDto {
     id: token.id,
     name: token.name,
     scopes: token.scopes,
-    expiresAt: token.expiresAt.toISOString(),
+    expiresAt: token.expiresAt?.toISOString() ?? null,
     revokedAt: token.revokedAt?.toISOString() ?? null,
     lastUsedAt: token.lastUsedAt?.toISOString() ?? null,
     createdAt: token.createdAt.toISOString(),
@@ -157,7 +157,7 @@ function isMcpTokenDto(data: unknown): data is McpTokenDto {
   if (typeof data.id !== 'string') return false
   if (typeof data.name !== 'string') return false
   if (!Array.isArray(data.scopes) || !data.scopes.every((scope) => typeof scope === 'string')) return false
-  if (typeof data.expiresAt !== 'string') return false
+  if (data.expiresAt !== null && typeof data.expiresAt !== 'string') return false
   if (data.revokedAt !== null && typeof data.revokedAt !== 'string') return false
   if (data.lastUsedAt !== null && typeof data.lastUsedAt !== 'string') return false
   if (typeof data.createdAt !== 'string') return false

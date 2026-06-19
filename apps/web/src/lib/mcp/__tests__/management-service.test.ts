@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   isUserAllowed: vi.fn(),
   listUserAccess: vi.fn(),
   personalAccessTokenCreate: vi.fn(),
+  revokeAllActiveByUserId: vi.fn(),
   revokeById: vi.fn(),
   revokeByIdAndUserId: vi.fn(),
   setEnabled: vi.fn(),
@@ -55,6 +56,7 @@ vi.mock('@/lib/services', () => ({
   patService: {
     findManyByUserId: mocks.findManyByUserId,
     findManyWithUsers: mocks.findManyWithUsers,
+    revokeAllActiveByUserId: mocks.revokeAllActiveByUserId,
     revokeById: mocks.revokeById,
     revokeByIdAndUserId: mocks.revokeByIdAndUserId,
   },
@@ -81,6 +83,7 @@ describe('MCP management service', () => {
     mocks.listUserAccess.mockResolvedValue([createUserAccess()])
     mocks.personalAccessTokenCreate.mockResolvedValue(createTokenRecord())
     mocks.auditEventCreate.mockResolvedValue({ id: 'audit-1' })
+    mocks.revokeAllActiveByUserId.mockResolvedValue({ count: 0 })
     mocks.revokeById.mockResolvedValue({ count: 1 })
     mocks.revokeByIdAndUserId.mockResolvedValue({ count: 1 })
     mocks.setEnabled.mockResolvedValue({ enabled: false })

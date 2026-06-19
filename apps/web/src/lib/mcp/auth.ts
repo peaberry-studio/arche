@@ -21,7 +21,7 @@ export async function authenticatePat(request: Request): Promise<McpAuthResult> 
     return { ok: false, status: 401 }
   }
 
-  if (record.revokedAt || record.expiresAt.getTime() <= Date.now()) {
+  if (record.revokedAt || (record.expiresAt && record.expiresAt.getTime() <= Date.now())) {
     return { ok: false, status: 401 }
   }
 

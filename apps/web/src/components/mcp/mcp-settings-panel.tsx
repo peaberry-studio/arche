@@ -56,6 +56,7 @@ export function McpSettingsPanel({ currentUserEmail, currentUserId, currentUserS
   const [tokens, setTokens] = useState<McpTokenDto[]>([])
   const [tokenName, setTokenName] = useState('Arche MCP')
   const [expiresInDays, setExpiresInDays] = useState(30)
+  const [noExpiry, setNoExpiry] = useState(false)
   const [scopes, setScopes] = useState<string[]>([MCP_SCOPE_KB_READ])
   const [createdToken, setCreatedToken] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -66,7 +67,7 @@ export function McpSettingsPanel({ currentUserEmail, currentUserId, currentUserS
   const endpoint = typeof window === 'undefined' ? '/api/mcp' : `${window.location.origin}/api/mcp`
   const quickConnects = createdToken ? buildMcpQuickConnects({ endpoint, token: createdToken }) : []
 
-  const activeToken = tokens.find((t) => !t.revokedAt && new Date(t.expiresAt) > new Date())
+  const activeToken = tokens.find((t) => !t.revokedAt && (!t.expiresAt || new Date(t.expiresAt) > new Date()))
   const hasActiveToken = Boolean(activeToken)
 
   const handleCopy = useCallback(async (id: string, text: string) => {
@@ -176,7 +177,7 @@ export function McpSettingsPanel({ currentUserEmail, currentUserId, currentUserS
       const response = await fetch(`/api/u/${currentUserSlug}/mcp/tokens`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: tokenName, scopes, expiresInDays }),
+        body: JSON.stringify({ name: tokenName, scopes, expiresInDays: noExpiry ? null : expiresInDays }),
       })
       const data = await readMcpCreateTokenResponse(response)
       if (!response.ok || !data || isMcpErrorResponse(data)) throw new Error(readMcpError(data, 'create_failed'))
@@ -203,7 +204,7 @@ export function McpSettingsPanel({ currentUserEmail, currentUserId, currentUserS
     } finally {
       setSaving(false)
     }
-  }, [currentUserEmail, currentUserId, currentUserSlug, expiresInDays, isAdmin, scopes, tokenName])
+  }, [currentUserEmail, currentUserId, currentUserSlug, expiresInDays, isAdmin, noExpiry, scopes, tokenName])
 
   const revokePersonalToken = useCallback(async (tokenId: string) => {
     setSaving(true)
@@ -312,9 +313,17 @@ export function McpSettingsPanel({ currentUserEmail, currentUserId, currentUserS
                 min={1}
                 max={365}
                 value={expiresInDays}
-                disabled={!enabled || !mcpAllowed || saving}
+                disabled={!enabled || !mcpAllowed || saving || noExpiry}
                 onChange={(event) => setExpiresInDays(Math.max(1, Math.min(365, Number(event.target.value) || 1)))}
               />
+              <label className="flex items-center gap-2 pt-1 text-sm text-muted-foreground">
+                <Checkbox
+                  checked={noExpiry}
+                  disabled={!enabled || !mcpAllowed || saving}
+                  onChange={(event) => setNoExpiry(event.target.checked)}
+                />
+                No expiry
+              </label>
             </div>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -377,6 +386,17 @@ export function McpSettingsPanel({ currentUserEmail, currentUserId, currentUserS
                 </div>
               ))}
             </div>
+
+            <div className="rounded-lg border border-border/50 bg-background/50 p-3">
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">Tip:</span>{' '}
+                To skip permission prompts in Claude Code, add{' '}
+                <code className="rounded bg-accent px-1 py-0.5 font-mono text-[11px]">mcp__arche__*</code>{' '}
+                to <code className="rounded bg-accent px-1 py-0.5 font-mono text-[11px]">allowedTools</code>{' '}
+                in your project or user settings via{' '}
+                <code className="rounded bg-accent px-1 py-0.5 font-mono text-[11px]">/config</code>.
+              </p>
+            </div>
           </CardContent>
         </Card>
       ) : null}
@@ -422,7 +442,7 @@ function TokenListCard({ emptyMessage, onRevoke, saving, title, tokens }: TokenL
           <div key={token.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/50 p-3">
             <div className="min-w-0 space-y-1">
               <p className="truncate text-sm font-medium">{token.name}</p>
-              <p className="text-xs text-muted-foreground">Expires {formatDate(token.expiresAt)}{token.user ? ` - ${token.user.email}` : ''}</p>
+              <p className="text-xs text-muted-foreground">{token.expiresAt ? `Expires ${formatDate(token.expiresAt)}` : 'No expiry'}{token.user ? ` - ${token.user.email}` : ''}</p>
               <div className="flex flex-wrap gap-1">
                 {token.scopes.map((scope) => <Badge key={scope} variant="secondary">{scope}</Badge>)}
                 {token.revokedAt ? <Badge variant="outline">revoked</Badge> : null}

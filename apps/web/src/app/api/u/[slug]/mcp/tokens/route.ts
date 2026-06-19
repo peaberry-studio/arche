@@ -39,7 +39,7 @@ export const POST = withAuth<McpCreateTokenResponse | McpErrorResponse>(
     }
 
     const expiresInDays = parseExpiresInDays(body.data.expiresInDays)
-    if (!expiresInDays) {
+    if (expiresInDays === undefined) {
       return NextResponse.json({ error: 'invalid_expiration' }, { status: 400 })
     }
 
@@ -81,9 +81,10 @@ async function readCreateTokenRequest(request: NextRequest): Promise<
   }
 }
 
-function parseExpiresInDays(value: unknown): number | null {
+function parseExpiresInDays(value: unknown): number | null | undefined {
+  if (value === null) return null
   const numberValue = typeof value === 'number' ? value : 30
-  if (!Number.isFinite(numberValue) || numberValue < 1 || numberValue > 365) return null
+  if (!Number.isFinite(numberValue) || numberValue < 1 || numberValue > 365) return undefined
   return Math.floor(numberValue)
 }
 

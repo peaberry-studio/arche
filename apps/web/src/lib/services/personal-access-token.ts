@@ -8,7 +8,7 @@ export type PatWithUser = {
   userId: string
   tokenHash: string
   salt: string
-  expiresAt: Date
+  expiresAt: Date | null
   revokedAt: Date | null
   user: {
     id: string
@@ -23,7 +23,7 @@ export type PatListEntry = {
   id: string
   name: string
   scopes: string[]
-  expiresAt: Date
+  expiresAt: Date | null
   revokedAt: Date | null
   lastUsedAt: Date | null
   createdAt: Date
@@ -103,7 +103,7 @@ export function create(data: {
   tokenHash: string
   salt: string
   scopes: string[]
-  expiresAt: Date
+  expiresAt: Date | null
 }) {
   return prisma.personalAccessToken.create({ data })
 }

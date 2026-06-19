@@ -46,7 +46,7 @@ export async function listUserMcpTokens(input: McpUserScopedInput): Promise<McpM
 }
 
 export async function createUserMcpToken(input: McpUserScopedInput & {
-  expiresInDays: number
+  expiresInDays: number | null
   name: string
   scopes: McpScope[]
 }): Promise<CreateUserMcpTokenResult> {
@@ -61,7 +61,9 @@ export async function createUserMcpToken(input: McpUserScopedInput & {
 
   const token = generatePat()
   const salt = generatePatSalt()
-  const expiresAt = new Date(Date.now() + input.expiresInDays * 24 * 60 * 60 * 1000)
+  const expiresAt = input.expiresInDays !== null
+    ? new Date(Date.now() + input.expiresInDays * 24 * 60 * 60 * 1000)
+    : null
 
   try {
     const record = await prisma.$transaction(async (tx) => {
