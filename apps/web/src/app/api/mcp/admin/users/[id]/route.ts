@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { setAdminMcpUserAllowed } from '@/lib/mcp/management-service'
+import { mcpManagementErrorStatus } from '@/lib/mcp/types'
 import type { McpErrorResponse, McpUpdateUserAccessResponse, UpdateMcpUserAccessRequest } from '@/lib/mcp/types'
 import { isRecord } from '@/lib/records'
 import { withGlobalAuth } from '@/lib/runtime/with-auth'
@@ -18,15 +19,11 @@ export const PATCH = withGlobalAuth<
     }
 
     const result = await setAdminMcpUserAllowed({ actor: user, userId: params.id, mcpAllowed: body.data.mcpAllowed })
-    if (!result.ok) return NextResponse.json({ error: result.error }, { status: getUpdateUserAccessErrorStatus(result.error) })
+    if (!result.ok) return NextResponse.json({ error: result.error }, { status: mcpManagementErrorStatus(result.error) })
 
     return NextResponse.json({ user: result.user })
   }
 )
-
-function getUpdateUserAccessErrorStatus(error: string): number {
-  return error === 'write_failed' ? 500 : 403
-}
 
 async function readUpdateUserAccessRequest(request: NextRequest): Promise<
   | { ok: true; data: UpdateMcpUserAccessRequest }

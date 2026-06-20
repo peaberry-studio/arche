@@ -87,13 +87,13 @@ export function McpSettingsPanel({ currentUserEmail, currentUserId, currentUserS
         isAdmin ? fetch('/api/mcp/admin/settings', { cache: 'no-store' }) : Promise.resolve(null),
         isAdmin ? fetch('/api/mcp/admin/tokens', { cache: 'no-store' }) : Promise.resolve(null),
       ])
-      const settingsData = await readMcpUserSettingsResponse(settingsResponse)
-      const tokensData = await readMcpTokenListResponse(tokensResponse)
+      const settingsData = await readMcpResponse(settingsResponse, parseMcpUserSettingsResponse)
+      const tokensData = await readMcpResponse(tokensResponse, parseMcpTokenListResponse)
       const adminSettingsData = adminSettingsResponse
-        ? await readMcpAdminSettingsResponse(adminSettingsResponse)
+        ? await readMcpResponse(adminSettingsResponse, parseMcpAdminSettingsResponse)
         : null
       const adminTokensData = adminTokensResponse
-        ? await readMcpTokenListResponse(adminTokensResponse)
+        ? await readMcpResponse(adminTokensResponse, parseMcpTokenListResponse)
         : null
 
       if (!settingsResponse.ok) throw new Error(readMcpError(settingsData, 'settings_failed'))
@@ -136,7 +136,7 @@ export function McpSettingsPanel({ currentUserEmail, currentUserId, currentUserS
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ enabled: nextEnabled }),
       })
-      const data = await readMcpAdminSettingsResponse(response)
+      const data = await readMcpResponse(response, parseMcpAdminSettingsResponse)
       if (!response.ok) throw new Error(readMcpError(data, 'update_failed'))
       if (!data || isMcpErrorResponse(data)) throw new Error('update_failed')
       setEnabled(data.enabled)
@@ -158,7 +158,7 @@ export function McpSettingsPanel({ currentUserEmail, currentUserId, currentUserS
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ mcpAllowed: nextAllowed }),
       })
-      const data = await readMcpUpdateUserAccessResponse(response)
+      const data = await readMcpResponse(response, parseMcpUpdateUserAccessResponse)
       if (!response.ok || !data || isMcpErrorResponse(data)) throw new Error(readMcpError(data, 'update_failed'))
       setUsers((current) => current.map((entry) => (entry.id === data.user.id ? data.user : entry)))
       if (data.user.id === currentUserId) setMcpAllowed(data.user.mcpAllowed)
@@ -179,7 +179,7 @@ export function McpSettingsPanel({ currentUserEmail, currentUserId, currentUserS
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ name: tokenName, scopes, expiresInDays: noExpiry ? null : expiresInDays }),
       })
-      const data = await readMcpCreateTokenResponse(response)
+      const data = await readMcpResponse(response, parseMcpCreateTokenResponse)
       if (!response.ok || !data || isMcpErrorResponse(data)) throw new Error(readMcpError(data, 'create_failed'))
       setCreatedToken(data.token)
       setTokens((current) => [
@@ -211,7 +211,7 @@ export function McpSettingsPanel({ currentUserEmail, currentUserId, currentUserS
     setError(null)
     try {
       const response = await fetch(`/api/u/${currentUserSlug}/mcp/tokens/${tokenId}`, { method: 'DELETE' })
-      const data = await readMcpOkResponse(response)
+      const data = await readMcpResponse(response, parseMcpOkResponse)
       if (!response.ok) throw new Error(readMcpError(data, 'revoke_failed'))
       setTokens((current) => current.map((token) => (
         token.id === tokenId ? { ...token, revokedAt: new Date().toISOString() } : token
@@ -231,7 +231,7 @@ export function McpSettingsPanel({ currentUserEmail, currentUserId, currentUserS
     setError(null)
     try {
       const response = await fetch(`/api/mcp/admin/tokens/${tokenId}`, { method: 'DELETE' })
-      const data = await readMcpOkResponse(response)
+      const data = await readMcpResponse(response, parseMcpOkResponse)
       if (!response.ok) throw new Error(readMcpError(data, 'revoke_failed'))
       setAdminTokens((current) => current.map((token) => (
         token.id === tokenId ? { ...token, revokedAt: new Date().toISOString() } : token
@@ -466,46 +466,12 @@ function readMcpError(data: unknown, fallback: string): string {
   return isMcpErrorResponse(data) ? data.error : fallback
 }
 
-async function readMcpUserSettingsResponse(response: Response): Promise<McpUserSettingsResponse | McpErrorResponse | null> {
+async function readMcpResponse<T>(
+  response: Response,
+  parse: (data: unknown) => T | null,
+): Promise<T | McpErrorResponse | null> {
   const data = await readMcpJsonData(response)
-  if (isMcpErrorResponse(data)) return data
-
-  return parseMcpUserSettingsResponse(data)
-}
-
-async function readMcpAdminSettingsResponse(response: Response): Promise<McpAdminSettingsResponse | McpErrorResponse | null> {
-  const data = await readMcpJsonData(response)
-  if (isMcpErrorResponse(data)) return data
-
-  return parseMcpAdminSettingsResponse(data)
-}
-
-async function readMcpTokenListResponse(response: Response): Promise<McpTokenListResponse | McpErrorResponse | null> {
-  const data = await readMcpJsonData(response)
-  if (isMcpErrorResponse(data)) return data
-
-  return parseMcpTokenListResponse(data)
-}
-
-async function readMcpCreateTokenResponse(response: Response): Promise<McpCreateTokenResponse | McpErrorResponse | null> {
-  const data = await readMcpJsonData(response)
-  if (isMcpErrorResponse(data)) return data
-
-  return parseMcpCreateTokenResponse(data)
-}
-
-async function readMcpUpdateUserAccessResponse(response: Response): Promise<McpUpdateUserAccessResponse | McpErrorResponse | null> {
-  const data = await readMcpJsonData(response)
-  if (isMcpErrorResponse(data)) return data
-
-  return parseMcpUpdateUserAccessResponse(data)
-}
-
-async function readMcpOkResponse(response: Response): Promise<McpOkResponse | McpErrorResponse | null> {
-  const data = await readMcpJsonData(response)
-  if (isMcpErrorResponse(data)) return data
-
-  return parseMcpOkResponse(data)
+  return isMcpErrorResponse(data) ? data : parse(data)
 }
 
 async function readMcpJsonData(response: Response): Promise<unknown> {

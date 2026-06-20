@@ -8,7 +8,7 @@ import type {
   McpErrorResponse,
   McpTokenListResponse,
 } from '@/lib/mcp/types'
-import { serializeMcpToken } from '@/lib/mcp/types'
+import { mcpManagementErrorStatus, serializeMcpToken } from '@/lib/mcp/types'
 import { isRecord } from '@/lib/records'
 import { withAuth } from '@/lib/runtime/with-auth'
 
@@ -52,7 +52,7 @@ export const POST = withAuth<McpCreateTokenResponse | McpErrorResponse>(
     })
 
     if (!result.ok) {
-      return NextResponse.json({ error: result.error }, { status: getCreateTokenErrorStatus(result.error) })
+      return NextResponse.json({ error: result.error }, { status: mcpManagementErrorStatus(result.error) })
     }
 
     return NextResponse.json({ token: result.token, record: serializeMcpToken(result.record) }, { status: 201 })
@@ -86,8 +86,4 @@ function parseExpiresInDays(value: unknown): number | null | undefined {
   const numberValue = typeof value === 'number' ? value : 30
   if (!Number.isFinite(numberValue) || numberValue < 1 || numberValue > 365) return undefined
   return Math.floor(numberValue)
-}
-
-function getCreateTokenErrorStatus(error: string): number {
-  return error === 'write_failed' ? 500 : 403
 }

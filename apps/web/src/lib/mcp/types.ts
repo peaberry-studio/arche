@@ -91,6 +91,13 @@ export function serializeMcpToken(token: SerializableMcpToken): McpTokenDto {
   }
 }
 
+export function mcpManagementErrorStatus(error: string): number {
+  if (error === 'not_found') return 404
+  if (error === 'write_failed') return 500
+
+  return 403
+}
+
 export function isMcpErrorResponse(data: unknown): data is McpErrorResponse {
   return isRecord(data) && typeof data.error === 'string'
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 import { getAdminMcpSettings, setAdminMcpEnabled } from '@/lib/mcp/management-service'
+import { mcpManagementErrorStatus } from '@/lib/mcp/types'
 import type { McpAdminSettingsResponse, McpErrorResponse, UpdateMcpSettingsRequest } from '@/lib/mcp/types'
 import { isRecord } from '@/lib/records'
 import { withGlobalAuth } from '@/lib/runtime/with-auth'
@@ -25,15 +26,11 @@ export const PATCH = withGlobalAuth<McpAdminSettingsResponse | McpErrorResponse>
     }
 
     const result = await setAdminMcpEnabled({ actor: user, enabled: body.data.enabled })
-    if (!result.ok) return NextResponse.json({ error: result.error }, { status: getUpdateSettingsErrorStatus(result.error) })
+    if (!result.ok) return NextResponse.json({ error: result.error }, { status: mcpManagementErrorStatus(result.error) })
 
     return NextResponse.json({ enabled: result.enabled, mcpAllowed: result.mcpAllowed, users: result.users })
   }
 )
-
-function getUpdateSettingsErrorStatus(error: string): number {
-  return error === 'write_failed' ? 500 : 403
-}
 
 async function readUpdateSettingsRequest(request: NextRequest): Promise<
   | { ok: true; data: UpdateMcpSettingsRequest }
