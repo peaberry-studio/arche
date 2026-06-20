@@ -5,7 +5,9 @@ import { useCallback, useEffect, useState } from 'react'
 import { Check, Copy } from '@phosphor-icons/react'
 
 import { buildMcpQuickConnects } from '@/lib/mcp/client-config'
+import type { McpQuickConnect } from '@/lib/mcp/client-config'
 import { copyTextToClipboard } from '@/lib/clipboard'
+import { cn } from '@/lib/utils'
 import { MCP_SCOPE_AGENTS_READ, MCP_SCOPE_KB_READ, MCP_SCOPE_KB_WRITE } from '@/lib/mcp/scopes'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -367,25 +369,7 @@ export function McpSettingsPanel({ currentUserEmail, currentUserId, currentUserS
               </button>
             </div>
 
-            <div className="space-y-3">
-              <p className="text-sm font-medium text-muted-foreground">Quick connect</p>
-              {quickConnects.map((entry) => (
-                <div key={entry.id} className="space-y-1">
-                  <p className="text-xs font-medium text-foreground">{entry.label}</p>
-                  <div className="group relative">
-                    <pre className="overflow-x-auto rounded-lg border border-border bg-background p-2.5 pr-12 font-mono text-xs leading-relaxed text-foreground/80">{entry.command}</pre>
-                    <button
-                      type="button"
-                      onClick={() => void handleCopy(entry.id, entry.command)}
-                      className="absolute right-1.5 top-1.5 rounded-md border border-border/60 bg-background p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                      aria-label={copiedId === entry.id ? 'Copied' : `Copy ${entry.label} command`}
-                    >
-                      {copiedId === entry.id ? <Check size={12} weight="bold" className="text-emerald-500" /> : <Copy size={12} />}
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <QuickConnect quickConnects={quickConnects} />
 
             <div className="rounded-lg border border-border/50 bg-background/50 p-3">
               <p className="text-xs text-muted-foreground">
@@ -418,6 +402,60 @@ export function McpSettingsPanel({ currentUserEmail, currentUserId, currentUserS
           tokens={adminTokens}
         />
       ) : null}
+    </div>
+  )
+}
+
+function QuickConnect({ quickConnects }: { quickConnects: McpQuickConnect[] }) {
+  const [selectedId, setSelectedId] = useState(quickConnects[0]?.id ?? '')
+  const [copied, setCopied] = useState(false)
+  const selected = quickConnects.find((entry) => entry.id === selectedId) ?? quickConnects[0]
+
+  const copyCommand = useCallback(async (command: string) => {
+    const ok = await copyTextToClipboard(command).catch(() => false)
+    if (!ok) return
+    setCopied(true)
+    window.setTimeout(() => setCopied(false), 2000)
+  }, [])
+
+  if (!selected) return null
+
+  return (
+    <div className="space-y-2.5">
+      <p className="text-sm font-medium text-muted-foreground">Quick connect</p>
+      <div role="group" aria-label="Select your agent" className="inline-flex rounded-lg border border-border bg-muted/40 p-1">
+        {quickConnects.map((entry) => {
+          const isActive = entry.id === selected.id
+          return (
+            <button
+              key={entry.id}
+              type="button"
+              aria-pressed={isActive}
+              onClick={() => {
+                setSelectedId(entry.id)
+                setCopied(false)
+              }}
+              className={cn(
+                'rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30',
+                isActive ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              {entry.label}
+            </button>
+          )
+        })}
+      </div>
+      <div className="group relative">
+        <pre className="overflow-x-auto rounded-lg border border-border bg-background p-2.5 pr-12 font-mono text-xs leading-relaxed text-foreground/80">{selected.command}</pre>
+        <button
+          type="button"
+          onClick={() => void copyCommand(selected.command)}
+          className="absolute right-1.5 top-1.5 rounded-md border border-border/60 bg-background p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          aria-label={copied ? 'Copied' : `Copy ${selected.label} command`}
+        >
+          {copied ? <Check size={12} weight="bold" className="text-emerald-500" /> : <Copy size={12} />}
+        </button>
+      </div>
     </div>
   )
 }

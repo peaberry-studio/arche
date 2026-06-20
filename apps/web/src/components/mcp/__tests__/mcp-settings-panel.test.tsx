@@ -44,6 +44,36 @@ describe('McpSettingsPanel', () => {
     expect(fetchMock).not.toHaveBeenCalledWith('/api/u/alice/mcp/tokens', expect.anything())
   })
 
+  it('shows a single agent quick-connect command at a time behind an agent selector', async () => {
+    fetchMock.mockImplementation(createMcpFetchMock())
+
+    render(<McpSettingsPanel currentUserEmail="admin@example.com" currentUserId="admin-1" currentUserSlug="admin" isAdmin />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Create token' }))
+
+    await screen.findByText(/claude mcp add arche/)
+    expect(screen.getByRole('button', { name: 'Claude Code' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Codex' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Cursor' })).toBeTruthy()
+    // Only the selected agent's command is rendered, not all of them stacked.
+    expect(screen.queryByText(/codex mcp add/)).toBeNull()
+    expect(screen.queryByText(/cursor mcp add/)).toBeNull()
+  })
+
+  it('switches the quick-connect command when another agent is selected', async () => {
+    fetchMock.mockImplementation(createMcpFetchMock())
+
+    render(<McpSettingsPanel currentUserEmail="admin@example.com" currentUserId="admin-1" currentUserSlug="admin" isAdmin />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Create token' }))
+    await screen.findByText(/claude mcp add arche/)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Codex' }))
+
+    expect(await screen.findByText(/codex mcp add --name arche/)).toBeTruthy()
+    expect(screen.queryByText(/claude mcp add arche/)).toBeNull()
+  })
+
   it('keeps personal and admin token revocation endpoints separate for admins', async () => {
     fetchMock.mockImplementation(createMcpFetchMock())
 
