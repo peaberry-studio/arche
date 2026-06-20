@@ -11,6 +11,9 @@ vi.mock('@/lib/services', () => ({
   messageRunService: {
     reapStaleRuns: vi.fn(),
   },
+  rateLimitService: {
+    deleteExpiredRateLimitBuckets: vi.fn(),
+  },
 }))
 
 vi.mock('../docker', () => ({
@@ -18,12 +21,13 @@ vi.mock('../docker', () => ({
   removeContainer: vi.fn(),
 }))
 
-import { instanceService, messageRunService } from '@/lib/services'
+import { instanceService, messageRunService, rateLimitService } from '@/lib/services'
 import * as docker from '../docker'
-import { getReaperStatus, reapIdleInstances, reapStaleMessageRuns, REAPER_INTERVAL_MS, startReaper, stopReaper } from '../reaper'
+import { getReaperStatus, reapExpiredRateLimitBuckets, reapIdleInstances, reapStaleMessageRuns, REAPER_INTERVAL_MS, startReaper, stopReaper } from '../reaper'
 
 const mockInstance = vi.mocked(instanceService)
 const mockMessageRun = vi.mocked(messageRunService)
+const mockRateLimit = vi.mocked(rateLimitService)
 const mockDocker = vi.mocked(docker)
 
 beforeEach(() => {
@@ -31,6 +35,7 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => {})
   vi.spyOn(console, 'warn').mockImplementation(() => {})
   mockMessageRun.reapStaleRuns.mockResolvedValue(0)
+  mockRateLimit.deleteExpiredRateLimitBuckets.mockResolvedValue({ count: 0 })
   vi.useFakeTimers()
 })
 
@@ -156,6 +161,14 @@ describe('reapStaleMessageRuns', () => {
     mockMessageRun.reapStaleRuns.mockResolvedValue(2)
 
     await expect(reapStaleMessageRuns()).resolves.toBe(2)
+  })
+})
+
+describe('reapExpiredRateLimitBuckets', () => {
+  it('delegates to the rate limit service', async () => {
+    mockRateLimit.deleteExpiredRateLimitBuckets.mockResolvedValue({ count: 3 })
+
+    await expect(reapExpiredRateLimitBuckets()).resolves.toBe(3)
   })
 })
 

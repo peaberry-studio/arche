@@ -2,12 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const originalPublicBaseUrl = process.env.ARCHE_PUBLIC_BASE_URL
 const originalRuntimeMode = process.env.ARCHE_RUNTIME_MODE
+const originalTrustProxyHeaders = process.env.ARCHE_TRUST_PROXY_HEADERS
 
 describe('csrf validateSameOrigin', () => {
   beforeEach(() => {
     vi.resetModules()
     delete process.env.ARCHE_PUBLIC_BASE_URL
     delete process.env.ARCHE_RUNTIME_MODE
+    delete process.env.ARCHE_TRUST_PROXY_HEADERS
   })
 
   afterEach(() => {
@@ -21,6 +23,12 @@ describe('csrf validateSameOrigin', () => {
       delete process.env.ARCHE_RUNTIME_MODE
     } else {
       process.env.ARCHE_RUNTIME_MODE = originalRuntimeMode
+    }
+
+    if (originalTrustProxyHeaders === undefined) {
+      delete process.env.ARCHE_TRUST_PROXY_HEADERS
+    } else {
+      process.env.ARCHE_TRUST_PROXY_HEADERS = originalTrustProxyHeaders
     }
   })
 
@@ -134,6 +142,7 @@ describe('csrf validateSameOrigin', () => {
   })
 
   it('returns ok=true when forwarded host and proto match Origin', async () => {
+    process.env.ARCHE_TRUST_PROXY_HEADERS = '1'
     const { validateSameOrigin } = await import('@/lib/csrf')
 
     const request = new Request('http://internal:3000/api/u/alice/connectors', {

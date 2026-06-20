@@ -1,6 +1,16 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
-import { firstHeaderValue, getClientIp, getPublicBaseUrl, stripPort } from '../http'
+import { firstHeaderValue, getClientIp, getPublicBaseUrl, shouldTrustProxyHeaders, stripPort } from '../http'
+
+const originalTrustProxyHeaders = process.env.ARCHE_TRUST_PROXY_HEADERS
+
+afterEach(() => {
+  if (originalTrustProxyHeaders === undefined) {
+    delete process.env.ARCHE_TRUST_PROXY_HEADERS
+  } else {
+    process.env.ARCHE_TRUST_PROXY_HEADERS = originalTrustProxyHeaders
+  }
+})
 
 describe('firstHeaderValue', () => {
   it('returns null for empty input', () => {
@@ -40,7 +50,13 @@ describe('stripPort', () => {
 })
 
 describe('getClientIp', () => {
-  it('prefers x-forwarded-for over x-real-ip', () => {
+  it('ignores proxy IP headers by default', () => {
+    const headers = new Headers({ 'x-forwarded-for': '203.0.113.1' })
+    expect(getClientIp(headers)).toBeNull()
+  })
+
+  it('prefers x-forwarded-for over x-real-ip when proxy headers are trusted', () => {
+    process.env.ARCHE_TRUST_PROXY_HEADERS = '1'
     const headers = new Headers({
       'x-forwarded-for': '203.0.113.1, 192.168.1.1',
       'x-real-ip': '203.0.113.2',
@@ -48,13 +64,24 @@ describe('getClientIp', () => {
     expect(getClientIp(headers)).toBe('203.0.113.1')
   })
 
-  it('falls back to x-real-ip when x-forwarded-for is absent', () => {
+  it('falls back to x-real-ip when proxy headers are trusted and x-forwarded-for is absent', () => {
+    process.env.ARCHE_TRUST_PROXY_HEADERS = 'true'
     const headers = new Headers({ 'x-real-ip': '203.0.113.2' })
     expect(getClientIp(headers)).toBe('203.0.113.2')
   })
 
   it('returns null when neither header is present', () => {
     expect(getClientIp(new Headers())).toBeNull()
+  })
+})
+
+describe('shouldTrustProxyHeaders', () => {
+  it('requires an explicit opt-in', () => {
+    delete process.env.ARCHE_TRUST_PROXY_HEADERS
+    expect(shouldTrustProxyHeaders()).toBe(false)
+
+    process.env.ARCHE_TRUST_PROXY_HEADERS = '1'
+    expect(shouldTrustProxyHeaders()).toBe(true)
   })
 })
 
@@ -81,7 +108,17 @@ describe('getPublicBaseUrl', () => {
     expect(getPublicBaseUrl(headers, 'http://localhost:3000')).toBe('http://localhost:3000')
   })
 
-  it('uses x-forwarded-proto and x-forwarded-host when present', () => {
+  it('ignores x-forwarded-proto and x-forwarded-host by default', () => {
+    const headers = new Headers({
+      'x-forwarded-proto': 'https',
+      'x-forwarded-host': 'proxy.example.com',
+      host: 'localhost:3000',
+    })
+    expect(getPublicBaseUrl(headers, 'http://localhost:3000')).toBe('http://localhost:3000')
+  })
+
+  it('uses x-forwarded-proto and x-forwarded-host when proxy headers are trusted', () => {
+    process.env.ARCHE_TRUST_PROXY_HEADERS = '1'
     const headers = new Headers({
       'x-forwarded-proto': 'https',
       'x-forwarded-host': 'proxy.example.com',
@@ -99,7 +136,8 @@ describe('getPublicBaseUrl', () => {
     expect(getPublicBaseUrl(headers, 'http://localhost:3000')).toBe('http://localhost:3000')
   })
 
-  it('skips bind addresses in x-forwarded-host', () => {
+  it('skips bind addresses in x-forwarded-host when proxy headers are trusted', () => {
+    process.env.ARCHE_TRUST_PROXY_HEADERS = '1'
     const headers = new Headers({
       'x-forwarded-host': '[::]',
       'x-forwarded-proto': 'https',

@@ -179,7 +179,36 @@ describe('desktop prisma context isolation', () => {
     expect(ddl.some((statement) => statement.includes('CREATE UNIQUE INDEX IF NOT EXISTS "flow_run_steps_run_id_node_id_key"'))).toBe(true)
     expect(ddl.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS "external_integrations"'))).toBe(true)
     expect(ddl.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS "slack_dm_session_bindings"'))).toBe(true)
+    expect(ddl.some((statement) => statement.includes('"mcp_allowed" BOOLEAN NOT NULL DEFAULT false'))).toBe(true)
+    expect(ddl.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS "mcp_settings"'))).toBe(true)
+    expect(ddl.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS "personal_access_tokens"'))).toBe(true)
+    expect(ddl.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS "rate_limit_buckets"'))).toBe(true)
+    expect(ddl.some((statement) => statement.includes('CREATE UNIQUE INDEX IF NOT EXISTS "personal_access_tokens_lookup_hash_key"'))).toBe(true)
+    expect(ddl.some((statement) => statement.includes('CREATE INDEX IF NOT EXISTS "rate_limit_buckets_reset_at_idx"'))).toBe(true)
     expect(ddl.some((statement) => statement.includes('CREATE TABLE IF NOT EXISTS "autopilot_'))).toBe(false)
     expect(ddl.some((statement) => statement.includes('JSONB'))).toBe(false)
+  })
+
+  it('adds mcp_allowed to existing desktop users tables', async () => {
+    const executeRawUnsafe = vi.fn()
+    const queryRawUnsafe = vi.fn()
+      .mockResolvedValueOnce([{ name: 'kind' }])
+      .mockResolvedValueOnce([{ name: 'kind' }])
+      .mockResolvedValueOnce([{ name: 'provider_sync_hash' }, { name: 'provider_synced_at' }])
+      .mockResolvedValueOnce([{ name: 'provider_sync_hash' }, { name: 'provider_synced_at' }])
+
+    mockGeneratedPrismaClient.mockImplementationOnce(({ adapter }: { adapter: { url: string } }) => ({
+      adapterUrl: adapter.url,
+      $executeRaw: vi.fn(),
+      $executeRawUnsafe: executeRawUnsafe,
+      $queryRawUnsafe: queryRawUnsafe,
+      $queryRaw: vi.fn().mockResolvedValue([{ value: '10' }]),
+    }))
+
+    const { initDesktopDatabase } = await import('../prisma-desktop')
+    await initDesktopDatabase()
+
+    const ddl = executeRawUnsafe.mock.calls.map((call) => String(call[0]))
+    expect(ddl).toContain('ALTER TABLE "users" ADD COLUMN "mcp_allowed" BOOLEAN NOT NULL DEFAULT false')
   })
 })

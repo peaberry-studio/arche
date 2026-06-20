@@ -52,9 +52,6 @@ export default async function SettingsPage({
   const availableSections = getAvailableSettingsSections({
     isAdmin: session.user.role === 'ADMIN',
     passwordChangeEnabled: caps.auth,
-    slackIntegrationEnabled: caps.slackIntegration,
-    googleWorkspaceIntegrationEnabled: caps.googleWorkspaceIntegration,
-    kbGithubRemoteIntegrationEnabled: caps.kbGithubRemoteIntegration,
     twoFactorEnabled: caps.twoFactor,
   })
   const search = await searchParams

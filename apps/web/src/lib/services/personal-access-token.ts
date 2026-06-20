@@ -1,0 +1,144 @@
+import { prisma } from '@/lib/prisma'
+
+type PersonalAccessTokenClient = Pick<typeof prisma, 'personalAccessToken'>
+
+export type PatWithUser = {
+  id: string
+  scopes: string[]
+  userId: string
+  tokenHash: string
+  salt: string
+  expiresAt: Date | null
+  revokedAt: Date | null
+  user: {
+    id: string
+    email: string
+    slug: string
+    role: string
+    mcpAllowed: boolean
+  }
+}
+
+export type PatListEntry = {
+  id: string
+  name: string
+  scopes: string[]
+  expiresAt: Date | null
+  revokedAt: Date | null
+  lastUsedAt: Date | null
+  createdAt: Date
+  user?: {
+    id: string
+    email: string
+    slug: string
+  }
+}
+
+export function findByLookupHash(lookupHash: string): Promise<PatWithUser | null> {
+  return prisma.personalAccessToken.findUnique({
+    where: { lookupHash },
+    select: {
+      id: true,
+      scopes: true,
+      userId: true,
+      tokenHash: true,
+      salt: true,
+      expiresAt: true,
+      revokedAt: true,
+      user: {
+        select: {
+          id: true,
+          email: true,
+          slug: true,
+          role: true,
+          mcpAllowed: true,
+        },
+      },
+    },
+  })
+}
+
+export function findManyByUserId(userId: string): Promise<PatListEntry[]> {
+  return prisma.personalAccessToken.findMany({
+    where: { userId },
+    select: {
+      id: true,
+      name: true,
+      scopes: true,
+      expiresAt: true,
+      revokedAt: true,
+      lastUsedAt: true,
+      createdAt: true,
+    },
+    orderBy: { createdAt: 'desc' },
+  })
+}
+
+export function findManyWithUsers(): Promise<PatListEntry[]> {
+  return prisma.personalAccessToken.findMany({
+    select: {
+      id: true,
+      name: true,
+      scopes: true,
+      expiresAt: true,
+      revokedAt: true,
+      lastUsedAt: true,
+      createdAt: true,
+      user: {
+        select: {
+          id: true,
+          email: true,
+          slug: true,
+        },
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+  })
+}
+
+export function create(data: {
+  userId: string
+  name: string
+  lookupHash: string
+  tokenHash: string
+  salt: string
+  scopes: string[]
+  expiresAt: Date | null
+}) {
+  return prisma.personalAccessToken.create({ data })
+}
+
+export function revokeAllActiveByUserId(
+  userId: string,
+  client: PersonalAccessTokenClient = prisma,
+) {
+  return client.personalAccessToken.updateMany({
+    where: { userId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  })
+}
+
+export function revokeByIdAndUserId(
+  id: string,
+  userId: string,
+  client: PersonalAccessTokenClient = prisma,
+) {
+  return client.personalAccessToken.updateMany({
+    where: { id, userId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  })
+}
+
+export function revokeById(id: string, client: PersonalAccessTokenClient = prisma) {
+  return client.personalAccessToken.updateMany({
+    where: { id, revokedAt: null },
+    data: { revokedAt: new Date() },
+  })
+}
+
+export function touchLastUsed(id: string) {
+  return prisma.personalAccessToken.update({
+    where: { id },
+    data: { lastUsedAt: new Date() },
+  })
+}

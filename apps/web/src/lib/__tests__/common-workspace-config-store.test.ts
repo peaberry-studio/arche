@@ -17,6 +17,7 @@ const {
   mockReadFile,
   mockWriteFile,
   mockMkdir,
+  mockMutateBareRepo,
 } = vi.hoisted(() => ({
   mockResolveRepoRoot: vi.fn(),
   mockHasBareRepoLayout: vi.fn(),
@@ -32,6 +33,7 @@ const {
   mockReadFile: vi.fn(),
   mockWriteFile: vi.fn(),
   mockMkdir: vi.fn(),
+  mockMutateBareRepo: vi.fn(),
 }))
 
 vi.mock('@/lib/git/bare-repo', () => ({
@@ -44,6 +46,7 @@ vi.mock('@/lib/git/bare-repo', () => ({
   runGit: mockRunGit,
   runGitOnBareRepo: mockRunGitOnBareRepo,
   detectDefaultBranch: mockDetectDefaultBranch,
+  mutateBareRepo: mockMutateBareRepo,
 }))
 
 vi.mock('@/lib/runtime/paths', () => ({
@@ -226,205 +229,119 @@ describe('writeCommonWorkspaceConfig', () => {
 
     const result = await writeCommonWorkspaceConfig('{}')
     expect(result).toEqual({ ok: false, error: 'kb_unavailable' })
-  })
-
-  it('returns kb_unavailable when not a bare repo', async () => {
-    mockGetKbConfigRoot.mockReturnValue(CONFIG_ROOT)
-    mockResolveRepoRoot.mockResolvedValue(CONFIG_ROOT)
-    mockHasBareRepoLayout.mockResolvedValue(false)
-
-    const result = await writeCommonWorkspaceConfig('{}')
-    expect(result).toEqual({ ok: false, error: 'kb_unavailable' })
-  })
-
-  it('returns write_failed when git is not available', async () => {
-    mockGetKbConfigRoot.mockReturnValue(CONFIG_ROOT)
-    mockResolveRepoRoot.mockResolvedValue(CONFIG_ROOT)
-    mockHasBareRepoLayout.mockResolvedValue(true)
-    mockIsGitAvailable.mockResolvedValue(false)
-
-    const result = await writeCommonWorkspaceConfig('{}')
-    expect(result).toEqual({ ok: false, error: 'write_failed' })
-  })
-
-  it('returns write_failed when clone fails', async () => {
-    mockGetKbConfigRoot.mockReturnValue(CONFIG_ROOT)
-    mockResolveRepoRoot.mockResolvedValue(CONFIG_ROOT)
-    mockHasBareRepoLayout.mockResolvedValue(true)
-    mockIsGitAvailable.mockResolvedValue(true)
-    mockCloneRepoToTemp.mockResolvedValue({ ok: false })
-
-    const result = await writeCommonWorkspaceConfig('{}')
-    expect(result).toEqual({ ok: false, error: 'write_failed' })
+    expect(mockMutateBareRepo).not.toHaveBeenCalled()
   })
 
   it('returns conflict when expectedHash does not match current content hash', async () => {
-    setupAvailableRepo()
+    mockGetKbConfigRoot.mockReturnValue(CONFIG_ROOT)
+    mockResolveRepoRoot.mockResolvedValue(CONFIG_ROOT)
     mockReadFile.mockResolvedValue('{"existing":"data"}')
     mockHashContent.mockReturnValue('current-hash')
+    mockMutateBareRepo.mockImplementation(async (args) => {
+      const mutation = await args.mutate({ currentHash: 'commit', gitEnv: GIT_ENV, repoDir: CLONE_DIR })
+      return mutation.ok ? { ok: true, data: mutation.data, hash: 'commit' } : mutation
+    })
 
     const result = await writeCommonWorkspaceConfig('{"new":"data"}', 'stale-hash')
     expect(result).toEqual({ ok: false, error: 'conflict' })
-    expect(mockCleanupClone).toHaveBeenCalled()
   })
 
-  it('returns success without committing when no changes detected (status empty)', async () => {
-    setupAvailableRepo()
+  it('writes config through mutateBareRepo with canonical author and changed path', async () => {
+    mockGetKbConfigRoot.mockReturnValue(CONFIG_ROOT)
+    mockResolveRepoRoot.mockResolvedValue(CONFIG_ROOT)
     mockReadFile.mockResolvedValue('{"key":"value"}')
     mockHashContent.mockReturnValue('matching-hash')
-    mockRunGit
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git add
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git status --porcelain (no changes)
+    mockMutateBareRepo.mockImplementation(async (args) => {
+      const mutation = await args.mutate({ currentHash: 'commit', gitEnv: GIT_ENV, repoDir: CLONE_DIR })
+      return mutation.ok ? { ok: true, data: mutation.data, hash: 'next-commit' } : mutation
+    })
 
     const result = await writeCommonWorkspaceConfig('{"key":"value"}', 'matching-hash')
     expect(result).toEqual({ ok: true, hash: 'matching-hash' })
-    expect(mockCleanupClone).toHaveBeenCalled()
-  })
 
-  it('commits and pushes when changes are detected', async () => {
-    setupAvailableRepo()
-    mockReadFile.mockRejectedValue(new Error('ENOENT')) // no existing file
-    mockHashContent.mockReturnValue('new-hash')
-    mockDetectDefaultBranch.mockResolvedValue('main')
-    mockRunGit
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git add
-      .mockResolvedValueOnce({ ok: true, stdout: 'M CommonWorkspaceConfig.json\n' }) // git status
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git commit
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git push
-
-    const result = await writeCommonWorkspaceConfig('{"new":"config"}')
-    expect(result).toEqual({ ok: true, hash: 'new-hash' })
-
-    // Verify the write was performed
     expect(mockWriteFile).toHaveBeenCalledWith(
       path.join(CLONE_DIR, 'CommonWorkspaceConfig.json'),
-      '{"new":"config"}',
+      '{"key":"value"}',
       'utf-8'
     )
-
-    // Verify commit args include user config
-    const commitCall = mockRunGit.mock.calls[2]
-    expect(commitCall[0]).toEqual([
-      '-c', 'user.name=Arche Config',
-      '-c', 'user.email=config@arche.local',
-      'commit',
-      '-m', 'Update common workspace config',
-    ])
-
-    // Verify push target
-    const pushCall = mockRunGit.mock.calls[3]
-    expect(pushCall[0]).toEqual(['push', 'origin', 'HEAD:refs/heads/main'])
+    expect(mockMutateBareRepo).toHaveBeenCalledWith(expect.objectContaining({
+      commitMessage: 'Update common workspace config',
+      gitAuthorEmail: 'config@arche.local',
+      gitAuthorName: 'Arche Config',
+      root: CONFIG_ROOT,
+    }))
+    const delegateArgs = mockMutateBareRepo.mock.calls[0][0]
+    const mutation = await delegateArgs.mutate({ currentHash: 'commit', gitEnv: GIT_ENV, repoDir: CLONE_DIR })
+    expect(mutation).toEqual({ ok: true, changedPaths: ['CommonWorkspaceConfig.json'], data: { hash: 'matching-hash' } })
   })
 
   it('skips hash check when expectedHash is not provided', async () => {
-    setupAvailableRepo()
+    mockGetKbConfigRoot.mockReturnValue(CONFIG_ROOT)
+    mockResolveRepoRoot.mockResolvedValue(CONFIG_ROOT)
     mockReadFile.mockResolvedValue('{"old":"content"}')
     mockHashContent.mockReturnValue('some-hash')
-    mockRunGit
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git add
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git status (no changes)
+    mockMutateBareRepo.mockImplementation(async (args) => {
+      const mutation = await args.mutate({ currentHash: 'commit', gitEnv: GIT_ENV, repoDir: CLONE_DIR })
+      return mutation.ok ? { ok: true, data: mutation.data, hash: 'commit' } : mutation
+    })
 
     const result = await writeCommonWorkspaceConfig('{"old":"content"}')
     expect(result).toEqual({ ok: true, hash: 'some-hash' })
   })
 
   it('skips hash check when current file is empty (read fails)', async () => {
-    setupAvailableRepo()
+    mockGetKbConfigRoot.mockReturnValue(CONFIG_ROOT)
+    mockResolveRepoRoot.mockResolvedValue(CONFIG_ROOT)
     mockReadFile.mockRejectedValue(new Error('ENOENT'))
     mockHashContent.mockReturnValue('hash-of-new')
-    mockRunGit
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git add
-      .mockResolvedValueOnce({ ok: true, stdout: 'A CommonWorkspaceConfig.json\n' }) // git status
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git commit
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git push
-    mockDetectDefaultBranch.mockResolvedValue('main')
+    mockMutateBareRepo.mockImplementation(async (args) => {
+      const mutation = await args.mutate({ currentHash: 'commit', gitEnv: GIT_ENV, repoDir: CLONE_DIR })
+      return mutation.ok ? { ok: true, data: mutation.data, hash: 'commit' } : mutation
+    })
 
-    // Even with expectedHash, if current is '' (from catch), and hashContent('') != expectedHash,
-    // the check `current && hashContent(current) !== expectedHash` passes because current is ''
-    // which is falsy, so the condition short-circuits
     const result = await writeCommonWorkspaceConfig('{"new":"data"}', 'any-hash')
     expect(result).toEqual({ ok: true, hash: 'hash-of-new' })
   })
 
-  it('returns conflict on non-fast-forward push error', async () => {
-    setupAvailableRepo()
-    mockReadFile.mockRejectedValue(new Error('ENOENT'))
-    mockHashContent.mockReturnValue('hash')
-    mockDetectDefaultBranch.mockResolvedValue('main')
-    mockRunGit
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git add
-      .mockResolvedValueOnce({ ok: true, stdout: 'M CommonWorkspaceConfig.json\n' }) // git status
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git commit
-      .mockResolvedValueOnce({ ok: false, stderr: 'error: failed to push some refs: non-fast-forward' }) // push
+  it('preserves mutateBareRepo conflicts including fetch-first push rejections', async () => {
+    mockGetKbConfigRoot.mockReturnValue(CONFIG_ROOT)
+    mockResolveRepoRoot.mockResolvedValue(CONFIG_ROOT)
+    mockMutateBareRepo.mockResolvedValue({ ok: false, error: 'conflict' })
 
     const result = await writeCommonWorkspaceConfig('{}')
     expect(result).toEqual({ ok: false, error: 'conflict' })
   })
 
-  it('returns write_failed on push error without non-fast-forward', async () => {
-    setupAvailableRepo()
-    mockReadFile.mockRejectedValue(new Error('ENOENT'))
-    mockHashContent.mockReturnValue('hash')
-    mockDetectDefaultBranch.mockResolvedValue('main')
-    mockRunGit
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git add
-      .mockResolvedValueOnce({ ok: true, stdout: 'M CommonWorkspaceConfig.json\n' }) // git status
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git commit
-      .mockResolvedValueOnce({ ok: false, stderr: 'fatal: remote error' }) // push
+  it('maps mutateBareRepo repo availability failures to kb_unavailable', async () => {
+    mockGetKbConfigRoot.mockReturnValue(CONFIG_ROOT)
+    mockResolveRepoRoot.mockResolvedValue(CONFIG_ROOT)
+    mockMutateBareRepo.mockResolvedValue({ ok: false, error: 'repo_unavailable' })
 
     const result = await writeCommonWorkspaceConfig('{}')
-    expect(result).toEqual({ ok: false, error: 'write_failed' })
+    expect(result).toEqual({ ok: false, error: 'kb_unavailable' })
   })
 
-  it('returns write_failed when git add fails', async () => {
-    setupAvailableRepo()
-    mockReadFile.mockRejectedValue(new Error('ENOENT'))
-    mockRunGit.mockResolvedValueOnce({ ok: false, stderr: 'add error' })
+  it.each(['clone_failed', 'git_unavailable', 'write_failed'] as const)(
+    'maps mutateBareRepo %s to write_failed',
+    async (error) => {
+      mockGetKbConfigRoot.mockReturnValue(CONFIG_ROOT)
+      mockResolveRepoRoot.mockResolvedValue(CONFIG_ROOT)
+      mockMutateBareRepo.mockResolvedValue({ ok: false, error })
 
-    const result = await writeCommonWorkspaceConfig('{}')
-    expect(result).toEqual({ ok: false, error: 'write_failed' })
-  })
-
-  it('returns write_failed when git status fails', async () => {
-    setupAvailableRepo()
-    mockReadFile.mockRejectedValue(new Error('ENOENT'))
-    mockRunGit
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git add
-      .mockResolvedValueOnce({ ok: false, stderr: 'status error' }) // git status
-
-    const result = await writeCommonWorkspaceConfig('{}')
-    expect(result).toEqual({ ok: false, error: 'write_failed' })
-  })
-
-  it('returns write_failed when git commit fails', async () => {
-    setupAvailableRepo()
-    mockReadFile.mockRejectedValue(new Error('ENOENT'))
-    mockHashContent.mockReturnValue('hash')
-    mockRunGit
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git add
-      .mockResolvedValueOnce({ ok: true, stdout: 'M CommonWorkspaceConfig.json\n' }) // git status
-      .mockResolvedValueOnce({ ok: false, stderr: 'commit error' }) // git commit
-
-    const result = await writeCommonWorkspaceConfig('{}')
-    expect(result).toEqual({ ok: false, error: 'write_failed' })
-  })
-
-  it('always calls cleanupClone in the write pipeline', async () => {
-    setupAvailableRepo()
-    mockReadFile.mockRejectedValue(new Error('ENOENT'))
-    mockRunGit.mockResolvedValueOnce({ ok: false, stderr: 'add error' })
-
-    await writeCommonWorkspaceConfig('{}')
-    expect(mockCleanupClone).toHaveBeenCalled()
-  })
+      const result = await writeCommonWorkspaceConfig('{}')
+      expect(result).toEqual({ ok: false, error: 'write_failed' })
+    }
+  )
 
   it('creates parent directory before writing file', async () => {
-    setupAvailableRepo()
+    mockGetKbConfigRoot.mockReturnValue(CONFIG_ROOT)
+    mockResolveRepoRoot.mockResolvedValue(CONFIG_ROOT)
     mockReadFile.mockRejectedValue(new Error('ENOENT'))
-    mockRunGit
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git add
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git status (no changes)
     mockHashContent.mockReturnValue('h')
+    mockMutateBareRepo.mockImplementation(async (args) => {
+      const mutation = await args.mutate({ currentHash: 'commit', gitEnv: GIT_ENV, repoDir: CLONE_DIR })
+      return mutation.ok ? { ok: true, data: mutation.data, hash: 'commit' } : mutation
+    })
 
     await writeCommonWorkspaceConfig('content')
 
@@ -432,23 +349,6 @@ describe('writeCommonWorkspaceConfig', () => {
       path.dirname(path.join(CLONE_DIR, 'CommonWorkspaceConfig.json')),
       { recursive: true }
     )
-  })
-
-  it('uses detectDefaultBranch for push target', async () => {
-    setupAvailableRepo()
-    mockReadFile.mockRejectedValue(new Error('ENOENT'))
-    mockHashContent.mockReturnValue('hash')
-    mockDetectDefaultBranch.mockResolvedValue('master')
-    mockRunGit
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git add
-      .mockResolvedValueOnce({ ok: true, stdout: 'M CommonWorkspaceConfig.json\n' }) // git status
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git commit
-      .mockResolvedValueOnce({ ok: true, stdout: '' }) // git push
-
-    await writeCommonWorkspaceConfig('{}')
-
-    const pushCall = mockRunGit.mock.calls[3]
-    expect(pushCall[0]).toEqual(['push', 'origin', 'HEAD:refs/heads/master'])
   })
 })
 

@@ -1,6 +1,7 @@
 import Link from 'next/link'
 
 import { ThemePicker } from '@/components/dashboard/theme-picker'
+import { McpIntegrationSummaryCard } from '@/components/mcp/mcp-integration-summary-card'
 import { OrganizationProviderCredentialsPanel } from '@/components/providers/organization-provider-credentials-panel'
 import { UsageAnalyticsPanel } from '@/components/providers/usage-analytics-panel'
 import { GoogleWorkspaceIntegrationSummaryCard } from '@/components/settings/google-workspace-integration-summary-card'
@@ -130,6 +131,7 @@ export function SettingsPageContent({
             {kbGithubRemoteSummary ? (
               <KbGithubRemoteSummaryCard slug={slug} integration={kbGithubRemoteSummary} />
             ) : null}
+            <McpIntegrationSummaryCard slug={slug} />
           </div>
         )
       case 'providers':

@@ -4,12 +4,11 @@ import * as path from 'node:path'
 import {
   cleanupClone,
   cloneRepoToTemp,
-  detectDefaultBranch,
   hasBareRepoLayout,
   hashContent,
   isGitAvailable,
+  mutateBareRepo,
   resolveRepoRoot,
-  runGit,
   runGitOnBareRepo,
 } from '@/lib/git/bare-repo'
 import { getKbConfigRoot, getKbContentRoot } from '@/lib/runtime/paths'
@@ -76,73 +75,38 @@ export async function writeCommonWorkspaceConfig(
   const root = await resolveConfigRepoRoot()
   if (!root) return { ok: false, error: 'kb_unavailable' }
 
-  if (!(await hasBareRepoLayout(root))) {
-    return { ok: false, error: 'kb_unavailable' }
-  }
-
-  if (!(await isGitAvailable())) {
-    return { ok: false, error: 'write_failed' }
-  }
-
-  const clone = await cloneRepoToTemp(root)
-  if (!clone.ok) return { ok: false, error: 'write_failed' }
-
-  const configPath = path.join(clone.dir, CONFIG_FILE_NAME)
-  const current = await fs.readFile(configPath, 'utf-8').catch(() => '')
-  if (expectedHash && current && hashContent(current) !== expectedHash) {
-    await cleanupClone(clone)
-    return { ok: false, error: 'conflict' }
-  }
-
-  try {
-    await fs.mkdir(path.dirname(configPath), { recursive: true })
-    await fs.writeFile(configPath, content, 'utf-8')
-
-    const add = await runGit(['add', CONFIG_FILE_NAME], { cwd: clone.dir, env: clone.gitEnv })
-    if (!add.ok) {
-      return { ok: false, error: 'write_failed' }
-    }
-
-    const status = await runGit(['status', '--porcelain', '--', CONFIG_FILE_NAME], {
-      cwd: clone.dir,
-      env: clone.gitEnv,
-    })
-    if (!status.ok) {
-      return { ok: false, error: 'write_failed' }
-    }
-
-    if (!status.stdout.trim()) {
-      return { ok: true, hash: hashContent(content) }
-    }
-
-    const commit = await runGit(
-      [
-        '-c', 'user.name=Arche Config',
-        '-c', 'user.email=config@arche.local',
-        'commit',
-        '-m', 'Update common workspace config'
-      ],
-      { cwd: clone.dir, env: clone.gitEnv }
-    )
-    if (!commit.ok) {
-      return { ok: false, error: 'write_failed' }
-    }
-
-    const branch = await detectDefaultBranch(clone.dir, clone.gitEnv)
-    const push = await runGit(['push', 'origin', `HEAD:refs/heads/${branch}`], {
-      cwd: clone.dir,
-      env: clone.gitEnv,
-    })
-    if (!push.ok) {
-      if (push.stderr.includes('non-fast-forward')) {
+  const result = await mutateBareRepo<{ hash: string }, 'conflict'>({
+    root,
+    commitMessage: 'Update common workspace config',
+    gitAuthorName: 'Arche Config',
+    gitAuthorEmail: 'config@arche.local',
+    mutate: async ({ repoDir }) => {
+      const configPath = path.join(repoDir, CONFIG_FILE_NAME)
+      const current = await fs.readFile(configPath, 'utf-8').catch(() => '')
+      if (expectedHash && current && hashContent(current) !== expectedHash) {
         return { ok: false, error: 'conflict' }
       }
-      return { ok: false, error: 'write_failed' }
-    }
 
-    return { ok: true, hash: hashContent(content) }
-  } finally {
-    await cleanupClone(clone)
+      const nextHash = hashContent(content)
+
+      await fs.mkdir(path.dirname(configPath), { recursive: true })
+      await fs.writeFile(configPath, content, 'utf-8')
+
+      return { ok: true, changedPaths: [CONFIG_FILE_NAME], data: { hash: nextHash } }
+    },
+  })
+
+  if (result.ok) return { ok: true, hash: result.data.hash }
+
+  switch (result.error) {
+    case 'repo_unavailable':
+      return { ok: false, error: 'kb_unavailable' }
+    case 'conflict':
+      return { ok: false, error: 'conflict' }
+    case 'clone_failed':
+    case 'git_unavailable':
+    case 'write_failed':
+      return { ok: false, error: 'write_failed' }
   }
 }
 

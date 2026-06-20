@@ -211,9 +211,9 @@ describe('SettingsPage', () => {
     render(await renderSettingsPage({ section: 'integrations' }))
 
     expect(settingsPageProps.current).toMatchObject({
-      availableSections: ['general', 'team'],
+      availableSections: ['general', 'team', 'integrations'],
       canManageUsers: true,
-      currentSection: 'general',
+      currentSection: 'integrations',
       currentUserId: 'user-1',
       isAdmin: false,
       passwordChangeEnabled: false,

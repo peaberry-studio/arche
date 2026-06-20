@@ -21,18 +21,12 @@ export const SETTINGS_SECTION_LABELS: Record<SettingsSection, string> = {
 type SettingsSectionAvailability = {
   isAdmin: boolean
   passwordChangeEnabled: boolean
-  slackIntegrationEnabled: boolean
-  googleWorkspaceIntegrationEnabled: boolean
-  kbGithubRemoteIntegrationEnabled: boolean
   twoFactorEnabled: boolean
 }
 
 export function getAvailableSettingsSections({
   isAdmin,
   passwordChangeEnabled,
-  slackIntegrationEnabled,
-  googleWorkspaceIntegrationEnabled,
-  kbGithubRemoteIntegrationEnabled,
   twoFactorEnabled,
 }: SettingsSectionAvailability): SettingsSection[] {
   const sections: SettingsSection[] = ['general']
@@ -43,10 +37,7 @@ export function getAvailableSettingsSections({
   }
 
   sections.push('team')
-
-  if (isAdmin && (slackIntegrationEnabled || googleWorkspaceIntegrationEnabled || kbGithubRemoteIntegrationEnabled)) {
-    sections.push('integrations')
-  }
+  sections.push('integrations')
 
   if (passwordChangeEnabled || twoFactorEnabled) {
     sections.push('security')
