@@ -1077,56 +1077,21 @@ export async function getSessionDiffsAction(
 
     return {
       ok: true,
-      diffs: diffs.map((d) => {
-        // Determine status based on before/after content
-        let status: "modified" | "added" | "deleted" = "modified";
-        if (!d.before || d.before === "") status = "added";
-        else if (!d.after || d.after === "") status = "deleted";
-
-        // Generate unified diff format
-        const diff = `--- a/${d.file}\n+++ b/${d.file}\n${generateUnifiedDiff(
-          d.before,
-          d.after
-        )}`;
+      diffs: diffs.flatMap((d) => {
+        if (!d.file) return [];
 
         return {
           path: d.file,
-          status,
+          status: d.status ?? "modified",
           additions: d.additions,
           deletions: d.deletions,
-          diff,
+          diff: d.patch ?? "",
         };
       }),
     };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "unknown" };
   }
-}
-
-/**
- * Generate a simple unified diff representation.
- */
-function generateUnifiedDiff(before: string, after: string): string {
-  const beforeLines = before.split("\n");
-  const afterLines = after.split("\n");
-
-  // Simple line-by-line diff for display
-  const lines: string[] = [];
-  const maxLines = Math.max(beforeLines.length, afterLines.length);
-
-  for (let i = 0; i < maxLines; i++) {
-    const beforeLine = beforeLines[i];
-    const afterLine = afterLines[i];
-
-    if (beforeLine === afterLine) {
-      if (beforeLine !== undefined) lines.push(` ${beforeLine}`);
-    } else {
-      if (beforeLine !== undefined) lines.push(`-${beforeLine}`);
-      if (afterLine !== undefined) lines.push(`+${afterLine}`);
-    }
-  }
-
-  return lines.join("\n");
 }
 
 // ============================================================================
