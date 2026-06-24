@@ -10,9 +10,8 @@ export type {
   Part,
   FileNode,
   Provider,
-  Agent,
-  FileDiff
-} from '@opencode-ai/sdk'
+  Agent
+} from '@opencode-ai/sdk/v2'
 
 /**
  * Simplified file node for the file tree panel.

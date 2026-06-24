@@ -1052,12 +1052,12 @@ describe('getSessionDiffsAction', () => {
     expect(result).toEqual({ ok: false, error: 'unauthorized' })
   })
 
-  it('returns diffs with computed status', async () => {
+  it('returns diffs with API status and patch', async () => {
     mockSessionDiff.mockResolvedValue({
       data: [
-        { file: 'src/a.ts', before: 'old', after: 'new', additions: 1, deletions: 1 },
-        { file: 'src/b.ts', before: '', after: 'new', additions: 1, deletions: 0 },
-        { file: 'src/c.ts', before: 'old', after: '', additions: 0, deletions: 1 },
+        { file: 'src/a.ts', status: 'modified', patch: '@@ a', additions: 1, deletions: 1 },
+        { file: 'src/b.ts', status: 'added', patch: '@@ b', additions: 1, deletions: 0 },
+        { file: 'src/c.ts', status: 'deleted', patch: '@@ c', additions: 0, deletions: 1 },
       ],
     })
 
@@ -1067,6 +1067,7 @@ describe('getSessionDiffsAction', () => {
     expect(result.diffs![0].status).toBe('modified')
     expect(result.diffs![1].status).toBe('added')
     expect(result.diffs![2].status).toBe('deleted')
+    expect(result.diffs![0].diff).toBe('@@ a')
   })
 
   it('handles null data', async () => {
