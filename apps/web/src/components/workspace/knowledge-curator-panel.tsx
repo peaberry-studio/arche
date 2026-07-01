@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ArrowLineRight } from "@phosphor-icons/react";
 
 import { Button } from "@/components/ui/button";
+import { MarkdownPreview } from "@/components/workspace/markdown-preview";
 import { cn } from "@/lib/utils";
 import type { LearningProposal, LearningRun, LearningRunStatus } from "@/types/learning";
 
@@ -13,6 +14,7 @@ type KnowledgeCuratorPanelProps = {
   collapsed?: boolean;
   onToggleCollapse?: () => void;
   onOpenSession?: (sessionId: string) => void;
+  onProposalSentToReview?: () => Promise<void> | void;
   refreshKey?: number;
 }
 
@@ -76,7 +78,15 @@ function RunStatusBadge({ status }: { status: LearningRunStatus }) {
   );
 }
 
-export function KnowledgeCuratorPanel({ slug, collapsed = false, onToggleCollapse, onOpenSession, refreshKey = 0 }: KnowledgeCuratorPanelProps) {
+function formatTrigger(trigger: LearningRun["trigger"]): string {
+  return trigger.charAt(0).toUpperCase() + trigger.slice(1);
+}
+
+function formatMessageCount(count: number): string {
+  return `${count} ${count === 1 ? "message" : "messages"}`;
+}
+
+export function KnowledgeCuratorPanel({ slug, collapsed = false, onToggleCollapse, onOpenSession, onProposalSentToReview, refreshKey = 0 }: KnowledgeCuratorPanelProps) {
   const [data, setData] = useState<LearningResponse>({ proposals: [], runs: [] });
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -196,6 +206,9 @@ export function KnowledgeCuratorPanel({ slug, collapsed = false, onToggleCollaps
 
         setError(null);
         await refresh();
+        if (action === "apply") {
+          void onProposalSentToReview?.();
+        }
         setEdits((current) => {
           const next = { ...current };
           delete next[proposalId];
@@ -207,7 +220,7 @@ export function KnowledgeCuratorPanel({ slug, collapsed = false, onToggleCollaps
         setBusyProposalId(null);
       }
     },
-    [refresh, slug]
+    [onProposalSentToReview, refresh, slug]
   );
 
   if (collapsed) {
@@ -259,42 +272,59 @@ export function KnowledgeCuratorPanel({ slug, collapsed = false, onToggleCollaps
         {error ? <p className="text-xs text-destructive">{errorLabel(error)}</p> : null}
         <section className="space-y-2">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pending proposals</h3>
-          {data.proposals.filter((proposal) => proposal.status === "pending").map((proposal) => (
-            <article key={proposal.id} className="space-y-2 rounded-lg border border-border/60 bg-background/60 p-3">
-              <div>
-                <p className="text-sm font-medium">{proposal.title}</p>
-                <p className="text-xs text-muted-foreground">{proposal.operation} {proposal.kbPath} · {Math.round(proposal.confidence * 100)}%</p>
-              </div>
-              {proposal.evidence.quote ? (
-                <blockquote className="rounded bg-muted/40 p-2 text-xs text-muted-foreground">{proposal.evidence.quote}</blockquote>
-              ) : null}
-              <textarea
-                className="h-28 w-full rounded-md border border-border bg-background p-2 text-xs outline-none"
-                value={edits[proposal.id] ?? proposal.proposedContent}
-                disabled={busyProposalId === proposal.id}
-                onChange={(event) => {
-                  setEdits((current) => ({ ...current, [proposal.id]: event.currentTarget.value }));
-                }}
-              />
-              <div className="flex justify-end gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={busyProposalId !== null}
-                  onClick={() => void actOnProposal(proposal.id, "reject")}
-                >
-                  Reject
-                </Button>
-                <Button
-                  size="sm"
-                  disabled={busyProposalId !== null}
-                  onClick={() => void actOnProposal(proposal.id, "apply", edits[proposal.id] ?? proposal.proposedContent)}
-                >
-                  Apply
-                </Button>
-              </div>
-            </article>
-          ))}
+          {data.proposals.filter((proposal) => proposal.status === "pending").map((proposal) => {
+            const proposalContent = edits[proposal.id] ?? proposal.proposedContent;
+
+            return (
+              <article key={proposal.id} className="space-y-3 rounded-xl border border-border/60 bg-background/70 p-3 shadow-sm">
+                <div>
+                  <p className="text-sm font-medium">{proposal.title}</p>
+                  <p className="text-xs text-muted-foreground">{proposal.operation} {proposal.kbPath} · {Math.round(proposal.confidence * 100)}%</p>
+                </div>
+                {proposal.evidence.quote ? (
+                  <blockquote className="rounded-lg border border-border/40 bg-muted/30 p-2 text-xs leading-relaxed text-muted-foreground">{proposal.evidence.quote}</blockquote>
+                ) : null}
+                <div className="overflow-hidden rounded-lg border border-border/60 bg-background">
+                  <div className="border-b border-border/50 bg-muted/30 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Markdown preview
+                  </div>
+                  <div className="max-h-72 overflow-y-auto scrollbar-none">
+                    <MarkdownPreview content={proposalContent} />
+                  </div>
+                </div>
+                <details className="rounded-lg border border-border/50 bg-muted/20 p-2">
+                  <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+                    Edit markdown before review
+                  </summary>
+                  <textarea
+                    className="mt-2 h-28 w-full rounded-md border border-border bg-background p-2 font-mono text-xs outline-none"
+                    value={proposalContent}
+                    disabled={busyProposalId === proposal.id}
+                    onChange={(event) => {
+                      setEdits((current) => ({ ...current, [proposal.id]: event.currentTarget.value }));
+                    }}
+                  />
+                </details>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busyProposalId !== null}
+                    onClick={() => void actOnProposal(proposal.id, "reject")}
+                  >
+                    Reject
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={busyProposalId !== null}
+                    onClick={() => void actOnProposal(proposal.id, "apply", proposalContent)}
+                  >
+                    Send to review
+                  </Button>
+                </div>
+              </article>
+            );
+          })}
           {pendingProposalCount === 0 ? (
             <p className="text-xs text-muted-foreground">No pending proposals.</p>
           ) : null}
@@ -308,14 +338,19 @@ export function KnowledgeCuratorPanel({ slug, collapsed = false, onToggleCollaps
             const isCancelable = run.status === "pending" || run.status === "running";
             const internalSessionId = run.internalSessionId;
             return (
-              <div key={run.id} className="space-y-1 rounded-md border border-border/60 p-2 text-xs">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="min-w-0 truncate font-medium">{run.title}</p>
+              <article key={run.id} className="rounded-xl border border-border/60 bg-background/70 p-3 text-xs shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-1">
+                    <p className="truncate text-sm font-medium">{run.title}</p>
+                    <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                      <span className="rounded-full bg-muted/50 px-2 py-0.5">{formatTrigger(run.trigger)}</span>
+                      <span className="rounded-full bg-muted/50 px-2 py-0.5">{formatMessageCount(run.messageCount)}</span>
+                    </div>
+                  </div>
                   <RunStatusBadge status={run.status} />
                 </div>
-                <div className="flex items-center justify-between gap-2">
-                  <p className="min-w-0 truncate text-muted-foreground">{run.trigger}</p>
-                  <div className="flex shrink-0 items-center gap-1.5">
+                <div className="mt-3 flex items-center justify-end gap-2">
+                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
                     {internalSessionId && onOpenSession ? (
                       <Button
                         size="sm"
@@ -351,9 +386,9 @@ export function KnowledgeCuratorPanel({ slug, collapsed = false, onToggleCollaps
                   </div>
                 </div>
                 {run.status === "failed" && run.error ? (
-                  <p className="text-destructive">{errorLabel(run.error)}</p>
+                  <p className="mt-2 rounded-lg bg-destructive/10 px-2 py-1 text-destructive">{errorLabel(run.error)}</p>
                 ) : null}
-              </div>
+              </article>
             );
           })}
           {data.runs.length === 0 ? (

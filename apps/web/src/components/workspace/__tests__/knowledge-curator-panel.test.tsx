@@ -27,7 +27,7 @@ const learningResponse = {
       evidence: { quote: 'Use concise answers' },
       kbPath: 'Preferences/Answers.md',
       operation: 'update',
-      proposedContent: 'Use concise answers.',
+      proposedContent: '# Preference\n\nUse **concise** answers.',
       currentFileHash: 'hash-old',
       internalSessionId: null,
       trigger: 'agent',
@@ -71,7 +71,7 @@ describe('KnowledgeCuratorPanel', () => {
     render(<KnowledgeCuratorPanel slug="alice" />)
 
     expect(await screen.findByText('Remember preference')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send to review' }))
 
     expect(await screen.findByText('The target file changed since this proposal was created. Review it before applying.')).toBeTruthy()
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
@@ -95,16 +95,40 @@ describe('KnowledgeCuratorPanel', () => {
     render(<KnowledgeCuratorPanel slug="alice" />)
 
     expect(await screen.findByText('Remember preference')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send to review' }))
 
     await waitFor(() => {
-      expect((screen.getByRole('button', { name: 'Apply' }) as HTMLButtonElement).disabled).toBe(true)
+      expect((screen.getByRole('button', { name: 'Send to review' }) as HTMLButtonElement).disabled).toBe(true)
       expect((screen.getByRole('button', { name: 'Reject' }) as HTMLButtonElement).disabled).toBe(true)
     })
 
     resolveAction?.(jsonResponse({ proposal: { id: 'proposal-1' } }))
 
     expect(await screen.findByText('No pending proposals.')).toBeTruthy()
+  })
+
+  it('renders proposal content as a markdown preview', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(learningResponse))
+
+    render(<KnowledgeCuratorPanel slug="alice" />)
+
+    expect(await screen.findByRole('heading', { name: 'Preference' })).toBeTruthy()
+    expect(screen.getByText('concise')).toBeTruthy()
+  })
+
+  it('notifies the workspace after a proposal is sent to review', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(learningResponse))
+      .mockResolvedValueOnce(jsonResponse({ proposal: { id: 'proposal-1' } }))
+      .mockResolvedValueOnce(jsonResponse({ runs: [], proposals: [] }))
+    const onProposalSentToReview = vi.fn()
+
+    render(<KnowledgeCuratorPanel slug="alice" onProposalSentToReview={onProposalSentToReview} />)
+
+    expect(await screen.findByText('Remember preference')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Send to review' }))
+
+    await waitFor(() => expect(onProposalSentToReview).toHaveBeenCalledTimes(1))
   })
 
   it('refetches when refreshKey changes', async () => {

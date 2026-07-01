@@ -15,25 +15,27 @@ import {
   Sparkle,
 } from "@phosphor-icons/react";
 
-import { listSessionsAction } from "@/actions/opencode";
+import { listSessionsAction, searchFilesAction } from "@/actions/opencode";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { useFlowRunner } from "@/hooks/use-flow-runner";
-import type { WorkspaceSession } from "@/lib/opencode/types";
+import type { WorkspaceFileNode, WorkspaceSession } from "@/lib/opencode/types";
+import { cn } from "@/lib/utils";
 import { isFlowSession } from "@/lib/workspace-session-utils";
 import type { WorkspaceThemeId } from "@/lib/workspace-theme";
-import { cn } from "@/lib/utils";
 
 import type { WorkspaceMode } from "./workspace-mode-toggle";
 
 type WorkspaceCommandPaletteProps = {
+  fileNodes?: WorkspaceFileNode[];
   slug: string;
   open: boolean;
   hideFlows: boolean;
   onOpenChange: (open: boolean) => void;
   onCreateSession: () => Promise<void> | void;
   onModeChange: (mode: WorkspaceMode) => void;
+  onOpenFile?: (path: string) => Promise<void> | void;
   onNavigateConnectors: () => void;
   onNavigateProviders: () => void;
   onNavigateSettings: () => void;
@@ -55,6 +57,79 @@ type PaletteItem = {
 
 const SESSION_SEARCH_SCAN_LIMIT = 100;
 const SESSION_SEARCH_RESULT_LIMIT = 20;
+const FILE_SEARCH_RESULT_LIMIT = 15;
+
+type FileSearchCandidate = {
+  name: string;
+  path: string;
+};
+
+function flattenFileNodes(nodes: WorkspaceFileNode[]): FileSearchCandidate[] {
+  const result: FileSearchCandidate[] = [];
+
+  for (const node of nodes) {
+    if (node.type === "file") {
+      result.push({ name: node.name, path: node.path });
+      continue;
+    }
+
+    if (node.children && node.children.length > 0) {
+      result.push(...flattenFileNodes(node.children));
+    }
+  }
+
+  return result;
+}
+
+function basename(path: string): string {
+  return path.split("/").pop() ?? path;
+}
+
+function fuzzyScore(value: string, token: string): number | null {
+  const exactIndex = value.indexOf(token);
+  if (exactIndex >= 0) return exactIndex;
+
+  let valueIndex = 0;
+  let previousMatchIndex = -1;
+  let score = 50;
+
+  for (const character of token) {
+    const matchIndex = value.indexOf(character, valueIndex);
+    if (matchIndex === -1) return null;
+
+    score += matchIndex;
+    if (previousMatchIndex >= 0 && matchIndex !== previousMatchIndex + 1) {
+      score += 8;
+    }
+
+    previousMatchIndex = matchIndex;
+    valueIndex = matchIndex + 1;
+  }
+
+  return score;
+}
+
+function scoreFileMatch(file: FileSearchCandidate, query: string): number | null {
+  const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return null;
+
+  const name = file.name.toLowerCase();
+  const path = file.path.toLowerCase();
+  let score = 0;
+
+  for (const token of tokens) {
+    const nameScore = fuzzyScore(name, token);
+    const pathScore = fuzzyScore(path, token);
+    if (nameScore === null && pathScore === null) return null;
+
+    score += Math.min(
+      nameScore ?? Number.POSITIVE_INFINITY,
+      pathScore === null ? Number.POSITIVE_INFINITY : pathScore + 12
+    );
+  }
+
+  return score + file.path.length / 1000;
+}
 
 function matchesQuery(item: PaletteItem, query: string): boolean {
   if (!query) return true;
@@ -63,12 +138,14 @@ function matchesQuery(item: PaletteItem, query: string): boolean {
 }
 
 export function WorkspaceCommandPalette({
+  fileNodes = [],
   slug,
   open,
   hideFlows,
   onOpenChange,
   onCreateSession,
   onModeChange,
+  onOpenFile,
   onNavigateConnectors,
   onNavigateProviders,
   onNavigateSettings,
@@ -84,6 +161,8 @@ export function WorkspaceCommandPalette({
   const [isKeyboardNavigating, setIsKeyboardNavigating] = useState(false);
   const [sessionResults, setSessionResults] = useState<WorkspaceSession[]>([]);
   const [isSearchingSessions, setIsSearchingSessions] = useState(false);
+  const [fileResults, setFileResults] = useState<string[]>([]);
+  const [isSearchingFiles, setIsSearchingFiles] = useState(false);
   const { themes, themeId, setThemeId, toggleDark } = useWorkspaceTheme();
   const {
     flows,
@@ -103,6 +182,8 @@ export function WorkspaceCommandPalette({
       setIsKeyboardNavigating(false);
       setSessionResults([]);
       setIsSearchingSessions(false);
+      setFileResults([]);
+      setIsSearchingFiles(false);
     },
     [onOpenChange]
   );
@@ -113,10 +194,13 @@ export function WorkspaceCommandPalette({
     requestAnimationFrame(() => itemRefs.current[0]?.scrollIntoView({ block: "nearest" }));
     if (value.trim()) {
       setIsSearchingSessions(true);
+      setIsSearchingFiles(Boolean(onOpenFile));
       return;
     }
     setSessionResults([]);
     setIsSearchingSessions(false);
+    setFileResults([]);
+    setIsSearchingFiles(false);
   };
 
   useEffect(() => {
@@ -136,14 +220,21 @@ export function WorkspaceCommandPalette({
 
     let cancelled = false;
     const timeout = window.setTimeout(() => {
-      void listSessionsAction(slug, {
+      const sessionSearch = listSessionsAction(slug, {
         limit: SESSION_SEARCH_SCAN_LIMIT,
         query: trimmedQuery,
         rootsOnly: true,
-      }).then((result) => {
+      });
+      const fileSearch = onOpenFile
+        ? searchFilesAction(slug, trimmedQuery)
+        : Promise.resolve({ ok: true, files: [] as string[] });
+
+      void Promise.all([sessionSearch, fileSearch]).then(([sessionResult, fileResult]) => {
         if (cancelled) return;
-        setSessionResults(result.ok ? (result.sessions ?? []).slice(0, SESSION_SEARCH_RESULT_LIMIT) : []);
+        setSessionResults(sessionResult.ok ? (sessionResult.sessions ?? []).slice(0, SESSION_SEARCH_RESULT_LIMIT) : []);
+        setFileResults(fileResult.ok ? (fileResult.files ?? []) : []);
         setIsSearchingSessions(false);
+        setIsSearchingFiles(false);
       });
     }, 150);
 
@@ -151,7 +242,7 @@ export function WorkspaceCommandPalette({
       cancelled = true;
       window.clearTimeout(timeout);
     };
-  }, [open, query, slug]);
+  }, [onOpenFile, open, query, slug]);
 
   const closeAndRun = useCallback(
     async (run: () => Promise<void> | void) => {
@@ -308,10 +399,47 @@ export function WorkspaceCommandPalette({
       });
   }, [hideFlows, onSelectSession, sessionResults]);
 
+  const localFiles = useMemo(() => flattenFileNodes(fileNodes), [fileNodes]);
+
+  const fileItems = useMemo<PaletteItem[]>(() => {
+    const trimmedQuery = query.trim();
+    if (!onOpenFile || !trimmedQuery) return [];
+
+    const candidatesByPath = new Map<string, FileSearchCandidate>();
+    for (const file of localFiles) {
+      candidatesByPath.set(file.path, file);
+    }
+    for (const path of fileResults) {
+      if (!candidatesByPath.has(path)) {
+        candidatesByPath.set(path, { name: basename(path), path });
+      }
+    }
+
+    return Array.from(candidatesByPath.values())
+      .map((file) => ({ file, score: scoreFileMatch(file, trimmedQuery) }))
+      .filter((candidate): candidate is { file: FileSearchCandidate; score: number } => candidate.score !== null)
+      .sort((a, b) => a.score - b.score || a.file.path.localeCompare(b.file.path))
+      .slice(0, FILE_SEARCH_RESULT_LIMIT)
+      .map(({ file }) => ({
+        id: `file-${file.path}`,
+        title: file.name,
+        subtitle: file.path,
+        section: "Files",
+        icon: File,
+        keywords: file.path,
+        run: async () => {
+          onModeChange("knowledge");
+          await onOpenFile(file.path);
+        },
+      }));
+  }, [fileResults, localFiles, onModeChange, onOpenFile, query]);
+
   const visibleItems = useMemo(() => {
     const trimmedQuery = query.trim();
-    return [...baseItems, ...flowItems].filter((item) => matchesQuery(item, trimmedQuery)).concat(sessionItems);
-  }, [baseItems, flowItems, query, sessionItems]);
+    return [...baseItems, ...flowItems]
+      .filter((item) => matchesQuery(item, trimmedQuery))
+      .concat(fileItems, sessionItems);
+  }, [baseItems, fileItems, flowItems, query, sessionItems]);
 
   const boundedActiveIndex = Math.min(activeIndex, Math.max(visibleItems.length - 1, 0));
   const activeItem = visibleItems[boundedActiveIndex] ?? null;
@@ -346,7 +474,7 @@ export function WorkspaceCommandPalette({
       <DialogContent className="top-4 max-w-[calc(100vw-1rem)] translate-y-0 gap-0 overflow-hidden p-0 sm:top-[12vh] sm:max-w-2xl" showCloseButton={false}>
         <DialogTitle className="sr-only">Workspace command palette</DialogTitle>
         <DialogDescription className="sr-only">
-          Search workspace commands, chats, flow runs, and settings.
+          Search workspace commands, files, chats, flow runs, and settings.
         </DialogDescription>
         <div className="border-b border-border/50 p-3">
           <Input
@@ -354,14 +482,14 @@ export function WorkspaceCommandPalette({
             value={query}
             onChange={(event) => handleQueryChange(event.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Search commands, chats, flows..."
+            placeholder="Search commands, files, chats, flows..."
             className="h-11 border-0 bg-muted/40 text-base focus-visible:ring-0 focus-visible:ring-offset-0"
           />
         </div>
         <div className="scrollbar-custom max-h-[min(28rem,60vh)] overflow-y-auto p-2">
           {visibleItems.length === 0 ? (
             <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-              {isSearchingSessions ? "Searching sessions..." : "No commands or sessions found."}
+              {isSearchingSessions || isSearchingFiles ? "Searching..." : "No commands, files, or sessions found."}
             </div>
           ) : (
             <div className="space-y-1">
@@ -416,7 +544,7 @@ export function WorkspaceCommandPalette({
         <div className="flex items-center justify-between border-t border-border/50 px-4 py-2 text-[11px] text-muted-foreground">
           <span>Use arrows to navigate, Enter to run, Escape to close</span>
           <span>
-            {isLoadingFlows ? "Loading flows" : runningFlowId ? "Running flow" : runError ? runError : isSearchingSessions ? "Searching sessions" : null}
+            {isLoadingFlows ? "Loading flows" : runningFlowId ? "Running flow" : runError ? runError : isSearchingSessions || isSearchingFiles ? "Searching" : null}
           </span>
         </div>
       </DialogContent>

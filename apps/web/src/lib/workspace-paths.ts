@@ -42,6 +42,11 @@ export function isNodeModulesWorkspacePath(path: string): boolean {
   return segments.some((segment) => segment.toLowerCase() === 'node_modules')
 }
 
+export function isGitWorkspacePath(path: string): boolean {
+  const segments = splitPathSegments(path)
+  return segments.some((segment) => segment.toLowerCase() === '.git')
+}
+
 function isGitkeepWorkspacePath(path: string): boolean {
   const segments = splitPathSegments(path)
   return segments.some((segment) => segment.toLowerCase() === '.gitkeep')
@@ -50,6 +55,7 @@ function isGitkeepWorkspacePath(path: string): boolean {
 export function isProtectedWorkspacePath(path: string): boolean {
   return (
     isRootProtectedWorkspaceFile(path) ||
+    isGitWorkspacePath(path) ||
     isNodeModulesWorkspacePath(path) ||
     isGitkeepWorkspacePath(path)
   )

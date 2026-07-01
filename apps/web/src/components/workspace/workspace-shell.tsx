@@ -1229,7 +1229,7 @@ export function WorkspaceShell({
   }, [openFilePaths, fileCache]);
 
   // File handlers
-  async function handleOpenFile(path: string) {
+  async function handleOpenFile(path: string, options?: { forceKnowledgeMode?: boolean }) {
     const resolvedPath = resolveFilePath(path);
     const pathToOpen = resolvedPath || path;
     const normalizedPath = normalizeWorkspacePath(pathToOpen);
@@ -1238,7 +1238,12 @@ export function WorkspaceShell({
       return;
     }
 
-    if (isKnowledgeMode) {
+    const shouldOpenInKnowledge = options?.forceKnowledgeMode || isKnowledgeMode;
+    if (options?.forceKnowledgeMode && !isKnowledgeMode) {
+      handleWorkspaceModeChange("knowledge");
+    }
+
+    if (shouldOpenInKnowledge) {
       setOpenFilePaths(prev => prev.includes(normalizedPath) ? prev : [...prev, normalizedPath]);
       setActiveFilePath(normalizedPath);
       setRightTab("preview");
@@ -1405,6 +1410,13 @@ export function WorkspaceShell({
     },
     [setRightCollapsedForMode, slug, workspaceMode]
   );
+
+  const handleLearningProposalSentToReview = useCallback(() => {
+    void workspace.refreshDiffs();
+    void workspace.refreshFiles();
+    reloadKnowledgeGraph();
+    void refreshOpenFilesCache();
+  }, [refreshOpenFilesCache, reloadKnowledgeGraph, workspace]);
 
   const handleFlowHumanResponseSubmitted = useCallback(async () => {
     await Promise.all([
@@ -1895,6 +1907,7 @@ export function WorkspaceShell({
             collapsed={isCompactLayout ? false : rightCollapsed}
             onToggleCollapse={isCompactLayout ? handleShowChat : handleToggleRight}
             onOpenSession={handleSelectSession}
+            onProposalSentToReview={handleLearningProposalSentToReview}
             refreshKey={learningRefreshKey}
           />
         );
@@ -1918,12 +1931,14 @@ export function WorkspaceShell({
       )}
     >
       <WorkspaceCommandPalette
+        fileNodes={workspace.fileTree}
         slug={slug}
         open={commandPaletteOpen}
         hideFlows={false}
         onOpenChange={setCommandPaletteOpen}
         onCreateSession={handleCreateSession}
         onModeChange={handleWorkspaceModeChange}
+        onOpenFile={(path) => handleOpenFile(path, { forceKnowledgeMode: true })}
         onNavigateConnectors={navigateConnectors}
         onNavigateProviders={navigateProviders}
         onNavigateSettings={navigateSettings}
