@@ -41,6 +41,7 @@ describe('workspace file search', () => {
   it('gets the basename for workspace paths', () => {
     expect(getWorkspacePathBasename('Deep/Vault/Roadmap.md')).toBe('Roadmap.md')
     expect(getWorkspacePathBasename('README.md')).toBe('README.md')
+    expect(getWorkspacePathBasename('Deep/Vault/')).toBe('Vault')
   })
 
   it('ranks fuzzy local and remote file matches', () => {

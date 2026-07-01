@@ -22,7 +22,7 @@ import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { useFlowRunner } from "@/hooks/use-flow-runner";
 import type { WorkspaceFileNode, WorkspaceSession } from "@/lib/opencode/types";
 import { cn } from "@/lib/utils";
-import { rankWorkspaceFileSearchResults } from "@/lib/workspace-file-search";
+import { flattenWorkspaceFileNodes, rankWorkspaceFileSearchCandidates } from "@/lib/workspace-file-search";
 import { isFlowSession } from "@/lib/workspace-session-utils";
 import type { WorkspaceThemeId } from "@/lib/workspace-theme";
 
@@ -101,6 +101,8 @@ export function WorkspaceCommandPalette({
     loadFlows,
     runFlow,
   } = useFlowRunner({ slug, onRunFlowComplete: onRefreshSessions });
+  const canSearchFiles = Boolean(onOpenFile);
+  const localFileCandidates = useMemo(() => flattenWorkspaceFileNodes(fileNodes), [fileNodes]);
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -123,7 +125,7 @@ export function WorkspaceCommandPalette({
     requestAnimationFrame(() => itemRefs.current[0]?.scrollIntoView({ block: "nearest" }));
     if (value.trim()) {
       setIsSearchingSessions(true);
-      setIsSearchingFiles(Boolean(onOpenFile));
+      setIsSearchingFiles(canSearchFiles);
       return;
     }
     setSessionResults([]);
@@ -149,29 +151,39 @@ export function WorkspaceCommandPalette({
 
     let cancelled = false;
     const timeout = window.setTimeout(() => {
-      const sessionSearch = listSessionsAction(slug, {
-        limit: SESSION_SEARCH_SCAN_LIMIT,
-        query: trimmedQuery,
-        rootsOnly: true,
-      });
-      const fileSearch = onOpenFile
-        ? searchFilesAction(slug, trimmedQuery)
-        : Promise.resolve({ ok: true, files: [] as string[] });
+      void (async () => {
+        try {
+          const [sessionResult, fileResult] = await Promise.all([
+            listSessionsAction(slug, {
+              limit: SESSION_SEARCH_SCAN_LIMIT,
+              query: trimmedQuery,
+              rootsOnly: true,
+            }),
+            canSearchFiles
+              ? searchFilesAction(slug, trimmedQuery)
+              : Promise.resolve({ ok: true, files: [] as string[] }),
+          ]);
 
-      void Promise.all([sessionSearch, fileSearch]).then(([sessionResult, fileResult]) => {
-        if (cancelled) return;
-        setSessionResults(sessionResult.ok ? (sessionResult.sessions ?? []).slice(0, SESSION_SEARCH_RESULT_LIMIT) : []);
-        setFileResults(fileResult.ok ? (fileResult.files ?? []) : []);
-        setIsSearchingSessions(false);
-        setIsSearchingFiles(false);
-      });
+          if (cancelled) return;
+          setSessionResults(sessionResult.ok ? (sessionResult.sessions ?? []).slice(0, SESSION_SEARCH_RESULT_LIMIT) : []);
+          setFileResults(fileResult.ok ? (fileResult.files ?? []) : []);
+        } catch {
+          if (cancelled) return;
+          setSessionResults([]);
+          setFileResults([]);
+        } finally {
+          if (cancelled) return;
+          setIsSearchingSessions(false);
+          setIsSearchingFiles(false);
+        }
+      })();
     }, 150);
 
     return () => {
       cancelled = true;
       window.clearTimeout(timeout);
     };
-  }, [onOpenFile, open, query, slug]);
+  }, [canSearchFiles, open, query, slug]);
 
   const closeAndRun = useCallback(
     async (run: () => Promise<void> | void) => {
@@ -332,8 +344,8 @@ export function WorkspaceCommandPalette({
     const trimmedQuery = query.trim();
     if (!onOpenFile || !trimmedQuery) return [];
 
-    return rankWorkspaceFileSearchResults({
-      fileNodes,
+    return rankWorkspaceFileSearchCandidates({
+      files: localFileCandidates,
       limit: FILE_SEARCH_RESULT_LIMIT,
       query: trimmedQuery,
       remotePaths: fileResults,
@@ -349,7 +361,7 @@ export function WorkspaceCommandPalette({
         await onOpenFile(file.path);
       },
     }));
-  }, [fileNodes, fileResults, onModeChange, onOpenFile, query]);
+  }, [fileResults, localFileCandidates, onModeChange, onOpenFile, query]);
 
   const visibleItems = useMemo(() => {
     const trimmedQuery = query.trim();

@@ -281,6 +281,25 @@ describe("WorkspaceCommandPalette", () => {
     expect(await screen.findByText("Roadmap.md")).not.toBeNull()
   })
 
+  it("clears search loading state when search actions reject", async () => {
+    listSessionsActionMock.mockRejectedValue(new Error("session unavailable"))
+    searchFilesActionMock.mockRejectedValue(new Error("file search unavailable"))
+    renderPalette()
+    const input = screen.getByPlaceholderText(palettePlaceholder)
+
+    fireEvent.change(input, { target: { value: "does-not-exist" } })
+
+    await waitFor(() => {
+      expect(listSessionsActionMock).toHaveBeenCalledWith("alice", {
+        limit: 100,
+        query: "does-not-exist",
+        rootsOnly: true,
+      })
+    })
+    await waitFor(() => expect(screen.getByText("No commands, files, or sessions found.")).not.toBeNull())
+    expect(screen.queryByText("Searching...")).toBeNull()
+  })
+
   it("supports keyboard navigation, hover selection, empty results, and dark mode", async () => {
     listSessionsActionMock.mockResolvedValue({ ok: false })
     searchFilesActionMock.mockResolvedValue({ ok: false })

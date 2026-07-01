@@ -6,7 +6,7 @@ export type WorkspaceFileSearchCandidate = {
 }
 
 export function getWorkspacePathBasename(path: string): string {
-  return path.split('/').pop() ?? path
+  return path.split('/').filter(Boolean).pop() ?? path
 }
 
 export function flattenWorkspaceFileNodes(nodes: WorkspaceFileNode[]): WorkspaceFileSearchCandidate[] {
@@ -72,13 +72,13 @@ function scoreWorkspaceFileMatch(file: WorkspaceFileSearchCandidate, query: stri
   return score + file.path.length / 1000
 }
 
-export function rankWorkspaceFileSearchResults({
-  fileNodes,
+export function rankWorkspaceFileSearchCandidates({
+  files,
   limit,
   query,
   remotePaths,
 }: {
-  fileNodes: WorkspaceFileNode[]
+  files: WorkspaceFileSearchCandidate[]
   limit: number
   query: string
   remotePaths: string[]
@@ -87,7 +87,7 @@ export function rankWorkspaceFileSearchResults({
   if (!trimmedQuery) return []
 
   const candidatesByPath = new Map<string, WorkspaceFileSearchCandidate>()
-  for (const file of flattenWorkspaceFileNodes(fileNodes)) {
+  for (const file of files) {
     candidatesByPath.set(file.path, file)
   }
   for (const path of remotePaths) {
@@ -102,4 +102,23 @@ export function rankWorkspaceFileSearchResults({
     .sort((a, b) => a.score - b.score || a.file.path.localeCompare(b.file.path))
     .slice(0, limit)
     .map(({ file }) => file)
+}
+
+export function rankWorkspaceFileSearchResults({
+  fileNodes,
+  limit,
+  query,
+  remotePaths,
+}: {
+  fileNodes: WorkspaceFileNode[]
+  limit: number
+  query: string
+  remotePaths: string[]
+}): WorkspaceFileSearchCandidate[] {
+  return rankWorkspaceFileSearchCandidates({
+    files: flattenWorkspaceFileNodes(fileNodes),
+    limit,
+    query,
+    remotePaths,
+  })
 }

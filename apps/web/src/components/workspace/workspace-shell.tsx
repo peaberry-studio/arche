@@ -350,6 +350,11 @@ export function WorkspaceShell({
     reaperEnabled,
   });
   const skillsCatalog = useSkillsCatalog(slug)
+  const {
+    activeSessionId: workspaceActiveSessionId,
+    readFile: readWorkspaceFile,
+    selectSession: selectWorkspaceSession,
+  } = workspace;
   const [knowledgeGraphReloadKey, setKnowledgeGraphReloadKey] = useState(0);
   const reloadKnowledgeGraph = useCallback(() => {
     setKnowledgeGraphReloadKey((current) => current + 1);
@@ -673,7 +678,7 @@ export function WorkspaceShell({
       }
 
       if (prevMode !== resolvedNextMode) {
-        const currentActiveId = workspace.activeSessionId;
+        const currentActiveId = workspaceActiveSessionId;
         const currentSession = currentActiveId
           ? sessionsById.get(currentActiveId) ?? null
           : null;
@@ -682,7 +687,7 @@ export function WorkspaceShell({
         if (resolvedNextMode === "chat" && currentIsFlow) {
           const targetId = lastSessionByModeRef.current.chat;
           if (targetId !== currentActiveId) {
-            workspace.selectSession(targetId);
+            selectWorkspaceSession(targetId);
           }
         } else if (resolvedNextMode === "flows" && !currentIsFlow) {
           // Only switch the active session if we have a remembered flow to
@@ -690,7 +695,7 @@ export function WorkspaceShell({
           // does not auto-reselect a chat session in the background.
           const targetId = lastSessionByModeRef.current.flows;
           if (targetId && targetId !== currentActiveId) {
-            workspace.selectSession(targetId);
+            selectWorkspaceSession(targetId);
           }
         }
       }
@@ -713,7 +718,7 @@ export function WorkspaceShell({
       const query = params.toString();
       window.history.replaceState(window.history.state, "", query ? `/w/${slug}?${query}` : `/w/${slug}`);
     },
-    [isCompactLayout, sessionsById, slug, workspace, workspaceMode]
+    [isCompactLayout, selectWorkspaceSession, sessionsById, slug, workspaceActiveSessionId, workspaceMode]
   );
 
   const handleCreateSession = useCallback(async () => {
@@ -1215,76 +1220,92 @@ export function WorkspaceShell({
   }, [openFilePaths, fileCache]);
 
   // File handlers
-  async function handleOpenFile(path: string, options?: { forceKnowledgeMode?: boolean }) {
-    const resolvedPath = resolveFilePath(path);
-    const pathToOpen = resolvedPath || path;
-    const normalizedPath = normalizeWorkspacePath(pathToOpen);
+  const handleOpenFile = useCallback(
+    async (path: string, options?: { forceKnowledgeMode?: boolean }) => {
+      const resolvedPath = resolveFilePath(path);
+      const pathToOpen = resolvedPath || path;
+      const normalizedPath = normalizeWorkspacePath(pathToOpen);
 
-    if (!normalizedPath || isProtectedWorkspacePath(normalizedPath)) {
-      return;
-    }
+      if (!normalizedPath || isProtectedWorkspacePath(normalizedPath)) {
+        return;
+      }
 
-    const shouldOpenInKnowledge = options?.forceKnowledgeMode || isKnowledgeMode;
-    if (options?.forceKnowledgeMode && !isKnowledgeMode) {
-      handleWorkspaceModeChange("knowledge");
-    }
+      const shouldOpenInKnowledge = options?.forceKnowledgeMode || isKnowledgeMode;
+      if (options?.forceKnowledgeMode && !isKnowledgeMode) {
+        handleWorkspaceModeChange("knowledge");
+      }
 
-    if (shouldOpenInKnowledge) {
-      setOpenFilePaths(prev => prev.includes(normalizedPath) ? prev : [...prev, normalizedPath]);
-      setActiveFilePath(normalizedPath);
-      setRightTab("preview");
-      if (isCompactLayout) {
-        setMobileView("chat");
-      }
-    } else {
-      if (previewCloseTimerRef.current) {
-        clearTimeout(previewCloseTimerRef.current);
-        previewCloseTimerRef.current = null;
-      }
-      if (previewOpenFrameRef.current !== null) {
-        cancelAnimationFrame(previewOpenFrameRef.current);
-      }
-      setPreviewExpanded(false);
-      setPreviewFilePath(normalizedPath);
-      previewOpenFrameRef.current = requestAnimationFrame(() => {
-        setPreviewExpanded(true);
-        previewOpenFrameRef.current = null;
-      });
-      setRightCollapsedForMode(workspaceMode, false);
-      if (isCompactLayout) {
-        setMobileView("right");
-      }
-    }
-
-    // Load file content if not cached
-    if (!fileCacheRef.current[normalizedPath]) {
-      const result = await workspace.readFile(normalizedPath);
-      if (result) {
-        setFileCache(prev => ({
-          ...prev,
-           [normalizedPath]: {
-              content: result.content,
-              type: result.type,
-              title: normalizedPath.split('/').pop() ?? normalizedPath,
-              updatedAt: 'Just now',
-              size: `${(result.content.length / 1024).toFixed(1)} KB`,
-              hash: result.hash,
-            }
-         }));
-       } else {
-         setFileCache(prev => ({
-           ...prev,
-           [normalizedPath]: {
-              content: 'Unable to load file.',
-              type: 'raw',
-              title: normalizedPath.split('/').pop() ?? normalizedPath,
-              updatedAt: 'Error',
-              size: '0 KB',
-            }
-         }));
+      if (shouldOpenInKnowledge) {
+        setOpenFilePaths(prev => prev.includes(normalizedPath) ? prev : [...prev, normalizedPath]);
+        setActiveFilePath(normalizedPath);
+        setRightTab("preview");
+        if (isCompactLayout) {
+          setMobileView("chat");
+        }
+      } else {
+        if (previewCloseTimerRef.current) {
+          clearTimeout(previewCloseTimerRef.current);
+          previewCloseTimerRef.current = null;
+        }
+        if (previewOpenFrameRef.current !== null) {
+          cancelAnimationFrame(previewOpenFrameRef.current);
+        }
+        setPreviewExpanded(false);
+        setPreviewFilePath(normalizedPath);
+        previewOpenFrameRef.current = requestAnimationFrame(() => {
+          setPreviewExpanded(true);
+          previewOpenFrameRef.current = null;
+        });
+        setRightCollapsedForMode(workspaceMode, false);
+        if (isCompactLayout) {
+          setMobileView("right");
         }
       }
-    }
+
+      // Load file content if not cached
+      if (!fileCacheRef.current[normalizedPath]) {
+        const result = await readWorkspaceFile(normalizedPath);
+        if (result) {
+          setFileCache(prev => ({
+            ...prev,
+             [normalizedPath]: {
+                content: result.content,
+                type: result.type,
+                title: normalizedPath.split('/').pop() ?? normalizedPath,
+                updatedAt: 'Just now',
+                size: `${(result.content.length / 1024).toFixed(1)} KB`,
+                hash: result.hash,
+              }
+           }));
+         } else {
+           setFileCache(prev => ({
+             ...prev,
+             [normalizedPath]: {
+                content: 'Unable to load file.',
+                type: 'raw',
+                title: normalizedPath.split('/').pop() ?? normalizedPath,
+                updatedAt: 'Error',
+                size: '0 KB',
+              }
+           }));
+          }
+        }
+      },
+    [
+      handleWorkspaceModeChange,
+      isCompactLayout,
+      isKnowledgeMode,
+      resolveFilePath,
+      readWorkspaceFile,
+      setRightCollapsedForMode,
+      workspaceMode,
+    ]
+  );
+
+  const handleCommandPaletteOpenFile = useCallback(
+    (path: string) => handleOpenFile(path, { forceKnowledgeMode: true }),
+    [handleOpenFile]
+  );
 
   function handleClosePreview() {
     setPreviewExpanded(false);
@@ -1922,7 +1943,7 @@ export function WorkspaceShell({
         onOpenChange={setCommandPaletteOpen}
         onCreateSession={handleCreateSession}
         onModeChange={handleWorkspaceModeChange}
-        onOpenFile={(path) => handleOpenFile(path, { forceKnowledgeMode: true })}
+        onOpenFile={handleCommandPaletteOpenFile}
         onNavigateConnectors={navigateConnectors}
         onNavigateProviders={navigateProviders}
         onNavigateSettings={navigateSettings}
