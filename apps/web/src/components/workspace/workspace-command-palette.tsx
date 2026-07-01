@@ -22,6 +22,7 @@ import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { useFlowRunner } from "@/hooks/use-flow-runner";
 import type { WorkspaceFileNode, WorkspaceSession } from "@/lib/opencode/types";
 import { cn } from "@/lib/utils";
+import { rankWorkspaceFileSearchResults } from "@/lib/workspace-file-search";
 import { isFlowSession } from "@/lib/workspace-session-utils";
 import type { WorkspaceThemeId } from "@/lib/workspace-theme";
 
@@ -58,78 +59,6 @@ type PaletteItem = {
 const SESSION_SEARCH_SCAN_LIMIT = 100;
 const SESSION_SEARCH_RESULT_LIMIT = 20;
 const FILE_SEARCH_RESULT_LIMIT = 15;
-
-type FileSearchCandidate = {
-  name: string;
-  path: string;
-};
-
-function flattenFileNodes(nodes: WorkspaceFileNode[]): FileSearchCandidate[] {
-  const result: FileSearchCandidate[] = [];
-
-  for (const node of nodes) {
-    if (node.type === "file") {
-      result.push({ name: node.name, path: node.path });
-      continue;
-    }
-
-    if (node.children && node.children.length > 0) {
-      result.push(...flattenFileNodes(node.children));
-    }
-  }
-
-  return result;
-}
-
-function basename(path: string): string {
-  return path.split("/").pop() ?? path;
-}
-
-function fuzzyScore(value: string, token: string): number | null {
-  const exactIndex = value.indexOf(token);
-  if (exactIndex >= 0) return exactIndex;
-
-  let valueIndex = 0;
-  let previousMatchIndex = -1;
-  let score = 50;
-
-  for (const character of token) {
-    const matchIndex = value.indexOf(character, valueIndex);
-    if (matchIndex === -1) return null;
-
-    score += matchIndex;
-    if (previousMatchIndex >= 0 && matchIndex !== previousMatchIndex + 1) {
-      score += 8;
-    }
-
-    previousMatchIndex = matchIndex;
-    valueIndex = matchIndex + 1;
-  }
-
-  return score;
-}
-
-function scoreFileMatch(file: FileSearchCandidate, query: string): number | null {
-  const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
-  if (tokens.length === 0) return null;
-
-  const name = file.name.toLowerCase();
-  const path = file.path.toLowerCase();
-  let score = 0;
-
-  for (const token of tokens) {
-    const nameScore = fuzzyScore(name, token);
-    const pathScore = fuzzyScore(path, token);
-    if (nameScore === null && pathScore === null) return null;
-
-    score += Math.min(
-      nameScore ?? Number.POSITIVE_INFINITY,
-      pathScore === null ? Number.POSITIVE_INFINITY : pathScore + 12
-    );
-  }
-
-  return score + file.path.length / 1000;
-}
 
 function matchesQuery(item: PaletteItem, query: string): boolean {
   if (!query) return true;
@@ -399,40 +328,28 @@ export function WorkspaceCommandPalette({
       });
   }, [hideFlows, onSelectSession, sessionResults]);
 
-  const localFiles = useMemo(() => flattenFileNodes(fileNodes), [fileNodes]);
-
   const fileItems = useMemo<PaletteItem[]>(() => {
     const trimmedQuery = query.trim();
     if (!onOpenFile || !trimmedQuery) return [];
 
-    const candidatesByPath = new Map<string, FileSearchCandidate>();
-    for (const file of localFiles) {
-      candidatesByPath.set(file.path, file);
-    }
-    for (const path of fileResults) {
-      if (!candidatesByPath.has(path)) {
-        candidatesByPath.set(path, { name: basename(path), path });
-      }
-    }
-
-    return Array.from(candidatesByPath.values())
-      .map((file) => ({ file, score: scoreFileMatch(file, trimmedQuery) }))
-      .filter((candidate): candidate is { file: FileSearchCandidate; score: number } => candidate.score !== null)
-      .sort((a, b) => a.score - b.score || a.file.path.localeCompare(b.file.path))
-      .slice(0, FILE_SEARCH_RESULT_LIMIT)
-      .map(({ file }) => ({
-        id: `file-${file.path}`,
-        title: file.name,
-        subtitle: file.path,
-        section: "Files",
-        icon: File,
-        keywords: file.path,
-        run: async () => {
-          onModeChange("knowledge");
-          await onOpenFile(file.path);
-        },
-      }));
-  }, [fileResults, localFiles, onModeChange, onOpenFile, query]);
+    return rankWorkspaceFileSearchResults({
+      fileNodes,
+      limit: FILE_SEARCH_RESULT_LIMIT,
+      query: trimmedQuery,
+      remotePaths: fileResults,
+    }).map((file) => ({
+      id: `file-${file.path}`,
+      title: file.name,
+      subtitle: file.path,
+      section: "Files",
+      icon: File,
+      keywords: file.path,
+      run: async () => {
+        onModeChange("knowledge");
+        await onOpenFile(file.path);
+      },
+    }));
+  }, [fileNodes, fileResults, onModeChange, onOpenFile, query]);
 
   const visibleItems = useMemo(() => {
     const trimmedQuery = query.trim();

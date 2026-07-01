@@ -9,7 +9,7 @@ import type { SyncKbResult } from "@/app/api/instances/[slug]/sync-kb/route";
 import { useWorkspaceTheme } from "@/contexts/workspace-theme-context";
 import { useWorkspace } from "@/hooks/use-workspace";
 import type { KnowledgeGraphAgentSource } from "@/lib/kb-graph";
-import type { WorkspaceFileNode, WorkspaceSession } from "@/lib/opencode/types";
+import type { WorkspaceSession } from "@/lib/opencode/types";
 import { getDesktopFlowsHref, getDesktopWorkspaceHref } from "@/lib/runtime/desktop/current-vault";
 import {
   isProtectedWorkspacePath,
@@ -35,6 +35,7 @@ import {
   type WorkspaceStartPrompt,
 } from "@/lib/workspace-start-prompt";
 import { cn } from "@/lib/utils";
+import { flattenWorkspaceFileNodes } from "@/lib/workspace-file-search";
 
 import { useConfigStatus } from "@/hooks/use-config-status";
 import { useSkillsCatalog } from '@/hooks/use-skills-catalog'
@@ -353,6 +354,11 @@ export function WorkspaceShell({
   const reloadKnowledgeGraph = useCallback(() => {
     setKnowledgeGraphReloadKey((current) => current + 1);
   }, []);
+  const refreshKnowledgeReview = useCallback(() => {
+    workspace.refreshDiffs();
+    workspace.refreshFiles();
+    reloadKnowledgeGraph();
+  }, [reloadKnowledgeGraph, workspace]);
 
   const sessionsById = useMemo(() => {
     const map = new Map<string, WorkspaceSession>();
@@ -446,11 +452,9 @@ export function WorkspaceShell({
       } catch {
         // silent — auto-sync is best-effort
       }
-      workspace.refreshDiffs();
-      workspace.refreshFiles();
-      reloadKnowledgeGraph();
+      refreshKnowledgeReview();
     })();
-  }, [workspace, workspace.isConnected, slug, workspace.refreshDiffs, workspace.refreshFiles, reloadKnowledgeGraph]);
+  }, [refreshKnowledgeReview, slug, workspace.isConnected]);
 
   useEffect(() => {
     if (!workspace.isConnected || hasAutoStartedPrompt.current) return;
@@ -815,26 +819,20 @@ export function WorkspaceShell({
   }, [openFilePaths, workspace]);
 
   const handleSyncComplete = useCallback((status: SyncKbResult["status"]) => {
-    workspace.refreshDiffs();
-    workspace.refreshFiles();
-    reloadKnowledgeGraph();
+    refreshKnowledgeReview();
 
     if (status === "synced") {
       void refreshOpenFilesCache();
     }
-  }, [refreshOpenFilesCache, reloadKnowledgeGraph, workspace]);
+  }, [refreshKnowledgeReview, refreshOpenFilesCache]);
 
   const handlePublishComplete = useCallback(() => {
-    workspace.refreshDiffs();
-    workspace.refreshFiles();
-    reloadKnowledgeGraph();
-  }, [reloadKnowledgeGraph, workspace]);
+    refreshKnowledgeReview();
+  }, [refreshKnowledgeReview]);
 
   const handleResolveConflict = useCallback(
     async (path: string) => {
-      workspace.refreshDiffs();
-      workspace.refreshFiles();
-      reloadKnowledgeGraph();
+      refreshKnowledgeReview();
 
       if (!fileCacheRef.current[path]) return;
 
@@ -873,7 +871,7 @@ export function WorkspaceShell({
         });
       }
     },
-    [reloadKnowledgeGraph, workspace]
+    [refreshKnowledgeReview, workspace]
   );
 
   const handleSaveFile = useCallback(
@@ -900,13 +898,11 @@ export function WorkspaceShell({
         };
       });
 
-      workspace.refreshDiffs();
-      workspace.refreshFiles();
-      reloadKnowledgeGraph();
+      refreshKnowledgeReview();
 
       return { ok: true as const, hash: result.hash };
     },
-    [reloadKnowledgeGraph, workspace]
+    [refreshKnowledgeReview, workspace]
   );
 
   const handleReloadFile = useCallback(
@@ -973,25 +969,15 @@ export function WorkspaceShell({
         });
       }
 
-      workspace.refreshDiffs();
-      workspace.refreshFiles();
-      reloadKnowledgeGraph();
+      refreshKnowledgeReview();
 
       return { ok: true as const };
     },
-    [reloadKnowledgeGraph, workspace]
+    [refreshKnowledgeReview, workspace]
   );
 
   const flattenedFilePaths = useMemo(() => {
-    const paths: string[] = [];
-    const visit = (nodes: WorkspaceFileNode[]) => {
-      nodes.forEach((node) => {
-        if (node.type === "file") paths.push(node.path);
-        if (node.children && node.children.length > 0) visit(node.children);
-      });
-    };
-    visit(workspace.fileTree);
-    return paths;
+    return flattenWorkspaceFileNodes(workspace.fileTree).map((file) => file.path);
   }, [workspace.fileTree]);
 
   const filePathSet = useMemo(() => new Set(flattenedFilePaths), [flattenedFilePaths]);
@@ -1412,11 +1398,9 @@ export function WorkspaceShell({
   );
 
   const handleLearningProposalSentToReview = useCallback(() => {
-    void workspace.refreshDiffs();
-    void workspace.refreshFiles();
-    reloadKnowledgeGraph();
+    refreshKnowledgeReview();
     void refreshOpenFilesCache();
-  }, [refreshOpenFilesCache, reloadKnowledgeGraph, workspace]);
+  }, [refreshKnowledgeReview, refreshOpenFilesCache]);
 
   const handleFlowHumanResponseSubmitted = useCallback(async () => {
     await Promise.all([

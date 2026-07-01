@@ -23,8 +23,15 @@ type LearningResponse = {
   runs: LearningRun[];
 }
 
+type ProposalDecision = "send_to_review" | "reject";
+
+const PROPOSAL_API_ACTION_BY_DECISION: Record<ProposalDecision, "apply" | "reject"> = {
+  send_to_review: "apply",
+  reject: "reject",
+};
+
 const ERROR_LABELS: Record<string, string> = {
-  hash_conflict: "The target file changed since this proposal was created. Review it before applying.",
+  hash_conflict: "The target file changed since this proposal was created. Review it before sending again.",
   not_pending: "This proposal was already resolved.",
   not_found: "Proposal not found.",
   file_exists: "The target file already exists.",
@@ -188,10 +195,11 @@ export function KnowledgeCuratorPanel({ slug, collapsed = false, onToggleCollaps
     [refresh, slug]
   );
 
-  const actOnProposal = useCallback(
-    async (proposalId: string, action: "apply" | "reject", content?: string) => {
+  const resolveProposal = useCallback(
+    async (proposalId: string, decision: ProposalDecision, content?: string) => {
       setBusyProposalId(proposalId);
       try {
+        const action = PROPOSAL_API_ACTION_BY_DECISION[decision];
         const response = await fetch(`/api/u/${slug}/learning/proposals`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -206,7 +214,7 @@ export function KnowledgeCuratorPanel({ slug, collapsed = false, onToggleCollaps
 
         setError(null);
         await refresh();
-        if (action === "apply") {
+        if (decision === "send_to_review") {
           void onProposalSentToReview?.();
         }
         setEdits((current) => {
@@ -310,14 +318,14 @@ export function KnowledgeCuratorPanel({ slug, collapsed = false, onToggleCollaps
                     size="sm"
                     variant="outline"
                     disabled={busyProposalId !== null}
-                    onClick={() => void actOnProposal(proposal.id, "reject")}
+                    onClick={() => void resolveProposal(proposal.id, "reject")}
                   >
                     Reject
                   </Button>
                   <Button
                     size="sm"
                     disabled={busyProposalId !== null}
-                    onClick={() => void actOnProposal(proposal.id, "apply", proposalContent)}
+                    onClick={() => void resolveProposal(proposal.id, "send_to_review", proposalContent)}
                   >
                     Send to review
                   </Button>

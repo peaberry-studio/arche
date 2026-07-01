@@ -73,7 +73,7 @@ describe('KnowledgeCuratorPanel', () => {
     expect(await screen.findByText('Remember preference')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Send to review' }))
 
-    expect(await screen.findByText('The target file changed since this proposal was created. Review it before applying.')).toBeTruthy()
+    expect(await screen.findByText('The target file changed since this proposal was created. Review it before sending again.')).toBeTruthy()
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
   })
 
@@ -128,6 +128,17 @@ describe('KnowledgeCuratorPanel', () => {
     expect(await screen.findByText('Remember preference')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Send to review' }))
 
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/u/alice/learning/proposals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'apply',
+          proposalId: 'proposal-1',
+          content: '# Preference\n\nUse **concise** answers.',
+        }),
+      })
+    })
     await waitFor(() => expect(onProposalSentToReview).toHaveBeenCalledTimes(1))
   })
 
