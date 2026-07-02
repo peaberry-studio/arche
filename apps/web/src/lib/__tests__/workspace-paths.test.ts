@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  isGitWorkspacePath,
   isHiddenWorkspacePath,
   isInternalWorkspacePath,
   isNodeModulesWorkspacePath,
@@ -26,6 +27,8 @@ describe('workspace path normalization', () => {
   })
 
   it('detects protected workspace paths', () => {
+    expect(isProtectedWorkspacePath('.git')).toBe(true)
+    expect(isProtectedWorkspacePath('.git/config')).toBe(true)
     expect(isProtectedWorkspacePath('.gitignore')).toBe(true)
     expect(isProtectedWorkspacePath('.gitkeep')).toBe(true)
     expect(isProtectedWorkspacePath('Company/.gitkeep')).toBe(true)
@@ -41,7 +44,14 @@ describe('workspace path normalization', () => {
     expect(isNodeModulesWorkspacePath('packages/web/src/app/page.tsx')).toBe(false)
   })
 
+  it('detects git metadata paths', () => {
+    expect(isGitWorkspacePath('.git')).toBe(true)
+    expect(isGitWorkspacePath('.git/objects/pack')).toBe(true)
+    expect(isGitWorkspacePath('Company/.github/workflows/test.yml')).toBe(false)
+  })
+
   it('detects hidden workspace paths', () => {
+    expect(isHiddenWorkspacePath('.git/config')).toBe(true)
     expect(isHiddenWorkspacePath('.arche/attachments/a.txt')).toBe(true)
     expect(isHiddenWorkspacePath('node_modules/react/index.js')).toBe(true)
     expect(isHiddenWorkspacePath('Company/.gitkeep')).toBe(true)
@@ -52,6 +62,7 @@ describe('workspace path normalization', () => {
   it('validates context references', () => {
     expect(isValidContextReferencePath('')).toBe(false)
     expect(isValidContextReferencePath('.arche/secret.txt')).toBe(false)
+    expect(isValidContextReferencePath('.git/config')).toBe(false)
     expect(isValidContextReferencePath('AGENTS.md')).toBe(false)
     expect(isValidContextReferencePath('Company/.gitkeep')).toBe(false)
     expect(isValidContextReferencePath('node_modules/react/index.js')).toBe(false)

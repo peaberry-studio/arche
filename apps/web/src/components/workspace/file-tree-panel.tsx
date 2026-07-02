@@ -4,8 +4,9 @@ import { useCallback, useMemo, useState, type MouseEvent } from "react";
 import { File, Plus } from "@phosphor-icons/react";
 
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import type { WorkspaceFileNode } from "@/lib/opencode/types";
+import { cn } from "@/lib/utils";
+import { flattenWorkspaceFileNodes, type WorkspaceFileSearchCandidate } from "@/lib/workspace-file-search";
 
 import { FileTreeContextMenu } from "./file-tree-context-menu";
 import { FileTree } from "./file-tree";
@@ -19,20 +20,7 @@ type FileTreePanelProps = {
   query?: string;
 };
 
-type FlatFile = { name: string; path: string };
-type FileContextMenuState = FlatFile & { x: number; y: number };
-
-function flattenFiles(nodes: WorkspaceFileNode[]): FlatFile[] {
-  const result: FlatFile[] = [];
-  nodes.forEach((node) => {
-    if (node.type === "file") {
-      result.push({ name: node.name, path: node.path });
-    } else if (node.children) {
-      result.push(...flattenFiles(node.children));
-    }
-  });
-  return result;
-}
+type FileContextMenuState = WorkspaceFileSearchCandidate & { x: number; y: number };
 
 export function FileTreePanel({
   nodes,
@@ -43,7 +31,7 @@ export function FileTreePanel({
   query = "",
 }: FileTreePanelProps) {
   const normalizedQuery = query.trim().toLowerCase();
-  const files = useMemo(() => flattenFiles(nodes), [nodes]);
+  const files = useMemo(() => flattenWorkspaceFileNodes(nodes), [nodes]);
   const [contextMenu, setContextMenu] = useState<FileContextMenuState | null>(null);
   const matches = useMemo(() => {
     if (!normalizedQuery) return [];
@@ -51,7 +39,7 @@ export function FileTreePanel({
   }, [files, normalizedQuery]);
 
   const handleFileContextMenu = useCallback(
-    (file: FlatFile, event: MouseEvent<HTMLButtonElement>) => {
+    (file: WorkspaceFileSearchCandidate, event: MouseEvent<HTMLButtonElement>) => {
       if (!onDownloadFile) return;
 
       event.preventDefault();

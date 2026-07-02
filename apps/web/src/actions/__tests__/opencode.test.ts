@@ -359,7 +359,7 @@ describe('searchFilesAction', () => {
 
   it('filters out hidden paths', async () => {
     mockFindFiles.mockResolvedValue({
-      data: ['src/index.ts', '.arche/config.json', 'opencode.json'],
+      data: ['src/index.ts', '.arche/config.json', '.git/config', 'opencode.json'],
     })
 
     const result = await searchFilesAction('alice', 'json')
@@ -444,6 +444,7 @@ describe('loadFileTreeAction', () => {
       data: [
         { path: 'src', name: 'src', type: 'directory', ignored: false },
         { path: '.arche', name: '.arche', type: 'directory', ignored: false },
+        { path: '.git', name: '.git', type: 'directory', ignored: false },
         { path: 'ignored.ts', name: 'ignored.ts', type: 'file', ignored: true },
       ],
     }).mockResolvedValueOnce({ data: [] })
