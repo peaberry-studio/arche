@@ -11,7 +11,6 @@ import {
 } from "react";
 import { ChatCircle, CheckCircle, Copy, File, Info, XCircle } from "@phosphor-icons/react";
 import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 
 import {
   FileGroup,
@@ -22,6 +21,10 @@ import {
 } from "@/components/workspace/chat-panel/message-part-renderer";
 import type { SessionTabInfo } from "@/components/workspace/chat-panel/types";
 import { workspaceMarkdownComponents } from "@/components/workspace/markdown-components";
+import {
+  workspaceRehypePlugins,
+  workspaceRemarkPlugins,
+} from "@/components/workspace/markdown-plugins";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import type { MessagePart, PermissionResponse } from "@/lib/opencode/types";
 import { cn } from "@/lib/utils";
@@ -460,7 +463,7 @@ export function ChatPanelMessages({
                           </div>
                         ) : message.content ? (
                           <div className="markdown-content">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={workspaceMarkdownComponents}>
+                            <ReactMarkdown remarkPlugins={workspaceRemarkPlugins} rehypePlugins={workspaceRehypePlugins} components={workspaceMarkdownComponents}>
                               {message.content}
                             </ReactMarkdown>
                           </div>

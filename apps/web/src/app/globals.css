@@ -677,6 +677,9 @@
   .markdown-content pre code {
     @apply bg-transparent p-0;
   }
+  .markdown-content .katex-display {
+    overflow-x: auto;
+  }
   .markdown-content a {
     @apply text-primary hover:underline;
   }
