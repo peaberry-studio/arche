@@ -31,6 +31,7 @@ import { MarkdownFrontmatterPanel } from "@/components/workspace/markdown-frontm
 import { MarkdownTableControls } from "@/components/workspace/markdown-table-controls";
 import { getInternalLinkHoverPosition } from "@/components/workspace/internal-link-hover-position";
 import { ObsidianLinkDecorations } from "@/components/workspace/obsidian-link-decorations";
+import { VegaLiteChart } from "@/components/workspace/vega-lite-chart-node";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -327,6 +328,7 @@ export function MarkdownEditor({
       TableHeader,
       TableCell,
       ObsidianLinkDecorations,
+      VegaLiteChart,
       Markdown.configure({
         markedOptions: {
           gfm: true,
