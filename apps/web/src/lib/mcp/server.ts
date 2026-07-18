@@ -209,13 +209,13 @@ function buildToolDefinitions(scopes: readonly string[], user: RuntimeUser): Too
     tools.push(
       defineTool({
         name: 'create_kb_article',
-        description: 'Create a new markdown knowledge-base article. Requires kb:write.',
+        description: 'Create a new markdown knowledge-base article. Supports KaTeX math ($...$, $$...$$) and vega-lite fenced charts; follow the Markdown Capabilities section of AGENTS.md for chart quality standards. Requires kb:write.',
         args: { path: { type: 'string', required: true }, content: { type: 'string', required: true } },
         handler: (a) => createKbArticle({ path: str(a, 'path'), content: str(a, 'content') }),
       }),
       defineTool({
         name: 'update_kb_article',
-        description: 'Update an existing markdown knowledge-base article. Requires kb:write.',
+        description: 'Update an existing markdown knowledge-base article. Supports KaTeX math ($...$, $$...$$) and vega-lite fenced charts; follow the Markdown Capabilities section of AGENTS.md for chart quality standards. Requires kb:write.',
         args: { path: { type: 'string', required: true }, content: { type: 'string', required: true } },
         handler: (a) => updateKbArticle({ path: str(a, 'path'), content: str(a, 'content') }),
       }),

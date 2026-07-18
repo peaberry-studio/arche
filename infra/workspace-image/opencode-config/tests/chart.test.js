@@ -33,6 +33,13 @@ async function createChart(overrides = {}) {
   }))
 }
 
+test('chart_create description points to vega-lite fenced specs for persistent charts', () => {
+  assert.ok(
+    create.description.includes('vega-lite fenced'),
+    'description should mention vega-lite fences',
+  )
+})
+
 test('chart_create returns a safe Vega-Lite chart payload', async () => {
   const output = await createChart({
     title: '  Quarterly revenue  ',

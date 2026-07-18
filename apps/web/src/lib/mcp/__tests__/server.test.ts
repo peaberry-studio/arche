@@ -34,6 +34,21 @@ describe('handleMcpJsonRpcRequest', () => {
     expect(names).toContain('delete_kb_article')
   })
 
+  it('advertises KaTeX and vega-lite capabilities in KB write tool descriptions', async () => {
+    const response = await handleMcpJsonRpcRequest({
+      body: { jsonrpc: '2.0', id: 1, method: 'tools/list' },
+      scopes: [MCP_SCOPE_KB_READ, MCP_SCOPE_KB_WRITE],
+      user,
+    })
+    const body = await response.json() as { result: { tools: Array<{ name: string; description: string }> } }
+    const byName = new Map(body.result.tools.map((tool) => [tool.name, tool.description]))
+
+    expect(byName.get('create_kb_article')).toContain('vega-lite')
+    expect(byName.get('create_kb_article')).toContain('KaTeX')
+    expect(byName.get('update_kb_article')).toContain('vega-lite')
+    expect(byName.get('update_kb_article')).toContain('KaTeX')
+  })
+
   it('rejects write tool calls without kb:write', async () => {
     const response = await handleMcpJsonRpcRequest({
       body: {
