@@ -1,21 +1,16 @@
 'use client'
 
-import { useEffect, useRef, useState, type MouseEvent } from 'react'
+import { useMemo, useState, type MouseEvent } from 'react'
 
 import {
   ChartBar,
   CheckCircle,
   Copy,
   SpinnerGap,
-  WarningCircle,
 } from '@phosphor-icons/react'
-import type { VisualizationSpec } from 'vega-embed'
 
 import type { ChartOutput } from '@/components/workspace/chat-panel/chart-output'
-import {
-  buildVegaConfig,
-  resolveVisualizationTheme,
-} from '@/components/workspace/chat-panel/visualization-theme'
+import { VegaFigure } from '@/components/workspace/vega-figure'
 import { copyTextToClipboard } from '@/lib/clipboard'
 
 type ChartCardProps = {
@@ -48,63 +43,11 @@ function ChartCopyButton({ text }: { text: string }) {
 }
 
 export function ChartCard({ chart, isRunning }: ChartCardProps) {
-  const containerRef = useRef<HTMLDivElement | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
   const copyText = JSON.stringify(chart.spec, null, 2)
-
-  useEffect(() => {
-    const container = containerRef.current
-    let cancelled = false
-    let finalize: (() => void) | undefined
-
-    async function renderChart() {
-      if (!container) return
-
-      setError(null)
-      setIsLoading(true)
-      container.innerHTML = ''
-
-      try {
-        const { default: embed } = await import('vega-embed')
-        const theme = resolveVisualizationTheme()
-        // The wrapper title is already shown in the card header, so we drop spec.title
-        // to avoid duplicating it inside the SVG.
-        const renderSpec = { ...chart.spec }
-        delete renderSpec.title
-        const result = await embed(container, renderSpec as VisualizationSpec, {
-          actions: false,
-          ast: true,
-          config: buildVegaConfig(theme),
-          defaultStyle: false,
-          mode: 'vega-lite',
-          renderer: 'svg',
-          tooltip: false,
-        })
-
-        if (cancelled) {
-          result.finalize()
-          return
-        }
-
-        finalize = result.finalize
-        setIsLoading(false)
-      } catch (renderError) {
-        if (!cancelled) {
-          console.error('Failed to render chart:', renderError)
-          setError('Unable to render chart. The chart spec is still available to copy.')
-          setIsLoading(false)
-        }
-      }
-    }
-
-    renderChart()
-
-    return () => {
-      cancelled = true
-      finalize?.()
-      if (container) container.innerHTML = ''
-    }
+  const renderSpec = useMemo(() => {
+    const next = { ...chart.spec }
+    delete next.title
+    return next
   }, [chart.spec])
 
   return (
@@ -113,7 +56,7 @@ export function ChartCard({ chart, isRunning }: ChartCardProps) {
         <div className="flex items-center gap-2">
           <ChartBar size={12} weight="fill" className="shrink-0 text-primary/70" />
           <p className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">{chart.title}</p>
-          {isRunning || isLoading ? (
+          {isRunning ? (
             <SpinnerGap size={12} className="shrink-0 animate-spin text-muted-foreground" />
           ) : null}
           <ChartCopyButton text={copyText} />
@@ -124,13 +67,11 @@ export function ChartCard({ chart, isRunning }: ChartCardProps) {
       </div>
 
       <div className="border-t border-border/30 px-3 pb-3 pt-3">
-        {error ? (
-          <div className="mb-2 flex items-start gap-2 rounded-md border border-destructive/25 bg-destructive/5 px-2.5 py-1.5 text-xs text-destructive">
-            <WarningCircle size={12} weight="fill" className="mt-0.5 shrink-0" />
-            <span>{error}</span>
-          </div>
-        ) : null}
-        <div ref={containerRef} className="min-h-44 w-full [&_svg]:max-w-full" />
+        <VegaFigure
+          spec={renderSpec}
+          className="w-full [&_svg]:max-w-full"
+          errorMessage="Unable to render chart. The chart spec is still available to copy."
+        />
       </div>
     </div>
   )

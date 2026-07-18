@@ -8,7 +8,22 @@ const MAX_SOURCE_NOTE_CHARS = 300
 const URL_PATTERN = /\b(?:https?:\/\/|www\.)|\b(?:javascript|data):/i
 const HTML_PATTERN = /[<>]/
 const MAX_DIMENSION = 2000
-const SAFE_MARKS = new Set(['bar', 'line', 'area', 'point', 'arc'])
+const SAFE_MARKS = new Set([
+  'arc',
+  'area',
+  'bar',
+  'circle',
+  'errorband',
+  'errorbar',
+  'line',
+  'point',
+  'rect',
+  'rule',
+  'square',
+  'text',
+  'tick',
+  'trail',
+])
 const SAFE_AUTOSIZE_CONTAINS = new Set(['content', 'padding'])
 const SAFE_AUTOSIZE_KEYS = new Set(['contains', 'type'])
 const SAFE_AUTOSIZE_TYPES = new Set(['fit', 'none', 'pad'])
@@ -18,8 +33,12 @@ const SAFE_TOP_LEVEL_SPEC_KEYS = new Set([
   'data',
   'encoding',
   'height',
+  'layer',
   'mark',
+  'resolve',
+  'spacing',
   'title',
+  'transform',
   'width',
 ])
 const UNSAFE_SPEC_KEYS = new Set(['href', 'src', 'url'])
@@ -29,21 +48,10 @@ type ChartAutosize = {
   type?: string
 }
 
-export type ChartSpec = {
-  $schema: typeof CHART_SCHEMA
-  autosize?: ChartAutosize
-  data: { values: Record<string, unknown>[] }
-  encoding: Record<string, unknown>
-  height?: number | string
-  mark: string
-  title?: string
-  width?: number | string
-}
-
 export type ChartOutput = {
   title: string
   sourceNote?: string
-  spec: ChartSpec
+  spec: Record<string, unknown>
 }
 
 const getString = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim() : undefined)
@@ -97,6 +105,22 @@ function hasUnsupportedTopLevelSpecKey(spec: Record<string, unknown>): boolean {
   return Object.keys(spec).some((key) => !SAFE_TOP_LEVEL_SPEC_KEYS.has(key))
 }
 
+function validateMarks(spec: Record<string, unknown>): boolean {
+  if (spec.mark !== undefined) {
+    if (typeof spec.mark !== 'string' || !SAFE_MARKS.has(spec.mark)) return false
+  }
+
+  if (spec.layer !== undefined) {
+    if (!Array.isArray(spec.layer) || spec.layer.length === 0) return false
+    for (const layer of spec.layer) {
+      if (!isRecord(layer)) return false
+      if (typeof layer.mark !== 'string' || !SAFE_MARKS.has(layer.mark)) return false
+    }
+  }
+
+  return spec.mark !== undefined || spec.layer !== undefined
+}
+
 function getSafeDimension(value: unknown): number | string | undefined {
   if (value === 'container') return value
   if (typeof value !== 'number') return undefined
@@ -118,6 +142,57 @@ function getSafeAutosize(value: unknown): ChartAutosize | undefined {
   }
 
   return autosize
+}
+
+export function parseChartSpec(spec: unknown): Record<string, unknown> | null {
+  if (!isRecord(spec)) return null
+  if (hasUnsupportedTopLevelSpecKey(spec)) return null
+  if (spec.$schema !== CHART_SCHEMA) return null
+  if (!validateMarks(spec)) return null
+
+  if (spec.data !== undefined) {
+    if (!isRecord(spec.data)) return null
+    if (!isRecordArray(spec.data.values)) return null
+    if (spec.data.values.length === 0 || spec.data.values.length > MAX_ROWS) return null
+    if (hasTooManyColumns(spec.data.values)) return null
+  }
+
+  if (spec.encoding !== undefined && !isRecord(spec.encoding)) return null
+
+  if (spec.layer !== undefined) {
+    if (!Array.isArray(spec.layer) || spec.layer.length === 0) return null
+    if (!spec.layer.every(isRecord)) return null
+  }
+
+  if (hasUnsafeSpecValue(spec)) return null
+
+  const specTitle = spec.title === undefined ? undefined : getSafeString(spec.title, MAX_TITLE_CHARS)
+  if (spec.title !== undefined && !specTitle) return null
+
+  const width = spec.width === undefined ? undefined : getSafeDimension(spec.width)
+  if (spec.width !== undefined && width === undefined) return null
+
+  const height = spec.height === undefined ? undefined : getSafeDimension(spec.height)
+  if (spec.height !== undefined && height === undefined) return null
+
+  const autosize = spec.autosize === undefined ? undefined : getSafeAutosize(spec.autosize)
+  if (spec.autosize !== undefined && !autosize) return null
+
+  const cleaned: Record<string, unknown> = { $schema: CHART_SCHEMA }
+
+  if (spec.data !== undefined) cleaned.data = { values: spec.data.values }
+  if (spec.encoding !== undefined) cleaned.encoding = spec.encoding
+  if (spec.mark !== undefined) cleaned.mark = spec.mark
+  if (spec.layer !== undefined) cleaned.layer = spec.layer
+  if (spec.transform !== undefined) cleaned.transform = spec.transform
+  if (spec.resolve !== undefined) cleaned.resolve = spec.resolve
+  if (spec.spacing !== undefined) cleaned.spacing = spec.spacing
+  if (autosize) cleaned.autosize = autosize
+  if (height !== undefined) cleaned.height = height
+  if (specTitle) cleaned.title = specTitle
+  if (width !== undefined) cleaned.width = width
+
+  return cleaned
 }
 
 export function parseChartOutput(rawOutput?: string): ChartOutput | null {
@@ -142,40 +217,8 @@ export function parseChartOutput(rawOutput?: string): ChartOutput | null {
     : getSafeString(parsed.chart.sourceNote, MAX_SOURCE_NOTE_CHARS)
   if (parsed.chart.sourceNote !== undefined && !sourceNote) return null
 
-  const spec = parsed.chart.spec
-  if (!isRecord(spec)) return null
-  if (hasUnsupportedTopLevelSpecKey(spec)) return null
-  if (spec.$schema !== CHART_SCHEMA) return null
-  if (typeof spec.mark !== 'string' || !SAFE_MARKS.has(spec.mark)) return null
-  if (!isRecord(spec.data) || !isRecordArray(spec.data.values)) return null
-  if (spec.data.values.length === 0 || spec.data.values.length > MAX_ROWS) return null
-  if (hasTooManyColumns(spec.data.values)) return null
-  if (!isRecord(spec.encoding)) return null
-  if (hasUnsafeSpecValue(spec)) return null
+  const spec = parseChartSpec(parsed.chart.spec)
+  if (!spec) return null
 
-  const specTitle = spec.title === undefined ? undefined : getSafeString(spec.title, MAX_TITLE_CHARS)
-  if (spec.title !== undefined && !specTitle) return null
-
-  const width = spec.width === undefined ? undefined : getSafeDimension(spec.width)
-  if (spec.width !== undefined && width === undefined) return null
-
-  const height = spec.height === undefined ? undefined : getSafeDimension(spec.height)
-  if (spec.height !== undefined && height === undefined) return null
-
-  const autosize = spec.autosize === undefined ? undefined : getSafeAutosize(spec.autosize)
-  if (spec.autosize !== undefined && !autosize) return null
-
-  const chartSpec: ChartSpec = {
-    $schema: CHART_SCHEMA,
-    data: { values: spec.data.values },
-    encoding: spec.encoding,
-    mark: spec.mark,
-  }
-
-  if (autosize) chartSpec.autosize = autosize
-  if (height !== undefined) chartSpec.height = height
-  if (specTitle) chartSpec.title = specTitle
-  if (width !== undefined) chartSpec.width = width
-
-  return sourceNote ? { title, sourceNote, spec: chartSpec } : { title, spec: chartSpec }
+  return sourceNote ? { title, sourceNote, spec } : { title, spec }
 }

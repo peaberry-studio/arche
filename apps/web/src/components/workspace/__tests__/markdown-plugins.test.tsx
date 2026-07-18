@@ -1,18 +1,30 @@
 /**
  * @vitest-environment jsdom
  */
-import { cleanup, render } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, render, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ReactMarkdown from "react-markdown";
 
+import { workspaceMarkdownComponents } from "../markdown-components";
 import {
   workspaceRehypePlugins,
   workspaceRemarkPlugins,
 } from "../markdown-plugins";
 
+const embedMock = vi.hoisted(() => vi.fn(async (...[element]: [HTMLElement, unknown, Record<string, unknown>]) => {
+  element.innerHTML = '<svg data-testid="rendered-chart"><text>chart rendered</text></svg>'
+  return { finalize: vi.fn() }
+}))
+
+vi.mock('vega-embed', () => ({ default: embedMock }))
+
 afterEach(() => {
   cleanup();
+});
+
+beforeEach(() => {
+  vi.clearAllMocks()
 });
 
 describe("markdown math rendering", () => {
@@ -129,5 +141,56 @@ describe("markdown math rendering", () => {
     const code = container.querySelector("code");
     expect(code?.textContent).toContain("\\frac{1}{2}");
     expect(code?.querySelector(".katex")).toBeNull();
+  });
+});
+
+describe("vega-lite fenced code blocks", () => {
+  const validVegaLiteSpec = JSON.stringify({
+    $schema: "https://vega.github.io/schema/vega-lite/v5.json",
+    data: { values: [{ x: "A", y: 10 }] },
+    mark: "bar",
+    encoding: {
+      x: { field: "x", type: "nominal" },
+      y: { field: "y", type: "quantitative" },
+    },
+  });
+
+  const renderMarkdown = (source: string) =>
+    render(
+      <ReactMarkdown
+        remarkPlugins={workspaceRemarkPlugins}
+        rehypePlugins={workspaceRehypePlugins}
+        components={workspaceMarkdownComponents}
+      >
+        {source}
+      </ReactMarkdown>,
+    );
+
+  it("renders a vega-lite fence as a chart and unwraps the pre wrapper", async () => {
+    const { container } = renderMarkdown(`\`\`\`vega-lite\n${validVegaLiteSpec}\n\`\`\``);
+
+    await waitFor(() => expect(embedMock).toHaveBeenCalledTimes(1));
+    expect(container.querySelector("pre")).toBeNull();
+    const svg = container.querySelector("svg[data-testid='rendered-chart']");
+    expect(svg).toBeTruthy();
+  });
+
+  it("renders a plain js fence as a normal code block", () => {
+    const { container } = renderMarkdown("```js\nconst x = 1\n```");
+
+    expect(embedMock).not.toHaveBeenCalled();
+    const pre = container.querySelector("pre");
+    expect(pre).toBeTruthy();
+    const code = pre?.querySelector("code");
+    expect(code?.textContent).toContain("const x = 1");
+  });
+
+  it("renders a fallback when the vega-lite fence has invalid JSON", () => {
+    const { container } = renderMarkdown("```vega-lite\nnot json\n```");
+
+    expect(embedMock).not.toHaveBeenCalled();
+    const pre = container.querySelector("pre");
+    expect(pre).toBeTruthy();
+    expect(pre?.textContent).toContain("not json");
   });
 });
