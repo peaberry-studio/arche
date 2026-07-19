@@ -123,4 +123,36 @@ describe("remarkBracketMath transform", () => {
     expect(types).toContain("inlineMath");
     expect(types).toContain("text");
   });
+
+  it("unescapes unmatched \\( in prose to ( (CommonMark semantics)", () => {
+    const tree = makeParagraph("see footnote \\(a and more");
+    run(tree);
+
+    const paragraph = (tree.children as MdastNode[])[0];
+    const textNode = (paragraph.children as MdastNode[])[0];
+    expect(textNode.type).toBe("text");
+    expect(textNode.value).toBe("see footnote (a and more");
+  });
+
+  it("unescapes unmatched \\[ in prose to [ (CommonMark semantics)", () => {
+    const tree = makeParagraph("an optional \\[flag here");
+    run(tree);
+
+    const paragraph = (tree.children as MdastNode[])[0];
+    const textNode = (paragraph.children as MdastNode[])[0];
+    expect(textNode.type).toBe("text");
+    expect(textNode.value).toBe("an optional [flag here");
+  });
+
+  it("unescapes escaped delimiters in the gap between two matches", () => {
+    const tree = makeParagraph("\\(a\\) gap \\(b\\)");
+    run(tree);
+
+    const paragraph = (tree.children as MdastNode[])[0];
+    const children = paragraph.children as MdastNode[];
+    const gapNode = children.find(
+      (n) => n.type === "text" && n.value?.includes("gap"),
+    );
+    expect(gapNode?.value).toBe(" gap ");
+  });
 });

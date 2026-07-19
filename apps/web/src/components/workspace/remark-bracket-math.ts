@@ -36,6 +36,10 @@ function trimOuter(value: string): string {
   return value.replace(/^\s+|\s+$/g, "");
 }
 
+function unescapeDelimiters(value: string): string {
+  return value.replace(/\\([[\]()])/g, "$1");
+}
+
 type Effects = {
   enter: (type: string) => void;
   exit: (type: string) => void;
@@ -148,7 +152,10 @@ function buildReplacement(text: string): ReplacementNode[] | null {
     }
   }
 
-  if (matches.length === 0) return null;
+  if (matches.length === 0) {
+    if (!/\\[[\]()]/.test(text)) return null;
+    return [{ type: "text", value: unescapeDelimiters(text) }];
+  }
 
   matches.sort((a, b) => a.start - b.start);
 
@@ -156,13 +163,13 @@ function buildReplacement(text: string): ReplacementNode[] | null {
   let cursor = 0;
   for (const mm of matches) {
     if (mm.start > cursor) {
-      nodes.push({ type: "text", value: text.slice(cursor, mm.start) });
+      nodes.push({ type: "text", value: unescapeDelimiters(text.slice(cursor, mm.start)) });
     }
     nodes.push(makeMathNode(mm.type, mm.value));
     cursor = mm.end;
   }
   if (cursor < text.length) {
-    nodes.push({ type: "text", value: text.slice(cursor) });
+    nodes.push({ type: "text", value: unescapeDelimiters(text.slice(cursor)) });
   }
 
   return nodes;
