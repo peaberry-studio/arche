@@ -115,6 +115,12 @@ function resolveMarkType(mark: unknown): string | undefined {
   return undefined
 }
 
+function resolveTitleText(title: unknown): string | undefined {
+  if (typeof title === 'string') return title
+  if (isRecord(title) && typeof title.text === 'string') return title.text
+  return undefined
+}
+
 function validateMarks(spec: Record<string, unknown>): boolean {
   if (spec.mark !== undefined) {
     const markType = resolveMarkType(spec.mark)
@@ -173,8 +179,12 @@ export function parseChartSpec(spec: unknown): ChartSpec | null {
 
   if (hasUnsafeSpecValue(spec)) return null
 
-  const specTitle = spec.title === undefined ? undefined : getSafeString(spec.title, MAX_TITLE_CHARS)
-  if (spec.title !== undefined && !specTitle) return null
+  if (spec.title !== undefined) {
+    const titleText = resolveTitleText(spec.title)
+    if (titleText === undefined) return null
+    const safeTitle = getSafeString(titleText, MAX_TITLE_CHARS)
+    if (!safeTitle) return null
+  }
 
   const width = spec.width === undefined ? undefined : getSafeDimension(spec.width)
   if (spec.width !== undefined && width === undefined) return null
@@ -195,9 +205,9 @@ export function parseChartSpec(spec: unknown): ChartSpec | null {
   if (spec.resolve !== undefined) cleaned.resolve = spec.resolve
   if (spec.spacing !== undefined) cleaned.spacing = spec.spacing
   if (spec.config !== undefined) cleaned.config = spec.config
+  if (spec.title !== undefined) cleaned.title = spec.title
   if (autosize) cleaned.autosize = autosize
   if (height !== undefined) cleaned.height = height
-  if (specTitle) cleaned.title = specTitle
   if (width !== undefined) cleaned.width = width
 
   return cleaned

@@ -1,3 +1,5 @@
+"use client";
+
 import ReactMarkdown from "react-markdown";
 
 import { MarkdownFrontmatterPanel } from "@/components/workspace/markdown-frontmatter-panel";

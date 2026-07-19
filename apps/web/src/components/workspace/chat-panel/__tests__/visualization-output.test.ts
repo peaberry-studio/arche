@@ -196,6 +196,25 @@ describe('parseChartSpec', () => {
     expect(parseChartSpec({ ...chartSpec, mark: 'geoshape' })).toBeNull()
   })
 
+  it('accepts a spec with an object-form title', () => {
+    const spec = {
+      ...chartSpec,
+      title: { text: 'Figure 1 — Throughput', anchor: 'start', fontSize: 16 },
+    }
+    expect(parseChartSpec(spec)).toEqual(spec)
+  })
+
+  it('rejects a spec with an object-form title containing unsafe text', () => {
+    expect(parseChartSpec({
+      ...chartSpec,
+      title: { text: '<b>Evil</b>', anchor: 'start' },
+    })).toBeNull()
+  })
+
+  it('rejects a spec with a non-string, non-object title', () => {
+    expect(parseChartSpec({ ...chartSpec, title: 42 })).toBeNull()
+  })
+
   it('accepts a spec with an object-form mark (mark.type validated)', () => {
     const spec = {
       ...chartSpec,
