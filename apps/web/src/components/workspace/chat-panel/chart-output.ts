@@ -30,6 +30,7 @@ const SAFE_AUTOSIZE_TYPES = new Set(['fit', 'none', 'pad'])
 const SAFE_TOP_LEVEL_SPEC_KEYS = new Set([
   '$schema',
   'autosize',
+  'config',
   'data',
   'encoding',
   'height',
@@ -41,7 +42,7 @@ const SAFE_TOP_LEVEL_SPEC_KEYS = new Set([
   'transform',
   'width',
 ])
-// transform/resolve pass through: Vega expressions are sandboxed (no DOM/network); hasUnsafeSpecValue blocks url/href/src and HTML in strings.
+// transform/resolve/config pass through: Vega expressions are sandboxed (no DOM/network); hasUnsafeSpecValue blocks url/href/src and HTML in strings.
 const UNSAFE_SPEC_KEYS = new Set(['href', 'src', 'url'])
 
 type ChartAutosize = {
@@ -108,16 +109,24 @@ function hasUnsupportedTopLevelSpecKey(spec: Record<string, unknown>): boolean {
   return Object.keys(spec).some((key) => !SAFE_TOP_LEVEL_SPEC_KEYS.has(key))
 }
 
+function resolveMarkType(mark: unknown): string | undefined {
+  if (typeof mark === 'string') return mark
+  if (isRecord(mark) && typeof mark.type === 'string') return mark.type
+  return undefined
+}
+
 function validateMarks(spec: Record<string, unknown>): boolean {
   if (spec.mark !== undefined) {
-    if (typeof spec.mark !== 'string' || !SAFE_MARKS.has(spec.mark)) return false
+    const markType = resolveMarkType(spec.mark)
+    if (markType === undefined || !SAFE_MARKS.has(markType)) return false
   }
 
   if (spec.layer !== undefined) {
     if (!Array.isArray(spec.layer) || spec.layer.length === 0) return false
     for (const layer of spec.layer) {
       if (!isRecord(layer)) return false
-      if (typeof layer.mark !== 'string' || !SAFE_MARKS.has(layer.mark)) return false
+      const markType = resolveMarkType(layer.mark)
+      if (markType === undefined || !SAFE_MARKS.has(markType)) return false
     }
   }
 
@@ -185,6 +194,7 @@ export function parseChartSpec(spec: unknown): ChartSpec | null {
   if (spec.transform !== undefined) cleaned.transform = spec.transform
   if (spec.resolve !== undefined) cleaned.resolve = spec.resolve
   if (spec.spacing !== undefined) cleaned.spacing = spec.spacing
+  if (spec.config !== undefined) cleaned.config = spec.config
   if (autosize) cleaned.autosize = autosize
   if (height !== undefined) cleaned.height = height
   if (specTitle) cleaned.title = specTitle

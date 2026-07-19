@@ -196,8 +196,39 @@ describe('parseChartSpec', () => {
     expect(parseChartSpec({ ...chartSpec, mark: 'geoshape' })).toBeNull()
   })
 
-  it('rejects a spec with a non-string top-level mark', () => {
-    expect(parseChartSpec({ ...chartSpec, mark: { type: 'bar' } })).toBeNull()
+  it('accepts a spec with an object-form mark (mark.type validated)', () => {
+    const spec = {
+      ...chartSpec,
+      mark: { type: 'bar', color: '#4C78A8', cornerRadiusEnd: 3 },
+    }
+    expect(parseChartSpec(spec)).toEqual(spec)
+  })
+
+  it('rejects a spec with an object-form mark whose type is unsupported', () => {
+    expect(parseChartSpec({ ...chartSpec, mark: { type: 'geoshape' } })).toBeNull()
+  })
+
+  it('rejects a spec with a non-string, non-object mark', () => {
+    expect(parseChartSpec({ ...chartSpec, mark: 42 })).toBeNull()
+  })
+
+  it('accepts a spec with a config key', () => {
+    const spec = {
+      ...chartSpec,
+      config: {
+        axis: { labelFontSize: 12, titleFontSize: 13 },
+        view: { stroke: null },
+      },
+    }
+    expect(parseChartSpec(spec)).toEqual(spec)
+  })
+
+  it('rejects a config with an unsafe url key', () => {
+    const spec = {
+      ...chartSpec,
+      config: { url: 'https://evil.example.com' },
+    }
+    expect(parseChartSpec(spec)).toBeNull()
   })
 
   it('rejects a layered spec with an unsupported mark in a layer', () => {
@@ -210,6 +241,18 @@ describe('parseChartSpec', () => {
       ],
     }
     expect(parseChartSpec(spec)).toBeNull()
+  })
+
+  it('accepts a layered spec with object-form marks in layers', () => {
+    const spec = {
+      $schema: 'https://vega.github.io/schema/vega-lite/v5.json',
+      data: { values: [{ x: 1, y: 2 }] },
+      layer: [
+        { mark: { type: 'line', color: '#E45756' }, encoding: {} },
+        { mark: { type: 'point', filled: true }, encoding: {} },
+      ],
+    }
+    expect(parseChartSpec(spec)).toEqual(spec)
   })
 
   it('rejects a layered spec where a layer has no mark', () => {
