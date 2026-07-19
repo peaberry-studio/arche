@@ -41,6 +41,7 @@ const SAFE_TOP_LEVEL_SPEC_KEYS = new Set([
   'transform',
   'width',
 ])
+// transform/resolve pass through: Vega expressions are sandboxed (no DOM/network); hasUnsafeSpecValue blocks url/href/src and HTML in strings.
 const UNSAFE_SPEC_KEYS = new Set(['href', 'src', 'url'])
 
 type ChartAutosize = {
@@ -48,10 +49,12 @@ type ChartAutosize = {
   type?: string
 }
 
+export type ChartSpec = Record<string, unknown>
+
 export type ChartOutput = {
   title: string
   sourceNote?: string
-  spec: Record<string, unknown>
+  spec: ChartSpec
 }
 
 const getString = (value: unknown) => (typeof value === 'string' && value.trim() ? value.trim() : undefined)
@@ -144,7 +147,7 @@ function getSafeAutosize(value: unknown): ChartAutosize | undefined {
   return autosize
 }
 
-export function parseChartSpec(spec: unknown): Record<string, unknown> | null {
+export function parseChartSpec(spec: unknown): ChartSpec | null {
   if (!isRecord(spec)) return null
   if (hasUnsupportedTopLevelSpecKey(spec)) return null
   if (spec.$schema !== CHART_SCHEMA) return null
@@ -158,11 +161,6 @@ export function parseChartSpec(spec: unknown): Record<string, unknown> | null {
   }
 
   if (spec.encoding !== undefined && !isRecord(spec.encoding)) return null
-
-  if (spec.layer !== undefined) {
-    if (!Array.isArray(spec.layer) || spec.layer.length === 0) return null
-    if (!spec.layer.every(isRecord)) return null
-  }
 
   if (hasUnsafeSpecValue(spec)) return null
 

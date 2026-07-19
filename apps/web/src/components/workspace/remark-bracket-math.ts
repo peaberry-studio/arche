@@ -44,13 +44,9 @@ type Effects = {
 
 type State = (code: number | null) => State | undefined;
 
-function tokenizeBracketMath(
-  effects: Effects,
-  ok: State,
-  nok: State,
-): State {
-  let closeChar = 0;
+const DELIMITER_CHARS = new Set([91, 93, 40, 41]); // [ ] ( )
 
+function tokenizeBracketMath(effects: Effects, ok: State, nok: State): State {
   return start;
 
   function start(code: number | null): State | undefined {
@@ -61,39 +57,13 @@ function tokenizeBracketMath(
   }
 
   function afterBackslash(code: number | null): State | undefined {
-    if (code === null) return nok(code);
-    if (code === 91) {
-      closeChar = 93;
-      effects.consume(code);
-      return inMath;
-    }
-    if (code === 40) {
-      closeChar = 41;
-      effects.consume(code);
-      return inMath;
-    }
-    return nok(code);
-  }
-
-  function inMath(code: number | null): State | undefined {
-    if (code === null) return nok(code);
-    if (code === 92) {
-      effects.consume(code);
-      return checkClose;
-    }
-    effects.consume(code);
-    return inMath;
-  }
-
-  function checkClose(code: number | null): State | undefined {
-    if (code === null) return nok(code);
-    if (code === closeChar) {
+    if (code !== null && DELIMITER_CHARS.has(code)) {
       effects.consume(code);
       effects.exit("data");
-      return ok(code);
+      return ok;
     }
-    effects.consume(code);
-    return inMath;
+    effects.exit("data");
+    return nok(code);
   }
 }
 
@@ -105,6 +75,37 @@ const bracketMathExtension = {
     },
   },
 };
+
+function makeMathNode(type: "math" | "inlineMath", value: string): MathReplacementNode {
+  if (type === "math") {
+    return {
+      type: "math",
+      value,
+      children: [{ type: "text", value }],
+      data: {
+        hName: "pre",
+        hChildren: [
+          {
+            type: "element",
+            tagName: "code",
+            properties: { className: ["language-math", "math-display"] },
+            children: [{ type: "text", value }],
+          },
+        ],
+      },
+    };
+  }
+  return {
+    type: "inlineMath",
+    value,
+    children: [{ type: "text", value }],
+    data: {
+      hName: "code",
+      hProperties: { className: ["language-math", "math-inline"] },
+      hChildren: [{ type: "text", value }],
+    },
+  };
+}
 
 function buildReplacement(text: string): ReplacementNode[] | null {
   type Match = {
@@ -157,35 +158,7 @@ function buildReplacement(text: string): ReplacementNode[] | null {
     if (mm.start > cursor) {
       nodes.push({ type: "text", value: text.slice(cursor, mm.start) });
     }
-    if (mm.type === "math") {
-      nodes.push({
-        type: "math",
-        value: mm.value,
-        children: [{ type: "text", value: mm.value }],
-        data: {
-          hName: "pre",
-          hChildren: [
-            {
-              type: "element",
-              tagName: "code",
-              properties: { className: ["language-math", "math-display"] },
-              children: [{ type: "text", value: mm.value }],
-            },
-          ],
-        },
-      });
-    } else {
-      nodes.push({
-        type: "inlineMath",
-        value: mm.value,
-        children: [{ type: "text", value: mm.value }],
-        data: {
-          hName: "code",
-          hProperties: { className: ["language-math", "math-inline"] },
-          hChildren: [{ type: "text", value: mm.value }],
-        },
-      });
-    }
+    nodes.push(makeMathNode(mm.type, mm.value));
     cursor = mm.end;
   }
   if (cursor < text.length) {
@@ -199,10 +172,11 @@ export default function remarkBracketMath(this: unknown) {
   const self = this as { data: () => Record<string, unknown> };
   const data = self.data();
   const existing = data.micromarkExtensions;
-  if (Array.isArray(existing)) {
-    existing.push(bracketMathExtension);
-  } else {
-    data.micromarkExtensions = [bracketMathExtension];
+  if (!Array.isArray(existing) || !existing.includes(bracketMathExtension)) {
+    data.micromarkExtensions = [
+      ...(Array.isArray(existing) ? existing : []),
+      bracketMathExtension,
+    ];
   }
 
   return (tree: MdastNode) => {

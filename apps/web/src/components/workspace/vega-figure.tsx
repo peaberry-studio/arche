@@ -4,13 +4,14 @@ import { useEffect, useRef, useState } from 'react'
 
 import type { VisualizationSpec } from 'vega-embed'
 
+import type { ChartSpec } from '@/components/workspace/chat-panel/chart-output'
 import {
   buildVegaConfig,
   resolveVisualizationTheme,
 } from '@/components/workspace/chat-panel/visualization-theme'
 
 type VegaFigureProps = {
-  spec: Record<string, unknown>
+  spec: ChartSpec
   className?: string
   errorMessage?: string
 }
