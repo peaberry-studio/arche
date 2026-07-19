@@ -17,6 +17,8 @@ import {
   normalizeMarkdownForKb,
 } from "@/components/workspace/markdown-editor-content";
 import { VegaLiteChart } from "@/components/workspace/vega-lite-chart-node";
+import { MathDisplay } from "@/components/workspace/math-display-node";
+import { MathInline } from "@/components/workspace/math-inline-node";
 
 vi.mock("vega-embed", () => ({
   default: vi.fn().mockResolvedValue({ finalize: vi.fn() }),
@@ -34,6 +36,8 @@ function createMarkdownEditor(content: string) {
       TableHeader,
       TableCell,
       VegaLiteChart,
+      MathDisplay,
+      MathInline,
       Markdown.configure({
         markedOptions: {
           gfm: true,
@@ -217,6 +221,123 @@ describe("markdown editor serialization", () => {
 
     expect(counts["vegaLiteChart"]).toBeUndefined();
     expect(counts["paragraph"]).toBeGreaterThanOrEqual(1);
+
+    editor.destroy();
+  });
+
+  it("parses display math into mathDisplay atom nodes", () => {
+    const source = "$$\nT_{CPU} = \\frac{32\\ \\text{GiB}}{455\\ \\text{MB/s}} \\approx 75\\ \\text{s}\n$$";
+    const editor = createMarkdownEditor(source);
+    const counts = countNodeTypes(editor);
+
+    expect(counts["mathDisplay"]).toBe(1);
+    expect(counts["paragraph"]).toBeUndefined();
+
+    editor.destroy();
+  });
+
+  it("round-trips display math losslessly via getMarkdown", () => {
+    const latex = "T_{CPU} = \\frac{32\\ \\text{GiB}}{455\\ \\text{MB/s}} \\approx 75\\ \\text{s}";
+    const source = "$$\n" + latex + "\n$$";
+    const editor = createMarkdownEditor(source);
+    const markdown = editor.getMarkdown();
+
+    expect(markdown).toContain("$$");
+    expect(markdown).toContain(latex);
+
+    editor.destroy();
+  });
+
+  it("parses inline math into mathInline atom nodes", () => {
+    const source = "An error rate of $e = 5.9$ means six failures.";
+    const editor = createMarkdownEditor(source);
+    const counts = countNodeTypes(editor);
+
+    expect(counts["mathInline"]).toBe(1);
+    expect(counts["paragraph"]).toBe(1);
+
+    editor.destroy();
+  });
+
+  it("round-trips inline math losslessly via getMarkdown", () => {
+    const source = "Rate is $e = 5.9$ here.";
+    const editor = createMarkdownEditor(source);
+    const markdown = editor.getMarkdown();
+
+    expect(markdown).toContain("$e = 5.9$");
+
+    editor.destroy();
+  });
+
+  it("does not treat $5 and $10 as inline math (digit lookahead)", () => {
+    const source = "price is $5 and $10 total";
+    const editor = createMarkdownEditor(source);
+    const counts = countNodeTypes(editor);
+
+    expect(counts["mathInline"]).toBeUndefined();
+
+    editor.destroy();
+  });
+
+  it("does not treat $ not math $ as inline math (whitespace rejected)", () => {
+    const source = "this is $ not math $ here";
+    const editor = createMarkdownEditor(source);
+    const counts = countNodeTypes(editor);
+
+    expect(counts["mathInline"]).toBeUndefined();
+
+    editor.destroy();
+  });
+
+  it("parses multiple display math blocks and round-trips both", () => {
+    const source = [
+      "Intro text.",
+      "",
+      "$$\na + b\n$$",
+      "",
+      "Between blocks.",
+      "",
+      "$$\nc = d\n$$",
+      "",
+      "Outro.",
+    ].join("\n");
+
+    const editor = createMarkdownEditor(source);
+    const counts = countNodeTypes(editor);
+
+    expect(counts["mathDisplay"]).toBe(2);
+
+    const markdown = editor.getMarkdown();
+    expect(markdown).toContain("a + b");
+    expect(markdown).toContain("c = d");
+    expect(markdown).toContain("Between blocks.");
+
+    editor.destroy();
+  });
+
+  it("allows deleting a mathDisplay atom node and removes it from output", () => {
+    const source = "$$\nx^2\n$$";
+    const editor = createMarkdownEditor(source);
+
+    let pos = -1;
+    editor.state.doc.descendants((node, nodePos) => {
+      if (node.type.name === "mathDisplay") {
+        pos = nodePos;
+        return false;
+      }
+      return true;
+    });
+    expect(pos).toBeGreaterThanOrEqual(0);
+
+    editor
+      .chain()
+      .setTextSelection({ from: pos, to: pos + 1 })
+      .deleteSelection()
+      .run();
+
+    const markdown = editor.getMarkdown();
+    expect(markdown).not.toContain("$$");
+    expect(markdown).not.toContain("x^2");
 
     editor.destroy();
   });
