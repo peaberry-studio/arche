@@ -143,7 +143,7 @@ describe('AddConnectorModal', () => {
       />
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'GitHub' }))
+    fireEvent.click(screen.getByRole('button', { name: /GitHub/i }))
     expect(screen.getByRole('button', { name: 'Save connector' }).hasAttribute('disabled')).toBe(true)
 
     fireEvent.change(screen.getByLabelText('Personal access token'), {

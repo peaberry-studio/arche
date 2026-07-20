@@ -47,7 +47,7 @@ async function openGithubConnectorDialog(page: Page) {
 
   const dialog = page.getByRole('dialog')
   await expect(dialog).toBeVisible()
-  await dialog.getByRole('button', { name: 'GitHub' }).click()
+  await dialog.getByRole('button', { name: /GitHub/ }).click()
   return dialog
 }
 

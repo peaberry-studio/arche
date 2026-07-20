@@ -117,7 +117,7 @@ export const GithubSection = forwardRef<
         </p>
         {repoError ? <p className="text-xs text-destructive">{repoError}</p> : null}
         {pinnedRepos.length > 0 ? (
-          <ul className="flex flex-wrap gap-2" aria-label="Pinned repositories">
+          <ul className="flex flex-wrap gap-2" aria-label="Added pinned repositories">
             {pinnedRepos.map((repo) => (
               <li
                 key={repo}
