@@ -1,6 +1,7 @@
 import { Check } from "@phosphor-icons/react";
 import type { Components } from "react-markdown";
 
+import { MarkdownChart } from "@/components/workspace/markdown-chart";
 import { cn } from "@/lib/utils";
 
 type HastElement = {
@@ -27,6 +28,13 @@ function paragraphHasTaskCheckbox(node: unknown): boolean {
 }
 
 export const workspaceMarkdownComponents: Components = {
+  code: ({ className, children, ...props }) => {
+    if (typeof className === "string" && className.includes("language-vega-lite")) {
+      return <MarkdownChart source={String(children)} />;
+    }
+
+    return <code className={className} {...props}>{children}</code>;
+  },
   input: ({ type, checked, ...props }) => {
     if (type === "checkbox") {
       return (
@@ -47,5 +55,14 @@ export const workspaceMarkdownComponents: Components = {
     }
 
     return <p {...props}>{children}</p>;
+  },
+  pre: ({ node, children }) => {
+    const codeChild = (node as HastElement | undefined)?.children?.[0] as HastElement | undefined;
+    const classes = codeChild?.properties?.className;
+    if (Array.isArray(classes) && classes.includes("language-vega-lite")) {
+      return <>{children}</>;
+    }
+
+    return <pre>{children}</pre>;
   },
 };

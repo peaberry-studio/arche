@@ -111,6 +111,32 @@ function buildAgentsMarkdown(
     '- The `knowledge-curator` must ask for explicit confirmation before any KB write.',
   ]
 
+  const markdownCapabilityLines = [
+    'Equations:',
+    '- Render math with `$...$` (inline) and `$$...$$` (display). LaTeX `\\[...\\]` (display) and `\\(...\\)` (inline) delimiters also render.',
+    '- KaTeX supports the standard LaTeX math subset.',
+    '',
+    'Plots (Vega-Lite):',
+    '- Use ` ```vega-lite ` fenced code blocks with a raw Vega-Lite JSON spec for in-document charts (KB articles, reports, research notes).',
+    '- Use the `chart_create` tool only for quick ad-hoc chat visualizations — for anything that persists in a document, use fenced specs.',
+    '- Allowed marks: `bar`, `line`, `area`, `point`, `arc`, `rule`, `rect`, `text`, `tick`, `errorband`, `errorbar`, `circle`, `square`, `trail`.',
+    '- Supported top-level keys: `$schema`, `autosize`, `data`, `encoding`, `height`, `mark`, `title`, `width`, `layer`, `transform`, `resolve`, `spacing`.',
+    '- Data must be inline (`data.values` as an array of row objects). No URLs, no `url`/`href`/`src` keys. Maximum 1000 rows and 50 columns.',
+    '- Invalid specs render as a code block with an error note — always validate JSON before emitting.',
+    '',
+    'Publication-quality chart checklist:',
+    '- Match the mark to the data relationship: `line` for continuous trends over time, `bar` for categorical comparison, `point`/`circle` for correlation, `area` for cumulative magnitude, `arc` (pie) only for part-to-whole with at most 5 categories, `rule` for reference lines/thresholds, `errorbar`/`errorband` for uncertainty intervals, `text` for annotations.',
+    '- Label every axis with quantity AND unit (e.g. "Latency (ms)", not just "Latency").',
+    '- Include a descriptive chart title.',
+    '- Number figures ("Figure 1", "Figure 2") and reference them from the surrounding prose.',
+    '- Precede each figure with a sentence stating what it shows; follow with interpretation.',
+    '- Use correct encoding types: `temporal` for dates, `quantitative` for measures, `nominal`/`ordinal` for categories.',
+    '- Bar chart y-axes must start at zero (do not truncate to mislead).',
+    '- Group into "Other" when there are more than 7 categories.',
+    '- Prefer direct labels over legends when there are few series.',
+    '- Keep data inline; cite provenance in the prose around the figure.',
+  ]
+
   return [
     renderedTemplate,
     '',
@@ -119,6 +145,9 @@ function buildAgentsMarkdown(
     '',
     '## Shared Behavior Rules',
     ...sharedRules,
+    '',
+    '## Markdown Capabilities',
+    ...markdownCapabilityLines,
     '',
   ].join('\n')
 }

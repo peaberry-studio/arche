@@ -31,6 +31,9 @@ import { MarkdownFrontmatterPanel } from "@/components/workspace/markdown-frontm
 import { MarkdownTableControls } from "@/components/workspace/markdown-table-controls";
 import { getInternalLinkHoverPosition } from "@/components/workspace/internal-link-hover-position";
 import { ObsidianLinkDecorations } from "@/components/workspace/obsidian-link-decorations";
+import { VegaLiteChart } from "@/components/workspace/vega-lite-chart-node";
+import { MathDisplay } from "@/components/workspace/math-display-node";
+import { MathInline } from "@/components/workspace/math-inline-node";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -327,6 +330,9 @@ export function MarkdownEditor({
       TableHeader,
       TableCell,
       ObsidianLinkDecorations,
+      VegaLiteChart,
+      MathDisplay,
+      MathInline,
       Markdown.configure({
         markedOptions: {
           gfm: true,

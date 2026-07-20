@@ -20,7 +20,6 @@ import {
   XCircle,
 } from '@phosphor-icons/react'
 import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 
 import { ChartCard } from '@/components/workspace/chat-panel/chart-card'
 import {
@@ -44,6 +43,10 @@ import {
 import { PermissionCard } from '@/components/workspace/chat-panel/permission-card'
 import type { SessionTabInfo } from '@/components/workspace/chat-panel/types'
 import { workspaceMarkdownComponents } from '@/components/workspace/markdown-components'
+import {
+  workspaceRehypePlugins,
+  workspaceRemarkPlugins,
+} from '@/components/workspace/markdown-plugins'
 import { copyTextToClipboard } from '@/lib/clipboard'
 import type { MessagePart, PermissionResponse } from '@/lib/opencode/types'
 import { isRecord } from '@/lib/records'
@@ -296,7 +299,7 @@ function ReasoningBlock({ text }: { text: string }) {
       </button>
       {isOpen ? (
         <div className="markdown-content ml-4 border-l border-border/40 pl-3 pt-1 text-muted-foreground">
-          <ReactMarkdown remarkPlugins={[remarkGfm]} components={workspaceMarkdownComponents}>
+          <ReactMarkdown remarkPlugins={workspaceRemarkPlugins} rehypePlugins={workspaceRehypePlugins} components={workspaceMarkdownComponents}>
             {text}
           </ReactMarkdown>
         </div>
@@ -884,7 +887,7 @@ export function MessagePartRenderer({
     case 'text':
       return (
         <div className="markdown-content my-3 first:mt-0 last:mb-0">
-          <ReactMarkdown remarkPlugins={[remarkGfm]} components={workspaceMarkdownComponents}>
+          <ReactMarkdown remarkPlugins={workspaceRemarkPlugins} rehypePlugins={workspaceRehypePlugins} components={workspaceMarkdownComponents}>
             {part.text}
           </ReactMarkdown>
         </div>

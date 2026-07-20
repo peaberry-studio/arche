@@ -235,6 +235,7 @@ export const create = {
     'Always pass the numeric rows in the required data field; sourceNote is only a short metadata note, ' +
       'not a place for CSV/JSON/data values.',
     `Example input: ${JSON.stringify(CHART_INPUT_EXAMPLE)}`,
+    'For charts that should persist in a document (KB articles, reports), prefer vega-lite fenced code blocks in markdown instead of this tool; see AGENTS.md Markdown Capabilities.',
   ].join(' '),
   args: {
     type: chartTypeSchema.describe('Chart type: bar, line, area, scatter, or pie.'),

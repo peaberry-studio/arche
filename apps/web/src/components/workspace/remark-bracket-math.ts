@@ -1,0 +1,205 @@
+import { visit, SKIP } from "unist-util-visit";
+
+type TextChild = { type: "text"; value: string };
+
+type MathReplacementNode = {
+  type: "math" | "inlineMath";
+  value: string;
+  children: TextChild[];
+  data: {
+    hName: string;
+    hProperties?: { className: string[] };
+    hChildren: unknown[];
+  };
+};
+
+type ReplacementNode = TextChild | MathReplacementNode;
+
+type MdastNode = {
+  type: string;
+  value?: string;
+  children?: MdastNode[];
+};
+
+const SKIP_PARENT_TYPES = new Set([
+  "code",
+  "inlineCode",
+  "html",
+  "math",
+  "inlineMath",
+]);
+
+const DISPLAY_MATH_RE = /\\\[([\s\S]+?)\\\]/g;
+const INLINE_MATH_RE = /\\\(([\s\S]+?)\\\)/g;
+
+function trimOuter(value: string): string {
+  return value.replace(/^\s+|\s+$/g, "");
+}
+
+function unescapeDelimiters(value: string): string {
+  return value.replace(/\\([[\]()])/g, "$1");
+}
+
+type Effects = {
+  enter: (type: string) => void;
+  exit: (type: string) => void;
+  consume: (code: number) => void;
+};
+
+type State = (code: number | null) => State | undefined;
+
+const DELIMITER_CHARS = new Set([91, 93, 40, 41]); // [ ] ( )
+
+function tokenizeBracketMath(effects: Effects, ok: State, nok: State): State {
+  return start;
+
+  function start(code: number | null): State | undefined {
+    if (code === null) return nok(code);
+    effects.enter("data");
+    effects.consume(code);
+    return afterBackslash;
+  }
+
+  function afterBackslash(code: number | null): State | undefined {
+    if (code !== null && DELIMITER_CHARS.has(code)) {
+      effects.consume(code);
+      effects.exit("data");
+      return ok;
+    }
+    effects.exit("data");
+    return nok(code);
+  }
+}
+
+const bracketMathExtension = {
+  text: {
+    [92]: {
+      name: "bracketMath",
+      tokenize: tokenizeBracketMath,
+    },
+  },
+};
+
+function makeMathNode(type: "math" | "inlineMath", value: string): MathReplacementNode {
+  if (type === "math") {
+    return {
+      type: "math",
+      value,
+      children: [{ type: "text", value }],
+      data: {
+        hName: "pre",
+        hChildren: [
+          {
+            type: "element",
+            tagName: "code",
+            properties: { className: ["language-math", "math-display"] },
+            children: [{ type: "text", value }],
+          },
+        ],
+      },
+    };
+  }
+  return {
+    type: "inlineMath",
+    value,
+    children: [{ type: "text", value }],
+    data: {
+      hName: "code",
+      hProperties: { className: ["language-math", "math-inline"] },
+      hChildren: [{ type: "text", value }],
+    },
+  };
+}
+
+function buildReplacement(text: string): ReplacementNode[] | null {
+  type Match = {
+    start: number;
+    end: number;
+    value: string;
+    type: "math" | "inlineMath";
+  };
+  const matches: Match[] = [];
+
+  let m: RegExpExecArray | null;
+  DISPLAY_MATH_RE.lastIndex = 0;
+  while ((m = DISPLAY_MATH_RE.exec(text)) !== null) {
+    matches.push({
+      start: m.index,
+      end: m.index + m[0].length,
+      value: trimOuter(m[1]),
+      type: "math",
+    });
+  }
+  const displayRanges = matches.map((mm) => ({
+    start: mm.start,
+    end: mm.end,
+  }));
+
+  INLINE_MATH_RE.lastIndex = 0;
+  while ((m = INLINE_MATH_RE.exec(text)) !== null) {
+    const start = m.index;
+    const end = m.index + m[0].length;
+    const overlaps = displayRanges.some(
+      (r) => start < r.end && end > r.start,
+    );
+    if (!overlaps) {
+      matches.push({
+        start,
+        end,
+        value: trimOuter(m[1]),
+        type: "inlineMath",
+      });
+    }
+  }
+
+  if (matches.length === 0) {
+    if (!/\\[[\]()]/.test(text)) return null;
+    return [{ type: "text", value: unescapeDelimiters(text) }];
+  }
+
+  matches.sort((a, b) => a.start - b.start);
+
+  const nodes: ReplacementNode[] = [];
+  let cursor = 0;
+  for (const mm of matches) {
+    if (mm.start > cursor) {
+      nodes.push({ type: "text", value: unescapeDelimiters(text.slice(cursor, mm.start)) });
+    }
+    nodes.push(makeMathNode(mm.type, mm.value));
+    cursor = mm.end;
+  }
+  if (cursor < text.length) {
+    nodes.push({ type: "text", value: unescapeDelimiters(text.slice(cursor)) });
+  }
+
+  return nodes;
+}
+
+export default function remarkBracketMath(this: unknown) {
+  const self = this as { data: () => Record<string, unknown> };
+  const data = self.data();
+  const existing = data.micromarkExtensions;
+  if (!Array.isArray(existing) || !existing.includes(bracketMathExtension)) {
+    data.micromarkExtensions = [
+      ...(Array.isArray(existing) ? existing : []),
+      bracketMathExtension,
+    ];
+  }
+
+  return (tree: MdastNode) => {
+    visit(tree, (node: MdastNode, index, parent) => {
+      if (node.type !== "text") return;
+      const typedParent = parent as MdastNode | undefined;
+      if (!typedParent || index === undefined) return;
+      if (SKIP_PARENT_TYPES.has(typedParent.type)) return;
+      if (!Array.isArray(typedParent.children)) return;
+      if (typeof node.value !== "string") return;
+
+      const replacement = buildReplacement(node.value);
+      if (!replacement) return;
+
+      typedParent.children.splice(index, 1, ...replacement);
+      return [SKIP, index + replacement.length];
+    });
+  };
+}
