@@ -1,6 +1,7 @@
 'use client'
 
 import { forwardRef, useImperativeHandle, useState } from 'react'
+import { X } from 'lucide-react'
 
 import { ManualApiKeyField } from '@/components/connectors/add-connector/manual-api-key-field'
 import { buildDefaultName } from '@/components/connectors/add-connector/shared'
@@ -120,17 +121,19 @@ export const GithubSection = forwardRef<
             {pinnedRepos.map((repo) => (
               <li
                 key={repo}
-                className="flex items-center gap-2 rounded-full bg-muted px-3 py-1 text-xs text-foreground"
+                className="flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-xs text-foreground"
               >
                 <code>{repo}</code>
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-5 w-5 rounded-full text-muted-foreground hover:text-foreground"
                   aria-label={`Remove ${repo}`}
-                  className="text-muted-foreground hover:text-foreground"
                   onClick={() => setPinnedRepos((current) => current.filter((item) => item !== repo))}
                 >
-                  ×
-                </button>
+                  <X className="h-3 w-3" />
+                </Button>
               </li>
             ))}
           </ul>
