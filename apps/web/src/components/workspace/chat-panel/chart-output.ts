@@ -30,6 +30,7 @@ const SAFE_AUTOSIZE_TYPES = new Set(['fit', 'none', 'pad'])
 const SAFE_TOP_LEVEL_SPEC_KEYS = new Set([
   '$schema',
   'autosize',
+  'background',
   'config',
   'data',
   'encoding',
@@ -204,6 +205,7 @@ export function parseChartSpec(spec: unknown): ChartSpec | null {
   if (spec.transform !== undefined) cleaned.transform = spec.transform
   if (spec.resolve !== undefined) cleaned.resolve = spec.resolve
   if (spec.spacing !== undefined) cleaned.spacing = spec.spacing
+  if (spec.background !== undefined) cleaned.background = spec.background
   if (spec.config !== undefined) cleaned.config = spec.config
   if (spec.title !== undefined) cleaned.title = spec.title
   if (autosize) cleaned.autosize = autosize

@@ -169,6 +169,11 @@ describe('parseChartSpec', () => {
     expect(parseChartSpec([1, 2, 3])).toBeNull()
   })
 
+  it('accepts a spec with a background key', () => {
+    const spec = { ...chartSpec, background: 'white' }
+    expect(parseChartSpec(spec)).toEqual(spec)
+  })
+
   it('rejects an unsupported top-level key', () => {
     expect(parseChartSpec({ ...chartSpec, description: 'a chart' })).toBeNull()
   })
